@@ -1,0 +1,451 @@
+"""AgentLoopController: a bounded plan/act/observe/evaluate loop that cannot bypass the kernel.
+
+``Runner.run`` is a straight line — classify, compile, **one** model call, verify, release.
+That is a governed execution of a single step, not an agent. This adds the loop, and the
+whole design question is the one the review puts most sharply:
+
+    AgentLoopController                     AgentLoop
+             |                                 |-- calls a provider directly
+        ExecutionBroker                        |-- spawns a subprocess
+             |                                 |-- opens a socket
+        TrustedKernel                          '-- spawns an agent
+
+The second shape is what most agent runtimes are, and adopting it would discard everything
+this package is for. So the controller holds **no** provider, no ``subprocess``, no socket
+and no registry of raw callables. It holds a kernel, and every action it takes is one of
+exactly three broker calls:
+
+    TaskKind.MODEL    -> kernel.broker.call_model
+    TaskKind.TOOL     -> kernel.broker.call_tool
+    TaskKind.DELEGATE -> kernel.broker.delegate
+
+``test_loop.py`` asserts that by counting: the broker's counters must account for every
+action a loop performed. A loop that found a fourth way to do something fails that test.
+
+**Boundedness is the other half.** The review is right that "loop termination" in v0.5 was
+a repeated-request counter and not a controller. Every one of these stops the loop, and the
+reason is reported rather than inferred:
+
+    goal_satisfied      max_iterations     budget_exhausted    deadline
+    no_progress         max_replans        plan_rejected       policy_denied
+    escalated           unrecoverable_error
+
+A loop that can only end by succeeding is not bounded, so the default limits are finite and
+the terminal state always names which one it hit.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Mapping, Sequence
+
+from ..contracts import (
+    ApprovalRequired, BudgetExhausted, ContractViolation, EgressDenied, PolicyDenied,
+    RunEnvelope, new_id,
+)
+from ..labels import Destination
+from .evaluator import Evaluator, Verdict
+from .execgraph import ExecutionGraph, TaskState
+from .plan import Plan, PlanTask, RetryBudget, TaskKind
+from .plan_validator import PlanRejected, PlanValidator, ValidatedPlan, task_envelope
+
+__all__ = ["AgentLoopController", "LoopState", "LoopResult", "Termination", "LoopLimits",
+           "Planner", "StaticPlanner"]
+
+
+class Termination(str, Enum):
+    """Why a loop stopped. Never inferred from the absence of something else."""
+
+    GOAL_SATISFIED = "goal_satisfied"
+    MAX_ITERATIONS = "max_iterations"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    DEADLINE = "deadline"
+    NO_PROGRESS = "no_progress"
+    MAX_REPLANS = "max_replans"
+    PLAN_REJECTED = "plan_rejected"
+    POLICY_DENIED = "policy_denied"
+    ESCALATED = "escalated"
+    UNRECOVERABLE_ERROR = "unrecoverable_error"
+    RUNNING = "running"
+
+
+@dataclass(frozen=True, slots=True)
+class LoopLimits:
+    """Every bound in one object, so "is this loop bounded?" has one place to look."""
+
+    max_iterations: int = 12
+    max_replans: int = 2
+    #: Consecutive iterations producing an identical progress digest before stopping. The
+    #: digest is over *achieved state*, not over the request — a loop that re-asks the same
+    #: question after making progress is working, and v0.5's request-hash detector could
+    #: not tell those apart.
+    max_no_progress: int = 2
+    retries: RetryBudget = field(default_factory=RetryBudget)
+
+    def __post_init__(self) -> None:
+        for name in ("max_iterations", "max_replans", "max_no_progress"):
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must not be negative")
+        if self.max_iterations < 1:
+            raise ValueError("a loop with no iterations cannot do anything")
+
+
+@dataclass
+class LoopState:
+    """Everything one loop knows. Serialisable, so a checkpoint is a copy of this.
+
+    Checkpointing is not implemented in this release — ``Runner``'s ``checkpoint`` stage is
+    still an audit event — but the state a checkpoint would have to carry is collected here
+    rather than spread across local variables, which is the part that is hard to retrofit.
+    """
+
+    loop_id: str
+    objective: str
+    envelope: RunEnvelope
+    iteration: int = 0
+    replans: int = 0
+    no_progress: int = 0
+    plan: Plan | None = None
+    validated: ValidatedPlan | None = None
+    graph: ExecutionGraph | None = None
+    observations: list[dict[str, Any]] = field(default_factory=list)
+    digests: list[str] = field(default_factory=list)
+    termination: Termination = Termination.RUNNING
+    detail: str = ""
+
+    def observe(self, **fields: Any) -> None:
+        self.observations.append({"iteration": self.iteration, **fields})
+
+
+@dataclass
+class LoopResult:
+    """What a loop produced and why it stopped."""
+
+    loop_id: str
+    run_id: str
+    termination: Termination
+    reason: str = ""
+    results: dict[str, Any] = field(default_factory=dict)
+    iterations: int = 0
+    replans: int = 0
+    failures: tuple[str, ...] = ()
+    unmet_criteria: tuple[str, ...] = ()
+    plan: Plan | None = None
+    state_counts: dict[str, int] = field(default_factory=dict)
+    broker_stats: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def ok(self) -> bool:
+        return self.termination is Termination.GOAL_SATISFIED
+
+    def summary(self) -> str:
+        return (f"loop {self.loop_id[:12]} {self.termination.value} after "
+                f"{self.iterations} iteration(s), {self.replans} replan(s): {self.reason}")
+
+
+class Planner:
+    """What the loop needs from a planner. A protocol, not a base class to inherit."""
+
+    def plan(self, state: LoopState, *, feedback: Verdict | None = None) -> Plan:
+        raise NotImplementedError
+
+
+class StaticPlanner(Planner):
+    """Returns a plan it was given. The honest default, and what the tests use.
+
+    A model-backed planner belongs behind the broker like every other model call, and
+    writing one that produces a *typed* plan reliably is a real piece of work rather than a
+    detail of this module. Shipping a placeholder that splits on full stops and calling it a
+    planner is how ``Runner._plan`` ended up being described as one, so this says what it
+    is: the plan comes from the caller.
+    """
+
+    def __init__(self, plan: Plan | Callable[[LoopState, Verdict | None], Plan]) -> None:
+        self._plan = plan
+        self.calls = 0
+
+    def plan(self, state: LoopState, *, feedback: Verdict | None = None) -> Plan:
+        self.calls += 1
+        if callable(self._plan):
+            return self._plan(state, feedback)
+        return self._plan
+
+
+class AgentLoopController:
+    """Drives plan -> act -> observe -> evaluate, through the kernel, within bounds."""
+
+    def __init__(self, kernel: Any, *, planner: Planner,
+                 registry: Any = None, model: Any = None,
+                 model_invoke: Callable[[str], str] | None = None,
+                 evaluator: Evaluator | None = None,
+                 validator: PlanValidator | None = None,
+                 limits: LoopLimits | None = None,
+                 delegate_backend: Callable[[Any], Any] | None = None,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
+        self.kernel = kernel
+        self.planner = planner
+        self.registry = registry
+        #: The model profile and invoke callable for ``TaskKind.MODEL`` tasks. Held so they
+        #: can be handed to ``broker.call_model``; never called from here.
+        self.model = model
+        self.model_invoke = model_invoke
+        self.evaluator = evaluator or Evaluator()
+        self.validator = validator or PlanValidator(registry=registry)
+        self.limits = limits or LoopLimits()
+        self.delegate_backend = delegate_backend
+        self._sleep = sleep
+
+    # ------------------------------------------------------------------- public
+    def run(self, objective: str, envelope: RunEnvelope, *,
+            supports: Sequence[Any] = ()) -> LoopResult:
+        """Execute the loop until one of the termination conditions holds."""
+        state = LoopState(loop_id=new_id("loop"), objective=objective, envelope=envelope)
+        self._audit("loop_started", state, objective_len=len(objective),
+                    max_iterations=self.limits.max_iterations)
+        feedback: Verdict | None = None
+
+        try:
+            while True:
+                stop = self._check_bounds(state)
+                if stop is not None:
+                    return self._finish(state, stop, state.detail)
+
+                state.iteration += 1
+
+                if state.graph is None or state.graph.complete and feedback is not None \
+                        and feedback.replan:
+                    if not self._replan(state, feedback):
+                        return self._finish(state, Termination.MAX_REPLANS,
+                                            "no replans remain")
+                    feedback = None
+
+                ready = state.graph.ready()
+                if ready:
+                    for node in ready:
+                        self._execute_task(state, node.task)
+                elif not state.graph.complete:
+                    # Nothing ready and nothing finished: every remaining task is blocked.
+                    state.graph.block_descendants("")
+
+                self._record_progress(state)
+
+                verdict = self.evaluator.evaluate(
+                    state.plan, state.graph, supports=supports,
+                    replans_left=self.limits.max_replans - state.replans)
+                state.observe(verdict=verdict.reason,
+                              states=state.graph.state_counts())
+                self._audit("loop_iteration", state, verdict=verdict.reason[:120],
+                            states=state.graph.state_counts())
+
+                if verdict.done:
+                    return self._finish(state, Termination.GOAL_SATISFIED, verdict.reason,
+                                        verdict)
+                if verdict.escalate:
+                    return self._finish(state, Termination.ESCALATED, verdict.reason,
+                                        verdict)
+                if verdict.replan:
+                    feedback = verdict
+                    continue
+                # retry or "tasks remain": loop round and let the bounds check run again.
+                feedback = None
+
+        except (BudgetExhausted,) as exc:
+            return self._finish(state, Termination.BUDGET_EXHAUSTED, str(exc))
+        except PlanRejected as exc:
+            return self._finish(state, Termination.PLAN_REJECTED, str(exc))
+        except (EgressDenied, PolicyDenied, ApprovalRequired) as exc:
+            return self._finish(state, Termination.POLICY_DENIED,
+                                f"{type(exc).__name__}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - a loop must terminate, not propagate
+            return self._finish(state, Termination.UNRECOVERABLE_ERROR,
+                                f"{type(exc).__name__}: {exc}")
+
+    # -------------------------------------------------------------------- bounds
+    def _check_bounds(self, state: LoopState) -> Termination | None:
+        """Every reason to stop that is not a verdict. Checked before work, not after."""
+        if state.iteration >= self.limits.max_iterations:
+            state.detail = (f"reached the {self.limits.max_iterations}-iteration ceiling; "
+                            "stopping rather than continuing indefinitely")
+            return Termination.MAX_ITERATIONS
+        if state.envelope.expired:
+            state.detail = "the run's deadline passed"
+            return Termination.DEADLINE
+        if state.no_progress >= self.limits.max_no_progress > 0:
+            state.detail = (f"{state.no_progress} consecutive iterations produced an "
+                            "identical execution state; the loop is not advancing")
+            return Termination.NO_PROGRESS
+        # Budget is checked by the governor at each broker call and raises; this is the
+        # cheap pre-check so a loop that is already out of budget does not start an
+        # iteration to discover it.
+        try:
+            self.kernel.budget.check_model_call(state.envelope)
+        except BudgetExhausted as exc:
+            state.detail = str(exc)
+            return Termination.BUDGET_EXHAUSTED
+        return None
+
+    def _record_progress(self, state: LoopState) -> None:
+        digest = state.graph.progress_digest()
+        if state.digests and digest == state.digests[-1]:
+            state.no_progress += 1
+        else:
+            state.no_progress = 0
+        state.digests.append(digest)
+
+    # --------------------------------------------------------------------- plan
+    def _replan(self, state: LoopState, feedback: Verdict | None) -> bool:
+        """Produce and validate a plan. Returns False when no replan remains."""
+        if state.plan is not None:
+            if state.replans >= self.limits.max_replans:
+                return False
+            state.replans += 1
+
+        plan = self.planner.plan(state, feedback=feedback)
+        # Validation is not optional and not advisory. This is the stage ``Runner`` recorded
+        # as "placeholder planner: no typed plan to validate"; it validates now, and a plan
+        # that fails raises PlanRejected, which terminates the loop rather than executing a
+        # plan known to be inadmissible.
+        validated = self.validator.validate(plan, state.envelope,
+                                            policy=getattr(self.kernel, "policy", None))
+        state.plan = plan
+        state.validated = validated
+        state.graph = ExecutionGraph(plan)
+        self._audit("loop_plan", state, plan_id=plan.plan_id, tasks=len(plan.tasks),
+                    replan=state.replans)
+        return True
+
+    # ----------------------------------------------------------------- dispatch
+    def _execute_task(self, state: LoopState, task: PlanTask) -> None:
+        """Run one task through the broker, with its own envelope and retry policy."""
+        graph = state.graph
+        envelope = state.validated.envelope_for(task.task_id)
+        attempt = graph.nodes[task.task_id].attempts + 1
+        delay = task.retry.delay_for(attempt)
+        if delay:
+            self._sleep(delay)
+
+        graph.mark_running(task.task_id, at=time.time())
+        try:
+            result = self._dispatch(task, envelope, graph.results())
+        except (BudgetExhausted, ApprovalRequired):
+            raise                                  # bounds, not task failures
+        except (EgressDenied, PolicyDenied) as exc:
+            # A refusal is a fact about authority, not a transient fault. Retrying it would
+            # re-ask a question already answered and burn budget doing it.
+            graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
+                              at=time.time(), retryable=False)
+            self._audit("loop_task_refused", state, task_id=task.task_id,
+                        error_type=type(exc).__name__)
+            return
+        except Exception as exc:  # noqa: BLE001 - one task's fault is not the loop's end
+            retryable = (attempt < task.retry.max_attempts) and task.retry.permits(exc)
+            graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
+                              at=time.time(), retryable=retryable)
+            self._audit("loop_task_failed", state, task_id=task.task_id,
+                        error_type=type(exc).__name__, attempt=attempt,
+                        retryable=retryable)
+            return
+
+        graph.mark_succeeded(task.task_id, result, at=time.time())
+        state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
+
+    def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
+                  upstream: Mapping[str, Any]) -> Any:
+        """The only three ways this loop can cause anything to happen."""
+        broker = self.kernel.broker
+
+        if task.kind == TaskKind.MODEL:
+            if self.model is None or self.model_invoke is None:
+                raise ContractViolation(
+                    f"task {task.task_id!r} is a model call and this loop has no model "
+                    "configured; a loop may not reach a provider by any other route")
+            projection = self._projection(task, envelope, upstream)
+            call = broker.call_model(projection, self.model, envelope,
+                                     invoke=self.model_invoke)
+            return getattr(call, "content", call)
+
+        if task.kind == TaskKind.TOOL:
+            component = self._component(task.component_id)
+            payload = dict(task.payload)
+            if task.dependencies:
+                payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
+            result = broker.call_tool(component, payload, envelope)
+            return getattr(result, "value", result)
+
+        if task.kind == TaskKind.DELEGATE:
+            if self.delegate_backend is None:
+                raise ContractViolation(
+                    f"task {task.task_id!r} delegates and this loop has no delegate "
+                    "backend; delegation must go somewhere the broker can gate")
+            from ..contracts import DelegationContract
+            contract = DelegationContract(
+                task_id=task.task_id, objective=task.objective,
+                envelope=envelope, output_schema=dict(task.output_schema),
+                acceptance_tests=tuple(t.kind for t in task.acceptance_tests),
+                evidence_required=task.evidence_required, backend="local_agent")
+            return broker.delegate(contract, envelope, self.delegate_backend)
+
+        raise ContractViolation(f"unroutable task kind {task.kind!r}")
+
+    def _projection(self, task: PlanTask, envelope: RunEnvelope,
+                    upstream: Mapping[str, Any]) -> Any:
+        """Compile this task's own context. One projection per task, not a transcript.
+
+        ``ContextProjection``'s docstring already says compiled context belongs to exactly
+        one worker. A loop is where that stops being a style preference: accumulating every
+        step's output into a shared history is how a tool result labelled PHI ends up in the
+        prompt of a later step heading somewhere it may not go.
+        """
+        from ..context import ContextCompiler
+        from ..contracts import ContextItem
+
+        items = [ContextItem(kind="instruction", content=task.objective)]
+        for dependency in task.dependencies:
+            value = upstream.get(dependency)
+            if value is not None:
+                items.append(ContextItem(kind="evidence", content=str(value)[:4000],
+                                         source_ref=dependency))
+        compiler = ContextCompiler()
+        destination = (self.model.destination if self.model is not None
+                       else Destination.LOCAL_MODEL)
+        return compiler.compile(items=items, envelope=envelope, destination=destination,
+                                token_budget=envelope.budget.tokens_soft,
+                                query=task.objective)
+
+    def _component(self, component_id: str) -> Any:
+        if self.registry is None:
+            raise ContractViolation(
+                f"task names component {component_id!r} and this loop has no registry")
+        component = self.registry.component(component_id)
+        if component is None:
+            raise ContractViolation(f"component {component_id!r} is not invocable")
+        return component
+
+    # ------------------------------------------------------------------- finish
+    def _finish(self, state: LoopState, termination: Termination, reason: str,
+                verdict: Verdict | None = None) -> LoopResult:
+        state.termination = termination
+        if state.graph is not None and termination is not Termination.GOAL_SATISFIED:
+            state.graph.cancel_all(f"loop terminated: {termination.value}")
+        result = LoopResult(
+            loop_id=state.loop_id, run_id=state.envelope.run_id, termination=termination,
+            reason=reason, iterations=state.iteration, replans=state.replans,
+            results=state.graph.results() if state.graph else {},
+            failures=verdict.failures if verdict else (),
+            unmet_criteria=verdict.unmet_criteria if verdict else (),
+            plan=state.plan,
+            state_counts=state.graph.state_counts() if state.graph else {},
+            broker_stats=self.kernel.broker.stats())
+        self._audit("loop_finished", state, termination=termination.value,
+                    iterations=state.iteration, replans=state.replans)
+        return result
+
+    def _audit(self, event: str, state: LoopState, **detail: Any) -> None:
+        audit = getattr(self.kernel, "audit", None)
+        if audit is None:
+            return
+        audit(event, run_id=state.envelope.run_id, detail={"loop_id": state.loop_id,
+                                                           "iteration": state.iteration,
+                                                           **detail})

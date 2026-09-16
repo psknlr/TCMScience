@@ -43,8 +43,47 @@ other dimension was ever the reason for a verdict. It is now one dimension at a 
 a test asserting the properties actually reach their assertions — which immediately found a
 dimension with zero coverage.
 
+## v0.5.1 — a bounded agent loop, through the kernel
+
+The same release adds the component both reviews named as the most valuable next one, under
+the rule they both stated: **the loop must not bypass the trusted kernel.**
+
+```
+psh/runtime/
+├── runner.py          the single governed pass (unchanged)
+├── plan.py            typed Plan / PlanTask / TestSpec / RetryPolicy
+├── plan_validator.py  graph / authority / dataflow / budget / scientific
+├── execgraph.py       ExecutionGraph — transient, deliberately NOT the WorkGraph
+├── evaluator.py       structural / execution / evidence / goal
+└── loop.py            AgentLoopController — plan, act, observe, evaluate, bounded
+```
+
+`validate_plan` used to record `"placeholder planner: no typed plan to validate"`, which was
+honest and was also why the stage could enforce nothing: there is no dimension of
+`"summarise the HFpEF evidence"` to compare against a risk ceiling. A plan is typed now and
+each task carries the authority it intends to use, so a plan whose fourth step needs a
+destination the run forbids is refused *at the plan*, not discovered at step four with three
+steps' side effects already committed.
+
+The loop holds no provider, no subprocess and no socket. It acts through exactly three
+broker calls, and that is checked three ways: the dispatch has three branches; a test
+balances the broker's counters against what the loop did; and a test parses `loop.py` and
+fails if it ever imports a transport or a process spawner — because a behavioural test sees
+the paths a test took, not the paths that exist, which is exactly how `IsolatedRunner`
+shipped in v0.4 while `call_tool` ran everything in process.
+
+Termination is a controller rather than a repeat counter: `goal_satisfied`, `max_iterations`,
+`budget_exhausted`, `deadline`, `no_progress`, `max_replans`, `plan_rejected`,
+`policy_denied`, `escalated`, `unrecoverable_error` — always named, never inferred. Retries
+are per task and are charged to the same budget as the first attempt; a policy *refusal* is
+never retried, because it is an answer rather than a fault.
+
+What this is **not**: a multi-agent runtime. There is no supervisor, no worker pool, no
+fan-out and no parallelism, and `docs/ROADMAP_AGENT_RUNTIME.md` says so in a table rather
+than in prose. Gates first, then iteration — a loop multiplies whatever the gates get wrong.
+
 ```bash
-python -m pytest tests/ -q          # 300 pass
+python -m pytest tests/ -q          # 342 pass
 python -m compileall -q src         # clean
 ```
 
