@@ -41,6 +41,7 @@ Measured against the executing path, not the README.
 | Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
 | Parallel execution | ❌ | ❌ | — |
 | A2A / MCP | ❌ | ❌ | explicitly not implemented |
+| Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
 
 So the honest summary for v0.5.1 is: **a bounded, governed, single-threaded agent loop.**
@@ -119,11 +120,17 @@ building the adapter twice.
   bearing test is that an *escalating* plan is refused rather than obeyed — a planner's
   output is a program, not an answer, so trusting it because a model produced it would make
   every control in the package reachable by asking.
-* **Context compaction.** Absent entirely, and the thing that stops long research runs.
-  DeepSeek Harness's treatment is the right shape: compaction is a capability, it emits a
-  summary event and shadows the old events, rather than truncating the window. Without it
-  "read 500 papers, run 40 tool calls, delegate 6 times" is not reachable regardless of how
-  good the loop is.
+* **Context compaction.** ~~Absent entirely.~~ **Done** (`psh/context/compaction.py`),
+  in DeepSeek Harness's shape — summarise and shadow rather than truncate. It landed in the
+  compiler rather than in a session, because this runtime has no shared transcript to
+  compact: `ContextProjection` belongs to one worker, so the place the loss actually
+  occurred was the compiler silently discarding over-budget items and reporting a count.
+
+  The property that made it a kernel concern: **a summary carries the join of the labels it
+  summarises.** Deriving it from the summary text instead would let a summary of PHI whose
+  extract omits the identifiers classify as `INTERNAL` — measured, not hypothesised — and
+  reach a destination its sources could not. The default summariser is extractive and
+  deterministic, because compression on the critical path must not itself require egress.
 * **Checkpoint / resume for real.** ~~`LoopState` was written to be the thing a checkpoint
   copies.~~ **Done** (`psh/runtime/checkpoint.py`). The load-bearing rule held: a resumed
   run computes `AuthorityLattice.meet(stored, current_ceiling)`, so it is never wider than

@@ -134,8 +134,27 @@ wider than it was, never wider than today's policy, with every narrowed dimensio
 an audit event. Unfinished tasks are re-authorised one at a time and the resume is refused
 if the policy no longer admits one; finished tasks are history and are not re-checked.
 
+### Compaction: what is left out is summarised and said
+
+The compiler filled its token budget by rank and discarded the rest, reporting a count. A
+count tells the *caller* something was omitted and tells the model — the party that has to
+answer around the gap — nothing at all. `psh/context/compaction.py` summarises the overflow
+instead and shadows it, DeepSeek Harness's shape.
+
+The property that made this a kernel concern rather than a utility:
+
+> **A summary carries the join of the labels it summarises.**
+
+`DEFAULT_SYSTEM_PROMPT` already tells the model "a summary of identifiable content is still
+identifiable". That has to hold by construction. Deriving the label from the summary *text*
+would mean a summary of PHI whose extract happened to omit the identifiers classified as
+`INTERNAL` — measurably, in `test_the_label_comes_from_the_inputs_not_the_summary_text` —
+and became permitted at a destination its sources could never reach. Laundering by
+accident. So the label comes from the inputs, and a summary that may not reach the
+destination is replaced by a bare count, which carries no content.
+
 ```bash
-python -m pytest tests/ -q          # 411 pass
+python -m pytest tests/ -q          # 424 pass
 python -m compileall -q src         # clean
 ```
 

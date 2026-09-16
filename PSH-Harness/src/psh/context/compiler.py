@@ -41,14 +41,15 @@ class CompilationTrace:
     after_dedup: int = 0
     dropped_policy: int = 0
     dropped_budget: int = 0
+    compacted: int = 0
     included: int = 0
     tokens: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {"candidates": self.candidates, "after_dedup": self.after_dedup,
                 "dropped_policy": self.dropped_policy,
-                "dropped_budget": self.dropped_budget, "included": self.included,
-                "tokens": self.tokens}
+                "dropped_budget": self.dropped_budget, "compacted": self.compacted,
+                "included": self.included, "tokens": self.tokens}
 
 
 class ContextCompiler:
@@ -66,13 +67,24 @@ class ContextCompiler:
     }
 
     def __init__(self, *, weights: Mapping[str, float] | None = None,
-                 compressor: Callable[[str, int], str] | None = None) -> None:
+                 compressor: Callable[[str, int], str] | None = None,
+                 compactor: Any = None) -> None:
         self.weights = dict(self.DEFAULT_WEIGHTS)
         if weights:
             self.weights.update(weights)
         self.compressor = compressor or _truncate_compressor
+        #: Turns what will not fit into one labelled summary instead of discarding it.
+        #: On by default: reporting a count of dropped items tells the *caller* something
+        #: was omitted and tells the model, which is the party that has to answer with the
+        #: gap, nothing at all.
+        if compactor is None:
+            from .compaction import Compactor
+            compactor = Compactor()
+        self.compactor = compactor
         self.compilations = 0
         self.last_trace = CompilationTrace()
+        #: The most recent compaction, kept so a run can say what it set aside.
+        self.last_compaction = None
 
     def compile(self, *, items: Iterable[ContextItem], envelope: RunEnvelope,
                 destination: Destination = Destination.LOCAL_MODEL,
@@ -127,6 +139,7 @@ class ContextCompiler:
 
         # --- budget: fill, compressing the last item that would overflow ---------
         included: list[ContextItem] = []
+        overflow: list[ContextItem] = []
         used = 0
         for item in permitted:
             if used + item.tokens <= budget:
@@ -149,7 +162,26 @@ class ContextCompiler:
                 included.append(item)
                 used += item.tokens
                 continue
+            overflow.append(item)
             trace.dropped_budget += 1
+
+        # --- compaction: say what did not fit, rather than only counting it -------
+        #
+        # The dropped items used to vanish, and the projection reported a number. The model
+        # receiving the context could not tell it was incomplete, so it could not hedge,
+        # ask, or name the part of the question it was unable to address.
+        self.last_compaction = None
+        if overflow and self.compactor is not None:
+            summary, record = self.compactor.compact(
+                overflow, budget_tokens=max(budget - used, 0), destination=destination)
+            self.last_compaction = record
+            if summary is not None:
+                # Included even when it overruns, on the same reasoning that keeps a
+                # load-bearing item: a projection that is honestly over budget is better
+                # than one that is quietly wrong. ``within_budget`` reports it.
+                included.append(summary)
+                used += summary.tokens
+                trace.compacted = record.items
 
         # Restore reading order within each kind, so the prompt is coherent.
         order = {k: i for i, k in enumerate(
