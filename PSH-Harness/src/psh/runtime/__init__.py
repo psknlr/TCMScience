@@ -6,6 +6,7 @@ The loop is additive: it holds no provider and no subprocess, and reaches the wo
 through ``ExecutionBroker``, so adding iteration did not add an execution path.
 """
 
+from .checkpoint import Checkpoint, CheckpointStore, ResumeRefused, capture, resume
 from .evaluator import ACCEPTANCE_CHECKS, CheckResult, Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskNode, TaskState
 from .loop import (
@@ -30,4 +31,5 @@ __all__ = [
     "PlanValidator", "PlanViolation", "ValidatedPlan", "PlanRejected", "task_envelope",
     "ExecutionGraph", "TaskState", "TaskNode",
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
+    "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
 ]

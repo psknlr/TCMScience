@@ -38,7 +38,7 @@ Measured against the executing path, not the README.
 | Supervisor / worker pool | ❌ | ❌ | — |
 | Heartbeat / lease | ❌ | ❌ | — |
 | Cancellation propagation | 🟡 interface | 🟡 | `ExecutionGraph.cancel_all` is in-process only |
-| Checkpoint / resume | 🟡 audit event | 🟡 | `LoopState` is the shape a checkpoint needs |
+| Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
 | Parallel execution | ❌ | ❌ | — |
 | A2A / MCP | ❌ | ❌ | explicitly not implemented |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
@@ -124,10 +124,22 @@ building the adapter twice.
   summary event and shadows the old events, rather than truncating the window. Without it
   "read 500 papers, run 40 tool calls, delegate 6 times" is not reachable regardless of how
   good the loop is.
-* **Checkpoint / resume for real.** `LoopState` was written to be the thing a checkpoint
-  copies. The load-bearing rule, from the review and worth repeating: **a resumed run must
-  re-meet its authority against the current kernel policy.** Restoring an envelope minted
-  under a policy that has since narrowed would reintroduce P0-1 through the back door.
+* **Checkpoint / resume for real.** ~~`LoopState` was written to be the thing a checkpoint
+  copies.~~ **Done** (`psh/runtime/checkpoint.py`). The load-bearing rule held: a resumed
+  run computes `AuthorityLattice.meet(stored, current_ceiling)`, so it is never wider than
+  it was *or* than the policy in force, and every narrowed dimension is audited. Restoring
+  the stored envelope would have been P0-1 through a file rather than a keyword argument —
+  the same defect's second vector, which is the argument for the meet living in one place
+  and every entry point going through it. Checkpoints are content-hashed and refused if
+  they do not verify; unfinished tasks are re-authorised individually and finished ones are
+  not re-checked.
+
+  Building it surfaced a defect in `task_envelope`: `risk` was met with `min()` while
+  `max_label` and `autonomy` were passed through unclamped, so a ceiling applied on one
+  dimension and refused on the next. The distinction is now explicit — `max_risk`,
+  `max_label` and `autonomy` are *self-imposed ceilings* and meet the run's;
+  `destinations` and `capability_requirements` are *required reach* and are refused if the
+  run does not hold them.
 
 ### v0.7 — multi-agent
 

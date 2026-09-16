@@ -118,8 +118,24 @@ be checked but a program to be run, so a model that proposes a task holding
 and the refusal becomes the next prompt. If a model could widen a run by writing a wider
 plan, every control here would be reachable by asking for it.
 
+### Checkpoint and resume, with one rule
+
+`Runner`'s `checkpoint` stage wrote an audit event, so "checkpoint" named a record of
+having finished rather than a state a run could continue from. `psh/runtime/checkpoint.py`
+is the real thing, and its design is one sentence:
+
+> **A resumed run re-meets its authority against the policy in force *now*.**
+
+Restoring the envelope a run held is the obvious implementation and it is a hole. An
+envelope is a grant, and a grant that outlives the policy that issued it is a capability
+the kernel never agreed to — that is P0-1 arriving through a file instead of a keyword
+argument. So resuming computes `AuthorityLattice.meet(stored, current_ceiling)`: never
+wider than it was, never wider than today's policy, with every narrowed dimension named in
+an audit event. Unfinished tasks are re-authorised one at a time and the resume is refused
+if the policy no longer admits one; finished tasks are history and are not re-checked.
+
 ```bash
-python -m pytest tests/ -q          # 395 pass
+python -m pytest tests/ -q          # 411 pass
 python -m compileall -q src         # clean
 ```
 

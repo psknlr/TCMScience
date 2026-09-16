@@ -10,7 +10,7 @@ Working repository for the **PSH-Harness** (Physician-Scientist Harness) review 
 | `BioScience-Harness-main (2).zip` | The BioScience-Harness upload the review was written against. |
 
 ```bash
-cd PSH-Harness       && PYTHONPATH=src python -m pytest tests/ -q   # 395 pass
+cd PSH-Harness       && PYTHONPATH=src python -m pytest tests/ -q   # 411 pass
 cd BioScience-Harness && PYTHONPATH=src python -m pytest tests/ -q  # 140 pass, 6 skipped
 ```
 

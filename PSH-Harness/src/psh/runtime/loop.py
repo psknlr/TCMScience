@@ -118,6 +118,28 @@ class LoopState:
     def observe(self, **fields: Any) -> None:
         self.observations.append({"iteration": self.iteration, **fields})
 
+    def envelope_for(self, task_id: str) -> RunEnvelope:
+        """The authority one task executes under.
+
+        Prefers the envelope the validator already built, and computes it with the same
+        ``task_envelope`` function when there is none — a resumed state has a plan and a
+        graph but no ``ValidatedPlan``, and dereferencing that was an ``AttributeError``
+        reported as ``unrecoverable_error``, which is a true statement about the loop and a
+        useless one about the cause.
+
+        The fallback is not a second construction path: it calls the one function the
+        validator calls, so the value is identical either way.
+        """
+        if self.validated is not None:
+            return self.validated.envelope_for(task_id)
+        if self.plan is None:
+            raise ContractViolation(
+                f"no plan is loaded, so task {task_id!r} has no envelope to execute under")
+        task = self.plan.task(task_id)
+        if task is None:
+            raise ContractViolation(f"task {task_id!r} is not in the loaded plan")
+        return task_envelope(task, self.envelope)
+
 
 @dataclass
 class LoopResult:
@@ -183,6 +205,7 @@ class AgentLoopController:
                  validator: PlanValidator | None = None,
                  limits: LoopLimits | None = None,
                  delegate_backend: Callable[[Any], Any] | None = None,
+                 checkpoints: Any = None,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.kernel = kernel
         self.planner = planner
@@ -195,14 +218,27 @@ class AgentLoopController:
         self.validator = validator or PlanValidator(registry=registry)
         self.limits = limits or LoopLimits()
         self.delegate_backend = delegate_backend
+        #: Optional ``CheckpointStore``. When present the loop snapshots after every
+        #: iteration, so a crash costs one iteration rather than the run. Resuming is
+        #: deliberately NOT automatic — see ``checkpoint.resume``, which re-meets the
+        #: stored authority against the policy in force and may refuse.
+        self.checkpoints = checkpoints
         self._sleep = sleep
 
     # ------------------------------------------------------------------- public
     def run(self, objective: str, envelope: RunEnvelope, *,
-            supports: Sequence[Any] = ()) -> LoopResult:
-        """Execute the loop until one of the termination conditions holds."""
-        state = LoopState(loop_id=new_id("loop"), objective=objective, envelope=envelope)
-        self._audit("loop_started", state, objective_len=len(objective),
+            supports: Sequence[Any] = (),
+            resume_from: LoopState | None = None) -> LoopResult:
+        """Execute the loop until one of the termination conditions holds.
+
+        ``resume_from`` continues a state rebuilt by ``checkpoint.resume``, which has
+        already re-authorised it. This method does not rebuild it itself, because doing so
+        would put a second authority-restoring path beside the one that performs the meet.
+        """
+        state = resume_from or LoopState(loop_id=new_id("loop"), objective=objective,
+                                         envelope=envelope)
+        self._audit("loop_started" if resume_from is None else "loop_continued", state,
+                    objective_len=len(objective),
                     max_iterations=self.limits.max_iterations)
         feedback: Verdict | None = None
 
@@ -230,6 +266,7 @@ class AgentLoopController:
                     state.graph.block_descendants("")
 
                 self._record_progress(state)
+                self._checkpoint(state)
 
                 verdict = self.evaluator.evaluate(
                     state.plan, state.graph, supports=supports,
@@ -320,7 +357,7 @@ class AgentLoopController:
     def _execute_task(self, state: LoopState, task: PlanTask) -> None:
         """Run one task through the broker, with its own envelope and retry policy."""
         graph = state.graph
-        envelope = state.validated.envelope_for(task.task_id)
+        envelope = state.envelope_for(task.task_id)
         attempt = graph.nodes[task.task_id].attempts + 1
         delay = task.retry.delay_for(attempt)
         if delay:
@@ -441,6 +478,23 @@ class AgentLoopController:
         self._audit("loop_finished", state, termination=termination.value,
                     iterations=state.iteration, replans=state.replans)
         return result
+
+    def _checkpoint(self, state: LoopState) -> None:
+        """Snapshot after each iteration, if a store is configured.
+
+        Best-effort by design: a checkpoint that cannot be written must not end a run that
+        is otherwise fine. The failure is recorded, so "we have no checkpoints" is visible
+        rather than inferred from their absence.
+        """
+        if self.checkpoints is None or state.plan is None:
+            return
+        try:
+            from .checkpoint import capture
+
+            self.checkpoints.save(capture(state, policy=getattr(self.kernel, "policy",
+                                                                None)))
+        except Exception as exc:  # noqa: BLE001 - a failed snapshot is not a failed run
+            self._audit("loop_checkpoint_failed", state, error_type=type(exc).__name__)
 
     def _audit(self, event: str, state: LoopState, **detail: Any) -> None:
         audit = getattr(self.kernel, "audit", None)

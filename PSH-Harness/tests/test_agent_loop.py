@@ -586,3 +586,56 @@ def test_the_loop_dispatches_to_exactly_three_broker_methods():
               if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
               and isinstance(node.func.value, ast.Name) and node.func.value.id == "broker"}
     assert called == {"call_model", "call_tool", "delegate"}, called
+
+
+# ================== a task's authority: self-imposed ceilings vs required reach
+
+def test_a_task_ceiling_meets_the_run_rather_than_being_refused(kernel):
+    """``max_risk`` / ``max_label`` / ``autonomy`` are ceilings the task sets on itself.
+
+    Their names say so — "this task incurs at most R2", "handles at most PHI" — so the
+    effective value is the lower of the task's and the run's. Refusing instead would mean a
+    task carrying the *default* ``max_label`` could not run under a narrower policy: a
+    default that is not the weakest statement of its field, which is the
+    ``min_autonomy = ACT`` mistake in another costume.
+
+    This was inconsistent when first written: ``risk`` was met with ``min()`` while
+    ``max_label`` and ``autonomy`` were passed through unclamped, so the ceiling applied on
+    one dimension and refused on the next.
+    """
+    narrow = kernel.policy.envelope(risk=RiskTier.R0_TRIVIAL,
+                                    max_label=Sensitivity.PUBLIC,
+                                    autonomy=Autonomy.OBSERVE)
+    greedy = PlanTask(task_id="t", objective="o", max_risk=RiskTier.R3_CLINICAL,
+                      max_label=Sensitivity.PHI, autonomy=Autonomy.ACT)
+
+    child = task_envelope(greedy, narrow)
+
+    assert child.risk is RiskTier.R0_TRIVIAL
+    assert child.max_label.sensitivity is Sensitivity.PUBLIC
+    assert child.autonomy is Autonomy.OBSERVE
+
+
+def test_a_task_that_needs_reach_the_run_lacks_is_refused(kernel):
+    """``destinations`` and ``capability_requirements`` are requirements, not ceilings.
+
+    A task naming ``PUBLIC_REMOTE`` is saying it must get there. Silently narrowing that to
+    nothing would hand it an envelope forbidding the very call it exists to make, so it is
+    refused at the plan instead.
+    """
+    local_only = kernel.policy.envelope()
+    reaching = PlanTask(task_id="t", objective="o",
+                        destinations=(Destination.PUBLIC_REMOTE,))
+    with pytest.raises(PolicyDenied, match="destinations"):
+        task_envelope(reaching, local_only)
+
+
+def test_the_two_kinds_are_not_confused_in_one_task(kernel):
+    """A task may state a ceiling below the run's and a reach the run holds."""
+    envelope = kernel.policy.envelope()
+    task = PlanTask(task_id="t", objective="o", max_label=Sensitivity.PUBLIC,
+                    max_risk=RiskTier.R0_TRIVIAL,
+                    destinations=(Destination.LOCAL_MODEL,))
+    child = task_envelope(task, envelope)
+    assert child.max_label.sensitivity is Sensitivity.PUBLIC
+    assert child.allowed_destinations == frozenset({Destination.LOCAL_MODEL})

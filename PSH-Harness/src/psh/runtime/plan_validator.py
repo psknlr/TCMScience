@@ -260,20 +260,46 @@ class PlanValidator:
 # ------------------------------------------------------------------- helpers
 
 def task_envelope(task: PlanTask, parent: RunEnvelope) -> RunEnvelope:
-    """The envelope a task executes under: the parent, narrowed by the task's request.
+    """The envelope a task executes under: the parent, narrowed by the task's declaration.
 
-    One function, used by the validator and by the loop, so what was validated is what
-    runs. ``restrict`` raises ``PolicyDenied`` when the task asks for more than the run
-    holds, which is the whole check — there is no separate comparison here to drift from
-    the lattice.
+    One function, used by the validator, the loop and the resume path, so what was
+    validated is what runs. ``restrict`` raises ``PolicyDenied`` when the result would
+    exceed the run, which is the whole check — there is no separate comparison here to
+    drift from the lattice.
+
+    A task's authority fields are two different kinds of statement, and conflating them is
+    how this function was first written:
+
+    *Self-imposed ceilings* — ``max_risk``, ``max_label``, ``autonomy``. The names say so:
+    "this task incurs at most R2", "handles at most PHI". A ceiling meets the run's, and
+    the lower of the two wins. Refusing instead would mean a task declaring the default
+    ``max_label=RESEARCH_DEIDENTIFIED`` could not run under an ``INTERNAL`` policy — a
+    default that is not the weakest statement of its field, which is the
+    ``min_autonomy = ACT`` mistake in another costume.
+
+    *Required reach* — ``destinations``, ``capability_requirements``. A task naming
+    ``PUBLIC_REMOTE`` is saying it must get there. Silently narrowing that to nothing would
+    hand the task an envelope forbidding the very call it exists to make, so a reach the
+    run does not hold is refused, loudly, at the plan.
+
+    ``risk`` was already met with ``min()`` here while the other two ceilings were passed
+    through unclamped, so a ceiling applied on one dimension and refused on the next.
     """
+    from ..contracts import _autonomy_rank
+
     return parent.restrict(
         task_id=task.task_id,
+        # Ceilings: the lower of the task's and the run's.
         risk=min(task.max_risk, parent.risk),
-        autonomy=task.autonomy,
-        max_label=DataLabel(task.max_label),
-        # An undeclared destination set inherits the run's rather than narrowing to
-        # nothing. A task that states destinations narrows; one that does not, does not.
+        max_label=(DataLabel(task.max_label)
+                   if task.max_label <= parent.max_label.sensitivity
+                   else parent.max_label),
+        autonomy=(task.autonomy
+                  if _autonomy_rank(task.autonomy) >= _autonomy_rank(parent.autonomy)
+                  else parent.autonomy),
+        # Reach: refused if the run does not hold it. An undeclared destination set
+        # inherits the run's rather than narrowing to nothing — a task that states
+        # destinations narrows; one that does not, does not.
         allowed_destinations=(frozenset(task.destinations) if task.destinations
                               else parent.allowed_destinations),
         allowed_capabilities=(tuple(task.capability_requirements)

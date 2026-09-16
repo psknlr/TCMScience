@@ -195,6 +195,60 @@ class PlanTask:
                 f"plan task {self.task_id!r} requires evidence, so it needs an "
                 "output_schema to return it in")
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_id": self.task_id, "objective": self.objective, "kind": self.kind,
+            "dependencies": list(self.dependencies), "component_id": self.component_id,
+            "capability_requirements": list(self.capability_requirements),
+            "payload": dict(self.payload),
+            "max_risk": self.max_risk.name, "max_label": self.max_label.name,
+            "destinations": [d.name for d in self.destinations],
+            "autonomy": self.autonomy.value,
+            "estimated_tokens": self.estimated_tokens,
+            "estimated_usd": self.estimated_usd,
+            "estimated_seconds": self.estimated_seconds,
+            "output_schema": dict(self.output_schema),
+            "acceptance_tests": [{"kind": t.kind, "detail": dict(t.detail)}
+                                 for t in self.acceptance_tests],
+            "evidence_required": self.evidence_required,
+            "retry": {"max_attempts": self.retry.max_attempts,
+                      "initial_delay_s": self.retry.initial_delay_s,
+                      "factor": self.retry.factor,
+                      "max_delay_s": self.retry.max_delay_s,
+                      "retryable": list(self.retry.retryable)},
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "PlanTask":
+        retry = data.get("retry") or {}
+        return cls(
+            task_id=str(data["task_id"]), objective=str(data.get("objective") or ""),
+            kind=str(data.get("kind") or TaskKind.MODEL),
+            dependencies=tuple(data.get("dependencies") or ()),
+            component_id=str(data.get("component_id") or ""),
+            capability_requirements=tuple(data.get("capability_requirements") or ()),
+            payload=dict(data.get("payload") or {}),
+            max_risk=RiskTier[data.get("max_risk", RiskTier.R1_ROUTINE.name)],
+            max_label=Sensitivity[data.get("max_label",
+                                           Sensitivity.RESEARCH_DEIDENTIFIED.name)],
+            destinations=tuple(Destination[d] for d in data.get("destinations") or ()),
+            autonomy=Autonomy(data.get("autonomy", Autonomy.SUGGEST.value)),
+            estimated_tokens=int(data.get("estimated_tokens") or 0),
+            estimated_usd=float(data.get("estimated_usd") or 0.0),
+            estimated_seconds=float(data.get("estimated_seconds") or 0.0),
+            output_schema=dict(data.get("output_schema") or {}),
+            acceptance_tests=tuple(
+                TestSpec(kind=t["kind"], detail=dict(t.get("detail") or {}))
+                for t in data.get("acceptance_tests") or ()),
+            evidence_required=bool(data.get("evidence_required")),
+            retry=RetryPolicy(
+                max_attempts=int(retry.get("max_attempts", 1)),
+                initial_delay_s=float(retry.get("initial_delay_s", 0.0)),
+                factor=float(retry.get("factor", 2.0)),
+                max_delay_s=float(retry.get("max_delay_s", 30.0)),
+                retryable=tuple(retry.get("retryable")
+                                or RetryPolicy().retryable)))
+
 
 @dataclass(frozen=True, slots=True)
 class Plan:
@@ -237,3 +291,35 @@ class Plan:
             kinds[task.kind] = kinds.get(task.kind, 0) + 1
         return (f"{len(self.tasks)} task(s) {kinds}, ~{self.estimated_tokens} tokens, "
                 f"~${self.estimated_usd:.2f}, {len(self.completion_criteria)} criteria")
+
+    # ------------------------------------------------------------ persistence
+    #
+    # A plan has to survive a checkpoint, and round-tripping it through the same
+    # constructors that validate it is what stops a checkpoint from becoming a way to
+    # introduce a plan that ``PlanTask.__post_init__`` would have refused. ``from_dict``
+    # is not a deserialiser that trusts its input; it is the constructor with a different
+    # argument shape.
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_id": self.plan_id, "objective": self.objective,
+            "produced_by": self.produced_by,
+            "assumptions": list(self.assumptions),
+            "evidence_requirements": list(self.evidence_requirements),
+            "completion_criteria": [{"description": c.description, "kind": c.kind}
+                                    for c in self.completion_criteria],
+            "tasks": [t.to_dict() for t in self.tasks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Plan":
+        return cls(
+            objective=str(data.get("objective") or ""),
+            tasks=tuple(PlanTask.from_dict(t) for t in data.get("tasks") or ()),
+            assumptions=tuple(data.get("assumptions") or ()),
+            completion_criteria=tuple(
+                Criterion(description=c["description"], kind=c.get("kind", "manual"))
+                for c in data.get("completion_criteria") or ()),
+            evidence_requirements=tuple(data.get("evidence_requirements") or ()),
+            plan_id=str(data.get("plan_id") or new_id("plan")),
+            produced_by=str(data.get("produced_by") or "unknown"))
