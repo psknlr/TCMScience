@@ -153,8 +153,28 @@ and became permitted at a destination its sources could never reach. Laundering 
 accident. So the label comes from the inputs, and a summary that may not reach the
 destination is replaced by a bare count, which carries no content.
 
+### Multi-agent: a supervisor that can only narrow
+
+`psh/runtime/supervisor.py` and `subagent.py` add fan-out under one rule:
+
+> **A supervisor decides *what* to do. It never decides what is *allowed*.**
+
+`Supervisor.mint()` turns a request into arguments for `parent.restrict()` — the authority
+lattice — and holds no comparison of its own; a structural test parses it and fails if one
+appears. Children are child loops under the contract's envelope and return a
+`SubagentResult` with no field for a transcript: claims, evidence, artifacts, a summary, and
+a label that is the join of everything the child saw. A `WorkerPool` runs them concurrently
+over the kernel, which is now locked for it — `BudgetGovernor`'s check-and-increment and the
+broker's counters, the latter being the proof nothing bypassed the broker and therefore the
+thing that must survive threads. Fan-in is an `AggregatedObservation` in which two children
+disagreeing is a recorded `Conflict`, not two paragraphs concatenated.
+
+It found one defect worth naming: `Budget.child()` bounded one child and its docstring
+claimed it stopped fan-out multiplying a budget. Ten quarter-children are two and a half
+parents. `BudgetLedger` sums fractions per parent, cumulatively.
+
 ```bash
-python -m pytest tests/ -q          # 424 pass
+python -m pytest tests/ -q          # 451 pass
 python -m compileall -q src         # clean
 ```
 

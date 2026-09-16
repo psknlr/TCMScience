@@ -33,21 +33,22 @@ Measured against the executing path, not the README.
 | Output-schema validation | ❌ declarative | ✅ | `check_output_schema` |
 | Delegation contract | ✅ | ✅ | `DelegationContract` |
 | Child authority narrowing | ✅/🟡 | ✅ | gateway now defers to `AuthorityLattice` |
-| Automatic subagent selection | ❌ | ❌ | the planner does not emit delegations |
-| Fan-out / fan-in | ❌ | ❌ | the scheduler is deterministic and serial |
-| Supervisor / worker pool | ❌ | ❌ | — |
-| Heartbeat / lease | ❌ | ❌ | — |
-| Cancellation propagation | 🟡 interface | 🟡 | `ExecutionGraph.cancel_all` is in-process only |
+| Automatic subagent selection | ❌ | 🟡 | a plan may carry `kind="delegate"` tasks; the planner is not yet asked to |
+| Fan-out / fan-in | ❌ | ✅ | `runtime/supervisor.py`: `WorkerPool`, `Reducer` → `AggregatedObservation` |
+| Supervisor / worker pool | ❌ | ✅ | proposes only; `restrict()` authorises; Σ child fractions ≤ 1 |
+| Heartbeat / lease | ❌ | ❌ | v0.8 |
+| Cancellation propagation | 🟡 interface | ✅ | `WAIT` / `CASCADE` / `DETACH`, cooperative token |
 | Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
-| Parallel execution | ❌ | ❌ | — |
+| Parallel execution | ❌ | ✅ | threads over one locked kernel; bounded by `max_concurrency` |
 | A2A / MCP | ❌ | ❌ | explicitly not implemented |
 | Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
 
-So the honest summary for v0.5.1 is: **a bounded, governed, single-threaded agent loop.**
-Not a multi-agent runtime. The row that matters most is the one that has not changed —
-there is still no supervisor, no worker pool and no parallelism — and the next section says
-why that ordering is deliberate.
+So the honest summary is now: **a bounded, governed agent loop with governed fan-out.**
+Children run concurrently through one locked kernel, a supervisor that can only narrow,
+and a reducer that records disagreement. Still absent: a lease/heartbeat for children that
+go quiet, distributed workers, and the planner being *asked* to delegate rather than merely
+allowed to.
 
 ## 2. What v0.5.1 added, and the one rule it was built under
 
@@ -148,10 +149,10 @@ building the adapter twice.
   `destinations` and `capability_requirements` are *required reach* and are refused if the
   run does not hold them.
 
-### v0.7 — multi-agent
+### v0.7 — multi-agent — **done** (`runtime/subagent.py`, `runtime/supervisor.py`)
 
-`Supervisor`, `WorkerPool`, fan-out/fan-in, a result reducer, child lifecycle and
-cancellation propagation. One rule governs all of it:
+`Supervisor`, `WorkerPool`, fan-out/fan-in, `Reducer`, child lifecycle and cancellation
+propagation, under the one rule:
 
 > **A supervisor decides *what* to do. It never decides what is *allowed*.**
 
@@ -159,13 +160,34 @@ cancellation propagation. One rule governs all of it:
 Supervisor --propose--> TrustedKernel --authorize--> Worker
 ```
 
-Not the CrewAI/AutoGen shape where a manager grants its workers tools and budget. Child
-authority is minted by the kernel from `AuthorityLattice.meet(parent, requested, ceiling)`,
-never constructed by the supervisor. The aggregator matters too: for research work,
-`"\n".join(worker_outputs)` is not a reducer. Fan-in should produce a typed
-`AggregatedObservation` — facts, *conflicting* facts, evidence refs, unresolved questions —
-so that two workers disagreeing is a recorded state rather than two paragraphs of prose
-concatenated.
+The supervisor holds no way to construct a `RunEnvelope`. `mint()` turns a request into
+arguments for `parent.restrict()` — the lattice — and a request for more than the parent
+holds raises from inside that call. A structural test parses `mint()` and fails if it ever
+compares anything against the parent: the supervisor is *contained*, not trusted, which is
+the stronger property and the cheaper one. Children are `AgentLoopController`s under the
+contract's envelope, returning a `SubagentResult` — claims, evidence, artifacts, a summary,
+and a label that is the join of everything the child saw. There is no field for a
+transcript (Grok Build's model, and `ContextProjection`'s argument applied one level up).
+
+Three things it surfaced:
+
+* **`Budget.child()` never bounded siblings.** Its docstring says it "stops a delegation
+  tree from multiplying a budget by fanning out". Ten quarter-children are two and a half
+  parents, measured. `BudgetLedger` sums fractions per parent run, cumulatively — a finished
+  child spent its slice, so releasing it would allow children forever, one at a time.
+* **The kernel was not safe to share between threads.** `BudgetGovernor`'s checks are
+  compare-then-increment; forty trials at the tightest GIL switch interval could not race
+  them, and a ceiling that holds because of scheduler timing is not a ceiling. Locked, along
+  with the broker's counters — which are the proof nothing bypassed the broker, and would be
+  worthless under concurrency exactly when they matter.
+* **Cancellation needs a policy, not a flag.** `WAIT` / `CASCADE` / `DETACH`, per child, on
+  a cooperative token the loop polls at the same point it checks every other bound. A parent
+  being cancelled does not always mean killing the five-hour analysis.
+
+Fan-in is `AggregatedObservation`: facts with who asserted them, evidence, *conflicts*
+(detected with the existing `ClaimSupportVerifier` — polarity and overlap, not a new model
+of contradiction), what is unresolved, and a label that is the join. Two children
+disagreeing is a recorded state.
 
 ### v0.8 — durability
 

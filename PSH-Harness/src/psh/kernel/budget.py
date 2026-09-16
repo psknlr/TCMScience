@@ -7,6 +7,7 @@ Delegation budgets are strictly nested, so fanning out cannot multiply a ceiling
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -95,6 +96,12 @@ class BudgetGovernor:
         self._on_warning = on_warning
         self._audit = audit
         self._states: dict[str, BudgetState] = {}
+        #: Every check is a compare-then-increment on shared state. Under CPython's GIL the
+        #: two happen to sit close enough that forty trials at the tightest switch interval
+        #: could not race them — and a ceiling that holds because of scheduler timing is not
+        #: a ceiling. Free-threaded builds exist, and a worker pool drives this from several
+        #: threads. Re-entrant, because ``_enforce`` runs inside the checks.
+        self._lock = threading.RLock()
 
     def _state(self, envelope: RunEnvelope) -> BudgetState:
         """The live, mutable counters for a run. Private: callers get snapshot()."""
@@ -140,38 +147,42 @@ class BudgetGovernor:
     # ---------------------------------------------------------------- recording
     def record_model_usage(self, envelope: RunEnvelope, in_tokens: int, out_tokens: int,
                            usd: float = 0.0) -> None:
-        state = self._state(envelope)
-        state.input_tokens += in_tokens
-        state.output_tokens += out_tokens
-        state.usd += usd
-        self._enforce(envelope)
+        with self._lock:
+            state = self._state(envelope)
+            state.input_tokens += in_tokens
+            state.output_tokens += out_tokens
+            state.usd += usd
+            self._enforce(envelope)
 
     # ----------------------------------------------------------------- checking
     def check_model_call(self, envelope: RunEnvelope) -> None:
-        budget = self._budget_for(envelope)
-        state = self._state(envelope)
-        if state.model_calls >= budget.max_model_calls:
-            raise BudgetExhausted(
-                f"model-call ceiling reached ({budget.max_model_calls}); run stopped")
-        state.model_calls += 1
-        self._enforce(envelope)
+        with self._lock:
+            budget = self._budget_for(envelope)
+            state = self._state(envelope)
+            if state.model_calls >= budget.max_model_calls:
+                raise BudgetExhausted(
+                    f"model-call ceiling reached ({budget.max_model_calls}); run stopped")
+            state.model_calls += 1
+            self._enforce(envelope)
 
     def check_tool_call(self, envelope: RunEnvelope) -> None:
-        budget = self._budget_for(envelope)
-        state = self._state(envelope)
-        if state.tool_calls >= budget.max_tool_calls:
-            raise BudgetExhausted(
-                f"tool-call ceiling reached ({budget.max_tool_calls}); run stopped")
-        state.tool_calls += 1
-        self._enforce(envelope)
+        with self._lock:
+            budget = self._budget_for(envelope)
+            state = self._state(envelope)
+            if state.tool_calls >= budget.max_tool_calls:
+                raise BudgetExhausted(
+                    f"tool-call ceiling reached ({budget.max_tool_calls}); run stopped")
+            state.tool_calls += 1
+            self._enforce(envelope)
 
     def check_delegation(self, envelope: RunEnvelope) -> None:
-        budget = self._budget_for(envelope)
-        state = self._state(envelope)
-        if state.delegations >= budget.max_delegations:
-            raise BudgetExhausted(
-                f"delegation ceiling reached ({budget.max_delegations}); run stopped")
-        state.delegations += 1
+        with self._lock:
+            budget = self._budget_for(envelope)
+            state = self._state(envelope)
+            if state.delegations >= budget.max_delegations:
+                raise BudgetExhausted(
+                    f"delegation ceiling reached ({budget.max_delegations}); run stopped")
+            state.delegations += 1
 
     def _enforce(self, envelope: RunEnvelope) -> None:
         budget = self._budget_for(envelope)

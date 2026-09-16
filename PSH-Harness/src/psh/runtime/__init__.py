@@ -21,6 +21,14 @@ from .plan_validator import (
     PlanRejected, PlanValidator, PlanViolation, ValidatedPlan, task_envelope,
 )
 from .runner import DEFAULT_SYSTEM_PROMPT, RunResult, Runner, StageRecord, StuckLoop
+from .subagent import (
+    CancellationPolicy, CancellationToken, ChildRun, ChildState, LocalSubagentBackend,
+    SubagentResult,
+)
+from .supervisor import (
+    AggregatedObservation, BudgetLedger, Conflict, DelegationRequest, Fact, Reducer,
+    Supervisor, WorkerPool,
+)
 
 __all__ = [
     "Runner", "RunResult", "StageRecord", "StuckLoop", "DEFAULT_SYSTEM_PROMPT",
@@ -32,4 +40,8 @@ __all__ = [
     "ExecutionGraph", "TaskState", "TaskNode",
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
+    "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
+    "LocalSubagentBackend", "SubagentResult",
+    "Supervisor", "DelegationRequest", "BudgetLedger", "WorkerPool", "Reducer",
+    "AggregatedObservation", "Fact", "Conflict",
 ]

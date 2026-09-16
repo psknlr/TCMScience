@@ -50,6 +50,10 @@ class TaskNode:
     error: str = ""
     started_at: float = 0.0
     finished_at: float = 0.0
+    #: The label the broker attached to this task's result. Kept so anything built from
+    #: the results — a child's summary, a fan-in — carries the join rather than starting
+    #: from PUBLIC.
+    label: Any = None
 
     @property
     def id(self) -> str:

@@ -347,7 +347,9 @@ def test_every_termination_reason_is_named_never_inferred(kernel):
     """The enum is the contract: a loop that stops must say which bound stopped it."""
     assert Termination.RUNNING.value == "running"
     reasons = {t for t in Termination} - {Termination.RUNNING}
-    assert len(reasons) == 10
+    assert len(reasons) == 11
+    assert Termination.CANCELLED in reasons, \
+        "cancellation is a named termination, not an exception thrown across threads"
 
 
 # ===================================================================== retries

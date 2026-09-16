@@ -68,6 +68,10 @@ class Termination(str, Enum):
     POLICY_DENIED = "policy_denied"
     ESCALATED = "escalated"
     UNRECOVERABLE_ERROR = "unrecoverable_error"
+    #: Asked to stop by whoever holds the cancellation token — a supervisor cascading a
+    #: parent's cancellation, or an operator. Cooperative: checked between iterations,
+    #: never mid-call, so a task that has started finishes or times out on its own terms.
+    CANCELLED = "cancelled"
     RUNNING = "running"
 
 
@@ -158,6 +162,10 @@ class LoopResult:
     state_counts: dict[str, int] = field(default_factory=dict)
     broker_stats: dict[str, int] = field(default_factory=dict)
 
+    #: The join of every task result's label. What a child hands back to a parent must be
+    #: labelled at least as high as anything the child saw, or delegation launders.
+    label: Any = None
+
     @property
     def ok(self) -> bool:
         return self.termination is Termination.GOAL_SATISFIED
@@ -206,6 +214,7 @@ class AgentLoopController:
                  limits: LoopLimits | None = None,
                  delegate_backend: Callable[[Any], Any] | None = None,
                  checkpoints: Any = None,
+                 cancellation: Any = None,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.kernel = kernel
         self.planner = planner
@@ -223,6 +232,10 @@ class AgentLoopController:
         #: deliberately NOT automatic — see ``checkpoint.resume``, which re-meets the
         #: stored authority against the policy in force and may refuse.
         self.checkpoints = checkpoints
+        #: A ``CancellationToken`` (or anything with a truthy ``cancelled``). The loop
+        #: polls it at the same point it checks every other bound, so cancellation is a
+        #: termination reason like the rest rather than an exception thrown across threads.
+        self.cancellation = cancellation
         self._sleep = sleep
 
     # ------------------------------------------------------------------- public
@@ -302,6 +315,10 @@ class AgentLoopController:
     # -------------------------------------------------------------------- bounds
     def _check_bounds(self, state: LoopState) -> Termination | None:
         """Every reason to stop that is not a verdict. Checked before work, not after."""
+        if self.cancellation is not None and getattr(self.cancellation, "cancelled", False):
+            state.detail = (getattr(self.cancellation, "reason", "") or
+                            "cancelled by the holder of this loop's cancellation token")
+            return Termination.CANCELLED
         if state.iteration >= self.limits.max_iterations:
             state.detail = (f"reached the {self.limits.max_iterations}-iteration ceiling; "
                             "stopping rather than continuing indefinitely")
@@ -385,12 +402,20 @@ class AgentLoopController:
                         retryable=retryable)
             return
 
-        graph.mark_succeeded(task.task_id, result, at=time.time())
+        value, label = result
+        graph.mark_succeeded(task.task_id, value, at=time.time())
+        graph.nodes[task.task_id].label = label
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
 
     def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
-                  upstream: Mapping[str, Any]) -> Any:
-        """The only three ways this loop can cause anything to happen."""
+                  upstream: Mapping[str, Any]) -> tuple[Any, Any]:
+        """The only three ways this loop can cause anything to happen.
+
+        Returns ``(value, label)``. The label used to be discarded here — the broker hands
+        back a labelled result and the loop unwrapped it to the bare value — which meant a
+        child agent's summary could not carry the join of what it had seen, and a summary
+        that does not carry its sources' labels is the laundering path compaction closes.
+        """
         broker = self.kernel.broker
 
         if task.kind == TaskKind.MODEL:
@@ -401,7 +426,9 @@ class AgentLoopController:
             projection = self._projection(task, envelope, upstream)
             call = broker.call_model(projection, self.model, envelope,
                                      invoke=self.model_invoke)
-            return getattr(call, "content", call)
+            # A model's output is at least as sensitive as the context it was shown.
+            label = getattr(projection, "label", None)
+            return getattr(call, "content", call), label
 
         if task.kind == TaskKind.TOOL:
             component = self._component(task.component_id)
@@ -409,7 +436,7 @@ class AgentLoopController:
             if task.dependencies:
                 payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
             result = broker.call_tool(component, payload, envelope)
-            return getattr(result, "value", result)
+            return getattr(result, "value", result), getattr(result, "label", None)
 
         if task.kind == TaskKind.DELEGATE:
             if self.delegate_backend is None:
@@ -422,7 +449,8 @@ class AgentLoopController:
                 envelope=envelope, output_schema=dict(task.output_schema),
                 acceptance_tests=tuple(t.kind for t in task.acceptance_tests),
                 evidence_required=task.evidence_required, backend="local_agent")
-            return broker.delegate(contract, envelope, self.delegate_backend)
+            result = broker.delegate(contract, envelope, self.delegate_backend)
+            return result, getattr(result, "label", None)
 
         raise ContractViolation(f"unroutable task kind {task.kind!r}")
 
@@ -474,7 +502,8 @@ class AgentLoopController:
             unmet_criteria=verdict.unmet_criteria if verdict else (),
             plan=state.plan,
             state_counts=state.graph.state_counts() if state.graph else {},
-            broker_stats=self.kernel.broker.stats())
+            broker_stats=self.kernel.broker.stats(),
+            label=_join_labels(state.graph) if state.graph else None)
         self._audit("loop_finished", state, termination=termination.value,
                     iterations=state.iteration, replans=state.replans)
         return result
@@ -503,3 +532,11 @@ class AgentLoopController:
         audit(event, run_id=state.envelope.run_id, detail={"loop_id": state.loop_id,
                                                            "iteration": state.iteration,
                                                            **detail})
+
+
+def _join_labels(graph: ExecutionGraph) -> Any:
+    """The join of every labelled task result in a graph, or None if none were labelled."""
+    from ..labels import combine
+
+    labels = [n.label for n in graph.nodes.values() if getattr(n, "label", None) is not None]
+    return combine(*labels) if labels else None

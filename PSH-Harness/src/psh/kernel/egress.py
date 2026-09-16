@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
@@ -492,6 +493,11 @@ class ExecutionBroker:
         self.in_process_tool_calls = 0
         self.delegations = 0
         self.refusals = 0
+        #: The counters are how a test proves nothing bypassed the broker, so they have to
+        #: be right under concurrency or the proof is worthless exactly when it matters.
+        #: ``+=`` on an attribute is a load, an add and a store; a worker pool interleaves
+        #: them.
+        self._counter_lock = threading.Lock()
         #: Typed hook lifecycle (Claude Code / Codex protocol). Hooks run HERE, after the
         #: gates, and can only narrow or rewrite — see hooks.py.
         from .hooks import HookRegistry
@@ -516,7 +522,7 @@ class ExecutionBroker:
 
         decision = self.model_gateway.check(checked, model, envelope)
         if not decision.allowed:
-            self.refusals += 1
+            self._bump("refusals")
             decision.raise_if_denied()
 
         self.budget.check_model_call(envelope)
@@ -535,14 +541,14 @@ class ExecutionBroker:
                                          "label": checked.label.sensitivity.name,
                                          "prompt_chars": len(prompt)})
         except HookBlocked as exc:
-            self.refusals += 1
+            self._bump("refusals")
             raise EgressDenied(f"hook {exc.hook} denied model call to {model.id}: {exc}",
                                label=checked.label, destination=model.destination) from exc
 
         started = time.time()
         raw = invoke(prompt)
         latency = time.time() - started
-        self.model_calls += 1
+        self._bump("model_calls")
 
         # Standardise the return so token and cost ceilings are fed by real usage. v0.1
         # counted calls while tokens and USD stayed at zero, so a hard token ceiling of 1
@@ -578,7 +584,7 @@ class ExecutionBroker:
         payload = self.ingress.ensure(payload, origin=f"tool:{manifest.id}")
         decision = self.tool_gateway.check(payload, manifest, envelope)
         if not decision.allowed:
-            self.refusals += 1
+            self._bump("refusals")
             decision.raise_if_denied()
 
         needs_approval = (
@@ -606,14 +612,14 @@ class ExecutionBroker:
                 HookEvent.PRE_TOOL_USE, target=manifest.id, run_id=envelope.run_id,
                 payload={"tool_name": manifest.id, "tool_input": unwrap_deep(payload)})
         except HookBlocked as exc:
-            self.refusals += 1
+            self._bump("refusals")
             raise EgressDenied(f"hook {exc.hook} denied {manifest.id}: {exc}",
                                label=payload.label, destination=Destination.LOCAL_COMPUTE) from exc
         if rewritten is not None:
             payload = self.ingress.ensure(rewritten, origin=f"hook_rewrite:{manifest.id}")
             decision = self.tool_gateway.check(payload, manifest, envelope)
             if not decision.allowed:
-                self.refusals += 1
+                self._bump("refusals")
                 decision.raise_if_denied()
         if hook_decision is HookDecision.ASK:
             self.approvals.request(
@@ -624,7 +630,7 @@ class ExecutionBroker:
 
         started = time.time()
         raw, execution = self._invoke(component, manifest, unwrap_deep(payload), envelope)
-        self.tool_calls += 1
+        self._bump("tool_calls")
         try:
             self.hooks.dispatch(HookEvent.POST_TOOL_USE, target=manifest.id,
                                 run_id=envelope.run_id,
@@ -632,7 +638,7 @@ class ExecutionBroker:
                                          "tool_response_type": type(raw).__name__})
         except HookBlocked as exc:
             # A PostToolUse deny means the RESULT must not reach the model.
-            self.refusals += 1
+            self._bump("refusals")
             raise EgressDenied(f"hook {exc.hook} withheld the result of {manifest.id}: {exc}",
                                label=payload.label, destination=Destination.LOCAL_COMPUTE) from exc
 
@@ -669,12 +675,12 @@ class ExecutionBroker:
             if self.isolation is None:
                 from .isolation import IsolationUnavailable
 
-                self.refusals += 1
+                self._bump("refusals")
                 raise IsolationUnavailable(
                     f"component {manifest.id!r} declares isolated execution but this kernel "
                     "has no isolated runner wired; refusing rather than running it in the "
                     "kernel process")
-            self.isolated_tool_calls += 1
+            self._bump("isolated_tool_calls")
             return self.isolation.invoke(manifest, payload, envelope), "isolated"
 
         # The kernel's policy OR the run's own. The broker is constructed once, from the
@@ -682,14 +688,14 @@ class ExecutionBroker:
         # on was previously declaring a requirement nothing read. The envelope carries it
         # now, and the envelope is what travels with the run and its delegates.
         if self.require_isolation or getattr(envelope, "require_isolated_tools", False):
-            self.refusals += 1
+            self._bump("refusals")
             raise PolicyDenied(
                 f"this run requires process-isolated tools and component {manifest.id!r} "
                 f"declares backend={manifest.backend!r}; package it with "
                 "backend='subprocess' and an entrypoint, or run it under a policy that "
                 "does not require isolation")
 
-        self.in_process_tool_calls += 1
+        self._bump("in_process_tool_calls")
         return component.invoke(payload, envelope), "in_process"
 
     # -------------------------------------------------------------- delegation
@@ -697,15 +703,19 @@ class ExecutionBroker:
                  backend: Callable[[DelegationContract], Any]) -> Any:
         decision = self.delegation_gateway.check(contract, parent)
         if not decision.allowed:
-            self.refusals += 1
+            self._bump("refusals")
             decision.raise_if_denied()
         self.budget.check_delegation(parent)
         result = backend(contract)
-        self.delegations += 1
+        self._bump("delegations")
         if self._audit is not None:
             self._audit("delegation", run_id=parent.run_id, target=contract.backend,
                         objective_len=len(contract.objective))
         return result
+
+    def _bump(self, name: str) -> None:
+        with self._counter_lock:
+            setattr(self, name, getattr(self, name) + 1)
 
     def stats(self) -> dict[str, int]:
         return {"model_calls": self.model_calls, "tool_calls": self.tool_calls,
