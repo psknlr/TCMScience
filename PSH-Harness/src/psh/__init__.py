@@ -46,6 +46,10 @@ from .labels import (
     DataLabel, Declassification, Destination, Labeled, Sensitivity, combine,
     deep_label_of, unwrap_deep,
 )
+from .licensing import (
+    INTEGRATION_MODES, LICENSE_CLASSES, LicenseClass, LicenseDecision, LicenseRuling,
+    classify_license, license_ruling,
+)
 from .profiles import PROFILES, WorkProfile, get_profile, profile_names
 from .runtime import DEFAULT_SYSTEM_PROMPT, RunResult, Runner
 from .workgraph import EdgeKind, NodeKind, WorkGraph
@@ -71,4 +75,6 @@ __all__ = [
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",
     "deep_label_of", "unwrap_deep",
+    "LicenseClass", "LicenseDecision", "LicenseRuling", "classify_license",
+    "license_ruling", "INTEGRATION_MODES", "LICENSE_CLASSES",
 ]

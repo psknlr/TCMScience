@@ -165,6 +165,17 @@ class AuthorityLattice:
         if parent.require_isolated_tools and not child.require_isolated_tools:
             out.append(AuthorityViolation("require_isolated_tools", True, False))
 
+        # Licence provenance: two plain subset dimensions. They needed no new comparison
+        # logic, which is the argument for having one lattice — the work of adding a
+        # governed dimension is naming it here and in `meet`, and delegation, `restrict`
+        # and the property tests then cover it without being told.
+        for dimension in ("allowed_integration_modes", "allowed_license_classes"):
+            extra = set(getattr(child, dimension)) - set(getattr(parent, dimension))
+            if extra:
+                out.append(AuthorityViolation(dimension,
+                                              sorted(getattr(parent, dimension)),
+                                              sorted(extra)))
+
         for dimension in cls.BUDGET_DIMENSIONS:
             parent_value = getattr(parent.budget, dimension)
             child_value = getattr(child.budget, dimension)
@@ -243,4 +254,10 @@ class AuthorityLattice:
                       else parent.autonomy),
             require_isolated_tools=(requested.require_isolated_tools
                                     or parent.require_isolated_tools),
+            allowed_integration_modes=tuple(
+                m for m in requested.allowed_integration_modes
+                if m in set(parent.allowed_integration_modes)),
+            allowed_license_classes=tuple(
+                c for c in requested.allowed_license_classes
+                if c in set(parent.allowed_license_classes)),
             deadline=deadline, budget=budget)

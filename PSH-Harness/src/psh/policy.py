@@ -27,6 +27,7 @@ from .contracts import (
     Autonomy, Budget, PolicyDenied, RiskTier, RunEnvelope, _autonomy_rank,
 )
 from .labels import DataLabel, Destination, Sensitivity
+from .licensing import INTEGRATION_MODES, LICENSE_CLASSES
 
 __all__ = ["PolicySnapshot", "PolicyLattice", "PolicyViolation"]
 
@@ -79,6 +80,13 @@ class PolicySnapshot:
     #: is the ordinary clinical case; PHI -> PUBLIC is not something a profile should grant
     #: without saying so.
     declassify_floor: Sensitivity = Sensitivity.RESEARCH_DEIDENTIFIED
+    #: Licence provenance, adopted from BioScience-Harness. The default is everything the
+    #: table knows about, because the table already refuses the combination that matters
+    #: (unlicensed code may not be vendored). A profile narrows from there — a group that
+    #: distributes its analysis pipelines would set ``("native", "federated")`` and stop
+    #: vendoring outright, and one with a copyleft prohibition would drop that class.
+    allowed_integration_modes: tuple[str, ...] = INTEGRATION_MODES
+    allowed_license_classes: tuple[str, ...] = LICENSE_CLASSES
     notes: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -104,7 +112,9 @@ class PolicySnapshot:
             max_label=DataLabel(self.max_data_label),
             allowed_destinations=frozenset(self.allowed_destinations),
             budget=self.budget, deadline=self.deadline, profile=self.profile_id,
-            require_isolated_tools=self.require_isolated_tools)
+            require_isolated_tools=self.require_isolated_tools,
+            allowed_integration_modes=self.allowed_integration_modes,
+            allowed_license_classes=self.allowed_license_classes)
 
     def envelope(self, *, clamp: bool = False, **kw: Any) -> RunEnvelope:
         """Mint a ``RunEnvelope`` under this policy. The single construction path.
@@ -154,6 +164,10 @@ class PolicySnapshot:
             # policy — would never see it.
             require_isolated_tools=bool(kw.pop("require_isolated_tools", False)
                                         or self.require_isolated_tools),
+            allowed_integration_modes=tuple(_requested(
+                "allowed_integration_modes", self.allowed_integration_modes)),
+            allowed_license_classes=tuple(_requested(
+                "allowed_license_classes", self.allowed_license_classes)),
             profile=self.profile_id, **kw)
 
         if clamp:
@@ -202,6 +216,8 @@ class PolicySnapshot:
             "require_isolated_tools": self.require_isolated_tools,
             "autonomy": self.autonomy.value, "risk_ceiling": self.risk_ceiling.name,
             "tokens_hard": self.budget.tokens_hard, "usd_hard": self.budget.usd_hard,
+            "integration_modes": list(self.allowed_integration_modes),
+            "license_classes": list(self.allowed_license_classes),
             "deadline": self.deadline}
 
 
@@ -297,6 +313,12 @@ class PolicyLattice:
             out.append(PolicyViolation("declassify_floor", parent.declassify_floor.name,
                                        child.declassify_floor.name))
 
+        for dimension in ("allowed_integration_modes", "allowed_license_classes"):
+            extra = set(getattr(child, dimension)) - set(getattr(parent, dimension))
+            if extra:
+                out.append(PolicyViolation(dimension, sorted(getattr(parent, dimension)),
+                                           sorted(extra)))
+
         new_principals = set(child.declassifiers) - set(parent.declassifiers)
         if new_principals:
             out.append(PolicyViolation("declassifiers", sorted(parent.declassifiers),
@@ -372,6 +394,12 @@ class PolicyLattice:
             declassify_floor=max(requested.declassify_floor, parent.declassify_floor),
             declassifiers=tuple(d for d in requested.declassifiers
                                 if d in set(parent.declassifiers)),
+            allowed_integration_modes=tuple(
+                m for m in requested.allowed_integration_modes
+                if m in set(parent.allowed_integration_modes)),
+            allowed_license_classes=tuple(
+                c for c in requested.allowed_license_classes
+                if c in set(parent.allowed_license_classes)),
             verification_model_id=(parent.verification_model_id
                                    or requested.verification_model_id),
             deadline=deadline, budget=budget,

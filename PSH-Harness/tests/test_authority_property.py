@@ -24,6 +24,7 @@ from psh.contracts import (  # noqa: E402
 )
 from psh.kernel.authority import UNRESTRICTED, AuthorityLattice  # noqa: E402
 from psh.labels import DataLabel, Destination, Sensitivity  # noqa: E402
+from psh.licensing import INTEGRATION_MODES, LICENSE_CLASSES  # noqa: E402
 
 SETTINGS = settings(max_examples=250, deadline=None,
                     suppress_health_check=[HealthCheck.too_slow])
@@ -63,6 +64,10 @@ def envelopes(draw):
         # property tests below silently skip — which is how ``require_isolated_tools``
         # scored zero effective examples the first time the coverage test ran.
         require_isolated_tools=draw(st.booleans()),
+        allowed_integration_modes=tuple(draw(st.lists(
+            st.sampled_from(INTEGRATION_MODES), max_size=3, unique=True))),
+        allowed_license_classes=tuple(draw(st.lists(
+            st.sampled_from(LICENSE_CLASSES), max_size=3, unique=True))),
         budget=draw(budgets()))
 
 
@@ -266,6 +271,15 @@ def _mutate(parent: RunEnvelope, dimension: str) -> RunEnvelope | None:
             return None
         return replace(parent, require_isolated_tools=False)
 
+    if dimension in ("allowed_integration_modes", "allowed_license_classes"):
+        universe = (INTEGRATION_MODES if dimension == "allowed_integration_modes"
+                    else LICENSE_CLASSES)
+        held = getattr(parent, dimension)
+        missing = [v for v in universe if v not in held]
+        if not missing:
+            return None
+        return replace(parent, **{dimension: tuple(held) + (missing[0],)})
+
     if dimension.startswith("budget."):
         field_name = dimension.split(".", 1)[1]
         current = getattr(parent.budget, field_name)
@@ -280,6 +294,10 @@ def _mutate(parent: RunEnvelope, dimension: str) -> RunEnvelope | None:
 WIDENABLE_DIMENSIONS: tuple[str, ...] = (
     "risk", "autonomy", "max_label", "destinations", "capabilities",
     "denied_capabilities", "deadline", "require_isolated_tools",
+    # Adopted from BioScience-Harness. Adding a dimension to the lattice meant naming it
+    # here; the per-dimension property, the restrict property and the anti-vacuity check
+    # then covered it with no further work, which is the argument for one lattice.
+    "allowed_integration_modes", "allowed_license_classes",
 ) + tuple(f"budget.{d}" for d in AuthorityLattice.BUDGET_DIMENSIONS)
 
 
@@ -331,6 +349,10 @@ def _restrict_kwargs(child: RunEnvelope, dimension: str) -> dict:
     if dimension.startswith("budget."):
         return {"budget": child.budget}
     return {
+        "allowed_integration_modes": {
+            "allowed_integration_modes": child.allowed_integration_modes},
+        "allowed_license_classes": {
+            "allowed_license_classes": child.allowed_license_classes},
         "risk": {"risk": child.risk},
         "autonomy": {"autonomy": child.autonomy},
         "max_label": {"max_label": child.max_label},

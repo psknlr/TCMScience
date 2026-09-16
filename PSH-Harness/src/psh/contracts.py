@@ -43,6 +43,9 @@ from enum import Enum, IntEnum
 from typing import Any, Iterable, Mapping, Protocol, Sequence, runtime_checkable
 
 from .labels import DataLabel, Destination, Labeled, Sensitivity
+from .licensing import (
+    INTEGRATION_MODES, LICENSE_CLASSES, LicenseDecision, license_ruling, normalise_mode,
+)
 
 __all__ = [
     "PSHError", "PolicyDenied", "EgressDenied", "BudgetExhausted", "ApprovalRequired",
@@ -257,6 +260,13 @@ class RunEnvelope:
     #: is enforced by whoever holds the run, which is the only arrangement that survives
     #: delegation.
     require_isolated_tools: bool = False
+    #: Licence provenance, adopted from BioScience-Harness. Both default to everything the
+    #: table knows, so the *table* does the refusing (unlicensed code may not be vendored)
+    #: and a profile narrows further ("this work may not vendor at all"). Stated as sets
+    #: rather than a flag because they are subset dimensions, which is what lets the
+    #: authority lattice govern them with no new comparison logic.
+    allowed_integration_modes: tuple[str, ...] = INTEGRATION_MODES
+    allowed_license_classes: tuple[str, ...] = LICENSE_CLASSES
     parent_run_id: str | None = None
     created_at: float = field(default_factory=utc_now)
 
@@ -298,6 +308,10 @@ class RunEnvelope:
             # the floor rather than a default the child can drop by passing False.
             require_isolated_tools=bool(kw.pop("require_isolated_tools", False)
                                         or self.require_isolated_tools),
+            allowed_integration_modes=tuple(kw.pop("allowed_integration_modes",
+                                                   self.allowed_integration_modes)),
+            allowed_license_classes=tuple(kw.pop("allowed_license_classes",
+                                                 self.allowed_license_classes)),
             parent_run_id=self.run_id)
 
         return AuthorityLattice.enforce(candidate, self, operation="restrict")
@@ -380,6 +394,12 @@ class ComponentManifest:
     expected_latency_s: float = 1.0
     success_rate: float = 1.0
     known_limits: tuple[str, ...] = ()
+    #: SPDX id of the upstream this capability comes from, and HOW it is integrated.
+    #: ``federated`` is the default because it is the weakest claim — invoking upstream in
+    #: its own process is use rather than redistribution, so a manifest that never
+    #: considered the question does not accidentally assert a right to copy code.
+    license_spdx: str = ""
+    integration_mode: str = "federated"
     provenance: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -409,6 +429,11 @@ class ComponentManifest:
                 f"component {self.id!r} declares requires_network=True but names no remote "
                 f"destination; declare PUBLIC_REMOTE or TRUSTED_REMOTE in destinations so "
                 "the gateway and the audit record agree with the manifest")
+        if normalise_mode(self.integration_mode) not in INTEGRATION_MODES:
+            raise ValueError(
+                f"component {self.id!r} declares integration_mode "
+                f"{self.integration_mode!r}; it must be one of {list(INTEGRATION_MODES)} "
+                "(or the 'adapter-only' alias for federated)")
         if self.runs_isolated and not self.entrypoint:
             raise ValueError(
                 f"component {self.id!r} declares backend={self.backend!r} but no entrypoint; "
@@ -442,6 +467,16 @@ class ComponentManifest:
                 return False, f"destination {dest.name} is not permitted by this run"
         if self.mutates and envelope.autonomy in (Autonomy.OBSERVE, Autonomy.SUGGEST):
             return False, f"component mutates state but autonomy is {envelope.autonomy.value}"
+        ruling = license_ruling(self.license_spdx, self.integration_mode)
+        if not ruling.allowed:
+            return False, ruling.reason
+        if ruling.mode not in envelope.allowed_integration_modes:
+            return False, (f"component is integrated as {ruling.mode!r} and this run permits "
+                           f"{sorted(envelope.allowed_integration_modes)}")
+        if ruling.license_class not in envelope.allowed_license_classes:
+            return False, (f"component licence {self.license_spdx or 'unlicensed'} is "
+                           f"{ruling.license_class!r} and this run permits "
+                           f"{sorted(envelope.allowed_license_classes)}")
         if _autonomy_rank(envelope.autonomy) > _autonomy_rank(self.min_autonomy):
             # ``min_autonomy`` was a declared field that no predicate read, so a component
             # requiring ACT was reported compatible with an OBSERVE run.

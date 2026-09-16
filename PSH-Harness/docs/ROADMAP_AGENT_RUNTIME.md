@@ -240,6 +240,27 @@ once, on top. Concretely:
   `NOASSERTION`, `GPL`, vendor / native / federated). That belongs as a *new dimension* of
   the PSH policy — and `PolicyLattice` is now the place to add it, which is most of why it
   exists.
+
+  **Done** (`psh/licensing.py`). It is the first convergence step and it was deliberately
+  taken first, because it is also the test of whether the lattice work paid for itself.
+  The dimension asks "is this licence acceptable **for this integration mode**", which a
+  single allow/deny per licence cannot express: unlicensed code may be *invoked* and may
+  not be *copied*. So it is a fixed table — the same shape as `labels.DEFAULT_CEILINGS` —
+  plus two subset dimensions a profile narrows.
+
+  The cost of adding it is the number worth recording. Naming it in
+  `AuthorityLattice.violations`/`meet`, in `PolicyLattice`, and in the property test's
+  dimension list. That is all. `restrict`, `with_`, the meet, delegation and `ToolGateway`
+  govern it without being told, because each defers to the one predicate; the
+  anti-vacuity test confirmed both new dimensions immediately got real coverage. Before
+  v0.5.1 the same change would have meant editing four hand-written comparisons and
+  hoping they agreed.
+
+  It did surface one thing: `WorkProfile.freeze()` did not carry the new fields, so a
+  profile could declare a licence posture no gate would see. That is the *third* appearance
+  of one defect — v0.1 dropped `require_citation` between the profile and the output gate,
+  and `freeze()` exists because of it. A hand-written mapping that nothing checks is total
+  will keep doing this, so `test_every_profile_field_reaches_the_snapshot` now checks it.
 * **Both audit stores, not one.** PSH's hash chain is security truth; BioScience's causal
   event DAG is scientific provenance. They answer different questions and should not be
   flattened into one table.

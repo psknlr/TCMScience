@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from .contracts import Autonomy, Budget, PolicyDenied, RiskTier
 from .labels import Destination, Sensitivity
+from .licensing import INTEGRATION_MODES, LICENSE_CLASSES
 
 __all__ = ["WorkProfile", "PROFILES", "get_profile", "profile_names"]
 
@@ -47,6 +48,11 @@ class WorkProfile:
     risk: RiskTier
     require_claim_support: bool = True
     require_citation: bool = False
+    #: Licence provenance, adopted from BioScience-Harness. Defaults to everything, because
+    #: the licence table already refuses the combination that matters; a profile narrows
+    #: when the *work* imposes a constraint the licence alone does not.
+    integration_modes: tuple[str, ...] = INTEGRATION_MODES
+    license_classes: tuple[str, ...] = LICENSE_CLASSES
     budget: Budget = field(default_factory=Budget)
     rationale: str = ""
     notes: tuple[str, ...] = ()
@@ -68,6 +74,8 @@ class WorkProfile:
             require_citation=self.require_citation,
             require_claim_support=self.require_claim_support,
             autonomy=self.autonomy, risk_ceiling=self.risk, budget=self.budget,
+            allowed_integration_modes=tuple(self.integration_modes),
+            allowed_license_classes=tuple(self.license_classes),
             notes=self.notes)
 
     def as_config_kwargs(self) -> dict[str, Any]:
@@ -176,8 +184,14 @@ PROFILES: Mapping[str, WorkProfile] = {
         require_claim_support=False,
         budget=Budget(tokens_soft=200_000, tokens_hard=500_000, usd_soft=3.0, usd_hard=10.0,
                       max_tool_calls=400),
+        integration_modes=("native", "federated"),
         rationale=("Claim support is irrelevant to code. The data ceiling is INTERNAL so a "
-                   "chart note pasted into a debugging session cannot reach a provider."),
+                   "chart note pasted into a debugging session cannot reach a provider. "
+                   "Vendoring is off: this is the mode that produces code the group then "
+                   "distributes, and copying an upstream implementation into that tree is "
+                   "a licensing decision rather than an engineering one. Call it or "
+                   "reimplement it; if it must be vendored, that is a deliberate act under "
+                   "a profile that says so."),
         notes=("psh has no sandbox; use a container for anything that executes code.",)),
 
     "learning": WorkProfile(

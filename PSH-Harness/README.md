@@ -82,8 +82,31 @@ What this is **not**: a multi-agent runtime. There is no supervisor, no worker p
 fan-out and no parallelism, and `docs/ROADMAP_AGENT_RUNTIME.md` says so in a table rather
 than in prose. Gates first, then iteration — a loop multiplies whatever the gates get wrong.
 
+### Licence provenance — the first BioScience convergence step
+
+`psh/licensing.py` adds the one dimension where BioScience-Harness's policy model is
+stronger than this one: whether a capability's licence permits the **way** it is
+integrated. The same licence gives different answers —
+
+```
+vendor      copy the upstream implementation in     -> redistribution
+native      call an independent equivalent          -> no upstream code at all
+federated   invoke upstream in its own process      -> use, not redistribution
+```
+
+— so unlicensed code may be invoked and may not be copied, which a single allow/deny per
+licence cannot say. A fixed table states what is permissible in principle (the same shape
+as `labels.DEFAULT_CEILINGS`), and a profile narrows which classes and modes it permits at
+all; `coding` does not permit vendoring, because that is the mode that produces code the
+group then distributes.
+
+It is also the test of whether the lattice work paid for itself. Adding a governed
+dimension cost naming it in `AuthorityLattice`, `PolicyLattice` and the property test's
+dimension list — `restrict`, `with_`, the meet, delegation and `ToolGateway` govern it
+without being told.
+
 ```bash
-python -m pytest tests/ -q          # 345 pass
+python -m pytest tests/ -q          # 372 pass
 python -m compileall -q src         # clean
 ```
 
