@@ -21,6 +21,7 @@ Measured against the executing path, not the README.
 | --- | --- | --- | --- |
 | Single governed execution pipeline | ✅ | ✅ | `Runner.run`, 16 stages |
 | Typed plan | ❌ placeholder | ✅ | `runtime/plan.py` |
+| Model-backed planner | ❌ | ✅ | `runtime/planner.py`, validator-driven correction |
 | Plan validation | ❌ `"no typed plan to validate"` | ✅ | `runtime/plan_validator.py`, five families |
 | Plan/act/observe/evaluate loop | ❌ | ✅ | `runtime/loop.py`, bounded |
 | Tool-use loop integrated with the runtime | ❌ | ✅ | `TaskKind.TOOL` through the broker |
@@ -111,10 +112,13 @@ building the adapter twice.
 
 ### v0.6 — finish the single-agent runtime
 
-* **A real planner.** `StaticPlanner` takes the plan from the caller, which is honest but is
-  not planning. A model-backed planner emitting a *typed* `Plan` — through the broker, with
-  `ModelRetry`-style correction when the output does not parse — is the missing piece.
-  PydanticAI is the reference for typed output plus validator-driven retry.
+* **A real planner.** ~~`StaticPlanner` takes the plan from the caller, which is honest but
+  is not planning.~~ **Done** (`psh/runtime/planner.py`). `ModelPlanner` emits a typed
+  `Plan` through the broker, with PydanticAI-style validator-driven correction: each
+  refusal is fed back as the next attempt's input, bounded by `max_attempts`. The load-
+  bearing test is that an *escalating* plan is refused rather than obeyed — a planner's
+  output is a program, not an answer, so trusting it because a model produced it would make
+  every control in the package reachable by asking.
 * **Context compaction.** Absent entirely, and the thing that stops long research runs.
   DeepSeek Harness's treatment is the right shape: compaction is a capability, it emits a
   summary event and shadows the old events, rather than truncating the window. Without it

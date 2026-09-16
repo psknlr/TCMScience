@@ -15,6 +15,7 @@ from .loop import (
 from .plan import (
     Criterion, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind, TestSpec,
 )
+from .planner import PLANNER_SYSTEM_PROMPT, ModelPlanner, PlanParseError, parse_plan
 from .plan_validator import (
     PlanRejected, PlanValidator, PlanViolation, ValidatedPlan, task_envelope,
 )
@@ -23,7 +24,8 @@ from .runner import DEFAULT_SYSTEM_PROMPT, RunResult, Runner, StageRecord, Stuck
 __all__ = [
     "Runner", "RunResult", "StageRecord", "StuckLoop", "DEFAULT_SYSTEM_PROMPT",
     "AgentLoopController", "LoopState", "LoopResult", "LoopLimits", "Termination",
-    "Planner", "StaticPlanner",
+    "Planner", "StaticPlanner", "ModelPlanner", "parse_plan", "PlanParseError",
+    "PLANNER_SYSTEM_PROMPT",
     "Plan", "PlanTask", "TaskKind", "TestSpec", "Criterion", "RetryPolicy", "RetryBudget",
     "PlanValidator", "PlanViolation", "ValidatedPlan", "PlanRejected", "task_envelope",
     "ExecutionGraph", "TaskState", "TaskNode",

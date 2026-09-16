@@ -105,8 +105,21 @@ dimension cost naming it in `AuthorityLattice`, `PolicyLattice` and the property
 dimension list — `restrict`, `with_`, the meet, delegation and `ToolGateway` govern it
 without being told.
 
+### A planner that writes the plan
+
+`psh/runtime/planner.py` closes the last placeholder. `ModelPlanner` asks a model for a
+typed `Plan`, through `ExecutionBroker` like any other model call, parses it strictly, and
+feeds each refusal back so the next attempt can correct — bounded, because re-asking a
+model forever is a loop rather than a correction.
+
+The property worth stating: **a plan is untrusted input.** Its output is not an answer to
+be checked but a program to be run, so a model that proposes a task holding
+`PUBLIC_REMOTE` under a local-only run does not get it — `PlanValidator` refuses the plan
+and the refusal becomes the next prompt. If a model could widen a run by writing a wider
+plan, every control here would be reachable by asking for it.
+
 ```bash
-python -m pytest tests/ -q          # 372 pass
+python -m pytest tests/ -q          # 395 pass
 python -m compileall -q src         # clean
 ```
 

@@ -301,40 +301,54 @@ WIDENABLE_DIMENSIONS: tuple[str, ...] = (
 ) + tuple(f"budget.{d}" for d in AuthorityLattice.BUDGET_DIMENSIONS)
 
 
-@given(envelopes(), st.sampled_from(WIDENABLE_DIMENSIONS))
+@given(envelopes())
 @SETTINGS
-def test_widening_exactly_one_dimension_is_caught_and_named(parent, dimension):
-    """Widen one dimension, hold the other thirteen fixed, and require a refusal."""
+def test_widening_exactly_one_dimension_is_caught_and_named(parent):
+    """Widen one dimension, hold the other eighteen fixed, and require a refusal.
+
+    Every dimension is checked against every generated parent, rather than drawing
+    ``(parent, dimension)`` pairs. With nineteen dimensions, sampling the pair gave each
+    dimension about a nineteenth of the examples and then filtered most of those away for
+    want of headroom — so coverage was thin and, as the anti-vacuity test below caught,
+    genuinely unreliable from run to run. Looping is both stronger and cheaper: one drawn
+    envelope exercises every dimension it can.
+    """
     from psh.contracts import DelegationContract
     from psh.kernel.egress import DelegationGateway
 
-    # Envelopes carrying a bare () for capabilities mean "unrestricted", so a parent built
-    # that way has no capability headroom to take away. Normalise before mutating.
-    child = _mutate(parent, dimension)
-    assume(child is not None)
+    for dimension in WIDENABLE_DIMENSIONS:
+        # Envelopes carrying a bare () for capabilities mean "unrestricted", so a parent
+        # built that way has no capability headroom to take away; None means this parent
+        # cannot widen here, which is an ordinary outcome rather than a failure.
+        child = _mutate(parent, dimension)
+        if child is None:
+            continue
 
-    violations = AuthorityLattice.violations(child, parent)
-    assert [v.dimension for v in violations] == [dimension], (
-        f"the mutation was meant to widen {dimension} alone; the lattice saw "
-        f"{[v.dimension for v in violations]}")
+        violations = AuthorityLattice.violations(child, parent)
+        assert [v.dimension for v in violations] == [dimension], (
+            f"the mutation was meant to widen {dimension} alone; the lattice saw "
+            f"{[v.dimension for v in violations]}")
 
-    decision = DelegationGateway().check(
-        DelegationContract(task_id="t", objective="x", envelope=child), parent)
-    assert not decision.allowed, f"widening {dimension} alone was allowed"
-    assert dimension in decision.reason
+        decision = DelegationGateway().check(
+            DelegationContract(task_id="t", objective="x", envelope=child), parent)
+        assert not decision.allowed, f"widening {dimension} alone was allowed"
+        assert dimension in decision.reason
 
 
-@given(envelopes(), st.sampled_from(WIDENABLE_DIMENSIONS))
+@given(envelopes())
 @SETTINGS
-def test_restrict_refuses_the_same_single_widening(parent, dimension):
+def test_restrict_refuses_the_same_single_widening(parent):
     """``restrict`` and the delegation gateway must not diverge on any one dimension."""
-    child = _mutate(parent, dimension)
-    assume(child is not None)
-    # ``denied_capabilities`` and ``require_isolated_tools`` narrow by construction in
-    # restrict(), so they have their own test below rather than a refusal here.
-    assume(dimension not in ("denied_capabilities", "require_isolated_tools"))
-    with pytest.raises(PolicyDenied):
-        parent.restrict(**_restrict_kwargs(child, dimension))
+    for dimension in WIDENABLE_DIMENSIONS:
+        # ``denied_capabilities`` and ``require_isolated_tools`` narrow by construction in
+        # restrict(), so they have their own test below rather than a refusal here.
+        if dimension in ("denied_capabilities", "require_isolated_tools"):
+            continue
+        child = _mutate(parent, dimension)
+        if child is None:
+            continue
+        with pytest.raises(PolicyDenied):
+            parent.restrict(**_restrict_kwargs(child, dimension))
 
 
 def _restrict_kwargs(child: RunEnvelope, dimension: str) -> dict:
@@ -393,12 +407,17 @@ def test_every_lattice_dimension_is_actually_exercised():
 
     effective: collections.Counter = collections.Counter()
 
-    @_given(envelopes(), st.sampled_from(WIDENABLE_DIMENSIONS))
-    @_settings(max_examples=600, deadline=None,
+    # One drawn envelope contributes to every dimension's counter, so 200 examples give
+    # each dimension 200 chances rather than 200/19. Drawing the dimension as well made
+    # this test itself flaky — several dimensions scored zero in roughly one run in eight,
+    # which is the failure mode it exists to detect, reported about itself.
+    @_given(envelopes())
+    @_settings(max_examples=200, deadline=None,
                suppress_health_check=list(_HealthCheck))
-    def probe(parent, dimension):
-        if _mutate(parent, dimension) is not None:
-            effective[dimension] += 1
+    def probe(parent):
+        for dimension in WIDENABLE_DIMENSIONS:
+            if _mutate(parent, dimension) is not None:
+                effective[dimension] += 1
 
     probe()
     starved = sorted(d for d in WIDENABLE_DIMENSIONS if effective[d] == 0)
