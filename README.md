@@ -11,7 +11,7 @@ Working repository for the **PSH-Harness** (Physician-Scientist Harness) review 
 ```bash
 cd PSH-Harness
 pip install -e '.[test]'
-PYTHONPATH=src python -m pytest tests/ -q     # 342 pass
+PYTHONPATH=src python -m pytest tests/ -q     # 345 pass
 PYTHONPATH=src python -m compileall -q src    # clean
 ```
 

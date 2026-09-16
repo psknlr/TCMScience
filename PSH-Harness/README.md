@@ -83,7 +83,7 @@ fan-out and no parallelism, and `docs/ROADMAP_AGENT_RUNTIME.md` says so in a tab
 than in prose. Gates first, then iteration — a loop multiplies whatever the gates get wrong.
 
 ```bash
-python -m pytest tests/ -q          # 342 pass
+python -m pytest tests/ -q          # 345 pass
 python -m compileall -q src         # clean
 ```
 

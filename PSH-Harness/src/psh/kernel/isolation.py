@@ -621,6 +621,10 @@ def _run_contained(argv: Sequence[str], *, cwd: Path, env: Mapping[str, str],
     so the fallback is ``Popen.kill()`` with the same reporting; a job object is the real
     answer there and is noted as a gap rather than pretended away.
     """
+    # ``stdin=DEVNULL`` where the caller supplies none. ``subprocess.run(input=None)``
+    # left the child inheriting the kernel's stdin, which an isolated component has no
+    # business reading from and which makes a component that blocks on input hang the run
+    # until its timeout rather than failing immediately.
     proc = subprocess.Popen(
         list(argv), cwd=str(cwd), env=dict(env), text=True,
         stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
@@ -644,14 +648,25 @@ def _run_contained(argv: Sequence[str], *, cwd: Path, env: Mapping[str, str],
 
 
 def _kill_process_group(proc: "subprocess.Popen[str]") -> None:
-    """SIGKILL the child's process group, falling back to the child alone."""
+    """SIGKILL the child's process group, falling back to the child alone.
+
+    The guard is not defensive padding. ``killpg`` on our OWN group would SIGKILL the
+    kernel, every other isolated run in flight, and the process holding the audit chain —
+    a timeout on one tool taking down the harness. That is only reachable if
+    ``start_new_session=True`` did not take effect, which should not happen; "should not
+    happen" is exactly the condition worth checking before sending SIGKILL to a group.
+    """
     if sys.platform == "win32":  # pragma: no cover - platform specific
         proc.kill()
         return
     try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        child_group = os.getpgid(proc.pid)
+        if child_group == os.getpgid(0):
+            raise PermissionError(
+                "the child shares this process group; refusing to signal it")
+        os.killpg(child_group, signal.SIGKILL)
     except (ProcessLookupError, PermissionError, OSError):
-        # Already gone, or it left our group. Kill what we can still name.
+        # Already gone, still in our group, or not ours to signal. Kill what we can name.
         try:
             proc.kill()
         except ProcessLookupError:  # pragma: no cover - raced with exit

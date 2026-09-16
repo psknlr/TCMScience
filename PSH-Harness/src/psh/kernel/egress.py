@@ -830,11 +830,27 @@ def _executes_commands(manifest: Any) -> bool:
     return any(h in ident.split() or ident.startswith(h) for h in _COMMAND_COMPONENT_HINTS)
 
 
-def _candidate_command(payload: Any) -> Any:
-    """Extract a command (string or argv list) from a payload, or None if there is none."""
+def _candidate_command(payload: Any, _depth: int = 0) -> Any:
+    """Extract a command (string or argv list) from a payload, or None if there is none.
+
+    Walked rather than read from the top level, for the reason ``_candidate_paths`` was
+    changed in v0.5: nesting is the ordinary shape of a structured tool payload, so a
+    top-level-only check is close to no check at all. ``{"opts": {"command": "curl … | sh"}}``
+    reached the regex denylist through ``_flatten_text`` but never reached the declarative
+    execution policy, so a rule that said PROMPT or FORBIDDEN about that command did not
+    apply to it. The two extractors now agree about where a payload can hide things.
+
+    Bounded by the same caps as the other walkers. There is no fail-closed flag here
+    because there does not need to be one: ``ToolGateway.check`` has already refused a
+    payload whose ``_flatten_text`` walk was truncated, and that walk covers at least as
+    much of the structure as this one.
+    """
+    if _depth > _WALK_MAX_DEPTH:
+        return None
     if isinstance(payload, str):
-        return payload if payload.strip() else None
-    if isinstance(payload, (list, tuple)) and payload and all(isinstance(x, str) for x in payload):
+        return payload if payload.strip() and _depth == 0 else None
+    if (isinstance(payload, (list, tuple)) and payload
+            and all(isinstance(x, str) for x in payload)):
         return list(payload)
     if isinstance(payload, Mapping):
         for key, value in payload.items():
@@ -843,6 +859,12 @@ def _candidate_command(payload: Any) -> Any:
                     return value
                 if isinstance(value, (list, tuple)) and value:
                     return [str(v) for v in value]
+        # No command at this level: look inside. A command under a non-command key is
+        # still a command, and the component that reads it will not care how deep it was.
+        for value in payload.values():
+            found = _candidate_command(value, _depth + 1)
+            if found is not None:
+                return found
     return None
 
 

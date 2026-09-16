@@ -743,3 +743,29 @@ def test_the_declared_version_matches_the_package_metadata():
     root = Path(__file__).resolve().parent.parent
     declared = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     assert psh.__version__ == declared
+
+
+def test_the_group_kill_refuses_to_signal_our_own_process_group(monkeypatch):
+    """``killpg`` on our own group would SIGKILL the kernel, not the tool.
+
+    Only reachable if ``start_new_session=True`` did not take effect — which should not
+    happen, and is exactly the condition worth checking before sending SIGKILL to a group.
+    """
+    import os
+
+    from psh.kernel import isolation
+
+    killed: list = []
+    monkeypatch.setattr(isolation.os, "getpgid", lambda pid: 4242)
+    monkeypatch.setattr(isolation.os, "killpg",
+                        lambda pgid, sig: killed.append(("killpg", pgid)))
+
+    class FakeProc:
+        pid = 999
+
+        def kill(self):
+            killed.append(("kill", self.pid))
+
+    isolation._kill_process_group(FakeProc())
+    assert killed == [("kill", 999)], \
+        "it signalled a group that is our own instead of the child alone"

@@ -312,3 +312,34 @@ def test_the_broker_counted_every_action_a_run_performed(tmp_path, local_model):
     assert result.status == "ok"
     assert after == before + 1, "the model call did not pass the broker exactly once"
     kernel.close()
+
+
+# ============================ execution policy x payload nesting
+
+def test_the_execution_policy_sees_a_command_wherever_it_is_nested():
+    """Seam: the regex denylist walked the payload and the execpolicy read only the top.
+
+    So a command under a nested key reached one of the two layers. The regex list covers
+    shell shapes a token-prefix rule cannot express; the declarative policy covers the
+    named rules an operator actually writes. A payload that reaches only the first is
+    governed by half the controls that were configured for it.
+    """
+    from psh.kernel.egress import _candidate_command
+
+    assert _candidate_command({"command": "git push --force"}) == "git push --force"
+    assert _candidate_command({"opts": {"command": "git push --force"}}) == \
+        "git push --force"
+    assert _candidate_command({"a": {"b": {"argv": ["rm", "-rf", "/"]}}}) == \
+        ["rm", "-rf", "/"]
+    # Prose under a non-command key is still not a command.
+    assert _candidate_command({"note": "please run git push"}) is None
+
+
+def test_a_nested_forbidden_command_is_refused_by_the_declarative_policy():
+    manifest = ComponentManifest(id="shell", name="shell", kind=ComponentKind.TOOL,
+                                 max_label=Sensitivity.PHI, mutates=True)
+    envelope = RunEnvelope(autonomy=Autonomy.ACT, risk=RiskTier.R3_CLINICAL)
+    gateway = ToolGateway()
+    top = gateway.check({"command": "rm -rf /"}, manifest, envelope)
+    nested = gateway.check({"opts": {"command": "rm -rf /"}}, manifest, envelope)
+    assert not top.allowed and not nested.allowed

@@ -280,7 +280,7 @@ is most of why the field could not be turned on.
 ## Tests
 
 ```
-296 -> 300 passing   (230 before this release)
+230 -> 345 passing (296 after the defect fixes, before the loop and composition suites)
 ```
 
 * `tests/test_review_v5_1.py` — 66 tests, one per reproduction above. **55 of 62 fail on
