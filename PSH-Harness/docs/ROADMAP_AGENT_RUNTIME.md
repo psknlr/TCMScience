@@ -388,7 +388,7 @@ once, on top. Concretely:
 
 BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped; the
 container-validation ordering bug was closed in its v2.3.1 before convergence started,
-and the suite stands at 223 passed / 6 skipped with the bridge tests included.
+and the suite stands at 383 passed / 6 skipped with the bridge and native-toolkit tests included.
 
 ## 6. Naming the honest state
 

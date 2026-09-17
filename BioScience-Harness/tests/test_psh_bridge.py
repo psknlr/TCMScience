@@ -70,8 +70,8 @@ def kernel(tmp_path):
 @pytest.fixture
 def runtime(tmp_path):
     """Connectors only: the catalogue is not needed to prove the crossing."""
-    return default_runtime(catalogue=False, public_apis=True, cache_dir=None,
-                           data_lake=tmp_path / "no-lake")
+    return default_runtime(catalogue=False, public_apis=True, native_tools=False,
+                           cache_dir=None, data_lake=tmp_path / "no-lake")
 
 
 CONNECTORS = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider().discover()}
@@ -406,3 +406,53 @@ def test_a_proposal_that_targets_the_kernel_is_quarantined_before_it_is_tested()
     assert out.stage_log[-1]["stage"] == "boundary"
     assert "trusted plane" in out.stage_log[-1]["detail"]
     assert smoke_ran == [], "a boundary violation must not spend a smoke test"
+
+
+# ============================================ native tools: PHI stays local
+
+def test_native_tools_are_local_components_with_the_local_ceiling(kernel, tmp_path):
+    from bioagent.tools import TOOLS
+
+    runtime = default_runtime(catalogue=False, public_apis=False, native_tools=True,
+                              data_lake=tmp_path / "no-lake")
+    bridge = BioScienceBridge(kernel, runtime)
+    admitted = bridge.admit_all()
+    assert len(admitted) == len(TOOLS) and bridge.refusals == []
+    for manifest in admitted:
+        assert manifest.destinations == (Destination.LOCAL_COMPUTE,)
+        assert manifest.max_label is Sensitivity.PHI
+        assert not manifest.requires_network and not manifest.mutates
+        assert manifest.license_spdx == "MIT" and manifest.integration_mode == "native"
+        assert manifest.idempotent
+    registry = CapabilityRegistry()
+    stats = bridge.register_into(registry)
+    assert stats["harnesses"] == 7                       # one per toolkit domain
+    hits = registry.resolve("estimate kidney function eGFR from creatinine", kernel.policy.envelope())
+    assert any(c.id == "native.tool.egfr_ckd_epi_2021" for c in hits), [c.id for c in hits]
+
+
+def test_a_phi_payload_runs_locally_and_is_refused_remotely(kernel, runtime, transport, tmp_path):
+    """The label model's point, in one test: the same identifiable payload reaches a local
+    calculator and never reaches a public connector."""
+    from psh.labels import DataLabel, Labeled
+
+    local_runtime = default_runtime(catalogue=False, public_apis=False, native_tools=True,
+                                    data_lake=tmp_path / "no-lake")
+    bridge = BioScienceBridge(kernel, local_runtime)
+    bridge.admit_all()
+    calculator = bridge.component("native.tool.egfr_ckd_epi_2021")
+    phi = Labeled({"creatinine_mg_dl": 1.4, "age_years": 67, "sex": "female"},
+                  DataLabel(Sensitivity.PHI, categories=("medical_record_number",)))
+    envelope = kernel.policy.envelope()
+
+    result = kernel.broker.call_tool(calculator, phi, envelope)
+    assert result.value["kdigo_stage"] == "G3b"                  # 41.2 mL/min/1.73 m²
+    assert result.label.sensitivity is Sensitivity.PHI            # the result inherits PHI
+
+    remote = BioScienceBridge(kernel, runtime)
+    remote.admit(CONNECTORS["hgnc"])
+    with pytest.raises(EgressDenied):
+        kernel.broker.call_tool(remote.component("public.connector.hgnc"),
+                                Labeled({"operation": "symbol", "symbol": "TP53"}, phi.label),
+                                envelope)
+    assert transport.requests == []

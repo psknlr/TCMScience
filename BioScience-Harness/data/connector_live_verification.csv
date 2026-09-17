@@ -145,3 +145,10 @@ gprofiler,g:Profiler,gost,True,SUCCEEDED,200,1,2614,sha256:4313407f97ff,,biit.cs
 gprofiler,g:Profiler,convert,False,SUCCEEDED,200,1,1527,sha256:df9bae5f6176,,biit.cs.ut.ee,BSD-3-Clause (service),2026-09-17T07:34:17Z
 panther,PANTHER,geneinfo,True,SUCCEEDED,200,1,694,sha256:247e4b829b3c,,pantherdb.org,Free for research use (PANTHER terms),2026-09-17T07:34:17Z
 panther,PANTHER,enrich,False,SUCCEEDED,200,1,2979,sha256:3710e47a4166,,pantherdb.org,Free for research use (PANTHER terms),2026-09-17T07:34:21Z
+wikidata_sparql,Wikidata SPARQL,taxon_by_name,True,SUCCEEDED,200,1,1057,sha256:c5069014d3a8,,query.wikidata.org,CC0-1.0,2026-09-17T15:04:37Z
+wikidata_sparql,Wikidata SPARQL,compounds_in_taxon,False,SUCCEEDED,200,1,89694,sha256:01830fcf05f5,,query.wikidata.org,CC0-1.0,2026-09-17T15:06:07Z
+wikidata_sparql,Wikidata SPARQL,taxa_with_compound,False,SUCCEEDED,200,1,91413,sha256:6202ad6d6d04,,query.wikidata.org,CC0-1.0,2026-09-17T15:07:39Z
+wikidata_sparql,Wikidata SPARQL,sparql,False,SUCCEEDED,200,1,89871,sha256:ac6073277613,,query.wikidata.org,CC0-1.0,2026-09-17T15:09:08Z
+gbif,GBIF API,match,True,SUCCEEDED,200,1,461,sha256:05a61db930ff,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:02Z
+gbif,GBIF API,species,False,SUCCEEDED,200,1,457,sha256:4fe3cb269d0b,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:03Z
+gbif,GBIF API,occurrences,False,SUCCEEDED,200,2,13607,sha256:8d6584736148,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:16Z

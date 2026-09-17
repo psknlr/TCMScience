@@ -66,7 +66,7 @@ boundary itself — or whose source path or declared writes land there — is qu
 is spent on it, whatever it would have scored. The test proposes an "optimisation" that
 points a component at `psh.kernel.output_gate` and asserts the smoke runner never ran.
 
-## 3. The connector set: 16 → 56 sources, 45 → 146 operations, all verified live
+## 3. The connector set: 16 → 58 sources, 45 → 153 operations, all verified live
 
 `scripts/verify_connectors.py` renders every operation from its own example arguments,
 sends it through the real `HTTPBackend` (rate limits, retries, size caps) and writes one
@@ -85,6 +85,13 @@ it answered, and the date on the row says when.
 | clinical / medical terminology (6) | ClinicalTrials.gov, openFDA, NLM Clinical Tables (ICD-10-CM, RxTerms, LOINC, HCPCS, conditions), RxNav/RxNorm, DailyMed, MeSH |
 | literature (8) | NCBI E-utilities (PubMed, Gene, ClinVar, dbSNP, GEO), Europe PMC, Europe PMC Annotations, PubTator 3, Crossref, OpenAlex, bioRxiv/medRxiv, EBI Search |
 | ontologies / identifiers (7) | OLS4, HPO, Monarch, Disease Ontology, QuickGO, Bioregistry, Identifiers.org |
+| natural products / taxonomy (2) | Wikidata SPARQL (taxa by name, LOTUS compounds in a taxon, taxa containing an InChIKey, any read-only query), GBIF (name match, species, occurrences) |
+
+Wikidata is where the traditional-Chinese-medicine material that has no API of its own
+actually lives: herb items, their source taxa, and — through LOTUS — the compounds
+recorded in each taxon with InChIKeys that resolve in PubChem and ChEMBL. The service
+throttles shared cloud addresses to one query a minute, and the declared rate says so
+rather than letting the service refuse; an operator on a better-treated network raises it.
 
 Two mechanical additions made the set expressible: an `Operation` may carry a JSON body
 template (g:Profiler's POST API), substituted like `params`; and a GraphQL list variable
@@ -105,6 +112,41 @@ JSON APIs; they belong to the acquisition layer as datasets with checksummed
 Every new host is allowlisted in the `biomedical-research` profile (the BioScience policy
 kernel refuses undeclared hosts), and every host has a declared request rate.
 
+## 3b. Native tools: 71 capabilities executable anywhere the harness runs
+
+The census's central number was honest and uncomfortable: of 2,567 catalogued
+capabilities, the executable ones on a machine without a Biomni checkout, a container
+runtime or forty third-party imports were the datasets. `bioagent.tools` is the first
+tranche of capability that is executable *everywhere*: pure Python, no dependencies,
+deterministic, each a function of keyword arguments returning a JSON-serialisable dict,
+each with an example that is its smoke test (`native:<name>` in the manifest;
+`native_smoke_runner` serves the hot reloader and the evolution pipeline).
+
+| domain | tools |
+| --- | --- |
+| sequence analysis (12) | reverse complement, transcription, translation, GC content (windowed), ORF finding, k-mer counts, Hamming and edit distance, codon usage, primer Tm (Wallace / salt-adjusted), restriction sites (20 enzymes), oligo mass |
+| protein analysis (2) | mass, pI (EMBOSS pKa set), GRAVY, composition, aromaticity, extinction coefficient; Kyte–Doolittle hydropathy profile |
+| alignment (2) | Needleman–Wunsch global, Smith–Waterman local, linear gaps, optional substitution matrix |
+| file formats (5) | FASTA, FASTQ (quality statistics), VCF (INFO and genotypes), BED, GFF3/GTF |
+| variants (4) | HGVS parsing (c./g./n./m./r. substitution, deletion, duplication, insertion, delins; p. substitution, nonsense, frameshift, synonymous), variant normalisation and keys, allele frequencies with Hardy–Weinberg, Ts/Tv |
+| statistics (16) | hypergeometric and Fisher exact tests, ORA with Benjamini–Hochberg, Mann–Whitney U, Welch's t (regularised incomplete beta), log2 fold change, CPM, TPM, Pearson/Spearman, Shannon/Simpson, odds ratio and relative risk with CIs, diagnostic metrics, ROC AUC, NNT |
+| clinical calculators (30) | BMI, BSA, ideal/adjusted body weight, CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium, anion gap, corrected sodium, Henderson–Hasselbalch, alveolar gas and A–a gradient, QTc (Bazett, Fridericia, Framingham, Hodges), MAP, CHA₂DS₂-VASc, HAS-BLED, Wells DVT and PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald LDL, HbA1c→eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion |
+
+Through the bridge each is a `LOCAL_COMPUTE` component at the local ceiling: a clinical
+calculator may be handed an identifiable payload because nothing leaves the machine, and
+its result carries the PHI label onward. `test_a_phi_payload_runs_locally_and_is_refused_remotely`
+is the label model in one test — the same payload reaches the calculator and never reaches
+a public connector. The seven toolkit domains are seven harnesses in PSH's registry, so
+"estimate kidney function from creatinine" ranks the CKD-EPI tool without the planner
+having seen seventy-one manifests.
+
+Correctness is pinned, not assumed: `tests/test_native_tools.py` runs every tool from
+its example and checks values by hand (CKD-EPI 2021 for a 50-year-old at Scr 1.0 is
+68.6 / 91.7; MELD-Na for bilirubin 3, INR 2, creatinine 2, sodium 128 is 29; Fisher's
+tea-tasting table gives 0.4857; t = 2.228 at 10 df gives 0.05). Every calculator names
+its formula in its docstring and refuses out-of-range input with a reason, and none of
+them returns a recommendation — only the interpretation bands its source publishes.
+
 ## 4. Tests
 
 * `tests/test_psh_bridge.py` — 21 tests: manifest derivation on every dimension; the
@@ -122,6 +164,10 @@ kernel refuses undeclared hosts), and every host has a declared request rate.
 * `tests/test_public_sources.py` — every source internally consistent and renderable
   from its own example, JSON bodies and GraphQL variables templated, every source a valid
   http manifest, and the verification record complete.
+* `tests/test_native_tools.py` — every native tool runs its example, is deterministic and
+  returns JSON; the provider's manifests are valid offline components; the python backend
+  loads and runs all 71; values pinned against hand-computed and textbook cases; bad input
+  is a reason, not a traceback.
 * The suite runs from a plain clone: `tests/conftest.py` puts the sibling `PSH-Harness/src`
   on the path when `psh` is not installed. The root `.github/workflows/ci.yml` runs both
   packages and the bridge; live verification is a manual job.

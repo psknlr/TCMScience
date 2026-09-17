@@ -87,6 +87,11 @@ DEFAULT_RATES: Mapping[str, float] = {
     "biit.cs.ut.ee": 2.0,
     "pantherdb.org": 2.0,
     "www.proteinatlas.org": 3.0,
+    # Wikidata throttles shared cloud addresses to about one query a minute; declared with
+    # margin so the limiter paces rather than the service refuses. Raise it with rates= on a
+    # network Wikidata treats better.
+    "query.wikidata.org": 1.0 / 90.0,
+    "api.gbif.org": 5.0,
 }
 
 

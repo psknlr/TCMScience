@@ -24,17 +24,41 @@ entrypoint, source path or declared writes land in the trusted plane (PSH's kern
 policy, labels, contracts, licensing; this package's policy kernel and bridge) is
 quarantined before a smoke test or benchmark is spent on it.
 
-**16 → 56 verified public sources, 45 → 146 typed operations.** Structures (AlphaFold DB,
+**`bioagent.tools` — 71 native tools that run anywhere the harness runs.** The census's
+honest number was that almost nothing in the 2,567-row catalogue is executable without a
+Biomni checkout, a container runtime or forty imports. This is the first tranche that is:
+pure Python, no dependencies, deterministic, each with an example that is its smoke test.
+Sequence analysis (reverse complement, translation, ORFs, GC, k-mers, codon usage,
+primer Tm, restriction sites, oligo mass), protein properties (mass, pI, GRAVY,
+hydropathy, extinction coefficient), Needleman–Wunsch and Smith–Waterman alignment,
+FASTA/FASTQ/VCF/BED/GFF parsers, HGVS parsing, variant normalisation, allele frequencies
+with Hardy–Weinberg, Ts/Tv, and statistics from the standard library only
+(hypergeometric and Fisher tests, ORA with BH-FDR, Mann–Whitney, Welch's t with the
+regularised incomplete beta, CPM/TPM, correlation, diversity, odds ratio, relative risk,
+diagnostic metrics, ROC AUC, NNT). And thirty clinical calculators with the formula named
+on each: CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium and sodium, anion gap,
+Henderson–Hasselbalch, alveolar gas, four QTc corrections, MAP, CHA₂DS₂-VASc, HAS-BLED,
+Wells DVT/PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald,
+eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion.
+Through the bridge they are `LOCAL_COMPUTE` components at the PHI ceiling — a calculator
+may see an identifiable payload because nothing leaves the machine, and its result
+carries the label onward — which is the label model's point, and `test_psh_bridge.py`
+shows the same payload refused at a public connector. Values are pinned against
+hand-computed and textbook cases in `tests/test_native_tools.py`.
+
+**16 → 58 verified public sources, 45 → 153 typed operations.** Structures (AlphaFold DB,
 PDBe, InterPro), expression (Human Protein Atlas, GTEx, ENCODE, BioStudies, CELLxGENE,
 MetaboLights), pathways and enrichment (WikiPathways, OmniPath, g:Profiler, PANTHER), drug–
 gene and cancer genomics (DGIdb, CIViC, cBioPortal, NCI GDC), clinical terminology (ICD-10-CM,
 RxTerms, LOINC, HCPCS and conditions via NLM Clinical Tables; RxNav/RxNorm; DailyMed; MeSH),
 literature graphs (PubTator 3, Europe PMC Annotations, Crossref, OpenAlex, bioRxiv, EBI
 Search) and ontologies (OLS4, HPO, Monarch, Disease Ontology, QuickGO, Bioregistry,
-Identifiers.org). Every operation is executed live by `scripts/verify_connectors.py` and
-recorded in `data/connector_live_verification.csv`; `tests/test_public_sources.py` refuses
-to ship an operation without a `SUCCEEDED` row. Three sources that did not answer were
-removed rather than listed on faith.
+Identifiers.org), and natural products and taxonomy (Wikidata SPARQL — taxa, LOTUS
+compound occurrences by taxon and by InChIKey, Chinese-herbology items, any read-only
+query — and GBIF name matching and occurrences). Every operation is executed live by
+`scripts/verify_connectors.py` and recorded in `data/connector_live_verification.csv`;
+`tests/test_public_sources.py` refuses to ship an operation without a `SUCCEEDED` row.
+Three sources that did not answer were removed rather than listed on faith.
 
     PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py   # live: HGNC + UniProt through both kernels
     PYTHONPATH=src python scripts/verify_connectors.py --no-write   # re-measure every operation
@@ -235,7 +259,8 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         hmr.py             transactional hot reload + LazyComponentSet
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
-      providers/           discovery from catalogue rows, SKILL.md trees and 56 public sources
+      providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
+      tools/               71 native bioinformatics and clinical tools (no dependencies)
       psh/                 the PSH bridge: manifest derivation, the crossing, domain harnesses,
                            the isolated entrypoint (needs PSH-Harness; the rest does not)
       planners/            self-registering plugins: heuristic, llm
@@ -268,6 +293,7 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
                                      isolation, the kernel boundary (needs PSH importable;
                                      conftest finds the sibling checkout)
     tests/test_public_sources.py     the connector table and its verification record
+    tests/test_native_tools.py       every native tool from its example; values pinned
 
 Measuring the catalogue's python entrypoints:
 

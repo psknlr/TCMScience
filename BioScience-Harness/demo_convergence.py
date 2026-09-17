@@ -110,6 +110,19 @@ def main() -> int:
         print(f"  EgressDenied: {str(exc)[:140]}")
     print(f"  bioscience runtime calls for hgnc: "
           f"{bridge.component('public.connector.hgnc').calls} (the refused one is not among them)")
+
+    # 5. The same identifiable payload, to a native clinical calculator: it never leaves the
+    #    machine, so it runs, and its result carries the PHI label onward.
+    from psh.labels import DataLabel, Labeled
+
+    local = BioScienceBridge(kernel, default_runtime(catalogue=False, public_apis=False))
+    local.admit_all()
+    phi = Labeled({"creatinine_mg_dl": 1.4, "age_years": 67, "sex": "female"},
+                  DataLabel(Sensitivity.PHI, categories=("medical_record_number",)))
+    result = kernel.broker.call_tool(local.component("native.tool.egfr_ckd_epi_2021"), phi, envelope)
+    print(f"\nlocal calculator on the PHI payload: eGFR {result.value['egfr_ml_min_1_73m2']} "
+          f"({result.value['kdigo_stage']}), result label {result.label.sensitivity.name}; "
+          f"{len(local.manifests())} native tools admitted, all LOCAL_COMPUTE at the PHI ceiling")
     kernel.close()
     return 0
 

@@ -531,6 +531,52 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
                       example={"curie": "hgnc:11998"}),
         ), smoke="resolve", docs="https://docs.identifiers.org/"),
 
+    # -------------------------------------------- natural products / taxonomy
+    PublicSource(
+        "wikidata_sparql", "Wikidata SPARQL", "https://query.wikidata.org", "query.wikidata.org",
+        "CC0-1.0", "Knowledge-graph queries: taxa (P225), LOTUS natural-product occurrences "
+        "(P703 found in taxon, P235 InChIKey, P233 SMILES), Chinese herbology items, diseases, "
+        "genes and drugs, by SPARQL.", "natural-products", (
+            Operation("taxon_by_name", "Taxon items by scientific name", "sparql",
+                      params={"format": "json", "query": (
+                          "SELECT ?item ?itemLabel ?rank ?rankLabel WHERE { ?item wdt:P225 "
+                          "\"{name}\" . OPTIONAL { ?item wdt:P105 ?rank } SERVICE wikibase:label "
+                          "{ bd:serviceParam wikibase:language \"en\" } } LIMIT {limit}")},
+                      args=("name",), example={"name": "Panax ginseng", "limit": 5}),
+            Operation("compounds_in_taxon", "Natural products recorded in a taxon (LOTUS)", "sparql",
+                      params={"format": "json", "query": (
+                          "SELECT ?compound ?compoundLabel ?inchikey ?smiles WHERE { ?compound "
+                          "wdt:P703 wd:{taxon_qid} . OPTIONAL { ?compound wdt:P235 ?inchikey } "
+                          "OPTIONAL { ?compound wdt:P233 ?smiles } SERVICE wikibase:label "
+                          "{ bd:serviceParam wikibase:language \"en\" } } LIMIT {limit}")},
+                      args=("taxon_qid",), example={"taxon_qid": "Q182881", "limit": 20}),
+            Operation("taxa_with_compound", "Taxa in which a compound (by InChIKey) occurs", "sparql",
+                      params={"format": "json", "query": (
+                          "SELECT ?compound ?compoundLabel ?taxon ?taxonLabel WHERE { ?compound "
+                          "wdt:P235 \"{inchikey}\" ; wdt:P703 ?taxon . SERVICE wikibase:label "
+                          "{ bd:serviceParam wikibase:language \"en\" } } LIMIT {limit}")},
+                      args=("inchikey",),
+                      example={"inchikey": "YBHILYKTIRIUTE-UHFFFAOYSA-N", "limit": 20}),
+            Operation("sparql", "Any read-only SPARQL query", "sparql",
+                      params={"format": "json", "query": "{query}"}, args=("query",),
+                      example={"query": "SELECT ?item ?itemLabel WHERE { ?item wdt:P31 wd:Q12140 ; "
+                                        "wdt:P2275 ?name . SERVICE wikibase:label { bd:serviceParam "
+                                        "wikibase:language \"en\" } } LIMIT 3"}),
+        ), smoke="taxon_by_name", docs="https://www.wikidata.org/wiki/Wikidata:SPARQL_query_service",
+        rate_note="be gentle: 60 s query timeout, shared service"),
+
+    PublicSource(
+        "gbif", "GBIF API", "https://api.gbif.org/v1", "api.gbif.org", "CC-BY-4.0 / CC0 (per dataset)",
+        "Taxonomic backbone, name matching and species occurrences.", "natural-products", (
+            Operation("match", "Match a scientific name to the backbone", "species/match",
+                      params={"name": "{name}"}, args=("name",), example={"name": "Panax ginseng"}),
+            Operation("species", "Species record by GBIF key", "species/{key}", args=("key",),
+                      example={"key": 3596893}),
+            Operation("occurrences", "Occurrence records for a taxon key", "occurrence/search",
+                      params={"taxonKey": "{taxon_key}", "limit": "{limit}"}, args=("taxon_key",),
+                      example={"taxon_key": 3596893, "limit": 3}),
+        ), smoke="match", docs="https://techdocs.gbif.org/en/openapi/"),
+
     # --------------------------------------------------------------- enrichment
     PublicSource(
         "gprofiler", "g:Profiler", "https://biit.cs.ut.ee/gprofiler/api", "biit.cs.ut.ee",

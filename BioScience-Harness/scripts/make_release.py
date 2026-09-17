@@ -62,6 +62,7 @@ REQUIRED_PACKAGES = (
     "bioagent.providers",
     "bioagent.psh",
     "bioagent.runtime",
+    "bioagent.tools",
     "bioagent.workspace",
 )
 
