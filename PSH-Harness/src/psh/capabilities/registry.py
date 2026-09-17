@@ -57,6 +57,43 @@ class ResolutionTrace:
                 "returned": self.returned}
 
 
+def _render_schema(manifest: ComponentManifest, *, max_operations: int = 12) -> str:
+    """One compact block per capability: how to fill ``payload`` for it."""
+    import json
+
+    schema = manifest.input_schema or {}
+    head = f"{manifest.id} payload:"
+    operations = schema.get("operations")
+    if isinstance(operations, Mapping) and operations:
+        lines = [f"{head} {{\"operation\": <name>, ...arguments}} — operations:"]
+        for name, spec in list(operations.items())[:max_operations]:
+            args = ", ".join(spec.get("args", ())) if isinstance(spec, Mapping) else ""
+            example = spec.get("example", {}) if isinstance(spec, Mapping) else {}
+            example_text = json.dumps({"operation": name, **dict(example)}, default=str)
+            desc = spec.get("description", "") if isinstance(spec, Mapping) else ""
+            lines.append(f"  {name}({args}) — {desc} e.g. {example_text}"[:400])
+        if len(operations) > max_operations:
+            lines.append(f"  … {len(operations) - max_operations} more operation(s)")
+        return "\n".join(lines)
+    parameters = schema.get("parameters")
+    if isinstance(parameters, (list, tuple)) and parameters:
+        names = []
+        for p in parameters:
+            if isinstance(p, Mapping) and "name" in p:
+                names.append(p["name"] + ("" if p.get("required", True) else "?"))
+        example = schema.get("example")
+        text = f"{head} arguments {', '.join(names)}"
+        if example:
+            text += f" e.g. {json.dumps(example, default=str)[:300]}"
+        return text
+    properties = schema.get("properties")
+    if isinstance(properties, Mapping) and properties:
+        required = set(schema.get("required") or ())
+        names = [k + ("" if k in required else "?") for k in properties]
+        return f"{head} object with {', '.join(names)}"
+    return f"{head} no schema declared; pass only arguments the component documents"
+
+
 _WORD = re.compile(r"[a-z][a-z0-9-]{2,}")
 _STOP = frozenset("""the and for with from that this into over under able all any are
 was were will can could would should has have had its their there which who what when
@@ -219,6 +256,33 @@ class CapabilityRegistry:
                 content=(f"{m.id} ({m.kind.value}): {m.description or m.name}"
                          + (f" [intents: {', '.join(m.intents)}]" if m.intents else "")
                          + (f" [approval required]" if m.human_approval else ""))))
+        return items
+
+    def schema_items(self, candidates: Sequence[Candidate], *, limit: int = 6,
+                     max_operations: int = 12) -> list[ContextItem]:
+        """Render the payload schemas of the top candidates — the second level of disclosure.
+
+        ``manifest_items`` shows enough to *choose* a capability. This shows enough to
+        *call* it: a connector's operations with their arguments and an example payload,
+        a native tool's parameters and example, or the property names of a declared JSON
+        schema. Only for the few candidates that survived ranking, so a planner that saw
+        fifteen summaries sees six schemas rather than fifteen — and only from the
+        manifest, never from an invocation, so the model's context stays a build product
+        of the registry. Each item carries the manifest's description label, because a
+        schema that arrived from an MCP server or a catalogue is text this kernel did not
+        write.
+        """
+        from ..labels import DataLabel, Sensitivity
+
+        items: list[ContextItem] = []
+        for candidate in candidates[:limit]:
+            m = candidate.manifest
+            recorded = (m.provenance or {}).get("description_sensitivity")
+            label = DataLabel(Sensitivity[recorded]) if recorded in Sensitivity.__members__ \
+                else DataLabel()
+            items.append(ContextItem(
+                kind="manifest", source_ref=m.id, score=candidate.score, label=label,
+                content=_render_schema(m, max_operations=max_operations)))
         return items
 
     def stats(self) -> dict[str, Any]:

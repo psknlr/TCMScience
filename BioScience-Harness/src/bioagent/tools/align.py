@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-__all__ = ["global_alignment", "local_alignment"]
+__all__ = ["global_alignment", "local_alignment", "protein_alignment"]
 
 
-def _score_fn(match: float, mismatch: float, matrix: Mapping[str, Mapping[str, float]] | None):
+def _score_fn(match: float, mismatch: float, matrix: Any):
+    if isinstance(matrix, str):
+        from .matrices import matrix_by_name
+        matrix = matrix_by_name(matrix)
     if matrix:
         def score(a: str, b: str) -> float:
             try:
@@ -41,9 +44,9 @@ def _summarise(ax: str, ay: str, score: float) -> dict[str, Any]:
 
 
 def global_alignment(a: str, b: str, match: float = 2.0, mismatch: float = -1.0,
-                     gap: float = -2.0, matrix: Mapping[str, Mapping[str, float]] | None = None
+                     gap: float = -2.0, matrix: Mapping[str, Mapping[str, float]] | str | None = None
                      ) -> dict[str, Any]:
-    """Needleman–Wunsch with a linear gap penalty."""
+    """Needleman–Wunsch with a linear gap penalty; ``matrix`` may name BLOSUM62."""
     x, y = _prepare(a, b)
     score = _score_fn(match, mismatch, matrix)
     n, m = len(x), len(y)
@@ -75,7 +78,7 @@ def global_alignment(a: str, b: str, match: float = 2.0, mismatch: float = -1.0,
 
 
 def local_alignment(a: str, b: str, match: float = 2.0, mismatch: float = -1.0,
-                    gap: float = -2.0, matrix: Mapping[str, Mapping[str, float]] | None = None
+                    gap: float = -2.0, matrix: Mapping[str, Mapping[str, float]] | str | None = None
                     ) -> dict[str, Any]:
     """Smith–Waterman with a linear gap penalty; reports the best local segment."""
     x, y = _prepare(a, b)
@@ -107,4 +110,16 @@ def local_alignment(a: str, b: str, match: float = 2.0, mismatch: float = -1.0,
     out = _summarise("".join(reversed(ax)), "".join(reversed(ay)), best)
     out.update({"mode": "local", "start_a": i + 1, "end_a": end_a, "start_b": j + 1,
                 "end_b": end_b})
+    return out
+
+
+def protein_alignment(a: str, b: str, mode: str = "global", gap: float = -4.0) -> dict[str, Any]:
+    """Protein alignment scored with BLOSUM62 and a linear gap penalty."""
+    if mode == "global":
+        out = global_alignment(a, b, gap=gap, matrix="BLOSUM62")
+    elif mode == "local":
+        out = local_alignment(a, b, gap=gap, matrix="BLOSUM62")
+    else:
+        raise ValueError("mode must be 'global' or 'local'")
+    out["matrix"] = "BLOSUM62"
     return out

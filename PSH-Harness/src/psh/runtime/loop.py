@@ -87,6 +87,12 @@ class LoopLimits:
     #: not tell those apart.
     max_no_progress: int = 2
     retries: RetryBudget = field(default_factory=RetryBudget)
+    #: How many *independent* ready tasks may execute at once. 1 is sequential, which
+    #: is the default because it is the easier behaviour to reason about; above 1 the
+    #: ready set of each iteration runs on a bounded thread pool. Nothing about the
+    #: governance changes: every branch is still a broker call, the gates and the budget
+    #: governor are locked, and a refusal in one branch is that branch's failure.
+    max_parallel: int = 1
 
     def __post_init__(self) -> None:
         for name in ("max_iterations", "max_replans", "max_no_progress"):
@@ -94,6 +100,8 @@ class LoopLimits:
                 raise ValueError(f"{name} must not be negative")
         if self.max_iterations < 1:
             raise ValueError("a loop with no iterations cannot do anything")
+        if self.max_parallel < 1:
+            raise ValueError("max_parallel must be at least 1")
 
 
 @dataclass
@@ -323,8 +331,7 @@ class AgentLoopController:
 
                 ready = state.graph.ready()
                 if ready:
-                    for node in ready:
-                        self._execute_task(state, node.task)
+                    self._execute_ready(state, ready)
                 elif not state.graph.complete:
                     # Nothing ready and nothing finished: every remaining task is blocked.
                     state.graph.block_descendants("")
@@ -423,6 +430,34 @@ class AgentLoopController:
         return True
 
     # ----------------------------------------------------------------- dispatch
+    def _execute_ready(self, state: LoopState, ready: Sequence[Any]) -> None:
+        """Run this iteration's ready set: in order, or on a bounded pool of threads.
+
+        The ready set is independent by construction — every dependency of each task has
+        already succeeded — so branches never read each other's results mid-flight; each
+        takes its snapshot of ``labeled_results()`` when it starts. Results are collected
+        in submission order, so a bound that one branch hit (budget, approval) surfaces
+        deterministically, after the branches already in flight have recorded their own
+        outcome on the graph.
+        """
+        workers = min(self.limits.max_parallel, len(ready))
+        if workers <= 1:
+            for node in ready:
+                self._execute_task(state, node.task)
+            return
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="psh-branch") as pool:
+            futures = [pool.submit(self._execute_task, state, node.task) for node in ready]
+            first_error: BaseException | None = None
+            for future in futures:
+                try:
+                    future.result()
+                except BaseException as exc:  # noqa: BLE001 - re-raised below, in order
+                    first_error = first_error or exc
+        if first_error is not None:
+            raise first_error
+
     def _execute_task(self, state: LoopState, task: PlanTask) -> None:
         """Run one task through the broker, with its own envelope and retry policy."""
         graph = state.graph

@@ -24,13 +24,14 @@ entrypoint, source path or declared writes land in the trusted plane (PSH's kern
 policy, labels, contracts, licensing; this package's policy kernel and bridge) is
 quarantined before a smoke test or benchmark is spent on it.
 
-**`bioagent.tools` — 71 native tools that run anywhere the harness runs.** The census's
+**`bioagent.tools` — 77 native tools that run anywhere the harness runs.** The census's
 honest number was that almost nothing in the 2,567-row catalogue is executable without a
 Biomni checkout, a container runtime or forty imports. This is the first tranche that is:
 pure Python, no dependencies, deterministic, each with an example that is its smoke test.
 Sequence analysis (reverse complement, translation, ORFs, GC, k-mers, codon usage,
 primer Tm, restriction sites, oligo mass), protein properties (mass, pI, GRAVY,
-hydropathy, extinction coefficient), Needleman–Wunsch and Smith–Waterman alignment,
+hydropathy, extinction coefficient), Needleman–Wunsch and Smith–Waterman alignment
+(BLOSUM62 bundled and checked against its published values),
 FASTA/FASTQ/VCF/BED/GFF parsers, HGVS parsing, variant normalisation, allele frequencies
 with Hardy–Weinberg, Ts/Tv, and statistics from the standard library only
 (hypergeometric and Fisher tests, ORA with BH-FDR, Mann–Whitney, Welch's t with the
@@ -39,7 +40,8 @@ diagnostic metrics, ROC AUC, NNT). And thirty clinical calculators with the form
 on each: CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium and sodium, anion gap,
 Henderson–Hasselbalch, alveolar gas, four QTc corrections, MAP, CHA₂DS₂-VASc, HAS-BLED,
 Wells DVT/PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald,
-eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion.
+eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion,
+PHQ-9, GAD-7, Apgar, Bishop, gestational age and Naegele's due date.
 Through the bridge they are `LOCAL_COMPUTE` components at the PHI ceiling — a calculator
 may see an identifiable payload because nothing leaves the machine, and its result
 carries the label onward — which is the label model's point, and `test_psh_bridge.py`
@@ -260,7 +262,7 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
       providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
-      tools/               71 native bioinformatics and clinical tools (no dependencies)
+      tools/               77 native bioinformatics and clinical tools (no dependencies)
       psh/                 the PSH bridge: manifest derivation, the crossing, domain harnesses,
                            the isolated entrypoint (needs PSH-Harness; the rest does not)
       planners/            self-registering plugins: heuristic, llm

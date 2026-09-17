@@ -63,6 +63,7 @@ nothing else** — no prose, no explanation, no code fence.
       "objective": "what this step achieves",
       "kind": "model" | "tool" | "delegate",
       "component_id": "required when kind is tool",
+      "payload": {"argument": "value — exactly the arguments the capability's payload schema names"},
       "dependencies": ["task_id of any step that must finish first"],
       "max_risk": "R0_TRIVIAL" | "R1_ROUTINE" | "R2_CONSEQUENTIAL" | "R3_CLINICAL",
       "max_label": "PUBLIC" | "INTERNAL" | "RESEARCH_DEIDENTIFIED" | "SENSITIVE" | "PHI",
@@ -84,6 +85,10 @@ Rules that are enforced, so a plan breaking them is refused rather than run:
 * Every plan needs at least one completion criterion, or there is no definition of done.
 * A `tool` task must name a `component_id` from the capabilities listed below. Do not
   invent one.
+* A `tool` task's `payload` holds the arguments its capability's payload schema (listed
+  below for the best matches) names, and nothing else. A connector needs `"operation"`
+  plus that operation's arguments; a tool with named parameters needs those parameters.
+  A payload the schema does not describe fails at the component, not silently.
 * Budget estimates are checked for feasibility before anything runs.
 """
 
@@ -253,10 +258,15 @@ class ModelPlanner(Planner):
     def __init__(self, kernel: Any, *, model: Any,
                  model_invoke: Callable[[str], str],
                  registry: Any = None, validator: PlanValidator | None = None,
-                 max_attempts: int = 3, system_prompt: str = "") -> None:
+                 max_attempts: int = 3, system_prompt: str = "",
+                 schema_candidates: int = 6) -> None:
         self.kernel = kernel
         self.model = model
         self.model_invoke = model_invoke
+        #: How many of the ranked capabilities have their payload schema disclosed. The
+        #: summaries let the model choose; the schemas let it call. Both come from the
+        #: registry's manifests and nothing else.
+        self.schema_candidates = schema_candidates
         self.registry = registry
         #: The planner validates so it can *correct*; the loop validates again so the
         #: result is enforced. The second check is the authoritative one — a planner that
@@ -340,6 +350,9 @@ class ModelPlanner(Planner):
         if self.registry is not None:
             candidates = self.registry.resolve(state.objective, state.envelope, limit=12)
             items += self.registry.manifest_items(candidates)
+            schema_items = getattr(self.registry, "schema_items", None)
+            if schema_items is not None and self.schema_candidates > 0:
+                items += schema_items(candidates, limit=self.schema_candidates)
         if errors:
             # The correction. Naming what was wrong is the difference between a retry and
             # a second identical answer.

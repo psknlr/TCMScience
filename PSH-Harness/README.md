@@ -78,9 +78,10 @@ Termination is a controller rather than a repeat counter: `goal_satisfied`, `max
 are per task and are charged to the same budget as the first attempt; a policy *refusal* is
 never retried, because it is an answer rather than a fault.
 
-What this is **not**: a multi-agent runtime. There is no supervisor, no worker pool, no
-fan-out and no parallelism, and `docs/ROADMAP_AGENT_RUNTIME.md` says so in a table rather
-than in prose. Gates first, then iteration — a loop multiplies whatever the gates get wrong.
+What this was **not**, when it landed: a multi-agent runtime. No supervisor, no worker
+pool, no fan-out and no parallelism — `docs/ROADMAP_AGENT_RUNTIME.md` said so in a table
+rather than in prose, and the sections below add each of them in turn. Gates first, then
+iteration — a loop multiplies whatever the gates get wrong.
 
 ### Licence provenance — the first BioScience convergence step
 
@@ -117,6 +118,29 @@ be checked but a program to be run, so a model that proposes a task holding
 `PUBLIC_REMOTE` under a local-only run does not get it — `PlanValidator` refuses the plan
 and the refusal becomes the next prompt. If a model could widen a run by writing a wider
 plan, every control here would be reachable by asking for it.
+
+### Parallel branches, and schemas the planner can act on
+
+Two properties a frontier runtime has and the v0.5.1 loop did not. An iteration's ready
+set is independent by construction — every dependency of each task has already
+succeeded — so with `LoopLimits(max_parallel=n)` it runs on a bounded pool of threads.
+Nothing about the governance changes: every branch is still one of the three broker
+calls, the gates and the budget governor are locked (the counters that tests and audits
+read now take a lock too), a refusal in one branch is that branch's failure and its
+descendants' block, and a bound one branch hits — an approval nobody can grant, a budget
+— surfaces as the loop's termination after the branches already in flight have recorded
+their own outcome. Sequential stays the default, because it is the easier behaviour to
+reason about.
+
+And the registry's disclosure gained its second level. `manifest_items` shows enough to
+*choose* a capability; `schema_items` shows enough to *call* one — a connector's
+operations with their arguments and an example payload, a native tool's parameters, or
+the property names of a declared JSON schema — for the few candidates that survived
+ranking, from the manifest and never from an invocation. `ModelPlanner` puts them in the
+planning prompt, whose rules now say what a `payload` is, so a model can write
+`{"operation": "symbol", "symbol": "TP53"}` instead of guessing. Each item carries the
+manifest's description label, because a schema that arrived from an MCP server or a
+catalogue is text this kernel did not write. `tests/test_parallel_and_schemas.py`.
 
 ### Checkpoint and resume, with one rule
 
@@ -238,7 +262,7 @@ three data-licence ids in `licensing.py` and nothing else: the dependency points
 honest state; `BioScience-Harness/demo_convergence.py` runs a plan through both.
 
 ```bash
-python -m pytest tests/ -q          # 517 pass
+python -m pytest tests/ -q          # 525 pass
 python -m compileall -q src         # clean
 ```
 

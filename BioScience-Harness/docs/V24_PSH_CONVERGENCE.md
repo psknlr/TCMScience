@@ -112,7 +112,7 @@ JSON APIs; they belong to the acquisition layer as datasets with checksummed
 Every new host is allowlisted in the `biomedical-research` profile (the BioScience policy
 kernel refuses undeclared hosts), and every host has a declared request rate.
 
-## 3b. Native tools: 71 capabilities executable anywhere the harness runs
+## 3b. Native tools: 77 capabilities executable anywhere the harness runs
 
 The census's central number was honest and uncomfortable: of 2,567 catalogued
 capabilities, the executable ones on a machine without a Biomni checkout, a container
@@ -126,11 +126,11 @@ each with an example that is its smoke test (`native:<name>` in the manifest;
 | --- | --- |
 | sequence analysis (12) | reverse complement, transcription, translation, GC content (windowed), ORF finding, k-mer counts, Hamming and edit distance, codon usage, primer Tm (Wallace / salt-adjusted), restriction sites (20 enzymes), oligo mass |
 | protein analysis (2) | mass, pI (EMBOSS pKa set), GRAVY, composition, aromaticity, extinction coefficient; Kyte–Doolittle hydropathy profile |
-| alignment (2) | Needleman–Wunsch global, Smith–Waterman local, linear gaps, optional substitution matrix |
+| alignment (3) | Needleman–Wunsch global, Smith–Waterman local, linear gaps, optional substitution matrix; protein alignment with the bundled BLOSUM62 (symmetry and published diagonal checked by test) |
 | file formats (5) | FASTA, FASTQ (quality statistics), VCF (INFO and genotypes), BED, GFF3/GTF |
 | variants (4) | HGVS parsing (c./g./n./m./r. substitution, deletion, duplication, insertion, delins; p. substitution, nonsense, frameshift, synonymous), variant normalisation and keys, allele frequencies with Hardy–Weinberg, Ts/Tv |
 | statistics (16) | hypergeometric and Fisher exact tests, ORA with Benjamini–Hochberg, Mann–Whitney U, Welch's t (regularised incomplete beta), log2 fold change, CPM, TPM, Pearson/Spearman, Shannon/Simpson, odds ratio and relative risk with CIs, diagnostic metrics, ROC AUC, NNT |
-| clinical calculators (30) | BMI, BSA, ideal/adjusted body weight, CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium, anion gap, corrected sodium, Henderson–Hasselbalch, alveolar gas and A–a gradient, QTc (Bazett, Fridericia, Framingham, Hodges), MAP, CHA₂DS₂-VASc, HAS-BLED, Wells DVT and PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald LDL, HbA1c→eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion |
+| clinical calculators (35) | BMI, BSA, ideal/adjusted body weight, CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium, anion gap, corrected sodium, Henderson–Hasselbalch, alveolar gas and A–a gradient, QTc (Bazett, Fridericia, Framingham, Hodges), MAP, CHA₂DS₂-VASc, HAS-BLED, Wells DVT and PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald LDL, HbA1c→eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion, PHQ-9, GAD-7, Apgar, Bishop, gestational age with Naegele's due date |
 
 Through the bridge each is a `LOCAL_COMPUTE` component at the local ceiling: a clinical
 calculator may be handed an identifiable payload because nothing leaves the machine, and
@@ -166,7 +166,7 @@ them returns a recommendation — only the interpretation bands its source publi
   http manifest, and the verification record complete.
 * `tests/test_native_tools.py` — every native tool runs its example, is deterministic and
   returns JSON; the provider's manifests are valid offline components; the python backend
-  loads and runs all 71; values pinned against hand-computed and textbook cases; bad input
+  loads and runs all 77; values pinned against hand-computed and textbook cases; bad input
   is a reason, not a traceback.
 * The suite runs from a plain clone: `tests/conftest.py` puts the sibling `PSH-Harness/src`
   on the path when `psh` is not installed. The root `.github/workflows/ci.yml` runs both

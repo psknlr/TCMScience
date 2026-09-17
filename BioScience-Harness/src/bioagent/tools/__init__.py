@@ -124,6 +124,8 @@ TOOLS: tuple[NativeTool, ...] = (
        {"a": "GATTACA", "b": "GCATGCT"}, "needleman-wunsch", "alignment"),
     _t("local_alignment", align.local_alignment, "sequence-alignment",
        {"a": "TGTTACGG", "b": "GGTTGACTA"}, "smith-waterman", "alignment"),
+    _t("protein_alignment", align.protein_alignment, "sequence-alignment",
+       {"a": "HEAGAWGHEE", "b": "PAWHEAE", "mode": "local", "gap": -8}, "blosum62", "protein"),
     # --------------------------------------------------------------- formats
     _t("parse_fasta", formats.parse_fasta, "file-formats", {"text": _FASTA}, "fasta", "parser"),
     _t("parse_fastq", formats.parse_fastq, "file-formats", {"text": _FASTQ}, "fastq", "quality"),
@@ -239,6 +241,17 @@ TOOLS: tuple[NativeTool, ...] = (
        {"height_cm": 175, "sex": "male", "ml_per_kg": 6}, "ventilation"),
     _t("convert_units", clinical.convert_units, "clinical-calculators",
        {"analyte": "glucose", "value": 180, "from_unit": "mg/dL", "to_unit": "mmol/L"}, "units"),
+    _t("phq9", clinical.phq9, "clinical-calculators", {"answers": [1, 1, 2, 1, 0, 1, 1, 0, 0]},
+       "questionnaire", "psychiatry"),
+    _t("gad7", clinical.gad7, "clinical-calculators", {"answers": [2, 1, 1, 0, 1, 0, 1]},
+       "questionnaire", "psychiatry"),
+    _t("apgar", clinical.apgar, "clinical-calculators",
+       {"appearance": 1, "pulse": 2, "grimace": 2, "activity": 1, "respiration": 2}, "neonatal"),
+    _t("bishop_score", clinical.bishop_score, "clinical-calculators",
+       {"dilation_cm": 3, "effacement_percent": 60, "station": -1, "consistency": "soft",
+        "position": "anterior"}, "obstetrics"),
+    _t("gestational_age", clinical.gestational_age, "clinical-calculators",
+       {"last_menstrual_period": "2026-01-01", "reference_date": "2026-05-15"}, "obstetrics"),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}

@@ -16,6 +16,8 @@ user: a warning appended to text the user has already been handed is not a gate.
 
 from __future__ import annotations
 
+import threading
+
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
@@ -128,6 +130,7 @@ class OutputGate:
         self._audit = audit
         self.verdicts: list[OutputVerdict] = []
         self.checks = 0
+        self._count_lock = threading.Lock()
 
     @staticmethod
     def is_clinical(sentence: str) -> bool:  # noqa: D401 - name kept for callers
@@ -162,7 +165,8 @@ class OutputGate:
         and the stricter setting silently did not apply. They can only tighten — ``or``,
         never assignment — so a per-call argument cannot switch a requirement off.
         """
-        self.checks += 1
+        with self._count_lock:
+            self.checks += 1
         require_support = bool(self.require_support or require_support)
         label = label_of(output)
         text = unwrap(output)

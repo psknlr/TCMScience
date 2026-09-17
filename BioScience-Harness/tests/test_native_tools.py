@@ -37,7 +37,7 @@ def test_every_tool_is_deterministic(native):
 
 def test_the_provider_yields_valid_offline_python_components():
     manifests = list(NativeToolProvider().discover())
-    assert len(manifests) == len(TOOLS) == 71
+    assert len(manifests) == len(TOOLS) == 77
     for m in manifests:
         assert m.validate() == []
         assert m.runtime.backend == "python" and m.runtime.deterministic
@@ -229,3 +229,30 @@ def test_clinical_scores():
     assert clinical.glasgow_coma_scale(3, 4, 5)["total"] == 12
     assert clinical.qsofa(24, 95, False)["positive"] is True
     assert clinical.tidal_volume(175, "male", 6)["tidal_volume_ml"] == 423
+
+
+def test_blosum62_is_the_published_matrix_and_scores_protein_alignments():
+    from bioagent.tools.matrices import BLOSUM62
+
+    order = "ARNDCQEGHILKMFPSTWYV"
+    assert all(BLOSUM62[a][b] == BLOSUM62[b][a] for a in order for b in order)
+    assert [BLOSUM62[a][a] for a in order] == [4, 5, 6, 6, 9, 5, 5, 6, 8, 4, 4, 5, 5, 6, 7, 4, 5, 11, 7, 4]
+    assert (BLOSUM62["W"]["F"], BLOSUM62["I"]["V"], BLOSUM62["D"]["E"], BLOSUM62["K"]["R"],
+            BLOSUM62["Y"]["F"], BLOSUM62["H"]["Y"]) == (1, 3, 2, 2, 3, 2)
+    # Durbin's textbook pair: A-A 4 + W-W 11 + gap -8 + H-H 8 + E-E 5 = 20 under BLOSUM62.
+    out = align.protein_alignment("HEAGAWGHEE", "PAWHEAE", mode="local", gap=-8)
+    assert (out["aligned_a"], out["aligned_b"], out["score"]) == ("AWGHE", "AW-HE", 20.0)
+    with pytest.raises(ValueError, match="unknown substitution matrix"):
+        align.global_alignment("AC", "AC", matrix="PAM999")
+
+
+def test_questionnaires_and_obstetric_calculators():
+    assert clinical.phq9([1, 1, 2, 1, 0, 1, 1, 0, 0])["severity"] == "mild"
+    assert clinical.phq9([3] * 9)["severity"] == "severe"
+    assert clinical.gad7([2, 1, 1, 0, 1, 0, 1])["score"] == 6
+    assert clinical.apgar(1, 2, 2, 1, 2)["score"] == 8
+    assert clinical.bishop_score(3, 60, -1, "soft", "anterior")["score"] == 2 + 2 + 2 + 2 + 2
+    ga = clinical.gestational_age("2026-01-01", "2026-05-15")
+    assert (ga["weeks"], ga["days"], ga["estimated_due_date"], ga["trimester"]) == (19, 1, "2026-10-08", 2)
+    with pytest.raises(ValueError, match="nine"):
+        clinical.phq9([0] * 8)

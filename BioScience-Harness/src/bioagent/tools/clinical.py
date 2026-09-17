@@ -20,7 +20,8 @@ __all__ = ["bmi", "body_surface_area", "ideal_body_weight", "egfr_ckd_epi_2021",
            "glasgow_coma_scale", "qsofa", "fractional_excretion_sodium",
            "henderson_hasselbalch", "alveolar_gas", "friedewald_ldl", "hba1c_to_eag",
            "basal_metabolic_rate", "parkland_formula", "weight_based_dose",
-           "convert_units", "tidal_volume", "UNIT_FACTORS"]
+           "convert_units", "tidal_volume", "UNIT_FACTORS", "phq9", "gad7", "apgar",
+           "bishop_score", "gestational_age"]
 
 
 def _num(value: Any, name: str, lo: float | None = None, hi: float | None = None,
@@ -465,3 +466,77 @@ def convert_units(analyte: str, value: float, from_unit: str, to_unit: str) -> d
         return {"value": round(v / UNIT_FACTORS[reverse], 4), "unit": to_unit, "analyte": name}
     known = sorted({f"{a}: {f} <-> {t}" for a, f, t in UNIT_FACTORS if a != "temperature"})
     raise ValueError(f"no conversion for {name} {from_unit} -> {to_unit}; known: {known}")
+
+
+# ------------------------------------------------- questionnaires and obstetrics
+
+def phq9(answers: list) -> dict[str, Any]:
+    """PHQ-9 depression severity from nine item scores (0–3 each)."""
+    if not isinstance(answers, (list, tuple)) or len(answers) != 9:
+        raise ValueError("phq9 needs exactly nine item scores")
+    if any(isinstance(a, bool) or a not in (0, 1, 2, 3) for a in answers):
+        raise ValueError("each PHQ-9 item is scored 0, 1, 2 or 3")
+    total = int(sum(answers))
+    band = ("minimal" if total <= 4 else "mild" if total <= 9 else "moderate" if total <= 14
+            else "moderately severe" if total <= 19 else "severe")
+    return {"score": total, "severity": band, "item9_self_harm_flag": int(answers[8]) > 0}
+
+
+def gad7(answers: list) -> dict[str, Any]:
+    """GAD-7 anxiety severity from seven item scores (0–3 each)."""
+    if not isinstance(answers, (list, tuple)) or len(answers) != 7:
+        raise ValueError("gad7 needs exactly seven item scores")
+    if any(isinstance(a, bool) or a not in (0, 1, 2, 3) for a in answers):
+        raise ValueError("each GAD-7 item is scored 0, 1, 2 or 3")
+    total = int(sum(answers))
+    return {"score": total, "severity": "minimal" if total <= 4 else "mild" if total <= 9
+            else "moderate" if total <= 14 else "severe"}
+
+
+def apgar(appearance: int, pulse: int, grimace: int, activity: int, respiration: int
+          ) -> dict[str, Any]:
+    """Apgar score: five signs scored 0–2."""
+    parts = {"appearance": appearance, "pulse": pulse, "grimace": grimace,
+             "activity": activity, "respiration": respiration}
+    for name, v in parts.items():
+        if isinstance(v, bool) or v not in (0, 1, 2):
+            raise ValueError(f"{name} must be 0, 1 or 2")
+    total = sum(parts.values())
+    return {"score": total, "band": "reassuring (7-10)" if total >= 7 else
+            "moderately abnormal (4-6)" if total >= 4 else "low (0-3)"}
+
+
+def bishop_score(dilation_cm: float, effacement_percent: float, station: int,
+                 consistency: str, position: str) -> dict[str, Any]:
+    """Bishop score for cervical favourability (0–13)."""
+    d = _num(dilation_cm, "dilation_cm", 0, 10)
+    e = _num(effacement_percent, "effacement_percent", 0, 100)
+    if not isinstance(station, int) or isinstance(station, bool) or not -3 <= station <= 3:
+        raise ValueError("station must be an integer from -3 to +3")
+    cons = {"firm": 0, "medium": 1, "soft": 2}.get(str(consistency).lower())
+    pos = {"posterior": 0, "mid": 1, "midposition": 1, "anterior": 2}.get(str(position).lower())
+    if cons is None or pos is None:
+        raise ValueError("consistency must be firm|medium|soft and position posterior|mid|anterior")
+    points = ((0 if d == 0 else 1 if d <= 2 else 2 if d <= 4 else 3)
+              + (0 if e < 40 else 1 if e < 60 else 2 if e < 80 else 3)
+              + (0 if station <= -3 else 1 if station == -2 else 2 if station in (-1, 0) else 3)
+              + cons + pos)
+    return {"score": points, "favourable": points >= 8, "unfavourable": points <= 5}
+
+
+def gestational_age(last_menstrual_period: str, reference_date: str) -> dict[str, Any]:
+    """Gestational age and Naegele's estimated due date from the LMP (ISO dates)."""
+    from datetime import date, timedelta
+
+    try:
+        lmp = date.fromisoformat(str(last_menstrual_period))
+        ref = date.fromisoformat(str(reference_date))
+    except ValueError:
+        raise ValueError("dates must be ISO format YYYY-MM-DD") from None
+    days = (ref - lmp).days
+    if days < 0 or days > 320:
+        raise ValueError("reference_date must be 0-320 days after the last menstrual period")
+    edd = lmp + timedelta(days=280)
+    return {"weeks": days // 7, "days": days % 7, "gestational_age": f"{days // 7}w{days % 7}d",
+            "estimated_due_date": edd.isoformat(), "days_to_due_date": (edd - ref).days,
+            "trimester": 1 if days < 98 else 2 if days < 196 else 3}

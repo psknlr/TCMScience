@@ -27,6 +27,8 @@ record.
 
 from __future__ import annotations
 
+import threading
+
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -82,6 +84,7 @@ class IngressGateway:
         self.decisions: list[IngressDecision] = []
         self.escalations = 0
         self.checks = 0
+        self._count_lock = threading.Lock()
 
     def ensure(self, value: Any, *, origin: str = "", require_labeled: bool | None = None,
                ) -> Labeled:
@@ -92,7 +95,8 @@ class IngressGateway:
         the weaker sense of "already Labeled means skip" — that shortcut is precisely the
         bug this module exists to prevent.
         """
-        self.checks += 1
+        with self._count_lock:
+            self.checks += 1
         strict = self.strict if require_labeled is None else require_labeled
         if not hasattr(self, "_authorised_declassifications"):
             self._authorised_declassifications: dict[str, Any] = {}

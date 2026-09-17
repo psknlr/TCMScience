@@ -82,6 +82,13 @@ class _GateBase:
         self._audit = audit
         self.decisions: list[EgressDecision] = []
         self.checks = 0
+        # The agent loop may run independent branches on threads; a plain ``+= 1`` on a
+        # counter that tests and audits read would lose updates under that load.
+        self._count_lock = threading.Lock()
+
+    def _tick(self) -> None:
+        with self._count_lock:
+            self.checks += 1
 
     def _record(self, decision: EgressDecision) -> EgressDecision:
         self.decisions.append(decision)
@@ -121,7 +128,7 @@ class ModelGateway(_GateBase):
         The permissive default is deliberate: the broker raises, so the gate can be used
         for pre-flight inspection ("would this be allowed?") without exception handling.
         """
-        self.checks += 1
+        self._tick()
         label = self._label_of(value)
         target = f"{model.provider}/{model.id}"
 
@@ -267,7 +274,7 @@ class ToolGateway(_GateBase):
 
     def check(self, payload: Any, manifest: ComponentManifest,
               envelope: RunEnvelope) -> EgressDecision:
-        self.checks += 1
+        self._tick()
         label = label_of(payload) if isinstance(payload, Labeled) else DataLabel()
         raw = unwrap(payload)
         destinations = manifest_destinations(manifest)
@@ -413,7 +420,7 @@ class DelegationGateway(_GateBase):
         """
         from .authority import AuthorityLattice
 
-        self.checks += 1
+        self._tick()
         label = contract.projection.label if contract.projection else DataLabel()
         child = contract.envelope
 

@@ -13,6 +13,7 @@ never leave memory except as audit events.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable, Mapping
@@ -70,6 +71,10 @@ class ExecutionGraph:
     def __init__(self, plan: Plan) -> None:
         self.plan = plan
         self.nodes: dict[str, TaskNode] = {t.task_id: TaskNode(task=t) for t in plan.tasks}
+        # Independent branches may run on threads. Every transition and every read that
+        # spans nodes takes this lock, so a failure blocking its descendants cannot
+        # interleave with a sibling recording its success.
+        self._lock = threading.RLock()
 
     # ----------------------------------------------------------------- queries
     def ready(self) -> list[TaskNode]:
@@ -78,14 +83,15 @@ class ExecutionGraph:
         A retryable task is ready again — that is what distinguishes RETRYABLE from FAILED,
         and why "not done" was not enough to express.
         """
-        out: list[TaskNode] = []
-        for node in self.nodes.values():
-            if node.state in (TaskState.RUNNING, *_TERMINAL):
-                continue
-            if all(self.nodes[d].state is TaskState.SUCCEEDED
-                   for d in node.task.dependencies if d in self.nodes):
-                out.append(node)
-        return out
+        with self._lock:
+            out: list[TaskNode] = []
+            for node in self.nodes.values():
+                if node.state in (TaskState.RUNNING, *_TERMINAL):
+                    continue
+                if all(self.nodes[d].state is TaskState.SUCCEEDED
+                       for d in node.task.dependencies if d in self.nodes):
+                    out.append(node)
+            return out
 
     @property
     def complete(self) -> bool:
@@ -112,16 +118,18 @@ class ExecutionGraph:
         """
         from ..labels import Labeled
 
-        return {n.id: (Labeled(value=n.result, label=n.label) if n.label is not None
-                       else n.result)
-                for n in self.succeeded}
+        with self._lock:
+            return {n.id: (Labeled(value=n.result, label=n.label) if n.label is not None
+                           else n.result)
+                    for n in self.succeeded}
 
     # ---------------------------------------------------------------- mutation
     def mark_running(self, task_id: str, *, at: float) -> None:
-        node = self.nodes[task_id]
-        node.state = TaskState.RUNNING
-        node.attempts += 1
-        node.started_at = at
+        with self._lock:
+            node = self.nodes[task_id]
+            node.state = TaskState.RUNNING
+            node.attempts += 1
+            node.started_at = at
 
     def mark_succeeded(self, task_id: str, result: Any, *, at: float,
                        label: Any = None) -> None:
@@ -131,22 +139,24 @@ class ExecutionGraph:
         checkpointed (``capture`` withholds it) and the loop classifies before it gets
         here. The label is a parameter so the two are set together.
         """
-        node = self.nodes[task_id]
-        node.state = TaskState.SUCCEEDED
-        node.result = result
-        node.error = ""
-        node.finished_at = at
-        if label is not None:
-            node.label = label
+        with self._lock:
+            node = self.nodes[task_id]
+            node.state = TaskState.SUCCEEDED
+            node.result = result
+            node.error = ""
+            node.finished_at = at
+            if label is not None:
+                node.label = label
 
     def mark_failed(self, task_id: str, error: str, *, at: float,
                     retryable: bool = False) -> None:
-        node = self.nodes[task_id]
-        node.state = TaskState.RETRYABLE if retryable else TaskState.FAILED
-        node.error = error
-        node.finished_at = at
-        if not retryable:
-            self.block_descendants(task_id)
+        with self._lock:
+            node = self.nodes[task_id]
+            node.state = TaskState.RETRYABLE if retryable else TaskState.FAILED
+            node.error = error
+            node.finished_at = at
+            if not retryable:
+                self.block_descendants(task_id)
 
     def block_descendants(self, task_id: str) -> list[str]:
         """Mark everything downstream of a terminal failure BLOCKED.
@@ -156,31 +166,33 @@ class ExecutionGraph:
         dependency failed". The termination reason a loop gives is the only explanation
         anyone gets, so it has to name the real cause.
         """
-        blocked: list[str] = []
-        changed = True
-        while changed:
-            changed = False
-            for node in self.nodes.values():
-                if node.done:
-                    continue
-                upstream = [self.nodes[d] for d in node.task.dependencies
-                            if d in self.nodes]
-                if any(u.state in (TaskState.FAILED, TaskState.BLOCKED, TaskState.CANCELLED)
-                       for u in upstream):
-                    node.state = TaskState.BLOCKED
-                    node.error = node.error or f"an upstream task failed ({task_id})"
-                    blocked.append(node.id)
-                    changed = True
-        return blocked
+        with self._lock:
+            blocked: list[str] = []
+            changed = True
+            while changed:
+                changed = False
+                for node in self.nodes.values():
+                    if node.done or node.state is TaskState.RUNNING:
+                        continue
+                    upstream = [self.nodes[d] for d in node.task.dependencies
+                                if d in self.nodes]
+                    if any(u.state in (TaskState.FAILED, TaskState.BLOCKED, TaskState.CANCELLED)
+                           for u in upstream):
+                        node.state = TaskState.BLOCKED
+                        node.error = node.error or f"an upstream task failed ({task_id})"
+                        blocked.append(node.id)
+                        changed = True
+            return blocked
 
     def cancel_all(self, reason: str) -> int:
-        cancelled = 0
-        for node in self.nodes.values():
-            if not node.done:
-                node.state = TaskState.CANCELLED
-                node.error = reason
-                cancelled += 1
-        return cancelled
+        with self._lock:
+            cancelled = 0
+            for node in self.nodes.values():
+                if not node.done:
+                    node.state = TaskState.CANCELLED
+                    node.error = reason
+                    cancelled += 1
+            return cancelled
 
     # ------------------------------------------------------------------ report
     def state_counts(self) -> dict[str, int]:

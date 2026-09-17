@@ -40,7 +40,8 @@ Measured against the executing path, not the README.
 | Idempotency keys | ❌ | ✅ | `runtime/idempotency.py`; stable across retries and resume |
 | Cancellation propagation | 🟡 interface | ✅ | `WAIT` / `CASCADE` / `DETACH`, cooperative token |
 | Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
-| Parallel execution | ❌ | ✅ | threads over one locked kernel; bounded by `max_concurrency` |
+| Parallel execution | ❌ | ✅ | supervisor: threads over one locked kernel, bounded by `max_concurrency`; loop: independent ready tasks on a bounded pool, `LoopLimits(max_parallel)` |
+| Progressive disclosure of tool schemas | ❌ | ✅ | `CapabilityRegistry.schema_items`: summaries to choose, schemas to call, for the ranked few |
 | A2A / MCP | ❌ | ✅ | `protocols/mcp.py`, `protocols/a2a.py`; no SDK, no new gate |
 | Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
@@ -388,7 +389,7 @@ once, on top. Concretely:
 
 BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped; the
 container-validation ordering bug was closed in its v2.3.1 before convergence started,
-and the suite stands at 383 passed / 6 skipped with the bridge and native-toolkit tests included.
+and the suite stands at 397 passed / 6 skipped with the bridge and native-toolkit tests included.
 
 ## 6. Naming the honest state
 

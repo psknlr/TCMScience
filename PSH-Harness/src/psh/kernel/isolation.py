@@ -727,6 +727,7 @@ class IsolatedExecutor:
         self.workdir_root = Path(workdir_root)
         self.secret_resolver = secret_resolver
         self.executions = 0
+        self._count_lock = threading.Lock()
 
     def allowed_hosts(self, manifest: Any, envelope: Any) -> list[str]:
         from ..labels import Destination
@@ -802,7 +803,8 @@ class IsolatedExecutor:
             grants=self.grants(manifest), timeout_s=float(getattr(manifest, "timeout_s", 120.0)),
             memory_mb=int(getattr(manifest, "memory_mb", 2048) or 0) or None,
             run_id=getattr(envelope, "run_id", ""), stdin=stdin)
-        self.executions += 1
+        with self._count_lock:
+            self.executions += 1
         if result.timed_out:
             raise ContractViolation(
                 f"isolated component {manifest.id!r} exceeded its {manifest.timeout_s}s "
