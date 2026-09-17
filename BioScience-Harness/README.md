@@ -1,4 +1,43 @@
-# bioagent-harness v2.3 — a composable harness for biomedical AI agents
+# bioagent-harness v2.4 — a composable harness for biomedical AI agents
+
+## v2.4 — PSH convergence, and a connector set worth converging
+
+The capability plane is now admitted into a trusted kernel, and it got a lot bigger.
+Design and evidence in `docs/V24_PSH_CONVERGENCE.md`.
+
+**`bioagent.psh` — the bridge.** A BioScience component becomes a PSH `ComponentManifest`
+with the dimensions PSH's gates rule on, derived conservatively from what the BioScience
+manifest declares: a public API is a `PUBLIC_REMOTE` destination with a de-identified
+ceiling, a local tool keeps the local ceiling, a declared write makes it mutating and
+consequential, a free-text data licence is normalised onto an SPDX id the lattice knows or
+left unlicensed. Its `invoke` runs through BioScience's own `Runtime`, so a call crosses
+**both** kernels in order — PSH classifies and gates, BioScience resolves, authorises and
+executes, PSH labels the result as the join — and neither can be skipped. One harness per
+domain at the top of PSH's two-level registry keeps the 2,567-row catalogue to a handful
+of manifests of planner context. `isolate=True` runs every component in a PSH child
+process with a clean environment behind the kernel's egress proxy. The bridge depends on
+PSH; PSH never depends on it, and nothing in `bioagent` imports `psh.kernel` (a test
+checks).
+
+**The kernel boundary.** `EvolutionPipeline` gained a `boundary` stage: a proposal whose
+entrypoint, source path or declared writes land in the trusted plane (PSH's kernel,
+policy, labels, contracts, licensing; this package's policy kernel and bridge) is
+quarantined before a smoke test or benchmark is spent on it.
+
+**16 → 56 verified public sources, 45 → 146 typed operations.** Structures (AlphaFold DB,
+PDBe, InterPro), expression (Human Protein Atlas, GTEx, ENCODE, BioStudies, CELLxGENE,
+MetaboLights), pathways and enrichment (WikiPathways, OmniPath, g:Profiler, PANTHER), drug–
+gene and cancer genomics (DGIdb, CIViC, cBioPortal, NCI GDC), clinical terminology (ICD-10-CM,
+RxTerms, LOINC, HCPCS and conditions via NLM Clinical Tables; RxNav/RxNorm; DailyMed; MeSH),
+literature graphs (PubTator 3, Europe PMC Annotations, Crossref, OpenAlex, bioRxiv, EBI
+Search) and ontologies (OLS4, HPO, Monarch, Disease Ontology, QuickGO, Bioregistry,
+Identifiers.org). Every operation is executed live by `scripts/verify_connectors.py` and
+recorded in `data/connector_live_verification.csv`; `tests/test_public_sources.py` refuses
+to ship an operation without a `SUCCEEDED` row. Three sources that did not answer were
+removed rather than listed on faith.
+
+    PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py   # live: HGNC + UniProt through both kernels
+    PYTHONPATH=src python scripts/verify_connectors.py --no-write   # re-measure every operation
 
 ## v2.3 — execution semantics
 
@@ -196,9 +235,11 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         hmr.py             transactional hot reload + LazyComponentSet
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
-      providers/           discovery from catalogue rows and SKILL.md trees
+      providers/           discovery from catalogue rows, SKILL.md trees and 56 public sources
+      psh/                 the PSH bridge: manifest derivation, the crossing, domain harnesses,
+                           the isolated entrypoint (needs PSH-Harness; the rest does not)
       planners/            self-registering plugins: heuristic, llm
-      evolution/           propose -> test -> benchmark -> policy -> promote
+      evolution/           propose -> boundary -> test -> benchmark -> policy -> promote
       workspace/           file workspace with an enforced trust boundary + git
       adapters/            v1 adapters (retained; superseded by backends)
 
@@ -223,6 +264,10 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
                                      step arguments, candidate isolation, dependency
                                      propagation, dataset probing, deny-by-default,
                                      promotion gates, verdict honesty
+    tests/test_psh_bridge.py         the PSH bridge: derivation, the crossing, retrieval,
+                                     isolation, the kernel boundary (needs PSH importable;
+                                     conftest finds the sibling checkout)
+    tests/test_public_sources.py     the connector table and its verification record
 
 Measuring the catalogue's python entrypoints:
 

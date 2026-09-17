@@ -60,6 +60,7 @@ REQUIRED_PACKAGES = (
     "bioagent.evolution",
     "bioagent.planners",
     "bioagent.providers",
+    "bioagent.psh",
     "bioagent.runtime",
     "bioagent.workspace",
 )

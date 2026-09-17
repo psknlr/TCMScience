@@ -57,10 +57,18 @@ class LicenseDecision(str, Enum):
 PERMISSIVE_SPDX = frozenset({
     "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC",
     "NLM-Public-Domain", "CC0-1.0", "Unlicense", "PostgreSQL", "Zlib",
+    # Data licences: attribution-only or public domain. A data source's licence governs
+    # reuse of what it returns, and these grant it. ``US-Gov-Public-Domain`` is this
+    # package's convention for works of the US government (NCBI, NLM, FDA, NCI), which
+    # SPDX has no id for; ``NLM-Public-Domain`` is the older spelling of the same.
+    "CC-BY-4.0", "CC-BY-3.0", "ODC-BY-1.0", "CC-PDDC", "US-Gov-Public-Domain",
 })
 
 COPYLEFT_SPDX = frozenset({
     "GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1", "MPL-2.0", "EPL-2.0",
+    # Share-alike data licences: reuse is granted on the condition that derived data is
+    # shared under the same terms — the copyleft shape, so the same rulings apply.
+    "CC-BY-SA-4.0", "CC-BY-SA-3.0", "ODbL-1.0",
 })
 
 #: Treated as "no licence granted".

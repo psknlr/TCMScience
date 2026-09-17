@@ -374,9 +374,21 @@ once, on top. Concretely:
   the thing enforcing policy is not governed by it — which is `contracts.py`'s opening
   argument, applied to the agent that edits the repository.
 
-BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped, with at least one
-failure a genuine container-validation ordering bug rather than a missing dependency. That
-should be closed before convergence starts, not during it.
+  **Done** (`bioagent.evolution.boundary`). `EvolutionPipeline.submit()` has a `boundary`
+  stage that quarantines a proposal whose entrypoint, source path or declared writes land
+  in the trusted plane, before its smoke test runs.
+
+* **The bridge itself** — **done** (`bioagent.psh`, BioScience v2.4; design in
+  `BioScience-Harness/docs/V24_PSH_CONVERGENCE.md`). A BioScience manifest becomes a PSH
+  manifest with the gate dimensions derived conservatively; a call crosses both kernels
+  in order; one harness per domain sits at the top of this package's two-level registry;
+  `isolate=True` runs components in this kernel's child process. The dependency points one
+  way — `bioagent.psh` imports `psh`, never the reverse, and never `psh.kernel` — and this
+  package gained nothing but three data-licence ids in `licensing.py`.
+
+BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped; the
+container-validation ordering bug was closed in its v2.3.1 before convergence started,
+and the suite stands at 223 passed / 6 skipped with the bridge tests included.
 
 ## 6. Naming the honest state
 

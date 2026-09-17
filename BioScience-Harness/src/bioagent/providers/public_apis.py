@@ -32,6 +32,9 @@ class Operation:
     params: Mapping[str, Any] = field(default_factory=dict)
     graphql: str | None = None
     variables: Mapping[str, Any] = field(default_factory=dict)
+    #: JSON request body template for POST endpoints that are not GraphQL. Substituted
+    #: like ``params``; ``None`` means the request has no body.
+    json_body: Any = None
     accept: str = "application/json"
     args: tuple[str, ...] = ()            # required argument names
     example: Mapping[str, Any] = field(default_factory=dict)
@@ -53,6 +56,8 @@ class Operation:
                 return re.sub(r"\{(\w+)\}", lambda m: str(kwargs.get(m.group(1), m.group(0))), v)
             if isinstance(v, dict):
                 return {k: sub(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [sub(x) for x in v]
             return v
 
         out: dict[str, Any] = {"path": sub(self.path), "method": self.method,
@@ -60,6 +65,8 @@ class Operation:
         if self.graphql is not None:
             out["graphql"] = self.graphql
             out["variables"] = sub(dict(self.variables))
+        if self.json_body is not None:
+            out["json_body"] = sub(self.json_body)
         return out
 
 
@@ -301,7 +308,19 @@ SOURCES: tuple[PublicSource, ...] = (
         ), smoke="variant", docs="https://docs.myvariant.info/"),
 )
 
+#: The sixteen sources above were the v2.1 set. The extended set — structures, expression,
+#: cancer genomics, pharmacogenomics, clinical terminology, literature graphs, ontologies
+#: and enrichment — lives in its own module so this one stays readable; both are one
+#: registry here and every operation of both is verified live by
+#: ``scripts/verify_connectors.py``.
+from .public_apis_ext import EXTENDED_SOURCES  # noqa: E402
+
+CORE_SOURCES: tuple[PublicSource, ...] = SOURCES
+SOURCES = CORE_SOURCES + EXTENDED_SOURCES
+
 BY_KEY: Mapping[str, PublicSource] = {s.key: s for s in SOURCES}
+if len(BY_KEY) != len(SOURCES):                       # pragma: no cover - programming error
+    raise RuntimeError("duplicate public source keys")
 
 
 class PublicAPIProvider(ProviderBase):

@@ -225,6 +225,18 @@ persistence rules — a result the gateway would refuse is withheld and the task
 and a record without a hash is refused. `docs/RUNTIME_SECURITY_REVIEW.md` has the report,
 the two findings that were filtered out, and what was done about them anyway.
 
+### Convergence: BioScience's capability plane, under this kernel
+
+The seam the roadmap described is built, on the other side of it: `bioagent.psh` in
+BioScience-Harness v2.4 admits BioScience components — the 2,567-row catalogue and 56
+live-verified public biomedical sources — as components of this kernel, with the gate
+dimensions derived conservatively from what each declares, one harness per domain in the
+two-level registry, and an isolated mode that runs them in this kernel's child process.
+A call crosses both kernels in order and neither can be skipped. This package gained
+three data-licence ids in `licensing.py` and nothing else: the dependency points one way.
+`BioScience-Harness/docs/V24_PSH_CONVERGENCE.md` has the design, the evidence and the
+honest state; `BioScience-Harness/demo_convergence.py` runs a plan through both.
+
 ```bash
 python -m pytest tests/ -q          # 517 pass
 python -m compileall -q src         # clean

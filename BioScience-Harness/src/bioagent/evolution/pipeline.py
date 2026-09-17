@@ -80,7 +80,7 @@ class Proposal:
 class EvolutionPipeline:
     """Runs a proposal through every gate. Only the pipeline may promote."""
 
-    STAGES = ("generate", "test", "benchmark", "policy", "promote")
+    STAGES = ("generate", "boundary", "test", "benchmark", "policy", "promote")
 
     def __init__(self, registry: ComponentRegistry, reloader: HotReloader,
                  benchmark_runner: Callable[[ComponentManifest, str], BenchmarkResult] | None = None,
@@ -89,9 +89,15 @@ class EvolutionPipeline:
                  regression_tolerance: float = 0.0,
                  min_absolute_score: float = 0.0,
                  workspace: Any = None, git: Any = None,
-                 smoke_runner: Callable[[ComponentManifest], tuple[bool, str]] | None = None) -> None:
+                 smoke_runner: Callable[[ComponentManifest], tuple[bool, str]] | None = None,
+                 boundary: Any = None) -> None:
         self.registry = registry
         self.reloader = reloader
+        #: The kernel boundary. Evolution may propose changes to the capability plane and
+        #: never to the trusted plane; a proposal that targets the latter is quarantined
+        #: before a smoke test or a benchmark is spent on it, whatever it would score.
+        from .boundary import KernelBoundary
+        self.boundary = boundary if boundary is not None else KernelBoundary()
         self._benchmark = benchmark_runner
         # The 'test' stage runs the candidate's declared smoke test BEFORE any
         # benchmark is spent on it. Defaults to the reloader's smoke runner so
@@ -169,6 +175,16 @@ class EvolutionPipeline:
             return proposal
         proposal.state = ProposalState.GENERATED
         proposal.log("generate", True, "manifest is structurally valid")
+
+        # 1b. BOUNDARY — the proposal must live in the capability plane.
+        crossings = self.boundary.violations(proposal.component)
+        if crossings:
+            detail = "trusted plane is immutable from inside the system: " + "; ".join(crossings)
+            proposal.state = ProposalState.QUARANTINED
+            proposal.log("boundary", False, detail)
+            self._emit(events, EventType.COMPONENT_QUARANTINED, proposal, ev, detail)
+            return proposal
+        proposal.log("boundary", True, "targets the capability plane only")
 
         # Persist first so a rejected candidate still leaves an auditable record.
         if self.workspace is not None:

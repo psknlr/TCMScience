@@ -315,7 +315,15 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "biomni-release.s3.amazonaws.com", "storage.googleapis.com",
             "ftp.ebi.ac.uk", "stringdb-downloads.org", "genenames.org",
             # not yet verified live from this harness, retained from v2
-            "genome.ucsc.edu", "monarchinitiative.org", "depmap.org",
+            "depmap.org",
+            # v2.4 connector set, every host verified live (scripts/verify_connectors.py)
+            "genome.ucsc.edu", "monarchinitiative.org", "alphafold.ebi.ac.uk",
+            "proteinatlas.org", "gtexportal.org", "encodeproject.org",
+            "cellxgene.cziscience.com", "wikipathways.org", "omnipathdb.org", "dgidb.org",
+            "civicdb.org", "cbioportal.org", "gdc.cancer.gov", "clinicaltables.nlm.nih.gov",
+            "rxnav.nlm.nih.gov", "dailymed.nlm.nih.gov", "id.nlm.nih.gov", "crossref.org",
+            "openalex.org", "biorxiv.org", "ontology.jax.org", "disease-ontology.org",
+            "bioregistry.io", "identifiers.org", "biit.cs.ut.ee", "pantherdb.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
