@@ -200,11 +200,22 @@ class CapabilityRegistry:
         This is the progressive-disclosure half of lazy loading: the model sees enough to
         choose, and the full input schema is supplied only when a capability is invoked.
         """
+        from ..labels import DataLabel, Sensitivity
+
         items: list[ContextItem] = []
         for candidate in candidates:
             m = candidate.manifest
+            # A description written by an operator is public. One that arrived from an
+            # MCP server or an AgentCard is text this kernel did not write, and the
+            # adapter classified it at ingress; the rendered item carries that label so a
+            # description that contains PHI cannot be compiled into a public model's
+            # context. Without this every manifest item was PUBLIC by default, and the
+            # compiler's destination filter — which reads the label — waved it through.
+            recorded = (m.provenance or {}).get("description_sensitivity")
+            label = DataLabel(Sensitivity[recorded]) if recorded in Sensitivity.__members__ \
+                else DataLabel()
             items.append(ContextItem(
-                kind="manifest", source_ref=m.id, score=candidate.score,
+                kind="manifest", source_ref=m.id, score=candidate.score, label=label,
                 content=(f"{m.id} ({m.kind.value}): {m.description or m.name}"
                          + (f" [intents: {', '.join(m.intents)}]" if m.intents else "")
                          + (f" [approval required]" if m.human_approval else ""))))

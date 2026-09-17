@@ -41,15 +41,17 @@ Measured against the executing path, not the README.
 | Cancellation propagation | 🟡 interface | ✅ | `WAIT` / `CASCADE` / `DETACH`, cooperative token |
 | Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
 | Parallel execution | ❌ | ✅ | threads over one locked kernel; bounded by `max_concurrency` |
-| A2A / MCP | ❌ | ❌ | explicitly not implemented |
+| A2A / MCP | ❌ | ✅ | `protocols/mcp.py`, `protocols/a2a.py`; no SDK, no new gate |
 | Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
 
 So the honest summary is now: **a bounded, governed agent loop with governed, durable
-fan-out.** Children run concurrently through one locked kernel, a supervisor that can only
-narrow, a reducer that records disagreement, and leases so a child that stops answering is
-given up on rather than waited for forever. Still absent: distributed workers, and the
-planner being *asked* to delegate rather than merely allowed to.
+fan-out, and remote tools and agents admitted on the operator's terms.** Children run
+concurrently through one locked kernel, a supervisor that can only narrow, a reducer that
+records disagreement, leases so a child that stops answering is given up on, and MCP/A2A
+adapters that add no execution path the gates do not already cover. Still absent:
+distributed workers, A2A polling for long-running remote tasks, and the planner being
+*asked* to delegate rather than merely allowed to.
 
 ## 2. What v0.5.1 added, and the one rule it was built under
 
@@ -222,9 +224,9 @@ what it did is unknown, and a component with side effects would do them again un
 recognises the key. The loop cannot decide replay semantics for a component, so
 `IdempotencyLedger` is something a component *uses*, not something the kernel imposes.
 
-### v0.9 — interoperability
+### v0.9 — interoperability — **done** (`protocols/mcp.py`, `protocols/a2a.py`)
 
-`MCPAdapter` for agent↔tool, `A2AAdapter` for agent↔agent. Both under one rule:
+`MCPToolAdapter` for agent↔tool, `A2AAgentAdapter` for agent↔agent. Both under one rule:
 
 ```
 MCP server / remote AgentCard
@@ -233,18 +235,49 @@ MCP server / remote AgentCard
         |
   IngressClassifier        <- external metadata is untrusted input
         |
-  ComponentManifest / RemoteAgentManifest
+  ComponentManifest / RemoteAgent
         |
   ToolGateway / DelegationGateway
         |
     TrustedKernel
 ```
 
-MCP's own documentation says its tool annotations (`readOnly`, `destructive`, `idempotent`)
-are **hints, not security guarantees**, and A2A's samples say an `AgentCard` and everything
-a remote agent returns must be treated as untrusted. Both fit this package's existing
-position exactly: an `AgentCard` is not a trusted manifest, and a remote tool's
-self-description is a claim to be classified, not a policy to be honoured.
+MCP's own documentation says its tool annotations are **hints, not security guarantees**,
+and A2A's samples say an `AgentCard` and everything a remote agent returns are untrusted.
+Both adapters take the protocols at their word, and the consequence is the property worth
+stating: **neither added a gate.** An MCP tool is a `ComponentManifest` whose destination
+is the operator's, so PHI to it is refused by the same `ToolGateway` check that refuses PHI
+to a public model. A remote agent is a component *and* a delegation, so it passes
+`DelegationGateway` for its authority and `ToolGateway` for its data — two gates built for
+local work, and the remote case is where they are most obviously necessary.
+
+The rules, per adapter:
+
+* **MCP.** Annotations may tighten and never loosen: `destructiveHint` raises the risk and
+  requires approval; `readOnlyHint` changes nothing, because a server that can lie about
+  being read-only can lie. The only way to relax a default is an operator `override`,
+  recorded as the operator's decision. The destination class is stated at adapter
+  construction, never inferred. An `isError` reply is a `ContractViolation`, not a result
+  with an odd shape. Runtime bookkeeping (`_psh_*` keys) is stripped before the wire.
+* **A2A.** The card grants nothing: `skills` become retrieval metadata, `capabilities`
+  are recorded as claims, and the `url` must fall inside the operator's `allowed_hosts` or
+  the card is refused. `input-required` is escalated, never answered — a remote agent asking
+  a question is asking a human. A non-terminal reply is not a result. The reply's label is
+  the join of what was sent and what came back, classified.
+* **Neither imports an SDK.** Each takes a transport callable and the protocol's own JSON
+  shapes, so the official client, a stdio subprocess and a test double share one seam and
+  the trust boundary lives here rather than inside a library's session object.
+
+It surfaced one defect that predates both adapters. `CapabilityRegistry.manifest_items`
+rendered every description into the model's context with the **default `PUBLIC` label**,
+and the compiler's destination filter reads the label — so a description containing PHI
+would have been compiled into a public model's context. Harmless while every description
+was written by an operator; not harmless the moment one arrives from a server. Adapters now
+classify descriptions at ingress and the registry labels the rendered item accordingly;
+the regression test fails against the unpatched registry.
+
+What is *not* claimed: A2A polling. The transport is synchronous and a task that comes back
+`working` is escalated rather than waited on.
 
 ## 4. What to borrow, and what not to
 

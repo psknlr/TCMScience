@@ -189,8 +189,24 @@ fault**. `EventStore.close()` takes the write lock now, and later appends refuse
 Idempotency keys — `"<loop run id>:<task id>"`, stable across retries and across a resume
 — let a side-effecting component recognise the replay that `resume()` deliberately creates.
 
+### Interoperability: remote tools and agents, on the operator's terms
+
+`psh/protocols/mcp.py` and `a2a.py` admit MCP tools and A2A agents as components. MCP's
+own documentation says its annotations are hints, not security guarantees; A2A's samples say
+an `AgentCard` is untrusted. Both adapters take the protocols at their word — annotations
+may tighten and never loosen, the destination class is the operator's, a card's `url` must
+fall inside the operator's allowed hosts, and `input-required` is escalated rather than
+answered — and the consequence is that **neither added a gate**. PHI to an MCP tool on a
+public server is refused by the same `ToolGateway` check that refuses PHI to a public model;
+a remote agent passes `DelegationGateway` for its authority and `ToolGateway` for its data.
+
+It found a defect older than either adapter: `manifest_items` rendered every description
+into the model's context with the default `PUBLIC` label, so a server-supplied description
+carrying PHI would have reached a public model. Descriptions are classified at ingress now
+and the rendered item carries that label.
+
 ```bash
-python -m pytest tests/ -q          # 468 pass
+python -m pytest tests/ -q          # 493 pass
 python -m compileall -q src         # clean
 ```
 
