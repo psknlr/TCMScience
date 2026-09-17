@@ -41,7 +41,7 @@ from ..labels import DataLabel, Sensitivity, combine
 from .loop import AgentLoopController, LoopLimits, LoopResult, Planner, Termination
 
 __all__ = ["CancellationPolicy", "CancellationToken", "ChildState", "ChildRun",
-           "SubagentResult", "LocalSubagentBackend"]
+           "SubagentResult", "LocalSubagentBackend", "WorkerLease", "LeaseRegistry"]
 
 
 class CancellationPolicy(str, Enum):
@@ -61,10 +61,81 @@ class ChildState(str, Enum):
     CANCEL_REQUESTED = "cancel_requested"
     CANCELLED = "cancelled"
     ORPHANED = "orphaned"          # detached: still running, no longer ours
+    #: Its lease expired: no heartbeat for longer than the lease allows. The thread may
+    #: still exist — a tool that never returns cannot be interrupted from outside — but the
+    #: parent stops waiting for it and its token is cancelled so it stops if it ever wakes.
+    STALLED = "stalled"
 
 
 _DONE = frozenset({ChildState.COMPLETED, ChildState.FAILED, ChildState.CANCELLED,
-                   ChildState.ORPHANED})
+                   ChildState.ORPHANED, ChildState.STALLED})
+
+
+# ------------------------------------------------------------------ leases
+
+@dataclass
+class WorkerLease:
+    """Proof of life. A child holds one and renews it by heartbeating; silence expires it.
+
+    The problem this solves was measured before it was built: a child whose tool never
+    returned left the parent's ``wait()`` blocked forever, and nothing anywhere recorded
+    that the child was stuck. Cooperative cancellation cannot help — the child is inside a
+    call it will never come back from — so the parent needs a signal that does not depend
+    on the child's cooperation. Absence of a heartbeat is that signal.
+    """
+
+    child_id: str
+    ttl_s: float
+    issued_at: float = field(default_factory=time.monotonic)
+    last_beat: float = field(default_factory=time.monotonic)
+    beats: int = 0
+
+    def beat(self, now: float | None = None) -> None:
+        self.last_beat = time.monotonic() if now is None else now
+        self.beats += 1
+
+    def expired(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        return (now - self.last_beat) > self.ttl_s
+
+    @property
+    def age_s(self) -> float:
+        return time.monotonic() - self.issued_at
+
+
+class LeaseRegistry:
+    """Thread-safe table of live leases. The supervisor's view of who is still alive."""
+
+    def __init__(self) -> None:
+        self._leases: dict[str, WorkerLease] = {}
+        self._lock = threading.Lock()
+
+    def issue(self, child_id: str, ttl_s: float) -> WorkerLease:
+        if ttl_s <= 0:
+            raise ValueError("a lease needs a positive ttl")
+        lease = WorkerLease(child_id=child_id, ttl_s=ttl_s)
+        with self._lock:
+            self._leases[child_id] = lease
+        return lease
+
+    def beat(self, child_id: str) -> None:
+        with self._lock:
+            lease = self._leases.get(child_id)
+        if lease is not None:
+            lease.beat()
+
+    def expired(self, now: float | None = None) -> list[WorkerLease]:
+        with self._lock:
+            leases = list(self._leases.values())
+        return [lease for lease in leases if lease.expired(now)]
+
+    def release(self, child_id: str) -> None:
+        with self._lock:
+            self._leases.pop(child_id, None)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._leases)
 
 
 class CancellationToken:
@@ -138,6 +209,7 @@ class ChildRun:
     error: str = ""
     started_at: float = 0.0
     finished_at: float = 0.0
+    lease: WorkerLease | None = None
     id: str = field(default_factory=lambda: new_id("child"))
 
     @property
@@ -225,12 +297,14 @@ class LocalSubagentBackend:
         self.children_run = 0
 
     def __call__(self, contract: DelegationContract,
-                 token: CancellationToken | None = None) -> SubagentResult:
+                 token: CancellationToken | None = None,
+                 heartbeat: Callable[[], None] | None = None) -> SubagentResult:
         self.children_run += 1
         loop = AgentLoopController(
             self.kernel, planner=self.planner_factory(contract), registry=self.registry,
             model=self.model, model_invoke=self.model_invoke, limits=self.limits,
-            evaluator=self.evaluator, cancellation=token, sleep=self._sleep,
+            evaluator=self.evaluator, cancellation=token, heartbeat=heartbeat,
+            sleep=self._sleep,
             # A child may delegate further only through the same door. Passing ourselves
             # keeps the tree governed at every level; the budget's child() fractions and
             # max_delegations bound its depth.

@@ -21,9 +21,10 @@ from .plan_validator import (
     PlanRejected, PlanValidator, PlanViolation, ValidatedPlan, task_envelope,
 )
 from .runner import DEFAULT_SYSTEM_PROMPT, RunResult, Runner, StageRecord, StuckLoop
+from .idempotency import KEY_FIELD, IdempotencyLedger, key_of
 from .subagent import (
-    CancellationPolicy, CancellationToken, ChildRun, ChildState, LocalSubagentBackend,
-    SubagentResult,
+    CancellationPolicy, CancellationToken, ChildRun, ChildState, LeaseRegistry,
+    LocalSubagentBackend, SubagentResult, WorkerLease,
 )
 from .supervisor import (
     AggregatedObservation, BudgetLedger, Conflict, DelegationRequest, Fact, Reducer,
@@ -41,7 +42,8 @@ __all__ = [
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
     "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
-    "LocalSubagentBackend", "SubagentResult",
+    "LocalSubagentBackend", "SubagentResult", "WorkerLease", "LeaseRegistry",
+    "IdempotencyLedger", "KEY_FIELD", "key_of",
     "Supervisor", "DelegationRequest", "BudgetLedger", "WorkerPool", "Reducer",
     "AggregatedObservation", "Fact", "Conflict",
 ]

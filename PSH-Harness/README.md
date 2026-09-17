@@ -173,8 +173,24 @@ It found one defect worth naming: `Budget.child()` bounded one child and its doc
 claimed it stopped fan-out multiplying a budget. Ten quarter-children are two and a half
 parents. `BudgetLedger` sums fractions per parent, cumulatively.
 
+### Durability: a child that stops answering is given up on, not waited for
+
+Measured first: a child whose tool never returned left the parent's `wait()` blocked
+forever, and nothing recorded that it was stuck. Every child now holds a `WorkerLease` that
+the loop renews before every task; `reap()` marks a silent child `STALLED`, cancels its
+token, and the parent moves on. The thread is leaked knowingly — an in-process call that
+never returns cannot be interrupted, and claiming otherwise would be the process-group
+defect in another costume.
+
+Leaking it found a second defect: the stalled child mid-append on the shared event store
+while `kernel.close()` closed the connection from another thread was a **segmentation
+fault**. `EventStore.close()` takes the write lock now, and later appends refuse cleanly.
+
+Idempotency keys — `"<loop run id>:<task id>"`, stable across retries and across a resume
+— let a side-effecting component recognise the replay that `resume()` deliberately creates.
+
 ```bash
-python -m pytest tests/ -q          # 451 pass
+python -m pytest tests/ -q          # 468 pass
 python -m compileall -q src         # clean
 ```
 

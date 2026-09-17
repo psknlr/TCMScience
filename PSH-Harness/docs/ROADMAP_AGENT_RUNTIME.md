@@ -36,7 +36,8 @@ Measured against the executing path, not the README.
 | Automatic subagent selection | ❌ | 🟡 | a plan may carry `kind="delegate"` tasks; the planner is not yet asked to |
 | Fan-out / fan-in | ❌ | ✅ | `runtime/supervisor.py`: `WorkerPool`, `Reducer` → `AggregatedObservation` |
 | Supervisor / worker pool | ❌ | ✅ | proposes only; `restrict()` authorises; Σ child fractions ≤ 1 |
-| Heartbeat / lease | ❌ | ❌ | v0.8 |
+| Heartbeat / lease | ❌ | ✅ | `WorkerLease` / `LeaseRegistry`; a silent child is `STALLED`, not waited for |
+| Idempotency keys | ❌ | ✅ | `runtime/idempotency.py`; stable across retries and resume |
 | Cancellation propagation | 🟡 interface | ✅ | `WAIT` / `CASCADE` / `DETACH`, cooperative token |
 | Checkpoint / resume | 🟡 audit event | ✅ | `runtime/checkpoint.py`, authority re-met on resume |
 | Parallel execution | ❌ | ✅ | threads over one locked kernel; bounded by `max_concurrency` |
@@ -44,11 +45,11 @@ Measured against the executing path, not the README.
 | Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
 
-So the honest summary is now: **a bounded, governed agent loop with governed fan-out.**
-Children run concurrently through one locked kernel, a supervisor that can only narrow,
-and a reducer that records disagreement. Still absent: a lease/heartbeat for children that
-go quiet, distributed workers, and the planner being *asked* to delegate rather than merely
-allowed to.
+So the honest summary is now: **a bounded, governed agent loop with governed, durable
+fan-out.** Children run concurrently through one locked kernel, a supervisor that can only
+narrow, a reducer that records disagreement, and leases so a child that stops answering is
+given up on rather than waited for forever. Still absent: distributed workers, and the
+planner being *asked* to delegate rather than merely allowed to.
 
 ## 2. What v0.5.1 added, and the one rule it was built under
 
@@ -189,15 +190,37 @@ Fan-in is `AggregatedObservation`: facts with who asserted them, evidence, *conf
 of contradiction), what is unresolved, and a label that is the join. Two children
 disagreeing is a recorded state.
 
-### v0.8 — durability
+### v0.8 — durability — **done** (`runtime/subagent.py`, `runtime/idempotency.py`)
 
-`CheckpointStore`, `ResumeManager`, lease/heartbeat, idempotency keys, a retry controller
-whose budget is *charged to the run*. LangGraph's checkpointer and Temporal's cancellation
-semantics are the references; Temporal's distinction between cancelling the task that
-started a child and cancelling the running child itself is the one that matters for research
-work, where "the parent was cancelled" should not always mean "kill the analysis that has
-been running for five hours". `DelegationContract` should carry an explicit
-`cancellation_policy` — `WAIT` / `DETACH` / `CASCADE`.
+Checkpoint/resume landed in v0.6 and cancellation policy in v0.7, so what remained was
+leases and idempotency, and both were built after measuring the defect they close.
+
+**A hung child was invisible.** A child whose tool never returned — a dead socket, a
+deadlocked driver — left the parent's `wait()` blocked forever, and `dispatch(wait=True)`
+passed no timeout. Nothing anywhere recorded that the child was stuck. Cooperative
+cancellation cannot help; the child is inside a call it will never come back from. So the
+signal is the *absence* of a heartbeat: every child holds a `WorkerLease`, the loop beats at
+every bounds check and before every task (per task, so a long plan of short steps is never
+mistaken for a hang), and `reap()` marks a silent child `STALLED`, cancels its token so it
+stops if it ever wakes, and lets the parent proceed. The thread is leaked knowingly. What is
+*not* claimed: that the thread was stopped. An in-process tool that never returns cannot be
+interrupted from outside, and saying "killed" about it would be the process-group defect in
+another costume.
+
+**Leaking that thread crashed the process.** The first end-to-end test segfaulted: the
+stalled child, mid-append on the shared event store, while the parent's `kernel.close()`
+closed the sqlite connection from another thread. `check_same_thread=False` permits
+sharing; it does not make closing safe. `EventStore.close()` takes the write lock now —
+so it waits for a writer in flight and makes every later one fail cleanly — and a late
+child's final audit write ends quietly. The regression test reproduces the segfault 3/3
+against the old `close()`.
+
+**Idempotency keys** are `"<loop run id>:<task id>"`, the same on every attempt and —
+because `resume()` preserves the run id through the meet — the same after a crash. That is
+the case they exist for: `resume()` turns a task that was RUNNING into RETRYABLE because
+what it did is unknown, and a component with side effects would do them again unless it
+recognises the key. The loop cannot decide replay semantics for a component, so
+`IdempotencyLedger` is something a component *uses*, not something the kernel imposes.
 
 ### v0.9 — interoperability
 

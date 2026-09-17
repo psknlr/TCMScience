@@ -123,6 +123,7 @@ class EventStore:
         # of every six records to UNIQUE(seq) violations. The lock serialises threads in
         # this process; BEGIN IMMEDIATE (below) serialises across processes.
         self._write_lock = threading.Lock()
+        self._closed = False
 
     # ------------------------------------------------------------------ append
     def append(self, event_type: str, run_id: str = "", *, principal_id: str = "local",
@@ -135,6 +136,14 @@ class EventStore:
         audit log, and the v0.3 version did exactly that.
         """
         with self._write_lock:
+            if self._closed:
+                # A clean refusal, under the lock. Without the flag — and without close()
+                # taking the same lock — a worker thread mid-append while the owning thread
+                # closed the connection was a segmentation fault in the sqlite extension,
+                # measured the first time a stalled child outlived its kernel.
+                raise RuntimeError(
+                    f"event store {self.path.name} is closed; refusing to append "
+                    f"{event_type!r} to a log that can no longer be verified")
             return self._append_locked(event_type, run_id, principal_id=principal_id, **fields)
 
     def _append_locked(self, event_type: str, run_id: str = "", *, principal_id: str = "local",
@@ -299,7 +308,20 @@ class EventStore:
         return ChainVerification(True, len(rows))
 
     def close(self) -> None:
-        self._conn.close()
+        """Close the connection — after any append in flight, never during one.
+
+        The store is shared between threads by design (``check_same_thread=False``, and a
+        lock around appends). Sharing makes closing a concurrency question too: sqlite's
+        C extension does not survive one thread closing a connection another thread is
+        inside, and the result is a crash rather than an exception. So close takes the
+        write lock, which means it waits for a writer to finish and then makes every later
+        writer fail cleanly.
+        """
+        with self._write_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._conn.close()
 
     def __enter__(self) -> "EventStore":
         return self

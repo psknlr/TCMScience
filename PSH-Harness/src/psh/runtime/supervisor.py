@@ -48,7 +48,8 @@ from ..contracts import (
 )
 from ..labels import DataLabel, Destination, Sensitivity, combine
 from .subagent import (
-    CancellationPolicy, CancellationToken, ChildRun, ChildState, SubagentResult,
+    CancellationPolicy, CancellationToken, ChildRun, ChildState, LeaseRegistry,
+    SubagentResult,
 )
 
 __all__ = ["Supervisor", "DelegationRequest", "BudgetLedger", "WorkerPool", "Reducer",
@@ -167,6 +168,10 @@ class AggregatedObservation:
     unresolved: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
     cancelled: tuple[str, ...] = ()
+    #: Children whose lease expired. Their work is absent from this aggregate, and saying
+    #: so is the difference between "three children found two facts" and "three children
+    #: found two facts, and one of them never answered".
+    stalled: tuple[str, ...] = ()
     label: DataLabel = field(default_factory=DataLabel)
     children: int = 0
 
@@ -174,7 +179,8 @@ class AggregatedObservation:
         return (f"{self.children} child(ren): {len(self.facts)} fact(s), "
                 f"{len(self.conflicts)} conflict(s), {len(self.evidence)} evidence ref(s), "
                 f"{len(self.unresolved)} unresolved, {len(self.failed)} failed, "
-                f"{len(self.cancelled)} cancelled; label={self.label.sensitivity.name}")
+                f"{len(self.cancelled)} cancelled, {len(self.stalled)} stalled; "
+                f"label={self.label.sensitivity.name}")
 
 
 _WS = re.compile(r"\s+")
@@ -200,6 +206,7 @@ class Reducer:
         failed = tuple(c.id for c in children if c.state is ChildState.FAILED)
         cancelled = tuple(c.id for c in children
                           if c.state in (ChildState.CANCELLED, ChildState.ORPHANED))
+        stalled = tuple(c.id for c in children if c.state is ChildState.STALLED)
 
         # Facts, deduplicated on a normalised statement, remembering who said each.
         by_key: dict[str, dict[str, Any]] = {}
@@ -241,7 +248,7 @@ class Reducer:
         return AggregatedObservation(
             facts=facts, conflicts=tuple(conflicts),
             evidence=tuple(dict.fromkeys(evidence_all)), unresolved=unresolved,
-            failed=failed, cancelled=cancelled,
+            failed=failed, cancelled=cancelled, stalled=stalled,
             label=combine(*labels) if labels else DataLabel(), children=len(children))
 
 
@@ -252,12 +259,21 @@ class Supervisor:
 
     def __init__(self, kernel: Any, backend: Callable[..., SubagentResult], *,
                  max_concurrency: int = 4, ledger: BudgetLedger | None = None,
-                 reducer: Reducer | None = None) -> None:
+                 reducer: Reducer | None = None, lease_ttl_s: float = 60.0) -> None:
         self.kernel = kernel
         self.backend = backend
         self.pool = WorkerPool(max_concurrency)
         self.ledger = ledger or BudgetLedger()
         self.reducer = reducer or Reducer()
+        #: How long a child may go without a heartbeat before the parent stops waiting for
+        #: it. A child beats at every bounds check and before every task, so this is a
+        #: bound on one tool call, not on the child's whole run. Measured before it was
+        #: built: without it, a tool that never returned left ``wait()`` blocked forever
+        #: and nothing recorded that the child was stuck.
+        if lease_ttl_s <= 0:
+            raise ValueError("lease_ttl_s must be positive")
+        self.lease_ttl_s = lease_ttl_s
+        self.leases = LeaseRegistry()
         self.dispatched = 0
 
     # ------------------------------------------------------------------ mint
@@ -301,8 +317,10 @@ class Supervisor:
         children: list[ChildRun] = []
         for request in requests:
             contract = self.mint(request, parent)
-            children.append(ChildRun(contract=contract, policy=request.cancellation,
-                                     state=ChildState.QUEUED))
+            child = ChildRun(contract=contract, policy=request.cancellation,
+                             state=ChildState.QUEUED)
+            child.lease = self.leases.issue(child.id, self.lease_ttl_s)
+            children.append(child)
         for child in children:
             child._future = self.pool.submit(lambda c=child: self._run(c, parent))  # type: ignore[attr-defined]
             self.dispatched += 1
@@ -317,41 +335,83 @@ class Supervisor:
             return
         child.state = ChildState.RUNNING
         child.started_at = time.time()
+        self.leases.beat(child.id)
         try:
             # THE door. The gateway rules on the contract, the governor counts the
             # delegation, the event is recorded — from a worker thread, on a kernel that
             # is now locked for exactly this.
             result = self.kernel.broker.delegate(
-                child.contract, parent, lambda contract: self.backend(contract,
-                                                                     token=child.token))
+                child.contract, parent,
+                lambda contract: self.backend(contract, token=child.token,
+                                              heartbeat=lambda: self.leases.beat(child.id)))
             child.result = result
-            if child.state is ChildState.ORPHANED:
-                pass                                    # detached: result kept, state not
+            if child.state in (ChildState.ORPHANED, ChildState.STALLED):
+                pass                       # disowned or given up on: result kept, state not
             elif result.termination == "cancelled":
                 child.state = ChildState.CANCELLED
             else:
                 child.state = ChildState.COMPLETED
         except Exception as exc:  # noqa: BLE001 - one child's fault is not the parent's end
             child.error = f"{type(exc).__name__}: {exc}"
-            if child.state is not ChildState.ORPHANED:
+            if child.state not in (ChildState.ORPHANED, ChildState.STALLED):
                 child.state = ChildState.FAILED
         finally:
             child.finished_at = time.time()
+            self.leases.release(child.id)
 
-    def wait(self, children: Sequence[ChildRun], timeout: float | None = None) -> None:
-        """Join every child that is ours. Orphans are not waited for."""
-        deadline = None if timeout is None else time.time() + timeout
+    def reap(self, children: Sequence[ChildRun]) -> list[ChildRun]:
+        """Give up on children whose lease has expired. Returns the ones newly stalled.
+
+        Nothing here stops the child's thread — a tool that never returns cannot be
+        interrupted from outside, and pretending otherwise is how "killed" came to be
+        written about a process group nobody signalled. What it does: records the fact,
+        cancels the child's token so it stops if it ever wakes, and lets the parent stop
+        waiting. The thread is leaked knowingly rather than waited for forever.
+        """
+        stalled: list[ChildRun] = []
         for child in children:
-            if child.state is ChildState.ORPHANED:
+            if child.state is not ChildState.RUNNING or child.lease is None:
                 continue
-            future = getattr(child, "_future", None)
-            if future is None:
+            if not child.lease.expired():
                 continue
-            remaining = None if deadline is None else max(0.0, deadline - time.time())
-            try:
-                future.result(timeout=remaining)
-            except Exception:  # noqa: BLE001 - recorded on the child by _run
-                pass
+            child.state = ChildState.STALLED
+            child.error = (f"no heartbeat for {child.lease.ttl_s:g}s; the parent has "
+                           "stopped waiting for this child")
+            child.token.cancel("lease expired")
+            self.leases.release(child.id)
+            stalled.append(child)
+            audit = getattr(self.kernel, "audit", None)
+            if audit is not None:
+                audit("child_stalled", run_id=child.contract.envelope.run_id,
+                      detail={"child_id": child.id, "ttl_s": child.lease.ttl_s,
+                              "beats": child.lease.beats})
+        return stalled
+
+    def wait(self, children: Sequence[ChildRun], timeout: float | None = None,
+             poll_s: float = 0.05) -> None:
+        """Wait for every child that is ours, reaping the ones that stop answering.
+
+        Polls rather than joining each future outright: a join with no timeout is exactly
+        how a hung child held the parent forever. Each pass reaps expired leases, and the
+        wait ends when every child is finished, stalled or orphaned — or the caller's own
+        timeout passes.
+        """
+        deadline = None if timeout is None else time.time() + timeout
+        while True:
+            self.reap(children)
+            pending = [c for c in children
+                       if not c.done and getattr(c, "_future", None) is not None]
+            if not pending:
+                return
+            if deadline is not None and time.time() >= deadline:
+                return
+            step = poll_s if deadline is None else min(poll_s, max(0.0, deadline - time.time()))
+            for child in pending:
+                try:
+                    child._future.result(timeout=step)  # type: ignore[attr-defined]
+                    break                              # one finished; re-evaluate the rest
+                except Exception:  # noqa: BLE001 - timeout, or an error _run recorded
+                    continue
 
     def cancel(self, children: Sequence[ChildRun], reason: str = "parent cancelled") -> None:
         """Apply each child's cancellation policy. Then wait for the ones that stop."""

@@ -215,6 +215,7 @@ class AgentLoopController:
                  delegate_backend: Callable[[Any], Any] | None = None,
                  checkpoints: Any = None,
                  cancellation: Any = None,
+                 heartbeat: Callable[[], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.kernel = kernel
         self.planner = planner
@@ -236,6 +237,11 @@ class AgentLoopController:
         #: polls it at the same point it checks every other bound, so cancellation is a
         #: termination reason like the rest rather than an exception thrown across threads.
         self.cancellation = cancellation
+        #: Proof of life for whoever is waiting on this loop. Called at every bounds check
+        #: and before every task, so a long plan beats per task rather than per iteration.
+        #: It cannot fire *during* a call that never returns — that is the point: its
+        #: absence is how a supervisor learns a child is stuck inside one.
+        self.heartbeat = heartbeat
         self._sleep = sleep
 
     # ------------------------------------------------------------------- public
@@ -315,6 +321,7 @@ class AgentLoopController:
     # -------------------------------------------------------------------- bounds
     def _check_bounds(self, state: LoopState) -> Termination | None:
         """Every reason to stop that is not a verdict. Checked before work, not after."""
+        self._beat()
         if self.cancellation is not None and getattr(self.cancellation, "cancelled", False):
             state.detail = (getattr(self.cancellation, "reason", "") or
                             "cancelled by the holder of this loop's cancellation token")
@@ -381,8 +388,10 @@ class AgentLoopController:
             self._sleep(delay)
 
         graph.mark_running(task.task_id, at=time.time())
+        self._beat()
         try:
-            result = self._dispatch(task, envelope, graph.results())
+            result = self._dispatch(task, envelope, graph.results(),
+                                    idempotency_key=f"{state.envelope.run_id}:{task.task_id}")
         except (BudgetExhausted, ApprovalRequired):
             raise                                  # bounds, not task failures
         except (EgressDenied, PolicyDenied) as exc:
@@ -408,13 +417,19 @@ class AgentLoopController:
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
 
     def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
-                  upstream: Mapping[str, Any]) -> tuple[Any, Any]:
+                  upstream: Mapping[str, Any], *, idempotency_key: str = "") -> tuple[Any, Any]:
         """The only three ways this loop can cause anything to happen.
 
         Returns ``(value, label)``. The label used to be discarded here — the broker hands
         back a labelled result and the loop unwrapped it to the bare value — which meant a
         child agent's summary could not carry the join of what it had seen, and a summary
         that does not carry its sources' labels is the laundering path compaction closes.
+
+        ``idempotency_key`` is ``"<loop run id>:<task id>"``: the same value on every
+        attempt of a task and, because ``resume()`` preserves the run id through the meet,
+        the same value after a crash and restart. A tool with side effects can use it to
+        recognise a replay — the case ``resume()`` creates deliberately when it turns a task
+        that was RUNNING into RETRYABLE, since what that task did is not known.
         """
         broker = self.kernel.broker
 
@@ -435,6 +450,8 @@ class AgentLoopController:
             payload = dict(task.payload)
             if task.dependencies:
                 payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
+            if idempotency_key:
+                payload["_psh_idempotency_key"] = idempotency_key
             result = broker.call_tool(component, payload, envelope)
             return getattr(result, "value", result), getattr(result, "label", None)
 
@@ -508,6 +525,14 @@ class AgentLoopController:
                     iterations=state.iteration, replans=state.replans)
         return result
 
+    def _beat(self) -> None:
+        if self.heartbeat is None:
+            return
+        try:
+            self.heartbeat()
+        except Exception:  # noqa: BLE001 - a failed heartbeat must not end the work
+            pass
+
     def _checkpoint(self, state: LoopState) -> None:
         """Snapshot after each iteration, if a store is configured.
 
@@ -529,9 +554,16 @@ class AgentLoopController:
         audit = getattr(self.kernel, "audit", None)
         if audit is None:
             return
-        audit(event, run_id=state.envelope.run_id, detail={"loop_id": state.loop_id,
-                                                           "iteration": state.iteration,
-                                                           **detail})
+        try:
+            audit(event, run_id=state.envelope.run_id, detail={"loop_id": state.loop_id,
+                                                               "iteration": state.iteration,
+                                                               **detail})
+        except Exception:  # noqa: BLE001
+            # A child given up on by its parent may wake after the kernel has closed. Its
+            # last audit write then fails, and that failure must end quietly rather than
+            # propagate out of a thread nobody is waiting for. The store refuses cleanly
+            # now; this is the other half of the same fix.
+            pass
 
 
 def _join_labels(graph: ExecutionGraph) -> Any:
