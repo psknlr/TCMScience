@@ -187,8 +187,11 @@ def test_narrowing_the_policy_narrows_every_gate_not_only_the_envelope(tmp_path)
     """
     kernel = TrustedKernel(PSHConfig(state_dir=tmp_path / "k").ensure_dirs(),
                            policy=open_policy())
+    # INTERNAL, not PUBLIC: the classifier floors ordinary text at INTERNAL, and the gates
+    # now enforce a run's ceiling, so a PUBLIC ceiling refuses the payload before the
+    # isolation check this test is about gets to rule.
     strict = open_policy().with_(require_isolated_tools=True,
-                                 max_data_label=Sensitivity.PUBLIC,
+                                 max_data_label=Sensitivity.INTERNAL,
                                  allowed_destinations=(Destination.LOCAL_COMPUTE,
                                                        Destination.USER_OUTPUT))
     envelope = strict.envelope()
@@ -201,7 +204,7 @@ def test_narrowing_the_policy_narrows_every_gate_not_only_the_envelope(tmp_path)
     assert not envelope.permits_destination(Destination.PUBLIC_REMOTE)
 
     # data ceiling: the kernel permits PHI, the run does not
-    assert envelope.max_label.sensitivity is Sensitivity.PUBLIC
+    assert envelope.max_label.sensitivity is Sensitivity.INTERNAL
 
     manifest = ComponentManifest(id="inproc", name="in process", kind=ComponentKind.TOOL,
                                  max_label=Sensitivity.PHI)

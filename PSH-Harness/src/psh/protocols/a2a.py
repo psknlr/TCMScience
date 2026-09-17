@@ -146,8 +146,9 @@ class RemoteAgent:
         # and the ToolGateway compares that label to the remote destination.
         projection = contract.projection
         text = contract.objective
-        if projection is not None:
-            text = f"{contract.objective}\n\n{projection.render()}"
+        rendered = projection.render() if projection is not None else ""
+        if rendered:
+            text = f"{contract.objective}\n\n{rendered}"
         payload: Any = {"message": {"role": "user", "parts": [{"kind": "text", "text": text}]},
                         "output_schema": dict(contract.output_schema)}
         if projection is not None:

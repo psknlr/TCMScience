@@ -97,7 +97,8 @@ Three design decisions worth stating because they differ from the review's sketc
 is right: a scheduling structure whose nodes go `RUNNING` and `FAILED` and get retried
 cannot be the same object as a provenance record, or a retry rewrites history. Outcomes
 reach the WorkGraph through the persistence gateway; task states never leave memory except
-as audit events.
+as audit events and, when a checkpoint store is wired, as checkpoints written under the
+persistence rules (`docs/RUNTIME_SECURITY_REVIEW.md`).
 
 **Task authority is `restrict()`, not a new comparison.** `task_envelope()` narrows the run
 envelope with the existing lattice, and the *validator returns the envelopes the loop then

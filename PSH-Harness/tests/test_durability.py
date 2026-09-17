@@ -24,7 +24,7 @@ from psh.capabilities import CapabilityRegistry
 from psh.config import PSHConfig
 from psh.contracts import Autonomy, ComponentKind, ComponentManifest, RiskTier
 from psh.kernel import TrustedKernel
-from psh.labels import Destination, Sensitivity
+from psh.labels import DataLabel, Destination, Sensitivity
 from psh.policy import PolicySnapshot
 from psh.runtime import (
     KEY_FIELD, AgentLoopController, CancellationPolicy, CheckpointStore, ChildState,
@@ -291,7 +291,7 @@ def test_the_key_is_stable_across_a_resume(kernel, tmp_path):
     state.plan = plan
     state.graph = ExecutionGraph(plan)
     state.graph.mark_running("s0", at=1.0)
-    state.graph.mark_succeeded("s0", {"effect": 1}, at=2.0)
+    state.graph.mark_succeeded("s0", {"effect": 1}, at=2.0, label=DataLabel())
     state.graph.mark_running("s1", at=3.0)             # ...and then the process ended
     # Pretend the side effect of s1 already landed under the key the loop will present.
     ledger.remember(f"{state.envelope.run_id}:s1", {"effect": "already done"})

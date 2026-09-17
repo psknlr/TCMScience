@@ -309,5 +309,8 @@ class LocalSubagentBackend:
             # keeps the tree governed at every level; the budget's child() fractions and
             # max_delegations bound its depth.
             delegate_backend=self)
-        result = loop.run(contract.objective, contract.envelope)
+        # The contract's projection label is what the parent knows about the objective
+        # that its text does not show; the child joins it with its own classification.
+        handed = contract.projection.label if contract.projection is not None else None
+        result = loop.run(contract.objective, contract.envelope, objective_label=handed)
         return summarise_loop(result)

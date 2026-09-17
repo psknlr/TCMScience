@@ -102,6 +102,20 @@ class ExecutionGraph:
     def results(self) -> dict[str, Any]:
         return {n.id: n.result for n in self.succeeded}
 
+    def labeled_results(self) -> dict[str, Any]:
+        """Results wrapped with the label the broker gave them.
+
+        ``results()`` is the bare values, which is what a caller reporting on a loop wants.
+        Anything *built on* a result — the next task's prompt, the next tool's payload —
+        must start from the label, or the join is lost at every edge of the graph and a
+        tool result labelled PHI reaches the next model call as PUBLIC evidence.
+        """
+        from ..labels import Labeled
+
+        return {n.id: (Labeled(value=n.result, label=n.label) if n.label is not None
+                       else n.result)
+                for n in self.succeeded}
+
     # ---------------------------------------------------------------- mutation
     def mark_running(self, task_id: str, *, at: float) -> None:
         node = self.nodes[task_id]
@@ -109,12 +123,21 @@ class ExecutionGraph:
         node.attempts += 1
         node.started_at = at
 
-    def mark_succeeded(self, task_id: str, result: Any, *, at: float) -> None:
+    def mark_succeeded(self, task_id: str, result: Any, *, at: float,
+                       label: Any = None) -> None:
+        """Record a result and, with it, the label the broker gave it.
+
+        A node whose result has no label is one nothing can safely be built on: it is not
+        checkpointed (``capture`` withholds it) and the loop classifies before it gets
+        here. The label is a parameter so the two are set together.
+        """
         node = self.nodes[task_id]
         node.state = TaskState.SUCCEEDED
         node.result = result
         node.error = ""
         node.finished_at = at
+        if label is not None:
+            node.label = label
 
     def mark_failed(self, task_id: str, error: str, *, at: float,
                     retryable: bool = False) -> None:

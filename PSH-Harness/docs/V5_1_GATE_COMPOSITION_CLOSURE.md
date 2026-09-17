@@ -303,3 +303,5 @@ is most of why the field could not be turned on.
   sandbox.
 * Claim support is still lexical, and the audit chain is still tamper-evident rather than
   tamper-proof.
+* The runtime built on this release was itself reviewed afterwards; two findings survived
+  and are closed in `docs/RUNTIME_SECURITY_REVIEW.md`.

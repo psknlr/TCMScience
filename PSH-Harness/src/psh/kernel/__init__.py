@@ -143,11 +143,17 @@ class TrustedKernel:
             # under the policy ceiling. A policy that forbids the verifier's destination
             # must fail here, loudly, at construction — not silently mint a wider envelope
             # and discover the contradiction at the first claim check.
+            # The ceiling is what the verification model may lawfully receive under this
+            # policy — the lower of the two. It used to be stated as PUBLIC, which no gate
+            # read; now that the model gateway enforces a run's ceiling, PUBLIC would
+            # refuse every verification, because the classifier floors ordinary text at
+            # INTERNAL (the user's own working material).
             try:
                 self._verification_envelope = self.envelope(
                     allowed_destinations=[verification_model.destination,
                                           Destination.LOCAL_COMPUTE],
-                    max_label=Sensitivity.PUBLIC)
+                    max_label=min(self.policy.max_data_label,
+                                  verification_model.max_label))
             except PolicyDenied as exc:
                 raise PolicyDenied(
                     f"policy {self.policy.profile_id!r} does not permit destination "

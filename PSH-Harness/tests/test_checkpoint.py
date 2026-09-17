@@ -25,7 +25,7 @@ from psh.contracts import (
 )
 from psh.kernel import TrustedKernel
 from psh.kernel.authority import AuthorityLattice
-from psh.labels import Destination, Sensitivity
+from psh.labels import DataLabel, Destination, Sensitivity
 from psh.policy import PolicySnapshot
 from psh.runtime import (
     AgentLoopController, Checkpoint, CheckpointStore, Criterion, LoopLimits, LoopState,
@@ -190,7 +190,9 @@ def test_a_completed_task_is_not_re_authorised(tmp_path):
     state.plan = plan
     state.graph = ExecutionGraph(plan)
     state.graph.mark_running("outward", at=1.0)
-    state.graph.mark_succeeded("outward", {"done": True}, at=2.0)
+    # Labelled, as the loop always labels: an unlabelled result is withheld from the
+    # checkpoint and its task runs again, which is a different test.
+    state.graph.mark_succeeded("outward", {"done": True}, at=2.0, label=DataLabel())
     checkpoint = capture(state, policy=broad.policy)
     broad.close()
 
@@ -229,7 +231,7 @@ def test_a_checkpoint_round_trips_through_disk(tmp_path):
     state.plan = two_step_plan()
     state.graph = ExecutionGraph(state.plan)
     state.graph.mark_running("first", at=1.0)
-    state.graph.mark_succeeded("first", {"n": 1}, at=2.0)
+    state.graph.mark_succeeded("first", {"n": 1}, at=2.0, label=DataLabel())
     state.iteration = 3
 
     original = capture(state, policy=kernel.policy)

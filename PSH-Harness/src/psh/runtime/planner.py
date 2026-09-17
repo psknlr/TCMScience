@@ -38,8 +38,8 @@ from typing import Any, Callable, Mapping, Sequence
 from ..contracts import (
     Autonomy, ContextItem, ContractViolation, PolicyDenied, RiskTier, RunEnvelope,
 )
-from ..labels import Destination, Sensitivity
-from .loop import LoopState, Planner
+from ..labels import DataLabel, Destination, Sensitivity
+from .loop import LoopState, Planner, classify_with, graph_label, objective_label_for
 from .plan import Criterion, Plan, PlanTask, RetryPolicy, TaskKind, TestSpec
 from .plan_validator import PlanRejected, PlanValidator
 
@@ -270,18 +270,31 @@ class ModelPlanner(Planner):
 
     # ------------------------------------------------------------------ public
     def plan(self, state: LoopState, *, feedback: Any = None) -> Plan:
-        """Return a validated ``Plan`` or raise. Never returns something unexecutable."""
+        """Return a validated ``Plan`` or raise. Never returns something unexecutable.
+
+        Everything quoted back to the model is labelled with what it quotes. Evaluator
+        failures embed task results and component errors, so their label is the join of
+        the graph's; a refused attempt is quoted from the model's own reply, so its label
+        is what that reply was given. The accepted plan's label — what the model was shown
+        joined with what it wrote — is recorded on the state, and the loop labels every
+        task objective with it, because a task objective is derived from this prompt.
+        """
         errors: list[str] = []
+        errors_label = DataLabel()
         if feedback is not None and getattr(feedback, "failures", ()):
             errors.append("The previous plan completed but did not satisfy its criteria: "
                           + "; ".join(list(feedback.failures)[:5]))
+            errors_label = errors_label.merged_with(graph_label(state.graph))
 
         last: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
-            projection = self._projection(state, errors)
+            projection = self._projection(state, errors, errors_label)
             call = self.kernel.broker.call_model(projection, self.model, state.envelope,
                                                  invoke=self.model_invoke)
             text = getattr(call, "content", str(call))
+            shown = getattr(call, "label", None) or projection.label
+            produced = shown.merged_with(
+                classify_with(self.kernel, text, origin="planner_output"))
             try:
                 candidate = parse_plan(text, produced_by=f"{self.model.id}#{attempt}")
                 self.validator.validate(candidate, state.envelope,
@@ -290,6 +303,7 @@ class ModelPlanner(Planner):
                 last = exc
                 message = str(exc)
                 errors.append(f"Attempt {attempt} was refused: {message}")
+                errors_label = errors_label.merged_with(produced)
                 self.attempts.append(PlanAttempt(attempt=attempt, error=message))
                 self._audit(state, attempt=attempt, outcome="refused",
                             error_type=type(exc).__name__)
@@ -297,6 +311,7 @@ class ModelPlanner(Planner):
             self.attempts.append(PlanAttempt(attempt=attempt, plan_id=candidate.plan_id))
             self._audit(state, attempt=attempt, outcome="accepted",
                         tasks=len(candidate.tasks))
+            state.plan_label = produced
             return candidate
 
         raise PlanRejected(
@@ -305,12 +320,23 @@ class ModelPlanner(Planner):
             getattr(last, "violations", ()))
 
     # ----------------------------------------------------------------- context
-    def _projection(self, state: LoopState, errors: Sequence[str]) -> Any:
-        """Compile the planning prompt. Its own projection, like any other worker's."""
+    def _projection(self, state: LoopState, errors: Sequence[str],
+                    errors_label: DataLabel | None = None) -> Any:
+        """Compile the planning prompt. Its own projection, like any other worker's.
+
+        The turn item carries the objective's classification and the correction item
+        carries the label of what it quotes. Both kinds are load-bearing — the compiler
+        never drops them — so the projection's label is what the gate rules on, and a PHI
+        objective heading for a public provider is refused rather than sent as PUBLIC.
+        """
         from ..context import ContextCompiler
 
-        items = [ContextItem(kind="instruction", content=self.system_prompt),
-                 ContextItem(kind="instruction", content=self._authority_brief(state))]
+        # Static text from this module: PUBLIC by construction, and said so. A structural
+        # test refuses any ContextItem built in the runtime without a stated label.
+        items = [ContextItem(kind="instruction", content=self.system_prompt,
+                             label=DataLabel()),
+                 ContextItem(kind="instruction", content=self._authority_brief(state),
+                             label=DataLabel())]
         if self.registry is not None:
             candidates = self.registry.resolve(state.objective, state.envelope, limit=12)
             items += self.registry.manifest_items(candidates)
@@ -320,8 +346,10 @@ class ModelPlanner(Planner):
             items.append(ContextItem(
                 kind="instruction",
                 content=("Previous attempts were refused. Fix these and return a corrected "
-                         "plan:\n- " + "\n- ".join(errors[-4:]))))
-        items.append(ContextItem(kind="turn", content=state.objective))
+                         "plan:\n- " + "\n- ".join(errors[-4:])),
+                label=errors_label or DataLabel()))
+        items.append(ContextItem(kind="turn", content=state.objective,
+                                 label=objective_label_for(state, self.kernel)))
         return ContextCompiler().compile(
             items=items, envelope=state.envelope, destination=self.model.destination,
             token_budget=state.envelope.budget.tokens_soft, query=state.objective)

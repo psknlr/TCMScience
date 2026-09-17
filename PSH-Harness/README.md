@@ -205,8 +205,28 @@ into the model's context with the default `PUBLIC` label, so a server-supplied d
 carrying PHI would have reached a public model. Descriptions are classified at ingress now
 and the rendered item carries that label.
 
+### Labels travel across the loop — an adversarial review of the runtime
+
+The runtime was reviewed after it was written: candidate findings, an independent
+false-positive filter per finding, a cut at confidence 8. Two survived, both reproduced,
+both the same shape — the loop went *through* the kernel and handed it the wrong label. A
+tool result labelled PHI reached the next model task as PUBLIC evidence, because the label
+was recorded on the node and never carried into the prompt; the objective and the
+planner's feedback were never classified at all, so a PHI objective reached a public
+planner under a PUBLIC verdict while `LoopResult.label` correctly said PHI.
+
+Labels travel now — with results into the next projection and payload, with the objective
+onto every item built from it, with a model-authored plan onto every task objective, with
+feedback onto what it quotes, with a delegation onto the child. And the kernel no longer
+trusts a projection: the broker classifies the rendered text and joins, so a projection can
+be escalated at that boundary and never trusted downward, and both gateways enforce the
+run's ceiling, which only `Runner._preflight` had compared before. Checkpoints obey the
+persistence rules — a result the gateway would refuse is withheld and the task re-runs —
+and a record without a hash is refused. `docs/RUNTIME_SECURITY_REVIEW.md` has the report,
+the two findings that were filtered out, and what was done about them anyway.
+
 ```bash
-python -m pytest tests/ -q          # 493 pass
+python -m pytest tests/ -q          # 517 pass
 python -m compileall -q src         # clean
 ```
 
@@ -246,7 +266,10 @@ python -m compileall -q src         # clean
 
 Enforced, with a test that drives the executing path:
 
-* no value reaches a gateway unclassified, and a caller-supplied label is re-validated;
+* no value reaches a gateway unclassified, and a caller-supplied label is re-validated —
+  a compiled projection included, whose rendered text the broker classifies and joins;
+* nothing above a run's ceiling reaches a model or a tool, at the gate rather than in one
+  caller's preflight;
 * no envelope is wider than the policy that minted it, on any of the lattice's dimensions;
 * every model call, tool call and delegation passes the broker, which records an event;
 * output is quarantined and `released_output` stays `None` unless the release gate passed;

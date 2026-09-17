@@ -45,14 +45,14 @@ from ..contracts import (
     ApprovalRequired, BudgetExhausted, ContractViolation, EgressDenied, PolicyDenied,
     RunEnvelope, new_id,
 )
-from ..labels import Destination
+from ..labels import DataLabel, Destination, Labeled, combine, label_of, unwrap
 from .evaluator import Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskState
 from .plan import Plan, PlanTask, RetryBudget, TaskKind
 from .plan_validator import PlanRejected, PlanValidator, ValidatedPlan, task_envelope
 
 __all__ = ["AgentLoopController", "LoopState", "LoopResult", "Termination", "LoopLimits",
-           "Planner", "StaticPlanner"]
+           "Planner", "StaticPlanner", "classify_with", "graph_label", "objective_label_for"]
 
 
 class Termination(str, Enum):
@@ -118,6 +118,18 @@ class LoopState:
     digests: list[str] = field(default_factory=list)
     termination: Termination = Termination.RUNNING
     detail: str = ""
+    #: The objective's classification, computed once at ingress (``objective_label_for``)
+    #: and carried onto every context item built from the objective. ``Runner.run``
+    #: classifies its request at stage 1 and labels the turn item with the result; the
+    #: loop and the planner built their turn and instruction items with the default label,
+    #: which is PUBLIC, and a PHI objective reached a public provider under that verdict.
+    objective_label: Any = None
+    #: The label of the plan in force: for a model-authored plan, the join of everything
+    #: the planner's model was shown and the classification of what it wrote. A task
+    #: objective is a derived value — derived from that prompt — and carries this label.
+    #: ``None`` for a plan the caller wrote (``StaticPlanner``), whose task text is
+    #: classified on its own.
+    plan_label: Any = None
 
     def observe(self, **fields: Any) -> None:
         self.observations.append({"iteration": self.iteration, **fields})
@@ -203,6 +215,29 @@ class StaticPlanner(Planner):
         return self._plan
 
 
+def classify_with(kernel: Any, value: Any, *, origin: str = "") -> DataLabel:
+    """Classify a value through the kernel's classifier. PUBLIC only when it says so."""
+    classify = getattr(kernel, "classify", None)
+    if classify is None:                                     # pragma: no cover - test doubles
+        return DataLabel()
+    return classify(value, origin=origin).label
+
+
+def objective_label_for(state: LoopState, kernel: Any) -> DataLabel:
+    """The objective's label, classified once and remembered on the state."""
+    if state.objective_label is None:
+        state.objective_label = classify_with(kernel, state.objective, origin="loop_objective")
+    return state.objective_label
+
+
+def graph_label(graph: ExecutionGraph | None) -> DataLabel:
+    """The join of every labelled task result in a graph; PUBLIC when there is none."""
+    if graph is None:
+        return DataLabel()
+    return combine(*[n.label for n in graph.nodes.values()
+                     if getattr(n, "label", None) is not None])
+
+
 class AgentLoopController:
     """Drives plan -> act -> observe -> evaluate, through the kernel, within bounds."""
 
@@ -247,15 +282,25 @@ class AgentLoopController:
     # ------------------------------------------------------------------- public
     def run(self, objective: str, envelope: RunEnvelope, *,
             supports: Sequence[Any] = (),
-            resume_from: LoopState | None = None) -> LoopResult:
+            resume_from: LoopState | None = None,
+            objective_label: Any = None) -> LoopResult:
         """Execute the loop until one of the termination conditions holds.
 
         ``resume_from`` continues a state rebuilt by ``checkpoint.resume``, which has
         already re-authorised it. This method does not rebuild it itself, because doing so
         would put a second authority-restoring path beside the one that performs the meet.
+
+        ``objective_label`` is what the caller knows about the objective that its text does
+        not show — a parent handing a child an objective derived from PHI. It is joined
+        with the classification of the text and can only raise it.
         """
         state = resume_from or LoopState(loop_id=new_id("loop"), objective=objective,
                                          envelope=envelope)
+        # Classify at ingress, before anything is built from the objective. The same stage
+        # Runner.run has, for the same reason.
+        label = objective_label_for(state, self.kernel)
+        if objective_label is not None:
+            state.objective_label = label.merged_with(objective_label)
         self._audit("loop_started" if resume_from is None else "loop_continued", state,
                     objective_len=len(objective),
                     max_iterations=self.limits.max_iterations)
@@ -390,8 +435,9 @@ class AgentLoopController:
         graph.mark_running(task.task_id, at=time.time())
         self._beat()
         try:
-            result = self._dispatch(task, envelope, graph.results(),
-                                    idempotency_key=f"{state.envelope.run_id}:{task.task_id}")
+            result = self._dispatch(task, envelope, graph.labeled_results(),
+                                    idempotency_key=f"{state.envelope.run_id}:{task.task_id}",
+                                    plan_label=state.plan_label)
         except (BudgetExhausted, ApprovalRequired):
             raise                                  # bounds, not task failures
         except (EgressDenied, PolicyDenied) as exc:
@@ -412,18 +458,30 @@ class AgentLoopController:
             return
 
         value, label = result
-        graph.mark_succeeded(task.task_id, value, at=time.time())
-        graph.nodes[task.task_id].label = label
+        if label is None:
+            # A result with no label is not PUBLIC; it is unclassified. Classify it, so no
+            # node in the graph carries None into the joins built on it.
+            label = classify_with(self.kernel, value, origin=f"task:{task.task_id}")
+        graph.mark_succeeded(task.task_id, value, at=time.time(), label=label)
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
 
     def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
-                  upstream: Mapping[str, Any], *, idempotency_key: str = "") -> tuple[Any, Any]:
+                  upstream: Mapping[str, Any], *, idempotency_key: str = "",
+                  plan_label: Any = None) -> tuple[Any, Any]:
         """The only three ways this loop can cause anything to happen.
 
         Returns ``(value, label)``. The label used to be discarded here — the broker hands
         back a labelled result and the loop unwrapped it to the bare value — which meant a
         child agent's summary could not carry the join of what it had seen, and a summary
         that does not carry its sources' labels is the laundering path compaction closes.
+
+        ``upstream`` is ``graph.labeled_results()``: each dependency's value wrapped in the
+        label the broker gave it. The label was recorded on the node and then not consulted
+        when the next task's input was built, so every edge of the graph was a laundering
+        step — the evidence item for a model task said PUBLIC whatever the tool had
+        returned, and a tool payload was re-classified from its text alone, which sees an
+        identifier but not a count derived from a PHI cohort. The label travels now: onto
+        the evidence item, into the payload where ingress joins it, and into the result.
 
         ``idempotency_key`` is ``"<loop run id>:<task id>"``: the same value on every
         attempt of a task and, because ``resume()`` preserves the run id through the meet,
@@ -438,17 +496,25 @@ class AgentLoopController:
                 raise ContractViolation(
                     f"task {task.task_id!r} is a model call and this loop has no model "
                     "configured; a loop may not reach a provider by any other route")
-            projection = self._projection(task, envelope, upstream)
+            projection = self._projection(task, envelope, upstream, plan_label=plan_label)
             call = broker.call_model(projection, self.model, envelope,
                                      invoke=self.model_invoke)
-            # A model's output is at least as sensitive as the context it was shown.
-            label = getattr(projection, "label", None)
-            return getattr(call, "content", call), label
+            content = getattr(call, "content", call)
+            # A model's output is at least as sensitive as the context it was shown, and
+            # at least as sensitive as what it says. The broker's result carries the label
+            # the gate ruled on; join it with a classification of the reply.
+            shown = getattr(call, "label", None) or getattr(projection, "label", DataLabel())
+            label = shown.merged_with(
+                classify_with(self.kernel, content, origin=f"task:{task.task_id}"))
+            return content, label
 
         if task.kind == TaskKind.TOOL:
             component = self._component(task.component_id)
             payload = dict(task.payload)
             if task.dependencies:
+                # Labeled values, not bare ones: ingress walks the payload and joins every
+                # label it finds, so the derived label survives where a lexical scan of the
+                # text would not see it.
                 payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
             if idempotency_key:
                 payload["_psh_idempotency_key"] = idempotency_key
@@ -460,41 +526,73 @@ class AgentLoopController:
                 raise ContractViolation(
                     f"task {task.task_id!r} delegates and this loop has no delegate "
                     "backend; delegation must go somewhere the broker can gate")
-            from ..contracts import DelegationContract
+            from ..contracts import ContextProjection, DelegationContract
+            # What is handed over is the objective, and its label is what the delegation
+            # gateway compares with the child's ceiling. A projection with no items and
+            # this label says exactly that; the child joins it with its own classification
+            # of the text at its ingress.
+            handed = self._instruction_label(task, plan_label)
             contract = DelegationContract(
                 task_id=task.task_id, objective=task.objective,
                 envelope=envelope, output_schema=dict(task.output_schema),
                 acceptance_tests=tuple(t.kind for t in task.acceptance_tests),
-                evidence_required=task.evidence_required, backend="local_agent")
+                evidence_required=task.evidence_required, backend="local_agent",
+                projection=ContextProjection(items=(), label=handed, run_id=envelope.run_id))
             result = broker.delegate(contract, envelope, self.delegate_backend)
-            return result, getattr(result, "label", None)
+            label = getattr(result, "label", None)
+            if label is None:
+                label = classify_with(self.kernel, result, origin=f"task:{task.task_id}")
+            return result, handed.merged_with(label)
 
         raise ContractViolation(f"unroutable task kind {task.kind!r}")
 
+    def _instruction_label(self, task: PlanTask, plan_label: Any) -> DataLabel:
+        """The label of a task's objective text: the plan's label joined with its own."""
+        own = classify_with(self.kernel, task.objective, origin=f"task:{task.task_id}")
+        return own if plan_label is None else own.merged_with(plan_label)
+
     def _projection(self, task: PlanTask, envelope: RunEnvelope,
-                    upstream: Mapping[str, Any]) -> Any:
+                    upstream: Mapping[str, Any], *, plan_label: Any = None) -> Any:
         """Compile this task's own context. One projection per task, not a transcript.
 
         ``ContextProjection``'s docstring already says compiled context belongs to exactly
         one worker. A loop is where that stops being a style preference: accumulating every
         step's output into a shared history is how a tool result labelled PHI ends up in the
         prompt of a later step heading somewhere it may not go.
+
+        Every item is labelled. The instruction carries the plan's label joined with its
+        own classification; each evidence item carries the label its result was given by
+        the broker. And an evidence item the compiler would drop for this destination is a
+        refusal, not a quieter prompt: the upstream result *is* the task's input, and a task
+        that ran without it would succeed at answering a different question.
         """
         from ..context import ContextCompiler
         from ..contracts import ContextItem
 
-        items = [ContextItem(kind="instruction", content=task.objective)]
+        items = [ContextItem(kind="instruction", content=task.objective,
+                             label=self._instruction_label(task, plan_label))]
         for dependency in task.dependencies:
-            value = upstream.get(dependency)
+            item = upstream.get(dependency)
+            value = unwrap(item)
             if value is not None:
                 items.append(ContextItem(kind="evidence", content=str(value)[:4000],
-                                         source_ref=dependency))
+                                         source_ref=dependency, label=label_of(item)))
         compiler = ContextCompiler()
         destination = (self.model.destination if self.model is not None
                        else Destination.LOCAL_MODEL)
-        return compiler.compile(items=items, envelope=envelope, destination=destination,
-                                token_budget=envelope.budget.tokens_soft,
-                                query=task.objective)
+        projection = compiler.compile(items=items, envelope=envelope,
+                                      destination=destination,
+                                      token_budget=envelope.budget.tokens_soft,
+                                      query=task.objective)
+        dropped = getattr(compiler.last_trace, "dropped_policy", 0)
+        if dropped:
+            withheld = combine(*[label_of(upstream.get(d)) for d in task.dependencies])
+            raise EgressDenied(
+                f"task {task.task_id!r} depends on results classified "
+                f"{withheld.sensitivity.name} that may not reach {destination.name}; "
+                "refusing rather than running the task without its input",
+                label=withheld, destination=destination)
+        return projection
 
     def _component(self, component_id: str) -> Any:
         if self.registry is None:
@@ -520,7 +618,7 @@ class AgentLoopController:
             plan=state.plan,
             state_counts=state.graph.state_counts() if state.graph else {},
             broker_stats=self.kernel.broker.stats(),
-            label=_join_labels(state.graph) if state.graph else None)
+            label=_result_label(state))
         self._audit("loop_finished", state, termination=termination.value,
                     iterations=state.iteration, replans=state.replans)
         return result
@@ -545,8 +643,19 @@ class AgentLoopController:
         try:
             from .checkpoint import capture
 
-            self.checkpoints.save(capture(state, policy=getattr(self.kernel, "policy",
-                                                                None)))
+            # A checkpoint is a durable write and obeys the persistence rules like any
+            # other: results above the store's ceiling, or that may not reach PERSISTENT,
+            # or of a run that may not persist at all, are withheld and the task re-runs
+            # on resume. The rest of the record is still written.
+            persistence = getattr(self.kernel, "persistence", None)
+            ceiling = getattr(persistence, "max_label", None)
+            checkpoint = capture(
+                state, policy=getattr(self.kernel, "policy", None), ceiling=ceiling,
+                allow_results=state.envelope.permits_destination(Destination.PERSISTENT))
+            self.checkpoints.save(checkpoint)
+            if checkpoint.withheld:
+                self._audit("loop_checkpoint_withheld", state,
+                            tasks=sorted(checkpoint.withheld))
         except Exception as exc:  # noqa: BLE001 - a failed snapshot is not a failed run
             self._audit("loop_checkpoint_failed", state, error_type=type(exc).__name__)
 
@@ -568,7 +677,18 @@ class AgentLoopController:
 
 def _join_labels(graph: ExecutionGraph) -> Any:
     """The join of every labelled task result in a graph, or None if none were labelled."""
-    from ..labels import combine
-
     labels = [n.label for n in graph.nodes.values() if getattr(n, "label", None) is not None]
+    return combine(*labels) if labels else None
+
+
+def _result_label(state: LoopState) -> Any:
+    """What a loop hands back is labelled at least as high as anything it saw.
+
+    That is the task results' join AND the objective's label: a child asked about a PHI
+    chart answers about that chart, and its answer is derived from the question whatever
+    its tasks returned. ``None`` only when nothing was labelled at all.
+    """
+    labels = [label for label in (
+        _join_labels(state.graph) if state.graph else None, state.objective_label)
+        if label is not None]
     return combine(*labels) if labels else None

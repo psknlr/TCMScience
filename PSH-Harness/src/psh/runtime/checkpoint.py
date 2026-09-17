@@ -30,11 +30,23 @@ Two further things follow, and both are refusals rather than best-effort continu
   longer admits a task that has not run, the resume is refused and names it. Completed
   tasks are history and are not re-checked; a task that has not run yet needs authority it
   may no longer have.
+
+And one rule about contents, because a checkpoint is a durable write:
+
+* **A result is stored only where the persistence rules would store it.** Each succeeded
+  task's result carries the label the broker gave it. A result above the persistence
+  ceiling, one whose label does not permit ``PERSISTENT``, or any result of a run whose
+  envelope does not permit ``PERSISTENT`` at all, is *withheld*: the record says so, and
+  on resume the task runs again. The labels are stored with the results and restored with
+  them, joined with a fresh classification, so a resumed graph starts from what the
+  original knew and never from PUBLIC. A record without a hash is refused outright — "it
+  was never hashed" is not a weaker form of "it verifies".
 """
 
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +62,25 @@ from .plan import Plan
 from .plan_validator import task_envelope
 
 __all__ = ["Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume"]
+
+
+def _label_to_dict(label: Any) -> dict[str, Any] | None:
+    if label is None:
+        return None
+    return {"sensitivity": label.sensitivity.name, "categories": list(label.categories),
+            "shareable": bool(getattr(label, "shareable", True))}
+
+
+def _label_from_dict(data: Mapping[str, Any] | None) -> DataLabel | None:
+    if not data:
+        return None
+    sensitivity = Sensitivity[data["sensitivity"]]
+    # ``shareable`` is data from a file; at SENSITIVE and above it is never honoured,
+    # because ``DataLabel`` refuses that combination and a refusal here should be a
+    # resume decision, not a constructor error.
+    shareable = bool(data.get("shareable", False)) and sensitivity < Sensitivity.SENSITIVE
+    return DataLabel(sensitivity, categories=tuple(data.get("categories") or ()),
+                     rationale="restored from a checkpoint", shareable=shareable)
 
 
 class ResumeRefused(PolicyDenied):
@@ -117,6 +148,13 @@ class Checkpoint:
     replans: int = 0
     digests: tuple[str, ...] = ()
     policy: Mapping[str, Any] = field(default_factory=dict)
+    #: Per-result labels, keyed like ``results``. A result without one is classified on
+    #: resume rather than assumed PUBLIC.
+    labels: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    #: Succeeded tasks whose result was NOT written, and why. They run again on resume.
+    withheld: Mapping[str, str] = field(default_factory=dict)
+    objective_label: Mapping[str, Any] | None = None
+    plan_label: Mapping[str, Any] | None = None
     checkpoint_id: str = field(default_factory=lambda: new_id("ckpt"))
     created_at: float = field(default_factory=time.time)
     hash: str = ""
@@ -132,7 +170,13 @@ class Checkpoint:
                 "task_states": {k: dict(v) for k, v in self.task_states.items()},
                 "results": dict(self.results), "iteration": self.iteration,
                 "replans": self.replans, "digests": list(self.digests),
-                "policy": dict(self.policy), "created_at": self.created_at}
+                "policy": dict(self.policy),
+                "labels": {k: dict(v) for k, v in self.labels.items()},
+                "withheld": dict(self.withheld),
+                "objective_label": (dict(self.objective_label)
+                                    if self.objective_label else None),
+                "plan_label": dict(self.plan_label) if self.plan_label else None,
+                "created_at": self.created_at}
 
     def compute_hash(self) -> str:
         return content_hash(self._body())
@@ -146,6 +190,14 @@ class Checkpoint:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Checkpoint":
+        # A record with no hash is not one that "cannot be checked"; it is one nobody
+        # wrote through this code, and constructing it would hash it for them. An editor
+        # who deletes the key must not thereby obtain "intact".
+        stored = data.get("hash") or ""
+        if not stored:
+            raise ResumeRefused(
+                f"checkpoint {data.get('checkpoint_id', '?')!r} carries no hash; a record "
+                "that was never hashed cannot be verified and may not be resumed from")
         return cls(
             loop_id=data["loop_id"], run_id=data["run_id"],
             objective=data.get("objective", ""), envelope=data["envelope"],
@@ -153,9 +205,12 @@ class Checkpoint:
             results=data.get("results") or {}, iteration=int(data.get("iteration") or 0),
             replans=int(data.get("replans") or 0),
             digests=tuple(data.get("digests") or ()), policy=data.get("policy") or {},
+            labels=data.get("labels") or {}, withheld=data.get("withheld") or {},
+            objective_label=data.get("objective_label") or None,
+            plan_label=data.get("plan_label") or None,
             checkpoint_id=data.get("checkpoint_id") or new_id("ckpt"),
             created_at=float(data.get("created_at") or time.time()),
-            hash=data.get("hash", ""))
+            hash=stored)
 
 
 class CheckpointStore:
@@ -174,6 +229,11 @@ class CheckpointStore:
         # rather than a truncated one that would fail its own hash check on resume.
         temporary = path.with_suffix(".json.partial")
         temporary.write_text(json.dumps(checkpoint.to_dict(), indent=2, default=str))
+        # Owner-only, like the quarantine: the record holds task results.
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:                                    # pragma: no cover - platform
+            pass
         temporary.replace(path)
         return path
 
@@ -198,16 +258,49 @@ class CheckpointStore:
         for path in sorted(self.root.glob("*.json")):
             try:
                 out.append(Checkpoint.from_dict(json.loads(path.read_text())))
-            except (json.JSONDecodeError, KeyError):   # pragma: no cover - corrupt file
-                continue
+            except (json.JSONDecodeError, KeyError, ResumeRefused):
+                continue                                   # corrupt or hashless: not listed
         return out
 
 
 # ----------------------------------------------------------------- capture
 
-def capture(state: LoopState, *, policy: Any = None) -> Checkpoint:
-    """Snapshot a loop. Pure: it reads ``state`` and writes nothing."""
+def _withholding_reason(label: Any, ceiling: Sensitivity | None,
+                        allow_results: bool) -> str | None:
+    """Why a result may not be written, or None when it may."""
+    if not allow_results:
+        return "this run's envelope does not permit the PERSISTENT destination"
+    if label is None:
+        return "the result carries no label, so it cannot be shown to be storable"
+    if ceiling is not None and label.sensitivity > ceiling:
+        return (f"result classified {label.sensitivity.name} exceeds the persistence "
+                f"ceiling of {ceiling.name}")
+    if not label.permits(Destination.PERSISTENT):
+        return (f"result classified {label.sensitivity.name} may not reach persistent "
+                "storage under the destination ceilings")
+    return None
+
+
+def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None = None,
+            allow_results: bool = True) -> Checkpoint:
+    """Snapshot a loop. Pure: it reads ``state`` and writes nothing.
+
+    ``ceiling`` is the persistence gateway's — the highest sensitivity durable state may
+    hold — and ``allow_results`` is whether the run's envelope permits ``PERSISTENT`` at
+    all. A result the gateway would refuse is withheld here for the same reasons, so the
+    checkpoint file is not a second, ungoverned copy of what the WorkGraph refused.
+    """
     graph = state.graph
+    results: dict[str, Any] = {}
+    labels: dict[str, Mapping[str, Any]] = {}
+    withheld: dict[str, str] = {}
+    for node in (graph.succeeded if graph else ()):
+        reason = _withholding_reason(node.label, ceiling, allow_results)
+        if reason is not None:
+            withheld[node.id] = reason
+            continue
+        results[node.id] = node.result
+        labels[node.id] = _label_to_dict(node.label) or {}
     return Checkpoint(
         loop_id=state.loop_id, run_id=state.envelope.run_id, objective=state.objective,
         envelope=_envelope_to_dict(state.envelope),
@@ -216,7 +309,9 @@ def capture(state: LoopState, *, policy: Any = None) -> Checkpoint:
             node.id: {"state": node.state.value, "attempts": node.attempts,
                       "error": node.error}
             for node in (graph.nodes.values() if graph else ())},
-        results=({node.id: node.result for node in graph.succeeded} if graph else {}),
+        results=results, labels=labels, withheld=withheld,
+        objective_label=_label_to_dict(state.objective_label),
+        plan_label=_label_to_dict(state.plan_label),
         iteration=state.iteration, replans=state.replans,
         digests=tuple(state.digests),
         policy=policy.as_dict() if policy is not None and hasattr(policy, "as_dict")
@@ -257,6 +352,8 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
     narrowed = [_Narrowing(v.dimension, v.child, v.parent)
                 for v in AuthorityLattice.violations(stored, ceiling)]
 
+    from .loop import classify_with
+
     plan = Plan.from_dict(checkpoint.plan)
     graph = ExecutionGraph(plan)
     for task_id, record in checkpoint.task_states.items():
@@ -266,8 +363,19 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
         node.state = TaskState(record.get("state", TaskState.PENDING.value))
         node.attempts = int(record.get("attempts") or 0)
         node.error = str(record.get("error") or "")
-        if node.state is TaskState.SUCCEEDED:
+        if node.state is TaskState.SUCCEEDED and task_id in checkpoint.withheld:
+            # The task finished, but its result was not written. It is not known here,
+            # so the task runs again — the case ``_psh_idempotency_key`` exists for.
+            node.state = TaskState.RETRYABLE
+            node.error = ("result withheld from the checkpoint: "
+                          f"{checkpoint.withheld[task_id]}")
+        elif node.state is TaskState.SUCCEEDED:
             node.result = checkpoint.results.get(task_id)
+            # The stored label joined with a fresh classification: a restored result can
+            # be escalated by what it says, never lowered by what the file says.
+            stored = _label_from_dict(checkpoint.labels.get(task_id))
+            fresh = classify_with(kernel, node.result, origin=f"resume:{task_id}")
+            node.label = fresh if stored is None else fresh.merged_with(stored)
         elif node.state is TaskState.RUNNING:
             # Nothing is running after a restart. Treat it as retryable rather than
             # succeeded: the process died mid-call and what it did is not known.
@@ -302,12 +410,22 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
 
     from .plan_validator import ValidatedPlan
 
+    # The objective is classified again — the text is here, the classifier is here — and
+    # joined with what the checkpoint knew. The plan's label is restored as stored: it is
+    # the join of what a planner's model was shown, which the plan's text does not show.
+    objective_label = classify_with(kernel, checkpoint.objective, origin="resume")
+    stored_objective = _label_from_dict(checkpoint.objective_label)
+    if stored_objective is not None:
+        objective_label = objective_label.merged_with(stored_objective)
+
     state = LoopState(loop_id=checkpoint.loop_id, objective=checkpoint.objective,
                       envelope=resumed, iteration=checkpoint.iteration,
                       replans=checkpoint.replans, plan=plan, graph=graph,
                       validated=ValidatedPlan(plan=plan, envelopes=envelopes,
                                               order=tuple(graph.nodes)),
-                      digests=list(checkpoint.digests))
+                      digests=list(checkpoint.digests),
+                      objective_label=objective_label,
+                      plan_label=_label_from_dict(checkpoint.plan_label))
     state.observe(resumed_from=checkpoint.checkpoint_id,
                   narrowed=[n.dimension for n in narrowed])
     return state

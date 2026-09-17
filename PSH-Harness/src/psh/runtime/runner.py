@@ -36,7 +36,7 @@ from ..contracts import (
 )
 from ..evidence.support import Claim, ClaimSupport, Evidence
 from ..kernel import TrustedKernel
-from ..labels import Destination, Labeled, Sensitivity
+from ..labels import DataLabel, Destination, Labeled, Sensitivity
 from ..workgraph import EdgeKind, NodeKind, WorkGraph
 
 #: Support relationship -> WorkGraph edge. Four states, so "no evidence supports this" is
@@ -298,7 +298,8 @@ class Runner:
             with stage("compile_context") as ctx:
                 destination = (self.model.destination if self.model
                                else Destination.LOCAL_MODEL)
-                items = [ContextItem(kind="instruction", content=self.system_prompt)]
+                items = [ContextItem(kind="instruction", content=self.system_prompt,
+                                     label=DataLabel())]      # static text: PUBLIC
                 items += list(memory)
                 items += self.registry.manifest_items(candidates)
                 items.append(ContextItem(kind="turn", content=request,

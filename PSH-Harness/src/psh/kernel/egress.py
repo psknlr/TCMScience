@@ -132,6 +132,18 @@ class ModelGateway(_GateBase):
                 reason=(f"run profile {envelope.profile!r} does not permit destination "
                         f"{model.destination.name}; model {target} refused")))
 
+        # The run's own ceiling, at the gate. ``Runner._preflight`` made this comparison
+        # before its single model call, and nothing else did — so a caller that reached the
+        # broker by another route (a loop, a planner) executed under a ceiling no gate read.
+        # The envelope travels with every call; the check belongs where the envelope is.
+        if envelope is not None and label.sensitivity > envelope.max_label.sensitivity:
+            return self._record(EgressDecision(
+                allowed=False, destination=model.destination, label=label, gate=self.name,
+                target=target,
+                reason=(f"context is classified {label.sensitivity.name} but this run's "
+                        f"ceiling is {envelope.max_label.sensitivity.name}; model egress "
+                        "refused")))
+
         if not model.may_receive(label):
             return self._record(EgressDecision(
                 allowed=False, destination=model.destination, label=label, gate=self.name,
@@ -274,6 +286,15 @@ class ToolGateway(_GateBase):
             return self._record(EgressDecision(
                 allowed=False, destination=destination, label=label, gate=self.name,
                 target=target, reason=f"component rejected by run authority: {why}"))
+
+        # The run's ceiling applies to what a tool is handed, not only to what a model is
+        # shown. ``max_label`` is the highest sensitivity this run may handle at all.
+        if label.sensitivity > envelope.max_label.sensitivity:
+            return self._record(EgressDecision(
+                allowed=False, destination=destination, label=label, gate=self.name,
+                target=target,
+                reason=(f"payload is {label.sensitivity.name} but this run's ceiling is "
+                        f"{envelope.max_label.sensitivity.name}; tool call refused")))
 
         # A component's declared ceiling applies at EVERY destination, including local
         # ones. An earlier version skipped this check for local destinations on the
@@ -513,10 +534,17 @@ class ExecutionBroker:
         the broker so that the broker never needs a provider SDK, which keeps the trusted
         path free of network code.
         """
-        # Classify first, always. A ContextProjection already carries an aggregate label
-        # computed by the compiler; anything else is re-classified here.
+        # Classify first, always. A ContextProjection carries an aggregate label computed
+        # by the compiler — the join of its items' labels — which is what the CALLER says
+        # the context is. Items are labelled by whoever built them, and an item built
+        # without a label says PUBLIC. So the projection was the one value the broker took
+        # on trust, and the agent loop built its evidence items from tool results without
+        # carrying their labels: PHI a tool had returned reached a public provider under a
+        # PUBLIC verdict, one hop after the gate had correctly labelled it. The text that
+        # will actually be sent is classified here and joined with the claimed label. A
+        # projection can be escalated at this boundary and is never trusted downward.
         if isinstance(projection, ContextProjection):
-            checked: Any = projection
+            checked: Any = self._reclassified(projection)
         else:
             checked = self.ingress.ensure(projection, origin="model_call")
 
@@ -565,6 +593,12 @@ class ExecutionBroker:
                                           usd_per_1k_input=model.usd_per_1k_input,
                                           usd_per_1k_output=model.usd_per_1k_output),
                 model_id=model.id, provider=model.provider, latency_s=latency)
+        # A model's output is at least as sensitive as the context it was shown. The
+        # result says so itself, so a caller building on it starts from the join rather
+        # than from PUBLIC.
+        from dataclasses import replace as _replace
+        call_result = _replace(call_result,
+                               label=call_result.label.merged_with(decision.label))
 
         self.budget.record_model_usage(envelope, call_result.usage.input_tokens,
                                        call_result.usage.output_tokens,
@@ -575,6 +609,18 @@ class ExecutionBroker:
                         cost_usd=round(call_result.usage.cost_usd, 6),
                         sensitivity=decision.label.sensitivity.name)
         return call_result
+
+    def _reclassified(self, projection: ContextProjection) -> ContextProjection:
+        """Join a projection's claimed label with a classification of its rendered text."""
+        classifier = getattr(self.ingress, "classifier", None)
+        if classifier is None:                       # pragma: no cover - always wired
+            return projection
+        fresh = classifier.classify(projection.render(), origin="model_call").label
+        joined = projection.label.merged_with(fresh)
+        if joined == projection.label:
+            return projection
+        from dataclasses import replace as _replace
+        return _replace(projection, label=joined)
 
     # --------------------------------------------------------------- tool calls
     def call_tool(self, component: Any, payload: Any, envelope: RunEnvelope) -> Any:
