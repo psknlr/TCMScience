@@ -138,6 +138,11 @@ class LoopState:
     #: ``None`` for a plan the caller wrote (``StaticPlanner``), whose task text is
     #: classified on its own.
     plan_label: Any = None
+    #: Whether this loop holds a delegate backend. Set by the controller before planning
+    #: and not checkpointed: it is a fact about the loop that runs the state, not about
+    #: the state, so a resumed loop states its own. The planner reads it to tell the model
+    #: whether ``kind="delegate"`` tasks have anywhere to go.
+    can_delegate: bool = False
 
     def observe(self, **fields: Any) -> None:
         self.observations.append({"iteration": self.iteration, **fields})
@@ -259,10 +264,16 @@ class AgentLoopController:
                  checkpoints: Any = None,
                  cancellation: Any = None,
                  heartbeat: Callable[[], None] | None = None,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep,
+                 memory: Any = None, memory_items: int = 4) -> None:
         self.kernel = kernel
         self.planner = planner
         self.registry = registry
+        #: Optional ``MemoryRetriever``: verified project memory relevant to a task's
+        #: objective is compiled into that task's projection, labelled as stored. A
+        #: retriever reads; the loop still cannot write to the graph.
+        self.memory = memory
+        self.memory_items = memory_items
         #: The model profile and invoke callable for ``TaskKind.MODEL`` tasks. Held so they
         #: can be handed to ``broker.call_model``; never called from here.
         self.model = model
@@ -304,6 +315,7 @@ class AgentLoopController:
         """
         state = resume_from or LoopState(loop_id=new_id("loop"), objective=objective,
                                          envelope=envelope)
+        state.can_delegate = self.delegate_backend is not None
         # Classify at ingress, before anything is built from the objective. The same stage
         # Runner.run has, for the same reason.
         label = objective_label_for(state, self.kernel)
@@ -604,6 +616,8 @@ class AgentLoopController:
         from ..context import ContextCompiler
         from ..contracts import ContextItem
 
+        destination = (self.model.destination if self.model is not None
+                       else Destination.LOCAL_MODEL)
         items = [ContextItem(kind="instruction", content=task.objective,
                              label=self._instruction_label(task, plan_label))]
         for dependency in task.dependencies:
@@ -612,9 +626,13 @@ class AgentLoopController:
             if value is not None:
                 items.append(ContextItem(kind="evidence", content=str(value)[:4000],
                                          source_ref=dependency, label=label_of(item)))
+        if self.memory is not None and self.memory_items > 0:
+            # Withheld at retrieval for this destination and the run's ceiling, so the
+            # compiler's policy count below still means exactly "an upstream result was
+            # dropped" — memory the task may not see is a quieter prompt, not a refusal.
+            items += self.memory.retrieve(task.objective, envelope=envelope,
+                                          destination=destination, limit=self.memory_items)
         compiler = ContextCompiler()
-        destination = (self.model.destination if self.model is not None
-                       else Destination.LOCAL_MODEL)
         projection = compiler.compile(items=items, envelope=envelope,
                                       destination=destination,
                                       token_budget=envelope.budget.tokens_soft,

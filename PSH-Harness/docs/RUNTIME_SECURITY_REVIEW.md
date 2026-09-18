@@ -167,3 +167,33 @@ one that fires.
 * The default `ToolGateway.allowed_paths` (`state_dir/*`) lets a filesystem tool's
   payload name the kernel's own policy file, event store and secrets directory. Older
   than this runtime, and worth its own change.
+
+## Addendum (v0.5.2): the read side of project memory
+
+`kernel/persistence.py` closed the write side of the WorkGraph in v0.2 so that mis-labelled
+content could not become "a standing invitation to include PHI in a future prompt". Until
+v0.5.2 nothing read that memory back into a run except items a caller passed by hand, so
+the write side's properties had never been tested against a reader. `context/memory.py`
+is the reader, built under the same review posture, and these are the properties its tests
+pin (`tests/test_memory.py`):
+
+* **Validated knowledge only.** `verified` and `system` nodes are retrievable; `candidate`
+  nodes are not unless an operator names that status; `REJECTED_CLAIM` is excluded even
+  from a retriever told to recall it, and holds no text in any case.
+* **Labels travel.** An item carries the label the gateway stored on its node. A PHI claim
+  whose text a lexical scan would rate lower reaches the projection as PHI, and
+  `LoopResult.label` joins it.
+* **Two withholdings, both counted.** Memory above the run's `max_label` is withheld, and
+  memory that may not reach the model's destination is withheld — at retrieval, so the
+  loop's rule "an upstream result dropped for policy is a refusal" is never triggered by
+  memory. Withheld memory is a quieter prompt; the retrieval trace records why.
+* **Scoped.** Retrieval is by the envelope's project; with none, nothing is returned unless
+  `cross_project=True` is set deliberately.
+* **Read-only.** No `remember()` exists, because a helper that wrote model output into
+  trusted memory would be the laundering path `commit_rejected` closes. A structural test
+  parses the module and refuses any call to `add`, `update`, `link`, `commit_node`,
+  `commit_raw` or `execute`.
+
+What it does not do: ranking is lexical and deterministic, not semantic, because retrieval
+on the critical path must not itself require egress; and memory is recalled per task
+objective, not accumulated into a transcript, for the reason `ContextProjection` gives.

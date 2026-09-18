@@ -136,8 +136,12 @@ class Runner:
                  model: ModelProfile | None = None,
                  model_invoke: Callable[[str], str] | None = None,
                  policy: Any = None, system_prompt: str = "",
-                 clamp_policy: bool = False) -> None:
+                 clamp_policy: bool = False, memory: Any = None) -> None:
         self.kernel = kernel
+        #: Optional ``MemoryRetriever``. When present, what earlier runs of this project
+        #: verified is retrieved into stage 7 under the run's ceiling, labelled as stored.
+        #: Items passed to ``run(memory=...)`` are still accepted alongside it.
+        self.memory = memory
         #: When True a per-run policy wider than the kernel's is silently narrowed to the
         #: meet instead of refused. Refusal is the default for the same reason it is the
         #: default in ``PolicySnapshot.envelope``: a caller who states an authority it must
@@ -301,6 +305,10 @@ class Runner:
                 items = [ContextItem(kind="instruction", content=self.system_prompt,
                                      label=DataLabel())]      # static text: PUBLIC
                 items += list(memory)
+                if self.memory is not None:
+                    items += self.memory.retrieve(request, envelope=envelope,
+                                                  project_id=project_id,
+                                                  destination=destination)
                 items += self.registry.manifest_items(candidates)
                 items.append(ContextItem(kind="turn", content=request,
                                          label=labeled_request.label))
