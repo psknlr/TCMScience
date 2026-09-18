@@ -55,7 +55,7 @@ PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py   # 联网演示：
 flowchart TB
     subgraph RT["Agent runtime — psh.runtime (acts only through the broker)"]
         LOOP["AgentLoopController<br/>bounded plan / act / observe / evaluate<br/>parallel branches, checkpoints, cancellation"]
-        PLAN["ModelPlanner + PlanValidator<br/>typed plans; an escalating plan is refused and fed back"]
+        PLAN["ModelPlanner + PlanValidator<br/>typed plans — an escalating plan is refused and fed back"]
         SUP["Supervisor + WorkerPool<br/>fan-out / fan-in, leases, idempotency keys"]
         CTX["ContextCompiler + Compactor + MemoryRetriever<br/>one labelled projection per worker"]
         PROTO["MCP / A2A adapters<br/>external tools and agents, no new gate"]
