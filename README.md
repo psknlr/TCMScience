@@ -5,26 +5,27 @@ them.
 
 ```
           Agent runtime (PSH v0.6–v0.9): bounded loop, typed planner, checkpoint/resume,
-          compaction, supervisor + worker pool, leases, idempotency, MCP/A2A adapters
+          compaction, governed memory recall, supervisor + worker pool, leases,
+          idempotency, MCP/A2A adapters
                                     |  every action is one of three broker calls
           PSH TrustedKernel: classification at ingress, authority + policy lattices,
           model/tool/delegation gates, quarantine + release gate, hash-chained audit
                                     |  bioagent.psh — a call crosses both kernels
           BioScience capability plane: 2,567-row catalogue, 58 live-verified public
-          sources / 153 typed operations, 77 native offline bio/clinical tools,
-          resolver, backends, acquisition, evolution
+          sources / 153 typed operations, 139 native offline bio/clinical tools,
+          24 checksummed or size-pinned bulk datasets, resolver, backends, evolution
 ```
 
 | Path | What it is |
 | --- | --- |
-| `PSH-Harness/` | The trusted kernel and the agent runtime, at **v0.5.1**. 525 tests. |
-| `BioScience-Harness/` | The capability plane, the PSH bridge and the native toolkit, at **v0.2.4**. 397 tests, 6 skipped. |
+| `PSH-Harness/` | The trusted kernel and the agent runtime, at **v0.5.2**. 543 tests. |
+| `BioScience-Harness/` | The capability plane, the PSH bridge, the native toolkit and the dataset layer, at **v0.2.5**. 543 unit-tier tests plus 64 connector tests. |
 | `.github/workflows/ci.yml` | Runs both suites and the bridge on every push; live connector verification is a manual job. |
 | `PSH-Harness-main (2).zip`, `BioScience-Harness-main (2).zip` | The uploads the reviews were written against, kept as provenance. |
 
 ```bash
-cd PSH-Harness        && PYTHONPATH=src python -m pytest tests/ -q                       # 525 pass
-cd BioScience-Harness && PYTHONPATH=src python -m pytest tests/ -q                       # 397 pass, 6 skipped
+cd PSH-Harness        && PYTHONPATH=src python -m pytest tests/ -q                       # 543 pass
+cd BioScience-Harness && PYTHONPATH=src python -m pytest tests/ -q -m unit               # 543 pass, 2 skipped
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py    # live: a plan through both kernels
 ```
 

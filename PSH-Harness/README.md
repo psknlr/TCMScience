@@ -142,6 +142,35 @@ planning prompt, whose rules now say what a `payload` is, so a model can write
 manifest's description label, because a schema that arrived from an MCP server or a
 catalogue is text this kernel did not write. `tests/test_parallel_and_schemas.py`.
 
+### Memory the run may recall, and delegation the planner is told about
+
+The WorkGraph was already project memory with a governed write side: every node passes
+`PersistenceGateway`, a claim is committed only after the release gate has ruled, and a
+refused claim survives as a hash and a reason. What was missing was a read side that kept
+those properties. `psh/context/memory.py` is it. `MemoryRetriever` reads nodes whose
+`validation_status` is `verified` or `system` — a candidate is not trusted memory unless
+an operator says so, and a rejected claim is excluded whatever the caller asks — ranks
+them lexically against the objective, and returns `ContextItem(kind="memory")` carrying
+the label the gateway stored, so a memory of PHI is PHI whatever its text looks like. Two
+things are withheld at retrieval rather than left to the compiler: memory above the run's
+own ceiling, and memory the model's destination may not receive. The second matters for
+the loop, which refuses to run a task whose *upstream result* the destination may not see;
+memory is optional context, so it is withheld and the task runs with a quieter prompt,
+and the trace says so. Retrieval is scoped to the envelope's project — no project, no
+memory — and it is a read: the module holds no path to `add`, `update` or `commit_node`,
+and a structural test keeps it that way. `ModelPlanner(memory=…)`,
+`AgentLoopController(memory=…)` and `Runner(memory=…)` compile what it returns into
+their projections, where the label joins like any other item's. `tests/test_memory.py`.
+
+The roadmap's last yellow cell was that a plan *could* carry `kind="delegate"` tasks while
+the planner was never told whether the loop had a backend to run them; a model that
+guessed wrong got a `ContractViolation` at dispatch after the rest of the plan had spent
+budget. The loop now states the fact on `LoopState.can_delegate`, the authority brief
+says either "available: up to N child agent(s)" or "not available in this loop", the
+prompt's rules say what a delegated objective must be, and a delegate task without a
+backend is a refusal the planner feeds back for correction rather than a crash.
+`tests/test_delegation_disclosure.py`.
+
 ### Checkpoint and resume, with one rule
 
 `Runner`'s `checkpoint` stage wrote an audit event, so "checkpoint" named a record of
@@ -262,7 +291,7 @@ three data-licence ids in `licensing.py` and nothing else: the dependency points
 honest state; `BioScience-Harness/demo_convergence.py` runs a plan through both.
 
 ```bash
-python -m pytest tests/ -q          # 525 pass
+python -m pytest tests/ -q          # 543 pass
 python -m compileall -q src         # clean
 ```
 

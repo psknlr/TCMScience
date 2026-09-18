@@ -24,7 +24,7 @@ entrypoint, source path or declared writes land in the trusted plane (PSH's kern
 policy, labels, contracts, licensing; this package's policy kernel and bridge) is
 quarantined before a smoke test or benchmark is spent on it.
 
-**`bioagent.tools` — 77 native tools that run anywhere the harness runs.** The census's
+**`bioagent.tools` — 139 native tools that run anywhere the harness runs.** The census's
 honest number was that almost nothing in the 2,567-row catalogue is executable without a
 Biomni checkout, a container runtime or forty imports. This is the first tranche that is:
 pure Python, no dependencies, deterministic, each with an example that is its smoke test.
@@ -47,6 +47,29 @@ may see an identifiable payload because nothing leaves the machine, and its resu
 carries the label onward — which is the label model's point, and `test_psh_bridge.py`
 shows the same payload refused at a public connector. Values are pinned against
 hand-computed and textbook cases in `tests/test_native_tools.py`.
+
+**The second tranche (v0.2.5) adds sixty-two more, in the same discipline.** Pharmacology
+(one-compartment kinetics, half-life from two levels, loading and maintenance doses,
+accumulation to steady state, Calvert carboplatin, glucocorticoid and morphine-equivalent
+conversion, BSA dosing); survival analysis (Kaplan–Meier with Greenwood errors, the
+log-rank test — both pinned to the Freireich 6-MP trial and to R's `survdiff`);
+inference (inverse-variance meta-analysis with DerSimonian–Laird τ² and I², chi-square
+tests, OLS regression with the slope's t and CI, one-way ANOVA, Kruskal–Wallis, Wilcoxon
+signed-rank, Cohen's d, Bayesian post-test probability, sample sizes for proportions and
+means, exact Poisson incidence-rate intervals — every quantile and tail from the standard
+library); population genetics (D′/r², π, Watterson's θ, Tajima's D, G_ST and Hudson's
+F_ST); phylogenetics (p/JC69/K2P distances, neighbor joining that recovers the Saitou–Nei
+example exactly, UPGMA, a Newick parser and patristic distances); IUPAC motif search,
+CpG islands, six-frame translation, CRISPR guide enumeration, sequence entropy and primer
+checks; tryptic and other in-silico digests with monoisotopic masses and m/z; SAM, PDB and
+OBO parsers; a coding-variant consequence annotator that writes HGVS c. and p.; and twenty
+more clinical calculators (the 2013 Pooled Cohort Equations checked against the
+guideline's own worked examples, SOFA, osmolality and osmolar gap, Winters' formula and a
+full acid–base interpretation with anion gap and delta ratio, Holliday–Segar, free-water
+deficit, allowable blood loss, HEART, Centor/McIsaac, Alvarado, TIMI, ABCD², SIRS, RCRI,
+STOP-Bang, FIB-4, APRI, HOMA-IR). The acquisition layer gained fourteen size-pinned
+natural-product tables — NPASS 2.0, CMAUP 2.0, NP Atlas, LOTUS — plus NCBI Taxonomy and
+CellMarker 3.0, as `AcquisitionSpec`s the downloader verifies on fetch.
 
 **16 → 58 verified public sources, 45 → 153 typed operations.** Structures (AlphaFold DB,
 PDBe, InterPro), expression (Human Protein Atlas, GTEx, ENCODE, BioStudies, CELLxGENE,
@@ -262,7 +285,7 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
       providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
-      tools/               77 native bioinformatics and clinical tools (no dependencies)
+      tools/               139 native bioinformatics and clinical tools (no dependencies)
       psh/                 the PSH bridge: manifest derivation, the crossing, domain harnesses,
                            the isolated entrypoint (needs PSH-Harness; the rest does not)
       planners/            self-registering plugins: heuristic, llm

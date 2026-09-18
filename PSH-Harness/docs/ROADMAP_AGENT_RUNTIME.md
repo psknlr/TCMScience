@@ -33,7 +33,7 @@ Measured against the executing path, not the README.
 | Output-schema validation | ❌ declarative | ✅ | `check_output_schema` |
 | Delegation contract | ✅ | ✅ | `DelegationContract` |
 | Child authority narrowing | ✅/🟡 | ✅ | gateway now defers to `AuthorityLattice` |
-| Automatic subagent selection | ❌ | 🟡 | a plan may carry `kind="delegate"` tasks; the planner is not yet asked to |
+| Automatic subagent selection | ❌ | ✅ | the planner is told whether delegation is available and for how many children (`LoopState.can_delegate`, the authority brief); a delegate task with nowhere to go is corrected, not crashed |
 | Fan-out / fan-in | ❌ | ✅ | `runtime/supervisor.py`: `WorkerPool`, `Reducer` → `AggregatedObservation` |
 | Supervisor / worker pool | ❌ | ✅ | proposes only; `restrict()` authorises; Σ child fractions ≤ 1 |
 | Heartbeat / lease | ❌ | ✅ | `WorkerLease` / `LeaseRegistry`; a silent child is `STALLED`, not waited for |
@@ -44,15 +44,17 @@ Measured against the executing path, not the README.
 | Progressive disclosure of tool schemas | ❌ | ✅ | `CapabilityRegistry.schema_items`: summaries to choose, schemas to call, for the ranked few |
 | A2A / MCP | ❌ | ✅ | `protocols/mcp.py`, `protocols/a2a.py`; no SDK, no new gate |
 | Context compaction | ❌ | ✅ | `context/compaction.py`, label is the join of the sources |
+| Project memory recall | ❌ | ✅ | `context/memory.py`: verified nodes only, labels carried, withheld above the run ceiling or for the destination, read-only by structural test |
 | Persistent WorkGraph, provenance, quarantine, audit | ✅ | ✅ | the package's strongest layer |
 
 So the honest summary is now: **a bounded, governed agent loop with governed, durable
 fan-out, and remote tools and agents admitted on the operator's terms.** Children run
 concurrently through one locked kernel, a supervisor that can only narrow, a reducer that
 records disagreement, leases so a child that stops answering is given up on, and MCP/A2A
-adapters that add no execution path the gates do not already cover. Still absent:
-distributed workers, A2A polling for long-running remote tasks, and the planner being
-*asked* to delegate rather than merely allowed to.
+adapters that add no execution path the gates do not already cover — and, since v0.5.2,
+project memory that a later run recalls under the same gateway's labels, and a planner
+that is told when it may delegate. Still absent: distributed workers and A2A polling for
+long-running remote tasks.
 
 ## 2. What v0.5.1 added, and the one rule it was built under
 
@@ -389,7 +391,7 @@ once, on top. Concretely:
 
 BioScience's test suite was reported as 133 passed / 3 failed / 6 skipped; the
 container-validation ordering bug was closed in its v2.3.1 before convergence started,
-and the suite stands at 397 passed / 6 skipped with the bridge and native-toolkit tests included.
+and the BioScience unit tier stands at 543 passed / 2 skipped with the bridge, native-toolkit and dataset tests included.
 
 ## 6. Naming the honest state
 
