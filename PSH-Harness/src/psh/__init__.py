@@ -58,7 +58,7 @@ from .workgraph import EdgeKind, NodeKind, WorkGraph
 #: Kept in step with ``pyproject.toml`` by ``tests/test_review_v5_1.py``. It read
 #: "0.4.0" through the whole of v0.5, so ``psh.__version__`` named a release two
 #: behind the package it was reporting on.
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 __all__ = [
     "TrustedKernel", "PSHConfig", "Runner", "RunResult", "WorkGraph", "NodeKind",

@@ -517,7 +517,7 @@ class NativeToolProvider:
 
         for t in TOOLS:
             yield ComponentManifest(
-                id=t.component_id, kind="tool", name=t.name, version="0.2.5",
+                id=t.component_id, kind="tool", name=t.name, version="0.2.6",
                 description=t.description[:400], domain=t.domain,
                 omics_type=DOMAINS[t.domain],
                 provider=Provider(project="bioagent", source_path=f"src/bioagent/tools/{t.fn.__module__.rsplit('.', 1)[-1]}.py"),
