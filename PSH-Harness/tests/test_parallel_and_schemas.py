@@ -61,6 +61,10 @@ class SlowTool:
         self.in_flight = 0
         self.peak = 0
         self.calls = 0
+        #: Seconds during which two or more calls were in flight at once: the direct
+        #: measure of parallelism, independent of anything the kernel does around a call.
+        self.overlap_s = 0.0
+        self._overlap_started = None
         self._lock = threading.Lock()
 
     def invoke(self, payload, envelope):
@@ -68,11 +72,16 @@ class SlowTool:
             self.in_flight += 1
             self.peak = max(self.peak, self.in_flight)
             self.calls += 1
+            if self.in_flight == 2:
+                self._overlap_started = time.perf_counter()
         try:
             time.sleep(self.delay)
             return {"echo": payload.get("n"), "thread": threading.current_thread().name}
         finally:
             with self._lock:
+                if self.in_flight == 2 and self._overlap_started is not None:
+                    self.overlap_s += time.perf_counter() - self._overlap_started
+                    self._overlap_started = None
                 self.in_flight -= 1
 
 
@@ -89,6 +98,16 @@ def fan_out(tool_id, n):
 # ================================================================= parallel branches
 
 def test_independent_tasks_run_concurrently_and_the_broker_still_counts_every_one(kernel):
+    """Parallelism is measured inside the tool, not by the loop's wall-clock time.
+
+    An earlier version also required the whole batch to finish in under six delays. That
+    bound measured the runner's disk as much as the loop: every branch writes its audit
+    events as synchronous sqlite commits, serialised by the event store, and on a loaded
+    CI runner those alone exceeded it while the branches were demonstrably overlapping.
+    The tool records how long two or more calls were in flight together; with four
+    workers and six 0.15 s calls that is well above half a delay whenever branches run
+    concurrently, and zero when they do not.
+    """
     registry = CapabilityRegistry()
     tool = SlowTool("slow")
     registry.register(tool)
@@ -96,13 +115,12 @@ def test_independent_tasks_run_concurrently_and_the_broker_still_counts_every_on
     loop = AgentLoopController(kernel, planner=StaticPlanner(fan_out("slow", 6)),
                                registry=registry, limits=LoopLimits(max_parallel=4),
                                sleep=lambda s: None)
-    started = time.perf_counter()
     result = loop.run("fan out", kernel.policy.envelope())
-    elapsed = time.perf_counter() - started
 
     assert result.termination is Termination.GOAL_SATISFIED, result.summary()
     assert tool.peak >= 2, "branches never overlapped"
-    assert elapsed < 6 * tool.delay, "the batch took as long as running sequentially"
+    assert tool.overlap_s >= 0.5 * tool.delay, \
+        f"branches overlapped for only {tool.overlap_s:.3f}s of {6 * tool.delay:.2f}s of work"
     assert result.results == {f"t{i}": result.results[f"t{i}"] for i in range(6)}
     assert [result.results[f"t{i}"]["echo"] for i in range(6)] == list(range(6))
     after = kernel.broker.stats()
