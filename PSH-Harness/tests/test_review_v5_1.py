@@ -736,13 +736,17 @@ def test_the_declared_version_matches_the_package_metadata():
     whose central claim is that what it declares is what it does.
     """
     import re
-    import tomllib
 
     import psh
 
+    # A regex rather than ``tomllib``: the package supports Python 3.10 and ``tomllib``
+    # arrived in 3.11, so the test itself was the one thing here that did not run
+    # everywhere the package does. The line it reads is the one ``[project]`` version.
     root = Path(__file__).resolve().parent.parent
-    declared = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
-    assert psh.__version__ == declared
+    pyproject = (root / "pyproject.toml").read_text()
+    match = re.search(r'^version = "([^"]+)"', pyproject, re.M)
+    assert match, "pyproject.toml declares no version"
+    assert psh.__version__ == match.group(1)
 
 
 def test_the_group_kill_refuses_to_signal_our_own_process_group(monkeypatch):
