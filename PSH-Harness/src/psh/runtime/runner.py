@@ -36,7 +36,7 @@ from ..contracts import (
 )
 from ..evidence.support import Claim, ClaimSupport, Evidence
 from ..kernel import TrustedKernel
-from ..labels import DataLabel, Destination, Labeled, Sensitivity
+from ..labels import DataLabel, Destination, Labeled, Sensitivity, combine
 from ..workgraph import EdgeKind, NodeKind, WorkGraph
 
 #: Support relationship -> WorkGraph edge. Four states, so "no evidence supports this" is
@@ -332,8 +332,16 @@ class Runner:
 
             # 10. CAPTURE_TO_QUARANTINE — the output is held, not returned.
             with stage("capture_to_quarantine") as ctx:
-                labeled_output = self.kernel.ingress.ensure(candidate_output,
-                                                            origin="model_output")
+                # The label of a model's output is the join of three things: what the
+                # model was shown (the projection), what the broker recorded on the result,
+                # and a fresh scan of the text. Re-classifying the text alone let a count
+                # derived from a PHI chart leave as INTERNAL — derivation never lowers a
+                # label, and the join is where that rule is enforced.
+                fresh = self.kernel.ingress.ensure(candidate_output, origin="model_output")
+                inherited = combine(projection.label,
+                                    getattr(call, "label", None) or DataLabel())
+                labeled_output = Labeled(candidate_output,
+                                         fresh.label.merged_with(inherited))
                 quarantine_ref = self.kernel.quarantine.hold(
                     candidate_output, label=labeled_output.label, run_id=envelope.run_id)
                 result.quarantine_ref = quarantine_ref.ref
@@ -496,41 +504,15 @@ class Runner:
         text. Bare text is accepted but marked untrusted, so it cannot on its own establish
         support — the fabricated-abstract path a reviewer identified.
         """
-        from ..evidence.record import EvidenceRecord
+        from .finalize import ingest_evidence
 
-        from ..evidence.record import revalidate_trust
-
-        records: dict[str, Any] = {}
-        for identifier, source in sources.items():
-            if isinstance(source, EvidenceRecord):
-                # A record's `trusted` flag is data the caller set. Recompute it from the
-                # signature: an unsigned or tampered record enters the run untrusted no
-                # matter what its flag says.
-                records[identifier] = revalidate_trust(source, self.kernel.evidence_signer)
-                continue
-            records[identifier] = EvidenceRecord.from_text(
-                identifier=identifier, text=str(source), retrieved_by="caller_supplied",
-                retrieval_run=envelope.run_id, trusted=False, retracted=None)
-        return records
+        return ingest_evidence(self.kernel, sources, envelope)
 
     def _verify_claims(self, output: str, records: Mapping[str, Any]) -> list[ClaimSupport]:
         """Verify every cited clinical claim against its record. Commits nothing."""
-        gate = self.kernel.output_gate
-        supports: list[ClaimSupport] = []
-        for sentence in gate._sentences(output):
-            if not gate.is_clinical(sentence):
-                continue
-            identifiers = gate._identifiers(sentence)
-            statement = gate._strip_citations(sentence)
-            for identifier in identifiers:
-                record = records.get(identifier)
-                if record is None:
-                    supports.append(self.kernel.verifier.verify(
-                        statement=statement, identifier=identifier, source_text=None))
-                    continue
-                supports.append(self.kernel.verifier.verify_record(
-                    statement=statement, record=record))
-        return supports
+        from .finalize import verify_claims
+
+        return verify_claims(self.kernel, output, records)
 
     def _commit_claims(self, supports: Sequence[ClaimSupport], project_id: str,
                        run_node_id: str, envelope: RunEnvelope) -> int:
@@ -540,28 +522,10 @@ class Runner:
         refused was already in project memory, retrievable by the context compiler into a
         later prompt — persistent epistemic contamination rather than a one-off error.
         """
-        committed = 0
-        for support in supports:
-            if support.supports:
-                claim_node = self.kernel.persistence.commit_node(
-                    kind=NodeKind.CLAIM, title=support.claim[:140],
-                    principal=envelope.principal.id, source_run=envelope.run_id,
-                    project_id=project_id, validation_status="verified",
-                    max_label=envelope.max_label.sensitivity)
-                evidence_node = self.kernel.persistence.commit_node(
-                    kind=NodeKind.EVIDENCE, title=support.identifier,
-                    body=support.evidence_span[:200], principal=envelope.principal.id,
-                    source_run=envelope.run_id, project_id=project_id,
-                    ref=support.identifier, validation_status="verified",
-                    max_label=envelope.max_label.sensitivity,
-                    relationship=support.relationship.value,
-                    confidence=support.confidence,
-                    span_start=support.span_start, span_end=support.span_end)
-                self.graph.link(run_node_id, evidence_node, EdgeKind.YIELDED)
-                self.graph.link(evidence_node, claim_node,
-                                _EDGE_FOR[support.edge_kind], note=support.rationale[:160])
-                committed += 1
-        return committed
+        from .finalize import commit_claims
+
+        return commit_claims(self.kernel, self.graph, supports, project_id=project_id,
+                             run_node_id=run_node_id, envelope=envelope)
 
     # -------------------------------------------------------------- delegation
     def delegate(self, objective: str, parent: RunEnvelope, *,

@@ -55,7 +55,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from ..contracts import (
     Autonomy, Budget, PolicyDenied, Principal, RiskTier, RunEnvelope, content_hash, new_id,
 )
-from ..labels import DataLabel, Destination, Sensitivity
+from ..labels import combine, DataLabel, Destination, Sensitivity
 from .execgraph import ExecutionGraph, TaskState
 from .loop import LoopState
 from .plan import Plan
@@ -155,6 +155,15 @@ class Checkpoint:
     withheld: Mapping[str, str] = field(default_factory=dict)
     objective_label: Mapping[str, Any] | None = None
     plan_label: Mapping[str, Any] | None = None
+    #: True when the run may not persist (no ``PERSISTENT`` destination) or the task text
+    #: is above the store's ceiling: the objective, every task's objective and payload,
+    #: the criteria and the error texts were withheld, and only the plan's shape — ids,
+    #: kinds, components, dependencies — was written. Resuming such a record needs the
+    #: caller to supply the objective and the plan again.
+    redacted: bool = False
+    #: The run's consumed budget at capture time, restored into the governor on resume so
+    #: a restart does not reset what was already spent.
+    usage: Mapping[str, Any] = field(default_factory=dict)
     checkpoint_id: str = field(default_factory=lambda: new_id("ckpt"))
     created_at: float = field(default_factory=time.time)
     hash: str = ""
@@ -176,6 +185,7 @@ class Checkpoint:
                 "objective_label": (dict(self.objective_label)
                                     if self.objective_label else None),
                 "plan_label": dict(self.plan_label) if self.plan_label else None,
+                "redacted": self.redacted, "usage": dict(self.usage),
                 "created_at": self.created_at}
 
     def compute_hash(self) -> str:
@@ -208,6 +218,7 @@ class Checkpoint:
             labels=data.get("labels") or {}, withheld=data.get("withheld") or {},
             objective_label=data.get("objective_label") or None,
             plan_label=data.get("plan_label") or None,
+            redacted=bool(data.get("redacted", False)), usage=data.get("usage") or {},
             checkpoint_id=data.get("checkpoint_id") or new_id("ckpt"),
             created_at=float(data.get("created_at") or time.time()),
             hash=stored)
@@ -282,7 +293,7 @@ def _withholding_reason(label: Any, ceiling: Sensitivity | None,
 
 
 def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None = None,
-            allow_results: bool = True) -> Checkpoint:
+            allow_results: bool = True, kernel: Any = None) -> Checkpoint:
     """Snapshot a loop. Pure: it reads ``state`` and writes nothing.
 
     ``ceiling`` is the persistence gateway's — the highest sensitivity durable state may
@@ -301,21 +312,82 @@ def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None
             continue
         results[node.id] = node.result
         labels[node.id] = _label_to_dict(node.label) or {}
+
+    # The whole record is a durable write, not only the results. A run that may not
+    # persist used to have its results withheld while its objective, its task objectives
+    # and payloads, and its error texts — the same content, arrived at a different way —
+    # were written in full. So the objective's label (joined with the plan's) is judged
+    # like a result's, and a run that may not persist writes no body text at all: the
+    # plan's shape survives so progress can be resumed, the words do not.
+    body_label = combine(*[l for l in (state.objective_label, state.plan_label)
+                           if l is not None]) if (state.objective_label or state.plan_label) \
+        else None
+    body_reason = _withholding_reason(body_label, ceiling, allow_results) \
+        if allow_results else "the run's envelope does not permit PERSISTENT"
+    if body_label is None and allow_results:
+        body_reason = None
+    redacted = body_reason is not None
+    if redacted:
+        withheld["objective"] = body_reason
+        withheld["plan_bodies"] = body_reason
+        withheld["errors"] = body_reason
+
+    task_states = {}
+    for node in (graph.nodes.values() if graph else ()):
+        error = node.error
+        if redacted and error:
+            error = error.split(":", 1)[0].strip() or "error"      # the class, not the text
+        task_states[node.id] = {"state": node.state.value, "attempts": node.attempts,
+                                "error": error}
+
+    usage: dict[str, Any] = {}
+    governor = getattr(kernel, "budget", None) if kernel is not None else None
+    if governor is not None and hasattr(governor, "snapshot"):
+        try:
+            usage = dict(governor.snapshot(state.envelope).as_dict())
+        except Exception:  # noqa: BLE001 - usage is an aid to resume, never a reason to fail
+            usage = {}
+
     return Checkpoint(
-        loop_id=state.loop_id, run_id=state.envelope.run_id, objective=state.objective,
+        loop_id=state.loop_id, run_id=state.envelope.run_id,
+        objective="" if redacted else state.objective,
         envelope=_envelope_to_dict(state.envelope),
-        plan=state.plan.to_dict() if state.plan else {},
-        task_states={
-            node.id: {"state": node.state.value, "attempts": node.attempts,
-                      "error": node.error}
-            for node in (graph.nodes.values() if graph else ())},
+        plan=(_redact_plan(state.plan.to_dict()) if redacted else state.plan.to_dict())
+        if state.plan else {},
+        task_states=task_states,
         results=results, labels=labels, withheld=withheld,
         objective_label=_label_to_dict(state.objective_label),
         plan_label=_label_to_dict(state.plan_label),
         iteration=state.iteration, replans=state.replans,
-        digests=tuple(state.digests),
+        digests=tuple(state.digests), redacted=redacted, usage=usage,
         policy=policy.as_dict() if policy is not None and hasattr(policy, "as_dict")
         else {})
+
+
+def _redact_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """The plan's shape without its words: ids, kinds, components, dependencies, authority."""
+    tasks = []
+    for task in plan.get("tasks") or ():
+        kept = {k: v for k, v in dict(task).items()
+                if k not in ("objective", "payload", "acceptance_tests", "output_schema")}
+        kept["objective"] = "withheld"
+        kept["payload"] = {}
+        kept["acceptance_tests"] = []
+        kept["output_schema"] = {}
+        tasks.append(kept)
+    return {"plan_id": plan.get("plan_id", ""), "objective": "withheld",
+            "produced_by": plan.get("produced_by", "unknown"), "assumptions": [],
+            "evidence_requirements": [],
+            "completion_criteria": [{"description": "withheld", "kind": c.get("kind", "manual")}
+                                    for c in plan.get("completion_criteria") or ()],
+            "tasks": tasks}
+
+
+def plan_shape(plan: Mapping[str, Any]) -> list[tuple[str, str, str, tuple[str, ...]]]:
+    """What a redacted plan still states, for matching a supplied plan against it."""
+    return [(str(t.get("task_id")), str(t.get("kind")), str(t.get("component_id") or ""),
+             tuple(t.get("dependencies") or ()))
+            for t in plan.get("tasks") or ()]
 
 
 # ------------------------------------------------------------------ resume
@@ -327,8 +399,15 @@ class _Narrowing:
     now: Any
 
 
-def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopState:
-    """Rebuild a ``LoopState`` under **today's** authority, or refuse and say why."""
+def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None,
+           objective: str | None = None, plan: Plan | None = None) -> LoopState:
+    """Rebuild a ``LoopState`` under **today's** authority, or refuse and say why.
+
+    A redacted checkpoint (one written for a run that may not persist) holds the plan's
+    shape and none of its words, so ``objective`` and ``plan`` must be supplied by the
+    caller; the supplied plan must have the same tasks, kinds, components and
+    dependencies as the shape that was recorded, or the resume is refused.
+    """
     from ..kernel.authority import AuthorityLattice
 
     if not checkpoint.intact:
@@ -338,6 +417,19 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
         raise ResumeRefused(
             f"checkpoint {checkpoint.checkpoint_id!r} holds no plan; there is nothing to "
             "continue")
+    if checkpoint.redacted:
+        if objective is None or plan is None:
+            raise ResumeRefused(
+                f"checkpoint {checkpoint.checkpoint_id!r} was written for a run that may "
+                "not persist, so it holds the plan's shape and none of its text; resuming "
+                "needs the objective and the plan supplied again")
+        if plan_shape(plan.to_dict()) != plan_shape(checkpoint.plan):
+            raise ResumeRefused(
+                "the supplied plan does not match the shape recorded in checkpoint "
+                f"{checkpoint.checkpoint_id!r} (task ids, kinds, components, dependencies)")
+    elif objective is not None or plan is not None:
+        raise ResumeRefused("objective and plan may only be supplied for a redacted checkpoint")
+    objective_text = checkpoint.objective if objective is None else objective
 
     stored = _envelope_from_dict(checkpoint.envelope)
     effective_policy = policy if policy is not None else getattr(kernel, "policy", None)
@@ -354,7 +446,7 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
 
     from .loop import classify_with
 
-    plan = Plan.from_dict(checkpoint.plan)
+    plan = plan if plan is not None else Plan.from_dict(checkpoint.plan)
     graph = ExecutionGraph(plan)
     for task_id, record in checkpoint.task_states.items():
         node = graph.nodes.get(task_id)
@@ -413,12 +505,18 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None) -> LoopSt
     # The objective is classified again — the text is here, the classifier is here — and
     # joined with what the checkpoint knew. The plan's label is restored as stored: it is
     # the join of what a planner's model was shown, which the plan's text does not show.
-    objective_label = classify_with(kernel, checkpoint.objective, origin="resume")
+    objective_label = classify_with(kernel, objective_text, origin="resume")
     stored_objective = _label_from_dict(checkpoint.objective_label)
     if stored_objective is not None:
         objective_label = objective_label.merged_with(stored_objective)
 
-    state = LoopState(loop_id=checkpoint.loop_id, objective=checkpoint.objective,
+    # What the run had already spent is restored, so a restart does not reset the
+    # ceilings it was running against.
+    governor = getattr(kernel, "budget", None)
+    if checkpoint.usage and governor is not None and hasattr(governor, "restore"):
+        governor.restore(resumed, checkpoint.usage)
+
+    state = LoopState(loop_id=checkpoint.loop_id, objective=objective_text,
                       envelope=resumed, iteration=checkpoint.iteration,
                       replans=checkpoint.replans, plan=plan, graph=graph,
                       validated=ValidatedPlan(plan=plan, envelopes=envelopes,

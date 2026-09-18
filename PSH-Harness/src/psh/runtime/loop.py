@@ -190,6 +190,12 @@ class LoopResult:
     #: The join of every task result's label. What a child hands back to a parent must be
     #: labelled at least as high as anything the child saw, or delegation launders.
     label: Any = None
+    #: ``verified`` when every completion criterion was decided by a deterministic check
+    #: or a goal checker; ``pending_manual`` when a criterion is ``manual`` and nobody has
+    #: judged it; ``unverified`` otherwise. ``GOAL_SATISFIED`` says the tasks ran and the
+    #: deterministic criteria held — this says whether the objective was actually judged
+    #: met, which is a different claim and the one a release should rest on.
+    goal_status: str = "unverified"
 
     @property
     def ok(self) -> bool:
@@ -405,7 +411,7 @@ class AgentLoopController:
         # cheap pre-check so a loop that is already out of budget does not start an
         # iteration to discover it.
         try:
-            self.kernel.budget.check_model_call(state.envelope)
+            self.kernel.budget.peek_model_call(state.envelope)
         except BudgetExhausted as exc:
             state.detail = str(exc)
             return Termination.BUDGET_EXHAUSTED
@@ -671,7 +677,8 @@ class AgentLoopController:
             plan=state.plan,
             state_counts=state.graph.state_counts() if state.graph else {},
             broker_stats=self.kernel.broker.stats(),
-            label=_result_label(state))
+            label=_result_label(state),
+            goal_status=getattr(verdict, "goal_status", "unverified") if verdict else "unverified")
         self._audit("loop_finished", state, termination=termination.value,
                     iterations=state.iteration, replans=state.replans)
         return result
@@ -704,7 +711,8 @@ class AgentLoopController:
             ceiling = getattr(persistence, "max_label", None)
             checkpoint = capture(
                 state, policy=getattr(self.kernel, "policy", None), ceiling=ceiling,
-                allow_results=state.envelope.permits_destination(Destination.PERSISTENT))
+                allow_results=state.envelope.permits_destination(Destination.PERSISTENT),
+                kernel=self.kernel)
             self.checkpoints.save(checkpoint)
             if checkpoint.withheld:
                 self._audit("loop_checkpoint_withheld", state,

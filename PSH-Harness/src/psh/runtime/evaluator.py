@@ -24,6 +24,8 @@ skipped for being unrecognised reads exactly like a test that passed.
 
 from __future__ import annotations
 
+import math
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
@@ -57,6 +59,14 @@ class Verdict:
     reason: str = ""
     failures: tuple[str, ...] = ()
     unmet_criteria: tuple[str, ...] = ()
+    #: ``verified`` — every criterion was decided by a deterministic check or the goal
+    #: checker; ``pending_manual`` — a ``manual`` criterion exists and nothing judged it;
+    #: ``unverified`` — a criterion is unmet. ``done`` says the tasks ran and the checks
+    #: that could run passed. A reviewer showed a task asked for two identifiers, answered
+    #: "banana", and finished ``goal_satisfied`` under a manual criterion: execution
+    #: succeeded, the goal was never verified, and the two must not be one word.
+    goal_status: str = "unverified"
+    pending: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.reason:
@@ -66,42 +76,158 @@ class Verdict:
 # --------------------------------------------------------------- schema checking
 
 def check_output_schema(value: Any, schema: Mapping[str, Any]) -> CheckResult:
-    """A deliberately small JSON-Schema subset: type, required, properties, enum.
+    """A strict JSON-Schema subset: what it understands it enforces, and what it does not
+    understand it refuses.
 
-    Small because the alternative is a dependency, and this package has none. It covers the
-    shapes a task contract actually states — "an object with these keys, of these types" —
-    and reports what is missing rather than that something is wrong. An unrecognised schema
-    keyword is ignored, which is the one place here that fails open: a schema is a promise
-    the *task* made, not a boundary the kernel enforces, and the gates remain in front of
-    everything this produces.
+    The first version was "deliberately small" and ignored unknown keywords, which failed
+    open in four ways a reviewer measured: ``True`` passed as an integer (bool is an int
+    subclass), ``-5`` passed ``minimum: 0``, ``["a"]`` passed ``items: {type: integer}``
+    and an extra key passed ``additionalProperties: false``. A schema is the contract a
+    task promised; a checker that accepts what the contract forbids is not checking it.
+
+    Supported: type (single or list), enum, const, required, properties,
+    additionalProperties (bool or schema), items, minItems, maxItems, uniqueItems,
+    minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, minLength,
+    maxLength, pattern, anyOf, oneOf, allOf, not. Annotation keywords are ignored.
+    Anything else is a refusal, so a promise the checker cannot keep is visible.
     """
     if not schema:
         return CheckResult(True, "no schema declared")
+    problem = _schema_problem(value, schema, path="$")
+    return CheckResult(problem is None, problem or "matches schema")
+
+
+_ANNOTATIONS = frozenset({"title", "description", "default", "examples", "$schema", "$id",
+                          "$comment", "deprecated", "readOnly", "writeOnly", "format"})
+_KEYWORDS = frozenset({"type", "enum", "const", "required", "properties",
+                       "additionalProperties", "items", "minItems", "maxItems",
+                       "uniqueItems", "minimum", "maximum", "exclusiveMinimum",
+                       "exclusiveMaximum", "multipleOf", "minLength", "maxLength", "pattern",
+                       "anyOf", "oneOf", "allOf", "not"})
+
+
+def _is_type(value: Any, expected: str) -> bool:
+    if expected == "integer":
+        if isinstance(value, bool):
+            return False
+        return isinstance(value, int) or (isinstance(value, float) and value.is_integer()
+                                          and math.isfinite(value))
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool) \
+            and math.isfinite(value)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "array":
+        return isinstance(value, (list, tuple))
+    if expected == "object":
+        return isinstance(value, Mapping)
+    if expected == "null":
+        return value is None
+    return False
+
+
+def _schema_problem(value: Any, schema: Any, *, path: str) -> str | None:
+    """The first violation as text, or None. Refuses schema keywords it cannot enforce."""
+    if schema is True:
+        return None
+    if schema is False:
+        return f"{path}: schema forbids any value"
+    if not isinstance(schema, Mapping):
+        return f"{path}: schema must be an object, got {type(schema).__name__}"
+    unknown = sorted(k for k in schema if k not in _KEYWORDS and k not in _ANNOTATIONS)
+    if unknown:
+        return f"{path}: unsupported schema keyword(s) {unknown}; refusing rather than ignoring"
 
     expected = schema.get("type")
-    types: dict[str, Any] = {"object": Mapping, "array": (list, tuple), "string": str,
-                             "number": (int, float), "integer": int, "boolean": bool}
-    if expected in types and not isinstance(value, types[expected]):
-        if expected == "number" and isinstance(value, bool):
-            return CheckResult(False, "expected number, got boolean")
-        if not isinstance(value, types[expected]):
-            return CheckResult(
-                False, f"expected {expected}, got {type(value).__name__}")
+    if expected is not None:
+        options = [expected] if isinstance(expected, str) else list(expected)
+        if not any(_is_type(value, opt) for opt in options):
+            got = "boolean" if isinstance(value, bool) else type(value).__name__
+            return f"{path}: expected {'/'.join(options)}, got {got}"
+
+    if "const" in schema and value != schema["const"]:
+        return f"{path}: {value!r} is not the constant {schema['const']!r}"
+    allowed = schema.get("enum")
+    if allowed is not None and (value not in allowed or isinstance(value, bool) and not any(
+            isinstance(a, bool) and a is value for a in allowed)):
+        return f"{path}: {value!r} is not one of {list(allowed)}"
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            return f"{path}: {value} is below the minimum {schema['minimum']}"
+        if "maximum" in schema and value > schema["maximum"]:
+            return f"{path}: {value} is above the maximum {schema['maximum']}"
+        if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
+            return f"{path}: {value} is not above {schema['exclusiveMinimum']}"
+        if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
+            return f"{path}: {value} is not below {schema['exclusiveMaximum']}"
+        if "multipleOf" in schema and schema["multipleOf"] and \
+                (value / schema["multipleOf"]) % 1 not in (0, 0.0):
+            return f"{path}: {value} is not a multiple of {schema['multipleOf']}"
+
+    if isinstance(value, str):
+        if "minLength" in schema and len(value) < schema["minLength"]:
+            return f"{path}: shorter than {schema['minLength']} characters"
+        if "maxLength" in schema and len(value) > schema["maxLength"]:
+            return f"{path}: longer than {schema['maxLength']} characters"
+        if "pattern" in schema and not re.search(schema["pattern"], value):
+            return f"{path}: does not match pattern {schema['pattern']!r}"
+
+    if isinstance(value, (list, tuple)):
+        if "minItems" in schema and len(value) < schema["minItems"]:
+            return f"{path}: fewer than {schema['minItems']} items"
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            return f"{path}: more than {schema['maxItems']} items"
+        if schema.get("uniqueItems"):
+            seen = []
+            for item in value:
+                if item in seen:
+                    return f"{path}: items are not unique"
+                seen.append(item)
+        if "items" in schema:
+            for index, item in enumerate(value):
+                problem = _schema_problem(item, schema["items"], path=f"{path}[{index}]")
+                if problem:
+                    return problem
 
     if isinstance(value, Mapping):
         missing = [k for k in schema.get("required", ()) if k not in value]
         if missing:
-            return CheckResult(False, f"missing required key(s): {missing}")
-        for key, sub in (schema.get("properties") or {}).items():
+            return f"{path}: missing required key(s): {missing}"
+        properties = schema.get("properties") or {}
+        for key, sub in properties.items():
             if key in value:
-                result = check_output_schema(value[key], sub)
-                if not result.ok:
-                    return CheckResult(False, f"{key}: {result.detail}")
+                problem = _schema_problem(value[key], sub, path=f"{path}.{key}")
+                if problem:
+                    return problem
+        extra = schema.get("additionalProperties", True)
+        if extra is not True:
+            for key in value:
+                if key in properties:
+                    continue
+                if extra is False:
+                    return f"{path}: key {key!r} is not allowed by additionalProperties: false"
+                problem = _schema_problem(value[key], extra, path=f"{path}.{key}")
+                if problem:
+                    return problem
 
-    allowed = schema.get("enum")
-    if allowed is not None and value not in allowed:
-        return CheckResult(False, f"{value!r} is not one of {list(allowed)}")
-    return CheckResult(True, "matches schema")
+    for keyword in ("anyOf", "oneOf"):
+        if keyword in schema:
+            outcomes = [_schema_problem(value, sub, path=path) for sub in schema[keyword]]
+            matched = sum(1 for o in outcomes if o is None)
+            if keyword == "anyOf" and matched == 0:
+                return f"{path}: matches none of the anyOf alternatives"
+            if keyword == "oneOf" and matched != 1:
+                return f"{path}: matches {matched} oneOf alternatives, expected exactly one"
+    for sub in schema.get("allOf", ()):
+        problem = _schema_problem(value, sub, path=path)
+        if problem:
+            return problem
+    if "not" in schema and _schema_problem(value, schema["not"], path=path) is None:
+        return f"{path}: matches a schema it must not match"
+    return None
 
 
 # ------------------------------------------------------------- acceptance checks
@@ -206,14 +332,20 @@ class Evaluator:
         return failures
 
     def goal(self, plan: Plan, graph: ExecutionGraph) -> list[str]:
-        """Which completion criteria are not met.
+        """Which completion criteria are not met. See ``goal_report`` for what is pending."""
+        return self.goal_report(plan, graph)[0]
+
+    def goal_report(self, plan: Plan, graph: ExecutionGraph) -> tuple[list[str], list[str]]:
+        """``(unmet, pending)``: criteria that failed, and criteria nobody has judged.
 
         The deterministic kinds are decided here. ``manual`` is the honest name for "a
-        human or a model has to judge this": it is treated as met when every task
-        succeeded, and reported as unmet otherwise, rather than being quietly assumed.
+        human or a model has to judge this": it is not counted as unmet when every task
+        succeeded — the loop may stop — but it is reported as *pending*, so a release can
+        say the objective was never verified rather than that it was.
         """
         results = graph.results()
         unmet: list[str] = []
+        pending: list[str] = []
         for criterion in plan.completion_criteria:
             if criterion.kind == "task":
                 if not all(n.state is TaskState.SUCCEEDED for n in graph.nodes.values()):
@@ -230,11 +362,13 @@ class Evaluator:
             else:                                  # manual
                 if graph.failed or not results:
                     unmet.append(criterion.description)
+                elif self.goal_checker is None:
+                    pending.append(criterion.description)
         if self.goal_checker is not None and not unmet:
             verdict = self.goal_checker(plan, results)
             if not verdict.ok:
                 unmet.append(verdict.detail or "the goal checker was not satisfied")
-        return unmet
+        return unmet, pending
 
     # ------------------------------------------------------------------ verdict
     def evaluate(self, plan: Plan, graph: ExecutionGraph, *,
@@ -244,8 +378,10 @@ class Evaluator:
         execution = self.execution(graph)
         structural = self.structural(graph)
         evidence = self.evidence(graph, supports)
-        unmet = self.goal(plan, graph)
+        unmet, pending = self.goal_report(plan, graph)
         failures = tuple(execution + structural + evidence)
+        goal_status = ("unverified" if unmet or failures else
+                       "pending_manual" if pending else "verified")
 
         retryable = [n for n in graph.nodes.values() if n.state is TaskState.RETRYABLE]
         if retryable:
@@ -256,7 +392,11 @@ class Evaluator:
             return Verdict(reason="tasks remain to be executed", failures=failures)
 
         if not failures and not unmet:
-            return Verdict(done=True, reason="every criterion is met and no task failed")
+            return Verdict(done=True, goal_status=goal_status, pending=tuple(pending),
+                           reason=("every criterion is met and no task failed"
+                                   if not pending else
+                                   f"every task succeeded; {len(pending)} manual "
+                                   "criterion(a) await a judge"))
 
         # A structural or evidence failure on a completed graph is a planning problem, not
         # an execution one: running the same tasks again produces the same output. Replan

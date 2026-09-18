@@ -7,6 +7,8 @@ through ``ExecutionBroker``, so adding iteration did not add an execution path.
 """
 
 from .checkpoint import Checkpoint, CheckpointStore, ResumeRefused, capture, resume
+from .finalize import Finalizer, ReleasedResult, render_deliverable
+from .service import ResearchRunService
 from .evaluator import ACCEPTANCE_CHECKS, CheckResult, Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskNode, TaskState
 from .loop import (
@@ -41,6 +43,7 @@ __all__ = [
     "ExecutionGraph", "TaskState", "TaskNode",
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
+    "Finalizer", "ReleasedResult", "render_deliverable", "ResearchRunService",
     "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
     "LocalSubagentBackend", "SubagentResult", "WorkerLease", "LeaseRegistry",
     "IdempotencyLedger", "KEY_FIELD", "key_of",

@@ -249,12 +249,17 @@ class PlanValidator:
                         f"acceptance test kind {test.kind!r} has no checker; known kinds "
                         f"are {sorted(self.known_test_kinds)}"))
         if policy is not None and getattr(policy, "require_claim_support", False):
-            if not any(t.evidence_required for t in plan.tasks) and \
-                    not plan.evidence_requirements:
+            # ``evidence_requirements`` are strings the planner wrote; they describe an
+            # intention and nothing executes them. Under a policy that requires claim
+            # support, only a task that declares ``evidence_required`` — which the
+            # evaluator checks — counts as producing evidence. Accepting the strings let
+            # a plan satisfy the strictest policy by wording alone.
+            if not any(t.evidence_required for t in plan.tasks):
                 out.append(PlanViolation(
                     "scientific", "",
-                    "this policy requires claim support but no task in the plan produces "
-                    "evidence, so nothing the plan returns could be supported"))
+                    "this policy requires claim support but no task in the plan declares "
+                    "evidence_required, so nothing the plan returns could be supported; "
+                    "plan-level evidence_requirements are documentation, not a check"))
 
 
 # ------------------------------------------------------------------- helpers

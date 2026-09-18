@@ -79,6 +79,20 @@ class TrustedKernel:
         self.events = EventStore(self.config.event_store,
                                  policy_version=self.config.policy_version)
         self.classifier = Classifier()
+        if getattr(self.policy, "require_validated_classifier", False) and \
+                not self.classifier.validated:
+            raise PolicyDenied(
+                f"policy {self.policy.profile_id!r} requires the validated PHI detector and "
+                f"this process has only {self.classifier.detector_name}; install sable or "
+                "run under a profile that does not handle identifiable records")
+        if (not self.classifier.validated
+                and self.policy.max_data_label >= Sensitivity.PHI
+                and any(d in self.policy.allowed_destinations
+                        for d in (Destination.PUBLIC_REMOTE, Destination.TRUSTED_REMOTE))
+                and on_warning is not None):
+            on_warning("classification runs on psh's built-in fallback while this policy "
+                       "admits PHI and permits remote destinations; identifiers the fallback "
+                       "does not recognise (see Classifier.describe()) will not be withheld")
         # The sink sanitises recursively using the classifier, so nested sensitive strings
         # never reach the event store.
         sink = self.events.sink(classifier=self.classifier)
