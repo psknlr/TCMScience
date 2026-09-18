@@ -52,7 +52,11 @@ _WORD = re.compile(r"[a-z][a-z0-9-]{2,}")
 
 
 def _terms(text: str) -> set[str]:
-    return set(_WORD.findall(text.lower()))
+    """Latin words and Chinese terms alike (see ``terms.py``): memory written in one
+    language is reachable from a query in the other."""
+    from .terms import terms
+
+    return terms(text, stop=())
 
 
 @dataclass

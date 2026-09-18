@@ -16,7 +16,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Iterable, Mapping
+from typing import Any, Sequence, Iterable, Mapping
 
 from .plan import Plan, PlanTask
 
@@ -55,6 +55,9 @@ class TaskNode:
     #: the results — a child's summary, a fan-in — carries the join rather than starting
     #: from PUBLIC.
     label: Any = None
+    #: What the component said it fell short on. A degraded result is still a result;
+    #: the caveat travels to the loop's result and to the release as a limitation.
+    caveats: tuple[str, ...] = ()
 
     @property
     def id(self) -> str:
@@ -132,7 +135,7 @@ class ExecutionGraph:
             node.started_at = at
 
     def mark_succeeded(self, task_id: str, result: Any, *, at: float,
-                       label: Any = None) -> None:
+                       label: Any = None, caveats: Sequence[str] = ()) -> None:
         """Record a result and, with it, the label the broker gave it.
 
         A node whose result has no label is one nothing can safely be built on: it is not
@@ -145,6 +148,7 @@ class ExecutionGraph:
             node.result = result
             node.error = ""
             node.finished_at = at
+            node.caveats = tuple(caveats)
             if label is not None:
                 node.label = label
 

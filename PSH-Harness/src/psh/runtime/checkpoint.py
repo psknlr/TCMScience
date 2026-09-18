@@ -383,10 +383,16 @@ def _redact_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
             "tasks": tasks}
 
 
-def plan_shape(plan: Mapping[str, Any]) -> list[tuple[str, str, str, tuple[str, ...]]]:
-    """What a redacted plan still states, for matching a supplied plan against it."""
+def plan_shape(plan: Mapping[str, Any]) -> list[tuple[Any, ...]]:
+    """What a redacted plan still states, for matching a supplied plan against it.
+
+    Input bindings are part of the shape: they say which argument reads which field of
+    which result, and a resumed plan wiring its steps differently is a different plan.
+    """
     return [(str(t.get("task_id")), str(t.get("kind")), str(t.get("component_id") or ""),
-             tuple(t.get("dependencies") or ()))
+             tuple(t.get("dependencies") or ()),
+             tuple((str(b.get("argument")), str(b.get("source")), str(b.get("pointer") or ""))
+                   for b in t.get("inputs") or ()))
             for t in plan.get("tasks") or ()]
 
 

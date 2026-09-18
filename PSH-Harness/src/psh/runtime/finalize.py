@@ -211,6 +211,9 @@ class Finalizer:
         limitations: list[str] = []
         if result.goal_status != "verified":
             limitations.append(f"goal verification {result.goal_status}")
+        for task_id, caveats in sorted((getattr(result, "caveats", None) or {}).items()):
+            for caveat in caveats:
+                limitations.append(f"task {task_id} ran degraded: {caveat}")
 
         if require_goal and result.goal_status != "verified":
             self.kernel.quarantine.refuse(ref, f"goal {result.goal_status}",

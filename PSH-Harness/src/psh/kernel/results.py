@@ -128,10 +128,22 @@ class ExecutionResult(Generic[T]):
         same rule that governs ``Labeled.derive``, now applied across the execution
         boundary where it was previously lost.
         """
+        from ..contracts import DegradedResult
+
+        status = kw.pop("status", "ok")
+        warnings = tuple(kw.pop("warnings", ()) or ())
+        if isinstance(value, DegradedResult):
+            # The component ran with a documented shortfall. The value is still a value
+            # and is labelled like one; the shortfall travels with it as a caveat instead
+            # of disappearing into the component's own log.
+            warnings += (value.reason or "the component reported a degraded result",)
+            status = "degraded"
+            value = value.value
         input_label = combine(*[deep_label_of(item) for item in inputs]) if inputs \
             else DataLabel()
         own_label = deep_label_of(value)
         if classifier is not None:
             own_label = own_label.merged_with(classifier.classify(value).label)
         return cls(value=value, label=input_label.merged_with(own_label),
-                   component_id=component_id, run_id=run_id, **kw)
+                   component_id=component_id, run_id=run_id, status=status,
+                   warnings=warnings, **kw)

@@ -695,6 +695,23 @@ def _preexec(memory_mb: int | None) -> Callable[[], None]:
 
 # --------------------------------------------------- executing a component isolated
 
+def _unwrap_child_result(parsed: Any) -> Any:
+    """A child's one JSON value, or the shortfall it wrapped that value in.
+
+    The protocol has one extension: a child that ran with a documented shortfall writes
+    ``{"$psh": {"status": "degraded", "reason": "...", "value": ...}}`` and the kernel
+    records a degraded result with that caveat. Anything else is the value itself.
+    """
+    if isinstance(parsed, dict) and set(parsed) == {"$psh"} and isinstance(parsed["$psh"], dict):
+        from ..contracts import DegradedResult
+
+        envelope = parsed["$psh"]
+        if str(envelope.get("status", "")).lower() == "degraded":
+            return DegradedResult(value=envelope.get("value"),
+                                  reason=str(envelope.get("reason") or "")[:300])
+    return parsed
+
+
 class IsolationUnavailable(RuntimeError):
     """A component had to run isolated and could not.
 
@@ -788,7 +805,7 @@ class IsolatedExecutor:
     def invoke(self, manifest: Any, payload: Any, envelope: Any) -> Any:
         import shlex
 
-        from ..contracts import ContractViolation
+        from ..contracts import ContractViolation, ToolTimeout
 
         argv = shlex.split(manifest.entrypoint)
         if not argv:
@@ -806,9 +823,15 @@ class IsolatedExecutor:
         with self._count_lock:
             self.executions += 1
         if result.timed_out:
-            raise ContractViolation(
+            raise ToolTimeout(
                 f"isolated component {manifest.id!r} exceeded its {manifest.timeout_s}s "
                 "timeout and was killed")
+        if result.exit_code == 124:
+            # The child's own timeout (the convention ``timeout(1)`` set), reported as
+            # what it is rather than as a generic non-zero exit.
+            raise ToolTimeout(
+                f"isolated component {manifest.id!r} reported a timeout: "
+                f"{result.stderr.strip()[:300]}")
         if result.exit_code != 0:
             raise ContractViolation(
                 f"isolated component {manifest.id!r} exited {result.exit_code}: "
@@ -817,7 +840,7 @@ class IsolatedExecutor:
         if not text:
             return {}
         try:
-            return json.loads(text)
+            return _unwrap_child_result(json.loads(text))
         except json.JSONDecodeError as exc:
             # The protocol says "one JSON value on stdout". Wrapping unparseable output as
             # ``{"stdout": ...}`` made that sentence advisory: a component whose contract

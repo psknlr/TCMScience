@@ -52,9 +52,7 @@ class ResearchRunService:
             model_invoke=self.model_invoke, evaluator=self.evaluator,
             validator=self.validator, limits=self.limits,
             delegate_backend=self.delegate_backend, checkpoints=self.checkpoints,
-            memory=self.memory, sleep=lambda s: None)
-        if self.operations is not None:
-            kw["operations"] = self.operations
+            memory=self.memory, operations=self.operations, sleep=lambda s: None)
         return AgentLoopController(self.kernel, **kw)
 
     def run(self, objective: str, *, envelope: RunEnvelope | None = None,

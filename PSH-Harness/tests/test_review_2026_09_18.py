@@ -39,9 +39,10 @@ from psh.kernel.classify import Classifier
 from psh.labels import Destination, Sensitivity, unwrap
 from psh.policy import PolicyLattice, PolicySnapshot
 from psh.runtime import (
-    AgentLoopController, CheckpointStore, Criterion, Finalizer, LoopLimits, Plan,
-    PlanRejected, PlanTask, PlanValidator, ResearchRunService, ResumeRefused, Runner,
-    StaticPlanner, TaskKind, TaskState, Termination, render_deliverable, resume,
+    AgentLoopController, BindingError, CheckpointStore, Criterion, Finalizer, InputBinding,
+    LoopLimits, Plan, PlanRejected, PlanTask, PlanValidator, ResearchRunService, ResumeRefused,
+    Runner, StaticPlanner, TaskKind, TaskState, Termination, render_deliverable,
+    resolve_bindings, resolve_pointer, resume,
 )
 from psh.runtime.evaluator import check_output_schema
 
@@ -706,3 +707,444 @@ def test_f06a_a_checkpoint_records_the_run_tree_usage_and_a_resume_restores_it(t
     fresh = kernel_with(tmp_path, "fresh", budget=Budget(max_tool_calls=2))
     state = resume(checkpoint, fresh)
     assert fresh.budget.snapshot(state.envelope).tool_calls == 1
+
+
+# ================================================================ F05: input bindings
+
+def chain_plan(*, inputs=None, lookup_payload=None):
+    inputs = (InputBinding(argument="symbol", source="fetch", pointer="/gene",
+                           expected_type="string"),) if inputs is None else inputs
+    return Plan(objective="chain", produced_by="test",
+                tasks=(PlanTask(task_id="fetch", objective="fetch the gene record",
+                                kind=TaskKind.TOOL, component_id="fetch",
+                                payload={"note": PHI_TEXT}, max_label=Sensitivity.PHI),
+                       PlanTask(task_id="lookup", objective="look the symbol up",
+                                kind=TaskKind.TOOL, component_id="lookup",
+                                dependencies=("fetch",), max_label=Sensitivity.PHI,
+                                payload=({"species": "human"} if lookup_payload is None
+                                         else lookup_payload),
+                                inputs=inputs)),
+                completion_criteria=(Criterion(description="done", kind="task"),))
+
+
+def test_f05_resolve_bindings_keeps_the_source_label():
+    from psh.labels import DataLabel, Labeled, label_of
+
+    task = chain_plan().tasks[1]
+    upstream = {"fetch": Labeled({"gene": "TP53", "hgnc_id": "HGNC:11998"},
+                                 DataLabel(Sensitivity.PHI))}
+    bound = resolve_bindings(task, upstream)
+    assert unwrap(bound["symbol"]) == "TP53"
+    assert label_of(bound["symbol"]).sensitivity is Sensitivity.PHI, \
+        "a value read from a PHI result is PHI, whatever its own text says"
+
+
+def test_f05_a_bound_argument_reaches_the_component(tmp_path):
+    """The reviewer's chain: the second tool receives the gene symbol, not a blob."""
+    from psh.labels import label_of
+
+    kernel = kernel_with(tmp_path)
+    fetch = Tool("fetch", result={"gene": "TP53", "hgnc_id": "HGNC:11998"})
+    lookup = Tool("lookup")
+    seen: dict[str, Sensitivity] = {}
+    original = kernel.tool_gateway.check
+
+    def spy(payload, manifest, envelope):
+        seen[manifest.id] = label_of(payload).sensitivity
+        return original(payload, manifest, envelope)
+
+    kernel.tool_gateway.check = spy
+    result = loop_for(kernel, chain_plan(), registry=registry_of(fetch, lookup)).run(
+        "chain", kernel.policy.envelope())
+    assert result.termination is Termination.GOAL_SATISFIED, result.summary()
+    payload = lookup.calls[0]
+    assert payload["symbol"] == "TP53"
+    assert payload["species"] == "human", "literals and bindings coexist"
+    assert "upstream" in payload, "the whole upstream result is still offered"
+    assert seen["lookup"] is Sensitivity.PHI, "the gate judged the payload under the join"
+
+
+def test_f05_a_reference_looking_literal_is_a_plan_error(tmp_path):
+    """The probe's plan: "$fetch.gene" is text, and the validator says so before anything runs."""
+    kernel = kernel_with(tmp_path)
+    plan = chain_plan(inputs=(), lookup_payload={"symbol": "$fetch.gene"})
+    with pytest.raises(PlanRejected) as info:
+        PlanValidator().validate(plan, kernel.policy.envelope())
+    assert "input binding" in str(info.value) and "'fetch'" in str(info.value)
+    fetch, lookup = Tool("fetch", result={"gene": "TP53"}), Tool("lookup")
+    result = loop_for(kernel, plan, registry=registry_of(fetch, lookup)).run(
+        "chain", kernel.policy.envelope())
+    assert result.termination is Termination.PLAN_REJECTED
+    assert lookup.calls == [] and fetch.calls == []
+
+
+def test_f05_a_binding_is_checked_against_the_plan():
+    with pytest.raises(ValueError, match="not among its dependencies"):
+        PlanTask(task_id="lookup", objective="o", kind=TaskKind.TOOL, component_id="c",
+                 inputs=(InputBinding(argument="symbol", source="fetch"),))
+    with pytest.raises(ValueError, match="own result"):
+        PlanTask(task_id="lookup", objective="o", kind=TaskKind.TOOL, component_id="c",
+                 dependencies=("lookup",) if False else ("fetch",),
+                 inputs=(InputBinding(argument="symbol", source="lookup"),))
+    with pytest.raises(ValueError, match="twice"):
+        PlanTask(task_id="lookup", objective="o", kind=TaskKind.TOOL, component_id="c",
+                 dependencies=("fetch",),
+                 inputs=(InputBinding(argument="symbol", source="fetch"),
+                         InputBinding(argument="symbol", source="fetch", pointer="/x")))
+    with pytest.raises(ValueError, match="pointer"):
+        InputBinding(argument="symbol", source="fetch", pointer="gene")
+    with pytest.raises(ValueError, match="legal types"):
+        InputBinding(argument="symbol", source="fetch", expected_type="str")
+    strict = policy()
+    plan = chain_plan(lookup_payload={"symbol": "TP53", "species": "human"})
+    with pytest.raises(PlanRejected, match="both a payload literal and an input binding"):
+        PlanValidator().validate(plan, strict.envelope())
+
+
+def test_f05_a_pointer_that_finds_nothing_fails_the_task_and_names_the_keys(tmp_path):
+    kernel = kernel_with(tmp_path)
+    fetch = Tool("fetch", result={"symbol": "TP53"})          # no "gene" field
+    lookup = Tool("lookup")
+    result = loop_for(kernel, chain_plan(), registry=registry_of(fetch, lookup)).run(
+        "chain", kernel.policy.envelope())
+    assert result.termination is not Termination.GOAL_SATISFIED
+    assert lookup.calls == [], "the component never ran with a missing argument"
+    assert any("BindingError" in f and "'/gene'" in f and "'symbol'" in f
+               for f in result.failures), result.failures
+    failed = [e for e in kernel.events.records() if e.event_type == "loop_task_failed"]
+    assert failed and failed[0].detail["error_type"] == "BindingError"
+
+
+@pytest.mark.parametrize("value, pointer, expected", [
+    ({"gene": "TP53"}, "", {"gene": "TP53"}),
+    ({"gene": "TP53"}, "/gene", "TP53"),
+    ({"hits": [{"id": "A"}, {"id": "B"}]}, "/hits/1/id", "B"),
+    ({"hits": [{"id": "A"}, {"id": "B"}]}, "/hits/-1/id", "B"),
+    ({"a/b": {"c~d": 1}}, "/a~1b/c~0d", 1),
+])
+def test_f05_pointer_semantics(value, pointer, expected):
+    assert resolve_pointer(value, pointer) == expected
+
+
+def test_f05_pointer_failures_are_binding_errors():
+    with pytest.raises(BindingError, match="out of range"):
+        resolve_pointer({"hits": [1]}, "/hits/3")
+    with pytest.raises(BindingError, match="not an integer"):
+        resolve_pointer({"hits": [1]}, "/hits/x")
+    with pytest.raises(BindingError, match="no members"):
+        resolve_pointer({"n": 3}, "/n/deeper")
+    with pytest.raises(BindingError, match="available keys"):
+        resolve_pointer({"n": 3}, "/m")
+
+
+def test_f05_type_and_cardinality_are_checked():
+    from psh.labels import DataLabel, Labeled
+
+    upstream = {"fetch": Labeled({"n": "3", "ids": [1, 2], "mixed": [1, "x"]}, DataLabel())}
+
+    def task(**binding):
+        return PlanTask(task_id="t", objective="o", kind=TaskKind.TOOL, component_id="c",
+                        dependencies=("fetch",),
+                        inputs=(InputBinding(argument="arg", source="fetch", **binding),))
+
+    with pytest.raises(BindingError, match="expected integer"):
+        resolve_bindings(task(pointer="/n", expected_type="integer"), upstream)
+    with pytest.raises(BindingError, match="expected a list"):
+        resolve_bindings(task(pointer="/n", cardinality="many"), upstream)
+    with pytest.raises(BindingError, match="not integer"):
+        resolve_bindings(task(pointer="/mixed", cardinality="many", expected_type="integer"),
+                         upstream)
+    ok = resolve_bindings(task(pointer="/ids", cardinality="many", expected_type="integer"),
+                          upstream)
+    assert unwrap(ok["arg"]) == [1, 2]
+    optional = resolve_bindings(task(pointer="/missing", required=False), upstream)
+    assert optional == {}, "an optional binding that finds nothing binds nothing"
+
+
+def test_f05_a_model_task_sees_bound_values_by_name(tmp_path):
+    kernel = kernel_with(tmp_path)
+    prompts: list[str] = []
+    fetch = Tool("fetch", result={"gene": "TP53", "hgnc_id": "HGNC:11998"})
+    plan = Plan(objective="describe", produced_by="test",
+                tasks=(PlanTask(task_id="fetch", objective="fetch", kind=TaskKind.TOOL,
+                                component_id="fetch"),
+                       PlanTask(task_id="describe", objective="describe the gene",
+                                kind=TaskKind.MODEL, dependencies=("fetch",),
+                                destinations=(Destination.LOCAL_MODEL,),
+                                inputs=(InputBinding(argument="hgnc", source="fetch",
+                                                     pointer="/hgnc_id"),))),
+                completion_criteria=(Criterion(description="done", kind="task"),))
+    result = loop_for(kernel, plan, registry=registry_of(fetch), model=LOCAL_MODEL,
+                      model_invoke=lambda p: prompts.append(p) or "p53").run(
+        "describe", kernel.policy.envelope())
+    assert result.termination is Termination.GOAL_SATISFIED, result.summary()
+    assert prompts and "hgnc: HGNC:11998" in prompts[-1]
+
+
+def test_f05_the_planner_parses_inputs_and_they_survive_a_round_trip():
+    from psh.runtime import parse_plan
+    from psh.runtime.checkpoint import plan_shape
+
+    text = json.dumps({
+        "objective": "chain", "tasks": [
+            {"task_id": "fetch", "objective": "fetch", "kind": "tool", "component_id": "fetch"},
+            {"task_id": "lookup", "objective": "lookup", "kind": "tool", "component_id": "lookup",
+             "dependencies": ["fetch"],
+             "inputs": [{"argument": "symbol", "source": "fetch", "pointer": "/gene",
+                         "type": "string"}]}],
+        "completion_criteria": [{"description": "done", "kind": "task"}]})
+    plan = parse_plan(text)
+    binding = plan.tasks[1].inputs[0]
+    assert (binding.argument, binding.source, binding.pointer, binding.expected_type) == \
+        ("symbol", "fetch", "/gene", "string")
+    again = Plan.from_dict(plan.to_dict())
+    assert again.tasks[1].inputs == plan.tasks[1].inputs
+    assert plan_shape(plan.to_dict())[1][4] == (("symbol", "fetch", "/gene"),)
+    assert plan_shape(plan.to_dict()) != plan_shape(chain_plan(inputs=()).to_dict())
+
+    from psh.runtime import PlanParseError
+    bad = text.replace('"dependencies": ["fetch"],', "")
+    with pytest.raises(PlanParseError, match="not among its dependencies"):
+        parse_plan(bad)
+
+
+# ============================================================ F09: the operation ledger
+
+def test_f09_the_ledger_records_every_tool_call_durably(tmp_path):
+    from psh.runtime import OperationLedger, OperationState
+
+    kernel = kernel_with(tmp_path)
+    ledger = OperationLedger(tmp_path / "ops.sqlite")
+    tool = Tool("t")
+    plan = Plan(objective="tools", produced_by="test",
+                tasks=(PlanTask(task_id="s0", objective="s0", kind=TaskKind.TOOL, component_id="t"),
+                       PlanTask(task_id="s1", objective="s1", kind=TaskKind.TOOL, component_id="t",
+                                dependencies=("s0",))),
+                completion_criteria=(Criterion(description="both", kind="task"),))
+    envelope = kernel.policy.envelope()
+    result = loop_for(kernel, plan, registry=registry_of(tool), operations=ledger).run(
+        "tools", envelope)
+    assert result.termination is Termination.GOAL_SATISFIED, result.summary()
+    records = {r.task_id: r for r in ledger.records(envelope.run_id)}
+    assert set(records) == {"s0", "s1"}
+    assert all(r.state is OperationState.SUCCEEDED and r.attempts == 1 for r in records.values())
+    assert records["s0"].key == f"{envelope.run_id}:s0"
+    assert ledger.in_doubt(envelope.run_id) == []
+    ledger.close()
+
+    reopened = OperationLedger(tmp_path / "ops.sqlite")
+    assert len(reopened) == 2, "the ledger outlives the process"
+    assert reopened.get(f"{envelope.run_id}:s1").state is OperationState.SUCCEEDED
+
+
+def side_effect_plan():
+    return Plan(objective="submit", produced_by="test",
+                tasks=(PlanTask(task_id="t1", objective="submit the sample", kind=TaskKind.TOOL,
+                                component_id="submit"),),
+                completion_criteria=(Criterion(description="submitted", kind="task"),))
+
+
+def test_f09_a_lost_side_effecting_operation_is_not_replayed(tmp_path):
+    """The process died mid-call before the restart: the loop must not submit twice."""
+    from psh.runtime import OperationLedger, OperationState
+
+    kernel = kernel_with(tmp_path)
+    ledger = OperationLedger(tmp_path / "ops.sqlite")
+    submit = Tool("submit", idempotent=False)
+    envelope = kernel.policy.envelope()
+    # What the ledger held when the previous process was lost: begun, never reported.
+    ledger.begin(f"{envelope.run_id}:t1", component_id="submit", run_id=envelope.run_id,
+                 task_id="t1", idempotent=False)
+
+    result = loop_for(kernel, side_effect_plan(), registry=registry_of(submit),
+                      operations=ledger).run("submit", envelope)
+    assert result.termination is not Termination.GOAL_SATISFIED
+    assert submit.calls == [], "the side effect was not repeated"
+    assert any("OperationUnresolved" in f for f in result.failures), result.failures
+    record = ledger.get(f"{envelope.run_id}:t1")
+    assert record.state is OperationState.UNKNOWN and record.attempts == 1
+    assert [r.task_id for r in ledger.in_doubt(envelope.run_id)] == ["t1"]
+    assert any(e.event_type == "loop_task_unresolved" for e in kernel.events.records())
+
+
+def test_f09_an_idempotent_operation_is_simply_re_run(tmp_path):
+    from psh.runtime import OperationLedger, OperationState
+
+    kernel = kernel_with(tmp_path)
+    ledger = OperationLedger(tmp_path / "ops.sqlite")
+    submit = Tool("submit")                                     # idempotent by default
+    envelope = kernel.policy.envelope()
+    ledger.begin(f"{envelope.run_id}:t1", component_id="submit", run_id=envelope.run_id,
+                 task_id="t1")
+    result = loop_for(kernel, side_effect_plan(), registry=registry_of(submit),
+                      operations=ledger).run("submit", envelope)
+    assert result.termination is Termination.GOAL_SATISFIED, result.summary()
+    record = ledger.get(f"{envelope.run_id}:t1")
+    assert record.state is OperationState.SUCCEEDED and record.attempts == 2
+
+
+def test_f09_a_timeout_leaves_the_operation_in_doubt(tmp_path):
+    from psh.contracts import ToolTimeout
+    from psh.runtime import OperationLedger, OperationState
+
+    kernel = kernel_with(tmp_path)
+    ledger = OperationLedger(tmp_path / "ops.sqlite")
+    submit = Tool("submit", idempotent=False, error=ToolTimeout("no reply in 120s"))
+    envelope = kernel.policy.envelope()
+    first = loop_for(kernel, side_effect_plan(), registry=registry_of(submit),
+                     operations=ledger).run("submit", envelope)
+    assert first.termination is not Termination.GOAL_SATISFIED
+    record = ledger.get(f"{envelope.run_id}:t1")
+    assert record.state is OperationState.UNKNOWN and record.error_class == "ToolTimeout"
+    assert len(submit.calls) == 1
+
+    # A plain failure, by contrast, is recorded as failed and may be retried.
+    kernel2 = kernel_with(tmp_path, "k2")
+    broken = Tool("submit", idempotent=False, error=RuntimeError("bad request"))
+    envelope2 = kernel2.policy.envelope()
+    loop_for(kernel2, side_effect_plan(), registry=registry_of(broken),
+             operations=ledger).run("submit", envelope2)
+    assert ledger.get(f"{envelope2.run_id}:t1").state is OperationState.FAILED
+
+    # The same envelope, again (a restart): the timed-out submission is not repeated.
+    again = loop_for(kernel, side_effect_plan(), registry=registry_of(submit),
+                     operations=ledger).run("submit", envelope)
+    assert again.termination is not Termination.GOAL_SATISFIED
+    assert len(submit.calls) == 1
+
+
+def test_f09_the_ledger_holds_no_task_text(tmp_path):
+    from psh.runtime import OperationLedger
+
+    kernel = kernel_with(tmp_path)
+    path = tmp_path / "ops.sqlite"
+    ledger = OperationLedger(path)
+    tool = Tool("count", result={"admissions": 3, "note": PHI_TEXT})
+    result = loop_for(kernel, phi_plan(), registry=registry_of(tool), operations=ledger).run(
+        PHI_TEXT, kernel.policy.envelope())
+    assert result.termination is Termination.GOAL_SATISFIED, result.summary()
+    ledger.close()
+    raw = path.read_bytes()
+    for secret in (b"04851923", b"Alice", b"chest pain", b"admissions"):
+        assert secret not in raw
+    record = OperationLedger(path).records()[0]
+    assert record.result_digest and len(record.result_digest) == 16
+
+
+def test_f09_the_service_and_the_local_backend_share_the_ledger(tmp_path):
+    from psh.runtime import LocalSubagentBackend, OperationLedger
+
+    kernel = kernel_with(tmp_path)
+    ledger = OperationLedger(tmp_path / "ops.sqlite")
+    tool = Tool("t")
+    plan = Plan(objective="tools", produced_by="test",
+                tasks=(PlanTask(task_id="s0", objective="s0", kind=TaskKind.TOOL, component_id="t"),),
+                completion_criteria=(Criterion(description="ran", kind="task"),))
+    service = ResearchRunService(kernel, planner=StaticPlanner(plan), registry=registry_of(tool),
+                                 operations=ledger, limits=LoopLimits())
+    released = service.run("tools")
+    assert released.status == "released", released.summary()
+    assert len(ledger) == 1
+    backend = LocalSubagentBackend(kernel, planner_factory=lambda c: StaticPlanner(plan),
+                                   registry=registry_of(tool), operations=ledger)
+    assert backend.operations is ledger
+
+
+# ======================================================== F10: Chinese retrieval terms
+
+def test_f10_chinese_queries_produce_terms():
+    from psh.context import CJK_STOP, terms
+
+    found = terms("黄芪治疗心力衰竭的临床证据")
+    assert {"astragalus", "heart", "failure", "clinical", "evidence", "treatment"} <= found
+    assert {"黄芪", "心力衰竭", "临床", "证据"} <= found, "Chinese meets Chinese"
+    assert "的" not in found and not any("的" in t for t in found)
+    assert "苦参" in terms("苦参碱"), "an unknown word degrades to bigrams, not to nothing"
+    assert terms("") == set() and "的" in CJK_STOP
+
+
+def test_f10_a_chinese_query_resolves_an_english_capability(tmp_path):
+    from psh.contracts import ComponentManifest
+
+    kernel = kernel_with(tmp_path)
+    registry = CapabilityRegistry()
+    pubmed = ComponentManifest(id="pubmed_search", name="PubMed search", kind=ComponentKind.TOOL,
+                               description="search PubMed for clinical evidence and trials",
+                               intents=("clinical evidence",), max_label=Sensitivity.PUBLIC)
+    blast = ComponentManifest(id="blast", name="BLAST", kind=ComponentKind.TOOL,
+                              description="sequence alignment against a reference database",
+                              max_label=Sensitivity.PUBLIC)
+    registry.register(pubmed)
+    registry.register(blast)
+    ranked = registry.resolve("检索黄芪治疗心力衰竭的临床证据", kernel.policy.envelope())
+    assert [c.manifest.id for c in ranked][0] == "pubmed_search"
+    by_id = {c.manifest.id: c for c in ranked}
+    assert by_id["pubmed_search"].relevance > by_id["blast"].relevance
+    assert by_id["pubmed_search"].relevance >= 0.35, "the intent matched through the lexicon"
+
+
+def test_f10_memory_crosses_the_language_boundary_both_ways(tmp_path):
+    from psh.context import MemoryRetriever
+    from psh.workgraph import NodeKind
+
+    kernel = kernel_with(tmp_path)
+
+    def commit(title, kind=NodeKind.CLAIM):
+        return kernel.persistence.commit_node(
+            kind=kind, title=title, principal="tester", source_run="run_earlier",
+            project_id="proj_a", validation_status="verified")
+
+    commit("astragalus injection reduced heart failure readmission in the 2023 cohort")
+    commit("决定：心衰队列的蛋白组采用 DIA 采集", kind=NodeKind.DECISION)
+    commit("sequencing depth for the exome panel is 100x", kind=NodeKind.DECISION)
+    retriever = MemoryRetriever(kernel.graph)
+    envelope = kernel.policy.envelope(project_id="proj_a")
+
+    from_chinese = retriever.retrieve("黄芪治疗心力衰竭", envelope=envelope)
+    assert from_chinese and "astragalus" in from_chinese[0].content
+    from_english = retriever.retrieve("heart failure proteomics acquisition", envelope=envelope)
+    assert from_english and "DIA" in from_english[0].content
+
+
+# ============================================ F12: outcomes, degraded results, timeouts
+
+def test_f12_tool_outcomes_feed_the_registry_prior(tmp_path):
+    kernel = kernel_with(tmp_path)
+    good, bad = Tool("good"), Tool("bad", error=RuntimeError("boom"))
+    registry = registry_of(good, bad)
+    plan = Plan(objective="both", produced_by="test",
+                tasks=(PlanTask(task_id="g", objective="g", kind=TaskKind.TOOL, component_id="good"),
+                       PlanTask(task_id="b", objective="b", kind=TaskKind.TOOL, component_id="bad")),
+                completion_criteria=(Criterion(description="both", kind="task"),))
+    loop_for(kernel, plan, registry=registry).run("both", kernel.policy.envelope())
+    assert registry.observed_success(good.manifest) == 1.0
+    assert registry.observed_success(bad.manifest) < 1.0, "a failure lowered the prior"
+
+
+def test_f12_a_degraded_result_is_a_value_with_a_caveat_that_reaches_the_release(tmp_path):
+    from psh.contracts import DegradedResult
+
+    kernel = kernel_with(tmp_path)
+    tool = Tool("count", result=DegradedResult({"n": 3}, "fallback dataset used"))
+    plan = Plan(objective="count", produced_by="test",
+                tasks=(PlanTask(task_id="t1", objective="count", kind=TaskKind.TOOL,
+                                component_id="count"),),
+                completion_criteria=(Criterion(description="counted", kind="task"),))
+    envelope = kernel.policy.envelope()
+    internal = loop_for(kernel, plan, registry=registry_of(tool)).run("count", envelope)
+    assert internal.termination is Termination.GOAL_SATISFIED, internal.summary()
+    assert unwrap(internal.results["t1"]) == {"n": 3}
+    assert internal.caveats == {"t1": ("fallback dataset used",)}
+    released = Finalizer(kernel).finalize(internal, envelope)
+    assert released.status == "released"
+    assert "task t1 ran degraded: fallback dataset used" in released.limitations
+    assert any(e.event_type == "loop_task_degraded" for e in kernel.events.records())
+
+
+def test_f12_a_timeout_is_its_own_failure_class():
+    from psh.contracts import ContractViolation, ToolTimeout
+    from psh.runtime import RetryPolicy
+
+    assert issubclass(ToolTimeout, ContractViolation)
+    assert RetryPolicy().permits(ToolTimeout("late")), "the default retry policy still covers it"
+    assert not RetryPolicy(retryable=("ToolTimeout",)).permits(ContractViolation("bad shape"))

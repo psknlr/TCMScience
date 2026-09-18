@@ -200,7 +200,19 @@ class Runtime:
 
     # ------------------------------------------------------------------ invoke
     def invoke(self, component_id: str, *, spec: AgentSpec, events: EventLog | None = None,
-               parent_event: str | None = None, attempt: int = 1, **kwargs: Any) -> CallResult:
+               parent_event: str | None = None, attempt: int = 1, idempotency_key: str = "",
+               **kwargs: Any) -> CallResult:
+        """Invoke a registered component through resolution, policy and its backend.
+
+        ``spec``, ``events``, ``parent_event``, ``attempt`` and ``idempotency_key`` are
+        the runtime's own keywords and never reach the entrypoint. ``idempotency_key`` is
+        what a governing loop attaches to a call so a replay can be recognised: it is
+        recorded on the ``ToolCalled`` event and on the result's metadata, where a
+        side-effecting backend can read it, and it is never an argument of the call.
+        """
+        bookkeeping: dict[str, Any] = {"attempt": attempt}
+        if idempotency_key:
+            bookkeeping["idempotency_key"] = idempotency_key
         m = self.registry.get(component_id)
         if m is None:
             res = CallResult(capability=component_id, adapter="none",
@@ -209,7 +221,7 @@ class Runtime:
             if events:
                 events.emit(EventType.TOOL_CALLED, parent=parent_event,
                             component_id=component_id, status=res.status.value,
-                            inputs=kwargs, detail={"attempt": attempt, "error": res.error})
+                            inputs=kwargs, detail={**bookkeeping, "error": res.error})
             return res
 
         ev_retrieved = None
@@ -243,7 +255,7 @@ class Runtime:
             if events:
                 events.emit(EventType.TOOL_CALLED, parent=ev_retrieved, component_id=m.id,
                             component_version=m.version, status=res.status.value,
-                            inputs=kwargs, detail={"attempt": attempt, "error": resolution.reason})
+                            inputs=kwargs, detail={**bookkeeping, "error": resolution.reason})
             return res
 
         # ---- POLICY GATE
@@ -262,7 +274,7 @@ class Runtime:
                 events.emit(EventType.TOOL_CALLED, parent=ev_policy, component_id=m.id,
                             component_version=m.version, status=res.status.value,
                             inputs=kwargs, policy_ruling=auth.reason,
-                            detail={"attempt": attempt, "denied_rules": list(auth.denied_rules)})
+                            detail={**bookkeeping, "denied_rules": list(auth.denied_rules)})
             return res
 
         backend = self.backends.for_component(m)
@@ -273,6 +285,8 @@ class Runtime:
         else:
             res = backend.invoke(m, **kwargs)
             res.authorization = auth
+            if idempotency_key:
+                res.metadata = {**dict(res.metadata or {}), "idempotency_key": idempotency_key}
             # A successful invocation is the only proof of READY. Advance the
             # lifecycle from evidence rather than from optimism.
             if res.status is ExecutionStatus.SUCCEEDED:
@@ -284,7 +298,7 @@ class Runtime:
             events.emit(EventType.TOOL_CALLED, parent=ev_policy, component_id=m.id,
                         component_version=m.version, status=res.status.value,
                         inputs=kwargs, output=res.value, policy_ruling=auth.reason,
-                        detail={"attempt": attempt, "adapter": res.adapter,
+                        detail={**bookkeeping, "adapter": res.adapter,
                                 "error": res.error})
         return res
 

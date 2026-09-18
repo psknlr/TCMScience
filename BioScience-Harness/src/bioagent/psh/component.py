@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from psh.contracts import CapabilityUnavailable, ContractViolation, PolicyDenied
+from psh.contracts import (
+    CapabilityUnavailable, ContractViolation, DegradedResult, PolicyDenied, ToolTimeout,
+)
 
 from ..status import ExecutionStatus
 __all__ = ["BridgedComponent", "arguments_for"]
@@ -42,12 +44,19 @@ class BridgedComponent:
 
     # ----------------------------------------------------------------- invoke
     def invoke(self, payload: Any, envelope: Any = None) -> Any:
+        # The loop's idempotency key rides in the payload under a ``_psh_`` name that
+        # ``arguments_for`` strips, so it never becomes a keyword argument of the
+        # entrypoint or a field on the wire. It is handed to the runtime on its own,
+        # which records it where a side-effecting backend can recognise a replay.
+        key = payload.get("_psh_idempotency_key") if isinstance(payload, Mapping) else None
         try:
             kwargs = arguments_for(payload, source=self.source, component_id=self.manifest.id)
         except ArgumentError as exc:
             raise ContractViolation(str(exc)) from None
         self.calls += 1
-        result = self.runtime.invoke(self.bio.id, spec=self.spec, events=self.events, **kwargs)
+        bookkeeping = {"idempotency_key": str(key)} if key else {}
+        result = self.runtime.invoke(self.bio.id, spec=self.spec, events=self.events,
+                                     **bookkeeping, **kwargs)
         self.last_status = result.status
         return self.value_of(result)
 
@@ -63,10 +72,14 @@ class BridgedComponent:
         if status is ExecutionStatus.UNAVAILABLE:
             raise CapabilityUnavailable(f"{name} cannot run here: {detail}")
         if status is ExecutionStatus.TIMEOUT:
-            raise ContractViolation(f"{name} timed out: {detail}")
+            # Its own class: a call that timed out may have done its work, and the
+            # loop's operation ledger records it as unknown rather than failed.
+            raise ToolTimeout(f"{name} timed out: {detail}")
         if status is ExecutionStatus.DEGRADED:
-            # Ran with a documented shortfall: a value with a caveat, not a failure.
-            return result.value
+            # Ran with a documented shortfall: a value with a caveat, not a failure —
+            # and the caveat travels with the value instead of staying in this log.
+            return DegradedResult(value=result.value,
+                                  reason=detail or "ran with a documented shortfall")
         raise ContractViolation(f"{name} {status.value.lower()}: {detail or 'no detail'}")
 
     def __repr__(self) -> str:  # pragma: no cover - diagnostics
