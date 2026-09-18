@@ -325,6 +325,8 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "openalex.org", "biorxiv.org", "ontology.jax.org", "disease-ontology.org",
             "bioregistry.io", "identifiers.org", "biit.cs.ut.ee", "pantherdb.org",
             "query.wikidata.org", "api.gbif.org",
+            # v2.5 bulk natural-product and reference datasets (acquisition layer)
+            "bidd.group", "npatlas.org", "zenodo.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
