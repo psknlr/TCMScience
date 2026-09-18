@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Sequence
 
 __all__ = ["protein_properties", "hydropathy_profile", "AVERAGE_RESIDUE_MASS",
-           "KYTE_DOOLITTLE", "PKA_EMBOSS"]
+           "KYTE_DOOLITTLE", "PKA_EMBOSS", "peptide_mass", "in_silico_digest",
+           "MONOISOTOPIC_RESIDUE_MASS", "PROTEASES"]
 
 #: Average residue masses (Da), the values Expasy's ProtParam uses.
 AVERAGE_RESIDUE_MASS = {
@@ -104,3 +105,78 @@ def hydropathy_profile(sequence: str, window: int = 9) -> dict[str, Any]:
     return {"window": window, "profile": profile, "max": max(profile), "min": min(profile),
             "max_centre_position": peak + half + 1,
             "putative_transmembrane_segments": sum(1 for v in profile if v > 1.6)}
+
+
+# ------------------------------------------------------------- mass spectrometry
+
+#: Monoisotopic residue masses (Da), the values used for peptide m/z.
+MONOISOTOPIC_RESIDUE_MASS = {
+    "A": 71.03711, "R": 156.10111, "N": 114.04293, "D": 115.02694, "C": 103.00919,
+    "E": 129.04259, "Q": 128.05858, "G": 57.02146, "H": 137.05891, "I": 113.08406,
+    "L": 113.08406, "K": 128.09496, "M": 131.04049, "F": 147.06841, "P": 97.05276,
+    "S": 87.03203, "T": 101.04768, "W": 186.07931, "Y": 163.06333, "V": 99.06841,
+}
+_WATER_MONO = 18.010565
+_PROTON = 1.007276
+
+#: Cleavage rules: (residues cut after, residues that block when following) or, for
+#: Asp-N, cut *before* the residue.
+PROTEASES = {
+    "trypsin": ("KR", "P", "after"), "trypsin/p": ("KR", "", "after"),
+    "lys-c": ("K", "", "after"), "arg-c": ("R", "", "after"),
+    "chymotrypsin": ("FWY", "P", "after"), "glu-c": ("E", "", "after"),
+    "asp-n": ("D", "", "before"),
+}
+
+
+def peptide_mass(sequence: str, charges: Sequence[int] = (1, 2, 3)) -> dict[str, Any]:
+    """Monoisotopic and average mass of a peptide, and m/z for the requested charge states."""
+    seq = _clean(sequence)
+    mono = sum(MONOISOTOPIC_RESIDUE_MASS[a] for a in seq) + _WATER_MONO
+    average = sum(AVERAGE_RESIDUE_MASS[a] for a in seq) + _WATER
+    if not isinstance(charges, (list, tuple)) or not charges:
+        raise ValueError("charges must be a non-empty list of positive integers")
+    mz = {}
+    for z in charges:
+        if isinstance(z, bool) or not isinstance(z, int) or z < 1:
+            raise ValueError("charges must be positive integers")
+        mz[str(z)] = round((mono + z * _PROTON) / z, 5)
+    return {"sequence": seq, "length": len(seq), "monoisotopic_mass": round(mono, 5),
+            "average_mass": round(average, 4), "mz": mz}
+
+
+def in_silico_digest(sequence: str, enzyme: str = "trypsin", missed_cleavages: int = 0,
+                     min_length: int = 1) -> dict[str, Any]:
+    """Proteolytic digestion by rule (trypsin cuts after K/R unless P follows, and so on),
+    with up to ``missed_cleavages`` skipped sites, and monoisotopic masses per peptide."""
+    seq = _clean(sequence)
+    name = str(enzyme).strip().lower()
+    if name not in PROTEASES:
+        raise ValueError(f"unknown enzyme {name!r}; known: {sorted(PROTEASES)}")
+    if not isinstance(missed_cleavages, int) or missed_cleavages < 0 or missed_cleavages > 5:
+        raise ValueError("missed_cleavages must be an integer between 0 and 5")
+    residues, blockers, side = PROTEASES[name]
+    cuts = []
+    for i in range(len(seq) - 1):
+        if side == "after" and seq[i] in residues and seq[i + 1] not in blockers:
+            cuts.append(i + 1)
+        elif side == "before" and seq[i + 1] in residues:
+            cuts.append(i + 1)
+    bounds = [0] + cuts + [len(seq)]
+    peptides = []
+    for start_idx in range(len(bounds) - 1):
+        for skipped in range(missed_cleavages + 1):
+            end_idx = start_idx + 1 + skipped
+            if end_idx >= len(bounds):
+                break
+            start, end = bounds[start_idx], bounds[end_idx]
+            pep = seq[start:end]
+            if len(pep) < min_length:
+                continue
+            mono = sum(MONOISOTOPIC_RESIDUE_MASS[a] for a in pep) + _WATER_MONO
+            peptides.append({"sequence": pep, "start": start + 1, "end": end,
+                             "missed_cleavages": skipped, "monoisotopic_mass": round(mono, 4)})
+    return {"enzyme": name, "cleavage_sites": len(cuts), "count": len(peptides),
+            "peptides": peptides, "rule": {"after": residues if side == "after" else "",
+                                           "before": residues if side == "before" else "",
+                                           "blocked_by": blockers}}

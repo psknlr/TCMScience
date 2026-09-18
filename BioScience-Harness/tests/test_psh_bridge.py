@@ -426,7 +426,8 @@ def test_native_tools_are_local_components_with_the_local_ceiling(kernel, tmp_pa
         assert manifest.idempotent
     registry = CapabilityRegistry()
     stats = bridge.register_into(registry)
-    assert stats["harnesses"] == 7                       # one per toolkit domain
+    from bioagent.tools import DOMAINS
+    assert stats["harnesses"] == len(DOMAINS) == 11     # one per toolkit domain
     hits = registry.resolve("estimate kidney function eGFR from creatinine", kernel.policy.envelope())
     assert any(c.id == "native.tool.egfr_ckd_epi_2021" for c in hits), [c.id for c in hits]
 

@@ -15,7 +15,8 @@ from typing import Any, Mapping, Sequence
 __all__ = ["reverse_complement", "transcribe", "translate", "gc_content", "find_orfs",
            "kmer_counts", "hamming_distance", "edit_distance", "codon_usage",
            "melting_temperature", "restriction_sites", "nucleic_acid_weight",
-           "CODON_TABLE", "RESTRICTION_ENZYMES"]
+           "CODON_TABLE", "RESTRICTION_ENZYMES", "motif_search", "cpg_islands",
+           "six_frame_translation", "crispr_guides", "sequence_entropy", "primer_check"]
 
 _COMPLEMENT = str.maketrans("ACGTUNRYKMSWBDHVacgtunrykmswbdhv",
                             "TGCAANYRMKSWVHDBtgcaanyrmkswvhdb")
@@ -256,3 +257,222 @@ def nucleic_acid_weight(sequence: str, kind: str = "dna") -> dict[str, Any]:
         raise ValueError("molecular weight needs an unambiguous sequence")
     mw = sum(masses[c] for c in seq) + offset
     return {"molecular_weight": round(mw, 2), "kind": kind, "length": len(seq)}
+
+
+# ---------------------------------------------------------------- motifs & scans
+
+_IUPAC_REGEX: Mapping[str, str] = {
+    "A": "A", "C": "C", "G": "G", "T": "T", "U": "T", "R": "[AG]", "Y": "[CT]", "K": "[GT]",
+    "M": "[AC]", "S": "[CG]", "W": "[AT]", "B": "[CGT]", "D": "[AGT]", "H": "[ACT]",
+    "V": "[ACG]", "N": "[ACGT]",
+}
+
+
+def _motif_pattern(motif: str) -> str:
+    cleaned = _clean(motif, what="motif").replace("U", "T")
+    return "".join(_IUPAC_REGEX[c] for c in cleaned)
+
+
+def motif_search(sequence: str, motif: str, both_strands: bool = True, max_hits: int = 500
+                 ) -> dict[str, Any]:
+    """Find a motif written in IUPAC codes (``TATAWAW``, ``GGNNCC``) on one or both strands.
+    Positions are 0-based on the forward strand; overlapping hits are reported."""
+    seq = _clean(sequence).replace("U", "T")
+    pattern = re.compile(f"(?=({_motif_pattern(motif)}))")
+    width = len("".join(motif.split()))
+    hits = [{"position": m.start(), "strand": "+", "match": m.group(1)}
+            for m in pattern.finditer(seq)]
+    if both_strands:
+        rc = seq.translate(_COMPLEMENT)[::-1]
+        for m in pattern.finditer(rc):
+            hits.append({"position": len(seq) - m.start() - width, "strand": "-",
+                         "match": m.group(1)})
+    hits.sort(key=lambda h: (h["position"], h["strand"]))
+    return {"motif": motif.upper(), "regex": pattern.pattern, "count": len(hits),
+            "hits": hits[:max_hits], "truncated": len(hits) > max_hits}
+
+
+def cpg_islands(sequence: str, window: int = 200, min_gc: float = 0.5,
+                min_obs_exp: float = 0.6, min_length: int = 200) -> dict[str, Any]:
+    """CpG islands by the Gardiner-Garden & Frommer (1987) criteria: windows with GC ≥ 50 %
+    and observed/expected CpG ≥ 0.6, merged into islands of at least ``min_length`` bp."""
+    seq = _clean(sequence).replace("U", "T")
+    n = len(seq)
+    if window < 10 or window > n:
+        raise ValueError("window must be between 10 and the sequence length")
+    c_pref, g_pref, cg_pref = [0], [0], [0]
+    for i, base in enumerate(seq):
+        c_pref.append(c_pref[-1] + (base == "C"))
+        g_pref.append(g_pref[-1] + (base == "G"))
+        cg_pref.append(cg_pref[-1] + (1 if base == "C" and i + 1 < n and seq[i + 1] == "G" else 0))
+    islands: list[dict[str, Any]] = []
+    current: list[int] | None = None
+    for start in range(0, n - window + 1):
+        end = start + window
+        c = c_pref[end] - c_pref[start]
+        g = g_pref[end] - g_pref[start]
+        cg = cg_pref[end - 1] - cg_pref[start]          # CpG pairs fully inside the window
+        gc = (c + g) / window
+        obs_exp = cg * window / (c * g) if c * g > 0 else 0.0
+        if gc >= min_gc and obs_exp >= min_obs_exp:
+            if current is not None and start <= current[1]:
+                current[1] = end
+            else:
+                if current is not None:
+                    islands.append({"start": current[0], "end": current[1]})
+                current = [start, end]
+    if current is not None:
+        islands.append({"start": current[0], "end": current[1]})
+    out = []
+    for island in islands:
+        s, e = island["start"], island["end"]
+        if e - s < min_length:
+            continue
+        c = c_pref[e] - c_pref[s]
+        g = g_pref[e] - g_pref[s]
+        cg = cg_pref[e - 1] - cg_pref[s]
+        out.append({"start": s, "end": e, "length": e - s, "gc_fraction": round((c + g) / (e - s), 4),
+                    "obs_exp_cpg": round(cg * (e - s) / (c * g), 4) if c * g > 0 else 0.0})
+    return {"count": len(out), "islands": out, "window": window,
+            "criteria": "GC >= 50 %, observed/expected CpG >= 0.6 (Gardiner-Garden & Frommer 1987)"}
+
+
+def six_frame_translation(sequence: str) -> dict[str, Any]:
+    """Translate all six reading frames and report the longest stop-free stretch."""
+    seq = _clean(sequence).replace("U", "T")
+    if any(c not in "ACGT" for c in seq):
+        raise ValueError("six-frame translation needs an unambiguous ACGT sequence")
+    rc = seq.translate(_COMPLEMENT)[::-1]
+    frames: dict[str, str] = {}
+    for f in range(3):
+        frames[f"+{f + 1}"] = translate(seq, frame=f)["protein"]
+        frames[f"-{f + 1}"] = translate(rc, frame=f)["protein"]
+    best_frame, best_len = None, -1
+    for name, prot in frames.items():
+        longest = max((len(part) for part in prot.split("*")), default=0)
+        if longest > best_len:
+            best_frame, best_len = name, longest
+    return {"frames": frames, "longest_open_stretch_frame": best_frame,
+            "longest_open_stretch_aa": best_len}
+
+
+def crispr_guides(sequence: str, pam: str = "NGG", guide_length: int = 20, max_guides: int = 100
+                  ) -> dict[str, Any]:
+    """Enumerate SpCas9-style guide candidates: ``guide_length`` bases 5′ of a PAM on either
+    strand, with GC content and the poly-T flag. No on-target score is computed."""
+    seq = _clean(sequence).replace("U", "T")
+    if guide_length < 15 or guide_length > 30:
+        raise ValueError("guide_length must be between 15 and 30")
+    pattern = re.compile(f"(?=({_motif_pattern(pam)}))")
+    width = len(pam)
+    n = len(seq)
+    guides = []
+
+    def scan(strand_seq: str, strand: str) -> None:
+        for m in pattern.finditer(strand_seq):
+            p = m.start()
+            if p < guide_length:
+                continue
+            guide = strand_seq[p - guide_length:p]
+            if strand == "+":
+                start, end = p - guide_length, p
+            else:
+                start, end = n - p, n - p + guide_length
+            gc = 100.0 * sum(guide.count(b) for b in "GC") / guide_length
+            guides.append({"strand": strand, "start": start, "end": end, "guide": guide,
+                           "pam": m.group(1), "gc_percent": round(gc, 1),
+                           "poly_t": "TTTT" in guide,
+                           "gc_in_range": 40.0 <= gc <= 60.0})
+
+    scan(seq, "+")
+    scan(seq.translate(_COMPLEMENT)[::-1], "-")
+    guides.sort(key=lambda g: (g["start"], g["strand"]))
+    return {"pam": pam.upper(), "guide_length": guide_length, "count": len(guides),
+            "guides": guides[:max_guides], "truncated": len(guides) > max_guides,
+            "note": "candidates only; specificity and efficiency scoring need a genome index"}
+
+
+def sequence_entropy(sequence: str, window: int = 0, low_complexity_threshold: float = 1.0
+                     ) -> dict[str, Any]:
+    """Shannon entropy (bits per base) of the whole sequence or of sliding windows, with the
+    fraction of windows below a low-complexity threshold."""
+    seq = _clean(sequence)
+
+    def entropy(s: str) -> float:
+        total = len(s)
+        return abs(sum((s.count(b) / total) * math.log2(s.count(b) / total) for b in set(s)))
+
+    if window <= 0:
+        return {"entropy_bits": round(entropy(seq), 4), "length": len(seq),
+                "max_possible_bits": round(math.log2(len(set(seq))), 4) if len(set(seq)) > 1 else 0.0}
+    if window > len(seq):
+        raise ValueError("window is longer than the sequence")
+    step = max(1, window // 4)
+    values = [entropy(seq[i:i + window]) for i in range(0, len(seq) - window + 1, step)]
+    low = [i * step for i, v in enumerate(values) if v < low_complexity_threshold]
+    return {"window": window, "step": step, "windows": len(values),
+            "mean_entropy_bits": round(sum(values) / len(values), 4),
+            "min_entropy_bits": round(min(values), 4), "max_entropy_bits": round(max(values), 4),
+            "low_complexity_fraction": round(len(low) / len(values), 4),
+            "low_complexity_window_starts": low[:50]}
+
+
+def primer_check(primer: str, template: str = "") -> dict[str, Any]:
+    """Primer sanity checks: length, GC, Tm, 3′ GC clamp, longest homopolymer run, the
+    longest self-complementary stretch, a simple hairpin scan, and binding sites in an
+    optional template (exact matches on both strands)."""
+    p = _clean(primer, what="primer").replace("U", "T")
+    if any(c not in "ACGT" for c in p):
+        raise ValueError("primer must be an unambiguous ACGT sequence")
+    n = len(p)
+    gc = 100.0 * sum(p.count(b) for b in "GC") / n
+    tm = melting_temperature(p)["tm_celsius"]
+    clamp = sum(1 for b in p[-5:] if b in "GC")
+    run, best_run = 1, 1
+    for a, b in zip(p, p[1:]):
+        run = run + 1 if a == b else 1
+        best_run = max(best_run, run)
+    rc = p.translate(_COMPLEMENT)[::-1]
+    # Longest common substring of the primer and its reverse complement: the longest
+    # stretch that can pair with another copy of the primer (self-dimer).
+    longest = 0
+    prev = [0] * (n + 1)
+    for i in range(1, n + 1):
+        cur = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if p[i - 1] == rc[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                longest = max(longest, cur[j])
+        prev = cur
+    hairpin = False
+    for i in range(n - 4):
+        stem_rc = p[i:i + 4].translate(_COMPLEMENT)[::-1]
+        if stem_rc in p[i + 7:]:
+            hairpin = True
+            break
+    warnings = []
+    if n < 18 or n > 30:
+        warnings.append("length outside 18-30 nt")
+    if gc < 40 or gc > 60:
+        warnings.append("GC outside 40-60 %")
+    if clamp == 0:
+        warnings.append("no G/C in the last five 3' bases")
+    if clamp > 3:
+        warnings.append("more than three G/C in the last five 3' bases")
+    if best_run >= 5:
+        warnings.append("homopolymer run of five or more")
+    if longest >= 6:
+        warnings.append("self-complementary stretch of six or more")
+    if hairpin:
+        warnings.append("possible hairpin (4-bp stem, loop >= 3)")
+    out: dict[str, Any] = {"primer": p, "length": n, "gc_percent": round(gc, 1), "tm_celsius": tm,
+                           "gc_clamp_3prime_count": clamp, "longest_homopolymer_run": best_run,
+                           "longest_self_complementary_stretch": longest, "hairpin_possible": hairpin,
+                           "warnings": warnings}
+    if template:
+        t = _clean(template, what="template").replace("U", "T")
+        forward = [m.start() for m in re.finditer(f"(?={p})", t)]
+        reverse = [m.start() for m in re.finditer(f"(?={rc})", t)]
+        out["template_sites"] = {"forward_strand": forward, "reverse_strand": reverse,
+                                 "unique": len(forward) + len(reverse) == 1}
+    return out

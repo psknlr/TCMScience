@@ -1,6 +1,6 @@
 """The native toolkit: every tool runs from its own example, and the values are right.
 
-The first test is the contract — each of the 71 tools is a JSON-in, JSON-out function
+The first test is the contract — each of the 139 tools is a JSON-in, JSON-out function
 whose example is its smoke test. The rest pin values that can be checked by hand or
 against a textbook, because a calculator that runs is not the same as a calculator that
 is correct, and the difference matters most for the clinical ones.
@@ -14,7 +14,8 @@ import math
 import pytest
 
 from bioagent.tools import BY_NAME, TOOLS, NativeToolProvider, native_smoke_runner, run_smoke, tool
-from bioagent.tools import align, clinical, formats, protein, sequence, stats, variants
+from bioagent.tools import (align, clinical, formats, pharmacology, phylo, popgen, protein,
+                            sequence, stats, survival, variants)
 
 
 # ================================================================ the contract
@@ -37,7 +38,7 @@ def test_every_tool_is_deterministic(native):
 
 def test_the_provider_yields_valid_offline_python_components():
     manifests = list(NativeToolProvider().discover())
-    assert len(manifests) == len(TOOLS) == 77
+    assert len(manifests) == len(TOOLS) == 139
     for m in manifests:
         assert m.validate() == []
         assert m.runtime.backend == "python" and m.runtime.deterministic
@@ -45,6 +46,20 @@ def test_the_provider_yields_valid_offline_python_components():
         assert m.validation.smoke_test == f"native:{m.name}"
         assert native_smoke_runner(m) == run_smoke(m.name)
     assert len({m.id for m in manifests}) == len(manifests)
+
+
+def test_no_tool_parameter_shadows_a_runtime_invoke_keyword():
+    """``Runtime.invoke(component_id, *, spec, events, parent_event, attempt, **kwargs)``
+    passes tool arguments as keywords, so a tool parameter with one of those names would
+    be swallowed by the runtime instead of reaching the tool. Found by the survival tools,
+    whose censoring flags were first called ``events``."""
+    import inspect
+    from bioagent.runtime.agentspec import Runtime
+
+    reserved = {name for name in inspect.signature(Runtime.invoke).parameters if name != "kwargs"}
+    for native in TOOLS:
+        clash = reserved & {p["name"] for p in native.parameters}
+        assert not clash, f"{native.name} parameter(s) {sorted(clash)} shadow Runtime.invoke keywords"
 
 
 def test_a_python_backend_can_load_and_run_every_tool(tmp_path):
@@ -256,3 +271,303 @@ def test_questionnaires_and_obstetric_calculators():
     assert (ga["weeks"], ga["days"], ga["estimated_due_date"], ga["trimester"]) == (19, 1, "2026-10-08", 2)
     with pytest.raises(ValueError, match="nine"):
         clinical.phq9([0] * 8)
+
+
+# ======================================================== tranche 2: pharmacology
+
+def test_pharmacokinetic_identities():
+    pk = pharmacology.pk_one_compartment(500, 40, 6, times_h=[0, 6, 12])
+    assert pk["c0_mg_per_l"] == 12.5
+    curve = {c["time_h"]: c["concentration_mg_per_l"] for c in pk["concentrations"]}
+    assert curve[6] == pytest.approx(6.25, abs=1e-4) and curve[12] == pytest.approx(3.125, abs=1e-4)
+    assert pk["clearance_l_per_h"] == pytest.approx(40 * math.log(2) / 6, abs=1e-4)
+    assert pharmacology.half_life_from_levels(10, 2, 2.5, 10)["half_life_h"] == 4.0
+    assert pharmacology.loading_dose(15, 0.7, 70)["loading_dose_mg"] == 735.0
+    assert pharmacology.maintenance_dose(10, 3, 8)["dose_per_interval_mg"] == 240.0
+    ss = pharmacology.steady_state(6, 6)
+    assert ss["accumulation_ratio"] == 2.0 and ss["doses_to_90_percent"] == 4      # 1 - 2^-n >= 0.9
+    assert pharmacology.carboplatin_calvert(5, 80)["dose_mg"] == 525.0
+    capped = pharmacology.carboplatin_calvert(6, 150)
+    assert capped["gfr_capped"] and capped["dose_mg"] == 900.0
+    assert pharmacology.glucocorticoid_equivalent("prednisone", 40, "dexamethasone")["equivalent_dose_mg"] == 6.0
+    mme = pharmacology.morphine_milligram_equivalents(
+        [{"opioid": "oxycodone", "dose_per_day": 30}, {"opioid": "hydrocodone", "dose_per_day": 20}])
+    assert mme["total_mme_per_day"] == 65.0 and mme["band"].startswith("50 to 89")
+    with pytest.raises(ValueError, match="no conversion factor"):
+        pharmacology.morphine_milligram_equivalents([{"opioid": "buprenorphine", "dose_per_day": 1}])
+
+
+# ================================================================ survival
+
+def test_kaplan_meier_reproduces_the_freireich_six_mp_curve():
+    """Freireich 1963, 6-MP arm: the survival estimates every textbook prints."""
+    km = survival.kaplan_meier(tool("kaplan_meier").example["times"], tool("kaplan_meier").example["status"])
+    got = {row["time"]: row["survival"] for row in km["table"]}
+    expected = {6: 0.857, 7: 0.807, 10: 0.753, 13: 0.690, 16: 0.627, 22: 0.538, 23: 0.448}
+    for t, s in expected.items():
+        assert got[t] == pytest.approx(s, abs=0.001)
+    assert km["median_survival_time"] == 23 and km["events"] == 9 and km["censored"] == 12
+
+
+def test_log_rank_matches_the_published_statistic():
+    """R's survdiff on the Gehan data reports Chisq = 16.8, p = 4.17e-05."""
+    lr = survival.log_rank_test(**tool("log_rank_test").example)
+    assert lr["chi_square"] == pytest.approx(16.79, abs=0.02)
+    assert lr["p_value"] == pytest.approx(4.17e-05, rel=0.02)
+    assert lr["hazard_ratio_a_vs_b"] < 0.3                      # 6-MP roughly quarters the hazard
+
+
+# ============================================================== statistics 2
+
+def test_special_functions_reproduce_critical_values():
+    assert stats._chi2_sf(3.841459, 1) == pytest.approx(0.05, abs=1e-6)
+    assert stats._chi2_sf(5.991465, 2) == pytest.approx(0.05, abs=1e-6)
+    assert stats._chi2_sf(18.307, 10) == pytest.approx(0.05, abs=1e-5)
+    assert stats._f_sf(4.256495, 2, 9) == pytest.approx(0.05, abs=1e-6)
+    assert stats._z_quantile(0.975) == pytest.approx(1.959964, abs=1e-5)
+    assert stats._t_quantile(0.975, 10) == pytest.approx(2.228139, abs=1e-5)
+    assert stats._chi2_quantile(0.95, 1) == pytest.approx(3.841459, abs=1e-5)
+
+
+def test_chi_square_and_regression_and_anova():
+    chi = stats.chi_square_test([[10, 20], [30, 40]])
+    assert chi["chi_square"] == pytest.approx(0.7937, abs=1e-4) and chi["p_value"] == pytest.approx(0.373, abs=1e-3)
+    assert stats.chi_square_test([[10, 20], [30, 40]], yates=True)["chi_square"] < chi["chi_square"]
+    exact = stats.linear_regression([1, 2, 3, 4, 5], [3, 5, 7, 9, 11])
+    assert (exact["slope"], exact["intercept"], exact["r_squared"]) == (2.0, 1.0, 1.0)
+    fit = stats.linear_regression([1, 2, 3, 4, 5], [2.1, 3.9, 6.2, 7.8, 10.1])
+    assert fit["slope"] == pytest.approx(1.99, abs=1e-6) and fit["p_value"] < 0.001
+    assert fit["slope_ci_95"][0] < 1.99 < fit["slope_ci_95"][1]
+    anova = stats.one_way_anova([[1, 2, 3], [2, 3, 4], [6, 7, 8]])
+    assert anova["F"] == 21.0 and anova["ss_between"] == 42.0 and anova["ss_within"] == 6.0
+    assert anova["p_value"] == pytest.approx(0.00195, abs=2e-5)
+    kw = stats.kruskal_wallis([[1, 2, 3], [2, 3, 4], [6, 7, 8]])
+    assert kw["df"] == 2 and 0.04 < kw["p_value"] < 0.05
+
+
+def test_meta_analysis_by_hand():
+    """Three studies, inverse-variance weights 25, 100, 11.11 — the arithmetic is short
+    enough to check on paper, and the test does it independently of the module."""
+    y, se = [0.5, 0.3, 0.7], [0.2, 0.1, 0.3]
+    w = [1 / s ** 2 for s in se]
+    fixed = sum(wi * yi for wi, yi in zip(w, y)) / sum(w)
+    q = sum(wi * (yi - fixed) ** 2 for wi, yi in zip(w, y))
+    c = sum(w) - sum(wi * wi for wi in w) / sum(w)
+    tau2 = max(0.0, (q - 2) / c)
+    wr = [1 / (s ** 2 + tau2) for s in se]
+    random = sum(wi * yi for wi, yi in zip(wr, y)) / sum(wr)
+    m = stats.meta_analysis(y, se, labels=["a", "b", "c"])
+    assert m["fixed_effect"]["estimate"] == pytest.approx(fixed, abs=1e-6)
+    assert m["fixed_effect"]["std_error"] == pytest.approx(math.sqrt(1 / sum(w)), abs=1e-6)
+    assert m["heterogeneity"]["Q"] == pytest.approx(q, abs=1e-4)
+    assert m["heterogeneity"]["tau_squared"] == pytest.approx(tau2, abs=1e-6)
+    assert m["random_effects"]["estimate"] == pytest.approx(random, abs=1e-6)
+    assert m["fixed_effect"]["ratio"] == pytest.approx(math.exp(fixed), abs=1e-5)
+    assert sum(m["weights_percent"]["fixed"].values()) == pytest.approx(100, abs=0.05)
+
+
+def test_effect_sizes_bayes_and_design():
+    d = stats.cohens_d([2, 4, 4, 4, 5, 5, 7, 9], [1, 2, 2, 3, 3, 4, 5, 6])
+    assert d["mean_difference"] == 1.75 and d["pooled_sd"] == pytest.approx(1.918, abs=1e-3)
+    assert d["cohens_d"] == pytest.approx(1.75 / 1.91796, abs=1e-4) and d["band"] == "large"
+    w = stats.wilcoxon_signed_rank([1.1, 2.3, 3.0, 4.2, 5.1, 6.3], [0.9, 2.0, 2.5, 3.1, 4.0, 5.0])
+    assert w["W_plus"] == 21.0 and w["W_minus"] == 0 and w["z"] == pytest.approx(2.1023, abs=1e-3)
+    bayes = stats.post_test_probability(0.2, sensitivity=0.9, specificity=0.8)
+    assert bayes["lr_positive"] == 4.5 and bayes["lr_negative"] == 0.125
+    assert bayes["post_test_probability_if_positive"] == pytest.approx(0.5294, abs=1e-4)
+    assert bayes["post_test_probability_if_negative"] == pytest.approx(0.0303, abs=1e-4)
+    assert stats.post_test_probability(0.5, likelihood_ratio=3)["post_test_probability"] == 0.75
+    assert stats.sample_size_two_proportions(0.2, 0.3)["n_group_1"] == 294
+    assert stats.sample_size_two_means(5, 10)["n_per_group"] == 63
+    ir = stats.incidence_rate(12, 4800, per=1000)
+    assert ir["rate"] == 2.5
+    assert ir["ci_low"] == pytest.approx(1.2918, abs=1e-3) and ir["ci_high"] == pytest.approx(4.367, abs=1e-3)
+
+
+# ====================================================== population genetics
+
+def test_population_genetics():
+    perfect = popgen.linkage_disequilibrium({"AB": 50, "Ab": 0, "aB": 0, "ab": 50})
+    assert (perfect["D"], perfect["D_prime"], perfect["r_squared"]) == (0.25, 1.0, 1.0)
+    partial = popgen.linkage_disequilibrium({"AB": 50, "Ab": 10, "aB": 10, "ab": 30})
+    assert partial["D"] == pytest.approx(0.14, abs=1e-6) and partial["r_squared"] == pytest.approx(0.3403, abs=1e-4)
+    div = popgen.nucleotide_diversity(["ACGTACGTAC", "ACGTACGTAT", "ACGAACGTAC", "ACGTACCTAC"])
+    assert div["segregating_sites"] == 3 and div["pi_per_pair"] == 1.5      # 9 differences / 6 pairs
+    a1 = 1 + 1 / 2 + 1 / 3
+    assert div["theta_w_per_sequence"] == pytest.approx(3 / a1, abs=1e-5)
+    # Tajima's D with the 1989 constants for n = 4, computed here independently.
+    n, s_sites, k = 4, 3, 1.5
+    a2 = sum(1 / i ** 2 for i in range(1, n))
+    b1, b2 = (n + 1) / (3 * (n - 1)), 2 * (n * n + n + 3) / (9 * n * (n - 1))
+    c1, c2 = b1 - 1 / a1, b2 - (n + 2) / (a1 * n) + a2 / a1 ** 2
+    e1, e2 = c1 / a1, c2 / (a1 ** 2 + a2)
+    expected_d = (k - s_sites / a1) / math.sqrt(e1 * s_sites + e2 * s_sites * (s_sites - 1))
+    assert div["tajimas_d"] == pytest.approx(expected_d, abs=1e-3)
+    assert popgen.nucleotide_diversity(["ACGT", "ACGT"])["tajimas_d"] is None
+    assert popgen.fst([1.0, 0.0], [50, 50]) == {"populations": 2, "H_S": 0.0, "H_T": 0.5, "G_ST": 1.0, "hudson_fst": 1.0}
+    assert popgen.fst([0.5, 0.5])["G_ST"] == 0.0
+
+
+# ============================================================ phylogenetics
+
+def test_neighbor_joining_recovers_an_additive_tree():
+    """The five-taxon example from Saitou & Nei (as on Wikipedia): the input distances are
+    additive, so the tree must reproduce every leaf-to-leaf path length exactly."""
+    example = tool("neighbor_joining").example
+    nj = phylo.neighbor_joining(**example)
+    assert nj["negative_branch_lengths_clamped"] == 0
+    got = phylo.tree_distances(nj["newick"])
+    index = {name: i for i, name in enumerate(example["names"])}
+    for i, a in enumerate(got["names"]):
+        for j, b in enumerate(got["names"]):
+            assert got["matrix"][i][j] == pytest.approx(example["matrix"][index[a]][index[b]], abs=1e-6)
+    assert "(a:2,b:3)" in nj["newick"] and "(d:2,e:1)" in nj["newick"]
+
+
+def test_upgma_and_newick():
+    up = phylo.upgma(["A", "B", "C"], [[0, 2, 4], [2, 0, 4], [4, 4, 0]])
+    assert up["newick"] == "(C:2,(A:1,B:1):1);" and up["root_height"] == 2.0
+    parsed = phylo.parse_newick(up["newick"])
+    assert parsed["leaves"] == ["C", "A", "B"] and parsed["root_to_leaf"] == {"A": 2.0, "B": 2.0, "C": 2.0}
+    assert parsed["is_binary"] and parsed["total_branch_length"] == 5.0
+    quoted = phylo.parse_newick("('Homo sapiens':0.1,Pan:0.2);")
+    assert quoted["leaves"] == ["Homo sapiens", "Pan"]
+    with pytest.raises(ValueError):
+        phylo.parse_newick("((A,B);")
+    dm = phylo.distance_matrix({"a": "AAAA", "b": "AAAG", "c": "AAGG"}, model="jc69")
+    assert dm["matrix"][0][1] == pytest.approx(-0.75 * math.log(1 - 4 * 0.25 / 3), abs=1e-6)
+    saturated = phylo.distance_matrix({"a": "AAAA", "b": "CCCC"}, model="jc69")
+    assert saturated["saturated_pairs"] == [["a", "b"]] and saturated["matrix"][0][1] is None
+
+
+# ======================================================== sequence tools 2
+
+def test_motifs_islands_guides_and_primers():
+    hits = sequence.motif_search("GGTATAAAAGGCCTATAAATCC", "TATAWAW", both_strands=False)
+    assert [h["position"] for h in hits["hits"]] == [2, 13]
+    eco = sequence.motif_search("AAGAATTCAA", "GAATTC")
+    assert eco["count"] == 2 and {h["strand"] for h in eco["hits"]} == {"+", "-"}   # palindrome
+    island = sequence.cpg_islands("CG" * 150 + "AT" * 100, window=100, min_length=100)
+    assert island["count"] == 1 and island["islands"][0]["start"] == 0
+    assert sequence.cpg_islands("AT" * 200, window=100)["count"] == 0
+    frames = sequence.six_frame_translation("ATGGCCTGA")["frames"]
+    assert frames["+1"] == "MA*" and frames["-1"] == "SGH"
+    guides = sequence.crispr_guides("A" * 20 + "TGG" + "C" * 5)
+    assert guides["count"] >= 1 and guides["guides"][0]["guide"] == "A" * 20 and guides["guides"][0]["pam"] == "TGG"
+    assert sequence.sequence_entropy("AAAA")["entropy_bits"] == 0.0
+    assert sequence.sequence_entropy("ACGT")["entropy_bits"] == 2.0
+    primer = sequence.primer_check("AGCGTCGATTGACCTGACGTAG", template="TTTTAGCGTCGATTGACCTGACGTAGGGCC")
+    assert primer["template_sites"] == {"forward_strand": [4], "reverse_strand": [], "unique": True}
+    assert primer["gc_clamp_3prime_count"] == 3
+    with pytest.raises(ValueError, match="unambiguous"):
+        sequence.primer_check("ACGTN")
+
+
+# ============================================================ proteomics
+
+def test_peptide_mass_and_digestion():
+    g = protein.peptide_mass("G", charges=[1])
+    assert g["monoisotopic_mass"] == pytest.approx(57.02146 + 18.010565, abs=1e-4)
+    assert g["mz"]["1"] == pytest.approx(75.032025 + 1.007276, abs=1e-4)
+    digest = protein.in_silico_digest("MKWVTFISLLFLFSSAYSRGVFRRKPAA", "trypsin")
+    assert [p["sequence"] for p in digest["peptides"]] == ["MK", "WVTFISLLFLFSSAYSR", "GVFR", "R", "KPAA"]
+    missed = protein.in_silico_digest("MKWVTFISLLFLFSSAYSRGVFRRKPAA", "trypsin", missed_cleavages=1)
+    assert "MKWVTFISLLFLFSSAYSR" in [p["sequence"] for p in missed["peptides"]]
+    aspn = protein.in_silico_digest("MADGDAK", "asp-n")
+    assert [p["sequence"] for p in aspn["peptides"]] == ["MA", "DG", "DAK"]
+
+
+# ============================================================== formats 2
+
+def test_sam_pdb_obo_parsers():
+    sam = formats.parse_sam(tool("parse_sam").example["text"])
+    assert sam["references"] == {"chr1": 248956422} and sam["mapped"] == 2
+    first = sam["records"][0]
+    assert first["cigar_ops"] == {"M": 15, "I": 2, "D": 1} and first["aligned_ref_span"] == 16
+    assert "paired" in first["flags"] and "reverse" in sam["records"][2]["flags"]
+    pdb = formats.parse_pdb(tool("parse_pdb").example["text"])
+    assert pdb["atoms"] == 4 and pdb["waters"] == 1 and pdb["hetero_groups"] == {"ZN": 1}
+    assert pdb["chains"]["A"]["sequence"] == "MG" and pdb["chains"]["A"]["residues"] == 2
+    obo = formats.parse_obo(tool("parse_obo").example["text"])
+    assert obo["n_terms"] == 2 and obo["roots"] == ["GO:0008150"]
+    assert obo["terms"][1]["is_a"] == ["GO:0008150"] and obo["terms"][1]["synonyms"] == 1
+    assert obo["terms"][1]["definition"] == "Any process carried out at the cellular level."
+
+
+# =========================================================== variant effect
+
+def test_coding_variant_consequences():
+    cds = "ATGGCCATTGTAATGGGCCGCTGA"
+    annotate = variants.annotate_coding_variant
+    assert annotate(cds, 4, "G", "A")["hgvs_p"] == "p.Ala2Thr"
+    assert annotate(cds, 4, "G", "A")["consequence"] == "missense"
+    assert annotate(cds, 6, "C", "T")["consequence"] == "synonymous"
+    assert annotate(cds, 1, "A", "T")["consequence"] == "start_lost"
+    nonsense = annotate("ATGAAATGA", 4, "A", "T")
+    assert nonsense["consequence"] == "nonsense" and nonsense["hgvs_p"] == "p.Lys2Ter"
+    stop_lost = annotate("ATGAAATGAAAATAA", 7, "T", "C")
+    assert stop_lost["consequence"] == "stop_lost"
+    fs = annotate(cds, 11, "T", "")
+    assert fs["consequence"] == "frameshift" and fs["frame_shift"] and "fs" in fs["hgvs_p"]
+    immediate = annotate(cds, 10, "G", "")
+    assert immediate["consequence"] == "frameshift" and immediate["hgvs_p"] == "p.Val4Ter"
+    inframe = annotate(cds, 10, "GTA", "")
+    assert inframe["consequence"] == "inframe_deletion" and inframe["hgvs_p"] == "p.Val4del"
+    ins = annotate(cds, 9, "", "GGG")
+    assert ins["consequence"] == "inframe_insertion" and ins["hgvs_p"] == "p.Ile3_Val4insGly"
+    with pytest.raises(ValueError, match="reference mismatch"):
+        annotate(cds, 4, "T", "A")
+
+
+# ======================================================== clinical tools 2
+
+def test_ascvd_reproduces_the_guideline_examples():
+    """Goff 2013, Table A worked example: 55-year-old, TC 213, HDL 50, untreated SBP 120,
+    non-smoker, no diabetes. The guideline prints 5.3 / 2.1 / 6.1 / 3.0 %; published
+    coefficients are rounded, which moves the white-male figure by 0.1."""
+    common = dict(total_cholesterol_mg_dl=213, hdl_mg_dl=50, systolic=120)
+    expected = {("male", "white"): 5.3, ("female", "white"): 2.1,
+                ("male", "african_american"): 6.1, ("female", "african_american"): 3.0}
+    for (sex, race), pct in expected.items():
+        got = clinical.ascvd_pooled_cohort(55, sex, race, **common)["ten_year_ascvd_risk_percent"]
+        assert got == pytest.approx(pct, abs=0.15), (sex, race, got)
+    smoker = clinical.ascvd_pooled_cohort(55, "male", "white", smoker=True, **common)
+    assert smoker["ten_year_ascvd_risk_percent"] > 5.4
+    with pytest.raises(ValueError, match="plausible range"):
+        clinical.ascvd_pooled_cohort(30, "male", "white", **common)
+
+
+def test_organ_failure_acid_base_and_fluids():
+    s = clinical.sofa(**tool("sofa").example)
+    assert s["score"] == 9 and s["components"]["respiration"] == 2
+    assert clinical.sofa(**{**tool("sofa").example, "pao2_fio2": 150, "mechanically_ventilated": True})["components"]["respiration"] == 3
+    osm = clinical.calculated_osmolality(140, 90, 14, measured_osmolality=300)
+    assert osm["calculated_osmolality_mosm_kg"] == 290.0 and osm["osmolar_gap"] == 10.0
+    assert clinical.winters_formula(12, 26)["compensation"] == "appropriate"
+    abg = clinical.acid_base_interpretation(7.25, 28, 12, sodium=140, chloride=100)
+    assert abg["primary_disorder"] == "metabolic acidosis" and abg["compensation"]["verdict"] == "appropriate"
+    assert abg["anion_gap"]["anion_gap"] == 28.0 and abg["delta_ratio"] == pytest.approx(1.33, abs=0.01)
+    assert clinical.acid_base_interpretation(7.55, 25, 22)["primary_disorder"] == "respiratory alkalosis"
+    assert clinical.acid_base_interpretation(7.30, 60, 29)["compensation"]["verdict"] == "chronic pattern"
+    assert clinical.holliday_segar(25) == {"ml_per_hour": 65.0, "ml_per_day": 1600.0,
+                                           "rule": "4-2-1 mL/kg/h and 100-50-20 mL/kg/day"}
+    assert clinical.free_water_deficit(70, 154, "male")["free_water_deficit_l"] == 4.2
+    assert clinical.allowable_blood_loss(70, 42, 30)["mabl_ml"] == 1500.0
+    assert clinical.infusion_rate(1000, 480, 20) == {"ml_per_hour": 125.0, "drops_per_minute": 42.0}
+
+
+def test_risk_scores_and_indices():
+    assert clinical.heart_score(1, 1, 58, 2, 0)["score"] == 4
+    assert clinical.heart_score(2, 2, 70, 3, 2)["band"] == "high (7-10)"
+    assert clinical.centor_mcisaac(True, True, True, False, 10)["score"] == 4
+    assert clinical.centor_mcisaac(True, True, True, True, 50)["score"] == 3
+    assert clinical.alvarado(**tool("alvarado").example)["score"] == 7
+    assert clinical.timi_ua_nstemi(**tool("timi_ua_nstemi").example)["event_rate_14_day_percent"] == 19.9
+    assert clinical.abcd2(**tool("abcd2").example)["score"] == 5
+    assert clinical.sirs(38.6, 110, 24, 14)["criteria_met"] == 4
+    assert clinical.sirs(37.0, 80, 16, 8)["sirs_positive"] is False
+    assert clinical.rcri(**tool("rcri").example)["class"] == "III"
+    assert clinical.stop_bang(**tool("stop_bang").example)["band"] == "high (5-8)"
+    assert clinical.fib4(60, 40, 40, 150)["fib4"] == pytest.approx(2.53, abs=0.01)
+    assert clinical.apri(80, 40, 100)["apri"] == 2.0
+    assert clinical.homa_ir(100, 10)["homa_ir"] == 2.47

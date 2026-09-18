@@ -6,7 +6,8 @@ import math
 import re
 from typing import Any, Sequence
 
-__all__ = ["parse_hgvs", "normalise_variant", "allele_frequencies", "transition_transversion"]
+__all__ = ["parse_hgvs", "normalise_variant", "allele_frequencies", "transition_transversion",
+           "annotate_coding_variant"]
 
 _HGVS = re.compile(r"^(?:(?P<reference>[A-Za-z0-9_.()-]+):)?(?P<type>[cgmnpr])\.(?P<body>.+)$")
 _POS = r"[-*]?\d+(?:[+-]\d+)?"
@@ -162,3 +163,114 @@ def transition_transversion(changes: Sequence[Sequence[str]]) -> dict[str, Any]:
             tv += 1
     return {"transitions": ts, "transversions": tv, "skipped": skipped,
             "ts_tv_ratio": round(ts / tv, 4) if tv else None}
+
+
+# ------------------------------------------------------- coding consequence
+
+def annotate_coding_variant(cds: str, position: int, ref: str, alt: str) -> dict[str, Any]:
+    """Consequence of a variant in a coding sequence (``c.`` coordinates, 1-based):
+    synonymous, missense, nonsense (stop gained), stop lost, start lost, in-frame or
+    frameshift indels. ``ref``/``alt`` may be empty for pure insertions/deletions."""
+    from .sequence import CODON_TABLE, _clean
+
+    seq = _clean(cds, what="cds").replace("U", "T")
+    if any(c not in "ACGT" for c in seq):
+        raise ValueError("cds must be an unambiguous ACGT sequence")
+    if len(seq) % 3 != 0 or len(seq) < 3:
+        raise ValueError("cds length must be a positive multiple of three")
+    if isinstance(position, bool) or not isinstance(position, int) or not 1 <= position <= len(seq):
+        raise ValueError("position must be a 1-based integer within the cds")
+    r = "" if ref in ("", "-", None) else _clean(ref, what="ref").replace("U", "T")
+    a = "" if alt in ("", "-", None) else _clean(alt, what="alt").replace("U", "T")
+    if not r and not a:
+        raise ValueError("ref and alt cannot both be empty")
+    if r and seq[position - 1:position - 1 + len(r)] != r:
+        raise ValueError(f"reference mismatch: cds has {seq[position - 1:position - 1 + len(r)]!r} "
+                         f"at c.{position}, not {r!r}")
+    if r:
+        mutated = seq[:position - 1] + a + seq[position - 1 + len(r):]
+    else:                                     # insertion after position
+        mutated = seq[:position] + a + seq[position:]
+
+    def protein(s: str) -> str:
+        return "".join(CODON_TABLE.get(s[i:i + 3], "X") for i in range(0, len(s) - len(s) % 3, 3))
+
+    ref_prot, alt_prot = protein(seq), protein(mutated)
+    if r and a and len(r) == len(a) == 1:
+        hgvs_c = f"c.{position}{r}>{a}"
+    elif not a:
+        hgvs_c = f"c.{position}_{position + len(r) - 1}del" if len(r) > 1 else f"c.{position}del"
+    elif not r:
+        hgvs_c = f"c.{position}_{position + 1}ins{a}"
+    else:
+        hgvs_c = f"c.{position}_{position + len(r) - 1}delins{a}" if len(r) > 1 else f"c.{position}delins{a}"
+    shift = (len(a) - len(r)) % 3
+    codon_number = (position - 1) // 3 + 1
+    ref_codon = seq[(codon_number - 1) * 3:codon_number * 3]
+    ref_aa = CODON_TABLE[ref_codon]
+    first_diff = next((i for i, (x, y) in enumerate(zip(ref_prot, alt_prot)) if x != y), None)
+    if first_diff is None and len(alt_prot) != len(ref_prot):
+        first_diff = min(len(ref_prot), len(alt_prot))
+    if shift != 0:
+        consequence = "frameshift"
+        if first_diff is None:
+            first_diff = codon_number - 1
+        stop_at = alt_prot.find("*", first_diff)
+        pos_aa = min(first_diff, len(ref_prot) - 1)
+        new_aa = alt_prot[pos_aa] if pos_aa < len(alt_prot) else "*"
+        if new_aa == "*":
+            # The shifted frame reads a stop at the first altered codon: HGVS writes this
+            # as a plain substitution to Ter, not as a frameshift.
+            hgvs_p = f"p.{_THREE[ref_prot[pos_aa]]}{pos_aa + 1}Ter"
+        else:
+            fs = f"fs*{stop_at - first_diff + 1}" if stop_at >= 0 else "fs"
+            hgvs_p = f"p.{_THREE[ref_prot[pos_aa]]}{pos_aa + 1}{_THREE.get(new_aa, 'Xaa')}{fs}"
+        alt_codon = mutated[(codon_number - 1) * 3:codon_number * 3]
+        alt_aa = CODON_TABLE.get(alt_codon, "X")
+    elif len(r) == len(a):
+        alt_codon = mutated[(codon_number - 1) * 3:codon_number * 3]
+        alt_aa = CODON_TABLE[alt_codon]
+        if ref_prot == alt_prot:
+            consequence, hgvs_p = "synonymous", f"p.{_THREE[ref_aa]}{codon_number}="
+        elif codon_number == 1 and ref_aa == "M" and alt_aa != "M":
+            consequence, hgvs_p = "start_lost", f"p.Met1?"
+        elif alt_aa == "*":
+            consequence, hgvs_p = "nonsense", f"p.{_THREE[ref_aa]}{codon_number}Ter"
+        elif ref_aa == "*":
+            ext = alt_prot.find("*", codon_number - 1)
+            consequence = "stop_lost"
+            hgvs_p = f"p.Ter{codon_number}{_THREE[alt_aa]}ext*{ext - codon_number + 2 if ext >= 0 else '?'}"
+        else:
+            consequence, hgvs_p = "missense", f"p.{_THREE[ref_aa]}{codon_number}{_THREE[alt_aa]}"
+    else:
+        alt_codon = mutated[(codon_number - 1) * 3:codon_number * 3]
+        alt_aa = CODON_TABLE.get(alt_codon, "X")
+        consequence = "inframe_deletion" if len(a) < len(r) else "inframe_insertion"
+        n_res = abs(len(a) - len(r)) // 3
+        ref_stop = ref_prot.find("*") if "*" in ref_prot else len(ref_prot)
+        alt_stop = alt_prot.find("*") if "*" in alt_prot else len(alt_prot)
+        expected_stop = ref_stop - n_res if len(a) < len(r) else ref_stop + n_res
+        if alt_stop < expected_stop:
+            consequence += "_stop_gained"
+        elif alt_stop > expected_stop:
+            consequence += "_stop_lost"
+        if first_diff is None or ref_prot == alt_prot:
+            hgvs_p = "p.="
+        elif len(a) < len(r):
+            last = first_diff + n_res - 1
+            hgvs_p = (f"p.{_THREE[ref_prot[first_diff]]}{first_diff + 1}"
+                      + (f"_{_THREE[ref_prot[last]]}{last + 1}" if n_res > 1 else "") + "del")
+        else:
+            inserted = "".join(_THREE.get(x, "Xaa") for x in alt_prot[first_diff:first_diff + n_res])
+            left = first_diff - 1
+            if left >= 0:
+                hgvs_p = (f"p.{_THREE[ref_prot[left]]}{left + 1}_{_THREE[ref_prot[first_diff]]}"
+                          f"{first_diff + 1}ins{inserted}")
+            else:
+                hgvs_p = f"p.Met1_{_THREE[ref_prot[0]]}1ins{inserted}"
+    return {"hgvs_c": hgvs_c, "hgvs_p": hgvs_p, "consequence": consequence,
+            "codon_number": codon_number, "ref_codon": ref_codon, "alt_codon": alt_codon,
+            "ref_aa": ref_aa, "alt_aa": alt_aa,
+            "protein_length_before": len(ref_prot.split("*")[0]),
+            "protein_length_after": len(alt_prot.split("*")[0]),
+            "frame_shift": shift != 0}
