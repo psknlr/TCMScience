@@ -26,6 +26,7 @@ Quick start::
 """
 
 from .config import PSHConfig, default_state_dir
+from .environment import environment_report
 from .policy import PolicyLattice, PolicySnapshot, PolicyViolation
 from .contracts import (
     ApprovalDenied, ApprovalRequired, ArtifactRef, Autonomy, Budget, BudgetExhausted,
@@ -70,7 +71,7 @@ __all__ = [
     "WorkProfile", "PROFILES", "get_profile", "profile_names",
     "PSHError", "PolicyDenied", "EgressDenied", "BudgetExhausted", "ApprovalRequired",
     "ApprovalDenied", "VerificationFailed", "CapabilityUnavailable", "ContractViolation",
-    "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "__version__",
+    "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "environment_report", "__version__",
     "PolicySnapshot", "PolicyLattice", "PolicyViolation", "AuthorityLattice", "IngressGateway", "PersistenceGateway",
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",

@@ -79,12 +79,6 @@ class TrustedKernel:
         self.events = EventStore(self.config.event_store,
                                  policy_version=self.config.policy_version)
         self.classifier = Classifier()
-        if getattr(self.policy, "require_validated_classifier", False) and \
-                not self.classifier.validated:
-            raise PolicyDenied(
-                f"policy {self.policy.profile_id!r} requires the validated PHI detector and "
-                f"this process has only {self.classifier.detector_name}; install sable or "
-                "run under a profile that does not handle identifiable records")
         if (not self.classifier.validated
                 and self.policy.max_data_label >= Sensitivity.PHI
                 and any(d in self.policy.allowed_destinations
@@ -138,6 +132,12 @@ class TrustedKernel:
         self.isolation = IsolatedExecutor(
             self.isolated_runner, workdir_root=self.config.state_dir / "sandbox",
             secret_resolver=secret_resolver)
+        #: What this kernel can actually enforce, checked against what its policy — and
+        #: every run policy admitted later — says it must. A kernel that cannot meet its
+        #: own policy does not start.
+        self.isolation_report = (self.isolated_runner.report()
+                                 if hasattr(self.isolated_runner, "report") else None)
+        self.check_requirements(self.policy)
 
         self.broker = ExecutionBroker(
             model_gateway=self.model_gateway, tool_gateway=self.tool_gateway,
@@ -295,7 +295,12 @@ class TrustedKernel:
             "isolation": {"sandbox": type(self.isolated_runner.sandbox).__name__,
                           "describes": self.isolated_runner.sandbox.describe(),
                           "isolated_runs": self.isolated_runner.runs,
-                          "required_by_policy": self.policy.require_isolated_tools},
+                          "required_by_policy": self.policy.require_isolated_tools,
+                          "os_isolation_required": getattr(
+                              self.policy, "require_os_isolation", False),
+                          "report": (self.isolation_report.as_dict()
+                                     if self.isolation_report is not None else None)},
+            "classifier_validated": self.classifier.validated,
             "egress_refusals": {
                 "model": len(self.model_gateway.refusals),
                 "tool": len(self.tool_gateway.refusals),
@@ -308,6 +313,32 @@ class TrustedKernel:
                        "head_hash": self.events.head_hash[:16] + "..."},
             "approvals_requested": len(self.approvals.requests),
         }
+
+    def check_requirements(self, policy: Any) -> None:
+        """Refuse a policy whose requirements this process cannot meet.
+
+        The policy lattice lets a child *add* a requirement, so a run policy may demand
+        the validated classifier or OS-level isolation that the kernel's own policy did
+        not. A requirement is a statement about the world, not a preference, and a kernel
+        that cannot meet it must say so before the run starts — not run and describe
+        itself as compliant afterwards.
+        """
+        if getattr(policy, "require_validated_classifier", False) and \
+                not self.classifier.validated:
+            raise PolicyDenied(
+                f"policy {policy.profile_id!r} requires the validated PHI detector and "
+                f"this process has only {self.classifier.detector_name}; install sable or "
+                "run under a profile that does not handle identifiable records")
+        report = self.isolation_report
+        if getattr(policy, "require_os_isolation", False) and \
+                (report is None or not report.os_isolation):
+            have = report.sandbox if report is not None else "no isolated runner"
+            raise PolicyDenied(
+                f"policy {policy.profile_id!r} requires OS-level isolation for tools and "
+                f"this kernel has {have}: the child process is not confined beyond a "
+                "clean environment and the egress proxy; install a SandboxBackend "
+                "(bubblewrap+seccomp on Linux, Seatbelt on macOS) or run under a profile "
+                "that does not execute untrusted code")
 
     def close(self) -> None:
         """Release every handle this kernel opened, not only the event store.

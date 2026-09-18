@@ -1148,3 +1148,74 @@ def test_f12_a_timeout_is_its_own_failure_class():
     assert issubclass(ToolTimeout, ContractViolation)
     assert RetryPolicy().permits(ToolTimeout("late")), "the default retry policy still covers it"
     assert not RetryPolicy(retryable=("ToolTimeout",)).permits(ContractViolation("bad shape"))
+
+
+# ========================================================= F08: isolation is a report
+
+class Confining:
+    """A sandbox backend that claims OS-level confinement, for the wiring tests."""
+
+    os_isolation = True
+
+    def wrap(self, argv, *, workdir, allow_network):
+        return list(argv)
+
+    def describe(self):
+        return "test sandbox: confines filesystem and sockets"
+
+
+def test_f08_the_kernel_reports_what_its_isolation_provides(tmp_path):
+    kernel = kernel_with(tmp_path)
+    report = kernel.isolation_report
+    assert report.sandbox == "NoSandbox" and report.os_isolation is False
+    assert report.process_isolation and report.clean_environment and report.egress_proxy
+    assert not report.filesystem_confined and not report.raw_sockets_confined
+    assert not report.sufficient_for_untrusted_code
+    assert "NOT confined" in report.describes
+    described = kernel.report()
+    assert described["isolation"]["report"]["os_isolation"] is False
+    assert described["isolation"]["os_isolation_required"] is False
+    assert described["classifier_validated"] is kernel.classifier.validated
+
+
+def test_f08_a_policy_requiring_os_isolation_is_refused_without_a_sandbox(tmp_path):
+    with pytest.raises(PolicyDenied, match="OS-level isolation"):
+        kernel_with(tmp_path, require_os_isolation=True)
+
+
+def test_f08_a_confining_backend_satisfies_the_requirement(tmp_path):
+    kernel = TrustedKernel(PSHConfig(state_dir=tmp_path / "s").ensure_dirs(),
+                           policy=policy(require_os_isolation=True), sandbox=Confining())
+    report = kernel.isolation_report
+    assert report.sandbox == "Confining" and report.os_isolation
+    assert report.sufficient_for_untrusted_code
+    assert kernel.report()["isolation"]["os_isolation_required"] is True
+
+
+def test_f08_a_run_policy_cannot_add_a_requirement_the_kernel_cannot_meet(tmp_path):
+    kernel = kernel_with(tmp_path)
+    strict = policy(require_os_isolation=True)
+    # The lattice admits it: turning a requirement on is a narrowing ...
+    assert PolicyLattice.violations(strict, policy()) == []
+    assert [v.dimension for v in PolicyLattice.violations(policy(), strict)] == \
+        ["require_os_isolation"]
+    # ... and the kernel refuses it, because it cannot meet it.
+    result = Runner(kernel, model=LOCAL_MODEL, model_invoke=lambda p: "ok").run(
+        "hello", policy=strict)
+    assert result.status == "refused" and "OS-level isolation" in result.error
+    with pytest.raises(PolicyDenied, match="OS-level isolation"):
+        ResearchRunService(kernel, planner=StaticPlanner(model_plan()), policy=strict)
+    assert strict.as_dict()["require_os_isolation"] is True
+
+
+def test_f08_a_child_process_can_report_a_degraded_result_or_a_timeout():
+    from psh.contracts import DegradedResult
+    from psh.kernel.isolation import _unwrap_child_result
+
+    wrapped = _unwrap_child_result(
+        {"$psh": {"status": "degraded", "reason": "partial page", "value": {"n": 1}}})
+    assert isinstance(wrapped, DegradedResult)
+    assert wrapped.value == {"n": 1} and wrapped.reason == "partial page"
+    assert _unwrap_child_result({"n": 1}) == {"n": 1}
+    plain = {"$psh": {"status": "ok", "value": 3}}
+    assert _unwrap_child_result(plain) == plain, "only a declared shortfall is unwrapped"

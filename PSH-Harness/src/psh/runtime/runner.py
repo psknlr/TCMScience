@@ -188,9 +188,14 @@ class Runner:
         ceiling = self.kernel.policy
         if requested is None or requested is ceiling:
             return ceiling
-        if self.clamp_policy:
-            return PolicyLattice.meet(requested, ceiling)
-        return PolicyLattice.enforce(requested, ceiling, operation="run policy")
+        effective = (PolicyLattice.meet(requested, ceiling) if self.clamp_policy
+                     else PolicyLattice.enforce(requested, ceiling, operation="run policy"))
+        # Contained by the kernel's policy is necessary, not sufficient: a run may add a
+        # requirement (the validated classifier, OS isolation) the kernel cannot meet.
+        check = getattr(self.kernel, "check_requirements", None)
+        if check is not None:
+            check(effective)
+        return effective
 
     # --------------------------------------------------------------------- run
     def run(self, request: str, *, policy: Any = None, project_id: str = "",

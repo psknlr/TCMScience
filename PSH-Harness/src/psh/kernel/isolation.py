@@ -61,7 +61,7 @@ from urllib.parse import urlsplit
 
 from ..contracts import PolicyDenied
 
-__all__ = ["EgressProxy", "ProxyUnavailable", "HostDecision", "IsolatedRunner", "IsolatedResult",
+__all__ = ["IsolationReport", "EgressProxy", "ProxyUnavailable", "HostDecision", "IsolatedRunner", "IsolatedResult",
            "SandboxBackend", "NoSandbox", "build_child_environment", "IsolatedExecutor",
            "IsolationUnavailable", "RESERVED_ENV"]
 
@@ -520,6 +520,11 @@ class SandboxBackend(Protocol):
 class NoSandbox:
     """No OS sandbox. Says so, rather than pretending."""
 
+    #: What this backend confines. A real backend states its own; the default for a
+    #: backend that says nothing is to be believed (it was installed on purpose), and this
+    #: one says no.
+    os_isolation = False
+
     def wrap(self, argv: Sequence[str], *, workdir: Path, allow_network: bool) -> list[str]:
         return list(argv)
 
@@ -528,6 +533,46 @@ class NoSandbox:
                 "proxy governs HTTP clients that honour proxy variables; a raw socket bypasses "
                 "it. Install a SandboxBackend (Seatbelt on macOS, bubblewrap+seccomp on Linux) "
                 "for physical enforcement.")
+
+
+@dataclass(frozen=True, slots=True)
+class IsolationReport:
+    """What the configured isolation actually provides, stated so a policy can check it.
+
+    The 2026-09-18 review's F08: ``IsolatedRunner`` runs a component in a child process
+    with a clean environment behind the egress proxy, and with ``NoSandbox`` that is all
+    it does — the child's filesystem and raw-socket access are the parent's. The README
+    said so in prose; nothing in the system could refuse on it. This report is the
+    machine-readable form: a policy that requires OS-level isolation
+    (``require_os_isolation``) is refused by a kernel whose report says it has none,
+    rather than run on a promise.
+    """
+
+    sandbox: str
+    os_isolation: bool
+    process_isolation: bool = True
+    clean_environment: bool = True
+    egress_proxy: bool = True
+    raw_sockets_confined: bool = False
+    filesystem_confined: bool = False
+    memory_limited: bool = False
+    describes: str = ""
+
+    @property
+    def sufficient_for_untrusted_code(self) -> bool:
+        """Untrusted code needs the operating system on the kernel's side."""
+        return self.os_isolation and self.raw_sockets_confined and self.filesystem_confined
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"sandbox": self.sandbox, "os_isolation": self.os_isolation,
+                "process_isolation": self.process_isolation,
+                "clean_environment": self.clean_environment,
+                "egress_proxy": self.egress_proxy,
+                "raw_sockets_confined": self.raw_sockets_confined,
+                "filesystem_confined": self.filesystem_confined,
+                "memory_limited": self.memory_limited,
+                "sufficient_for_untrusted_code": self.sufficient_for_untrusted_code,
+                "describes": self.describes}
 
 
 # ---------------------------------------------------------------- the runner
@@ -556,6 +601,17 @@ class IsolatedRunner:
         self.sandbox = sandbox or NoSandbox()
         self._audit = audit
         self.runs = 0
+
+    def report(self) -> IsolationReport:
+        """The isolation this runner provides. Derived from the backend, never assumed."""
+        sandbox = self.sandbox
+        os_isolation = bool(getattr(sandbox, "os_isolation", True))
+        return IsolationReport(
+            sandbox=type(sandbox).__name__, os_isolation=os_isolation,
+            raw_sockets_confined=bool(getattr(sandbox, "confines_sockets", os_isolation)),
+            filesystem_confined=bool(getattr(sandbox, "confines_filesystem", os_isolation)),
+            memory_limited=sys.platform != "win32",
+            describes=sandbox.describe() if hasattr(sandbox, "describe") else "")
 
     def run(self, argv: Sequence[str], *, workdir: Path, allowed_hosts: Iterable[str] = (),
             grants: Mapping[str, str] | None = None, timeout_s: float = 120.0,

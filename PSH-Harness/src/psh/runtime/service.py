@@ -31,6 +31,8 @@ class ResearchRunService:
                  policy: Any = None) -> None:
         self.kernel = kernel
         self.policy = policy if policy is not None else kernel.policy
+        if policy is not None and hasattr(kernel, "check_requirements"):
+            kernel.check_requirements(self.policy)
         self.planner = planner
         self.registry = registry
         self.model = model
