@@ -90,6 +90,11 @@ Rules that are enforced, so a plan breaking them is refused rather than run:
   plus that operation's arguments; a tool with named parameters needs those parameters.
   A payload the schema does not describe fails at the component, not silently.
 * Budget estimates are checked for feasibility before anything runs.
+* A `delegate` task is allowed only when the authority brief says delegation is
+  available. It hands a self-contained sub-objective to a child agent that sees nothing
+  but that objective and works under a narrower budget, so its `objective` must stand on
+  its own. Never delegate the whole objective, and never rely on delegation for a step a
+  `model` or `tool` task can do.
 """
 
 
@@ -259,10 +264,17 @@ class ModelPlanner(Planner):
                  model_invoke: Callable[[str], str],
                  registry: Any = None, validator: PlanValidator | None = None,
                  max_attempts: int = 3, system_prompt: str = "",
-                 schema_candidates: int = 6) -> None:
+                 schema_candidates: int = 6, memory: Any = None,
+                 memory_items: int = 6) -> None:
         self.kernel = kernel
         self.model = model
         self.model_invoke = model_invoke
+        #: Optional ``MemoryRetriever``. What earlier runs verified is compiled into the
+        #: planning prompt as labelled memory items — retrieved under the run's ceiling
+        #: and withheld for this model's destination, so a memory the gate would refuse
+        #: never makes the planning call refusable. Off unless a retriever is given.
+        self.memory = memory
+        self.memory_items = memory_items
         #: How many of the ranked capabilities have their payload schema disclosed. The
         #: summaries let the model choose; the schemas let it call. Both come from the
         #: registry's manifests and nothing else.
@@ -309,6 +321,15 @@ class ModelPlanner(Planner):
                 candidate = parse_plan(text, produced_by=f"{self.model.id}#{attempt}")
                 self.validator.validate(candidate, state.envelope,
                                         policy=getattr(self.kernel, "policy", None))
+                delegating = [t.task_id for t in candidate.tasks if t.kind == TaskKind.DELEGATE]
+                if delegating and not state.can_delegate:
+                    # The validator rules on authority; whether a delegate task has
+                    # anywhere to go is a fact about this loop, which the state carries.
+                    # Refusing here, as a correction, is cheaper than a ContractViolation
+                    # at dispatch after the rest of the plan has run.
+                    raise PlanRejected(
+                        f"task(s) {delegating} delegate, and this loop has no delegate "
+                        "backend: delegation is not available, use model or tool tasks")
             except (PlanParseError, PlanRejected) as exc:
                 last = exc
                 message = str(exc)
@@ -353,6 +374,12 @@ class ModelPlanner(Planner):
             schema_items = getattr(self.registry, "schema_items", None)
             if schema_items is not None and self.schema_candidates > 0:
                 items += schema_items(candidates, limit=self.schema_candidates)
+        if self.memory is not None and self.memory_items > 0:
+            # Each item carries the label its node was stored with; the retriever has
+            # already withheld what exceeds the run's ceiling or this destination.
+            items += self.memory.retrieve(state.objective, envelope=state.envelope,
+                                          destination=self.model.destination,
+                                          limit=self.memory_items)
         if errors:
             # The correction. Naming what was wrong is the difference between a retry and
             # a second identical answer.
@@ -376,6 +403,12 @@ class ModelPlanner(Planner):
         refused attempt every time the model guessed.
         """
         envelope = state.envelope
+        children = envelope.budget.max_delegations
+        if getattr(state, "can_delegate", False) and children > 0:
+            delegation = (f"available: up to {children} child agent(s) via kind=\"delegate\", "
+                          "each under a narrower slice of this budget")
+        else:
+            delegation = "not available in this loop; do not emit kind=\"delegate\" tasks"
         return (
             "This run's authority — plan within it:\n"
             f"- risk ceiling: {envelope.risk.name}\n"
@@ -384,7 +417,8 @@ class ModelPlanner(Planner):
             f"- autonomy: {envelope.autonomy.value}\n"
             f"- budget: {envelope.budget.tokens_hard} tokens, "
             f"${envelope.budget.usd_hard:.2f}, {envelope.budget.max_model_calls} model "
-            f"call(s), {envelope.budget.max_tool_calls} tool call(s)")
+            f"call(s), {envelope.budget.max_tool_calls} tool call(s)\n"
+            f"- delegation: {delegation}")
 
     def _audit(self, state: LoopState, **detail: Any) -> None:
         audit = getattr(self.kernel, "audit", None)

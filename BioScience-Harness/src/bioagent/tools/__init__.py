@@ -23,7 +23,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
-from . import align, clinical, formats, protein, sequence, stats, variants
+from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
+               stats, survival, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -33,7 +34,9 @@ DOMAINS: Mapping[str, str] = {
     "sequence-analysis": "genomics", "protein-analysis": "proteomics",
     "sequence-alignment": "genomics", "file-formats": "general",
     "variant-analysis": "genomics", "statistics": "general",
-    "clinical-calculators": "clinical",
+    "clinical-calculators": "clinical", "pharmacology": "clinical",
+    "survival-analysis": "clinical", "population-genetics": "genomics",
+    "phylogenetics": "genomics",
 }
 
 
@@ -88,6 +91,38 @@ _VCF = ("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFO
 _BED = "chr1\t100\t200\tpeak1\t500\t+\nchr1\t300\t450\tpeak2\t300\t-\n"
 _GFF = ("chr1\tENSEMBL\tgene\t1000\t2000\t.\t+\t.\tID=gene1;Name=TP53\n"
         "chr1\tENSEMBL\texon\t1000\t1200\t.\t+\t.\tParent=gene1\n")
+
+#: Freireich et al. (1963): remission times (weeks) for 6-mercaptopurine and placebo, the
+#: dataset every survival textbook uses. ``+`` in the textbooks marks censoring.
+_SIX_MP_TIMES = [6, 6, 6, 6, 7, 9, 10, 10, 11, 13, 16, 17, 19, 20, 22, 23, 25, 32, 32, 34, 35]
+_SIX_MP_EVENTS = [1, 1, 1, 0, 1, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0]
+_PLACEBO_TIMES = [1, 1, 2, 2, 3, 4, 4, 5, 5, 8, 8, 8, 8, 11, 11, 12, 12, 15, 17, 22, 23]
+_SAM = ("@HD\tVN:1.6\tSO:coordinate\n@SQ\tSN:chr1\tLN:248956422\n"
+        "r001\t99\tchr1\t7\t30\t8M2I4M1D3M\t=\t37\t39\tTTAGATAAAGGATACTG\t*\n"
+        "r002\t4\t*\t0\t0\t*\t*\t0\t0\tAAAAGATAAGGATA\t*\n"
+        "r003\t16\tchr1\t9\t60\t5S6M\t*\t0\t0\tGCCTAAGCTAA\t*\n")
+
+
+def _pdb_line(record: str, serial: int, name: str, res: str, chain: str, seq: int,
+              x: float, y: float, z: float, element: str) -> str:
+    return (f"{record:<6}{serial:>5} {name:<4} {res:>3} {chain}{seq:>4}    "
+            f"{x:>8.3f}{y:>8.3f}{z:>8.3f}  1.00 10.00          {element:>2}")
+
+
+_PDB = "\n".join([
+    _pdb_line("ATOM", 1, "N", "MET", "A", 1, 27.340, 24.430, 2.614, "N"),
+    _pdb_line("ATOM", 2, "CA", "MET", "A", 1, 26.266, 25.413, 2.842, "C"),
+    _pdb_line("ATOM", 3, "N", "GLY", "A", 2, 24.000, 26.000, 3.000, "N"),
+    _pdb_line("ATOM", 4, "CA", "GLY", "A", 2, 23.000, 27.000, 3.500, "C"),
+    _pdb_line("HETATM", 5, "O", "HOH", "A", 101, 20.000, 20.000, 20.000, "O"),
+    _pdb_line("HETATM", 6, "ZN", "ZN", "A", 102, 22.000, 22.000, 22.000, "ZN"),
+    "END",
+]) + "\n"
+_OBO = ("format-version: 1.2\nontology: go\n\n[Term]\nid: GO:0008150\nname: biological_process\n"
+        "namespace: biological_process\ndef: \"A biological process.\" [GOC:go_curators]\n\n"
+        "[Term]\nid: GO:0009987\nname: cellular process\nnamespace: biological_process\n"
+        "def: \"Any process carried out at the cellular level.\" [GOC:go_curators]\n"
+        "synonym: \"cell process\" EXACT []\nis_a: GO:0008150 ! biological_process\n")
 
 TOOLS: tuple[NativeTool, ...] = (
     # ------------------------------------------------------------- sequences
@@ -252,6 +287,164 @@ TOOLS: tuple[NativeTool, ...] = (
         "position": "anterior"}, "obstetrics"),
     _t("gestational_age", clinical.gestational_age, "clinical-calculators",
        {"last_menstrual_period": "2026-01-01", "reference_date": "2026-05-15"}, "obstetrics"),
+    # ---------------------------------------------------------- pharmacology
+    _t("pk_one_compartment", pharmacology.pk_one_compartment, "pharmacology",
+       {"dose_mg": 500, "volume_l": 40, "half_life_h": 6, "times_h": [0, 6, 12, 24]},
+       "pharmacokinetics"),
+    _t("half_life_from_levels", pharmacology.half_life_from_levels, "pharmacology",
+       {"c1": 10, "t1_h": 2, "c2": 2.5, "t2_h": 10}, "pharmacokinetics", "tdm"),
+    _t("loading_dose", pharmacology.loading_dose, "pharmacology",
+       {"target_concentration_mg_per_l": 15, "volume_of_distribution_l_per_kg": 0.7, "weight_kg": 70},
+       "dosing"),
+    _t("maintenance_dose", pharmacology.maintenance_dose, "pharmacology",
+       {"target_css_mg_per_l": 10, "clearance_l_per_h": 3, "interval_h": 8}, "dosing"),
+    _t("steady_state", pharmacology.steady_state, "pharmacology",
+       {"half_life_h": 6, "interval_h": 6}, "pharmacokinetics"),
+    _t("carboplatin_calvert", pharmacology.carboplatin_calvert, "pharmacology",
+       {"target_auc_mg_ml_min": 5, "gfr_ml_min": 80}, "oncology", "dosing"),
+    _t("glucocorticoid_equivalent", pharmacology.glucocorticoid_equivalent, "pharmacology",
+       {"drug": "prednisone", "dose_mg": 40, "to_drug": "dexamethasone"}, "conversion"),
+    _t("morphine_milligram_equivalents", pharmacology.morphine_milligram_equivalents, "pharmacology",
+       {"regimen": [{"opioid": "oxycodone", "dose_per_day": 30},
+                    {"opioid": "hydrocodone", "dose_per_day": 20}]}, "opioids", "conversion"),
+    _t("bsa_dose", pharmacology.bsa_dose, "pharmacology",
+       {"dose_mg_per_m2": 75, "weight_kg": 70, "height_cm": 175}, "oncology", "dosing"),
+    # -------------------------------------------------------------- survival
+    _t("kaplan_meier", survival.kaplan_meier, "survival-analysis",
+       {"times": _SIX_MP_TIMES, "status": _SIX_MP_EVENTS}, "survival", "time-to-event"),
+    _t("log_rank_test", survival.log_rank_test, "survival-analysis",
+       {"times_a": _SIX_MP_TIMES, "status_a": _SIX_MP_EVENTS,
+        "times_b": _PLACEBO_TIMES, "status_b": [1] * 21}, "survival", "hypothesis-test"),
+    # ------------------------------------------------------- more statistics
+    _t("meta_analysis", stats.meta_analysis, "statistics",
+       {"estimates": [0.5, 0.3, 0.7], "standard_errors": [0.2, 0.1, 0.3],
+        "labels": ["trial A", "trial B", "trial C"]}, "meta-analysis", "evidence-synthesis"),
+    _t("chi_square_test", stats.chi_square_test, "statistics", {"table": [[10, 20], [30, 40]]},
+       "contingency"),
+    _t("linear_regression", stats.linear_regression, "statistics",
+       {"x": [1, 2, 3, 4, 5], "y": [2.1, 3.9, 6.2, 7.8, 10.1]}, "regression"),
+    _t("one_way_anova", stats.one_way_anova, "statistics",
+       {"groups": [[1, 2, 3], [2, 3, 4], [6, 7, 8]]}, "anova"),
+    _t("kruskal_wallis", stats.kruskal_wallis, "statistics",
+       {"groups": [[1, 2, 3], [2, 3, 4], [6, 7, 8]]}, "nonparametric"),
+    _t("wilcoxon_signed_rank", stats.wilcoxon_signed_rank, "statistics",
+       {"x": [1.1, 2.3, 3.0, 4.2, 5.1, 6.3], "y": [0.9, 2.0, 2.5, 3.1, 4.0, 5.0]}, "nonparametric", "paired"),
+    _t("cohens_d", stats.cohens_d, "statistics",
+       {"x": [2, 4, 4, 4, 5, 5, 7, 9], "y": [1, 2, 2, 3, 3, 4, 5, 6]}, "effect-size"),
+    _t("post_test_probability", stats.post_test_probability, "statistics",
+       {"pretest_probability": 0.2, "sensitivity": 0.9, "specificity": 0.8}, "diagnostics", "bayes"),
+    _t("sample_size_two_proportions", stats.sample_size_two_proportions, "statistics",
+       {"p1": 0.2, "p2": 0.3}, "study-design", "power"),
+    _t("sample_size_two_means", stats.sample_size_two_means, "statistics",
+       {"difference": 5, "sd": 10}, "study-design", "power"),
+    _t("incidence_rate", stats.incidence_rate, "statistics",
+       {"event_count": 12, "person_time": 4800, "per": 1000}, "epidemiology"),
+    # ---------------------------------------------------- population genetics
+    _t("linkage_disequilibrium", popgen.linkage_disequilibrium, "population-genetics",
+       {"haplotype_counts": {"AB": 50, "Ab": 10, "aB": 10, "ab": 30}}, "ld", "haplotypes"),
+    _t("nucleotide_diversity", popgen.nucleotide_diversity, "population-genetics",
+       {"sequences": ["ACGTACGTAC", "ACGTACGTAT", "ACGAACGTAC", "ACGTACCTAC"]},
+       "diversity", "tajima"),
+    _t("fst", popgen.fst, "population-genetics",
+       {"allele_frequencies": [0.8, 0.3], "sample_sizes": [100, 100]}, "differentiation"),
+    # ---------------------------------------------------------- phylogenetics
+    _t("distance_matrix", phylo.distance_matrix, "phylogenetics",
+       {"sequences": {"a": "ACGTACGTAC", "b": "ACGTACGTTT", "c": "ACCTACGAAC"}, "model": "k2p"},
+       "distances"),
+    _t("neighbor_joining", phylo.neighbor_joining, "phylogenetics",
+       {"names": ["a", "b", "c", "d", "e"],
+        "matrix": [[0, 5, 9, 9, 8], [5, 0, 10, 10, 9], [9, 10, 0, 8, 7], [9, 10, 8, 0, 3],
+                   [8, 9, 7, 3, 0]]}, "tree", "newick"),
+    _t("upgma", phylo.upgma, "phylogenetics",
+       {"names": ["A", "B", "C"], "matrix": [[0, 2, 4], [2, 0, 4], [4, 4, 0]]}, "tree", "newick"),
+    _t("parse_newick", phylo.parse_newick, "phylogenetics", {"newick": "((A:1,B:1):1,C:2);"},
+       "newick", "parser"),
+    _t("tree_distances", phylo.tree_distances, "phylogenetics", {"newick": "((A:1,B:1):1,C:2);"},
+       "newick", "patristic"),
+    # ------------------------------------------------------- more sequence tools
+    _t("motif_search", sequence.motif_search, "sequence-analysis",
+       {"sequence": "GGTATAAAAGGCCTATAAATCC", "motif": "TATAWAW"}, "motif", "iupac"),
+    _t("cpg_islands", sequence.cpg_islands, "sequence-analysis",
+       {"sequence": "CG" * 150 + "AT" * 100, "window": 100, "min_length": 100}, "cpg", "epigenetics"),
+    _t("six_frame_translation", sequence.six_frame_translation, "sequence-analysis",
+       {"sequence": _DNA}, "translation", "orf"),
+    _t("crispr_guides", sequence.crispr_guides, "sequence-analysis",
+       {"sequence": "TTGACGGCTAGCTCAGTCCTAGGTATAATGCTAGCACGTACGTAGGCCTAGCTAGCTAGGAAC"},
+       "crispr", "guide-design"),
+    _t("sequence_entropy", sequence.sequence_entropy, "sequence-analysis",
+       {"sequence": _DNA, "window": 10}, "complexity"),
+    _t("primer_check", sequence.primer_check, "sequence-analysis",
+       {"primer": "AGCGTCGATTGACCTGACGTAG", "template": _DNA + "AGCGTCGATTGACCTGACGTAG" + "GGCC"},
+       "primer", "pcr"),
+    # ---------------------------------------------------------- proteomics
+    _t("peptide_mass", protein.peptide_mass, "protein-analysis",
+       {"sequence": "SAMPLER", "charges": [1, 2]}, "mass-spectrometry"),
+    _t("in_silico_digest", protein.in_silico_digest, "protein-analysis",
+       {"sequence": _PROT, "enzyme": "trypsin", "missed_cleavages": 1}, "mass-spectrometry", "digest"),
+    # ---------------------------------------------------------- more formats
+    _t("parse_sam", formats.parse_sam, "file-formats", {"text": _SAM}, "sam", "alignment"),
+    _t("parse_pdb", formats.parse_pdb, "file-formats", {"text": _PDB}, "pdb", "structure"),
+    _t("parse_obo", formats.parse_obo, "file-formats", {"text": _OBO}, "obo", "ontology"),
+    # ---------------------------------------------------------- variant effect
+    _t("annotate_coding_variant", variants.annotate_coding_variant, "variant-analysis",
+       {"cds": _DNA, "position": 4, "ref": "G", "alt": "A"}, "consequence", "hgvs"),
+    # ------------------------------------------------- more clinical calculators
+    _t("ascvd_pooled_cohort", clinical.ascvd_pooled_cohort, "clinical-calculators",
+       {"age_years": 55, "sex": "male", "race": "white", "total_cholesterol_mg_dl": 213,
+        "hdl_mg_dl": 50, "systolic": 120}, "cardiology", "risk"),
+    _t("sofa", clinical.sofa, "clinical-calculators",
+       {"pao2_fio2": 250, "mechanically_ventilated": False, "platelets_10e9_per_l": 90,
+        "bilirubin_mg_dl": 2.5, "mean_arterial_pressure_mmHg": 65, "vasopressor": "none",
+        "gcs": 14, "creatinine_mg_dl": 1.5}, "critical-care", "score"),
+    _t("calculated_osmolality", clinical.calculated_osmolality, "clinical-calculators",
+       {"sodium": 140, "glucose_mg_dl": 90, "bun_mg_dl": 14, "measured_osmolality": 300}, "chemistry"),
+    _t("winters_formula", clinical.winters_formula, "clinical-calculators",
+       {"bicarbonate": 12, "pco2_mmHg": 26}, "blood-gas"),
+    _t("acid_base_interpretation", clinical.acid_base_interpretation, "clinical-calculators",
+       {"ph": 7.25, "pco2_mmHg": 28, "bicarbonate": 12, "sodium": 140, "chloride": 100}, "blood-gas"),
+    _t("holliday_segar", clinical.holliday_segar, "clinical-calculators", {"weight_kg": 25},
+       "fluids", "paediatrics"),
+    _t("free_water_deficit", clinical.free_water_deficit, "clinical-calculators",
+       {"weight_kg": 70, "sodium": 154, "sex": "male"}, "fluids", "electrolytes"),
+    _t("allowable_blood_loss", clinical.allowable_blood_loss, "clinical-calculators",
+       {"weight_kg": 70, "haematocrit_initial": 42, "haematocrit_minimum": 30}, "anaesthesia"),
+    _t("infusion_rate", clinical.infusion_rate, "clinical-calculators",
+       {"volume_ml": 1000, "duration_min": 480, "drop_factor_gtt_per_ml": 20}, "nursing"),
+    _t("heart_score", clinical.heart_score, "clinical-calculators",
+       {"history": 1, "ecg": 1, "age_years": 58, "risk_factors": 2, "troponin": 0}, "cardiology", "score"),
+    _t("centor_mcisaac", clinical.centor_mcisaac, "clinical-calculators",
+       {"fever_over_38": True, "absence_of_cough": True, "tender_anterior_nodes": True,
+        "tonsillar_exudate": False, "age_years": 10}, "infection", "score"),
+    _t("alvarado", clinical.alvarado, "clinical-calculators",
+       {"migration_to_rlq": True, "anorexia": True, "nausea_vomiting": False, "rlq_tenderness": True,
+        "rebound_pain": True, "fever": False, "leukocytosis": True, "left_shift": False},
+       "surgery", "score"),
+    _t("timi_ua_nstemi", clinical.timi_ua_nstemi, "clinical-calculators",
+       {"age_65_or_over": True, "three_or_more_cad_risk_factors": True,
+        "known_coronary_stenosis_50_percent": False, "aspirin_in_past_7_days": True,
+        "severe_angina_2_episodes_24h": False, "st_deviation_0_5mm": True,
+        "positive_cardiac_marker": False}, "cardiology", "score"),
+    _t("abcd2", clinical.abcd2, "clinical-calculators",
+       {"age_60_or_over": True, "bp_140_90_or_over": True, "unilateral_weakness": True,
+        "speech_disturbance_without_weakness": False, "duration_minutes": 45, "diabetes": False},
+       "neurology", "score"),
+    _t("sirs", clinical.sirs, "clinical-calculators",
+       {"temperature_c": 38.6, "heart_rate": 110, "respiratory_rate": 24, "wbc_10e9_per_l": 14},
+       "sepsis", "score"),
+    _t("rcri", clinical.rcri, "clinical-calculators",
+       {"high_risk_surgery": True, "ischaemic_heart_disease": True, "heart_failure": False,
+        "cerebrovascular_disease": False, "insulin_treated_diabetes": False,
+        "creatinine_over_2_mg_dl": False}, "perioperative", "score"),
+    _t("stop_bang", clinical.stop_bang, "clinical-calculators",
+       {"snoring": True, "tired": True, "observed_apnoea": False, "high_blood_pressure": True,
+        "bmi_over_35": False, "age_over_50": True, "neck_over_40cm": False, "male": True},
+       "sleep", "score"),
+    _t("fib4", clinical.fib4, "clinical-calculators",
+       {"age_years": 60, "ast_u_l": 40, "alt_u_l": 40, "platelets_10e9_per_l": 150}, "hepatology"),
+    _t("apri", clinical.apri, "clinical-calculators",
+       {"ast_u_l": 80, "ast_upper_limit_normal_u_l": 40, "platelets_10e9_per_l": 100}, "hepatology"),
+    _t("homa_ir", clinical.homa_ir, "clinical-calculators",
+       {"fasting_glucose_mg_dl": 100, "fasting_insulin_uU_ml": 10}, "diabetes", "metabolism"),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}
@@ -308,7 +501,7 @@ class NativeToolProvider:
 
         for t in TOOLS:
             yield ComponentManifest(
-                id=t.component_id, kind="tool", name=t.name, version="0.2.4",
+                id=t.component_id, kind="tool", name=t.name, version="0.2.5",
                 description=t.description[:400], domain=t.domain,
                 omics_type=DOMAINS[t.domain],
                 provider=Provider(project="bioagent", source_path=f"src/bioagent/tools/{t.fn.__module__.rsplit('.', 1)[-1]}.py"),

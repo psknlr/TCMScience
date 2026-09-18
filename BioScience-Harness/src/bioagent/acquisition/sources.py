@@ -76,6 +76,125 @@ ACQUIRABLE: tuple[AcquisitionSpec, ...] = (
         "https://rest.kegg.jp/list/pathway/hsa", "kegg_pathways_hsa.tsv", "rest.kegg.jp",
         "Academic use free; commercial requires license", "KEGG human pathway list (id, name).",
         "pathways", fmt="tsv", source_project="KEGG", notes="headerless: pathway_id\\tname"),
+    # ------------------------------------------------------------ natural products
+    # The TCM-facing resources (TCMSP, HERB, SymMap, BATMAN-TCM, ETCM) publish web pages,
+    # not stable files: HERB's per-file URLs return HTML, BATMAN-TCM's download page
+    # answered 503, and TCMSP/HIT/TCMBank did not answer at all when this table was
+    # written. What *is* stable is the tranche below — NPASS and CMAUP (BIDD, NUS), whose
+    # tables cover the same plants, ingredients and targets with activity values and
+    # references; NP Atlas; and LOTUS's frozen Wikidata export. Sizes are the servers'
+    # Content-Length at the time of writing; the LOTUS and CellMarker checksums are the
+    # md5 values Zenodo publishes for each file.
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_generalInfo.txt",
+        "NPASSv2.0_download_naturalProducts_generalInfo.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 natural products: identifiers, names, ChEMBL/PubChem cross-references and "
+        "organism/target/activity counts.", "natural-products", expected_bytes=9379911,
+        fmt="tsv", source_project="NPASS", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_species_pair.txt",
+        "NPASSv2.0_download_naturalProducts_species_pair.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 natural product → source organism pairs with isolation part, collection "
+        "location and reference.", "natural-products", expected_bytes=80284064,
+        fmt="tsv", source_project="NPASS", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_activities.txt",
+        "NPASSv2.0_download_naturalProducts_activities.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 quantitative activities (IC50, Ki, MIC, ...) of natural products against "
+        "targets and cell lines, with references.", "natural-products",
+        expected_bytes=90364982, fmt="tsv", source_project="NPASS", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_speciesInfo.txt",
+        "NPASSv2.0_download_naturalProducts_speciesInfo.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 source organisms with NCBI taxonomy lineage (species, genus, family, "
+        "kingdom).", "natural-products", expected_bytes=3631384, fmt="tsv",
+        source_project="NPASS", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_structureInfo.txt",
+        "NPASSv2.0_download_naturalProducts_structureInfo.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 structures: InChI, InChIKey and SMILES per natural product.",
+        "natural-products", expected_bytes=29748831, fmt="tsv", source_project="NPASS",
+        version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_targetInfo.txt",
+        "NPASSv2.0_download_naturalProducts_targetInfo.txt", "bidd.group",
+        "Free for academic use; see bidd.group/NPASS for terms",
+        "NPASS 2.0 targets: type, name, organism and UniProt accession.", "natural-products",
+        expected_bytes=629317, fmt="tsv", source_project="NPASS", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plants.txt",
+        "CMAUPv2.0_download_Plants.txt", "bidd.group",
+        "Free for academic use; see bidd.group/CMAUP for terms",
+        "CMAUP 2.0 medicinal plants with NCBI taxonomy (species, genus, family).",
+        "natural-products", expected_bytes=648352, fmt="tsv", source_project="CMAUP",
+        version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredients_All.txt",
+        "CMAUPv2.0_download_Ingredients_All.txt", "bidd.group",
+        "Free for academic use; see bidd.group/CMAUP for terms",
+        "CMAUP 2.0 plant ingredients: identifiers, physicochemical properties, InChI and "
+        "SMILES.", "natural-products", expected_bytes=25238280, fmt="tsv",
+        source_project="CMAUP", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Targets.txt",
+        "CMAUPv2.0_download_Targets.txt", "bidd.group",
+        "Free for academic use; see bidd.group/CMAUP for terms",
+        "CMAUP 2.0 protein targets with UniProt, ChEMBL and TTD identifiers and target "
+        "classes.", "natural-products", expected_bytes=117843, fmt="tsv",
+        source_project="CMAUP", version="2.0"),
+    AcquisitionSpec(
+        "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt",
+        "CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt", "bidd.group",
+        "Free for academic use; see bidd.group/CMAUP for terms",
+        "CMAUP 2.0 plant → ingredient associations.", "natural-products",
+        expected_bytes=7973286, fmt="tsv", source_project="CMAUP", version="2.0",
+        notes="headerless: plant_id\\tingredient_id"),
+    AcquisitionSpec(
+        "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
+        "CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
+        "bidd.group", "Free for academic use; see bidd.group/CMAUP for terms",
+        "CMAUP 2.0 ingredient → target activities with values, units and references.",
+        "natural-products", expected_bytes=1338251, fmt="tsv", source_project="CMAUP",
+        version="2.0"),
+    AcquisitionSpec(
+        "https://www.npatlas.org/static/downloads/NPAtlas_download.tsv",
+        "NPAtlas_download.tsv", "www.npatlas.org", "CC-BY-4.0",
+        "NP Atlas: microbially derived natural products with structures, producing organisms "
+        "and literature references.", "natural-products", expected_bytes=33671731,
+        fmt="tsv", source_project="NPAtlas"),
+    AcquisitionSpec(
+        "https://zenodo.org/api/records/19360665/files/260413_frozen.csv.gz/content",
+        "260413_frozen.csv.gz", "zenodo.org", "CC-BY-4.0",
+        "LOTUS frozen export (2026-04-13): structure–organism pairs (InChIKey, SMILES, taxon) "
+        "as curated in Wikidata.", "natural-products", expected_bytes=20594507,
+        checksum="md5:cf0cf2afa2ca4d758b68f2e39d466f5d", fmt="csv.gz",
+        source_project="LOTUS", version="2026-04-13"),
+    AcquisitionSpec(
+        "https://zenodo.org/api/records/19360665/files/260413_frozen_metadata.csv.gz/content",
+        "260413_frozen_metadata.csv.gz", "zenodo.org", "CC-BY-4.0",
+        "LOTUS frozen export (2026-04-13) with metadata: references and taxonomy per "
+        "structure–organism pair.", "natural-products", expected_bytes=90298678,
+        checksum="md5:b17048b3b77daae9ab1e480b6591aabd", fmt="csv.gz",
+        source_project="LOTUS", version="2026-04-13"),
+    # ------------------------------------------------------------ reference data
+    AcquisitionSpec(
+        "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdmp.zip", "taxdmp.zip",
+        "ftp.ncbi.nlm.nih.gov", "Public domain (NCBI)",
+        "NCBI Taxonomy dump: nodes, names and lineage for every taxon.", "taxonomy",
+        fmt="zip", source_project="NCBI",
+        notes="rebuilt by NCBI regularly, so no size is pinned; verified against the server's "
+              "Content-Length at fetch time"),
+    AcquisitionSpec(
+        "https://zenodo.org/api/records/22808257/files/human_cell_marker.zip/content",
+        "human_cell_marker.zip", "zenodo.org", "CC-BY-4.0",
+        "CellMarker 3.0 human cell marker genes by tissue and cell type.", "single-cell",
+        expected_bytes=48740702, checksum="md5:2209984d99c1f11caf62bbade198c80d", fmt="zip",
+        source_project="CellMarker", version="3.0"),
 )
 
 

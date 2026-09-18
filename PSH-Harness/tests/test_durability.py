@@ -147,12 +147,21 @@ def test_a_stalled_child_is_told_to_stop_if_it_ever_wakes(kernel):
 
 
 def test_a_slow_but_live_child_keeps_its_lease(kernel):
-    """Beating per task means a long plan of short steps is never mistaken for a hang."""
-    tool = Tool("slow", delay=0.05)
-    supervisor = supervisor_for(kernel, {"slow": tool}, steps=8, lease_ttl_s=0.3)
+    """Beating per task means a long plan of short steps is never mistaken for a hang.
+
+    The work (8 × 0.2 s) exceeds the lease (1.0 s), so a child that beat only when it
+    started would be reaped; per-task beats are what keep it alive. The margin between
+    beats is deliberately wide: between two heartbeats the child writes four to five
+    audit events, each a separate ``synchronous=FULL`` sqlite commit, and on a loaded CI
+    runner's disk the earlier 0.3 s lease left about 50 ms per fsync — the child was
+    reaped while waiting on the audit log, not while hung.
+    """
+    tool = Tool("slow", delay=0.2)
+    supervisor = supervisor_for(kernel, {"slow": tool}, steps=8, lease_ttl_s=1.0)
     (child,) = supervisor.dispatch([request("slow")], kernel.policy.envelope())
     assert child.state is ChildState.COMPLETED, child.error
     assert tool.calls == 8
+    assert child.lease.age_s > 1.0, "the work must outlast the lease for the test to mean anything"
     supervisor.close()
 
 

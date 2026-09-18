@@ -106,13 +106,25 @@ exhausted; bioRxiv ships its by-DOI lookup, because the date-range listing timed
 Services that need a credential (UMLS, OMIM, DisGeNET, BioGRID, Orphanet, SNOMED CT) are
 not public in this module's sense. And traditional-Chinese-medicine resources (TCMSP,
 HERB 2.0, SymMap, BATMAN-TCM 2.0, ETCM) publish downloadable tables rather than stable
-JSON APIs; they belong to the acquisition layer as datasets with checksummed
-`AcquisitionSpec`s, which is the next enrichment step, not a connector to invent.
+JSON APIs; they belong to the acquisition layer as datasets, not as connectors to invent.
+
+**v0.2.5 did that step, with the sources that actually answer.** Probed from this harness:
+HERB's per-file download URLs return HTML pages, BATMAN-TCM's download page answered 503,
+and TCMSP, HIT 2.0 and TCMBank did not answer at all — so none of them can be pinned.
+What can be, and now is, in `acquisition/sources.py` as size-pinned `AcquisitionSpec`s:
+the six NPASS 2.0 tables (natural products, source organisms with taxonomy, structures,
+targets, quantitative activities with references, organism pairs) and the five CMAUP 2.0
+tables (medicinal plants, ingredients, targets, plant→ingredient and ingredient→target
+activities), both from BIDD and covering the same herbs, compounds and targets the TCM
+databases do; NP Atlas; and LOTUS's frozen Wikidata export with the md5 values Zenodo
+publishes. NCBI Taxonomy and CellMarker 3.0 round out the tranche as reference data.
+`tests/test_datasets.py` checks every spec is well-formed, its host allowlisted, and the
+natural-product tranche pinned; `Downloader.fetch` verifies size or checksum on acquisition.
 
 Every new host is allowlisted in the `biomedical-research` profile (the BioScience policy
 kernel refuses undeclared hosts), and every host has a declared request rate.
 
-## 3b. Native tools: 77 capabilities executable anywhere the harness runs
+## 3b. Native tools: 139 capabilities executable anywhere the harness runs
 
 The census's central number was honest and uncomfortable: of 2,567 catalogued
 capabilities, the executable ones on a machine without a Biomni checkout, a container
@@ -124,26 +136,36 @@ each with an example that is its smoke test (`native:<name>` in the manifest;
 
 | domain | tools |
 | --- | --- |
-| sequence analysis (12) | reverse complement, transcription, translation, GC content (windowed), ORF finding, k-mer counts, Hamming and edit distance, codon usage, primer Tm (Wallace / salt-adjusted), restriction sites (20 enzymes), oligo mass |
-| protein analysis (2) | mass, pI (EMBOSS pKa set), GRAVY, composition, aromaticity, extinction coefficient; Kyte–Doolittle hydropathy profile |
+| sequence analysis (18) | reverse complement, transcription, translation, GC content (windowed), ORF finding, k-mer counts, Hamming and edit distance, codon usage, primer Tm (Wallace / salt-adjusted), restriction sites (20 enzymes), oligo mass; IUPAC motif search, CpG islands (Gardiner-Garden & Frommer), six-frame translation, CRISPR guide enumeration, Shannon entropy / low complexity, primer checks (clamp, runs, self-complementarity, hairpin, template sites) |
+| protein analysis (4) | mass, pI (EMBOSS pKa set), GRAVY, composition, aromaticity, extinction coefficient; Kyte–Doolittle hydropathy profile; peptide monoisotopic/average mass and m/z; in-silico digestion (trypsin, Lys-C, Arg-C, chymotrypsin, Glu-C, Asp-N) with missed cleavages |
 | alignment (3) | Needleman–Wunsch global, Smith–Waterman local, linear gaps, optional substitution matrix; protein alignment with the bundled BLOSUM62 (symmetry and published diagonal checked by test) |
-| file formats (5) | FASTA, FASTQ (quality statistics), VCF (INFO and genotypes), BED, GFF3/GTF |
-| variants (4) | HGVS parsing (c./g./n./m./r. substitution, deletion, duplication, insertion, delins; p. substitution, nonsense, frameshift, synonymous), variant normalisation and keys, allele frequencies with Hardy–Weinberg, Ts/Tv |
-| statistics (16) | hypergeometric and Fisher exact tests, ORA with Benjamini–Hochberg, Mann–Whitney U, Welch's t (regularised incomplete beta), log2 fold change, CPM, TPM, Pearson/Spearman, Shannon/Simpson, odds ratio and relative risk with CIs, diagnostic metrics, ROC AUC, NNT |
-| clinical calculators (35) | BMI, BSA, ideal/adjusted body weight, CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium, anion gap, corrected sodium, Henderson–Hasselbalch, alveolar gas and A–a gradient, QTc (Bazett, Fridericia, Framingham, Hodges), MAP, CHA₂DS₂-VASc, HAS-BLED, Wells DVT and PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald LDL, HbA1c→eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion, PHQ-9, GAD-7, Apgar, Bishop, gestational age with Naegele's due date |
+| file formats (8) | FASTA, FASTQ (quality statistics), VCF (INFO and genotypes), BED, GFF3/GTF, SAM (flags, CIGAR, mapping summary), PDB (chains, sequences, hetero groups, centroid), OBO ontologies |
+| variants (5) | HGVS parsing (c./g./n./m./r. substitution, deletion, duplication, insertion, delins; p. substitution, nonsense, frameshift, synonymous), variant normalisation and keys, allele frequencies with Hardy–Weinberg, Ts/Tv; coding-variant consequence (synonymous, missense, nonsense, stop/start loss, in-frame and frameshift indels) with HGVS c. and p. |
+| statistics (27) | hypergeometric and Fisher exact tests, ORA with Benjamini–Hochberg, Mann–Whitney U, Welch's t (regularised incomplete beta), log2 fold change, CPM, TPM, Pearson/Spearman, Shannon/Simpson, odds ratio and relative risk with CIs, diagnostic metrics, ROC AUC, NNT; inverse-variance meta-analysis (fixed and DerSimonian–Laird random effects, Q, I², τ²), chi-square tests with Cramér's V, OLS regression, one-way ANOVA, Kruskal–Wallis, Wilcoxon signed-rank, Cohen's d / Hedges' g, Bayesian post-test probability, sample sizes for two proportions and two means, exact Poisson incidence rates |
+| pharmacology (9) | one-compartment kinetics, half-life from two levels, loading dose, maintenance dose, accumulation and time to steady state, Calvert carboplatin dosing, glucocorticoid equivalence, CDC morphine milligram equivalents, BSA dosing |
+| survival analysis (2) | Kaplan–Meier with Greenwood standard errors and median; log-rank test with the Pike hazard-ratio estimate |
+| population genetics (3) | linkage disequilibrium (D, D′, r²), nucleotide diversity with Watterson's θ and Tajima's D, G_ST and Hudson's F_ST |
+| phylogenetics (5) | p / Jukes–Cantor / Kimura two-parameter distances, neighbor joining, UPGMA, Newick parsing, patristic distances |
+| clinical calculators (55) | BMI, BSA, ideal/adjusted body weight, CKD-EPI 2021, Cockcroft–Gault, FENa, corrected calcium, anion gap, corrected sodium, Henderson–Hasselbalch, alveolar gas and A–a gradient, QTc (Bazett, Fridericia, Framingham, Hodges), MAP, CHA₂DS₂-VASc, HAS-BLED, Wells DVT and PE, CURB-65, MELD-Na (UNOS 2016), Child–Pugh, NEWS2, GCS, qSOFA, Friedewald LDL, HbA1c→eAG, Mifflin–St Jeor, Parkland, weight-based dosing, tidal volume, unit conversion, PHQ-9, GAD-7, Apgar, Bishop, gestational age with Naegele's due date; 2013 Pooled Cohort Equations (ASCVD), SOFA, calculated osmolality and osmolar gap, Winters' formula, acid–base interpretation with anion gap and delta ratio, Holliday–Segar, free-water deficit, allowable blood loss, infusion rate, HEART, Centor/McIsaac, Alvarado, TIMI UA/NSTEMI, ABCD², SIRS, RCRI, STOP-Bang, FIB-4, APRI, HOMA-IR |
 
 Through the bridge each is a `LOCAL_COMPUTE` component at the local ceiling: a clinical
 calculator may be handed an identifiable payload because nothing leaves the machine, and
 its result carries the PHI label onward. `test_a_phi_payload_runs_locally_and_is_refused_remotely`
 is the label model in one test — the same payload reaches the calculator and never reaches
-a public connector. The seven toolkit domains are seven harnesses in PSH's registry, so
+a public connector. The eleven toolkit domains are eleven harnesses in PSH's registry, so
 "estimate kidney function from creatinine" ranks the CKD-EPI tool without the planner
-having seen seventy-one manifests.
+having seen a hundred and thirty-nine manifests.
 
 Correctness is pinned, not assumed: `tests/test_native_tools.py` runs every tool from
 its example and checks values by hand (CKD-EPI 2021 for a 50-year-old at Scr 1.0 is
 68.6 / 91.7; MELD-Na for bilirubin 3, INR 2, creatinine 2, sodium 128 is 29; Fisher's
-tea-tasting table gives 0.4857; t = 2.228 at 10 df gives 0.05). Every calculator names
+tea-tasting table gives 0.4857; t = 2.228 at 10 df gives 0.05; the Freireich 6-MP arm's
+Kaplan–Meier curve is 0.857 → 0.448 with a median of 23 weeks and its log-rank statistic
+is 16.79, as R reports; neighbor joining recovers the Saitou–Nei five-taxon tree with
+every path length exact; the Pooled Cohort Equations reproduce the guideline's four
+worked examples to 0.1 %). A structural test refuses any tool whose parameter name would
+be swallowed by `Runtime.invoke`'s own keywords, which the survival tools' first draft
+found the hard way. Every calculator names
 its formula in its docstring and refuses out-of-range input with a reason, and none of
 them returns a recommendation — only the interpretation bands its source publishes.
 
@@ -166,8 +188,10 @@ them returns a recommendation — only the interpretation bands its source publi
   http manifest, and the verification record complete.
 * `tests/test_native_tools.py` — every native tool runs its example, is deterministic and
   returns JSON; the provider's manifests are valid offline components; the python backend
-  loads and runs all 77; values pinned against hand-computed and textbook cases; bad input
+  loads and runs all 139; values pinned against hand-computed and textbook cases; bad input
   is a reason, not a traceback.
+* `tests/test_datasets.py` — every bulk dataset spec well-formed and host-allowlisted; the
+  natural-product tranche pinned by size, LOTUS and CellMarker by Zenodo's md5.
 * The suite runs from a plain clone: `tests/conftest.py` puts the sibling `PSH-Harness/src`
   on the path when `psh` is not installed. The root `.github/workflows/ci.yml` runs both
   packages and the bridge; live verification is a manual job.
