@@ -26,6 +26,7 @@ Quick start::
 """
 
 from .config import PSHConfig, default_state_dir
+from .environment import environment_report
 from .policy import PolicyLattice, PolicySnapshot, PolicyViolation
 from .contracts import (
     ApprovalDenied, ApprovalRequired, ArtifactRef, Autonomy, Budget, BudgetExhausted,
@@ -57,7 +58,7 @@ from .workgraph import EdgeKind, NodeKind, WorkGraph
 #: Kept in step with ``pyproject.toml`` by ``tests/test_review_v5_1.py``. It read
 #: "0.4.0" through the whole of v0.5, so ``psh.__version__`` named a release two
 #: behind the package it was reporting on.
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 __all__ = [
     "TrustedKernel", "PSHConfig", "Runner", "RunResult", "WorkGraph", "NodeKind",
@@ -70,7 +71,7 @@ __all__ = [
     "WorkProfile", "PROFILES", "get_profile", "profile_names",
     "PSHError", "PolicyDenied", "EgressDenied", "BudgetExhausted", "ApprovalRequired",
     "ApprovalDenied", "VerificationFailed", "CapabilityUnavailable", "ContractViolation",
-    "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "__version__",
+    "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "environment_report", "__version__",
     "PolicySnapshot", "PolicyLattice", "PolicyViolation", "AuthorityLattice", "IngressGateway", "PersistenceGateway",
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",

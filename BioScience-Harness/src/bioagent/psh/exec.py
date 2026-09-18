@@ -70,15 +70,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ContractViolation: {exc}", file=sys.stderr)
         return 1
     spec = AgentSpec(name="psh-isolated", permission_profile=args.profile)
+    key = payload.get("_psh_idempotency_key")
+    bookkeeping = {"idempotency_key": str(key)} if key else {}
     try:
-        result = runtime.invoke(bio.id, spec=spec, **kwargs)
+        result = runtime.invoke(bio.id, spec=spec, **bookkeeping, **kwargs)
     except Exception as exc:  # noqa: BLE001 - the exit code is the contract
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    if result.status is ExecutionStatus.TIMEOUT:
+        # 124 is what ``timeout(1)`` exits with; the kernel reads it as a ToolTimeout.
+        print(f"TIMEOUT: {(result.error or 'no detail')[:300]}", file=sys.stderr)
+        return 124
     if result.status not in (ExecutionStatus.SUCCEEDED, ExecutionStatus.DEGRADED):
         # The kernel records a contract violation with this text; keep it bounded.
         print(f"{result.status.value}: {(result.error or 'no detail')[:300]}", file=sys.stderr)
         return 1
+    if result.status is ExecutionStatus.DEGRADED:
+        # The one extension of the one-JSON-value protocol: the value, wrapped with the
+        # shortfall it ran under, so the kernel records a degraded result with a caveat.
+        sys.stdout.write(json.dumps({"$psh": {"status": "degraded",
+                                              "reason": (result.error or "")[:300],
+                                              "value": result.value}}, default=str))
+        return 0
     sys.stdout.write(json.dumps(result.value, default=str))
     return 0
 

@@ -42,12 +42,14 @@ from enum import Enum
 from typing import Any, Callable, Mapping, Sequence
 
 from ..contracts import (
-    ApprovalRequired, BudgetExhausted, ContractViolation, EgressDenied, PolicyDenied,
-    RunEnvelope, new_id,
+    ApprovalRequired, BudgetExhausted, ContractViolation, EgressDenied, OperationUnresolved,
+    PolicyDenied, RunEnvelope, ToolTimeout, new_id,
 )
 from ..labels import DataLabel, Destination, Labeled, combine, label_of, unwrap
+from .bindings import resolve_bindings
 from .evaluator import Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskState
+from .operations import OperationState
 from .plan import Plan, PlanTask, RetryBudget, TaskKind
 from .plan_validator import PlanRejected, PlanValidator, ValidatedPlan, task_envelope
 
@@ -190,6 +192,15 @@ class LoopResult:
     #: The join of every task result's label. What a child hands back to a parent must be
     #: labelled at least as high as anything the child saw, or delegation launders.
     label: Any = None
+    #: ``verified`` when every completion criterion was decided by a deterministic check
+    #: or a goal checker; ``pending_manual`` when a criterion is ``manual`` and nobody has
+    #: judged it; ``unverified`` otherwise. ``GOAL_SATISFIED`` says the tasks ran and the
+    #: deterministic criteria held — this says whether the objective was actually judged
+    #: met, which is a different claim and the one a release should rest on.
+    goal_status: str = "unverified"
+    #: Per task, what its component said it fell short on (a degraded result). Carried
+    #: to the release as limitations; a value with a caveat is not a value without one.
+    caveats: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -265,10 +276,16 @@ class AgentLoopController:
                  cancellation: Any = None,
                  heartbeat: Callable[[], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep,
-                 memory: Any = None, memory_items: int = 4) -> None:
+                 memory: Any = None, memory_items: int = 4,
+                 operations: Any = None) -> None:
         self.kernel = kernel
         self.planner = planner
         self.registry = registry
+        #: Optional ``OperationLedger``: every tool call is recorded by its idempotency
+        #: key before it runs and after it reports, so a restart knows which
+        #: side-effecting calls are in doubt. Without one the loop behaves as before —
+        #: and a restart of a side-effecting plan has nothing to consult.
+        self.operations = operations
         #: Optional ``MemoryRetriever``: verified project memory relevant to a task's
         #: objective is compiled into that task's projection, labelled as stored. A
         #: retriever reads; the loop still cannot write to the graph.
@@ -405,7 +422,7 @@ class AgentLoopController:
         # cheap pre-check so a loop that is already out of budget does not start an
         # iteration to discover it.
         try:
-            self.kernel.budget.check_model_call(state.envelope)
+            self.kernel.budget.peek_model_call(state.envelope)
         except BudgetExhausted as exc:
             state.detail = str(exc)
             return Termination.BUDGET_EXHAUSTED
@@ -481,15 +498,29 @@ class AgentLoopController:
 
         graph.mark_running(task.task_id, at=time.time())
         self._beat()
+        key = f"{state.envelope.run_id}:{task.task_id}"
+        ledger = self.operations if task.kind == TaskKind.TOOL else None
+        if ledger is not None:
+            try:
+                self._guard_operation(state, task, key)
+            except OperationUnresolved as exc:
+                graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
+                                  at=time.time(), retryable=False)
+                self._audit("loop_task_unresolved", state, task_id=task.task_id,
+                            component_id=task.component_id, operation=key)
+                return
         try:
             result = self._dispatch(task, envelope, graph.labeled_results(),
-                                    idempotency_key=f"{state.envelope.run_id}:{task.task_id}",
-                                    plan_label=state.plan_label)
+                                    idempotency_key=key, plan_label=state.plan_label)
         except (BudgetExhausted, ApprovalRequired):
+            if ledger is not None:
+                ledger.fail(key, "not_started")    # raised before the component ran
             raise                                  # bounds, not task failures
         except (EgressDenied, PolicyDenied) as exc:
             # A refusal is a fact about authority, not a transient fault. Retrying it would
             # re-ask a question already answered and burn budget doing it.
+            if ledger is not None:
+                ledger.fail(key, type(exc).__name__)
             graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                               at=time.time(), retryable=False)
             self._audit("loop_task_refused", state, task_id=task.task_id,
@@ -497,6 +528,13 @@ class AgentLoopController:
             return
         except Exception as exc:  # noqa: BLE001 - one task's fault is not the loop's end
             retryable = (attempt < task.retry.max_attempts) and task.retry.permits(exc)
+            if ledger is not None:
+                if isinstance(exc, ToolTimeout):
+                    # The one failure that may have done its work: unknown, not failed.
+                    ledger.mark_unknown(key, type(exc).__name__)
+                else:
+                    ledger.fail(key, type(exc).__name__)
+            self._record_outcome(task, ok=False)
             graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                               at=time.time(), retryable=retryable)
             self._audit("loop_task_failed", state, task_id=task.task_id,
@@ -504,17 +542,68 @@ class AgentLoopController:
                         retryable=retryable)
             return
 
-        value, label = result
+        value, label, caveats = result
+        if ledger is not None:
+            ledger.succeed(key, value)
+        self._record_outcome(task, ok=True)
         if label is None:
             # A result with no label is not PUBLIC; it is unclassified. Classify it, so no
             # node in the graph carries None into the joins built on it.
             label = classify_with(self.kernel, value, origin=f"task:{task.task_id}")
-        graph.mark_succeeded(task.task_id, value, at=time.time(), label=label)
+        graph.mark_succeeded(task.task_id, value, at=time.time(), label=label,
+                             caveats=caveats)
+        if caveats:
+            self._audit("loop_task_degraded", state, task_id=task.task_id,
+                        caveats=len(caveats))
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
+
+    def _guard_operation(self, state: LoopState, task: PlanTask, key: str) -> None:
+        """Consult the operation ledger before a tool runs; refuse an unsafe replay.
+
+        A component declaring ``idempotent=False`` is not re-run when the ledger says an
+        earlier attempt of this very operation started and never reported, or succeeded
+        without its result reaching this run (a redacted checkpoint withholds results, a
+        replan rebuilds the graph). "Did it run?" has no answer here, and a retry policy
+        is not the place to guess: the task fails and the loop escalates. Idempotent
+        components run again, and the ledger records that they did.
+        """
+        ledger = self.operations
+        try:
+            manifest = getattr(self._component(task.component_id), "manifest", None)
+        except ContractViolation:
+            manifest = None                        # _dispatch raises it as a task failure
+        idempotent = bool(getattr(manifest, "idempotent", True))
+        prior = ledger.get(key)
+        if prior is not None and not idempotent and prior.state in (
+                OperationState.RUNNING, OperationState.UNKNOWN, OperationState.SUCCEEDED):
+            if prior.state is OperationState.RUNNING:
+                ledger.mark_unknown(key, "lost")
+            what = ("succeeded and its result did not reach this run"
+                    if prior.state is OperationState.SUCCEEDED
+                    else "started and never reported")
+            raise OperationUnresolved(
+                f"task {task.task_id!r}: an earlier attempt of side-effecting component "
+                f"{task.component_id!r} {what} (operation {key}, attempt {prior.attempts}); "
+                "re-running it is not safe, so the task fails until the operation is "
+                "reconciled")
+        ledger.begin(key, component_id=task.component_id, run_id=state.envelope.run_id,
+                     task_id=task.task_id, idempotent=idempotent)
+
+    def _record_outcome(self, task: PlanTask, *, ok: bool) -> None:
+        """Feed the registry's success prior with what actually happened.
+
+        ``CapabilityRegistry.record_outcome`` existed and nothing called it, so the
+        observed-success term in ranking was the manifest's own claim forever.
+        """
+        if task.kind != TaskKind.TOOL or self.registry is None:
+            return
+        record = getattr(self.registry, "record_outcome", None)
+        if record is not None:
+            record(task.component_id, ok)
 
     def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
                   upstream: Mapping[str, Any], *, idempotency_key: str = "",
-                  plan_label: Any = None) -> tuple[Any, Any]:
+                  plan_label: Any = None) -> tuple[Any, Any, tuple[str, ...]]:
         """The only three ways this loop can cause anything to happen.
 
         Returns ``(value, label)``. The label used to be discarded here — the broker hands
@@ -553,11 +642,16 @@ class AgentLoopController:
             shown = getattr(call, "label", None) or getattr(projection, "label", DataLabel())
             label = shown.merged_with(
                 classify_with(self.kernel, content, origin=f"task:{task.task_id}"))
-            return content, label
+            return content, label, ()
 
         if task.kind == TaskKind.TOOL:
             component = self._component(task.component_id)
             payload = dict(task.payload)
+            # Bound inputs: each is a Labeled value read from an upstream result by
+            # pointer, so the argument the component actually takes carries that result's
+            # label into ingress and the join. The ``upstream`` blob below stays for
+            # components that read it; the bridge drops it, which is why bindings exist.
+            payload.update(resolve_bindings(task, upstream))
             if task.dependencies:
                 # Labeled values, not bare ones: ingress walks the payload and joins every
                 # label it finds, so the derived label survives where a lexical scan of the
@@ -566,7 +660,8 @@ class AgentLoopController:
             if idempotency_key:
                 payload["_psh_idempotency_key"] = idempotency_key
             result = broker.call_tool(component, payload, envelope)
-            return getattr(result, "value", result), getattr(result, "label", None)
+            caveats = tuple(getattr(result, "warnings", ()) or ())
+            return getattr(result, "value", result), getattr(result, "label", None), caveats
 
         if task.kind == TaskKind.DELEGATE:
             if self.delegate_backend is None:
@@ -589,7 +684,7 @@ class AgentLoopController:
             label = getattr(result, "label", None)
             if label is None:
                 label = classify_with(self.kernel, result, origin=f"task:{task.task_id}")
-            return result, handed.merged_with(label)
+            return result, handed.merged_with(label), ()
 
         raise ContractViolation(f"unroutable task kind {task.kind!r}")
 
@@ -626,6 +721,12 @@ class AgentLoopController:
             if value is not None:
                 items.append(ContextItem(kind="evidence", content=str(value)[:4000],
                                          source_ref=dependency, label=label_of(item)))
+        for argument, bound in resolve_bindings(task, upstream).items():
+            # A bound input is the value the step asked for by name, labelled as its
+            # source was. It sits beside the whole upstream result, not instead of it.
+            items.append(ContextItem(kind="evidence",
+                                     content=f"{argument}: {str(unwrap(bound))[:2000]}",
+                                     source_ref=f"binding:{argument}", label=label_of(bound)))
         if self.memory is not None and self.memory_items > 0:
             # Withheld at retrieval for this destination and the run's ceiling, so the
             # compiler's policy count below still means exactly "an upstream result was
@@ -671,7 +772,10 @@ class AgentLoopController:
             plan=state.plan,
             state_counts=state.graph.state_counts() if state.graph else {},
             broker_stats=self.kernel.broker.stats(),
-            label=_result_label(state))
+            label=_result_label(state),
+            goal_status=getattr(verdict, "goal_status", "unverified") if verdict else "unverified",
+            caveats=({n.id: n.caveats for n in state.graph.nodes.values() if n.caveats}
+                     if state.graph else {}))
         self._audit("loop_finished", state, termination=termination.value,
                     iterations=state.iteration, replans=state.replans)
         return result
@@ -704,7 +808,8 @@ class AgentLoopController:
             ceiling = getattr(persistence, "max_label", None)
             checkpoint = capture(
                 state, policy=getattr(self.kernel, "policy", None), ceiling=ceiling,
-                allow_results=state.envelope.permits_destination(Destination.PERSISTENT))
+                allow_results=state.envelope.permits_destination(Destination.PERSISTENT),
+                kernel=self.kernel)
             self.checkpoints.save(checkpoint)
             if checkpoint.withheld:
                 self._audit("loop_checkpoint_withheld", state,

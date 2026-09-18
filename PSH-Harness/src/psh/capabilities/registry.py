@@ -101,7 +101,10 @@ how why not use using used get set run make new via per etc""".split())
 
 
 def _terms(text: str) -> set[str]:
-    return {w for w in _WORD.findall(text.lower()) if w not in _STOP}
+    """Query and description terms, Latin and Chinese (see ``psh.context.terms``)."""
+    from ..context.terms import terms
+
+    return terms(text, stop=_STOP)
 
 
 class CapabilityRegistry:
@@ -195,7 +198,10 @@ class CapabilityRegistry:
 
     def _rank(self, pool: Sequence[ComponentManifest], query: str, envelope: RunEnvelope,
               *, limit: int, trace: ResolutionTrace | None = None) -> list[Candidate]:
+        from ..context.terms import expand_query
+
         query_terms = _terms(query)
+        expanded = expand_query(query).lower()
         exclusions: list[str] = []
         out: list[Candidate] = []
 
@@ -212,8 +218,10 @@ class CapabilityRegistry:
                 " ".join(manifest.intents), " ".join(manifest.tags))))
             relevance = (len(query_terms & haystack) / max(1, len(query_terms))
                          if query_terms else 0.5)
-            # Intent match is a stronger signal than incidental word overlap.
-            if any(intent.lower() in query.lower() for intent in manifest.intents):
+            # Intent match is a stronger signal than incidental word overlap. The query
+            # is expanded with the English of the Chinese terms it contains, so an intent
+            # named in one language meets a query written in the other.
+            if any(intent.lower() in expanded for intent in manifest.intents):
                 relevance = min(1.0, relevance + 0.35)
 
             success = self.observed_success(manifest)

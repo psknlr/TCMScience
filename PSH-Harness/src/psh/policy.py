@@ -64,6 +64,18 @@ class PolicySnapshot:
     #: that touches identifiable data should set it: a tool running inside the kernel
     #: process is governed by convention, not by the operating system.
     require_isolated_tools: bool = False
+    #: Refuse to build a kernel on the built-in fallback classifier. A clinical
+    #: deployment whose ceiling is PHI should not start on a detector that admits it is
+    #: narrower than the validated one — a reviewer showed the fallback missing Chinese
+    #: record identifiers entirely. Off by default so research profiles still run
+    #: anywhere; on for any profile that will see charts.
+    require_validated_classifier: bool = False
+    #: Refuse to build a kernel, or to admit a run policy, whose isolated tools would run
+    #: under ``NoSandbox``. Process isolation with a clean environment behind the egress
+    #: proxy is what the runner always provides; confining the child's filesystem and raw
+    #: sockets needs an OS sandbox backend, and a profile that executes untrusted code
+    #: (a self-evolution candidate, a downloaded pipeline) must say it needs one.
+    require_os_isolation: bool = False
     autonomy: Autonomy = Autonomy.ACT_WITH_APPROVAL
     risk_ceiling: RiskTier = RiskTier.R1_ROUTINE
     budget: Budget = field(default_factory=Budget)
@@ -214,6 +226,8 @@ class PolicySnapshot:
             "require_citation": self.require_citation,
             "require_claim_support": self.require_claim_support,
             "require_isolated_tools": self.require_isolated_tools,
+            "require_validated_classifier": self.require_validated_classifier,
+            "require_os_isolation": self.require_os_isolation,
             "autonomy": self.autonomy.value, "risk_ceiling": self.risk_ceiling.name,
             "tokens_hard": self.budget.tokens_hard, "usd_hard": self.budget.usd_hard,
             "integration_modes": list(self.allowed_integration_modes),
@@ -265,7 +279,8 @@ class PolicyLattice:
 
     #: Turned on, never off. A child inherits every requirement its parent states.
     REQUIREMENTS: tuple[str, ...] = (
-        "require_citation", "require_claim_support", "require_isolated_tools")
+        "require_citation", "require_claim_support", "require_isolated_tools",
+        "require_validated_classifier", "require_os_isolation")
 
     #: Delegated to the authority lattice so budget containment has exactly one definition.
     @staticmethod

@@ -8,6 +8,53 @@ promised hard isolation, distributed scheduling and multi-tenancy that this does
 
 > **A policy-enforced control plane for biomedical scientific agents.** Research prototype.
 
+## v0.5.3 — the third review, closed
+
+A third external review (2026-09-18) probed the merged tree with synthetic data and found
+that the governance closed around one `Runner` pass had not closed around the loop.
+Twelve findings; `docs/REVIEW_RESPONSE_2026-09-18.md` takes each through reproduction,
+fix and test. What changed, in one place:
+
+* **One release path (F01).** `LoopResult` is internal. `Finalizer` takes a loop's
+  deliverable through the same quarantine, claim verification, output gate and claim
+  commit that `Runner.run` uses, and hands back a `ReleasedResult` whose only text field
+  is `released_output`; a refusal carries counts and a category, never the sentence.
+  `ResearchRunService` is the application-facing door. A plan-level
+  `evidence_requirements` string no longer satisfies a claim-support policy; only a task
+  that declares `evidence_required` does, because only that is checked.
+* **Labels are inherited (F02).** The runner's quarantined output is labelled with the
+  join of the projection, the broker's result and a fresh scan; a count derived from a
+  PHI chart is PHI.
+* **Checkpoints are durable writes (F03).** A run that may not persist writes the plan's
+  shape and none of its words: objective, task text, payloads and error texts are
+  withheld, the record says `redacted=True`, and resuming it needs the objective and the
+  plan supplied again with the same shape. The record carries the run's consumption.
+* **Chinese PHI cues (F04).** The fallback classifier recognises 住院号 / 病案号, 身份证号,
+  手机号, 出生日期, 住址 and 患者姓名 forms; a clinical origin floors the label at PHI
+  whatever the language; `require_validated_classifier` refuses to start on the fallback.
+* **Input bindings (F05).** A step fills an argument from an upstream result by JSON
+  pointer, typed and labelled; a payload literal that reads like a reference is a plan
+  error that names the binding it should have been.
+* **The budget tree (F06).** Consumption is charged to the run and every ancestor; a call
+  is refused at any level's ceiling; the loop's bounds check reserves nothing.
+* **Strict evaluation (F07).** The schema check refuses a boolean as an integer and an
+  unknown keyword; a manual criterion nobody judged is `pending_manual`, not verified,
+  and a claim-support policy refuses an unverified goal before the gate. A modal no
+  longer becomes a claim's subject.
+* **Isolation as a report (F08).** `IsolationReport` states what the runner confines;
+  `require_os_isolation` is a lattice requirement the kernel refuses when it cannot meet.
+* **An operation ledger (F09).** Every tool call is recorded durably by its idempotency
+  key; a side-effecting component whose earlier attempt is in doubt is not re-run. The
+  bridge hands the key to BioScience's runtime and never to the entrypoint or the wire.
+* **Bilingual retrieval (F10).** Capability resolution and memory recall tokenise
+  Chinese through a checked-in lexicon with bigram fallback.
+* **Outcomes and shortfalls (F12).** Tool outcomes feed the registry's prior; a degraded
+  result carries its caveat to the release as a limitation; a timeout is `ToolTimeout`.
+
+```bash
+python -m pytest tests/ -q          # 636 pass
+```
+
 ## v0.5.1 — gate composition closure
 
 A second review accepted the v0.5 premise and attacked the next layer: what happens where
@@ -291,7 +338,7 @@ three data-licence ids in `licensing.py` and nothing else: the dependency points
 honest state; `BioScience-Harness/demo_convergence.py` runs a plan through both.
 
 ```bash
-python -m pytest tests/ -q          # 543 pass
+python -m pytest tests/ -q          # 636 pass
 python -m compileall -q src         # clean
 ```
 
@@ -337,7 +384,12 @@ Enforced, with a test that drives the executing path:
   caller's preflight;
 * no envelope is wider than the policy that minted it, on any of the lattice's dimensions;
 * every model call, tool call and delegation passes the broker, which records an event;
-* output is quarantined and `released_output` stays `None` unless the release gate passed;
+* output is quarantined and `released_output` stays `None` unless the release gate passed —
+  for a loop's deliverable exactly as for a single pass, through one `Finalizer`;
+* a checkpoint of a run that may not persist holds the plan's shape and none of its text;
+* a side-effecting tool whose earlier attempt is in doubt is not re-run;
+* a policy requirement this process cannot meet (the validated detector, OS isolation)
+  refuses the kernel or the run before anything executes;
 * a `backend="subprocess"` component cannot read the kernel's environment.
 
 **Not** enforced, stated plainly:
@@ -346,7 +398,7 @@ Enforced, with a test that drives the executing path:
   This is the honest boundary: `require_isolated_tools=True` is how a policy refuses it.
 * the egress proxy governs clients that honour proxy variables. A raw socket bypasses it.
   `SandboxBackend` is the seam for the OS layer (Seatbelt, bubblewrap+seccomp); only
-  `NoSandbox` ships, and it says so in `describe()`.
+  `NoSandbox` ships, and it says so in `describe()` and in the kernel's `IsolationReport`.
 * the audit chain is tamper-evident, not tamper-proof; classification is a safety net, not
   certified de-identification; claim support is lexical; the planner is a placeholder.
 

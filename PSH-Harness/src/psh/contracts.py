@@ -50,7 +50,7 @@ from .licensing import (
 __all__ = [
     "PSHError", "PolicyDenied", "EgressDenied", "BudgetExhausted", "ApprovalRequired",
     "ApprovalDenied", "VerificationFailed", "CapabilityUnavailable", "BrokerBypass",
-    "ContractViolation",
+    "ContractViolation", "ToolTimeout", "OperationUnresolved", "DegradedResult",
     "RiskTier", "Autonomy", "AUTONOMY_ORDER", "RunEnvelope", "Budget", "Principal",
     "ComponentKind", "ComponentManifest", "ContextProjection", "ContextItem",
     "DelegationContract", "EventEnvelope", "ModelProfile", "ArtifactRef",
@@ -128,6 +128,45 @@ class BrokerBypass(PSHError):
 
 class ContractViolation(PSHError):
     """A component returned something its manifest said it would not."""
+
+
+class ToolTimeout(ContractViolation):
+    """A component did not finish within its declared ``timeout_s`` and was stopped.
+
+    A timeout is a *kind* of contract violation, so a retry policy naming
+    ``ContractViolation`` still covers it and one naming ``ToolTimeout`` covers only this.
+    It is its own class because a call that timed out may have done its work: a
+    side-effecting component killed mid-flight is exactly the case the operation ledger
+    has to record as unknown rather than failed.
+    """
+
+
+class OperationUnresolved(PSHError):
+    """A side-effecting operation's outcome is unknown and re-running it is not safe.
+
+    Raised when the operation ledger records that an earlier attempt of a non-idempotent
+    call started and never reported, or succeeded without its result reaching this run,
+    so neither "it ran" nor "it did not run" can be asserted. The task fails without a
+    retry and the loop escalates: reconciling a side effect is a decision for whoever
+    owns it, not for a retry policy.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class DegradedResult:
+    """A component's value together with the shortfall it ran under.
+
+    BioScience reports ``DEGRADED`` for a call that produced a result with a documented
+    limitation — a fallback dataset, a truncated page, an estimate where a measurement
+    was asked for. The bridge used to hand the value back as if the call had succeeded,
+    so the shortfall was visible in BioScience's event log and nowhere in PSH's. A
+    component returns this wrapper instead: the broker records the result as
+    ``degraded``, the loop carries the caveat on the task, and a release lists it as a
+    limitation.
+    """
+
+    value: Any
+    reason: str = ""
 
 
 # ------------------------------------------------------------------- run envelope

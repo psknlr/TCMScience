@@ -6,7 +6,11 @@ The loop is additive: it holds no provider and no subprocess, and reaches the wo
 through ``ExecutionBroker``, so adding iteration did not add an execution path.
 """
 
+from .bindings import BindingError, resolve_bindings, resolve_pointer
 from .checkpoint import Checkpoint, CheckpointStore, ResumeRefused, capture, resume
+from .operations import OperationLedger, OperationRecord, OperationState
+from .finalize import Finalizer, ReleasedResult, render_deliverable
+from .service import ResearchRunService
 from .evaluator import ACCEPTANCE_CHECKS, CheckResult, Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskNode, TaskState
 from .loop import (
@@ -14,7 +18,7 @@ from .loop import (
     Termination,
 )
 from .plan import (
-    Criterion, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind, TestSpec,
+    Criterion, InputBinding, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind, TestSpec,
 )
 from .planner import PLANNER_SYSTEM_PROMPT, ModelPlanner, PlanParseError, parse_plan
 from .plan_validator import (
@@ -37,10 +41,13 @@ __all__ = [
     "Planner", "StaticPlanner", "ModelPlanner", "parse_plan", "PlanParseError",
     "PLANNER_SYSTEM_PROMPT",
     "Plan", "PlanTask", "TaskKind", "TestSpec", "Criterion", "RetryPolicy", "RetryBudget",
+    "InputBinding", "BindingError", "resolve_bindings", "resolve_pointer",
+    "OperationLedger", "OperationRecord", "OperationState",
     "PlanValidator", "PlanViolation", "ValidatedPlan", "PlanRejected", "task_envelope",
     "ExecutionGraph", "TaskState", "TaskNode",
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
+    "Finalizer", "ReleasedResult", "render_deliverable", "ResearchRunService",
     "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
     "LocalSubagentBackend", "SubagentResult", "WorkerLease", "LeaseRegistry",
     "IdempotencyLedger", "KEY_FIELD", "key_of",

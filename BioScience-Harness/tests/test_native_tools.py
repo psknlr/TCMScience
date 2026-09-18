@@ -1,6 +1,6 @@
 """The native toolkit: every tool runs from its own example, and the values are right.
 
-The first test is the contract — each of the 139 tools is a JSON-in, JSON-out function
+The first test is the contract — each of the 147 tools is a JSON-in, JSON-out function
 whose example is its smoke test. The rest pin values that can be checked by hand or
 against a textbook, because a calculator that runs is not the same as a calculator that
 is correct, and the difference matters most for the clinical ones.
@@ -38,7 +38,7 @@ def test_every_tool_is_deterministic(native):
 
 def test_the_provider_yields_valid_offline_python_components():
     manifests = list(NativeToolProvider().discover())
-    assert len(manifests) == len(TOOLS) == 139
+    assert len(manifests) == len(TOOLS) == 147
     for m in manifests:
         assert m.validate() == []
         assert m.runtime.backend == "python" and m.runtime.deterministic

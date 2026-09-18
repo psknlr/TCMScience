@@ -427,7 +427,7 @@ def test_native_tools_are_local_components_with_the_local_ceiling(kernel, tmp_pa
     registry = CapabilityRegistry()
     stats = bridge.register_into(registry)
     from bioagent.tools import DOMAINS
-    assert stats["harnesses"] == len(DOMAINS) == 11     # one per toolkit domain
+    assert stats["harnesses"] == len(DOMAINS) == 12     # one per toolkit domain
     hits = registry.resolve("estimate kidney function eGFR from creatinine", kernel.policy.envelope())
     assert any(c.id == "native.tool.egfr_ckd_epi_2021" for c in hits), [c.id for c in hits]
 
@@ -457,3 +457,130 @@ def test_a_phi_payload_runs_locally_and_is_refused_remotely(kernel, runtime, tra
                                 Labeled({"operation": "symbol", "symbol": "TP53"}, phi.label),
                                 envelope)
     assert transport.requests == []
+
+
+# ------------------------------------------------- 2026-09-18 review: F09 and F12
+
+class StatusBackend:
+    """Stands in for the python backend and answers with a chosen ExecutionStatus."""
+
+    backend = "python"
+
+    def __init__(self, status, value=None, error=None):
+        self.status, self.value, self.error = status, value, error
+        self.kwargs: list[dict] = []
+
+    def available(self):
+        return True
+
+    def unavailable_reason(self):
+        return ""
+
+    def handles(self, manifest):
+        return manifest.runtime.backend == self.backend
+
+    def rebind(self, loader):
+        return self
+
+    def invoke(self, manifest, **kwargs):
+        from bioagent.adapters.base import CallResult
+
+        self.kwargs.append(dict(kwargs))
+        return CallResult(capability=manifest.id, adapter="status-stub", status=self.status,
+                          value=self.value, error=self.error)
+
+
+def admitted_local(kernel, runtime, backend, events=None):
+    runtime.backends.register(backend)
+    manifest = local_tool()
+    runtime.registry.add(manifest)
+    bridge = BioScienceBridge(kernel, runtime, events=events)
+    psh_manifest = bridge.admit(manifest)
+    return bridge.component(psh_manifest.id)
+
+
+def test_the_idempotency_key_reaches_the_runtime_and_never_the_entrypoint(kernel, runtime):
+    """F09: the bridge stripped ``_psh_idempotency_key`` with the other bookkeeping, so a
+    side-effecting backend had no way to recognise a replay. It travels on its own now."""
+    from bioagent.runtime.events import EventLog
+
+    events = EventLog()
+    backend = StatusBackend(ExecutionStatus.SUCCEEDED, value={"ok": True})
+    component = admitted_local(kernel, runtime, backend, events=events)
+    result = kernel.broker.call_tool(component, {"x": 1, "_psh_idempotency_key": "run:task"},
+                                     kernel.policy.envelope())
+    assert result.value == {"ok": True}
+    assert backend.kwargs == [{"x": 1}], "the entrypoint saw only its own arguments"
+    called = [e for e in events.events if e.event_type == "ToolCalled"]
+    assert called and called[-1].detail.get("idempotency_key") == "run:task"
+
+
+def test_a_bioscience_timeout_is_a_psh_tool_timeout(kernel, runtime):
+    from psh.contracts import ToolTimeout
+
+    backend = StatusBackend(ExecutionStatus.TIMEOUT, error="no reply in 30s")
+    component = admitted_local(kernel, runtime, backend)
+    with pytest.raises(ToolTimeout, match="timed out"):
+        kernel.broker.call_tool(component, {"x": 1}, kernel.policy.envelope())
+    assert isinstance(ToolTimeout("x"), ContractViolation)
+
+
+def test_a_degraded_result_keeps_its_caveat_across_the_bridge(kernel, runtime):
+    """F12: DEGRADED used to come back as a plain success; the shortfall now travels."""
+    from psh.contracts import DegradedResult
+
+    backend = StatusBackend(ExecutionStatus.DEGRADED, value={"n": 3},
+                            error="served from the cached snapshot")
+    component = admitted_local(kernel, runtime, backend)
+    raw = component.invoke({"x": 1}, kernel.policy.envelope())
+    assert isinstance(raw, DegradedResult) and raw.value == {"n": 3}
+    result = kernel.broker.call_tool(component, {"x": 1}, kernel.policy.envelope())
+    assert result.value == {"n": 3}
+    assert result.status == "degraded" and not result.ok
+    assert result.warnings == ("served from the cached snapshot",)
+    assert component.last_status is ExecutionStatus.DEGRADED
+
+
+def test_the_isolated_entrypoint_reports_a_degraded_result_and_its_own_timeout(tmp_path):
+    """The child process side of the same two facts: one JSON value, or one wrapped value."""
+    import io
+    from contextlib import redirect_stdout, redirect_stderr
+
+    from bioagent.psh import exec as isolated
+
+    manifest = local_tool()
+    path = tmp_path / "echo.yaml"
+    path.write_text(manifest.to_yaml() if hasattr(manifest, "to_yaml") else "")
+    if not path.read_text():
+        pytest.skip("manifests are not serialisable to YAML in this build")
+
+    def run(status, value=None, error=None, payload=None):
+        out, err = io.StringIO(), io.StringIO()
+        stdin = io.StringIO(json.dumps({"tool": "x", "run_id": "r", "payload": payload or {}}))
+        import bioagent.psh.assembly as assembly
+
+        original = assembly.default_runtime
+
+        def patched(**kw):
+            runtime = original(**kw)
+            runtime.backends.register(StatusBackend(status, value=value, error=error))
+            return runtime
+
+        assembly.default_runtime = patched
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                old_stdin, sys.stdin = sys.stdin, stdin
+                try:
+                    code = isolated.main(["--manifest", str(path)])
+                finally:
+                    sys.stdin = old_stdin
+        finally:
+            assembly.default_runtime = original
+        return code, out.getvalue(), err.getvalue()
+
+    code, out, _ = run(ExecutionStatus.DEGRADED, value={"n": 3}, error="partial page")
+    assert code == 0
+    assert json.loads(out) == {"$psh": {"status": "degraded", "reason": "partial page",
+                                        "value": {"n": 3}}}
+    code, out, err = run(ExecutionStatus.TIMEOUT, error="no reply")
+    assert code == 124 and "TIMEOUT" in err and out == ""

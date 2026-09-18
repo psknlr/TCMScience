@@ -40,7 +40,7 @@ from ..contracts import (
 )
 from ..labels import DataLabel, Destination, Sensitivity
 from .loop import LoopState, Planner, classify_with, graph_label, objective_label_for
-from .plan import Criterion, Plan, PlanTask, RetryPolicy, TaskKind, TestSpec
+from .plan import InputBinding, Criterion, Plan, PlanTask, RetryPolicy, TaskKind, TestSpec
 from .plan_validator import PlanRejected, PlanValidator
 
 __all__ = ["ModelPlanner", "PlanParseError", "parse_plan", "PLANNER_SYSTEM_PROMPT"]
@@ -65,6 +65,9 @@ nothing else** — no prose, no explanation, no code fence.
       "component_id": "required when kind is tool",
       "payload": {"argument": "value — exactly the arguments the capability's payload schema names"},
       "dependencies": ["task_id of any step that must finish first"],
+      "inputs": [{"argument": "payload argument this fills", "source": "task_id it reads",
+                  "pointer": "/field/in/that/result", "type": "string" | "integer" |
+                  "number" | "boolean" | "array" | "object", "cardinality": "one" | "many"}],
       "max_risk": "R0_TRIVIAL" | "R1_ROUTINE" | "R2_CONSEQUENTIAL" | "R3_CLINICAL",
       "max_label": "PUBLIC" | "INTERNAL" | "RESEARCH_DEIDENTIFIED" | "SENSITIVE" | "PHI",
       "destinations": ["LOCAL_COMPUTE" | "LOCAL_MODEL" | "USER_OUTPUT" | "PERSISTENT" |
@@ -89,6 +92,11 @@ Rules that are enforced, so a plan breaking them is refused rather than run:
   below for the best matches) names, and nothing else. A connector needs `"operation"`
   plus that operation's arguments; a tool with named parameters needs those parameters.
   A payload the schema does not describe fails at the component, not silently.
+* A step that needs a value another step produced declares it in `inputs`: the argument
+  it fills, the producing task (which must also be in `dependencies`) and a JSON pointer
+  into that task's result (`""` for the whole result, `/gene` for a field, `/hits/0/id`
+  for a list element). The runtime resolves bindings; it never resolves payload text, so
+  writing `"$fetch.gene"` in a payload sends the string `$fetch.gene` to the tool.
 * Budget estimates are checked for feasibility before anything runs.
 * A `delegate` task is allowed only when the authority brief says delegation is
   available. It hands a self-contained sub-objective to a child agent that sees nothing
@@ -217,6 +225,10 @@ def parse_plan(text: str, *, produced_by: str = "model") -> Plan:
                 output_schema=dict(item.get("output_schema") or {}),
                 acceptance_tests=specs,
                 evidence_required=bool(item.get("evidence_required")),
+                inputs=tuple(
+                    InputBinding.from_dict(b) if isinstance(b, Mapping)
+                    else InputBinding(argument=str(b), source="")
+                    for b in (item.get("inputs") or ())),
                 retry=RetryPolicy(max_attempts=max(1, int(item.get("max_attempts") or 1))),
             ))
         except (ValueError, TypeError) as exc:

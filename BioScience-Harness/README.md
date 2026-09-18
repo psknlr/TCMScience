@@ -1,4 +1,43 @@
-# bioagent-harness v2.4 — a composable harness for biomedical AI agents
+# bioagent-harness v2.6 — a composable harness for biomedical AI agents
+
+## v2.6 — a TCM knowledge layer, a doctor, and a bridge that keeps its promises
+
+Three things from the 2026-09-18 architecture review (`PSH-Harness/docs/REVIEW_RESPONSE_2026-09-18.md`).
+
+**`bioagent.tcm` — typed traditional Chinese medicine knowledge (F11).** A formula is not
+a compound, a herb is not its processed form, and 桂枝汤主之 in the Shanghan Lun is an
+attribution, not a trial result. `Herb` (nature, flavours, meridians, actions, toxicity,
+aliases in three scripts), `ProcessedHerb` (炮制 changes nature and toxicity), `Formula`
+(ingredients in 君臣佐使 roles, source, indications, contraindications), `Syndrome` (证
+with manifestations, tongue, pulse, treatment principle), `ClassicalPassage`,
+`StudyEvidence`, `ActionRelation` carrying an `EvidenceTier`, and `SafetyRecord`.
+`EvidenceTier` orders 经典记载 → 专家经验 → 临床前 → 病例 → 观察性 → RCT → 系统评价 and
+`CLAIM_KINDS` says which tier a kind of claim needs: a classical passage licenses an
+attribution and never an efficacy claim. The knowledge base resolves names without
+guessing (参 is 人参 or 丹参 and the caller is told), judges a claim's applicability by
+tier and by the population and condition the evidence covers (*extrapolated* when they
+differ, *unsupported* when a study is retracted), inherits safety records from a formula's
+ingredients, and checks combinations against 十八反. A study above the expert tier must
+cite a PMID, DOI or registry id; the checked-in seed cites only public-domain texts, the
+pharmacopoeia and a textbook and holds **no invented trials**. Eight native tools expose
+it — `tcm_lookup`, `tcm_herb`, `tcm_formula`, `tcm_syndrome`, `tcm_compatibility`,
+`tcm_applicability`, `tcm_evidence_tiers`, `tcm_classical_search` — so the toolkit is
+147 tools in 12 domains.
+
+**`bioagent doctor` (F12).** `python -m bioagent.cli doctor [--json] [--smoke]` reports
+what this installation can do before a run finds out: backends, datasets present /
+fetchable / blocked, connectors, native tools (optionally every smoke test), the TCM seed,
+PSH's version, PHI detector and isolation report, the network proxy, and a verdict with a
+remedy per problem. It reads PSH only through `psh.environment_report()`; `bioagent`
+still never imports `psh.kernel`.
+
+**Bridge fidelity (F09, F12).** The loop's idempotency key used to be stripped with the
+other `_psh_` bookkeeping, so a side-effecting backend could not recognise a replay; it
+now reaches `Runtime.invoke(idempotency_key=...)` as the runtime's own keyword, recorded
+on the `ToolCalled` event and the result's metadata, and never becomes an argument of the
+entrypoint or a field on the wire. A `DEGRADED` result crosses as a `DegradedResult`
+whose shortfall PSH records as a caveat and lists as a limitation of the release; a
+`TIMEOUT` is a `ToolTimeout`. The isolated entrypoint reports both the same way.
 
 ## v2.4 — PSH convergence, and a connector set worth converging
 
@@ -24,7 +63,7 @@ entrypoint, source path or declared writes land in the trusted plane (PSH's kern
 policy, labels, contracts, licensing; this package's policy kernel and bridge) is
 quarantined before a smoke test or benchmark is spent on it.
 
-**`bioagent.tools` — 139 native tools that run anywhere the harness runs.** The census's
+**`bioagent.tools` — native tools that run anywhere the harness runs (139 in v2.5, 147 in v2.6).** The census's
 honest number was that almost nothing in the 2,567-row catalogue is executable without a
 Biomni checkout, a container runtime or forty imports. This is the first tranche that is:
 pure Python, no dependencies, deterministic, each with an example that is its smoke test.
@@ -285,7 +324,10 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
       providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
-      tools/               139 native bioinformatics and clinical tools (no dependencies)
+      tools/               147 native bioinformatics, clinical and TCM tools (no dependencies)
+      tcm/                 typed TCM knowledge: herbs, processing, formulas, syndromes, classics,
+                           evidence tiers, scope, 十八反
+      doctor.py            readiness report with a remedy per problem (bioagent doctor)
       psh/                 the PSH bridge: manifest derivation, the crossing, domain harnesses,
                            the isolated entrypoint (needs PSH-Harness; the rest does not)
       planners/            self-registering plugins: heuristic, llm

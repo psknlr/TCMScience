@@ -407,3 +407,21 @@ loop controller → supervisor → delegation contract → worker pool → obser
 §3 is the order to reach it in. What should not happen is the reverse: claiming the
 destination while the middle rows are empty. That is the failure mode both reviews were
 written to catch, and it has now cost two releases to correct.
+
+## 7. v0.5.3 — after the third review
+
+The 2026-09-18 review measured the loop against the single pass and found the loop
+short: its result never met the release gate, its checkpoints wrote what its envelope
+forbade, its tasks could not pass a value to each other except as a blob, its budget did
+not see its own tasks, its evaluation accepted "banana", and its retrieval could not read
+Chinese. `docs/REVIEW_RESPONSE_2026-09-18.md` is the finding-by-finding record.
+
+The order of work was the review's: the P0 batch (one release path, inherited labels,
+redacted checkpoints, Chinese PHI cues), then the execution-closure batch (input
+bindings, the budget tree, strict evaluation, the operation ledger, bilingual terms),
+then the foundations (the isolation report, the TCM knowledge layer, the doctor). Each
+batch landed with its probe reproduced first and its regression tests second.
+
+What §6 said still holds, with one line added: the runtime is a governed loop *whose
+deliverable is judged by the same policy as a single pass*, and whose restarts know what
+they did. It is still not a multi-tenant system and still ships no OS sandbox.
