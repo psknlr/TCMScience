@@ -478,20 +478,36 @@ def test_wait_lets_children_finish(kernel):
 
 
 def test_detach_orphans_without_waiting(kernel):
+    """A *running* child, detached, is disowned and keeps running; the parent does not wait.
+
+    The child must be inside the tool before it is cancelled, and the test then waits on
+    its future rather than sleeping. The earlier version cancelled straight after
+    ``dispatch(wait=False)`` and asserted the tool had run 0.1 s after ``close()``; on a
+    loaded CI runner the child was still writing the audit events on its way to the tool
+    (each a synchronous sqlite commit) and the orphan was reported as never having run.
+    Entering the tool first also pins the state: ``_run`` sets RUNNING when it starts, so
+    an orphaning applied before that would be overwritten and end as COMPLETED.
+    """
     release = threading.Event()
     tool = Tool("slow", block=release)
     supervisor = make(kernel, {"slow": tool}, steps=1)
     (child,) = supervisor.dispatch([request("slow", cancellation=CancellationPolicy.DETACH)],
                                    kernel.policy.envelope(), wait=False)
+    deadline = time.time() + 10
+    while tool.calls == 0 and time.time() < deadline:
+        time.sleep(0.005)
+    assert tool.calls == 1, "the child never reached the tool"
+
     t0 = time.time()
     supervisor.cancel([child])
     assert time.time() - t0 < 1.0, "cancel() waited for a detached child"
     assert child.state is ChildState.ORPHANED
-    release.set()                                  # let the orphan finish so the pool can
-    supervisor.wait([child])                       # (orphans are skipped: returns at once)
+    release.set()                                  # let the orphan finish
+    supervisor.wait([child])                       # orphans are skipped: returns at once
+    child._future.result(timeout=10)               # the orphan ran to completion on its own
+    assert child.state is ChildState.ORPHANED, "a completed orphan keeps its state"
+    assert child.result is not None
     supervisor.close()
-    time.sleep(0.1)
-    assert tool.calls == 1, "the orphan should still have run to completion"
 
 
 def test_a_queued_child_cancelled_before_starting_never_runs(kernel):
