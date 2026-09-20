@@ -21,6 +21,7 @@ field the validator cannot check.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
@@ -28,7 +29,7 @@ from ..contracts import Autonomy, RiskTier, new_id
 from ..labels import Destination, Sensitivity
 
 __all__ = ["Plan", "PlanTask", "TaskKind", "TestSpec", "Criterion", "RetryPolicy",
-           "RetryBudget"]
+           "RetryBudget", "InputBinding"]
 
 
 class TaskKind(str):
@@ -63,6 +64,74 @@ class TestSpec:
     def __post_init__(self) -> None:
         if not self.kind:
             raise ValueError("an acceptance test must name its kind")
+
+
+_BINDING_TYPES = frozenset({"", "string", "integer", "number", "boolean", "array", "object"})
+_CARDINALITIES = frozenset({"one", "many"})
+_POINTER = re.compile(r"^(?:/[^/]*)*$")
+
+
+@dataclass(frozen=True, slots=True)
+class InputBinding:
+    """One argument of a task, filled from a value an upstream task produced.
+
+    The loop handed a dependent tool its upstream results under one payload key,
+    ``upstream`` — every dependency's whole result — and left the arguments the component
+    actually takes to the planner's literals. The 2026-09-18 review showed the
+    consequence: a plan writing ``"symbol": "$fetch.gene"`` executed with the literal
+    string as the symbol, and the BioScience bridge, whose entrypoints take named keyword
+    arguments, dropped ``upstream`` because no argument is called that. Data flowed
+    between steps only as a blob no step could read.
+
+    A binding names the argument, the task that produces the value, where in that task's
+    result the value sits (a JSON pointer, RFC 6901: ``/gene``, ``/hits/0/id``, ``""`` for
+    the whole result), what type the argument expects and whether it takes one value or a
+    list. The validator checks it against the plan before anything runs; the loop
+    resolves it at dispatch, and the resolved value keeps the upstream result's label so
+    the join is not lost at the edge. A pointer is structure, never data: do not encode
+    an identifier in one.
+    """
+
+    argument: str
+    source: str
+    pointer: str = ""
+    expected_type: str = ""
+    cardinality: str = "one"
+    unit: str = ""
+    required: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.argument.strip():
+            raise ValueError("an input binding must name the argument it fills")
+        if not self.source.strip():
+            raise ValueError(
+                f"input binding {self.argument!r} must name the task it reads from")
+        if self.pointer and not _POINTER.match(self.pointer):
+            raise ValueError(
+                f"input binding {self.argument!r} has pointer {self.pointer!r}; a pointer "
+                "is empty (the whole result) or a JSON pointer such as /gene or /hits/0/id")
+        if self.expected_type not in _BINDING_TYPES:
+            raise ValueError(
+                f"input binding {self.argument!r} expects type {self.expected_type!r}; "
+                f"legal types are {sorted(t for t in _BINDING_TYPES if t)} or none")
+        if self.cardinality not in _CARDINALITIES:
+            raise ValueError(
+                f"input binding {self.argument!r} has cardinality {self.cardinality!r}; "
+                "it is 'one' or 'many'")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"argument": self.argument, "source": self.source, "pointer": self.pointer,
+                "expected_type": self.expected_type, "cardinality": self.cardinality,
+                "unit": self.unit, "required": self.required}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "InputBinding":
+        return cls(
+            argument=str(data.get("argument") or ""), source=str(data.get("source") or ""),
+            pointer=str(data.get("pointer") or ""),
+            expected_type=str(data.get("expected_type") or data.get("type") or ""),
+            cardinality=str(data.get("cardinality") or "one"),
+            unit=str(data.get("unit") or ""), required=bool(data.get("required", True)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +241,8 @@ class PlanTask:
     acceptance_tests: tuple[TestSpec, ...] = ()
     evidence_required: bool = False
     retry: RetryPolicy = field(default_factory=RetryPolicy)
+    #: Arguments filled from upstream results. Each names a task in ``dependencies``.
+    inputs: tuple[InputBinding, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.task_id:
@@ -194,6 +265,21 @@ class PlanTask:
             raise ValueError(
                 f"plan task {self.task_id!r} requires evidence, so it needs an "
                 "output_schema to return it in")
+        seen_arguments: set[str] = set()
+        for binding in self.inputs:
+            if binding.source == self.task_id:
+                raise ValueError(
+                    f"plan task {self.task_id!r} binds {binding.argument!r} to its own result")
+            if binding.source not in self.dependencies:
+                raise ValueError(
+                    f"plan task {self.task_id!r} binds {binding.argument!r} to task "
+                    f"{binding.source!r}, which is not among its dependencies "
+                    f"{list(self.dependencies)}; a value can only be read from a task "
+                    "that is guaranteed to have finished first")
+            if binding.argument in seen_arguments:
+                raise ValueError(
+                    f"plan task {self.task_id!r} binds argument {binding.argument!r} twice")
+            seen_arguments.add(binding.argument)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -211,6 +297,7 @@ class PlanTask:
             "acceptance_tests": [{"kind": t.kind, "detail": dict(t.detail)}
                                  for t in self.acceptance_tests],
             "evidence_required": self.evidence_required,
+            "inputs": [b.to_dict() for b in self.inputs],
             "retry": {"max_attempts": self.retry.max_attempts,
                       "initial_delay_s": self.retry.initial_delay_s,
                       "factor": self.retry.factor,
@@ -241,6 +328,7 @@ class PlanTask:
                 TestSpec(kind=t["kind"], detail=dict(t.get("detail") or {}))
                 for t in data.get("acceptance_tests") or ()),
             evidence_required=bool(data.get("evidence_required")),
+            inputs=tuple(InputBinding.from_dict(b) for b in data.get("inputs") or ()),
             retry=RetryPolicy(
                 max_attempts=int(retry.get("max_attempts", 1)),
                 initial_delay_s=float(retry.get("initial_delay_s", 0.0)),

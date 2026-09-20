@@ -23,6 +23,8 @@ construction: the thing it validates is the very thing the loop will later build
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -197,6 +199,38 @@ class PlanValidator:
                     out.append(PlanViolation(
                         "dataflow", task.task_id,
                         f"{task.max_label.name} data may not reach {destination.name}"))
+            self._binding_violations(plan, task, out)
+
+    #: A payload literal that looks like a reference to another task's result. Nothing
+    #: resolves it: the component receives the string. The 2026-09-18 review ran a plan
+    #: whose payload said ``"symbol": "$fetch.gene"`` and the tool looked up ``$fetch.gene``.
+    _REFERENCE = re.compile(r"^\$\{?([A-Za-z_][\w-]*)(?:[./][\w-]+)*\}?$")
+
+    def _binding_violations(self, plan: Plan, task: PlanTask,
+                            out: list[PlanViolation]) -> None:
+        ids = {t.task_id for t in plan.tasks}
+        for binding in task.inputs:
+            if binding.source not in ids:
+                out.append(PlanViolation(
+                    "dataflow", task.task_id,
+                    f"input {binding.argument!r} is bound to task {binding.source!r}, "
+                    "which is not in this plan"))
+            if binding.argument in task.payload:
+                out.append(PlanViolation(
+                    "dataflow", task.task_id,
+                    f"argument {binding.argument!r} is both a payload literal and an input "
+                    "binding; a value has one source"))
+        for key, value in task.payload.items():
+            if isinstance(value, str):
+                match = self._REFERENCE.match(value.strip())
+                if match:
+                    out.append(PlanViolation(
+                        "dataflow", task.task_id,
+                        f"payload argument {key!r} is the literal string {value!r}, which "
+                        f"reads like a reference to task {match.group(1)!r}; a payload is "
+                        "never resolved, so declare an input binding instead: "
+                        f"inputs=[{{argument: {key!r}, source: {match.group(1)!r}, "
+                        "pointer: '/<field>'}]"))
 
     # ----------------------------------------------------------------- budget
     def _budget_violations(self, plan: Plan, envelope: RunEnvelope,
@@ -249,12 +283,17 @@ class PlanValidator:
                         f"acceptance test kind {test.kind!r} has no checker; known kinds "
                         f"are {sorted(self.known_test_kinds)}"))
         if policy is not None and getattr(policy, "require_claim_support", False):
-            if not any(t.evidence_required for t in plan.tasks) and \
-                    not plan.evidence_requirements:
+            # ``evidence_requirements`` are strings the planner wrote; they describe an
+            # intention and nothing executes them. Under a policy that requires claim
+            # support, only a task that declares ``evidence_required`` — which the
+            # evaluator checks — counts as producing evidence. Accepting the strings let
+            # a plan satisfy the strictest policy by wording alone.
+            if not any(t.evidence_required for t in plan.tasks):
                 out.append(PlanViolation(
                     "scientific", "",
-                    "this policy requires claim support but no task in the plan produces "
-                    "evidence, so nothing the plan returns could be supported"))
+                    "this policy requires claim support but no task in the plan declares "
+                    "evidence_required, so nothing the plan returns could be supported; "
+                    "plan-level evidence_requirements are documentation, not a check"))
 
 
 # ------------------------------------------------------------------- helpers

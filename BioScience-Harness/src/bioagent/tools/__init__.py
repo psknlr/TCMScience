@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
 from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
-               stats, survival, variants)
+               stats, survival, tcm, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -36,7 +36,7 @@ DOMAINS: Mapping[str, str] = {
     "variant-analysis": "genomics", "statistics": "general",
     "clinical-calculators": "clinical", "pharmacology": "clinical",
     "survival-analysis": "clinical", "population-genetics": "genomics",
-    "phylogenetics": "genomics",
+    "phylogenetics": "genomics", "tcm-knowledge": "clinical",
 }
 
 
@@ -445,6 +445,22 @@ TOOLS: tuple[NativeTool, ...] = (
        {"ast_u_l": 80, "ast_upper_limit_normal_u_l": 40, "platelets_10e9_per_l": 100}, "hepatology"),
     _t("homa_ir", clinical.homa_ir, "clinical-calculators",
        {"fasting_glucose_mg_dl": 100, "fasting_insulin_uU_ml": 10}, "diabetes", "metabolism"),
+    # ------------------------------------------------------------- tcm knowledge
+    _t("tcm_lookup", tcm.tcm_lookup, "tcm-knowledge", {"name": "黄芪"},
+       "tcm", "herb", "formula", "disambiguation"),
+    _t("tcm_herb", tcm.tcm_herb, "tcm-knowledge", {"name": "黄芪"}, "tcm", "herb", "materia-medica"),
+    _t("tcm_formula", tcm.tcm_formula, "tcm-knowledge", {"name": "桂枝汤"},
+       "tcm", "formula", "prescription"),
+    _t("tcm_syndrome", tcm.tcm_syndrome, "tcm-knowledge", {"name": "脾胃气虚证"},
+       "tcm", "syndrome", "pattern"),
+    _t("tcm_compatibility", tcm.tcm_compatibility, "tcm-knowledge", {"herbs": ["甘草", "甘遂"]},
+       "tcm", "safety", "incompatibility"),
+    _t("tcm_applicability", tcm.tcm_applicability, "tcm-knowledge",
+       {"subject": "桂枝汤", "object": "太阳中风证", "claim_kind": "attribution"},
+       "tcm", "evidence", "scope"),
+    _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence"),
+    _t("tcm_classical_search", tcm.tcm_classical_search, "tcm-knowledge", {"query": "桂枝汤主之"},
+       "tcm", "classics", "search"),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}
@@ -501,7 +517,7 @@ class NativeToolProvider:
 
         for t in TOOLS:
             yield ComponentManifest(
-                id=t.component_id, kind="tool", name=t.name, version="0.2.5",
+                id=t.component_id, kind="tool", name=t.name, version="0.2.6",
                 description=t.description[:400], domain=t.domain,
                 omics_type=DOMAINS[t.domain],
                 provider=Provider(project="bioagent", source_path=f"src/bioagent/tools/{t.fn.__module__.rsplit('.', 1)[-1]}.py"),

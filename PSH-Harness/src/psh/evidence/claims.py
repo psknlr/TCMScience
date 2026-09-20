@@ -323,7 +323,19 @@ _ASSAY_PREFIX = ("serum", "plasma", "urinary", "urine", "blood", "circulating", 
                  # Outcome nouns that can head a passive clause ("Hospitalization was
                  # reduced by X") -- the true subject follows "by", handled below.
                  "hospitalization", "hospitalisation", "mortality", "survival", "fracture",
-                 "death", "deaths", "risk", "outcome", "outcomes", "events")
+                 "death", "deaths", "risk", "outcome", "outcomes", "events",
+                 # Modals and hedges. "Empagliflozin may reduce hospitalization" parsed
+                 # with the subject "may": the word sits between the noun phrase and its
+                 # verb, and the mid-sentence pattern took it for the entity. A correctly
+                 # cited, signed, hedged claim was then refused for a subject mismatch
+                 # against its own source.
+                 "may", "might", "could", "can", "should", "would", "will", "shall", "must",
+                 "appears", "appeared", "seems", "seemed", "tends", "tended", "likely",
+                 "probably", "possibly", "potentially", "apparently")
+
+#: A modal or hedge that may sit between a claim's subject and its verb.
+_MODAL = (r"(?:(?:may|might|could|can|should|would|will|shall|must|appears?\s+to|seems?\s+to"
+          r"|tends?\s+to|is\s+likely\s+to|are\s+likely\s+to)\s+)?")
 
 _SUBJECT_PATTERNS: tuple[str, ...] = (
     # Passive voice: "Hospitalization ... was reduced BY empagliflozin". The agent follows
@@ -338,8 +350,8 @@ _SUBJECT_PATTERNS: tuple[str, ...] = (
     r"^\s*(?:the\s+|among\s+|in\s+)?([A-Z][A-Za-z0-9-]*(?:\s+[A-Z0-9][A-Za-z0-9-]*){0,2})"
     r"\s+(?:concentrations?\s+|levels?\s+)?"
     # An adverb may sit between the noun phrase and its verb ("P1NP independently
-    # predicted"), so allow one.
-    r"(?:\w+ly\s+)?"
+    # predicted"), so allow one; so may a modal ("Empagliflozin may reduce").
+    + _MODAL + r"(?:\w+ly\s+)?"
     r"(?:reduc|increas|improv|predict|associat|correlat|prevent|cure|eliminat|lower|rais"
     r"|worsen|had|was|were|is|does|did|showed|yielded)",
     # Anywhere in the sentence, for abstracts whose subject is not sentence-initial.
@@ -347,7 +359,8 @@ _SUBJECT_PATTERNS: tuple[str, ...] = (
     # ("..., empagliflozin reduced hospitalization"), and requiring a capital missed the
     # subject in most real abstracts — which silently disabled the subject check, because an
     # unextractable subject is reported as "not checked" rather than as a mismatch.
-    r"\b([A-Za-z][A-Za-z0-9-]{2,24})\s+(?:concentrations?\s+|levels?\s+)?(?:\w+ly\s+)?"
+    r"\b([A-Za-z][A-Za-z0-9-]{2,24})\s+(?:concentrations?\s+|levels?\s+)?" + _MODAL
+    + r"(?:\w+ly\s+)?"
     r"(?:reduc|increas|improv|predict|associat|correlat|prevent|lower|rais|worsen)\w*",
     r"^\s*([A-Z][A-Za-z0-9-]{1,24})\b",
 )

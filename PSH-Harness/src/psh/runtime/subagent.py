@@ -285,9 +285,13 @@ class LocalSubagentBackend:
                  registry: Any = None, model: Any = None,
                  model_invoke: Callable[[str], str] | None = None,
                  limits: LoopLimits | None = None, evaluator: Any = None,
-                 sleep: Callable[[float], None] = time.sleep) -> None:
+                 sleep: Callable[[float], None] = time.sleep,
+                 operations: Any = None) -> None:
         self.kernel = kernel
         self.planner_factory = planner_factory
+        #: The operation ledger, shared with every child: a side effect a child performs
+        #: is recorded where a restart of the whole tree can find it.
+        self.operations = operations
         self.registry = registry
         self.model = model
         self.model_invoke = model_invoke
@@ -304,7 +308,7 @@ class LocalSubagentBackend:
             self.kernel, planner=self.planner_factory(contract), registry=self.registry,
             model=self.model, model_invoke=self.model_invoke, limits=self.limits,
             evaluator=self.evaluator, cancellation=token, heartbeat=heartbeat,
-            sleep=self._sleep,
+            sleep=self._sleep, operations=self.operations,
             # A child may delegate further only through the same door. Passing ourselves
             # keeps the tree governed at every level; the budget's child() fractions and
             # max_delegations bound its depth.

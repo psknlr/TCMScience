@@ -10,9 +10,9 @@ packages built for different halves of one system, and the seam between them:
   tool call and delegation, quarantines output until a release gate rules on it, and keeps
   a hash-chained audit trail; plus the bounded agent runtime that runs *through* it.
 * **`BioScience-Harness/`** — the capability plane: 58 live-verified public biomedical
-  sources (153 typed operations), 139 native offline bioinformatics and clinical tools,
-  24 pinned bulk datasets, a 2,567-row capability catalogue, backends, a policy kernel and
-  a gated self-evolution pipeline.
+  sources (153 typed operations), 147 native offline bioinformatics, clinical and TCM
+  knowledge tools, 24 pinned bulk datasets, a 2,567-row capability catalogue, backends, a
+  policy kernel, a readiness doctor and a gated self-evolution pipeline.
 * **`bioagent.psh`** — the bridge. A BioScience capability becomes a PSH component; a call
   crosses both kernels, and the result carries the join of every label it touched.
 
@@ -23,8 +23,8 @@ single test is spent on it.
 
 | | Package | Version | Tests |
 | --- | --- | --- | --- |
-| Trusted kernel + agent runtime | `PSH-Harness/` | **0.5.2** | 543 |
-| Capability plane + bridge + toolkit + datasets | `BioScience-Harness/` | **0.2.5** | 543 unit-tier (2 skipped) + 64 connector |
+| Trusted kernel + agent runtime | `PSH-Harness/` | **0.5.3** | 636 |
+| Capability plane + bridge + toolkit + datasets | `BioScience-Harness/` | **0.2.6** | 597 unit-tier (2 skipped) + 64 connector |
 
 ---
 
@@ -33,17 +33,21 @@ single test is spent on it.
 **TCMScience 是一个面向生物医学与中医药研究的“受治理”智能体运行时。** 它由两个软件包和一条连接它们的桥组成：
 
 * **PSH-Harness（医师科学家工作台）**：可信内核 + 智能体运行时。每一个进入系统的值都会在入口处被分类打标（`PUBLIC < INTERNAL < RESEARCH_DEIDENTIFIED < SENSITIVE < PHI`），每一次运行都持有一个只能收窄、不能放宽的权限信封（`RunEnvelope`），每一次模型调用、工具调用和子代理委派都必须经过执行代理（`ExecutionBroker`）和对应的门（`ModelGateway` / `ToolGateway` / `DelegationGateway`），模型输出先进入隔离区，只有通过发布门（`OutputGate`）才会被放出，全过程写入哈希链审计日志。运行时（有界的计划‑执行‑观察‑评估循环、类型化规划器、检查点/恢复、上下文编译与压缩、受治理的项目记忆召回、监督者/工作池、租约与幂等键、MCP/A2A 适配器）**只能通过代理行动**，没有第四条路径。
-* **BioScience-Harness（能力平面）**：58 个经真实联网验证的公共生物医学数据源 / 153 个类型化操作（NCBI、Ensembl、UniProt、ChEMBL、Open Targets、ClinicalTrials.gov、openFDA、Wikidata/LOTUS 天然产物等）；139 个零依赖、可离线运行的原生工具（序列分析、蛋白质、比对、格式解析、变异注释、统计推断、生存分析、群体遗传、系统发育、药动学与剂量、55 个临床计算器）；24 个已固定大小/校验和的批量数据集（NPASS、CMAUP、NP Atlas、LOTUS、HGNC、Reactome、STRING、gnomAD、NCBI Taxonomy 等）；2,567 行能力目录；策略内核、多种执行后端和带内核边界的自进化流水线。
+* **BioScience-Harness（能力平面）**：58 个经真实联网验证的公共生物医学数据源 / 153 个类型化操作（NCBI、Ensembl、UniProt、ChEMBL、Open Targets、ClinicalTrials.gov、openFDA、Wikidata/LOTUS 天然产物等）；147 个零依赖、可离线运行的原生工具（序列分析、蛋白质、比对、格式解析、变异注释、统计推断、生存分析、群体遗传、系统发育、药动学与剂量、55 个临床计算器、8 个中医药知识工具）；24 个已固定大小/校验和的批量数据集（NPASS、CMAUP、NP Atlas、LOTUS、HGNC、Reactome、STRING、gnomAD、NCBI Taxonomy 等）；2,567 行能力目录；策略内核、多种执行后端和带内核边界的自进化流水线。
+* **`bioagent.tcm` 中医药知识层**：药材（性味归经、功效、毒性、炮制品）、方剂（君臣佐使）、证候、经典条文、研究证据、安全记录（含十八反）的类型化模型；证据分级（经典记载 → 专家经验 → 临床前 → 病例 → 观察性 → RCT → 系统评价）决定一种论断需要哪一级证据——经典条文可以支持“记载/主治”，不能支持“疗效”；证据的人群与病种范围之外的论断标记为外推。
 * **`bioagent.psh` 桥**：把 BioScience 的每一个能力推导为 PSH 组件清单（目的地、数据上限、风险、许可证），一次调用同时经过两个内核。中医药相关的资源（TCMSP、HERB、SymMap、BATMAN‑TCM、ETCM）目前没有稳定的可下载文件，因此以 BIDD 的 NPASS/CMAUP 表和 Wikidata 上的 LOTUS 数据作为可验证的替代数据路径，文档中如实说明。
 
 **快速开始（三步）：**
 
 ```bash
 git clone https://github.com/psknlr/TCMScience.git && cd TCMScience
-cd PSH-Harness        && pip install pytest hypothesis && PYTHONPATH=src python -m pytest -q      # 543 通过
-cd ../BioScience-Harness && pip install -e ".[dev]"   && python -m pytest -q -m unit              # 543 通过
+cd PSH-Harness        && pip install pytest hypothesis && PYTHONPATH=src python -m pytest -q      # 636 通过
+cd ../BioScience-Harness && pip install -e ".[dev]"   && python -m pytest -q -m unit              # 597 通过
+PYTHONPATH=src:../PSH-Harness/src python -m bioagent.cli doctor                                   # 本机就绪度报告
 PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py   # 联网演示：一个计划穿过两个内核
 ```
+
+**2026‑09‑18 架构审查（F01–F12）已全部闭环**：循环结果与单次运行走同一条发布路径；输出标签继承上下文；不允许持久化的运行其检查点只保留计划形状；中文病历标识（住院号、身份证、手机号、出生日期、地址）由回退分类器识别；任务间数据通过类型化 `InputBinding` 传递；父运行预算汇总子任务消耗；模式检查严格、人工判据未评判即“待验证”；持久化操作账本让崩溃后的副作用不被重放；中英双语检索词；隔离能力以报告形式给出并可被策略要求。逐条说明见 `PSH-Harness/docs/REVIEW_RESPONSE_2026-09-18.md`。
 
 下文的英文部分给出完整的架构图、可运行的代码示例、能力清单、"已强制 / 仅声明"的诚实边界和路线图。
 
@@ -54,37 +58,42 @@ PYTHONPATH=src:../PSH-Harness/src python demo_convergence.py   # 联网演示：
 ```mermaid
 flowchart TB
     subgraph RT["Agent runtime — psh.runtime (acts only through the broker)"]
-        LOOP["AgentLoopController<br/>bounded plan / act / observe / evaluate<br/>parallel branches, checkpoints, cancellation"]
+        LOOP["AgentLoopController<br/>bounded plan / act / observe / evaluate<br/>input bindings, operation ledger, checkpoints, cancellation"]
+        REL["Finalizer → ReleasedResult<br/>every loop result leaves through the same quarantine, verification and release gate"]
         PLAN["ModelPlanner + PlanValidator<br/>typed plans — an escalating plan is refused and fed back"]
         SUP["Supervisor + WorkerPool<br/>fan-out / fan-in, leases, idempotency keys"]
         CTX["ContextCompiler + Compactor + MemoryRetriever<br/>one labelled projection per worker"]
         PROTO["MCP / A2A adapters<br/>external tools and agents, no new gate"]
     end
     subgraph KERNEL["TrustedKernel — psh.kernel (immutable from inside the system)"]
-        ING["IngressClassifier<br/>every value labelled at ingress"]
+        ING["IngressClassifier<br/>every value labelled at ingress — English and Chinese PHI cues"]
         LAT["AuthorityLattice + PolicyLattice<br/>envelopes and policies only narrow"]
         BROKER["ExecutionBroker<br/>call_model · call_tool · delegate"]
         GATES["ModelGateway · ToolGateway · DelegationGateway<br/>label vs destination ceiling, every destination"]
         OUT["Quarantine + OutputGate<br/>released_output stays None unless the gate passes"]
         AUD["Hash-chained audit + PersistenceGateway<br/>WorkGraph = project memory, verified claims only"]
+        ISO["IsolatedRunner + IsolationReport<br/>what the sandbox confines, stated; a policy may require it"]
     end
     subgraph BRIDGE["bioagent.psh — the seam"]
         BR["BioScienceBridge<br/>manifest derivation · BridgedComponent · domain harnesses · isolated entrypoint"]
     end
     subgraph CAP["BioScience capability plane — bioagent"]
         CONN["58 public sources<br/>153 typed operations"]
-        TOOLS["139 native offline tools<br/>11 domains"]
+        TOOLS["147 native offline tools<br/>12 domains, incl. bioagent.tcm knowledge"]
         DATA["24 pinned bulk datasets<br/>2,567-row catalogue"]
         PK["PolicyKernel + backends<br/>python · http · dataset · subprocess · container · mcp"]
         EVO["EvolutionPipeline<br/>propose → boundary → test → benchmark → policy → promote"]
+        DOC["bioagent doctor<br/>readiness: backends, datasets, tools, PSH detector and sandbox"]
     end
     LOOP --> BROKER
+    LOOP --> REL --> OUT
     PLAN --> BROKER
     SUP --> BROKER
     PROTO --> BROKER
     CTX --> LOOP
     ING --> LAT --> BROKER --> GATES --> BR
     GATES --> OUT --> AUD
+    BROKER --> ISO
     BR --> PK
     PK --> CONN
     PK --> TOOLS
@@ -97,15 +106,15 @@ The same picture in plain text, for terminals:
 ```
           Agent runtime (psh.runtime): bounded loop, typed planner, checkpoint/resume,
           compaction, governed memory recall, supervisor + worker pool, leases,
-          idempotency, MCP/A2A adapters
+          input bindings, operation ledger, one release path, MCP/A2A adapters
                                     |  every action is one of three broker calls
           PSH TrustedKernel: classification at ingress, authority + policy lattices,
           model/tool/delegation gates, quarantine + release gate, hash-chained audit,
           persistence gateway over the WorkGraph
                                     |  bioagent.psh — a call crosses both kernels
           BioScience capability plane: 2,567-row catalogue, 58 live-verified public
-          sources / 153 typed operations, 139 native offline bio/clinical tools,
-          24 pinned bulk datasets, policy kernel, backends, gated evolution
+          sources / 153 typed operations, 147 native offline bio/clinical/TCM tools,
+          24 pinned bulk datasets, policy kernel, backends, doctor, gated evolution
 ```
 
 ### One governed pass
@@ -181,25 +190,27 @@ TCMScience/
 │   ├── src/psh/
 │   │   ├── kernel/                   ingress, authority, egress gates, broker, quarantine,
 │   │   │                             output gate, persistence, isolation, approvals, audit
-│   │   ├── runtime/                  runner, loop, planner, validator, evaluator, execgraph,
-│   │   │                             checkpoint, subagent, supervisor, idempotency
-│   │   ├── context/                  compiler, compaction, memory retrieval
+│   │   ├── runtime/                  runner, loop, finalize, service, planner, validator, evaluator,
+│   │   │                             execgraph, bindings, operations, checkpoint, subagent, supervisor
+│   │   ├── context/                  compiler, compaction, memory retrieval, bilingual terms
 │   │   ├── capabilities/             two-level registry with progressive schema disclosure
 │   │   ├── protocols/                MCP, A2A, harness and sable adapters
 │   │   ├── evidence/  workgraph/     claims, support, signing; the persistent WorkGraph
 │   │   ├── labels.py  policy.py  profiles.py  contracts.py  licensing.py  cli.py
-│   ├── tests/                        543 tests, property tests included
+│   ├── tests/                        636 tests, property tests included
 │   ├── benchmarks/  docs/
 ├── BioScience-Harness/               the capability plane (bioagent)
 │   ├── src/bioagent/
 │   │   ├── providers/                catalogue rows, SKILL.md trees, 58 public sources
-│   │   ├── tools/                    139 native tools in 11 domains
+│   │   ├── tools/                    147 native tools in 12 domains
+│   │   ├── tcm/                      typed TCM knowledge: herbs, 炮制, formulas, syndromes, classics,
+│   │   │                             evidence tiers, scope, 十八反
 │   │   ├── acquisition/              24 pinned bulk datasets and the verifying downloader
 │   │   ├── backends/                 python | http | dataset | subprocess | container | mcp | none
 │   │   ├── runtime/                  ComponentManifest, registry, events, hot reload, AgentSpec
 │   │   ├── psh/                      the PSH bridge (needs PSH-Harness; the rest does not)
 │   │   ├── evolution/                propose → boundary → test → benchmark → policy → promote
-│   │   ├── policy.py  config.py  status.py  cli.py
+│   │   ├── policy.py  config.py  status.py  cli.py  doctor.py
 │   ├── tests/  scripts/  data/  docs/
 │   ├── demo_convergence.py  demo_harness.py  demo_run.py
 ├── .github/workflows/ci.yml          both suites on Python 3.10 / 3.11 / 3.12; live verification manual
@@ -218,12 +229,12 @@ git clone https://github.com/psknlr/TCMScience.git && cd TCMScience
 
 # PSH-Harness: the full suite, then byte-compile
 cd PSH-Harness && pip install pytest hypothesis
-PYTHONPATH=src python -m pytest -q                          # 543 pass
+PYTHONPATH=src python -m pytest -q                          # 636 pass
 python -m compileall -q src
 
 # BioScience-Harness: the unit tier (no data lake, no network), the connector tests, the release gate
 cd ../BioScience-Harness && pip install -e ".[dev]"
-python -m pytest -q -m unit                                 # 543 pass, 2 skipped
+python -m pytest -q -m unit                                 # 597 pass, 2 skipped
 python -m pytest -q tests/test_public_sources.py            # 64 pass
 python scripts/make_release.py --check                      # every module tracked and importable
 ```
@@ -253,6 +264,7 @@ cd BioScience-Harness
 PYTHONPATH=src python -m bioagent.cli sources
 PYTHONPATH=src python -m bioagent.cli fetchable
 PYTHONPATH=src python -m bioagent.cli --dest ./data fetch lotus.dataset.260413_frozen_csv_gz
+PYTHONPATH=src:../PSH-Harness/src python -m bioagent.cli doctor [--json] [--smoke]   # readiness, with a remedy per problem
 ```
 
 ### Python: one governed pass
@@ -331,7 +343,7 @@ withheld at retrieval; the task still runs, with a quieter prompt.
 ```python
 from bioagent.tools import DOMAINS, TOOLS, tool
 
-print(len(TOOLS), len(DOMAINS))                   # 139 11
+print(len(TOOLS), len(DOMAINS))                   # 147 12
 print(tool("egfr_ckd_epi_2021").fn(creatinine_mg_dl=1.0, age_years=50, sex="female"))
 # {'egfr_ml_min_1_73m2': 68.6, 'kdigo_stage': 'G2', 'equation': 'CKD-EPI 2021 creatinine'}
 
@@ -365,9 +377,9 @@ live-verified host allowlisted, subprocess allowed), `sandbox-only`.
 from bioagent.psh import BioScienceBridge, default_runtime
 
 bridge = BioScienceBridge(kernel, default_runtime(catalogue=False, public_apis=False))
-admitted = bridge.admit_all()                     # 139 manifests, every one LOCAL_COMPUTE at the PHI ceiling
+admitted = bridge.admit_all()                     # 147 manifests, every one LOCAL_COMPUTE at the PHI ceiling
 registry = CapabilityRegistry()
-print(bridge.register_into(registry))             # {'components': 139, 'harnesses': 11}
+print(bridge.register_into(registry))             # {'components': 147, 'harnesses': 12}
 
 envelope = kernel.policy.envelope()
 for hit in registry.resolve("estimate kidney function from creatinine", envelope, limit=3):
@@ -380,7 +392,7 @@ kernel.close()
 ```
 
 Pass `default_runtime()` with its defaults to admit the public connectors and the
-catalogue as well; the eleven toolkit domains and every connector domain become harnesses
+catalogue as well; the twelve toolkit domains and every connector domain become harnesses
 in PSH's two-level registry, so a planner sees summaries to *choose* and schemas to
 *call*, never 2,700 manifests at once.
 
@@ -394,13 +406,15 @@ in PSH's two-level registry, so a planner sees summaries to *choose* and schemas
 | Authority and policy lattices: envelopes and policies only narrow, on every dimension | `kernel/authority.py`, `policy.py` |
 | Broker with three calls; model, tool and delegation gates; every destination checked | `kernel/egress.py` |
 | Quarantine, release gate, claim support, evidence records | `kernel/output_gate.py`, `evidence/` |
+| One release path for a loop's deliverable: `Finalizer` → `ReleasedResult`; `ResearchRunService` as the door | `runtime/finalize.py`, `runtime/service.py` |
 | Persistence gateway over the WorkGraph; rejected claims stored as hash + reason | `kernel/persistence.py`, `workgraph/` |
-| Isolated executor: clean environment, process group, limits; sandbox seam | `kernel/isolation.py` |
-| Bounded loop, typed plans, validator, layered evaluator, parallel branches | `runtime/loop.py`, `plan*.py`, `evaluator.py` |
+| Isolated executor: clean environment, process group, limits; sandbox seam; `IsolationReport` and `require_os_isolation` | `kernel/isolation.py`, `policy.py` |
+| Bounded loop, typed plans with `InputBinding`, validator, strict layered evaluator, parallel branches | `runtime/loop.py`, `plan*.py`, `bindings.py`, `evaluator.py` |
+| Budget tree (a run is charged for its tasks and children); durable `OperationLedger` for replay safety | `kernel/budget.py`, `runtime/operations.py` |
 | Model planner with validator-driven correction and delegation disclosure | `runtime/planner.py` |
-| Checkpoint / resume with authority re-met on resume | `runtime/checkpoint.py` |
+| Checkpoint / resume with authority re-met on resume; redacted records for runs that may not persist | `runtime/checkpoint.py` |
 | Supervisor, worker pool, leases, cancellation, idempotency keys | `runtime/supervisor.py`, `subagent.py`, `idempotency.py` |
-| Context compiler, compaction, memory retrieval | `context/` |
+| Context compiler, compaction, memory retrieval, bilingual (中/EN) retrieval terms | `context/` |
 | MCP and A2A adapters that add no gate | `protocols/` |
 | Eight work-mode profiles (`literature`, `clinical_research`, `data_science`, `writing`, `peer_review`, `coding`, `learning`, `administrative`) | `profiles.py` |
 
@@ -419,6 +433,7 @@ in PSH's two-level registry, so a planner sees summaries to *choose* and schemas
 | Native tools: survival analysis | 2 | Kaplan–Meier, log-rank |
 | Native tools: population genetics | 3 | linkage disequilibrium, nucleotide diversity with Tajima's D, F_ST |
 | Native tools: phylogenetics | 5 | JC69/K2P distances, neighbor joining, UPGMA, Newick, patristic distances |
+| Native tools: TCM knowledge | 8 | lookup with disambiguation, herb, formula (君臣佐使), syndrome, 十八反 compatibility, evidence-tier applicability, classical search |
 | Native tools: clinical calculators | 55 | CKD-EPI 2021, MELD-Na, CHA₂DS₂-VASc, Wells, CURB-65, NEWS2, SOFA, Pooled Cohort Equations, acid–base interpretation, HEART, TIMI, FIB-4, APRI, HOMA-IR |
 | Bulk datasets | 24 | HGNC, Reactome, STRING, gnomAD constraint, ChEMBL mapping, KEGG pathways, NPASS 2.0, CMAUP 2.0, NP Atlas, LOTUS, NCBI Taxonomy, CellMarker 3.0 |
 | Catalogue | 2,567 rows | capabilities from 16 upstream biomedical agent projects, with provenance and licence class |
@@ -453,7 +468,12 @@ Stated plainly, not enforced:
 * a `backend="python"` component runs in the kernel process and is confined by nothing;
   `require_isolated_tools=True` is how a policy refuses it;
 * the egress proxy governs clients that honour proxy variables; a raw socket bypasses it.
-  `SandboxBackend` is the seam for the OS layer; only `NoSandbox` ships, and says so;
+  `SandboxBackend` is the seam for the OS layer; only `NoSandbox` ships. The kernel's
+  `IsolationReport` states that in data, and a policy with `require_os_isolation=True` is
+  refused at construction rather than run on a promise;
+* the TCM knowledge base is a typed seed from public-domain texts, the pharmacopoeia and a
+  textbook; it holds no clinical studies, and a study above the expert tier cannot be added
+  without a PMID, DOI or registry id;
 * BioScience's policy kernel rules on what a component *declares* (hosts, paths) and refuses
   by mechanism only licence, subprocess and unconfinable writes; genuine isolation needs a
   container runtime, and the harness reports whether one is present rather than assuming;
@@ -472,6 +492,11 @@ Stated plainly, not enforced:
 | Governed memory recall; planner told when it may delegate | done, v0.5.2 |
 | PSH ⊕ BioScience bridge, kernel boundary in the evolution pipeline | done, BioScience v0.2.4 |
 | 139 native tools; pinned natural-product datasets | done, BioScience v0.2.5 |
+| Third review (F01–F12): one release path, inherited labels, redacted checkpoints, Chinese PHI cues, input bindings, budget tree, strict evaluation, operation ledger, bilingual retrieval, outcome telemetry | done, v0.5.3 |
+| Isolation report + `require_os_isolation`; typed TCM knowledge layer with evidence tiers and scope; `bioagent doctor` | done, v0.5.3 / BioScience v0.2.6 |
+| An OS sandbox backend (bubblewrap+seccomp, Seatbelt) shipped with the kernel | open |
+| TCM knowledge beyond the seed: curated studies with citations, 十九畏, more formulas and syndromes | open |
+| A public, reproducible real-task benchmark across both kernels | open |
 | Distributed workers across processes | open |
 | A2A polling for long-running remote tasks | open |
 | Semantic memory ranking (today lexical, deliberately egress-free) | open |
@@ -494,6 +519,8 @@ Stated plainly, not enforced:
 * `PSH-Harness/README.md` — the kernel, the runtime, and what is enforced versus stated.
 * `PSH-Harness/docs/V5_1_GATE_COMPOSITION_CLOSURE.md` — the second review's findings,
   reproduced, fixed and tested.
+* `PSH-Harness/docs/REVIEW_RESPONSE_2026-09-18.md` — the third review, F01–F12: each finding
+  reproduced with a probe, fixed, tested; what the seed and the sandbox still do not claim.
 * `PSH-Harness/docs/RUNTIME_SECURITY_REVIEW.md` — the adversarial review of the runtime:
   labels travel across every edge of the loop, the broker no longer trusts a projection,
   and the read side of project memory.

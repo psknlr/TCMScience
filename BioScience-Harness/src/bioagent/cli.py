@@ -1,8 +1,9 @@
-"""bioagent command line: fetch datasets, list what is fetchable, verify sources.
+"""bioagent command line: fetch datasets, list what is fetchable, verify sources, doctor.
 
     python -m bioagent.cli fetch <component_id|filename> [--confirm]
     python -m bioagent.cli fetchable
     python -m bioagent.cli sources
+    python -m bioagent.cli doctor [--json] [--smoke]
 """
 
 from __future__ import annotations
@@ -30,9 +31,19 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument("--confirm", action="store_true", help="allow downloads above the size gate")
     sub.add_parser("fetchable", help="list datasets that can be fetched")
     sub.add_parser("sources", help="list public API connectors")
+    d = sub.add_parser("doctor", help="report what this installation can do, and what it cannot")
+    d.add_argument("--json", action="store_true", help="machine-readable report")
+    d.add_argument("--smoke", action="store_true", help="also run every native tool's example")
     a = ap.parse_args(argv)
 
     dest = Path(a.dest) if getattr(a, "dest", None) else data_lake_dir()
+    if a.cmd == "doctor":
+        from .doctor import diagnose, render
+
+        report = diagnose(data_lake=dest, smoke=a.smoke)
+        print(json.dumps(report, indent=1, ensure_ascii=False, default=str) if a.json
+              else render(report))
+        return 0 if report["verdict"] != "blocked" else 1
     reg = _registry()
     if a.cmd == "fetchable":
         present = {p.name for p in dest.iterdir()} if dest.is_dir() else set()

@@ -42,6 +42,13 @@ except Exception:  # pragma: no cover
     SABLE_AVAILABLE = False
 
 
+#: The hundred most common Chinese surnames, as a character class. A name rule anchored
+#: only on 患者 flagged "患者出现头痛" as a name; anchoring the name on a surname keeps
+#: ordinary clinical prose out while catching the record-shaped 患者张三 and 患者王五 男.
+_CJK_SURNAMES = ("[王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹彭曾萧田董袁潘于蒋蔡余杜叶"
+                 "程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎"
+                 "贺顾毛郝龚邵万钱严覃武戴莫孔向汤肖]")
+
 #: Fallback patterns, used only when sable is absent. Narrower than sable's rule set:
 #: no semantic validators, no research-identifier allowlist. Kept minimal on purpose —
 #: a half-built detector that looks complete is worse than one that admits its scope.
@@ -58,6 +65,37 @@ _FALLBACK_RULES: tuple[tuple[str, "re.Pattern[str]", Sensitivity], ...] = (
      re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b"), Sensitivity.PHI),
     ("name_cued",
      re.compile(r"\b(?i:patient|mr|mrs|ms)\.?\s*[:,]?\s+([A-Z][a-z]{1,20}\s+[A-Z][a-z]{1,20})\b"),
+     Sensitivity.PHI),
+    # --- Chinese clinical identifiers. A reviewer showed 患者张三，住院号：12345678，
+    # 出生日期：1980-01-01 classified INTERNAL while its English counterpart was PHI, and
+    # INTERNAL sits below the public-remote ceiling. Every rule is anchored on a cue or a
+    # number shape so that research prose about 患者 in general is not flagged.
+    ("chinese_patient_name",
+     re.compile(r"(?:患者姓名|病人姓名|姓名)\s*[:：]\s*([\u4e00-\u9fff]{2,4})(?![\u4e00-\u9fff])"
+                r"|(?:患者|病人|病员)\s*(" + _CJK_SURNAMES + r"[\u4e00-\u9fff]{1,2})"
+                r"(?=[，,。；;：:（(）)\s]|$|男|女|\d)"),
+     Sensitivity.PHI),
+    ("chinese_record_number",
+     re.compile(r"(?:住院号|病案号|病历号|门诊号|就诊号|登记号|住院病历号|门诊病历号|病人号)"
+                r"\s*[:：]?\s*([A-Za-z]?\d{4,12})"),
+     Sensitivity.PHI),
+    ("chinese_resident_id",
+     re.compile(r"(?:身份证号码|身份证号|身份证|公民身份号码)\s*[:：]?\s*(\d{15}|\d{17}[\dXx])"
+                r"|(?<!\d)[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])"
+                r"\d{3}[\dXx](?![\dXx])"),
+     Sensitivity.PHI),
+    ("chinese_mobile_number",
+     re.compile(r"(?<![\d.-])1[3-9]\d{9}(?![\d.-])"), Sensitivity.PHI),
+    ("chinese_date_of_birth",
+     re.compile(r"(?:出生日期|出生年月日|出生年月|生日)\s*[:：]?\s*"
+                r"\d{4}\s*[-/.年]\s*\d{1,2}(?:\s*[-/.月]\s*\d{1,2}\s*日?)?"),
+     Sensitivity.PHI),
+    ("chinese_address",
+     re.compile(r"(?:家庭住址|现住址|户籍地址|住址|地址)\s*[:：]?\s*"
+                r"[\u4e00-\u9fff]{2,}(?:省|市|区|县|镇|乡|村|路|街|道|号|弄|巷)"),
+     Sensitivity.PHI),
+    ("name_cued_cjk",
+     re.compile(r"\b(?i:patient(?:\s+name)?)\s*[:：]?\s*([\u4e00-\u9fff]{2,4})(?![\u4e00-\u9fff])"),
      Sensitivity.PHI),
 )
 
@@ -153,6 +191,16 @@ _FIELD_CUES: tuple[tuple[str, str], ...] = (
     (r"last_?name|surname|family|lname|^last$", "Patient last name"),
     (r"^name$|full_?name|patient_?name", "Patient name"),
     (r"address|street", "Address"),
+    # Chinese field names. ``_recombine_fields`` writes the cue beside the value, so a
+    # structured record whose keys are 姓名 / 住院号 / 身份证 is scanned by the same rules
+    # as prose. Keys are lower-cased before matching; CJK is unaffected.
+    (r"患者姓名|病人姓名|^姓名$|姓名", "Patient name"),
+    (r"住院号|病案号|病历号|门诊号|就诊号|登记号", "住院号"),
+    (r"身份证", "身份证号"),
+    (r"手机|电话|联系方式|联系电话", "phone"),
+    (r"出生日期|出生年月|生日", "出生日期"),
+    (r"住址|地址", "住址"),
+    (r"邮箱|电子邮件", "email"),
 )
 
 
@@ -205,12 +253,29 @@ class Classifier:
         Use the predecessor's validated detector when available.
     """
 
+    #: Origin prefixes that mark a value as coming from a clinical record. The label a
+    #: clinical source implies does not depend on whether a scan recognises the language
+    #: the record is written in.
+    CLINICAL_ORIGIN_PREFIXES: tuple[str, ...] = ("clinical", "ehr", "emr", "his", "patient_record",
+                                                 "chart")
+
     def __init__(self, *, default_sensitivity: Sensitivity = Sensitivity.INTERNAL,
                  prefer_sable: bool = True) -> None:
         self.default_sensitivity = default_sensitivity
         self._phi = _SablePHIDetector() if (prefer_sable and SABLE_AVAILABLE) else None
         self.detector_name = "sable.PHIDetector" if self._phi else "psh.fallback"
         self.classifications = 0
+
+    @classmethod
+    def is_clinical_origin(cls, origin: str) -> bool:
+        head = (origin or "").lower()
+        return any(head == p or head.startswith(p + ":") or head.startswith(p + "_")
+                   or head.startswith(p + "/") for p in cls.CLINICAL_ORIGIN_PREFIXES)
+
+    @property
+    def validated(self) -> bool:
+        """True when the validated detector (sable) is in use rather than the fallback."""
+        return self._phi is not None
 
     # ------------------------------------------------------------------ scanning
     def classify_text(self, text: str, *, origin: str = "") -> ClassificationResult:
@@ -224,6 +289,12 @@ class Classifier:
         categories: list[str] = []
         sensitivity = (Sensitivity.PUBLIC if origin == "public_source"
                        else self.default_sensitivity)
+        if self.is_clinical_origin(origin):
+            # Provenance is a stronger fact than a regex miss. A value the caller says came
+            # from a chart, an EHR export or a patient form starts at PHI; the scan below
+            # can only raise it further.
+            categories.append("clinical_source")
+            sensitivity = max(sensitivity, Sensitivity.PHI)
 
         for name, pattern in _SECRET_RULES:
             if pattern.search(text):
