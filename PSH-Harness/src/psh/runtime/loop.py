@@ -659,7 +659,9 @@ class AgentLoopController:
                 payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
             if idempotency_key:
                 payload["_psh_idempotency_key"] = idempotency_key
-            result = broker.call_tool(component, payload, envelope)
+            labeled_payload = (Labeled(payload, DataLabel(task.input_sensitivity))
+                               if task.input_sensitivity else payload)
+            result = broker.call_tool(component, labeled_payload, envelope)
             caveats = tuple(getattr(result, "warnings", ()) or ())
             return getattr(result, "value", result), getattr(result, "label", None), caveats
 
@@ -691,6 +693,8 @@ class AgentLoopController:
     def _instruction_label(self, task: PlanTask, plan_label: Any) -> DataLabel:
         """The label of a task's objective text: the plan's label joined with its own."""
         own = classify_with(self.kernel, task.objective, origin=f"task:{task.task_id}")
+        if task.input_sensitivity:
+            own = own.merged_with(DataLabel(task.input_sensitivity))
         return own if plan_label is None else own.merged_with(plan_label)
 
     def _projection(self, task: PlanTask, envelope: RunEnvelope,

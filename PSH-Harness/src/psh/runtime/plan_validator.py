@@ -326,6 +326,8 @@ def task_envelope(task: PlanTask, parent: RunEnvelope) -> RunEnvelope:
     """
     from ..contracts import _autonomy_rank
 
+    if task.input_sensitivity > min(task.max_label, parent.max_label.sensitivity):
+        raise PolicyDenied("known input sensitivity exceeds the task/run ceiling")
     return parent.restrict(
         task_id=task.task_id,
         # Ceilings: the lower of the task's and the run's.

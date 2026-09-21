@@ -243,10 +243,15 @@ class PlanTask:
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     #: Arguments filled from upstream results. Each names a task in ``dependencies``.
     inputs: tuple[InputBinding, ...] = ()
+    #: Known data sensitivity floor, preserved through compilation and checkpoints.
+    #: Unlike max_label (a ceiling), this can only raise the runtime ingress label.
+    input_sensitivity: Sensitivity = Sensitivity.PUBLIC
 
     def __post_init__(self) -> None:
         if not self.task_id:
             raise ValueError("a plan task requires an id")
+        if not isinstance(self.input_sensitivity, Sensitivity):
+            raise ValueError("input_sensitivity must be a Sensitivity")
         if not self.objective.strip():
             raise ValueError(f"plan task {self.task_id!r} requires an objective")
         if self.kind not in _KINDS:
@@ -298,6 +303,7 @@ class PlanTask:
                                  for t in self.acceptance_tests],
             "evidence_required": self.evidence_required,
             "inputs": [b.to_dict() for b in self.inputs],
+            "input_sensitivity": self.input_sensitivity.name,
             "retry": {"max_attempts": self.retry.max_attempts,
                       "initial_delay_s": self.retry.initial_delay_s,
                       "factor": self.retry.factor,
@@ -329,6 +335,7 @@ class PlanTask:
                 for t in data.get("acceptance_tests") or ()),
             evidence_required=bool(data.get("evidence_required")),
             inputs=tuple(InputBinding.from_dict(b) for b in data.get("inputs") or ()),
+            input_sensitivity=Sensitivity[data.get("input_sensitivity", "PUBLIC")],
             retry=RetryPolicy(
                 max_attempts=int(retry.get("max_attempts", 1)),
                 initial_delay_s=float(retry.get("initial_delay_s", 0.0)),
