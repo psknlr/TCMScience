@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from ..contracts import RunEnvelope
+from ..contracts import PolicyDenied, RunEnvelope
 from ..labels import DataLabel, Destination, Sensitivity
 from ..runtime.plan import Plan, TaskKind
 from ..runtime.plan_validator import PlanRejected, PlanValidator, PlanViolation, ValidatedPlan
@@ -46,8 +46,9 @@ class Compilation:
 
 
 class ScientificCompiler:
-    def __init__(self, registry: Any = None) -> None:
+    def __init__(self, registry: Any = None, *, scientific_ledger: Any = None) -> None:
         self.validator = PlanValidator(registry=registry)
+        self.scientific_ledger = scientific_ledger
 
     def compile(self, program: ScientificProgram, envelope: RunEnvelope, *,
                 policy: Any = None, input_label: DataLabel | None = None) -> Compilation:
@@ -70,8 +71,28 @@ class ScientificCompiler:
                 for code, detail in contract.statistics.violations():
                     reject(code, tid, detail)
             effective = validated.envelope_for(tid)
+            registered_label = Sensitivity.PUBLIC
+            if contract.protocol_binding is not None:
+                binding = contract.protocol_binding
+                if contract.statistics is None:
+                    reject("PROTOCOL101", tid, "bound task requires a statistical design")
+                if self.scientific_ledger is None:
+                    reject("PROTOCOL102", tid, "bound task requires a scientific ledger")
+                else:
+                    try:
+                        registered, record_label = self.scientific_ledger.resolve_protocol(
+                            binding.record_id, effective)
+                    except (PolicyDenied, ValueError, TypeError, KeyError):
+                        # Do not echo stored content, IDs or underlying exception text.
+                        reject("PROTOCOL103", tid, "registered protocol unavailable, invalid or unauthorized")
+                    else:
+                        registered_label = record_label.sensitivity
+                        if registered.fingerprint != binding.fingerprint:
+                            reject("PROTOCOL104", tid, "registered protocol fingerprint differs from binding")
+                        if contract.statistics is not None and registered != contract.statistics.protocol:
+                            reject("PROTOCOL105", tid, "analysis protocol differs from registered protocol")
             # All dependencies carry data in today's loop, even without InputBinding.
-            label = max((contract.sensitivity, task.input_sensitivity,
+            label = max((contract.sensitivity, task.input_sensitivity, registered_label,
                          input_label.sensitivity if input_label else Sensitivity.PUBLIC,
                          *(labels[d] for d in task.dependencies)))
             labels[tid] = label
@@ -123,8 +144,11 @@ class ScientificCompiler:
                                 claim, dimension).strip().casefold():
                             reject("EVIDENCE104", tid, f"evidence/claim {dimension} mismatch")
 
-            hashes[tid] = digest({"task": task.to_dict(), "contract": contract.to_dict(),
-                                  "dependencies": {d: hashes[d] for d in task.dependencies}})
+            hash_input = {"task": task.to_dict(), "contract": contract.to_dict(),
+                          "dependencies": {d: hashes[d] for d in task.dependencies}}
+            if contract.protocol_binding is not None:
+                hash_input["registered_sensitivity"] = registered_label.name
+            hashes[tid] = digest(hash_input)
         if violations:
             raise PlanRejected("scientific compilation failed: " + "; ".join(
                 str(v) for v in violations[:8]), violations)
@@ -146,9 +170,9 @@ class ScientificPlanner:
     """
 
     def __init__(self, program: ScientificProgram, *, registry: Any = None,
-                 policy: Any = None) -> None:
+                 policy: Any = None, scientific_ledger: Any = None) -> None:
         self._program = json.loads(json.dumps(program.to_dict(), allow_nan=False))
-        self.compiler = ScientificCompiler(registry)
+        self.compiler = ScientificCompiler(registry, scientific_ledger=scientific_ledger)
         self.policy = policy
 
     def plan(self, state: Any, *, feedback: Any = None) -> Plan:

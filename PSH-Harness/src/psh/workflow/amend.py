@@ -19,7 +19,8 @@ class Amendment:
 
 def assess_amendment(old: ScientificProgram, new: ScientificProgram,
                      envelope: RunEnvelope, *, completed: Iterable[str] = (),
-                     registry: Any = None, policy: Any = None) -> Amendment:
+                     registry: Any = None, policy: Any = None,
+                     scientific_ledger: Any = None) -> Amendment:
     """Validate both versions against current authority and propagate invalidation.
 
     A candidate is only an unchanged, completed pure task. Before reusing any result,
@@ -28,7 +29,7 @@ def assess_amendment(old: ScientificProgram, new: ScientificProgram,
     """
     old = ScientificProgram.from_dict(old.to_dict())
     new = ScientificProgram.from_dict(new.to_dict())
-    compiler = ScientificCompiler(registry)
+    compiler = ScientificCompiler(registry, scientific_ledger=scientific_ledger)
     before = compiler.compile(old, envelope, policy=policy)
     after = compiler.compile(new, envelope, policy=policy)
     finished = set(completed)

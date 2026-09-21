@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import Any, Mapping
@@ -124,6 +125,22 @@ class ClaimSpec:
 
 
 @dataclass(frozen=True)
+class ProtocolBinding:
+    record_id: str
+    fingerprint: str
+
+    def __post_init__(self):
+        if (not isinstance(self.record_id, str) or not self.record_id
+                or self.record_id != self.record_id.strip()):
+            raise ValueError("protocol binding requires a canonical opaque record ID")
+        if not isinstance(self.fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", self.fingerprint):
+            raise ValueError("protocol binding requires a lowercase SHA-256 fingerprint")
+
+    def to_dict(self):
+        return dict(record_id=self.record_id, fingerprint=self.fingerprint)
+
+
+@dataclass(frozen=True)
 class TaskContract:
     # This is the declared input/data floor; PlanTask.max_label remains a ceiling.
     sensitivity: Sensitivity = Sensitivity.RESEARCH_DEIDENTIFIED
@@ -132,6 +149,7 @@ class TaskContract:
     evidence: EvidenceSpec | None = None
     claim: ClaimSpec | None = None
     statistics: StatisticalDesign | None = None
+    protocol_binding: ProtocolBinding | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.sensitivity, Sensitivity):
@@ -147,6 +165,8 @@ class TaskContract:
             raise ValueError("claim must be a ClaimSpec")
         if self.statistics is not None and not isinstance(self.statistics, StatisticalDesign):
             raise ValueError("statistics must be a StatisticalDesign")
+        if self.protocol_binding is not None and not isinstance(self.protocol_binding, ProtocolBinding):
+            raise ValueError("protocol_binding must be a ProtocolBinding")
 
     def to_dict(self) -> dict[str, Any]:
         result = dict(sensitivity=self.sensitivity.name,
@@ -157,6 +177,8 @@ class TaskContract:
         # Preserve the wire representation and fingerprints of legacy contracts.
         if self.statistics is not None:
             result["statistics"] = self.statistics.to_dict()
+        if self.protocol_binding is not None:
+            result["protocol_binding"] = self.protocol_binding.to_dict()
         return result
 
     @classmethod
@@ -164,6 +186,8 @@ class TaskContract:
         values = dict(data)
         if values.get("statistics") is not None:
             values["statistics"] = StatisticalDesign.from_dict(values["statistics"])
+        if values.get("protocol_binding") is not None:
+            values["protocol_binding"] = ProtocolBinding(**values["protocol_binding"])
         values["sensitivity"] = Sensitivity[values.get("sensitivity", "RESEARCH_DEIDENTIFIED")]
         values["effects"] = tuple(Effect(e) for e in _array(values.get("effects", ())))
         values["side_effect"] = SideEffect(values.get("side_effect", "non_repeatable"))
