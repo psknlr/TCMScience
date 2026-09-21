@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 from ..labels import Sensitivity
 from ..runtime.plan import Criterion, InputBinding, Plan, PlanTask, RetryPolicy, TestSpec
+from .statistics import StatisticalDesign
 
 
 class ClaimType(str, Enum):
@@ -130,6 +131,7 @@ class TaskContract:
     side_effect: SideEffect = SideEffect.NON_REPEATABLE
     evidence: EvidenceSpec | None = None
     claim: ClaimSpec | None = None
+    statistics: StatisticalDesign | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.sensitivity, Sensitivity):
@@ -143,17 +145,25 @@ class TaskContract:
             raise ValueError("evidence must be an EvidenceSpec")
         if self.claim is not None and not isinstance(self.claim, ClaimSpec):
             raise ValueError("claim must be a ClaimSpec")
+        if self.statistics is not None and not isinstance(self.statistics, StatisticalDesign):
+            raise ValueError("statistics must be a StatisticalDesign")
 
     def to_dict(self) -> dict[str, Any]:
-        return dict(sensitivity=self.sensitivity.name,
+        result = dict(sensitivity=self.sensitivity.name,
                     effects=[e.value for e in self.effects],
                     side_effect=self.side_effect.value,
                     evidence=self.evidence.to_dict() if self.evidence else None,
                     claim=self.claim.to_dict() if self.claim else None)
+        # Preserve the wire representation and fingerprints of legacy contracts.
+        if self.statistics is not None:
+            result["statistics"] = self.statistics.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> TaskContract:
         values = dict(data)
+        if values.get("statistics") is not None:
+            values["statistics"] = StatisticalDesign.from_dict(values["statistics"])
         values["sensitivity"] = Sensitivity[values.get("sensitivity", "RESEARCH_DEIDENTIFIED")]
         values["effects"] = tuple(Effect(e) for e in _array(values.get("effects", ())))
         values["side_effect"] = SideEffect(values.get("side_effect", "non_repeatable"))
