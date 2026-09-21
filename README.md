@@ -120,6 +120,12 @@ and in plan checkpoints.
 This is the first implementation increment, not the complete VNext architecture.
 See the [compiler guide, runnable example and remaining roadmap](PSH-Harness/docs/SCIENTIFIC_WORKFLOW.md).
 
+The next increment, `psh.scientist`, records hypotheses, preregistered protocols and
+observations in WorkGraph. Changes to a registered analysis require explicit
+deviation records; source labels and lineage are retained, and candidate findings
+are not automatically promoted to verified memory. See [scientific records and
+protocol deviations](PSH-Harness/docs/SCIENTIFIC_RECORDS.md).
+
 ```mermaid
 flowchart TB
     U["Scientific Question / Research Goal"]

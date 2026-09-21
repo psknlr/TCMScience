@@ -32,6 +32,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import threading
+from contextlib import contextmanager
+from functools import wraps
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -41,6 +44,14 @@ from ..contracts import new_id, utc_now
 from ..labels import DataLabel, Sensitivity
 
 __all__ = ["NodeKind", "EdgeKind", "Node", "Edge", "WorkGraph"]
+
+
+def _locked(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
 
 
 class NodeKind(str, Enum):
@@ -59,6 +70,9 @@ class NodeKind(str, Enum):
     #: A claim the release gate refused. Stored as a hash and a reason, never as
     #: retrievable text, so a rejected conclusion cannot be retrieved back into a prompt.
     REJECTED_CLAIM = "rejected_claim"
+    HYPOTHESIS = "hypothesis"
+    PROTOCOL = "protocol"
+    OBSERVATION = "observation"
 
 
 class EdgeKind(str, Enum):
@@ -152,6 +166,7 @@ class WorkGraph:
     """Persistent project graph. Outlives models, agents and skill sets."""
 
     def __init__(self, path: str | Path) -> None:
+        self._lock = threading.RLock()
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path), isolation_level=None,
@@ -162,6 +177,21 @@ class WorkGraph:
         self._conn.executescript(_SCHEMA)
 
     # ------------------------------------------------------------------- writes
+    @contextmanager
+    def transaction(self):
+        """Serialize graph operations and atomically commit related records/edges."""
+        with self._lock:
+            savepoint = new_id("graph_tx")
+            self._conn.execute(f"SAVEPOINT {savepoint}")
+            try:
+                yield self
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+            except BaseException:
+                self._conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                self._conn.execute(f"RELEASE SAVEPOINT {savepoint}")
+                raise
+
+    @_locked
     def add(self, kind: NodeKind | str, title: str, *, project_id: str = "",
             body: str = "", status: str = "open", label: DataLabel | None = None,
             ref: str = "", **meta: Any) -> Node:
@@ -181,12 +211,14 @@ class WorkGraph:
              json.dumps(dict(node.meta), default=str), node.created_at, node.updated_at))
         return node
 
+    @_locked
     def project(self, title: str, **kw: Any) -> Node:
         """Create a project. Its own id becomes its project_id, so it scopes itself."""
         node = self.add(NodeKind.PROJECT, title, **kw)
         self._conn.execute("UPDATE nodes SET project_id = id WHERE id = ?", (node.id,))
         return self.get(node.id)  # type: ignore[return-value]
 
+    @_locked
     def link(self, src: str | Node, dst: str | Node, kind: EdgeKind | str,
              note: str = "") -> Edge:
         """Create an edge. Idempotent on (src, dst, kind)."""
@@ -199,6 +231,7 @@ class WorkGraph:
                VALUES (?,?,?,?,?)""", (s, d, kind.value, note, edge.created_at))
         return edge
 
+    @_locked
     def update(self, node_id: str, **fields: Any) -> bool:
         """Update mutable node fields. Kind and id are immutable."""
         allowed = {"title", "body", "status", "ref"}
@@ -212,10 +245,12 @@ class WorkGraph:
         return bool(cur.rowcount)
 
     # -------------------------------------------------------------------- reads
+    @_locked
     def get(self, node_id: str) -> Node | None:
         row = self._conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
         return self._to_node(row) if row else None
 
+    @_locked
     def nodes(self, *, kind: NodeKind | str | None = None, project_id: str = "",
               status: str | None = None, limit: int = 200) -> list[Node]:
         clauses, params = [], []
@@ -231,6 +266,7 @@ class WorkGraph:
             (*params, limit))
         return [self._to_node(r) for r in rows]
 
+    @_locked
     def neighbours(self, node_id: str, *, kind: EdgeKind | str | None = None,
                    direction: str = "out") -> list[tuple[EdgeKind, Node]]:
         """Return adjacent nodes. ``direction`` is 'out', 'in', or 'both'."""
@@ -358,6 +394,7 @@ class WorkGraph:
                          f"SENSITIVE-or-higher data labels.")
         return "\n".join(lines).rstrip()
 
+    @_locked
     def stats(self) -> dict[str, Any]:
         by_kind = {r["kind"]: int(r["n"]) for r in self._conn.execute(
             "SELECT kind, COUNT(*) n FROM nodes GROUP BY kind ORDER BY n DESC")}
@@ -378,6 +415,7 @@ class WorkGraph:
             ref=row["ref"], meta=json.loads(row["meta"]),
             created_at=row["created_at"], updated_at=row["updated_at"])
 
+    @_locked
     def close(self) -> None:
         self._conn.close()
 
