@@ -2,7 +2,7 @@
 
 from .ir import (
     ClaimSpec, ClaimType, Effect, EvidenceSpec, ScientificProgram,
-    SideEffect, TaskContract,
+    SideEffect, TaskContract, ProtocolBinding,
 )
 from .compiler import Compilation, ScientificCompiler, ScientificPlanner
 from .amend import Amendment, assess_amendment
@@ -13,4 +13,5 @@ __all__ = [
     "SideEffect", "TaskContract", "Compilation", "ScientificCompiler",
     "ScientificPlanner", "Amendment", "assess_amendment",
     "StatisticalDesign",
+    "ProtocolBinding",
 ]

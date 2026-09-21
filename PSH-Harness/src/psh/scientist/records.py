@@ -162,6 +162,26 @@ class ScientificLedger:
             ref="sha256:" + _hash(content),
             links=tuple((s.id, EdgeKind.DERIVED_FROM) for s in sources))
 
+    def resolve_protocol(self, node_id: str, envelope: RunEnvelope) -> tuple[Protocol, DataLabel]:
+        """Return typed protocol and label from one governed database snapshot.
+
+        Requires PERSISTENT authority, like read(); does not write any record or
+        establish when the protocol was registered relative to data collection.
+        """
+        effective = self._authority(envelope)
+        with self.graph.transaction():
+            node = self._node(node_id, NodeKind.PROTOCOL, effective)
+            body = self.read(node_id, effective)
+            values = dict(body["record"])
+            for name in ("secondary_endpoints", "covariates"):
+                if not isinstance(values.get(name), list):
+                    raise ValueError("invalid stored protocol sequence")
+                values[name] = tuple(values[name])
+            protocol = Protocol(**values)
+            if body.get("protocol_hash") != protocol.fingerprint:
+                raise ValueError("stored protocol fingerprint mismatch")
+            return protocol, node.label
+
     def hypothesize(self, hypothesis: Hypothesis, envelope: RunEnvelope, *,
                     label: DataLabel | None = None) -> Node:
         if not isinstance(hypothesis, Hypothesis):

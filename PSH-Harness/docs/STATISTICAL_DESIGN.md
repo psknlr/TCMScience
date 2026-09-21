@@ -9,7 +9,8 @@ The design reuses `psh.scientist.Protocol`: primary endpoint, statistical test,
 sample-size assumptions, exclusions, covariates, subgroup and stopping plans have
 one representation. Constructing that protocol already requires nonempty primary
 endpoint and other required text. It does not establish preregistration or link
-automatically to a persisted ScientificLedger record.
+automatically to a persisted ScientificLedger record. For opt-in strict linkage,
+see [registered protocol bindings](PROTOCOL_BINDING.md).
 
 ```python
 from psh.scientist import Protocol
