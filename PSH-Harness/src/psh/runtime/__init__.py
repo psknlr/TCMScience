@@ -8,6 +8,7 @@ through ``ExecutionBroker``, so adding iteration did not add an execution path.
 
 from .bindings import BindingError, resolve_bindings, resolve_pointer
 from .checkpoint import Checkpoint, CheckpointStore, ResumeRefused, capture, resume
+from .journal import JournalCheckpointStore
 from .operations import OperationLedger, OperationRecord, OperationState
 from .finalize import Finalizer, ReleasedResult, render_deliverable
 from .service import ResearchRunService
@@ -47,6 +48,7 @@ __all__ = [
     "ExecutionGraph", "TaskState", "TaskNode",
     "Evaluator", "Verdict", "CheckResult", "ACCEPTANCE_CHECKS",
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
+    "JournalCheckpointStore",
     "Finalizer", "ReleasedResult", "render_deliverable", "ResearchRunService",
     "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
     "LocalSubagentBackend", "SubagentResult", "WorkerLease", "LeaseRegistry",

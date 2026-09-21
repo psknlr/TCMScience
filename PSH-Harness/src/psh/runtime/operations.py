@@ -31,6 +31,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from ..contracts import OperationUnresolved
+
 __all__ = ["OperationLedger", "OperationRecord", "OperationState"]
 
 
@@ -165,6 +167,16 @@ class OperationLedger:
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 prior = self._row(key)
+                if prior is not None:
+                    if (prior.component_id != component_id or
+                            (prior.run_id and run_id and prior.run_id != run_id) or
+                            (prior.task_id and task_id and prior.task_id != task_id)):
+                        raise OperationUnresolved("operation key belongs to a different invocation")
+                    if (not (prior.idempotent and idempotent) and prior.state in (
+                            OperationState.RUNNING, OperationState.UNKNOWN,
+                            OperationState.SUCCEEDED)):
+                        raise OperationUnresolved(
+                            "operation may already have executed; unsafe replay refused atomically")
                 if prior is None:
                     record = self._write(OperationRecord(
                         key=key, component_id=component_id, state=OperationState.RUNNING,

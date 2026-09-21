@@ -529,8 +529,10 @@ class AgentLoopController:
         except Exception as exc:  # noqa: BLE001 - one task's fault is not the loop's end
             retryable = (attempt < task.retry.max_attempts) and task.retry.permits(exc)
             if ledger is not None:
-                if isinstance(exc, ToolTimeout):
-                    # The one failure that may have done its work: unknown, not failed.
+                if isinstance(exc, ToolTimeout) or not ledger.get(key).idempotent:
+                    # A non-idempotent component may have changed the world before
+                    # raising any exception, not just a timeout. Do not guess that it
+                    # did nothing and silently repeat the side effect.
                     ledger.mark_unknown(key, type(exc).__name__)
                 else:
                     ledger.fail(key, type(exc).__name__)

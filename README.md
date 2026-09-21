@@ -126,6 +126,10 @@ deviation records; source labels and lineage are retained, and candidate finding
 are not automatically promoted to verified memory. See [scientific records and
 protocol deviations](PSH-Harness/docs/SCIENTIFIC_RECORDS.md).
 
+For interrupted runs, an optional [durable checkpoint journal](PSH-Harness/docs/DURABLE_CHECKPOINT_JOURNAL.md)
+preserves governed snapshots with integrity checks. Atomic operation admission and
+conservative handling of non-idempotent failures prevent unsafe blind retries.
+
 ```mermaid
 flowchart TB
     U["Scientific Question / Research Goal"]

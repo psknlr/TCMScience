@@ -148,7 +148,7 @@ The repository's existing PSH CI automatically collects these tests.
 | Scientific IR and compiler | Versioned task/evidence/claim contracts; Python/JSON frontend |
 | Types, effects, information/evidence flow | Conservative declared-scope checks; runtime sensitivity floors |
 | Workflow amendment | Change impact analysis; no live amendment or automatic cache reuse |
-| Durable execution | Existing checkpoint/event/operation storage retained; no new replay engine |
+| Durable execution | Optional [checkpoint journal](DURABLE_CHECKPOINT_JOURNAL.md) and atomic operation admission; no per-event replay engine |
 | Scientific World Model | Typed hypothesis/protocol/observation records and explicit deviations; see [scientific records](SCIENTIFIC_RECORDS.md). Competition remains future work |
 | Statistical/causal compiler | Not implemented; resource checks are not statistical validation |
 | Dynamic branches, loops, fan-out | Not implemented by this frontend |

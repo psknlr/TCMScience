@@ -998,13 +998,13 @@ def test_f09_a_timeout_leaves_the_operation_in_doubt(tmp_path):
     assert record.state is OperationState.UNKNOWN and record.error_class == "ToolTimeout"
     assert len(submit.calls) == 1
 
-    # A plain failure, by contrast, is recorded as failed and may be retried.
+    # A plain failure may also occur after the side effect: its outcome is unknown.
     kernel2 = kernel_with(tmp_path, "k2")
     broken = Tool("submit", idempotent=False, error=RuntimeError("bad request"))
     envelope2 = kernel2.policy.envelope()
     loop_for(kernel2, side_effect_plan(), registry=registry_of(broken),
              operations=ledger).run("submit", envelope2)
-    assert ledger.get(f"{envelope2.run_id}:t1").state is OperationState.FAILED
+    assert ledger.get(f"{envelope2.run_id}:t1").state is OperationState.UNKNOWN
 
     # The same envelope, again (a restart): the timed-out submission is not repeated.
     again = loop_for(kernel, side_effect_plan(), registry=registry_of(submit),
