@@ -86,7 +86,9 @@ class PersistenceGateway:
                     validation_status: str = ValidationStatus.CANDIDATE,
                     project_id: str = "", ref: str = "",
                     provenance: Mapping[str, Any] | None = None,
-                    max_label: Sensitivity | None = None, **meta: Any) -> Any:
+                    max_label: Sensitivity | None = None,
+                    inherited_label: DataLabel | None = None,
+                    links: tuple[tuple[str, Any], ...] = (), **meta: Any) -> Any:
         """Classify, authorise and write one WorkGraph node.
 
         ``max_label`` lets a caller state a ceiling **lower** than the store's own for this
@@ -95,16 +97,26 @@ class PersistenceGateway:
         tighter data ceiling governed the envelope and not the write.
         """
         request = CommitRequest(
-            content={"title": title, "body": body, "meta": meta},
+            content={"title": title, "body": body, "meta": meta, "ref": ref,
+                     "provenance": dict(provenance or {})},
             principal=principal, source_run=source_run,
-            validation_status=validation_status, provenance=dict(provenance or {}))
+            validation_status=validation_status, provenance=dict(provenance or {}),
+            label=inherited_label)
         label = self._authorise(request, max_label=max_label)
 
+        def write():
+            return self.graph.add(kind, title, project_id=project_id, body=body, status=status,
+                                  label=label, ref=ref,
+                                  validation_status=validation_status,
+                                  committed_by=principal, source_run=source_run, **meta)
+        if links:
+            with self.graph.transaction():
+                node = write()
+                for target, relation in links:
+                    self.graph.link(node.id, target, relation)
+        else:
+            node = write()
         self.commits += 1
-        node = self.graph.add(kind, title, project_id=project_id, body=body, status=status,
-                              label=label, ref=ref,
-                              validation_status=validation_status,
-                              committed_by=principal, source_run=source_run, **meta)
         if self._audit is not None:
             self._audit("persistence_commit", component_id=str(kind),
                         sensitivity=label.sensitivity.name,

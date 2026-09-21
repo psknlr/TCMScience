@@ -149,7 +149,7 @@ The repository's existing PSH CI automatically collects these tests.
 | Types, effects, information/evidence flow | Conservative declared-scope checks; runtime sensitivity floors |
 | Workflow amendment | Change impact analysis; no live amendment or automatic cache reuse |
 | Durable execution | Existing checkpoint/event/operation storage retained; no new replay engine |
-| Scientific World Model | Existing WorkGraph retained; hypothesis competition not implemented here |
+| Scientific World Model | Typed hypothesis/protocol/observation records and explicit deviations; see [scientific records](SCIENTIFIC_RECORDS.md). Competition remains future work |
 | Statistical/causal compiler | Not implemented; resource checks are not statistical validation |
 | Dynamic branches, loops, fan-out | Not implemented by this frontend |
 | OS sandbox, network broker, secrets | Existing controls retained; no stronger isolation claim |
@@ -158,7 +158,7 @@ The repository's existing PSH CI automatically collects these tests.
 
 Next implementation milestones should add pinned capability/environment manifests
 before automatic reuse, evidence-preserving durable replay with fault injection,
-and typed hypothesis/protocol/observation state with protocol deviation tracking.
+and hypothesis competition over the typed scientific records.
 Each milestone needs its own runtime integration and trajectory tests. This code
 is an original implementation against PSH interfaces; no ZCode source was copied
 or reviewed for this increment.
