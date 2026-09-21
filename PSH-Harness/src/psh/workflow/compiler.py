@@ -1,0 +1,157 @@
+"""Compile declared scientific contracts; runtime verification remains mandatory."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, replace
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from ..contracts import RunEnvelope
+from ..labels import DataLabel, Destination, Sensitivity
+from ..runtime.plan import Plan, TaskKind
+from ..runtime.plan_validator import PlanRejected, PlanValidator, PlanViolation, ValidatedPlan
+from .ir import ClaimType, Effect, ScientificProgram, SideEffect, digest
+
+
+_DESTINATIONS = {
+    Effect.LOCAL_READ: Destination.LOCAL_COMPUTE,
+    Effect.LOCAL_COMPUTE: Destination.LOCAL_COMPUTE,
+    Effect.LOCAL_MODEL: Destination.LOCAL_MODEL,
+    Effect.TRUSTED_REMOTE: Destination.TRUSTED_REMOTE,
+    Effect.PUBLIC_REMOTE: Destination.PUBLIC_REMOTE,
+    Effect.PERSIST: Destination.PERSISTENT,
+    Effect.USER_OUTPUT: Destination.USER_OUTPUT,
+}
+_SUPPORTS = {
+    ClaimType.CLASSICAL: frozenset({"classical_text"}),
+    ClaimType.TRADITIONAL: frozenset({"classical_text", "expert_consensus"}),
+    ClaimType.MECHANISTIC: frozenset({"in_vitro", "animal"}),
+    ClaimType.ASSOCIATION: frozenset({"observational", "randomized_trial"}),
+    ClaimType.CLINICAL: frozenset({"randomized_trial"}),
+    ClaimType.SAFETY: frozenset({"case_report", "observational", "randomized_trial"}),
+}
+
+
+@dataclass(frozen=True)
+class Compilation:
+    validated: ValidatedPlan
+    fingerprint: str
+    task_fingerprints: Mapping[str, str]
+    sensitivities: Mapping[str, Sensitivity]
+
+    @property
+    def plan(self) -> Plan:
+        return self.validated.plan
+
+
+class ScientificCompiler:
+    def __init__(self, registry: Any = None) -> None:
+        self.validator = PlanValidator(registry=registry)
+
+    def compile(self, program: ScientificProgram, envelope: RunEnvelope, *,
+                policy: Any = None, input_label: DataLabel | None = None) -> Compilation:
+        # Snapshot nested mappings through the public wire format; callers cannot mutate
+        # the source payload halfway through a pass or retain aliases into the result.
+        program = ScientificProgram.from_dict(json.loads(json.dumps(
+            program.to_dict(), allow_nan=False)))
+        validated = self.validator.validate(program.plan, envelope, policy=policy)
+        tasks = {t.task_id: t for t in program.plan.tasks}
+        violations: list[PlanViolation] = []
+        labels: dict[str, Sensitivity] = {}
+        hashes: dict[str, str] = {}
+
+        def reject(code: str, task_id: str, detail: str) -> None:
+            violations.append(PlanViolation(code, task_id, detail))
+
+        for tid in validated.order:
+            task, contract = tasks[tid], program.contracts[tid]
+            effective = validated.envelope_for(tid)
+            # All dependencies carry data in today's loop, even without InputBinding.
+            label = max((contract.sensitivity, task.input_sensitivity,
+                         input_label.sensitivity if input_label else Sensitivity.PUBLIC,
+                         *(labels[d] for d in task.dependencies)))
+            labels[tid] = label
+            if any(n < 0 for n in (task.estimated_tokens, task.estimated_usd,
+                                  task.estimated_seconds)):
+                reject("RESOURCE101", tid, "resource estimates cannot be negative")
+            if label > effective.max_label.sensitivity:
+                reject("FLOW101", tid, "derived sensitivity exceeds the task/run ceiling")
+            if not task.destinations:
+                reject("EFFECT101", tid, "scientific tasks must explicitly declare destinations")
+            if not contract.effects:
+                reject("EFFECT102", tid, "scientific tasks must explicitly declare effects")
+            declared = {_DESTINATIONS[e] for e in contract.effects}
+            if declared != set(task.destinations):
+                reject("EFFECT103", tid, "effects and execution destinations must agree")
+            if task.kind == TaskKind.MODEL and not declared.intersection({
+                    Destination.LOCAL_MODEL, Destination.TRUSTED_REMOTE,
+                    Destination.PUBLIC_REMOTE}):
+                reject("EFFECT104", tid, "model task requires a model effect")
+            for destination in declared | set(task.destinations):
+                if not DataLabel(label).permits(destination):
+                    reject("FLOW102", tid,
+                           f"derived {label.name} data may not reach {destination.name}")
+            if (task.retry.max_attempts > 1 and contract.side_effect not in
+                    {SideEffect.PURE, SideEffect.IDEMPOTENT, SideEffect.AT_LEAST_ONCE}):
+                reject("RETRY101", tid, "this side-effect class does not permit automatic retries")
+            if contract.side_effect == SideEffect.PURE and declared.intersection({
+                    Destination.PERSISTENT, Destination.USER_OUTPUT,
+                    Destination.TRUSTED_REMOTE, Destination.PUBLIC_REMOTE}):
+                reject("EFFECT105", tid, "a pure task cannot declare externally visible effects")
+
+            if contract.claim:
+                claim = contract.claim
+                for source in claim.evidence_from:
+                    if source not in task.dependencies:
+                        reject("EVIDENCE101", tid, "evidence source must be a direct dependency")
+                        continue
+                    evidence = program.contracts[source].evidence
+                    if evidence is None:
+                        reject("EVIDENCE102", tid, "referenced task declares no evidence")
+                        continue
+                    designs = (evidence.underlying_designs if evidence.design ==
+                               "systematic_review" else (evidence.design,))
+                    if not set(designs) <= _SUPPORTS[claim.kind]:
+                        reject("EVIDENCE103", tid,
+                               f"{designs} cannot license {claim.kind.value}")
+                    for dimension in ("population", "intervention", "outcome"):
+                        if getattr(evidence, dimension).strip().casefold() != getattr(
+                                claim, dimension).strip().casefold():
+                            reject("EVIDENCE104", tid, f"evidence/claim {dimension} mismatch")
+
+            hashes[tid] = digest({"task": task.to_dict(), "contract": contract.to_dict(),
+                                  "dependencies": {d: hashes[d] for d in task.dependencies}})
+        if violations:
+            raise PlanRejected("scientific compilation failed: " + "; ".join(
+                str(v) for v in violations[:8]), violations)
+        # plan_id is a transport identity, not scientific content.
+        content = program.to_dict()
+        content["plan"].pop("plan_id")
+        lowered = replace(program.plan, tasks=tuple(
+            replace(t, input_sensitivity=labels[t.task_id]) for t in program.plan.tasks))
+        validated = self.validator.validate(lowered, envelope, policy=policy)
+        return Compilation(validated, digest(content), MappingProxyType(hashes),
+                           MappingProxyType(labels))
+
+
+class ScientificPlanner:
+    """AgentLoopController adapter: compile afresh under the actual run envelope.
+
+    The loop then uses its normal validator, broker and release gates. This adapter
+    does not authorize a tool, certify source content or make a claim releasable.
+    """
+
+    def __init__(self, program: ScientificProgram, *, registry: Any = None,
+                 policy: Any = None) -> None:
+        self._program = json.loads(json.dumps(program.to_dict(), allow_nan=False))
+        self.compiler = ScientificCompiler(registry)
+        self.policy = policy
+
+    def plan(self, state: Any, *, feedback: Any = None) -> Plan:
+        label = getattr(state, "objective_label", None)
+        inherited = getattr(state, "plan_label", None)
+        if inherited is not None:
+            label = inherited if label is None else label.merged_with(inherited)
+        return self.compiler.compile(ScientificProgram.from_dict(self._program),
+                                     state.envelope, policy=self.policy, input_label=label).plan

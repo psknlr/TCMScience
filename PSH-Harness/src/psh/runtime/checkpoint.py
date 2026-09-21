@@ -392,7 +392,8 @@ def plan_shape(plan: Mapping[str, Any]) -> list[tuple[Any, ...]]:
     return [(str(t.get("task_id")), str(t.get("kind")), str(t.get("component_id") or ""),
              tuple(t.get("dependencies") or ()),
              tuple((str(b.get("argument")), str(b.get("source")), str(b.get("pointer") or ""))
-                   for b in t.get("inputs") or ()))
+                   for b in t.get("inputs") or ()),
+             t.get("input_sensitivity", "PUBLIC"))
             for t in plan.get("tasks") or ()]
 
 

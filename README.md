@@ -109,6 +109,17 @@ TCMScience therefore implements a **governed harness** around the scientific age
 
 ## Architecture
 
+### Scientific workflow compiler (initial implementation)
+
+`psh.workflow` now compiles versioned scientific task contracts into the existing
+governed runtime. It checks declared evidence/claim scope, propagates sensitivity
+through dependencies, checks effects and retry semantics, and reports which tasks
+an amended workflow invalidates. Propagated sensitivity is preserved at runtime
+and in plan checkpoints.
+
+This is the first implementation increment, not the complete VNext architecture.
+See the [compiler guide, runnable example and remaining roadmap](PSH-Harness/docs/SCIENTIFIC_WORKFLOW.md).
+
 ```mermaid
 flowchart TB
     U["Scientific Question / Research Goal"]
