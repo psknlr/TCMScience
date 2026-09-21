@@ -30,7 +30,8 @@ unknown fields in embedded plans are also rejected by this frontend. This is a
 declarative DAG representation, not an arbitrary Python script interpreter.
 
 Each contract describes a sensitivity floor, explicit effects, a side-effect
-class, and optional evidence/claim refinements. Task IDs and provenance references
+class, optional evidence/claim refinements, and optional
+[statistical design checks](STATISTICAL_DESIGN.md). Task IDs and provenance references
 must be opaque identifiers, not patient names or other sensitive content.
 
 The compiler:

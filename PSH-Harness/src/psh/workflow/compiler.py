@@ -66,6 +66,9 @@ class ScientificCompiler:
 
         for tid in validated.order:
             task, contract = tasks[tid], program.contracts[tid]
+            if contract.statistics is not None:
+                for code, detail in contract.statistics.violations():
+                    reject(code, tid, detail)
             effective = validated.envelope_for(tid)
             # All dependencies carry data in today's loop, even without InputBinding.
             label = max((contract.sensitivity, task.input_sensitivity,
