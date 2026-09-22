@@ -32,6 +32,9 @@ jobs:
       - name: Byte-compile
         working-directory: PSH-Harness
         run: python -m compileall -q src
+      - name: Scientific contract dependency boundaries
+        working-directory: PSH-Harness
+        run: python scripts/check_scientific_architecture.py
 
   bioscience:
     name: BioScience-Harness (capability plane) + PSH bridge

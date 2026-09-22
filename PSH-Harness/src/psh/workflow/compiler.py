@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 from ..contracts import PolicyDenied, RunEnvelope
 from ..kernel.authority import AuthorityLattice
+from ..scientist.ports import ProtocolResolver
 from ..labels import DataLabel, Destination, Sensitivity
 from ..runtime.plan import Plan, TaskKind
 from ..runtime.plan_validator import PlanRejected, PlanValidator, PlanViolation, ValidatedPlan
@@ -47,7 +48,7 @@ class Compilation:
 
 
 class ScientificCompiler:
-    def __init__(self, registry: Any = None, *, scientific_ledger: Any = None) -> None:
+    def __init__(self, registry: Any = None, *, scientific_ledger: ProtocolResolver | None = None) -> None:
         self.validator = PlanValidator(registry=registry)
         self.scientific_ledger = scientific_ledger
 
@@ -176,7 +177,7 @@ class ScientificPlanner:
     """
 
     def __init__(self, program: ScientificProgram, *, registry: Any = None,
-                 policy: Any = None, scientific_ledger: Any = None) -> None:
+                 policy: Any = None, scientific_ledger: ProtocolResolver | None = None) -> None:
         self._program = json.loads(json.dumps(program.to_dict(), allow_nan=False))
         self.compiler = ScientificCompiler(registry, scientific_ledger=scientific_ledger)
         self.policy = policy
