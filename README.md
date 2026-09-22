@@ -14,15 +14,21 @@
 ![TCM](https://img.shields.io/badge/TCM-native-b31b1b)
 ![Research](https://img.shields.io/badge/status-research%20prototype-orange)
 
-**Yanlan Kang¹ · Ruiqi Liu² · Xukun Zhang³* · [William Cheng-Chung Chu](https://www.sciopen.com/scholar/info?id=1952658822209773569)⁴***
+## Authors
+
+**Yanlan Kang¹† · Ruiqi Liu²† · Shuai Xu³* · Xukun Zhang⁴* · [William Cheng-Chung Chu](https://www.sciopen.com/scholar/info?id=1952658822209773569)⁵***
+
+### Affiliations
 
 ¹ Institute of Medical Philosophy & Future AI (IMPF-AI)
 ² Shanghai Medical College, Fudan University
-³ Li Ka Shing Faculty of Medicine, The University of Hong Kong
-⁴ Fuyao University of Science and Technology
+³ Shanghai Ziranerran Traditional Chinese Medicine Foundation
+⁴ Li Ka Shing Faculty of Medicine, The University of Hong Kong
+⁵ Fuyao University of Science and Technology
 
-Yanlan Kang and Ruiqi Liu contributed equally.
-* **Co-corresponding authors**
+† **These authors contributed equally to this work.**
+* **Co-corresponding authors:** Shuai Xu, Xukun Zhang, and William Cheng-Chung Chu
+
 
 </div>
 
@@ -202,40 +208,12 @@ A classical text can be the primary provenance for a **classical attribution**, 
 ```bibtex
 @software{kang2026tcmscience,
   title        = {TCMScience: An Autonomous Scientist for Traditional Chinese Medicine},
-  author       = {Kang, Yanlan and Liu, Ruiqi and Zhang, Xukun and Chu, William Cheng-Chung},
+  author       = {Kang, Yanlan and Liu, Ruiqi and Xu, Shuai and Zhang, Xukun and Chu, William Cheng-Chung},
   year         = {2026},
   url          = {https://github.com/psknlr/TCMScience},
   note         = {Open-source research software}
 }
 ```
-
-### Authors
-
-**Yanlan Kang (康砚澜)**
-Institute of Medical Philosophy & Future AI
-
-**Ruiqi Liu (刘瑞琦)**
-Shanghai Medical College, Fudan University
-
-**Xukun Zhang (张绪坤)***
-Li Ka Shing Faculty of Medicine, The University of Hong Kong
-
-**[William Cheng-Chung Chu (朱正忠)](https://www.sciopen.com/scholar/info?id=1952658822209773569)***
-Fuyao University of Science and Technology
-
-* **Co-corresponding authors / 共同通讯作者**
-
----
-
-## References
-
-1. Lu C, Lu C, Lange RT, Foerster J, Clune J, Ha D. **The AI Scientist: Towards Fully Automated Open-Ended Scientific Discovery.** arXiv:2408.06292 (2024).
-2. Huang K, Zhang S, Wang H, et al. **Autonomous biomedical research with an artificial intelligence agent.** *Science*. 2026;393(6813):eadz4351. doi:10.1126/science.adz4351.
-3. Peat G, Jones W, Nuhn M, et al. **Open Targets Platform: facilitating therapeutic hypotheses building in drug discovery.** *Nucleic Acids Research*. 2025;53(D1):D1467–D1475. doi:10.1093/nar/gkae1128.
-4. Zhao H, Yang Y, Wang S, et al. **NPASS database update 2023: quantitative natural product activity and species source database for biomedical research.** *Nucleic Acids Research*. 2023;51(D1):D621–D628. doi:10.1093/nar/gkac1069.
-5. Rutz A, Sorokina M, Galgonek J, et al. **The LOTUS initiative for open knowledge management in natural products research.** *eLife*. 2022;11:e70780. doi:10.7554/eLife.70780.
-
----
 
 <div align="center">
 
