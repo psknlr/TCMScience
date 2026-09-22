@@ -34,6 +34,17 @@ class, optional evidence/claim refinements, and optional
 [statistical design checks](STATISTICAL_DESIGN.md). Task IDs and provenance references
 must be opaque identifiers, not patient names or other sensitive content.
 
+When an explicit `policy` is supplied, the compiler first intersects the run
+envelope with `policy.ceiling()` using the shared AuthorityLattice. This prevents
+an older, broader envelope from overriding tightened destinations, data ceilings,
+budgets or other authority dimensions. Both validation passes and registered
+protocol reads use that effective envelope. A broader policy never widens an
+already restricted run. Tasks still inside the new limits may compile; tasks
+that require revoked authority are refused. Without `policy`, the supplied run
+envelope remains the authority boundary. This does not discover policy updates:
+callers must supply the current snapshot (or update `ScientificPlanner.policy`).
+Normal runtime admission and release checks remain mandatory.
+
 The compiler:
 
 1. Takes an independent JSON snapshot and rejects non-finite/non-JSON values.

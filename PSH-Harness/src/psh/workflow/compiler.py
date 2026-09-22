@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ..contracts import PolicyDenied, RunEnvelope
+from ..kernel.authority import AuthorityLattice
 from ..labels import DataLabel, Destination, Sensitivity
 from ..runtime.plan import Plan, TaskKind
 from ..runtime.plan_validator import PlanRejected, PlanValidator, PlanViolation, ValidatedPlan
@@ -56,6 +57,11 @@ class ScientificCompiler:
         # the source payload halfway through a pass or retain aliases into the result.
         program = ScientificProgram.from_dict(json.loads(json.dumps(
             program.to_dict(), allow_nan=False)))
+        # A caller may retain an envelope minted before policy was tightened.
+        # Use the shared lattice for every authority dimension, before graph
+        # validation or any registered-protocol reads. Never widen the run.
+        if policy is not None:
+            envelope = AuthorityLattice.meet(envelope, policy.ceiling())
         validated = self.validator.validate(program.plan, envelope, policy=policy)
         tasks = {t.task_id: t for t in program.plan.tasks}
         violations: list[PlanViolation] = []
