@@ -7,6 +7,7 @@ from .ir import (
 from .compiler import Compilation, ScientificCompiler, ScientificPlanner
 from .amend import Amendment, assess_amendment
 from .statistics import StatisticalDesign
+from .model_planner import ScientificModelPlanner, parse_scientific_program
 
 __all__ = [
     "ClaimSpec", "ClaimType", "Effect", "EvidenceSpec", "ScientificProgram",
@@ -14,4 +15,5 @@ __all__ = [
     "ScientificPlanner", "Amendment", "assess_amendment",
     "StatisticalDesign",
     "ProtocolBinding",
+    "ScientificModelPlanner", "parse_scientific_program",
 ]

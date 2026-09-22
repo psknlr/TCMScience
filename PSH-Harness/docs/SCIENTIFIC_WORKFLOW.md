@@ -22,6 +22,10 @@ contacts no provider and executes no research tools.
 
 ## Representation and execution
 
+For model-generated programs with bounded compilation/repair, see
+[ScientificModelPlanner](SCIENTIFIC_MODEL_PLANNER.md). The existing
+ScientificPlanner remains an adapter for caller-supplied programs.
+
 `ScientificProgram(schema_version=1, plan=..., contracts=...)` wraps a `Plan` with
 exactly one `TaskContract` per task. Existing plain plans continue to work.
 Python construction and `to_dict()` / `from_dict()` provide the Python and JSON
