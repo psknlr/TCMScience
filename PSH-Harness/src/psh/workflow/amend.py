@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from ..contracts import RunEnvelope
+from ..scientist.ports import ProtocolResolver
 from .compiler import ScientificCompiler
 from .ir import ScientificProgram, SideEffect
 
@@ -20,7 +21,7 @@ class Amendment:
 def assess_amendment(old: ScientificProgram, new: ScientificProgram,
                      envelope: RunEnvelope, *, completed: Iterable[str] = (),
                      registry: Any = None, policy: Any = None,
-                     scientific_ledger: Any = None) -> Amendment:
+                     scientific_ledger: ProtocolResolver | None = None) -> Amendment:
     """Validate both versions against current authority and propagate invalidation.
 
     A candidate is only an unchanged, completed pure task. Before reusing any result,

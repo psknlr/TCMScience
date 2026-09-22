@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
-from ..scientist import Protocol
+from ..scientist.models import Protocol
 
 
 @dataclass(frozen=True)
