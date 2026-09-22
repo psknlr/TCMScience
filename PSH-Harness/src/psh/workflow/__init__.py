@@ -8,6 +8,8 @@ from .compiler import Compilation, ScientificCompiler, ScientificPlanner
 from .amend import Amendment, assess_amendment
 from .statistics import StatisticalDesign
 from .model_planner import ScientificModelPlanner, parse_scientific_program
+from .dynamic import Branch, WorkflowStage, DynamicWorkflow, DynamicResult, DynamicWorkflowController
+from .events import RunEventJournal, ReplayRefused, ReplayState, replay
 
 __all__ = [
     "ClaimSpec", "ClaimType", "Effect", "EvidenceSpec", "ScientificProgram",
@@ -16,4 +18,6 @@ __all__ = [
     "StatisticalDesign",
     "ProtocolBinding",
     "ScientificModelPlanner", "parse_scientific_program",
+    "Branch", "WorkflowStage", "DynamicWorkflow", "DynamicResult", "DynamicWorkflowController",
+    "RunEventJournal", "ReplayRefused", "ReplayState", "replay",
 ]

@@ -277,7 +277,7 @@ class AgentLoopController:
                  heartbeat: Callable[[], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep,
                  memory: Any = None, memory_items: int = 4,
-                 operations: Any = None) -> None:
+                 operations: Any = None, operation_namespace: str = "") -> None:
         self.kernel = kernel
         self.planner = planner
         self.registry = registry
@@ -286,6 +286,8 @@ class AgentLoopController:
         #: side-effecting calls are in doubt. Without one the loop behaves as before —
         #: and a restart of a side-effecting plan has nothing to consult.
         self.operations = operations
+        # Dynamic visits share the run budget but must not share operation keys.
+        self.operation_namespace = operation_namespace
         #: Optional ``MemoryRetriever``: verified project memory relevant to a task's
         #: objective is compiled into that task's projection, labelled as stored. A
         #: retriever reads; the loop still cannot write to the graph.
@@ -498,7 +500,9 @@ class AgentLoopController:
 
         graph.mark_running(task.task_id, at=time.time())
         self._beat()
-        key = f"{state.envelope.run_id}:{task.task_id}"
+        identity = (f"{self.operation_namespace}:{task.task_id}"
+                    if self.operation_namespace else task.task_id)
+        key = f"{state.envelope.run_id}:{identity}"
         ledger = self.operations if task.kind == TaskKind.TOOL else None
         if ledger is not None:
             try:
