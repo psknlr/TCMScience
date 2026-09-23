@@ -12,6 +12,11 @@
     python scripts/build_source_snapshots.py bindingdb --file BindingDB_All_202609_tsv.zip \\
         --release 202609 --out DIR
 
+    # one disease's Open Targets associations, from the answer scripts/fetch_opentargets.py
+    # saved (the version is read from the file: Platform release + disease id):
+    python scripts/build_source_snapshots.py opentargets \\
+        --file DIR/opentargets_MONDO_0005148.json --out DIR
+
 Pass ``--ledger PATH`` to record every snapshot id in an append-only, hash-chained ledger
 (keep it outside the agent-writable tree, e.g. the workspace's ``audit/``); loads can then
 be checked against it with ``load_snapshot(..., ledger=SnapshotLedger(PATH))``.
@@ -60,7 +65,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--file", required=True)
     b.add_argument("--release", required=True)
     b.add_argument("--out", required=True)
-    for p in (g, s, b):
+    o = sub.add_parser("opentargets")
+    o.add_argument("--file", required=True)
+    o.add_argument("--out", required=True)
+    for p in (g, s, b, o):
         p.add_argument("--ledger", help="append snapshot ids to this hash-chained ledger")
     args = ap.parse_args(argv)
     ledger = SnapshotLedger(args.ledger) if args.ledger else None
@@ -80,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if build.passed else 2
         if args.cmd == "source":
             snap = build_source(args.key, args.raw, args.out, ledger=ledger)
+        elif args.cmd == "opentargets":
+            snap = build_source("opentargets", ".", args.out, path=args.file, ledger=ledger)
         else:
             snap = build_source("bindingdb", ".", args.out, path=args.file, ledger=ledger,
                                 release=args.release,

@@ -73,6 +73,15 @@ def test_composition_edges_carry_a_level_and_c0_is_exactly_the_prediction():
         edge(study_design="chemical_analysis", publications=[])))
 
 
+def test_an_evidence_aggregate_is_an_association_that_licenses_nothing():
+    assoc = edge(predicate="associated_with", study_design="evidence_aggregate",
+                 knowledge_level="statistical_association",
+                 agent_type="data_analysis_pipeline", publications=[])
+    assert validate_edge(assoc) == []
+    assert any("associated_with" in p for p in validate_edge({**assoc, "predicate": "targets"}))
+    assert licensed_claims([assoc]) == frozenset()
+
+
 def test_vocabularies_and_identifiers_are_checked():
     problems = validate_edge(edge(subject="not a curie", predicate="cures",
                                   knowledge_level="rumour", agent_type="oracle"))
@@ -99,9 +108,10 @@ def test_predictions_alone_carry_at_most_a_mechanism_hypothesis():
     assert licensed_claims(composition) == frozenset()
 
 
-def test_study_designs_are_psh_designs_plus_chemical_analysis():
+def test_study_designs_are_psh_designs_plus_untiered_designs():
     ir = pytest.importorskip("psh.workflow.ir")
-    assert set(STUDY_DESIGNS) - {"chemical_analysis"} == set(ir.DESIGNS)
+    assert set(STUDY_DESIGNS) - {"chemical_analysis", "evidence_aggregate"} == set(ir.DESIGNS)
+    assert STUDY_DESIGNS["evidence_aggregate"] is None
 
 
 # ============================================================ source cards

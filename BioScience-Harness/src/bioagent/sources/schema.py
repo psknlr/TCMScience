@@ -54,9 +54,13 @@ AGENT_TYPES: frozenset[str] = frozenset({
 #: Study design -> evidence tier. Matches PSH's ``psh.workflow.ir.DESIGNS`` name for name,
 #: plus ``chemical_analysis``: isolating or detecting a compound in a material. That is how
 #: composition ("this herb contains this compound") is established, and it is evidence for
-#: no claim about an effect, so it maps to no tier and licenses nothing.
+#: no claim about an effect, so it maps to no tier and licenses nothing. Likewise
+#: ``evidence_aggregate``: a score that summarises many evidence items of mixed designs
+#: (an Open Targets target-disease association). It records an association only and
+#: licenses nothing by itself; the underlying studies must be cited to license a claim.
 STUDY_DESIGNS: Mapping[str, EvidenceTier | None] = {
     "chemical_analysis": None,
+    "evidence_aggregate": None,
     "in_silico": EvidenceTier.COMPUTATIONAL_PREDICTION,
     "classical_text": EvidenceTier.CLASSICAL_TEXT,
     "expert_consensus": EvidenceTier.EXPERT_EXPERIENCE,
@@ -162,6 +166,8 @@ def validate_edge(row: Mapping[str, Any]) -> list[str]:
     tier = STUDY_DESIGNS[design]
     if design == "chemical_analysis" and predicate != "contains":
         problems.append("chemical_analysis establishes composition ('contains') only")
+    if design == "evidence_aggregate" and predicate != "associated_with":
+        problems.append("evidence_aggregate establishes an association ('associated_with') only")
     if (level == "prediction") != (design == "in_silico"):
         problems.append("a prediction must be in_silico and an in_silico edge must be a "
                         f"prediction (knowledge_level={level!r}, study_design={design!r})")

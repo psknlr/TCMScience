@@ -131,7 +131,7 @@ class SkillContract:
             except ValueError as exc:
                 raise SkillContractError(f"skill {self.id!r}: {exc}") from None
         from ..sources.schema import STUDY_DESIGNS
-        designs = set(STUDY_DESIGNS) - {"chemical_analysis"}
+        designs = set(STUDY_DESIGNS) - {"chemical_analysis", "evidence_aggregate"}
         for step, spec in self.steps.items():
             where = f"skill {self.id!r} step {step!r}"
             if set(spec) - {"tool", "after", "design"}:

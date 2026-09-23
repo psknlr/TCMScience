@@ -226,6 +226,20 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
                   EdgeDefault("participates_in", "target", "pathway", "prediction",
                               "automated_agent", "in_silico")),
         commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
+    SourceCard(
+        key="opentargets", name="Open Targets Platform (target-disease associations)",
+        citation="doi:10.1093/nar/gkae1128", license="CC0-1.0",
+        terms_url="https://platform-docs.opentargets.org/licence",
+        # The whole table is published as Parquet with every release; one indication's
+        # associations are one paged GraphQL query, which is what fetch_opentargets saves.
+        access=(Access("bulk", "https://ftp.ebi.ac.uk/pub/databases/opentargets/platform/",
+                       cadence="quarterly"),
+                Access("api", "https://api.platform.opentargets.org/api/v4/graphql", rps=1.0)),
+        # An aggregate score per evidence type; the edge's knowledge level follows the type
+        # (genetic association: statistical_association, literature: text_co_occurrence).
+        provides=(EdgeDefault("associated_with", "target", "disease", "statistical_association",
+                              "data_analysis_pipeline", "evidence_aggregate"),),
+        commercial_use="allowed", qc={"min_uniprot_coverage": 0.9}),
 )
 
 _BY_KEY = {c.key: c for c in SOURCE_CARDS}

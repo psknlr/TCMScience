@@ -17,7 +17,12 @@ The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology
 5. **Network topology** — the STRING subnetwork over the targets at a stated confidence,
    reported as description: degree, betweenness, components. No significance is claimed
    for it.
-6. **Candidate claims** — one ``mechanism_hypothesis`` per pathway passing 3 and 4, each
+6. **Indication overlap** (when an Open Targets snapshot is given) — the measured targets
+   against one disease's gene set, defined from one stated evidence type at a stated
+   score (by default human genetic association, not literature co-mention, which would be
+   circular for a literature-derived compound network). Hypergeometric against the same
+   background plus the same degree-matched null; reported as a statistic, never as a claim.
+7. **Candidate claims** — one ``mechanism_hypothesis`` per pathway passing 3 and 4, each
    citing the exact snapshot edges of one supporting path, then the release check
    (``sources.release``). The strongest kind each path would license is recorded too, so
    the report says *why* it stops at a hypothesis.
@@ -38,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..sources.herbs import GEGEN_QINLIAN, HERBS, FormulaVersion
+from ..sources.parsers.opentargets import KNOWLEDGE_LEVEL as DISEASE_EVIDENCE_TYPES
 from ..sources.release import CandidateClaim, check_release, path_licenses
 from ..sources.snapshot import Snapshot
 from ..tools.stats import benjamini_hochberg, hypergeometric_test
@@ -65,6 +71,10 @@ class Parameters:
     permutation_alpha: float = 0.05
     degree_bins: int = 10
     string_min_score: float = 0.7
+    #: the Open Targets evidence type that defines the disease gene set, and its minimum
+    #: score; used only when a disease-association snapshot is given
+    disease_evidence: str = "genetic_association"
+    disease_min_score: float = 0.5
     seed: int = 20260923
 
     def __post_init__(self) -> None:
@@ -72,6 +82,11 @@ class Parameters:
             raise ValueError(f"composition level {self.composition_min_level!r}")
         if not 0 < self.fdr < 1 or not 0 < self.permutation_alpha < 1:
             raise ValueError("fdr and permutation_alpha lie in (0, 1)")
+        if self.disease_evidence not in DISEASE_EVIDENCE_TYPES:
+            raise ValueError(f"disease evidence {self.disease_evidence!r} is not one of "
+                             f"{sorted(DISEASE_EVIDENCE_TYPES)}")
+        if not 0 <= self.disease_min_score <= 1:
+            raise ValueError("disease_min_score lies in [0, 1]")
         if self.permutations < 100:
             raise ValueError("fewer than 100 permutations cannot resolve p < 0.01")
 
@@ -90,6 +105,8 @@ class NetworkPharmacologyResult:
     excluded: dict[str, int]
     code_digest: str
     limitations: list[str] = field(default_factory=list)
+    #: the indication overlap; empty when no disease-association snapshot was given
+    disease: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -167,6 +184,23 @@ def _components(adjacency: Mapping[str, set[str]]) -> list[list[str]]:
                 queue.append(w)
         out.append(sorted(comp))
     return sorted(out, key=lambda c: (-len(c), c))
+
+
+def _disease_genes(snap: Snapshot, params: Parameters) -> tuple[str, str, dict[str, float]]:
+    """(disease id, name, target -> score) for the stated evidence type and cut-off."""
+    diseases = sorted((n["id"], n.get("name") or n["id"]) for n in snap.nodes
+                      if n.get("category") == "disease")
+    if len(diseases) != 1:
+        raise ValueError(f"{snap.snapshot_id} must hold exactly one disease, has "
+                         f"{len(diseases)}")
+    disease, name = diseases[0]
+    genes: dict[str, float] = {}
+    for e in snap.edges:
+        if (e.get("predicate") == "associated_with" and e.get("object") == disease
+                and e.get("score_name") == params.disease_evidence
+                and float(e.get("score") or 0) >= params.disease_min_score):
+            genes[e["subject"]] = max(genes.get(e["subject"], 0.0), float(e["score"]))
+    return disease, name, genes
 
 
 # ------------------------------------------------------------------ the run
@@ -318,7 +352,39 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         "interpretation": "descriptive only; no significance is claimed for topology",
     }
 
-    # 6. candidate claims, each citing one supporting path ----------------------------------
+    # 6. indication overlap (descriptive) ---------------------------------------------------
+    disease: dict[str, Any] = {}
+    disease_genes: dict[str, float] = {}
+    if "opentargets" in by_key:
+        disease_id, disease_name, disease_genes = _disease_genes(by_key["opentargets"], params)
+        in_background = {g for g in disease_genes if g in background}
+        hits = sorted(set(query) & in_background, key=lambda t: (-disease_genes[t], t))
+        test = hypergeometric_test(len(hits), len(query), len(in_background),
+                                   len(background)) if query else {"p_value": 1.0,
+                                                                   "fold_enrichment": None}
+        # its own stream, so adding the disease leaves the pathway permutations unchanged
+        disease_rng = random.Random(params.seed + 1)
+        at_least = 0
+        for _ in range(params.permutations):
+            draw = [x for b, k in sorted(wanted.items()) for x in disease_rng.sample(pool[b], k)]
+            if len(in_background.intersection(draw)) >= len(hits):
+                at_least += 1
+        disease = {
+            "disease": disease_id, "name": disease_name,
+            "snapshot": by_key["opentargets"].snapshot_id,
+            "evidence": params.disease_evidence, "min_score": params.disease_min_score,
+            "disease_genes": len(disease_genes), "in_background": len(in_background),
+            "query": len(query), "overlap": len(hits),
+            "targets": [{"target": t, "name": names.get(t, t), "score": disease_genes[t]}
+                        for t in hits],
+            "p_value": test["p_value"], "fold_enrichment": test["fold_enrichment"],
+            "empirical_p": (1 + at_least) / (1 + params.permutations),
+            "interpretation": ("descriptive: the overlap between measured targets and the "
+                               "disease gene set is reported, not claimed; it does not show "
+                               "that the formula acts on the disease"),
+        }
+
+    # 7. candidate claims, each citing one supporting path ----------------------------------
     claims: list[CandidateClaim] = []
     claim_rows = []
     for row in significant:
@@ -353,6 +419,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                            "empirical_p": row["empirical_p"],
                            "support": [list(s) for s in support],
                            "path_licenses": strongest, "statement": statement,
+                           "disease_associated_targets": sorted(
+                               set(row["targets"]) & set(disease_genes)),
                            "why_not_stronger": (
                                "a constituent is shown in the source species, not in the "
                                "decoction (composition below C3)"
@@ -365,7 +433,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                         for r in compound_rows.values()), key=lambda r: r["compound"])
     targets = [{"target": t, "name": names.get(t, t),
                 "compounds": sorted({e["subject"] for _, e in target_paths[t]}),
-                "measurements": len(target_paths[t]), "in_background": t in background}
+                "measurements": len(target_paths[t]), "in_background": t in background,
+                "disease_score": disease_genes.get(t)}
                for t in sorted(target_paths)]
     limitations = [
         "Composition is species-level (C1/C2): no constituent is shown in the decoction "
@@ -376,9 +445,10 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         "Enrichment is against Reactome's human annotation; pathways outside the size range "
         "are not tested, and the result depends on how thoroughly each protein is studied — "
         "hence the degree-matched null.",
-        "No disease gene set is joined yet: the claims concern pathways, not the indication. "
-        "Relevance to the indication needs a disease-association snapshot (e.g. Open "
-        "Targets) and is not asserted here.",
+        *(_disease_limitations(disease, params) if disease else [
+            "No disease gene set is joined: the claims concern pathways, not the indication. "
+            "Relevance to the indication needs a disease-association snapshot (e.g. Open "
+            "Targets) and is not asserted here."]),
         "Measured activities over-represent the target families natural products are "
         "routinely screened against (carbonic anhydrases, drug transporters, cytochromes "
         "P450). The degree-matched null controls for how well studied a protein is, not for "
@@ -395,4 +465,24 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         claims=claim_rows, release=verdict.as_dict(), excluded=dict(excluded),
         code_digest="sha256:" + hashlib.sha256(
             inspect.getsource(inspect.getmodule(run_network_pharmacology)).encode()).hexdigest(),
-        limitations=limitations)
+        limitations=limitations, disease=disease)
+
+
+def _disease_limitations(disease: Mapping[str, Any], params: Parameters) -> list[str]:
+    out = [
+        f"The indication is joined as a descriptive overlap with Open Targets "
+        f"{params.disease_evidence} associations (score >= {params.disease_min_score}) for "
+        f"{disease['name']} ({disease['disease']}). The overlap is a statistic, not a claim: "
+        "it neither shows that the formula acts on the disease nor licenses a stronger "
+        "claim kind. Which disease is joined is the analyst's choice of indication; a "
+        "formula's classical indication is stated in syndrome terms and does not map "
+        "one-to-one onto a modern disease.",
+        "Open Targets scores aggregate many evidence items; the gene set changes with the "
+        "evidence type, the score cut-off and the Platform release (recorded in the snapshot "
+        "id).",
+    ]
+    if params.disease_evidence in ("literature", "overall"):
+        out.append("The disease gene set includes literature co-mention, which shares its "
+                   "sources with the compound-target measurements; the overlap is partly "
+                   "circular.")
+    return out

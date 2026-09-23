@@ -96,14 +96,18 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "compounds.tsv": _tsv(out / "compounds.tsv", result.compounds,
                               ["compound", "name", "level", "herbs", "sources"]),
         "targets.tsv": _tsv(out / "targets.tsv", result.targets,
-                            ["target", "name", "measurements", "in_background", "compounds"]),
+                            ["target", "name", "measurements", "in_background", "disease_score",
+                             "compounds"]),
         "enrichment.tsv": _tsv(out / "enrichment.tsv", result.enrichment,
                                ["pathway", "name", "size", "overlap", "p_value", "q_value",
                                 "empirical_p", "fold_enrichment", "targets"]),
         "network.tsv": _tsv(out / "network.tsv", result.network["hubs"],
                             ["target", "name", "degree", "betweenness"]),
     }
-    for name, payload in (("claims.json", result.claims), ("release.json", result.release)):
+    payloads = [("claims.json", result.claims), ("release.json", result.release)]
+    if result.disease:
+        payloads.append(("disease.json", result.disease))
+    for name, payload in payloads:
         (out / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2),
                                 encoding="utf-8")
         files[name] = "sha256:" + hashlib.sha256((out / name).read_bytes()).hexdigest()
@@ -123,6 +127,7 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "outputs": files,
         "excluded": result.excluded,
         "network": {k: v for k, v in result.network.items() if k != "hubs"},
+        "disease": {k: v for k, v in result.disease.items() if k != "targets"},
         "claims": {"candidates": len(result.claims),
                    "released": len(result.release["released"]),
                    "refused": len(result.release["refused"])},

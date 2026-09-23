@@ -1,6 +1,6 @@
 ---
 name: network-pharmacology
-description: Network pharmacology of a TCM formula on verified source snapshots — composition, measured targets, Reactome enrichment with a degree-matched null, descriptive STRING topology — ending in mechanism hypotheses that pass the release check.
+description: Network pharmacology of a TCM formula on verified source snapshots — composition, measured targets, Reactome enrichment with a degree-matched null, descriptive STRING topology, overlap with the indication's genetic-association genes — ending in mechanism hypotheses that pass the release check.
 license: MIT
 metadata:
   version: 0.1.0
@@ -22,7 +22,9 @@ says so to the runtime.
 
 - Source snapshots built with `scripts/build_source_snapshots.py gold --network --ledger ...`
   (herb layer, NPASS, CMAUP, LOTUS, STRING, the full human Reactome annotation), each
-  recorded in the ledger. The run loads every snapshot through the ledger and refuses one
+  recorded in the ledger, plus the indication's Open Targets associations
+  (`scripts/fetch_opentargets.py MONDO_0005148 --raw RAW`, then
+  `scripts/build_source_snapshots.py opentargets --file ... --ledger ...`). The run loads every snapshot through the ledger and refuses one
   that no longer matches it.
 - A formula bound to one recorded composition (`sources.herbs.FormulaVersion`); the
   shipped one is 葛根芩连汤 as the 伤寒论 records it.
@@ -39,13 +41,16 @@ says so to the runtime.
 3. `enrichment` (in silico) — Reactome over-representation against the full human
    background, BH over every tested pathway, then a degree-matched permutation null.
 4. `network` (in silico) — STRING subnetwork at confidence >= 0.7, descriptive only.
+5. `disease` (in silico) — the measured targets against the indication's gene set, from
+   Open Targets *genetic association* scores >= 0.5 (not literature co-mention, which would
+   be circular). Hypergeometric plus the degree-matched null; a statistic, never a claim.
 
 The PSH compiler checks these designs against the claim: the program compiles for
 `mechanism_hypothesis` and is refused for `mechanism` (EVIDENCE103).
 
 ## What it produces
 
-`compounds.tsv`, `targets.tsv`, `enrichment.tsv`, `network.tsv`, `claims.json` (each claim
+`compounds.tsv`, `targets.tsv` (with each target's disease score), `disease.json`, `enrichment.tsv`, `network.tsv`, `claims.json` (each claim
 cites the snapshot edges of one supporting path and records the strongest kind that path
 could license), `release.json`, `provenance.json` (snapshot ids, parameters, seed, code
 digest, PSH program fingerprint, result digest) and `limitations.md`.
@@ -54,5 +59,5 @@ digest, PSH program fingerprint, result digest) and `limitations.md`.
 
 Every claim is a hypothesis. Read `limitations.md` first: composition is species-level,
 targets are what happened to be measured, enrichment reflects screening panels as well as
-biology, and no disease gene set has been joined yet — the claims are about pathways, not
-about the indication.
+biology, and the disease overlap describes the target set — the claims are about
+pathways, not about treating the indication.

@@ -9,11 +9,13 @@ requires:
     - lotus@2026-04-13
     - string@12.0
     - reactome@current
+    - opentargets@26.06+MONDO_0005148
   tools:
     - np.composition
     - np.measured_targets
     - np.pathway_enrichment
     - np.network_topology
+    - np.disease_overlap
 steps:
   composition:
     tool: np.composition
@@ -29,6 +31,11 @@ steps:
     design: in_silico
   network:
     tool: np.network_topology
+    after:
+      - targets
+    design: in_silico
+  disease:
+    tool: np.disease_overlap
     after:
       - targets
     design: in_silico

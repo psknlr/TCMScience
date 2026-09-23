@@ -3,6 +3,9 @@
 
     python scripts/build_source_snapshots.py gold --network --raw RAW --out SNAP \\
         --ledger SNAP/audit/snapshots.jsonl
+    # optional: the indication's gene set (see scripts/fetch_opentargets.py)
+    python scripts/build_source_snapshots.py opentargets \\
+        --file RAW/opentargets_MONDO_0005148.json --out SNAP --ledger SNAP/audit/snapshots.jsonl
     python scripts/run_network_pharmacology.py --snapshots SNAP \\
         --ledger SNAP/audit/snapshots.jsonl --out RUN
 
@@ -36,11 +39,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--activity-max-nm", type=float, default=Parameters.activity_max_nm)
     ap.add_argument("--string-min-score", type=float, default=Parameters.string_min_score)
     ap.add_argument("--permutations", type=int, default=Parameters.permutations)
+    ap.add_argument("--disease-evidence", default=Parameters.disease_evidence,
+                    help="Open Targets evidence type defining the disease gene set")
+    ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
     ap.add_argument("--seed", type=int, default=Parameters.seed)
     args = ap.parse_args(argv)
     params = Parameters(activity_max_nm=args.activity_max_nm,
                         string_min_score=args.string_min_score,
-                        permutations=args.permutations, seed=args.seed)
+                        permutations=args.permutations, seed=args.seed,
+                        disease_evidence=args.disease_evidence,
+                        disease_min_score=args.disease_min_score)
     try:
         provenance = run_skill(skill_dir=args.skill, snapshot_root=args.snapshots,
                                ledger_path=args.ledger, out_dir=args.out, params=params)
@@ -48,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "network",
-                                                "claims", "psh_program_fingerprint",
+                                                "disease", "claims", "psh_program_fingerprint",
                                                 "result_digest")},
                      ensure_ascii=False, indent=2))
     return 0

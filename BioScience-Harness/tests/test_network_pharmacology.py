@@ -8,6 +8,7 @@ as a mechanism hypothesis that cites a real path of snapshot edges.
 
 from __future__ import annotations
 
+import json
 import random
 import string
 from dataclasses import replace
@@ -23,6 +24,7 @@ from bioagent.sources import build_snapshot, load_snapshot
 from bioagent.sources.herbs import GEGEN_QINLIAN, HERBS, herb_rows
 from bioagent.sources.herbs import KEY as HERB_KEY, LICENSE as HERB_LICENSE
 from bioagent.sources.ledger import SnapshotLedger
+from bioagent.sources.parsers import parse_opentargets
 from bioagent.sources.release import check_release
 
 SKILL_DIR = Path(__file__).resolve().parents[1] / "skills" / "tcm" / "network-pharmacology"
@@ -235,7 +237,9 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
         assert (out / name).exists(), name
     assert provenance["random_seed"] == FAST.seed
     assert set(provenance["dataset_hashes"]) == {"tcm_herbs", "npass", "reactome", "string"}
-    assert set(provenance["sources_refused"]) == {"cmaup@2.0", "lotus@2026-04-13"}
+    assert set(provenance["sources_refused"]) == {"cmaup@2.0", "lotus@2026-04-13",
+                                                  "opentargets@26.06+MONDO_0005148"}
+    assert provenance["disease"] == {}
     assert provenance["claims"] == {"candidates": 1, "released": 1, "refused": 0}
     assert provenance["result_digest"].startswith("sha256:")
     assert "reactome:R-HSA-A" in (out / "enrichment.tsv").read_text(encoding="utf-8")
@@ -251,3 +255,77 @@ def test_run_skill_refuses_a_snapshot_changed_after_it_was_recorded(tmp_path):
                   ledger_path=ledger.path, out_dir=tmp_path / "run", params=FAST,
                   allowed={"npass", "string", "reactome"})
     assert load_snapshot(tmp_path / "snap", "npass", "fx")   # consistent in itself
+
+
+def ot_row(ensg: str, uniprot: str, score: float, **types: float) -> dict:
+    return {"score": score,
+            "datatypeScores": [{"id": k, "score": v} for k, v in types.items()],
+            "target": {"id": ensg, "approvedSymbol": uniprot, "approvedName": uniprot,
+                       "proteinIds": [{"id": uniprot, "source": "uniprot_swissprot"}]}}
+
+
+def ot_answer(rows: list[dict], path: Path) -> Path:
+    path.write_text(json.dumps({"api_version": "26.6.3", "data_version": "26.06",
+                                "disease": {"id": "MONDO_0005148",
+                                            "name": "type 2 diabetes mellitus",
+                                            "dbXRefs": []},
+                                "rows": rows}), encoding="utf-8")
+    return path
+
+
+# ------------------------------------------------------------------ the indication overlap
+def _disease_snapshot(root: Path, genetic: dict[str, float], literature: dict[str, float]):
+    rows = []
+    for i, p in enumerate(sorted(set(genetic) | set(literature))):
+        types = {}
+        if p in genetic:
+            types["genetic_association"] = genetic[p]
+        if p in literature:
+            types["literature"] = literature[p]
+        rows.append(ot_row(f"ENSG{i:011d}", p, max(types.values()), **types))
+    root.mkdir(parents=True, exist_ok=True)
+    path = ot_answer(rows, root / "ot.json")
+    result = parse_opentargets(path)
+    return build_snapshot(key="opentargets", version="fx", nodes=result.nodes,
+                          edges=result.edges, raw_files=result.raw_files, parser="fixture",
+                          root=root, license="CC0-1.0", citation="fixture")
+
+
+def test_the_indication_overlap_is_reported_and_claims_nothing(tmp_path):
+    snaps = _build(tmp_path / "w")
+    without = run_network_pharmacology(snaps, params=FAST)
+    genetic = {p: 0.9 for p in PATHWAY_A[:5]} | {PATHWAY_A[5]: 0.2} | {
+        p: 0.8 for p in PROTEINS[20:26]}
+    literature = {PATHWAY_A[6]: 0.9, PATHWAY_A[7]: 0.9}
+    disease = _disease_snapshot(tmp_path / "ot", genetic, literature)
+    result = run_network_pharmacology([*snaps, disease], params=FAST)
+
+    d = result.disease
+    assert d["disease"] == "mondo:0005148" and d["evidence"] == "genetic_association"
+    # the 0.2 score is under the cut-off; literature-only genes are not disease genes
+    assert d["disease_genes"] == 11 and d["overlap"] == 5
+    assert [t["target"] for t in d["targets"]] == sorted(f"uniprot:{p}" for p in PATHWAY_A[:5])
+    assert 0 < d["p_value"] <= 1 and d["empirical_p"] >= 1 / (FAST.permutations + 1)
+    assert "not claimed" in d["interpretation"]
+    scores = {t["target"]: t["disease_score"] for t in result.targets}
+    assert scores[f"uniprot:{PATHWAY_A[0]}"] == 0.9 and scores[f"uniprot:{PATHWAY_A[6]}"] is None
+    claim = result.claims[0]
+    assert claim["disease_associated_targets"] == sorted(f"uniprot:{p}" for p in PATHWAY_A[:5])
+    # the disease changes neither the pathways, their permutation p-values nor the claims
+    assert result.enrichment == without.enrichment
+    assert [c["kind"] for c in result.claims] == ["mechanism_hypothesis"]
+    assert result.release["released"] == without.release["released"]
+    assert any("not a claim" in line for line in result.limitations)
+    assert not any("No disease gene set" in line for line in result.limitations)
+
+    loose = run_network_pharmacology([*snaps, disease],
+                                     params=replace(FAST, disease_evidence="literature"))
+    assert loose.disease["overlap"] == 2
+    assert any("circular" in line for line in loose.limitations)
+
+
+def test_disease_parameters_are_checked():
+    with pytest.raises(ValueError, match="disease evidence"):
+        Parameters(disease_evidence="gossip")
+    with pytest.raises(ValueError, match="disease_min_score"):
+        Parameters(disease_min_score=2.0)

@@ -20,7 +20,7 @@ from . import herbs as herb_layer
 from . import schema
 from .cards import card as source_card
 from .composition import herb_composition
-from .parsers import bindingdb, cmaup, common, lotus, npass, reactome, string_db
+from .parsers import bindingdb, cmaup, common, lotus, npass, opentargets, reactome, string_db
 from .parsers.common import ParseResult, TaxonFilter
 from .snapshot import Snapshot, SnapshotError, build_snapshot
 
@@ -54,6 +54,8 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
     if key == "reactome":
         return reactome.parse_reactome(raw_dir / reactome.FILE,
                                        proteins=kw.get("proteins")), reactome
+    if key == "opentargets":
+        return opentargets.parse_opentargets(kw["path"]), opentargets
     raise KeyError(f"no parser for source {key!r}")
 
 
@@ -67,6 +69,10 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     the full one, so its version says so (``2.0+subset-<hash>``) and they never share an id.
     """
     result, module = _parse(key, Path(raw_dir), taxa, **kw)
+    if key == "opentargets" and version is None:
+        # the Platform release the answer came from, and which disease it is about
+        saved = json.loads(Path(kw["path"]).read_text(encoding="utf-8"))
+        version = f"{saved['data_version']}+{saved['disease']['id']}"
     version = version or VERSIONS.get(key) or kw.get("release") or "unknown"
     scope = dict(taxa.taxa) if taxa is not None else None
     if key == "bindingdb":
