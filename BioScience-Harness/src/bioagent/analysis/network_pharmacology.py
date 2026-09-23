@@ -1,0 +1,398 @@
+"""Network pharmacology of a formula, on verified snapshots, ending in releasable hypotheses.
+
+The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology``):
+
+1. **Composition** — formula -> herbs (as the source text records them) -> source species
+   -> compounds, each at a composition level (``sources.composition``).
+2. **Measured targets** — compound -> protein edges with a potency value (IC50, Ki, Kd,
+   EC50) at or below a cut-off, from sources that record the measurement. Predicted
+   targets are not used by this skill.
+3. **Pathway over-representation** — Reactome, against the full human annotation as the
+   background, pathways of a stated size range, Benjamini–Hochberg over *every* pathway
+   tested (not only those that happen to overlap the query).
+4. **Annotation-bias control** — a pathway that passes BH must also beat a degree-matched
+   permutation null: random target sets drawn so each target is matched on how many
+   pathways it is annotated to. Well-studied proteins sit in many pathways; without this,
+   "enriched" can mean "well studied".
+5. **Network topology** — the STRING subnetwork over the targets at a stated confidence,
+   reported as description: degree, betweenness, components. No significance is claimed
+   for it.
+6. **Candidate claims** — one ``mechanism_hypothesis`` per pathway passing 3 and 4, each
+   citing the exact snapshot edges of one supporting path, then the release check
+   (``sources.release``). The strongest kind each path would license is recorded too, so
+   the report says *why* it stops at a hypothesis.
+
+Every parameter is explicit, the only randomness is seeded, and the result carries the
+snapshot ids and a digest of this code, so the same inputs reproduce the same outputs.
+"""
+
+from __future__ import annotations
+
+import bisect
+import hashlib
+import inspect
+import json
+import random
+from collections import defaultdict, deque
+from dataclasses import asdict, dataclass, field
+from typing import Any, Iterable, Mapping, Sequence
+
+from ..sources.herbs import GEGEN_QINLIAN, HERBS, FormulaVersion
+from ..sources.release import CandidateClaim, check_release, path_licenses
+from ..sources.snapshot import Snapshot
+from ..tools.stats import benjamini_hochberg, hypergeometric_test
+
+__all__ = ["Parameters", "NetworkPharmacologyResult", "run_network_pharmacology"]
+
+_POTENCY = ("IC50", "Ki", "Kd", "EC50")
+_COMPOSITION_ORDER = ("C0", "part_unverified", "C1", "C2", "C3", "C4")
+
+
+@dataclass(frozen=True)
+class Parameters:
+    """Every analytic choice, stated. Changing any of them is a new analysis."""
+
+    activity_types: tuple[str, ...] = _POTENCY
+    #: potency cut-off in nM (10 µM); a ">" value never passes
+    activity_max_nm: float = 10_000.0
+    #: weakest composition level accepted for a compound
+    composition_min_level: str = "C1"
+    pathway_min_size: int = 5
+    pathway_max_size: int = 500
+    fdr: float = 0.05
+    permutations: int = 1000
+    #: empirical p-value a pathway must reach against the degree-matched null
+    permutation_alpha: float = 0.05
+    degree_bins: int = 10
+    string_min_score: float = 0.7
+    seed: int = 20260923
+
+    def __post_init__(self) -> None:
+        if self.composition_min_level not in _COMPOSITION_ORDER:
+            raise ValueError(f"composition level {self.composition_min_level!r}")
+        if not 0 < self.fdr < 1 or not 0 < self.permutation_alpha < 1:
+            raise ValueError("fdr and permutation_alpha lie in (0, 1)")
+        if self.permutations < 100:
+            raise ValueError("fewer than 100 permutations cannot resolve p < 0.01")
+
+
+@dataclass
+class NetworkPharmacologyResult:
+    formula: str
+    parameters: Parameters
+    snapshots: dict[str, str]
+    compounds: list[dict[str, Any]]
+    targets: list[dict[str, Any]]
+    enrichment: list[dict[str, Any]]
+    network: dict[str, Any]
+    claims: list[dict[str, Any]]
+    release: dict[str, Any]
+    excluded: dict[str, int]
+    code_digest: str
+    limitations: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        out = asdict(self)
+        out["parameters"] = asdict(self.parameters)
+        return out
+
+    def digest(self) -> str:
+        """Content hash of the result, for replay checks."""
+        blob = json.dumps(self.as_dict(), sort_keys=True, ensure_ascii=False, default=str)
+        return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+# ------------------------------------------------------------------ helpers
+def _level_at_least(level: str | None, minimum: str) -> bool:
+    return level in _COMPOSITION_ORDER and (
+        _COMPOSITION_ORDER.index(level) >= _COMPOSITION_ORDER.index(minimum))
+
+
+def _passes_potency(measure: Mapping[str, Any] | None, params: Parameters) -> bool:
+    if not measure or measure.get("type") not in params.activity_types:
+        return False
+    if (measure.get("unit") or "").lower() != "nm" or measure.get("relation") in (">", ">="):
+        return False
+    try:
+        return float(measure["value"]) <= params.activity_max_nm
+    except (TypeError, ValueError, KeyError):
+        return False
+
+
+def _brandes(adjacency: Mapping[str, set[str]]) -> dict[str, float]:
+    """Unweighted betweenness centrality, normalised for an undirected graph."""
+    nodes = sorted(adjacency)
+    bc = dict.fromkeys(nodes, 0.0)
+    for s in nodes:
+        stack, pred = [], defaultdict(list)
+        sigma = dict.fromkeys(nodes, 0.0)
+        dist = dict.fromkeys(nodes, -1)
+        sigma[s], dist[s] = 1.0, 0
+        queue = deque([s])
+        while queue:
+            v = queue.popleft()
+            stack.append(v)
+            for w in sorted(adjacency[v]):
+                if dist[w] < 0:
+                    dist[w] = dist[v] + 1
+                    queue.append(w)
+                if dist[w] == dist[v] + 1:
+                    sigma[w] += sigma[v]
+                    pred[w].append(v)
+        delta = dict.fromkeys(nodes, 0.0)
+        while stack:
+            w = stack.pop()
+            for v in pred[w]:
+                delta[v] += sigma[v] / sigma[w] * (1 + delta[w])
+            if w != s:
+                bc[w] += delta[w]
+    n = len(nodes)
+    scale = 1.0 / ((n - 1) * (n - 2)) if n > 2 else 0.0
+    return {v: round(bc[v] * scale, 6) for v in nodes}      # /2 for undirected, *2 normalise
+
+
+def _components(adjacency: Mapping[str, set[str]]) -> list[list[str]]:
+    seen: set[str] = set()
+    out = []
+    for start in sorted(adjacency):
+        if start in seen:
+            continue
+        comp, queue = [], deque([start])
+        seen.add(start)
+        while queue:
+            v = queue.popleft()
+            comp.append(v)
+            for w in adjacency[v] - seen:
+                seen.add(w)
+                queue.append(w)
+        out.append(sorted(comp))
+    return sorted(out, key=lambda c: (-len(c), c))
+
+
+# ------------------------------------------------------------------ the run
+def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
+                             formula: FormulaVersion = GEGEN_QINLIAN,
+                             params: Parameters = Parameters(),
+                             contract: Any = None) -> NetworkPharmacologyResult:
+    # A fixed order: names and path choices must not depend on the order snapshots were
+    # passed in, or the same inputs would not reproduce the same result.
+    snaps = sorted(snapshots, key=lambda s: s.snapshot_id)
+    by_key = {s.key: s for s in snaps}
+    for needed in ("tcm_herbs", "reactome"):
+        if needed not in by_key:
+            raise ValueError(f"the analysis needs a {needed} snapshot")
+    excluded: dict[str, int] = defaultdict(int)
+    rng = random.Random(params.seed)
+
+    # 1. composition: formula -> herb -> species -> compound -------------------------------
+    herbs_snap = by_key["tcm_herbs"]
+    formula_edges = {e["object"]: e for e in herbs_snap.edges
+                     if e["subject"] == formula.id and e["predicate"] == "contains"}
+    base_edges = {(e["subject"], e["object"]): e for e in herbs_snap.edges
+                  if e["predicate"] == "has_base_species"}
+    species_of: dict[str, list[str]] = defaultdict(list)
+    for (herb, species) in base_edges:
+        if herb in formula_edges:
+            species_of[species].append(herb)
+    names: dict[str, str] = {}
+    compound_paths: dict[str, list[tuple[Snapshot, dict]]] = defaultdict(list)
+    compound_rows: dict[str, dict[str, Any]] = {}
+    for snap in snaps:
+        for n in snap.nodes:
+            if n.get("category") in ("ingredient", "target", "pathway"):
+                names.setdefault(n["id"], n.get("name") or n["id"])
+        for e in snap.edges:
+            if e.get("predicate") != "contains" or e.get("subject") not in species_of:
+                continue
+            level = e.get("composition_level")
+            if level == "C1" and HERBS.get(species_of[e["subject"]][0]) and (
+                    (e.get("raw") or {}).get("parts")):
+                herb = HERBS[species_of[e["subject"]][0]]
+                if herb.matches_part(e["raw"]["parts"]):
+                    level = "C2"
+            if not _level_at_least(level, params.composition_min_level):
+                excluded["composition below the minimum level"] += 1
+                continue
+            compound_paths[e["object"]].append((snap, e))
+            row = compound_rows.setdefault(e["object"], {
+                "compound": e["object"], "herbs": set(), "level": level, "sources": set()})
+            row["herbs"].update(species_of[e["subject"]])
+            row["sources"].add(snap.key)
+            if _COMPOSITION_ORDER.index(level) > _COMPOSITION_ORDER.index(row["level"]):
+                row["level"] = level
+
+    # 2. measured targets ------------------------------------------------------------------
+    target_paths: dict[str, list[tuple[Snapshot, dict]]] = defaultdict(list)
+    for snap in snaps:
+        for e in snap.edges:
+            if e.get("predicate") != "targets" or e.get("subject") not in compound_rows:
+                continue
+            if e.get("knowledge_level") == "prediction":
+                excluded["predicted target edge (not used by this skill)"] += 1
+                continue
+            if not _passes_potency(e.get("measure"), params):
+                excluded["activity above the cut-off or not a potency measure"] += 1
+                continue
+            target_paths[e["object"]].append((snap, e))
+
+    # 3. over-representation against the human Reactome background -------------------------
+    reactome = by_key["reactome"]
+    members: dict[str, set[str]] = defaultdict(set)
+    membership: dict[tuple[str, str], dict] = {}
+    for e in reactome.edges:
+        if e.get("predicate") == "participates_in":
+            members[e["object"]].add(e["subject"])
+            membership[(e["subject"], e["object"])] = e
+    background = set().union(*members.values()) if members else set()
+    query = sorted(t for t in target_paths if t in background)
+    excluded["targets outside the Reactome human background"] = len(
+        [t for t in target_paths if t not in background])
+    tested = {p: m for p, m in members.items()
+              if params.pathway_min_size <= len(m) <= params.pathway_max_size}
+    rows = []
+    for pathway in sorted(tested):
+        overlap = sorted(set(query) & tested[pathway])
+        test = hypergeometric_test(len(overlap), len(query), len(tested[pathway]),
+                                   len(background)) if query else {"p_value": 1.0,
+                                                                   "fold_enrichment": None}
+        rows.append({"pathway": pathway, "name": names.get(pathway, pathway),
+                     "size": len(tested[pathway]), "overlap": len(overlap),
+                     "targets": overlap, "p_value": test["p_value"],
+                     "fold_enrichment": test["fold_enrichment"]})
+    if rows:
+        for row, q in zip(rows, benjamini_hochberg([r["p_value"] for r in rows])["q_values"]):
+            row["q_value"] = q
+
+    # 4. degree-matched permutation null for the BH-significant pathways ---------------------
+    degree = defaultdict(int)
+    for p, m in members.items():
+        for protein in m:
+            degree[protein] += 1
+    ordered = sorted(background, key=lambda x: (degree[x], x))
+    cuts = [degree[ordered[int(len(ordered) * k / params.degree_bins)]]
+            for k in range(1, params.degree_bins)] if ordered else []
+
+    def bin_of(protein: str) -> int:
+        return bisect.bisect_right(cuts, degree[protein])
+
+    pool: dict[int, list[str]] = defaultdict(list)
+    for protein in ordered:
+        pool[bin_of(protein)].append(protein)
+    wanted = defaultdict(int)
+    for t in query:
+        wanted[bin_of(t)] += 1
+    for row in rows:
+        row["empirical_p"] = None
+        if row["q_value"] > params.fdr:
+            continue
+        pathway_members = tested[row["pathway"]]
+        at_least = 0
+        for _ in range(params.permutations):
+            draw = [x for b, k in sorted(wanted.items()) for x in rng.sample(pool[b], k)]
+            if len(pathway_members.intersection(draw)) >= row["overlap"]:
+                at_least += 1
+        # exact, not rounded: rounding can put the value below its own 1/(n+1) floor
+        row["empirical_p"] = (1 + at_least) / (1 + params.permutations)
+    rows.sort(key=lambda r: (r["p_value"], r["pathway"]))
+    significant = [r for r in rows if r["q_value"] <= params.fdr and r["empirical_p"] is not None
+                   and r["empirical_p"] <= params.permutation_alpha]
+
+    # 5. network topology (descriptive) ----------------------------------------------------
+    adjacency: dict[str, set[str]] = {t: set() for t in query}
+    if "string" in by_key:
+        for e in by_key["string"].edges:
+            a, b = e.get("subject"), e.get("object")
+            if a in adjacency and b in adjacency and (e.get("score") or 0) >= params.string_min_score:
+                adjacency[a].add(b)
+                adjacency[b].add(a)
+    betweenness = _brandes(adjacency) if adjacency else {}
+    components = _components(adjacency) if adjacency else []
+    network = {
+        "nodes": len(adjacency), "edges": sum(len(v) for v in adjacency.values()) // 2,
+        "largest_component": len(components[0]) if components else 0,
+        "components": len(components),
+        "string_min_score": params.string_min_score,
+        "hubs": [{"target": t, "name": names.get(t, t), "degree": len(adjacency[t]),
+                  "betweenness": betweenness.get(t, 0.0)}
+                 for t in sorted(adjacency, key=lambda t: (-len(adjacency[t]), t))[:15]],
+        "interpretation": "descriptive only; no significance is claimed for topology",
+    }
+
+    # 6. candidate claims, each citing one supporting path ----------------------------------
+    claims: list[CandidateClaim] = []
+    claim_rows = []
+    for row in significant:
+        target = row["targets"][0]
+        target_snap, target_edge = sorted(target_paths[target],
+                                          key=lambda se: (se[0].key, se[1]["source_record_id"]))[0]
+        compound = target_edge["subject"]
+        comp_snap, comp_edge = sorted(compound_paths[compound],
+                                      key=lambda se: (-_COMPOSITION_ORDER.index(
+                                          se[1].get("composition_level", "C1")),
+                                          se[0].key, se[1]["source_record_id"]))[0]
+        herb = species_of[comp_edge["subject"]][0]
+        support = [
+            (herbs_snap.snapshot_id, formula_edges[herb]["source_record_id"]),
+            (herbs_snap.snapshot_id, base_edges[(herb, comp_edge["subject"])]["source_record_id"]),
+            (comp_snap.snapshot_id, comp_edge["source_record_id"]),
+            (target_snap.snapshot_id, target_edge["source_record_id"]),
+            (reactome.snapshot_id, membership[(target, row["pathway"])]["source_record_id"]),
+        ]
+        edges = [formula_edges[herb], base_edges[(herb, comp_edge["subject"])], comp_edge,
+                 target_edge, membership[(target, row["pathway"])]]
+        strongest = sorted(path_licenses(edges))
+        statement = (f"Based on {formula.chinese} ({formula.source}) composition, measured "
+                     f"activities of its constituents and Reactome annotation, "
+                     f"{names.get(row['pathway'], row['pathway'])} may be involved in its "
+                     "action; this is a computational hypothesis awaiting experimental test.")
+        claim = CandidateClaim("mechanism_hypothesis", formula.id, row["pathway"],
+                               tuple(support), statement)
+        claims.append(claim)
+        claim_rows.append({"kind": claim.kind, "subject": claim.subject, "object": claim.object,
+                           "pathway": row["name"], "q_value": row["q_value"],
+                           "empirical_p": row["empirical_p"],
+                           "support": [list(s) for s in support],
+                           "path_licenses": strongest, "statement": statement,
+                           "why_not_stronger": (
+                               "a constituent is shown in the source species, not in the "
+                               "decoction (composition below C3)"
+                               if comp_edge.get("composition_level") not in ("C3", "C4")
+                               else "")})
+    verdict = check_release(claims, snaps, contract=contract)
+
+    compounds = sorted(({**r, "herbs": sorted(r["herbs"]), "sources": sorted(r["sources"]),
+                         "name": names.get(r["compound"], r["compound"])}
+                        for r in compound_rows.values()), key=lambda r: r["compound"])
+    targets = [{"target": t, "name": names.get(t, t),
+                "compounds": sorted({e["subject"] for _, e in target_paths[t]}),
+                "measurements": len(target_paths[t]), "in_background": t in background}
+               for t in sorted(target_paths)]
+    limitations = [
+        "Composition is species-level (C1/C2): no constituent is shown in the decoction "
+        "itself (C3) or in plasma after dosing (C4), so every claim stops at a hypothesis.",
+        "Targets are in-vitro potency measurements at or below the stated cut-off; "
+        "predicted targets are not used, and absence of a measurement is not absence of "
+        "activity.",
+        "Enrichment is against Reactome's human annotation; pathways outside the size range "
+        "are not tested, and the result depends on how thoroughly each protein is studied — "
+        "hence the degree-matched null.",
+        "No disease gene set is joined yet: the claims concern pathways, not the indication. "
+        "Relevance to the indication needs a disease-association snapshot (e.g. Open "
+        "Targets) and is not asserted here.",
+        "Measured activities over-represent the target families natural products are "
+        "routinely screened against (carbonic anhydrases, drug transporters, cytochromes "
+        "P450). The degree-matched null controls for how well studied a protein is, not for "
+        "which assay panels were run, so enriched ADME and screening-panel pathways should "
+        "be read as assay coverage before biology.",
+        "The permutation p-value has a floor of 1/(permutations+1) and is a second filter "
+        "after BH, not itself corrected for multiple testing.",
+        "Network topology is descriptive and depends on the STRING confidence cut-off.",
+    ]
+    return NetworkPharmacologyResult(
+        formula=formula.id, parameters=params,
+        snapshots={s.key: s.snapshot_id for s in snaps},
+        compounds=compounds, targets=targets, enrichment=rows, network=network,
+        claims=claim_rows, release=verdict.as_dict(), excluded=dict(excluded),
+        code_digest="sha256:" + hashlib.sha256(
+            inspect.getsource(inspect.getmodule(run_network_pharmacology)).encode()).hexdigest(),
+        limitations=limitations)

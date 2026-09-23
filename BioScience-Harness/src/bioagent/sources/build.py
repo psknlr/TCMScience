@@ -98,8 +98,9 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
                ledger: Any = None, network: bool = False) -> GoldBuild:
     """Herb layer + natural-product sources for 葛根芩连汤, checked against ``herbs.GOLD``.
 
-    With ``network``, also STRING (the induced subnetwork) and Reactome over the protein
-    targets those sources report for the herbs' compounds.
+    With ``network``, also STRING (the induced subnetwork over the protein targets those
+    sources report for the herbs' compounds) and Reactome's full human annotation — the
+    whole annotation, because it is the background an enrichment test is drawn against.
     """
     taxa = herb_layer.taxon_filter()
     nodes, edges = herb_layer.herb_rows()
@@ -114,9 +115,9 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         proteins = sorted({x for snap in snapshots.values() for n in snap.nodes
                            if n.get("category") == "target"
                            for x in (n.get("xrefs") or {}).get("uniprot", [])})
-        for key in ("string", "reactome"):
-            snapshots[key] = build_source(key, raw_dir, root, proteins=proteins,
-                                          ledger=ledger)
+        snapshots["string"] = build_source("string", raw_dir, root, proteins=proteins,
+                                           ledger=ledger)
+        snapshots["reactome"] = build_source("reactome", raw_dir, root, ledger=ledger)
     hits = herb_composition(snapshots.values())
     found = {(h.herb, h.compound) for h in hits}
     missing = {herb: f"{name} ({inchikey}) is in none of the herb's source species"

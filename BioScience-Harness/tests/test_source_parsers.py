@@ -411,6 +411,8 @@ def test_the_network_build_scopes_string_and_reactome_to_the_targets_found(raw, 
         ["P12345", "R-HSA-1", "u", "unrelated", "TAS", "Homo sapiens"]])
     build = build_gold(raw, tmp_path / "snap", network=True)
     assert build.passed
+    # Reactome is the whole human annotation: it is the enrichment background.
     reactome_edges = build.snapshots["reactome"].edges
-    assert [e["subject"] for e in reactome_edges] == ["uniprot:P35354"]
+    assert sorted(e["subject"] for e in reactome_edges) == ["uniprot:P12345", "uniprot:P35354"]
+    assert build.snapshots["reactome"].version == "current"
     assert build.snapshots["string"].version.startswith("12.0+subset-")

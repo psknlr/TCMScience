@@ -1,0 +1,35 @@
+id: tcm.network-pharmacology
+version: 0.1.0
+inputs:
+  formula: FormulaVersion
+requires:
+  sources:
+    - npass@2.0
+    - cmaup@2.0
+    - lotus@2026-04-13
+    - string@12.0
+    - reactome@current
+  tools:
+    - np.composition
+    - np.measured_targets
+    - np.pathway_enrichment
+    - np.network_topology
+steps:
+  composition:
+    tool: np.composition
+  targets:
+    tool: np.measured_targets
+    after:
+      - composition
+    design: in_vitro
+  enrichment:
+    tool: np.pathway_enrichment
+    after:
+      - targets
+    design: in_silico
+  network:
+    tool: np.network_topology
+    after:
+      - targets
+    design: in_silico
+max_claim_kind: mechanism_hypothesis
