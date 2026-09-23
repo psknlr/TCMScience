@@ -24,7 +24,7 @@ from ..contracts import ContractViolation
 from ..labels import Labeled, label_of, unwrap
 from .plan import InputBinding, PlanTask
 
-__all__ = ["BindingError", "resolve_pointer", "resolve_bindings"]
+__all__ = ["BindingError", "resolve_pointer", "resolve_bindings", "resolve_input_bindings"]
 
 
 class BindingError(ContractViolation):
@@ -90,14 +90,24 @@ def resolve_bindings(task: PlanTask, upstream: Mapping[str, Any]) -> dict[str, L
     label the broker gave it. The resolved value carries that label, whatever its own text
     would classify as — a count derived from a PHI cohort is PHI.
     """
+    return resolve_input_bindings(task.inputs, upstream, task_id=task.task_id)
+
+
+def resolve_input_bindings(bindings, upstream: Mapping[str, Any], *,
+                           task_id: str) -> dict[str, Labeled]:
+    """Resolve declared inputs without requiring sources to share the target DAG.
+
+    Graph membership and dependency validation belong to the invoking compiler.
+    Dynamic stage bindings read a preceding visit, not the current task graph.
+    """
     out: dict[str, Labeled] = {}
-    for binding in task.inputs:
+    for binding in bindings:
         item = upstream.get(binding.source)
         source_value = unwrap(item)
         if item is None or source_value is None:
             if binding.required:
                 raise BindingError(
-                    f"task {task.task_id!r} binds {binding.argument!r} to task "
+                    f"task {task_id!r} binds {binding.argument!r} to task "
                     f"{binding.source!r}, which produced no result")
             continue
         try:
@@ -105,24 +115,24 @@ def resolve_bindings(task: PlanTask, upstream: Mapping[str, Any]) -> dict[str, L
         except BindingError as exc:
             if binding.required:
                 raise BindingError(
-                    f"task {task.task_id!r}, argument {binding.argument!r} from "
+                    f"task {task_id!r}, argument {binding.argument!r} from "
                     f"{binding.source!r}: {exc}") from None
             continue
         if binding.cardinality == "many":
             if not isinstance(value, (list, tuple)):
                 raise BindingError(
-                    f"task {task.task_id!r}, argument {binding.argument!r}: expected a "
+                    f"task {task_id!r}, argument {binding.argument!r}: expected a "
                     f"list from {binding.source!r}{binding.pointer}, got "
                     f"{type(value).__name__}")
             bad = [i for i, v in enumerate(value) if not _type_ok(v, binding.expected_type)]
             if bad:
                 raise BindingError(
-                    f"task {task.task_id!r}, argument {binding.argument!r}: "
+                    f"task {task_id!r}, argument {binding.argument!r}: "
                     f"{len(bad)} element(s) of the list are not {binding.expected_type}")
             value = list(value)
         elif not _type_ok(value, binding.expected_type):
             raise BindingError(
-                f"task {task.task_id!r}, argument {binding.argument!r}: expected "
+                f"task {task_id!r}, argument {binding.argument!r}: expected "
                 f"{binding.expected_type}, got {type(value).__name__} from "
                 f"{binding.source!r}{binding.pointer}")
         out[binding.argument] = Labeled(
