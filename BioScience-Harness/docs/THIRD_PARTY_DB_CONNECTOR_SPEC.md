@@ -161,7 +161,7 @@ SourceCard 属于**代码层**：随程序包发布，改动要经过代码评�
 
 不再为每类实体设计单独的类。每个快照统一成两张 Parquet 表，列名与 KGX 兼容（KGX 是 Monarch 知识图谱等采用的交换格式）：
 
-**nodes（节点表）**：`id`（CURIE）· `category`（herb / formula / ingredient / target / disease / syndrome / symptom / pathway / publication）· `name` · `names`（中文 / 拼音 / 拉丁 / 英文 / 别名）· `xrefs` · `source` · `snapshot_id`
+**nodes（节点表）**：`id`（CURIE。有标准全局标识的实体直接用它：化合物用 `inchikey:`，蛋白用 `uniprot:`，物种用 `ncbitaxon:`；这样不同来源的同一实体读在一起时就是同一个节点。没有全局标识的才用 `<来源>:<来源 ID>`。来源自己的 ID 一律保留在 `xrefs` 中）· `category`（herb / formula / ingredient / target / disease / syndrome / symptom / pathway / publication）· `name` · `names`（中文 / 拼音 / 拉丁 / 英文 / 别名）· `xrefs` · `source` · `snapshot_id`
 
 **edges（边表）**：
 
@@ -267,7 +267,7 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 | 环节 | 数据源 | 访问方式 | 默认证据标签 | 现状 |
 | --- | --- | --- | --- | --- |
 | 药材与方剂的名称、组成 | ETCM 2.0、HERB 2.0 | `manual`（官网或协议导出）；`web` 仅按需查单条 | 组成：`knowledge_assertion`；ETCM 靶点按记录区分已证实与预测，分不清时标 `prediction` | 新增 |
-| 物种 → 成分 | LOTUS（CC0，带文献）、CMAUP / NPASS 物种-成分对 | `bulk` | `knowledge_assertion`，`composition_level=C1`。NPASS 的物种对带分离部位，与药用部位一致时可标 C2 | 已有下载规格，缺解析 |
+| 物种 → 成分 | LOTUS 冻结导出（CC-BY-4.0，带文献）、CMAUP / NPASS 物种-成分对 | `bulk` | `knowledge_assertion`，`composition_level=C1`。NPASS 的物种对带分离部位，与药用部位一致时可标 C2 | M2 已解析 |
 | 成分 → 靶点（实测） | BindingDB、ChEMBL、NPASS 活性数据 | `bulk` | `knowledge_assertion` + `in_vitro` | BindingDB 新增；其余缺解析 |
 | 成分 → 靶点（预测） | ETCM、TCMSP、TCMToxDB 的预测靶点 | `manual` / `web` | `prediction` + `in_silico` | P1 |
 | 靶点 → 疾病 | Open Targets（CC0，提供 Parquet）、GWAS Catalog、Monarch（提供 KGX） | `bulk` 优先，已有 `api` | `statistical_association` / `knowledge_assertion` | 已有 `api` |
@@ -298,11 +298,26 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 - `HTTPBackend`：支持 `Retry-After`、缓存键加入 `version`、截断时报 `DEGRADED`，缓存命中时也带 `fetched_at`；
 - `SkillContract`（`skill.yaml`），`default_runtime` 会发现仓库 `skills/` 下的 Skill。
 
-**尚未接通，留给 M2/M3**：
-- 快照 ID 还没有写进审计日志；目前由调用方把它作为 `expected_id` 传给 `load_snapshot`；
-- `check_claim` 还没有接进 PSH 的 `OutputGate`，发布门目前靠编译期的 `_SUPPORTS` 把关；
-- 把 `skill.yaml` 转成 `ScientificProgram` 的适配器还没写；
-- 数据源卡片目前只有 LOTUS、NPASS、CMAUP 三张，BindingDB、ETCM、HERB 的卡片和解析器在 M2。
+**M2 状态（已实现）**：
+- `sources/parsers/`：NPASS、CMAUP、LOTUS（冻结导出）、BindingDB（按用户下载的 TSV 导入，按 InChIKey 过滤）。都是纯函数，不联网、不做科学筛选；每个被丢弃的行按原因计数，计数写进快照 manifest；
+- `sources/herbs.py`：葛根、黄芩、黄连、甘草的基原物种（NCBI Taxonomy 已核实）和药用部位；按《伤寒论》记载锁定葛根芩连汤的组成与剂量（带指纹）；金标准标志成分（InChIKey 已对照 PubChem 核实）；
+- `sources/composition.py`：药材 → 基原物种 → 成分。一律从 C1 起；只有来源记录了分离部位、且正是药用部位时才升为 C2；
+- `sources/build.py` 与 `scripts/build_source_snapshots.py`：构建快照并校验金标准；
+- 数据源卡片新增 BindingDB（`api` + `manual`；记录级许可证）。LOTUS 冻结导出的许可证更正为 CC-BY-4.0。
+
+**M2 真实数据结果（2026-09-23，限定在四味药的基原物种）**：
+- 4 个快照都通过质量检查，金标准全部复现（葛根素、黄芩苷、小檗碱、甘草酸在 NPASS、CMAUP、LOTUS 三个来源中都能找到）；
+- 同一批原始文件两次构建，快照 ID 完全相同；LOTUS 文件的 md5 与 Zenodo 公布值一致；
+- 成分表共 1898 条（药材×成分），其中只有 22 条达到 C2，都是甘草。原因是 NPASS 只为这些物种的 9 个物种-成分对记录了分离部位，属于数据本身的缺口，不是匹配问题；
+- 值得注意的例子：葛根素也出现在黄芩名下，只有 1 条文献支持。这正是 C1 单一来源断言需要人工复核的原因；
+- NPASS 中有 43,297 条活性数据针对细胞系或整体生物，不是蛋白靶点，另有 202 条没有文献，都已丢弃并计数。
+
+**仍未完成**：
+- ETCM / HERB 导入器：需要拿到它们实际的导出文件后，按真实格式来写；
+- BindingDB：解析器已按官方格式说明实现，并用合成文件测试过，但还没有用真实下载文件验证。下载页面需要人工操作，本环境无法代为完成；
+- ICD-11 传统医学章：需要注册 OAuth 客户端；
+- STRING、Reactome 的快照：M3 的网络与富集分析需要它们，目前仍可先用已有的 API 连接器；
+- M1 留下的三项：快照 ID 写入审计日志、`check_claim` 接入 `OutputGate`、`skill.yaml` → `ScientificProgram` 适配器。
 
 后续另立项目：组学管线、临床方法学类 Skill、基于 RoB 2 / GRADE 的证据综合 Skill、每月数据源健康检查（在 `scripts/verify_connectors.py` 基础上增加快照漂移报告）。
 
@@ -332,4 +347,4 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 - Biolink：[KnowledgeLevelEnum](https://biolink.github.io/biolink-model/KnowledgeLevelEnum/) · [AgentTypeEnum](https://biolink.github.io/biolink-model/AgentTypeEnum/)
 - Monarch KG（KGX 格式下载）与 Koza：[monarch-ingest](https://monarch-initiative.github.io/monarch-ingest/KG-Build-Process/kg-build-process/)
 - Open Targets 许可证（CC0）：[platform-docs.opentargets.org/licence](https://platform-docs.opentargets.org/licence)
-- LOTUS（CC0）：[eLife 2022](https://elifesciences.org/articles/70780)
+- LOTUS：[eLife 2022](https://elifesciences.org/articles/70780)；Zenodo 冻结导出（CC-BY-4.0，Wikidata 上的陈述为 CC0）：[zenodo.org/records/19360665](https://zenodo.org/records/19360665)

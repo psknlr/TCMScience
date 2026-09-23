@@ -161,14 +161,16 @@ class SourceCard:
 #: strongly than the row itself supports.
 SOURCE_CARDS: tuple[SourceCard, ...] = (
     SourceCard(
-        key="lotus", name="LOTUS natural products occurrences",
-        citation="doi:10.7554/eLife.70780", license="CC0-1.0",
-        terms_url="https://lotus.nprod.net/",
-        access=(Access("bulk", "https://zenodo.org/records/", cadence="frozen 2026-04-13",
-                       notes="frozen Zenodo export; see acquisition.sources"),
+        key="lotus", name="LOTUS natural products occurrences (frozen export)",
+        citation="doi:10.7554/eLife.70780",
+        # The frozen Zenodo export is CC-BY-4.0; LOTUS's Wikidata statements are CC0.
+        license="CC-BY-4.0", terms_url="https://zenodo.org/records/19360665",
+        access=(Access("bulk", "https://zenodo.org/api/records/19360665/files/"
+                       "260413_frozen.csv.gz/content", checksum="md5:cf0cf2afa2ca4d758b68f2e39d466f5d",
+                       cadence="frozen 2026-04-13"),
                 Access("api", "https://query.wikidata.org/sparql", rps=1.0)),
         provides=(EdgeDefault("contains", "organism", "ingredient", "knowledge_assertion",
-                              "not_provided", "chemical_analysis", composition_level="C1"),),
+                              "automated_agent", "chemical_analysis", composition_level="C1"),),
         commercial_use="allowed", qc={"min_inchikey_coverage": 0.95}),
     SourceCard(
         key="npass", name="NPASS 2.0", citation="doi:10.1093/nar/gkac1069",
@@ -185,9 +187,24 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
         key="cmaup", name="CMAUP 2.0", citation="doi:10.1093/nar/gkad921",
         license="Free for academic use", terms_url="https://bidd.group/CMAUP/",
         access=(Access("bulk", "https://bidd.group/CMAUP/downloadFiles/", cadence="2.0"),),
-        provides=(EdgeDefault("contains", "organism", "ingredient", "knowledge_assertion",
-                              "manual_agent", "chemical_analysis", composition_level="C1"),),
+        provides=(
+            EdgeDefault("contains", "organism", "ingredient", "knowledge_assertion",
+                        "not_provided", "chemical_analysis", composition_level="C1"),
+            EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
+                        "manual_agent", "in_vitro"),
+        ),
         commercial_use="unknown", qc={"min_inchikey_coverage": 0.8}),
+    SourceCard(
+        key="bindingdb", name="BindingDB", citation="doi:10.1093/nar/gkae1075",
+        license="CC-BY-4.0", terms_url="https://www.bindingdb.org/rwd/bind/info.jsp",
+        # The monthly TSV is downloaded by a person (the page has an interactive step) and
+        # imported; the REST service answers single lookups.
+        access=(Access("api", "https://bindingdb.org/rest", rps=1.0),
+                Access("manual", notes="BindingDB_All_<YYYYMM>_tsv.zip from the download page")),
+        provides=(EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
+                              "manual_agent", "in_vitro"),),
+        per_record_license={"curation": {"ChEMBL": "CC-BY-SA-3.0"}},
+        commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
 )
 
 _BY_KEY = {c.key: c for c in SOURCE_CARDS}

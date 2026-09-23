@@ -129,8 +129,11 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
                   thresholds: QCThresholds = QCThresholds(),
                   previous: Mapping[str, Any] | None = None,
                   gold: Mapping[str, Mapping[str, Any]] | None = None,
+                  gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
                   max_listed: int = 20) -> QCReport:
-    """Run the gate. ``gold`` maps node id -> expected xrefs (a hand-checked answer key)."""
+    """Run the gate against hand-checked answer keys: ``gold`` maps node id -> expected
+    xrefs; ``gold_edges`` maps a label -> (subject, predicate, object) triples of which at
+    least one must be present (e.g. a marker compound in any of a herb's source species)."""
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -191,6 +194,13 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
                 if str(value) not in have:
                     errors.append(f"gold: {node_id} {prefix} is {sorted(have)}, expected {value}")
         metrics["gold_checked"] = len(gold)
+    if gold_edges:
+        present = {(e.get("subject"), e.get("predicate"), e.get("object")) for e in edges}
+        for label, options in sorted(gold_edges.items()):
+            if not any(tuple(t) in present for t in options):
+                errors.append(f"gold: none of {label}'s expected edges is present "
+                              f"({options[0][2] if options else '?'})")
+        metrics["gold_edges_checked"] = len(gold_edges)
 
     status = "fail" if errors else ("review" if warnings else "pass")
     return QCReport(status, tuple(errors), tuple(warnings), metrics)
@@ -287,7 +297,9 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                    card: SourceCard | None = None, license: str = "", citation: str = "",
                    thresholds: QCThresholds | None = None,
                    previous: "Snapshot | None" = None,
-                   gold: Mapping[str, Mapping[str, Any]] | None = None) -> Snapshot:
+                   gold: Mapping[str, Mapping[str, Any]] | None = None,
+                   gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
+                   extra: Mapping[str, Any] | None = None) -> Snapshot:
     """Validate, hash and publish one source version. Raises ``SnapshotRejected`` when the
     quality gate fails; a ``review`` result is published but ``load`` will not hand it out
     until a person accepts it."""
@@ -302,7 +314,7 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
     report = quality_check(node_rows, edge_rows,
                            thresholds=thresholds or QCThresholds.from_card(card),
                            previous=previous.manifest["content"]["qc"] if previous else None,
-                           gold=gold)
+                           gold=gold, gold_edges=gold_edges)
     if report.status == "fail":
         raise SnapshotRejected(f"{key}@{version} failed the quality gate: "
                                + "; ".join(report.errors[:5]), report)
@@ -314,6 +326,10 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
         "qc": report.as_dict(), "license": license, "citation": citation,
         "previous": previous.snapshot_id if previous else None,
     }
+    if extra:
+        # e.g. the parser's report of what it dropped and why: part of the content, so
+        # part of the id.
+        content["extra"] = json.loads(json.dumps(extra, sort_keys=True, default=str))
     if not content["raw_files"]:
         raise SnapshotError("a snapshot names the raw files it was built from")
     sid = _snapshot_id(key, version, content)

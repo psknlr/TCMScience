@@ -162,12 +162,15 @@ def test_a_skill_request_is_narrowed_never_widened():
 
 
 def test_the_shipped_cards_are_valid_and_conservative():
-    assert {c.key for c in SOURCE_CARDS} >= {"lotus", "npass", "cmaup"}
+    assert {c.key for c in SOURCE_CARDS} >= {"lotus", "npass", "cmaup", "bindingdb"}
     for c in SOURCE_CARDS:
-        assert c.preferred() is not None and c.preferred().mode == "bulk"
+        assert c.preferred() is not None and all(a.mode != "web" for a in c.access)
         for d in c.provides:
             if d.predicate == "contains":
                 assert d.study_design == "chemical_analysis" and d.composition_level == "C1"
+    assert card("lotus").license == "CC-BY-4.0"     # the frozen export, not Wikidata's CC0
+    assert [a.mode for a in card("bindingdb").access] == ["api", "manual"]
+    assert card("bindingdb").record_license({"curation": "ChEMBL"}) == "CC-BY-SA-3.0"
     assert card("npass").name.startswith("NPASS")
     with pytest.raises(KeyError):
         card("tcmsp")
