@@ -36,7 +36,10 @@ _IN_PREPARATION = frozenset({"C3", "C4"})
 #: Edges that say what a thing *is* (a herb's source species, a formula's herbs, a
 #: processed form's crude drug), not what it does. They connect a path but carry no
 #: evidence about the effect, so they neither license nor limit the claim.
-_DEFINITIONAL = frozenset({"has_base_species", "processed_from", "recorded_in"})
+_DEFINITIONAL = frozenset({"has_base_species", "processed_from", "recorded_in",
+                           # pathway membership: what a protein takes part in, not what a
+                           # compound does to it
+                           "participates_in"})
 
 
 def _definitional(edge: Mapping[str, Any]) -> bool:

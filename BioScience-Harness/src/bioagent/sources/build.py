@@ -20,14 +20,16 @@ from . import herbs as herb_layer
 from . import schema
 from .cards import card as source_card
 from .composition import herb_composition
-from .parsers import bindingdb, cmaup, common, lotus, npass
+from .parsers import bindingdb, cmaup, common, lotus, npass, reactome, string_db
 from .parsers.common import ParseResult, TaxonFilter
 from .snapshot import Snapshot, SnapshotError, build_snapshot
 
 __all__ = ["LOTUS_FILE", "VERSIONS", "build_source", "build_gold", "require_gold", "GoldBuild"]
 
 LOTUS_FILE = "260413_frozen.csv.gz"
-VERSIONS = {"npass": "2.0", "cmaup": "2.0", "lotus": "2026-04-13"}
+VERSIONS = {"npass": "2.0", "cmaup": "2.0", "lotus": "2026-04-13", "string": "12.0",
+            # Reactome publishes "current"; the snapshot id still pins the exact file.
+            "reactome": "current"}
 
 
 def _code(*modules: ModuleType) -> str:
@@ -46,6 +48,12 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
         return lotus.parse_lotus(raw_dir / kw.get("lotus_file", LOTUS_FILE), taxa=taxa), lotus
     if key == "bindingdb":
         return bindingdb.parse_bindingdb(kw["path"], inchikeys=kw["inchikeys"]), bindingdb
+    if key == "string":
+        return string_db.parse_string(raw_dir, proteins=kw["proteins"],
+                                      mode=kw.get("mode", "induced")), string_db
+    if key == "reactome":
+        return reactome.parse_reactome(raw_dir / reactome.FILE,
+                                       proteins=kw.get("proteins")), reactome
     raise KeyError(f"no parser for source {key!r}")
 
 
@@ -63,6 +71,8 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     scope = dict(taxa.taxa) if taxa is not None else None
     if key == "bindingdb":
         scope = sorted(kw["inchikeys"])
+    elif key in ("string", "reactome") and kw.get("proteins") is not None:
+        scope = [sorted(kw["proteins"]), kw.get("mode", "induced")]
     if scope is not None:
         digest = hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
         version = f"{version}+subset-{digest[:8]}"
@@ -85,8 +95,12 @@ class GoldBuild:
 
 def build_gold(raw_dir: str | Path, root: str | Path, *,
                sources: Iterable[str] = ("npass", "cmaup", "lotus"),
-               ledger: Any = None) -> GoldBuild:
-    """Herb layer + natural-product sources for 葛根芩连汤, checked against ``herbs.GOLD``."""
+               ledger: Any = None, network: bool = False) -> GoldBuild:
+    """Herb layer + natural-product sources for 葛根芩连汤, checked against ``herbs.GOLD``.
+
+    With ``network``, also STRING (the induced subnetwork) and Reactome over the protein
+    targets those sources report for the herbs' compounds.
+    """
     taxa = herb_layer.taxon_filter()
     nodes, edges = herb_layer.herb_rows()
     snapshots = {herb_layer.KEY: build_snapshot(
@@ -96,6 +110,13 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         citation=herb_layer.CITATION, ledger=ledger)}
     for key in sources:
         snapshots[key] = build_source(key, raw_dir, root, taxa=taxa, ledger=ledger)
+    if network:
+        proteins = sorted({x for snap in snapshots.values() for n in snap.nodes
+                           if n.get("category") == "target"
+                           for x in (n.get("xrefs") or {}).get("uniprot", [])})
+        for key in ("string", "reactome"):
+            snapshots[key] = build_source(key, raw_dir, root, proteins=proteins,
+                                          ledger=ledger)
     hits = herb_composition(snapshots.values())
     found = {(h.herb, h.compound) for h in hits}
     missing = {herb: f"{name} ({inchikey}) is in none of the herb's source species"

@@ -44,12 +44,12 @@ ACQUIRABLE: tuple[AcquisitionSpec, ...] = (
         "genomics", fmt="tsv", source_project="HGNC"),
     AcquisitionSpec(
         "https://reactome.org/download/current/ReactomePathways.txt",
-        "ReactomePathways.txt", "reactome.org", "CC-BY-4.0",
+        "ReactomePathways.txt", "reactome.org", "CC0-1.0",
         "All Reactome pathways: stable id, name, species.", "pathways", fmt="tsv",
         source_project="Reactome", notes="headerless: pathway_id\\tname\\tspecies"),
     AcquisitionSpec(
         "https://reactome.org/download/current/Ensembl2Reactome.txt",
-        "Ensembl2Reactome.txt", "reactome.org", "CC-BY-4.0",
+        "Ensembl2Reactome.txt", "reactome.org", "CC0-1.0",
         "Ensembl gene → Reactome pathway mapping (lowest-level pathways).", "pathways", fmt="tsv",
         source_project="Reactome", notes="headerless: ensembl_id\\tpathway_id\\turl\\tname\\tevidence\\tspecies"),
     AcquisitionSpec(

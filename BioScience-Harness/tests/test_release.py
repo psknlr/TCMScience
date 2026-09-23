@@ -235,3 +235,10 @@ max_claim_kind: mechanism_hypothesis
     contract = SkillContract.load(path)
     assert contract.steps["enrichment"]["after"] == ("composition",)
     assert contract.as_dict()["steps"]["enrichment"]["design"] == "in_silico"
+
+
+def test_pathway_membership_connects_but_does_not_limit_a_claim():
+    pathway = "reactome:R-HSA-2162123"
+    member = _edge("member", COX2, "participates_in", pathway, "expert_consensus")
+    by = {e["source_record_id"]: e for e in EDGES}
+    assert path_licenses([by["ic50"], member]) == {"mechanism_hypothesis", "mechanism"}

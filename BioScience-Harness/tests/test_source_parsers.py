@@ -340,3 +340,77 @@ def test_taxon_filter_matches_ids_and_names():
     f = TaxonFilter({"3893": ("Pueraria montana var. lobata", "Pueraria lobata")})
     assert f.by_id(None, "3893") == "3893" and f.by_id("174648") is None
     assert f.by_name("pueraria LOBATA") == "3893" and f.by_name("Pueraria montana") is None
+
+
+# ================================================================ STRING and Reactome
+
+def _gz(path: Path, text: str) -> None:
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def string_files(d: Path) -> Path:
+    _gz(d / "9606.protein.aliases.v12.0.txt.gz",
+        "#string_protein_id\talias\tsource\n"
+        "9606.ENSP1\tP35354\tUniProt_AC\n9606.ENSP1\t5743\tEnsembl_HGNC_entrez_id\n"
+        "9606.ENSP2\tP23219\tUniProt_AC\n9606.ENSP3\tQ92753\tUniProt_AC\n"
+        "9606.ENSP4\tNOTANACC\tUniProt_AC\n")
+    _gz(d / "9606.protein.info.v12.0.txt.gz",
+        "#string_protein_id\tpreferred_name\tprotein_size\tannotation\n"
+        "9606.ENSP1\tPTGS2\t604\tx\n9606.ENSP2\tPTGS1\t599\tx\n9606.ENSP3\tRORB\t459\tx\n")
+    _gz(d / "9606.protein.links.v12.0.txt.gz",
+        "protein1 protein2 combined_score\n"
+        "9606.ENSP1 9606.ENSP2 950\n9606.ENSP2 9606.ENSP1 950\n"
+        "9606.ENSP1 9606.ENSP3 150\n9606.ENSP3 9606.ENSP4 999\n")
+    return d
+
+
+def test_string_keeps_the_induced_subnetwork_as_predictions_with_raw_scores(tmp_path):
+    from bioagent.sources.parsers import parse_string
+
+    d = string_files(tmp_path)
+    result = parse_string(d, proteins=["P35354", "P23219"])
+    _sound(result)
+    assert len(result.edges) == 1                       # listed twice, kept once
+    e = result.edges[0]
+    assert (e["subject"], e["object"]) == ("uniprot:P23219", "uniprot:P35354")
+    assert e["knowledge_level"] == "prediction" and e["study_design"] == "in_silico"
+    assert e["score"] == 0.95                           # no cut-off applied
+    wider = parse_string(d, proteins=["P35354"], mode="neighbours")
+    assert {x["object"] for x in wider.edges} | {x["subject"] for x in wider.edges} >= {
+        "uniprot:Q92753"}                               # a low score is kept too
+    with pytest.raises(ValueError):
+        parse_string(d, proteins=["P35354"], mode="everything")
+
+
+def test_reactome_keeps_human_rows_and_labels_electronic_inference(tmp_path):
+    from bioagent.sources.parsers import parse_reactome
+
+    path = tmp_path / "UniProt2Reactome.txt"
+    tsv(path, None, [
+        ["P35354", "R-HSA-2162123", "https://reactome.org/x", "Synthesis of Prostaglandins",
+         "TAS", "Homo sapiens"],
+        ["P35354", "R-HSA-9999", "https://reactome.org/y", "Inferred pathway", "IEA",
+         "Homo sapiens"],
+        ["P35354", "R-RNO-2162123", "https://reactome.org/z", "rat", "IEA",
+         "Rattus norvegicus"],
+        ["Q92753", "R-HSA-383280", "https://reactome.org/w", "Nuclear Receptor", "TAS",
+         "Homo sapiens"]])
+    result = parse_reactome(path, proteins=["P35354"])
+    _sound(result)
+    by = {e["object"]: e for e in result.edges}
+    assert set(by) == {"reactome:R-HSA-2162123", "reactome:R-HSA-9999"}
+    assert by["reactome:R-HSA-2162123"]["study_design"] == "expert_consensus"
+    assert by["reactome:R-HSA-9999"]["knowledge_level"] == "prediction"
+
+
+def test_the_network_build_scopes_string_and_reactome_to_the_targets_found(raw, tmp_path):
+    string_files(raw)
+    tsv(raw / "UniProt2Reactome.txt", None, [
+        ["P35354", "R-HSA-2162123", "u", "Synthesis of Prostaglandins", "TAS", "Homo sapiens"],
+        ["P12345", "R-HSA-1", "u", "unrelated", "TAS", "Homo sapiens"]])
+    build = build_gold(raw, tmp_path / "snap", network=True)
+    assert build.passed
+    reactome_edges = build.snapshots["reactome"].edges
+    assert [e["subject"] for e in reactome_edges] == ["uniprot:P35354"]
+    assert build.snapshots["string"].version.startswith("12.0+subset-")

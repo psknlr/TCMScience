@@ -271,7 +271,7 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 | 成分 → 靶点（实测） | BindingDB、ChEMBL、NPASS 活性数据 | `bulk` | `knowledge_assertion` + `in_vitro` | BindingDB 新增；其余缺解析 |
 | 成分 → 靶点（预测） | ETCM、TCMSP、TCMToxDB 的预测靶点 | `manual` / `web` | `prediction` + `in_silico` | P1 |
 | 靶点 → 疾病 | Open Targets（CC0，提供 Parquet）、GWAS Catalog、Monarch（提供 KGX） | `bulk` 优先，已有 `api` | `statistical_association` / `knowledge_assertion` | 已有 `api` |
-| 互作与通路 | STRING、Reactome | `bulk` | 按源设定 | 已有下载规格，缺解析 |
+| 互作与通路 | STRING（CC-BY-4.0）、Reactome（CC0） | `bulk` | STRING：`prediction`；Reactome：TAS 为 `expert_consensus`，IEA 为预测 | 已解析 |
 | 术语 | ICD-11 传统医学章（API 或本地容器）、MeSH、MONDO（经 Monarch） | `api` / `bulk` | — | ICD-11 新增 |
 | 临床证据索引 | HERB 2.0 临床试验与 Meta 分析、ClinicalTrials.gov、WHO ICTRP（含 ChiCTR）、Europe PMC | `manual` / `api` | 只作为指向原文的索引，结论以原文为准 | ClinicalTrials.gov 和 Europe PMC 已有 |
 | 安全性 | openFDA、DailyMed；TCMToxDB（P1） | `api` / `manual` | — | 前两者已有 |
@@ -319,11 +319,16 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
   - 发布前：`check_release` 在已校验的快照里逐条核对候选主张，要求①所引的边确实存在，②这些边把主语和宾语连起来，③主张类型不超过 Skill 的上限，④按"最弱一环"判定证据等级。定义性的边（药材→基原物种、方剂→药材）不参与判定。成分证据低于 C3 时（没有证明给药制剂中确实含有该成分），整条链最高只能支持 `mechanism_hypothesis`。
 - **`skill.yaml` → `ScientificProgram` 适配器**（`bioagent/psh/skill_program.py`）：`skill.yaml` 新增可选的 `steps` 段，每步写明工具、依赖和研究设计，工具必须列在 `requires.tools` 里。测试证实：即使把 Skill 的上限调到 `mechanism`，PSH 编译器仍会以 EVIDENCE103 拒绝仅由 `in_silico` 支持的机制主张。
 
+**STRING 与 Reactome 快照（已完成）**：
+- `parsers/string_db.py`：只保留范围内蛋白之间的诱导子网络（也可选"含一阶邻居"）。STRING 的综合分数是对多种证据渠道算出的置信度，所以边一律标为 `prediction` / `in_silico`，分数原样保留，**不设阈值**。400/700/900 等阈值由分析方案决定；
+- `parsers/reactome.py`：人工整理的 TAS 注释标为 `expert_consensus`，电子推断的 IEA 标为预测；默认只取人类数据。发布检查把"参与某通路"视为注释，不视为效应证据；
+- `build_gold(..., network=True)` 或脚本的 `--network` 选项：把 STRING 和 Reactome 限定在金标准快照实际报告的靶点上。真实数据结果：STRING 634 个蛋白、45,931 条边；Reactome 4,833 条通路成员关系；两者都通过质量检查。另有 418 个范围内蛋白在范围内没有 STRING 连接，多为活性表中的非人源靶点，已计数；
+- 更正：Reactome 数据的许可证是 CC0（见 reactome.org/license），原下载表里写的是 CC-BY-4.0，已改正。
+
 **仍未完成**：
 - ETCM / HERB 导入器：需要拿到它们实际的导出文件后，按真实格式来写；
 - BindingDB：解析器已按官方格式说明实现，并用合成文件测试过，但还没有用真实下载文件验证。下载页面需要人工操作，本环境无法代为完成；
 - ICD-11 传统医学章：需要注册 OAuth 客户端；
-- STRING、Reactome 的快照：M3 的网络与富集分析需要它们，目前仍可先用已有的 API 连接器；
 
 后续另立项目：组学管线、临床方法学类 Skill、基于 RoB 2 / GRADE 的证据综合 Skill、每月数据源健康检查（在 `scripts/verify_connectors.py` 基础上增加快照漂移报告）。
 

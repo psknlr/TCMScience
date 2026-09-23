@@ -50,6 +50,8 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("gold")
     g.add_argument("--raw", required=True)
     g.add_argument("--out", required=True)
+    g.add_argument("--network", action="store_true",
+                   help="also build STRING and Reactome over the targets found")
     s = sub.add_parser("source")
     s.add_argument("key", choices=("npass", "cmaup", "lotus"))
     s.add_argument("--raw", required=True)
@@ -65,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "gold":
-            build = build_gold(args.raw, args.out, ledger=ledger)
+            build = build_gold(args.raw, args.out, ledger=ledger, network=args.network)
             report = {"snapshots": {k: _summary(v) for k, v in build.snapshots.items()},
                       "gold_missing": build.missing,
                       "composition": build.composition}

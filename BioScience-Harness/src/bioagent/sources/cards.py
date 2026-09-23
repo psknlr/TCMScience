@@ -205,6 +205,27 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
                               "manual_agent", "in_vitro"),),
         per_record_license={"curation": {"ChEMBL": "CC-BY-SA-3.0"}},
         commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
+    SourceCard(
+        key="string", name="STRING v12 (human)", citation="doi:10.1093/nar/gkac1000",
+        license="CC-BY-4.0", terms_url="https://string-db.org/cgi/access",
+        access=(Access("bulk", "https://stringdb-downloads.org/download/", cadence="12.0"),
+                Access("api", "https://string-db.org/api", rps=1.0)),
+        # The combined score is a computed confidence over mixed evidence channels.
+        provides=(EdgeDefault("interacts_with", "target", "target", "prediction",
+                              "computational_model", "in_silico"),),
+        commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
+    SourceCard(
+        key="reactome", name="Reactome (UniProt to lowest-level pathway)",
+        citation="doi:10.1093/nar/gkad1025", license="CC0-1.0",
+        terms_url="https://reactome.org/license",
+        access=(Access("bulk", "https://reactome.org/download/current/UniProt2Reactome.txt",
+                       cadence="quarterly"),
+                Access("api", "https://reactome.org/ContentService", rps=5.0)),
+        provides=(EdgeDefault("participates_in", "target", "pathway", "knowledge_assertion",
+                              "manual_agent", "expert_consensus"),
+                  EdgeDefault("participates_in", "target", "pathway", "prediction",
+                              "automated_agent", "in_silico")),
+        commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
 )
 
 _BY_KEY = {c.key: c for c in SOURCE_CARDS}
