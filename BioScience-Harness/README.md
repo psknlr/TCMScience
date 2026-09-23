@@ -42,7 +42,7 @@ whose shortfall PSH records as a caveat and lists as a limitation of the release
 ## v2.4 — PSH convergence, and a connector set worth converging
 
 The capability plane is now admitted into a trusted kernel, and it got a lot bigger.
-Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. Third-party database connectors (TCMSP, HERB, SymMap, ...) follow `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
+Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
 
 **`bioagent.psh` — the bridge.** A BioScience component becomes a PSH `ComponentManifest`
 with the dimensions PSH's gates rule on, derived conservatively from what the BioScience
