@@ -51,7 +51,8 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
 
 def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
                  taxa: TaxonFilter | None = None, version: str | None = None,
-                 previous: Snapshot | None = None, **kw: Any) -> Snapshot:
+                 previous: Snapshot | None = None, ledger: Any = None,
+                 **kw: Any) -> Snapshot:
     """Parse ``key``'s raw files in ``raw_dir`` and publish a snapshot under ``root``.
 
     A restricted build (``taxa``, or BindingDB's ``inchikeys``) is a different dataset from
@@ -68,7 +69,7 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     return build_snapshot(key=key, version=version, nodes=result.nodes, edges=result.edges,
                           raw_files=result.raw_files, parser=_code(module), root=root,
                           card=source_card(key), previous=previous,
-                          extra={"parse_report": result.report.as_dict()})
+                          extra={"parse_report": result.report.as_dict()}, ledger=ledger)
 
 
 @dataclass
@@ -83,7 +84,8 @@ class GoldBuild:
 
 
 def build_gold(raw_dir: str | Path, root: str | Path, *,
-               sources: Iterable[str] = ("npass", "cmaup", "lotus")) -> GoldBuild:
+               sources: Iterable[str] = ("npass", "cmaup", "lotus"),
+               ledger: Any = None) -> GoldBuild:
     """Herb layer + natural-product sources for 葛根芩连汤, checked against ``herbs.GOLD``."""
     taxa = herb_layer.taxon_filter()
     nodes, edges = herb_layer.herb_rows()
@@ -91,9 +93,9 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         key=herb_layer.KEY, version=herb_layer.GEGEN_QINLIAN.fingerprint[7:19], nodes=nodes,
         edges=edges, raw_files={"herbs.py": Path(herb_layer.__file__)},
         parser=_code(herb_layer), root=root, license=herb_layer.LICENSE,
-        citation=herb_layer.CITATION)}
+        citation=herb_layer.CITATION, ledger=ledger)}
     for key in sources:
-        snapshots[key] = build_source(key, raw_dir, root, taxa=taxa)
+        snapshots[key] = build_source(key, raw_dir, root, taxa=taxa, ledger=ledger)
     hits = herb_composition(snapshots.values())
     found = {(h.herb, h.compound) for h in hits}
     missing = {herb: f"{name} ({inchikey}) is in none of the herb's source species"

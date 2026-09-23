@@ -312,12 +312,18 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 - 值得注意的例子：葛根素也出现在黄芩名下，只有 1 条文献支持。这正是 C1 单一来源断言需要人工复核的原因；
 - NPASS 中有 43,297 条活性数据针对细胞系或整体生物，不是蛋白靶点，另有 202 条没有文献，都已丢弃并计数。
 
+**M1 遗留三项（已完成）**：
+- **快照账本**（`sources/ledger.py`）：只追加、哈希链式记录。每次构建都把快照 ID 记进去，`load_snapshot(..., ledger=...)` 以账本为准。这样即使有人把快照目录里的表、manifest 和 ID 一起改得前后一致，也能被识别出来。账本应放在 agent 不可写的 `audit/` 下。
+- **发布检查**（`sources/release.py`）：这里**调整了原设计**。PSH 的 `OutputGate` 检查的是"文字句子是否有所引来源支持"，不是结构化的边，把边级检查塞进可信内核层次不对。现在分成两层：
+  - 编译期：由下面的适配器把每一步的研究设计和主张类型声明进 `ScientificProgram`，PSH 编译器照旧拒绝不匹配的组合；
+  - 发布前：`check_release` 在已校验的快照里逐条核对候选主张，要求①所引的边确实存在，②这些边把主语和宾语连起来，③主张类型不超过 Skill 的上限，④按"最弱一环"判定证据等级。定义性的边（药材→基原物种、方剂→药材）不参与判定。成分证据低于 C3 时（没有证明给药制剂中确实含有该成分），整条链最高只能支持 `mechanism_hypothesis`。
+- **`skill.yaml` → `ScientificProgram` 适配器**（`bioagent/psh/skill_program.py`）：`skill.yaml` 新增可选的 `steps` 段，每步写明工具、依赖和研究设计，工具必须列在 `requires.tools` 里。测试证实：即使把 Skill 的上限调到 `mechanism`，PSH 编译器仍会以 EVIDENCE103 拒绝仅由 `in_silico` 支持的机制主张。
+
 **仍未完成**：
 - ETCM / HERB 导入器：需要拿到它们实际的导出文件后，按真实格式来写；
 - BindingDB：解析器已按官方格式说明实现，并用合成文件测试过，但还没有用真实下载文件验证。下载页面需要人工操作，本环境无法代为完成；
 - ICD-11 传统医学章：需要注册 OAuth 客户端；
 - STRING、Reactome 的快照：M3 的网络与富集分析需要它们，目前仍可先用已有的 API 连接器；
-- M1 留下的三项：快照 ID 写入审计日志、`check_claim` 接入 `OutputGate`、`skill.yaml` → `ScientificProgram` 适配器。
 
 后续另立项目：组学管线、临床方法学类 Skill、基于 RoB 2 / GRADE 的证据综合 Skill、每月数据源健康检查（在 `scripts/verify_connectors.py` 基础上增加快照漂移报告）。
 

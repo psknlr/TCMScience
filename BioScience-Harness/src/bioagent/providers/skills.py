@@ -85,8 +85,22 @@ class SkillContract:
             - npass@2.0
             - lotus@2026-04-13
           tools:
+            - sources.composition
             - stats.enrichment_analysis
+        steps:
+          composition:
+            tool: sources.composition
+          enrichment:
+            tool: stats.enrichment_analysis
+            after:
+              - composition
+            design: in_silico
         max_claim_kind: mechanism_hypothesis
+
+    ``steps`` is optional. Each step runs one of ``requires.tools`` after the steps it
+    names; a step whose output is evidence states its study design (one of PSH's
+    ``DESIGNS``), which is what the PSH compiler checks a claim against
+    (``bioagent.psh.skill_program``).
     """
 
     id: str
@@ -95,6 +109,8 @@ class SkillContract:
     sources: tuple[str, ...] = ()
     tools: tuple[str, ...] = ()
     max_claim_kind: str = "mechanism_hypothesis"
+    #: step id -> {"tool": str, "after": tuple[str, ...], "design": str}
+    steps: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         from ..sources.cards import parse_ref
@@ -114,10 +130,27 @@ class SkillContract:
                 parse_ref(ref)
             except ValueError as exc:
                 raise SkillContractError(f"skill {self.id!r}: {exc}") from None
+        from ..sources.schema import STUDY_DESIGNS
+        designs = set(STUDY_DESIGNS) - {"chemical_analysis"}
+        for step, spec in self.steps.items():
+            where = f"skill {self.id!r} step {step!r}"
+            if set(spec) - {"tool", "after", "design"}:
+                raise SkillContractError(f"{where}: unknown fields "
+                                         f"{sorted(set(spec) - {'tool', 'after', 'design'})}")
+            if spec.get("tool") not in self.tools:
+                raise SkillContractError(f"{where}: tool {spec.get('tool')!r} is not in "
+                                         "requires.tools")
+            for dep in spec.get("after") or ():
+                if dep not in self.steps or dep == step:
+                    raise SkillContractError(f"{where}: runs after unknown step {dep!r}")
+            if spec.get("design") and spec["design"] not in designs:
+                raise SkillContractError(f"{where}: design {spec['design']!r} is not one of "
+                                         f"{sorted(designs)}")
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> "SkillContract":
-        unknown = set(data) - {"id", "version", "inputs", "requires", "max_claim_kind"}
+        unknown = set(data) - {"id", "version", "inputs", "requires", "max_claim_kind",
+                               "steps"}
         if unknown:
             raise SkillContractError(f"unknown skill.yaml fields: {sorted(unknown)}")
         requires = data.get("requires") or {}
@@ -133,7 +166,8 @@ class SkillContract:
                    inputs={str(k): str(v) for k, v in inputs.items()},
                    sources=_strings(requires.get("sources"), "requires.sources"),
                    tools=_strings(requires.get("tools"), "requires.tools"),
-                   max_claim_kind=str(data.get("max_claim_kind") or "mechanism_hypothesis"))
+                   max_claim_kind=str(data.get("max_claim_kind") or "mechanism_hypothesis"),
+                   steps=_steps(data.get("steps")))
 
     @classmethod
     def load(cls, path: str | Path) -> "SkillContract":
@@ -167,7 +201,24 @@ class SkillContract:
     def as_dict(self) -> dict[str, Any]:
         return {"id": self.id, "version": self.version, "inputs": dict(self.inputs),
                 "requires": {"sources": list(self.sources), "tools": list(self.tools)},
-                "max_claim_kind": self.max_claim_kind}
+                "max_claim_kind": self.max_claim_kind,
+                **({"steps": {k: dict(v) for k, v in self.steps.items()}} if self.steps else {})}
+
+
+def _steps(value: Any) -> dict[str, dict[str, Any]]:
+    if value in (None, "", {}):
+        return {}
+    if not isinstance(value, Mapping):
+        raise SkillContractError("steps must map each step id to its tool, after and design")
+    out = {}
+    for step, spec in value.items():
+        if not isinstance(spec, Mapping):
+            raise SkillContractError(f"step {step!r} must be a mapping")
+        out[str(step)] = {**{k: v for k, v in spec.items() if k != "after"},
+                          "after": _strings(spec.get("after"), f"steps.{step}.after")}
+        if "tool" in spec:
+            out[str(step)]["tool"] = str(spec["tool"])
+    return out
 
 
 def _strings(value: Any, what: str) -> tuple[str, ...]:

@@ -12,6 +12,10 @@
     python scripts/build_source_snapshots.py bindingdb --file BindingDB_All_202609_tsv.zip \\
         --release 202609 --out DIR
 
+Pass ``--ledger PATH`` to record every snapshot id in an append-only, hash-chained ledger
+(keep it outside the agent-writable tree, e.g. the workspace's ``audit/``); loads can then
+be checked against it with ``load_snapshot(..., ledger=SnapshotLedger(PATH))``.
+
 The raw files are the ones ``bioagent fetch`` downloads (see ``acquisition/sources.py``);
 nothing here touches the network. Exit status is non-zero when the quality gate rejects a
 snapshot or the gold standard is not reproduced.
@@ -28,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from bioagent.sources.build import build_gold, build_source  # noqa: E402
 from bioagent.sources.herbs import GOLD  # noqa: E402
+from bioagent.sources.ledger import SnapshotLedger  # noqa: E402
 from bioagent.sources.snapshot import SnapshotError  # noqa: E402
 
 
@@ -53,11 +58,14 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--file", required=True)
     b.add_argument("--release", required=True)
     b.add_argument("--out", required=True)
+    for p in (g, s, b):
+        p.add_argument("--ledger", help="append snapshot ids to this hash-chained ledger")
     args = ap.parse_args(argv)
+    ledger = SnapshotLedger(args.ledger) if args.ledger else None
 
     try:
         if args.cmd == "gold":
-            build = build_gold(args.raw, args.out)
+            build = build_gold(args.raw, args.out, ledger=ledger)
             report = {"snapshots": {k: _summary(v) for k, v in build.snapshots.items()},
                       "gold_missing": build.missing,
                       "composition": build.composition}
@@ -69,9 +77,9 @@ def main(argv: list[str] | None = None) -> int:
                   f"(written to {Path(args.out) / 'composition.json'})")
             return 0 if build.passed else 2
         if args.cmd == "source":
-            snap = build_source(args.key, args.raw, args.out)
+            snap = build_source(args.key, args.raw, args.out, ledger=ledger)
         else:
-            snap = build_source("bindingdb", ".", args.out, path=args.file,
+            snap = build_source("bindingdb", ".", args.out, path=args.file, ledger=ledger,
                                 release=args.release,
                                 inchikeys=[ik for _, ik in GOLD.values()])
         print(json.dumps(_summary(snap), ensure_ascii=False, indent=2))

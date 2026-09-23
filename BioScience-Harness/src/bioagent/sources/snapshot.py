@@ -299,10 +299,11 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                    previous: "Snapshot | None" = None,
                    gold: Mapping[str, Mapping[str, Any]] | None = None,
                    gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
-                   extra: Mapping[str, Any] | None = None) -> Snapshot:
+                   extra: Mapping[str, Any] | None = None,
+                   ledger: Any = None) -> Snapshot:
     """Validate, hash and publish one source version. Raises ``SnapshotRejected`` when the
     quality gate fails; a ``review`` result is published but ``load`` will not hand it out
-    until a person accepts it."""
+    until a person accepts it. With a ``SnapshotLedger`` the id is recorded there."""
     if card is not None and card.key != key:
         raise SnapshotError(f"card {card.key!r} does not describe source {key!r}")
     license = license or (card.license if card else "")
@@ -342,18 +343,28 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                                                    sort_keys=True), encoding="utf-8")
     (path / "qc.json").write_text(json.dumps(report.as_dict(), indent=2, ensure_ascii=False),
                                   encoding="utf-8")
-    return Snapshot(sid, key, version, path, manifest, tuple(node_rows), tuple(edge_rows))
+    snapshot = Snapshot(sid, key, version, path, manifest, tuple(node_rows), tuple(edge_rows))
+    if ledger is not None:
+        ledger.record(snapshot)
+    return snapshot
 
 
 def load_snapshot(root: str | Path, key: str, version: str, *, expected_id: str | None = None,
-                  accept_review: bool = False) -> Snapshot:
+                  accept_review: bool = False, ledger: Any = None) -> Snapshot:
     """Read a snapshot back, proving it is still the one that was built.
 
     The tables are re-hashed and compared with the manifest, the manifest is re-hashed and
     compared with its id, and — when the caller has the id recorded at build time — that
-    id must match too. A snapshot whose QC status is ``review`` is refused unless the
-    caller accepts it explicitly.
+    id must match too — pass it as ``expected_id`` or let a ``SnapshotLedger`` supply it. A
+    snapshot whose QC status is ``review`` is refused unless the caller accepts it
+    explicitly.
     """
+    if ledger is not None:
+        recorded = ledger.expected(key, version)
+        if expected_id is not None and expected_id != recorded:
+            raise SnapshotError(f"{key}@{version}: expected {expected_id}, the ledger "
+                                f"recorded {recorded}")
+        expected_id = recorded
     path = Path(root) / key / version
     try:
         manifest = json.loads((path / "manifest.json").read_text(encoding="utf-8"))
