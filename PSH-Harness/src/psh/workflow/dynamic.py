@@ -16,6 +16,7 @@ from ..runtime.bindings import BindingError, resolve_input_bindings, resolve_poi
 from ..runtime.loop import AgentLoopController, LoopLimits, LoopResult, classify_with
 from ..runtime.plan import InputBinding, TaskKind
 from .compiler import ScientificCompiler, ScientificPlanner
+from .cycles import cyclic_stages, validate_repetition
 from .events import ReplayRefused, ReplayState, RunEventJournal
 from .ir import ScientificProgram, digest
 
@@ -240,6 +241,10 @@ class DynamicWorkflowController:
         state = self.journal.replay()
         if state.sequence:
             raise ReplayRefused("nonempty journal: replay does not authorize re-execution")
+        cyclic = cyclic_stages(workflow)
+        for stage in workflow.stages:
+            if stage.stage_id in cyclic:
+                validate_repetition(stage, self.registry)
         label = classify_with(self.kernel, workflow.to_dict(), origin="dynamic_workflow")
         label = combine(label, input_label or DataLabel(), *[
             DataLabel(c.sensitivity) for s in workflow.stages for c in s.program.contracts.values()],
@@ -267,6 +272,11 @@ class DynamicWorkflowController:
             if state.visits >= workflow.max_visits:
                 return end("max_visits")
             stage = workflow.stages[state.next_stage]
+            if stage.stage_id in cyclic:
+                try:
+                    validate_repetition(stage, self.registry)
+                except PolicyDenied:
+                    return end("repeat_refused")
             try:
                 selected_program = self._bind_stage(stage, results[-1] if results else None, label)
             except (BindingError, ValueError, TypeError, OverflowError, RecursionError):
@@ -279,6 +289,7 @@ class DynamicWorkflowController:
             controller = AgentLoopController(self.kernel, planner=planner,
                 registry=self.registry, model=self.model, model_invoke=self.model_invoke,
                 operations=self.operations, limits=self.limits, cancellation=self.cancellation,
+                require_idempotent_tools=stage.stage_id in cyclic,
                 operation_namespace=f"{namespace}:{state.visits}")
             result = controller.run(selected_program.plan.objective, self._effective(envelope),
                                     objective_label=label)

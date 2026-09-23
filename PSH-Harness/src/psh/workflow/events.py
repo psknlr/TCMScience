@@ -93,6 +93,8 @@ def reduce_event(state: ReplayState, event: dict) -> ReplayState:
                  or (reason == "cancelled" and state.phase == "ready"))
         valid = valid or (reason == "binding_failed" and state.phase == "ready"
                          and state.next_stage is not None and 0 < state.visits < state.max_visits)
+        valid = valid or (reason == "repeat_refused" and state.phase == "ready"
+                         and state.next_stage is not None and state.visits < state.max_visits)
         if not valid:
             raise ReplayRefused("invalid workflow termination")
         changes = dict(phase="ended", reason=reason)
