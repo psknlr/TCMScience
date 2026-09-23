@@ -37,6 +37,7 @@ the terminal state always names which one it hit.
 from __future__ import annotations
 
 import time
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Mapping, Sequence
@@ -288,6 +289,10 @@ class AgentLoopController:
         self.operations = operations
         # Dynamic visits share the run budget but must not share operation keys.
         self.operation_namespace = operation_namespace
+        # Local protection survives replans on this controller, not process crashes.
+        # Durable recovery still requires an OperationLedger.
+        self._nonrepeatable_operations: set[str] = set()
+        self._operation_lock = threading.Lock()
         #: Optional ``MemoryRetriever``: verified project memory relevant to a task's
         #: objective is compiled into that task's projection, labelled as stored. A
         #: retriever reads; the loop still cannot write to the graph.
@@ -504,6 +509,23 @@ class AgentLoopController:
                     if self.operation_namespace else task.task_id)
         key = f"{state.envelope.run_id}:{identity}"
         ledger = self.operations if task.kind == TaskKind.TOOL else None
+        repeat_safe = True
+        if task.kind == TaskKind.TOOL:
+            try:
+                manifest = getattr(self._component(task.component_id), "manifest", None)
+            except ContractViolation:
+                manifest = None  # Dispatch reports unavailable components normally.
+            repeat_safe = getattr(manifest, "idempotent", None) is True
+            with self._operation_lock:
+                refused = key in self._nonrepeatable_operations or (attempt > 1 and not repeat_safe)
+                if not repeat_safe:
+                    self._nonrepeatable_operations.add(key)
+            if refused:
+                graph.mark_failed(task.task_id, "OperationUnresolved: unsafe repeated tool operation",
+                                  at=time.time(), retryable=False)
+                self._audit("loop_task_unresolved", state, task_id=task.task_id,
+                            component_id=task.component_id, operation=key)
+                return
         if ledger is not None:
             try:
                 self._guard_operation(state, task, key)
@@ -531,7 +553,7 @@ class AgentLoopController:
                         error_type=type(exc).__name__)
             return
         except Exception as exc:  # noqa: BLE001 - one task's fault is not the loop's end
-            retryable = (attempt < task.retry.max_attempts) and task.retry.permits(exc)
+            retryable = repeat_safe and (attempt < task.retry.max_attempts) and task.retry.permits(exc)
             if ledger is not None:
                 if isinstance(exc, ToolTimeout) or not ledger.get(key).idempotent:
                     # A non-idempotent component may have changed the world before
@@ -578,7 +600,7 @@ class AgentLoopController:
             manifest = getattr(self._component(task.component_id), "manifest", None)
         except ContractViolation:
             manifest = None                        # _dispatch raises it as a task failure
-        idempotent = bool(getattr(manifest, "idempotent", True))
+        idempotent = getattr(manifest, "idempotent", None) is True
         prior = ledger.get(key)
         if prior is not None and not idempotent and prior.state in (
                 OperationState.RUNNING, OperationState.UNKNOWN, OperationState.SUCCEEDED):

@@ -37,6 +37,9 @@ contracts must cover exactly the task IDs. Each contract has sensitivity
 (PUBLIC/INTERNAL/RESEARCH_DEIDENTIFIED/SENSITIVE/PHI), effects (lowercase names:
 local_read/local_compute/local_model/trusted_remote/public_remote/persist/user_output),
 side_effect (pure/idempotent/at_most_once/at_least_once/compensatable/non_repeatable).
+These are requested semantics, not trusted capability facts. Tool PURE/IDEMPOTENT
+declarations and automatic retries require idempotent=True in the trusted registry.
+If that fact is unavailable, choose non_repeatable with one attempt; do not invent it.
 Effects must match task destinations. Do not label remote or persistent work pure.
 Do not claim data is public merely because visible identifiers are absent.
 Optional evidence has design, population, intervention, outcome, provenance array,

@@ -13,6 +13,7 @@ from ..scientist.ports import ProtocolResolver
 from ..labels import DataLabel, Destination, Sensitivity
 from ..runtime.plan import Plan, TaskKind
 from ..runtime.plan_validator import PlanRejected, PlanValidator, PlanViolation, ValidatedPlan
+from ..runtime.plan_validator import _manifest_for
 from .ir import ClaimType, Effect, ScientificProgram, SideEffect, digest
 
 
@@ -74,6 +75,17 @@ class ScientificCompiler:
 
         for tid in validated.order:
             task, contract = tasks[tid], program.contracts[tid]
+            trusted_idempotent = None
+            if task.kind == TaskKind.TOOL:
+                manifest = _manifest_for(self.validator.registry, task.component_id)
+                trusted_idempotent = getattr(manifest, "idempotent", None) is True
+                if not trusted_idempotent:
+                    if contract.side_effect in {SideEffect.PURE, SideEffect.IDEMPOTENT}:
+                        reject("EFFECT106", tid,
+                               "repeat-safe declaration requires trusted manifest idempotency")
+                    if task.retry.max_attempts > 1:
+                        reject("RETRY102", tid,
+                               "automatic tool retries require trusted manifest idempotency")
             if contract.statistics is not None:
                 for code, detail in contract.statistics.violations():
                     reject(code, tid, detail)
@@ -153,6 +165,8 @@ class ScientificCompiler:
 
             hash_input = {"task": task.to_dict(), "contract": contract.to_dict(),
                           "dependencies": {d: hashes[d] for d in task.dependencies}}
+            if task.kind == TaskKind.TOOL:
+                hash_input["trusted_idempotent"] = trusted_idempotent
             if contract.protocol_binding is not None:
                 hash_input["registered_sensitivity"] = registered_label.name
             hashes[tid] = digest(hash_input)
