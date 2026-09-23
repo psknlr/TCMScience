@@ -1,7 +1,9 @@
 # Bounded dynamic workflows and stage-event replay
 
-`psh.workflow.DynamicWorkflowController` executes caller-authored graphs of
-`ScientificProgram` stages. This is the first dynamic execution increment, not
+Applications should use `psh.workflow.DynamicResearchRunService` to execute
+caller-authored graphs of `ScientificProgram` stages and obtain gated output.
+`DynamicWorkflowController` and `DynamicResult` are internal execution interfaces,
+retained as imports for compatibility. This is a bounded dynamic increment, not
 the complete ZCode dynamic-workflow engine or a replacement for task checkpoints.
 
 ## Execution model
@@ -83,7 +85,7 @@ Here `screen_program` and `review_program` are previously constructed
 
 ```python
 from psh.workflow import (
-    Branch, WorkflowStage, DynamicWorkflow, DynamicWorkflowController,
+    Branch, WorkflowStage, DynamicWorkflow, DynamicResearchRunService,
     RunEventJournal,
 )
 
@@ -100,13 +102,15 @@ workflow = DynamicWorkflow(
 # Use a NEW database for each execution. The path is chosen by the application,
 # never by model-generated program content.
 with RunEventJournal("E:/Codex/TCMScience/runs/example/events.sqlite") as journal:
-    controller = DynamicWorkflowController(
+    service = DynamicResearchRunService(
         kernel, journal=journal, registry=registry,
         scientific_ledger=scientific_ledger,
         model=local_model_profile, model_invoke=invoke_local_model,
         operations=operation_ledger,
     )
-    result = controller.run(workflow, envelope)
+    result = service.run(workflow, envelope=envelope, sources=authorized_sources)
+    if result.ok:
+        print(result.released_output)  # only this field carries released text
     anchor = journal.anchor()  # retain separately for suffix-loss detection
 
 # Inspection after reopening: this does NOT invoke any model or tool.
@@ -115,6 +119,42 @@ with RunEventJournal("E:/Codex/TCMScience/runs/example/events.sqlite") as journa
                            fingerprint=workflow.fingerprint)
     print(state.phase, state.visits, state.reason, state.in_doubt)
 ```
+
+`authorized_sources` is a caller-supplied mapping of citation identifiers to
+retrieved evidence records; `{}` is valid when no evidence is supplied. This service
+revalidates records and passes only trusted records to the finalizer. Bare text and
+unsigned/tampered records cannot serve as release evidence through this entry.
+This is stricter than the shared output gate's legacy provenance-caveat allowance.
+
+## Application release boundary
+
+`DynamicResearchRunService.run()` returns `ReleasedResult`, never `DynamicResult`
+or stage result dictionaries. It runs the existing Finalizer: quarantine, evidence
+verification, OutputGate, release and optional verified-claim persistence. Only
+the final visited stage's terminal tasks are rendered as the candidate. There is
+no extra model synthesis call; authors must explicitly provide a final reporting
+stage when earlier findings need synthesis.
+
+All visited stages must complete and have verified goal status before release.
+The candidate inherits sensitivity from the whole observed execution, even if
+intermediate payloads are omitted. Intermediate caveats become generic limitations
+without raw task IDs or warning text. Service policy is intersected with current
+kernel policy both for execution and for release; the original envelope is never
+widened. A journal that says `completed` describes **execution**, not publication.
+The existing quarantine/release audit records the separate publication outcome.
+
+Failures return structural refusal metadata and no output; refused citation IDs
+and raw exception messages are withheld. The service exposes no `last_result`
+cache that could accidentally return a previous run's body. Metadata labels retain
+sensitivity without caller-supplied rationale text. A result whose status is not
+`released` must not be treated as a deliverable.
+
+This is a safer application API, not a Python sandbox: trusted host code can still
+import the low-level controller or inspect private objects and is responsible for
+not publishing them. The existing finalizer's quarantine storage, evidence checker,
+claim extraction and persistence semantics are reused, not redesigned here. There
+is no automatic resume, additional scientific truth attestation or exactly-once
+release/commit transaction.
 
 Persistence must be authorized by the original envelope **and** current policy.
 The store's ceiling is also enforced. The controller conservatively propagates
@@ -232,3 +272,7 @@ cycles, the 256-stage bound, trusted fact and contract refusals, safe cycles,
 acyclic nonrepeatable execution, changing facts between/within visits and refusal
 replay. The original nonrepeatable-cycle test was replaced by a repeatable-key
 test; unsafe cyclic execution is now tested as a refusal, not a supported path.
+`tests/test_dynamic_service.py` covers terminal-only publication, inherited labels,
+goal/caveat aggregation, current/original policy restrictions, clinical and fabricated
+citation refusals, incomplete runs, storage/finalizer failures and stale-output
+prevention. Synthetic callbacks are used rather than live model providers.

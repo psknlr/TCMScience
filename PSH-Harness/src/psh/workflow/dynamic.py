@@ -11,6 +11,7 @@ from typing import Any
 
 from ..contracts import PolicyDenied, new_id
 from ..kernel.authority import AuthorityLattice
+from ..policy import PolicyLattice
 from ..labels import DataLabel, Destination, Labeled, combine, unwrap
 from ..runtime.bindings import BindingError, resolve_input_bindings, resolve_pointer
 from ..runtime.loop import AgentLoopController, LoopLimits, LoopResult, classify_with
@@ -177,6 +178,7 @@ class DynamicWorkflow:
 
 @dataclass(frozen=True)
 class DynamicResult:
+    """Internal execution state; applications should use DynamicResearchRunService."""
     state: ReplayState
     stages: tuple[LoopResult, ...]
     label: DataLabel
@@ -187,7 +189,10 @@ class DynamicResult:
 
 
 class DynamicWorkflowController:
-    """Use the existing brokered loop for every stage, with one shared run budget.
+    """Internal execution controller, not a release-authorized application API.
+
+    Use DynamicResearchRunService to obtain gated application output.
+    Use the existing brokered loop for every stage, with one shared run budget.
 
     Replay is inspection, not resume. A nonempty journal is always refused by run:
     an uncertain stage must never be redispatched just because history was loaded.
@@ -196,7 +201,7 @@ class DynamicWorkflowController:
     """
     def __init__(self, kernel, *, journal: RunEventJournal, registry=None,
                  scientific_ledger=None, model=None, model_invoke=None,
-                 operations=None, limits: LoopLimits | None = None, cancellation=None):
+                 operations=None, limits: LoopLimits | None = None, cancellation=None, policy=None):
         self.kernel = kernel
         self.journal = journal
         self.registry = registry
@@ -206,9 +211,14 @@ class DynamicWorkflowController:
         self.operations = operations
         self.limits = replace(limits or LoopLimits(), max_replans=0)
         self.cancellation = cancellation
+        self.policy = policy
+
+    def _policy(self):
+        return (self.kernel.policy if self.policy is None else
+                PolicyLattice.meet(self.policy, self.kernel.policy))
 
     def _effective(self, envelope):
-        return AuthorityLattice.meet(envelope, self.kernel.policy.ceiling())
+        return AuthorityLattice.meet(envelope, self._policy().ceiling())
 
     def _append(self, event, state, envelope, label):
         effective = self._effective(envelope)
@@ -253,7 +263,7 @@ class DynamicWorkflowController:
         compiler = ScientificCompiler(self.registry, scientific_ledger=self.scientific_ledger)
         for stage in workflow.stages:
             compiled = compiler.compile(stage.program, self._effective(envelope),
-                                        policy=self.kernel.policy, input_label=label)
+                                        policy=self._policy(), input_label=label)
             label = combine(label, *[DataLabel(s) for s in compiled.sensitivities.values()])
         ids = [s.stage_id for s in workflow.stages]
         state = self._append(dict(kind="started", fingerprint=workflow.fingerprint,
@@ -285,7 +295,7 @@ class DynamicWorkflowController:
             state = self._append(dict(kind="stage_started", stage=state.next_stage,
                 visit=state.visits + 1), state, envelope, label)
             planner = ScientificPlanner(selected_program, registry=self.registry,
-                policy=self.kernel.policy, scientific_ledger=self.scientific_ledger)
+                policy=self._policy(), scientific_ledger=self.scientific_ledger)
             controller = AgentLoopController(self.kernel, planner=planner,
                 registry=self.registry, model=self.model, model_invoke=self.model_invoke,
                 operations=self.operations, limits=self.limits, cancellation=self.cancellation,

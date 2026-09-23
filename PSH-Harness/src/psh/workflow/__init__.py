@@ -10,6 +10,7 @@ from .statistics import StatisticalDesign
 from .model_planner import ScientificModelPlanner, parse_scientific_program
 from .dynamic import Branch, StageInput, WorkflowStage, DynamicWorkflow, DynamicResult, DynamicWorkflowController
 from .events import RunEventJournal, ReplayRefused, ReplayState, replay
+from .service import DynamicResearchRunService
 
 __all__ = [
     "ClaimSpec", "ClaimType", "Effect", "EvidenceSpec", "ScientificProgram",
@@ -20,4 +21,5 @@ __all__ = [
     "ScientificModelPlanner", "parse_scientific_program",
     "Branch", "StageInput", "WorkflowStage", "DynamicWorkflow", "DynamicResult", "DynamicWorkflowController",
     "RunEventJournal", "ReplayRefused", "ReplayState", "replay",
+    "DynamicResearchRunService",
 ]
