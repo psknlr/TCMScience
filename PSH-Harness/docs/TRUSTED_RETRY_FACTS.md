@@ -51,7 +51,7 @@ admission now applies additional default-deny checks documented in
 
 Still separate: mandatory scientific task roles and analysis modes; trusted
 evidence resolution; durable compiled scientific contracts; the dynamic public
-release service; approved nonrepeatable repetition; durable execution identity and safe
+release-service sandbox hardening; approved nonrepeatable repetition; durable execution identity and safe
 resume. No version bump, old-archive deletion or README marketing changes are
 included in this safety patch.
 
