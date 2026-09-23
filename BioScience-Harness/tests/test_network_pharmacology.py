@@ -45,7 +45,7 @@ def _edge(record, s, p, o, design, level="knowledge_assertion", **kw):
             "study_design": design, "license": "CC0-1.0", "source_record_id": record, **kw}
 
 
-def _world(targets_of=None):
+def _world(targets_of=None, tested_only=()):
     """(nodes, edges) for a natural-product source and for Reactome."""
     species = [f"ncbitaxon:{h.species[0].taxid}" for h in HERBS.values()]
     compounds = [f"inchikey:{_inchikey(i)}" for i in range(4)]
@@ -76,6 +76,10 @@ def _world(targets_of=None):
         _edge("docked", compounds[1], "targets", f"uniprot:{PROTEINS[52]}", "in_silico",
               level="prediction"),
     ]
+    np_edges += [_edge(f"inactive-{t}", compounds[2], "targets", f"uniprot:{t}", "in_vitro",
+                       publications=["pmid:96"],
+                       measure={"type": "IC50", "relation": "=", "value": 90000.0, "unit": "nM"})
+                 for t in tested_only]
     pathways = {"R-HSA-A": PATHWAY_A}
     for k in range(7):                                  # background pathways, 7 proteins each
         pathways[f"R-HSA-B{k}"] = PROTEINS[8 + k * 7: 15 + k * 7]
@@ -113,7 +117,9 @@ def _build(root: Path, ledger: SnapshotLedger | None = None, **kw):
     ]
 
 
-FAST = Parameters(permutations=200)
+# The planted world tests the pipeline's mechanics against the whole annotation; the
+# assayed background has its own tests below.
+FAST = Parameters(permutations=200, background="reactome")
 
 
 def test_the_pipeline_finds_the_planted_pathway_and_releases_a_hypothesis(tmp_path):
@@ -329,3 +335,42 @@ def test_disease_parameters_are_checked():
         Parameters(disease_evidence="gossip")
     with pytest.raises(ValueError, match="disease_min_score"):
         Parameters(disease_min_score=2.0)
+
+
+# ================================================================ the assayed background
+B0, B1 = PROTEINS[8:15], PROTEINS[15:22]
+
+
+def test_the_assayed_background_is_every_protein_measured_potent_or_not(tmp_path):
+    result = run_network_pharmacology(_build(tmp_path), params=replace(FAST,
+                                                                       background="assayed"))
+    # 9 potent targets, plus the weak and the censored measurement; not the docked one
+    assert result.background == {"kind": "assayed", "proteins": 11, "annotated": 57,
+                                 "assayed_annotated": 11,
+                                 "pathways_tested": len(result.enrichment),
+                                 "potent_in_background": 9, "hit_rate": round(9 / 11, 4)}
+    rows = {r["pathway"]: r for r in result.enrichment}
+    assert rows["reactome:R-HSA-A"]["size"] == 8 and rows["reactome:R-HSA-A"]["in_background"] == 8
+    assert "reactome:R-HSA-B2" not in rows           # none of its proteins was assayed
+    assert any("assayed proteins" in line and "82%" in line and "1.22-fold" in line
+               for line in result.limitations)
+
+
+def test_a_screening_panel_is_enriched_against_the_annotation_but_not_against_the_assays(
+        tmp_path):
+    # Two panels tested in full, each with the same hit rate (4 of 7) and nothing else
+    # tested: the hits sit in those pathways only because those proteins were screened.
+    world = dict(targets_of={0: B0[:4], 1: B1[:4]}, tested_only=B0[4:] + B1[4:])
+    snaps = _build(tmp_path, **world)
+    whole = run_network_pharmacology(snaps, params=FAST)
+    assayed = run_network_pharmacology(snaps, params=replace(FAST, background="assayed"))
+    significant = {r["pathway"] for r in whole.enrichment if r["q_value"] <= 0.05}
+    assert {"reactome:R-HSA-B0", "reactome:R-HSA-B1"} <= significant
+    assert not [r for r in assayed.enrichment if r["q_value"] <= 0.05]
+    assert assayed.claims == [] and whole.claims
+
+
+def test_the_background_parameter_is_checked():
+    with pytest.raises(ValueError, match="background"):
+        Parameters(background="everything")
+

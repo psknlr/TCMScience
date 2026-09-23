@@ -39,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--activity-max-nm", type=float, default=Parameters.activity_max_nm)
     ap.add_argument("--string-min-score", type=float, default=Parameters.string_min_score)
     ap.add_argument("--permutations", type=int, default=Parameters.permutations)
+    ap.add_argument("--background", choices=("assayed", "reactome"),
+                    default=Parameters.background,
+                    help="enrichment background: proteins the compounds were measured "
+                         "against, or the whole human Reactome annotation")
     ap.add_argument("--disease-evidence", default=Parameters.disease_evidence,
                     help="Open Targets evidence type defining the disease gene set")
     ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
@@ -47,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     params = Parameters(activity_max_nm=args.activity_max_nm,
                         string_min_score=args.string_min_score,
                         permutations=args.permutations, seed=args.seed,
+                        background=args.background,
                         disease_evidence=args.disease_evidence,
                         disease_min_score=args.disease_min_score)
     try:
@@ -55,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     except (SkillRunRefused, SnapshotError, LedgerError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "network",
+    print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "background", "network",
                                                 "disease", "claims", "psh_program_fingerprint",
                                                 "result_digest")},
                      ensure_ascii=False, indent=2))

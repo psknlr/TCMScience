@@ -38,8 +38,12 @@ says so to the runtime.
 1. `composition` — formula -> herbs -> source species -> compounds, with composition
    levels (C1 in species, C2 in the medicinal part; nothing reaches C3/C4 from bulk data).
 2. `targets` (in vitro) — compound -> protein with IC50/Ki/Kd/EC50 at or below 10 µM.
-3. `enrichment` (in silico) — Reactome over-representation against the full human
-   background, BH over every tested pathway, then a degree-matched permutation null.
+3. `enrichment` (in silico) — Reactome over-representation, BH over every tested pathway,
+   then a degree-matched permutation null. The default background is the *assayed*
+   proteins (every human protein the compounds were measured against, potent or not), so
+   a pathway cannot stand out merely because its proteins sit on a screening panel.
+   `--background reactome` tests against the whole human annotation instead; read that as
+   where measured activity lands, confounded with what was tested.
 4. `network` (in silico) — STRING subnetwork at confidence >= 0.7, descriptive only.
 5. `disease` (in silico) — the measured targets against the indication's gene set, from
    Open Targets *genetic association* scores >= 0.5 (not literature co-mention, which would
@@ -57,7 +61,11 @@ digest, PSH program fingerprint, result digest) and `limitations.md`.
 
 ## How to read the result
 
-Every claim is a hypothesis. Read `limitations.md` first: composition is species-level,
+Every claim is a hypothesis. On 葛根芩连汤 the default run releases **none**: the 66 pathways
+enriched against the whole annotation are all explained by which proteins were assayed.
+The assayed background has little power in turn (61% of assayed proteins are recorded as
+potent hits, because databases rarely record inactive results), so "not enriched" is not
+"irrelevant". Read `limitations.md` first: composition is species-level,
 targets are what happened to be measured, enrichment reflects screening panels as well as
 biology, and the disease overlap describes the target set — the claims are about
 pathways, not about treating the indication.

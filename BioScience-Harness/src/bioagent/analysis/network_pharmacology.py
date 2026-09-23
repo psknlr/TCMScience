@@ -7,9 +7,15 @@ The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology
 2. **Measured targets** — compound -> protein edges with a potency value (IC50, Ki, Kd,
    EC50) at or below a cut-off, from sources that record the measurement. Predicted
    targets are not used by this skill.
-3. **Pathway over-representation** — Reactome, against the full human annotation as the
-   background, pathways of a stated size range, Benjamini–Hochberg over *every* pathway
-   tested (not only those that happen to overlap the query).
+3. **Pathway over-representation** — Reactome, pathways of a stated size range,
+   Benjamini–Hochberg over *every* pathway tested (not only those that happen to overlap
+   the query). The background is, by default, the *assayed* proteins: every human protein
+   the formula's compounds were measured against, potent or not. Natural products are
+   screened against the same panels again and again (carbonic anhydrases, transporters,
+   cytochromes P450); against the whole human annotation, a pathway can look enriched
+   because its proteins were tested, not because they were hit. Against the assayed
+   background the question is which pathways the *potent* results concentrate in, given
+   what was tested. The whole-annotation background remains available as a parameter.
 4. **Annotation-bias control** — a pathway that passes BH must also beat a degree-matched
    permutation null: random target sets drawn so each target is matched on how many
    pathways it is annotated to. Well-studied proteins sit in many pathways; without this,
@@ -63,6 +69,9 @@ class Parameters:
     activity_max_nm: float = 10_000.0
     #: weakest composition level accepted for a compound
     composition_min_level: str = "C1"
+    #: "assayed": human proteins the compounds were measured against, potent or not;
+    #: "reactome": every protein in the human Reactome annotation
+    background: str = "assayed"
     pathway_min_size: int = 5
     pathway_max_size: int = 500
     fdr: float = 0.05
@@ -82,6 +91,8 @@ class Parameters:
             raise ValueError(f"composition level {self.composition_min_level!r}")
         if not 0 < self.fdr < 1 or not 0 < self.permutation_alpha < 1:
             raise ValueError("fdr and permutation_alpha lie in (0, 1)")
+        if self.background not in ("assayed", "reactome"):
+            raise ValueError(f"background {self.background!r} is not 'assayed' or 'reactome'")
         if self.disease_evidence not in DISEASE_EVIDENCE_TYPES:
             raise ValueError(f"disease evidence {self.disease_evidence!r} is not one of "
                              f"{sorted(DISEASE_EVIDENCE_TYPES)}")
@@ -107,6 +118,8 @@ class NetworkPharmacologyResult:
     limitations: list[str] = field(default_factory=list)
     #: the indication overlap; empty when no disease-association snapshot was given
     disease: dict[str, Any] = field(default_factory=dict)
+    #: what the enrichment was tested against
+    background: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -257,6 +270,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
 
     # 2. measured targets ------------------------------------------------------------------
     target_paths: dict[str, list[tuple[Snapshot, dict]]] = defaultdict(list)
+    assayed: set[str] = set()          # measured with a potency type, at any value
     for snap in snaps:
         for e in snap.edges:
             if e.get("predicate") != "targets" or e.get("subject") not in compound_rows:
@@ -264,12 +278,14 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             if e.get("knowledge_level") == "prediction":
                 excluded["predicted target edge (not used by this skill)"] += 1
                 continue
+            if (e.get("measure") or {}).get("type") in params.activity_types:
+                assayed.add(e["object"])
             if not _passes_potency(e.get("measure"), params):
                 excluded["activity above the cut-off or not a potency measure"] += 1
                 continue
             target_paths[e["object"]].append((snap, e))
 
-    # 3. over-representation against the human Reactome background -------------------------
+    # 3. over-representation ---------------------------------------------------------------
     reactome = by_key["reactome"]
     members: dict[str, set[str]] = defaultdict(set)
     membership: dict[tuple[str, str], dict] = {}
@@ -277,12 +293,16 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         if e.get("predicate") == "participates_in":
             members[e["object"]].add(e["subject"])
             membership[(e["subject"], e["object"])] = e
-    background = set().union(*members.values()) if members else set()
-    query = sorted(t for t in target_paths if t in background)
+    annotated = set().union(*members.values()) if members else set()
+    background = annotated & assayed if params.background == "assayed" else annotated
+    query = sorted(t for t in target_paths if t in annotated)
     excluded["targets outside the Reactome human background"] = len(
-        [t for t in target_paths if t not in background])
-    tested = {p: m for p, m in members.items()
-              if params.pathway_min_size <= len(m) <= params.pathway_max_size}
+        [t for t in target_paths if t not in annotated])
+    # The size range is on the pathway as Reactome defines it; the test counts only its
+    # members in the background, and a pathway with none there cannot be hit or tested.
+    tested = {p: m & background for p, m in members.items()
+              if params.pathway_min_size <= len(m) <= params.pathway_max_size
+              and m & background}
     rows = []
     for pathway in sorted(tested):
         overlap = sorted(set(query) & tested[pathway])
@@ -290,7 +310,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                                    len(background)) if query else {"p_value": 1.0,
                                                                    "fold_enrichment": None}
         rows.append({"pathway": pathway, "name": names.get(pathway, pathway),
-                     "size": len(tested[pathway]), "overlap": len(overlap),
+                     "size": len(members[pathway]), "in_background": len(tested[pathway]),
+                     "overlap": len(overlap),
                      "targets": overlap, "p_value": test["p_value"],
                      "fold_enrichment": test["fold_enrichment"]})
     if rows:
@@ -436,15 +457,26 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                 "measurements": len(target_paths[t]), "in_background": t in background,
                 "disease_score": disease_genes.get(t)}
                for t in sorted(target_paths)]
+    hit_rate = len(set(query) & background) / len(background) if background else 0.0
     limitations = [
         "Composition is species-level (C1/C2): no constituent is shown in the decoction "
         "itself (C3) or in plasma after dosing (C4), so every claim stops at a hypothesis.",
         "Targets are in-vitro potency measurements at or below the stated cut-off; "
         "predicted targets are not used, and absence of a measurement is not absence of "
         "activity.",
-        "Enrichment is against Reactome's human annotation; pathways outside the size range "
-        "are not tested, and the result depends on how thoroughly each protein is studied — "
-        "hence the degree-matched null.",
+        *([f"Enrichment is against the assayed proteins (every human protein the compounds "
+           "were measured against, potent or not), so it asks where the potent results "
+           "concentrate given what was tested. It says nothing about proteins never "
+           f"assayed. {hit_rate:.0%} of the assayed proteins are potent hits: databases "
+           "record active results far more often than inactive ones, so this background is "
+           "itself biased toward hits and the test has little power (no pathway can exceed "
+           f"a {1 / hit_rate if hit_rate else float('inf'):.2f}-fold enrichment). A pathway "
+           "that is not enriched here is not shown to be irrelevant."]
+          if params.background == "assayed" else [
+           "Enrichment is against Reactome's whole human annotation, so a pathway can stand "
+           "out because its proteins were tested, not because they were hit."]),
+        "Pathways outside the size range are not tested, and the result depends on how "
+        "thoroughly each protein is studied — hence the degree-matched null.",
         *(_disease_limitations(disease, params) if disease else [
             "No disease gene set is joined: the claims concern pathways, not the indication. "
             "Relevance to the indication needs a disease-association snapshot (e.g. Open "
@@ -452,8 +484,12 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         "Measured activities over-represent the target families natural products are "
         "routinely screened against (carbonic anhydrases, drug transporters, cytochromes "
         "P450). The degree-matched null controls for how well studied a protein is, not for "
-        "which assay panels were run, so enriched ADME and screening-panel pathways should "
-        "be read as assay coverage before biology.",
+        "which assay panels were run. "
+        + ("The assayed background removes most of that bias; what remains is which of the "
+           "tested proteins were potent, which still reflects how each panel was built."
+           if params.background == "assayed" else
+           "Enriched ADME and screening-panel pathways should be read as assay coverage "
+           "before biology."),
         "The permutation p-value has a floor of 1/(permutations+1) and is a second filter "
         "after BH, not itself corrected for multiple testing.",
         "Network topology is descriptive and depends on the STRING confidence cut-off.",
@@ -465,7 +501,13 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         claims=claim_rows, release=verdict.as_dict(), excluded=dict(excluded),
         code_digest="sha256:" + hashlib.sha256(
             inspect.getsource(inspect.getmodule(run_network_pharmacology)).encode()).hexdigest(),
-        limitations=limitations, disease=disease)
+        limitations=limitations, disease=disease,
+        background={"kind": params.background, "proteins": len(background),
+                    "annotated": len(annotated),
+                    "assayed_annotated": len(annotated & assayed),
+                    "pathways_tested": len(tested),
+                    "potent_in_background": len(set(query) & background),
+                    "hit_rate": round(hit_rate, 4)})
 
 
 def _disease_limitations(disease: Mapping[str, Any], params: Parameters) -> list[str]:
