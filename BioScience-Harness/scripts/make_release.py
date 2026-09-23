@@ -62,6 +62,7 @@ REQUIRED_PACKAGES = (
     "bioagent.providers",
     "bioagent.psh",
     "bioagent.runtime",
+    "bioagent.sources",
     "bioagent.tools",
     "bioagent.tcm",
     "bioagent.workspace",

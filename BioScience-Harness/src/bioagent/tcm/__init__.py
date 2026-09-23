@@ -14,14 +14,14 @@ from .knowledge import (
     Applicability, Conflict, Resolution, TCMKnowledgeBase, default_knowledge, seed,
 )
 from .model import (
-    CLAIM_KINDS, PREDICATES, ROLES, SAFETY_KINDS, ActionRelation, ClassicalPassage,
+    CLAIM_KINDS, CLAIM_SUPPORT, PREDICATES, ROLES, SAFETY_KINDS, ActionRelation, ClassicalPassage,
     EvidenceTier, Formula, Herb, Ingredient, ProcessedHerb, SafetyRecord, StudyEvidence,
-    Syndrome,
+    Syndrome, licenses,
 )
 
 __all__ = [
     "TCMKnowledgeBase", "Resolution", "Applicability", "Conflict", "default_knowledge", "seed",
-    "EvidenceTier", "CLAIM_KINDS", "ROLES", "PREDICATES", "SAFETY_KINDS",
+    "EvidenceTier", "CLAIM_KINDS", "CLAIM_SUPPORT", "licenses", "ROLES", "PREDICATES", "SAFETY_KINDS",
     "Herb", "ProcessedHerb", "Ingredient", "Formula", "Syndrome", "ClassicalPassage",
     "StudyEvidence", "ActionRelation", "SafetyRecord",
 ]

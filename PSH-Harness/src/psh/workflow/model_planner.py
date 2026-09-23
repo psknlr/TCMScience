@@ -44,11 +44,12 @@ Effects must match task destinations. Do not label remote or persistent work pur
 Do not claim data is public merely because visible identifiers are absent.
 Optional evidence has design, population, intervention, outcome, provenance array,
 underlying_designs array (required for systematic_review). Designs: classical_text,
-expert_consensus, in_vitro, animal, case_report, observational, randomized_trial,
-systematic_review. Optional claim has kind (classical_attribution/traditional_use/
-mechanism/association/clinical_efficacy/safety_signal), population, intervention,
-outcome, evidence_from (direct dependency IDs). Never invent evidence, references or
-registered records. Animal/mechanistic evidence does not license clinical efficacy.
+expert_consensus, in_silico, in_vitro, animal, case_report, observational,
+randomized_trial, systematic_review. Optional claim has kind (classical_attribution/
+traditional_use/mechanism_hypothesis/mechanism/association/clinical_efficacy/
+safety_signal), population, intervention, outcome, evidence_from (direct dependency IDs). Never invent evidence, references or
+registered records. Animal/mechanistic evidence does not license clinical efficacy;
+in_silico predictions license only mechanism_hypothesis.
 An evidence declaration is not a verified result. Optional statistics must use the
 StatisticalDesign wire schema: protocol (required), comparisons (integer >=1),
 multiplicity_plan (text), holdout (boolean), training_units/evaluation_units/

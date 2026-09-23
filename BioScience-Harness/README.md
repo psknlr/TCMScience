@@ -323,7 +323,10 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         hmr.py             transactional hot reload + LazyComponentSet
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
-      providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
+      providers/           discovery from catalogue rows, SKILL.md trees (+ skill.yaml contracts)
+                           and 58 public sources
+      sources/             third-party databases as snapshots: source cards, KGX-style node/edge
+                           schema with two evidence axes, quality gate, verified loads
       tools/               147 native bioinformatics, clinical and TCM tools (no dependencies)
       tcm/                 typed TCM knowledge: herbs, processing, formulas, syndromes, classics,
                            evidence tiers, scope, 十八反

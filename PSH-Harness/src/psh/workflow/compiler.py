@@ -30,6 +30,7 @@ _SUPPORTS = {
     ClaimType.CLASSICAL: frozenset({"classical_text"}),
     ClaimType.TRADITIONAL: frozenset({"classical_text", "expert_consensus"}),
     ClaimType.MECHANISTIC: frozenset({"in_vitro", "animal"}),
+    ClaimType.MECHANISM_HYPOTHESIS: frozenset({"in_silico", "in_vitro", "animal"}),
     ClaimType.ASSOCIATION: frozenset({"observational", "randomized_trial"}),
     ClaimType.CLINICAL: frozenset({"randomized_trial"}),
     ClaimType.SAFETY: frozenset({"case_report", "observational", "randomized_trial"}),

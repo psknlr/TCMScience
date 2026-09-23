@@ -11,7 +11,9 @@ This backend executes them, with the properties a shared scientific client needs
   repeated lookups are free.
 * **honest statuses** — a network denial is `UNAVAILABLE` with the reason, a 4xx
   is `FAILED` with the body excerpt, a timeout is `TIMEOUT`; nothing is `ok`
-  unless a 2xx body was parsed.
+  unless a 2xx body was parsed, and a body truncated to fit is `DEGRADED`.
+* **polite retries** — a 429/503 ``Retry-After`` is honoured up to a cap; a longer
+  requested pause ends the call rather than being ignored.
 
 Only the standard library is used, so the backend works in any environment the
 harness itself runs in.
@@ -19,6 +21,8 @@ harness itself runs in.
 
 from __future__ import annotations
 
+import datetime
+import email.utils
 import gzip
 import hashlib
 import http.client
@@ -39,6 +43,31 @@ from ..status import ExecutionStatus
 from .base import Backend
 
 _USER_AGENT = "bioagent-harness/0.2 (+https://localhost; research use)"
+
+#: Characters of a text/XML body kept in the parsed value; longer bodies are truncated and
+#: the call reports DEGRADED rather than SUCCEEDED.
+_TEXT_LIMIT = 200_000
+
+
+def _retry_after_seconds(headers: Any) -> float | None:
+    """The pause a 429/503 response asks for, from ``Retry-After`` (seconds or HTTP-date)."""
+    raw = headers.get("Retry-After") if headers is not None else None
+    if not raw:
+        return None
+    raw = str(raw).strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    return max(0.0, (when - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
 
 #: Published or conservative per-host request rates (requests / second).
 DEFAULT_RATES: Mapping[str, float] = {
@@ -128,6 +157,10 @@ class HTTPRequest:
     json_body: Any = None
     data: bytes | None = None
     accept: str = "application/json"
+    #: Upstream data version (a release, snapshot or dump date). Part of the cache key, so
+    #: a cached answer from last release is never served for this one. Empty for sources
+    #: that publish no version.
+    version: str = ""
 
     @property
     def full_url(self) -> str:
@@ -148,10 +181,13 @@ class HTTPRequest:
         representations of one URL collided on a single entry and the second
         caller silently got the first caller's format.
         """
-        blob = json.dumps({"u": self.full_url, "m": self.method, "h": dict(self.headers),
-                           "a": self.accept,
-                           "j": self.json_body, "d": self.data.decode("latin1") if self.data else None},
-                          sort_keys=True, default=str)
+        fields = {"u": self.full_url, "m": self.method, "h": dict(self.headers),
+                  "a": self.accept,
+                  "j": self.json_body, "d": self.data.decode("latin1") if self.data else None}
+        if self.version:
+            # Only when set, so the keys of existing unversioned cache entries are unchanged.
+            fields["v"] = self.version
+        blob = json.dumps(fields, sort_keys=True, default=str)
         return hashlib.sha256(blob.encode()).hexdigest()[:32]
 
 
@@ -163,7 +199,7 @@ class HTTPBackend(Backend):
     def __init__(self, *, cache_dir: Path | str | None = None, timeout_s: float = 30.0,
                  max_bytes: int = 64 * 1024 * 1024, max_retries: int = 3,
                  rates: Mapping[str, float] | None = None, default_rps: float = 2.0,
-                 offline: bool = False) -> None:
+                 offline: bool = False, max_retry_after_s: float = 30.0) -> None:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -171,6 +207,7 @@ class HTTPBackend(Backend):
         self.max_bytes = max_bytes
         self.max_retries = max_retries
         self.offline = offline
+        self.max_retry_after_s = max_retry_after_s
         self._limiter = _RateLimiter(rates or DEFAULT_RATES, default_rps)
         self.stats = {"requests": 0, "cache_hits": 0, "retries": 0, "bytes": 0}
 
@@ -194,8 +231,9 @@ class HTTPBackend(Backend):
                 with gzip.open(cache_path, "rt", encoding="utf-8") as fh:
                     rec = json.load(fh)
                 self.stats["cache_hits"] += 1
-                meta.update(cached=True, http_status=rec.get("http_status"))
-                return ExecutionStatus.SUCCEEDED, rec["value"], "", meta
+                meta.update(cached=True, http_status=rec.get("http_status"),
+                            fetched_at=rec.get("fetched_at"))
+                return (*self._judge(rec["value"]), meta)
             except Exception:  # noqa: BLE001 - a corrupt cache entry is simply ignored
                 pass
 
@@ -221,11 +259,13 @@ class HTTPBackend(Backend):
                     raw = self._read_capped(resp)
                 self.stats["bytes"] += len(raw)
                 value = self._parse(raw, ctype)
+                meta["fetched_at"] = time.time()
                 if cache_path:
                     with gzip.open(cache_path, "wt", encoding="utf-8") as fh:
                         json.dump({"http_status": meta["http_status"], "value": value,
-                                   "content_type": ctype, "fetched_at": time.time()}, fh, default=str)
-                return ExecutionStatus.SUCCEEDED, value, "", meta
+                                   "content_type": ctype, "fetched_at": meta["fetched_at"]},
+                                  fh, default=str)
+                return (*self._judge(value), meta)
             except urllib.error.HTTPError as exc:
                 meta["http_status"] = exc.code
                 excerpt = ""
@@ -238,8 +278,17 @@ class HTTPBackend(Backend):
                                         or "network policy" in excerpt.lower()):
                     return ExecutionStatus.UNAVAILABLE, None, f"network access denied for {req.host}: {last_err}", meta
                 if exc.code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
+                    backoff = min(8.0, 0.8 * (2 ** attempt))
+                    asked = _retry_after_seconds(exc.headers)
+                    if asked is not None and asked > self.max_retry_after_s:
+                        # The server asked for a longer pause than a call may spend waiting;
+                        # retrying sooner would ignore it, so stop and say so.
+                        meta["retry_after_s"] = asked
+                        return ExecutionStatus.FAILED, None, (
+                            f"{last_err} (server asked to retry after {asked:.0f}s, more than "
+                            f"the {self.max_retry_after_s:.0f}s this backend waits)"), meta
                     self.stats["retries"] += 1
-                    time.sleep(min(8.0, 0.8 * (2 ** attempt)))
+                    time.sleep(max(backoff, asked or 0.0))
                     continue
                 return ExecutionStatus.FAILED, None, last_err, meta
             except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError,
@@ -265,6 +314,14 @@ class HTTPBackend(Backend):
             except Exception as exc:  # noqa: BLE001 - reported, never raised into the runtime
                 return ExecutionStatus.FAILED, None, f"{type(exc).__name__}: {exc}", meta
         return ExecutionStatus.FAILED, None, last_err or "exhausted retries", meta
+
+    @staticmethod
+    def _judge(value: Any) -> tuple[ExecutionStatus, Any, str]:
+        """SUCCEEDED, or DEGRADED when the parsed body is known to be incomplete."""
+        if isinstance(value, dict) and value.get("truncated"):
+            return (ExecutionStatus.DEGRADED, value,
+                    f"response text truncated to {_TEXT_LIMIT} characters; refine the query")
+        return ExecutionStatus.SUCCEEDED, value, ""
 
     def _read_capped(self, resp) -> bytes:
         chunks, total = [], 0
@@ -294,8 +351,8 @@ class HTTPBackend(Backend):
                 rows = [dict(zip(hdr, ln.split("\t"))) for ln in lines[1:]]
                 return {"columns": hdr, "rows": rows, "n_rows": len(rows), "format": "tsv"}
         if "xml" in ct or text.lstrip().startswith("<"):
-            return {"format": "xml", "text": text[:200_000], "truncated": len(text) > 200_000}
-        return {"format": "text", "text": text[:200_000], "truncated": len(text) > 200_000}
+            return {"format": "xml", "text": text[:_TEXT_LIMIT], "truncated": len(text) > _TEXT_LIMIT}
+        return {"format": "text", "text": text[:_TEXT_LIMIT], "truncated": len(text) > _TEXT_LIMIT}
 
     # --------------------------------------------------------------- Backend
     def invoke(self, manifest: ComponentManifest, *, path: str = "", method: str = "GET",

@@ -62,7 +62,7 @@
 | 新增 BindingDB | **采纳** | 已核实：每月更新 TSV 下载并附 md5；BindingDB 自行整理的数据为 CC BY 4.0，转录自 ChEMBL 的数据为 CC BY-SA 3.0，需记录级许可证 |
 | 默认不用 GeneCards、DrugBank、《中国药典》全文；"逆向接口"改称"适配器" | **采纳** | 落实为 `manual` 和默认关闭的 `web` 两种访问方式，见 §3.3 |
 | 方剂要绑定具体组成版本；用固定案例打通全链路 | **采纳** | 组成版本用 `Protocol` 的指纹锁定；案例取"葛根芩连汤—2 型糖尿病" |
-| 新建 8 类数据对象（SourceCard 等） | **修改** | 其中 5 类已有等价实现：`ProtocolRecord`≈`Protocol`；`RunRecord`≈`Event` / `OperationRecord` / `ProvenanceCapsule`；`EvidenceItem`≈`EvidenceRecord` / `EvidenceSpec` / `StudyEvidence`；`CandidateClaim`≈`ScientificClaim` + `CANDIDATE`；`ResearchArtifact`≈`ReleasedResult` / `ArtifactRef`（后者已定义但还没有地方用到）。另外 `QualityAssessment` 部分有（`ClaimSupport`），`EntityMapping` 只有 TCM 名称解析（`resolve`）。**真正要新增的只有三样**：SourceCard 字段、快照 manifest、节点/边表 |
+| 新建 8 类数据对象（SourceCard 等） | **修改** | 其中 5 类已有等价实现：`ProtocolRecord`≈`Protocol`；`RunRecord`≈`Event` / `OperationRecord` / `ProvenanceCapsule`；`EvidenceItem`≈`EvidenceRecord` / `EvidenceSpec` / `StudyEvidence`；`CandidateClaim`≈`ScientificClaim` + `CANDIDATE`；`ResearchArtifact`≈`ReleasedResult` / `ArtifactRef`（后者已定义但还没有地方用到）。另外 `QualityAssessment` 部分有（`ClaimSupport`），`EntityMapping` 只有 TCM 名称解析（`resolve`）。**真正要新增的只有三样**：数据源卡片（只管治理信息）、快照 manifest、节点/边表 |
 | 新建 Skill Compiler | **修改** | 编译器已经有了（`ScientificCompiler`，输入是 JSON）。只需写一个把 `skill.yaml` 转成 `ScientificProgram` 的薄适配器 |
 | 白名单写在 `skill.yaml` 的 `allowed_components` 里 | **修改（安全问题）** | Skill 目录是 agent 可写区，白名单只写在那里等于允许 agent 自我授权。改为取交集，见 §3.8 |
 | 用 GRADE / RoB 2 代替单条线性分级 | **部分采纳** | 同意单条线性分级不够，但偏倚评价和证据确定性分级不属于接入层。接入层只提供两轴标签和做这些判断所需的原始字段 |
@@ -115,7 +115,7 @@ SourceCard ──► fetch ──► raw/        不可变原始文件 + sha256�
           snapshot/<key>/<version>/   nodes.parquet · edges.parquet · manifest.json · qc.json
                  │
                  ▼
-     SnapshotStore（只读查询）──► Skill / psh.workflow 任务 ──► 候选主张 ──► 发布门
+     load_snapshot（只读，每次加载都重新校验）──► Skill / psh.workflow 任务 ──► 候选主张 ──► 发布门
 ```
 
 - **分析只读取快照，不在分析过程中实时调用第三方接口。**实时 API 只用于 ID 解析和补查快照里缺的单条记录，结果同样缓存并记录溯源。
@@ -123,7 +123,7 @@ SourceCard ──► fetch ──► raw/        不可变原始文件 + sha256�
 
 ### 3.2 SourceCard：每个数据源一张卡片
 
-在现有 `PublicSource` / `AcquisitionSpec` 上**增加字段**，不新建类型：
+实现为 `bioagent/sources/cards.py` 中的 `SourceCard`（下面是示意）。它与 `PublicSource` / `AcquisitionSpec` 并存：卡片只管治理信息，包括访问方式、许可证和证据默认值；具体的请求和下载仍由原来这两者执行。所以卡片不会重复定义接口：
 
 ```yaml
 key: bindingdb                    # 用作 CURIE 前缀和快照目录名
@@ -184,7 +184,7 @@ SourceCard 属于**代码层**：随程序包发布，改动要经过代码评�
 | 轴 | 回答的问题 | 取值 |
 | --- | --- | --- |
 | 知识层级 `knowledge_level` + `agent_type`（Biolink 标准） | 这条断言**是怎么产生的** | `knowledge_assertion`（基于直接证据的人工整理）· `prediction`（算法预测）· `statistical_association` · `text_co_occurrence` · `observation`；产生者：`manual_agent` · `computational_model` · `text_mining_agent` · `data_analysis_pipeline` 等 |
-| 研究设计 `study_design` → `EvidenceTier` | 背后**是什么研究** | `classical_text` · `expert_consensus` · **`in_silico`** · `in_vitro` · `animal` · `case_report` · `observational` · `randomized_trial` · `systematic_review`（除 `in_silico` 外，均与 PSH 的 `DESIGNS` 一致） |
+| 研究设计 `study_design` → `EvidenceTier` | 背后**是什么研究** | `classical_text` · `expert_consensus` · **`in_silico`** · `in_vitro` · `animal` · `case_report` · `observational` · `randomized_trial` · `systematic_review`（与 PSH 的 `DESIGNS` 一致）；另有 `chemical_analysis`（成分分离或检测），只用于"含有"类的边，不对应任何证据等级，不支持任何主张 |
 
 对现有代码的修正（在 M1 中完成）：
 
@@ -236,17 +236,25 @@ C4  入血成分（给药后在血浆或组织中检出）
 
 Skill 目录结构沿用 Agent Skills 的通行格式：`SKILL.md`（什么时候用、怎么做）、`skill.yaml`（机器可读的契约）、`scripts/`（确定性的计算步骤）、`references/`（参考资料）。
 
-`skill.yaml` 只需要五项：
+`skill.yaml` 只需要五项。请用块状 YAML 书写：仓库不依赖 PyYAML，内置解析器不支持 `[a, b]` 和 `{a: b}` 这类行内写法。
 
 ```yaml
 id: tcm.network-pharmacology
 version: 0.1.0
-inputs:  {formula: FormulaRef, indication: DiseaseOrSyndromeRef}
+inputs:
+  formula: FormulaRef
+  indication: DiseaseOrSyndromeRef
 requires:
-  sources: [npass@2.0, lotus@2026-04-13, bindingdb@latest-approved, string@12.0, reactome@current]
-  tools: [stats.enrichment_analysis, network.topology]
+  sources:
+    - npass@2.0
+    - lotus@2026-04-13
+    - bindingdb
+  tools:
+    - stats.enrichment_analysis
 max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类型
 ```
+
+`max_claim_kind` 是上限：某类主张只有在它能接受上限所接受的全部证据等级时，才算不强于上限，才被允许。所以上限设为 `mechanism_hypothesis` 时，Skill 不能产出 `mechanism` 主张；上限设为 `efficacy` 时，可以产出 `association` 和 `safety_signal`，但不能产出 `recommendation`。
 
 **权限只能收窄，不能放大。**实际生效的数据源 = `skill.yaml` 的声明 ∩ SourceCard 中已启用的源 ∩ 当前权限配置。原因是：如果白名单只写在 `skill.yaml` 里，而 `skills/` 是 agent 可写区，agent 改一下文件就能给自己授权。
 
@@ -282,6 +290,19 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 | **M1 契约与修正**（约 1–2 周） | SourceCard 字段；快照 manifest；节点/边表结构及校验器。证据两轴，包括 §3.5 的四处代码修正。`HTTPBackend`：支持 `Retry-After`、缓存键加入数据版本、截断时报 `DEGRADED`。接通 `SkillDirectoryProvider`，读取仓库 `skills/` 并解析 `skill.yaml`（这一步只做校验，不执行） | 单元测试通过；只有预测支持的 `mechanism` 主张会被编译器和发布门拒绝 |
 | **M2 数据快照**（约 2–3 周） | 为 LOTUS、NPASS、CMAUP、BindingDB（新增下载规格）、STRING、Reactome 编写解析器；经 ChEMBL / PubChem 归一到 InChIKey；ETCM / HERB 的 `manual` 导入器；ICD-11 传统医学章查询；药材→基原映射表（首批：葛根、黄芩、黄连、炙甘草） | 同一原始文件构建两次，快照哈希相同；生成质量检查报告；金标准通过（葛根素、黄芩苷、小檗碱、甘草酸等锚点成分都能解析到正确的 InChIKey） |
 | **M3 首个端到端 Skill**（约 1–2 周） | `skills/tcm/network-pharmacology/`：在指定的快照版本上运行，经 `psh.workflow` 编译执行；新增网络拓扑与度保持随机化工具（仅用标准库）；把快照 ID、工具版本、参数和随机种子填进 `ProvenanceCapsule` | 同一输入、同一快照，结果一致；实测靶点和预测靶点可以分开统计；试图产出疗效主张会被拒绝 |
+
+**M1 状态（已实现）**：
+- `tcm/model.py`：`COMPUTATIONAL_PREDICTION = 0`、`CLAIM_SUPPORT`（按集合判断）、`mechanism_hypothesis`、`licenses()`；
+- PSH：`in_silico`、`MECHANISM_HYPOTHESIS`，并登记进 `_SUPPORTS`；有测试逐项核对两层规则一致；
+- `bioagent/sources/`：`cards.py`（数据源卡片、访问方式、`effective_sources`；已纳入演化边界保护）、`schema.py`（节点/边表、两轴校验、`check_claim`）、`snapshot.py`（质量检查门、确定性快照 ID、加载时重新校验）；
+- `HTTPBackend`：支持 `Retry-After`、缓存键加入 `version`、截断时报 `DEGRADED`，缓存命中时也带 `fetched_at`；
+- `SkillContract`（`skill.yaml`），`default_runtime` 会发现仓库 `skills/` 下的 Skill。
+
+**尚未接通，留给 M2/M3**：
+- 快照 ID 还没有写进审计日志；目前由调用方把它作为 `expected_id` 传给 `load_snapshot`；
+- `check_claim` 还没有接进 PSH 的 `OutputGate`，发布门目前靠编译期的 `_SUPPORTS` 把关；
+- 把 `skill.yaml` 转成 `ScientificProgram` 的适配器还没写；
+- 数据源卡片目前只有 LOTUS、NPASS、CMAUP 三张，BindingDB、ETCM、HERB 的卡片和解析器在 M2。
 
 后续另立项目：组学管线、临床方法学类 Skill、基于 RoB 2 / GRADE 的证据综合 Skill、每月数据源健康检查（在 `scripts/verify_connectors.py` 基础上增加快照漂移报告）。
 

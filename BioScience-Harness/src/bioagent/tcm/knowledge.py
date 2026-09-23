@@ -5,9 +5,9 @@ Three questions the free-text harness could not ask, and this can:
 * **Which thing?** 参 names 人参 and 丹参; 芍药 is 白芍 here and 赤芍 elsewhere.
   ``resolve`` returns the one entity a name denotes or the candidates it could denote,
   and never picks one silently.
-* **Is this claim licensed by this evidence?** ``applicability`` compares the tier of
-  the evidence behind a relation with the tier the *kind* of claim needs
-  (``CLAIM_KINDS``): a classical passage licenses an attribution and not an efficacy
+* **Is this claim licensed by this evidence?** ``applicability`` checks the tier of
+  the evidence behind a relation against the tiers the *kind* of claim admits
+  (``CLAIM_SUPPORT``): a classical passage licenses an attribution and not an efficacy
   claim. It also compares the scope — the population and the condition the evidence
   covers with the ones the claim is about — and reports ``extrapolated`` when they differ,
   the same rule PSH's evidence-scope model applies to biomedical abstracts.
@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from .model import (
-    CLAIM_KINDS, ActionRelation, ClassicalPassage, EvidenceTier, Formula, Herb, Ingredient,
+    CLAIM_KINDS, CLAIM_SUPPORT, ActionRelation, ClassicalPassage, EvidenceTier, Formula, Herb, Ingredient,
     ProcessedHerb, SafetyRecord, StudyEvidence, Syndrome,
 )
 
@@ -352,9 +352,11 @@ class TCMKnowledgeBase:
             reasons.append("no usable evidence behind the relation")
             return Applicability(relation.id, claim_kind, "unsupported", relation.tier, required,
                                  tuple(reasons), population, condition)
-        if relation.tier < required:
+        admitted = CLAIM_SUPPORT[claim_kind]
+        if relation.tier not in admitted:
+            names = " or ".join(f"{t.name} ({t.chinese})" for t in sorted(admitted))
             reasons.append(
-                f"a {claim_kind} claim needs {required.name} ({required.chinese}) evidence; "
+                f"a {claim_kind} claim needs {names} evidence; "
                 f"this relation rests on {relation.tier.name} ({relation.tier.chinese})")
             return Applicability(relation.id, claim_kind, "unsupported", relation.tier, required,
                                  tuple(reasons), population, condition)
