@@ -278,7 +278,8 @@ class AgentLoopController:
                  heartbeat: Callable[[], None] | None = None,
                  sleep: Callable[[float], None] = time.sleep,
                  memory: Any = None, memory_items: int = 4,
-                 operations: Any = None, operation_namespace: str = "") -> None:
+                 operations: Any = None, operation_namespace: str = "",
+                 require_idempotent_tools: bool = False) -> None:
         self.kernel = kernel
         self.planner = planner
         self.registry = registry
@@ -289,6 +290,7 @@ class AgentLoopController:
         self.operations = operations
         # Dynamic visits share the run budget but must not share operation keys.
         self.operation_namespace = operation_namespace
+        self.require_idempotent_tools = require_idempotent_tools
         # Local protection survives replans on this controller, not process crashes.
         # Durable recovery still requires an OperationLedger.
         self._nonrepeatable_operations: set[str] = set()
@@ -517,7 +519,9 @@ class AgentLoopController:
                 manifest = None  # Dispatch reports unavailable components normally.
             repeat_safe = getattr(manifest, "idempotent", None) is True
             with self._operation_lock:
-                refused = key in self._nonrepeatable_operations or (attempt > 1 and not repeat_safe)
+                refused = (key in self._nonrepeatable_operations
+                           or (attempt > 1 and not repeat_safe)
+                           or (self.require_idempotent_tools and not repeat_safe))
                 if not repeat_safe:
                     self._nonrepeatable_operations.add(key)
             if refused:

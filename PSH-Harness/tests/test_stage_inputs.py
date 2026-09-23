@@ -91,6 +91,7 @@ def test_nested_pointer_and_many(kernel, tmp_path):
 
 
 def test_cycle_reads_immediately_previous_visit(kernel, tmp_path):
+    from psh.workflow import SideEffect
     class Increment(Tool):
         def invoke(self, payload, envelope):
             super().invoke(payload, envelope)
@@ -99,6 +100,10 @@ def test_cycle_reads_immediately_previous_visit(kernel, tmp_path):
     flow = DynamicWorkflow((tool_stage("source", "source", next_stage="target"),
         tool_stage("target", "target", inputs=(binding(expected_type="integer"),),
                    branch=Branch("answer", 3, None, "target", "/value"))), "source")
+    repeated = flow.stages[1]
+    repeated = replace(repeated, program=replace(repeated.program, contracts={
+        "answer": replace(repeated.program.contracts["answer"], side_effect=SideEffect.IDEMPOTENT)}))
+    flow = replace(flow, stages=(flow.stages[0], repeated))
     result, _, consumer, _ = execute(kernel, tmp_path, {"value": 0}, flow=flow, target=consumer)
     assert result.ok and result.state.visits == 4
     assert [unwrap_deep(p)["value"] for p in consumer.calls] == [0, 1, 2]

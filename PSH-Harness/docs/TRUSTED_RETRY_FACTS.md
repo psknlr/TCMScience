@@ -43,14 +43,15 @@ The local claim set is **not durable**. A newly constructed controller or proces
 cannot recover it. Durable operation history still requires OperationLedger; this
 patch does not make that ledger mandatory, add external-effect transactions, or
 provide exactly-once execution. New task/run IDs or new dynamic visit namespaces
-are different operations, not retries protected by the same key. Approval of
-repeated side effects in dynamic cycles still needs a separate repeat-policy pass.
+are different operations, not retries protected by the same key. Dynamic cycle
+admission now applies additional default-deny checks documented in
+`DYNAMIC_WORKFLOW.md`; an approval exception for unsafe repetition remains absent.
 
 ## Remaining review work
 
 Still separate: mandatory scientific task roles and analysis modes; trusted
 evidence resolution; durable compiled scientific contracts; the dynamic public
-release service; repeat-policy/cycle checks; durable execution identity and safe
+release service; approved nonrepeatable repetition; durable execution identity and safe
 resume. No version bump, old-archive deletion or README marketing changes are
 included in this safety patch.
 

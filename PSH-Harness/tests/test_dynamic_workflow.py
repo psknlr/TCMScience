@@ -235,18 +235,18 @@ def test_budget_is_not_reset_by_stage_visits(kernel, local_profile, tmp_path):
         assert kernel.broker.stats()["model_calls"] == 2
 
 
-def test_nonrepeatable_tool_visits_get_distinct_operation_keys(kernel, tmp_path):
+def test_repeatable_tool_visits_get_distinct_operation_keys(kernel, tmp_path):
     from psh.capabilities import CapabilityRegistry
     from psh.runtime import OperationLedger
-    from psh.workflow import Effect
+    from psh.workflow import Effect, SideEffect
     from test_checkpoint import Tool
     from test_scientific_workflow import contract
-    tool = Tool("probe", idempotent=False)
+    tool = Tool("probe", idempotent=True)
     registry = CapabilityRegistry()
     registry.register(tool)
     p = program([task("answer", kind="tool", component_id="probe",
                      max_label=S.RESEARCH_DEIDENTIFIED, destinations=(D.LOCAL_COMPUTE,))],
-                {"answer": contract(effects=(Effect.LOCAL_COMPUTE,))})
+                {"answer": contract(effects=(Effect.LOCAL_COMPUTE,), side_effect=SideEffect.IDEMPOTENT)})
     ledger = OperationLedger(tmp_path / "ops.db")
     try:
         with RunEventJournal(tmp_path / "e.db") as journal:

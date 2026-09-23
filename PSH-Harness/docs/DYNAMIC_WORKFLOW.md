@@ -30,8 +30,51 @@ the complete ZCode dynamic-workflow engine or a replacement for task checkpoints
 - All visits retain the original envelope's run ID, budget and deadline. Tool
   operation keys gain a workflow-instance/visit namespace, so two intentionally
   repeated stage visits do not collide in `OperationLedger`. A repeated visit is
-  a **new invocation**, not a retry or cache hit; authors must approve repeated
-  side effects when declaring a cycle. Existing task retry restrictions remain.
+  a **new invocation**, not a retry or cache hit. Cyclic tool stages now also pass
+  the repeat-safety checks below. Existing task retry restrictions remain.
+
+## Cycle admission and changing capability facts
+
+Before any stage dispatch or journal start, a Tarjan strongly-connected-component
+pass identifies every declared cycle, including self-loops and both branch edges.
+Declared unreachable cycles are included, even when `max_visits=1`; the pass is
+deliberately conservative and does not try to prove predicates impossible.
+
+For each tool task in a cyclic stage:
+
+- `NON_REPEATABLE`, `AT_MOST_ONCE` and `COMPENSATABLE` contracts are rejected
+  (`REPEAT101`). No compensation executor or per-visit approval exception exists.
+- The registry manifest **and** the currently invocable component must report
+  exactly `idempotent=True` (`REPEAT102`). A planner's PURE/IDEMPOTENT declaration
+  is insufficient. Missing or merely truthy facts do not grant permission.
+- `PURE`, `IDEMPOTENT` or `AT_LEAST_ONCE` contracts may pass only with that trusted
+  fact and all existing scientific compilation, authority and budget checks.
+
+Delegation in cycles is rejected (`REPEAT103`): this controller has no repeat-safety
+attestation for a delegated workflow. Ordinary model stages remain available in
+bounded cycles under model budget/egress gates; this does not declare model calls
+pure, reproducible or free of provider-side effects.
+
+Checks run again before every cyclic stage visit. If capability facts no longer
+permit repetition, the controller writes `ended(reason="repeat_refused")` before
+starting that visit. During a cyclic stage, the existing loop also requires the
+actual component's idempotency fact at each tool dispatch, so a downgrade between
+two tasks cannot authorize the later tool just because preflight passed earlier.
+A within-stage refusal produces the ordinary `stage_failed` outcome. These checks
+assume trusted host-controlled registries; they are not an atomic registry version
+pin or protection against malicious concurrent component replacement.
+
+Nonrepeatable tools in acyclic stages still execute once normally. This pass does
+not detect manually unrolled duplicate operations in separate acyclic stages or
+different runs, and it does not prove a trusted manifest truthful. Idempotency
+alone does not prove purity, clinical suitability or safety for different payloads.
+There is no bypass flag for unsafe cyclic tools in this release. Future approved
+repetition requires explicit host authority, bounded repeat policy and durable
+effect tracking, not an extra model-authored field.
+
+New `repeat_refused` events require updated readers; older readers fail closed on
+the unknown reason. Existing accepted history and workflow fingerprints are not
+rewritten. Some previously accepted cyclic programs are now intentionally refused.
 
 ## Usage
 
@@ -177,10 +220,15 @@ validity. Per-stage goal status and caveats remain on `result.stages`.
 `tests/test_dynamic_workflow.py` covers both branch choices, conditional and
 bounded cycles, preflight rejection, persistent reopen/replay, crash windows,
 current-policy and sensitivity checks, shared budget exhaustion, distinct
-nonrepeatable operation identities, cancellation, caller mutation isolation,
+repeatable operation identities, cancellation, caller mutation isolation,
 invalid transitions, stale writers, corruption, suffix anchors and fail-closed
 storage errors. Tests use synthetic model callbacks and tools, not live providers.
 `tests/test_stage_inputs.py` adds real brokered argument delivery, type/cardinality
 and optional-path rules, cyclic latest-visit dataflow, payload-copy isolation,
 graph validation, sensitive-source label propagation and replay of binding
 failures. These are synthetic execution tests, not scientific-validity benchmarks.
+`tests/test_cycle_safety.py` covers SCC topology, self/multi-stage/unreachable
+cycles, the 256-stage bound, trusted fact and contract refusals, safe cycles,
+acyclic nonrepeatable execution, changing facts between/within visits and refusal
+replay. The original nonrepeatable-cycle test was replaced by a repeatable-key
+test; unsafe cyclic execution is now tested as a refusal, not a supported path.
