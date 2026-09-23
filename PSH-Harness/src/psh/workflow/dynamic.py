@@ -11,12 +11,31 @@ from typing import Any
 
 from ..contracts import PolicyDenied, new_id
 from ..kernel.authority import AuthorityLattice
-from ..labels import DataLabel, Destination, combine
-from ..runtime.bindings import BindingError, resolve_pointer
+from ..labels import DataLabel, Destination, Labeled, combine, unwrap
+from ..runtime.bindings import BindingError, resolve_input_bindings, resolve_pointer
 from ..runtime.loop import AgentLoopController, LoopLimits, LoopResult, classify_with
+from ..runtime.plan import InputBinding, TaskKind
 from .compiler import ScientificCompiler, ScientificPlanner
 from .events import ReplayRefused, ReplayState, RunEventJournal
 from .ir import ScientificProgram, digest
+
+
+def _copy_inputs(values):
+    """JSON-only copy: never stringify keys or silently coerce custom objects."""
+    def check(value):
+        if value is None or type(value) in (str, bool, int, float):
+            return
+        if type(value) is list:
+            for item in value:
+                check(item)
+            return
+        if type(value) is dict and all(type(key) is str for key in value):
+            for item in value.values():
+                check(item)
+            return
+        raise BindingError("stage input is not a JSON value")
+    check(values)
+    return json.loads(json.dumps(values, allow_nan=False))
 
 
 @dataclass(frozen=True)
@@ -40,16 +59,46 @@ class Branch:
 
 
 @dataclass(frozen=True)
+class StageInput:
+    """A tool argument read from the immediately preceding successful visit.
+
+    Source IDs are local to that preceding stage; they never refer to older visits
+    or the target's own DAG. InputBinding supplies pointer/type/cardinality rules.
+    """
+    target_task: str
+    binding: InputBinding
+
+    def __post_init__(self):
+        if not isinstance(self.target_task, str) or not self.target_task.strip():
+            raise ValueError("stage input requires a target task")
+        if not isinstance(self.binding, InputBinding):
+            raise ValueError("stage input requires an InputBinding")
+        if (self.binding.argument == "upstream"
+                or self.binding.argument.startswith("_psh_")):
+            raise ValueError("stage input cannot overwrite runtime-reserved arguments")
+        if type(self.binding.required) is not bool:
+            raise ValueError("stage input required flag must be boolean")
+
+    def to_dict(self):
+        return dict(target_task=self.target_task, binding=self.binding.to_dict())
+
+
+@dataclass(frozen=True)
 class WorkflowStage:
     stage_id: str
     program: ScientificProgram
     next_stage: str | None = None
     branch: Branch | None = None
+    inputs: tuple[StageInput, ...] = ()
 
     def to_dict(self):
-        return dict(stage_id=self.stage_id, program=self.program.to_dict(),
+        body = dict(stage_id=self.stage_id, program=self.program.to_dict(),
                     next_stage=self.next_stage,
                     branch=self.branch.to_dict() if self.branch else None)
+        # Preserve fingerprints for workflows authored before stage inputs existed.
+        if self.inputs:
+            body["inputs"] = [i.to_dict() for i in self.inputs]
+        return body
 
 
 @dataclass(frozen=True)
@@ -68,6 +117,7 @@ class DynamicWorkflow:
             raise ValueError("stage IDs must be nonempty and unique")
         if self.entry not in ids:
             raise ValueError("workflow entry does not exist")
+        predecessors = {i: [] for i in ids}
         for stage in self.stages:
             targets = [stage.next_stage]
             if stage.branch:
@@ -78,6 +128,29 @@ class DynamicWorkflow:
                 targets = [stage.branch.if_true, stage.branch.if_false]
             if any(t is not None and t not in ids for t in targets):
                 raise ValueError("workflow edge names an unknown stage")
+            for target in targets:
+                if target is not None:
+                    predecessors[target].append(stage)
+        for stage in self.stages:
+            if stage.inputs and (stage.stage_id == self.entry or not predecessors[stage.stage_id]):
+                raise ValueError("stage inputs require a preceding visit; entry cannot bind inputs")
+            seen = set()
+            for item in stage.inputs:
+                if not isinstance(item, StageInput):
+                    raise ValueError("stage inputs must be StageInput declarations")
+                target = stage.program.plan.task(item.target_task)
+                if target is None or target.kind != TaskKind.TOOL:
+                    raise ValueError("stage inputs target tool tasks only")
+                key = (item.target_task, item.binding.argument)
+                if key in seen:
+                    raise ValueError("duplicate stage input argument")
+                seen.add(key)
+                if (item.binding.argument in target.payload or
+                        any(i.argument == item.binding.argument for i in target.inputs)):
+                    raise ValueError("stage input conflicts with an existing task argument")
+                for parent in predecessors[stage.stage_id]:
+                    if parent.program.plan.task(item.binding.source) is None:
+                        raise ValueError("stage input source must exist in every predecessor")
 
     def to_dict(self):
         return dict(schema_version=1, stages=[s.to_dict() for s in self.stages],
@@ -88,7 +161,9 @@ class DynamicWorkflow:
         body = json.loads(json.dumps(self.to_dict(), allow_nan=False))
         return DynamicWorkflow(tuple(WorkflowStage(
             s["stage_id"], ScientificProgram.from_dict(s["program"]), s["next_stage"],
-            Branch(**s["branch"]) if s["branch"] else None) for s in body["stages"]),
+            Branch(**s["branch"]) if s["branch"] else None,
+            tuple(StageInput(i["target_task"], InputBinding.from_dict(i["binding"]))
+                  for i in s.get("inputs", ()))) for s in body["stages"]),
             body["entry"], body["max_visits"])
 
     @property
@@ -143,6 +218,23 @@ class DynamicWorkflowController:
             raise PolicyDenied("dynamic event persistence is not authorized")
         return self.journal.append(event, expected_sequence=state.sequence)
 
+    def _bind_stage(self, stage, previous, label):
+        if not stage.inputs:
+            return stage.program
+        if previous is None or not previous.ok:
+            raise BindingError("stage inputs require a successful preceding visit")
+        upstream = {key: Labeled(value, label) for key, value in previous.results.items()}
+        tasks = []
+        for task in stage.program.plan.tasks:
+            declarations = tuple(i.binding for i in stage.inputs if i.target_task == task.task_id)
+            bound = resolve_input_bindings(declarations, upstream, task_id=task.task_id)
+            # Copy only selected fields, rejecting non-JSON/non-finite values before
+            # dispatch. Caller-owned or prior-result objects must not alias payloads.
+            values = _copy_inputs({k: unwrap(v) for k, v in bound.items()})
+            tasks.append(replace(task, payload={**task.payload, **values},
+                input_sensitivity=max(task.input_sensitivity, label.sensitivity)))
+        return replace(stage.program, plan=replace(stage.program.plan, tasks=tuple(tasks)))
+
     def run(self, workflow: DynamicWorkflow, envelope, *, input_label=None):
         workflow = workflow.snapshot()
         state = self.journal.replay()
@@ -175,15 +267,20 @@ class DynamicWorkflowController:
             if state.visits >= workflow.max_visits:
                 return end("max_visits")
             stage = workflow.stages[state.next_stage]
+            try:
+                selected_program = self._bind_stage(stage, results[-1] if results else None, label)
+            except (BindingError, ValueError, TypeError, OverflowError, RecursionError):
+                # Persist only a structural failure code, never source values/keys.
+                return end("binding_failed")
             state = self._append(dict(kind="stage_started", stage=state.next_stage,
                 visit=state.visits + 1), state, envelope, label)
-            planner = ScientificPlanner(stage.program, registry=self.registry,
+            planner = ScientificPlanner(selected_program, registry=self.registry,
                 policy=self.kernel.policy, scientific_ledger=self.scientific_ledger)
             controller = AgentLoopController(self.kernel, planner=planner,
                 registry=self.registry, model=self.model, model_invoke=self.model_invoke,
                 operations=self.operations, limits=self.limits, cancellation=self.cancellation,
                 operation_namespace=f"{namespace}:{state.visits}")
-            result = controller.run(stage.program.plan.objective, self._effective(envelope),
+            result = controller.run(selected_program.plan.objective, self._effective(envelope),
                                     objective_label=label)
             results.append(result)
             label = combine(label, result.label or DataLabel(),
