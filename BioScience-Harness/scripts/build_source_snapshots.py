@@ -17,6 +17,12 @@
     python scripts/build_source_snapshots.py opentargets \\
         --file DIR/opentargets_MONDO_0005148.json --out DIR
 
+    # PubChem BioAssay results (active and inactive) for the gold build's compounds, from
+    # the file scripts/fetch_pubchem.py saved; RAW holds STRING's alias file for the
+    # gene -> UniProt mapping:
+    python scripts/build_source_snapshots.py pubchem \\
+        --file RAW/pubchem_bioassay.json.gz --raw RAW --out DIR
+
 Pass ``--ledger PATH`` to record every snapshot id in an append-only, hash-chained ledger
 (keep it outside the agent-writable tree, e.g. the workspace's ``audit/``); loads can then
 be checked against it with ``load_snapshot(..., ledger=SnapshotLedger(PATH))``.
@@ -68,7 +74,11 @@ def main(argv: list[str] | None = None) -> int:
     o = sub.add_parser("opentargets")
     o.add_argument("--file", required=True)
     o.add_argument("--out", required=True)
-    for p in (g, s, b, o):
+    c = sub.add_parser("pubchem")
+    c.add_argument("--file", required=True)
+    c.add_argument("--raw", required=True, help="directory with STRING's alias file")
+    c.add_argument("--out", required=True)
+    for p in (g, s, b, o, c):
         p.add_argument("--ledger", help="append snapshot ids to this hash-chained ledger")
     args = ap.parse_args(argv)
     ledger = SnapshotLedger(args.ledger) if args.ledger else None
@@ -88,6 +98,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if build.passed else 2
         if args.cmd == "source":
             snap = build_source(args.key, args.raw, args.out, ledger=ledger)
+        elif args.cmd == "pubchem":
+            snap = build_source("pubchem_bioassay", args.raw, args.out, path=args.file,
+                                ledger=ledger)
         elif args.cmd == "opentargets":
             snap = build_source("opentargets", ".", args.out, path=args.file, ledger=ledger)
         else:

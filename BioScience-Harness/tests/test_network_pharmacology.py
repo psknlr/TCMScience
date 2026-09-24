@@ -244,7 +244,8 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
     assert provenance["random_seed"] == FAST.seed
     assert set(provenance["dataset_hashes"]) == {"tcm_herbs", "npass", "reactome", "string"}
     assert set(provenance["sources_refused"]) == {"cmaup@2.0", "lotus@2026-04-13",
-                                                  "opentargets@26.06+MONDO_0005148"}
+                                                  "opentargets@26.06+MONDO_0005148",
+                                                  "pubchem_bioassay"}
     assert provenance["disease"] == {}
     assert provenance["claims"] == {"candidates": 1, "released": 1, "refused": 0}
     assert provenance["result_digest"].startswith("sha256:")
@@ -374,3 +375,81 @@ def test_the_background_parameter_is_checked():
     with pytest.raises(ValueError, match="background"):
         Parameters(background="everything")
 
+
+
+# ================================================================ screening hits
+def _screening_snapshot(root: Path, active: dict[int, list[str]], tested: list[str]):
+    """Every compound tested against every protein in ``tested``; active where listed."""
+    root.mkdir(parents=True, exist_ok=True)
+    raw = root / "raw.txt"
+    raw.write_text("fixture", encoding="utf-8")
+    compounds = [f"inchikey:{_inchikey(i)}" for i in range(4)]
+    nodes = ([{"id": c, "category": "ingredient", "name": c, "source": "fx"} for c in compounds]
+             + [{"id": f"uniprot:{p}", "category": "target", "name": p, "source": "fx"}
+                for p in tested])
+    edges = []
+    for i, c in enumerate(compounds):
+        for p in tested:
+            hit = p in active.get(i, [])
+            edges.append(_edge(f"aid{i}-{p}", c, "targets" if hit else "tested_against",
+                               f"uniprot:{p}", "in_vitro", level="observation",
+                               publications=[f"pubchem.bioassay:{i + 1}"],
+                               outcome="active" if hit else "inactive",
+                               assay_type="Confirmatory"))
+    return build_snapshot(key="pubchem_bioassay", version="fx", nodes=nodes, edges=edges,
+                          raw_files={"raw.txt": raw}, parser="fixture", root=root,
+                          license="fixture", citation="fixture")
+
+
+SCREEN = replace(FAST, hits="screening", screening_min_compounds=4, screening_min_members=3)
+
+
+def test_screening_hits_are_weighed_against_the_inactive_results(tmp_path):
+    snaps = _build(tmp_path / "w")
+    tested = PATHWAY_A + PROTEINS[8:36]                     # R-HSA-A and B0..B3, 36 proteins
+    # R-HSA-A: every compound active on most of its proteins; elsewhere one compound is
+    # active on one protein in each pathway, so every tested protein's pathway has *some*
+    # hit and counting hit proteins alone would not tell them apart.
+    active = {i: PATHWAY_A[:6] for i in range(4)}
+    active[0] = active[0] + [PROTEINS[8 + 7 * k] for k in range(4)]
+    screen = _screening_snapshot(tmp_path / "pc", active, tested)
+    result = run_network_pharmacology([*snaps, screen], params=SCREEN)
+
+    assert result.background["kind"] == "screening"
+    assert result.background["proteins"] == 36
+    assert result.background["tests"] == 36 * 4
+    assert result.background["active_tests"] == 6 * 4 + 4
+    top = result.enrichment[0]
+    assert top["pathway"] == "reactome:R-HSA-A" and top["active_tests"] == 24
+    assert top["tests"] == 32 and top["q_value"] <= 0.05
+    assert [c["object"] for c in result.claims] == ["reactome:R-HSA-A"]
+    assert "screening results" in result.claims[0]["statement"]
+    cited = {tuple(s) for s in result.claims[0]["support"]}
+    assert any(sid == screen.snapshot_id for sid, _ in cited)
+    assert not result.release["refused"]
+    # the curated measurements are left out of a screening run, and counted
+    assert result.excluded["curated measurement (not used for screening hits)"] > 0
+    assert any("inactive calls" in line for line in result.limitations)
+
+
+def test_a_potency_run_leaves_screening_results_out(tmp_path):
+    snaps = _build(tmp_path / "w")
+    screen = _screening_snapshot(tmp_path / "pc", {0: PROTEINS[40:50]}, PROTEINS[40:50])
+    with_screen = run_network_pharmacology([*snaps, screen], params=FAST)
+    without = run_network_pharmacology(snaps, params=FAST)
+    assert with_screen.enrichment == without.enrichment
+    assert with_screen.excluded["screening result (not used for potency hits)"] == 4 * 10
+
+
+def test_proteins_tested_on_too_few_compounds_are_left_out(tmp_path):
+    snaps = _build(tmp_path / "w")
+    screen = _screening_snapshot(tmp_path / "pc", {0: PATHWAY_A}, PATHWAY_A)
+    result = run_network_pharmacology(
+        [*snaps, screen], params=replace(SCREEN, screening_min_compounds=5))
+    assert result.enrichment == [] and result.claims == []
+    assert result.excluded["proteins tested against too few compounds"] == 8
+
+
+def test_the_hits_parameter_is_checked():
+    with pytest.raises(ValueError, match="hits"):
+        Parameters(hits="vibes")

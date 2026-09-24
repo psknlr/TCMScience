@@ -36,6 +36,8 @@ NODE_CATEGORIES: frozenset[str] = frozenset({
 EDGE_PREDICATES: frozenset[str] = PREDICATES | frozenset({
     "associated_with", "participates_in", "manifests_as", "interacts_with",
     "has_base_species",
+    # measured and found inactive: the negative result curated databases rarely keep
+    "tested_against",
 })
 
 #: Biolink KnowledgeLevelEnum.

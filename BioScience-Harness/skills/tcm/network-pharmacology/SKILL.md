@@ -44,6 +44,13 @@ says so to the runtime.
    a pathway cannot stand out merely because its proteins sit on a screening panel.
    `--background reactome` tests against the whole human annotation instead; read that as
    where measured activity lands, confounded with what was tested.
+
+   `--hits screening` uses PubChem BioAssay instead of curated measurements: every
+   depositor's active *and inactive* call for the formula's compounds
+   (`scripts/fetch_pubchem.py`, then `build_source_snapshots.py pubchem`). Counted per
+   protein, screening hits saturate, so the test is on the rate: of the compound-protein
+   tests on a pathway's proteins, what fraction were active, against random protein sets
+   of the same size. Only proteins tested against at least 20 of the compounds take part.
 4. `network` (in silico) — STRING subnetwork at confidence >= 0.7, descriptive only.
 5. `disease` (in silico) — the measured targets against the indication's gene set, from
    Open Targets *genetic association* scores >= 0.5 (not literature co-mention, which would

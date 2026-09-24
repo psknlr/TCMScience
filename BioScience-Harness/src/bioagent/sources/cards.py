@@ -227,6 +227,21 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
                               "automated_agent", "in_silico")),
         commercial_use="allowed", qc={"min_uniprot_coverage": 1.0}),
     SourceCard(
+        key="pubchem_bioassay", name="PubChem BioAssay (per-compound assay results)",
+        citation="doi:10.1093/nar/gkae1059", license="NCBI-data-policy",
+        # NCBI places no restriction on the data; depositors may keep rights of their own.
+        terms_url="https://www.ncbi.nlm.nih.gov/home/about/policies/",
+        access=(Access("bulk", "https://ftp.ncbi.nlm.nih.gov/pubchem/Bioassay/",
+                       cadence="continuous"),
+                Access("api", "https://pubchem.ncbi.nlm.nih.gov/rest/pug", rps=5.0)),
+        # Every deposited outcome: active results target, inactive ones are kept too.
+        provides=(EdgeDefault("targets", "ingredient", "target", "observation",
+                              "not_provided", "in_vitro"),
+                  EdgeDefault("tested_against", "ingredient", "target", "observation",
+                              "not_provided", "in_vitro")),
+        commercial_use="unknown",
+        qc={"min_inchikey_coverage": 1.0, "min_uniprot_coverage": 1.0}),
+    SourceCard(
         key="opentargets", name="Open Targets Platform (target-disease associations)",
         citation="doi:10.1093/nar/gkae1128", license="CC0-1.0",
         terms_url="https://platform-docs.opentargets.org/licence",

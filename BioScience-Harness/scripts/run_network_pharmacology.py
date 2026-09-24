@@ -43,6 +43,11 @@ def main(argv: list[str] | None = None) -> int:
                     default=Parameters.background,
                     help="enrichment background: proteins the compounds were measured "
                          "against, or the whole human Reactome annotation")
+    ap.add_argument("--hits", choices=("potency", "screening"), default=Parameters.hits,
+                    help="potency: curated measurements at or below the cut-off; "
+                         "screening: PubChem active calls weighed against inactive ones")
+    ap.add_argument("--screening-min-compounds", type=int,
+                    default=Parameters.screening_min_compounds)
     ap.add_argument("--disease-evidence", default=Parameters.disease_evidence,
                     help="Open Targets evidence type defining the disease gene set")
     ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
@@ -51,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     params = Parameters(activity_max_nm=args.activity_max_nm,
                         string_min_score=args.string_min_score,
                         permutations=args.permutations, seed=args.seed,
-                        background=args.background,
+                        background=args.background, hits=args.hits,
+                        screening_min_compounds=args.screening_min_compounds,
                         disease_evidence=args.disease_evidence,
                         disease_min_score=args.disease_min_score)
     try:

@@ -8,6 +8,7 @@ standard — every herb's marker compound in one of its source species — acros
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import inspect
 import json
@@ -20,7 +21,8 @@ from . import herbs as herb_layer
 from . import schema
 from .cards import card as source_card
 from .composition import herb_composition
-from .parsers import bindingdb, cmaup, common, lotus, npass, opentargets, reactome, string_db
+from .parsers import (bindingdb, cmaup, common, lotus, npass, opentargets, pubchem_bioassay,
+                      reactome, string_db)
 from .parsers.common import ParseResult, TaxonFilter
 from .snapshot import Snapshot, SnapshotError, build_snapshot
 
@@ -56,6 +58,9 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
                                        proteins=kw.get("proteins")), reactome
     if key == "opentargets":
         return opentargets.parse_opentargets(kw["path"]), opentargets
+    if key == "pubchem_bioassay":
+        return pubchem_bioassay.parse_pubchem_bioassay(
+            kw["path"], aliases=raw_dir / string_db.FILES["aliases"]), pubchem_bioassay
     raise KeyError(f"no parser for source {key!r}")
 
 
@@ -69,13 +74,20 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     the full one, so its version says so (``2.0+subset-<hash>``) and they never share an id.
     """
     result, module = _parse(key, Path(raw_dir), taxa, **kw)
+    if key == "pubchem_bioassay":
+        # PubChem has no releases: the version is the fetch date, and the compound set
+        # queried is the subset
+        with gzip.open(kw["path"], "rt", encoding="utf-8") as fh:
+            saved = json.load(fh)
+        version = version or saved["fetched_at"][:10]
+        kw = {**kw, "inchikeys": saved["inchikeys"]}
     if key == "opentargets" and version is None:
         # the Platform release the answer came from, and which disease it is about
         saved = json.loads(Path(kw["path"]).read_text(encoding="utf-8"))
         version = f"{saved['data_version']}+{saved['disease']['id']}"
     version = version or VERSIONS.get(key) or kw.get("release") or "unknown"
     scope = dict(taxa.taxa) if taxa is not None else None
-    if key == "bindingdb":
+    if key in ("bindingdb", "pubchem_bioassay"):
         scope = sorted(kw["inchikeys"])
     elif key in ("string", "reactome") and kw.get("proteins") is not None:
         scope = [sorted(kw["proteins"]), kw.get("mode", "induced")]

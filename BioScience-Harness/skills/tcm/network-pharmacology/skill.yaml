@@ -10,6 +10,7 @@ requires:
     - string@12.0
     - reactome@current
     - opentargets@26.06+MONDO_0005148
+    - pubchem_bioassay
   tools:
     - np.composition
     - np.measured_targets

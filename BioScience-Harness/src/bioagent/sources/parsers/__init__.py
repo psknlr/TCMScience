@@ -6,9 +6,10 @@ from .common import ParseReport, ParseResult, TaxonFilter
 from .lotus import parse_lotus
 from .npass import parse_npass
 from .opentargets import parse_opentargets
+from .pubchem_bioassay import parse_pubchem_bioassay
 from .reactome import parse_reactome
 from .string_db import parse_string
 
 __all__ = ["parse_bindingdb", "parse_cmaup", "parse_lotus", "parse_npass", "parse_opentargets",
-           "parse_reactome", "parse_string",
+           "parse_pubchem_bioassay", "parse_reactome", "parse_string",
            "ParseReport", "ParseResult", "TaxonFilter"]
