@@ -133,8 +133,14 @@ class EvidenceItem:
     source_card_id: str = ""
     #: SHA-256 of the full retrieved content the quote was located in.
     content_hash: str = ""
-    #: True only when `quote` was located by offset inside that content.
+    #: True only when `quote` was located by offset inside that content. On its
+    #: own this is a caller's assertion; it counts only with a receipt
+    #: (`content_hash` + `quote_offset`, see :attr:`has_quote_receipt`), which
+    #: :meth:`located_in` issues by actually performing the search.
     quote_verified: bool = False
+    #: Character offset of `quote` inside the content named by `content_hash`;
+    #: -1 when the quote was never located.
+    quote_offset: int = -1
     #: The four quality dimensions. Never collapsed into a grade.
     quality: Any = None
     #: Study descriptors. `population` and `outcome` are the ones claim checking
@@ -177,6 +183,11 @@ class EvidenceItem:
             from .quality import EvidenceQuality
             if not isinstance(self.quality, EvidenceQuality):
                 raise TypeError("quality must be an EvidenceQuality")
+        if self.content_hash and not _is_sha256(self.content_hash):
+            raise ValueError(
+                f"evidence {self.id!r}: content_hash must be a 64-character hex SHA-256")
+        if self.quote_offset < -1:
+            raise ValueError(f"evidence {self.id!r}: quote_offset cannot be below -1")
         if self.sample_size < 0:
             raise ValueError("sample_size cannot be negative")
         if self.identifier and not self.identifier_type:
@@ -191,6 +202,46 @@ class EvidenceItem:
     def tier(self) -> EvidenceTier:
         """The coarse ranking, derived. Never stored, so it cannot drift."""
         return tier_for_design(self.design)
+
+    @property
+    def has_quote_receipt(self) -> bool:
+        """Whether the quote carries a receipt, not merely a flag.
+
+        A receipt names the content the quote was found in (by hash) and where.
+        It can be re-checked against that content; a bare ``quote_verified``
+        flag cannot, and is treated as unverified.
+        """
+        return (self.quote_verified and _is_sha256(self.content_hash)
+                and self.quote_offset >= 0)
+
+    def located_in(self, content: str, *, store: Any = None) -> "EvidenceItem":
+        """This item with a receipt for its quote inside ``content``.
+
+        Performs the search; raises ``ValueError`` when the quote is not a
+        verbatim substring of ``content``. The content is kept in ``store``
+        (default: :data:`bioagent.contracts.receipts.default_store`) so the
+        receipt can be re-verified later without trusting this call.
+        """
+        from dataclasses import replace
+
+        from .receipts import default_store
+        offset = content.find(self.quote)
+        if offset < 0:
+            raise ValueError(
+                f"evidence {self.id!r}: quote is not a verbatim excerpt of the content")
+        digest = (store if store is not None else default_store).put(content)
+        return replace(self, content_hash=digest, quote_offset=offset,
+                       quote_verified=True)
+
+    def verify_receipt(self, content: str | None) -> bool:
+        """Re-check the receipt against ``content`` (None → cannot verify)."""
+        from .receipts import content_sha256
+        if content is None or not self.has_quote_receipt:
+            return False
+        if content_sha256(content) != self.content_hash:
+            return False
+        end = self.quote_offset + len(self.quote)
+        return content[self.quote_offset:end] == self.quote
 
     @property
     def is_prediction(self) -> bool:
@@ -235,6 +286,9 @@ class EvidenceItem:
             out.append("retraction status has not been checked")
         if not self.quote_verified:
             out.append("quote was not located in the retrieved content")
+        elif not self.has_quote_receipt:
+            out.append("quote is flagged as verified but carries no receipt "
+                       "(content hash and offset); the flag cannot be checked")
         if not self.crossref_ready:
             out.append("no lookupable identifier; the citation cannot be checked")
         if self.quality is not None:
@@ -265,6 +319,7 @@ class EvidenceItem:
                 "identifier": self.identifier, "identifier_type": self.identifier_type,
                 "source_card_id": self.source_card_id, "content_hash": self.content_hash,
                 "quote_verified": self.quote_verified,
+                "quote_offset": self.quote_offset,
                 "quality": self.quality.as_dict() if self.quality is not None else None,
                 "subject": self.subject, "population": self.population,
                 "condition": self.condition, "comparator": self.comparator,
@@ -288,6 +343,8 @@ class EvidenceItem:
             source_card_id=str(data.get("source_card_id") or ""),
             content_hash=str(data.get("content_hash") or ""),
             quote_verified=bool(data.get("quote_verified")),
+            quote_offset=int(data.get("quote_offset", -1)
+                             if data.get("quote_offset") is not None else -1),
             quality=(EvidenceQuality.from_dict(quality) if isinstance(quality, Mapping)
                      else quality),
             subject=str(data.get("subject") or ""),
@@ -303,6 +360,10 @@ class EvidenceItem:
             retrieved_at=float(data.get("retrieved_at") or 0.0),
             conflicts_with=tuple(data.get("conflicts_with") or ()),
             notes=str(data.get("notes") or ""))
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(c in "0123456789abcdef" for c in value.lower())
 
 
 def designs_for_tier(tier: EvidenceTier) -> Sequence[str]:
@@ -331,6 +392,7 @@ EVIDENCE_ITEM_SCHEMA: dict[str, Any] = {
         "source_card_id": {"type": "string"},
         "content_hash": {"type": "string"},
         "quote_verified": {"type": "boolean"},
+        "quote_offset": {"type": "integer", "minimum": -1},
         "quality": {"$ref": "#/$defs/EvidenceQuality"},
         "subject": {"type": "string"}, "population": {"type": "string"},
         "condition": {"type": "string"}, "comparator": {"type": "string"},

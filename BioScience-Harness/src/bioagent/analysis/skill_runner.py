@@ -3,8 +3,10 @@
 1. read the skill contract (``skill.yaml``);
 2. load every snapshot through the ledger, and keep only the sources the contract is
    granted (request ∩ enabled source cards ∩ run allowance);
-3. compile the skill into a PSH ``ScientificProgram`` when PSH is importable — the
-   compiler checks the steps' study designs against the claim kind;
+3. compile the skill into a PSH ``ScientificProgram`` — the compiler checks the steps'
+   study designs against the claim kind. PSH is required: a run without it is refused
+   unless the caller passes ``require_psh=False``, and the provenance record then says
+   ``governed: false`` (an earlier version skipped the compile silently on ImportError);
 4. run the analysis and the release check;
 5. write the outputs and a provenance record.
 
@@ -56,7 +58,8 @@ def _tsv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> str:
 
 def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: str | Path,
               out_dir: str | Path, params: Parameters = Parameters(),
-              allowed: set[str] | None = None, accept_review: bool = False) -> dict[str, Any]:
+              allowed: set[str] | None = None, accept_review: bool = False,
+              require_psh: bool = True) -> dict[str, Any]:
     contract = SkillContract.load(Path(skill_dir) / "skill.yaml")
     ledger = SnapshotLedger(ledger_path)
     ledger.verify()
@@ -75,8 +78,13 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         from psh.workflow import ScientificCompiler
 
         from ..psh.skill_program import ClaimScope, skill_program
-    except ImportError:
-        pass
+    except ImportError as exc:
+        if require_psh:
+            raise SkillRunRefused(
+                "PSH is not importable, so the skill's program cannot be compiled and "
+                "its claims cannot be checked against their study designs; install "
+                "PSH-Harness or pass require_psh=False for an ungoverned run "
+                f"({exc})") from exc
     else:
         scope = ClaimScope(population="human proteins (in silico)",
                            intervention=f"{GEGEN_QINLIAN.chinese} ({GEGEN_QINLIAN.source})",
@@ -123,6 +131,7 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "parameters": asdict(params), "random_seed": params.seed,
         "code_digest": result.code_digest,
         "psh_program_fingerprint": compiled.fingerprint if compiled else None,
+        "governed": compiled is not None,
         "result_digest": result.digest(),
         "outputs": files,
         "excluded": result.excluded,

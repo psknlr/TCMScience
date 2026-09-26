@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="Open Targets evidence type defining the disease gene set")
     ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
     ap.add_argument("--seed", type=int, default=Parameters.seed)
+    ap.add_argument("--allow-ungoverned", action="store_true",
+                    help="run even when PSH is not importable (provenance records governed: false)")
     args = ap.parse_args(argv)
     params = Parameters(activity_max_nm=args.activity_max_nm,
                         string_min_score=args.string_min_score,
@@ -62,12 +64,13 @@ def main(argv: list[str] | None = None) -> int:
                         disease_min_score=args.disease_min_score)
     try:
         provenance = run_skill(skill_dir=args.skill, snapshot_root=args.snapshots,
-                               ledger_path=args.ledger, out_dir=args.out, params=params)
+                               ledger_path=args.ledger, out_dir=args.out, params=params,
+                               require_psh=not args.allow_ungoverned)
     except (SkillRunRefused, SnapshotError, LedgerError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "background", "network",
-                                                "disease", "claims", "psh_program_fingerprint",
+                                                "disease", "claims", "psh_program_fingerprint", "governed",
                                                 "result_digest")},
                      ensure_ascii=False, indent=2))
     return 0

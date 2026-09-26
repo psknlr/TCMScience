@@ -43,11 +43,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "the run produced an empty result and made no claim, which is the correct behaviour",
-        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 2 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000878,
+        "latency_s": 0.001828,
         "cost_usd": 0.0
       },
       "versions": {
@@ -59,11 +59,22 @@
       "skill": {
         "id": "normalize-tcm-entities",
         "version": "1.0.0",
-        "content_hash": "bec56d455addd50569d4ce8844159646e6857f815578d552c5bdbc5c5e763681"
+        "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084"
       },
       "validation": {
         "artifact_id": "normalize-tcm-entities",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": true,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'entities.json' was not checked (no output root or content store)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [
@@ -78,7 +89,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "0827f4086c578ddedce83edc5db8e6db3b1ea42b7c8c85b427be16d2f5ad99d2",
+      "artifact_digest": "879cbdafc27af218a55a5c878c110a360f7f16a7ba45787e8dedbc6d7452bb0b",
       "provenance": {
         "sources": [
           {
@@ -114,9 +125,9 @@
         "outputs": [
           {
             "path": "entities.json",
-            "sha256": "0e7ff9dd32813334494d4653cc5a6eb0bf520a8a8e550e296ca71ad57f2fa0fd",
+            "sha256": "d012b408b2ba9ca460d953f19a5a16d50207ded180d3e5655415f76e997cdedd",
             "media_type": "application/json",
-            "bytes": 1518,
+            "bytes": 1519,
             "description": "resolved entities and retained ambiguity"
           }
         ],
@@ -198,11 +209,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "1 claim(s), none overclaiming their evidence",
-        "latency": "measured 0 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000431,
+        "latency_s": 0.001053,
         "cost_usd": 0.0
       },
       "versions": {
@@ -214,11 +225,23 @@
       "skill": {
         "id": "normalize-tcm-entities",
         "version": "1.0.0",
-        "content_hash": "bec56d455addd50569d4ce8844159646e6857f815578d552c5bdbc5c5e763681"
+        "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084"
       },
       "validation": {
         "artifact_id": "normalize-tcm-entities",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": false,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'entities.json' was not checked (no output root or content store)",
+          "evidence 'resolve.0': receipt not re-checked (content 33adbf5681e6 not available)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [],
@@ -244,7 +267,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "043fcf81af5098338f7b4478ba42704f5eae61b27ed42a670fb8149ce8a77035",
+      "artifact_digest": "c0f1c52ba51b5b5e81a9fef9276a6e33b9bce4045171000f2adde34065bfc241",
       "provenance": {
         "sources": [
           {
@@ -287,8 +310,9 @@
             "identifier": "herb.gancao",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "33adbf5681e687ab5316fc0ae1358b9ba2a6914b7eab9fb201cbe6b7974f52b5",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -366,9 +390,9 @@
         "outputs": [
           {
             "path": "entities.json",
-            "sha256": "df2ebd9a39e2a6cf7f789757f78502992e01985e99737c06a7d765fe66e99961",
+            "sha256": "d374a28ff6ad7f9c09ea6e7489c45f1fcf37f8a5368749ba9b9fe384126ee897",
             "media_type": "application/json",
-            "bytes": 1630,
+            "bytes": 1631,
             "description": "resolved entities and retained ambiguity"
           }
         ],
@@ -414,7 +438,7 @@
       "system": "TCMScience P0 skills (demonstration)",
       "system_slug": "tcmscience-demo",
       "type": "Skill",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "track": "TCM-Evidence",
       "board": "trusted",
       "placeholder": false,
@@ -454,23 +478,35 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000532,
+        "latency_s": 0.001264,
         "cost_usd": 0.0
       },
       "versions": {
         "runtime": "psh-0.5.3+bioagent-0.2.6",
-        "skill": "retrieve-tcm-evidence@1.0.0",
+        "skill": "retrieve-tcm-evidence@1.1.0",
         "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
         "benchmark": "unversioned"
       },
       "skill": {
         "id": "retrieve-tcm-evidence",
-        "version": "1.0.0",
-        "content_hash": "129fde3bce61bd268e9de41207930aac81a0a86078e143413266f9bc51db8d85"
+        "version": "1.1.0",
+        "content_hash": "601176de9cfbada1b1bf22001746d3c7e0fc4a891cca1b3d4e37b81856f749a0"
       },
       "validation": {
         "artifact_id": "retrieve-tcm-evidence",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": false,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'evidence.json' was not checked (no output root or content store)",
+          "evidence 'passage.passage.shibafan': receipt not re-checked (content 758239ec7310 not available)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [],
@@ -482,12 +518,13 @@
             "reasons": [],
             "needs_declaration": false,
             "prediction_as_fact": false,
-            "weakest_tier": "expert_experience",
+            "weakest_tier": "classical_text",
             "caveats": [
-              "study.study.pharmacopoeia_2020: no lookupable identifier; the citation cannot be checked",
-              "study.study.pharmacopoeia_2020: quality dimension risk_of_bias was not assessed",
-              "study.study.pharmacopoeia_2020: quality dimension precision was not assessed",
-              "study.study.pharmacopoeia_2020: quality dimension consistency was not assessed"
+              "passage.passage.shibafan: retraction status has not been checked",
+              "passage.passage.shibafan: no lookupable identifier; the citation cannot be checked",
+              "passage.passage.shibafan: quality dimension risk_of_bias was not assessed",
+              "passage.passage.shibafan: quality dimension precision was not assessed",
+              "passage.passage.shibafan: quality dimension consistency was not assessed"
             ]
           }
         ],
@@ -495,7 +532,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "6341e7a8fe45af1ffc5636f1b217fc77a4f6a9196644419703c6253632230b80",
+      "artifact_digest": "f2c2e0164733b1e653d1a4b7a10f0040124a68658430afa0921a7b4052084229",
       "provenance": {
         "sources": [
           {
@@ -538,8 +575,9 @@
             "identifier": "study.pharmacopoeia_2020",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "1ba4c92755498a2db81a2131e0e047b3de99b1fe2ef180def4f8dbdcbbd3e2be",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -594,8 +632,9 @@
             "identifier": "passage.shibafan",
             "identifier_type": "classical_passage",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "758239ec7310593dc6eb5d98c9c5a7f3d4a89b31a1fc4e621fd9d85a3e9a8c98",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -650,7 +689,7 @@
             "predicate": "recorded_in",
             "object": "tcmscience.tcm.seed",
             "supports": [
-              "study.study.pharmacopoeia_2020"
+              "passage.passage.shibafan"
             ],
             "asserted_population": "seed corpus",
             "asserted_outcome": "retrieval coverage",
@@ -673,9 +712,9 @@
         "outputs": [
           {
             "path": "evidence.json",
-            "sha256": "b99104973a50d48b411b2f2c47f358339ac6e9a9977b91a3b91fa4881b5dfb20",
+            "sha256": "617211690e0ff12027b410fba790cd31da7460b4be10d04f7af5a6403c2c5419",
             "media_type": "application/json",
-            "bytes": 4239,
+            "bytes": 4418,
             "description": "retrieved evidence with scope and limits"
           }
         ],
@@ -693,7 +732,7 @@
         {
           "step": 1,
           "action": "load",
-          "detail": "skill retrieve-tcm-evidence@1.0.0 loaded from skills/tcm/"
+          "detail": "skill retrieve-tcm-evidence@1.1.0 loaded from skills/tcm/"
         },
         {
           "step": 2,
@@ -723,7 +762,7 @@
       "system": "TCMScience P0 skills (demonstration)",
       "system_slug": "tcmscience-demo",
       "type": "Skill",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "track": "TCM-NetPharm",
       "board": "trusted",
       "placeholder": false,
@@ -759,27 +798,38 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "the run produced an empty result and made no claim, which is the correct behaviour",
-        "latency": "measured 0 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000403,
+        "latency_s": 0.001076,
         "cost_usd": 0.0
       },
       "versions": {
         "runtime": "psh-0.5.3+bioagent-0.2.6",
-        "skill": "analyze-tcm-network-pharmacology@1.0.0",
+        "skill": "analyze-tcm-network-pharmacology@1.1.0",
         "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
         "benchmark": "unversioned"
       },
       "skill": {
         "id": "analyze-tcm-network-pharmacology",
-        "version": "1.0.0",
-        "content_hash": "0965fcca1f6fee4d3fed87b9229dd06cc4ebfdd8f2315cef3ff8071fa0c39874"
+        "version": "1.1.0",
+        "content_hash": "a1fb37de6354f866647c6abee0b7ea2a5baaa2c29d4a4097abe8c8a428091014"
       },
       "validation": {
         "artifact_id": "analyze-tcm-network-pharmacology",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": true,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'network.json' was not checked (no output root or content store)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [
@@ -794,7 +844,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "c9784280b22956d71f2b8b8775aca5139a34342240473cd53fcf1df0909f33d2",
+      "artifact_digest": "22aaab41933ea4d56d605f22a74832b4af30aa9512270e3712b149eec8717eeb",
       "provenance": {
         "sources": [
           {
@@ -830,9 +880,9 @@
         "outputs": [
           {
             "path": "network.json",
-            "sha256": "4cb05a8409da131f064bd39026dde1a7108359511d895c0b9ffa3454bfb58251",
+            "sha256": "cc765f4f3673f51da550e6520e12582205528c52aa5e1e726304360571d71628",
             "media_type": "application/json",
-            "bytes": 1512,
+            "bytes": 1513,
             "description": "herb–target network with predicted/measured split"
           }
         ],
@@ -851,7 +901,7 @@
         {
           "step": 1,
           "action": "load",
-          "detail": "skill analyze-tcm-network-pharmacology@1.0.0 loaded from skills/tcm/"
+          "detail": "skill analyze-tcm-network-pharmacology@1.1.0 loaded from skills/tcm/"
         },
         {
           "step": 2,
@@ -917,11 +967,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "1 claim(s), none overclaiming their evidence",
-        "latency": "measured 0 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000455,
+        "latency_s": 0.001229,
         "cost_usd": 0.0
       },
       "versions": {
@@ -933,11 +983,23 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "8b4702bd8c4c0f54f71780b340f2d5d5d96f914b2042af78fe12773d82a1c83a"
+        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": false,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'safety.json' was not checked (no output root or content store)",
+          "evidence 'safety.safety.fuzi_pregnancy': receipt not re-checked (content 5951727185f2 not available)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [],
@@ -963,7 +1025,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "c6a93f9126bdbd748e4fc6dca1b6678e1426903092a11be0ee69eb56adc61ad4",
+      "artifact_digest": "723849c07e8532b95eba2115a8c25df5516de914b01f56a5baf969f3c2381452",
       "provenance": {
         "sources": [
           {
@@ -1006,8 +1068,9 @@
             "identifier": "safety.fuzi_pregnancy",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "5951727185f242460c62cf7b6df9e1df9ee718111110ed1612bebbb17fd638e9",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1063,8 +1126,9 @@
             "identifier": "safety.fuzi_toxicity",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "a1f392a30f7623ab3f1f8454504cb79e1292c2e7efc9ccf05793ec5614c739f9",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1120,8 +1184,9 @@
             "identifier": "safety.shibafan_wutou_banxia",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "807715892c17bf3b33d196f83dee73ef0bdcce624856d52c03cdc581190a730c",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1194,16 +1259,16 @@
             "rationale": "",
             "falsified_by": "a corpus record that contradicts the table above",
             "produced_by": "assess-tcm-safety",
-            "tier_floor": "expert_experience",
+            "tier_floor": "classical_text",
             "clinical": false
           }
         ],
         "outputs": [
           {
             "path": "safety.json",
-            "sha256": "5b383d507eab7f3e77b82a154a906eb4cb669342d9652a2249340653d1810b7a",
+            "sha256": "514ba1a4c4b2276bb49b03adfa77a7e487d4c67c6c04de58262ae8830a95b612",
             "media_type": "application/json",
-            "bytes": 3379,
+            "bytes": 3380,
             "description": "recorded safety information, or the absence of it"
           }
         ],
@@ -1293,11 +1358,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "1 claim(s), none overclaiming their evidence",
-        "latency": "measured 0 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 2 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000485,
+        "latency_s": 0.001603,
         "cost_usd": 0.0
       },
       "versions": {
@@ -1309,11 +1374,23 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "8b4702bd8c4c0f54f71780b340f2d5d5d96f914b2042af78fe12773d82a1c83a"
+        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": false,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'safety.json' was not checked (no output root or content store)",
+          "evidence 'safety.safety.gancao_pseudoaldosteronism': receipt not re-checked (content 06db1d665747 not available)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [],
@@ -1339,7 +1416,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "997f32338ef8d651554c9ce011c2215e0fdf10f165180ff57471334f90df8907",
+      "artifact_digest": "a8260ca953714b5ddcc880da8bb731c3c14ba66660ed64bbe3c30d86fe7e1c5a",
       "provenance": {
         "sources": [
           {
@@ -1382,8 +1459,9 @@
             "identifier": "safety.shibafan_gancao_gansui",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1439,8 +1517,9 @@
             "identifier": "safety.gancao_pseudoaldosteronism",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "06db1d6657476837ba270882dab00df9721cd2a9459dc8233738c4bde2cd18f7",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1496,8 +1575,9 @@
             "identifier": "safety.gansui_toxicity",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "91a0de30692f92881203611a16a4c9c65a5fc5b010a13e83b8dba52ebcf65d31",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1553,8 +1633,9 @@
             "identifier": "safety.shibafan_gancao_gansui",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1610,8 +1691,9 @@
             "identifier": "safety.shibafan_gancao_gansui",
             "identifier_type": "pharmacopoeia",
             "source_card_id": "tcmscience.tcm.seed",
-            "content_hash": "",
+            "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
             "quote_verified": true,
+            "quote_offset": 0,
             "quality": {
               "risk_of_bias": "not_assessed",
               "directness": "direct",
@@ -1684,16 +1766,16 @@
             "rationale": "",
             "falsified_by": "a corpus record that contradicts the table above",
             "produced_by": "assess-tcm-safety",
-            "tier_floor": "expert_experience",
+            "tier_floor": "classical_text",
             "clinical": false
           }
         ],
         "outputs": [
           {
             "path": "safety.json",
-            "sha256": "0cc46f791ae4b4dc95d67871488e89e051fdda2e423bb65ca5d3a1ab9848b8aa",
+            "sha256": "e7825acd5cccf796da8e74def200a6e4f8fd58e1349a05760e3061dbd9ed30db",
             "media_type": "application/json",
-            "bytes": 4639,
+            "bytes": 4640,
             "description": "recorded safety information, or the absence of it"
           }
         ],
@@ -1783,11 +1865,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "the run produced an empty result and made no claim, which is the correct behaviour",
-        "latency": "measured 0 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000402,
+        "latency_s": 0.000923,
         "cost_usd": 0.0
       },
       "versions": {
@@ -1799,11 +1881,22 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "8b4702bd8c4c0f54f71780b340f2d5d5d96f914b2042af78fe12773d82a1c83a"
+        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
         "publishable": true,
+        "states": {
+          "schema_valid": true,
+          "evidence_verified": true,
+          "outputs_verified": false,
+          "execution_attested": false,
+          "release_authorized": false
+        },
+        "unverified": [
+          "output 'safety.json' was not checked (no output root or content store)",
+          "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+        ],
         "codes": [],
         "violations": [],
         "warnings": [
@@ -1818,7 +1911,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "d8ff7684cbeb242952880a1acf000d3a1b6ca2e5548262354fa98a3f2fb30ca1",
+      "artifact_digest": "88efd4e2ee30fc761dd2e6bbc03fa4d7de85a3ea1db919f4c779076fac52418f",
       "provenance": {
         "sources": [
           {
@@ -1854,9 +1947,9 @@
         "outputs": [
           {
             "path": "safety.json",
-            "sha256": "c5f5edc536336e8e0a51173ed455f7dd65e104c0ada2508766bc95b72746c916",
+            "sha256": "b7947fd540ce1aa1994c0db21b87cfbdc3af468f22f931471019648e3be1715c",
             "media_type": "application/json",
-            "bytes": 282,
+            "bytes": 283,
             "description": "recorded safety information, or the absence of it"
           }
         ],

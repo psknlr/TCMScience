@@ -5,8 +5,16 @@ on (snapshot id + source record id). Before release it must pass four checks:
 
 1. **the edges exist** in snapshots that were loaded and verified (by hash and, with a
    ledger, against the recorded id) — a claim cannot cite an edge nobody can find;
-2. **the edges connect** the claim's subject to its object, so the evidence is about
-   this claim and not merely present;
+2. **the edges connect** the claim's subject to its object *along their direction*, so
+   the evidence is about this claim and not merely present. An undirected search let a
+   claim about ``protein:B → compound:A`` be released on an edge recorded as
+   ``compound:A targets protein:B`` (audit F04);
+2a. **the statement says no more than the edges.** A statement that names a direction of
+   effect ("activates", "inhibits", 抑制 …) needs an evidential edge that records that
+   direction; a path through a ``tested_against`` edge (measured and found *inactive*)
+   supports no effect at all; and wording that asserts efficacy, certainty or a
+   universal population is refused as it is for any claim
+   (``contracts.claim_language``);
 3. **the kind is within the skill's ceiling** (``SkillContract.permits``);
 4. **the evidence licenses the kind, by its weakest link.** Each evidential edge licenses
    the claim kinds its study design admits (``tcm.CLAIM_SUPPORT``); a path licenses only
@@ -101,11 +109,75 @@ def path_licenses(edges: Sequence[Mapping[str, Any]]) -> frozenset[str]:
     return frozenset(licensed)
 
 
+#: Effect direction a statement may name → the edge facts that record it. Edge
+#: predicates are mostly direction-free ("targets" says a compound acts on a protein,
+#: not how), so a direction must come from the edge's own ``direction``/``effect``
+#: field or from one of the two predicates that carry one.
+_DIRECTION_TERMS: tuple[tuple[str, str], ...] = (
+    ("increase", r"\b(?:activat\w*|agonis\w*|up-?regulat\w*|induc\w*|enhanc\w*|"
+                 r"stimulat\w*|potentiat\w*|increas\w*)\b|激活|上调|促进|增强|诱导"),
+    ("decrease", r"\b(?:inhibit\w*|antagonis\w*|antagoniz\w*|down-?regulat\w*|"
+                 r"suppress\w*|block\w*|decreas\w*|reduc\w*)\b|抑制|下调|阻断|拮抗|降低"),
+)
+_PREDICATE_DIRECTION = {"potentiates": "increase", "antagonises": "decrease"}
+_DIRECTION_WORDS = {"increase": {"increase", "activation", "activates", "up", "agonist",
+                                 "positive", "induces", "upregulates"},
+                    "decrease": {"decrease", "inhibition", "inhibits", "down", "antagonist",
+                                 "negative", "suppresses", "downregulates"}}
+
+
+def _stated_directions(statement: str) -> set[str]:
+    import re
+    return {d for d, pattern in _DIRECTION_TERMS
+            if re.search(pattern, statement, re.IGNORECASE)}
+
+
+def _edge_direction(edge: Mapping[str, Any]) -> str:
+    if edge.get("predicate") in _PREDICATE_DIRECTION:
+        return _PREDICATE_DIRECTION[edge["predicate"]]
+    for key in ("direction", "effect_direction", "effect"):
+        value = str(edge.get(key) or "").strip().lower()
+        for direction, words in _DIRECTION_WORDS.items():
+            if value in words:
+                return direction
+    return ""
+
+
+def _statement_problem(claim: "CandidateClaim",
+                       edges: Sequence[Mapping[str, Any]]) -> str:
+    """Why the statement says more than its edges, or '' when it does not."""
+    inactive = [e for e in edges if e.get("predicate") == "tested_against"]
+    if inactive:
+        return (f"the path runs through {len(inactive)} tested_against edge(s) — measured "
+                "and found inactive — which support no effect")
+    if not claim.statement:
+        return ""
+    from ..contracts.claim_language import overreaching_language
+    findings = overreaching_language(claim.statement, claim.kind)
+    if findings:
+        f = findings[0]
+        return (f"the statement uses {f.family} language ({f.phrase!r}) that a "
+                f"{claim.kind} claim does not license")
+    stated = _stated_directions(claim.statement)
+    if stated:
+        recorded = {_edge_direction(e) for e in edges if not _definitional(e)} - {""}
+        unsupported = stated - recorded
+        if unsupported:
+            return (f"the statement asserts a direction of effect ({', '.join(sorted(unsupported))}) "
+                    f"that no supporting edge records (edges record "
+                    f"{sorted(recorded) or 'no direction'})")
+    return ""
+
+
 def _connected(subject: str, obj: str, edges: Iterable[Mapping[str, Any]]) -> bool:
+    """Whether a *directed* path runs from ``subject`` to ``obj``.
+
+    Edges are read in the direction they were recorded. "A targets B" is evidence
+    about A acting on B; it is not a path from B to A.
+    """
     graph: dict[str, set[str]] = defaultdict(set)
     for e in edges:
         graph[e["subject"]].add(e["object"])
-        graph[e["object"]].add(e["subject"])
     seen, frontier = {subject}, [subject]
     while frontier:
         node = frontier.pop()
@@ -154,7 +226,12 @@ def check_release(claims: Iterable[CandidateClaim | Mapping[str, Any]],
                    + ", ".join(missing[:5]))
             continue
         if not _connected(claim.subject, claim.object, edges):
-            refuse(f"the supporting edges do not connect {claim.subject} to {claim.object}")
+            refuse(f"the supporting edges do not connect {claim.subject} to {claim.object} "
+                   "in the direction they were recorded")
+            continue
+        problem = _statement_problem(claim, edges)
+        if problem:
+            refuse(problem)
             continue
         licensed = path_licenses(edges)
         if claim.kind not in licensed:

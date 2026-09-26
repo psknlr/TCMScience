@@ -454,9 +454,9 @@ def test_strongest_supported_kind_picks_what_the_evidence_can_carry():
     q = EvidenceQuality(risk_of_bias=RiskOfBias.LOW, directness=Directness.DIRECT,
                         precision=Precision.PRECISE, consistency=Consistency.CONSISTENT)
     classical = EvidenceItem(id="a", design="classical_text", quote="x",
-                             source_card_id="s", quote_verified=True, quality=q)
+                             source_card_id="s", quality=q).located_in("x")
     trial = EvidenceItem(id="b", design="randomized_trial", quote="y",
-                         source_card_id="s", quote_verified=True, quality=q)
+                         source_card_id="s", quality=q).located_in("y")
 
     permitted = ("safety_signal", "traditional_use", "attribution")
     # A classical text licenses a traditional use (and an attribution), never a

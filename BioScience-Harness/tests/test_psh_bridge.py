@@ -202,7 +202,7 @@ def test_a_clean_call_crosses_both_kernels_in_order(kernel, runtime, transport):
     from bioagent.runtime.events import EventLog
 
     events = EventLog()
-    bridge = BioScienceBridge(kernel, runtime, events=events)
+    bridge = BioScienceBridge(kernel, runtime, events=events, isolate=False)
     bridge.admit(CONNECTORS["ensembl"])
     component = bridge.component("public.connector.ensembl")
     before = kernel.broker.stats()
@@ -228,7 +228,7 @@ def test_a_clean_call_crosses_both_kernels_in_order(kernel, runtime, transport):
 
 def test_a_bioscience_denial_is_a_psh_policy_refusal(kernel, runtime, transport):
     offline = AgentSpec(name="offline", permission_profile="offline-analysis")
-    bridge = BioScienceBridge(kernel, runtime, spec=offline)
+    bridge = BioScienceBridge(kernel, runtime, spec=offline, isolate=False)
     bridge.admit(CONNECTORS["ensembl"])
     component = bridge.component("public.connector.ensembl")
     with pytest.raises(PolicyDenied, match="BioScience policy refused"):
@@ -243,7 +243,7 @@ def test_an_unrunnable_component_is_capability_unavailable(kernel, tmp_path):
                        runtime=RuntimeSpec(backend="python", entrypoint="no_such_module_x:f"))
     runtime = default_runtime(catalogue=False, public_apis=False, extra_manifests=(ghost,),
                               data_lake=tmp_path / "no-lake")
-    bridge = BioScienceBridge(kernel, runtime)
+    bridge = BioScienceBridge(kernel, runtime, isolate=False)
     bridge.admit(ghost)
     with pytest.raises(CapabilityUnavailable):
         kernel.broker.call_tool(bridge.component("ghost.tool.x"), {"x": 1},
@@ -350,7 +350,7 @@ def test_a_policy_requiring_isolation_refuses_the_in_process_bridge(tmp_path, ru
     strict = TrustedKernel(PSHConfig(state_dir=tmp_path / "strict").ensure_dirs(),
                            policy=policy(require_isolated_tools=True))
     try:
-        bridge = BioScienceBridge(strict, runtime)          # isolate=False
+        bridge = BioScienceBridge(strict, runtime, isolate=False)          # explicitly in-process
         bridge.admit(CONNECTORS["hgnc"])
         with pytest.raises(PolicyDenied, match="process-isolated"):
             strict.broker.call_tool(bridge.component("public.connector.hgnc"),
@@ -361,6 +361,24 @@ def test_a_policy_requiring_isolation_refuses_the_in_process_bridge(tmp_path, ru
 
 
 # ============================================ the trusted plane is immutable
+
+def test_the_bridge_isolates_by_default_when_it_can(kernel, runtime):
+    """Audit F09: in-process execution was the default. It is now an explicit opt-out."""
+    assert BioScienceBridge(kernel, runtime).isolate is True
+    assert BioScienceBridge(kernel, runtime, isolate=False).isolate is False
+
+
+def test_an_audit_failure_refuses_admission(kernel, runtime, monkeypatch):
+    """Audit F09: an audit write that failed was swallowed and the component admitted."""
+    def broken(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(kernel, "audit", broken)
+    bridge = BioScienceBridge(kernel, runtime, isolate=False)
+    with pytest.raises(BridgeRefused, match="audit write failed"):
+        bridge.admit(local_tool(cid="local.tool.audited"))
+    lenient = BioScienceBridge(kernel, runtime, isolate=False, strict_audit=False)
+    assert lenient.admit(local_tool(cid="local.tool.audited")).id
+
 
 def test_bioagent_never_reaches_into_the_kernel_internals():
     root = Path(bioagent.__file__).parent
@@ -495,7 +513,7 @@ def admitted_local(kernel, runtime, backend, events=None):
     runtime.backends.register(backend)
     manifest = local_tool()
     runtime.registry.add(manifest)
-    bridge = BioScienceBridge(kernel, runtime, events=events)
+    bridge = BioScienceBridge(kernel, runtime, events=events, isolate=False)
     psh_manifest = bridge.admit(manifest)
     return bridge.component(psh_manifest.id)
 

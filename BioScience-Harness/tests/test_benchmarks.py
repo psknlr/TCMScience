@@ -196,14 +196,70 @@ def test_the_aggregate_is_dominated_by_the_weakest_dimension():
     assert uniformly_good["aggregate"] > strong_except_safety["aggregate"]
 
 
-def test_a_zero_dimension_does_not_erase_the_rest_of_the_row():
-    """A true geometric mean with any zero is zero, which would make one failed
-    dimension indistinguishable from a system that scored nothing anywhere."""
+def test_a_zero_dimension_zeroes_the_aggregate_but_not_the_decomposition():
+    """Audit F05: zeros used to be dropped before the harmonic mean, so a run
+    scoring 0.0 on every scientific dimension aggregated to 1.0. A zero now
+    pulls the aggregate to zero; the other columns are still reported."""
     from bioagent.benchmarks import aggregate
     result = aggregate([CaseScore(case_id="c", track="T",
                                   components=components(safety_abstention=0.0))])
-    assert result["aggregate"] > 0.0
+    assert result["aggregate"] == 0.0
     assert result["dimensions"]["safety_abstention"] == 0.0
+    assert result["dimensions"]["task_success"] == 0.8
+
+
+def test_an_unevaluated_row_is_neither_scored_nor_trusted():
+    """The audit's counterexample: `ScoreComponents()` aggregated to 1.0 and was
+    trusted, because an unmeasured latency and cost inverted to perfect."""
+    from bioagent.benchmarks import aggregate
+    result = aggregate([CaseScore(case_id="audit", track="TCM-Entity",
+                                  components=ScoreComponents())])
+    assert result["aggregate"] is None
+    assert result["trusted"] is False
+    assert set(result["not_evaluated"]) == set(SCORE_DIMENSIONS)
+    assert "NOT_EVALUATED" in result["gates_failed"]
+
+
+def test_all_zero_scientific_dimensions_do_not_aggregate_to_one():
+    from bioagent.benchmarks import aggregate
+    zeros = components(task_success=0.0, evidence_grounding=0.0,
+                       provenance_completeness=0.0, reproducibility=0.0,
+                       safety_abstention=0.0, claim_calibration=0.0,
+                       latency=0.0, cost=0.0)
+    result = aggregate([CaseScore(case_id="c", track="T", components=zeros)])
+    assert result["aggregate"] == 0.0
+
+
+def test_a_partially_measured_dimension_is_not_evaluated():
+    from bioagent.benchmarks import aggregate
+    result = aggregate([
+        CaseScore(case_id="a", track="T", components=components()),
+        CaseScore(case_id="b", track="T", components=components(cost=None))])
+    assert result["dimensions"]["cost"] is None
+    assert result["aggregate"] is None and not result["trusted"]
+
+
+def test_the_aggregate_is_monotone_in_every_dimension():
+    """Raising any higher-is-better dimension, or lowering latency or cost,
+    never lowers the aggregate."""
+    from bioagent.benchmarks import aggregate
+    from bioagent.benchmarks.models import LOWER_IS_BETTER
+    grid = (0.0, 0.1, 0.5, 0.9, 1.0)
+    for name in SCORE_DIMENSIONS:
+        previous = None
+        values = (grid if name not in LOWER_IS_BETTER
+                  else tuple(10.0 - 10.0 * g for g in grid))
+        for v in values:
+            row = aggregate([CaseScore(case_id="c", track="T",
+                                       components=components(**{name: v}))])
+            if previous is not None:
+                assert row["aggregate"] >= previous, (name, v)
+            previous = row["aggregate"]
+
+
+def test_a_proportion_above_one_is_refused():
+    with pytest.raises(CaseError, match="cannot exceed"):
+        components(task_success=1.5)
 
 
 def test_lower_is_better_dimensions_are_inverted_but_reported_raw():
@@ -218,8 +274,31 @@ def test_lower_is_better_dimensions_are_inverted_but_reported_raw():
 def test_an_empty_score_set_is_reported_not_raised():
     from bioagent.benchmarks import aggregate
     result = aggregate([])
-    assert result["n_cases"] == 0 and result["aggregate"] == 0.0
+    assert result["n_cases"] == 0 and result["aggregate"] is None
+    assert result["trusted"] is False
     assert "no scores" in result["note"]
+
+
+def test_an_empty_run_is_not_trusted():
+    """Audit F05: `score_run` on an empty run returned trusted=True."""
+    row = score_run(RunRecord("audit", "audit", "skill", "audit"), [])
+    assert row["trusted"] is False and row["board"] == "experimental"
+    assert "NO_CASES" in row["gates_failed"]
+
+
+def test_a_run_that_skips_cases_is_not_trusted():
+    clean = CaseScore(case_id="case-1", track="TCM-Entity", components=components())
+    row = score_run(run(scores=[clean]),
+                    [case(visibility="dev"), case(id="case-2", visibility="dev")])
+    assert row["trusted"] is False
+    assert row["unscored_cases"] == ["case-2"]
+
+
+def test_an_errored_case_is_not_trusted():
+    failed = CaseScore(case_id="case-1", track="TCM-Entity", components=components(),
+                       error="timeout")
+    row = score_run(run(scores=[failed]), [case(visibility="dev")])
+    assert row["trusted"] is False and "CASE_ERROR" in row["gates_failed"]
 
 
 def test_a_negative_dimension_is_refused():

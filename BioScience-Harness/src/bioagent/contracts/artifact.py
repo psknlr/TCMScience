@@ -48,8 +48,11 @@ _CODES: Mapping[str, str] = {
     "ART108": "composite_version is incomplete",
     "ART109": "a claim cites retracted evidence",
     "ART110": "no limitations are stated",
-    "ART111": "an evidence item names a source card that is not in the artifact",
+    "ART111": "cited evidence names no source card, or one that is not in the artifact",
     "ART112": "a claim declares a confidence basis but evidence quality is unassessed",
+    "ART113": "a declared output file is not present where the artifact says it is",
+    "ART114": "a declared output file does not match its content hash",
+    "ART115": "a quote receipt does not verify against the content it names",
 }
 
 #: Claim-level reason code → artifact violation code. The claim layer numbers
@@ -69,6 +72,7 @@ _CLAIM_TO_ARTIFACT: Mapping[str, str] = {
     "CLM008": "ART105",
     "CLM009": "ART105",
     "CLM010": "ART105",
+    "CLM011": "ART105",
 }
 
 
@@ -241,7 +245,25 @@ class ResearchArtifact:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactVerdict:
-    """May this artifact be published, and if not, exactly why."""
+    """May this artifact be published, and if not, exactly why.
+
+    ``publishable`` answers one question: is the artifact *internally* sound —
+    claims licensed by their evidence, every cited item linked to a pinned and
+    licensed source, quotes carrying receipts, outputs present where they can be
+    checked. Three further facts are reported separately, because an earlier
+    single boolean let "the JSON is well formed" stand in for all of them
+    (audit F03):
+
+    * ``evidence_verified`` — every cited quote's receipt was re-checked against
+      the content it names (needs a content store);
+    * ``outputs_verified`` — every declared output was found and its bytes
+      matched its hash (needs an output root or a content store);
+    * ``execution_attested`` — the artifact names the policy and the audit-chain
+      head it ran under.
+
+    ``release_authorized`` is the conjunction. Nothing is released on
+    ``publishable`` alone.
+    """
 
     artifact_id: str
     publishable: bool
@@ -251,13 +273,37 @@ class ArtifactVerdict:
     #: True when the only blockers are *declarable* — an undeclared
     #: extrapolation — so the fix is to state a limit, not to gather evidence.
     fixable_by_declaration: bool = False
+    evidence_verified: bool = False
+    outputs_verified: bool = False
+    execution_attested: bool = False
+    #: Why each unmet state is unmet, for a human.
+    unverified: tuple[str, ...] = ()
 
     @property
     def codes(self) -> tuple[str, ...]:
         return tuple(v.code for v in self.violations)
 
+    @property
+    def schema_valid(self) -> bool:
+        """Alias of ``publishable``, named for what it establishes."""
+        return self.publishable
+
+    @property
+    def release_authorized(self) -> bool:
+        return (self.publishable and self.evidence_verified
+                and self.outputs_verified and self.execution_attested)
+
+    @property
+    def states(self) -> dict[str, bool]:
+        return {"schema_valid": self.publishable,
+                "evidence_verified": self.evidence_verified,
+                "outputs_verified": self.outputs_verified,
+                "execution_attested": self.execution_attested,
+                "release_authorized": self.release_authorized}
+
     def as_dict(self) -> dict[str, Any]:
         return {"artifact_id": self.artifact_id, "publishable": self.publishable,
+                "states": self.states, "unverified": list(self.unverified),
                 "codes": list(self.codes),
                 "violations": [{"code": v.code, "detail": v.detail,
                                 "severity": v.severity} for v in self.violations],
@@ -275,12 +321,21 @@ class ArtifactVerdict:
         return "\n".join(lines)
 
 
-def validate_artifact(artifact: ResearchArtifact) -> ArtifactVerdict:
-    """Decide whether an artifact may be published. Pure and total.
+def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
+                      content_store: Any = None) -> ArtifactVerdict:
+    """Decide whether an artifact may be published, and what has been verified.
 
     Every check runs; nothing short-circuits. An artifact with five problems
     should be fixed once, and a report that revealed only the first would send
     the author round the loop five times.
+
+    Deterministic given its inputs. The only I/O is reading the declared output
+    files — an absolute path always, a relative one only under ``output_root``
+    — because an output that is named but absent is a false statement in the
+    artifact, not a matter of opinion. ``content_store`` (a
+    :class:`~bioagent.contracts.receipts.ContentStore`) lets quote receipts and
+    in-memory outputs be re-verified; without it they stay *unverified*, which
+    does not block ``publishable`` but does block ``release_authorized``.
     """
     errors: list[Violation] = []
     warnings: list[Violation] = []
@@ -318,15 +373,15 @@ def validate_artifact(artifact: ResearchArtifact) -> ArtifactVerdict:
     for item in artifact.evidence:
         if item.id in cited and item.source_card_id:
             cited_cards.add(item.source_card_id)
-    # A claim may also cite evidence with no card (local tool output). Then the
-    # claim is held to the pinning standard directly and cannot satisfy it, so
-    # say so once rather than silently passing.
+    # Evidence that carries a claim must name the source it came through. A
+    # warning here let an artifact with every source link removed stay
+    # publishable (audit F03): a claim whose provenance cannot be traced to a
+    # snapshot has not earned the right to be read as a finding.
     for item in artifact.evidence:
         if item.id in cited and not item.source_card_id:
-            warnings.append(Violation(
+            errors.append(Violation(
                 "ART111", f"evidence {item.id!r} carries a claim but names no source "
-                "card; the claim's provenance cannot be traced to a snapshot",
-                "warning"))
+                "card; the claim's provenance cannot be traced to a snapshot"))
 
     for card_id in sorted(cited_cards):
         card = artifact.source_index.get(card_id)
@@ -342,11 +397,53 @@ def validate_artifact(artifact: ResearchArtifact) -> ArtifactVerdict:
                 "licence; reuse cannot be justified"))
 
     # -- outputs ------------------------------------------------------------
+    unverified: list[str] = []
+    outputs_ok = True
     for out in artifact.outputs:
         if not out.sha256:
+            outputs_ok = False
             errors.append(Violation(
                 "ART107", f"output {out.path!r} declares no content hash; a file that "
                 "cannot be verified is not a reproducible artifact"))
+            continue
+        state = _check_output(out, output_root, content_store)
+        if state == "verified":
+            continue
+        outputs_ok = False
+        if state == "missing":
+            errors.append(Violation(
+                "ART113", f"output {out.path!r} is declared but not present; an "
+                "artifact must not name a file that does not exist"))
+        elif state == "mismatch":
+            errors.append(Violation(
+                "ART114", f"output {out.path!r} does not match its declared sha256"))
+        else:
+            unverified.append(f"output {out.path!r} was not checked (no output root "
+                              "or content store)")
+
+    # -- quote receipts -------------------------------------------------------
+    evidence_ok = True
+    for item in artifact.evidence:
+        if item.id not in cited:
+            continue
+        if not item.has_quote_receipt:
+            evidence_ok = False          # already refused by the claim check
+            continue
+        content = content_store.get(item.content_hash) if content_store is not None else None
+        if content is None:
+            evidence_ok = False
+            unverified.append(f"evidence {item.id!r}: receipt not re-checked (content "
+                              f"{item.content_hash[:12]} not available)")
+        elif not item.verify_receipt(content):
+            evidence_ok = False
+            errors.append(Violation(
+                "ART115", f"evidence {item.id!r}: the quote is not at offset "
+                f"{item.quote_offset} of the content its receipt names"))
+
+    attested = bool(artifact.policy_id and artifact.audit_head)
+    if not attested:
+        unverified.append("no policy_id/audit_head: the run is not attested by the "
+                          "kernel's audit chain")
 
     # -- limitations --------------------------------------------------------
     if not artifact.limitations:
@@ -377,7 +474,29 @@ def validate_artifact(artifact: ResearchArtifact) -> ArtifactVerdict:
     fixable = bool(errors) and all(v.code == "ART105" for v in errors) and any(
         cv.needs_declaration for cv in claim_verdicts if not cv.allowed)
     return ArtifactVerdict(artifact.id, not errors, tuple(errors), tuple(warnings),
-                           tuple(claim_verdicts), fixable_by_declaration=fixable)
+                           tuple(claim_verdicts), fixable_by_declaration=fixable,
+                           evidence_verified=evidence_ok and not errors,
+                           outputs_verified=outputs_ok,
+                           execution_attested=attested,
+                           unverified=tuple(unverified))
+
+
+def _check_output(out: ArtifactFile, output_root: Any, content_store: Any) -> str:
+    """``verified`` | ``missing`` | ``mismatch`` | ``unchecked`` for one output."""
+    import hashlib
+    from pathlib import Path
+
+    path = Path(out.path)
+    if not path.is_absolute() and output_root is not None:
+        path = Path(output_root) / path
+    if path.is_absolute():
+        if not path.is_file():
+            return "missing"
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        return "verified" if digest == out.sha256.lower() else "mismatch"
+    if content_store is not None and out.sha256.lower() in content_store:
+        return "verified"
+    return "unchecked"
 
 
 RESEARCH_ARTIFACT_SCHEMA: dict[str, Any] = {

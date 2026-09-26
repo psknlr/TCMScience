@@ -33,8 +33,11 @@
     ART108: 'composite_version is incomplete',
     ART109: 'a claim cites retracted evidence',
     ART110: 'no limitations are stated',
-    ART111: 'an evidence item names a source card that is not in the artifact',
+    ART111: 'cited evidence names no source card, or one that is not in the artifact',
     ART112: 'a claim declares a confidence basis but evidence quality is unassessed',
+    ART113: 'a declared output file is not present where the artifact says it is',
+    ART114: 'a declared output file does not match its content hash',
+    ART115: 'a quote receipt does not verify against the content it names',
     CLM001: 'claim cites no evidence',
     CLM002: 'a cited evidence item is not present',
     CLM003: 'all supporting evidence is retracted',
@@ -44,7 +47,8 @@
     CLM007: 'a normative claim does not use claim_kind ‘recommendation’',
     CLM008: 'cross-species extrapolation is not declared',
     CLM009: 'an extrapolation beyond the evidence is not declared',
-    CLM010: 'a supporting quote was not located in its source',
+    CLM010: 'a supporting quote was not located in its source, or carries no receipt',
+    CLM011: 'the claim wording asserts more than its declared claim_kind',
     SAF002: 'a severe safety signal was missed in a case the gold set flags'
   };
 

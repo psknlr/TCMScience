@@ -37,7 +37,7 @@ from ...contracts import (CandidateClaim, EvidenceItem, EvidenceQuality, RiskOfB
                           require_declared)
 from ...tcm import knowledge as tcm_knowledge
 from ...tcm.model import CLAIM_KINDS, EvidenceTier, StudyEvidence, licenses
-from .common import (SEED_SOURCE_ID, SKILL_VERSIONS, _now, _quality_for, artifact,
+from .common import (SEED_SOURCE_ID, seed_evidence, SKILL_VERSIONS, _now, _quality_for, artifact,
                      json_file, seed_source_card)
 
 __all__ = ["retrieve_tcm_evidence"]
@@ -100,13 +100,12 @@ def retrieve_tcm_evidence(subject: str, *, claim_kind: str = "efficacy",
 
     # --- classical passages that mention the subject ----------------------
     for passage in (kb.passages_mentioning(subject_id) if subject_id else [])[:max_results]:
-        evidence.append(EvidenceItem(
+        evidence.append(seed_evidence(
             id=f"passage.{passage.id}", design="classical_text", quote=passage.text,
             citation=f"{passage.source}" + (f", {passage.chapter}" if passage.chapter else ""),
             title=f"{passage.source} — {passage.chapter}" if passage.chapter else passage.source,
             identifier=passage.id, identifier_type="classical_passage",
-            source_card_id=SEED_SOURCE_ID, quote_verified=True,
-            subject=getattr(entity, "chinese", subject),
+            source_card_id=SEED_SOURCE_ID, subject=getattr(entity, "chinese", subject),
             outcome="",  # a classical passage states a use, not a measured outcome
             quality=_quality_for(EvidenceTier.CLASSICAL_TEXT,
                                  assessed_by="retrieve-tcm-evidence"),
@@ -222,13 +221,12 @@ def _item_from_study(study: StudyEvidence, *, run_id: str, index: int) -> Eviden
 
     identifier, identifier_type = _identifier_of(study)
 
-    return EvidenceItem(
+    return seed_evidence(
         id=f"study.{study.id}", design=design, quote=quote,
         citation=study.citation or study.id,
         title=getattr(study, "condition", "") or study.id,
         identifier=identifier, identifier_type=identifier_type,
-        source_card_id=SEED_SOURCE_ID, quote_verified=True,
-        quality=_quality_for(study.tier, assessed_by="retrieve-tcm-evidence"),
+        source_card_id=SEED_SOURCE_ID, quality=_quality_for(study.tier, assessed_by="retrieve-tcm-evidence"),
         subject=study.subject_id, population=getattr(study, "population", ""),
         condition=getattr(study, "condition", ""),
         comparator=getattr(study, "comparator", ""),

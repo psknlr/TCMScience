@@ -41,6 +41,11 @@ def card(id: str = "herb", **kw) -> SourceCard:
     return SourceCard(**base)
 
 
+def located(e: EvidenceItem) -> EvidenceItem:
+    """``e`` with a receipt: its quote located inside retrieved content."""
+    return e.located_in(f"retrieved content: {e.quote}")
+
+
 def unpinned_card() -> SourceCard:
     """A local import: no hosts, no snapshot. Legal to construct, refused when
     it is asked to carry a claim."""
@@ -58,9 +63,12 @@ def quality(**kw) -> EvidenceQuality:
 def item(id: str = "e1", design: str = "randomized_trial", card_id: str = "herb",
          **kw) -> EvidenceItem:
     base = dict(id=id, design=design, quote="the verbatim excerpt relied on",
-                source_card_id=card_id, quote_verified=True, quality=quality())
+                source_card_id=card_id, quality=quality())
     base.update(kw)
-    return EvidenceItem(**base)
+    if base.pop("quote_verified", True) is False or "content_hash" in base:
+        return EvidenceItem(**base)
+    # A verified quote is one located in content, with a receipt to show for it.
+    return EvidenceItem(**base).located_in(f"...{base['quote']}...")
 
 
 def claim(id: str = "c1", kind: str = "efficacy", supports: tuple = ("e1",),
@@ -318,16 +326,48 @@ def test_declaring_the_extrapolation_with_a_reason_is_accepted():
     assert c.undeclared_extrapolations() == ()
 
 
-def test_a_broader_covered_population_covers_a_narrower_assertion():
-    """'adults with hypertension and T2DM' licenses a claim about 'adults with
-    hypertension'; the reverse does not hold."""
-    c = claim(asserted_population="adults with hypertension",
-              supported_population="adults with hypertension and type 2 diabetes")
-    assert c.undeclared_extrapolations() == ()
-    c2 = claim(asserted_population="adults with hypertension and type 2 diabetes",
-               supported_population="adults with hypertension")
-    assert c2.undeclared_extrapolations() == (
-        "population:adults with hypertension and type 2 diabetes",)
+def test_evidence_in_a_narrower_population_does_not_cover_a_broader_claim():
+    """Audit F01: evidence in 'adults with hypertension' was accepted as
+    covering a claim about 'adults', because 'adults' is a substring of the
+    covered text. The containment ran the wrong way."""
+    from bioagent.contracts.candidate_claim import _covers
+    assert not _covers("adults with hypertension", "adults")
+    c = claim(asserted_population="adults",
+              supported_population="adults with hypertension")
+    assert c.undeclared_extrapolations() == ("population:adults",)
+    verdict = check_claim(c, {"e1": item()})
+    assert not verdict.allowed and "CLM009" in verdict.codes
+
+
+def test_a_qualified_population_is_never_decided_lexically():
+    """Neither direction is decided from wording: 'and type 2 diabetes' narrows
+    the population, and a lexical rule cannot tell narrowing from widening."""
+    for asserted, covered in (
+            ("adults with hypertension", "adults with hypertension and type 2 diabetes"),
+            ("adults with hypertension and type 2 diabetes", "adults with hypertension")):
+        c = claim(asserted_population=asserted, supported_population=covered)
+        assert c.undeclared_extrapolations() == (f"population:{asserted}",)
+
+
+def test_an_enumerated_population_covers_its_members():
+    from bioagent.contracts.candidate_claim import _covers
+    assert _covers("adults; children", "adults")
+    assert _covers("成人、儿童", "儿童")
+    assert _covers("Adults with Malaria", "adults with malaria")
+    assert not _covers("adults", "adults; children")
+
+
+def test_the_audit_scope_counterexample_is_refused():
+    """The exact probe from the audit reproduction script."""
+    import dataclasses as dc
+    from bioagent.contracts import validate_artifact
+    from bioagent.skills.p0.entities import normalize_tcm_entities
+    base = normalize_tcm_entities(["黄芪"])
+    expanded = dc.replace(base.claims[0], supported_population="adults with hypertension",
+                          asserted_population="adults", confidence=0.0)
+    assert expanded.undeclared_extrapolations() == ("population:adults",)
+    assert not check_claim(expanded, base.evidence_index).allowed
+    assert not validate_artifact(dc.replace(base, claims=(expanded,))).publishable
 
 
 def test_confidence_without_a_basis_is_refused():
@@ -368,8 +408,8 @@ def test_prediction_cannot_become_clinical_fact():
     efficacy in humans. The refusal is a distinct code so the benchmark can
     count it on its own axis rather than averaging it into a general error rate.
     """
-    e = EvidenceItem(id="e1", design="network_prediction", quote="predicted overlap",
-                     source_card_id="herb", quote_verified=True)
+    e = located(EvidenceItem(id="e1", design="network_prediction", quote="predicted overlap",
+                     source_card_id="herb"))
     v = check_claim(claim(kind="efficacy", supports=("e1",)), {"e1": e})
     assert not v.allowed
     assert "CLM004" in v.codes
@@ -378,8 +418,8 @@ def test_prediction_cannot_become_clinical_fact():
 
 def test_every_prediction_design_is_caught_the_same_way():
     for design in PREDICTIVE_DESIGNS:
-        e = EvidenceItem(id="e1", design=design, quote="model output",
-                         source_card_id="herb", quote_verified=True)
+        e = located(EvidenceItem(id="e1", design=design, quote="model output",
+                         source_card_id="herb"))
         v = check_claim(claim(kind="association", supports=("e1",)), {"e1": e})
         assert v.prediction_as_fact, f"{design} slipped through as clinical evidence"
 
@@ -388,8 +428,8 @@ def test_prediction_supports_a_mechanism_hypothesis_and_nothing_stronger():
     """Network pharmacology's actual job. Refusing this would make the skill
     useless; the point is that it cannot go further than a hypothesis — a docking
     score is a statement about a model, and a mechanism is shown at the bench."""
-    e = EvidenceItem(id="e1", design="docking", quote="docking score -8.2 kcal/mol",
-                     source_card_id="herb", quote_verified=True)
+    e = located(EvidenceItem(id="e1", design="docking", quote="docking score -8.2 kcal/mol",
+                     source_card_id="herb"))
     hypothesis = check_claim(claim(kind="mechanism_hypothesis", subject="berberine",
                                    predicate="targets", object="TNF", supports=("e1",)),
                              {"e1": e})
@@ -478,8 +518,8 @@ def test_a_sound_artifact_publishes_cleanly():
 
 
 def test_prediction_as_clinical_fact_is_refused_with_its_own_code():
-    e = EvidenceItem(id="e1", design="network_prediction", quote="predicted overlap",
-                     source_card_id="herb", quote_verified=True)
+    e = located(EvidenceItem(id="e1", design="network_prediction", quote="predicted overlap",
+                     source_card_id="herb"))
     v = validate_artifact(artifact(claims=(claim(supports=("e1",)),), evidence=(e,)))
     assert not v.publishable
     assert "ART106" in v.codes

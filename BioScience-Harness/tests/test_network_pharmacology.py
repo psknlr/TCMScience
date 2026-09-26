@@ -249,7 +249,24 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
     assert provenance["disease"] == {}
     assert provenance["claims"] == {"candidates": 1, "released": 1, "refused": 0}
     assert provenance["result_digest"].startswith("sha256:")
+    assert provenance["governed"] is True and provenance["psh_program_fingerprint"]
     assert "reactome:R-HSA-A" in (out / "enrichment.tsv").read_text(encoding="utf-8")
+
+
+def test_run_skill_refuses_to_skip_psh_silently(tmp_path, monkeypatch):
+    """Audit F06: when PSH failed to import, the compile step was skipped with no
+    trace. It is now a refusal, and an explicit opt-out is recorded."""
+    import sys
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    _build(tmp_path / "snap", ledger=ledger)
+    monkeypatch.setitem(sys.modules, "psh.workflow", None)
+    kw = dict(skill_dir=SKILL_DIR, snapshot_root=tmp_path / "snap", ledger_path=ledger.path,
+              out_dir=tmp_path / "run", params=FAST, allowed={"npass", "string", "reactome"})
+    with pytest.raises(SkillRunRefused, match="PSH is not importable"):
+        run_skill(**kw)
+    provenance = run_skill(**kw, require_psh=False)
+    assert provenance["governed"] is False
+    assert provenance["psh_program_fingerprint"] is None
 
 
 def test_run_skill_refuses_a_snapshot_changed_after_it_was_recorded(tmp_path):
