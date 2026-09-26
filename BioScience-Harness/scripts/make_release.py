@@ -64,6 +64,7 @@ REQUIRED_PACKAGES = (
     "bioagent.planners",
     "bioagent.providers",
     "bioagent.psh",
+    "bioagent.research",
     "bioagent.runtime",
     "bioagent.sources",
     "bioagent.sources.parsers",

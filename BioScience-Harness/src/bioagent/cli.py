@@ -6,6 +6,8 @@
     python -m bioagent.cli doctor [--json] [--smoke]
     python -m bioagent.cli skills [--dir skills/tcm]
     python -m bioagent.cli skill <id> --arg name=value [--dir skills/tcm] [--json]
+    python -m bioagent.cli research "<question>" --snapshots DIR --ledger FILE \
+        --state-dir DIR --out DIR [--activity npass ...] [--background assayed]
 """
 
 from __future__ import annotations
@@ -172,6 +174,45 @@ def _cmd_skill(a) -> int:
     return code
 
 
+def _cmd_research(a) -> int:
+    """Run a question through the closed research loop (``bioagent.research``).
+
+    Exit 0 when the artifact may be released, including when every hypothesis was
+    refuted and the negative result is what is released; 1 when release is not
+    authorised; 2 when the question or a stage was refused.
+    """
+    import json as _json
+    from dataclasses import replace
+
+    from .analysis.network_pharmacology import Parameters
+    from .research import (QuestionRefused, ResearchRefused, default_protocol,
+                           parse_question, run_research)
+
+    try:
+        question = parse_question(a.question, disease=a.disease)
+        params = replace(Parameters(), background=a.background, hits=a.hits,
+                         permutations=a.permutations)
+        protocol = default_protocol(question, activity=tuple(a.activity or ["npass"]),
+                                    optional=tuple(a.optional or ["string"]),
+                                    parameters=params)
+        run = run_research(question, protocol=protocol, snapshot_root=a.snapshots,
+                           ledger_path=a.ledger, state_dir=a.state_dir, output_dir=a.out,
+                           accept_review=a.accept_review)
+    except (QuestionRefused, ResearchRefused, ValueError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    summary = {"run_id": run.run_id, "released": run.released,
+               "hypotheses": list(run.hypotheses),
+               "refuted": list(run.refuted), "deviations": list(run.deviations),
+               "rebuttals_not_run": run.rebuttal.get("not_run", []),
+               "resumed_stages": list(run.resumed_stages),
+               "states": run.verdict.states if run.verdict else {},
+               "snapshots": dict(run.snapshots), "audit_head": run.audit_head,
+               "output_dir": run.output_dir}
+    print(_json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0 if run.released else 1
+
+
 def _cmd_scout(a) -> int:
     """Discover candidates and write a report.
 
@@ -330,7 +371,27 @@ def main(argv: list[str] | None = None) -> int:
     sr.add_argument("--out", default="", help="write the artifact JSON here")
     sr.add_argument("--json", action="store_true", help="machine-readable output")
 
+    rs = sub.add_parser("research", help="run a question through the closed research loop")
+    rs.add_argument("question", help="e.g. '葛根芩连汤的实测靶点是否集中在某条通路？'")
+    rs.add_argument("--disease", default="", help="ontology id, e.g. MONDO_0005148")
+    rs.add_argument("--snapshots", required=True, help="snapshot root directory")
+    rs.add_argument("--ledger", required=True, help="the snapshot ledger (jsonl)")
+    rs.add_argument("--state-dir", required=True,
+                    help="checkpoints and the PSH audit chain; reuse it to resume")
+    rs.add_argument("--out", required=True, help="where the outputs and artifact go")
+    rs.add_argument("--activity", action="append", default=[],
+                    help="required activity source; repeatable (default: npass)")
+    rs.add_argument("--optional", action="append", default=[],
+                    help="optional source; repeatable (default: string)")
+    rs.add_argument("--background", default="assayed", choices=("assayed", "reactome"))
+    rs.add_argument("--hits", default="potency", choices=("potency", "screening"))
+    rs.add_argument("--permutations", type=int, default=1000)
+    rs.add_argument("--accept-review", action="store_true",
+                    help="load snapshots whose QC status is 'review'")
+
     a = ap.parse_args(argv)
+    if a.cmd == "research":
+        return _cmd_research(a)
 
     if a.cmd == "scout":
         return _cmd_scout(a)
