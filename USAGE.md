@@ -71,11 +71,17 @@ skill 'assess-tcm-safety' needs --arg subject=<value>
   parameters: subject, co_administered, population, run_id
 ```
 
-Comma-separated values become lists, which is the only structure the CLI
-supports: `--arg names=姜,白芍`.
+Arguments are typed from the skill's signature. A list parameter always gets a
+list, so `--arg names=黄芪` is one query. Several values are separated by `,` `，`
+`、` or `;`, as in `--arg names=姜、白芍`. Numbers and booleans are converted, and an
+unknown argument is refused. Every `skill` run goes through the governed path. The
+manifest is read from `--dir`, and a missing directory is refused. The skill's hash
+is checked against `registry/skills.lock.yaml`. The run is recorded in a PSH audit
+chain, and the artifact's quotes, outputs and attestation are verified. The exit
+code is 0 only when `release_authorized` is true.
 
 <!-- zh -->
-逗号分隔的值会变成列表，这是 CLI 唯一支持的结构：`--arg names=姜,白芍`。
+参数按技能的函数签名确定类型。列表参数总会得到列表，所以 `--arg names=黄芪` 是一次查询。多个值可用 `,` `，` `、` `;` 分隔，例如 `--arg names=姜、白芍`。数字和布尔值会自动转换，未知参数会被拒绝。每次 `skill` 运行都走受管路径：从 `--dir` 读取技能清单，目录不存在就拒绝；用 `registry/skills.lock.yaml` 核对技能哈希；运行过程写入 PSH 审计链；并核验产物的引文、输出文件和执行证明。只有 `release_authorized` 为真时退出码才是 0。
 
 ### Python · Python 调用
 
@@ -113,6 +119,60 @@ example.
 
 <!-- zh -->
 如果某个技能申请的权限是 envelope 并不持有的，`compile_skill` 会**拒绝**它（`SKILL101`），而不是悄悄裁掉——一次悄悄的裁剪，会把一个申报有误的技能变成一个莫名其妙失败的技能。你需要从 `psh.policy.PolicySnapshot` 取得 `envelope`；完整示例见 `tests/test_skill_compiler.py`。
+
+### Asking a research question · 提出一个研究问题
+
+The P0 skills work on the shipped seed corpus. A research question on the source
+snapshots (NPASS, CMAUP, STRING, Reactome, …; built with
+`BioScience-Harness/scripts/build_source_snapshots.py`) goes through the closed loop
+in `bioagent.research`:
+
+<!-- zh -->
+P0 技能只使用仓库自带的种子语料。针对数据源快照（NPASS、CMAUP、STRING、Reactome 等，用 `BioScience-Harness/scripts/build_source_snapshots.py` 构建）的研究问题，走 `bioagent.research` 里的闭环：
+
+```bash
+python -m bioagent.cli research "葛根芩连汤的实测靶点是否集中在某条 Reactome 通路？" \
+    --snapshots WORK/snapshots --ledger WORK/audit/snapshots.jsonl \
+    --state-dir WORK/state --out WORK/out --activity npass --activity cmaup
+```
+
+The loop has five stages:
+
+1. **Protocol.** The protocol is frozen and its digest is written to the audit chain
+   before any data is read.
+2. **Retrieve.** Snapshots are loaded through the ledger.
+3. **Analyse.** The network-pharmacology analysis runs with the protocol's parameters.
+4. **Rebut.** Each released pathway must still hold under three pre-registered tests:
+   - the assayed-protein background;
+   - leaving out one activity source at a time;
+   - two other permutation seeds.
+5. **Release.** The artifact's quote receipts are re-checked against the snapshots,
+   and the artifact is attested and verified.
+
+A missing *optional* source is dropped as a recorded deviation. A snapshot that fails
+its hash check is always refused. Re-running with the same `--state-dir` resumes from
+the last completed stage.
+
+A run in which every hypothesis is refuted still releases, and the negative result
+is what it releases. The reasons are listed in `limitations.md`. See
+[docs/audit-2026-09-response.md](docs/audit-2026-09-response.md) for results on
+real data.
+
+<!-- zh -->
+闭环分五个阶段：
+
+1. **协议**：先冻结协议，并在读取任何数据之前把协议摘要写入审计链。
+2. **检索**：通过台账加载快照。
+3. **分析**：按协议参数运行网络药理学分析。
+4. **反驳**：每条被放行的通路都要经得起三项预先登记的检验：
+   - 以"实测过的蛋白"为背景；
+   - 每次去掉一个活性数据源；
+   - 另换两个置换检验随机种子。
+5. **发布**：对照快照重新核验引文凭证，然后给产物加执行证明并核验。
+
+缺少*可选*数据源时会跳过它，并记为偏离协议。快照哈希核验失败时一律拒绝。使用同一个 `--state-dir` 重跑，会从最后一个已完成的阶段继续。
+
+即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 
 ---
 

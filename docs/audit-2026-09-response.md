@@ -1,8 +1,9 @@
 # Response to the September 2026 external audit
 
 The audit found ten issues (F01–F10) and supplied an offline reproduction script
-with eleven probes. This change fixes the deterministic defects and puts one trust
-boundary in front of release. It does not rewrite either package. Every probe that
+with eleven probes. The first change (#22) fixed the deterministic defects (F01–F09)
+and put one trust boundary in front of release. The second change carries a question
+end to end on real, non-seed data (F10). Neither change rewrites either package. Every probe that
 used to be accepted is now refused, and each one is pinned by a regression test.
 Before the change the script reported every probe as allowed. After it, the script
 reports the following:
@@ -118,10 +119,70 @@ explicit `isolate=False`. A failed audit write now refuses the admission
 (`strict_audit=True`); earlier versions swallowed the error. Still open: named
 deployment profiles (`trusted_local` / `restricted_research` / `sensitive_data`).
 
-**F10, a closed loop on real data.** Not addressed here. Following the audit's own
-ordering, it comes after these deterministic fixes. It needs one non-seed question
-carried end to end, from retrieval through protocol, analysis, rebuttal and
-governed release.
+**F10, a closed loop on real data.** A new package, `bioagent.research`, carries a
+question end to end on snapshot data, outside the seed corpus. The CLI entry point is
+`python -m bioagent.cli research "<question>" …`. The run has five stages.
+
+1. **Protocol.** The question is parsed into a formula and, optionally, a disease id.
+   A question that names no known formula is refused. The protocol is then frozen
+   and its digest is written to the PSH audit chain before any data is read. It
+   records the sources, the analysis parameters, the rebuttal tests and the allowed
+   fallbacks.
+2. **Retrieve.** Each source is loaded through the snapshot ledger.
+3. **Analyse.** The network-pharmacology analysis runs with the protocol's parameters.
+4. **Rebut.** Every released pathway must still be released under three
+   pre-registered tests:
+   - the assayed-protein background;
+   - leaving out one activity source at a time;
+   - two other permutation seeds.
+
+   A rebuttal that cannot run, such as leave-one-out with a single activity source,
+   is recorded as a limitation. It is never counted as passed.
+5. **Release.** Each cited activity edge becomes an evidence item. Its quote is the
+   edge row as the snapshot stores it. Receipts are re-checked against a content
+   store rebuilt from the verified snapshots, which also closes F02's open item of
+   binding receipts to a snapshot. The artifact is then attested and validated
+   together with its written outputs.
+
+Repair is bounded:
+- A missing optional source is dropped only when the protocol allows that fallback,
+  and the drop is recorded as a deviation.
+- A missing required source refuses the run.
+- A snapshot that fails its hash check is never worked around.
+
+Every stage is checkpointed, and a re-run with the same state directory resumes from
+the last completed stage. Retrieved snapshot ids are re-checked on every resume, and a
+damaged checkpoint is recomputed rather than trusted. `tests/test_research_loop.py`
+covers each of these paths.
+
+*Real data* (NPASS 2.0 and CMAUP 2.0, restricted to the formula's source species,
+plus STRING 12.0 and Reactome, all rebuilt from the public downloads on 2026-09-26;
+gold markers reproduced). The question was 葛根芩连汤的实测靶点是否集中在某条
+Reactome 通路？, with two activity sources.
+- **Background = whole Reactome annotation.** The analysis releases 60 pathway
+  hypotheses. Rebuttal refutes all 60: none is significant once the background is
+  restricted to proteins that were actually assayed, and 33 also do not survive
+  leaving out NPASS. The released artifact contains no hypothesis. The 60
+  refutations and their reasons are in `limitations.md` and `rebuttal.json`.
+- **Background = assayed proteins (the default).** No pathway is significant, so
+  nothing reaches rebuttal. The released artifact is again a negative result.
+- **Resume.** Re-running the first case with its state directory reused all four
+  completed stages. The run took about 4 s instead of 30 s, and the result was
+  unchanged.
+
+This agrees with the earlier finding in
+`BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`: for these public data,
+pathway "enrichment" is almost entirely explained by which proteins were tested. The
+difference is that the loop now reaches that conclusion by itself, from one question,
+under audit, and releases it as the result.
+
+Still open:
+- A question is parsed literally: a registered formula name and an ontology id.
+  There is no language-model planner.
+- Only one formula (葛根芩连汤) is registered with its source species.
+- The analysis runs beside its compiled PSH program rather than *as* that program.
+- LOTUS and PubChem screening were not rebuilt for this run, although the loop
+  accepts them as sources.
 
 ## Reproduce
 
