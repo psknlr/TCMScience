@@ -16,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_DATA_LAKE = "BIOAGENT_DATA_LAKE"
 ENV_WORKSPACE = "BIOAGENT_WORKSPACE"
 ENV_CATALOGUE = "BIOAGENT_CATALOGUE"
+ENV_SKILLS = "BIOAGENT_SKILLS"
 
 
 def data_lake_dir(explicit: str | os.PathLike | None = None) -> Path:
@@ -34,6 +35,20 @@ def workspace_dir(explicit: str | os.PathLike | None = None) -> Path:
     if env:
         return Path(env).expanduser()
     return REPO_ROOT / "workspace"
+
+
+def skills_dir(explicit: str | os.PathLike | None = None) -> Path:
+    """Reviewed research skills shipped with the project (``<repo>/skills``).
+
+    Skills an agent drafts at run time live in the workspace's ``skills/`` instead; they
+    are untrusted until the evolution pipeline promotes them.
+    """
+    if explicit:
+        return Path(explicit).expanduser()
+    env = os.environ.get(ENV_SKILLS)
+    if env:
+        return Path(env).expanduser()
+    return REPO_ROOT / "skills"
 
 
 #: Legacy location: the catalogue lived only here before it was packaged.

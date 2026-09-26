@@ -42,7 +42,7 @@ whose shortfall PSH records as a caveat and lists as a limitation of the release
 ## v2.4 — PSH convergence, and a connector set worth converging
 
 The capability plane is now admitted into a trusted kernel, and it got a lot bigger.
-Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. Third-party database connectors (TCMSP, HERB, SymMap, ...) follow `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
+Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
 
 **`bioagent.psh` — the bridge.** A BioScience component becomes a PSH `ComponentManifest`
 with the dimensions PSH's gates rule on, derived conservatively from what the BioScience
@@ -323,7 +323,12 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         hmr.py             transactional hot reload + LazyComponentSet
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
-      providers/           discovery from catalogue rows, SKILL.md trees and 58 public sources
+      providers/           discovery from catalogue rows, SKILL.md trees (+ skill.yaml contracts)
+                           and 58 public sources
+      sources/             third-party databases as snapshots: source cards, KGX-style node/edge
+                           schema with two evidence axes, quality gate, verified loads; parsers
+                           for NPASS, CMAUP, LOTUS, BindingDB; herb -> species -> compound
+                           composition (scripts/build_source_snapshots.py)
       tools/               147 native bioinformatics, clinical and TCM tools (no dependencies)
       tcm/                 typed TCM knowledge: herbs, processing, formulas, syndromes, classics,
                            evidence tiers, scope, 十八反

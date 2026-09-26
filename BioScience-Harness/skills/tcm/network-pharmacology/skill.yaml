@@ -1,0 +1,43 @@
+id: tcm.network-pharmacology
+version: 0.1.0
+inputs:
+  formula: FormulaVersion
+requires:
+  sources:
+    - npass@2.0
+    - cmaup@2.0
+    - lotus@2026-04-13
+    - string@12.0
+    - reactome@current
+    - opentargets@26.06+MONDO_0005148
+    - pubchem_bioassay
+  tools:
+    - np.composition
+    - np.measured_targets
+    - np.pathway_enrichment
+    - np.network_topology
+    - np.disease_overlap
+steps:
+  composition:
+    tool: np.composition
+  targets:
+    tool: np.measured_targets
+    after:
+      - composition
+    design: in_vitro
+  enrichment:
+    tool: np.pathway_enrichment
+    after:
+      - targets
+    design: in_silico
+  network:
+    tool: np.network_topology
+    after:
+      - targets
+    design: in_silico
+  disease:
+    tool: np.disease_overlap
+    after:
+      - targets
+    design: in_silico
+max_claim_kind: mechanism_hypothesis

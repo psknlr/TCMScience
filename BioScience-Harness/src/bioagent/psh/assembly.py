@@ -61,13 +61,14 @@ def load_verification(path: str | Path | None = None) -> dict[str, dict[str, Any
 
 
 def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
-                    native_tools: bool = True,
+                    native_tools: bool = True, skills: bool = True,
+                    skills_root: str | Path | None = None,
                     catalogue_rows: Iterable[Mapping[str, Any]] | None = None,
                     extra_manifests: Iterable[Any] = (), cache_dir: str | Path | None = None,
                     data_lake: str | Path | None = None, kernel: Any = None,
                     http_timeout_s: float = 30.0) -> Any:
-    """A runtime over the packaged catalogue, the public sources and the native tools,
-    with every backend."""
+    """A runtime over the packaged catalogue, the public sources, the native tools and the
+    project's reviewed skills (``config.skills_dir``, when present), with every backend."""
     from ..backends.base import BackendRegistry
     from ..backends.concrete import (ContainerBackend, DatasetBackend, MCPBackend, NoneBackend,
                                      PythonBackend, SubprocessBackend)
@@ -87,6 +88,10 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
     if native_tools:
         from ..tools import NativeToolProvider
         manifests.extend(NativeToolProvider().discover())
+    if skills:
+        from ..config import skills_dir
+        from ..providers.skills import SkillDirectoryProvider
+        manifests.extend(SkillDirectoryProvider("tcmscience", skills_dir(skills_root)).discover())
     manifests.extend(extra_manifests)
     registry = ComponentRegistry(manifests)
 

@@ -69,8 +69,9 @@ def kernel(tmp_path):
 
 @pytest.fixture
 def runtime(tmp_path):
-    """Connectors only: the catalogue is not needed to prove the crossing."""
-    return default_runtime(catalogue=False, public_apis=True, native_tools=False,
+    """Connectors only: the catalogue (and the shipped skills) are not needed to prove the
+    crossing."""
+    return default_runtime(catalogue=False, public_apis=True, native_tools=False, skills=False,
                            cache_dir=None, data_lake=tmp_path / "no-lake")
 
 
@@ -414,7 +415,7 @@ def test_native_tools_are_local_components_with_the_local_ceiling(kernel, tmp_pa
     from bioagent.tools import TOOLS
 
     runtime = default_runtime(catalogue=False, public_apis=False, native_tools=True,
-                              data_lake=tmp_path / "no-lake")
+                              skills=False, data_lake=tmp_path / "no-lake")
     bridge = BioScienceBridge(kernel, runtime)
     admitted = bridge.admit_all()
     assert len(admitted) == len(TOOLS) and bridge.refusals == []

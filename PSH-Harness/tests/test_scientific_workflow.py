@@ -309,3 +309,23 @@ def test_bad_scientific_plan_stops_before_first_model_call(tmp_path):
         assert kernel.broker.stats()["model_calls"] == 0
     finally:
         kernel.close()
+
+
+# A computational prediction (network pharmacology, docking) can propose a mechanism but
+# never establish one, and it licenses nothing clinical.
+def test_in_silico_prediction_licenses_only_a_mechanism_hypothesis():
+    compile_program(evidence_program("in_silico", ClaimType.MECHANISM_HYPOTHESIS))
+    for kind in (ClaimType.MECHANISTIC, ClaimType.CLINICAL, ClaimType.TRADITIONAL,
+                 ClaimType.ASSOCIATION):
+        rejected(evidence_program("in_silico", kind), "EVIDENCE103")
+
+
+def test_experiments_also_support_a_mechanism_hypothesis():
+    for design in ("in_vitro", "animal"):
+        compile_program(evidence_program(design, ClaimType.MECHANISM_HYPOTHESIS))
+        compile_program(evidence_program(design, ClaimType.MECHANISTIC))
+
+
+def test_a_review_of_predictions_is_still_a_prediction():
+    rejected(evidence_program("systematic_review", ClaimType.MECHANISTIC, evidence_kw={
+        "underlying_designs": ("in_silico",)}), "EVIDENCE103")

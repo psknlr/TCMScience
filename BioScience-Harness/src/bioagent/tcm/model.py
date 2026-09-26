@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Mapping
 
-__all__ = ["EvidenceTier", "CLAIM_KINDS", "Herb", "ProcessedHerb", "Ingredient", "Formula",
+__all__ = ["EvidenceTier", "CLAIM_KINDS", "CLAIM_SUPPORT", "licenses", "Herb", "ProcessedHerb", "Ingredient", "Formula",
            "Syndrome", "ClassicalPassage", "StudyEvidence", "ActionRelation", "SafetyRecord",
            "ROLES", "PREDICATES", "SAFETY_KINDS"]
 
@@ -38,12 +38,19 @@ class EvidenceTier(IntEnum):
 
     The order is *clinical* strength. A classical text is the weakest clinical evidence
     and the strongest provenance for an attribution — which is why the two are separate
-    claim kinds rather than points on one scale.
+    claim kinds rather than points on one scale, and why which tiers license which claim
+    is a set (``CLAIM_SUPPORT``), not a threshold on this order.
+
+    A computational prediction is rank 0: it is no clinical evidence at all and no
+    experiment either. Network pharmacology, docking and similarity-based target
+    prediction were once filed under PRECLINICAL, which let a prediction license a
+    mechanism claim.
     """
 
+    COMPUTATIONAL_PREDICTION = 0  # 网络药理学、分子对接、相似性靶点预测
     CLASSICAL_TEXT = 1       # 经典本草、方书、医籍记载
     EXPERT_EXPERIENCE = 2    # 名医经验、教材、专家共识、药典
-    PRECLINICAL = 3          # 体外、动物、网络药理学、分子对接
+    PRECLINICAL = 3          # 体外实验、动物实验
     CASE_REPORT = 4          # 病例报告、病例系列
     OBSERVATIONAL = 5        # 队列、病例对照、横断面、真实世界
     RANDOMIZED_TRIAL = 6     # 随机对照试验
@@ -65,23 +72,44 @@ class EvidenceTier(IntEnum):
 
 
 _TIER_ZH = {
-    EvidenceTier.CLASSICAL_TEXT: "经典文献记载", EvidenceTier.EXPERT_EXPERIENCE: "名医经验/专家共识",
+    EvidenceTier.COMPUTATIONAL_PREDICTION: "计算预测", EvidenceTier.CLASSICAL_TEXT: "经典文献记载", EvidenceTier.EXPERT_EXPERIENCE: "名医经验/专家共识",
     EvidenceTier.PRECLINICAL: "临床前研究", EvidenceTier.CASE_REPORT: "病例报告/病例系列",
     EvidenceTier.OBSERVATIONAL: "观察性研究", EvidenceTier.RANDOMIZED_TRIAL: "随机对照试验",
     EvidenceTier.SYSTEMATIC_REVIEW: "系统评价/荟萃分析",
 }
 
-#: The kind of claim -> the weakest tier that licenses it. An attribution ("the Shanghan
-#: Lun prescribes it for ...") needs only the text; an efficacy claim needs a trial.
-CLAIM_KINDS: Mapping[str, EvidenceTier] = {
-    "attribution": EvidenceTier.CLASSICAL_TEXT,      # 记载/主治：文献这样说
-    "traditional_use": EvidenceTier.EXPERT_EXPERIENCE,  # 传统应用/教材功效
-    "mechanism": EvidenceTier.PRECLINICAL,           # 机制/靶点
-    "safety_signal": EvidenceTier.CASE_REPORT,       # 安全性信号
-    "association": EvidenceTier.OBSERVATIONAL,       # 相关性
-    "efficacy": EvidenceTier.RANDOMIZED_TRIAL,       # 疗效
-    "recommendation": EvidenceTier.SYSTEMATIC_REVIEW,  # 推荐
+_T = EvidenceTier
+
+#: The kind of claim -> the tiers that license it. An attribution ("the Shanghan Lun
+#: prescribes it for ...") needs the text and nothing else can stand in for it; an
+#: efficacy claim needs a trial. This is a set rather than a threshold: with a threshold a
+#: trial licensed "the classics record it", and anything at PRECLINICAL — including a
+#: network-pharmacology prediction — licensed a traditional use. The sets match PSH's
+#: compile-time ``_SUPPORTS`` table (psh.workflow.compiler) design for design.
+CLAIM_SUPPORT: Mapping[str, frozenset[EvidenceTier]] = {
+    "attribution": frozenset({_T.CLASSICAL_TEXT}),                          # 记载/主治
+    "traditional_use": frozenset({_T.CLASSICAL_TEXT, _T.EXPERT_EXPERIENCE}),  # 传统应用
+    "mechanism_hypothesis": frozenset({_T.COMPUTATIONAL_PREDICTION,           # 机制假说
+                                       _T.PRECLINICAL}),
+    "mechanism": frozenset({_T.PRECLINICAL}),                                # 机制（实验）
+    "safety_signal": frozenset({_T.CASE_REPORT, _T.OBSERVATIONAL,            # 安全性信号
+                                _T.RANDOMIZED_TRIAL, _T.SYSTEMATIC_REVIEW}),
+    "association": frozenset({_T.OBSERVATIONAL, _T.RANDOMIZED_TRIAL,         # 相关性
+                              _T.SYSTEMATIC_REVIEW}),
+    "efficacy": frozenset({_T.RANDOMIZED_TRIAL, _T.SYSTEMATIC_REVIEW}),      # 疗效
+    "recommendation": frozenset({_T.SYSTEMATIC_REVIEW}),                     # 推荐
 }
+
+#: The kind of claim -> the weakest tier that licenses it. Kept for display and ordering;
+#: whether a tier licenses a claim is decided by ``CLAIM_SUPPORT`` (see ``licenses``).
+CLAIM_KINDS: Mapping[str, EvidenceTier] = {k: min(v) for k, v in CLAIM_SUPPORT.items()}
+
+
+def licenses(tier: EvidenceTier | int, claim_kind: str) -> bool:
+    """Whether evidence at ``tier`` can license a claim of ``claim_kind``."""
+    if claim_kind not in CLAIM_SUPPORT:
+        raise ValueError(f"claim kind {claim_kind!r} is not one of {sorted(CLAIM_SUPPORT)}")
+    return EvidenceTier(tier) in CLAIM_SUPPORT[claim_kind]
 
 ROLES: tuple[str, ...] = ("君", "臣", "佐", "使")
 PREDICATES: frozenset[str] = frozenset({
@@ -290,7 +318,8 @@ class StudyEvidence:
 
     A tier at or above PRECLINICAL is a published study and must carry a PMID, a DOI or
     a registry id: a knowledge base must not hold a "randomised trial" that nobody can
-    look up. The two lowest tiers cite a text or a consensus document instead.
+    look up. The lower tiers cite a text, a consensus document, or — for a computational
+    prediction — the database and method that produced it.
     """
 
     id: str
@@ -322,8 +351,8 @@ class StudyEvidence:
                 "registry id; a study nobody can look up is not evidence")
         if not tier.needs_citation and not self.citation:
             raise ValueError(
-                f"study {self.id!r} at tier {tier.name} must name the text or consensus "
-                "document it comes from")
+                f"study {self.id!r} at tier {tier.name} must name the text, consensus "
+                "document, or database and method (for a prediction) it comes from")
 
     @property
     def usable(self) -> bool:

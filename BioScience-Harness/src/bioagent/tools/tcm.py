@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Sequence
 
-from ..tcm import CLAIM_KINDS, EvidenceTier, default_knowledge
+from ..tcm import CLAIM_KINDS, CLAIM_SUPPORT, EvidenceTier, default_knowledge
 from ..tcm.knowledge import _kind_of
 
 __all__ = ["tcm_lookup", "tcm_herb", "tcm_formula", "tcm_syndrome", "tcm_compatibility",
@@ -122,7 +122,8 @@ def tcm_applicability(subject: str, object: str, claim_kind: str = "efficacy",
                       population: str = "", condition: str = "") -> dict[str, Any]:
     """Whether the recorded evidence that ``subject`` treats or is indicated for
     ``object`` licenses a claim of ``claim_kind`` (attribution, traditional_use,
-    mechanism, safety_signal, association, efficacy, recommendation) for the given
+    mechanism_hypothesis, mechanism, safety_signal, association, efficacy,
+    recommendation) for the given
     population and condition. A classical passage licenses an attribution and not an
     efficacy claim; evidence from one population is extrapolated to another."""
     if claim_kind not in CLAIM_KINDS:
@@ -137,6 +138,7 @@ def tcm_applicability(subject: str, object: str, claim_kind: str = "efficacy",
         "subject": _summary(subject_entity), "object": _summary(object_entity),
         "claim_kind": claim_kind, "required_tier": CLAIM_KINDS[claim_kind].name,
         "required_tier_zh": CLAIM_KINDS[claim_kind].chinese,
+        "licensed_by": [t.name for t in sorted(CLAIM_SUPPORT[claim_kind])],
         "verdict": best, "licensed": best == "within_scope",
         "relations": [v.as_dict() for v in verdicts],
         "note": ("no recorded relation between these entities" if not verdicts else
@@ -149,10 +151,12 @@ def tcm_evidence_tiers() -> dict[str, Any]:
     return {
         "tiers": [{"tier": t.name, "rank": int(t), "chinese": t.chinese, "clinical": t.clinical,
                    "needs_citation": t.needs_citation} for t in EvidenceTier],
-        "claim_kinds": {k: {"required_tier": v.name, "required_tier_zh": v.chinese}
+        "claim_kinds": {k: {"required_tier": v.name, "required_tier_zh": v.chinese,
+                            "licensed_by": [t.name for t in sorted(CLAIM_SUPPORT[k])]}
                         for k, v in CLAIM_KINDS.items()},
-        "rule": "a claim is licensed only by evidence at or above the tier its kind needs, "
-                "and only within the population and condition that evidence covers",
+        "rule": "a claim is licensed only by evidence at one of the tiers its kind admits "
+                "(a computational prediction licenses a mechanism hypothesis and nothing "
+                "else), and only within the population and condition that evidence covers",
     }
 
 

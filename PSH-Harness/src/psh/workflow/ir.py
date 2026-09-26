@@ -22,6 +22,9 @@ class ClaimType(str, Enum):
     CLASSICAL = "classical_attribution"
     TRADITIONAL = "traditional_use"
     MECHANISTIC = "mechanism"
+    # A computational prediction (network pharmacology, docking, similarity search) can
+    # propose a mechanism but never establish one; it gets its own, weaker claim type.
+    MECHANISM_HYPOTHESIS = "mechanism_hypothesis"
     ASSOCIATION = "association"
     CLINICAL = "clinical_efficacy"
     SAFETY = "safety_signal"
@@ -47,7 +50,7 @@ class Effect(str, Enum):
 
 
 DESIGNS = frozenset({
-    "classical_text", "expert_consensus", "in_vitro", "animal", "case_report",
+    "classical_text", "expert_consensus", "in_silico", "in_vitro", "animal", "case_report",
     "observational", "randomized_trial", "systematic_review",
 })
 

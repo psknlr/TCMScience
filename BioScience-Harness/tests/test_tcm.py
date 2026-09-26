@@ -13,8 +13,9 @@ import json
 
 import pytest
 
+from bioagent.tcm import licenses
 from bioagent.tcm import (
-    CLAIM_KINDS, ActionRelation, EvidenceTier, Formula, Herb, Ingredient, StudyEvidence,
+    CLAIM_KINDS, CLAIM_SUPPORT, ActionRelation, EvidenceTier, Formula, Herb, Ingredient, StudyEvidence,
     TCMKnowledgeBase, default_knowledge, seed,
 )
 from bioagent.tools import BY_NAME, DOMAINS, TOOLS, tool
@@ -160,6 +161,77 @@ def test_claim_kinds_are_ordered_by_what_they_need():
     assert all(t.chinese for t in EvidenceTier)
 
 
+
+# ======================================= which tiers license which claim: a set, not a line
+
+def _prediction_kb():
+    base = seed()
+    study = StudyEvidence(id="study.np_prediction", tier=EvidenceTier.COMPUTATIONAL_PREDICTION,
+                          subject_id="herb.huangqi", design="network pharmacology",
+                          citation="ETCM v2.0 two-dimensional ligand similarity")
+    relation = ActionRelation(id="relation.huangqi_predicted", subject_id="herb.huangqi",
+                              predicate="treats", object_id="syndrome.qixu",
+                              tier=EvidenceTier.COMPUTATIONAL_PREDICTION,
+                              evidence_ids=("study.np_prediction",))
+    base.extend(studies=(study,), relations=(relation,))
+    return base
+
+
+def test_a_prediction_licenses_a_mechanism_hypothesis_and_nothing_else():
+    kb = _prediction_kb()
+    ok = kb.applicability("relation.huangqi_predicted", claim_kind="mechanism_hypothesis")
+    assert ok.licensed
+    for kind in ("mechanism", "traditional_use", "attribution", "efficacy"):
+        verdict = kb.applicability("relation.huangqi_predicted", claim_kind=kind)
+        assert verdict.verdict == "unsupported", kind
+        assert "COMPUTATIONAL_PREDICTION" in verdict.reasons[0]
+
+
+def test_a_prediction_is_neither_clinical_nor_a_citable_study():
+    tier = EvidenceTier.COMPUTATIONAL_PREDICTION
+    assert int(tier) == 0 and tier.chinese == "计算预测"
+    assert not tier.clinical and not tier.needs_citation
+    with pytest.raises(ValueError, match="database and method"):
+        StudyEvidence(id="s", tier=tier, subject_id="herb.huangqi")
+
+
+def test_stronger_evidence_does_not_stand_in_for_a_different_kind_of_claim():
+    # A threshold let a trial license "the classics record it" and let anything at
+    # PRECLINICAL license a traditional use.
+    assert not licenses(EvidenceTier.RANDOMIZED_TRIAL, "attribution")
+    assert not licenses(EvidenceTier.PRECLINICAL, "traditional_use")
+    assert not licenses(EvidenceTier.RANDOMIZED_TRIAL, "mechanism")
+    assert licenses(EvidenceTier.PRECLINICAL, "mechanism")
+    assert licenses(EvidenceTier.SYSTEMATIC_REVIEW, "efficacy")
+    assert all(CLAIM_KINDS[k] == min(v) for k, v in CLAIM_SUPPORT.items())
+    with pytest.raises(ValueError):
+        licenses(EvidenceTier.PRECLINICAL, "cure")
+
+
+def test_claim_support_matches_the_psh_compiler_design_for_design():
+    compiler = pytest.importorskip("psh.workflow.compiler")
+    from psh.workflow.ir import ClaimType
+    designs = {
+        EvidenceTier.COMPUTATIONAL_PREDICTION: {"in_silico"},
+        EvidenceTier.CLASSICAL_TEXT: {"classical_text"},
+        EvidenceTier.EXPERT_EXPERIENCE: {"expert_consensus"},
+        EvidenceTier.PRECLINICAL: {"in_vitro", "animal"},
+        EvidenceTier.CASE_REPORT: {"case_report"},
+        EvidenceTier.OBSERVATIONAL: {"observational"},
+        EvidenceTier.RANDOMIZED_TRIAL: {"randomized_trial"},
+    }
+    kinds = {
+        "attribution": ClaimType.CLASSICAL, "traditional_use": ClaimType.TRADITIONAL,
+        "mechanism_hypothesis": ClaimType.MECHANISM_HYPOTHESIS,
+        "mechanism": ClaimType.MECHANISTIC, "safety_signal": ClaimType.SAFETY,
+        "association": ClaimType.ASSOCIATION, "efficacy": ClaimType.CLINICAL,
+    }
+    for kind, claim_type in kinds.items():
+        # PSH has no review design of its own: a review inherits its studies' designs.
+        ours = set().union(*(designs[t] for t in CLAIM_SUPPORT[kind]
+                             if t is not EvidenceTier.SYSTEMATIC_REVIEW))
+        assert ours == set(compiler._SUPPORTS[claim_type]), kind
+
 # ================================================== is the combination recorded as unsafe?
 
 def test_shibafan_pairs_are_conflicts(kb):
@@ -231,7 +303,9 @@ def test_classical_search_finds_passages_by_phrase_and_by_entity():
     by_entity = tool("tcm_classical_search").fn(query="黄芪")
     assert any(p["source"] == "神农本草经" for p in by_entity["passages"])
     tiers = tool("tcm_evidence_tiers").fn()
-    assert [t["rank"] for t in tiers["tiers"]] == list(range(1, 8))
+    assert [t["rank"] for t in tiers["tiers"]] == list(range(0, 8))
+    assert tiers["claim_kinds"]["mechanism_hypothesis"]["licensed_by"] == [
+        "COMPUTATIONAL_PREDICTION", "PRECLINICAL"]
 
 
 def test_the_default_knowledge_is_shared_and_read_only():
