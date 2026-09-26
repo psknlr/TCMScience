@@ -132,6 +132,45 @@ class ClassificationResult:
 # Content that cannot be inspected has unknown sensitivity, and unknown is not the same as
 # clean — so it floors at SENSITIVE. It is not marked PHI, because that would be a guess.
 
+#: A run of hex digits at least this long, containing a letter, is a generated
+#: identifier (``new_id`` renders 16 hex digits), not a number a person wrote.
+_HEX_ID_MIN = 16
+
+
+def _inside_hex_identifier(text: str, start: int, end: int) -> bool:
+    """Whether ``text[start:end]`` sits inside a long hex identifier.
+
+    ``run_8c0a15855104493f`` holds the digits ``15855104493``, which the mobile-number
+    rule reads as a Chinese phone number. About one ``new_id`` in two thousand does, so
+    labels, and every test that compiles a run, failed at random. A digit run embedded
+    in a longer hex token that contains a letter is part of that token, not a number:
+    "phone13812345678" (a 12-character hex run) is still flagged, a 16-hex-digit id is
+    not. A canonical UUID (``…-a13136939702``) is judged whole, since its hyphens split
+    the hex into groups too short for the length rule.
+    """
+    hexdigits = "0123456789abcdefABCDEF"
+    if not all(c in hexdigits for c in text[start:end]):
+        return False
+    left, right = start, end
+    while left > 0 and text[left - 1] in hexdigits:
+        left -= 1
+    while right < len(text) and text[right] in hexdigits:
+        right += 1
+    token = text[left:right]
+    if len(token) >= _HEX_ID_MIN and any(c in "abcdefABCDEF" for c in token):
+        return True
+    # A canonical UUID splits its hex into short groups; judge the whole UUID.
+    while left > 0 and text[left - 1] in hexdigits + "-":
+        left -= 1
+    while right < len(text) and text[right] in hexdigits + "-":
+        right += 1
+    return bool(_UUID.search(text[left:right]))
+
+
+_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+                   r"[0-9a-fA-F]{12}")
+
+
 _ENCODED_RUN = re.compile(r"(?<![A-Za-z0-9+/=])([A-Za-z0-9+/=_-]{24,}|[0-9a-fA-F]{32,})(?![A-Za-z0-9+/=])")
 _MIN_PRINTABLE_FRACTION = 0.92
 
@@ -278,8 +317,14 @@ class Classifier:
         return self._phi is not None
 
     # ------------------------------------------------------------------ scanning
-    def classify_text(self, text: str, *, origin: str = "") -> ClassificationResult:
-        """Classify a string. Never returns a label lower than a detected finding."""
+    def classify_text(self, text: str, *, origin: str = "",
+                      _same_layout: str = "") -> ClassificationResult:
+        """Classify a string. Never returns a label lower than a detected finding.
+
+        ``_same_layout`` is internal: another rendering of ``text`` with the same
+        character positions (the rot13 rescan passes the original). A digit run inside a
+        generated identifier in *either* rendering is part of that identifier.
+        """
         self.classifications += 1
         if not text or not text.strip():
             return ClassificationResult(DataLabel(Sensitivity.PUBLIC, shareable=True,
@@ -313,7 +358,9 @@ class Classifier:
                                   Sensitivity.PHI if level == "DIRECT" else Sensitivity.SENSITIVE)
         else:
             for name, pattern, level in _FALLBACK_RULES:
-                if pattern.search(text):
+                layouts = (text, _same_layout) if len(_same_layout) == len(text) else (text,)
+                if any(not any(_inside_hex_identifier(t, m.start(), m.end()) for t in layouts)
+                       for m in pattern.finditer(text)):
                     categories.append(name)
                     sensitivity = max(sensitivity, level)
 
@@ -344,7 +391,8 @@ class Classifier:
         # without needing to detect that rot13 was applied.
         rotated = _rot13(text)
         if rotated != text:
-            label = label.merged_with(self.classify_text(rotated, origin=origin).label)
+            label = label.merged_with(self.classify_text(rotated, origin=origin,
+                                                         _same_layout=text).label)
         for match in _ENCODED_RUN.finditer(text):
             token = match.group(1)
             decoded = _try_decode(token)
