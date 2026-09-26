@@ -7,7 +7,8 @@ graph ships in); the edge provenance vocabulary is Biolink's ``knowledge_level``
 an algorithm predicting). The second evidence axis, ``study_design``, says *what kind of
 study stands behind it*, and maps onto ``tcm.EvidenceTier``. Keeping the axes apart is
 what stops a network-pharmacology prediction from being filed as a preclinical
-experiment: a prediction is ``in_silico`` and licenses a mechanism hypothesis only.
+experiment: a prediction has a predictive design (``in_silico``, ``docking``, ...) and
+licenses a mechanism hypothesis only.
 
 Rows are plain mappings. ``validate_node`` / ``validate_edge`` return a list of problems
 (empty when the row is sound) rather than raising, so a quality gate can count them.
@@ -63,7 +64,10 @@ AGENT_TYPES: frozenset[str] = frozenset({
 STUDY_DESIGNS: Mapping[str, EvidenceTier | None] = {
     "chemical_analysis": None,
     "evidence_aggregate": None,
-    "in_silico": EvidenceTier.COMPUTATIONAL_PREDICTION,
+    # PSH's PREDICTIVE_DESIGNS: the output of a model, not an observation
+    **{d: EvidenceTier.COMPUTATIONAL_PREDICTION for d in (
+        "in_silico", "network_prediction", "docking", "molecular_dynamics",
+        "target_prediction", "pathway_enrichment")},
     "classical_text": EvidenceTier.CLASSICAL_TEXT,
     "expert_consensus": EvidenceTier.EXPERT_EXPERIENCE,
     "in_vitro": EvidenceTier.PRECLINICAL,
@@ -142,7 +146,7 @@ def validate_edge(row: Mapping[str, Any]) -> list[str]:
     """Structural and evidential soundness of one edge.
 
     Beyond required fields and vocabularies, three rules tie the axes together:
-    a prediction is ``in_silico`` and an ``in_silico`` edge is a prediction; the edge's
+    a prediction has a predictive design and a predictive design is a prediction; the edge's
     ``evidence_tier`` (when given) is the one its design implies; and a design at or above
     PRECLINICAL cites a publication — a study nobody can look up is not evidence.
     """
@@ -170,8 +174,9 @@ def validate_edge(row: Mapping[str, Any]) -> list[str]:
         problems.append("chemical_analysis establishes composition ('contains') only")
     if design == "evidence_aggregate" and predicate != "associated_with":
         problems.append("evidence_aggregate establishes an association ('associated_with') only")
-    if (level == "prediction") != (design == "in_silico"):
-        problems.append("a prediction must be in_silico and an in_silico edge must be a "
+    if (level == "prediction") != (tier is EvidenceTier.COMPUTATIONAL_PREDICTION):
+        problems.append("a prediction must have a predictive design and a predictive "
+                        "design must be a "
                         f"prediction (knowledge_level={level!r}, study_design={design!r})")
     stated = row.get("evidence_tier")
     if not _blank(stated) and str(stated) != (tier.name if tier is not None else ""):

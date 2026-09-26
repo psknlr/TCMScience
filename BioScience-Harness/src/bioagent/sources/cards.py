@@ -26,6 +26,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
+from ..tcm.model import EvidenceTier
 from .schema import AGENT_TYPES, EDGE_PREDICATES, KNOWLEDGE_LEVELS, NODE_CATEGORIES, STUDY_DESIGNS
 
 __all__ = ["ACCESS_MODES", "Access", "EdgeDefault", "Approval", "SourceCard",
@@ -83,8 +84,10 @@ class EdgeDefault:
             problems.append(f"agent_type {self.agent_type!r}")
         if self.study_design not in STUDY_DESIGNS:
             problems.append(f"study_design {self.study_design!r}")
-        if (self.knowledge_level == "prediction") != (self.study_design == "in_silico"):
-            problems.append("a prediction must be in_silico and in_silico must be a prediction")
+        predictive = STUDY_DESIGNS.get(self.study_design) is EvidenceTier.COMPUTATIONAL_PREDICTION
+        if (self.knowledge_level == "prediction") != predictive:
+            problems.append("a prediction must have a predictive design and a predictive "
+                            "design must be a prediction")
         if problems:
             raise SourceCardError("invalid edge default: " + "; ".join(problems))
 

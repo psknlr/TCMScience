@@ -282,6 +282,10 @@ class SkillDirectoryProvider(Provider):
         path = directory / "skill.yaml"
         if not path.is_file():
             return None, ""
+        if re.search(r"(?m)^api_version\s*:", path.read_text(encoding="utf-8",
+                                                             errors="replace")):
+            # a registry manifest (bioagent.skills), compiled by its own loader
+            return None, ""
         try:
             return SkillContract.load(path), ""
         except (SkillContractError, ValueError) as exc:
