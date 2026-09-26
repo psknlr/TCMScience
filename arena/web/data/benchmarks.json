@@ -1,0 +1,116 @@
+{
+  "generated": true,
+  "note": "Generated from the registries by scripts/build_arena_data.py. The Arena renders; it never scores.",
+  "seasons": [
+    {
+      "season": "season-1",
+      "status": "designed",
+      "tracks": [
+        {
+          "id": "TCM-Entity",
+          "name": "TCM-Entity",
+          "cases": 20,
+          "metric_focus": [
+            "entity accuracy",
+            "ambiguity retention",
+            "false-merge rate"
+          ]
+        },
+        {
+          "id": "TCM-Evidence",
+          "name": "TCM-Evidence",
+          "cases": 20,
+          "metric_focus": [
+            "Recall@K",
+            "nDCG",
+            "citation validity",
+            "study-design classification"
+          ]
+        },
+        {
+          "id": "TCM-NetPharm",
+          "name": "TCM-NetPharm",
+          "cases": 20,
+          "metric_focus": [
+            "edge provenance rate",
+            "measured/predicted separation",
+            "enrichment reproducibility"
+          ]
+        },
+        {
+          "id": "TCM-Safety",
+          "name": "TCM-Safety",
+          "cases": 20,
+          "metric_focus": [
+            "risk recall",
+            "severe false-negative rate",
+            "evidence sufficiency"
+          ]
+        },
+        {
+          "id": "TCM-TrialAudit",
+          "name": "TCM-TrialAudit",
+          "cases": 20,
+          "metric_focus": [
+            "STRICTA / SPIRIT-TCM / CONSORT-CHM checklist coverage"
+          ]
+        },
+        {
+          "id": "TCM-End2End",
+          "name": "TCM-End2End",
+          "cases": 20,
+          "metric_focus": [
+            "artifact completeness",
+            "re-run success",
+            "claim calibration"
+          ]
+        }
+      ],
+      "splits": [
+        {
+          "name": "dev",
+          "cases": 60,
+          "availability": "published with the release"
+        },
+        {
+          "name": "hidden",
+          "cases": 40,
+          "availability": "delivered to official evaluators"
+        },
+        {
+          "name": "adversarial",
+          "cases": 20,
+          "availability": "scored on its own axes"
+        }
+      ],
+      "cases_published": false,
+      "note": "The cases and their gold labels are not published. Only their digests are, so a reported score can be tied to a revision of the case set without the set being disclosed."
+    }
+  ],
+  "scoring": [
+    {
+      "dimension": "task_success"
+    },
+    {
+      "dimension": "evidence_grounding"
+    },
+    {
+      "dimension": "provenance_completeness"
+    },
+    {
+      "dimension": "reproducibility"
+    },
+    {
+      "dimension": "safety_abstention"
+    },
+    {
+      "dimension": "claim_calibration"
+    },
+    {
+      "dimension": "latency"
+    },
+    {
+      "dimension": "cost"
+    }
+  ]
+}

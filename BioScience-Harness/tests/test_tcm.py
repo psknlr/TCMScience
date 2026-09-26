@@ -212,7 +212,9 @@ def test_claim_support_matches_the_psh_compiler_design_for_design():
     compiler = pytest.importorskip("psh.workflow.compiler")
     from psh.workflow.ir import ClaimType
     designs = {
-        EvidenceTier.COMPUTATIONAL_PREDICTION: {"in_silico"},
+        EvidenceTier.COMPUTATIONAL_PREDICTION: {"in_silico", "network_prediction", "docking",
+                                                 "molecular_dynamics", "target_prediction",
+                                                 "pathway_enrichment"},
         EvidenceTier.CLASSICAL_TEXT: {"classical_text"},
         EvidenceTier.EXPERT_EXPERIENCE: {"expert_consensus"},
         EvidenceTier.PRECLINICAL: {"in_vitro", "animal"},

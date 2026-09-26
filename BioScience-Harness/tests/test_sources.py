@@ -145,7 +145,7 @@ def test_a_card_states_licence_citation_and_access_in_preference_order():
     with pytest.raises(SourceCardError, match="order"):
         _card(access=(Access("api", "https://example.org/api"),
                       Access("bulk", "https://example.org/dump")))
-    with pytest.raises(SourceCardError, match="in_silico"):
+    with pytest.raises(SourceCardError, match="predictive design"):
         EdgeDefault("targets", "ingredient", "target", "prediction", "computational_model",
                     "in_vitro")
 
