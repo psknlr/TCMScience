@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCMScience · A governed autonomous research agent for Traditional Chinese Medicine</title>
+<meta name="description" content="TCMScience separates a reasoning model from a trusted kernel that decides what may run and releases a scientific claim only when its evidence licenses that kind of claim.">
+<meta property="og:title" content="TCMScience">
+<meta property="og:description" content="The first governed autonomous research agent for Traditional Chinese Medicine.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232d4a7a'/%3E%3Ctext x='32' y='43' font-family='Georgia,serif' font-size='30' font-weight='700' text-anchor='middle' fill='%23fff'%3ET%3C/text%3E%3Ccircle cx='47' cy='18' r='5' fill='%23e0664f'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=Noto+Serif+SC:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<script>
+  // choose the language before first paint: a saved choice, else the browser's
+  (function () {
+    var lang = null;
+    try { lang = localStorage.getItem("tcms-lang"); } catch (e) {}
+    if (lang !== "en" && lang !== "zh") {
+      lang = /^zh\b/i.test(navigator.language || "") ? "zh" : "en";
+    }
+    document.documentElement.lang = lang;
+  })();
+</script>
+</head>
+<body>
+
+<nav class="nav" aria-label="Sections">
+  <a class="brand" href="#top">TCM<span>·</span>Science</a>
+  <div class="links">
+    <a href="#abstract"><span lang="en">Abstract</span><span lang="zh">摘要</span></a>
+    <a href="#results"><span lang="en">Results</span><span lang="zh">结果</span></a>
+    <a href="#governance"><span lang="en">Method</span><span lang="zh">方法</span></a>
+    <a href="#system"><span lang="en">System</span><span lang="zh">系统</span></a>
+    <a href="arena/"><span lang="en">Arena</span><span lang="zh">评测平台</span></a>
+    <a href="#citation"><span lang="en">Cite</span><span lang="zh">引用</span></a>
+  </div>
+  <div class="lang" role="group" aria-label="Language">
+    <button type="button" data-set-lang="en">EN</button>
+    <button type="button" data-set-lang="zh">中文</button>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="eyebrow"><span lang="en">Research software · 2026</span><span lang="zh">科研软件 · 2026</span></div>
+  <h1>TCMScience</h1>
+  <p class="subtitle">
+    <span lang="en">The first governed autonomous research agent for Traditional Chinese Medicine</span>
+    <span lang="zh">全球首个面向中医药与生物医学科学发现的受治理自主科研智能体</span>
+  </p>
+  <p class="motto">
+    <span lang="en">The model may reason. It does not define the laws of the laboratory.</span>
+    <span lang="zh">让语言模型推理，但不让它定义实验室的法则。</span>
+  </p>
+
+  <div class="authors">
+    <span class="a"><span lang="en">Yanlan Kang</span><span lang="zh">康砚澜</span><sup>1,†</sup></span>
+    <span class="a"><span lang="en">Ruiqi Liu</span><span lang="zh">刘瑞琦</span><sup>2,†</sup></span>
+    <span class="a"><span lang="en">Shuai Xu</span><span lang="zh">许帅</span><sup>3,*</sup></span>
+    <span class="a"><span lang="en">Xukun Zhang</span><span lang="zh">张绪坤</span><sup>4,*</sup></span>
+    <span class="a"><a href="https://www.sciopen.com/scholar/info?id=1952658822209773569"><span lang="en">William Cheng-Chung Chu</span><span lang="zh">朱正忠</span></a><sup>5,*</sup></span>
+  </div>
+  <div class="affil">
+    <span><sup>1</sup><span lang="en">Institute of Medical Philosophy &amp; Future AI (IMPF-AI)</span><span lang="zh">医学哲学与未来人工智能研究所</span></span>
+    <span><sup>2</sup><span lang="en">Shanghai Medical College, Fudan University</span><span lang="zh">复旦大学上海医学院</span></span>
+    <span><sup>3</sup><span lang="en">Shanghai Ziranerran Traditional Chinese Medicine Foundation</span><span lang="zh">上海自然尔然中医药基金会</span></span>
+    <span><sup>4</sup><span lang="en">Li Ka Shing Faculty of Medicine, The University of Hong Kong</span><span lang="zh">香港大学李嘉诚医学院</span></span>
+    <span><sup>5</sup><span lang="en">Fuyao University of Science and Technology</span><span lang="zh">福耀科技大学</span></span>
+  </div>
+  <div class="note"><sup>†</sup><span lang="en">Equal contribution</span><span lang="zh">同等贡献</span> &nbsp; <sup>*</sup><span lang="en">Co-corresponding authors</span><span lang="zh">共同通讯作者</span></div>
+
+  <div class="buttons">
+    <span class="btn disabled" title="The manuscript is in preparation">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l5 5v15H6zm8 1.5V8h4.5z"/></svg>
+      <span lang="en">Paper · in preparation</span><span lang="zh">论文 · 撰写中</span>
+    </span>
+    <a class="btn" href="https://github.com/psknlr/TCMScience">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.6 6 3 12l5.6 6 1.4-1.4L5.8 12 10 7.4zm6.8 0L14 7.4l4.2 4.6-4.2 4.6 1.4 1.4L21 12z"/></svg>
+      <span lang="en">Code</span><span lang="zh">代码</span>
+    </a>
+    <a class="btn ghost" href="arena/">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/></svg>
+      Arena
+    </a>
+    <a class="btn ghost" href="https://github.com/psknlr/TCMScience/blob/main/BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11a3 3 0 0 1 3 3v15H8a3 3 0 0 1-3-3zm2 15a1 1 0 0 0 1 1h9v-2H8a1 1 0 0 0-1 1z"/></svg>
+      <span lang="en">Design spec</span><span lang="zh">设计规范</span>
+    </a>
+    <a class="btn ghost" href="#citation">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h5l2-4V6H4v8h3zm9 0h5l2-4V6h-7v8h3z"/></svg>
+      <span lang="en">Cite</span><span lang="zh">引用</span>
+    </a>
+  </div>
+</header>
+
+<section style="padding-top:20px">
+  <div class="wrap">
+    <figure class="figure">
+      <div class="scroll"><img src="assets/fig/overview.svg" alt="TCMScience architecture: a governance layer constrains a trusted kernel, which reaches the capability plane only through a gateway and releases results only through a verification gate into a hash-chained audit."></div>
+      <div class="swipe" aria-hidden="true"><span lang="en">swipe to see the whole figure →</span><span lang="zh">左右滑动查看完整图 →</span></div>
+      <figcaption>
+        <b><span lang="en">Figure 1.</span><span lang="zh">图 1.</span></b>
+        <span lang="en">Three planes and one boundary. The model plans inside the trusted kernel; it reaches data and tools only through the gateway, and a claim leaves only through the release gate. The governance layer constrains the kernel from above and never executes anything itself.</span>
+        <span lang="zh">三个平面，一道边界。模型在可信内核中规划；它只能经由网关接触数据和工具，主张只能经由发布门离开。治理层从上方约束内核，自身从不执行任何东西。</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="abstract">
+  <div class="narrow abstract">
+    <div class="kicker"><span lang="en">Abstract</span><span lang="zh">摘要</span></div>
+    <p lang="en">Chinese medicine rests on evidence of very different kinds: a <em>Shanghan Lun</em> passage, a pharmacopoeia entry, a docking score, a cell assay, a randomized trial. A language-model agent that treats them all as "evidence text" will, sooner or later, present a classical record as a clinical finding or a network prediction as a mechanism. <strong>TCMScience</strong> makes that failure impossible to express rather than merely discouraged. The model plans and reasons; a separate <strong>trusted kernel</strong> decides what it may run, labels every datum at entry, and releases a scientific claim only when the evidence behind it <em>licenses</em> that kind of claim. Every dataset the agent reads is a <strong>content-hashed snapshot</strong> recorded in a hash-chained ledger, so each result names the exact data it came from. Applied to the classical formula 葛根芩连汤, the system reproduces the standard network-pharmacology result and then shows it to be an artefact of which proteins had been assayed. What survives is a cytochrome P450 inhibition signal that bears on herb–drug interactions rather than on efficacy.</p>
+    <p lang="zh">中医药的证据种类差异极大：一段《伤寒论》条文、一条药典记载、一个对接分数、一次细胞实验、一项随机对照试验。把它们一律当作「证据文本」的语言模型智能体，迟早会把古籍记载说成临床发现，把网络预测说成作用机制。<strong>TCMScience</strong> 的做法是让这种错误<strong>无法表达</strong>，而不是靠提示词劝阻。模型负责规划和推理；独立的<strong>可信内核</strong>决定它能运行什么，在入口给每条数据打标签，并且只有当证据足以<em>支撑</em>某类主张时，才放行这条科学主张。智能体读取的每个数据集都是<strong>内容哈希快照</strong>，记录在哈希链账本中，因此每个结果都能指明它来自哪一份数据。用于经典方剂葛根芩连汤时，系统复现了常见的网络药理学结论，随后证明它是「哪些蛋白被检测过」造成的假象。剩下的是一个细胞色素 P450 抑制信号：它关乎中药—药物相互作用，而不是疗效。</p>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="highlights">
+  <div class="wrap">
+    <div class="kicker"><span lang="en">Contributions</span><span lang="zh">主要贡献</span></div>
+    <h2><span lang="en">Four things that are checked, not promised</span><span lang="zh">四条可以逐条核对的主张</span></h2>
+    <p class="lede"><span lang="en">Each is enforced by code and covered by tests; none depends on the model behaving.</span><span lang="zh">每一条都由代码强制执行、由测试覆盖，不依赖模型「守规矩」。</span></p>
+    <div class="grid4">
+      <div class="card">
+        <div class="n">01</div>
+        <h3><span lang="en">Evidence kinds are types, not grades</span><span lang="zh">证据种类是类型，不是等级</span></h3>
+        <p><span lang="en">The study design is stored; the tier is derived from it.</span><span lang="zh">存储的是研究设计，证据等级由它推导。</span></p>
+        <p class="prevents"><span lang="en">Prevents a classical record being read as clinical evidence.</span><span lang="zh">防止把古籍记载当成临床证据。</span></p>
+      </div>
+      <div class="card">
+        <div class="n">02</div>
+        <h3><span lang="en">A prediction cannot become a fact</span><span lang="zh">计算预测无法变成事实</span></h3>
+        <p><span lang="en">Predictive designs license a mechanism hypothesis and nothing stronger, in the kernel's own table.</span><span lang="zh">在内核的主张—支撑表中，预测性设计只能支撑机制假说。</span></p>
+        <p class="prevents"><span lang="en">Prevents network pharmacology reported as "the mechanism".</span><span lang="zh">防止把网络药理学写成「作用机制」。</span></p>
+      </div>
+      <div class="card">
+        <div class="n">03</div>
+        <h3><span lang="en">Data enter as audited snapshots</span><span lang="zh">数据以可审计快照进入</span></h3>
+        <p><span lang="en">Parse, gate, hash, ledger — each source under a card with its licence and access terms.</span><span lang="zh">解析、质量门、哈希、账本；每个数据源都有写明许可与访问条件的卡片。</span></p>
+        <p class="prevents"><span lang="en">Prevents results that cannot name their data.</span><span lang="zh">防止结果说不清来自哪份数据。</span></p>
+      </div>
+      <div class="card">
+        <div class="n">04</div>
+        <h3><span lang="en">Independent version axes</span><span lang="zh">独立的版本轴</span></h3>
+        <p><span lang="en">Skills, sources and benchmarks version separately; a monthly update may discover a skill, never promote it.</span><span lang="zh">Skill、数据源、基准各自版本化；月度更新能发现 Skill，不能让它上线。</span></p>
+        <p class="prevents"><span lang="en">Prevents incomparable scores and unreviewed skills going live.</span><span lang="zh">防止分数不可比、未审查的 Skill 上线。</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="results">
+  <div class="wrap">
+    <div class="kicker"><span lang="en">Case study</span><span lang="zh">案例研究</span></div>
+    <h2><span lang="en">葛根芩连汤, analysed end to end</span><span lang="zh">葛根芩连汤：完整分析</span></h2>
+    <p class="lede">
+      <span lang="en">葛根, 黄芩, 黄连 and 甘草 as the <em>Shanghan Lun</em> records them; composition from NPASS, CMAUP and LOTUS, activity from curated measurements and PubChem BioAssay, biology from Reactome and STRING, the indication from Open Targets. All four marker compounds are recovered in all three composition sources.</span>
+      <span lang="zh">按《伤寒论》记载的葛根、黄芩、黄连、甘草；组成来自 NPASS、CMAUP、LOTUS，活性来自整理的实测数据与 PubChem BioAssay，生物学来自 Reactome 与 STRING，适应症来自 Open Targets。四味药的标志成分在三个组成数据源中全部找到。</span>
+    </p>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="v">66<span class="arrow">→</span><span class="hot">0</span></div>
+        <div class="l"><span lang="en">enriched pathways once the background is the proteins actually assayed</span><span lang="zh">以「实际被检测过的蛋白」为背景后，显著富集的通路数</span></div>
+      </div>
+      <div class="stat">
+        <div class="v">136<span class="arrow">/</span>205</div>
+        <div class="l"><span lang="en">constituents active on CYP1A2 in uniform screens: a herb–drug interaction signal</span><span lang="zh">在统一筛选中对 CYP1A2 有活性的成分：中药—药物相互作用信号</span></div>
+      </div>
+      <div class="stat">
+        <div class="v">0.95<span class="arrow">vs</span><span class="hot">5.34</span></div>
+        <div class="l"><span lang="en">fold enrichment for type 2 diabetes genes defined genetically vs by literature (circular)</span><span lang="zh">2 型糖尿病基因按遗传证据与按文献（循环）定义时的富集倍数</span></div>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div>
+        <div class="tag">Finding 1</div>
+        <h3><span lang="en">The usual enrichment is explained by assay coverage</span><span lang="zh">常见的富集结论可以用检测覆盖解释</span></h3>
+      </div>
+      <div class="body">
+        <p><span lang="en">1,792 constituents; 391 human proteins with a measured potency, 237 of them at ≤ 10 µM. Pathways must pass Benjamini–Hochberg and a degree-matched permutation null.</span><span lang="zh">1,792 个成分；391 个人类蛋白有实测效价，其中 237 个 ≤ 10 µM。通路须同时通过 BH 校正与度匹配置换零分布。</span></p>
+        <div class="tablewrap"><table>
+          <thead><tr><th><span lang="en">Background</span><span lang="zh">背景</span></th><th class="num"><span lang="en">Proteins</span><span lang="zh">蛋白</span></th><th class="num"><span lang="en">Pathways tested</span><span lang="zh">检验通路</span></th><th class="num"><span lang="en">Significant</span><span lang="zh">显著</span></th></tr></thead>
+          <tbody>
+            <tr><td><span lang="en">Whole human Reactome annotation (common practice)</span><span lang="zh">全部人类 Reactome 注释（常见做法）</span></td><td class="num">12,155</td><td class="num">1,684</td><td class="num">66</td></tr>
+            <tr class="emph"><td><span lang="en">Proteins actually assayed (default)</span><span lang="zh">实际被检测过的蛋白（默认）</span></td><td class="num">391</td><td class="num">959</td><td class="num"><strong>0</strong></td></tr>
+          </tbody>
+        </table></div>
+        <p><span lang="en">All 12 carbonic-anhydrase-pathway proteins had been assayed and 11 were hits: the pathways looked enriched because they had been tested. The assayed background has little power in turn — 61 % of assayed proteins are recorded as hits, because databases rarely keep inactive results.</span><span lang="zh">「二氧化碳可逆水合」通路的 12 个蛋白全都被测过，其中 11 个命中：这些通路显得显著，是因为被测过。「实测背景」本身功效也很低：61% 的被测蛋白被记为命中，因为数据库很少收录阴性结果。</span></p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div>
+        <div class="tag">Finding 2</div>
+        <h3><span lang="en">With inactive results included, one signal remains</span><span lang="zh">纳入阴性结果后，只剩一个信号</span></h3>
+      </div>
+      <div class="body">
+        <p><span lang="en">PubChem BioAssay adds 143,702 results — 10,710 active and <strong>132,992 inactive</strong>. On 116 proteins tested against ≥ 20 constituents (12,579 tests, 8.6 % active), the pathways that pass are cytochrome P450 pathways (q = 0.023–0.026, 10,000 permutations), as at ≥ 50 constituents (q = 0.017). They rest on <strong>CYP1A2</strong> (136 of 205 constituents active) and <strong>CYP2C9</strong> (78 of 206) in uniform Tox21 panels.</span><span lang="zh">PubChem BioAssay 提供 143,702 条检测结果，其中 10,710 条有活性、<strong>132,992 条无活性</strong>。在测过 ≥ 20 个成分的 116 个蛋白上（12,579 次检测，8.6% 有活性），通过检验的是细胞色素 P450 通路（10,000 次置换，q = 0.023–0.026）；阈值为 ≥ 50 时同样如此（q = 0.017）。信号来自 Tox21 等统一面板中的 <strong>CYP1A2</strong>（205 个成分中 136 个有活性）和 <strong>CYP2C9</strong>（206 个中 78 个）。</span></p>
+        <p><span lang="en">This is a <strong>herb–drug interaction signal</strong>, not evidence for a mechanism of action. At the loosest threshold (≥ 10) a carbonic-anhydrase pathway passes instead, carried by small literature sets chosen for their actives.</span><span lang="zh">这是<strong>中药—药物相互作用信号</strong>，不是作用机制的证据。阈值放宽到 ≥ 10 时，通过的变成碳酸酐酶通路，那是少量按阳性挑选的文献检测造成的。</span></p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div>
+        <div class="tag">Finding 3</div>
+        <h3><span lang="en">The disease overlap depends on how the disease is defined</span><span lang="zh">与疾病的重叠取决于疾病基因的定义</span></h3>
+      </div>
+      <div class="body">
+        <div class="tablewrap"><table>
+          <thead><tr><th><span lang="en">Type 2 diabetes gene set (Open Targets 26.06)</span><span lang="zh">2 型糖尿病基因集（Open Targets 26.06）</span></th><th class="num"><span lang="en">Overlap</span><span lang="zh">重叠</span></th><th class="num"><span lang="en">Fold</span><span lang="zh">倍数</span></th><th class="num">p</th></tr></thead>
+          <tbody>
+            <tr><td><span lang="en">Human genetic association, score ≥ 0.5 (default)</span><span lang="zh">人类遗传关联，分数 ≥ 0.5（默认）</span></td><td class="num">9</td><td class="num">0.95</td><td class="num">0.61</td></tr>
+            <tr class="emph"><td><span lang="en">Literature co-mention, score ≥ 0.5</span><span lang="zh">文献共现，分数 ≥ 0.5</span></td><td class="num">58</td><td class="num">5.34</td><td class="num">7.7 × 10<sup>−27</sup></td></tr>
+          </tbody>
+        </table></div>
+        <p><span lang="en">The literature-defined enrichment is circular: compound–target data and text mining study the same well-known proteins. The pipeline therefore defaults to genetic evidence and warns whenever literature is chosen.</span><span lang="zh">用文献定义得到的富集是循环论证：成分—靶点数据和文本挖掘研究的是同一批热门蛋白。因此流程默认使用遗传证据，选用文献时会给出警告。</span></p>
+        <p><a href="https://github.com/psknlr/TCMScience/blob/main/BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md"><span lang="en">Full methods, sensitivity analyses and limitations →</span><span lang="zh">完整方法、敏感性分析与局限 →</span></a></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="governance">
+  <div class="wrap">
+    <div class="kicker"><span lang="en">Method</span><span lang="zh">方法</span></div>
+    <h2><span lang="en">Which evidence licenses which claim</span><span lang="zh">什么证据能支撑什么主张</span></h2>
+    <p class="lede"><span lang="en">The figure is drawn from the table the kernel enforces, so it cannot disagree with the code.</span><span lang="zh">这张图直接由内核强制执行的表生成，因此不可能与代码不一致。</span></p>
+    <figure class="figure matrix">
+      <div class="scroll"><img src="assets/fig/licensing.svg" alt="Matrix of study designs against claim kinds; the six predictive designs license only a mechanism hypothesis."></div>
+      <div class="swipe" aria-hidden="true"><span lang="en">swipe to see the whole figure →</span><span lang="zh">左右滑动查看完整图 →</span></div>
+      <figcaption>
+        <b><span lang="en">Figure 2.</span><span lang="zh">图 2.</span></b>
+        <span lang="en">Study designs (rows) against claim kinds (columns), from <code>psh.workflow.compiler._SUPPORTS</code>. Six predictive designs — docking, network and target prediction, pathway enrichment, molecular dynamics, other in-silico work — license a mechanism hypothesis and nothing stronger.</span>
+        <span lang="zh">研究设计（行）与主张类型（列），取自 <code>psh.workflow.compiler._SUPPORTS</code>。六种预测性设计（分子对接、网络与靶点预测、通路富集、分子动力学及其他计算方法）只能支撑机制假说。</span>
+      </figcaption>
+    </figure>
+    <div class="steps">
+      <div class="step">
+        <div class="k"><span lang="en">At compile time</span><span lang="zh">编译时</span></div>
+        <p><span lang="en">A skill whose steps cannot license its declared claim kind is rejected (<code>EVIDENCE103</code>).</span><span lang="zh">步骤支撑不了所声明主张类型的 Skill 被拒绝（<code>EVIDENCE103</code>）。</span></p>
+      </div>
+      <div class="step">
+        <div class="k"><span lang="en">At the claim</span><span lang="zh">主张检查时</span></div>
+        <p><span lang="en">Every cited item must license the claim kind — the weakest link decides (<code>CLM005</code>).</span><span lang="zh">引用的每一条证据都必须能支撑该主张，由最弱一环决定（<code>CLM005</code>）。</span></p>
+      </div>
+      <div class="step">
+        <div class="k"><span lang="en">At release</span><span lang="zh">发布前</span></div>
+        <p><span lang="en">Every edge of the claim's path must exist in a verified snapshot; the strongest kind the path supports is recorded with the reason it stops there.</span><span lang="zh">主张路径上的每条边都必须存在于已校验的快照中；同时记录该路径最多能支撑哪类主张，以及为什么停在这里。</span></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="system">
+  <div class="wrap">
+    <div class="kicker"><span lang="en">System</span><span lang="zh">系统</span></div>
+    <h2><span lang="en">Skills and sources</span><span lang="zh">Skill 与数据源</span></h2>
+    <p class="lede"><span lang="en">Every skill states what it refuses to do. Every source has a card; web access is off unless a person approved it, and a skill can narrow its sources but never widen them.</span><span lang="zh">每个 Skill 都写明它拒绝做什么。每个数据源都有卡片；网页访问默认关闭、需人工批准，Skill 只能缩小可用数据源，不能扩大。</span></p>
+    <div class="two">
+      <div class="tablewrap"><table>
+        <thead><tr><th>Skill</th><th><span lang="en">Refuses to</span><span lang="zh">拒绝</span></th></tr></thead>
+        <tbody>
+          <tr><td><code>normalize-tcm-entities</code></td><td><span lang="en">choose when a name is ambiguous (「姜」: 生姜 or 干姜)</span><span lang="zh">在名称有歧义时替你选（「姜」：生姜还是干姜）</span></td></tr>
+          <tr><td><code>retrieve-tcm-evidence</code></td><td><span lang="en">read an empty result as "no effect"</span><span lang="zh">把空结果当成「无效」</span></td></tr>
+          <tr><td><code>analyze-tcm-network-pharmacology</code></td><td><span lang="en">merge predicted and measured targets</span><span lang="zh">合并预测靶点与实测靶点</span></td></tr>
+          <tr><td><code>assess-tcm-safety</code></td><td><span lang="en">answer "safe" — no record is not safety</span><span lang="zh">回答「安全」：没有记录不等于安全</span></td></tr>
+          <tr><td><code>tcm.network-pharmacology</code></td><td><span lang="en">report enrichment without its controls</span><span lang="zh">不带对照地报告富集</span></td></tr>
+        </tbody>
+      </table></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th><span lang="en">Source</span><span lang="zh">数据源</span></th><th><span lang="en">Provides</span><span lang="zh">提供</span></th><th><span lang="en">Licence</span><span lang="zh">许可</span></th></tr></thead>
+        <tbody>
+          <tr><td>NPASS 2.0 · CMAUP 2.0</td><td><span lang="en">composition, activity</span><span lang="zh">组成、活性</span></td><td><span lang="en">academic</span><span lang="zh">学术免费</span></td></tr>
+          <tr><td>LOTUS</td><td><span lang="en">composition</span><span lang="zh">组成</span></td><td>CC BY 4.0</td></tr>
+          <tr><td>BindingDB</td><td><span lang="en">measured binding</span><span lang="zh">实测结合</span></td><td>CC BY 4.0</td></tr>
+          <tr><td>PubChem BioAssay</td><td><span lang="en">screens, inactives included</span><span lang="zh">筛选，含阴性</span></td><td><span lang="en">NCBI policy</span><span lang="zh">NCBI 政策</span></td></tr>
+          <tr><td>STRING v12</td><td><span lang="en">protein associations</span><span lang="zh">蛋白关联</span></td><td>CC BY 4.0</td></tr>
+          <tr><td>Reactome</td><td><span lang="en">pathways</span><span lang="zh">通路</span></td><td>CC0</td></tr>
+          <tr><td>Open Targets 26.06</td><td><span lang="en">target–disease</span><span lang="zh">靶点—疾病</span></td><td>CC0</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="callout" style="margin-top:36px">
+      <div>
+        <h3>TCMScience Arena</h3>
+        <p><span lang="en">A read-only evaluation site: six tracks, eight dimensions always shown decomposed, and runs stopped by a hard gate kept visible. It renders results and never computes a score, so changing the site cannot change a result.</span><span lang="zh">只读评测站点：六个赛道，八个维度始终分项展示，被硬门槛拦下的运行仍然可见。它只渲染结果、从不计算分数，所以改动站点也改不了结果。</span></p>
+      </div>
+      <a class="btn" href="arena/"><span lang="en">Open the Arena</span><span lang="zh">进入评测平台</span> →</a>
+    </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="start">
+  <div class="wrap two">
+    <div>
+      <div class="kicker"><span lang="en">Quick start</span><span lang="zh">快速开始</span></div>
+      <h2><span lang="en">Thirty seconds, no install</span><span lang="zh">30 秒，无需安装</span></h2>
+      <p class="lede"><span lang="en">No configuration, no API key, no network.</span><span lang="zh">无需配置、API key，也不联网。</span></p>
+<pre><code>git clone https://github.com/psknlr/TCMScience
+cd TCMScience/BioScience-Harness
+python examples/run_skills.py
+<span class="c"># … 5/5 artifacts passed the publication gate</span></code></pre>
+<pre><code>pip install -e "PSH-Harness[test]"
+pip install -e "BioScience-Harness[dev]"</code></pre>
+    </div>
+    <div>
+      <div class="kicker"><span lang="en">What we do not claim</span><span lang="zh">我们不声称什么</span></div>
+      <h2><span lang="en">Stated limits</span><span lang="zh">明确的边界</span></h2>
+      <ul class="plain">
+        <li><span lang="en">No general immunity to prompt injection, no certification-grade de-identification, no tamper-proof execution environment.</span><span lang="zh">不声称对提示注入有通用免疫力、不声称认证级去标识化、不声称执行环境不可篡改。</span></li>
+        <li><span lang="en">In-process components are not isolated; the bundled sandbox backend is a no-op and says so.</span><span lang="zh">进程内组件没有隔离；随包的沙箱后端是空实现，并且它自己这么说。</span></li>
+        <li><span lang="en">The audit chain is tamper-evident, not tamper-proof.</span><span lang="zh">审计链能察觉篡改，不能防止篡改。</span></li>
+        <li><span lang="en">Every analytic result carries its limitations; not significant is not irrelevant.</span><span lang="zh">每个分析结果都附有局限说明；「不显著」不等于「无关」。</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="citation">
+  <div class="narrow">
+    <div class="kicker"><span lang="en">Citation</span><span lang="zh">引用</span></div>
+    <h2>BibTeX</h2>
+    <div class="cite">
+      <button class="copy" type="button" data-copy="#bibtex"><span lang="en">Copy</span><span lang="zh">复制</span></button>
+<pre id="bibtex"><code>@software{kang2026tcmscience,
+  title  = {TCMScience: A Governed Autonomous Research Agent
+            for Traditional Chinese Medicine},
+  author = {Kang, Yanlan and Liu, Ruiqi and Xu, Shuai and
+            Zhang, Xukun and Chu, William Cheng-Chung},
+  year   = {2026},
+  url    = {https://github.com/psknlr/TCMScience},
+  note   = {Open-source research software}
+}</code></pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="motto">从经典知识到可验证证据</div>
+  <div><em>From classical knowledge to testable evidence.</em></div>
+  <div style="margin-top:14px">
+    <span lang="en">Released under the MIT License. Upstream data keep their own licences.</span><span lang="zh">以 MIT 许可证发布。上游数据保留各自的许可。</span>
+    · <a href="https://github.com/psknlr/TCMScience">GitHub</a>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    function sync() {
+      document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+        b.setAttribute("aria-pressed", String(b.getAttribute("data-set-lang") === root.lang));
+      });
+    }
+    document.querySelectorAll("[data-set-lang]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        root.lang = b.getAttribute("data-set-lang");
+        try { localStorage.setItem("tcms-lang", root.lang); } catch (e) {}
+        sync();
+      });
+    });
+    sync();
+    document.querySelectorAll("[data-copy]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var text = document.querySelector(b.getAttribute("data-copy")).innerText;
+        var done = function () {
+          var old = b.innerHTML; b.textContent = root.lang === "zh" ? "已复制" : "Copied";
+          setTimeout(function () { b.innerHTML = old; }, 1400);
+        };
+        if (navigator.clipboard) { navigator.clipboard.writeText(text).then(done, function () {}); }
+      });
+    });
+  })();
+</script>
+</body>
+</html>
