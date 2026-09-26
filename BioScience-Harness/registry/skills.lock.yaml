@@ -11,7 +11,7 @@ skills:
   composite_id: analyze-tcm-network-pharmacology@1.1.0
   source_repo: ''
   source_commit: ''
-  content_hash: cba5c309616decee7770c05c3d5823a15175312671168facc57ae9558f0345b9
+  content_hash: a1fb37de6354f866647c6abee0b7ea2a5baaa2c29d4a4097abe8c8a428091014
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -30,7 +30,7 @@ skills:
   composite_id: assess-tcm-safety@1.0.0
   source_repo: ''
   source_commit: ''
-  content_hash: dd5cc3c8d7f9a8dc949b36caa412491bded61478b42136fd564ec04ac83a18a9
+  content_hash: 28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -49,7 +49,7 @@ skills:
   composite_id: normalize-tcm-entities@1.0.0
   source_repo: ''
   source_commit: ''
-  content_hash: 309cb918105537ec126146ef4ccef574f242431757dbe3ad3624fcac85213d93
+  content_hash: a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084
   license: MIT
   integration_mode: native
   allowed_hosts: []
@@ -68,7 +68,7 @@ skills:
   composite_id: retrieve-tcm-evidence@1.1.0
   source_repo: ''
   source_commit: ''
-  content_hash: 5dbeca536e27e8880abaf3b6fdf82275d7854f421a3a2eb51d976d5c4f2d8693
+  content_hash: 601176de9cfbada1b1bf22001746d3c7e0fc4a891cca1b3d4e37b81856f749a0
   license: MIT
   integration_mode: native
   allowed_hosts: []

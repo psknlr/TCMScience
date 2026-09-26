@@ -4,6 +4,8 @@
     python -m bioagent.cli fetchable
     python -m bioagent.cli sources
     python -m bioagent.cli doctor [--json] [--smoke]
+    python -m bioagent.cli skills [--dir skills/tcm]
+    python -m bioagent.cli skill <id> --arg name=value [--dir skills/tcm] [--json]
 """
 
 from __future__ import annotations
@@ -23,23 +25,11 @@ def _registry() -> ComponentRegistry:
 
 
 def _skill_callables() -> dict:
-    """The P0 skills, by id.
+    """The P0 skills, by id. Defined in :mod:`bioagent.governed`, which cross-checks
+    each against its manifest on every run."""
+    from .governed import skill_callables
 
-    Built here rather than discovered by introspection so that adding a skill is
-    a deliberate edit. An introspected registry would silently pick up a helper
-    that happened to match a naming pattern, and the manifest is the authority
-    on what is a skill — this table is the one place implementation and manifest
-    are joined, and `skills`/`skill` cross-check it against the lockfile.
-    """
-    from .skills.p0 import (analyze_tcm_network_pharmacology, assess_tcm_safety,
-                            normalize_tcm_entities, retrieve_tcm_evidence)
-
-    return {
-        "normalize-tcm-entities": normalize_tcm_entities,
-        "retrieve-tcm-evidence": retrieve_tcm_evidence,
-        "analyze-tcm-network-pharmacology": analyze_tcm_network_pharmacology,
-        "assess-tcm-safety": assess_tcm_safety,
-    }
+    return skill_callables()
 
 
 def _cmd_skills(a) -> int:
@@ -90,16 +80,18 @@ def _cmd_skills(a) -> int:
 
 
 def _cmd_skill(a) -> int:
-    """Run a single skill and report what it produced.
+    """Run a single skill through the governed path and report what it produced.
 
-    The artifact is validated before it is reported, so a skill that produced
-    something unpublishable says so here rather than downstream — which is the
-    whole point of the contract layer, and the first thing a new user should see
-    working.
+    Everything goes through :func:`bioagent.governed.run_governed`: the manifest is
+    read from ``--dir`` (a missing directory is refused, not ignored), its
+    entrypoint and lock pin are checked, the run is recorded in a PSH audit chain,
+    and the artifact is verified — receipts, outputs and attestation — before the
+    verdict is printed. The exit code is 0 only when release is authorised.
     """
+    import inspect
     import json as _json
 
-    from .contracts import validate_artifact
+    from .governed import GovernedRunRefused, coerce_arguments, run_governed
 
     callables = _skill_callables()
     fn = callables.get(a.skill_id)
@@ -108,22 +100,17 @@ def _cmd_skill(a) -> int:
         print(f"  available: {', '.join(sorted(callables))}", file=sys.stderr)
         return 2
 
-    kwargs: dict = {}
+    raw: dict[str, str] = {}
     for item in a.arg:
         if "=" not in item:
             print(f"--arg {item!r} must be name=value", file=sys.stderr)
             return 2
         name, _, value = item.partition("=")
-        # A comma-separated list is the only structure worth supporting here;
-        # anything richer belongs in the Python API, and guessing at more would
-        # make the CLI a parser for a language nobody specified.
-        kwargs[name.strip()] = ([v.strip() for v in value.split(",")] if "," in value
-                                else value.strip())
+        raw[name.strip()] = value
 
-    import inspect
     signature = inspect.signature(fn)
     first = next(iter(signature.parameters))
-    if first not in kwargs:
+    if first not in raw:
         # Each skill names its subject differently (`names`, `subject`,
         # `formula_name`). Rather than guess, report the expected shape.
         print(f"skill {a.skill_id!r} needs --arg {first}=<value>", file=sys.stderr)
@@ -131,34 +118,50 @@ def _cmd_skill(a) -> int:
         return 2
 
     try:
-        artifact = fn(**kwargs)
+        kwargs = coerce_arguments(fn, raw)
+        run = run_governed(a.skill_id, kwargs, skill_dir=a.dir,
+                           state_dir=a.state_dir or None,
+                           output_dir=a.out_dir or None,
+                           lockfile=a.lockfile or None)
+    except GovernedRunRefused as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:                                  # noqa: BLE001
         print(f"skill failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 
-    verdict = validate_artifact(artifact)
+    artifact, verdict = run.artifact, run.verdict
+    code = 0 if verdict.release_authorized else 1
     if a.json or a.out:
         payload = artifact.document()
         payload["validation"] = verdict.as_dict()
+        payload["governed"] = {"audit_head": run.audit_head, "state_dir": run.state_dir,
+                               "output_dir": run.output_dir,
+                               "skill_content_hash": run.content_hash}
         text = _json.dumps(payload, indent=2, ensure_ascii=False, default=str)
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
             print(f"wrote {a.out}")
         else:
             print(text)
-        return 0 if verdict.publishable else 1
+        return code
 
-    print(f"{artifact.skill_id}@{artifact.skill_version}")
+    print(f"{artifact.skill_id}@{artifact.skill_version}   [{run.content_hash[:12]}]")
     print(f"  question:   {artifact.question}")
     print(f"  versions:   {artifact.composite_version_string}")
     print(f"  sources:    {len(artifact.sources)}"
           f"   evidence: {len(artifact.evidence)}"
           f"   claims: {len(artifact.claims)}"
-          f"   outputs: {len(artifact.outputs)}")
+          f"   outputs: {len(artifact.outputs)} -> {run.output_dir}")
     print(f"  validation: {'publishable' if verdict.publishable else 'REFUSED'}")
+    for state, ok in verdict.states.items():
+        print(f"      {'✓' if ok else '✗'} {state}")
+    print(f"  audit head: {run.audit_head[:16]}…  ({run.state_dir})")
     if not verdict.publishable:
         for violation in verdict.violations:
             print(f"      {violation}")
+    for note in verdict.unverified:
+        print(f"      unverified: {note}")
     for claim in artifact.claims:
         print(f"  claim [{claim.claim_kind}] {claim.text[:80]}")
     print(f"  limitations ({len(artifact.limitations)}):")
@@ -166,7 +169,7 @@ def _cmd_skill(a) -> int:
         print(f"      - {limit[:88]}")
     if len(artifact.limitations) > 4:
         print(f"      (+{len(artifact.limitations) - 4} more)")
-    return 0 if verdict.publishable else 1
+    return code
 
 
 def _cmd_scout(a) -> int:
@@ -313,7 +316,15 @@ def main(argv: list[str] | None = None) -> int:
 
     sr = sub.add_parser("skill", help="run one skill and show what it produced")
     sr.add_argument("skill_id", help="skill id, e.g. normalize-tcm-entities")
-    sr.add_argument("--dir", default="skills/tcm")
+    sr.add_argument("--dir", default="skills/tcm",
+                    help="where the skill manifests live; the skill must be here")
+    sr.add_argument("--lockfile", default="",
+                    help="pin to check against (default: registry/skills.lock.yaml "
+                         "found above --dir)")
+    sr.add_argument("--state-dir", default="",
+                    help="PSH state directory holding the audit chain (default: temporary)")
+    sr.add_argument("--out-dir", default="",
+                    help="where to write the declared outputs (default: temporary)")
     sr.add_argument("--arg", action="append", default=[],
                     help="a skill argument, as name=value; repeatable")
     sr.add_argument("--out", default="", help="write the artifact JSON here")

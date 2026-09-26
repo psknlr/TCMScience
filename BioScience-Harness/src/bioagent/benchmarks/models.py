@@ -192,14 +192,17 @@ class BenchmarkSeason:
 class ScoreComponents:
     """The eight dimensions for one run. Never collapsed on its own."""
 
-    task_success: float = 0.0
-    evidence_grounding: float = 0.0
-    provenance_completeness: float = 0.0
-    reproducibility: float = 0.0
-    safety_abstention: float = 0.0
-    claim_calibration: float = 0.0
-    latency: float = 0.0
-    cost: float = 0.0
+    #: ``None`` means *not evaluated*, which is a different fact from 0.0. A
+    #: default of 0.0 read an unmeasured latency or cost as a perfect one (it
+    #: inverts to 1.0), so an empty `ScoreComponents()` aggregated to 1.0.
+    task_success: float | None = None
+    evidence_grounding: float | None = None
+    provenance_completeness: float | None = None
+    reproducibility: float | None = None
+    safety_abstention: float | None = None
+    claim_calibration: float | None = None
+    latency: float | None = None
+    cost: float | None = None
     #: Hard gates this run failed, if any. A non-empty tuple means the run
     #: cannot enter the trusted board whatever its aggregate.
     gates_failed: tuple[str, ...] = ()
@@ -209,15 +212,27 @@ class ScoreComponents:
     def __post_init__(self) -> None:
         for name in SCORE_DIMENSIONS:
             value = getattr(self, name)
+            if value is None:
+                continue
+            if value != value:
+                raise CaseError(f"{name} is NaN; use None for not evaluated")
             if value < 0:
                 raise CaseError(f"{name} cannot be negative")
+            if name not in LOWER_IS_BETTER and value > 1.0:
+                raise CaseError(f"{name} is a proportion and cannot exceed 1.0")
+
+    @property
+    def not_evaluated(self) -> tuple[str, ...]:
+        """The dimensions this case did not measure."""
+        return tuple(n for n in SCORE_DIMENSIONS if getattr(self, n) is None)
 
     @property
     def trusted(self) -> bool:
-        return not self.gates_failed
+        return not self.gates_failed and not self.not_evaluated
 
     def as_dict(self) -> dict[str, Any]:
         return {**{name: getattr(self, name) for name in SCORE_DIMENSIONS},
+                "not_evaluated": list(self.not_evaluated),
                 "gates_failed": list(self.gates_failed),
                 "trusted": self.trusted, "notes": dict(self.notes)}
 
@@ -289,21 +304,33 @@ class RunRecord:
 # --------------------------------------------------------------------------
 
 
-def _harmonic(values: Sequence[float]) -> float:
-    """A geometric-style mean that tolerates a zero without collapsing the row.
+def _harmonic(pairs: Sequence[tuple[float, float]]) -> float:
+    """Weighted harmonic mean of ``(value, weight)`` pairs, in [0, 1].
 
-    A true geometric mean with any zero term is zero, which would make a single
-    failed dimension indistinguishable from a system that scored nothing
-    anywhere. The harmonic mean is still dominated by the weakest dimension —
-    which is the property that matters, since a system must be good at
-    provenance *and* safety, not good at one and absent at the other — but it
-    degrades gracefully and a zero reads as "very weak here" rather than
-    erasing everything else.
+    Dominated by the weakest dimension, which is the property that matters: a
+    system must be good at provenance *and* safety, not good at one and absent
+    at the other. A zero in any positively weighted dimension makes the
+    aggregate zero. An earlier version dropped zeros before averaging, so a run
+    that scored 0.0 on all six scientific dimensions aggregated to 1.0 on the
+    strength of an unmeasured latency and cost. The decomposition is always
+    reported beside the aggregate, so a zero does not hide the other columns.
     """
-    usable = [v for v in values if v > 0]
-    if not usable:
+    pairs = [(v, w) for v, w in pairs if w > 0]
+    if not pairs:
         return 0.0
-    return len(usable) / sum(1.0 / v for v in usable)
+    if any(v <= 0 for v, _ in pairs):
+        return 0.0
+    return sum(w for _, w in pairs) / sum(w / v for v, w in pairs)
+
+
+#: Gate reported when a row cannot be trusted because something was not measured.
+#: Not one of the plan's hard gates (`scorers.GATES`): it says the evidence for
+#: trust is absent, not that the system misbehaved.
+NOT_EVALUATED_GATE = "NOT_EVALUATED"
+#: Gate reported for a row with no scored cases. An empty run proves nothing.
+NO_CASES_GATE = "NO_CASES"
+#: Gate reported when any case errored.
+CASE_ERROR_GATE = "CASE_ERROR"
 
 
 def aggregate(scores: Sequence[CaseScore], *,
@@ -317,21 +344,36 @@ def aggregate(scores: Sequence[CaseScore], *,
     `latency` and `cost` are inverted before aggregation, so a smaller number is
     a better score; the raw values are kept alongside so the row can display what
     it measured rather than only its rank.
+
+    Trust is earned, not defaulted: a row is trusted only when it has at least
+    one case, every weighted dimension was evaluated on every case, and no gate
+    failed. A dimension that no case measured is reported as ``None`` and the
+    aggregate is ``None`` — a number computed over the dimensions that happen
+    to be present would rank an unmeasured system above a measured one.
     """
     if not scores:
         # The same keys as the populated path. A caller indexing `n_failed` would
         # otherwise work on every run except an empty one — the failure mode that
         # only appears in production, on the case nobody tested.
-        return {"dimensions": {}, "aggregate": 0.0, "raw": {},
-                "gates_failed": [], "trusted": True, "n_cases": 0, "n_failed": 0,
-                "note": "no scores to aggregate"}
+        return {"dimensions": {}, "aggregate": None, "raw": {},
+                "not_evaluated": list(SCORE_DIMENSIONS),
+                "gates_failed": [NO_CASES_GATE], "trusted": False,
+                "n_cases": 0, "n_failed": 0,
+                "note": "no scores to aggregate; an empty run is not evidence of anything"}
 
     weights = dict(weights or {name: 1.0 for name in SCORE_DIMENSIONS})
-    raw: dict[str, float] = {}
-    normalised: dict[str, float] = {}
+    raw: dict[str, float | None] = {}
+    normalised: dict[str, float | None] = {}
+    not_evaluated: list[str] = []
 
     for name in SCORE_DIMENSIONS:
         values = [getattr(s.components, name) for s in scores]
+        if any(v is None for v in values):
+            # Partially measured is not measured: averaging over the cases that
+            # happen to report it would reweight the run silently.
+            raw[name] = normalised[name] = None
+            not_evaluated.append(name)
+            continue
         raw[name] = sum(values) / len(values)
         if name in LOWER_IS_BETTER:
             # Display a bounded "better is higher" score without pretending the
@@ -341,20 +383,33 @@ def aggregate(scores: Sequence[CaseScore], *,
             normalised[name] = raw[name]
 
     gates = sorted({g for s in scores for g in s.components.gates_failed})
-    weighted = [(normalised[name], weights.get(name, 1.0))
-                for name in SCORE_DIMENSIONS if weights.get(name, 1.0) > 0]
-    expanded = [n for value, weight in weighted for n in [value] * int(weight * 100)]
-    value = _harmonic(expanded) if expanded else 0.0
+    if any(s.failed for s in scores):
+        # A case that errored was not passed; its components describe a run
+        # that did not finish.
+        gates = sorted(set(gates) | {CASE_ERROR_GATE})
+    missing_weighted = [n for n in not_evaluated if weights.get(n, 1.0) > 0]
+    if missing_weighted:
+        gates = sorted(set(gates) | {NOT_EVALUATED_GATE})
+        value: float | None = None
+    else:
+        value = round(_harmonic([(normalised[n], weights.get(n, 1.0))
+                                 for n in SCORE_DIMENSIONS
+                                 if normalised[n] is not None]), 4)
 
-    return {"dimensions": {k: round(v, 4) for k, v in normalised.items()},
-            "aggregate": round(value, 4),
-            "raw": {k: round(v, 4) for k, v in raw.items()},
+    def _r(v: float | None) -> float | None:
+        return None if v is None else round(v, 4)
+
+    return {"dimensions": {k: _r(v) for k, v in normalised.items()},
+            "aggregate": value,
+            "raw": {k: _r(v) for k, v in raw.items()},
+            "not_evaluated": not_evaluated,
             "gates_failed": gates,
             "trusted": not gates,
             "n_cases": len(scores),
             "n_failed": len([s for s in scores if s.failed]),
             "note": ("aggregate is a weighted harmonic mean of the eight dimensions; "
-                     "it is never reported without them")}
+                     "it is never reported without them, and is null when any "
+                     "weighted dimension was not evaluated")}
 
 
 # --------------------------------------------------------------------------

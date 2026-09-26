@@ -37,7 +37,7 @@ from typing import Any, Sequence
 from ...contracts import CandidateClaim, EvidenceItem, EvidenceQuality, RiskOfBias
 from ...tcm import knowledge as tcm_knowledge
 from ...tcm.model import EvidenceTier, Herb, ProcessedHerb
-from .common import (SEED_SOURCE_ID, SKILL_VERSIONS, _now, _quality_for, artifact,
+from .common import (SEED_SOURCE_ID, seed_evidence, SKILL_VERSIONS, _now, _quality_for, artifact,
                      json_file, seed_source_card, strongest_supported_kind)
 
 __all__ = ["SAFETY_STATUSES", "assess_tcm_safety"]
@@ -291,11 +291,10 @@ def _item_for_record(record: Any, *, run_id: str, index: int,
     if getattr(record, "management", ""):
         quote += f"; management={record.management}"
 
-    return EvidenceItem(
+    return seed_evidence(
         id=id_hint or f"safety.{record.id}", design=design, quote=quote,
         citation=f"TCMScience TCM seed corpus, safety record {record.id}",
         identifier=record.id, identifier_type="pharmacopoeia",
         subject=record.subject_id, outcome="adverse event or contraindication",
         quality=_quality_for(tier, assessed_by="assess-tcm-safety"),
-        source_card_id=SEED_SOURCE_ID, quote_verified=True,
-        retrieved_by="assess-tcm-safety", retrieval_run=run_id)
+        source_card_id=SEED_SOURCE_ID, retrieved_by="assess-tcm-safety", retrieval_run=run_id)

@@ -142,6 +142,20 @@ def seed_source_card():
               "traced to the corpus that produced it.")
 
 
+def seed_evidence(*, content: str | None = None, **fields: Any):
+    """An `EvidenceItem` from the seed corpus, with a receipt for its quote.
+
+    ``content`` is the corpus text the quote is taken from — a passage's text,
+    or the canonical rendering of a structured record — and defaults to the
+    quote itself when the quote *is* that rendering. The receipt is issued by
+    locating the quote in the content, never by setting the flag.
+    """
+    from ...contracts import EvidenceItem
+    fields.pop("quote_verified", None)
+    item = EvidenceItem(**fields)
+    return item.located_in(item.quote if content is None else content)
+
+
 def strongest_supported_kind(evidence: Sequence[Any],
                              permitted: Sequence[str]) -> str:
     """The strongest claim kind these items can actually license.

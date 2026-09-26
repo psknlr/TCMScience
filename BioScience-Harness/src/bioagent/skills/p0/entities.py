@@ -21,7 +21,7 @@ from typing import Any, Mapping, Sequence
 from ...contracts import CandidateClaim, EvidenceItem, ResearchArtifact, require_declared
 from ...tcm import knowledge as tcm_knowledge
 from ...tcm.model import EvidenceTier, Herb, ProcessedHerb
-from .common import (SEED_SOURCE_ID, SKILL_VERSIONS, _now, _quality_for, artifact,
+from .common import (SEED_SOURCE_ID, seed_evidence, SKILL_VERSIONS, _now, _quality_for, artifact,
                      json_file, seed_source_card)
 
 __all__ = ["normalize_tcm_entities"]
@@ -94,14 +94,13 @@ def normalize_tcm_entities(names: Sequence[str], *, run_id: str = "") -> Researc
         rows.append(row)
 
         if resolved is not None:
-            evidence.append(EvidenceItem(
+            evidence.append(seed_evidence(
                 id=f"resolve.{len(evidence)}", design="classical_text",
                 quote=_quote_for(resolved),
                 citation=f"TCMScience TCM seed corpus, entry {getattr(resolved,'id','')}",
                 identifier=str(getattr(resolved, "id", "")),
                 identifier_type="pharmacopoeia",
-                source_card_id=SEED_SOURCE_ID, quote_verified=True,
-                subject=getattr(resolved, "chinese", raw),
+                source_card_id=SEED_SOURCE_ID, subject=getattr(resolved, "chinese", raw),
                 quality=_quality_for(EvidenceTier.CLASSICAL_TEXT,
                                      assessed_by="normalize-tcm-entities"),
                 retrieved_by="normalize-tcm-entities", retrieval_run=run_id))

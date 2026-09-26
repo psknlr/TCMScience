@@ -40,10 +40,21 @@ class BioScienceBridge:
     the kernel's ``IsolatedExecutor`` then runs ``exec.py`` in a child process with a
     clean environment behind the egress proxy, and BioScience executes inside it. A
     policy with ``require_isolated_tools`` admits only that mode, which is the point.
+
+    Isolation is the default whenever there is somewhere to write the child's manifest
+    (the kernel's ``state_dir`` or ``manifest_dir=``). In-process execution is an explicit
+    ``isolate=False`` — a choice a caller makes and the admission audit records — rather
+    than what a caller gets by not thinking about it (audit F09).
+
+    ``strict_audit=True`` (the default) makes a failure to write an audit event refuse the
+    admission. A kernel whose tamper-evident log cannot record a decision has not made
+    one; swallowing the error, as an earlier version did, admitted components with no
+    record that they had been admitted.
     """
 
     def __init__(self, kernel: Any, runtime: Any, *, spec: AgentSpec | None = None,
-                 host_policy: HostPolicy | None = None, isolate: bool = False,
+                 host_policy: HostPolicy | None = None, isolate: bool | None = None,
+                 strict_audit: bool = True,
                  local_ceiling: Sensitivity = Sensitivity.PHI,
                  verification: Mapping[str, Mapping[str, Any]] | None = None,
                  events: Any = None, manifest_dir: str | Path | None = None) -> None:
@@ -51,14 +62,15 @@ class BioScienceBridge:
         self.runtime = runtime
         self.spec = spec or AgentSpec(name="psh-bridge", permission_profile="biomedical-research")
         self.host_policy = host_policy or HostPolicy()
-        self.isolate = isolate
         self.local_ceiling = local_ceiling
+        self.strict_audit = strict_audit
         self.verification = dict(verification) if verification is not None else load_verification()
         self.events = events
         config = getattr(kernel, "config", None)
         state_dir = getattr(config, "state_dir", None)
         self.manifest_dir = (Path(manifest_dir) if manifest_dir
                              else (Path(state_dir) / "bioscience" if state_dir else None))
+        self.isolate = (self.manifest_dir is not None) if isolate is None else bool(isolate)
         self._components: dict[str, BridgedComponent] = {}
         self._by_bio_id: dict[str, str] = {}
         self._harnesses: dict[str, PSHManifest] = {}
@@ -229,8 +241,14 @@ class BioScienceBridge:
     def _audit(self, event: str, **fields: Any) -> None:
         audit = getattr(self.kernel, "audit", None)
         if audit is None:
+            if self.strict_audit:
+                raise BridgeRefused(f"{event}: the kernel exposes no audit log; a "
+                                    "decision that cannot be recorded is not made")
             return
         try:
             audit(event, **fields)
-        except Exception:  # noqa: BLE001 - an audit failure must not block admission
-            pass
+        except Exception as exc:  # noqa: BLE001 - re-raised as a refusal below
+            if self.strict_audit:
+                raise BridgeRefused(f"{event}: audit write failed "
+                                    f"({type(exc).__name__}: {exc}); refusing rather "
+                                    "than acting without a record") from exc

@@ -42,7 +42,7 @@ from ...contracts import (CandidateClaim, Directness, EvidenceItem, EvidenceQual
                           require_declared)
 from ...tcm import knowledge as tcm_knowledge
 from ...tcm.model import EvidenceTier, Formula
-from .common import (SEED_SOURCE_ID, SKILL_VERSIONS, _now, _quality_for, artifact,
+from .common import (SEED_SOURCE_ID, seed_evidence, SKILL_VERSIONS, _now, _quality_for, artifact,
                      json_file, seed_source_card)
 
 __all__ = ["analyze_tcm_network_pharmacology"]
@@ -132,7 +132,7 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
                 })
 
     for index, record in enumerate(predicted_targets):
-        evidence.append(EvidenceItem(
+        evidence.append(seed_evidence(
             id=f"predicted.{index}", design=PREDICTION_DESIGN,
             quote=(f"subject={record['herb']}; predicate={record['predicate']}; "
                    f"object={record['target']}; tier={record['tier']}"),
@@ -152,8 +152,7 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
                            "of binding; the edge is a hypothesis, not a measurement"},
                 assessed_by="analyze-tcm-network-pharmacology",
                 assessment_tool="provenance-separation"),
-            source_card_id=SEED_SOURCE_ID, quote_verified=True,
-            retrieved_by="analyze-tcm-network-pharmacology", retrieval_run=run_id))
+            source_card_id=SEED_SOURCE_ID, retrieved_by="analyze-tcm-network-pharmacology", retrieval_run=run_id))
 
     # ---- enrichment, marked as the prediction it is ----------------------
     pathway_enrichment = sorted({f"{e['predicate']}:{e['object']}"

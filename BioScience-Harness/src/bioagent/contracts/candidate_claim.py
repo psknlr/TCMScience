@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, NamedTuple
 
 from ..tcm.model import CLAIM_KINDS, EvidenceTier, licenses
+from .claim_language import overreaching_language
 #: The predictive designs are defined once, beside the evidence vocabulary they
 #: belong to. Re-exported here because claim checking is what consumes them.
 from .evidence_item import PREDICTIVE_DESIGNS
@@ -95,6 +96,7 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM008": "cross-species extrapolation is not declared",
     "CLM009": "an extrapolation beyond the evidence is not declared",
     "CLM010": "a supporting quote was not located in its source",
+    "CLM011": "the claim's wording asserts more than its declared claim_kind",
 }
 
 
@@ -217,9 +219,12 @@ class CandidateClaim:
         """Scopes asserted but neither covered nor declared.
 
         Compares the asserted population and outcome against the supported ones
-        by containment, not equality: a claim about "adults with hypertension"
-        is covered by evidence about "adults with hypertension and type 2
-        diabetes", but not by evidence about "healthy adults".
+        conservatively (see :func:`_covers`): only an exact match or an explicit
+        enumeration counts as coverage. Evidence about "adults with
+        hypertension" does not cover a claim about "adults" — that is the
+        extrapolation this method exists to surface — and a lexical check
+        cannot tell a narrower phrase from a broader one, so anything but an
+        exact match must be declared.
         """
         gaps: list[str] = []
         for asserted, covered, label in (
@@ -277,13 +282,23 @@ class CandidateClaim:
 
 
 def _covers(covered: str, asserted: str) -> bool:
-    """Whether `covered` is at least as broad as `asserted`.
+    """Whether evidence about `covered` reaches every member of `asserted`.
 
-    Deliberately conservative and purely lexical: it recognises only the two
-    cases it can decide honestly — exact agreement, and one being a
-    comma-or-and-separated superset of the other. Anything subtler is reported
-    as a gap and must be declared. Under-reporting coverage forces a human to
-    state an extrapolation; over-reporting it would silently license one.
+    Deliberately conservative and purely lexical. It recognises only the two
+    cases it can decide honestly:
+
+    * exact agreement after normalisation; and
+    * an *enumeration*: the covered text lists populations separated by commas
+      or semicolons ("adults, children") and every asserted item is one of them.
+
+    Everything else — including one phrase contained in another — is reported
+    as a gap and must be declared. Containment decides nothing on its own: in
+    "adults with hypertension" the word "adults" names a *broader* population
+    than the phrase it sits in, so an earlier rule that accepted a covered text
+    containing the asserted one licensed exactly the generalisation this check
+    exists to catch (evidence in hypertensive adults → a claim about adults).
+    Under-reporting coverage forces a human to state an extrapolation;
+    over-reporting it silently licenses one.
     """
     c, a = _norm(covered), _norm(asserted)
     if not a or not c:
@@ -292,24 +307,19 @@ def _covers(covered: str, asserted: str) -> bool:
         return True
     c_parts = {p.strip() for p in _split(c) if p.strip()}
     a_parts = {p.strip() for p in _split(a) if p.strip()}
-    if a_parts and a_parts <= c_parts:
-        return True
-    # A narrower phrase inside a broader one, e.g. "adults" in "adults with
-    # hypertension". Only accepted when the asserted text is itself a whole
-    # token sequence of the covered text.
-    return f" {a} " in f" {c} "
+    return len(c_parts) > 1 and bool(a_parts) and a_parts <= c_parts
 
 
 def _norm(text: str) -> str:
-    return " ".join(str(text).lower().replace("；", ";").replace("，", ",").split())
+    return " ".join(str(text).lower().replace("；", ";").replace("，", ",")
+                    .replace("、", ",").split())
 
 
 def _split(text: str) -> list[str]:
-    out: list[str] = []
-    for chunk in text.replace(";", ",").split(","):
-        out.append(chunk)
-        out.extend(chunk.split(" and "))
-    return out
+    """Enumerated items. Only explicit separators split: "and" does not, because
+    "adults with hypertension and diabetes" is one population (an intersection),
+    not two, and splitting it would read an intersection as a union."""
+    return text.replace(";", ",").split(",")
 
 
 def require_declared(claim: CandidateClaim) -> None:
@@ -405,6 +415,16 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
     for gap in claim.undeclared_extrapolations():
         reasons.append(Reason("CLM009", f"undeclared extrapolation {gap!r}"))
 
+    # The kind is what licensing reads, so the words must not outrun it. An
+    # "attribution" whose text says a drug is proven effective for all patients
+    # was licensed by a classical passage before this check existed.
+    for finding in overreaching_language(claim.text, claim.claim_kind):
+        needed = (f"only {', '.join(sorted(finding.permitted_kinds))} may use it"
+                  if finding.permitted_kinds else "no claim kind covers it")
+        reasons.append(Reason("CLM011", (
+            f"text uses {finding.family} language ({finding.phrase!r}) that a "
+            f"{claim.claim_kind} claim does not license; {needed}")))
+
     # Only cited items matter here. An artifact may legitimately hold background
     # evidence that no claim rests on, and refusing the claim because that
     # background item was not offset-verified would push authors to delete
@@ -414,6 +434,14 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
         reasons.append(Reason("CLM010", (
             f"supporting evidence {unverified} has no quote located in its source; "
             "an unverified excerpt cannot support a claim")))
+    # The flag alone is the caller's word. Without a receipt — the hash of the
+    # content and the offset the quote sits at — nobody can repeat the check.
+    unreceipted = [i.id for i in usable if i.quote_verified and not i.has_quote_receipt]
+    if unreceipted:
+        reasons.append(Reason("CLM010", (
+            f"supporting evidence {unreceipted} is flagged quote_verified but carries "
+            "no receipt (content_hash and quote_offset); a self-attested flag "
+            "cannot support a claim")))
 
     caveats: list[str] = []
     for item in items:

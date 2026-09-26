@@ -49,6 +49,13 @@ GATE_DESCRIPTIONS: Mapping[str, str] = {
                 "trusted on anything else it reports"),
     "GATE003": ("the run must produce an artifact that re-runs to the same result "
                 "under the same four version axes"),
+    "NO_CASES": ("the run scored no case of this Season; an empty run is not "
+                 "evidence of anything and cannot be trusted by default"),
+    "NOT_EVALUATED": ("at least one weighted dimension was not measured on every "
+                      "case; an unmeasured dimension is not a perfect one"),
+    "CASE_ERROR": "at least one case errored before it could be scored",
+    "UNSCORED_CASES": ("the run did not score every case of the Season, so it is "
+                       "not comparable with a run that attempted them all"),
     "GATE004": ("stating a clinical efficacy conclusion on evidence that is only "
                 "computational prediction is the failure this project exists to "
                 "prevent; it is a gate rather than a low score because it is a "
@@ -68,8 +75,15 @@ def score_run(run: RunRecord, cases: Sequence[BenchmarkCase]) -> dict[str, Any]:
     by_id = {c.id: c for c in cases}
     scored = [s for s in run.scores if s.case_id in by_id]
 
-    gates = sorted({g for s in scored for g in s.components.gates_failed})
     row = aggregate(scored)
+    gates = list(row["gates_failed"])
+    # Every case of the Season must be scored. A run that skips the cases it
+    # would fail and reports only the rest is not comparable with one that
+    # attempted them all, so a gap blocks the trusted board.
+    unscored = sorted(set(by_id) - {s.case_id for s in scored})
+    if unscored:
+        gates = sorted(set(gates) | {"UNSCORED_CASES"})
+    trusted = bool(scored) and not gates
 
     # Per-track breakdown, so the leaderboard can show a system that is strong on
     # entity resolution and weak on safety rather than one blended number.
@@ -85,10 +99,12 @@ def score_run(run: RunRecord, cases: Sequence[BenchmarkCase]) -> dict[str, Any]:
         "versions": dict(run.composite_version),
         "dimensions": row["dimensions"], "aggregate": row["aggregate"],
         "raw": row["raw"], "n_cases": row["n_cases"], "n_failed": row["n_failed"],
+        "not_evaluated": row["not_evaluated"],
+        "unscored_cases": unscored,
         "gates_failed": gates,
         "gate_reasons": [GATE_DESCRIPTIONS.get(g, g) for g in gates],
-        "trusted": not gates,
-        "board": "trusted" if not gates else "experimental",
+        "trusted": trusted,
+        "board": "trusted" if trusted else "experimental",
         "per_track": per_track,
         "trace_digest": run.trace_digest,
         "artifact_digest": run.artifact_digest,
