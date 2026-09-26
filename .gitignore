@@ -47,3 +47,6 @@ arena/web/runs/*
 # `TCM+AI/paper/`), so nothing should ever appear here; the rule is a backstop.
 paper/
 plan/
+
+# GitHub Pages build output (scripts/build_site.py)
+_site/

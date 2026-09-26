@@ -47,7 +47,7 @@ TRACKS: Mapping[str, str] = {
 CASE_VISIBILITIES = ("dev", "hidden", "adversarial")
 
 #: The eight score dimensions. Every leaderboard row shows all of them; an
-#: aggregate alone is a design failure, and `arena-release.yml` fails the build
+#: aggregate alone is a design failure, and `pages.yml` fails the build
 #: rather than render one.
 SCORE_DIMENSIONS = (
     "task_success",

@@ -1,0 +1,81 @@
+name: pages
+
+# The one workflow that publishes GitHub Pages:
+#
+#   /          the project page (site/), with figures drawn by docs/assets/make_figures.py
+#   /arena/    the read-only Arena (arena/web)
+#
+# It replaces two workflows that both deployed to Pages (a stock Jekyll build of the
+# repository root and an Arena-only deploy), whose last run would have overwritten
+# the other's site.
+#
+# The Arena is read-only (docs/adr/0004): it renders published results and never
+# computes a score. Its data are committed (arena/web/data, published by the owner's
+# decision; see .gitignore) and are checked here before anything is served — a
+# leaderboard row showing only an aggregate fails the build, as does any hidden
+# benchmark content reaching a published page. They are not regenerated here: the
+# registry holds no scored runs yet, and rebuilding from it would publish an empty
+# leaderboard over the committed demonstration Season.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and check the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip && pip install -e "PSH-Harness" -e "BioScience-Harness[dev]"
+
+      - name: The site's reader and the Arena's documents agree
+        env:
+          PYTHONPATH: BioScience-Harness/src:PSH-Harness/src
+        run: python scripts/check_arena_contract.py
+
+      - name: A score must never be rendered without its decomposition
+        env:
+          PYTHONPATH: BioScience-Harness/src:PSH-Harness/src
+        run: python scripts/check_arena_data.py arena/web/data
+
+      - name: No hidden benchmark content may reach a published page
+        env:
+          PYTHONPATH: BioScience-Harness/src:PSH-Harness/src
+        run: python scripts/check_leakage.py --published arena/web/data
+
+      - name: The committed figures match the kernel's claim-support table
+        run: |
+          python docs/assets/make_figures.py
+          git diff --exit-code -- docs/assets/*.svg
+
+      - name: Assemble the site
+        run: python scripts/build_site.py --out _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
