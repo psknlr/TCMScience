@@ -38,6 +38,7 @@
     ART113: 'a declared output file is not present where the artifact says it is',
     ART114: 'a declared output file does not match its content hash',
     ART115: 'a quote receipt does not verify against the content it names',
+    ART116: 'a claim rests on an extrapolation that is declared but not validated',
     CLM001: 'claim cites no evidence',
     CLM002: 'a cited evidence item is not present',
     CLM003: 'all supporting evidence is retracted',
@@ -49,6 +50,7 @@
     CLM009: 'an extrapolation beyond the evidence is not declared',
     CLM010: 'a supporting quote was not located in its source, or carries no receipt',
     CLM011: 'the claim wording asserts more than its declared claim_kind',
+    CLM012: 'an extrapolation is marked validated by evidence that is not present',
     SAF002: 'a severe safety signal was missed in a case the gold set flags'
   };
 

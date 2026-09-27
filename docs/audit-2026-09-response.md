@@ -30,9 +30,12 @@ claim about a broader one. Coverage is now decided only in two cases: exact
 agreement, or membership in an explicit enumeration (`adults; children`). No
 qualified phrase is decided from its wording in either direction, so every other
 case becomes an undeclared extrapolation (`CLM009`). The existing test encoded the
-wrong direction and has been replaced. Still open: a declared extrapolation is not
-yet distinguished from a *validated* one, and the population is still free text
-rather than a structured PICO fact fixed by an evidence reviewer.
+wrong direction and has been replaced. A declared extrapolation is now distinguished from a *validated* one.
+`validated_extrapolations` names the evidence item that bridges each gap. A gap
+that is declared but not validated stays allowed, but it is reported as a caveat and
+as an artifact warning (`ART116`). A validation that cites missing evidence, or a
+gap that was never declared, is refused (`CLM012`). Still open: the population is
+free text, not a structured PICO fact fixed by an evidence reviewer.
 
 **F02, self-declared verification.**
 - *Quotes.* A quote now counts as verified only if it has a receipt: the SHA-256
