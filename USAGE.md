@@ -153,6 +153,16 @@ A missing *optional* source is dropped as a recorded deviation. A snapshot that 
 its hash check is always refused. Re-running with the same `--state-dir` resumes from
 the last completed stage.
 
+A question may name any formula in the formula table (`中医方剂数据表.xlsx`, 84,294
+formulas), not only 葛根芩连汤. The table holds many formulas under one name (there are
+18 compositions called 逍遥散), so write the source book to pick one, for example
+`逍遥散《局方》` or `麻黄汤《伤寒论》`, or give its id (`tcm:formula.fx…`). A name that still
+matches several compositions is refused, and the refusal lists them. A formula with an
+ingredient the materia table cannot resolve is refused too, and the refusal names the
+ingredient. The herb-layer snapshot must include the formula; build it with
+`build_source_snapshots.py gold --formula-table 中医方剂数据表.xlsx`. See
+[docs/formula-table.md](docs/formula-table.md) for details.
+
 A run in which every hypothesis is refuted still releases, and the negative result
 is what it releases. The reasons are listed in `limitations.md`. See
 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md) for results on
@@ -171,6 +181,8 @@ real data.
 5. **发布**：对照快照重新核验引文凭证，然后给产物加执行证明并核验。
 
 缺少*可选*数据源时会跳过它，并记为偏离协议。快照哈希核验失败时一律拒绝。使用同一个 `--state-dir` 重跑，会从最后一个已完成的阶段继续。
+
+问题可以指定方剂表（`中医方剂数据表.xlsx`，共 84,294 首）中的任意方剂，不限于葛根芩连汤。表中同名方剂很多（名为逍遥散的组成就有 18 种），所以需要写明出处来选定其中一首，例如 `逍遥散《局方》`、`麻黄汤《伤寒论》`，或者直接给出方剂 ID（`tcm:formula.fx…`）。写明出处后仍对应多种组成时，问题会被拒绝，并列出所有候选。组成中有药材表无法识别的药物时，也会被拒绝，并指出是哪味药。药材层快照必须包含该方剂，构建命令为 `build_source_snapshots.py gold --formula-table 中医方剂数据表.xlsx`。详见 [docs/formula-table.md](docs/formula-table.md)。
 
 即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 

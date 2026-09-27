@@ -2,6 +2,8 @@
 """Save PubChem BioAssay results (active and inactive) for a formula's compounds.
 
     python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW
+    python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW \\
+        --herbs mahuang guizhi xingren gancao        # one formula's drugs only
 
 ``composition.json`` is what ``build_source_snapshots.py gold`` writes; every compound
 with an InChIKey is queried. This is the only step that touches the network; build the
@@ -24,10 +26,15 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--composition", required=True)
     ap.add_argument("--raw", required=True, help="directory to save the results in")
+    ap.add_argument("--herbs", nargs="*", default=[],
+                    help="only the compounds of these drugs (ids such as tcm:herb.mahuang, or "
+                         "pinyin such as mahuang); default: every compound in the file")
     args = ap.parse_args(argv)
     rows = json.loads(Path(args.composition).read_text(encoding="utf-8"))
+    wanted = {h if h.startswith("tcm:herb.") else f"tcm:herb.{h}" for h in args.herbs}
     keys = sorted({r["compound"].split(":", 1)[1] for r in rows
-                   if r["compound"].startswith("inchikey:")})
+                   if r["compound"].startswith("inchikey:")
+                   and (not wanted or r["herb"] in wanted)})
     try:
         path = fetch_assay_summaries(keys, args.raw)
     except PubChemFetchError as exc:

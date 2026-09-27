@@ -325,6 +325,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                      if e["subject"] == formula.id and e["predicate"] == "contains"}
     base_edges = {(e["subject"], e["object"]): e for e in herbs_snap.edges
                   if e["predicate"] == "has_base_species"}
+    from ..sources.materia import all_drugs
+    drugs = {**all_drugs(), **HERBS}
     species_of: dict[str, list[str]] = defaultdict(list)
     for (herb, species) in base_edges:
         if herb in formula_edges:
@@ -340,9 +342,9 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             if e.get("predicate") != "contains" or e.get("subject") not in species_of:
                 continue
             level = e.get("composition_level")
-            if level == "C1" and HERBS.get(species_of[e["subject"]][0]) and (
+            if level == "C1" and drugs.get(species_of[e["subject"]][0]) and (
                     (e.get("raw") or {}).get("parts")):
-                herb = HERBS[species_of[e["subject"]][0]]
+                herb = drugs[species_of[e["subject"]][0]]
                 if herb.matches_part(e["raw"]["parts"]):
                     level = "C2"
             if not _level_at_least(level, params.composition_min_level):

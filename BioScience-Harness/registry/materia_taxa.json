@@ -1,0 +1,2425 @@
+{
+ "checked_at": "2026-09-27",
+ "names": {
+  "Acacia catechu": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Senegalia catechu",
+   "taxid": "138017"
+  },
+  "Acanthopanax gracilistylus": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Eleutherococcus gracilistylus",
+   "taxid": "265764"
+  },
+  "Achyranthes bidentata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Achyranthes bidentata",
+   "taxid": "384659"
+  },
+  "Aconitum carmichaelii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aconitum carmichaelii",
+   "taxid": "85363"
+  },
+  "Aconitum kusnezoffii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aconitum kusnezoffii",
+   "taxid": "239685"
+  },
+  "Acorus gramineus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Acorus gramineus",
+   "taxid": "55184"
+  },
+  "Acorus tatarinowii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Acorus tatarinowii",
+   "taxid": "123564"
+  },
+  "Actaea cimicifuga": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Actaea cimicifuga",
+   "taxid": "64032"
+  },
+  "Actaea dahurica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Actaea dahurica",
+   "taxid": "64029"
+  },
+  "Actaea heracleifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Actaea heracleifolia",
+   "taxid": "64034"
+  },
+  "Agkistrodon acutus": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Deinagkistrodon acutus",
+   "taxid": "36307"
+  },
+  "Akebia quinata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Akebia quinata",
+   "taxid": "13331"
+  },
+  "Akebia trifoliata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Akebia trifoliata",
+   "taxid": "155132"
+  },
+  "Alisma orientale": {
+   "matched_on": "All Names",
+   "rank": "subspecies",
+   "reviewed": true,
+   "scientific_name": "Alisma plantago-aquatica subsp. orientale",
+   "taxid": "262913"
+  },
+  "Alisma plantago-aquatica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Alisma plantago-aquatica",
+   "taxid": "15000"
+  },
+  "Allium fistulosum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Allium fistulosum",
+   "taxid": "35875"
+  },
+  "Aloe ferox": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aloe ferox",
+   "taxid": "117798"
+  },
+  "Aloe vera": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aloe vera",
+   "taxid": "34199"
+  },
+  "Alpinia hainanensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Alpinia hainanensis",
+   "taxid": "125259"
+  },
+  "Alpinia katsumadai": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Alpinia hainanensis",
+   "taxid": "125259"
+  },
+  "Alpinia officinarum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Alpinia officinarum",
+   "taxid": "199623"
+  },
+  "Alpinia oxyphylla": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Alpinia oxyphylla",
+   "taxid": "125261"
+  },
+  "Amomum compactum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Wurfbainia compacta",
+   "taxid": "252847"
+  },
+  "Amomum kravanh": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Amomum krervanh",
+   "taxid": "649195"
+  },
+  "Amomum longiligulare": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Wurfbainia longiligularis",
+   "taxid": "648859"
+  },
+  "Amomum tsao-ko": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Lanxangia tsao-ko",
+   "taxid": "252867"
+  },
+  "Amomum tsaoko": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Lanxangia tsao-ko",
+   "taxid": "252867"
+  },
+  "Amomum villosum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Wurfbainia villosa",
+   "taxid": "199627"
+  },
+  "Ampelopsis japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ampelopsis japonica",
+   "taxid": "714442"
+  },
+  "Amynthas aspergillum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Amynthas aspergillum",
+   "taxid": "320991"
+  },
+  "Anemarrhena asphodeloides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Anemarrhena asphodeloides",
+   "taxid": "59045"
+  },
+  "Angelica biserrata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Angelica biserrata",
+   "taxid": "357970"
+  },
+  "Angelica dahurica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Angelica dahurica",
+   "taxid": "48101"
+  },
+  "Angelica pubescens": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Angelica pubescens",
+   "taxid": "312530"
+  },
+  "Angelica sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Angelica sinensis",
+   "taxid": "165353"
+  },
+  "Apis cerana": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Apis cerana",
+   "taxid": "7461"
+  },
+  "Apis mellifera": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Apis mellifera",
+   "taxid": "7460"
+  },
+  "Aquilaria sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aquilaria sinensis",
+   "taxid": "210372"
+  },
+  "Arctium lappa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arctium lappa",
+   "taxid": "4217"
+  },
+  "Areca catechu": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Areca catechu",
+   "taxid": "184783"
+  },
+  "Arisaema amurense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arisaema amurense",
+   "taxid": "227494"
+  },
+  "Arisaema erubescens": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arisaema erubescens",
+   "taxid": "228806"
+  },
+  "Arisaema heterophyllum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arisaema heterophyllum",
+   "taxid": "227498"
+  },
+  "Aristolochia debilis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aristolochia debilis",
+   "taxid": "158541"
+  },
+  "Arnebia euchroma": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arnebia euchroma",
+   "taxid": "373122"
+  },
+  "Arnebia guttata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Arnebia guttata",
+   "taxid": "419289"
+  },
+  "Artemisia argyi": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Artemisia argyi",
+   "taxid": "259893"
+  },
+  "Artemisia capillaris": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Artemisia capillaris",
+   "taxid": "265783"
+  },
+  "Artemisia scoparia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Artemisia scoparia",
+   "taxid": "72351"
+  },
+  "Asarum heterotropoides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Asarum heterotropoides",
+   "taxid": "366663"
+  },
+  "Asarum sieboldii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Asarum sieboldii",
+   "taxid": "76098"
+  },
+  "Asparagus cochinchinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Asparagus cochinchinensis",
+   "taxid": "100514"
+  },
+  "Aster tataricus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Aster tataricus",
+   "taxid": "588669"
+  },
+  "Astragalus membranaceus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Astragalus membranaceus",
+   "taxid": "649199"
+  },
+  "Astragalus mongholicus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Astragalus mongholicus",
+   "taxid": "119829"
+  },
+  "Atractylodes chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Atractylodes chinensis",
+   "taxid": "69404"
+  },
+  "Atractylodes lancea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Atractylodes lancea",
+   "taxid": "41486"
+  },
+  "Atractylodes macrocephala": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Atractylodes macrocephala",
+   "taxid": "265785"
+  },
+  "Aucklandia lappa": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Dolomiaea costus",
+   "taxid": "324593"
+  },
+  "Bambusa textilis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bambusa textilis",
+   "taxid": "318051"
+  },
+  "Bambusa tuldoides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bambusa tuldoides",
+   "taxid": "318046"
+  },
+  "Baphicacanthus cusia": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Strobilanthes cusia",
+   "taxid": "222567"
+  },
+  "Belamcanda chinensis": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Iris domestica",
+   "taxid": "58944"
+  },
+  "Biancaea sappan": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Biancaea sappan",
+   "taxid": "483143"
+  },
+  "Bletilla striata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bletilla striata",
+   "taxid": "78707"
+  },
+  "Bombyx mori": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bombyx mori",
+   "taxid": "7091"
+  },
+  "Bos taurus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bos taurus",
+   "taxid": "9913"
+  },
+  "Boswellia bhaw-dajiana": {
+   "note": "not found in NCBI Taxonomy",
+   "taxid": ""
+  },
+  "Boswellia carterii": {
+   "note": "not found in NCBI Taxonomy",
+   "taxid": ""
+  },
+  "Boswellia sacra": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Boswellia sacra",
+   "taxid": "173701"
+  },
+  "Brassica juncea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Brassica juncea",
+   "taxid": "3707"
+  },
+  "Bufo gargarizans": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bufo gargarizans",
+   "taxid": "30331"
+  },
+  "Bupleurum chinense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bupleurum chinense",
+   "taxid": "52451"
+  },
+  "Bupleurum scorzonerifolium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Bupleurum scorzonerifolium",
+   "taxid": "48105"
+  },
+  "Buthus martensii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Olivierus martensii",
+   "taxid": "34649"
+  },
+  "Caesalpinia sappan": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Biancaea sappan",
+   "taxid": "483143"
+  },
+  "Calamus draco": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Calamus draco",
+   "taxid": "1705610"
+  },
+  "Cannabis sativa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cannabis sativa",
+   "taxid": "3483"
+  },
+  "Carthamus tinctorius": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Carthamus tinctorius",
+   "taxid": "4222"
+  },
+  "Cassia obtusifolia": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Senna obtusifolia",
+   "taxid": "346985"
+  },
+  "Celosia argentea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Celosia argentea",
+   "taxid": "46112"
+  },
+  "Cervus elaphus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cervus elaphus",
+   "taxid": "9860"
+  },
+  "Cervus nippon": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cervus nippon",
+   "taxid": "9863"
+  },
+  "Chaenomeles speciosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Chaenomeles speciosa",
+   "taxid": "106546"
+  },
+  "Chinemys reevesii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Mauremys reevesii",
+   "taxid": "260615"
+  },
+  "Chrysanthemum morifolium": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Chrysanthemum x morifolium",
+   "taxid": "41568"
+  },
+  "Chrysanthemum × morifolium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Chrysanthemum x morifolium",
+   "taxid": "41568"
+  },
+  "Cibotium barometz": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cibotium barometz",
+   "taxid": "29588"
+  },
+  "Cimicifuga dahurica": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Actaea dahurica",
+   "taxid": "64029"
+  },
+  "Cimicifuga foetida": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Actaea cimicifuga",
+   "taxid": "64032"
+  },
+  "Cimicifuga heracleifolia": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Actaea heracleifolia",
+   "taxid": "64034"
+  },
+  "Cinnamomum cassia": {
+   "matched_on": "curated synonym",
+   "note": "curated: NCBI files this as Cinnamomum aromaticum",
+   "rank": "species",
+   "scientific_name": "Cinnamomum aromaticum",
+   "taxid": "119260"
+  },
+  "Cistanche deserticola": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cistanche deserticola",
+   "taxid": "161395"
+  },
+  "Cistanche tubulosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cistanche tubulosa",
+   "taxid": "161397"
+  },
+  "Citrus aurantium": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Citrus x aurantium",
+   "taxid": "43166"
+  },
+  "Citrus reticulata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Citrus reticulata",
+   "taxid": "85571"
+  },
+  "Citrus sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Citrus sinensis",
+   "taxid": "2711"
+  },
+  "Clematis chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Clematis chinensis",
+   "taxid": "748693"
+  },
+  "Clematis hexapetala": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Clematis hexapetala",
+   "taxid": "174171"
+  },
+  "Clematis terniflora var. mandshurica": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Clematis mandshurica",
+   "taxid": "748703"
+  },
+  "Cnidium monnieri": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cnidium monnieri",
+   "taxid": "94007"
+  },
+  "Codonopsis pilosula": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Codonopsis pilosula",
+   "taxid": "86864"
+  },
+  "Codonopsis tangshen": {
+   "matched_on": "All Names",
+   "rank": "subspecies",
+   "reviewed": true,
+   "scientific_name": "Codonopsis pilosula subsp. tangshen",
+   "taxid": "94284"
+  },
+  "Coix lacryma-jobi": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Coix lacryma-jobi",
+   "taxid": "4505"
+  },
+  "Coix lacryma-jobi var. ma-yuen": {
+   "matched_on": "Scientific Name",
+   "rank": "varietas",
+   "scientific_name": "Coix lacryma-jobi var. ma-yuen",
+   "taxid": "714458"
+  },
+  "Combretum indicum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Combretum indicum",
+   "taxid": "3956"
+  },
+  "Commiphora myrrha": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Commiphora myrrha",
+   "taxid": "318982"
+  },
+  "Coptis chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Coptis chinensis",
+   "taxid": "261450"
+  },
+  "Coptis deltoidea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Coptis deltoidea",
+   "taxid": "261449"
+  },
+  "Coptis teeta": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Coptis teeta",
+   "taxid": "261448"
+  },
+  "Cornus officinalis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cornus officinalis",
+   "taxid": "16906"
+  },
+  "Corydalis yanhusuo": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Corydalis yanhusuo",
+   "taxid": "458692"
+  },
+  "Crassostrea gigas": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Magallana gigas",
+   "taxid": "29159"
+  },
+  "Crassostrea rivularis": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Magallana rivularis",
+   "taxid": "37644"
+  },
+  "Crassostrea talienwhanensis": {
+   "note": "not found in NCBI Taxonomy",
+   "taxid": ""
+  },
+  "Crataegus pinnatifida": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Crataegus pinnatifida",
+   "taxid": "510735"
+  },
+  "Croton tiglium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Croton tiglium",
+   "taxid": "497687"
+  },
+  "Cryptotympana atrata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cryptotympana atrata",
+   "taxid": "678702"
+  },
+  "Cryptotympana pustulata": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Cryptotympana atrata",
+   "taxid": "678702"
+  },
+  "Cullen corylifolium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cullen corylifolium",
+   "taxid": "429560"
+  },
+  "Curcuma kwangsiensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Curcuma kwangsiensis",
+   "taxid": "136216"
+  },
+  "Curcuma longa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Curcuma longa",
+   "taxid": "136217"
+  },
+  "Curcuma phaeocaulis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Curcuma phaeocaulis",
+   "taxid": "136218"
+  },
+  "Curcuma wenyujin": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Curcuma wenyujin",
+   "taxid": "136221"
+  },
+  "Cuscuta australis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cuscuta australis",
+   "taxid": "267555"
+  },
+  "Cuscuta chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cuscuta chinensis",
+   "taxid": "267557"
+  },
+  "Cynanchum atratum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Vincetoxicum atratum",
+   "taxid": "157443"
+  },
+  "Cynanchum versicolor": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Vincetoxicum versicolor",
+   "taxid": "1165891"
+  },
+  "Cyperus rotundus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Cyperus rotundus",
+   "taxid": "512623"
+  },
+  "Daemonorops draco": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Calamus draco",
+   "taxid": "1705610"
+  },
+  "Daphne genkwa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Daphne genkwa",
+   "taxid": "1477590"
+  },
+  "Deinagkistrodon acutus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Deinagkistrodon acutus",
+   "taxid": "36307"
+  },
+  "Dendrobium chrysotoxum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dendrobium chrysotoxum",
+   "taxid": "161865"
+  },
+  "Dendrobium fimbriatum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dendrobium fimbriatum",
+   "taxid": "117953"
+  },
+  "Dendrobium huoshanense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dendrobium huoshanense",
+   "taxid": "154293"
+  },
+  "Dendrobium nobile": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dendrobium nobile",
+   "taxid": "94219"
+  },
+  "Descurainia sophia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Descurainia sophia",
+   "taxid": "89411"
+  },
+  "Dianthus chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dianthus chinensis",
+   "taxid": "118431"
+  },
+  "Dianthus superbus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dianthus superbus",
+   "taxid": "288950"
+  },
+  "Dicerorhinus sumatrensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dicerorhinus sumatrensis",
+   "taxid": "89632"
+  },
+  "Dichroa febrifuga": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Hydrangea febrifuga",
+   "taxid": "152286"
+  },
+  "Dictamnus dasycarpus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dictamnus dasycarpus",
+   "taxid": "714465"
+  },
+  "Dimocarpus longan": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dimocarpus longan",
+   "taxid": "128017"
+  },
+  "Dioscorea hypoglauca": {
+   "matched_on": "All Names",
+   "rank": "varietas",
+   "reviewed": true,
+   "scientific_name": "Dioscorea collettii var. hypoglauca",
+   "taxid": "357960"
+  },
+  "Dioscorea opposita": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Dioscorea oppositifolia",
+   "taxid": "569628"
+  },
+  "Dioscorea polystachya": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dioscorea polystachya",
+   "taxid": "55575"
+  },
+  "Dioscorea septemloba": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dioscorea septemloba",
+   "taxid": "64701"
+  },
+  "Dioscorea spongiosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dioscorea spongiosa",
+   "taxid": "394307"
+  },
+  "Dipsacus asper": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dipsacus asper",
+   "taxid": "516548"
+  },
+  "Dipsacus asperoides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dipsacus asperoides",
+   "taxid": "180066"
+  },
+  "Dolomiaea costus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Dolomiaea costus",
+   "taxid": "324593"
+  },
+  "Drynaria roosii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Aglaomorpha fortunei",
+   "taxid": "872542"
+  },
+  "Duttaphrynus melanostictus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Duttaphrynus melanostictus",
+   "taxid": "30335"
+  },
+  "Eclipta prostrata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Eclipta prostrata",
+   "taxid": "53719"
+  },
+  "Eleutherococcus nodiflorus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Eleutherococcus nodiflorus",
+   "taxid": "50305"
+  },
+  "Ephedra equisetina": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ephedra equisetina",
+   "taxid": "173280"
+  },
+  "Ephedra intermedia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ephedra intermedia",
+   "taxid": "173278"
+  },
+  "Ephedra sinica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ephedra sinica",
+   "taxid": "33152"
+  },
+  "Epimedium brevicornu": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Epimedium brevicornu",
+   "taxid": "253618"
+  },
+  "Epimedium koreanum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Epimedium koreanum",
+   "taxid": "63351"
+  },
+  "Epimedium pubescens": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Epimedium pubescens",
+   "taxid": "153729"
+  },
+  "Epimedium sagittatum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Epimedium sagittatum",
+   "taxid": "253616"
+  },
+  "Equisetum hyemale": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Equisetum hyemale",
+   "taxid": "3262"
+  },
+  "Equus asinus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Equus asinus",
+   "taxid": "9793"
+  },
+  "Eriobotrya japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Eriobotrya japonica",
+   "taxid": "32224"
+  },
+  "Erythrina variegata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Erythrina variegata",
+   "taxid": "3845"
+  },
+  "Eucommia ulmoides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Eucommia ulmoides",
+   "taxid": "4392"
+  },
+  "Euodia rutaecarpa": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Tetradium ruticarpum",
+   "taxid": "354523"
+  },
+  "Euphorbia kansui": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Euphorbia kansui",
+   "taxid": "239687"
+  },
+  "Euphorbia pekinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Euphorbia pekinensis",
+   "taxid": "273621"
+  },
+  "Euryale ferox": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Euryale ferox",
+   "taxid": "4414"
+  },
+  "Fallopia multiflora": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Pleuropterus multiflorus",
+   "taxid": "76025"
+  },
+  "Ferula fukanensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ferula fukanensis",
+   "taxid": "1271630"
+  },
+  "Ferula sinkiangensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ferula sinkiangensis",
+   "taxid": "1271632"
+  },
+  "Foeniculum vulgare": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Anethum foeniculum",
+   "taxid": "2849586"
+  },
+  "Forsythia suspensa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Forsythia suspensa",
+   "taxid": "126418"
+  },
+  "Fritillaria cirrhosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Fritillaria cirrhosa",
+   "taxid": "108544"
+  },
+  "Fritillaria delavayi": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Fritillaria delavayi",
+   "taxid": "152088"
+  },
+  "Fritillaria przewalskii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Fritillaria przewalskii",
+   "taxid": "152092"
+  },
+  "Fritillaria thunbergii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Fritillaria thunbergii",
+   "taxid": "108546"
+  },
+  "Fritillaria unibracteata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Fritillaria unibracteata",
+   "taxid": "152095"
+  },
+  "Gardenia jasminoides": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gardenia jasminoides",
+   "taxid": "114476"
+  },
+  "Gastrodia elata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gastrodia elata",
+   "taxid": "91201"
+  },
+  "Gekko gecko": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gekko gecko",
+   "taxid": "36310"
+  },
+  "Gentiana crassicaulis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana crassicaulis",
+   "taxid": "308434"
+  },
+  "Gentiana dahurica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana dahurica",
+   "taxid": "225203"
+  },
+  "Gentiana macrophylla": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana macrophylla",
+   "taxid": "50765"
+  },
+  "Gentiana manshurica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana manshurica",
+   "taxid": "683755"
+  },
+  "Gentiana rigescens": {
+   "matched_on": "All Names",
+   "rank": "subspecies",
+   "reviewed": true,
+   "scientific_name": "Gentiana crassa subsp. rigescens",
+   "taxid": "3097545"
+  },
+  "Gentiana scabra": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana scabra",
+   "taxid": "292393"
+  },
+  "Gentiana straminea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana straminea",
+   "taxid": "50768"
+  },
+  "Gentiana triflora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gentiana triflora",
+   "taxid": "55190"
+  },
+  "Gleditsia sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Gleditsia sinensis",
+   "taxid": "66096"
+  },
+  "Glehnia littoralis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Glehnia littoralis",
+   "taxid": "48119"
+  },
+  "Glycine max": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Glycine max",
+   "taxid": "3847"
+  },
+  "Glycyrrhiza glabra": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Glycyrrhiza glabra",
+   "taxid": "49827"
+  },
+  "Glycyrrhiza inflata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Glycyrrhiza inflata",
+   "taxid": "74614"
+  },
+  "Glycyrrhiza uralensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Glycyrrhiza uralensis",
+   "taxid": "74613"
+  },
+  "Haliotis discus hannai": {
+   "matched_on": "Scientific Name",
+   "rank": "subspecies",
+   "scientific_name": "Haliotis discus hannai",
+   "taxid": "42344"
+  },
+  "Haliotis diversicolor": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Haliotis diversicolor",
+   "taxid": "36095"
+  },
+  "Hierodula patellifera": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Hierodula patellifera",
+   "taxid": "1028098"
+  },
+  "Hirudo nipponia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Hirudo nipponia",
+   "taxid": "42736"
+  },
+  "Hordeum vulgare": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Hordeum vulgare",
+   "taxid": "4513"
+  },
+  "Houpoea officinalis": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Magnolia officinalis",
+   "taxid": "85864"
+  },
+  "Hyriopsis cumingii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Sinohyriopsis cumingii",
+   "taxid": "165450"
+  },
+  "Illicium lanceolatum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Illicium lanceolatum",
+   "taxid": "121383"
+  },
+  "Illicium verum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Illicium verum",
+   "taxid": "124778"
+  },
+  "Inula britannica": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Pentanema britannica",
+   "taxid": "119176"
+  },
+  "Inula japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Inula japonica",
+   "taxid": "453958"
+  },
+  "Ipomoea nil": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ipomoea nil",
+   "taxid": "35883"
+  },
+  "Ipomoea purpurea": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ipomoea purpurea",
+   "taxid": "4121"
+  },
+  "Iris domestica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Iris domestica",
+   "taxid": "58944"
+  },
+  "Isatis indigotica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Isatis indigotica",
+   "taxid": "3242077"
+  },
+  "Isatis tinctoria": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Isatis tinctoria",
+   "taxid": "161756"
+  },
+  "Juncus effusus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Juncus effusus",
+   "taxid": "13579"
+  },
+  "Kitagawia praeruptora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Kitagawia praeruptora",
+   "taxid": "312531"
+  },
+  "Lablab purpureus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lablab purpureus",
+   "taxid": "35936"
+  },
+  "Laccocephalum mylittae": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Laccocephalum mylittae",
+   "taxid": "318116"
+  },
+  "Lanxangia tsao-ko": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lanxangia tsao-ko",
+   "taxid": "252867"
+  },
+  "Leonurus japonicus": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Paraleonurus japonicus",
+   "taxid": "4138"
+  },
+  "Lepidium apetalum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lepidium apetalum",
+   "taxid": "153459"
+  },
+  "Ligusticum chuanxiong": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ligusticum chuanxiong",
+   "taxid": "2689076"
+  },
+  "Ligusticum jeholense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ligusticum jeholense",
+   "taxid": "49553"
+  },
+  "Ligusticum sinense": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Conioselinum anthriscoides",
+   "taxid": "3420723"
+  },
+  "Ligustrum lucidum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ligustrum lucidum",
+   "taxid": "458695"
+  },
+  "Lilium brownii var. viridulum": {
+   "matched_on": "Scientific Name",
+   "rank": "varietas",
+   "scientific_name": "Lilium brownii var. viridulum",
+   "taxid": "82313"
+  },
+  "Lilium lancifolium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lilium lancifolium",
+   "taxid": "79002"
+  },
+  "Lilium pumilum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lilium pumilum",
+   "taxid": "82327"
+  },
+  "Lindera aggregata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lindera aggregata",
+   "taxid": "545644"
+  },
+  "Lithospermum erythrorhizon": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lithospermum erythrorhizon",
+   "taxid": "34254"
+  },
+  "Litsea cubeba": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Litsea cubeba",
+   "taxid": "155299"
+  },
+  "Lonicera japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lonicera japonica",
+   "taxid": "105884"
+  },
+  "Lophatherum gracile": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lophatherum gracile",
+   "taxid": "29683"
+  },
+  "Lycium barbarum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lycium barbarum",
+   "taxid": "112863"
+  },
+  "Lycium chinense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lycium chinense",
+   "taxid": "112883"
+  },
+  "Lycopus lucidus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Lycopus lucidus",
+   "taxid": "516551"
+  },
+  "Magallana gigas": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Magallana gigas",
+   "taxid": "29159"
+  },
+  "Magnolia officinalis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Magnolia officinalis",
+   "taxid": "85864"
+  },
+  "Manis pentadactyla": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Manis pentadactyla",
+   "taxid": "143292"
+  },
+  "Mauremys reevesii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Mauremys reevesii",
+   "taxid": "260615"
+  },
+  "Melia azedarach": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Melia azedarach",
+   "taxid": "155640"
+  },
+  "Melia toosendan": {
+   "matched_on": "All Names",
+   "rank": "varietas",
+   "reviewed": true,
+   "scientific_name": "Melia azedarach var. toosendan",
+   "taxid": "71608"
+  },
+  "Mentha canadensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Mentha canadensis",
+   "taxid": "294733"
+  },
+  "Mentha haplocalyx": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Mentha canadensis",
+   "taxid": "294733"
+  },
+  "Mesobuthus martensii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Olivierus martensii",
+   "taxid": "34649"
+  },
+  "Momordica cochinchinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Momordica cochinchinensis",
+   "taxid": "3674"
+  },
+  "Morinda officinalis": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Gynochthodes officinalis",
+   "taxid": "266091"
+  },
+  "Morus alba": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Morus alba",
+   "taxid": "3498"
+  },
+  "Moschus berezovskii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Moschus berezovskii",
+   "taxid": "68408"
+  },
+  "Moschus chrysogaster": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Moschus chrysogaster",
+   "taxid": "68412"
+  },
+  "Moschus moschiferus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Moschus moschiferus",
+   "taxid": "68415"
+  },
+  "Mylabris cichorii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Mylabris cichorii",
+   "taxid": "580878"
+  },
+  "Mylabris phalerata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Mylabris phalerata",
+   "taxid": "580879"
+  },
+  "Myristica fragrans": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Myristica fragrans",
+   "taxid": "51089"
+  },
+  "Nardostachys jatamansi": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Nardostachys jatamansi",
+   "taxid": "179860"
+  },
+  "Nelumbo nucifera": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Nelumbo nucifera",
+   "taxid": "4432"
+  },
+  "Neopicrorhiza scrophulariiflora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Neopicrorhiza scrophulariiflora",
+   "taxid": "470706"
+  },
+  "Nepeta tenuifolia": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Schizonepeta tenuifolia",
+   "taxid": "2849020"
+  },
+  "Notopterygium forbesii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Hansenia forbesii",
+   "taxid": "165499"
+  },
+  "Notopterygium franchetii": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Hansenia forbesii",
+   "taxid": "165499"
+  },
+  "Notopterygium incisum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Hansenia weberbaueriana",
+   "taxid": "54724"
+  },
+  "Olivierus martensii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Olivierus martensii",
+   "taxid": "34649"
+  },
+  "Omphalia lapidescens": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Gerronema lapidescens",
+   "taxid": "2962918"
+  },
+  "Ophiopogon japonicus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ophiopogon japonicus",
+   "taxid": "100506"
+  },
+  "Oryza sativa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Oryza sativa",
+   "taxid": "4530"
+  },
+  "Paeonia lactiflora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Paeonia lactiflora",
+   "taxid": "35924"
+  },
+  "Paeonia suffruticosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Paeonia suffruticosa",
+   "taxid": "45171"
+  },
+  "Paeonia veitchii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Paeonia veitchii",
+   "taxid": "40722"
+  },
+  "Panax ginseng": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Panax ginseng",
+   "taxid": "4054"
+  },
+  "Panax notoginseng": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Panax notoginseng",
+   "taxid": "44586"
+  },
+  "Panthera tigris": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Panthera tigris",
+   "taxid": "9694"
+  },
+  "Pelodiscus sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Pelodiscus sinensis",
+   "taxid": "13735"
+  },
+  "Perilla frutescens": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Perilla frutescens",
+   "taxid": "48386"
+  },
+  "Persicaria tinctoria": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Persicaria tinctoria",
+   "taxid": "96455"
+  },
+  "Peucedanum praeruptorum": {
+   "note": "not found in NCBI Taxonomy",
+   "taxid": ""
+  },
+  "Pharbitis nil": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Ipomoea nil",
+   "taxid": "35883"
+  },
+  "Phellodendron amurense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Phellodendron amurense",
+   "taxid": "68554"
+  },
+  "Phellodendron chinense": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Phellodendron chinense",
+   "taxid": "354508"
+  },
+  "Pheretima aspergillum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Amynthas aspergillum",
+   "taxid": "320991"
+  },
+  "Phragmites australis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Phragmites australis",
+   "taxid": "29695"
+  },
+  "Phyllostachys nigra": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Phyllostachys nigra",
+   "taxid": "281083"
+  },
+  "Picrorhiza scrophulariiflora": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Neopicrorhiza scrophulariiflora",
+   "taxid": "470706"
+  },
+  "Pinctada fucata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Pinctada fucata",
+   "taxid": "50426"
+  },
+  "Pinellia ternata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Pinellia ternata",
+   "taxid": "199225"
+  },
+  "Piper longum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Piper longum",
+   "taxid": "49511"
+  },
+  "Piper nigrum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Piper nigrum",
+   "taxid": "13216"
+  },
+  "Plantago asiatica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Plantago asiatica",
+   "taxid": "197796"
+  },
+  "Plantago depressa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Plantago depressa",
+   "taxid": "411227"
+  },
+  "Platycladus orientalis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Platycladus orientalis",
+   "taxid": "58046"
+  },
+  "Platycodon grandiflorus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Platycodon grandiflorus",
+   "taxid": "94286"
+  },
+  "Pogostemon cablin": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Pogostemon cablin",
+   "taxid": "28511"
+  },
+  "Polygala sibirica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygala sibirica",
+   "taxid": "690825"
+  },
+  "Polygala tenuifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygala tenuifolia",
+   "taxid": "355332"
+  },
+  "Polygonatum cyrtonema": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygonatum cyrtonema",
+   "taxid": "195526"
+  },
+  "Polygonatum kingianum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygonatum kingianum",
+   "taxid": "261420"
+  },
+  "Polygonatum odoratum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygonatum odoratum",
+   "taxid": "82207"
+  },
+  "Polygonatum sibiricum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygonatum sibiricum",
+   "taxid": "261423"
+  },
+  "Polygonum cuspidatum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polygonum cuspidatum",
+   "taxid": "83819"
+  },
+  "Polygonum multiflorum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Pleuropterus multiflorus",
+   "taxid": "76025"
+  },
+  "Polyporus umbellatus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Polyporus umbellatus",
+   "taxid": "158314"
+  },
+  "Poria cocos": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Wolfiporia cocos",
+   "taxid": "81056"
+  },
+  "Prinsepia uniflora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prinsepia uniflora",
+   "taxid": "32240"
+  },
+  "Prunus armeniaca": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus armeniaca",
+   "taxid": "36596"
+  },
+  "Prunus davidiana": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus davidiana",
+   "taxid": "151430"
+  },
+  "Prunus humilis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus humilis",
+   "taxid": "434060"
+  },
+  "Prunus japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus japonica",
+   "taxid": "97319"
+  },
+  "Prunus mandshurica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus mandshurica",
+   "taxid": "122122"
+  },
+  "Prunus mume": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus mume",
+   "taxid": "102107"
+  },
+  "Prunus pedunculata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus pedunculata",
+   "taxid": "983195"
+  },
+  "Prunus persica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus persica",
+   "taxid": "3760"
+  },
+  "Prunus sibirica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Prunus sibirica",
+   "taxid": "151440"
+  },
+  "Pseudostellaria heterophylla": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Pseudostellaria heterophylla",
+   "taxid": "418402"
+  },
+  "Psoralea corylifolia": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Cullen corylifolium",
+   "taxid": "429560"
+  },
+  "Ptyas dhumnades": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ptyas dhumnades",
+   "taxid": "8587"
+  },
+  "Pueraria montana var. lobata": {
+   "matched_on": "Scientific Name",
+   "rank": "varietas",
+   "scientific_name": "Pueraria montana var. lobata",
+   "taxid": "3893"
+  },
+  "Quisqualis indica": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Combretum indicum",
+   "taxid": "3956"
+  },
+  "Raphanus sativus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Raphanus sativus",
+   "taxid": "3726"
+  },
+  "Rehmannia glutinosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rehmannia glutinosa",
+   "taxid": "99300"
+  },
+  "Reynoutria japonica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Reynoutria japonica",
+   "taxid": "488216"
+  },
+  "Reynoutria multiflora": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Pleuropterus multiflorus",
+   "taxid": "76025"
+  },
+  "Rheum officinale": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rheum officinale",
+   "taxid": "137220"
+  },
+  "Rheum palmatum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rheum palmatum",
+   "taxid": "137221"
+  },
+  "Rheum tanguticum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rheum tanguticum",
+   "taxid": "137226"
+  },
+  "Rhinoceros sondaicus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rhinoceros sondaicus",
+   "taxid": "102233"
+  },
+  "Rhinoceros unicornis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rhinoceros unicornis",
+   "taxid": "9809"
+  },
+  "Rhus chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rhus chinensis",
+   "taxid": "289753"
+  },
+  "Rosa laevigata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rosa laevigata",
+   "taxid": "74652"
+  },
+  "Rubus chingii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Rubus chingii",
+   "taxid": "714495"
+  },
+  "Saiga tatarica": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Saiga tatarica",
+   "taxid": "34875"
+  },
+  "Salvia miltiorrhiza": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Salvia miltiorrhiza",
+   "taxid": "226208"
+  },
+  "Sanguisorba officinalis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sanguisorba officinalis",
+   "taxid": "137457"
+  },
+  "Santalum album": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Santalum album",
+   "taxid": "35974"
+  },
+  "Saposhnikovia divaricata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Saposhnikovia divaricata",
+   "taxid": "203717"
+  },
+  "Sargassum fusiforme": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sargassum fusiforme",
+   "taxid": "590727"
+  },
+  "Sargassum pallidum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sargassum pallidum",
+   "taxid": "116055"
+  },
+  "Sauromatum giganteum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sauromatum giganteum",
+   "taxid": "227256"
+  },
+  "Saussurea costus": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Dolomiaea costus",
+   "taxid": "324593"
+  },
+  "Schisandra chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Schisandra chinensis",
+   "taxid": "50507"
+  },
+  "Schisandra sphenanthera": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Schisandra sphenanthera",
+   "taxid": "13674"
+  },
+  "Schizonepeta tenuifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Schizonepeta tenuifolia",
+   "taxid": "2849020"
+  },
+  "Scolopendra mutilans": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Scolopendra mutilans",
+   "taxid": "2836329"
+  },
+  "Scolopendra subspinipes mutilans": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Scolopendra mutilans",
+   "taxid": "2836329"
+  },
+  "Scrophularia ningpoensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Scrophularia ningpoensis",
+   "taxid": "291326"
+  },
+  "Scutellaria baicalensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Scutellaria baicalensis",
+   "taxid": "65409"
+  },
+  "Senegalia catechu": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Senegalia catechu",
+   "taxid": "138017"
+  },
+  "Senna obtusifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Senna obtusifolia",
+   "taxid": "346985"
+  },
+  "Senna tora": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Senna tora",
+   "taxid": "362788"
+  },
+  "Sepia esculenta": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Acanthosepion esculentum",
+   "taxid": "31210"
+  },
+  "Sepiella maindroni": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sepiella maindroni",
+   "taxid": "153280"
+  },
+  "Sinapis alba": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sinapis alba",
+   "taxid": "3728"
+  },
+  "Sophora flavescens": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sophora flavescens",
+   "taxid": "49840"
+  },
+  "Sophora japonica": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Styphnolobium japonicum",
+   "taxid": "3897"
+  },
+  "Sparganium stoloniferum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Sparganium stoloniferum",
+   "taxid": "203643"
+  },
+  "Statilia maculata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Statilia maculata",
+   "taxid": "64626"
+  },
+  "Stephania tetrandra": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Botryodiscia tetrandra",
+   "taxid": "425106"
+  },
+  "Strobilanthes cusia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Strobilanthes cusia",
+   "taxid": "222567"
+  },
+  "Styphnolobium japonicum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Styphnolobium japonicum",
+   "taxid": "3897"
+  },
+  "Syzygium aromaticum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Syzygium aromaticum",
+   "taxid": "219868"
+  },
+  "Taxillus chinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Taxillus chinensis",
+   "taxid": "227909"
+  },
+  "Tenodera sinensis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Tenodera sinensis",
+   "taxid": "406589"
+  },
+  "Terminalia chebula": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Terminalia chebula",
+   "taxid": "155022"
+  },
+  "Tetradium ruticarpum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Tetradium ruticarpum",
+   "taxid": "354523"
+  },
+  "Tetrapanax papyrifer": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Tetrapanax papyrifer",
+   "taxid": "46417"
+  },
+  "Toxicodendron vernicifluum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Toxicodendron vernicifluum",
+   "taxid": "4013"
+  },
+  "Tribulus terrestris": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Tribulus terrestris",
+   "taxid": "210369"
+  },
+  "Trichosanthes kirilowii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Trichosanthes kirilowii",
+   "taxid": "3677"
+  },
+  "Trichosanthes rosthornii": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Trichosanthes rosthornii",
+   "taxid": "676073"
+  },
+  "Trogopterus xanthipes": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Trogopterus xanthipes",
+   "taxid": "226819"
+  },
+  "Tussilago farfara": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Tussilago farfara",
+   "taxid": "118778"
+  },
+  "Typha angustifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Typha angustifolia",
+   "taxid": "59011"
+  },
+  "Typha orientalis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Typha orientalis",
+   "taxid": "644748"
+  },
+  "Typhonium giganteum": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Sauromatum giganteum",
+   "taxid": "227256"
+  },
+  "Ulmus macrocarpa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ulmus macrocarpa",
+   "taxid": "1043716"
+  },
+  "Uncaria rhynchophylla": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Uncaria rhynchophylla",
+   "taxid": "43575"
+  },
+  "Ursus arctos": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ursus arctos",
+   "taxid": "9644"
+  },
+  "Ursus thibetanus": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ursus thibetanus",
+   "taxid": "9642"
+  },
+  "Veratrum nigrum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Veratrum nigrum",
+   "taxid": "203100"
+  },
+  "Vigna angularis": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Vigna angularis",
+   "taxid": "3914"
+  },
+  "Vigna umbellata": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Vigna umbellata",
+   "taxid": "87088"
+  },
+  "Vincetoxicum atratum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Vincetoxicum atratum",
+   "taxid": "157443"
+  },
+  "Vincetoxicum versicolor": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Vincetoxicum versicolor",
+   "taxid": "1165891"
+  },
+  "Vitex trifolia": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Vitex trifolia",
+   "taxid": "204215"
+  },
+  "Whitmania pigra": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Whitmania pigra",
+   "taxid": "486152"
+  },
+  "Wolfiporia cocos": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Wolfiporia cocos",
+   "taxid": "81056"
+  },
+  "Wolfiporia extensa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Wolfiporia extensa",
+   "taxid": "2720609"
+  },
+  "Wurfbainia compacta": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Wurfbainia compacta",
+   "taxid": "252847"
+  },
+  "Wurfbainia villosa": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Wurfbainia villosa",
+   "taxid": "199627"
+  },
+  "Zanthoxylum bungeanum": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Zanthoxylum bungeanum",
+   "taxid": "328401"
+  },
+  "Zanthoxylum schinifolium": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Zanthoxylum schinifolium",
+   "taxid": "354530"
+  },
+  "Zaocys dhumnades": {
+   "matched_on": "All Names",
+   "rank": "species",
+   "reviewed": true,
+   "scientific_name": "Ptyas dhumnades",
+   "taxid": "8587"
+  },
+  "Zingiber officinale": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Zingiber officinale",
+   "taxid": "94328"
+  },
+  "Ziziphus jujuba": {
+   "matched_on": "Scientific Name",
+   "rank": "species",
+   "scientific_name": "Ziziphus jujuba",
+   "taxid": "326968"
+  },
+  "Ziziphus jujuba var. spinosa": {
+   "matched_on": "Scientific Name",
+   "rank": "varietas",
+   "scientific_name": "Ziziphus jujuba var. spinosa",
+   "taxid": "714518"
+  }
+ },
+ "source": "NCBI Taxonomy via E-utilities (esearch + esummary)"
+}

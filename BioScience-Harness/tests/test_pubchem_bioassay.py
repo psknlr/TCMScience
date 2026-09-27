@@ -156,3 +156,43 @@ def test_no_data_is_empty_but_a_failure_that_splitting_cannot_fix_is_an_error(tm
         assert json.load(fh)["rows"] == []
     with pytest.raises(PubChemFetchError):
         fetch_assay_summaries([BERBERINE], tmp_path, backend=_PubChem(max_batch=0))
+
+
+def test_a_busy_answer_is_waited_out_on_the_same_batch_not_split(tmp_path, monkeypatch):
+    """Splitting a batch because PubChem said it was busy multiplies the requests it asked
+    to have fewer of. Busy is retried with back-off; the batch stays whole."""
+    import bioagent.sources.fetch_pubchem as fetch
+    waits: list[float] = []
+    monkeypatch.setattr(fetch.time, "sleep", waits.append)
+    inner = _PubChem()
+    sizes: list[int] = []
+    busy = {"left": 2}
+
+    class Busy:
+        def request(self, req, use_cache=False):
+            import urllib.parse as up
+            ids = up.parse_qs(req.data.decode())
+            sizes.append(len(next(iter(ids.values()))[0].split(",")))
+            if busy["left"]:
+                busy["left"] -= 1
+                return (ExecutionStatus.FAILED, None, "HTTP 503 PUGREST.ServerBusy",
+                        {"http_status": 503})
+            return inner.request(req, use_cache=use_cache)
+
+    out = fetch_assay_summaries([PUERARIN, BERBERINE], tmp_path, backend=Busy())
+    with gzip.open(out, "rt", encoding="utf-8") as fh:
+        assert len(json.load(fh)["rows"]) == 2
+    assert waits == list(fetch.BUSY_BACKOFF[:2])
+    assert sizes[:3] == [2, 2, 2], "the busy batch was retried whole, not halved"
+
+
+def test_a_service_that_stays_busy_is_an_error_after_the_back_off(tmp_path, monkeypatch):
+    import bioagent.sources.fetch_pubchem as fetch
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+
+    class AlwaysBusy:
+        def request(self, req, use_cache=False):
+            return ExecutionStatus.FAILED, None, "HTTP 503 ServerBusy", {"http_status": 503}
+
+    with pytest.raises(fetch.PubChemBusy):
+        fetch_assay_summaries([PUERARIN], tmp_path, backend=AlwaysBusy())

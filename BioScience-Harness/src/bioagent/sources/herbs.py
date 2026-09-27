@@ -74,6 +74,10 @@ class FormulaVersion:
     chinese: str
     source: str
     components: tuple[tuple[str, str, str, str], ...]   # (herb id, role, dose, processing)
+    #: The licence of the composition record itself. The hand-checked formula here is
+    #: CC0; formulas read from the user-supplied table carry that table's (unstated)
+    #: licence. Not part of the fingerprint: it describes the record, not the formula.
+    license: str = LICENSE
 
     @property
     def fingerprint(self) -> str:
@@ -103,37 +107,67 @@ def taxon_filter(herbs: Iterable[CrudeDrug] = HERBS.values()) -> TaxonFilter:
     return TaxonFilter({s.taxid: (s.name, *s.synonyms) for h in herbs for s in h.species})
 
 
-def herb_rows(formula: FormulaVersion = GEGEN_QINLIAN
+def herb_rows(formula: "FormulaVersion | Iterable[FormulaVersion]" = GEGEN_QINLIAN, *,
+              drugs: Mapping[str, CrudeDrug] | None = None
               ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Nodes and edges for the herb layer: formula -> herbs (as the text records them) and
-    herb -> source species (as the pharmacopoeia lists them)."""
-    nodes: dict[str, dict[str, Any]] = {formula.id: {
-        "id": formula.id, "category": "formula", "name": formula.chinese, "source": KEY,
-        "raw": {"source_text": formula.source, "fingerprint": formula.fingerprint}}}
+    herb -> source species (as the pharmacopoeia lists them).
+
+    Takes one formula or many. ``drugs`` maps herb id -> ``CrudeDrug`` for the herbs the
+    formulas use (default: the four hand-checked herbs). A component with no organism —
+    a mineral, a fermented product, or a drug whose species NCBI did not confirm — gets a
+    node and its composition edge but no species edge, so it contributes no constituents
+    and the analysis says so rather than inventing one.
+    """
+    from .materia import MATERIA
+
+    formulas = [formula] if isinstance(formula, FormulaVersion) else list(formula)
+    drugs = dict(HERBS) if drugs is None else dict(drugs)
+    nodes: dict[str, dict[str, Any]] = {}
     edges: list[dict[str, Any]] = []
-    for herb_id, role, dose, processing in formula.components:
-        herb = HERBS[herb_id]
-        nodes[herb.id] = {"id": herb.id, "category": "herb", "name": herb.chinese,
-                          "source": KEY, "names": {"zh": [herb.chinese], "latin": [herb.latin]},
-                          "raw": {"parts": list(herb.parts), "part_zh": herb.part_zh}}
-        edges.append({
-            "subject": formula.id, "predicate": "contains", "object": herb.id,
-            "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
-            "study_design": "classical_text", "license": LICENSE,
-            "source_record_id": f"{formula.id}|{herb.id}", "primary_knowledge_source": KEY,
-            "raw": {"role": role, "dose": dose, "processing": processing}})
-        for sp in herb.species:
-            organism = f"ncbitaxon:{sp.taxid}"
-            nodes[organism] = {"id": organism, "category": "organism", "name": sp.name,
-                               "source": KEY, "xrefs": {"ncbitaxon": [sp.taxid]},
-                               "names": {"latin": [sp.name, *sp.synonyms]}}
+    seen_species: set[tuple[str, str]] = set()
+    for f in formulas:
+        nodes[f.id] = {"id": f.id, "category": "formula", "name": f.chinese, "source": KEY,
+                       "raw": {"source_text": f.source, "fingerprint": f.fingerprint}}
+        for herb_id, role, dose, processing in f.components:
+            herb = drugs.get(herb_id)
+            entry = MATERIA.get(herb_id.split(".", 1)[-1])
+            if herb_id not in nodes:
+                node = {"id": herb_id, "category": "herb", "source": KEY,
+                        "name": herb.chinese if herb else (entry.chinese if entry else herb_id)}
+                if herb is not None:
+                    node["names"] = {"zh": [herb.chinese], "latin": [herb.latin]}
+                    node["raw"] = {"parts": list(herb.parts), "part_zh": herb.part_zh}
+                elif entry is not None:
+                    node["names"] = {"zh": [entry.chinese], "latin": [entry.latin]}
+                    node["raw"] = {"category": entry.category, "part_zh": entry.part_zh,
+                                   "no_organism": True}
+                nodes[herb_id] = node
             edges.append({
-                "subject": herb.id, "predicate": "has_base_species", "object": organism,
+                "subject": f.id, "predicate": "contains", "object": herb_id,
                 "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
-                "study_design": "expert_consensus", "license": LICENSE,
-                "source_record_id": f"{herb.id}|{sp.taxid}", "primary_knowledge_source": KEY,
-                "raw": {"part": herb.part_zh}})
-    return list(nodes.values()), edges
+                "study_design": "classical_text", "license": f.license,
+                "source_record_id": f"{f.id}|{herb_id}", "primary_knowledge_source": KEY,
+                "raw": {"role": role, "dose": dose, "processing": processing}})
+            if herb is None:
+                continue
+            for sp in herb.species:
+                if (herb.id, sp.taxid) in seen_species:
+                    continue
+                seen_species.add((herb.id, sp.taxid))
+                organism = f"ncbitaxon:{sp.taxid}"
+                nodes[organism] = {"id": organism, "category": "organism", "name": sp.name,
+                                   "source": KEY, "xrefs": {"ncbitaxon": [sp.taxid]},
+                                   "names": {"latin": [sp.name, *sp.synonyms]}}
+                edges.append({
+                    "subject": herb.id, "predicate": "has_base_species", "object": organism,
+                    "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
+                    "study_design": "expert_consensus", "license": LICENSE,
+                    "source_record_id": f"{herb.id}|{sp.taxid}",
+                    "primary_knowledge_source": KEY, "raw": {"part": herb.part_zh}})
+    # Duplicate composition records (the same formula id listed twice) are dropped.
+    unique = {(e["subject"], e["predicate"], e["object"]): e for e in edges}
+    return list(nodes.values()), list(unique.values())
 
 
 def gold_edges(herbs: Iterable[str] = GOLD) -> dict[str, list[tuple[str, str, str]]]:

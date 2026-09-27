@@ -20,7 +20,9 @@ requires-python = ">=3.11"
 dependencies = ["pandas>=2.0", "pyarrow>=14.0", "pyyaml>=6.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "build>=1.0"]
+dev = ["pytest>=7.0", "build>=1.0", "openpyxl>=3.1"]
+# Reading the formula table (中医方剂数据表.xlsx).
+formulas = ["openpyxl>=3.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

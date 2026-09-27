@@ -5,6 +5,11 @@
     # four herbs' source species) and its composition table:
     python scripts/build_source_snapshots.py gold --raw DIR --out DIR
 
+    # the same, with every fully resolved formula of the formula table in the herb layer
+    # and the sources restricted to the species of all their drugs:
+    python scripts/build_source_snapshots.py gold --raw DIR --out DIR --network \\
+        --formula-table 中医方剂数据表.xlsx
+
     # one whole source:
     python scripts/build_source_snapshots.py source npass --raw DIR --out DIR
 
@@ -63,6 +68,11 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--out", required=True)
     g.add_argument("--network", action="store_true",
                    help="also build STRING and Reactome over the targets found")
+    g.add_argument("--formula-table", default="",
+                   help="add every fully resolved formula of this table (中医方剂数据表.xlsx) "
+                        "to the herb layer, and restrict the sources to all their drugs")
+    g.add_argument("--sources", nargs="+", default=["npass", "cmaup", "lotus"],
+                   choices=("npass", "cmaup", "lotus"))
     s = sub.add_parser("source")
     s.add_argument("key", choices=("npass", "cmaup", "lotus"))
     s.add_argument("--raw", required=True)
@@ -85,7 +95,15 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "gold":
-            build = build_gold(args.raw, args.out, ledger=ledger, network=args.network)
+            formulas = None
+            if args.formula_table:
+                from bioagent.sources.formulas import load_formula_table
+                table = load_formula_table(args.formula_table)
+                formulas = [r.version() for r in table.resolved]
+                print(json.dumps({"formula_table": table.stats()}, ensure_ascii=False),
+                      file=sys.stderr)
+            build = build_gold(args.raw, args.out, ledger=ledger, network=args.network,
+                               sources=args.sources, formulas=formulas)
             report = {"snapshots": {k: _summary(v) for k, v in build.snapshots.items()},
                       "gold_missing": build.missing,
                       "composition": build.composition}
