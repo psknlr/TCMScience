@@ -469,6 +469,33 @@ def test_f04_chinese_research_prose_is_not_flagged(fallback, text):
     assert verdict.categories == ()
 
 
+def test_a_generated_id_is_not_read_as_a_phone_number(fallback):
+    """``run_8c0a15855104493f`` holds ``15855104493``. About one ``new_id`` in two
+    thousand labelled itself PHI this way, and every test that compiled a run with it
+    failed at random with FLOW101. A digit run inside a long hex identifier is part of
+    that identifier; a phone number next to a word is still a phone number."""
+    from psh.contracts import new_id
+    assert fallback.classify_text("run_8c0a15855104493f").sensitivity is Sensitivity.INTERNAL
+    assert all(fallback.classify_text(new_id("run")).sensitivity is Sensitivity.INTERNAL
+               for _ in range(20000))
+    import codecs
+    import uuid
+    assert fallback.classify_text("a9697a31-e499-4c08-9537-a13136939702").categories == ()
+    # The rot13 rescan turns the id's hex letters into n–s; it must not flag it either,
+    # while rot13-encoded PHI (digits survive rotation) is still caught.
+    assert fallback.classify({"k": "run_8c0a15855104493f"}).label.sensitivity \
+        is Sensitivity.INTERNAL
+    hidden = codecs.encode("联系电话 13812345678 run_8c0a15855104493f", "rot13")
+    assert fallback.classify(hidden).label.sensitivity is Sensitivity.PHI
+    assert all(fallback.classify_text(str(uuid.uuid4())).categories == ()
+               for _ in range(20000))
+    for text in ("phone13812345678", "电话13812345678", "tel: 13812345678",
+                 "联系电话：138-1234-5678 或 13812345678",
+                 "run_8c0a15855104493f 联系电话：13812345678"):
+        verdict = fallback.classify_text(text)
+        assert "chinese_mobile_number" in verdict.categories, text
+
+
 def test_f04_english_cues_still_hold(fallback):
     assert fallback.classify_text(PHI_TEXT).sensitivity is Sensitivity.PHI
 
