@@ -15,6 +15,7 @@ from ..runtime.component import ComponentManifest as BioManifest
 from .assembly import load_verification
 from .component import BridgedComponent
 from .manifest import HostPolicy, bridge_manifest, psh_id_for
+from .profiles import DeploymentProfile, profile_named
 
 __all__ = ["BioScienceBridge", "BridgeRefused", "EXEC_PATH"]
 
@@ -54,16 +55,29 @@ class BioScienceBridge:
 
     def __init__(self, kernel: Any, runtime: Any, *, spec: AgentSpec | None = None,
                  host_policy: HostPolicy | None = None, isolate: bool | None = None,
-                 strict_audit: bool = True,
-                 local_ceiling: Sensitivity = Sensitivity.PHI,
+                 strict_audit: bool | None = None,
+                 local_ceiling: Sensitivity | None = None,
+                 profile: "str | DeploymentProfile | None" = None,
                  verification: Mapping[str, Mapping[str, Any]] | None = None,
                  events: Any = None, manifest_dir: str | Path | None = None) -> None:
         self.kernel = kernel
         self.runtime = runtime
         self.spec = spec or AgentSpec(name="psh-bridge", permission_profile="biomedical-research")
         self.host_policy = host_policy or HostPolicy()
-        self.local_ceiling = local_ceiling
-        self.strict_audit = strict_audit
+        self.profile = profile_named(profile) if profile is not None else None
+        p = self.profile
+        if p is not None:
+            if p.require_isolation and isolate is False:
+                raise BridgeRefused(f"profile {p.name} requires isolation; isolate=False "
+                                    "contradicts it")
+            if strict_audit is False and p.strict_audit:
+                raise BridgeRefused(f"profile {p.name} requires a strict audit")
+            if local_ceiling is not None and local_ceiling > p.local_ceiling:
+                raise BridgeRefused(f"profile {p.name} caps local data at "
+                                    f"{p.local_ceiling.name}, not {local_ceiling.name}")
+        self.local_ceiling = (local_ceiling if local_ceiling is not None
+                              else (p.local_ceiling if p else Sensitivity.PHI))
+        self.strict_audit = strict_audit if strict_audit is not None else True
         self.verification = dict(verification) if verification is not None else load_verification()
         self.events = events
         config = getattr(kernel, "config", None)
@@ -71,6 +85,9 @@ class BioScienceBridge:
         self.manifest_dir = (Path(manifest_dir) if manifest_dir
                              else (Path(state_dir) / "bioscience" if state_dir else None))
         self.isolate = (self.manifest_dir is not None) if isolate is None else bool(isolate)
+        if p is not None and p.require_isolation and not self.isolate:
+            raise BridgeRefused(f"profile {p.name} requires isolation, and there is no "
+                                "state or manifest directory to run isolated components from")
         self._components: dict[str, BridgedComponent] = {}
         self._by_bio_id: dict[str, str] = {}
         self._harnesses: dict[str, PSHManifest] = {}
@@ -114,6 +131,10 @@ class BioScienceBridge:
             backend=backend, entrypoint=entrypoint, operations=operations,
             verification=self.verification.get(source.key) if source is not None else None,
             description_sensitivity=labelled.label.sensitivity.name)
+        if self.profile is not None:
+            why = self.profile.admits(manifest.destinations)
+            if why:
+                raise BridgeRefused(f"{bio.id}: {why}")
         component = BridgedComponent(bio, manifest, self.runtime, spec=self.spec,
                                      source=source, events=self.events)
         self._components[manifest.id] = component
@@ -125,6 +146,7 @@ class BioScienceBridge:
                             "license": manifest.license_spdx or "unlicensed",
                             "integration_mode": manifest.integration_mode,
                             "isolated": self.isolate,
+                            "profile": self.profile.name if self.profile else "",
                             "description_sensitivity": labelled.label.sensitivity.name})
         return manifest
 

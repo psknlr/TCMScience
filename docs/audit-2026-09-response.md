@@ -121,8 +121,17 @@ environment is a deployment decision, made with a lockfile or a container digest
 **F09, bridge defaults.** `BioScienceBridge` now isolates by default whenever it
 has somewhere to write the child's manifest. In-process execution requires an
 explicit `isolate=False`. A failed audit write now refuses the admission
-(`strict_audit=True`); earlier versions swallowed the error. Still open: named
-deployment profiles (`trusted_local` / `restricted_research` / `sensitive_data`).
+(`strict_audit=True`); earlier versions swallowed the error.
+
+Named deployment profiles now exist as well (`bioagent/psh/profiles.py`):
+- `trusted_local` isolates when it can and allows in-process execution.
+- `restricted_research` requires isolation and caps local data at
+  `RESEARCH_DEIDENTIFIED`.
+- `sensitive_data` requires isolation and refuses, at admission, any component that
+  reaches a remote destination.
+
+Every profile requires a strict audit. An explicit setting that contradicts the
+profile is refused. Still open: an OS-level isolation-escape test.
 
 **F10, a closed loop on real data.** A new package, `bioagent.research`, carries a
 question end to end on snapshot data, outside the seed corpus. The CLI entry point is

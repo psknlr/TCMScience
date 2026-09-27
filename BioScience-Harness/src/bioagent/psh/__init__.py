@@ -60,10 +60,12 @@ _NEEDS_PSH: dict[str, str] = {
     "BridgedComponent": ".component",
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
+    "DeploymentProfile": ".profiles", "PROFILES": ".profiles", "profile_named": ".profiles",
 }
 
 __all__ = [
     "ArgumentError", "BioScienceBridge", "BridgeRefused", "BridgedComponent",
+    "DeploymentProfile", "PROFILES", "profile_named",
     "BoundaryViolation", "EXEC_PATH", "HostPolicy", "KernelBoundary", "arguments_for",
     "bridge_manifest", "ceiling_for", "default_runtime", "destinations_for",
     "load_catalogue_rows", "load_verification", "normalise_spdx", "psh_id_for",
