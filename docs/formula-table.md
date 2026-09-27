@@ -149,3 +149,44 @@ python BioScience-Harness/scripts/build_source_snapshots.py pubchem \
 When PubChem answers "server busy", the fetch waits and retries the same batch with
 back-off. Splitting the batch would send more requests at the moment the service asked
 for fewer.
+
+## On real data (2026-09-27)
+
+The run used the public downloads of NPASS 2.0, CMAUP 2.0, LOTUS (2026-04-13 frozen
+dump), STRING 12.0 and Reactome. The sources were restricted to the species of all 258
+organism drugs, and the gold markers were reproduced.
+
+| Snapshot | Nodes | Edges |
+| --- | ---: | ---: |
+| Herb layer (42,253 formulas) | 42,871 | 291,464 |
+| NPASS | 22,745 | 111,138 |
+| CMAUP | 18,887 | 58,391 |
+| LOTUS | 17,590 | 25,570 |
+| STRING (induced subnetwork) | 1,589 | 200,762 |
+
+The run joined 65,671 drug–compound composition rows, covering 30,275 compounds.
+
+**Question:** 麻黄汤《伤寒论》的实测靶点是否集中在某条 Reactome 通路？ It resolved
+to 麻黄、桂枝、甘草、杏仁. NPASS and CMAUP were the activity sources; LOTUS and STRING
+were optional.
+
+- **Whole Reactome as background.** The analysis produced 106 pathway hypotheses, and
+  rebuttal refuted every one:
+  - all 106 are no longer significant when the background is restricted to proteins
+    that were assayed;
+  - 49 also rest on NPASS alone;
+  - 19 rest on constituents that only LOTUS reports;
+  - 1 is not significant under another permutation seed.
+- **Assayed proteins as background (the default).** No pathway is significant.
+
+Both runs release a negative result. This is the same pattern 葛根芩连汤 showed. In
+these public data, which proteins were tested explains the apparent pathway
+enrichment.
+
+**PubChem BioAssay** is wired in as an activity source (`pubchem_bioassay`,
+`--hits screening`), but the fetch for this formula set was not completed. PubChem
+answered `PUGREST.ServerBusy` to every request from this environment's client after
+repeated batches. Its usage policy allows temporarily blocking clients that make heavy
+requests. The fetcher now waits out a busy answer on the same batch rather than
+splitting it, so a retry sends fewer requests, not more. The fetch should be re-run
+once the block lifts, using the command above; it was not routed around.
