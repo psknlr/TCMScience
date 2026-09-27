@@ -20,7 +20,11 @@ refusal point:
     recorded as a deviation. A source that fails its hash check is never dropped: the
     data changed, and that is a failure, not something to work around.
 ``analyse``
-    :func:`run_network_pharmacology` with the protocol's parameters.
+    The skill's ``ScientificProgram`` is compiled under PSH first, and its fingerprint is
+    written to the audit chain. Then :func:`run_network_pharmacology` runs with the
+    protocol's parameters as a PSH tool call: a bridged component
+    (:mod:`bioagent.research.tools`) that the kernel executes in an isolated child
+    process. The child reloads every snapshot through the ledger.
 ``rebut``
     Every claim the analysis released is tested against the pre-registered rebuttals.
     A claim that disappears under the conservative background, when one activity
@@ -46,13 +50,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from ..analysis.network_pharmacology import Parameters, run_network_pharmacology
+from ..analysis.network_pharmacology import Parameters
 from ..contracts import (ArtifactFile, CandidateClaim, EvidenceItem, SourceCard,
                          validate_artifact)
 from ..contracts.artifact import ArtifactVerdict, ResearchArtifact
@@ -357,8 +362,17 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                  ledger_path: str | Path, state_dir: str | Path, output_dir: str | Path,
                  protocol: Protocol | None = None, skill_dir: str | Path | None = None,
                  accept_review: bool = False,
-                 analyse: Callable[..., Any] = run_network_pharmacology) -> ResearchRun:
-    """Run ``question`` through protocol, retrieval, analysis, rebuttal and release."""
+                 analyse: Callable[..., Any] | None = None,
+                 profile: str = "trusted_local") -> ResearchRun:
+    """Run ``question`` through protocol, retrieval, analysis, rebuttal and release.
+
+    By default every analysis — the primary one and each rebuttal variant — executes as a
+    PSH tool call on a bridged BioScience component (:mod:`bioagent.research.tools`),
+    after the skill's ``ScientificProgram`` has compiled under the kernel's policy. The
+    deployment ``profile`` decides isolation. ``analyse`` replaces that with an
+    in-process callable; it exists for tests, and the artifact then records
+    ``governed_execution: false``.
+    """
     try:
         from psh import PSHConfig, TrustedKernel
     except ImportError as exc:
@@ -371,14 +385,19 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
     if protocol.question != question:
         raise ResearchRefused("the protocol was written for a different question")
     run_id = "research-" + protocol.digest.split(":", 1)[1][:16]
-    state = Path(state_dir)
+    state = Path(state_dir).resolve()
     ckpt = _Checkpoint(state / "research" / run_id)
-    out = Path(output_dir)
+    out = Path(output_dir).resolve()      # relative outputs would go unchecked
     out.mkdir(parents=True, exist_ok=True)
     contract = _contract(skill_dir)
     resumed: list[str] = []
 
-    kernel = TrustedKernel(PSHConfig(state_dir=state / "psh").ensure_dirs())
+    # The kernel's tool gateway refuses a path outside these: the snapshots, the ledger
+    # and the run's own state. Nothing else is readable by the tool.
+    allowed = [str(Path(snapshot_root).resolve() / "*"), str(Path(ledger_path).resolve()),
+               str(Path(snapshot_root).resolve()), str((state / "psh").resolve() / "*")]
+    kernel = TrustedKernel(PSHConfig(state_dir=state / "psh").ensure_dirs(),
+                           allowed_paths=allowed)
     try:
         def audit(event: str, **detail: Any) -> None:
             kernel.audit(f"research_{event}", run_id=run_id, detail=detail)
@@ -406,6 +425,13 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                 f"the herb-layer snapshot {herbs.snapshot_id} does not contain {formula_id}; "
                 "rebuild it with build_source_snapshots.py gold --formula-table")
         ids = {s.key: s.snapshot_id for s in snaps}
+        program = _compile(contract, protocol, ids)
+        audit("program_compiled", fingerprint=program, steps=sorted(
+            (contract.steps if contract is not None else {}).keys()))
+        if analyse is None:
+            analyse = _GovernedAnalysis(kernel, snapshot_root, ledger_path, contract,
+                                        accept_review, profile, state / "psh")
+        governed = isinstance(analyse, _GovernedAnalysis)
         retrieve_input = _digest({"protocol": protocol.digest, "snapshots": ids})
         if ckpt.done("retrieve", retrieve_input):
             resumed.append("retrieve")
@@ -445,6 +471,11 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
 
         # -- release ------------------------------------------------------------------
         artifact = _artifact(run_id, protocol, snaps, result, rebuttal, deviations, out)
+        artifact = replace(artifact, provenance={
+            **dict(artifact.provenance), "compiled_program": program,
+            "governed_execution": governed,
+            "tool_calls": analyse.calls if governed else 0,
+            "profile": profile if governed else ""})
         store = snapshot_content_store(
             snaps, [tuple(s) for c in result["claims"] for s in c["support"]])
         for name in ("enrichment.jsonl",):
@@ -512,9 +543,104 @@ def _analyse(analyse: Callable[..., Any], snaps: Sequence[Snapshot], protocol: P
              params: Parameters, contract: Any) -> dict[str, Any]:
     result = analyse(snaps, formula=protocol.question.formula, params=params,
                      contract=contract)
+    if isinstance(result, Mapping):
+        return dict(result)                     # a governed call already returns data
     doc = json.loads(json.dumps(result.as_dict(), ensure_ascii=False, default=str))
     doc["digest"] = result.digest()
     return doc
+
+
+def _compile(contract: Any, protocol: Protocol, ids: Mapping[str, str]) -> str:
+    """Compile the skill's ScientificProgram under PSH; its fingerprint, or a refusal.
+
+    PSH's compiler checks the program's evidence designs against the claim kind. A
+    mechanism claim resting on in-silico steps would be refused here, before any
+    analysis runs.
+    """
+    if contract is None:
+        raise ResearchRefused("no skill contract (skill.yaml) to compile the analysis from")
+    from psh.policy import PolicySnapshot
+    from psh.runtime import PlanRejected
+    from psh.workflow import ScientificCompiler
+
+    from ..psh.skill_program import ClaimScope, SkillProgramError, skill_program
+    formula = protocol.question.formula
+    scope = ClaimScope(population="human proteins (in silico)",
+                       intervention=f"{formula.chinese} ({formula.source})",
+                       outcome="Reactome pathway over-representation")
+    policy = PolicySnapshot(profile_id="tcm-network-pharmacology",
+                            require_claim_support=False)
+    try:
+        program = skill_program(contract, scope, provenance=tuple(sorted(ids.values())))
+        compiled = ScientificCompiler().compile(program, policy.envelope(), policy=policy)
+    except (PlanRejected, SkillProgramError) as exc:
+        raise ResearchRefused(f"the analysis program does not compile: {exc}") from exc
+    return compiled.fingerprint
+
+
+class _GovernedAnalysis:
+    """Runs the analysis as a PSH tool call on a bridged BioScience component."""
+
+    def __init__(self, kernel: Any, snapshot_root: Any, ledger_path: Any, contract: Any,
+                 accept_review: bool, profile: str, manifest_dir: Path) -> None:
+        from ..psh import BioScienceBridge, default_runtime
+        from ..runtime.component import (ComponentManifest, LicenseSpec, Permissions,
+                                         RuntimeSpec)
+        from .tools import TOOL_ENTRYPOINT, TOOL_ID
+
+        self.kernel = kernel
+        self.root = str(Path(snapshot_root).resolve())
+        self.ledger = str(Path(ledger_path).resolve())
+        self.skill = contract.as_dict() if contract is not None else None
+        self.accept_review = accept_review
+        # The component's workspace is the directory holding the snapshots and the ledger:
+        # the profile then permits exactly the reads the manifest declares.
+        workspace = Path(os.path.commonpath([self.root, self.ledger]))
+        if workspace == Path(workspace.anchor):
+            raise ResearchRefused("the snapshots and the ledger share no directory but the "
+                                  "filesystem root; put them under one work directory")
+        manifest = ComponentManifest(
+            id=TOOL_ID, kind="tool", name="network pharmacology analysis",
+            description="composition, measured targets, enrichment and release check on "
+                        "ledger-verified snapshots",
+            # Real snapshots (a herb layer of 42k formulas, STRING, Reactome) need more
+            # than the kernel's defaults (2 GB, 120 s, 200k characters of result: the
+            # full enrichment table of one formula is 1-2 MB). They are still limits.
+            runtime=RuntimeSpec(backend="python", entrypoint=TOOL_ENTRYPOINT,
+                                deterministic=True, timeout_s=1800, memory_mb=16384,
+                                max_output_chars=32_000_000),
+            license=LicenseSpec(spdx="MIT", integration_mode="native"),
+            permissions=Permissions(filesystem_read=(self.root, self.ledger)))
+        runtime = default_runtime(catalogue=False, public_apis=False, skills=False,
+                                  extra_manifests=(manifest,))
+        self.bridge = BioScienceBridge(kernel, runtime, profile=profile,
+                                       manifest_dir=manifest_dir / "bioscience",
+                                       roots={"workspace": workspace})
+        self.bridge.admit(manifest)
+        self.component = self.bridge.component(TOOL_ID)
+        self.calls = 0
+
+    def __call__(self, snaps: Sequence[Snapshot], *, formula: FormulaVersion,
+                 params: Parameters, contract: Any = None) -> dict[str, Any]:
+        payload = {
+            "snapshot_root": self.root, "ledger_path": self.ledger,
+            "snapshots": [[s.key, s.version, s.snapshot_id] for s in snaps],
+            "formula": {"id": formula.id, "chinese": formula.chinese,
+                        "source": formula.source,
+                        "components": [list(c) for c in formula.components],
+                        "license": formula.license},
+            "parameters": json.loads(json.dumps(asdict(params), default=str)),
+            "skill": self.skill, "accept_review": self.accept_review,
+        }
+        self.calls += 1
+        result = self.kernel.broker.call_tool(self.component, payload,
+                                              self.kernel.policy.envelope())
+        value = getattr(result, "value", result)
+        if isinstance(value, str):
+            value = json.loads(value)
+        if not isinstance(value, Mapping) or "release" not in value:
+            raise ResearchRefused(f"the governed analysis returned no result ({type(value)})")
+        return dict(value)
 
 
 def _released(result: Mapping[str, Any]) -> set[str]:

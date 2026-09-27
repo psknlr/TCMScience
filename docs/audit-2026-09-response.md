@@ -101,8 +101,45 @@ each step can refuse the run:
 The CLI exits 0 only when `release_authorized` is true. In `analysis/skill_runner.py`,
 a failed PSH import used to be ignored silently. It is now a refusal, unless the
 caller passes `require_psh=False` (`--allow-ungoverned`); provenance then records
-`governed: false`. Still open: the network-pharmacology analysis still runs beside
-its compiled PSH program rather than *as* that program.
+`governed: false`.
+
+The research loop's analysis now runs *as* its compiled PSH program, not beside it
+(`bioagent/research/tools.py`). Once the sources are retrieved, the loop compiles the
+skill's `ScientificProgram` under a PSH policy and records the fingerprint in the audit
+chain and in the artifact (`compiled_program`). Only then does it analyse, and it does
+so through the kernel. The analysis is a bridged BioScience component that the broker
+calls with `call_tool`, and the kernel runs it in an isolated child process with a
+cleared environment. That component:
+- declares, as its filesystem reads, only the snapshot root and the ledger;
+- receives the skill contract as data, not as a path;
+- reloads every snapshot through the ledger under the snapshot id the parent recorded,
+  so the hashes are checked again in the process that computes.
+
+The primary analysis and each rebuttal variant are separate tool calls, each with its
+own `tool_call` and `isolated_run` events. The artifact records
+`governed_execution: true`, the number of tool calls, and the deployment profile
+(`--profile`). A caller that injects its own `analyse=` callable, as the resume tests
+do, gets `governed_execution: false` in the artifact.
+
+Four kernel and bridge gaps surfaced along the way and are fixed:
+- **Filesystem roots in the isolated child.** The child starts from a cleared
+  environment, so it resolved `${workspace}` and `${data_lake}` to the repository
+  defaults, not the roots the admitting process uses. The bridge now passes both on
+  the child's command line, fixed at admission.
+- **Resource limits.** A component can now declare `timeout_s`, `memory_mb` and
+  `max_output_chars` for its isolated run.
+- **Oversized output.** Stdout beyond the limit was silently cut to 200,000
+  characters and then reported as unparseable JSON. It is now a contract violation
+  that states the size and the limit.
+- **Relative output directories.** A relative `--out` left every output "not
+  checked", so release was withheld. The loop now resolves its directories.
+
+On the real 麻黄汤 snapshots, the governed runs reproduce the in-process results byte
+for byte:
+- **Assayed-protein background.** 1 tool call, and release is authorised.
+- **Whole-Reactome background.** 7 tool calls: the primary analysis and six rebuttal
+  variants. All 106 hypotheses are refuted, and the enrichment and rebuttal files are
+  identical to those of the in-process run. The run took about 4.5 minutes.
 
 **F07, argument typing.** `coerce_arguments` reads each skill's signature. A
 sequence parameter always receives a list, split on `,` `，` `、` `;` `；`. Integers,
@@ -194,12 +231,15 @@ difference is that the loop now reaches that conclusion by itself, from one ques
 under audit, and releases it as the result.
 
 Still open:
-- A question is parsed literally: a registered formula name and an ontology id.
-  There is no language-model planner.
-- Only one formula (葛根芩连汤) is registered with its source species.
-- The analysis runs beside its compiled PSH program rather than *as* that program.
-- LOTUS and PubChem screening were not rebuilt for this run, although the loop
-  accepts them as sources.
+- A question is parsed literally: a formula name (a hand-checked one or one from the
+  formula table, narrowed by its source book) and an ontology id. There is no
+  language-model planner.
+- ~~Only one formula is registered.~~ The formula table now supplies 53,206 fully
+  resolved formulas (`docs/formula-table.md`).
+- ~~The analysis runs beside its compiled PSH program.~~ It runs as isolated PSH
+  tool calls (see F06).
+- LOTUS is rebuilt and part of the loop. The PubChem BioAssay fetch was blocked by
+  PubChem's rate limiting and is still to be re-run.
 
 ## Reproduce
 

@@ -413,6 +413,23 @@ def test_an_unknown_profile_is_an_error(kernel, runtime):
         BioScienceBridge(kernel, runtime, profile="anything_goes")
 
 
+def test_the_isolated_child_is_told_the_filesystem_roots_this_process_resolved(
+        kernel, tmp_path):
+    import shlex
+    echo = local_tool()
+    runtime = default_runtime(catalogue=False, public_apis=False, extra_manifests=(echo,),
+                              data_lake=tmp_path / "no-lake")
+    work = tmp_path / "a work dir"
+    bridge = BioScienceBridge(kernel, runtime, isolate=True, roots={"workspace": work})
+    argv = shlex.split(bridge.admit(echo).entrypoint)
+    assert argv[argv.index("--workspace") + 1] == str(work.resolve())
+    assert "--data-lake" in argv
+    with pytest.raises(BridgeRefused, match="unknown filesystem roots"):
+        BioScienceBridge(kernel, runtime, isolate=True, roots={"home": tmp_path})
+    with pytest.raises(BridgeRefused, match="only be given to isolated"):
+        BioScienceBridge(kernel, runtime, isolate=False, roots={"workspace": work})
+
+
 def test_bioagent_never_reaches_into_the_kernel_internals():
     root = Path(bioagent.__file__).parent
     offenders = []

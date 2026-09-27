@@ -59,7 +59,8 @@ class BioScienceBridge:
                  local_ceiling: Sensitivity | None = None,
                  profile: "str | DeploymentProfile | None" = None,
                  verification: Mapping[str, Mapping[str, Any]] | None = None,
-                 events: Any = None, manifest_dir: str | Path | None = None) -> None:
+                 events: Any = None, manifest_dir: str | Path | None = None,
+                 roots: Mapping[str, str | Path] | None = None) -> None:
         self.kernel = kernel
         self.runtime = runtime
         self.spec = spec or AgentSpec(name="psh-bridge", permission_profile="biomedical-research")
@@ -82,12 +83,29 @@ class BioScienceBridge:
         self.events = events
         config = getattr(kernel, "config", None)
         state_dir = getattr(config, "state_dir", None)
-        self.manifest_dir = (Path(manifest_dir) if manifest_dir
-                             else (Path(state_dir) / "bioscience" if state_dir else None))
+        # Absolute: the child runs in its own working directory, not this one.
+        self.manifest_dir = (Path(manifest_dir).resolve() if manifest_dir
+                             else ((Path(state_dir) / "bioscience").resolve() if state_dir
+                                   else None))
         self.isolate = (self.manifest_dir is not None) if isolate is None else bool(isolate)
         if p is not None and p.require_isolation and not self.isolate:
             raise BridgeRefused(f"profile {p.name} requires isolation, and there is no "
                                 "state or manifest directory to run isolated components from")
+        # The permission profile names its filesystem roots symbolically (${workspace},
+        # ${data_lake}); the isolated child starts from a cleared environment, so it is told
+        # the roots this process resolved rather than falling back to repository defaults.
+        from ..config import data_lake_dir, workspace_dir
+        unknown = sorted(set(roots or {}) - {"workspace", "data_lake"})
+        if unknown:
+            raise BridgeRefused(f"unknown filesystem roots {unknown}; "
+                                "known: data_lake, workspace")
+        if roots and not self.isolate:
+            raise BridgeRefused("filesystem roots can only be given to isolated components; "
+                                "in-process components use this process's configuration")
+        self.roots = {"workspace": str(Path(workspace_dir()).expanduser().resolve()),
+                      "data_lake": str(Path(data_lake_dir()).expanduser().resolve()),
+                      **{k: str(Path(v).expanduser().resolve())
+                         for k, v in (roots or {}).items()}}
         self._components: dict[str, BridgedComponent] = {}
         self._by_bio_id: dict[str, str] = {}
         self._harnesses: dict[str, PSHManifest] = {}
@@ -242,7 +260,7 @@ class BioScienceBridge:
         return BY_KEY.get(bio.id.rsplit(".", 1)[-1])
 
     def _isolated_entrypoint(self, bio: BioManifest) -> str:
-        """``python exec.py --manifest <file>``: the child runs exactly the admitted manifest.
+        """``python exec.py --manifest <file> ...``: the child runs exactly the admitted manifest.
 
         Written under the kernel's state directory, owner-only, so the child needs no
         catalogue and no environment variable to find its component.
@@ -258,7 +276,10 @@ class BioScienceBridge:
             os.chmod(target, 0o600)
         except OSError:                                  # pragma: no cover - platform
             pass
-        return f"{sys.executable} {EXEC_PATH} --manifest {target}"
+        import shlex
+        return " ".join(shlex.quote(str(a)) for a in (
+            sys.executable, EXEC_PATH, "--manifest", target,
+            "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"]))
 
     def _audit(self, event: str, **fields: Any) -> None:
         audit = getattr(self.kernel, "audit", None)

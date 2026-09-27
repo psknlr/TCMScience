@@ -197,7 +197,7 @@ def _cmd_research(a) -> int:
                                     parameters=params)
         run = run_research(question, protocol=protocol, snapshot_root=a.snapshots,
                            ledger_path=a.ledger, state_dir=a.state_dir, output_dir=a.out,
-                           accept_review=a.accept_review)
+                           accept_review=a.accept_review, profile=a.profile)
     except (QuestionRefused, ResearchRefused, ValueError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -208,6 +208,8 @@ def _cmd_research(a) -> int:
                "resumed_stages": list(run.resumed_stages),
                "states": run.verdict.states if run.verdict else {},
                "snapshots": dict(run.snapshots), "audit_head": run.audit_head,
+               **{k: (run.artifact.provenance.get(k) if run.artifact else None)
+                  for k in ("compiled_program", "governed_execution", "tool_calls")},
                "output_dir": run.output_dir}
     print(_json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if run.released else 1
@@ -388,6 +390,9 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument("--permutations", type=int, default=1000)
     rs.add_argument("--accept-review", action="store_true",
                     help="load snapshots whose QC status is 'review'")
+    rs.add_argument("--profile", default="trusted_local",
+                    choices=("trusted_local", "restricted_research", "sensitive_data"),
+                    help="PSH deployment profile the analysis executes under")
 
     a = ap.parse_args(argv)
     if a.cmd == "research":
