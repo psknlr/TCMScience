@@ -387,7 +387,9 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
         if ckpt.done("protocol", protocol.digest):
             resumed.append("protocol")
         else:
+            from ..environment import environment_record
             audit("protocol_registered", protocol_digest=protocol.digest,
+                  environment_digest=environment_record()["digest"],
                   question=question.text, formula=question.formula_id,
                   disease=question.disease, rebuttals=list(protocol.rebuttals))
             ckpt.save("protocol", protocol.digest, protocol.as_dict())
@@ -670,6 +672,7 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
                      "doses and processing are recorded but not modelled",),
         source_axis=_digest(sorted(cards)), created_at=_now(),
         provenance={"protocol_digest": protocol.digest, "snapshots": sorted(cards),
+                    "environment": _environment(),
                     "result_digest": result["digest"], "deviations": list(deviations),
                     "refuted": list(rebuttal["refuted"])})
 
@@ -695,6 +698,11 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+def _environment() -> dict[str, Any]:
+    from ..environment import environment_record
+    return environment_record()
+
 
 def _no_organism(protocol: Protocol) -> list[str]:
     """Components of the formula with no verified organism (minerals, products, …)."""

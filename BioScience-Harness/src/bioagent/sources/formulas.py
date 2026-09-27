@@ -126,6 +126,23 @@ def _split_outside_parens(text: str) -> list[str]:
     return [i.strip() for i in items if i.strip()]
 
 
+def _split_dose(bare: str) -> tuple[str, str]:
+    """(name, dose) for one bare item.
+
+    Several suffixes can read as a dose: in 百合1两 both 百合1两 (百 a numeral, 合 a unit)
+    and 1两 do. The split that leaves a known drug name wins; failing that, the longest
+    dose that still leaves a name; an item that is all dose stays as written.
+    """
+    starts = [i for i in range(len(bare)) if _DOSE.fullmatch(bare[i:])]
+    for i in starts:
+        if i and resolve_name(bare[:i]):
+            return bare[:i], bare[i:]
+    for i in starts:
+        if i:
+            return bare[:i], bare[i:]
+    return (("", bare) if starts else (bare, ""))
+
+
 def _longest_known_prefix(name: str) -> tuple[str | None, str]:
     for end in range(len(name), 1, -1):
         drug = resolve_name(name[:end])
@@ -140,9 +157,7 @@ def parse_composition(text: str) -> tuple[Component, ...]:
     for item in _split_outside_parens(text or ""):
         notes = "；".join(m.strip("（）()[]【】〔〕") for m in re.findall(r"[（(【〔\[][^）)】〕\]]*[）)】〕\]]", item))
         bare = normalise_name(item)
-        dose_match = _DOSE.search(bare)
-        dose = dose_match.group(0) if dose_match else ""
-        name = bare[: dose_match.start()] if dose_match else bare
+        name, dose = _split_dose(bare)
         # A dose that swallowed the whole item ("半两") leaves no name: keep it as written.
         if not name and out and _PROCESSING.match(bare or item):
             prev = out[-1]

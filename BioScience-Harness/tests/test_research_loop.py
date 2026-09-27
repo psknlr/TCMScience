@@ -254,3 +254,10 @@ def test_the_research_command_runs_the_loop(tmp_path, capsys):
                      "--state-dir", "z", "--out", "w"]) == 2
     finally:
         del os.environ["BIOAGENT_FORMULA_TABLE"]
+
+
+def test_a_research_artifact_records_its_environment(tmp_path):
+    from bioagent.environment import environment_record
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    run = _run(tmp_path, ledger)
+    assert run.artifact.provenance["environment"]["digest"] == environment_record()["digest"]

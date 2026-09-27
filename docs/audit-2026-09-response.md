@@ -111,7 +111,12 @@ files of enclosing packages. Files are named relative to the package root, so th
 pin does not depend on how the caller spelled the path. The consequence is that a
 change to the shared contract layer moves every P0 skill's pin. That is correct,
 because every skill's behaviour changed, and the lockfile has been regenerated.
-Still open: a separate environment or dependency digest for third-party packages.
+A separate *environment* digest is now recorded as well (`bioagent/environment.py`).
+It covers the interpreter, the platform, and the installed versions of `bioagent`,
+`psh` and bioagent's runtime dependency closure, with environment markers evaluated.
+Governed skill runs and research runs write it to the artifact's provenance and to
+the audit chain. It records the environment but does not enforce it: pinning an
+environment is a deployment decision, made with a lockfile or a container digest.
 
 **F09, bridge defaults.** `BioScienceBridge` now isolates by default whenever it
 has somewhere to write the child's manifest. In-process execution requires an
