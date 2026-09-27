@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Iterable
+from typing import Any, Mapping, Iterable
 
 from . import herbs as herb_layer
 from . import schema
@@ -113,20 +113,50 @@ class GoldBuild:
 
 def build_gold(raw_dir: str | Path, root: str | Path, *,
                sources: Iterable[str] = ("npass", "cmaup", "lotus"),
-               ledger: Any = None, network: bool = False) -> GoldBuild:
-    """Herb layer + natural-product sources for 葛根芩连汤, checked against ``herbs.GOLD``.
+               ledger: Any = None, network: bool = False,
+               formulas: Iterable[Any] | None = None,
+               drugs: Mapping[str, Any] | None = None) -> GoldBuild:
+    """Herb layer + natural-product sources, checked against ``herbs.GOLD``.
+
+    By default the herb layer is 葛根芩连汤 alone and the sources are restricted to its four
+    herbs' species. ``formulas`` (``FormulaVersion`` records, e.g. the resolved rows of the
+    formula table) are added to the herb layer, and the sources are then restricted to the
+    species of every drug in ``drugs`` (default: the whole materia table with verified
+    species). The gold markers are checked either way.
 
     With ``network``, also STRING (the induced subnetwork over the protein targets those
     sources report for the herbs' compounds) and Reactome's full human annotation — the
     whole annotation, because it is the background an enrichment test is drawn against.
     """
-    taxa = herb_layer.taxon_filter()
-    nodes, edges = herb_layer.herb_rows()
+    extra = list(formulas or ())
+    if extra:
+        from .materia import all_drugs
+        drug_table = dict(drugs) if drugs is not None else dict(all_drugs())
+        drug_table.update(herb_layer.HERBS)
+        layer = [herb_layer.GEGEN_QINLIAN, *extra]
+        version = "fx-" + hashlib.sha256("\n".join(sorted(
+            f.fingerprint for f in layer)).encode()).hexdigest()[:12]
+        citation = (herb_layer.CITATION + "; formula compositions from the user-supplied "
+                    "formula table (origin and licence not stated)")
+        license_ = f"{herb_layer.LICENSE} (herb → species); {layer[-1].license} (compositions)"
+        raw = {"herbs.py": Path(herb_layer.__file__)}
+        from . import formulas as formula_module, materia as materia_module
+        raw.update({"materia.py": Path(materia_module.__file__),
+                    "formulas.py": Path(formula_module.__file__)})
+        if materia_module.TAXA_FILE.is_file():
+            raw["materia_taxa.json"] = materia_module.TAXA_FILE
+    else:
+        drug_table = dict(herb_layer.HERBS)
+        layer = [herb_layer.GEGEN_QINLIAN]
+        version = herb_layer.GEGEN_QINLIAN.fingerprint[7:19]
+        citation, license_ = herb_layer.CITATION, herb_layer.LICENSE
+        raw = {"herbs.py": Path(herb_layer.__file__)}
+    taxa = herb_layer.taxon_filter(drug_table.values())
+    nodes, edges = herb_layer.herb_rows(layer, drugs=drug_table)
     snapshots = {herb_layer.KEY: build_snapshot(
-        key=herb_layer.KEY, version=herb_layer.GEGEN_QINLIAN.fingerprint[7:19], nodes=nodes,
-        edges=edges, raw_files={"herbs.py": Path(herb_layer.__file__)},
-        parser=_code(herb_layer), root=root, license=herb_layer.LICENSE,
-        citation=herb_layer.CITATION, ledger=ledger)}
+        key=herb_layer.KEY, version=version, nodes=nodes, edges=edges, raw_files=raw,
+        parser=_code(herb_layer), root=root, license=license_, citation=citation,
+        ledger=ledger)}
     for key in sources:
         snapshots[key] = build_source(key, raw_dir, root, taxa=taxa, ledger=ledger)
     if network:
@@ -136,7 +166,7 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         snapshots["string"] = build_source("string", raw_dir, root, proteins=proteins,
                                            ledger=ledger)
         snapshots["reactome"] = build_source("reactome", raw_dir, root, ledger=ledger)
-    hits = herb_composition(snapshots.values())
+    hits = herb_composition(snapshots.values(), herbs=drug_table)
     found = {(h.herb, h.compound) for h in hits}
     missing = {herb: f"{name} ({inchikey}) is in none of the herb's source species"
                for herb, (name, inchikey) in herb_layer.GOLD.items()

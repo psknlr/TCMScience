@@ -64,7 +64,7 @@ from ..sources.ledger import SnapshotLedger
 from ..sources.snapshot import Snapshot, SnapshotError, load_snapshot
 from ..tcm.model import licenses
 
-__all__ = ["FORMULAS", "Protocol", "QuestionRefused", "ResearchQuestion", "ResearchRefused",
+__all__ = ["FORMULAS", "formula_for", "Protocol", "QuestionRefused", "ResearchQuestion", "ResearchRefused",
            "ResearchRun", "canonical_row", "default_protocol", "parse_question",
            "run_research", "snapshot_content_store"]
 
@@ -108,32 +108,129 @@ class ResearchQuestion:
 
     @property
     def formula(self) -> FormulaVersion:
-        return FORMULAS[self.formula_id]
+        return formula_for(self.formula_id)
 
 
-def parse_question(text: str, *, disease: str = "") -> ResearchQuestion:
+#: Formula tables a question was parsed against, so a formula id found in one resolves
+#: later in the run (the default table is added on first use).
+_TABLES: list[Any] = []
+
+
+def formula_for(formula_id: str, table: Any = None) -> FormulaVersion:
+    """The composition a formula id names: a hand-checked formula, or a table row."""
+    if formula_id in FORMULAS:
+        return FORMULAS[formula_id]
+    for t in ([table] if table is not None else []) + _TABLES:
+        record = t.by_id(formula_id)
+        if record is not None:
+            return record.version()
+    default = _table()                       # read only when no registered table has it
+    record = default.by_id(formula_id) if default is not None else None
+    if record is None:
+        raise QuestionRefused(f"no formula has id {formula_id!r}")
+    return record.version()
+
+
+def _table() -> Any:
+    """The formula table: ``$BIOAGENT_FORMULA_TABLE`` (``none`` disables it), else the
+    repository's 中医方剂数据表.xlsx. None when it is absent or unreadable."""
+    import os
+
+    from ..sources.formulas import TABLE_FILE, load_formula_table
+    path = os.environ.get("BIOAGENT_FORMULA_TABLE", str(TABLE_FILE))
+    if path.strip().lower() in ("", "none"):
+        return None
+    try:
+        return load_formula_table(path)
+    except (FileNotFoundError, ImportError, ValueError):
+        return None
+
+
+_FORMULA_ID = re.compile(r"tcm:formula\.[A-Za-z0-9_]+")
+#: Full titles a question may use for the abbreviations the formula table cites.
+_BOOK_ABBREVIATIONS = {
+    "太平惠民和剂局方": "局方", "和剂局方": "局方", "太平圣惠方": "圣惠", "千金要方": "千金",
+    "备急千金要方": "千金", "千金翼方": "千金翼", "外台秘要": "外台", "肘后备急方": "肘后",
+    "小儿药证直诀": "小儿药证直诀", "普济本事方": "本事", "妇人大全良方": "妇人良方",
+    "景岳全书": "景岳全书", "证治准绳": "准绳", "医方考": "医方考", "鸡峰普济方": "鸡峰",
+}
+_BOOK = re.compile(r"《([^》]+)》")
+
+
+def parse_question(text: str, *, disease: str = "", table: Any = None) -> ResearchQuestion:
     """Read the formula and (optional) disease id out of a question.
 
-    Deliberately literal: a formula is recognised by one of its registered names, a
-    disease only by an ontology id (``MONDO_0005148``). A question that names neither a
-    known formula nor anything else this loop can test is refused, so the loop never
-    studies something other than what was asked.
+    Deliberately literal. A formula is recognised by its id (``tcm:formula.fx…``), by a
+    hand-checked name, or by a name in the formula table (中医方剂数据表). The table
+    holds many formulas under one name — there are dozens of 四君子汤 — so a name that
+    matches several different compositions must be narrowed by the source book written in
+    the question (``四君子汤《局方》``), or the question is refused with the candidates. A
+    formula with an ingredient the materia table cannot resolve is refused too, naming the
+    ingredient: studying the rest as if it were absent would study a different formula. A
+    disease is recognised only by an ontology id (``MONDO_0005148``).
     """
-    lowered = text.lower()
-    found = {fid for name, fid in FORMULA_NAMES.items() if name.lower() in lowered}
-    if not found:
-        raise QuestionRefused(
-            f"no known formula is named in {text!r}; known: "
-            f"{sorted({f.chinese for f in FORMULAS.values()})}")
-    if len(found) > 1:
-        raise QuestionRefused(f"the question names more than one formula: {sorted(found)}")
     ids = _DISEASE_ID.findall(text)
     if disease and ids and disease not in ids:
         raise QuestionRefused(f"disease {disease!r} disagrees with the question's {ids}")
     if len(set(ids)) > 1:
         raise QuestionRefused(f"the question names more than one disease: {sorted(set(ids))}")
-    return ResearchQuestion(text=text, formula_id=found.pop(),
-                            disease=disease or (ids[0] if ids else ""))
+    disease = disease or (ids[0] if ids else "")
+
+    explicit = _FORMULA_ID.findall(text)
+    if explicit:
+        if len(set(explicit)) > 1:
+            raise QuestionRefused(f"the question names more than one formula id: {explicit}")
+        formula_for(explicit[0], table)                  # refuses an unknown id
+        if table is not None and all(t is not table for t in _TABLES):
+            _TABLES.append(table)
+        return ResearchQuestion(text=text, formula_id=explicit[0], disease=disease)
+
+    lowered = text.lower()
+    found = {fid for name, fid in FORMULA_NAMES.items() if name.lower() in lowered}
+    if len(found) > 1:
+        raise QuestionRefused(f"the question names more than one formula: {sorted(found)}")
+    if found:
+        return ResearchQuestion(text=text, formula_id=found.pop(), disease=disease)
+
+    table = table if table is not None else _table()
+    if table is not None and all(t is not table for t in _TABLES):
+        _TABLES.append(table)
+    # A book title is not a formula name, even when a formula shares it (普济方).
+    names = table.names_in(_BOOK.sub("", text)) if table is not None else []
+    if not names:
+        known = sorted({f.chinese for f in FORMULAS.values()})
+        raise QuestionRefused(
+            f"no known formula is named in {text!r}; known: {known}"
+            + ("" if table is not None else " (the formula table is not available)"))
+    if len(names) > 1:
+        raise QuestionRefused(f"the question names more than one formula: {names}")
+    candidates = table.named(names[0])
+    books = [_BOOK_ABBREVIATIONS.get(b, b) for b in _BOOK.findall(text)]
+    if books:
+        narrowed = [r for r in candidates
+                    if any(b == s or b in s or s in b
+                           for b in books for s in _BOOK.findall(r.source) or [r.source])]
+        if narrowed:
+            candidates = narrowed
+    distinct: dict[tuple, Any] = {}
+    for r in candidates:
+        distinct.setdefault(tuple((c.drug, c.name) for c in r.components), r)
+    if len(distinct) > 1:
+        listing = "; ".join(
+            f"{r.id} {r.source or '(no source)'}: "
+            + "、".join(c.name for c in r.components[:6])
+            + ("…" if len(r.components) > 6 else "")
+            for r in list(distinct.values())[:8])
+        raise QuestionRefused(
+            f"{names[0]} names {len(distinct)} different compositions in the formula table; "
+            f"write the source book (e.g. {names[0]}《…》) or the formula id. Candidates: "
+            f"{listing}{' …' if len(distinct) > 8 else ''}")
+    record = next(iter(distinct.values()))
+    if not record.resolved:
+        raise QuestionRefused(
+            f"{record.name} ({record.source}) has ingredients the materia table cannot "
+            f"resolve: {list(record.unresolved)}; it cannot be studied until they are added")
+    return ResearchQuestion(text=text, formula_id=record.id, disease=disease)
 
 
 @dataclass(frozen=True)
@@ -299,6 +396,13 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
         ledger = SnapshotLedger(ledger_path)
         ledger.verify()
         snaps, deviations = _retrieve(protocol, snapshot_root, ledger, accept_review)
+        herbs = next(s for s in snaps if s.key == HERB_KEY)
+        formula_id = protocol.question.formula_id
+        if not any(e.get("subject") == formula_id and e.get("predicate") == "contains"
+                   for e in herbs.edges):
+            raise ResearchRefused(
+                f"the herb-layer snapshot {herbs.snapshot_id} does not contain {formula_id}; "
+                "rebuild it with build_source_snapshots.py gold --formula-table")
         ids = {s.key: s.snapshot_id for s in snaps}
         retrieve_input = _digest({"protocol": protocol.digest, "snapshots": ids})
         if ckpt.done("retrieve", retrieve_input):
@@ -485,7 +589,7 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
         "enrichment.jsonl": enrichment_text,
         "rebuttal.json": _json(dict(rebuttal)),
         "limitations.md": "# Limitations\n\n" + "".join(
-            f"- {line}\n" for line in _limitations(result, rebuttal, deviations)),
+            f"- {line}\n" for line in _limitations(result, rebuttal, deviations, _no_organism(protocol))),
     }
     files = []
     for name, text in outputs.items():
@@ -561,7 +665,7 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
         question=protocol.question.text,
         sources=[*cards.values(), enrichment_card],
         evidence=list(evidence.values()), claims=claims, outputs=files,
-        limitations=_limitations(result, rebuttal, deviations),
+        limitations=_limitations(result, rebuttal, deviations, _no_organism(protocol)),
         assumptions=("the formula's composition is the one its source text records; "
                      "doses and processing are recorded but not modelled",),
         source_axis=_digest(sorted(cards)), created_at=_now(),
@@ -571,7 +675,8 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
 
 
 def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
-                 deviations: Sequence[Mapping[str, Any]]) -> list[str]:
+                 deviations: Sequence[Mapping[str, Any]],
+                 no_organism: Sequence[str] = ()) -> list[str]:
     out = list(result.get("limitations") or [])
     for r in rebuttal.get("refuted") or ():
         out.append(f"refuted at rebuttal: {r['object']} — {'; '.join(r['reasons'])}")
@@ -579,6 +684,9 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
         out.append(f"rebuttal not run: {n['test']} — {n['why']}")
     for d in deviations:
         out.append(f"protocol deviation: {d['fallback']} for {d['source']} ({d['reason']})")
+    if no_organism:
+        out.append("components with no organism, which contribute no constituents to the "
+                   f"analysis: {', '.join(no_organism)}")
     if not rebuttal.get("survived"):
         out.append("no claim survived analysis and rebuttal; the run releases no hypothesis")
     return out or ["no limitation was recorded; treat that as a gap, not a guarantee"]
@@ -587,6 +695,18 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+def _no_organism(protocol: Protocol) -> list[str]:
+    """Components of the formula with no verified organism (minerals, products, …)."""
+    from ..sources.materia import MATERIA, all_drugs
+    drugs = all_drugs()
+    out = []
+    for herb_id, *_ in protocol.question.formula.components:
+        if herb_id not in drugs:
+            entry = MATERIA.get(herb_id.split(".", 1)[-1])
+            out.append(f"{entry.chinese} ({entry.category})" if entry else herb_id)
+    return out
+
 
 class _Checkpoint:
     """Stage records under one directory. A stage is reusable only with its input."""

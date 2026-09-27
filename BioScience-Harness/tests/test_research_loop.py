@@ -44,10 +44,11 @@ def test_a_question_is_parsed_into_a_formula_and_disease():
     assert parse_question("葛根黄芩黄连汤").formula_id == GEGEN_QINLIAN.id
 
 
-@pytest.mark.parametrize("text", ["四君子汤作用于哪些通路？", "what does this herb do"])
+@pytest.mark.parametrize("text", ["不存在汤作用于哪些通路？", "what does this herb do"])
 def test_a_question_naming_no_known_formula_is_refused(text):
+    from bioagent.sources.formulas import FormulaTable
     with pytest.raises(QuestionRefused, match="no known formula"):
-        parse_question(text)
+        parse_question(text, table=FormulaTable([]))
 
 
 def test_a_disease_that_disagrees_with_the_question_is_refused():
@@ -246,5 +247,10 @@ def test_the_research_command_runs_the_loop(tmp_path, capsys):
     summary = json.loads(capsys.readouterr().out)
     assert code == 0 and summary["released"] is True
     assert summary["hypotheses"] == ["reactome:R-HSA-A"]
-    assert main(["research", "四君子汤", "--snapshots", "x", "--ledger", "y",
-                 "--state-dir", "z", "--out", "w"]) == 2
+    import os
+    os.environ["BIOAGENT_FORMULA_TABLE"] = "none"
+    try:
+        assert main(["research", "不存在汤", "--snapshots", "x", "--ledger", "y",
+                     "--state-dir", "z", "--out", "w"]) == 2
+    finally:
+        del os.environ["BIOAGENT_FORMULA_TABLE"]

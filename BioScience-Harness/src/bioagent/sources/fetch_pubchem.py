@@ -25,7 +25,7 @@ from typing import Any, Callable, Iterable, Sequence
 from ..backends.http import HTTPBackend, HTTPRequest
 from ..status import ExecutionStatus
 
-__all__ = ["fetch_assay_summaries", "RAW_FILE", "PubChemFetchError"]
+__all__ = ["fetch_assay_summaries", "RAW_FILE", "PubChemBusy", "PubChemFetchError"]
 
 URL = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 RAW_FILE = "pubchem_bioassay.json.gz"
@@ -38,6 +38,18 @@ class PubChemFetchError(RuntimeError):
     pass
 
 
+class PubChemBusy(PubChemFetchError):
+    """PubChem asked the client to slow down (HTTP 503/429, ``PUGREST.ServerBusy``).
+
+    Distinct from a failure a smaller batch can fix: splitting a batch on a busy answer
+    sends *more* requests at the moment the service asked for fewer.
+    """
+
+
+#: Seconds to wait before each retry of a batch PubChem said it was too busy for.
+BUSY_BACKOFF = (5.0, 15.0, 45.0, 120.0, 300.0)
+
+
 def _post(backend: HTTPBackend, path: str, field: str, ids: Sequence[Any]) -> Any | None:
     """The parsed answer, or None when PubChem has no data for any of ``ids`` (404)."""
     body = urllib.parse.urlencode({field: ",".join(map(str, ids))}).encode()
@@ -48,13 +60,35 @@ def _post(backend: HTTPBackend, path: str, field: str, ids: Sequence[Any]) -> An
         return value
     if meta.get("http_status") == 404:
         return None
-    raise PubChemFetchError(f"PubChem {path} failed for {len(ids)} ids ({status.value}): {err}")
+    message = f"PubChem {path} failed for {len(ids)} ids ({status.value}): {err}"
+    if meta.get("http_status") in (429, 503) or "ServerBusy" in str(err) or (
+            isinstance(value, dict) and "ServerBusy" in json.dumps(value.get("Fault", ""))):
+        raise PubChemBusy(message)
+    raise PubChemFetchError(message)
+
+
+def _patient(batch: Sequence[Any], call: Callable[[Sequence[Any]], Any]) -> Any:
+    """``call(batch)``, waiting and retrying the same batch while PubChem is busy."""
+    for wait in (*BUSY_BACKOFF, None):
+        try:
+            return call(batch)
+        except PubChemBusy:
+            if wait is None:
+                raise
+            time.sleep(wait)
+    raise AssertionError("unreachable")                      # pragma: no cover
 
 
 def _split(batch: Sequence[Any], call: Callable[[Sequence[Any]], Any]) -> list[Any]:
-    """``call(batch)``, halving the batch on failure down to single ids."""
+    """``call(batch)``, halving the batch on failure down to single ids.
+
+    A busy answer is waited out on the same batch (:func:`_patient`), never split: only a
+    failure a smaller request can fix (too large, too slow) halves the batch.
+    """
     try:
-        return [call(batch)]
+        return [_patient(batch, call)]
+    except PubChemBusy:
+        raise
     except PubChemFetchError:
         if len(batch) == 1:
             raise
