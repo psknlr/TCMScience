@@ -20,6 +20,101 @@ promised hard isolation, distributed scheduling and multi-tenancy that this does
 > **面向生物医学科学智能体的策略强制控制平面（policy-enforced control plane）。** 研究原型。
 
 
+## v0.6 — a scientific compiler in front of the kernel · v0.6 —— 内核之前的一个科学编译器
+
+> **The three previous releases answered *may this agent do this?* This one answers a
+> different question: *is this science, and does the evidence reach the conclusion?***
+
+<!-- zh -->
+> **此前三个版本回答的是"这个智能体可以做这件事吗？"。本次发布回答的是另一个问题："这是科学吗？证据够得着结论吗？"**
+
+
+Nothing here weakens the first answer. Every path still runs through `PlanValidator`,
+`AgentLoopController`, `ExecutionBroker` and the release gate. What is added is a layer
+**in front** of them that refuses a research programme before it spends anything, and a
+layer **beside** them that remembers what the project concluded and why.
+
+<!-- zh -->
+这并不削弱第一个答案。所有路径仍然穿过 `PlanValidator`、`AgentLoopController`、`ExecutionBroker` 与发布门（release gate）。新增的是它们**之前**的一层 —— 在一个研究程序花掉任何开销之前就拒绝它 —— 以及它们**旁边**的一层：记住这个项目得出了什么结论、以及为什么。
+
+
+| Package | What it is | 是什么 |
+| --- | --- | --- |
+| `psh.sir` | The Scientific IR: scientific types, an effect system, the programme graph | 科学中间表示：科学类型、效应系统、程序图 |
+| `psh.compiler` | Eight passes, 71 diagnostic codes, and lowering to `Plan` | 八个编译遍、71 个诊断码，以及向 `Plan` 的下降（lowering） |
+| `psh.scientist` | The relational half beside the record ledger: what competes, what bears on what | 记录账本旁边的"关系"一半：什么在竞争，什么关乎什么 |
+| `psh.durable` | An append-only journal and incremental recompute after an amendment | 只追加日志，以及修订后的增量重算 |
+
+The type system is the part worth reading. `Evidence` and `Claim` are separate types with
+refinements — design, subject, population, intervention, comparator, outcome, surrogate
+flag, provenance — and `LICENSING` is a **table over (design, claim kind)** rather than a
+comparison against one ordered scale:
+
+<!-- zh -->
+最值得一读的是类型系统。`Evidence` 与 `Claim` 是两个带精化（refinement）的独立类型 —— 设计、受试对象、人群、干预、对照、结局、替代终点标记、来源 —— 而 `LICENSING` 是一张**(设计 × 主张类型) 的表**，而不是针对单一有序刻度的比较：
+
+
+```
+                    attribution  traditional  mechanism  efficacy  recommendation
+classical_text         DIRECT      DIRECT         —         —            —
+expert_consensus    EXTRAPOLATED   DIRECT         —         —            —
+in_silico                —           —            —         —            —     (→ mechanism_hypothesis)
+animal                   —           —         DIRECT       —            —
+randomised_trial         —           —      EXTRAPOLATED  DIRECT         —
+guideline                —           —            —         —         DIRECT
+```
+
+Read the first column. A randomised trial cannot license an attribution — a trial of 桂枝汤
+says nothing about what the 伤寒论 records — and no ordering of a single axis can say that.
+Read the `in_silico` row: a docking score licenses a mechanism *hypothesis* and never a
+mechanism, which is the single most common overstatement in the network-pharmacology
+literature, refused at compile time.
+
+<!-- zh -->
+先读第一列。随机对照试验无法为"记载"（attribution）提供许可 —— 一项关于桂枝汤的试验，对《伤寒论》记载了什么只字未言 —— 而任何单一轴上的排序都说不出这一点。再读 `in_silico` 这一行：一个分子对接分数只能许可机制**假说**，永远不能许可机制本身；这是网络药理学文献中最常见的一种夸大，在编译期就被拒绝。
+
+
+```python
+from psh.compiler import compile_program
+
+result = compile_program(programme, envelope, registry=registry, policy=policy)
+# TYP102  claim 'claim' asserts efficacy claim about huangqi decoction on 6-minute
+#         walk distance in human (adults with chronic heart failure), asserted
+#         moderate — and no source upstream of it licenses that: an animal source
+#         cannot license an efficacy claim; efficacy needs one of
+#         ['cohort', 'non_randomised_trial', 'randomised_trial', 'systematic_review']
+#   remedy: weaken the claim, change its kind, or add a source whose design reaches it
+```
+
+Every one of the 71 codes carries a remedy, because a diagnostic a reader cannot act on
+is a complaint. The refusals are addressed to whoever wrote the programme, not to a log.
+
+<!-- zh -->
+71 个诊断码每一个都带有补救建议（remedy），因为读者无法据以行动的诊断只是一句抱怨。这些拒绝是说给写这个程序的人听的，不是说给日志听的。
+
+
+Two compilers now live here and they are not rivals: `psh.sir` + `psh.compiler` is the
+front half (declarations in, `Plan` out) and `psh.workflow` is the back half (`Plan` plus
+contracts in, a validated compilation out). `psh.compiler.bridge` carries a programme
+across so both rule on it, and crossing is **strictly narrowing** — a vocabulary item with
+no counterpart is refused rather than approximated. `docs/V6_SCIENTIFIC_COMPILER.md` §10.
+
+<!-- zh -->
+现在这里有两个编译器，但它们并不是竞争关系：`psh.sir` + `psh.compiler` 是前半段（输入声明，输出 `Plan`），`psh.workflow` 是后半段（输入 `Plan` 与契约，输出一次已校验的编译）。`psh.compiler.bridge` 把一个程序送过去，让两者都对它作出裁决；而"过桥"是**严格收紧**的 —— 在对面没有对应项的词汇会被拒绝，而不是近似映射。见 `docs/V6_SCIENTIFIC_COMPILER.md` 第 10 节。
+
+
+```bash
+python -m pytest tests/ -q          # 1084 pass
+```
+
+Full release note: [`docs/V6_SCIENTIFIC_COMPILER.md`](docs/V6_SCIENTIFIC_COMPILER.md).
+
+<!-- zh -->
+完整发布说明见 [`docs/V6_SCIENTIFIC_COMPILER.md`](docs/V6_SCIENTIFIC_COMPILER.md)。
+
+
+---
+
 ## The design vocabulary learned to name a simulation · 设计词汇学会了为一个模拟命名
 
 > **A change to the kernel's own vocabulary, made for a downstream skill and worth

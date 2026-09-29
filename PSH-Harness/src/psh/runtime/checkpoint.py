@@ -61,7 +61,8 @@ from .loop import LoopState
 from .plan import Plan
 from .plan_validator import task_envelope
 
-__all__ = ["Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume"]
+__all__ = ["Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
+           "withholding_reason"]
 
 
 def _label_to_dict(label: Any) -> dict[str, Any] | None:
@@ -276,9 +277,15 @@ class CheckpointStore:
 
 # ----------------------------------------------------------------- capture
 
-def _withholding_reason(label: Any, ceiling: Sensitivity | None,
-                        allow_results: bool) -> str | None:
-    """Why a result may not be written, or None when it may."""
+def withholding_reason(label: Any, ceiling: Sensitivity | None,
+                       allow_results: bool) -> str | None:
+    """Why a result may not be written durably, or None when it may.
+
+    Public because the workflow journal (``psh.durable``) writes results too and must
+    apply the same rule. A second copy of "when may a result be stored" is exactly the
+    shape of defect this package keeps closing, so there is one function and both callers
+    use it.
+    """
     if not allow_results:
         return "this run's envelope does not permit the PERSISTENT destination"
     if label is None:
@@ -306,7 +313,7 @@ def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None
     labels: dict[str, Mapping[str, Any]] = {}
     withheld: dict[str, str] = {}
     for node in (graph.succeeded if graph else ()):
-        reason = _withholding_reason(node.label, ceiling, allow_results)
+        reason = withholding_reason(node.label, ceiling, allow_results)
         if reason is not None:
             withheld[node.id] = reason
             continue
@@ -322,7 +329,7 @@ def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None
     body_label = combine(*[l for l in (state.objective_label, state.plan_label)
                            if l is not None]) if (state.objective_label or state.plan_label) \
         else None
-    body_reason = _withholding_reason(body_label, ceiling, allow_results) \
+    body_reason = withholding_reason(body_label, ceiling, allow_results) \
         if allow_results else "the run's envelope does not permit PERSISTENT"
     if body_label is None and allow_results:
         body_reason = None

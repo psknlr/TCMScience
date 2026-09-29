@@ -52,13 +52,29 @@ from .licensing import (
     classify_license, license_ruling,
 )
 from .profiles import PROFILES, WorkProfile, get_profile, profile_names
-from .runtime import DEFAULT_SYSTEM_PROMPT, RunResult, Runner
+from .runtime import (
+    DEFAULT_SYSTEM_PROMPT, ResearchRunService, RunResult, Runner,
+    ScientificResult, ScientificRunService,
+)
 from .workgraph import EdgeKind, NodeKind, WorkGraph
+from .compiler import (
+    CompiledProgram, CompileOptions, CompileRejected, Diagnostic, Severity,
+    compile_program,
+)
+from .durable import WorkflowDelta, WorkflowJournal
+from .scientist import (
+    BeliefState, Deviation, HypothesisStatus, Protocol, ScientificCycle,
+    ScientificWorldModel, Stage,
+)
+from .sir import (
+    ClaimKind, ClaimType, Effect, EvidenceType, ExecKind, Role, SIRNode, SIRProgram,
+    ScientificType, SideEffectClass, StudyDesign, Subject, licenses,
+)
 
 #: Kept in step with ``pyproject.toml`` by ``tests/test_review_v5_1.py``. It read
 #: "0.4.0" through the whole of v0.5, so ``psh.__version__`` named a release two
 #: behind the package it was reporting on.
-__version__ = "0.5.3"
+__version__ = "0.6.0"
 
 __all__ = [
     "TrustedKernel", "PSHConfig", "Runner", "RunResult", "WorkGraph", "NodeKind",
@@ -78,4 +94,14 @@ __all__ = [
     "deep_label_of", "unwrap_deep",
     "LicenseClass", "LicenseDecision", "LicenseRuling", "classify_license",
     "license_ruling", "INTEGRATION_MODES", "LICENSE_CLASSES",
+    # v0.6 — the scientific compiler and the scientist plane
+    "SIRProgram", "SIRNode", "Role", "ExecKind", "Effect", "SideEffectClass",
+    "ScientificType", "EvidenceType", "ClaimType", "StudyDesign", "Subject", "ClaimKind",
+    "licenses",
+    "compile_program", "CompiledProgram", "CompileOptions", "CompileRejected",
+    "Diagnostic", "Severity",
+    "ScientificRunService", "ScientificResult", "ResearchRunService",
+    "ScientificWorldModel", "BeliefState", "HypothesisStatus", "ScientificCycle", "Stage",
+    "Protocol", "Deviation",
+    "WorkflowJournal", "WorkflowDelta",
 ]
