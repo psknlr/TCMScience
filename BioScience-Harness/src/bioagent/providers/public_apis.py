@@ -13,6 +13,7 @@ new API: it is a manifest entry here.
 from __future__ import annotations
 
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Mapping
 
@@ -60,7 +61,7 @@ class Operation:
                 return [sub(x) for x in v]
             return v
 
-        out: dict[str, Any] = {"path": sub(self.path), "method": self.method,
+        out: dict[str, Any] = {"path": _path(self.path, kwargs), "method": self.method,
                                "params": sub(dict(self.params)), "accept": self.accept}
         if self.graphql is not None:
             out["graphql"] = self.graphql
@@ -68,6 +69,35 @@ class Operation:
         if self.json_body is not None:
             out["json_body"] = sub(self.json_body)
         return out
+
+
+#: Printable ASCII an argument may carry into a path unchanged. Only the characters that
+#: change what is *sent* are excluded: ``#`` (a fragment, never sent), ``?`` (starts a
+#: query string), ``%`` (would read as an escape) and, implicitly, whitespace, control
+#: characters and anything outside ASCII, which ``quote`` always encodes. ``/`` and ``>``
+#: stay: a DOI spans segments by design and bioRxiv answers ``10.1101%2F...`` with a 404,
+#: and MyVariant answers an HGVS id whose ``>`` is encoded with a 404 — both checked live.
+_PATH_SAFE = "".join(chr(c) for c in range(0x21, 0x7F) if chr(c) not in "#?%")
+
+
+def _path(template: str, kwargs: Mapping[str, Any]) -> str:
+    """Fill a path template, percent-encoding what would otherwise change the request.
+
+    Arguments used to be pasted in as they were. A compound name is the ordinary case
+    that broke it: ``黄芩苷`` could not be sent at all (the request line is ASCII), a
+    name with a space was refused as an invalid URL, and ``a#b`` was *sent* as a lookup
+    for ``a`` — everything after ``#`` is a fragment the server never sees — and the
+    answer about ``a`` came back as a successful answer about ``a#b``. ``?`` started a
+    query string the operation never declared. The server decodes the escapes back to
+    the name that was asked about.
+    """
+    def fill(m: re.Match[str]) -> str:
+        name = m.group(1)
+        if name not in kwargs:
+            return m.group(0)
+        return urllib.parse.quote(str(kwargs[name]), safe=_PATH_SAFE)
+
+    return re.sub(r"\{(\w+)\}", fill, template)
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,10 @@
 > 本文件取代 v1（commit `c647588`，经 PR #18 合并）。v1 以"在线查询接口"为中心；v2 改为
 > **快照优先、证据两轴、Skill 只读数据**，并吸收了一份外部"Skill 化路线"方案中正确的部分。
 > 文中关于仓库现状的描述均于 2026-09-23 对照代码核实过，外部事实附来源（见末尾"参考"）。
+>
+> **2026-09-30 复核**：逐条核对了本文前部（§0、§1、§1.1、§2.2）提出的问题，修复了 18 项，
+> 撤回 2 项怀疑，列出 11 项待决事项，见 `docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md`。下文凡
+> 与复核结果不一致之处已就地改正，并标注"（2026-09-30）"。
 
 ---
 
@@ -32,8 +36,8 @@
 | 能力 | 已有（已核实） | 缺口 |
 | --- | --- | --- |
 | 在线接口 | 58 个源、153 个声明式操作（`PublicSource` / `Operation`）。2026-09-17 全部实测通过，记录在 `data/connector_live_verification.csv`。PubChem、ChEMBL、UniProt、HGNC、Open Targets、GWAS Catalog、Monarch、STRING、OmniPath、Reactome、g:Profiler、PANTHER、Europe PMC、PubTator、ClinicalTrials.gov、openFDA、DailyMed、MeSH、Wikidata 等均已接入 | 中医药库一个都没有。编写下载表时，HERB 的文件链接返回的是 HTML，BATMAN-TCM 下载页返回 503，TCMSP/HIT/TCMBank 无响应，因此被有意排除。BindingDB、ICD-11、ChiCTR 也没有 |
-| 批量下载 | 24 个 `AcquisitionSpec`：NPASS ×6、CMAUP ×5、LOTUS ×2（2026-04-13 冻结版，md5 已锁定）、NP Atlas、STRING、Reactome、ChEMBL 映射等 | **下载之后没有任何代码解析这些文件**；`default_runtime` 不加载 `BulkDatasetProvider`；24 个文件中只有 5 个锁定了校验值 |
-| 传输层 | `HTTPBackend`：逐主机限速、429/5xx 指数退避、磁盘缓存、64 MiB 上限、未声明主机一律 `DENIED` | 不读 `Retry-After`；缓存默认关闭、没有 TTL、缓存键不含数据版本；重试耗尽后报 `FAILED`；文本超过 20 万字符会被截断，此时只在返回值里带一个 `truncated` 标志，状态仍是 `SUCCEEDED` |
+| 批量下载 | 24 个 `AcquisitionSpec`：NPASS ×6、CMAUP ×5、LOTUS ×2（2026-04-13 冻结版，md5 已锁定）、NP Atlas、STRING、Reactome、ChEMBL 映射等 | **下载之后没有任何代码解析这些文件**；`default_runtime` 不加载 `BulkDatasetProvider`；24 个文件中只有 5 个锁定了校验值（2026-09-30：已锁定 17 个，余下 7 个为 `current` 地址） |
+| 传输层 | `HTTPBackend`：逐主机限速、429/5xx 指数退避、磁盘缓存、64 MiB 上限、未声明主机一律 `DENIED`（2026-09-30：重定向此前不受约束，已修复） | 不读 `Retry-After`；缓存默认关闭、没有 TTL、缓存键不含数据版本；重试耗尽后报 `FAILED`；文本超过 20 万字符会被截断，此时只在返回值里带一个 `truncated` 标志，状态仍是 `SUCCEEDED` |
 | 溯源 | 调用级：`Event` 记录输入输出哈希和 `dataset_hash`，`ProvenanceEntry.licenses` 记录许可证；下载文件有 `.downloads.json` | 没有记录级的许可证、数据版本和抓取时间。`ProvenanceCapsule` 有 `random_seed`、`dataset_hashes`、`container_digest` 字段，但**从未被填写** |
 | 科研记录 | `psh.scientist`：`Hypothesis`、带指纹的 `Protocol`、`Observation`、`Deviation`；`ScientificClaim` + `ValidationStatus.CANDIDATE`；可签名（HMAC）的 `EvidenceRecord`；`EvidenceSpec`（研究设计、人群、干预、结局） | 基本完备 |
 | 编译与发布 | `ScientificCompiler` 把 `ScientificProgram`（JSON）编译成 `Plan`；`_SUPPORTS` 按研究设计限制可支持的主张类型；`OutputGate` / `Finalizer` 负责发布；`RunEnvelope.allowed_capabilities` 提供白名单 | 研究设计词表 `DESIGNS` **没有 `in_silico`**，计算预测无处登记；没有偏倚风险评价，也没有 GRADE 分级 |
@@ -157,6 +161,14 @@ SourceCard 属于**代码层**：随程序包发布，改动要经过代码评�
 
 外部方案主张"没有明确授权时只支持人工导入"，v2 用 `manual` 方式落实这一点。`web` 方式保留下来，但只作为默认关闭、逐源审批的例外，不再是常规通道。
 
+（2026-09-30）补充三条规则：
+
+- **`api` 只指有文档、向第三方提供的接口。**网站前端自用的未公开 JSON / XHR 接口（"逆向"得到的接口）按 `web` 处理，同样需要审批：它随时会改版，服务条款通常也覆盖"自动访问"。
+- **不绕过任何技术措施**：登录、验证码、滑块、请求签名或反爬 token、频率限制、IP 封禁。遇到即停止并报告。
+- **在传输层执行，而不只在卡片上校验**：卡片的 `rps` 就是实际限速（`cards.request_rates`，与传输层自带表取更严者）；重定向不得离开声明的主机，也不得从 https 降到 http（`DENIED`）；请求 JSON / 文本时返回的 HTML 页面（登录、验证码、挑战、错误页）报 `UNAVAILABLE`，不当作数据；响应按声明的字符集解码（GBK / GB18030）；User-Agent 带项目地址与 `BIOAGENT_CONTACT`。
+
+仓库中目前没有 web 客户端。写它之前的完整前置条件见复核文档 §3.2。
+
 ### 3.4 统一数据模型：KGX 风格的节点表和边表
 
 不再为每类实体设计单独的类。每个快照统一成两张 Parquet 表，列名与 KGX 兼容（KGX 是 Monarch 知识图谱等采用的交换格式）：
@@ -222,7 +234,7 @@ C4  入血成分（给药后在血浆或组织中检出）
 - 质量检查门（不通过就不发布）：
   1. **结构**：必填字段齐全、CURIE 格式合法、每条边的两端节点都存在；
   2. **覆盖率**：成分映射到 InChIKey、靶点映射到 UniProt 的比例写入 `qc.json`；低于该源设定的阈值时标黄，需要人工确认；
-  3. **漂移**：与上一版快照比较行数和 ID 的增删，变化超过设定比例时需要人工确认；
+  3. **漂移**：与上一版快照比较行数和 ID 的增删，变化超过设定比例时需要人工确认。（2026-09-30）此前只比较行数，且构建入口从不传入上一版，所以从未运行；现在比较记录 ID 的增删，并在有账本时自动取同一来源、同一范围的上一个快照作基线。同一版本、同一批原始文件的重建不做比较，以保证"同样输入、同样 ID"。记录 ID 必须是内容而不是行号（NPASS、CMAUP 的活性表没有 ID，用行内容摘要）；
   4. **许可证完整**：每条边都有 `license`；
   5. **金标准**：固定案例（见 M2）的映射结果必须与人工校验结果一致。
 
@@ -258,6 +270,8 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 
 **权限只能收窄，不能放大。**实际生效的数据源 = `skill.yaml` 的声明 ∩ SourceCard 中已启用的源 ∩ 当前权限配置。原因是：如果白名单只写在 `skill.yaml` 里，而 `skills/` 是 agent 可写区，agent 改一下文件就能给自己授权。
 
+（2026-09-30）第三项此前没有任何调用方提供，实际只有前两项。现在由运行方用 `run_network_pharmacology.py --allow-source KEY`（可重复）提供；未提供时 `provenance.json` 的 `source_allowance` 写明 `"unrestricted"`。与许可证联动（例如商业用途的运行拒绝"仅限学术使用"的源）尚未实现，见复核文档 O1。`skill.yaml` 中的版本号只能是 `^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`，因为它会成为快照目录名。
+
 执行时不另写编译器。用一个很薄的适配器把 `skill.yaml` 转成 `ScientificProgram`，再交给已有的编译、执行、审计和发布门。
 
 ### 3.9 首批数据源
@@ -289,7 +303,7 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 | --- | --- | --- |
 | **M1 契约与修正**（约 1–2 周） | SourceCard 字段；快照 manifest；节点/边表结构及校验器。证据两轴，包括 §3.5 的四处代码修正。`HTTPBackend`：支持 `Retry-After`、缓存键加入数据版本、截断时报 `DEGRADED`。接通 `SkillDirectoryProvider`，读取仓库 `skills/` 并解析 `skill.yaml`（这一步只做校验，不执行） | 单元测试通过；只有预测支持的 `mechanism` 主张会被编译器和发布门拒绝 |
 | **M2 数据快照**（约 2–3 周） | 为 LOTUS、NPASS、CMAUP、BindingDB（新增下载规格）、STRING、Reactome 编写解析器；经 ChEMBL / PubChem 归一到 InChIKey；ETCM / HERB 的 `manual` 导入器；ICD-11 传统医学章查询；药材→基原映射表（首批：葛根、黄芩、黄连、炙甘草） | 同一原始文件构建两次，快照哈希相同；生成质量检查报告；金标准通过（葛根素、黄芩苷、小檗碱、甘草酸等锚点成分都能解析到正确的 InChIKey） |
-| **M3 首个端到端 Skill**（约 1–2 周） | `skills/tcm/network-pharmacology/`：在指定的快照版本上运行，经 `psh.workflow` 编译执行；新增网络拓扑与度保持随机化工具（仅用标准库）；把快照 ID、工具版本、参数和随机种子填进 `ProvenanceCapsule` | 同一输入、同一快照，结果一致；实测靶点和预测靶点可以分开统计；试图产出疗效主张会被拒绝 |
+| **M3 首个端到端 Skill**（约 1–2 周） | `skills/tcm/network-pharmacology/`：在指定的快照版本上运行，经 `psh.workflow` 编译执行；新增网络拓扑与度保持随机化工具（仅用标准库）；把快照 ID、工具版本、参数和随机种子写入 `provenance.json`（即 `ProvenanceCapsule` 的那些字段；这个类本身至今未被实例化，2026-09-30） | 同一输入、同一快照，结果一致；实测靶点和预测靶点可以分开统计；试图产出疗效主张会被拒绝 |
 
 **M1 状态（已实现）**：
 - `tcm/model.py`：`COMPUTATIONAL_PREDICTION = 0`、`CLAIM_SUPPORT`（按集合判断）、`mechanism_hypothesis`、`licenses()`；
@@ -299,7 +313,7 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 - `SkillContract`（`skill.yaml`），`default_runtime` 会发现仓库 `skills/` 下的 Skill。
 
 **M2 状态（已实现）**：
-- `sources/parsers/`：NPASS、CMAUP、LOTUS（冻结导出）、BindingDB（按用户下载的 TSV 导入，按 InChIKey 过滤）。都是纯函数，不联网、不做科学筛选；每个被丢弃的行按原因计数，计数写进快照 manifest；
+- `sources/parsers/`：NPASS、CMAUP、LOTUS（冻结导出）、BindingDB（按用户下载的 TSV 导入，按 InChIKey 过滤）。都是纯函数，不联网、不做科学筛选；每个被丢弃的行按原因计数，计数写进快照 manifest。（2026-09-30）NPASS、CMAUP 活性记录的 ID 由行号改为行内容摘要，完全重复的行只保留一次并计数（NPASS 2.0 全量去掉 3,659 条，CMAUP 2.0 去掉 1,191 条）；BindingDB 中由多个不同蛋白组成的复合物计数并丢弃，不再归到第一条链；
 - `sources/herbs.py`：葛根、黄芩、黄连、甘草的基原物种（NCBI Taxonomy 已核实）和药用部位；按《伤寒论》记载锁定葛根芩连汤的组成与剂量（带指纹）；金标准标志成分（InChIKey 已对照 PubChem 核实）；
 - `sources/composition.py`：药材 → 基原物种 → 成分。一律从 C1 起；只有来源记录了分离部位、且正是药用部位时才升为 C2；
 - `sources/build.py` 与 `scripts/build_source_snapshots.py`：构建快照并校验金标准；
@@ -388,6 +402,8 @@ max_claim_kind: mechanism_hypothesis     # 本 Skill 最多能产出的主张类
 - ETCM / HERB 导入器：需要拿到它们实际的导出文件后，按真实格式来写；
 - BindingDB：解析器已按官方格式说明实现，并用合成文件测试过，但还没有用真实下载文件验证。下载页面需要人工操作，本环境无法代为完成；
 - ICD-11 传统医学章：需要注册 OAuth 客户端；
+
+- （2026-09-30）其余待决事项（与许可证联动的运行授权、账本截尾检测、GBK 导入、BATMAN-TCM 等"一律标为预测"的规则尚无卡片、PubChem 基因号映射的主号核对等）见复核文档 §5。
 
 后续另立项目：组学管线、临床方法学类 Skill、基于 RoB 2 / GRADE 的证据综合 Skill、每月数据源健康检查（在 `scripts/verify_connectors.py` 基础上增加快照漂移报告）。
 

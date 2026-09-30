@@ -81,18 +81,23 @@ def test_the_snapshot_version_is_the_platform_release_and_the_disease(tmp_path):
 class _Pages:
     """A backend answering the meta query and then pages of ``rows``."""
 
-    def __init__(self, rows: list[dict], page: int, lose: int = 0):
+    def __init__(self, rows: list[dict], page: int, lose: int = 0, shift: int = 0,
+                 release_midway: bool = False):
         self.rows, self.page, self.lose, self.calls = rows, page, lose, []
+        self.shift, self.release_midway, self.metas = shift, release_midway, 0
 
     def request(self, req, use_cache=True):
         body = req.json_body
         self.calls.append(body["variables"])
         if "meta" in body["query"]:
+            self.metas += 1
+            month = "09" if self.release_midway and self.metas > 1 else "06"
             return (ExecutionStatus.SUCCEEDED, {"data": {"meta": {
                 "apiVersion": {"x": 26, "y": 6, "z": 3},
-                "dataVersion": {"year": "26", "month": "06", "iteration": "0"}}}}, None, {})
+                "dataVersion": {"year": "26", "month": month, "iteration": "0"}}}}, None, {})
         i, n = body["variables"]["i"], self.page
-        rows = self.rows[i * n:(i + 1) * n]
+        start = i * n - (self.shift if i == 1 else 0)
+        rows = self.rows[start:start + n]
         if i == 1 and self.lose:
             rows = rows[:-self.lose]
         return (ExecutionStatus.SUCCEEDED, {"data": {"disease": {
@@ -110,7 +115,8 @@ def test_the_fetch_pages_until_every_association_is_saved(tmp_path, monkeypatch)
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["data_version"] == "26.06" and saved["api_version"] == "26.6.3"
     assert [r["target"]["id"] for r in saved["rows"]] == sorted(r["target"]["id"] for r in rows)
-    assert [c.get("i") for c in backend.calls] == [None, 0, 1, 2]
+    # meta, three pages, and meta again: the release must not have changed underneath.
+    assert [c.get("i") for c in backend.calls] == [None, 0, 1, 2, None]
 
 
 def test_a_short_answer_is_an_error_not_a_smaller_snapshot(tmp_path, monkeypatch):
@@ -119,4 +125,25 @@ def test_a_short_answer_is_an_error_not_a_smaller_snapshot(tmp_path, monkeypatch
     rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
     with pytest.raises(OpenTargetsFetchError, match="expected 5"):
         fetch_disease_associations("MONDO_0005148", tmp_path, backend=_Pages(rows, 2, lose=1))
+    assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()
+
+
+def test_pages_that_overlap_are_an_error_even_when_the_total_matches(tmp_path, monkeypatch):
+    """A shifted page repeats one row and never shows another; the count cannot tell."""
+    import bioagent.sources.fetch_opentargets as fetch
+    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
+    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
+    with pytest.raises(OpenTargetsFetchError, match="repeat 1 target"):
+        fetch_disease_associations("MONDO_0005148", tmp_path,
+                                   backend=_Pages(rows, 2, shift=1))
+    assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()
+
+
+def test_a_release_during_the_fetch_is_an_error(tmp_path, monkeypatch):
+    import bioagent.sources.fetch_opentargets as fetch
+    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
+    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
+    with pytest.raises(OpenTargetsFetchError, match="data version changed"):
+        fetch_disease_associations("MONDO_0005148", tmp_path,
+                                   backend=_Pages(rows, 2, release_midway=True))
     assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()

@@ -278,6 +278,61 @@ def test_bindingdb_filters_by_inchikey_licenses_per_record_and_reads_the_chain(t
     assert result.report.dropped["target chain without a UniProt accession"] == 1
 
 
+def test_an_activity_is_identified_by_its_content_and_an_exact_repeat_is_one_record(tmp_path):
+    """NPASS 2.0 repeats 87,882 of its 958,866 activity rows exactly; CMAUP 2.0, 1,230.
+
+    Record ids used to be row positions, so each repeat became a separate edge and a row
+    inserted near the top of a release renumbered every record after it. A digest of the
+    row is the same wherever the row sits, and a repeat is kept once and counted.
+    """
+    d = npass_files(tmp_path)
+    activities = d / "NPASSv2.0_download_naturalProducts_activities.txt"
+    header, *rows = activities.read_text(encoding="utf-8").splitlines()
+    first = parse_npass(d)
+    ids = sorted(e["source_record_id"] for e in first.edges if e["predicate"] == "targets")
+
+    # Repeat the measured row, and put an unrelated row in front of everything.
+    extra = "\t".join(["NPC1", "NPT1", "Kd", "=", "Kd", "7", "nM", "n.a.", "n.a.", "n.a.",
+                        "n.a.", "n.a.", "999", "PMID"])
+    activities.write_text("\n".join([header, extra, *rows, rows[0]]) + "\n", encoding="utf-8")
+    second = parse_npass(d)
+    targets = [e for e in second.edges if e["predicate"] == "targets"]
+    assert second.report.dropped["exact duplicate of an activity row already read"] == 1
+    assert len(targets) == len(ids) + 1, "the repeat is one measurement, the new row is one"
+    assert set(ids) <= {e["source_record_id"] for e in targets}, (
+        "a row keeps its id when rows are inserted before it")
+
+
+def test_a_cmaup_activity_repeated_exactly_is_kept_once(tmp_path):
+    d = cmaup_files(tmp_path)
+    path = d / "CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt"
+    lines = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(lines + [lines[1]]) + "\n", encoding="utf-8")
+    result = parse_cmaup(d)
+    targets = [e for e in result.edges if e["predicate"] == "targets"]
+    assert len(targets) == 1
+    assert result.report.dropped["exact duplicate of an activity row already read"] == 1
+
+
+def test_an_affinity_against_a_complex_is_not_filed_under_one_of_its_proteins(tmp_path):
+    """One chain naming a protein is that protein; two chains naming two are a complex."""
+    rows = [
+        _bdb_row("1", PUERARIN, ki="12", pmid="1",
+                 chains=(("", "P14867"), ("", "P47870"))),     # GABA-A a1 + b2: a complex
+        _bdb_row("2", PUERARIN, ic50="30", pmid="2", curation="CHEMBL",
+                 chains=(("", ""), ("", "P23219"))),           # one protein, one other chain
+    ]
+    path = tmp_path / "BindingDB_All_202609_tsv.zip"
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("BindingDB_All.tsv", "\n".join("\t".join(r) for r in [_BDB_HEADER] + rows))
+    result = parse_bindingdb(path, inchikeys=[PUERARIN])
+    assert [e["object"] for e in result.edges] == ["uniprot:P23219"]
+    assert result.report.dropped[
+        "multichain complex: the affinity belongs to the complex, not to one of its proteins"] == 1
+    # The licence rule is the card's, and a change of case is not a change of licence.
+    assert result.edges[0]["license"] == "CC-BY-SA-3.0"
+
+
 # ================================================================ herbs, composition, gold
 
 def test_the_formula_is_bound_to_its_text_and_the_herb_layer_is_sound():
@@ -416,3 +471,23 @@ def test_the_network_build_scopes_string_and_reactome_to_the_targets_found(raw, 
     assert sorted(e["subject"] for e in reactome_edges) == ["uniprot:P12345", "uniprot:P35354"]
     assert build.snapshots["reactome"].version == "current"
     assert build.snapshots["string"].version.startswith("12.0+subset-")
+
+
+def test_a_new_release_is_compared_with_the_last_one_and_a_rebuild_is_not(raw, tmp_path):
+    """Builders passed no ``previous``, so the drift check never ran. The ledger has it."""
+    from bioagent.sources.ledger import SnapshotLedger
+
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    first = build_source("npass", raw, tmp_path / "snap", ledger=ledger)
+    again = build_source("npass", raw, tmp_path / "snap", ledger=ledger)
+    assert again.snapshot_id == first.snapshot_id, "same input, same id — with a ledger too"
+    assert again.manifest["content"]["previous"] is None
+
+    newer = build_source("npass", raw, tmp_path / "snap", ledger=ledger, version="2.1")
+    assert newer.manifest["content"]["previous"] == first.snapshot_id
+    metrics = newer.manifest["content"]["qc"]["metrics"]
+    assert metrics["edges_added"] == 0 and metrics["edges_removed"] == 0
+
+    subset = build_source("npass", raw, tmp_path / "snap", ledger=ledger, taxa=taxon_filter())
+    assert subset.manifest["content"]["previous"] is None, (
+        "a subset is not a release of the full file and is not compared with one")

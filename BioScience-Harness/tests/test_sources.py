@@ -405,6 +405,26 @@ def test_the_data_version_is_part_of_the_cache_key():
 
 class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 - http.server API
+        port = self.server.server_address[1]
+        if self.path.startswith("/away"):
+            # Same server, different host name: an undeclared host as far as the
+            # allow-list is concerned.
+            self.send_response(302)
+            self.send_header("Location", f"http://localhost:{port}/json")
+            self.end_headers()
+            return
+        if self.path.startswith("/stay"):
+            self.send_response(302)
+            self.send_header("Location", "/json")
+            self.end_headers()
+            return
+        if self.path.startswith("/json"):
+            return self._send(b'{"ok": true}', "application/json")
+        if self.path.startswith("/captcha"):
+            return self._send(b"<!DOCTYPE html><html><body>Please verify you are human"
+                              b"</body></html>", "text/html; charset=utf-8")
+        if self.path.startswith("/mislabelled"):
+            return self._send(b'{"ok": true}', "text/html")
         if self.path.startswith("/slow"):
             self.send_response(429)
             self.send_header("Retry-After", "3600")
@@ -413,6 +433,13 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         body = ("x" * 250_000).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send(self, body: bytes, ctype: str):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -457,3 +484,165 @@ def test_a_long_retry_after_ends_the_call_instead_of_being_ignored(server):
     assert status is ExecutionStatus.FAILED and "retry after 3600s" in err
     assert meta["retry_after_s"] == 3600 and meta["attempts"] == 1
     assert time.perf_counter() - t0 < 3
+
+
+def test_a_redirect_to_an_undeclared_host_is_refused(server):
+    """``urlopen`` follows redirects silently, so the allow-list governed only hop one."""
+    from bioagent.backends.http import HTTPBackend, HTTPRequest
+    from bioagent.status import ExecutionStatus
+
+    backend = HTTPBackend(rates={"127.0.0.1": 1000.0, "localhost": 1000.0})
+    status, value, err, meta = backend.request(HTTPRequest(url=server + "/away"))
+    assert status is ExecutionStatus.DENIED and value is None
+    assert "localhost" in err and "not a host this call may contact" in err
+
+    status, value, _, meta = backend.request(HTTPRequest(url=server + "/stay"))
+    assert status is ExecutionStatus.SUCCEEDED and value == {"ok": True}
+    assert meta["redirected_to"].endswith("/json")
+
+    # A host the caller declared may be redirected to.
+    status, value, _, _ = backend.request(HTTPRequest(url=server + "/away"),
+                                          allowed_hosts={"localhost"})
+    assert status is ExecutionStatus.SUCCEEDED and value == {"ok": True}
+
+
+def test_a_component_redirected_off_its_declared_hosts_is_denied(server):
+    from bioagent.backends.http import HTTPBackend
+    from bioagent.runtime.component import ComponentManifest, Permissions, RuntimeSpec
+    from bioagent.status import ExecutionStatus
+
+    manifest = ComponentManifest(id="t.redirect", kind="connector", name="t",
+                                 runtime=RuntimeSpec(backend="http", server=server),
+                                 permissions=Permissions(network=("127.0.0.1",)))
+    result = HTTPBackend(rates={"127.0.0.1": 1000.0}).invoke(manifest, path="away")
+    assert result.status is ExecutionStatus.DENIED
+
+
+def test_an_html_page_served_for_json_is_not_data(server):
+    """The shape a reverse-wrapped source fails in: a challenge page with a 200."""
+    from bioagent.backends.http import HTTPBackend, HTTPRequest
+    from bioagent.status import ExecutionStatus
+
+    backend = HTTPBackend(rates={"127.0.0.1": 1000.0})
+    status, value, err, _ = backend.request(HTTPRequest(url=server + "/captcha"))
+    assert status is ExecutionStatus.UNAVAILABLE and value is None
+    assert "HTML page" in err and "not data" in err
+
+    # Asked for explicitly, a page is what was wanted.
+    status, value, _, _ = backend.request(HTTPRequest(url=server + "/captcha",
+                                                      accept="text/html"))
+    assert status is ExecutionStatus.SUCCEEDED
+
+    # JSON labelled text/html is still JSON.
+    status, value, _, _ = backend.request(HTTPRequest(url=server + "/mislabelled"))
+    assert status is ExecutionStatus.SUCCEEDED and value == {"ok": True}
+
+
+def test_the_user_agent_names_the_project_and_the_operators_contact(monkeypatch):
+    from bioagent.backends.http import user_agent
+
+    assert "localhost" not in user_agent()
+    assert "github.com/psknlr/TCMScience" in user_agent()
+    monkeypatch.setenv("BIOAGENT_CONTACT", "ops@example.org")
+    assert "ops@example.org" in user_agent()
+
+
+@pytest.mark.parametrize("ref", ["npass@../../audit", "npass@..", "npass@a/b", "npass@.hidden",
+                                 "npass@a\\b"])
+def test_a_source_reference_cannot_name_a_directory_outside_the_snapshots(ref):
+    """``skill.yaml`` is agent-writable, and its versions become directory names."""
+    from bioagent.sources.cards import parse_ref
+
+    with pytest.raises(ValueError):
+        parse_ref(ref)
+
+
+def test_the_versions_the_builders_produce_are_all_accepted():
+    from bioagent.sources.cards import parse_ref
+
+    for version in ("2.0", "2026-09-23", "26.06+MONDO_0005148", "12.0+subset-1a2b3c4d",
+                    "fx-0123456789ab", "latest-approved"):
+        assert parse_ref(f"npass@{version}") == ("npass", version)
+
+
+def test_a_snapshot_is_neither_built_nor_loaded_outside_its_root(tmp_path):
+    from bioagent.sources.snapshot import SnapshotError, build_snapshot, load_snapshot
+
+    with pytest.raises(SnapshotError, match="version"):
+        build_snapshot(key="npass", version="../../escape", nodes=[], edges=[],
+                       raw_files={"x": __file__}, parser="p", root=tmp_path,
+                       license="CC0-1.0", citation="doi:10.1/x")
+    with pytest.raises(SnapshotError, match="version"):
+        load_snapshot(tmp_path, "npass", "../../escape")
+    assert not (tmp_path.parent / "escape").exists()
+
+
+def test_a_cards_request_rate_is_the_rate_on_the_wire():
+    """A card's ``rps`` was read by nothing; the transport paced by its own table."""
+    from bioagent.backends.http import DEFAULT_RATES, HTTPBackend
+    from bioagent.sources.cards import Access, SourceCard, request_rates
+
+    rates = HTTPBackend()._limiter._rates
+    assert DEFAULT_RATES["api.platform.opentargets.org"] > 1.0
+    assert rates["api.platform.opentargets.org"] == 1.0, "the Open Targets card says 1/s"
+    assert rates["bindingdb.org"] == 1.0, "a host only a card names gets the card's rate"
+    assert rates["query.wikidata.org"] == DEFAULT_RATES["query.wikidata.org"], (
+        "the stricter of the two wins, whichever side it is on")
+
+    web = SourceCard(key="webonly", name="w", citation="doi:10.1/x", license="CC0-1.0",
+                     terms_url="https://x.example/terms",
+                     access=(Access("web", "https://x.example/record", rps=0.5),))
+    assert request_rates(cards=[web], base={})["x.example"] == 0.5
+
+
+def test_a_release_that_swaps_its_records_but_keeps_its_size_is_drift(tmp_path, raw):
+    """The spec asks for the ids that came and went, not only the row counts."""
+    first = _build(tmp_path, raw)
+    nodes, edges = _tables()
+    swapped = [{**e, "source_record_id": f"{e['source_record_id']}-new"} for e in edges]
+    second = _build(tmp_path, raw, version="2.0", edges=swapped, previous=first)
+    metrics = second.manifest["content"]["qc"]["metrics"]
+    assert metrics["edges"] == len(edges) and metrics.get("edges_drift", 0) == 0, (
+        "the count did not move, which is why counting was not enough")
+    assert metrics["edges_added"] == len(edges) and metrics["edges_removed"] == len(edges)
+    assert second.qc_status == "review"
+    assert "added" in " ".join(second.manifest["content"]["qc"]["warnings"])
+
+
+def test_a_cached_html_page_is_not_served_as_data(server, tmp_path):
+    """An entry cached before pages were refused must not come back as a result."""
+    import gzip
+    import json
+
+    from bioagent.backends.http import HTTPBackend, HTTPRequest
+    from bioagent.status import ExecutionStatus
+
+    backend = HTTPBackend(cache_dir=tmp_path, rates={"127.0.0.1": 1000.0})
+    req = HTTPRequest(url=server + "/captcha")
+    with gzip.open(tmp_path / f"{req.key()}.json.gz", "wt", encoding="utf-8") as fh:
+        json.dump({"http_status": 200, "content_type": "text/html",
+                   "value": {"format": "xml", "text": "<html>verify</html>"}}, fh)
+    status, value, err, meta = backend.request(req)
+    assert status is ExecutionStatus.UNAVAILABLE and not meta["cached"]
+
+
+def test_a_declared_chinese_charset_is_honoured():
+    """GBK decoded as UTF-8 is replacement characters where the herb names were."""
+    from bioagent.backends.http import HTTPBackend
+
+    body = "名称\t黄芩\n拉丁名\tScutellaria baicalensis\n".encode("gbk")
+    parsed = HTTPBackend._parse(body, "text/plain; charset=GBK")
+    assert "黄芩" in str(parsed) and "�" not in str(parsed)
+    assert HTTPBackend._parse('{"名": "黄连"}'.encode("gb18030"),
+                              "application/json; charset=gb18030") == {"名": "黄连"}
+    assert HTTPBackend._parse('{"a": "é"}'.encode(), "application/json") == {"a": "é"}
+
+
+def test_an_academic_only_licence_grants_no_commercial_use():
+    """"Free for academic use" is a restriction, not an absence of information."""
+    from bioagent.sources.cards import SOURCE_CARDS
+
+    academic = [c for c in SOURCE_CARDS if "academic" in c.license.lower()]
+    assert {c.key for c in academic} >= {"npass", "cmaup"}
+    assert all(c.commercial_use == "forbidden" for c in academic), [
+        (c.key, c.commercial_use) for c in academic]

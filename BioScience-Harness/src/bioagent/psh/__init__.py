@@ -69,6 +69,8 @@ __all__ = [
     "BoundaryViolation", "EXEC_PATH", "HostPolicy", "KernelBoundary", "arguments_for",
     "bridge_manifest", "ceiling_for", "default_runtime", "destinations_for",
     "load_catalogue_rows", "load_verification", "normalise_spdx", "psh_id_for",
+    "DESIGN_FOR_TIER", "CLAIM_KIND_FOR", "SUBJECT_FOR_DESIGN", "TierMapping",
+    "design_for", "evidence_type_for", "claim_type_for", "licensing_for",
 ]
 
 

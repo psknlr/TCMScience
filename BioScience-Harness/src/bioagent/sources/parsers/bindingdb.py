@@ -10,10 +10,18 @@ The full file is several gigabytes, so the parser keeps only ligands whose InChI
 interactive step, so the file is obtained by a person and imported (``manual`` access).
 
 Licences are per record: data curated by BindingDB are CC-BY-4.0, data BindingDB took
-from ChEMBL are CC-BY-SA-3.0 (``Curation/DataSource`` says which). Each measured value
-(Ki, IC50, Kd, EC50) is one ``targets`` edge; a row may carry more than one. The first
-chain with a UniProt accession identifies the target; rows with none are counted and
-dropped, as are rows citing no PMID, DOI or patent.
+from ChEMBL are CC-BY-SA-3.0 (``Curation/DataSource`` says which). The rule lives on the
+source card (``cards.card("bindingdb").record_license``), so the card and the parser
+cannot disagree about it. Each measured value (Ki, IC50, Kd, EC50) is one ``targets``
+edge; a row may carry more than one.
+
+The target is the protein the row's chains name. One chain with a UniProt accession is
+that protein, even when other chains carry none. Chains naming *different* proteins are a
+complex — BindingDB's own header says "> 1 implies a multichain complex" — and an
+affinity measured against a complex is not a measurement against any one of its
+proteins, so the row is counted and dropped rather than filed under whichever chain
+happens to come first. Rows naming no protein, and rows citing no PMID, DOI or patent,
+are counted and dropped too.
 """
 
 from __future__ import annotations
@@ -29,8 +37,16 @@ from .common import (NodeBook, ParseReport, ParseResult, clean, compound_id, is_
 __all__ = ["parse_bindingdb", "LICENSES"]
 
 KEY = "bindingdb"
+#: Kept for callers that read it; the parser asks the card (``_licence``), which is the
+#: one place the rule is maintained.
 LICENSES = {"chembl": "CC-BY-SA-3.0"}
 DEFAULT_LICENSE = "CC-BY-4.0"
+
+
+def _licence(curation: str) -> str:
+    from ..cards import card
+
+    return card(KEY).record_license({"curation": curation})
 MEASURES = {"ki (nm)": "Ki", "ic50 (nm)": "IC50", "kd (nm)": "Kd", "ec50 (nm)": "EC50"}
 
 
@@ -78,17 +94,19 @@ def parse_bindingdb(path: str | Path, *, inchikeys: Iterable[str]) -> ParseResul
             if not is_inchikey(ik):
                 report.drop("ligand without a valid InChIKey")
                 continue
-            accession = None
             chains = get(c["chains"])
             n = int(chains) if chains and chains.isdigit() else 1
-            for k in range(max(n, 1)):
-                value = get(c["chains"] + 1 + k * len(block) + acc_offset)
-                if is_uniprot(value):
-                    accession = value
-                    break
-            if accession is None:
+            proteins = sorted({value for k in range(max(n, 1))
+                               if is_uniprot(value := get(c["chains"] + 1 + k * len(block)
+                                                          + acc_offset))})
+            if not proteins:
                 report.drop("target chain without a UniProt accession")
                 continue
+            if len(proteins) > 1:
+                report.drop("multichain complex: the affinity belongs to the complex, not "
+                            "to one of its proteins")
+                continue
+            accession = proteins[0]
             pubs = [p for p in (publication(get(c["pmid"]), "pmid"),
                                 publication(get(c["doi"]), "doi")) if p]
             if get(c["patent"]):
@@ -97,7 +115,7 @@ def parse_bindingdb(path: str | Path, *, inchikeys: Iterable[str]) -> ParseResul
                 report.drop("measurement without a PMID, DOI or patent")
                 continue
             curation = get(c["curation"]) or ""
-            licence = LICENSES.get(curation.lower(), DEFAULT_LICENSE)
+            licence = _licence(curation)
             monomer = get(c["monomer"]) or ik
             compound = book.add(
                 compound_id(KEY, monomer, ik), "ingredient", get(c["ligand"]) or ik,

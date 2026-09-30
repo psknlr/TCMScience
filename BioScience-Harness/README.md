@@ -9,13 +9,14 @@
 <!-- zh -->
 > **本节描述的是最新的一层。如果你关心的正是这套系统如何防止模型夸大自己的发现，那么这一层很可能就是你要找的东西。**
 
-Four packages were added, and each exists to close a specific way a scientific
-agent goes wrong. Two of them changed the *kernel's* vocabulary, which is
+Four packages were added, each to close a specific way a scientific agent goes wrong, and
+the existing PSH bridge gained a fifth piece: `bioagent.psh.epistemics`, which checks this
+package's evidence table against the kernel's. Two of them changed the *kernel's* vocabulary, which is
 recorded in PSH-Harness's `workflow/ir.py` and `workflow/compiler.py` rather than
 hidden in a private copy here.
 
 <!-- zh -->
-新增了四个包，每一个都为了堵住科研智能体出错的某一条具体路径。其中两个改变了*内核*（kernel）的词汇表，这些改动记录在 PSH-Harness 的 `workflow/ir.py` 与 `workflow/compiler.py` 里，而不是藏在此处的一份私有副本中。
+新增了四个包，每一个都为了堵住科研智能体出错的某一条具体路径；此外，既有的 PSH 桥多了第五块：`bioagent.psh.epistemics`，它把本包的证据表与内核的证据表相互校验。其中两个改变了*内核*（kernel）的词汇表，这些改动记录在 PSH-Harness 的 `workflow/ir.py` 与 `workflow/compiler.py` 里，而不是藏在此处的一份私有副本中。
 
 ### `bioagent.contracts` — four schemas and one gate · 四个模式与一道门
 
@@ -109,6 +110,46 @@ failed dimension indistinguishable from a system that scored nothing anywhere.
 <!-- zh -->
 聚合采用加权**调和**平均，而不是方案里写的几何平均：几何平均只要有一项为零就整体为零，那会让「一个维度失败」与「一个处处得零的系统」变得无法区分。
 
+### `bioagent.psh.epistemics` — the tier table and the design matrix, checked against each other · 分级表与设计矩阵，相互校验
+
+`bioagent.tcm.model.CLAIM_SUPPORT` and PSH's `psh.sir.values.LICENSING` are the same idea
+reached from two directions: which sources license which *kind* of claim, as a table rather
+than as a comparison against one ordered scale. Neither is a ladder. The first maps a claim
+kind to the set of `EvidenceTier` values admitted for it; the second maps it to the set of
+`StudyDesign` values, **with a grade attached**.
+
+<!-- zh -->
+`bioagent.tcm.model.CLAIM_SUPPORT` 与 PSH 的 `psh.sir.values.LICENSING` 是同一个想法从两个方向抵达的结果：哪些来源可以许可哪一*类*主张 —— 用一张表，而不是用对单一有序刻度的比较。两者都不是"阶梯"。前者把一类主张映射到被准许的 `EvidenceTier` 集合；后者映射到 `StudyDesign` 集合，**并附带一个等级**。
+
+
+This module maps one onto the other, and the reason it exists is the grade. A set
+membership test has to answer yes or no, so a 十八反 record — a safety signal that predates
+every clinical design on the scale — is refused outright. The matrix grades it
+`EXTRAPOLATED` and names the dimension that decided, which is the answer a reader can act
+on: cite it, and do not call it a pharmacovigilance finding.
+
+<!-- zh -->
+本模块把二者互相映射，而它存在的理由正是那个等级。集合成员测试只能回答"是"或"否"，于是一条十八反记录 —— 一个比刻度上所有临床设计都更早出现的安全性信号 —— 会被直接拒绝。矩阵把它评为 `EXTRAPOLATED`，并指明是哪一个维度作出的判定；这才是读者可以据以行动的答案：可以引用它，但不要把它称作药物警戒发现。
+
+
+**The invariant, asserted over every relation and every claim kind in the shipped seed.**
+Where the two disagree they disagree in one direction and one grade: the tier table
+refuses, and the matrix answers `EXTRAPOLATED`. It never answers `DIRECT` where the tier
+table refuses, and it never licenses a clinical claim the tier table refuses. A future edit
+to either table that makes the matrix the more permissive of the two fails in
+`tests/test_tcm_epistemics.py` rather than in a release.
+
+<!-- zh -->
+**这条不变式，在随包种子的每一条关系、每一类主张上都被断言。** 两者产生分歧时，方向与等级都是唯一的：分级表拒绝，而矩阵给出 `EXTRAPOLATED`。在分级表拒绝之处，矩阵从不给出 `DIRECT`，也从不许可任何一条分级表拒绝的临床主张。日后若有人修改任一张表、使矩阵变成更宽松的那一个，失败会出现在 `tests/test_tcm_epistemics.py`，而不是出现在一次发布里。
+
+
+```python
+from bioagent.psh import licensing_for
+
+kb.applicability(classical, claim_kind="safety_signal").verdict   # "unsupported"
+licensing_for(kb, classical, claim_kind="safety_signal").grade    # EXTRAPOLATED
+```
+
 ### Three bugs this layer found in its own foundation · 这一层在自己的地基里发现的三个 bug
 
 Recorded because they are the kind that look like working code:
@@ -200,10 +241,10 @@ whose shortfall PSH records as a caveat and lists as a limitation of the release
 ## v2.4 — PSH convergence, and a connector set worth converging · PSH 收敛，以及一套值得收敛的连接器
 
 The capability plane is now admitted into a trusted kernel, and it got a lot bigger.
-Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
+Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`; its 2026-09-30 review — what the spec's own list of problems now looks like in code, and 18 fixes — is `docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md`.
 
 <!-- zh -->
-能力平面（capability plane, CP）现在被接纳进一个可信内核（trusted kernel, TK），而且它大了很多。设计与证据见 `docs/V24_PSH_CONVERGENCE.md`。第三方数据库连接器（TCMSP、HERB、SymMap……）遵循 `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`。
+能力平面（capability plane, CP）现在被接纳进一个可信内核（trusted kernel, TK），而且它大了很多。设计与证据见 `docs/V24_PSH_CONVERGENCE.md`。第三方数据库连接器（TCMSP、HERB、SymMap……）遵循 `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`；2026-09-30 的复核（规范自己列出的问题在代码里的现状，以及 18 项修复）见 `docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md`。
 
 **`bioagent.psh` — the bridge.** A BioScience component becomes a PSH `ComponentManifest`
 with the dimensions PSH's gates rule on, derived conservatively from what the BioScience
@@ -636,6 +677,9 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
     tests/test_psh_bridge.py         the PSH bridge: derivation, the crossing, retrieval,
                                      isolation, the kernel boundary (needs PSH importable;
                                      conftest finds the sibling checkout)
+    tests/test_tcm_epistemics.py     the tier table against PSH's design matrix: the
+                                     invariant that the matrix is never the more
+                                     permissive of the two (needs PSH importable)
     tests/test_public_sources.py     the connector table and its verification record
     tests/test_native_tools.py       every native tool from its example; values pinned
 

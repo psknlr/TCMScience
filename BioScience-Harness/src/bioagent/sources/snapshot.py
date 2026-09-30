@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from .cards import SourceCard
+from .cards import SourceCard, check_key_version
 from .schema import validate_edge, validate_node
 
 __all__ = ["QCThresholds", "QCReport", "Snapshot", "SnapshotError", "SnapshotRejected",
@@ -95,7 +95,8 @@ class QCThresholds:
 
     min_inchikey_coverage: float = 0.0     # ingredient nodes with an InChIKey xref
     min_uniprot_coverage: float = 0.0      # target nodes with a UniProt xref
-    max_drift: float = 0.2                 # |rows - previous rows| / previous rows
+    #: |rows - previous rows| / previous rows, and (ids added + ids removed) / previous ids
+    max_drift: float = 0.2
 
     @classmethod
     def from_card(cls, card: SourceCard | None) -> "QCThresholds":
@@ -130,6 +131,7 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
                   previous: Mapping[str, Any] | None = None,
                   gold: Mapping[str, Mapping[str, Any]] | None = None,
                   gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
+                  previous_ids: Mapping[str, Iterable[str]] | None = None,
                   max_listed: int = 20) -> QCReport:
     """Run the gate against hand-checked answer keys: ``gold`` maps node id -> expected
     xrefs; ``gold_edges`` maps a label -> (subject, predicate, object) triples of which at
@@ -180,6 +182,23 @@ def quality_check(nodes: Sequence[Mapping[str, Any]], edges: Sequence[Mapping[st
                 if drift > thresholds.max_drift:
                     warnings.append(f"{kind} changed by {drift:.1%} since the previous "
                                     f"snapshot ({before} -> {now})")
+
+    if previous_ids:
+        # Counts alone miss the release that swaps a third of its records and keeps the
+        # total: the ids that came and went are the drift. Meaningful only because record
+        # ids are content, not positions (``parsers.common.row_digest``).
+        for kind, rows, field_ in (("nodes", nodes, "id"), ("edges", edges, "source_record_id")):
+            before = {str(i) for i in previous_ids.get(kind, ())}
+            if not before:
+                continue
+            now = {str(r.get(field_)) for r in rows}
+            added, removed = len(now - before), len(before - now)
+            churn = (added + removed) / len(before)
+            metrics[f"{kind}_added"], metrics[f"{kind}_removed"] = added, removed
+            metrics[f"{kind}_id_churn"] = round(churn, 6)
+            if churn > thresholds.max_drift:
+                warnings.append(f"{kind}: {added} added and {removed} removed since the "
+                                f"previous snapshot ({churn:.1%} of {len(before)})")
 
     if gold:
         by_id = {n.get("id"): n for n in nodes}
@@ -304,6 +323,10 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
     """Validate, hash and publish one source version. Raises ``SnapshotRejected`` when the
     quality gate fails; a ``review`` result is published but ``load`` will not hand it out
     until a person accepts it. With a ``SnapshotLedger`` the id is recorded there."""
+    try:
+        check_key_version(key, version)
+    except ValueError as exc:
+        raise SnapshotError(str(exc)) from None
     if card is not None and card.key != key:
         raise SnapshotError(f"card {card.key!r} does not describe source {key!r}")
     license = license or (card.license if card else "")
@@ -315,6 +338,10 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
     report = quality_check(node_rows, edge_rows,
                            thresholds=thresholds or QCThresholds.from_card(card),
                            previous=previous.manifest["content"]["qc"] if previous else None,
+                           previous_ids=({"nodes": [n.get("id") for n in previous.nodes],
+                                          "edges": [e.get("source_record_id")
+                                                    for e in previous.edges]}
+                                         if previous else None),
                            gold=gold, gold_edges=gold_edges)
     if report.status == "fail":
         raise SnapshotRejected(f"{key}@{version} failed the quality gate: "
@@ -359,6 +386,10 @@ def load_snapshot(root: str | Path, key: str, version: str, *, expected_id: str 
     snapshot whose QC status is ``review`` is refused unless the caller accepts it
     explicitly.
     """
+    try:
+        check_key_version(key, version)
+    except ValueError as exc:
+        raise SnapshotError(str(exc)) from None
     if ledger is not None:
         recorded = ledger.expected(key, version)
         if expected_id is not None and expected_id != recorded:

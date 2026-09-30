@@ -138,7 +138,7 @@ python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW
 python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
 python scripts/run_network_pharmacology.py ... --hits screening          # PubChem, inactives included
 
-# tests: PSH 961 · BioScience 949
+# tests: PSH 1084 · BioScience 1056
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -151,6 +151,7 @@ More in [INSTALL.md](INSTALL.md) and [USAGE.md](USAGE.md).
 An LLM should not be its own planner, executor, security policy, evidence judge and publication authority all at once. TCMScience therefore separates three planes (figure above):
 
 - **Trusted kernel ([PSH-Harness](PSH-Harness)).** Labels data at entry, intersects every request with a policy lattice, compiles plans into typed and bounded programs, routes every model, tool and delegation call through one gateway, and quarantines output before release. Its audit is hash-chained.
+- **Scientific compiler ([PSH-Harness](PSH-Harness/docs/V6_SCIENTIFIC_COMPILER.md)).** In front of the kernel, not beside it: a research programme is typed and refused *before* it spends anything. An animal study cannot license a human efficacy claim, an analysis that does not depend on its protocol node is not preregistered, and a claim reaching beyond its source's population is an error with both populations named. 71 diagnostic codes, each with a remedy.
 - **Capability plane ([BioScience-Harness](BioScience-Harness)).** 58 verified public sources with 153 typed operations, 147 native tools in 12 domains, a typed TCM layer (herbs, processing, formulas with 君臣佐使 roles, syndromes, classical passages, 十八反), and the source-snapshot layer.
 - **Governance layer.** Skill manifests compiled into kernel programs, data contracts with validators, a registry with a content-hashed lockfile, and the benchmark harness.
 

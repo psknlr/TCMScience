@@ -70,9 +70,26 @@ class NodeKind(str, Enum):
     #: A claim the release gate refused. Stored as a hash and a reason, never as
     #: retrievable text, so a rejected conclusion cannot be retrieved back into a prompt.
     REJECTED_CLAIM = "rejected_claim"
+
+    # ---- the scientific record --------------------------------------------
+    #
+    # What the graph recorded before these was what was *done* (Task, Run, Artifact) and
+    # what was *concluded* (Claim, Evidence, Decision). What it could not record is the
+    # thing a research project actually is: a set of competing explanations, what each
+    # predicts, what would refute it, and which of those tests have been run. Without
+    # these kinds a hypothesis survives only as the sentence some agent happened to write
+    # down, and "why do we still believe H1?" has no answer to traverse.
+    #
+    # ``ScientificLedger`` writes the first three as immutable, content-hashed records;
+    # ``ScientificWorldModel`` adds the relations between them.
     HYPOTHESIS = "hypothesis"
     PROTOCOL = "protocol"
     OBSERVATION = "observation"
+    #: A designed test of one or more hypotheses. Written by ``ScientificWorldModel``;
+    #: a deviation is *not* a node kind, because ``ScientificLedger.observe`` stores the
+    #: departure inside the observation record atomically — there is then no interval in
+    #: which a changed analysis looks preregistered.
+    EXPERIMENT = "experiment"
 
 
 class EdgeKind(str, Enum):
@@ -93,6 +110,22 @@ class EdgeKind(str, Enum):
     ANSWERS = "answers"            # a claim answers a question
     SUPERSEDES = "supersedes"      # a later node replaces an earlier one
     DERIVED_FROM = "derived_from"  # data lineage
+
+    # ---- relations between scientific records ------------------------------
+    #
+    # ``ScientificLedger`` writes the records and links each to what it derives from.
+    # These are the relations that make the records a *world model* rather than a list:
+    # which explanations compete, and which observations bear on which.
+    TESTS = "tests"                      # experiment -> hypothesis
+    CORROBORATES = "corroborates"        # observation -> hypothesis
+    #: An observation that matched a falsifier. Kept distinct from ``CONTRADICTS``
+    #: (evidence against a *claim*) because refuting a hypothesis and disagreeing with a
+    #: sentence are different events with different consequences.
+    REFUTES = "refutes"                  # observation -> hypothesis
+    #: Competing explanations. ``Hypothesis.alternatives`` names them as text inside the
+    #: record; this makes the relation traversable, which is what "what else could explain
+    #: this?" needs in order to be answerable from either end.
+    ALTERNATIVE_TO = "alternative_to"    # hypothesis <-> hypothesis
 
 
 _SCHEMA = """
@@ -313,6 +346,12 @@ class WorkGraph:
             (EdgeKind.PRODUCED, "in"),        # artifact  <- run
             (EdgeKind.USED, "out"),           # run       -> dataset
             (EdgeKind.DERIVED_FROM, "out"),   # artifact  -> source data
+            # The world model. A "why do we believe this?" walk that stops at the claim
+            # answers a narrower question than the one asked.
+            (EdgeKind.CORROBORATES, "in"),    # hypothesis <- observation
+            (EdgeKind.REFUTES, "in"),         # hypothesis <- refuting observation
+            (EdgeKind.TESTS, "in"),           # hypothesis <- experiment
+            (EdgeKind.ALTERNATIVE_TO, "out"),  # hypothesis -> its competitor
         )
         ARROW = {"out": "--{}-->", "in": "<--{}--"}
 
