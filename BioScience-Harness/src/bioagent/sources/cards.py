@@ -32,7 +32,8 @@ from .schema import AGENT_TYPES, EDGE_PREDICATES, KNOWLEDGE_LEVELS, NODE_CATEGOR
 
 __all__ = ["ACCESS_MODES", "Access", "EdgeDefault", "Approval", "SourceCard",
            "SourceCardError", "SOURCE_CARDS", "card", "effective_sources", "parse_ref",
-           "VERSION", "check_key_version", "request_rates"]
+           "VERSION", "check_key_version", "request_rates", "PURPOSES",
+           "PREDICTION_ONLY", "PREDICTED_TARGETS"]
 
 #: In order of preference.
 ACCESS_MODES: tuple[str, ...] = ("bulk", "api", "manual", "web")
@@ -107,6 +108,22 @@ class Approval:
             raise SourceCardError("an approval names a person and an ISO date")
 
 
+#: Sources whose every statement is computed. The spec says so in prose; a card is where
+#: it holds. A card for one of these may declare only prediction defaults.
+PREDICTION_ONLY: Mapping[str, str] = {
+    "batman_tcm": "BATMAN-TCM is a computation service; every target it returns is predicted",
+}
+
+#: Sources that hold measured and predicted targets side by side. Their ``targets``
+#: default must be a prediction: a parser may raise a record to a measurement only when
+#: the record itself says it was validated — "when unsure, label it a prediction".
+PREDICTED_TARGETS: Mapping[str, str] = {
+    "etcm": "ETCM 2.0 lists verified targets beside ones predicted by 2-D ligand similarity",
+    "tcmsp": "TCMSP's target relations are mostly model predictions",
+    "tcmtoxdb": "TCMToxDB predicts toxicity targets with five built-in algorithms",
+}
+
+
 @dataclass(frozen=True)
 class SourceCard:
     key: str                                   # CURIE prefix and snapshot directory name
@@ -140,6 +157,18 @@ class SourceCard:
         modes = [a.mode for a in self.access]
         if modes != sorted(modes, key=ACCESS_MODES.index):
             raise SourceCardError(f"card {self.key!r} lists access out of preference order")
+        for rule, predicates in ((PREDICTION_ONLY, None), (PREDICTED_TARGETS, {"targets"})):
+            why = rule.get(self.key)
+            if why is None:
+                continue
+            asserted = [d for d in self.provides
+                        if (predicates is None or d.predicate in predicates)
+                        and d.knowledge_level != "prediction"]
+            if asserted:
+                raise SourceCardError(
+                    f"card {self.key!r}: {why}, so its "
+                    f"{', '.join(sorted({d.predicate for d in asserted}))} default must be "
+                    "a prediction")
 
     # ----------------------------------------------------------------- access
     def usable_access(self) -> tuple[Access, ...]:
@@ -311,16 +340,30 @@ def parse_ref(ref: str) -> tuple[str, str]:
     return m.group("key"), m.group("version") or "latest-approved"
 
 
+#: What a run is for. ``academic`` is non-commercial research — what every card's terms
+#: allow today. ``commercial`` is anything else, and it may use only sources whose card
+#: says ``commercial_use="allowed"``: ``unknown`` is refused with ``forbidden``, because
+#: "we did not check" is not a licence.
+PURPOSES: tuple[str, ...] = ("academic", "commercial")
+
+
 def effective_sources(requested: Iterable[str], *,
                       cards: Iterable[SourceCard] = SOURCE_CARDS,
-                      allowed: Iterable[str] | None = None
+                      allowed: Iterable[str] | None = None,
+                      purpose: str = "academic",
                       ) -> tuple[dict[str, str], dict[str, str]]:
-    """Which requested sources a run may use: request ∩ enabled cards ∩ run allowance.
+    """Which requested sources a run may use: request ∩ enabled cards ∩ run allowance,
+    and, for a commercial run, only cards whose terms allow commercial use.
 
     Returns ``(granted, refused)``: ``granted`` maps key -> requested version, ``refused``
     maps each dropped reference to the reason. Nothing is ever granted that the request
     did not name, so a skill cannot widen access by what it leaves out either.
+
+    ``commercial_use`` was recorded on every card and read by nothing, so a commercial
+    run could draw on NPASS and CMAUP, whose terms are "free for academic use".
     """
+    if purpose not in PURPOSES:
+        raise ValueError(f"purpose {purpose!r} is not one of {PURPOSES}")
     by_key = {c.key: c for c in cards}
     allowance = None if allowed is None else set(allowed)
     granted: dict[str, str] = {}
@@ -336,6 +379,9 @@ def effective_sources(requested: Iterable[str], *,
             refused[ref] = "no usable access path (web access needs a person's approval)"
         elif allowance is not None and key not in allowance:
             refused[ref] = "not allowed for this run"
+        elif purpose == "commercial" and c.commercial_use != "allowed":
+            refused[ref] = (f"a commercial run needs commercial use allowed; {c.name}'s "
+                            f"terms ({c.license}) say {c.commercial_use}")
         else:
             granted[key] = version
     return granted, refused

@@ -26,6 +26,11 @@ says so to the runtime.
   (`scripts/fetch_opentargets.py MONDO_0005148 --raw RAW`, then
   `scripts/build_source_snapshots.py opentargets --file ... --ledger ...`). The run loads every snapshot through the ledger and refuses one
   that no longer matches it.
+- Snapshots of the releases `skill.yaml` pins: `npass@2.0` is release 2.0 (any scoped
+  build of it, such as `2.0+subset-…`), `opentargets@26.09+MONDO_0005148` is that release
+  and disease only, and a bare key is any release. A run whose pin no recorded snapshot
+  fits is refused and told which versions there are. Open Targets' API serves only its
+  current release, so moving to a new one is a deliberate edit of the pin.
 - A formula bound to one recorded composition (`sources.herbs.FormulaVersion`); the
   shipped one is 葛根芩连汤 as the 伤寒论 records it.
 
@@ -64,7 +69,9 @@ The PSH compiler checks these designs against the claim: the program compiles fo
 `compounds.tsv`, `targets.tsv` (with each target's disease score), `disease.json`, `enrichment.tsv`, `network.tsv`, `claims.json` (each claim
 cites the snapshot edges of one supporting path and records the strongest kind that path
 could license), `release.json`, `provenance.json` (snapshot ids, parameters, seed, code
-digest, PSH program fingerprint, result digest) and `limitations.md`.
+digest, PSH program fingerprint, result digest, the run's source allowance and purpose,
+and the ledger head it read — pass that file to a later run as `--ledger-head-from` and
+the later run refuses a ledger cut short since) and `limitations.md`.
 
 ## How to read the result
 

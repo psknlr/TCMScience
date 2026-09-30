@@ -78,72 +78,136 @@ def test_the_snapshot_version_is_the_platform_release_and_the_disease(tmp_path):
 
 
 # ------------------------------------------------------------------ fetch
-class _Pages:
-    """A backend answering the meta query and then pages of ``rows``."""
+class _API:
+    """A backend answering the meta query and ``associatedTargets`` over ``rows``.
 
-    def __init__(self, rows: list[dict], page: int, lose: int = 0, shift: int = 0,
+    ``BFilter`` keeps rows whose target id or symbol starts with it (case-insensitive, as
+    the real API does); ``count`` is the number kept. ``reorder`` shuffles the kept rows
+    differently on every request, as the real API does with tied scores.
+    """
+
+    def __init__(self, rows: list[dict], *, lose: int = 0, reorder: bool = False,
                  release_midway: bool = False):
-        self.rows, self.page, self.lose, self.calls = rows, page, lose, []
-        self.shift, self.release_midway, self.metas = shift, release_midway, 0
+        self.rows, self.lose, self.reorder = rows, lose, reorder
+        self.release_midway, self.metas, self.calls = release_midway, 0, []
 
     def request(self, req, use_cache=True):
+        import random
+
         body = req.json_body
-        self.calls.append(body["variables"])
+        self.calls.append(body.get("variables") or {})
         if "meta" in body["query"]:
             self.metas += 1
             month = "09" if self.release_midway and self.metas > 1 else "06"
             return (ExecutionStatus.SUCCEEDED, {"data": {"meta": {
                 "apiVersion": {"x": 26, "y": 6, "z": 3},
                 "dataVersion": {"year": "26", "month": month, "iteration": "0"}}}}, None, {})
-        i, n = body["variables"]["i"], self.page
-        start = i * n - (self.shift if i == 1 else 0)
-        rows = self.rows[start:start + n]
-        if i == 1 and self.lose:
-            rows = rows[:-self.lose]
+        v = body["variables"]
+        f = (v.get("f") or "").upper()
+        kept = [r for r in self.rows if r["target"]["id"].upper().startswith(f)
+                or r["target"]["approvedSymbol"].upper().startswith(f)]
+        if self.reorder:
+            random.Random(len(self.calls)).shuffle(kept)
+        page = kept[v["i"] * v["n"]:(v["i"] + 1) * v["n"]]
+        if self.lose and page:
+            page = page[:-self.lose]
         return (ExecutionStatus.SUCCEEDED, {"data": {"disease": {
-            **DISEASE, "associatedTargets": {"count": len(self.rows), "rows": rows}}}},
-            None, {})
+            **DISEASE, "associatedTargets": {"count": len(kept), "rows": page}}}}, None, {})
 
 
-def test_the_fetch_pages_until_every_association_is_saved(tmp_path, monkeypatch):
-    import bioagent.sources.fetch_opentargets as fetch
-    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
-    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in (3, 1, 2, 5, 4)]
-    backend = _Pages(rows, page=2)
+def _ids(*numbers: int) -> list[dict]:
+    return [ot_row(f"ENSG{n:011d}", f"P{n:05d}", 0.5) for n in numbers]
+
+
+SPREAD = (3, 12, 17, 105, 110, 111, 250)
+
+
+def test_a_short_answer_is_saved_from_one_request(tmp_path):
+    backend = _API(_ids(3, 1, 2))
     out = fetch_disease_associations("MONDO_0005148", tmp_path, backend=backend)
     assert out.name == raw_file_name("MONDO_0005148")
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["data_version"] == "26.06" and saved["api_version"] == "26.6.3"
-    assert [r["target"]["id"] for r in saved["rows"]] == sorted(r["target"]["id"] for r in rows)
-    # meta, three pages, and meta again: the release must not have changed underneath.
-    assert [c.get("i") for c in backend.calls] == [None, 0, 1, 2, None]
+    assert [r["target"]["id"] for r in saved["rows"]] == [
+        f"ENSG{n:011d}" for n in (1, 2, 3)]
+    # meta, the one page, and meta again: the release must not have changed underneath.
+    assert [c.get("f", "meta") for c in backend.calls] == ["meta", None, "meta"]
+
+
+def test_a_long_answer_is_split_by_id_until_each_group_fits_one_page(tmp_path, monkeypatch):
+    import bioagent.sources.fetch_opentargets as fetch
+    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
+    backend = _API(_ids(*SPREAD))
+    out = fetch_disease_associations("MONDO_0005148", tmp_path, backend=backend)
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert [r["target"]["id"] for r in saved["rows"]] == [f"ENSG{n:011d}" for n in SPREAD]
+    # Past the unfiltered first page, rows come only from groups that fit one page: ids
+    # ...0003 | ...0012 ...0017 | ...0105 | ...0110 ...0111 | ...0250. Everything else
+    # was an empty page asking for a count.
+    groups = [c["f"] for c in backend.calls if c.get("n") and c.get("f")]
+    assert groups == ["ENSG0000000000", "ENSG0000000001", "ENSG0000000010",
+                      "ENSG0000000011", "ENSG000000002"]
+    assert all(c["i"] == 0 for c in backend.calls if "i" in c)
+
+
+def test_an_order_that_changes_between_requests_loses_no_target(tmp_path, monkeypatch):
+    """What the live API does with tied scores (2026-09-30): paging one list repeated some
+    targets and dropped as many. Groups fetched whole do not depend on the order."""
+    import bioagent.sources.fetch_opentargets as fetch
+    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
+    backend = _API(_ids(*SPREAD), reorder=True)
+    out = fetch_disease_associations("MONDO_0005148", tmp_path, backend=backend)
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert [r["target"]["id"] for r in saved["rows"]] == [f"ENSG{n:011d}" for n in SPREAD]
+
+
+def test_the_saved_rows_do_not_depend_on_the_order_the_api_lists_scores_in(tmp_path):
+    row = ot_row("ENSG00000000001", "P10000", 0.8, literature=0.4, genetic_association=0.9)
+    flipped = {**row, "datatypeScores": row["datatypeScores"][::-1],
+               "target": {**row["target"], "proteinIds": row["target"]["proteinIds"][::-1]}}
+    saved = []
+    for i, r in enumerate((row, flipped)):
+        out = fetch_disease_associations("MONDO_0005148", tmp_path / str(i), backend=_API([r]))
+        saved.append(json.loads(out.read_text(encoding="utf-8"))["rows"])
+    assert saved[0] == saved[1]
+    assert [d["id"] for d in saved[0][0]["datatypeScores"]] == ["genetic_association",
+                                                                "literature"]
 
 
 def test_a_short_answer_is_an_error_not_a_smaller_snapshot(tmp_path, monkeypatch):
     import bioagent.sources.fetch_opentargets as fetch
     monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
-    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
-    with pytest.raises(OpenTargetsFetchError, match="expected 5"):
-        fetch_disease_associations("MONDO_0005148", tmp_path, backend=_Pages(rows, 2, lose=1))
+    with pytest.raises(OpenTargetsFetchError, match=r"expected 1 associations under \w+, "
+                                                    r"received 0"):
+        fetch_disease_associations("MONDO_0005148", tmp_path,
+                                   backend=_API(_ids(*SPREAD), lose=1))
     assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()
 
 
-def test_pages_that_overlap_are_an_error_even_when_the_total_matches(tmp_path, monkeypatch):
-    """A shifted page repeats one row and never shows another; the count cannot tell."""
+def test_a_target_in_two_groups_is_an_error_even_when_the_total_matches(tmp_path, monkeypatch):
+    """``BFilter`` matches symbols too; a symbol that looks like another group's id puts
+    one target in two groups, and a total that matches cannot tell."""
     import bioagent.sources.fetch_opentargets as fetch
     monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
-    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
-    with pytest.raises(OpenTargetsFetchError, match="repeat 1 target"):
-        fetch_disease_associations("MONDO_0005148", tmp_path,
-                                   backend=_Pages(rows, 2, shift=1))
+    rows = _ids(*SPREAD)
+    rows[0]["target"]["approvedSymbol"] = "ENSG00000000250"    # also under ...025
+    with pytest.raises(OpenTargetsFetchError, match="cannot be split|repeats 1 target"):
+        fetch_disease_associations("MONDO_0005148", tmp_path, backend=_API(rows))
     assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()
+
+
+def test_ids_outside_the_ensembl_gene_space_cannot_be_split(tmp_path, monkeypatch):
+    import bioagent.sources.fetch_opentargets as fetch
+    monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
+    rows = _ids(*SPREAD) + [ot_row("OTAR0000001", "P99999", 0.5)]
+    with pytest.raises(OpenTargetsFetchError, match="cannot be split"):
+        fetch_disease_associations("MONDO_0005148", tmp_path, backend=_API(rows))
 
 
 def test_a_release_during_the_fetch_is_an_error(tmp_path, monkeypatch):
     import bioagent.sources.fetch_opentargets as fetch
     monkeypatch.setattr(fetch, "PAGE_SIZE", 2)
-    rows = [ot_row(f"ENSG0000000000{i}", f"P1000{i}", 0.5) for i in range(5)]
     with pytest.raises(OpenTargetsFetchError, match="data version changed"):
         fetch_disease_associations("MONDO_0005148", tmp_path,
-                                   backend=_Pages(rows, 2, release_midway=True))
+                                   backend=_API(_ids(*SPREAD), release_midway=True))
     assert not (tmp_path / raw_file_name("MONDO_0005148")).exists()

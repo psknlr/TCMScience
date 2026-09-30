@@ -37,7 +37,11 @@ FILES = {
 
 
 def parse_string(raw_dir: str | Path, *, proteins: Iterable[str], mode: str = "induced",
-                 files: dict[str, str] = FILES) -> ParseResult:
+                 files: dict[str, str] = FILES,
+                 primary: Iterable[str] | None = None) -> ParseResult:
+    """``primary``: Swiss-Prot primary accessions, preferred for proteins outside the
+    scope (the ``neighbours`` mode). An in-scope protein always takes its in-scope
+    accession, so the induced network needs no list."""
     if mode not in ("induced", "neighbours"):
         raise ValueError("mode is induced or neighbours")
     raw_dir = Path(raw_dir)
@@ -54,11 +58,16 @@ def parse_string(raw_dir: str | Path, *, proteins: Iterable[str], mode: str = "i
     names = {row["#string_protein_id"]: row.get("preferred_name")
              for row in read_rows(paths["info"]) if row.get("#string_protein_id")}
 
+    preferred = frozenset(primary or ())
+
     def accession(string_id: str) -> str | None:
-        """The in-scope accession of a STRING protein, else its first accession."""
+        """The in-scope accession of a STRING protein, else its primary one, else the
+        first. STRING lists secondary and TrEMBL accessions beside the primary without
+        marking it, and the first is the primary for under a quarter of human proteins."""
         accs = accessions.get(string_id) or []
         inside = [a for a in accs if a in scope]
-        return (sorted(inside) or sorted(accs) or [None])[0]
+        return (sorted(inside) or sorted(a for a in accs if a in preferred) or sorted(accs)
+                or [None])[0]
 
     in_scope = {sid for sid, accs in accessions.items() if any(a in scope for a in accs)}
     edges = []

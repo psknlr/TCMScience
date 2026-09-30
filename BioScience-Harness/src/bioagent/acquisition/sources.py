@@ -38,6 +38,15 @@ class AcquisitionSpec:
 #: this table was written; the downloader re-reads them at fetch time.
 ACQUIRABLE: tuple[AcquisitionSpec, ...] = (
     AcquisitionSpec(
+        "https://rest.uniprot.org/uniprotkb/stream?query=organism_id:9606+AND+reviewed:true"
+        "&format=list",
+        "uniprot_human_reviewed_accessions.txt", "rest.uniprot.org", "CC-BY-4.0",
+        "UniProtKB/Swiss-Prot human entries, one primary accession per line: the protein "
+        "namespace NPASS, CMAUP, BindingDB, Reactome and Open Targets share. STRING's alias "
+        "file lists secondary and TrEMBL accessions beside the primary without marking it, "
+        "so mapping PubChem's gene ids through STRING needs this list to pick the primary.",
+        "proteomics", fmt="tsv", source_project="UniProt"),
+    AcquisitionSpec(
         "https://public-download-files.storage.googleapis.com/hgnc/tsv/tsv/hgnc_complete_set.txt",
         "hgnc_complete_set.txt", "public-download-files.storage.googleapis.com", "CC0-1.0",
         "HGNC complete approved human gene nomenclature set (symbols, aliases, cross-references).",

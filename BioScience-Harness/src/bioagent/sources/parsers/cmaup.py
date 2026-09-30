@@ -43,7 +43,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
     edges: list[dict[str, Any]] = []
 
     plants: dict[str, str] = {}
-    for row in read_rows(paths["plants"]):
+    for row in read_rows(paths["plants"], report=report):
         report.read["plants"] += 1
         pid, tax = row.get("Plant_ID"), row.get("Species_Tax_ID")
         if not pid or (taxa is not None and taxa.by_id(tax) is None):
@@ -54,14 +54,14 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
             raw={"genus": row.get("Genus_Name"), "family": row.get("Family_Name")})
 
     pairs: list[tuple[str, str]] = []
-    for row in read_rows(paths["pairs"], fieldnames=("plant_id", "np_id")):
+    for row in read_rows(paths["pairs"], fieldnames=("plant_id", "np_id"), report=report):
         report.read["pairs"] += 1
         if row.get("plant_id") in plants and row.get("np_id"):
             pairs.append((row["plant_id"], row["np_id"]))
     wanted = {np for _, np in pairs}
 
     compounds: dict[str, str] = {}
-    for row in read_rows(paths["ingredients"]):
+    for row in read_rows(paths["ingredients"], report=report):
         report.read["ingredients"] += 1
         np = row.get("np_id")
         if not np or (taxa is not None and np not in wanted):
@@ -92,7 +92,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         })
 
     proteins: dict[str, dict[str, Any]] = {}
-    for row in read_rows(paths["targets"]):
+    for row in read_rows(paths["targets"], report=report):
         report.read["targets"] += 1
         if row.get("Target_ID") and is_uniprot(row.get("Uniprot_ID")):
             proteins[row["Target_ID"]] = row
@@ -109,7 +109,7 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         return targets[tid]
 
     recorded: set[str] = set()
-    for row in read_rows(paths["activities"]):
+    for row in read_rows(paths["activities"], report=report):
         report.read["activities"] += 1
         np, tid = row.get("Ingredient_ID"), row.get("Target_ID")
         if np not in compounds:

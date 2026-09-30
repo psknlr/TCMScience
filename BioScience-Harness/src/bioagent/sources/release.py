@@ -16,7 +16,9 @@ on (snapshot id + source record id). Before release it must pass four checks:
    only a lower bound ("IC50 > 100 µM": the compound never reached the number) — NPASS
    files 22% of its potency values that way, under the same predicate as the actives;
    and wording that asserts efficacy, certainty or a universal population is refused as
-   it is for any claim (``contracts.claim_language``);
+   it is for any claim (``contracts.claim_language``). The recorded names of the entities
+   on the claim's path are not its wording: a pathway called "PPARA activates gene
+   expression" asserts nothing;
 3. **the kind is within the skill's ceiling** (``SkillContract.permits``);
 4. **the evidence licenses the kind, by its weakest link.** Each evidential edge licenses
    the claim kinds its study design admits (``tcm.CLAIM_SUPPORT``); a path licenses only
@@ -134,6 +136,34 @@ def _stated_directions(statement: str) -> set[str]:
             if re.search(pattern, statement, re.IGNORECASE)}
 
 
+def _without_names(statement: str, ids: Iterable[str],
+                   names: Mapping[str, set[str]]) -> str:
+    """``statement`` with the recorded names of the claim's own entities blanked out.
+
+    A name is a label, not an assertion. The Reactome pathway "PPARA activates gene
+    expression" or the protein "Inhibitor of nuclear factor kappa-B kinase subunit beta"
+    says nothing about what a formula does, yet read as wording it asserted a direction
+    and six real pathway hypotheses were refused. Only names the verified snapshots
+    record for nodes on the claim's own path are blanked, so a skill cannot exempt its
+    wording by choosing it, and a name must stand alone (not inside a longer word).
+    """
+    import re
+    wanted = sorted({n for i in ids for n in names.get(i, ()) if len(n) >= 2},
+                    key=len, reverse=True)
+    for name in wanted:
+        statement = re.sub(rf"(?<![A-Za-z0-9]){re.escape(name)}(?![A-Za-z0-9])", " ",
+                           statement, flags=re.IGNORECASE)
+    return statement
+
+
+def _node_names(node: Mapping[str, Any]) -> set[str]:
+    out = {str(node["name"])} if node.get("name") else set()
+    for value in (node.get("names") or {}).values():
+        out.update(str(v) for v in (value if isinstance(value, (list, tuple)) else [value])
+                   if v)
+    return out
+
+
 def _edge_direction(edge: Mapping[str, Any]) -> str:
     if edge.get("predicate") in _PREDICATE_DIRECTION:
         return _PREDICATE_DIRECTION[edge["predicate"]]
@@ -145,8 +175,8 @@ def _edge_direction(edge: Mapping[str, Any]) -> str:
     return ""
 
 
-def _statement_problem(claim: "CandidateClaim",
-                       edges: Sequence[Mapping[str, Any]]) -> str:
+def _statement_problem(claim: "CandidateClaim", edges: Sequence[Mapping[str, Any]],
+                       names: Mapping[str, set[str]] | None = None) -> str:
     """Why the statement says more than its edges, or '' when it does not."""
     inactive = [e for e in edges if e.get("predicate") == "tested_against"]
     if inactive:
@@ -163,12 +193,15 @@ def _statement_problem(claim: "CandidateClaim",
     if not claim.statement:
         return ""
     from ..contracts.claim_language import overreaching_language
-    findings = overreaching_language(claim.statement, claim.kind)
+    ids = {claim.subject, claim.object} | {e[k] for e in edges for k in ("subject", "object")
+                                           if e.get(k)}
+    wording = _without_names(claim.statement, ids, names or {})
+    findings = overreaching_language(wording, claim.kind)
     if findings:
         f = findings[0]
         return (f"the statement uses {f.family} language ({f.phrase!r}) that a "
                 f"{claim.kind} claim does not license")
-    stated = _stated_directions(claim.statement)
+    stated = _stated_directions(wording)
     if stated:
         recorded = {_edge_direction(e) for e in edges if not _definitional(e)} - {""}
         unsupported = stated - recorded
@@ -202,11 +235,14 @@ def _connected(subject: str, obj: str, edges: Iterable[Mapping[str, Any]]) -> bo
 def check_release(claims: Iterable[CandidateClaim | Mapping[str, Any]],
                   snapshots: Iterable[Snapshot], *, contract: Any = None) -> ReleaseVerdict:
     by_id: dict[str, dict[str, list[Mapping[str, Any]]]] = {}
+    names: dict[str, set[str]] = defaultdict(set)
     for snap in snapshots:
         index: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for e in snap.edges:
             index[str(e.get("source_record_id"))].append(e)
         by_id[snap.snapshot_id] = index
+        for n in snap.nodes:
+            names[str(n["id"])] |= _node_names(n)
     verdict = ReleaseVerdict()
     for raw in claims:
         claim = raw if isinstance(raw, CandidateClaim) else CandidateClaim.from_mapping(raw)
@@ -239,7 +275,7 @@ def check_release(claims: Iterable[CandidateClaim | Mapping[str, Any]],
             refuse(f"the supporting edges do not connect {claim.subject} to {claim.object} "
                    "in the direction they were recorded")
             continue
-        problem = _statement_problem(claim, edges)
+        problem = _statement_problem(claim, edges, names)
         if problem:
             refuse(problem)
             continue

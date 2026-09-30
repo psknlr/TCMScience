@@ -303,7 +303,8 @@ class HTTPBackend(Backend):
     def __init__(self, *, cache_dir: Path | str | None = None, timeout_s: float = 30.0,
                  max_bytes: int = 64 * 1024 * 1024, max_retries: int = 3,
                  rates: Mapping[str, float] | None = None, default_rps: float = 2.0,
-                 offline: bool = False, max_retry_after_s: float = 30.0) -> None:
+                 offline: bool = False, max_retry_after_s: float = 30.0,
+                 max_age_s: float | None = None) -> None:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         if self.cache_dir:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -312,6 +313,9 @@ class HTTPBackend(Backend):
         self.max_retries = max_retries
         self.offline = offline
         self.max_retry_after_s = max_retry_after_s
+        #: Cached answers older than this are fetched again. ``None`` keeps them forever,
+        #: which is right only for a request pinned to a data ``version``.
+        self.max_age_s = max_age_s
         self._limiter = _RateLimiter(rates or _default_rates(), default_rps)
         self.stats = {"requests": 0, "cache_hits": 0, "retries": 0, "bytes": 0}
 
@@ -348,6 +352,9 @@ class HTTPBackend(Backend):
                         and not _asks_for_html(req.accept):
                     # An entry written before HTML pages were refused: not data either.
                     raise ValueError("cached HTML page")
+                if self.max_age_s is not None and (
+                        time.time() - float(rec.get("fetched_at") or 0)) > self.max_age_s:
+                    raise ValueError("cached answer is older than max_age_s")
                 self.stats["cache_hits"] += 1
                 meta.update(cached=True, http_status=rec.get("http_status"),
                             fetched_at=rec.get("fetched_at"))

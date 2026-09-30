@@ -60,7 +60,7 @@ def test_the_taxonomy_dump_is_size_verified_at_fetch_time_not_pinned():
 
 def test_the_provider_yields_valid_fetchable_manifests():
     manifests = list(BulkDatasetProvider().discover())
-    assert len(manifests) == len(ACQUIRABLE) == 24
+    assert len(manifests) == len(ACQUIRABLE) == 25
     assert len({m.id for m in manifests}) == len(manifests)
     for m in manifests:
         assert m.validate() == []

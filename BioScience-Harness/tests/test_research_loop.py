@@ -224,7 +224,7 @@ def test_receipts_are_checked_against_the_snapshots_not_the_run(tmp_path):
     ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
     run = _run(tmp_path, ledger)
     snaps = [load_snapshot(tmp_path / "snap", key, version, ledger=ledger)
-             for key, version in (("npass", "fx"), ("reactome", "current"),
+             for key, version in (("npass", "2.0+fx"), ("reactome", "current"),
                                   ("tcm_herbs", "gold"))]
     store = snapshot_content_store(snaps)
     store.put((Path(run.output_dir) / "enrichment.jsonl").read_text(encoding="utf-8"))

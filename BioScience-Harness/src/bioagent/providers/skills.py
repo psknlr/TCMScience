@@ -191,12 +191,14 @@ class SkillContract:
         return CLAIM_SUPPORT[claim_kind] >= CLAIM_SUPPORT[self.max_claim_kind]
 
     def grant(self, *, allowed: Iterable[str] | None = None,
-              cards: Iterable[Any] | None = None) -> tuple[dict[str, str], dict[str, str]]:
-        """The sources a run of this skill gets: request ∩ enabled cards ∩ allowance."""
+              cards: Iterable[Any] | None = None,
+              purpose: str = "academic") -> tuple[dict[str, str], dict[str, str]]:
+        """The sources a run of this skill gets: request ∩ enabled cards ∩ allowance,
+        within what the cards' terms allow for the run's ``purpose``."""
         from ..sources.cards import SOURCE_CARDS, effective_sources
 
         return effective_sources(self.sources, cards=SOURCE_CARDS if cards is None else cards,
-                                 allowed=allowed)
+                                 allowed=allowed, purpose=purpose)
 
     def as_dict(self) -> dict[str, Any]:
         return {"id": self.id, "version": self.version, "inputs": dict(self.inputs),

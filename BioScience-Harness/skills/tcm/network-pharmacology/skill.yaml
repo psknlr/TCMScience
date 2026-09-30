@@ -9,7 +9,7 @@ requires:
     - lotus@2026-04-13
     - string@12.0
     - reactome@current
-    - opentargets@26.06+MONDO_0005148
+    - opentargets@26.09+MONDO_0005148
     - pubchem_bioassay
   tools:
     - np.composition

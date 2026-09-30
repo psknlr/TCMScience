@@ -24,7 +24,7 @@ import platform
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..providers.skills import SkillContract
 from ..sources.herbs import GEGEN_QINLIAN, KEY as HERB_LAYER
@@ -39,10 +39,25 @@ class SkillRunRefused(RuntimeError):
     """The run cannot proceed under the skill's contract, or its claims were refused."""
 
 
-def _latest(ledger: SnapshotLedger) -> dict[str, tuple[str, str]]:
+def _fits(version: str, pin: str) -> bool:
+    """Whether a recorded snapshot ``version`` is one the contract's ``pin`` names.
+
+    ``2.0`` names release 2.0 and any scoped build of it (``2.0+subset-…``); a pin with a
+    scope (``26.09+MONDO_0005148``) names that scope only; a bare key names any version.
+    """
+    return pin == "latest-approved" or version == pin or version.startswith(pin + "+")
+
+
+def _latest(ledger: SnapshotLedger, pins: dict[str, str]) -> dict[str, tuple[str, str]]:
+    """The last recorded snapshot of each pinned key that its pin allows.
+
+    This used to take the last snapshot recorded for the key whatever its version, so a
+    skill that asked for ``npass@2.0`` ran on whichever NPASS build was recorded last.
+    """
     out: dict[str, tuple[str, str]] = {}
     for e in ledger.entries():
-        out[e.key] = (e.version, e.snapshot_id)
+        if e.key in pins and _fits(e.version, pins[e.key]):
+            out[e.key] = (e.version, e.snapshot_id)
     return out
 
 
@@ -59,16 +74,29 @@ def _tsv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> str:
 def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: str | Path,
               out_dir: str | Path, params: Parameters = Parameters(),
               allowed: set[str] | None = None, accept_review: bool = False,
-              require_psh: bool = True) -> dict[str, Any]:
+              require_psh: bool = True, purpose: str = "academic",
+              expected_ledger_head: Mapping[str, Any] | None = None) -> dict[str, Any]:
     contract = SkillContract.load(Path(skill_dir) / "skill.yaml")
     ledger = SnapshotLedger(ledger_path)
-    ledger.verify()
-    granted, refused = contract.grant(allowed=allowed)
-    recorded = _latest(ledger)
+    # ``expected_ledger_head`` is the head an earlier run recorded: the ledger must still
+    # hold that entry as it was, i.e. it has only been appended to since.
+    ledger.verify(expected_head=expected_ledger_head)
+    # The ledger entry this run reads up to, taken before it picks its snapshots. A chain
+    # cannot see its own end cut off; a later ``verify(expected_head=...)`` with this can.
+    head = ledger.head()
+    granted, refused = contract.grant(allowed=allowed, purpose=purpose)
+    pins = {HERB_LAYER: "latest-approved", **granted}
+    recorded = _latest(ledger, pins)
     wanted = [HERB_LAYER, *sorted(granted)]
     missing = [k for k in wanted if k not in recorded]
     if missing:
-        raise SkillRunRefused(f"no snapshot recorded for {missing}; build them first")
+        others = {k: sorted({e.version for e in ledger.entries() if e.key == k})
+                  for k in missing}
+        raise SkillRunRefused(
+            "no snapshot recorded for "
+            + "; ".join(f"{k}@{pins[k]}" + (f" (recorded: {', '.join(others[k])})"
+                                            if others[k] else "") for k in missing)
+            + "; build them first, or change the skill's pin")
     snapshots = [load_snapshot(snapshot_root, key, recorded[key][0], ledger=ledger,
                                accept_review=accept_review) for key in wanted]
 
@@ -132,6 +160,8 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         # sources"; it is "no allowance was given", said out loud so a reader does not
         # take a two-way intersection for the three-way one the contract describes.
         "source_allowance": sorted(allowed) if allowed is not None else "unrestricted",
+        "purpose": purpose,
+        "ledger_head": head,
         "parameters": asdict(params), "random_seed": params.seed,
         "code_digest": result.code_digest,
         "psh_program_fingerprint": compiled.fingerprint if compiled else None,

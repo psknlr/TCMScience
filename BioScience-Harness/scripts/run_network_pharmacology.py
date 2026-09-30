@@ -56,6 +56,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="a source this run may use (repeatable). The run gets the skill's "
                          "request ∩ the enabled source cards ∩ these; without the option "
                          "the last term is unrestricted, and provenance.json says so")
+    ap.add_argument("--purpose", choices=("academic", "commercial"), default="academic",
+                    help="what the run is for; a commercial run may use only sources whose "
+                         "card allows commercial use (NPASS and CMAUP are academic-only)")
+    ap.add_argument("--ledger-head-from", default="", metavar="PROVENANCE",
+                    help="a previous run's provenance.json: refuse this run if the ledger no "
+                         "longer holds the entry that run read up to (cut short, rolled back "
+                         "or rewritten since)")
     ap.add_argument("--allow-ungoverned", action="store_true",
                     help="run even when PSH is not importable (provenance records governed: false)")
     args = ap.parse_args(argv)
@@ -66,10 +73,19 @@ def main(argv: list[str] | None = None) -> int:
                         screening_min_compounds=args.screening_min_compounds,
                         disease_evidence=args.disease_evidence,
                         disease_min_score=args.disease_min_score)
+    head = None
+    if args.ledger_head_from:
+        try:
+            earlier = json.loads(Path(args.ledger_head_from).read_text(encoding="utf-8"))
+            head = earlier["ledger_head"]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"refused: no ledger head in {args.ledger_head_from} ({exc!r})", file=sys.stderr)
+            return 1
     try:
         provenance = run_skill(skill_dir=args.skill, snapshot_root=args.snapshots,
                                ledger_path=args.ledger, out_dir=args.out, params=params,
                                allowed=set(args.allow_source) if args.allow_source else None,
+                               purpose=args.purpose, expected_ledger_head=head,
                                require_psh=not args.allow_ungoverned)
     except (SkillRunRefused, SnapshotError, LedgerError) as exc:
         print(f"refused: {exc}", file=sys.stderr)

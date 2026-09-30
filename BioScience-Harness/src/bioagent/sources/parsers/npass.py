@@ -58,7 +58,7 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
 
     # organisms --------------------------------------------------------------------------
     organisms: dict[str, str] = {}                   # NPO id -> node id
-    for row in read_rows(paths["species"]):
+    for row in read_rows(paths["species"], report=report):
         report.read["species"] += 1
         org = row.get("org_id")
         if not org:
@@ -76,7 +76,7 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
 
     # organism -> compound pairs ------------------------------------------------------------
     pairs: dict[str, dict[str, Any]] = {}
-    for row in read_rows(paths["pairs"]):
+    for row in read_rows(paths["pairs"], report=report):
         report.read["pairs"] += 1
         org, np = row.get("org_id"), row.get("np_id")
         if org not in organisms or not np:
@@ -99,12 +99,12 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
 
     # compounds ----------------------------------------------------------------------------
     inchikeys: dict[str, str] = {}
-    for row in read_rows(paths["structure"]):
+    for row in read_rows(paths["structure"], report=report):
         report.read["structure"] += 1
         if (taxa is None or row.get("np_id") in wanted) and is_inchikey(row.get("InChIKey")):
             inchikeys[row["np_id"]] = row["InChIKey"]
     compounds: dict[str, str] = {}
-    for row in read_rows(paths["general"]):
+    for row in read_rows(paths["general"], report=report):
         report.read["general"] += 1
         np = row.get("np_id")
         if not np or (taxa is not None and np not in wanted):
@@ -142,7 +142,7 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
 
     # protein targets and measured activities ---------------------------------------------
     proteins: dict[str, dict[str, Any]] = {}          # NPT id -> row, proteins only
-    for row in read_rows(paths["targets"]):
+    for row in read_rows(paths["targets"], report=report):
         report.read["targets"] += 1
         if row.get("target_id") and is_uniprot(row.get("uniprot_id")):
             proteins[row["target_id"]] = row           # cell lines, organisms: no accession
@@ -157,7 +157,7 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
                 raw={"organism": row.get("target_organism"), "type": row.get("target_type")})
         return targets[tid]
     recorded: set[str] = set()
-    for row in read_rows(paths["activities"]):
+    for row in read_rows(paths["activities"], report=report):
         report.read["activities"] += 1
         np, tid = row.get("np_id"), row.get("target_id")
         if np not in compounds:

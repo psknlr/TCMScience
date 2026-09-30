@@ -24,6 +24,8 @@ def _user_agent() -> str:
 
 _UA = _user_agent()
 
+from ..backends.http import _GuardedRedirects, _RedirectRefused  # noqa: E402
+
 
 class DownloadError(RuntimeError):
     """Raised when a fetch cannot complete or fails verification."""
@@ -51,6 +53,9 @@ class Downloader:
       so an agent cannot trigger a 6 GB pull as a side effect.
     * The environment handed to any subprocess is never consulted here; this
       module makes direct HTTPS calls and reads no credentials.
+    * A redirect may not leave the URL's host, nor fall from https to http. None of the
+      shipped downloads redirects at all (checked 2026-09-30), so a file that arrives
+      from somewhere else is something other than the file that was specified.
     """
 
     def __init__(self, root: Path | str, *, timeout_s: float = 60.0, chunk: int = 1 << 20,
@@ -67,6 +72,14 @@ class Downloader:
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
+    def _open(req: urllib.request.Request, timeout: float):
+        """Open ``req`` following redirects only on its own host, never down to http."""
+        parts = urllib.parse.urlsplit(req.full_url)
+        opener = urllib.request.build_opener(
+            _GuardedRedirects(frozenset({(parts.hostname or "").lower()}), parts.scheme))
+        return opener.open(req, timeout=timeout)  # noqa: S310
+
+    @staticmethod
     def _hash(path: Path, algo: str = "sha256") -> str:
         h = hashlib.new(algo)
         with open(path, "rb") as fh:
@@ -79,15 +92,15 @@ class Downloader:
         for method, hdrs in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
             try:
                 req = urllib.request.Request(url, method=method, headers={"User-Agent": _UA, **hdrs})
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
+                with self._open(req, self.timeout_s) as r:
                     cr = r.headers.get("Content-Range")
                     if cr and "/" in cr and cr.rsplit("/", 1)[1].isdigit():
                         return int(cr.rsplit("/", 1)[1])
                     cl = r.headers.get("Content-Length")
                     if cl and cl.isdigit() and method == "HEAD":
                         return int(cl)
-            except (urllib.error.URLError, OSError):
-                continue
+            except (urllib.error.URLError, OSError, _RedirectRefused):
+                continue                   # a refused redirect too: the size is unknown
         return None
 
     def _record(self, res: DownloadResult) -> None:
@@ -189,7 +202,7 @@ class Downloader:
                 return
             try:
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
+                with self._open(req, self.timeout_s) as r:
                     if resumed and r.status != 206:
                         have = 0          # server ignored Range: start over
                     mode = "ab" if (resumed and r.status == 206) else "wb"
@@ -211,6 +224,9 @@ class Downloader:
                             if remote_size and done % (32 << 20) < self.chunk:
                                 self._log(f"{part.name}: {done / 1e6:.0f}/{remote_size / 1e6:.0f} MB")
                 return
+            except _RedirectRefused as exc:
+                # Not a transient: a retry would be redirected the same way.
+                raise DownloadError(f"{part.name}: {exc}") from exc
             except (urllib.error.URLError, OSError, TimeoutError) as exc:
                 if isinstance(exc, urllib.error.HTTPError) and exc.code == 403:
                     body = ""

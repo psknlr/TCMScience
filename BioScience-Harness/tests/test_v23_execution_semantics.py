@@ -355,14 +355,9 @@ def test_streaming_aborts_when_no_size_is_advertised() -> None:
         def read(self, n):
             return b"0" * 1024
 
-    import urllib.request
-    orig = urllib.request.urlopen
-    urllib.request.urlopen = lambda *a, **k: _Resp()
-    try:
-        with pytest.raises(DownloadError, match="aborted after"):
-            dl._stream("https://example.invalid/x", part, None, max_bytes=4096)
-    finally:
-        urllib.request.urlopen = orig
+    dl._open = lambda *a, **k: _Resp()          # the downloader's one way to the network
+    with pytest.raises(DownloadError, match="aborted after"):
+        dl._stream("https://example.invalid/x", part, None, max_bytes=4096)
     assert not part.exists()
 
 
@@ -446,3 +441,30 @@ def test_hot_reload_scratch_resolver_keeps_the_backend_probe() -> None:
     assert not out.promoted, "candidate cleared the gate under the wrong environment assumptions"
     assert out.stage_failed == "dependencies"
     assert "disabled in this runtime" in (out.reason or "")
+
+
+def test_the_size_gate_abort_is_not_retried() -> None:
+    """A deliberate abort is not a transient: one transfer, then the error."""
+    from bioagent.acquisition.downloader import DownloadError, Downloader
+
+    root = Path(tempfile.mkdtemp())
+    dl = Downloader(root, size_gate_bytes=4096, chunk=1024, max_retries=4)
+    opened = []
+
+    class _Resp:
+        status = 200
+        headers: dict = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            return b"0" * 1024
+
+    dl._open = lambda *a, **k: opened.append(1) or _Resp()
+    with pytest.raises(DownloadError, match="aborted after"):
+        dl._stream("https://example.invalid/x", root / "x.part", None, max_bytes=4096)
+    assert len(opened) == 1

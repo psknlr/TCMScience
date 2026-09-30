@@ -32,7 +32,7 @@ def parse_reactome(path: str | Path, *, proteins: Iterable[str] | None = None,
     report = ParseReport(KEY)
     book = NodeBook(KEY)
     edges = []
-    for row in read_rows(path, fieldnames=_COLUMNS):
+    for row in read_rows(path, fieldnames=_COLUMNS, report=report):
         report.read["rows"] += 1
         acc, pathway = row.get("uniprot"), row.get("pathway")
         if row.get("species") != species:
