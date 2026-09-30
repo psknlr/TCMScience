@@ -60,16 +60,12 @@ _NEEDS_PSH: dict[str, str] = {
     "BridgedComponent": ".component",
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
-    # The TCM evidence tiers expressed in PSH's scientific type system, so a TCM claim can
-    # be ruled on by the compiler's (design x claim kind) matrix as well as by the ladder.
-    "DESIGN_FOR_TIER": ".epistemics", "CLAIM_KIND_FOR": ".epistemics",
-    "SUBJECT_FOR_DESIGN": ".epistemics", "TierMapping": ".epistemics",
-    "design_for": ".epistemics", "evidence_type_for": ".epistemics",
-    "claim_type_for": ".epistemics", "licensing_for": ".epistemics",
+    "DeploymentProfile": ".profiles", "PROFILES": ".profiles", "profile_named": ".profiles",
 }
 
 __all__ = [
     "ArgumentError", "BioScienceBridge", "BridgeRefused", "BridgedComponent",
+    "DeploymentProfile", "PROFILES", "profile_named",
     "BoundaryViolation", "EXEC_PATH", "HostPolicy", "KernelBoundary", "arguments_for",
     "bridge_manifest", "ceiling_for", "default_runtime", "destinations_for",
     "load_catalogue_rows", "load_verification", "normalise_spdx", "psh_id_for",

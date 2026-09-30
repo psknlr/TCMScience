@@ -141,7 +141,11 @@ The loop has five stages:
 1. **Protocol.** The protocol is frozen and its digest is written to the audit chain
    before any data is read.
 2. **Retrieve.** Snapshots are loaded through the ledger.
-3. **Analyse.** The network-pharmacology analysis runs with the protocol's parameters.
+3. **Analyse.** The skill's program is compiled under PSH first. The analysis then
+   runs with the protocol's parameters as a PSH tool call, in an isolated child
+   process that reloads the snapshots through the ledger. Each rebuttal variant is
+   its own tool call. `--profile` picks the deployment profile (`trusted_local`,
+   `restricted_research` or `sensitive_data`).
 4. **Rebut.** Each released pathway must still hold under three pre-registered tests:
    - the assayed-protein background;
    - leaving out one activity source at a time;
@@ -173,7 +177,7 @@ real data.
 
 1. **协议**：先冻结协议，并在读取任何数据之前把协议摘要写入审计链。
 2. **检索**：通过台账加载快照。
-3. **分析**：按协议参数运行网络药理学分析。
+3. **分析**：先在 PSH 下编译技能的科学程序，再按协议参数，以 PSH 工具调用的方式在隔离子进程中运行分析；子进程会通过台账重新加载并核验快照。每个反驳变体都是一次独立的工具调用。`--profile` 用来选择部署档案（`trusted_local`、`restricted_research` 或 `sensitive_data`）。
 4. **反驳**：每条被放行的通路都要经得起三项预先登记的检验：
    - 以"实测过的蛋白"为背景；
    - 每次去掉一个活性数据源；

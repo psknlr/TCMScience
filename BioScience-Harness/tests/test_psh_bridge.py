@@ -380,6 +380,56 @@ def test_an_audit_failure_refuses_admission(kernel, runtime, monkeypatch):
     assert lenient.admit(local_tool(cid="local.tool.audited")).id
 
 
+def test_a_profile_that_requires_isolation_refuses_in_process_execution(kernel, runtime):
+    """Audit F09: named deployment profiles, and a setting that contradicts one is refused."""
+    with pytest.raises(BridgeRefused, match="requires isolation"):
+        BioScienceBridge(kernel, runtime, profile="restricted_research", isolate=False)
+    bridge = BioScienceBridge(kernel, runtime, profile="restricted_research")
+    assert bridge.isolate is True and bridge.strict_audit is True
+    with pytest.raises(BridgeRefused, match="strict audit"):
+        BioScienceBridge(kernel, runtime, profile="sensitive_data", strict_audit=False)
+    assert BioScienceBridge(kernel, runtime, profile="trusted_local", isolate=False).isolate is False
+
+
+def test_restricted_research_caps_what_a_component_may_receive(kernel, runtime):
+    from psh.labels import Sensitivity
+    bridge = BioScienceBridge(kernel, runtime, profile="restricted_research")
+    manifest = bridge.admit(local_tool(cid="local.tool.capped"))
+    assert manifest.max_label <= Sensitivity.RESEARCH_DEIDENTIFIED
+    with pytest.raises(BridgeRefused, match="caps local data"):
+        BioScienceBridge(kernel, runtime, profile="restricted_research",
+                         local_ceiling=Sensitivity.PHI)
+
+
+def test_sensitive_data_admits_no_component_that_leaves_the_machine(kernel, runtime):
+    bridge = BioScienceBridge(kernel, runtime, profile="sensitive_data")
+    with pytest.raises(BridgeRefused, match="remote destination"):
+        bridge.admit(CONNECTORS["ensembl"])
+    assert bridge.admit(local_tool(cid="local.tool.onsite")).id
+
+
+def test_an_unknown_profile_is_an_error(kernel, runtime):
+    with pytest.raises(ValueError, match="unknown deployment profile"):
+        BioScienceBridge(kernel, runtime, profile="anything_goes")
+
+
+def test_the_isolated_child_is_told_the_filesystem_roots_this_process_resolved(
+        kernel, tmp_path):
+    import shlex
+    echo = local_tool()
+    runtime = default_runtime(catalogue=False, public_apis=False, extra_manifests=(echo,),
+                              data_lake=tmp_path / "no-lake")
+    work = tmp_path / "a work dir"
+    bridge = BioScienceBridge(kernel, runtime, isolate=True, roots={"workspace": work})
+    argv = shlex.split(bridge.admit(echo).entrypoint)
+    assert argv[argv.index("--workspace") + 1] == str(work.resolve())
+    assert "--data-lake" in argv
+    with pytest.raises(BridgeRefused, match="unknown filesystem roots"):
+        BioScienceBridge(kernel, runtime, isolate=True, roots={"home": tmp_path})
+    with pytest.raises(BridgeRefused, match="only be given to isolated"):
+        BioScienceBridge(kernel, runtime, isolate=False, roots={"workspace": work})
+
+
 def test_bioagent_never_reaches_into_the_kernel_internals():
     root = Path(bioagent.__file__).parent
     offenders = []

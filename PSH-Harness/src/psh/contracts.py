@@ -410,6 +410,9 @@ class ComponentManifest:
     allowed_hosts: tuple[str, ...] = ()
     timeout_s: float = 120.0
     memory_mb: int = 2048
+    #: The most an isolated run may write on stdout, in characters. Output beyond it is a
+    #: contract violation named as such, not a truncated value that then fails to parse.
+    max_output_chars: int = 200_000
     idempotent: bool = True
     # risk
     max_label: Sensitivity = Sensitivity.RESEARCH_DEIDENTIFIED

@@ -98,7 +98,8 @@ def test_every_stage_is_recorded_in_order_and_the_protocol_comes_first(tmp_path)
         assert kernel.events.verify()
     finally:
         kernel.close()
-    assert events == ["research_protocol_registered", "research_sources_retrieved",
+    assert events == ["research_protocol_registered", "research_program_compiled",
+                      "research_sources_retrieved",
                       "research_analysis_completed", "research_rebuttal_completed",
                       "research_release_validated"]
 
@@ -254,3 +255,59 @@ def test_the_research_command_runs_the_loop(tmp_path, capsys):
                      "--state-dir", "z", "--out", "w"]) == 2
     finally:
         del os.environ["BIOAGENT_FORMULA_TABLE"]
+
+
+def test_a_research_artifact_records_its_environment(tmp_path):
+    from bioagent.environment import environment_record
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    run = _run(tmp_path, ledger)
+    assert run.artifact.provenance["environment"]["digest"] == environment_record()["digest"]
+
+
+def test_the_analysis_runs_as_isolated_psh_tool_calls_of_the_compiled_program(tmp_path):
+    from psh import PSHConfig, TrustedKernel
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    run = _run(tmp_path, ledger)
+    prov = run.artifact.provenance
+    assert prov["governed_execution"] is True and prov["profile"] == "trusted_local"
+    assert len(prov["compiled_program"]) == 64
+    kernel = TrustedKernel(PSHConfig(state_dir=Path(run.state_dir) / "psh").ensure_dirs())
+    try:
+        records = list(kernel.events.records())
+    finally:
+        kernel.close()
+    types = [r.event_type for r in records]
+    # the primary analysis and every rebuttal variant: one isolated child each
+    assert types.count("tool_call") == types.count("isolated_run") == prov["tool_calls"] >= 2
+    assert types.index("research_program_compiled") < types.index("tool_call")
+
+
+def test_an_injected_analysis_is_recorded_as_ungoverned(tmp_path):
+    from bioagent.analysis.network_pharmacology import run_network_pharmacology
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    run = _run(tmp_path, ledger, analyse=run_network_pharmacology)
+    assert run.artifact.provenance["governed_execution"] is False
+    assert run.artifact.provenance["tool_calls"] == 0
+
+
+def test_the_tool_rechecks_the_snapshots_it_is_handed(tmp_path):
+    from bioagent.research.tools import network_pharmacology_tool
+    from bioagent.sources.snapshot import SnapshotError
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    entry = next(iter(ledger.entries()))
+    with pytest.raises(SnapshotError, match="the ledger recorded"):
+        network_pharmacology_tool(str(tmp_path / "snap"), str(ledger.path),
+                                  [[entry.key, entry.version, "sha256:" + "0" * 64]],
+                                  {"id": "x", "chinese": "x", "source": "x", "components": []},
+                                  {})
+
+
+def test_relative_directories_still_have_their_outputs_verified(tmp_path, monkeypatch):
+    _world(tmp_path, tested_only=PROTEINS[8:40])
+    monkeypatch.chdir(tmp_path)
+    q = parse_question(QUESTION)
+    run = run_research(q, protocol=default_protocol(q, parameters=FAST),
+                       snapshot_root="snap", ledger_path="audit/snapshots.jsonl",
+                       state_dir="state-rel", output_dir="out-rel")
+    assert run.verdict.states["outputs_verified"] is True
+    assert run.artifact.provenance["governed_execution"] is True

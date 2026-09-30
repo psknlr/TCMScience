@@ -43,15 +43,15 @@ ingredient were absent would describe a different formula.
 
 ## The materia table (`sources/materia.py`)
 
-The materia table has 293 crude drugs:
+The materia table has 393 crude drugs:
 
 | Category | Drugs |
 | --- | ---: |
-| Plant | 224 |
-| Animal | 31 |
+| Plant | 291 |
+| Animal | 43 |
 | Fungus | 3 |
-| Mineral | 29 |
-| Other (神曲, 冰片, 酒 …) | 6 |
+| Mineral | 44 |
+| Other (神曲, 冰片, 酒, 百草霜 …) | 12 |
 
 Each drug has these fields:
 - its Pharmacopoeia name;
@@ -81,8 +81,10 @@ as written, the taxid, NCBI's current name, and the date checked. Three rules ap
   *Cinnamomum cassia* is pinned to *Cinnamomum aromaticum* (taxid 119260), and the
   Pharmacopoeia name is kept as a synonym so the natural-product sources still match it.
 
-The latest check resolved 389 of 393 species names. The unresolved four are
-alternative names; each of their drugs still has at least one verified species.
+The latest check resolved 482 of 487 species names. Four of the unresolved names are
+alternatives, and their drugs still have at least one verified species. The fifth is
+*Tabanus bivittatus* (虻虫), which NCBI does not list; that drug is recognised but
+carries no organism.
 Minerals and "other" drugs are recognised as ingredients but carry no organism. A
 research run lists them as components that contribute no constituents.
 
@@ -91,12 +93,14 @@ research run lists them as components that contribute no constituents.
 | | |
 | --- | --- |
 | Formulas in the table | 84,294 |
-| Formulas with every ingredient resolved | 42,347 (50.2%) |
-| Ingredient mentions resolved | 562,219 of 638,495 (88.1%) |
-| Drugs used by the resolved formulas | 292 |
+| Formulas with every ingredient resolved | 53,206 (63.1%) |
+| Ingredient mentions resolved | 589,905 of 638,639 (92.4%) |
+| Drugs used by the resolved formulas | 392 |
 
-The unresolved mentions form a long tail: after 贝母, each remaining name occurs about
-260 times or fewer (漏芦, 山芋, 大青, 百草霜, …).
+The unresolved mentions form a long tail. The largest are left unresolved on
+purpose: 贝母 (1,525 mentions; 川贝母 or 浙贝母), and names whose historical
+identity is disputed, such as 防葵 (159), 鬼臼 (125) and 狼毒 (110). Every other
+unresolved name occurs fewer than 100 times.
 `formulas.component_counts(table.records)` lists them in order, and that list is the
 backlog for extending the materia table.
 

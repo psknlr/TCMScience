@@ -587,6 +587,12 @@ class IsolatedResult:
     timed_out: bool
     egress_decisions: tuple[HostDecision, ...]
     sandbox: str
+    #: How many characters the child wrote on stdout; ``stdout`` holds at most the limit.
+    stdout_chars: int = 0
+
+    @property
+    def stdout_truncated(self) -> bool:
+        return self.stdout_chars > len(self.stdout)
 
     @property
     def ok(self) -> bool:
@@ -616,7 +622,8 @@ class IsolatedRunner:
     def run(self, argv: Sequence[str], *, workdir: Path, allowed_hosts: Iterable[str] = (),
             grants: Mapping[str, str] | None = None, timeout_s: float = 120.0,
             memory_mb: int | None = 2048, run_id: str = "", stdin: str | None = None,
-            allow_private_hosts: bool = False) -> IsolatedResult:
+            allow_private_hosts: bool = False,
+            max_output_chars: int = 200_000) -> IsolatedResult:
         workdir = Path(workdir)
         workdir.mkdir(parents=True, exist_ok=True)
         self.runs += 1
@@ -648,9 +655,10 @@ class IsolatedRunner:
                 memory_mb=memory_mb)
             duration = time.time() - started
             result = IsolatedResult(
-                argv=tuple(argv), exit_code=code, stdout=out[:200_000], stderr=err[:50_000],
-                duration_s=duration, timed_out=timed_out,
-                egress_decisions=tuple(proxy.decisions), sandbox=type(self.sandbox).__name__)
+                argv=tuple(argv), exit_code=code, stdout=out[:max_output_chars],
+                stderr=err[:50_000], duration_s=duration, timed_out=timed_out,
+                egress_decisions=tuple(proxy.decisions), sandbox=type(self.sandbox).__name__,
+                stdout_chars=len(out))
         if self._audit is not None:
             self._audit("isolated_run", argv0=argv[0] if argv else "", exit_code=code,
                         timed_out=timed_out, duration_s=round(duration, 3),
@@ -875,7 +883,8 @@ class IsolatedExecutor:
             argv, workdir=workdir, allowed_hosts=self.allowed_hosts(manifest, envelope),
             grants=self.grants(manifest), timeout_s=float(getattr(manifest, "timeout_s", 120.0)),
             memory_mb=int(getattr(manifest, "memory_mb", 2048) or 0) or None,
-            run_id=getattr(envelope, "run_id", ""), stdin=stdin)
+            run_id=getattr(envelope, "run_id", ""), stdin=stdin,
+            max_output_chars=int(getattr(manifest, "max_output_chars", 200_000) or 200_000))
         with self._count_lock:
             self.executions += 1
         if result.timed_out:
@@ -892,6 +901,10 @@ class IsolatedExecutor:
             raise ContractViolation(
                 f"isolated component {manifest.id!r} exited {result.exit_code}: "
                 f"{result.stderr.strip()[:300]}")
+        if result.stdout_truncated:
+            raise ContractViolation(
+                f"isolated component {manifest.id!r} wrote {result.stdout_chars} characters "
+                f"on stdout; its manifest allows {len(result.stdout)} (max_output_chars)")
         text = result.stdout.strip()
         if not text:
             return {}

@@ -81,9 +81,18 @@ class RuntimeSpec:
     server: str = ""         # mcp/http: server or connector id
     image: str = ""          # container: image reference
     deterministic: bool = False
+    timeout_s: float = 0     # an isolated run's wall-clock limit; 0 = the kernel default
+    memory_mb: int = 0       # an isolated run's address-space limit; 0 = the kernel default
+    max_output_chars: int = 0  # an isolated run's stdout limit; 0 = the kernel default
 
     def validate(self) -> list[str]:
         errs = []
+        try:
+            if min(float(self.timeout_s), int(self.memory_mb), int(self.max_output_chars)) < 0:
+                errs.append("runtime.timeout_s, memory_mb and max_output_chars must not be "
+                            "negative")
+        except (TypeError, ValueError):
+            errs.append("runtime.timeout_s, memory_mb and max_output_chars must be numbers")
         if self.backend not in BACKENDS:
             errs.append(f"runtime.backend {self.backend!r} not in {BACKENDS}")
         if self.backend == "python" and not self.entrypoint:

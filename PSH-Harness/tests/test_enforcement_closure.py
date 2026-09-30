@@ -249,6 +249,35 @@ def test_a_failing_isolated_component_is_a_contract_violation_not_an_empty_resul
     k.close()
 
 
+@pytest.mark.parametrize("limit", [100, 10_000])
+def test_output_beyond_the_declared_limit_is_named_not_truncated_into_bad_json(tmp_path, limit):
+    from psh.contracts import ContractViolation
+
+    script = tmp_path / "big.py"
+    script.write_text("import json, sys; json.dump({'x': 'a' * 5000}, sys.stdout)\n")
+    k = _act_kernel(tmp_path)
+
+    class Tool:
+        @property
+        def manifest(self):
+            return ComponentManifest(id="big", name="big", kind=ComponentKind.TOOL,
+                                     backend="subprocess",
+                                     entrypoint=f"{sys.executable} {script}",
+                                     max_output_chars=limit, max_label=Sensitivity.PHI,
+                                     destinations=(Destination.LOCAL_COMPUTE,))
+
+        def invoke(self, payload, envelope):  # pragma: no cover
+            raise AssertionError
+
+    if limit < 5000:
+        with pytest.raises(ContractViolation, match="allows 100 \\(max_output_chars\\)"):
+            k.broker.call_tool(Tool(), k.classify({"q": "x"}), k.envelope())
+    else:
+        result = k.broker.call_tool(Tool(), k.classify({"q": "x"}), k.envelope())
+        assert len(result.value["x"]) == 5000
+    k.close()
+
+
 def test_a_manifest_declaring_isolation_without_an_entrypoint_is_rejected():
     with pytest.raises(ValueError, match="entrypoint"):
         ComponentManifest(id="x", name="x", kind=ComponentKind.TOOL, backend="subprocess")
