@@ -61,6 +61,13 @@ _NEEDS_PSH: dict[str, str] = {
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
     "DeploymentProfile": ".profiles", "PROFILES": ".profiles", "profile_named": ".profiles",
+    # The TCM evidence tiers expressed in PSH's scientific type system, so a TCM claim can
+    # be ruled on by the compiler's (design x claim kind) matrix as well as by the tier
+    # table (``tcm.model.CLAIM_SUPPORT``), and the two checked against each other.
+    "DESIGN_FOR_TIER": ".epistemics", "CLAIM_KIND_FOR": ".epistemics",
+    "SUBJECT_FOR_DESIGN": ".epistemics", "TierMapping": ".epistemics",
+    "design_for": ".epistemics", "evidence_type_for": ".epistemics",
+    "claim_type_for": ".epistemics", "licensing_for": ".epistemics",
 }
 
 __all__ = [
