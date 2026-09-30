@@ -47,7 +47,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001828,
+        "latency_s": 0.001956,
         "cost_usd": 0.0
       },
       "versions": {
@@ -59,7 +59,7 @@
       "skill": {
         "id": "normalize-tcm-entities",
         "version": "1.0.0",
-        "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084"
+        "content_hash": "df1e2a8f2791eaa99a04b45c4636322e072f1e55b03ec17d59fbf98489b5b13a"
       },
       "validation": {
         "artifact_id": "normalize-tcm-entities",
@@ -89,7 +89,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "879cbdafc27af218a55a5c878c110a360f7f16a7ba45787e8dedbc6d7452bb0b",
+      "artifact_digest": "fa49b393372c983560bf1e9477ca384a20127f2f0d520309a301df5fe4517ed1",
       "provenance": {
         "sources": [
           {
@@ -213,7 +213,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001053,
+        "latency_s": 0.001088,
         "cost_usd": 0.0
       },
       "versions": {
@@ -225,7 +225,7 @@
       "skill": {
         "id": "normalize-tcm-entities",
         "version": "1.0.0",
-        "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084"
+        "content_hash": "df1e2a8f2791eaa99a04b45c4636322e072f1e55b03ec17d59fbf98489b5b13a"
       },
       "validation": {
         "artifact_id": "normalize-tcm-entities",
@@ -260,14 +260,15 @@
               "resolve.0: quality dimension risk_of_bias was not assessed",
               "resolve.0: quality dimension precision was not assessed",
               "resolve.0: quality dimension consistency was not assessed"
-            ]
+            ],
+            "unvalidated_extrapolations": []
           }
         ],
         "fixable_by_declaration": false
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "c0f1c52ba51b5b5e81a9fef9276a6e33b9bce4045171000f2adde34065bfc241",
+      "artifact_digest": "37cd8b91621ad148c7dfaa1b32b610dd185f66cc5e68ade8d2a5af31783b13b8",
       "provenance": {
         "sources": [
           {
@@ -376,6 +377,7 @@
             "direction": "unclear",
             "magnitude": "",
             "declared_extrapolations": {},
+            "validated_extrapolations": {},
             "confidence": 1.0,
             "confidence_basis": "counted directly from the resolution results above",
             "hedged": false,
@@ -478,7 +480,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001264,
+        "latency_s": 0.001453,
         "cost_usd": 0.0
       },
       "versions": {
@@ -490,7 +492,7 @@
       "skill": {
         "id": "retrieve-tcm-evidence",
         "version": "1.1.0",
-        "content_hash": "601176de9cfbada1b1bf22001746d3c7e0fc4a891cca1b3d4e37b81856f749a0"
+        "content_hash": "ebb2c9281f2c412ced8d540a9d0436e1a290d5e1f9664a13a15365a3e4c34c50"
       },
       "validation": {
         "artifact_id": "retrieve-tcm-evidence",
@@ -525,14 +527,15 @@
               "passage.passage.shibafan: quality dimension risk_of_bias was not assessed",
               "passage.passage.shibafan: quality dimension precision was not assessed",
               "passage.passage.shibafan: quality dimension consistency was not assessed"
-            ]
+            ],
+            "unvalidated_extrapolations": []
           }
         ],
         "fixable_by_declaration": false
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "f2c2e0164733b1e653d1a4b7a10f0040124a68658430afa0921a7b4052084229",
+      "artifact_digest": "3a851beb8be191430c956176106e71ec21d0e29cbe217445824c2093a79d80fe",
       "provenance": {
         "sources": [
           {
@@ -698,6 +701,7 @@
             "direction": "unclear",
             "magnitude": "",
             "declared_extrapolations": {},
+            "validated_extrapolations": {},
             "confidence": 1.0,
             "confidence_basis": "counted directly from the search above",
             "hedged": false,
@@ -802,7 +806,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001076,
+        "latency_s": 0.001034,
         "cost_usd": 0.0
       },
       "versions": {
@@ -814,7 +818,7 @@
       "skill": {
         "id": "analyze-tcm-network-pharmacology",
         "version": "1.1.0",
-        "content_hash": "a1fb37de6354f866647c6abee0b7ea2a5baaa2c29d4a4097abe8c8a428091014"
+        "content_hash": "f221e46600eb04d27ed966b2c6bb872a2564e53f1aa5d6cfa16974b48140c551"
       },
       "validation": {
         "artifact_id": "analyze-tcm-network-pharmacology",
@@ -844,7 +848,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "22aaab41933ea4d56d605f22a74832b4af30aa9512270e3712b149eec8717eeb",
+      "artifact_digest": "2d272ee7b81b1daea8af53bddc7cdf67f6c29206c643cdfbc71523251ca49797",
       "provenance": {
         "sources": [
           {
@@ -971,7 +975,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001229,
+        "latency_s": 0.001063,
         "cost_usd": 0.0
       },
       "versions": {
@@ -983,7 +987,7 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
+        "content_hash": "3f82643f65c4e64e2c326010ca6e20e186f53ea701810d38fbaa9c2ebf75b041"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
@@ -1002,7 +1006,13 @@
         ],
         "codes": [],
         "violations": [],
-        "warnings": [],
+        "warnings": [
+          {
+            "code": "ART116",
+            "detail": "claim 'safety.signals' extrapolates to ['outcome:recorded safety information'] on a declaration alone; no evidence item validates the bridge",
+            "severity": "warning"
+          }
+        ],
         "claim_verdicts": [
           {
             "claim_id": "safety.signals",
@@ -1013,11 +1023,15 @@
             "prediction_as_fact": false,
             "weakest_tier": "expert_experience",
             "caveats": [
+              "extrapolation outcome:recorded safety information is declared, not validated by evidence",
               "safety.safety.fuzi_pregnancy: retraction status has not been checked",
               "safety.safety.fuzi_pregnancy: no lookupable identifier; the citation cannot be checked",
               "safety.safety.fuzi_pregnancy: quality dimension risk_of_bias was not assessed",
               "safety.safety.fuzi_pregnancy: quality dimension precision was not assessed",
               "safety.safety.fuzi_pregnancy: quality dimension consistency was not assessed"
+            ],
+            "unvalidated_extrapolations": [
+              "outcome:recorded safety information"
             ]
           }
         ],
@@ -1025,7 +1039,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "723849c07e8532b95eba2115a8c25df5516de914b01f56a5baf969f3c2381452",
+      "artifact_digest": "40b27e3558bbeebac6a374d51e17aec9653dee6f4e5346ecdbbfbe6fed9b3fe7",
       "provenance": {
         "sources": [
           {
@@ -1252,6 +1266,7 @@
             "declared_extrapolations": {
               "outcome:recorded safety information": "these are corpus records at expert_experience level, not clinical safety data"
             },
+            "validated_extrapolations": {},
             "confidence": 1.0,
             "confidence_basis": "counted from the corpus records listed above",
             "hedged": false,
@@ -1358,11 +1373,11 @@
         "reproducibility": "the skill was run twice; identical artifact digest",
         "safety_abstention": "requires gold labels from the benchmark corpus, which is not published; this demonstration does not invent a value",
         "claim_calibration": "1 claim(s), none overclaiming their evidence",
-        "latency": "measured 2 ms for this case; recorded under `raw`, not as a 0-1 dimension",
+        "latency": "measured 1 ms for this case; recorded under `raw`, not as a 0-1 dimension",
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.001603,
+        "latency_s": 0.0013,
         "cost_usd": 0.0
       },
       "versions": {
@@ -1374,7 +1389,7 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
+        "content_hash": "3f82643f65c4e64e2c326010ca6e20e186f53ea701810d38fbaa9c2ebf75b041"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
@@ -1393,7 +1408,13 @@
         ],
         "codes": [],
         "violations": [],
-        "warnings": [],
+        "warnings": [
+          {
+            "code": "ART116",
+            "detail": "claim 'safety.signals' extrapolates to ['outcome:recorded safety information'] on a declaration alone; no evidence item validates the bridge",
+            "severity": "warning"
+          }
+        ],
         "claim_verdicts": [
           {
             "claim_id": "safety.signals",
@@ -1404,11 +1425,15 @@
             "prediction_as_fact": false,
             "weakest_tier": "expert_experience",
             "caveats": [
+              "extrapolation outcome:recorded safety information is declared, not validated by evidence",
               "safety.safety.gancao_pseudoaldosteronism: retraction status has not been checked",
               "safety.safety.gancao_pseudoaldosteronism: no lookupable identifier; the citation cannot be checked",
               "safety.safety.gancao_pseudoaldosteronism: quality dimension risk_of_bias was not assessed",
               "safety.safety.gancao_pseudoaldosteronism: quality dimension precision was not assessed",
               "safety.safety.gancao_pseudoaldosteronism: quality dimension consistency was not assessed"
+            ],
+            "unvalidated_extrapolations": [
+              "outcome:recorded safety information"
             ]
           }
         ],
@@ -1416,7 +1441,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "a8260ca953714b5ddcc880da8bb731c3c14ba66660ed64bbe3c30d86fe7e1c5a",
+      "artifact_digest": "72760ccf591a7bd62b92b3b8da9c96e774710cbaece4e8363b1d96033a5f4946",
       "provenance": {
         "sources": [
           {
@@ -1759,6 +1784,7 @@
             "declared_extrapolations": {
               "outcome:recorded safety information": "these are corpus records at expert_experience level, not clinical safety data"
             },
+            "validated_extrapolations": {},
             "confidence": 1.0,
             "confidence_basis": "counted from the corpus records listed above",
             "hedged": false,
@@ -1869,7 +1895,7 @@
         "cost": "0.00 USD: the skills run offline against the compiled corpus, making no model call and no network request"
       },
       "raw": {
-        "latency_s": 0.000923,
+        "latency_s": 0.000883,
         "cost_usd": 0.0
       },
       "versions": {
@@ -1881,7 +1907,7 @@
       "skill": {
         "id": "assess-tcm-safety",
         "version": "1.0.0",
-        "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8"
+        "content_hash": "3f82643f65c4e64e2c326010ca6e20e186f53ea701810d38fbaa9c2ebf75b041"
       },
       "validation": {
         "artifact_id": "assess-tcm-safety",
@@ -1911,7 +1937,7 @@
       },
       "refusal_codes": [],
       "blocking_reasons": [],
-      "artifact_digest": "88efd4e2ee30fc761dd2e6bbc03fa4d7de85a3ea1db919f4c779076fac52418f",
+      "artifact_digest": "527fea422a2cbb690af11e45fe0cc18dc16c57cd82950178989d1b331be7aff1",
       "provenance": {
         "sources": [
           {

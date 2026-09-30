@@ -97,6 +97,7 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM009": "an extrapolation beyond the evidence is not declared",
     "CLM010": "a supporting quote was not located in its source",
     "CLM011": "the claim's wording asserts more than its declared claim_kind",
+    "CLM012": "an extrapolation is marked validated by evidence that is not present",
 }
 
 
@@ -116,6 +117,8 @@ class ClaimVerdict:
     weakest_tier: str = ""
     #: Caveats inherited from the evidence. Present even when `allowed`.
     caveats: tuple[str, ...] = ()
+    #: Extrapolations the claim declares but no evidence item validates.
+    unvalidated_extrapolations: tuple[str, ...] = ()
 
     @property
     def codes(self) -> tuple[str, ...]:
@@ -133,7 +136,8 @@ class ClaimVerdict:
                 "needs_declaration": self.needs_declaration,
                 "prediction_as_fact": self.prediction_as_fact,
                 "weakest_tier": self.weakest_tier,
-                "caveats": list(self.caveats)}
+                "caveats": list(self.caveats),
+                "unvalidated_extrapolations": list(self.unvalidated_extrapolations)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +168,12 @@ class CandidateClaim:
     #: Limits the author knows about and is stating. Each is a surface string
     #: plus a reason; an extrapolation without a reason is not a declaration.
     declared_extrapolations: Mapping[str, str] = field(default_factory=dict)
+    #: Declared extrapolations that evidence supports: gap -> the id of the evidence item
+    #: that bridges it (a study in the broader population, a replication in another
+    #: species). Declaring a gap makes it visible; validating it makes it supported. The
+    #: two were one field, so "we are extrapolating to adults" read the same as "and a
+    #: trial in adults agrees".
+    validated_extrapolations: Mapping[str, str] = field(default_factory=dict)
     #: How sure the system is, and *on what basis*. A confidence with no stated
     #: basis is a number with no meaning; `confidence_basis` is what makes it
     #: checkable, and it is required whenever `confidence` is set.
@@ -249,6 +259,7 @@ class CandidateClaim:
                 "supported_outcome": self.supported_outcome,
                 "direction": self.direction, "magnitude": self.magnitude,
                 "declared_extrapolations": dict(self.declared_extrapolations),
+                "validated_extrapolations": dict(self.validated_extrapolations),
                 "confidence": self.confidence,
                 "confidence_basis": self.confidence_basis,
                 "hedged": self.hedged, "normative": self.normative,
@@ -273,6 +284,7 @@ class CandidateClaim:
             direction=str(data.get("direction") or "unclear"),
             magnitude=str(data.get("magnitude") or ""),
             declared_extrapolations=dict(data.get("declared_extrapolations") or {}),
+            validated_extrapolations=dict(data.get("validated_extrapolations") or {}),
             confidence=float(data.get("confidence") or 0.0),
             confidence_basis=str(data.get("confidence_basis") or ""),
             hedged=bool(data.get("hedged")), normative=bool(data.get("normative")),
@@ -443,7 +455,28 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
             "no receipt (content_hash and quote_offset); a self-attested flag "
             "cannot support a claim")))
 
+    # Declared is not validated. A validation must name evidence that is present and
+    # usable; a declared gap with no validation stays allowed but is carried as a
+    # caveat, so a reader sees that the bridge is an assumption.
+    unvalidated: list[str] = []
+    for gap in claim.declared_extrapolations:
+        eid = claim.validated_extrapolations.get(gap)
+        if eid is None:
+            unvalidated.append(gap)
+            continue
+        bridge = evidence.get(eid)
+        if bridge is None or not getattr(bridge, "usable", False):
+            reasons.append(Reason("CLM012", (
+                f"extrapolation {gap!r} is marked validated by {eid!r}, which is not a "
+                "usable evidence item in this artifact")))
+    for gap in claim.validated_extrapolations:
+        if gap not in claim.declared_extrapolations:
+            reasons.append(Reason("CLM012", (
+                f"extrapolation {gap!r} is marked validated but never declared")))
+
     caveats: list[str] = []
+    for gap in unvalidated:
+        caveats.append(f"extrapolation {gap} is declared, not validated by evidence")
     for item in items:
         caveats.extend(f"{item.id}: {c}" for c in item.caveats())
     for item in items:
@@ -459,7 +492,8 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
                         needs_declaration=needs_declaration,
                         prediction_as_fact=prediction_as_fact,
                         weakest_tier=weakest.tier.name.lower(),
-                        caveats=tuple(caveats))
+                        caveats=tuple(caveats),
+                        unvalidated_extrapolations=tuple(unvalidated))
 
 
 CANDIDATE_CLAIM_SCHEMA: dict[str, Any] = {
@@ -482,6 +516,8 @@ CANDIDATE_CLAIM_SCHEMA: dict[str, Any] = {
         "magnitude": {"type": "string"},
         "declared_extrapolations": {"type": "object",
                                     "additionalProperties": {"type": "string"}},
+        "validated_extrapolations": {"type": "object",
+                                     "additionalProperties": {"type": "string"}},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "confidence_basis": {"type": "string"},
         "hedged": {"type": "boolean"}, "normative": {"type": "boolean"},

@@ -14,7 +14,7 @@
       "version": "1.1.0",
       "api_version": "1",
       "source_repo": "TCMScience",
-      "commit": "a1fb37de6354",
+      "commit": "f221e46600eb",
       "licence": "MIT",
       "licence_verified": true,
       "permissions": [
@@ -42,7 +42,7 @@
         "approved_by": "TCMScience maintainers",
         "approved_at": "2026-09-25T00:00:00Z"
       },
-      "content_hash": "a1fb37de6354f866647c6abee0b7ea2a5baaa2c29d4a4097abe8c8a428091014",
+      "content_hash": "f221e46600eb04d27ed966b2c6bb872a2564e53f1aa5d6cfa16974b48140c551",
       "placeholder": false
     },
     {
@@ -52,7 +52,7 @@
       "version": "1.0.0",
       "api_version": "1",
       "source_repo": "TCMScience",
-      "commit": "28fcc4ce77c8",
+      "commit": "3f82643f65c4",
       "licence": "MIT",
       "licence_verified": true,
       "permissions": [
@@ -75,7 +75,7 @@
         "approved_by": "TCMScience maintainers",
         "approved_at": "2026-09-25T00:00:00Z"
       },
-      "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8",
+      "content_hash": "3f82643f65c4e64e2c326010ca6e20e186f53ea701810d38fbaa9c2ebf75b041",
       "placeholder": false
     },
     {
@@ -85,7 +85,7 @@
       "version": "1.0.0",
       "api_version": "1",
       "source_repo": "TCMScience",
-      "commit": "a5423ead0952",
+      "commit": "df1e2a8f2791",
       "licence": "MIT",
       "licence_verified": true,
       "permissions": [
@@ -110,7 +110,7 @@
         "approved_by": "TCMScience maintainers",
         "approved_at": "2026-09-25T00:00:00Z"
       },
-      "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084",
+      "content_hash": "df1e2a8f2791eaa99a04b45c4636322e072f1e55b03ec17d59fbf98489b5b13a",
       "placeholder": false
     },
     {
@@ -120,7 +120,7 @@
       "version": "1.1.0",
       "api_version": "1",
       "source_repo": "TCMScience",
-      "commit": "601176de9cfb",
+      "commit": "ebb2c9281f2c",
       "licence": "MIT",
       "licence_verified": true,
       "permissions": [
@@ -144,7 +144,7 @@
         "approved_by": "TCMScience maintainers",
         "approved_at": "2026-09-25T00:00:00Z"
       },
-      "content_hash": "601176de9cfbada1b1bf22001746d3c7e0fc4a891cca1b3d4e37b81856f749a0",
+      "content_hash": "ebb2c9281f2c412ced8d540a9d0436e1a290d5e1f9664a13a15365a3e4c34c50",
       "placeholder": false
     }
   ],
@@ -161,8 +161,8 @@
       "refuses": "Mix prediction with measurement. `predicted_targets` and `measured_targets` are separate keys with no combined list, and every predicted edge is marked extrapolated so it cannot support a clinical claim.",
       "refuses_zh": "混淆预测与实测。`predicted_targets` 与 `measured_targets` 是不同的键，没有合并列表；每条预测边都标记为外推，因而无法支撑临床主张。",
       "source_repo": "TCMScience",
-      "commit": "a1fb37de6354",
-      "content_hash": "a1fb37de6354f866647c6abee0b7ea2a5baaa2c29d4a4097abe8c8a428091014",
+      "commit": "f221e46600eb",
+      "content_hash": "f221e46600eb04d27ed966b2c6bb872a2564e53f1aa5d6cfa16974b48140c551",
       "entrypoint": "bioagent.skills.p0.netpharm:analyze_tcm_network_pharmacology",
       "licence": "MIT",
       "licence_verified": true,
@@ -262,8 +262,8 @@
       "refuses": "Answer \"safe\". The status is recorded / no-record / unknown, and the artifact says in those words that absence of a record is not evidence of safety. 十八反 is checked as a pair, and severity is never downgraded.",
       "refuses_zh": "回答「安全」。状态只有已记录 / 无记录 / 未知三种，且产物明确写着「没有记录不等于安全」。十八反按组合检查，严重度从不降级。",
       "source_repo": "TCMScience",
-      "commit": "28fcc4ce77c8",
-      "content_hash": "28fcc4ce77c848e725be05f6d8f7f71dcc02f8d37e5b2b9b46af3fdf56d9f5a8",
+      "commit": "3f82643f65c4",
+      "content_hash": "3f82643f65c4e64e2c326010ca6e20e186f53ea701810d38fbaa9c2ebf75b041",
       "entrypoint": "bioagent.skills.p0.assess_safety:assess_tcm_safety",
       "licence": "MIT",
       "licence_verified": true,
@@ -350,8 +350,8 @@
       "refuses": "Choose between two names that mean different drugs. 「姜」 is 生姜 (fresh ginger, releases the exterior) or 干姜 (dried ginger, warms the interior) — different drugs from one plant. It returns both candidates and never picks one.",
       "refuses_zh": "在有歧义时替你选。「姜」是生姜（微温，解表）或干姜（热，温中回阳）——同株植物，不同的药，不同的主治。它返回全部候选，绝不替你选一个。",
       "source_repo": "TCMScience",
-      "commit": "a5423ead0952",
-      "content_hash": "a5423ead09524e0937363389c3b376e9e94d232aa6f1a4a425551cc4905be084",
+      "commit": "df1e2a8f2791",
+      "content_hash": "df1e2a8f2791eaa99a04b45c4636322e072f1e55b03ec17d59fbf98489b5b13a",
       "entrypoint": "bioagent.skills.p0.entities:normalize_tcm_entities",
       "licence": "MIT",
       "licence_verified": true,
@@ -436,8 +436,8 @@
       "refuses": "Adjudicate. It reports design, scope, retraction state and coverage limits, and does not reduce a body of evidence to a verdict. An empty result is reported as an empty result, not as evidence of no effect.",
       "refuses_zh": "下判断。它报告研究设计、适用范围、撤稿状态与检索覆盖，不把一堆证据压缩成一个结论。空结果就报告为空结果，而不是「无效果」。",
       "source_repo": "TCMScience",
-      "commit": "601176de9cfb",
-      "content_hash": "601176de9cfbada1b1bf22001746d3c7e0fc4a891cca1b3d4e37b81856f749a0",
+      "commit": "ebb2c9281f2c",
+      "content_hash": "ebb2c9281f2c412ced8d540a9d0436e1a290d5e1f9664a13a15365a3e4c34c50",
       "entrypoint": "bioagent.skills.p0.retrieve:retrieve_tcm_evidence",
       "licence": "MIT",
       "licence_verified": true,

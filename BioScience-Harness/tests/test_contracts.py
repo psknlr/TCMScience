@@ -659,3 +659,38 @@ def test_the_artifact_schema_requires_all_four_version_axes():
     from bioagent.contracts import SCHEMAS
     required = SCHEMAS["ResearchArtifact"]["properties"]["composite_version"]["required"]
     assert set(required) == {"runtime", "skill", "source", "benchmark"}
+
+
+# --------------------------------------------------------------------------
+# declared is not validated (audit F01, open item)
+# --------------------------------------------------------------------------
+
+
+def _extrapolating(**kw):
+    base = dict(asserted_population="adults", supported_population="adults with malaria",
+                declared_extrapolations={"population:adults": "same pathogen, same drug"})
+    base.update(kw)
+    return claim(**base)
+
+
+def test_a_declared_extrapolation_is_allowed_but_named_as_unvalidated():
+    verdict = check_claim(_extrapolating(), {"e1": item()})
+    assert verdict.allowed
+    assert verdict.unvalidated_extrapolations == ("population:adults",)
+    assert any("declared, not validated" in c for c in verdict.caveats)
+    art = validate_artifact(artifact(claims=(_extrapolating(),), evidence=(item(),)))
+    assert art.publishable and "ART116" in {w.code for w in art.warnings}
+
+
+def test_an_extrapolation_validated_by_present_evidence_is_not_flagged():
+    c = _extrapolating(supports=("e1", "e2"),
+                       validated_extrapolations={"population:adults": "e2"})
+    verdict = check_claim(c, {"e1": item(), "e2": item(id="e2")})
+    assert verdict.allowed and verdict.unvalidated_extrapolations == ()
+
+
+def test_a_validation_must_cite_present_evidence_for_a_declared_gap():
+    missing = _extrapolating(validated_extrapolations={"population:adults": "nope"})
+    assert "CLM012" in check_claim(missing, {"e1": item()}).codes
+    undeclared = claim(validated_extrapolations={"population:children": "e1"})
+    assert "CLM012" in check_claim(undeclared, {"e1": item()}).codes

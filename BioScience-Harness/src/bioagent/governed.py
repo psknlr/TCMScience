@@ -247,12 +247,15 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         dict(arguments), sort_keys=True, ensure_ascii=False, default=str
     ).encode("utf-8")).hexdigest()
 
+    from .environment import environment_record
+    environment = environment_record()
     kernel = TrustedKernel(PSHConfig(state_dir=state).ensure_dirs())
     try:
         try:
             kernel.audit("bioscience_skill_run_started", run_id=skill_id,
                          detail={"skill_id": skill_id, "version": skill.spec.version,
                                  "content_hash": content_hash,
+                                 "environment_digest": environment["digest"],
                                  "arguments_sha256": args_digest,
                                  "lockfile": str(lock) if lock else ""})
         except Exception as exc:                             # noqa: BLE001
@@ -280,6 +283,7 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         attested = replace(artifact, policy_id=kernel.policy.profile_id or "default",
                            audit_head=head,
                            provenance={**dict(artifact.provenance),
+                                       "environment": environment,
                                        "governed": {"skill_content_hash": content_hash,
                                                     "arguments_sha256": args_digest,
                                                     "pre_attestation_digest": artifact.digest,

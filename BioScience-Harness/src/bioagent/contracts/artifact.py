@@ -53,6 +53,7 @@ _CODES: Mapping[str, str] = {
     "ART113": "a declared output file is not present where the artifact says it is",
     "ART114": "a declared output file does not match its content hash",
     "ART115": "a quote receipt does not verify against the content it names",
+    "ART116": "a claim rests on an extrapolation that is declared but not validated",
 }
 
 #: Claim-level reason code → artifact violation code. The claim layer numbers
@@ -73,6 +74,7 @@ _CLAIM_TO_ARTIFACT: Mapping[str, str] = {
     "CLM009": "ART105",
     "CLM010": "ART105",
     "CLM011": "ART105",
+    "CLM012": "ART105",
 }
 
 
@@ -459,6 +461,12 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
         warnings.append(Violation(
             "ART105", "no evidence item has a quote located in its source",
             "warning"))
+    for verdict in claim_verdicts:
+        if verdict.unvalidated_extrapolations:
+            warnings.append(Violation(
+                "ART116", f"claim {verdict.claim_id!r} extrapolates to "
+                f"{list(verdict.unvalidated_extrapolations)} on a declaration alone; no "
+                "evidence item validates the bridge", "warning"))
     for claim in artifact.claims:
         if claim.confidence and not any(
                 index.get(s) is not None and index[s].quality is not None

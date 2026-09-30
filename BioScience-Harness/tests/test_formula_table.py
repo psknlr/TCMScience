@@ -39,6 +39,12 @@ def test_a_dose_is_read_off_the_end_without_eating_the_name():
         ("葛根", "半斤", "gegen")]
 
 
+def test_a_unit_character_inside_a_name_is_not_read_as_a_dose():
+    """合 is a volume unit and 百 a numeral, so 百合1两 also reads as the dose 百合1两 with no
+    name. The split that leaves a known drug wins."""
+    assert names("百合1两，半夏半两") == [("百合", "1两", "baihe"), ("半夏", "半两", "banxia")]
+
+
 def test_processing_names_and_aliases_resolve_to_one_drug():
     for written, drug in [("炙甘草", "gancao"), ("粉草", "gancao"), ("桂心", "rougui"),
                           ("白茯苓", "fuling"), ("川大黄", "dahuang"), ("麸炒枳壳", "zhiqiao"),

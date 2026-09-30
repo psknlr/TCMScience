@@ -62,6 +62,9 @@ REVIEWED = {
     "Cynanchum atratum", "Cynanchum versicolor", "Daemonorops draco", "Dioscorea hypoglauca",
     "Gentiana rigescens", "Ligusticum sinense", "Omphalia lapidescens",
     "Picrorhiza scrophulariiflora", "Sepia esculenta", "Sophora japonica", "Zaocys dhumnades",
+    "Carpesium abrotanoides", "Cynanchum glaucescens", "Cynanchum stauntonii",
+    "Hydnocarpus anthelminthicus", "Kochia scoparia", "Rhaponticum uniflorum",
+    "Vaccaria segetalis", "Vespertilio superans", "Viola yedoensis", "Yulania denudata",
 }
 
 
@@ -97,11 +100,26 @@ def resolve(name: str) -> dict:
     return {"taxid": "", "note": "not found in NCBI Taxonomy"}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--refresh", action="store_true",
+                    help="re-query every name; by default a name already resolved in the "
+                         "record is reused and only its review status is recomputed")
+    args = ap.parse_args(argv)
     names = sorted({n for e in MATERIA.values() for n in e.species_names})
+    previous = {}
+    if TAXA_FILE.is_file() and not args.refresh:
+        previous = json.loads(TAXA_FILE.read_text(encoding="utf-8")).get("names", {})
     out = {}
     for i, name in enumerate(names, 1):
-        out[name] = resolve(name)
+        old = previous.get(name)
+        if old and old.get("taxid") and name not in CURATED:
+            out[name] = dict(old)
+            if old.get("matched_on") == "All Names":
+                out[name]["reviewed"] = name in REVIEWED
+        else:
+            out[name] = resolve(name)
         print(f"[{i}/{len(names)}] {name}: {out[name].get('taxid') or out[name].get('note')}",
               file=sys.stderr)
     TAXA_FILE.parent.mkdir(parents=True, exist_ok=True)
