@@ -23,6 +23,7 @@ may not edit it, so an agent cannot even propose enabling a source.
 from __future__ import annotations
 
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
@@ -30,7 +31,8 @@ from ..tcm.model import EvidenceTier
 from .schema import AGENT_TYPES, EDGE_PREDICATES, KNOWLEDGE_LEVELS, NODE_CATEGORIES, STUDY_DESIGNS
 
 __all__ = ["ACCESS_MODES", "Access", "EdgeDefault", "Approval", "SourceCard",
-           "SourceCardError", "SOURCE_CARDS", "card", "effective_sources", "parse_ref"]
+           "SourceCardError", "SOURCE_CARDS", "card", "effective_sources", "parse_ref",
+           "VERSION", "check_key_version", "request_rates"]
 
 #: In order of preference.
 ACCESS_MODES: tuple[str, ...] = ("bulk", "api", "manual", "web")
@@ -152,10 +154,20 @@ class SourceCard:
         return usable[0] if usable else None
 
     def record_license(self, row: Mapping[str, Any]) -> str:
+        """The licence of one record: an override keyed by a field's value, else the default.
+
+        Values are compared without case or surrounding space, because the parser is the
+        one reading them and a source that writes ``CHEMBL`` one month and ``ChEMBL`` the
+        next has not changed the licence of those rows.
+        """
         for fld, overrides in self.per_record_license.items():
             value = row.get(fld)
-            if value is not None and str(value) in overrides:
-                return overrides[str(value)]
+            if value is None:
+                continue
+            wanted = str(value).strip().casefold()
+            for key, licence in overrides.items():
+                if key.strip().casefold() == wanted:
+                    return licence
         return self.license
 
 
@@ -185,7 +197,9 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
             EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
                         "manual_agent", "in_vitro"),
         ),
-        commercial_use="unknown", qc={"min_inchikey_coverage": 0.8}),
+        # "Free for academic use" grants no commercial use; that is not the same as not
+        # knowing. Anything else needs BIDD's own permission.
+        commercial_use="forbidden", qc={"min_inchikey_coverage": 0.8}),
     SourceCard(
         key="cmaup", name="CMAUP 2.0", citation="doi:10.1093/nar/gkad921",
         license="Free for academic use", terms_url="https://bidd.group/CMAUP/",
@@ -196,7 +210,7 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
             EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
                         "manual_agent", "in_vitro"),
         ),
-        commercial_use="unknown", qc={"min_inchikey_coverage": 0.8}),
+        commercial_use="forbidden", qc={"min_inchikey_coverage": 0.8}),   # as NPASS
     SourceCard(
         key="bindingdb", name="BindingDB", citation="doi:10.1093/nar/gkae1075",
         license="CC-BY-4.0", terms_url="https://www.bindingdb.org/rwd/bind/info.jsp",
@@ -271,7 +285,22 @@ def card(key: str) -> SourceCard:
         raise KeyError(f"no source card {key!r}; have {sorted(_BY_KEY)}") from None
 
 
-_REF = re.compile(r"^(?P<key>[a-z][a-z0-9_]*)(?:@(?P<version>[^\s@]+))?$")
+#: What a snapshot version may be. It becomes a directory name (``<root>/<key>/<version>``),
+#: and the reference it comes from is written in ``skill.yaml`` — an agent-writable file.
+#: ``[^\s@]+`` admitted ``npass@../../audit``, a directory outside the snapshot root. Every
+#: version the builders produce fits: ``2.0``, ``2026-09-23``, ``26.06+MONDO_0005148``,
+#: ``12.0+subset-1a2b3c4d``, ``fx-…``.
+VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$")
+
+_REF = re.compile(r"^(?P<key>[a-z][a-z0-9_]*)(?:@(?P<version>[A-Za-z0-9][A-Za-z0-9._+-]{0,127}))?$")
+
+
+def check_key_version(key: str, version: str) -> None:
+    """Refuse a key or version that is not a single, plain path component."""
+    if not _KEY.match(str(key)):
+        raise ValueError(f"source key {key!r} must match {_KEY.pattern}")
+    if not VERSION.match(str(version)):
+        raise ValueError(f"snapshot version {version!r} must match {VERSION.pattern}")
 
 
 def parse_ref(ref: str) -> tuple[str, str]:
@@ -310,3 +339,26 @@ def effective_sources(requested: Iterable[str], *,
         else:
             granted[key] = version
     return granted, refused
+
+
+def request_rates(cards: Iterable[SourceCard] = SOURCE_CARDS,
+                  base: Mapping[str, float] | None = None) -> dict[str, float]:
+    """Per-host request rates: the stricter of the transport's table and every card.
+
+    A card's ``rps`` used to be a declaration nothing read — the transport paced by its
+    own table, so Open Targets (card: 1 request/s) was fetched at 5 and BindingDB (card:
+    1) at the 2/s default — and the rule that ``web`` access runs at most once a second
+    could be validated on the card but not enforced on the wire. ``HTTPBackend`` now
+    starts from this table, so the card is the rate.
+    """
+    if base is None:
+        from ..backends.http import DEFAULT_RATES
+        base = DEFAULT_RATES
+    rates = dict(base)
+    for c in cards:
+        for a in c.access:
+            if a.mode in ("api", "web") and a.rps > 0:
+                host = (urllib.parse.urlsplit(a.url).hostname or "").lower()
+                if host:
+                    rates[host] = a.rps if host not in rates else min(rates[host], a.rps)
+    return rates

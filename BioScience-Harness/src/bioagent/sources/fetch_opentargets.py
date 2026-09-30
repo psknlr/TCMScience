@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,21 @@ def fetch_disease_associations(disease_id: str, out_dir: str | Path, *,
         index += 1
     if len(rows) != count:
         raise OpenTargetsFetchError(f"expected {count} associations, received {len(rows)}")
+    # A matching total does not prove the pages tile the answer: if the ordering shifts
+    # between two requests — a release switching over mid-fetch, ties re-ordered — one
+    # page repeats rows the previous one had and the rows it pushed out are never seen,
+    # while the count still comes out right. Every target must appear exactly once.
+    seen = Counter(r["target"]["id"] for r in rows)
+    repeated = sorted(i for i, n in seen.items() if n > 1)
+    if repeated:
+        raise OpenTargetsFetchError(
+            f"the pages repeat {len(repeated)} target(s) (e.g. {repeated[:3]}) and so miss as "
+            "many others; the answer changed while it was being paged")
+    after = _post(backend, _META, {})["meta"]
+    if after["dataVersion"] != meta["dataVersion"]:
+        raise OpenTargetsFetchError(
+            f"the data version changed during the fetch ({meta['dataVersion']} -> "
+            f"{after['dataVersion']}); fetch again")
     version = meta["dataVersion"]
     out = Path(out_dir) / raw_file_name(disease_id)
     out.parent.mkdir(parents=True, exist_ok=True)

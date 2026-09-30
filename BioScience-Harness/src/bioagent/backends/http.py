@@ -14,6 +14,14 @@ This backend executes them, with the properties a shared scientific client needs
   unless a 2xx body was parsed, and a body truncated to fit is `DEGRADED`.
 * **polite retries** — a 429/503 ``Retry-After`` is honoured up to a cap; a longer
   requested pause ends the call rather than being ignored.
+* **redirects stay on declared hosts** — a 30x to a host the call may not contact is
+  refused (``DENIED``), as is a downgrade from https to http. ``urlopen`` follows
+  redirects silently, so without this the host allow-list only governed the first hop.
+* **an HTML page is not data** — a login, CAPTCHA, WAF challenge or error page served
+  with ``200`` where the caller asked for JSON, text or XML is ``UNAVAILABLE`` with the
+  reason, not a successful result whose "value" is the page's markup.
+* **an honest User-Agent** — the harness names itself and a contact
+  (``BIOAGENT_CONTACT``), which Wikidata's policy requires and NCBI asks for.
 
 Only the standard library is used, so the backend works in any environment the
 harness itself runs in.
@@ -36,13 +44,30 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from ..runtime.component import ComponentManifest
 from ..status import ExecutionStatus
 from .base import Backend
 
-_USER_AGENT = "bioagent-harness/0.2 (+https://localhost; research use)"
+#: The project a request comes from, and how its operator can be reached. Wikidata's
+#: User-Agent policy requires a contact and throttles or blocks clients without one; NCBI
+#: asks for one. ``https://localhost`` named nobody. Set ``BIOAGENT_CONTACT`` to a
+#: mailbox or URL that reaches the person running the harness.
+_PROJECT_URL = "https://github.com/psknlr/TCMScience"
+
+
+def user_agent() -> str:
+    import os
+
+    from .. import __version__
+
+    contact = os.environ.get("BIOAGENT_CONTACT", "").strip()
+    who = f"{_PROJECT_URL}; {contact}" if contact else _PROJECT_URL
+    return f"bioagent-harness/{__version__} (+{who}; research use)"
+
+
+_USER_AGENT = user_agent()
 
 #: Characters of a text/XML body kept in the parsed value; longer bodies are truncated and
 #: the call reports DEGRADED rather than SUCCEEDED.
@@ -68,6 +93,72 @@ def _retry_after_seconds(headers: Any) -> float | None:
     if when.tzinfo is None:
         when = when.replace(tzinfo=datetime.timezone.utc)
     return max(0.0, (when - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+
+class _RedirectRefused(RuntimeError):
+    """A redirect would have left the hosts this call may contact."""
+
+
+class _GuardedRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to an allowed host, and never from https down to http."""
+
+    def __init__(self, allowed: frozenset[str], origin_scheme: str) -> None:
+        super().__init__()
+        self.allowed = allowed
+        self.origin_scheme = origin_scheme
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        target = urllib.parse.urlsplit(newurl)
+        host = (target.hostname or "").lower()
+        if host not in self.allowed:
+            raise _RedirectRefused(
+                f"redirected ({code}) to {host or newurl!r}, which is not a host this call "
+                f"may contact ({', '.join(sorted(self.allowed))})")
+        if self.origin_scheme == "https" and target.scheme != "https":
+            raise _RedirectRefused(f"redirected ({code}) from https down to {target.scheme}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _html_page(raw: bytes, ctype: str) -> bool:
+    """Whether a body is an HTML document rather than the data it stands in for.
+
+    Either the server says so (``text/html``, XHTML) or the body opens like a page. A
+    body that parses as JSON is data whatever its content type — some servers label JSON
+    ``text/html`` — so it is never counted as a page.
+    """
+    head = raw[:512].lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    if head[:1] in (b"{", b"["):
+        try:
+            json.loads(raw.decode("utf-8", "replace"))
+            return False
+        except json.JSONDecodeError:
+            pass
+    ct = (ctype or "").lower()
+    return ("text/html" in ct or "application/xhtml" in ct
+            or head.startswith(b"<!doctype html") or head.startswith(b"<html"))
+
+
+def _charset(ctype: str) -> str:
+    """The body's declared encoding, else UTF-8.
+
+    Every body used to be decoded as UTF-8 whatever it declared. Chinese TCM sites and
+    exports are commonly GBK or GB18030, and a GBK page decoded as UTF-8 comes back as
+    replacement characters — the Chinese names, the whole point of the record — with a
+    SUCCEEDED status.
+    """
+    import codecs
+
+    m = re.search(r"charset\s*=\s*[\"']?([A-Za-z0-9._-]+)", ctype or "")
+    if m:
+        try:
+            return codecs.lookup(m.group(1)).name
+        except LookupError:
+            pass
+    return "utf-8"
+
+
+def _asks_for_html(accept: str) -> bool:
+    return "html" in (accept or "").lower()
+
 
 #: Published or conservative per-host request rates (requests / second).
 DEFAULT_RATES: Mapping[str, float] = {
@@ -122,6 +213,19 @@ DEFAULT_RATES: Mapping[str, float] = {
     "query.wikidata.org": 1.0 / 90.0,
     "api.gbif.org": 5.0,
 }
+
+
+def _default_rates() -> dict[str, float]:
+    """``DEFAULT_RATES`` tightened by every source card's declared rate.
+
+    Imported here rather than at module load so the transport does not depend on the
+    sources package to be importable at all.
+    """
+    try:
+        from ..sources.cards import request_rates
+    except ImportError:                      # pragma: no cover - partial installs
+        return dict(DEFAULT_RATES)
+    return request_rates(base=DEFAULT_RATES)
 
 
 class _RateLimiter:
@@ -208,7 +312,7 @@ class HTTPBackend(Backend):
         self.max_retries = max_retries
         self.offline = offline
         self.max_retry_after_s = max_retry_after_s
-        self._limiter = _RateLimiter(rates or DEFAULT_RATES, default_rps)
+        self._limiter = _RateLimiter(rates or _default_rates(), default_rps)
         self.stats = {"requests": 0, "cache_hits": 0, "retries": 0, "bytes": 0}
 
     def available(self) -> bool:
@@ -218,10 +322,19 @@ class HTTPBackend(Backend):
         return "backend constructed in offline mode" if self.offline else ""
 
     # ------------------------------------------------------------------ core
-    def request(self, req: HTTPRequest, *, use_cache: bool = True) -> tuple[ExecutionStatus, Any, str, dict]:
-        """Perform one request. Returns (status, parsed_value, error, meta)."""
+    def request(self, req: HTTPRequest, *, use_cache: bool = True,
+                allowed_hosts: Iterable[str] | None = None,
+                ) -> tuple[ExecutionStatus, Any, str, dict]:
+        """Perform one request. Returns (status, parsed_value, error, meta).
+
+        ``allowed_hosts`` bounds where a redirect may lead; by default only the request's
+        own host, so a direct caller gets the same guarantee a component does.
+        """
         meta: dict[str, Any] = {"url": req.full_url, "method": req.method, "host": req.host,
                                 "cached": False, "attempts": 0, "http_status": None}
+        allowed = frozenset(h.lower() for h in (allowed_hosts or ()) if h) | {req.host.lower()}
+        opener = urllib.request.build_opener(
+            _GuardedRedirects(allowed, urllib.parse.urlsplit(req.url).scheme))
         if self.offline:
             return ExecutionStatus.UNAVAILABLE, None, "backend is offline", meta
 
@@ -230,6 +343,11 @@ class HTTPBackend(Backend):
             try:
                 with gzip.open(cache_path, "rt", encoding="utf-8") as fh:
                     rec = json.load(fh)
+                ctype = str(rec.get("content_type") or "").lower()
+                if ("text/html" in ctype or "application/xhtml" in ctype) \
+                        and not _asks_for_html(req.accept):
+                    # An entry written before HTML pages were refused: not data either.
+                    raise ValueError("cached HTML page")
                 self.stats["cache_hits"] += 1
                 meta.update(cached=True, http_status=rec.get("http_status"),
                             fetched_at=rec.get("fetched_at"))
@@ -253,11 +371,21 @@ class HTTPBackend(Backend):
             self.stats["requests"] += 1
             try:
                 r = urllib.request.Request(req.full_url, data=body, method=req.method, headers=headers)
-                with urllib.request.urlopen(r, timeout=self.timeout_s) as resp:  # noqa: S310
+                with opener.open(r, timeout=self.timeout_s) as resp:  # noqa: S310
                     meta["http_status"] = resp.status
                     ctype = resp.headers.get("Content-Type", "")
+                    final_url = resp.geturl()
                     raw = self._read_capped(resp)
                 self.stats["bytes"] += len(raw)
+                if final_url and final_url != req.full_url:
+                    meta["redirected_to"] = final_url
+                if _html_page(raw, ctype) and not _asks_for_html(req.accept):
+                    # The shape every reverse-wrapped source fails in: a login, CAPTCHA,
+                    # WAF challenge or error page, served with 200 in place of the data.
+                    return ExecutionStatus.UNAVAILABLE, None, (
+                        f"{req.host} answered with an HTML page ({ctype or 'no content type'}) "
+                        f"where {req.accept} was asked for; a login, CAPTCHA, challenge or "
+                        "error page is not data"), meta
                 value = self._parse(raw, ctype)
                 meta["fetched_at"] = time.time()
                 if cache_path:
@@ -311,6 +439,8 @@ class HTTPBackend(Backend):
                     continue
             except _TooLarge as exc:
                 return ExecutionStatus.FAILED, None, str(exc), meta
+            except _RedirectRefused as exc:
+                return ExecutionStatus.DENIED, None, str(exc), meta
             except Exception as exc:  # noqa: BLE001 - reported, never raised into the runtime
                 return ExecutionStatus.FAILED, None, f"{type(exc).__name__}: {exc}", meta
         return ExecutionStatus.FAILED, None, last_err or "exhausted retries", meta
@@ -337,8 +467,8 @@ class HTTPBackend(Backend):
 
     @staticmethod
     def _parse(raw: bytes, ctype: str) -> Any:
-        text = raw.decode("utf-8", "replace")
         ct = ctype.lower()
+        text = raw.decode(_charset(ct), "replace")
         if "json" in ct or text[:1] in "{[":
             try:
                 return json.loads(text)
@@ -392,7 +522,7 @@ class HTTPBackend(Backend):
         else:
             req = HTTPRequest(url=url, method=method.upper(), params=dict(params or {}),
                               headers=dict(headers or {}), json_body=json_body, accept=accept)
-        status, value, err, meta = self.request(req, use_cache=use_cache)
+        status, value, err, meta = self.request(req, use_cache=use_cache, allowed_hosts=allowed)
         if status is ExecutionStatus.SUCCEEDED and graphql is not None and isinstance(value, dict) \
                 and value.get("errors"):
             status, err = ExecutionStatus.FAILED, f"graphql errors: {json.dumps(value['errors'])[:400]}"

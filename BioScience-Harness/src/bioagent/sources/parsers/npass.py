@@ -16,6 +16,9 @@ Edges:
 * compound ``targets`` protein — ``in_vitro`` measurement with its value. Activities
   against cell lines or whole organisms are not protein targets and are not edges; an
   activity without a PMID or DOI is not citable evidence and is dropped. Both are counted.
+  The file gives an activity no id of its own, so its record id is a digest of the row's
+  content (``common.row_digest``); a row repeated exactly is one measurement, kept once
+  and counted as a duplicate.
 """
 
 from __future__ import annotations
@@ -24,7 +27,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .common import (NodeBook, ParseReport, ParseResult, TaxonFilter, compound_id, is_inchikey,
-                     is_uniprot, organism_id, parse_measure, publication, read_rows, target_id)
+                     is_uniprot, organism_id, parse_measure, publication, read_rows, row_digest,
+                     target_id)
 
 __all__ = ["FILES", "parse_npass"]
 
@@ -152,7 +156,8 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
                 xrefs={KEY: [tid], "uniprot": [row["uniprot_id"]]},
                 raw={"organism": row.get("target_organism"), "type": row.get("target_type")})
         return targets[tid]
-    for i, row in enumerate(read_rows(paths["activities"])):
+    recorded: set[str] = set()
+    for row in read_rows(paths["activities"]):
         report.read["activities"] += 1
         np, tid = row.get("np_id"), row.get("target_id")
         if np not in compounds:
@@ -164,13 +169,18 @@ def parse_npass(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         if pub is None:
             report.drop("activity without a PMID or DOI")
             continue
+        record = f"{np}|{tid}|{row_digest(row)}"
+        if record in recorded:
+            report.drop("exact duplicate of an activity row already read")
+            continue
+        recorded.add(record)
         measure = parse_measure(row.get("activity_type"), row.get("activity_value"),
                                 row.get("activity_units"), row.get("activity_relation"))
         edges.append({
             "subject": compounds[np], "predicate": "targets", "object": target(tid),
             "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
             "study_design": "in_vitro", "license": LICENSE,
-            "source_record_id": f"{np}|{tid}|{i}", "primary_knowledge_source": KEY,
+            "source_record_id": record, "primary_knowledge_source": KEY,
             "publications": [pub], "measure": measure,
             "raw": {k: row[k] for k in ("assay_organism", "assay_cell_type", "assay_tissue")
                     if row.get(k)},

@@ -213,6 +213,26 @@ def test_an_inactive_measurement_supports_no_effect():
     assert verdict.released == [] and "tested_against" in verdict.refused[0][1]
 
 
+def test_a_lower_bound_is_not_evidence_that_a_compound_acts():
+    """NPASS files "IC50 > 100 µM" under ``targets``, the predicate of the actives.
+
+    Such a value says the compound never reached the number. The analysis never counted
+    it as a hit; the release check is the gate every skill passes, and it now reads the
+    measurement too rather than trusting the predicate.
+    """
+    from bioagent.sources.release import CandidateClaim, check_release
+    claim = CandidateClaim("mechanism_hypothesis", "compound:A", "protein:B",
+                           (("audit-snapshot", "r1"),), "Compound A may act on protein B.")
+    for relation in (">", ">=", ">>"):
+        bounded = _edge(measure={"type": "IC50", "relation": relation,
+                                 "value": 100000.0, "unit": "nM"})
+        verdict = check_release([claim], [_snapshot(bounded)])
+        assert verdict.released == [], relation
+        assert "lower bound" in verdict.refused[0][1]
+    measured = _edge(measure={"type": "IC50", "relation": "=", "value": 800.0, "unit": "nM"})
+    assert len(check_release([claim], [_snapshot(measured)]).released) == 1
+
+
 # --------------------------------------------------------------------------
 # F06 / F07 — the CLI honours --dir and types its arguments
 # --------------------------------------------------------------------------

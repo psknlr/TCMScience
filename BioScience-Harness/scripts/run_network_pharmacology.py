@@ -52,6 +52,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="Open Targets evidence type defining the disease gene set")
     ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
     ap.add_argument("--seed", type=int, default=Parameters.seed)
+    ap.add_argument("--allow-source", action="append", default=None, metavar="KEY",
+                    help="a source this run may use (repeatable). The run gets the skill's "
+                         "request ∩ the enabled source cards ∩ these; without the option "
+                         "the last term is unrestricted, and provenance.json says so")
     ap.add_argument("--allow-ungoverned", action="store_true",
                     help="run even when PSH is not importable (provenance records governed: false)")
     args = ap.parse_args(argv)
@@ -65,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         provenance = run_skill(skill_dir=args.skill, snapshot_root=args.snapshots,
                                ledger_path=args.ledger, out_dir=args.out, params=params,
+                               allowed=set(args.allow_source) if args.allow_source else None,
                                require_psh=not args.allow_ungoverned)
     except (SkillRunRefused, SnapshotError, LedgerError) as exc:
         print(f"refused: {exc}", file=sys.stderr)

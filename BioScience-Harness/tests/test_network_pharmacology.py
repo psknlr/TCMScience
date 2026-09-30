@@ -144,7 +144,8 @@ def test_what_the_skill_leaves_out_is_left_out_and_counted(tmp_path):
     targets = {t["target"] for t in result.targets}
     for leftover in (PROTEINS[50], PROTEINS[51], PROTEINS[52]):
         assert f"uniprot:{leftover}" not in targets
-    assert result.excluded["activity above the cut-off or not a potency measure"] == 2
+    assert result.excluded["potency above the cut-off"] == 1                    # "weak"
+    assert result.excluded["potency given only as a lower bound (>, >=, >>)"] == 1  # "censored"
     assert result.excluded["predicted target edge (not used by this skill)"] == 1
     loose = run_network_pharmacology(_build(tmp_path / "b"),
                                      params=replace(FAST, activity_max_nm=100_000.0))
@@ -242,6 +243,7 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
                  "claims.json", "release.json", "provenance.json", "limitations.md"):
         assert (out / name).exists(), name
     assert provenance["random_seed"] == FAST.seed
+    assert provenance["source_allowance"] == ["npass", "reactome", "string"]
     assert set(provenance["dataset_hashes"]) == {"tcm_herbs", "npass", "reactome", "string"}
     assert set(provenance["sources_refused"]) == {"cmaup@2.0", "lotus@2026-04-13",
                                                   "opentargets@26.06+MONDO_0005148",
@@ -470,3 +472,57 @@ def test_proteins_tested_on_too_few_compounds_are_left_out(tmp_path):
 def test_the_hits_parameter_is_checked():
     with pytest.raises(ValueError, match="hits"):
         Parameters(hits="vibes")
+
+
+@pytest.mark.parametrize("relation", [">", ">=", ">>", "≥", " > "])
+def test_a_lower_bound_is_never_a_hit_however_it_is_spelled(relation):
+    """NPASS writes ``>>`` as well as ``>``; five real rows read "IC50 >> 1000 nM"."""
+    from bioagent.analysis.network_pharmacology import Parameters, _passes_potency
+
+    measure = {"type": "IC50", "relation": relation, "value": 1000.0, "unit": "nM"}
+    assert _passes_potency(measure, Parameters()) is False
+
+
+def test_a_point_or_upper_bound_value_under_the_cut_off_is_a_hit():
+    from bioagent.analysis.network_pharmacology import Parameters, _passes_potency
+
+    for relation in ("=", "<", "<=", "~", None):
+        assert _passes_potency({"type": "IC50", "relation": relation, "value": 1000.0,
+                                "unit": "nM"}, Parameters()) is True
+
+
+def test_a_run_without_an_allowance_says_the_grant_was_unrestricted(tmp_path):
+    """``allowed=None`` intersected with nothing; provenance now says so."""
+    import json
+
+    from bioagent.analysis.skill_runner import run_skill
+
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    _build(tmp_path / "snap", ledger=ledger)
+    narrowed = tmp_path / "skill"
+    narrowed.mkdir()
+    # The shipped skill also asks for sources this fixture has no snapshots of; drop them
+    # from its request, so the only narrowing left is the one under test (none).
+    unbuilt = ("- cmaup@", "- lotus@", "- opentargets@", "- pubchem_bioassay")
+    text = (SKILL_DIR / "skill.yaml").read_text(encoding="utf-8")
+    lines = [ln for ln in text.splitlines() if not ln.strip().startswith(unbuilt)]
+    (narrowed / "skill.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (narrowed / "SKILL.md").write_text((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"),
+                                       encoding="utf-8")
+    provenance = run_skill(skill_dir=narrowed, snapshot_root=tmp_path / "snap",
+                           ledger_path=ledger.path, out_dir=tmp_path / "run", params=FAST)
+    assert provenance["source_allowance"] == "unrestricted"
+    saved = json.loads((tmp_path / "run" / "provenance.json").read_text(encoding="utf-8"))
+    assert saved["source_allowance"] == "unrestricted"
+
+
+def test_a_mass_unit_potency_is_counted_as_such_not_as_above_the_cut_off():
+    from bioagent.analysis.network_pharmacology import Parameters, _why_not_potent
+
+    params = Parameters()
+    assert "non-molar" in _why_not_potent(
+        {"type": "IC50", "relation": "=", "value": 2.0, "unit": "ug.mL-1"}, params)
+    assert "not a potency" in _why_not_potent(
+        {"type": "Inhibition", "relation": "=", "value": 50.0, "unit": "%"}, params)
+    assert _why_not_potent({"type": "IC50", "relation": "=", "value": 5e4, "unit": "nM"},
+                           params) == "potency above the cut-off"

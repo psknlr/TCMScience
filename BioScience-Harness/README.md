@@ -241,10 +241,10 @@ whose shortfall PSH records as a caveat and lists as a limitation of the release
 ## v2.4 — PSH convergence, and a connector set worth converging · PSH 收敛，以及一套值得收敛的连接器
 
 The capability plane is now admitted into a trusted kernel, and it got a lot bigger.
-Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`.
+Design and evidence in `docs/V24_PSH_CONVERGENCE.md`. The plan for integrating third-party databases (TCM and natural-product sources: snapshot-first ingestion, two-axis evidence labels, read-only skills) is `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`; its 2026-09-30 review — what the spec's own list of problems now looks like in code, and 18 fixes — is `docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md`.
 
 <!-- zh -->
-能力平面（capability plane, CP）现在被接纳进一个可信内核（trusted kernel, TK），而且它大了很多。设计与证据见 `docs/V24_PSH_CONVERGENCE.md`。第三方数据库连接器（TCMSP、HERB、SymMap……）遵循 `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`。
+能力平面（capability plane, CP）现在被接纳进一个可信内核（trusted kernel, TK），而且它大了很多。设计与证据见 `docs/V24_PSH_CONVERGENCE.md`。第三方数据库连接器（TCMSP、HERB、SymMap……）遵循 `docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md`；2026-09-30 的复核（规范自己列出的问题在代码里的现状，以及 18 项修复）见 `docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md`。
 
 **`bioagent.psh` — the bridge.** A BioScience component becomes a PSH `ComponentManifest`
 with the dimensions PSH's gates rule on, derived conservatively from what the BioScience

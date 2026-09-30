@@ -17,6 +17,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, Iterable
 
+from . import cards as cards_module
 from . import herbs as herb_layer
 from . import schema
 from .cards import card as source_card
@@ -24,7 +25,7 @@ from .composition import herb_composition
 from .parsers import (bindingdb, cmaup, common, lotus, npass, opentargets, pubchem_bioassay,
                       reactome, string_db)
 from .parsers.common import ParseResult, TaxonFilter
-from .snapshot import Snapshot, SnapshotError, build_snapshot
+from .snapshot import Snapshot, SnapshotError, build_snapshot, file_hash
 
 __all__ = ["LOTUS_FILE", "VERSIONS", "build_source", "build_gold", "require_gold", "GoldBuild"]
 
@@ -64,6 +65,36 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
     raise KeyError(f"no parser for source {key!r}")
 
 
+def _scope(version: str) -> str:
+    """What a version is a version *of*: the part after ``+`` (a subset, a disease)."""
+    return version.split("+", 1)[1] if "+" in version else ""
+
+
+def _previous(ledger: Any, key: str, version: str, root: str | Path) -> Snapshot | None:
+    """The last snapshot of the same source and scope the ledger recorded, as a baseline.
+
+    The drift check compares a build with the one before it, and every builder passed
+    ``previous=None``, so the check never ran. The ledger knows what came before. Only a
+    snapshot of the same scope is comparable — a four-herb subset against the full file
+    is not drift — and one that can no longer be loaded is no baseline at all.
+    """
+    from .ledger import LedgerError
+    from .snapshot import load_snapshot
+
+    try:
+        candidates = [e for e in ledger.entries()
+                      if e.key == key and _scope(e.version) == _scope(version)]
+    except (LedgerError, OSError, ValueError, TypeError):
+        return None
+    if not candidates:
+        return None
+    last = candidates[-1]
+    try:
+        return load_snapshot(root, key, last.version, ledger=ledger, accept_review=True)
+    except (SnapshotError, LedgerError):
+        return None
+
+
 def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
                  taxa: TaxonFilter | None = None, version: str | None = None,
                  previous: Snapshot | None = None, ledger: Any = None,
@@ -94,8 +125,22 @@ def build_source(key: str, raw_dir: str | Path, root: str | Path, *,
     if scope is not None:
         digest = hashlib.sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()
         version = f"{version}+subset-{digest[:8]}"
+    if previous is None and ledger is not None:
+        candidate = _previous(ledger, key, version, root)
+        # A rebuild of the same version from the same raw files is not a new release and
+        # has no drift to measure; comparing it with its predecessor would put that
+        # predecessor's id into the content and break "same input, same id". A new
+        # version, or new bytes under an unchanged one (Reactome's "current"), is compared.
+        if candidate is not None and not (
+                candidate.version == version
+                and candidate.manifest["content"]["raw_files"]
+                == {name: file_hash(path) for name, path in sorted(result.raw_files.items())}):
+            previous = candidate
+    # BindingDB's per-record licence rule is read from its source card, so the card is
+    # part of what the parser does and a change to it is a new snapshot.
+    code = _code(module, cards_module) if key == "bindingdb" else _code(module)
     return build_snapshot(key=key, version=version, nodes=result.nodes, edges=result.edges,
-                          raw_files=result.raw_files, parser=_code(module), root=root,
+                          raw_files=result.raw_files, parser=code, root=root,
                           card=source_card(key), previous=previous,
                           extra={"parse_report": result.report.as_dict()}, ledger=ledger)
 

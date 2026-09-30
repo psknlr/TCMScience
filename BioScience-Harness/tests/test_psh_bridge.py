@@ -103,7 +103,7 @@ class FakeTransport:
 def transport(monkeypatch):
     fake = FakeTransport()
     monkeypatch.setattr(HTTPBackend, "request",
-                        lambda self, req, use_cache=True: fake(self, req, use_cache=use_cache))
+                        lambda self, req, use_cache=True, **_: fake(self, req, use_cache=use_cache))
     return fake
 
 
