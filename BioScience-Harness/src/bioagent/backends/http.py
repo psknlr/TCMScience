@@ -166,6 +166,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     "pubchem.ncbi.nlm.nih.gov": 5.0,
     "rest.ensembl.org": 15.0,
     "rest.uniprot.org": 10.0,
+    # www.ebi.ac.uk: documented per-entity API look-ups (including IMPC's Solr cores);
+    # robots.txt's Crawl-delay 10 s governs crawling, which no connector does
     "www.ebi.ac.uk": 10.0,
     "string-db.org": 1.0,
     "rest.kegg.jp": 3.0,
@@ -231,6 +233,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     # (providers.supplement.tcm_safety), small academic servers
     "mibig.secondarymetabolites.org": 1.0, "bio-computing.hrbmu.edu.cn": 1.0,
     "phytohub.eu": 1.0,
+    # genetics supplementary sources: MaveDB enforces no limit but asks to be considerate
+    "api.mavedb.org": 1.0,
 }
 
 

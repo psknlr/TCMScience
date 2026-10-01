@@ -349,6 +349,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "bio-computing.hrbmu.edu.cn", "www.ema.europa.eu",
             # ... and TCM safety live look-ups (MIBiG entries, PhytoHub compounds)
             "mibig.secondarymetabolites.org", "phytohub.eu",
+            # genetics: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # MaveDB's API; IMPC's Solr and both datasets' files are on ebi.ac.uk and
+            # ftp.ebi.ac.uk above; the eQTL Catalogue's metadata tables are on GitHub.
+            "api.mavedb.org", "raw.githubusercontent.com",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
