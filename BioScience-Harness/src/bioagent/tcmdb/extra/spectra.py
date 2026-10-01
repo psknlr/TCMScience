@@ -11,17 +11,20 @@ own label, never guessed:
 
 * **MassBank** records state a confidence in ``COMMENT: CONFIDENCE`` (free text, often a
   Schymanski level). A reference standard (level 1, "standard compound", "reference
-  standard") or a record without a statement is ``known``; a level 2 identification
+  standard") is ``known``; a level 2 identification
   ("probable", "confident structure") is ``reported``; a tentative one (level 3-5,
   "tentative", "candidate", "structure hypothesis") is ``reported`` with outcome
-  ``inconclusive``; "Predicted" is ``predicted``. A deprecated record is ``inconclusive``
-  and flagged. Each row carries the record's own licence (CC0 ... CC BY-NC-SA,
+  ``inconclusive``; "Predicted" is ``predicted``. A record without a statement is
+  ``reported`` and flagged: many such records are annotations made in a biological
+  matrix (e.g. lipids in mouse tissue extracts), so a missing statement is not taken as a
+  reference standard. A deprecated record is ``inconclusive`` and flagged. Each row carries the record's own licence (CC0 ... CC BY-NC-SA,
   dl-de/by-2-0), which binds that record.
 * **GNPS** libraries grade each spectrum: gold (class 1: synthetic or fully characterised)
   is ``known``; silver (2: isolated or crude, with published data) is ``reported``; bronze
   (3: "any other putative" annotation) is ``reported`` and ``inconclusive``; challenge
-  spectra (10: identity unknown) go to the unresolved queue. Propagated libraries are
-  ``aggregated``. Imported libraries (MassBank, MoNA, ...) say ``via <upstream>`` and
+  spectra (10: identity unknown) go to the unresolved queue. Propagated and
+  suspect-list libraries (annotations inferred by molecular networking or computational
+  synthesis) are ``predicted``. Imported libraries (MassBank, MoNA, ...) say ``via <upstream>`` and
   carry the upstream licence.
 * **NP-MRD** deposition peak lists and experimental shift-assignment tables are
   ``known``. Its predicted NMR spectra are a separate archive that is kept apart and not
@@ -176,7 +179,9 @@ def massbank_confidence(text: Any) -> tuple[str, str]:
     """(evidence, outcome) for a MassBank ``COMMENT: CONFIDENCE`` statement."""
     t = (v(text) or "").lower()
     if not t:
-        return "known", "positive"           # a reference record that states no level
+        # no statement: not evidence of a reference standard (many such records are
+        # annotations in tissue extracts), so it is a stated identification only
+        return "reported", "positive"
     if "predicted" in t:
         return "predicted", "positive"
     if _TENTATIVE.search(t):
@@ -216,9 +221,10 @@ def _massbank(conn: sqlite3.Connection) -> Iterator[Row | None]:
         if not acc:
             continue
         evidence, outcome = massbank_confidence(r["confidence"])
-        flags = None
+        flags = None if v(r["confidence"]) else "no CONFIDENCE statement"
         if v(r["deprecated"]):
-            outcome, flags = "inconclusive", f"deprecated: {r['deprecated']}"
+            outcome = "inconclusive"
+            flags = "; ".join(x for x in (f"deprecated: {r['deprecated']}", flags) if x)
         key = _inchikey(r["inchikey"])
         cid = re.search(r"CID:?\s*(\d+)", v(r["pubchem"]) or "")
         compound = f"inchikey:{key}" if key else (f"pubchem:{cid.group(1)}" if cid else None)
@@ -280,8 +286,10 @@ MASSBANK = DatasetSpec(
           "compound_spectrum: compound (InChIKey from CH$LINK, else PubChem CID) -> "
           "MassBank record, with the instrument, instrument type, ion mode, MS level, "
           "collision energy and precursor type as context. The evidence follows the "
-          "record's COMMENT: CONFIDENCE (see the module docstring); a deprecated record "
-          "is inconclusive. organism_compound: the record's sample organism "
+          "record's COMMENT: CONFIDENCE (see the module docstring): level 1 or a "
+          "reference standard is known; a record with no statement (about 59,000, "
+          "many of them annotations in tissue extracts) is reported and flagged, never "
+          "known; a deprecated record is inconclusive. organism_compound: the record's sample organism "
           "(SP$SCIENTIFIC_NAME, NCBI taxon) -> compound, for the about 3,350 records that "
           "name one (mostly mouse tissue, human serum and plant extracts). Records "
           "without an InChIKey or CID (mixtures, unknown structures) wait in the "
@@ -319,10 +327,10 @@ def _read_gnps(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
     """
     yield list(_GNPS_COLUMNS)
     with open_text(path) as fh:
-        data = json.load(fh)
-    for rec in data if isinstance(data, list) else []:
-        if isinstance(rec, dict):
-            yield [None if rec.get(c) is None else str(rec.get(c)) for c in _GNPS_COLUMNS]
+        for rec in _array_items(fh, None):     # one spectrum decoded at a time
+            if isinstance(rec, dict):
+                yield [None if rec.get(c) is None else str(rec.get(c))
+                       for c in _GNPS_COLUMNS]
 
 
 #: GNPS library quality classes (documentation, "Spectrum curation").
@@ -347,7 +355,7 @@ _GNPS_CC0 = "CC0 1.0 (spectra contributed directly to GNPS)"
 
 
 def _gnps_propagated(library: str) -> bool:
-    """Libraries of annotations propagated by networking, not measured on a standard."""
+    """Libraries of annotations propagated by networking or suspect lists: inferred."""
     lib = library.upper()
     return ("PROPOGATED" in lib or "PROPAGATED" in lib or lib.startswith((
         "MULTIPLEX-SYNTHESIS", "GNPS-CONJUGATED-METABOLOME", "REFRAME-POSITIVE",
@@ -383,7 +391,7 @@ def _gnps(conn: sqlite3.Connection) -> Iterator[Row | None]:
             evidence, outcome, grade = _GNPS_CLASS.get(
                 cls, ("reported", "inconclusive", f"class {cls or 'not given'}"))
             if _gnps_propagated(library):
-                evidence = "aggregated"
+                evidence = "predicted"           # inferred by a computational procedure
             flags = None
             status = v(r["spectrum_status"])
             if status and status != "1":
@@ -475,20 +483,31 @@ _NP_CARD_COLUMNS = (
     "pubmed_ids", "creation_date", "update_date", "version")
 
 
-def _array_items(fh: io.TextIOBase, key: str, chunk: int = 1 << 22) -> Iterator[Any]:
+def _array_items(fh: io.TextIOBase, key: str | None,
+                 chunk: int = 1 << 22) -> Iterator[Any]:
     """The items of the first JSON array under ``key``, decoded one at a time.
 
+    With ``key=None`` the document itself must be a JSON array (GNPS library exports).
     NP-MRD's metadata files are one JSON object of about 350 MB each; this reads them in
     a few MB at a time instead of loading the whole document.
     """
     decoder = json.JSONDecoder()
     buf, pos = "", 0
-    marker = f'"{key}"'
+    marker = f'"{key}"' if key is not None else ""
     while True:                                   # find the array that opens after key
         more = fh.read(chunk)
         if not more:
             return
         buf += more
+        if key is None:
+            stripped = buf.lstrip("\ufeff \t\r\n")
+            if not stripped:
+                buf = ""
+                continue
+            if stripped[0] != "[":
+                return                            # not a top-level array
+            pos = len(buf) - len(stripped) + 1
+            break
         i = buf.find(marker)
         if i < 0:
             buf = buf[-len(marker):]              # the key may straddle two reads

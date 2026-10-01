@@ -106,6 +106,11 @@ def _massbank_zip(path):
         "BAFG/MSBNK-BAFG-CSL23111000001.txt": _record(
             "MSBNK-BAFG-CSL23111000001", "Atrazine", licence="dl-de/by-2-0",
             inchikey="MXWJVTOOROXGIU-UHFFFAOYSA-N", confidence="Reference Standard (Level 1)"),
+        # a lipid annotated in a tissue extract, with no CONFIDENCE statement at all
+        "Chubu_Univ/MSBNK-Chubu_Univ-UT000001.txt": _record(
+            "MSBNK-Chubu_Univ-UT000001", "Triacylglycerol 15:0-18:1-18:2", licence="CC BY",
+            inchikey="FOTIZMVVUPTZTE-BOOJFYDZSA-N", species="Mus musculus",
+            taxid="10090", sample="liver"),
     }
     with zipfile.ZipFile(path, "w") as z:
         z.writestr(top + "README.md", "# MassBank-data\n")
@@ -125,7 +130,7 @@ def massbank(tmp_path):
 
 def test_massbank_loads_one_row_per_record_without_peaks(massbank):
     h, report = massbank
-    assert report["tables"] == {"record": 8}
+    assert report["tables"] == {"record": 9}
     with sqlite3.connect(h.db_path("massbank")) as conn:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(record)")]
         row = conn.execute("SELECT * FROM record WHERE accession='MSBNK-BS-BS003074'") \
@@ -158,7 +163,11 @@ def test_massbank_rows_carry_their_own_record_licence_and_confidence(massbank):
     assert (eawag["evidence"], eawag["outcome"]) == ("reported", "positive")
     assert rows["massbank:MSBNK-IPB_Halle-PB010101"]["evidence"] == "predicted"
     # a record of another database names it as its lineage
-    assert rows["massbank:MSBNK-RIKEN_ReSpect-PM000301"]["note"].endswith("via ReSpect")
+    respect = rows["massbank:MSBNK-RIKEN_ReSpect-PM000301"]
+    assert respect["note"].endswith("via ReSpect")
+    # no CONFIDENCE statement is not a reference standard: reported, and flagged
+    assert (respect["evidence"], respect["outcome"]) == ("reported", "positive")
+    assert json.loads(respect["context"])["flags"] == "no CONFIDENCE statement"
     # NC records are left out of a commercial query, CC0/CC BY ones stay
     commercial = {r["object_id"] for r in h.relations("compound_spectrum", commercial=True,
                                                       limit=100)}
@@ -186,12 +195,18 @@ def test_a_massbank_compound_without_structure_ids_waits_in_the_queue(massbank):
 
 def test_massbank_sample_organisms_become_organism_compound_rows(massbank):
     h, _ = massbank
-    rows = h.relations("organism_compound", limit=100)
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["subject_id"] == "ncbitaxon:9606" and row["object_id"] == f"inchikey:{PROLINE}"
+    rows = {r["subject_id"]: r for r in h.relations("organism_compound", limit=100)}
+    assert len(rows) == 2
+    row = rows["ncbitaxon:9606"]
+    assert row["object_id"] == f"inchikey:{PROLINE}"
     assert (row["evidence"], row["outcome"]) == ("reported", "inconclusive")
     assert json.loads(row["context"])["tissue"] == "Serum"
+    # an annotation in mouse liver without a statement is never a known occurrence
+    mouse = rows["ncbitaxon:10090"]
+    assert mouse["object_id"] == "inchikey:FOTIZMVVUPTZTE-BOOJFYDZSA-N"
+    assert (mouse["evidence"], mouse["outcome"]) == ("reported", "positive")
+    assert json.loads(mouse["context"])["tissue"] == "liver"
+    assert all(r["evidence"] != "known" for r in rows.values())
 
 
 def test_massbank_passes_the_acceptance_check_and_maps_cids(massbank):
@@ -204,7 +219,8 @@ def test_massbank_passes_the_acceptance_check_and_maps_cids(massbank):
 
 
 @pytest.mark.parametrize("text,expected", [
-    (None, ("known", "positive")),
+    (None, ("reported", "positive")),
+    ("", ("reported", "positive")),
     ("standard compound", ("known", "positive")),
     ("Reference Standard (Level 1)", ("known", "positive")),
     ("1", ("known", "positive")),
@@ -325,6 +341,34 @@ def test_propagated_gnps_libraries_are_recognised():
     assert sp._gnps_propagated("GNPS-IIMN-PROPOGATED")
     assert sp._gnps_propagated("MULTIPLEX-SYNTHESIS-LIBRARY-ALL-PARTITION-1")
     assert not sp._gnps_propagated("LEAFBOT")
+
+
+def test_propagated_gnps_annotations_are_predicted_not_aggregated():
+    conn = sqlite3.connect(":memory:")
+    rec = _gnps_rec("CCMSLIB00000900001", "Quercetin", "3", key=QUERCETIN,
+                    library="GNPS-IIMN-PROPOGATED")
+    cols = list(sp._GNPS_COLUMNS)
+    conn.execute(f'CREATE TABLE "lib_gnps_iimn_propogated" ({", ".join(cols)})')
+    conn.execute(f'INSERT INTO "lib_gnps_iimn_propogated" VALUES '
+                 f'({", ".join("?" * len(cols))})', [rec.get(c) for c in cols])
+    (row,) = [r for r in sp._gnps(conn) if r is not None]
+    assert row["evidence"] == "predicted"
+
+
+def test_gnps_reader_streams_the_top_level_array(tmp_path):
+    path = tmp_path / "LIB.json"
+    recs = [_gnps_rec(f"CCMSLIB0000000{i:04d}", f"c{i}", "1", key=RUTIN)
+            for i in range(50)]
+    path.write_text("\ufeff\n" + json.dumps(recs, indent=1))
+    out = list(sp._read_gnps(path, None))
+    assert out[0] == list(sp._GNPS_COLUMNS) and len(out) == 51
+    assert out[-1][0] == "CCMSLIB00000000049"
+    # small chunks force the decoder across read boundaries
+    with open(path, encoding="utf-8") as fh:
+        items = list(sp._array_items(fh, None, chunk=97))
+    assert [r["spectrum_id"] for r in items] == [r["spectrum_id"] for r in recs]
+    (tmp_path / "EMPTY.json").write_text("[]")
+    assert list(sp._read_gnps(tmp_path / "EMPTY.json", None)) == [list(sp._GNPS_COLUMNS)]
 
 
 # ===================================================================== NP-MRD
