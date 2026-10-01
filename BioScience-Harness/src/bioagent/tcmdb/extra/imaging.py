@@ -132,6 +132,15 @@ def _cancer_types(text: str | None) -> list[str]:
 
 
 def _disease_id(name: str) -> str:
+    """A LOCAL id for an IDC cancer type, built from its free-text name.
+
+    IDC's ``cancer_types`` is free text with no ontology code, and no curated crosswalk
+    to MONDO, DOID or MeSH exists here, so these ids (``idc:disease.breast_cancer``) do
+    not meet another source's disease rows in consensus. Names are kept at the
+    granularity IDC states them: ``lung_cancer`` and ``non_small_cell_lung_cancer``, or
+    ``colon_cancer`` and ``colorectal_cancer``, stay separate, since folding one into the
+    other would assert a relation the source does not make.
+    """
     core = re.sub(r"\s*\(non-cancer\)\s*$", "", name, flags=re.I).strip().lower()
     return "idc:disease." + re.sub(r"[^0-9a-z]+", "_", core).strip("_")
 
@@ -346,7 +355,10 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "row's note lists its collection's series licences (CC BY 4.0, CC BY 3.0, "
               "CC BY-NC 4.0, CC BY-NC 3.0, the NLM Visible Human terms); flags say when "
               "any is non-commercial. Collections whose cancer type is a phantom or "
-              "healthy subjects give no row; 'Various' goes to the unresolved queue. The "
+              "healthy subjects give no row; 'Various' goes to the unresolved queue. "
+              "Disease ids are local (idc:disease.<name>, from IDC's free-text cancer "
+              "types, at IDC's own granularity): no crosswalk maps them to MONDO, DOID or "
+              "MeSH, so they do not join other sources' disease rows in consensus. The "
               "segmentation, slide-microscopy and clinical indices are GitHub release "
               "assets not in the wheel (reach them with the live connector's sql "
               "operation). No image is fetched.",

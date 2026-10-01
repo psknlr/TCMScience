@@ -112,6 +112,24 @@ def test_the_bioimage_archive_is_reached_through_biostudies():
         "studies/S-BIAD623/info"
 
 
+
+@pytest.mark.parametrize("first", ["bioagent.providers.supplement.imaging",
+                                   "bioagent.providers.supplement",
+                                   "bioagent.tcmdb.extra.imaging"])
+def test_a_domain_module_can_be_the_first_import_of_a_process(first):
+    # In a fresh interpreter, importing the domain module first used to fail: it imports
+    # public_apis, whose load_sources() then met the module half-initialised.
+    import os
+    import subprocess
+    import sys
+    code = (f"import {first}\n"
+            "from bioagent.providers.public_apis import BY_KEY\n"
+            "assert 'idc' in BY_KEY and 'openneuro' in BY_KEY\n")
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          env={**os.environ}, timeout=120)
+    assert done.returncode == 0, done.stderr
+
+
 # ------------------------------------------------------------------------ IDC snapshot
 def _parquet_bytes(records, schema=None):
     buf = io.BytesIO()

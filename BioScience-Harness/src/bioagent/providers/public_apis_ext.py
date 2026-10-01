@@ -236,8 +236,16 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
                       "studies/{accession}/info", args=("accession",),
                       example={"accession": "S-BIAD623"}),
         ), smoke="study", docs="https://www.ebi.ac.uk/biostudies/help",
-        rate_note="www.ebi.ac.uk robots.txt sets Crawl-Delay 10: per-study look-ups only, "
-                  "no harvesting"),
+        # www.ebi.ac.uk robots.txt (checked 2026-10-01) sets "Crawl-Delay: 10" for every
+        # user agent and disallows no /biostudies path. That delay governs crawling; the
+        # operations here are per-query API look-ups made for a user (one search page, one
+        # study), never a walk over accessions. The transport paces per HOST, and this host
+        # also serves ChEMBL, OLS, EBI Search, MetaboLights and others whose documented
+        # APIs allow far more, so the shared 10 req/s in DEFAULT_RATES is kept rather than
+        # throttling all of them to 0.1 req/s. Nothing may harvest BioStudies/BioImages
+        # through these operations: bulk access is the archive's FTP/Globus, not this API.
+        rate_note="per-query look-ups only, never harvesting; robots.txt Crawl-Delay 10 is "
+                  "for crawlers and is not applied to these API look-ups (host-wide 10 req/s)"),
 
     PublicSource(
         "cellxgene", "CZ CELLxGENE Discover", "https://api.cellxgene.cziscience.com/curation/v1",
