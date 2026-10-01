@@ -350,7 +350,7 @@ SOURCES: tuple[PublicSource, ...] = (
 #: ``scripts/verify_connectors.py``.
 from .public_apis_ext import EXTENDED_SOURCES  # noqa: E402
 from .public_apis_tcm import OPENFDA_HERBAL_OPERATIONS, TCM_SOURCES  # noqa: E402
-from .supplement import SUPPLEMENT_SOURCES  # noqa: E402
+from .supplement import load_sources as _load_supplement  # noqa: E402
 
 
 def _with_herbal_operations(source: PublicSource) -> PublicSource:
@@ -360,6 +360,8 @@ def _with_herbal_operations(source: PublicSource) -> PublicSource:
 
 
 CORE_SOURCES: tuple[PublicSource, ...] = tuple(_with_herbal_operations(s) for s in SOURCES)
+#: Sources added beyond the TCM architecture document (``providers.supplement``).
+SUPPLEMENT_SOURCES: tuple[PublicSource, ...] = _load_supplement()
 SOURCES = CORE_SOURCES + EXTENDED_SOURCES + TCM_SOURCES + SUPPLEMENT_SOURCES
 
 BY_KEY: Mapping[str, PublicSource] = {s.key: s for s in SOURCES}

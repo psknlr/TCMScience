@@ -226,9 +226,20 @@ def test_an_added_kind_cannot_redefine_an_existing_one():
     assert RELATION_KINDS["herb_ingredient"] == ("herb", "ingredient")
 
 
+def test_the_added_packages_import_in_any_order():
+    import subprocess
+    import sys
+    for first in ("bioagent.providers.supplement", "bioagent.tcmdb.extra",
+                  "bioagent.tcmdb.store", "bioagent.tcmdb.spec"):
+        code = (f"import {first}; import bioagent.providers.public_apis as p; "
+                "import bioagent.tcmdb as t; print(len(p.SOURCES), len(t.DATASETS))")
+        out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        assert out.returncode == 0, (first, out.stderr[-500:])
+
+
 def test_every_added_dataset_and_connector_is_registered_once():
-    from bioagent.providers.public_apis import BY_KEY, SOURCES
-    from bioagent.providers.supplement import PENDING_SUPPLEMENT_SOURCES, SUPPLEMENT_SOURCES
+    from bioagent.providers.public_apis import BY_KEY, SOURCES, SUPPLEMENT_SOURCES
+    from bioagent.providers.supplement import load_pending
     from bioagent.tcmdb.datasets import DATASETS
     from bioagent.tcmdb.extra import EXTRA_DATASETS, EXTRA_EXTRACTORS
     from bioagent.tcmdb.relations import EXTRACTORS
@@ -236,7 +247,7 @@ def test_every_added_dataset_and_connector_is_registered_once():
     assert {d.key for d in EXTRA_DATASETS} <= {d.key for d in DATASETS}
     assert set(EXTRA_EXTRACTORS) <= set(EXTRACTORS)
     assert all(s.key in BY_KEY for s in SUPPLEMENT_SOURCES)
-    assert not {s.key for s in PENDING_SUPPLEMENT_SOURCES} & set(BY_KEY)
+    assert not {s.key for s in load_pending()} & set(BY_KEY)
     assert len(BY_KEY) == len(SOURCES)
     for d in EXTRA_DATASETS:
         assert d.commercial_use in ("allowed", "forbidden", "unknown"), d.key

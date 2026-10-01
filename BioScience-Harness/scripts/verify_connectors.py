@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from bioagent.backends.http import HTTPBackend  # noqa: E402
 from bioagent.providers.public_apis import SOURCES, PublicAPIProvider, render_call  # noqa: E402
 from bioagent.providers.public_apis_tcm import PENDING_TCM_SOURCES  # noqa: E402
-from bioagent.providers.supplement import PENDING_SUPPLEMENT_SOURCES  # noqa: E402
+from bioagent.providers.supplement import load_pending  # noqa: E402
 
 FIELDS = ("source", "source_name", "operation", "smoke", "status", "http_status", "attempts",
           "latency_ms", "result_hash", "error", "host", "license", "verified_at")
@@ -43,7 +43,7 @@ def main() -> int:
 
     # Pending connectors are verified only when named: they are not shipped, and a run
     # of everything should not start recording them.
-    pending = tuple(p for p in PENDING_TCM_SOURCES + PENDING_SUPPLEMENT_SOURCES
+    pending = tuple(p for p in PENDING_TCM_SOURCES + load_pending()
                     if args.only and p.key in args.only)
     sources = SOURCES + pending
     manifests = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider(sources).discover()}

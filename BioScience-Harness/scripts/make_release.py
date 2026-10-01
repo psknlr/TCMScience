@@ -63,6 +63,7 @@ REQUIRED_PACKAGES = (
     "bioagent.evolution",
     "bioagent.planners",
     "bioagent.providers",
+    "bioagent.providers.supplement",
     "bioagent.psh",
     "bioagent.research",
     "bioagent.runtime",
@@ -74,6 +75,7 @@ REQUIRED_PACKAGES = (
     "bioagent.updates",
     "bioagent.tcm",
     "bioagent.tcmdb",
+    "bioagent.tcmdb.extra",
     "bioagent.workspace",
 )
 
