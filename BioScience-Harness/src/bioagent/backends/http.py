@@ -218,6 +218,11 @@ DEFAULT_RATES: Mapping[str, float] = {
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # supplementary sources (review of 2026-09-30): RNA, regulation and protein
+    # modification. Crawl-delays in robots.txt become rates: RNAcentral 5 s, ChIP-Atlas
+    # 30 s (its /agents page invites the /data calls robots.txt disallows for crawlers).
+    "rnacentral.org": 0.2, "chip-atlas.org": 1.0 / 30.0, "disprot.org": 1.0,
+    "remap.univ-amu.fr": 1.0, "research.bioinformatics.udel.edu": 1.0,
 }
 
 
