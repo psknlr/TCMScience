@@ -327,9 +327,14 @@ def test_lincs_metadata_is_loaded_as_tables_and_yields_no_relations(tmp_path,
     report = h.build("lincs_l1000", log=_quiet)
     assert report["relations"] == {} and report["missing"] == []
     assert "GSE106127_sig_info.txt.gz" in report["optional_absent"]
-    # -666 is the Broad's missing-value mark: kept as written, never read as a number
+    # -666 is the Broad's missing-value mark: read as NULL, never as an id or a number
     akt2 = h.query("lincs_l1000", "phase1_pert_info", where={"pert_id": "56582"})[0]
-    assert akt2["inchi_key"] == "-666"
+    assert akt2["inchi_key"] is None and akt2["pubchem_cid"] is None
+    assert akt2["pert_iname"] == "AKT2"
+    cell = h.query("lincs_l1000", "phase1_cell_info")[0]
+    assert cell["precursor_cell_id"] is None and cell["donor_age"] == "58"
+    phase2 = h.query("lincs_l1000", "phase2_sig_info")[0]
+    assert phase2["pert_idose"] is None
     sig = h.query("lincs_l1000", "phase1_sig_info")[0]
     assert (sig["cell_id"], sig["pert_idose"], sig["pert_itime"]) == ("A549", "10 µM", "6 h")
     result = h.check("lincs_l1000")

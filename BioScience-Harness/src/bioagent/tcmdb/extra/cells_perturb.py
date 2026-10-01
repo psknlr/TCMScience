@@ -23,6 +23,7 @@ ARCHS4 stay files.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import re
 import sqlite3
@@ -31,7 +32,7 @@ from typing import Iterator
 
 from ..rowkit import Row, ctx, has, names, rel, rows, unresolved, v
 from ..spec import DatasetSpec, FileSpec
-from ..store import open_text
+from ..store import open_text, read_table
 
 __all__ = ["DATASETS", "EXTRACTORS", "KINDS", "READERS"]
 
@@ -258,8 +259,27 @@ def read_archs4_versions(path: Path, spec: FileSpec) -> Iterator[list[str | None
         yield [None if entry.get(c) is None else str(entry.get(c)) for c in _ARCHS4_COLUMNS]
 
 
-READERS = {"cellosaurus_txt": read_cellosaurus, "zenodo_record_files": read_zenodo_files,
-           "archs4_versions": read_archs4_versions}
+#: The Broad's missing-value mark in the LINCS L1000 metadata tables (any column).
+_BROAD_NA = "-666"
+
+
+def read_broad_tsv(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
+    """A LINCS L1000 metadata table (tab-separated) with ``-666`` read as missing.
+
+    The Broad writes ``-666`` for an absent value in every column (InChIKey, SMILES,
+    dose, ...); stored as written it would join as an id or read as a number.
+    """
+    rows_ = read_table(path, dataclasses.replace(spec, fmt="tsv"))
+    header = next(rows_, None)
+    if header is None:
+        return
+    yield header
+    for row in rows_:
+        yield [None if c == _BROAD_NA else c for c in row]
+
+
+READERS = {"cellosaurus_txt": read_cellosaurus, "broad_tsv": read_broad_tsv,
+           "zenodo_record_files": read_zenodo_files, "archs4_versions": read_archs4_versions}
 
 
 # -------------------------------------------------------------------------------- specs
@@ -270,6 +290,11 @@ _GEO3 = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE106nnn/GSE106127/suppl/"
 _FIGSHARE = "https://ndownloader.figshare.com/files/"
 _ZENODO_RNA = "https://zenodo.org/api/records/13350497/files/"
 _ARCHS4 = "https://s3.dev.maayanlab.cloud/archs4/files/"
+
+
+def _lincs(base: str, name: str, table: str, **kw) -> FileSpec:
+    """A LINCS L1000 metadata table on the GEO FTP site, read with ``-666`` as missing."""
+    return FileSpec(base + name, name, table, fmt="broad_tsv", **kw)
 
 
 def _figshare(file_id: int, name: str, table: str, size: int, *, fmt: str = "csv",
@@ -323,43 +348,34 @@ DATASETS: tuple[DatasetSpec, ...] = (
         "No licence stated. GEO public deposit (NCBI: 'public, non-sensitive, unrestricted "
         "scientific data sharing'); LINCS data release policy: 'released without any "
         "restrictions except correct citation'",
-        (FileSpec(_GEO1 + "GSE92742_Broad_LINCS_sig_info.txt.gz",
-                  "GSE92742_Broad_LINCS_sig_info.txt.gz", "phase1_sig_info",
-                  expected_bytes=11124404, note="473,647 signatures (Phase I)"),
-         FileSpec(_GEO1 + "GSE92742_Broad_LINCS_pert_info.txt.gz",
-                  "GSE92742_Broad_LINCS_pert_info.txt.gz", "phase1_pert_info",
-                  expected_bytes=1138509),
-         FileSpec(_GEO1 + "GSE92742_Broad_LINCS_cell_info.txt.gz",
-                  "GSE92742_Broad_LINCS_cell_info.txt.gz", "phase1_cell_info",
-                  expected_bytes=2528),
-         FileSpec(_GEO1 + "GSE92742_Broad_LINCS_gene_info.txt.gz",
-                  "GSE92742_Broad_LINCS_gene_info.txt.gz", "gene_info",
-                  expected_bytes=216692,
-                  note="12,328 genes (978 measured landmarks, pr_is_lm=1); the same in "
-                       "GSE70138"),
-         FileSpec(_GEO2 + "GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz",
-                  "GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz", "phase2_sig_info",
-                  expected_bytes=1943865, note="118,050 signatures (Phase II)"),
-         FileSpec(_GEO2 + "GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz",
-                  "GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz", "phase2_pert_info",
-                  expected_bytes=82376),
-         FileSpec(_GEO2 + "GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz",
-                  "GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz", "phase2_cell_info",
-                  expected_bytes=2528),
-         FileSpec(_GEO1 + "GSE92742_Broad_LINCS_sig_metrics.txt.gz",
-                  "GSE92742_Broad_LINCS_sig_metrics.txt.gz", "phase1_sig_metrics",
-                  optional=True, expected_bytes=12520228,
-                  note="signature quality: TAS, replicate correlation, exemplar flag"),
-         FileSpec(_GEO2 + "GSE70138_Broad_LINCS_sig_metrics_2017-03-06.txt.gz",
-                  "GSE70138_Broad_LINCS_sig_metrics_2017-03-06.txt.gz", "phase2_sig_metrics",
-                  optional=True),
-         FileSpec(_GEO1 + "GSE92742_Broad_LINCS_inst_info.txt.gz",
-                  "GSE92742_Broad_LINCS_inst_info.txt.gz", "phase1_inst_info",
-                  optional=True, expected_bytes=12046182, note="replicate-level instances"),
-         FileSpec(_GEO3 + "GSE106127_sig_info.txt.gz", "GSE106127_sig_info.txt.gz",
-                  "gse106127_sig_info", optional=True, expected_bytes=3151251,
-                  note="shRNA/CRISPR consensus signatures re-processed from GSE92742 and "
-                       "GSE70138 (a subset, not new data): do not count with them"),
+        (_lincs(_GEO1, "GSE92742_Broad_LINCS_sig_info.txt.gz", "phase1_sig_info",
+                expected_bytes=11124404, note="473,647 signatures (Phase I)"),
+         _lincs(_GEO1, "GSE92742_Broad_LINCS_pert_info.txt.gz", "phase1_pert_info",
+                expected_bytes=1138509),
+         _lincs(_GEO1, "GSE92742_Broad_LINCS_cell_info.txt.gz", "phase1_cell_info",
+                expected_bytes=2528),
+         _lincs(_GEO1, "GSE92742_Broad_LINCS_gene_info.txt.gz", "gene_info",
+                expected_bytes=216692,
+                note="12,328 genes (978 measured landmarks, pr_is_lm=1); the same in "
+                     "GSE70138"),
+         _lincs(_GEO2, "GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz",
+                "phase2_sig_info", expected_bytes=1943865,
+                note="118,050 signatures (Phase II)"),
+         _lincs(_GEO2, "GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz",
+                "phase2_pert_info", expected_bytes=82376),
+         _lincs(_GEO2, "GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz",
+                "phase2_cell_info", expected_bytes=2528),
+         _lincs(_GEO1, "GSE92742_Broad_LINCS_sig_metrics.txt.gz", "phase1_sig_metrics",
+                optional=True, expected_bytes=12520228,
+                note="signature quality: TAS, replicate correlation, exemplar flag"),
+         _lincs(_GEO2, "GSE70138_Broad_LINCS_sig_metrics_2017-03-06.txt.gz",
+                "phase2_sig_metrics", optional=True),
+         _lincs(_GEO1, "GSE92742_Broad_LINCS_inst_info.txt.gz", "phase1_inst_info",
+                optional=True, expected_bytes=12046182, note="replicate-level instances"),
+         _lincs(_GEO3, "GSE106127_sig_info.txt.gz", "gse106127_sig_info", optional=True,
+                expected_bytes=3151251,
+                note="shRNA/CRISPR consensus signatures re-processed from GSE92742 and "
+                     "GSE70138 (a subset, not new data): do not count with them"),
          FileSpec(_GEO1 + "GSE92742_Broad_LINCS_Level5_COMPZ.MODZ_n473647x12328.gctx.gz",
                   "GSE92742_Broad_LINCS_Level5_COMPZ.MODZ_n473647x12328.gctx.gz", "",
                   fmt="raw", optional=True, expected_bytes=21328033748,
@@ -370,9 +386,10 @@ DATASETS: tuple[DatasetSpec, ...] = (
         version="GSE92742 (Phase I, files of 2017) and GSE70138 (Phase II, 2017-03-06 build)",
         notes="Metadata of the L1000 perturbation signatures: which perturbagen (compound "
               "BRD id with InChIKey and SMILES, shRNA, ORF, ligand), at which dose and time, "
-              "in which cell line, under which signature id. -666 is the Broad's missing-"
-              "value mark and is kept as written. Expression values live only in the GCTX "
-              "matrices (optional raw files): 978 landmark genes are measured, the rest "
+              "in which cell line, under which signature id. -666, the Broad's missing-"
+              "value mark, is read as NULL (reader broad_tsv). Expression values live "
+              "only in the GCTX matrices (optional raw files): 978 landmark genes are "
+              "measured, the rest "
               "are inferred, so a relation read from them is measured for landmarks and "
               "predicted for the others. No relation rows are extracted. GSE106127 is the "
               "re-processed shRNA/CRISPR portion of GSE92742 and GSE70138, and CLUE's "
@@ -418,8 +435,12 @@ DATASETS: tuple[DatasetSpec, ...] = (
                 "2024-12-10); Repurposing Public 24Q2 (10.6084/m9.figshare.25917643.v1)",
         notes="The last DepMap releases deposited under CC BY 4.0. cell_line_disease rows "
               "are DepMap's OncoTree annotation of each model (subject: the Cellosaurus "
-              "accession from the RRID column, else the DepMap ModelID); a primary disease "
-              "without an OncoTree code goes to the unresolved queue. screen_gene rows are "
+              "accession from the RRID column, else the DepMap ModelID; the 134 models "
+              "without an RRID keep depmap:ACH- subjects that do not meet Cellosaurus rows "
+              "(the cellosaurus store's cell_line_xref maps only 1 of those 134 ACH- ids to "
+              "a CVCL_ accession in release 56; join through it when both stores are "
+              "present); a "
+              "primary disease without an OncoTree code goes to the unresolved queue. screen_gene rows are "
               "the genes DepMap infers to be common essentials across its CRISPR knockout "
               "screens (Chronos; a measured screen call). drug_target rows are the targets "
               "the portal's compound metadata lists (aggregated: DepMap's curation, much of "
