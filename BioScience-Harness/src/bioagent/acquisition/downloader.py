@@ -14,7 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-_UA = "bioagent-harness/0.2 (+https://localhost; research use)"
+def _user_agent() -> str:
+    # One definition, in the HTTP backend: the downloader used to carry its own copy of
+    # the old ``https://localhost`` string, which named nobody.
+    from ..backends.http import user_agent
+
+    return user_agent()
+
+
+_UA = _user_agent()
 
 
 class DownloadError(RuntimeError):

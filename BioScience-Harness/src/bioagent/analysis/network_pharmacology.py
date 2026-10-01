@@ -153,10 +153,41 @@ def _level_at_least(level: str | None, minimum: str) -> bool:
         _COMPOSITION_ORDER.index(level) >= _COMPOSITION_ORDER.index(minimum))
 
 
+def _censored_from_below(measure: Mapping[str, Any]) -> bool:
+    """Whether a value is only a lower bound (``>``, ``>=``, ``>>``, ``≥``).
+
+    Such a value says the potency is *worse* than the number, however small the number
+    is, so it can never show a compound reaching a cut-off. Matching the two spellings
+    ``>`` and ``>=`` let NPASS's ``>>`` through: five real NPASS 2.0 rows read
+    "IC50 >> 1000 nM" — much weaker than 1 µM — and counted as hits at 10 µM.
+    """
+    from ..sources.schema import is_lower_bound
+
+    return is_lower_bound(measure)
+
+
+def _why_not_potent(measure: Mapping[str, Any] | None, params: Parameters) -> str:
+    """The reason a measurement is not a hit, for the run's account of what it left out.
+
+    One reason used to cover all of them. It said "above the cut-off or not a potency
+    measure" of NPASS's 22,882 potencies given in µg/mL — which *are* potency measures,
+    possibly well under 10 µM, that simply cannot be compared with a molar cut-off
+    without the compound's mass. A reader deciding whether the cut-off lost them real
+    hits needs to know which it was.
+    """
+    if not measure or measure.get("type") not in params.activity_types:
+        return "not a potency measure (IC50, Ki, Kd or EC50)"
+    if (measure.get("unit") or "").lower() != "nm":
+        return "potency in a non-molar unit (e.g. µg/mL): not comparable with the cut-off"
+    if _censored_from_below(measure):
+        return "potency given only as a lower bound (>, >=, >>)"
+    return "potency above the cut-off"
+
+
 def _passes_potency(measure: Mapping[str, Any] | None, params: Parameters) -> bool:
     if not measure or measure.get("type") not in params.activity_types:
         return False
-    if (measure.get("unit") or "").lower() != "nm" or measure.get("relation") in (">", ">="):
+    if (measure.get("unit") or "").lower() != "nm" or _censored_from_below(measure):
         return False
     try:
         return float(measure["value"]) <= params.activity_max_nm
@@ -393,7 +424,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             if (e.get("measure") or {}).get("type") in params.activity_types:
                 assayed.add(e["object"])
             if not _passes_potency(e.get("measure"), params):
-                excluded["activity above the cut-off or not a potency measure"] += 1
+                excluded[_why_not_potent(e.get("measure"), params)] += 1
                 continue
             target_paths[e["object"]].append((snap, e))
 

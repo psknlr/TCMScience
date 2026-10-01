@@ -7,7 +7,8 @@ no reference), ``Targets`` (UniProt) and
 
 Plant -> ingredient pairs carry no reference in CMAUP, so they are ``knowledge_assertion``
 by an unstated agent at composition level C1: usable to enumerate candidates, not to
-cite. Activities without a PMID or DOI are dropped and counted, as for NPASS.
+cite. Activities without a PMID or DOI are dropped and counted, as for NPASS, and as for
+NPASS an activity's record id is a digest of its row, with exact repeats counted once.
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .common import (NodeBook, ParseReport, ParseResult, TaxonFilter, compound_id, is_inchikey,
-                     is_uniprot, organism_id, parse_measure, publication, read_rows, target_id)
+                     is_uniprot, organism_id, parse_measure, publication, read_rows, row_digest,
+                     target_id)
 
 __all__ = ["FILES", "parse_cmaup"]
 
@@ -106,7 +108,8 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
                        **({"hgnc_symbol": [row["Gene_Symbol"]]} if row.get("Gene_Symbol") else {})})
         return targets[tid]
 
-    for i, row in enumerate(read_rows(paths["activities"])):
+    recorded: set[str] = set()
+    for row in read_rows(paths["activities"]):
         report.read["activities"] += 1
         np, tid = row.get("Ingredient_ID"), row.get("Target_ID")
         if np not in compounds:
@@ -118,11 +121,16 @@ def parse_cmaup(raw_dir: str | Path, *, taxa: TaxonFilter | None = None,
         if pub is None:
             report.drop("activity without a PMID or DOI")
             continue
+        record = f"{np}|{tid}|{row_digest(row)}"
+        if record in recorded:
+            report.drop("exact duplicate of an activity row already read")
+            continue
+        recorded.add(record)
         edges.append({
             "subject": compounds[np], "predicate": "targets", "object": target(tid),
             "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
             "study_design": "in_vitro", "license": LICENSE,
-            "source_record_id": f"{np}|{tid}|{i}", "primary_knowledge_source": KEY,
+            "source_record_id": record, "primary_knowledge_source": KEY,
             "publications": [pub],
             "measure": parse_measure(row.get("Activity_Type"), row.get("Activity_Value"),
                                      row.get("Activity_Unit"), row.get("Activity_Relationship")),

@@ -55,7 +55,34 @@ from .plan import Plan, PlanTask, RetryBudget, TaskKind
 from .plan_validator import PlanRejected, PlanValidator, ValidatedPlan, task_envelope
 
 __all__ = ["AgentLoopController", "LoopState", "LoopResult", "Termination", "LoopLimits",
-           "Planner", "StaticPlanner", "classify_with", "graph_label", "objective_label_for"]
+           "Planner", "StaticPlanner", "TaskEvent", "classify_with", "graph_label",
+           "objective_label_for"]
+
+
+@dataclass(frozen=True, slots=True)
+class TaskEvent:
+    """What one task did, handed to an observer that may watch and may not steer.
+
+    Added for the workflow journal (``psh.durable``), which has to record a node's start
+    and outcome *with the label the broker gave it* — and the label is not on
+    ``LoopResult``, so reconstructing it afterwards would mean classifying the value again
+    and getting a weaker answer than the one the run actually used.
+
+    The contract is deliberately one-directional. An observer receives a copy of what
+    happened and cannot change it: its return value is ignored and its exceptions are
+    swallowed, exactly as the heartbeat's are. A callback able to affect control flow would
+    be a second decision-maker inside the loop, which is the shape this package refuses
+    everywhere else.
+    """
+
+    task_id: str
+    state: str                         # started | succeeded | failed | refused
+    attempt: int = 1
+    kind: str = ""
+    result: Any = None
+    label: Any = None
+    caveats: tuple[str, ...] = ()
+    error_type: str = ""
 
 
 class Termination(str, Enum):
@@ -279,7 +306,8 @@ class AgentLoopController:
                  sleep: Callable[[float], None] = time.sleep,
                  memory: Any = None, memory_items: int = 4,
                  operations: Any = None, operation_namespace: str = "",
-                 require_idempotent_tools: bool = False) -> None:
+                 require_idempotent_tools: bool = False,
+                 observer: Callable[["TaskEvent"], None] | None = None) -> None:
         self.kernel = kernel
         self.planner = planner
         self.registry = registry
@@ -317,6 +345,10 @@ class AgentLoopController:
         #: polls it at the same point it checks every other bound, so cancellation is a
         #: termination reason like the rest rather than an exception thrown across threads.
         self.cancellation = cancellation
+        #: An optional watcher of task outcomes. It is told what happened and cannot
+        #: change it — the return value is discarded and an exception from it is
+        #: swallowed. The workflow journal is the intended consumer.
+        self.observer = observer
         #: Proof of life for whoever is waiting on this loop. Called at every bounds check
         #: and before every task, so a long plan beats per task rather than per iteration.
         #: It cannot fire *during* a call that never returns — that is the point: its
@@ -506,6 +538,8 @@ class AgentLoopController:
             self._sleep(delay)
 
         graph.mark_running(task.task_id, at=time.time())
+        self._observe(TaskEvent(task_id=task.task_id, state="started", attempt=attempt,
+                                kind=task.kind))
         self._beat()
         identity = (f"{self.operation_namespace}:{task.task_id}"
                     if self.operation_namespace else task.task_id)
@@ -527,6 +561,13 @@ class AgentLoopController:
             if refused:
                 graph.mark_failed(task.task_id, "OperationUnresolved: unsafe repeated tool operation",
                                   at=time.time(), retryable=False)
+                # The observer has already been told this attempt started. Telling it the
+                # attempt was refused is what stops a journal reading "started and never
+                # reported" for a call the loop declined to make — the one state a replay
+                # is not allowed to guess about.
+                self._observe(TaskEvent(task_id=task.task_id, state="refused",
+                                        attempt=attempt, kind=task.kind,
+                                        error_type="OperationUnresolved"))
                 self._audit("loop_task_unresolved", state, task_id=task.task_id,
                             component_id=task.component_id, operation=key)
                 return
@@ -536,6 +577,9 @@ class AgentLoopController:
             except OperationUnresolved as exc:
                 graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                                   at=time.time(), retryable=False)
+                self._observe(TaskEvent(task_id=task.task_id, state="refused",
+                                        attempt=attempt, kind=task.kind,
+                                        error_type=type(exc).__name__))
                 self._audit("loop_task_unresolved", state, task_id=task.task_id,
                             component_id=task.component_id, operation=key)
                 return
@@ -553,6 +597,8 @@ class AgentLoopController:
                 ledger.fail(key, type(exc).__name__)
             graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                               at=time.time(), retryable=False)
+            self._observe(TaskEvent(task_id=task.task_id, state="refused", attempt=attempt,
+                                    kind=task.kind, error_type=type(exc).__name__))
             self._audit("loop_task_refused", state, task_id=task.task_id,
                         error_type=type(exc).__name__)
             return
@@ -569,6 +615,8 @@ class AgentLoopController:
             self._record_outcome(task, ok=False)
             graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                               at=time.time(), retryable=retryable)
+            self._observe(TaskEvent(task_id=task.task_id, state="failed", attempt=attempt,
+                                    kind=task.kind, error_type=type(exc).__name__))
             self._audit("loop_task_failed", state, task_id=task.task_id,
                         error_type=type(exc).__name__, attempt=attempt,
                         retryable=retryable)
@@ -584,6 +632,9 @@ class AgentLoopController:
             label = classify_with(self.kernel, value, origin=f"task:{task.task_id}")
         graph.mark_succeeded(task.task_id, value, at=time.time(), label=label,
                              caveats=caveats)
+        self._observe(TaskEvent(task_id=task.task_id, state="succeeded", attempt=attempt,
+                                kind=task.kind, result=value, label=label,
+                                caveats=caveats))
         if caveats:
             self._audit("loop_task_degraded", state, task_id=task.task_id,
                         caveats=len(caveats))
@@ -671,10 +722,15 @@ class AgentLoopController:
             # A model's output is at least as sensitive as the context it was shown, and
             # at least as sensitive as what it says. The broker's result carries the label
             # the gate ruled on; join it with a classification of the reply.
+            #
+            # Classified BEFORE parsing, and on the raw text. A JSON document and the
+            # object it parses to are the same information, and the text is the form that
+            # contains every character the classifier looks for — parsing first would
+            # classify a structure whose keys hid the identifier in a value.
             shown = getattr(call, "label", None) or getattr(projection, "label", DataLabel())
             label = shown.merged_with(
                 classify_with(self.kernel, content, origin=f"task:{task.task_id}"))
-            return content, label, ()
+            return _structured(content, task.output_schema), label, ()
 
         if task.kind == TaskKind.TOOL:
             component = self._component(task.component_id)
@@ -816,6 +872,15 @@ class AgentLoopController:
                     iterations=state.iteration, replans=state.replans)
         return result
 
+    def _observe(self, event: "TaskEvent") -> None:
+        """Tell the observer what happened. Its failure is its own problem, never the run's."""
+        if self.observer is None:
+            return
+        try:
+            self.observer(event)
+        except Exception:  # noqa: BLE001 - an observer must not be able to end the work
+            pass
+
     def _beat(self) -> None:
         if self.heartbeat is None:
             return
@@ -867,6 +932,36 @@ class AgentLoopController:
             # propagate out of a thread nobody is waiting for. The store refuses cleanly
             # now; this is the other half of the same fix.
             pass
+
+
+def _structured(content: Any, schema: Mapping[str, Any]) -> Any:
+    """Parse a model's reply into the shape its task promised, when it promised one.
+
+    A model call returns text. A task that declares an ``output_schema`` of an object has
+    promised a structure, and the two checks that read the result — ``check_output_schema``
+    and the evaluator's evidence layer, which looks for a mapping with an ``evidence`` key
+    — both see a string and both fail. The loop then replans, the model returns the same
+    JSON again, and the run escalates having done everything right.
+
+    So where a schema is declared, a string reply is parsed. A reply that will not parse is
+    left exactly as it came back, because the schema check's message about the wrong shape
+    is more useful than a parse error, and inventing a value here would be worse than both.
+    """
+    if not schema or not isinstance(content, str):
+        return content
+    import json as _json
+    import re as _re
+
+    text = content.strip()
+    fenced = _re.search(r"```(?:json)?\s*(.+?)```", text, _re.S)
+    if fenced:
+        text = fenced.group(1).strip()
+    if not text or text[0] not in "[{\"" and not text[0].isdigit():
+        return content
+    try:
+        return _json.loads(text)
+    except (ValueError, TypeError):
+        return content
 
 
 def _join_labels(graph: ExecutionGraph) -> Any:

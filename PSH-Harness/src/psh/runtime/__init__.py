@@ -12,11 +12,12 @@ from .journal import JournalCheckpointStore
 from .operations import OperationLedger, OperationRecord, OperationState
 from .finalize import Finalizer, ReleasedResult, render_deliverable
 from .service import ResearchRunService
+from .scientific import ScientificResult, ScientificRunService
 from .evaluator import ACCEPTANCE_CHECKS, CheckResult, Evaluator, Verdict
 from .execgraph import ExecutionGraph, TaskNode, TaskState
 from .loop import (
     AgentLoopController, LoopLimits, LoopResult, LoopState, Planner, StaticPlanner,
-    Termination,
+    TaskEvent, Termination,
 )
 from .plan import (
     Criterion, InputBinding, Plan, PlanTask, RetryBudget, RetryPolicy, TaskKind, TestSpec,
@@ -50,6 +51,7 @@ __all__ = [
     "Checkpoint", "CheckpointStore", "ResumeRefused", "capture", "resume",
     "JournalCheckpointStore",
     "Finalizer", "ReleasedResult", "render_deliverable", "ResearchRunService",
+    "ScientificRunService", "ScientificResult", "TaskEvent",
     "CancellationPolicy", "CancellationToken", "ChildRun", "ChildState",
     "LocalSubagentBackend", "SubagentResult", "WorkerLease", "LeaseRegistry",
     "IdempotencyLedger", "KEY_FIELD", "key_of",

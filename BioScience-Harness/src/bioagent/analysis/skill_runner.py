@@ -128,6 +128,10 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "formula": {"id": GEGEN_QINLIAN.id, "fingerprint": GEGEN_QINLIAN.fingerprint},
         "dataset_hashes": result.snapshots,
         "sources_refused": refused,
+        # The third term of request ∩ enabled cards ∩ run allowance. ``None`` is not "no
+        # sources"; it is "no allowance was given", said out loud so a reader does not
+        # take a two-way intersection for the three-way one the contract describes.
+        "source_allowance": sorted(allowed) if allowed is not None else "unrestricted",
         "parameters": asdict(params), "random_seed": params.seed,
         "code_digest": result.code_digest,
         "psh_program_fingerprint": compiled.fingerprint if compiled else None,

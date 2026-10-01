@@ -83,3 +83,40 @@ def test_the_shipped_verification_record_covers_every_operation():
                 f"{source.key}.{op.name} shipped with status {row['status']}: {row['error']}")
     smoke_rows = [r for r in rows if r["smoke"] == "True"]
     assert {r["source"] for r in smoke_rows} == set(BY_KEY)
+
+
+@pytest.mark.parametrize("name,path", [
+    ("黄芩苷", "compound/name/%E9%BB%84%E8%8A%A9%E8%8B%B7/cids/JSON"),
+    ("berberine chloride", "compound/name/berberine%20chloride/cids/JSON"),
+    ("a#b", "compound/name/a%23b/cids/JSON"),
+    ("x?y=1", "compound/name/x%3Fy=1/cids/JSON"),
+    ("5%", "compound/name/5%25/cids/JSON"),
+])
+def test_a_path_argument_is_sent_as_the_name_that_was_asked_about(name, path):
+    """A compound name fills its path segment and nothing else.
+
+    Pasted in raw, ``黄芩苷`` could not be sent (the request line is ASCII), a name with
+    a space was an invalid URL, ``a#b`` was *sent* as a lookup for ``a`` — the rest is a
+    fragment the server never sees — and came back as a successful answer, and ``?``
+    opened a query string the operation never declared.
+    """
+    assert BY_KEY["pubchem"].op("cid_by_name").render(name=name)["path"] == path
+
+
+def test_every_shipped_example_still_sends_the_request_that_was_verified_live():
+    """The encoding changes no request the verification record covers.
+
+    ``/`` and ``>`` are left alone on purpose: DOIs span path segments and HGVS ids carry
+    ``>``, and bioRxiv and MyVariant both answer the encoded forms with a 404.
+    """
+    import re
+
+    def pasted(template, kwargs):
+        return re.sub(r"\{(\w+)\}", lambda m: str(kwargs.get(m.group(1), m.group(0))),
+                      template)
+
+    for source in SOURCES:
+        for op in source.operations:
+            example = dict(op.example)
+            assert op.render(**example)["path"] == pasted(op.path, example), \
+                f"{source.key}.{op.name}"

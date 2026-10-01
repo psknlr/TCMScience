@@ -12,9 +12,11 @@ on (snapshot id + source record id). Before release it must pass four checks:
 2a. **the statement says no more than the edges.** A statement that names a direction of
    effect ("activates", "inhibits", 抑制 …) needs an evidential edge that records that
    direction; a path through a ``tested_against`` edge (measured and found *inactive*)
-   supports no effect at all; and wording that asserts efficacy, certainty or a
-   universal population is refused as it is for any claim
-   (``contracts.claim_language``);
+   supports no effect at all, and neither does a ``targets`` edge whose measurement is
+   only a lower bound ("IC50 > 100 µM": the compound never reached the number) — NPASS
+   files 22% of its potency values that way, under the same predicate as the actives;
+   and wording that asserts efficacy, certainty or a universal population is refused as
+   it is for any claim (``contracts.claim_language``);
 3. **the kind is within the skill's ceiling** (``SkillContract.permits``);
 4. **the evidence licenses the kind, by its weakest link.** Each evidential edge licenses
    the claim kinds its study design admits (``tcm.CLAIM_SUPPORT``); a path licenses only
@@ -32,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..tcm.model import CLAIM_SUPPORT
-from .schema import STUDY_DESIGNS
+from .schema import STUDY_DESIGNS, is_lower_bound
 from .snapshot import Snapshot
 
 __all__ = ["CandidateClaim", "ReleaseVerdict", "ReleaseRefused", "check_release",
@@ -150,6 +152,14 @@ def _statement_problem(claim: "CandidateClaim",
     if inactive:
         return (f"the path runs through {len(inactive)} tested_against edge(s) — measured "
                 "and found inactive — which support no effect")
+    bounded = [e for e in edges
+               if e.get("predicate") == "targets" and is_lower_bound(e.get("measure"))]
+    if bounded:
+        m = bounded[0]["measure"]
+        return (f"the path cites {len(bounded)} targets edge(s) whose measurement is only a "
+                f"lower bound ({m.get('type')} {m.get('relation')} {m.get('value')} "
+                f"{m.get('unit') or ''}".rstrip() + "): a value worse than a bound shows no "
+                "activity")
     if not claim.statement:
         return ""
     from ..contracts.claim_language import overreaching_language

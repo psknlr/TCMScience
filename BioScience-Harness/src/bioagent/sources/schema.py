@@ -25,7 +25,7 @@ __all__ = [
     "NODE_CATEGORIES", "EDGE_PREDICATES", "KNOWLEDGE_LEVELS", "AGENT_TYPES",
     "STUDY_DESIGNS", "COMPOSITION_LEVELS", "NODE_REQUIRED", "EDGE_REQUIRED",
     "is_curie", "tier_for", "validate_node", "validate_edge", "licensed_claims",
-    "check_claim",
+    "check_claim", "is_lower_bound",
 ]
 
 NODE_CATEGORIES: frozenset[str] = frozenset({
@@ -103,6 +103,20 @@ _INCHIKEY = re.compile(r"^[A-Z]{14}-[A-Z]{10}-[A-Z]$")
 _UNIPROT = re.compile(
     r"^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})(-\d+)?$")
 _XREF_FORMATS = {"inchikey": _INCHIKEY, "uniprot": _UNIPROT}
+
+
+def is_lower_bound(measure: Any) -> bool:
+    """Whether a measurement records only a lower bound (``>``, ``>=``, ``>>``, ``≥``).
+
+    "IC50 > 100 µM" says the potency is worse than the number — the compound did not
+    reach it at the highest concentration tested. However small the number, such a value
+    cannot show activity, so it cannot support a claim that a compound acts on a target.
+    One definition, used by the analysis's potency filter and by the release check.
+    """
+    if not isinstance(measure, Mapping):
+        return False
+    relation = str(measure.get("relation") or "").strip()
+    return relation.startswith(">") or relation.startswith("≥")
 
 
 def is_curie(value: Any) -> bool:
@@ -207,9 +221,12 @@ def _as_list(value: Any) -> list[Any]:
 def licensed_claims(edges: Iterable[Mapping[str, Any]]) -> frozenset[str]:
     """The claim kinds that at least one of ``edges`` can license on its own design.
 
-    Edges with an unknown or missing design license nothing. This is the release-gate
-    rule in its simplest form: if every supporting edge is a prediction, the strongest
-    claim the set can carry is ``mechanism_hypothesis``.
+    A *union*: the right question for alternative edges — several sources for the same
+    step, any one of which would do. It is **not** the release gate. A claim resting on a
+    chain of edges (herb → compound → target) is only as strong as its weakest link, and
+    ``release.path_licenses`` intersects instead; the two agree only for a single edge.
+    Edges with an unknown or missing design license nothing, so a set of predictions
+    carries ``mechanism_hypothesis`` at most either way.
     """
     tiers = {STUDY_DESIGNS[e["study_design"]] for e in edges
              if STUDY_DESIGNS.get(e.get("study_design")) is not None}
@@ -217,7 +234,11 @@ def licensed_claims(edges: Iterable[Mapping[str, Any]]) -> frozenset[str]:
 
 
 def check_claim(claim_kind: str, edges: Iterable[Mapping[str, Any]]) -> tuple[bool, str]:
-    """Whether ``edges`` can support a claim of ``claim_kind``, and why (not)."""
+    """Whether ``edges``, read as alternatives, can support a claim of ``claim_kind``.
+
+    For the edges of one path use ``release.check_release`` (weakest link); this answers
+    whether *some* edge in the set reaches the kind.
+    """
     if claim_kind not in CLAIM_SUPPORT:
         raise ValueError(f"claim kind {claim_kind!r} is not one of {sorted(CLAIM_SUPPORT)}")
     edges = list(edges)

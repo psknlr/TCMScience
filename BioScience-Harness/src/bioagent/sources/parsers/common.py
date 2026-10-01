@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import io
+import json
 import re
 import zipfile
 from collections import Counter
@@ -26,7 +28,7 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 __all__ = ["BLANKS", "ParseReport", "ParseResult", "open_text", "read_rows", "clean",
            "publication", "compound_id", "target_id", "organism_id", "NodeBook",
-           "parse_measure", "TaxonFilter"]
+           "parse_measure", "TaxonFilter", "row_digest"]
 
 #: Spellings the BIDD files, LOTUS and BindingDB use for "no value".
 BLANKS = frozenset({"", "n.a.", "na", "n/a", "nan", "none", "null", "-"})
@@ -95,6 +97,24 @@ def target_id(source: str, source_id: str, uniprot: str | None) -> str:
 def organism_id(source: str, source_id: str, taxid: str | None) -> str:
     tax = clean(taxid)
     return f"ncbitaxon:{tax}" if tax and tax.isdigit() else f"{source}:{source_id}"
+
+
+def row_digest(row: Mapping[str, Any]) -> str:
+    """A short content hash of one source row: its identity when the source gives none.
+
+    NPASS and CMAUP activity files carry no record id, and the parsers used the row's
+    *position* instead. A position is not an identity: one row inserted near the top of
+    the next release renumbers every row after it, so comparing two snapshots' ids says
+    everything changed. And the files repeat rows exactly — 87,882 of NPASS 2.0's 958,866
+    activity rows and 1,230 of CMAUP 2.0's 28,871 — which positions turned into distinct
+    edges: on the full files, 3,659 of NPASS's 157,579 cited protein-target edges and
+    1,191 of CMAUP's 26,934 were repeats. A digest of the row's content is the same
+    wherever the row sits, and two identical rows share it, so the duplicate can be
+    recognised and counted.
+    """
+    blob = json.dumps({k: row[k] for k in sorted(row)}, ensure_ascii=False,
+                      separators=(",", ":"), default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
 def is_inchikey(value: str | None) -> bool:
