@@ -453,7 +453,7 @@ def _rhea(conn: sqlite3.Connection) -> Iterator[Row | None]:
             if ctype.startswith("Generic"):
                 # a generic compound ("[protein]-dithiol") is Rhea's own entity; the
                 # ChEBI ids are those of its reactive parts
-                target = f"rhea:{accession}" if accession else None
+                target = f"rhea.compound:{accession}" if accession else None
             else:
                 target = v(r["chebi"])
             if not target:
@@ -537,9 +537,14 @@ def _fooddata(conn: sqlite3.Connection) -> Iterator[Row | None]:
             code, desc, src = derivation.get(v(r["derivation_id"]) or "", (None, None, None))
             if src == _FDC_ASSUMED_ZERO:
                 continue                        # assumed, never measured: not a result
+            points = v(r["data_points"])
+            if amount == 0 and code is None and (points is None or _number(points) == 0):
+                # a zero with no derivation code and no data points was calculated,
+                # imputed or assumed (SR: 0 points = not analysed), never measured; it
+                # says nothing about whether the nutrient was tested
+                continue
             evidence = _FDC_EVIDENCE.get(src or "", "aggregated")
             nname, unit, nbr = nutrient.get(r["nutrient_id"], (None, None, None))
-            points = v(r["data_points"])
             yield rel("food_nutrient", "fooddata_central", f"fdc:food.{fid}", foods[fid],
                       f"fdc:nutrient.{r['nutrient_id']}", names(nname, nbr), evidence,
                       object_type="nutrient", outcome="negative" if amount == 0 else "positive",
@@ -603,7 +608,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "robots.txt disallows crawling: only the named files are fetched.",
         relations=("organism_compound", "compound_class", "compound_role"),
         commercial_use="allowed",
-        upstream=(),
+        upstream=("MetaboLights", "BioModels", "yeast.sf.net"),
         crosswalk={"compound": (
             "SELECT 'chebi:' || substr(c.chebi_accession, 7), "
             "'inchikey:' || s.standard_inchi_key FROM structures s "
@@ -646,7 +651,8 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "reaction, 'substrate'/'product' for its left-to-right and right-to-left "
               "forms, 'substrate or product' for the bidirectional form; context.value is "
               "the stoichiometric coefficient (N, 2n for polymers). Generic compounds "
-              "([protein]-dithiol) keep Rhea's GENERIC accession, with their reactive "
+              "([protein]-dithiol) keep Rhea's GENERIC accession as rhea.compound:GENERIC:<n> "
+              "(rhea:<n> names reactions), with their reactive "
               "parts' ChEBI ids in context.residue; polymers use the underlying ChEBI "
               "polymer. Obsolete reactions are left out; preliminary ones say so in "
               "context.qc. enzyme_reaction: the UniProtKB/Swiss-Prot entries annotated "
@@ -691,10 +697,12 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "those databases record; conjugate acids and bases therefore meet. The "
               "'licences' table holds each upstream's licence as the file header states "
               "it: rows sourced from KEGG, BiGG, HMDB, MetaCyc, enviPath or SABIO-RK are "
-              "not for commercial use. Upstream versions lag the sources' current "
+              "not for commercial use, while MNXref's own content is CC BY 4.0, so commercial "
+              "use is 'unknown' for the dataset as a whole and depends on each row's "
+              "source. Upstream versions lag the sources' current "
               "releases (ChEBI 244, Rhea 139, SABIO-RK 2021). Robots: Crawl-delay 10; the "
               "pinned 4.5 bundle (208 MB) is one request.",
-        commercial_use="forbidden",
+        commercial_use="unknown",
         upstream=("ChEBI", "Rhea", "KEGG", "HMDB", "MetaCyc", "LIPID MAPS", "SwissLipids",
                   "Reactome", "SEED", "BiGG", "VMH", "enviPath", "SABIO-RK"),
         crosswalk={"compound": (
@@ -720,8 +728,9 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "'known'; analytical from the literature or manufacturer-supplied "
               "'reported'; calculated or imputed 'predicted'; aggregated combinations and "
               "rows without a derivation code 'aggregated'; label claims 'listed'. An "
-              "'assumed zero' (code Z: never measured) gives no row; any other amount of "
-              "0 is a negative outcome. Nutrients keep FoodData Central's ids "
+              "'assumed zero' (code Z: never measured) gives no row, nor does a zero "
+              "with no derivation code and no data points (SR's sign of a value that was "
+              "not analysed); any other amount of 0 is a negative outcome. Nutrients keep FoodData Central's ids "
               "(fdc:nutrient.<id>): FDC maps none to ChEBI or InChIKey. FNDDS (derived "
               "from SR and Foundation values) and Branded (label data) are not included. "
               "The API needs an api.data.gov key and is not wrapped.",

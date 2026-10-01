@@ -299,7 +299,7 @@ def test_rhea_generic_compounds_polymers_and_transports(rhea):
     hub, report = rhea
     rows = {(r["subject_id"], r["object_id"], json.loads(r["context"])["action"]): r
             for r in _rels(hub, "reaction_participant")}
-    generic = rows[("rhea:15105", "rhea:GENERIC:10594", "left side")]
+    generic = rows[("rhea:15105", "rhea.compound:GENERIC:10594", "left side")]
     assert json.loads(generic["context"])["residue"] == "chebi:29950"
     polymer = rows[("rhea:15105", "chebi:133894", "right side")]
     assert polymer["note"] == "POLYMER:12833, polymerization index n"
@@ -414,7 +414,7 @@ def test_metanetx_maps_external_ids_to_the_neutral_inchikey(metanetx):
                  "seed.compound:cpd19040", "seed.compound:cpd11416"):
         assert left not in cw                   # secondary, duplicate or not mapped here
     spec = dataset("metanetx")
-    assert spec.commercial_use == "forbidden"
+    assert spec.commercial_use == "unknown"           # CC BY own content, mixed rows
     assert licence_class(spec.license) == "non-commercial"
     assert "ChEBI" in spec.upstream and "SABIO-RK" in spec.upstream
 
@@ -479,8 +479,14 @@ def _fdc(raw):
             ("11", "169231", "2000", "1.7", "0", "67", "", "", "", "", ""),
             ("12", "169231", "1079", "0", "0", "68", "", "", "", "", ""),
             ("13", "169231", "1087", "16", "3", "1", "15", "18", "", "Value; from 3 labs",
-             "")),
+             ""),
+            ("14", "169231", "1259", "0", "0", "", "", "", "", "", ""),     # codeless 0
+            ("15", "169231", "1018", "0", "", "", "", "", "", "", ""),      # no points
+            ("16", "169231", "1057", "0", "2", "", "", "", "", "", "")),    # 2 points
         "nutrient.csv": _csv(_NUT, ("1051", "Water", "G", "255", "100.0"),
+                             ("1259", "SFA 4:0", "G", "607", "9700.0"),
+                             ("1018", "Alcohol, ethyl", "G", "221", "18200.0"),
+                             ("1057", "Caffeine", "MG", "262", "18300.0"),
                              ("2000", "Sugars, Total", "G", "269", "1500.0"),
                              ("1079", "Fiber, total dietary", "G", "291", "1200.0"),
                              ("1087", "Calcium, Ca", "MG", "301", "5300.0")),
@@ -519,7 +525,11 @@ def test_fdc_evidence_follows_the_derivation_and_zero_is_not_always_a_result(fdc
     assert set(rows) == {
         ("fdc:food.321358", "fdc:nutrient.1105"), ("fdc:food.321358", "fdc:nutrient.1122"),
         ("fdc:food.321358", "fdc:nutrient.1008"), ("fdc:food.169231", "fdc:nutrient.1051"),
-        ("fdc:food.169231", "fdc:nutrient.2000"), ("fdc:food.169231", "fdc:nutrient.1087")}
+        ("fdc:food.169231", "fdc:nutrient.2000"), ("fdc:food.169231", "fdc:nutrient.1087"),
+        ("fdc:food.169231", "fdc:nutrient.1057")}
+    # a codeless zero with no data points was never measured: no row, not a negative
+    caffeine = rows[("fdc:food.169231", "fdc:nutrient.1057")]
+    assert (caffeine["evidence"], caffeine["outcome"]) == ("aggregated", "negative")
     # the sub-sample's lab result and the assumed zero (code Z) have no row
     retinol = rows[("fdc:food.321358", "fdc:nutrient.1105")]
     assert (retinol["evidence"], retinol["outcome"], retinol["object_type"]) == (
