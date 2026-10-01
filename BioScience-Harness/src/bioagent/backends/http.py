@@ -253,6 +253,9 @@ DEFAULT_RATES: Mapping[str, float] = {
     "service.azul.data.humancellatlas.org": 1.0, "search.api.hubmapconsortium.org": 1.0,
     "entity.api.hubmapconsortium.org": 1.0, "portal.hubmapconsortium.org": 1.0,
     "data.4dnucleome.org": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs
+    "uxn2ycvimg.us-east-2.awsapprunner.com": 1.0, "pharmacodb.ca": 1.0,
+    "pharos-api.ncats.io": 1.0,
 }
 
 

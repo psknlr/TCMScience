@@ -382,6 +382,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "entity.api.hubmapconsortium.org", "portal.hubmapconsortium.org",
             "ontology.api.hubmapconsortium.org", "data.4dnucleome.org",
             "4dn-open-data-public.s3.amazonaws.com",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs.
+            # Live connectors (providers.supplement.drugs): the DrugCentral API runs on an
+            # App Runner host, listed exactly (never the shared awsapprunner.com suffix) ...
+            "uxn2ycvimg.us-east-2.awsapprunner.com", "pharmacodb.ca", "pharos-api.ncats.io",
+            # ... and download hosts (tcmdb.extra.drugs; zenodo.org is listed above)
+            "unmtid-dbs.net", "drugcentral.org", "cog.sanger.ac.uk",
+            "opendata.ncats.nih.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
