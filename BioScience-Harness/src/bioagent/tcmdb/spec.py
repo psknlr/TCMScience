@@ -68,6 +68,9 @@ class DatasetSpec:
     #: seconds between requests to this dataset's download host, when its robots.txt sets
     #: a Crawl-delay (``TCMDataHub.fetch`` paces every request, size probes included).
     crawl_delay_s: float = 0.0
+    #: the least seconds between two download requests to this dataset's host (its
+    #: robots.txt Crawl-delay); ``hub.fetch`` paces every request by it.
+    min_interval_s: float = 0.0
 
     def file(self, name: str) -> FileSpec:
         for f in self.files:

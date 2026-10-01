@@ -404,6 +404,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # on the GEO FTP (ncbi.nlm.nih.gov above), scPerturb on Zenodo (above) and the
             # ARCHS4 version list and HDF5 files (s3.dev -> s3.k8s.maayanlab.cloud)
             "cellosaurus.org", "ftp.expasy.org", "archs4.org", "maayanlab.cloud",
+            # immune_microbe: supplementary sources (review of 2026-09-30), checked
+            # 2026-10-01. AIRR Data Commons repositories, BV-BRC; MGnify is on
+            # www.ebi.ac.uk and the IEDB exports on www.iedb.org (both covered above).
+            "covid19-1.ireceptor.org", "vdjserver.org", "www.bv-brc.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

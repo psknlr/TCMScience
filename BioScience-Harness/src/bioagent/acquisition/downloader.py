@@ -136,6 +136,10 @@ class Downloader:
                  rates: Mapping[str, float] | None = None) -> None:
                  min_interval_s: float = 0.0) -> None:
         self.root = Path(root)
+        #: the least time between two requests this downloader sends (a robots.txt
+        #: Crawl-delay); every HEAD, ranged probe, download and retry waits for it.
+        self.min_interval_s = min_interval_s
+        self._last_request: float | None = None
         self.root.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
         self.chunk = chunk
@@ -161,6 +165,13 @@ class Downloader:
         self._last_request: float | None = None
 
     # ------------------------------------------------------------------ helpers
+    def _pace(self) -> None:
+        if self.min_interval_s > 0 and self._last_request is not None:
+            wait = self._last_request + self.min_interval_s - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self._last_request = time.monotonic()
+
     @staticmethod
     def _hash(path: Path, algo: str = "sha256") -> str:
         h = hashlib.new(algo)
@@ -185,6 +196,8 @@ class Downloader:
                 self._pace()
                 req = urllib.request.Request(url, method=method, headers={"User-Agent": _UA, **hdrs})
                 with self._open(req) as r:
+                self._pace()
+                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
                     cr = r.headers.get("Content-Range")
                     if cr and "/" in cr and cr.rsplit("/", 1)[1].isdigit():
                         return int(cr.rsplit("/", 1)[1])
@@ -301,6 +314,8 @@ class Downloader:
                 self._pace()
                 req = urllib.request.Request(url, headers=headers)
                 with self._open(req) as r:
+                self._pace()
+                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
                     if resumed and r.status != 206:
                         have = 0          # server ignored Range: start over
                     mode = "ab" if (resumed and r.status == 206) else "wb"

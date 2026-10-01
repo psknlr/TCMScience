@@ -196,8 +196,96 @@ TCM_SOURCES: tuple[PublicSource, ...] = (
                               "select": "tcell_id,linear_sequence,parent_source_antigen_name",
                               "limit": "{limit}"},
                       args=("name",), example={"name": "Interleukin-6", "limit": 5}),
-        ), smoke="epitopes_by_sequence", docs="https://query-api.iedb.org/docs/",
-        rate_note="no key; no stated limit"),
+            # added with the supplementary sources (review of 2026-09-30), each answered
+            # on 2026-10-01
+            Operation("epitope", "One epitope by IEDB structure id: antigens, source "
+                      "organisms, MHC alleles, outcomes, PubMed ids, ChEBI ids",
+                      "epitope_search",
+                      params={"structure_id": "eq.{structure_id}",
+                              "select": "structure_id,structure_iri,linear_sequence,"
+                                        "structure_type,non_peptidic_molecule_names,chebi_ids,"
+                                        "parent_source_antigen_iris,parent_source_antigen_names,"
+                                        "source_organism_iris,source_organism_names,"
+                                        "mhc_allele_names,qualitative_measures,pubmed_ids",
+                              "limit": 1},
+                      args=("structure_id",), example={"structure_id": 58560}),
+            Operation("epitope_summary", "IEDB's one-paragraph summary of an epitope (assay "
+                      "and publication counts)", "epitope_summary",
+                      params={"structure_id": "eq.{structure_id}"},
+                      args=("structure_id",), example={"structure_id": 58560}),
+            Operation("epitopes_by_organism", "Epitopes from a source organism by NCBI taxon "
+                      "id (e.g. 4220 Artemisia vulgaris, mugwort)", "epitope_search",
+                      params={"source_organism_iri_search": "cs.{NCBITaxon:{taxon_id}}",
+                              "select": "structure_id,linear_sequence,structure_type,"
+                                        "parent_source_antigen_iris,parent_source_antigen_names,"
+                                        "source_organism_names,qualitative_measures",
+                              "limit": "{limit}"},
+                      args=("taxon_id",), example={"taxon_id": 4220, "limit": 5}),
+            Operation("tcell_by_antigen", "T-cell assays on epitopes of one antigen (UniProt "
+                      "accession), with host, MHC restriction and outcome", "tcell_search",
+                      params={"parent_source_antigen_iri": "eq.UNIPROT:{accession}",
+                              "select": "tcell_id,structure_id,linear_sequence,"
+                                        "host_organism_name,mhc_allele_name,assay_names,"
+                                        "qualitative_measure,pubmed_id",
+                              "limit": "{limit}"},
+                      args=("accession",), example={"accession": "P01012", "limit": 5}),
+            Operation("tcell_by_molecule", "T-cell assays on non-peptidic epitopes (drugs, "
+                      "haptens, natural products) whose name matches a pattern",
+                      "tcell_search",
+                      params={"non_peptidic_molecule_name": "ilike.*{name}*",
+                              "select": "tcell_id,structure_id,non_peptidic_molecule_iri,"
+                                        "non_peptidic_molecule_name,chebi_ids,"
+                                        "host_organism_name,assay_names,qualitative_measure,"
+                                        "pubmed_id",
+                              "limit": "{limit}"},
+                      args=("name",), example={"name": "penicillin", "limit": 5}),
+            Operation("bcell_by_sequence", "B-cell / antibody assays on a linear epitope",
+                      "bcell_search",
+                      params={"linear_sequence": "eq.{sequence}",
+                              "select": "bcell_id,structure_id,linear_sequence,"
+                                        "parent_source_antigen_iri,parent_source_antigen_name,"
+                                        "host_organism_name,assay_names,qualitative_measure,"
+                                        "antibody_isotype,pubmed_id",
+                              "limit": "{limit}"},
+                      args=("sequence",), example={"sequence": "NLVPMVATV", "limit": 5}),
+            Operation("mhc_by_sequence", "MHC binding and elution assays of a peptide, with "
+                      "qualitative and quantitative outcome (quantitative values carry HTML "
+                      "entities such as &nbsp;)", "mhc_search",
+                      params={"linear_sequence": "eq.{sequence}",
+                              "select": "elution_id,structure_id,linear_sequence,"
+                                        "mhc_allele_name,assay_names,qualitative_measure,"
+                                        "quantitative_measure,pubmed_id",
+                              "limit": "{limit}"},
+                      args=("sequence",), example={"sequence": "SIINFEKL", "limit": 5}),
+            Operation("tcr_by_epitope", "T-cell receptor groups (CDR3 alpha/beta) that "
+                      "recognise a peptide", "tcr_search",
+                      params={"linear_sequences": "cs.{{sequence}}",
+                              "select": "receptor_group_id,receptor_type,"
+                                        "receptor_species_names,chain1_cdr3_seq,"
+                                        "chain2_cdr3_seq,linear_sequences,mhc_allele_names",
+                              "limit": "{limit}"},
+                      args=("sequence",), example={"sequence": "NLVPMVATV", "limit": 5}),
+            Operation("bcr_by_cdr3", "B-cell receptor groups with a given heavy-chain CDR3 "
+                      "and the antigens they bind", "bcr_search",
+                      params={"chain1_cdr3_seq": "eq.{cdr3}",
+                              "select": "receptor_group_id,receptor_type,"
+                                        "receptor_species_names,chain1_cdr3_seq,"
+                                        "chain2_cdr3_seq,linear_sequences,"
+                                        "parent_source_antigen_names",
+                              "limit": "{limit}"},
+                      args=("cdr3",), example={"cdr3": "TRLGDYGYAYTMDY", "limit": 5}),
+            Operation("reference_by_pmid", "An IEDB reference by PubMed id, with the "
+                      "epitopes curated from it", "reference_search",
+                      params={"pubmed_id": "eq.{pmid}",
+                              "select": "reference_id,reference_iri,pubmed_id,reference_title,"
+                                        "journal_name,reference_date,structure_ids,"
+                                        "linear_sequences",
+                              "limit": 1},
+                      args=("pmid",), example={"pmid": "9469429"}),
+        ), smoke="epitopes_by_sequence",
+        docs="https://discuss.iedb.org/t/immune-epitope-database-query-api-iq-api/154",
+        rate_note="no key; no stated limit; at most 10,000 rows per page, and paging needs an "
+                  "'order' parameter (otherwise pages are inconsistent)"),
 
     PublicSource(
         "huggingface", "Hugging Face Hub API", "https://huggingface.co/api",
