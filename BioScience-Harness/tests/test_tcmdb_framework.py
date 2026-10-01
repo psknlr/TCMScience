@@ -261,3 +261,27 @@ def test_the_check_command_reports_and_fails_on_a_problem(tmmc, capsys):
     h, _ = tmmc
     assert main(["tcmdb", "--root", str(h.root), "check", "tmmc2", "--no-rebuild"]) == 0
     assert '"ok": true' in capsys.readouterr().out
+
+
+def test_a_dataset_can_declare_id_mappings_for_the_crosswalk(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from bioagent.tcmdb import datasets as ds
+    from bioagent.tcmdb.consensus import Crosswalk
+    spec = replace(ds.dataset("ttd"), crosswalk={
+        "compound": "SELECT 'chebi:' || id, 'inchikey:' || ik FROM xw",
+        "gene": "SELECT 'uniprot:' || acc, 'symbol:' || sym FROM xw"})
+    monkeypatch.setattr(ds, "DATASETS", tuple(spec if d.key == "ttd" else d
+                                              for d in ds.DATASETS))
+    h = TCMDataHub(tmp_path)
+    path = h.db_path("ttd")
+    path.parent.mkdir(parents=True)
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE xw (id TEXT, ik TEXT, acc TEXT, sym TEXT)")
+        conn.execute("INSERT INTO xw VALUES ('28794', 'REFJWTPEDVJJIY-UHFFFAOYSA-N', "
+                     "'P01375', 'tnf')")
+        conn.execute("INSERT INTO xw VALUES ('1', 'not-a-key', 'P0', '')")
+    cw = Crosswalk(h)
+    assert cw.canon("compound", "chebi:28794") == "inchikey:REFJWTPEDVJJIY-UHFFFAOYSA-N"
+    assert cw.canon("drug", "chebi:1") == "chebi:1"                 # not an InChIKey
+    assert cw.canon("protein", "uniprot:P01375") == "symbol:TNF"

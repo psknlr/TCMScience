@@ -103,6 +103,8 @@ MIN_OBJECTS = 20
 _PROCESSED = ("炙", "炒", "麸炒", "焦", "炭", "煅", "制", "酒", "醋", "盐", "姜", "蜜", "熟",
               "法", "清", "胆")
 _CJK = re.compile(r"[一-鿿]")
+#: Entity types the crosswalk maps (compounds to InChIKeys, genes to symbols).
+_MAPPED = ("ingredient", "compound", "drug", "ligand", "target", "gene", "protein")
 _VIA = re.compile(r"via\s+(.+)$")
 
 
@@ -210,7 +212,20 @@ class Crosswalk:
         for tid, cid, ik in self._rows("tmmc2", "SELECT ID, CID, INCHIKEY FROM chemical_property"):
             if ik and len(str(ik)) == 27:
                 out[f"tmmc:{tid}"] = f"inchikey:{ik}"
+        for local, canon in self._declared("compound"):
+            if canon.startswith("inchikey:") and len(canon) == 36:
+                out.setdefault(local, canon)
         return out
+
+    def _declared(self, entity: str) -> list[tuple[str, str]]:
+        """(id, canonical id) pairs the built datasets declare (``DatasetSpec.crosswalk``)."""
+        from .datasets import DATASETS
+        pairs: list[tuple[str, str]] = []
+        for spec in DATASETS:
+            sql = spec.crosswalk.get(entity)
+            if sql:
+                pairs += [(str(a), str(b)) for a, b in self._rows(spec.key, sql) if a and b]
+        return pairs
 
     @cached_property
     def gene(self) -> dict[str, str]:
@@ -234,16 +249,19 @@ class Crosswalk:
                 if acc and sym:
                     for a in str(acc).split("|"):
                         out.setdefault(f"uniprot:{a.strip()}", f"symbol:{str(sym).upper()}")
+        for local, canon in self._declared("gene"):
+            if canon.startswith("symbol:") and len(canon) > 7:
+                out.setdefault(local, "symbol:" + canon[7:].upper())
         return out
 
     def canon(self, entity_type: str, entity_id: str, name: str | None = None, *,
               merge_processed: bool = False) -> str:
         """One identity for an entity as one source names it."""
-        if entity_type in ("ingredient", "compound"):
+        if entity_type in ("ingredient", "compound", "drug", "ligand"):
             if entity_id.startswith("inchikey:"):
                 return entity_id
             return self.compound.get(entity_id, entity_id)
-        if entity_type in ("target", "gene"):
+        if entity_type in ("target", "gene", "protein"):
             if entity_id.startswith("symbol:"):
                 return entity_id.upper().replace("SYMBOL:", "symbol:")
             if entity_id.startswith("ensembl:ENSP") and name:
@@ -256,7 +274,8 @@ class Crosswalk:
 
     def aliases(self, entity_type: str, canonical: str) -> list[str]:
         """Every id that maps to ``canonical`` (for querying all sources at once)."""
-        table = self.compound if entity_type in ("ingredient", "compound") else self.gene
+        table = (self.compound if entity_type in ("ingredient", "compound", "drug", "ligand")
+                 else self.gene)
         return [canonical] + [k for k, v in table.items() if v == canonical]
 
 
@@ -439,7 +458,7 @@ def _gather(hub: Any, kind: str, *, subject: str | None, object: str | None,
     def variants(value: str | None, etype: str) -> list[str | None]:
         if not value:
             return [None]
-        if ":" in value and etype in ("ingredient", "target"):
+        if ":" in value and etype in _MAPPED:
             canonical = cw.canon(etype, value)
             return cw.aliases(etype, canonical)
         return [value]
@@ -454,13 +473,14 @@ def _gather(hub: Any, kind: str, *, subject: str | None, object: str | None,
                 for r in hub.relations(kind, subject=s, object=o, sources=sources,
                                        contains=contains, limit=10 ** 7):
                     key = tuple(r.get(c) for c in ("source", "subject_id", "object_id",
-                                                   "evidence", "reference"))
+                                                   "evidence", "reference", "effect",
+                                                   "outcome", "context"))
                     if key not in seen:
                         seen.add(key)
                         rows.append(r)
 
     collect(variants(subject, stype), variants(object, otype))
-    if subject and ":" not in subject and stype in ("ingredient", "target"):
+    if subject and ":" not in subject and stype in _MAPPED:
         # A name reaches only the sources that store names. Sources that key compounds or
         # genes by id alone are reached through the ids the name resolved to.
         named = {cw.canon(stype, r["subject_id"], r["subject_name"]) for r in rows}

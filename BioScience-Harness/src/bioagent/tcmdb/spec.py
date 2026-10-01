@@ -59,6 +59,10 @@ class DatasetSpec:
     #: upstream databases this dataset redistributes, so the same upstream record is not
     #: counted twice (``tcmdb.consensus``).
     upstream: tuple[str, ...] = ()
+    #: id mappings this dataset contributes to ``consensus.Crosswalk``: "compound" or
+    #: "gene" -> SQL over the built store returning (id, canonical id) pairs, already
+    #: prefixed: ``inchikey:`` (27 characters) for compounds, ``symbol:`` for human genes.
+    crosswalk: Mapping[str, str] = field(default_factory=dict)
 
     def file(self, name: str) -> FileSpec:
         for f in self.files:
