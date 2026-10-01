@@ -3,7 +3,8 @@
 
 DrugCentral writes double-quoted TSV; a target made of several proteins lists them all in
 one row; its action type gives the effect, and the database a row came from is its
-lineage. GDSC's putative targets are free text and stay GDSC's own names. Pharos's
+lineage. GDSC's putative targets are free text: symbols and one-protein aliases become
+HGNC symbols, families stay GDSC's names, mechanisms go to the unresolved queue. Pharos's
 development levels are gene sets. DrugComb's and GDSC's screen tables are kept as files,
 never exploded into relations. The connectors send the requests that were verified live.
 """
@@ -77,7 +78,8 @@ def _drugcentral_files(raw):
                   ACTION_TYPE="ANTISENSE INHIBITOR", ORGANISM="Homo sapiens"),
         _dti_line(DRUG_NAME="ratdrug", STRUCT_ID=7, TARGET_NAME="Some rat enzyme",
                   TARGET_CLASS="Enzyme", ACCESSION="P99999", GENE="Abc1",
-                  ACT_VALUE=6, ACT_TYPE="Ki", ACT_SOURCE="DRUG MATRIX", RELATION="=",
+                  # '-' qualifies nothing: no flag
+                  ACT_VALUE=6, ACT_TYPE="Ki", ACT_SOURCE="DRUG MATRIX", RELATION="-",
                   ORGANISM="Rattus norvegicus"),
         _dti_line(DRUG_NAME="orphan", STRUCT_ID=8, TARGET_NAME="Unmapped protein",
                   TARGET_CLASS="Unclassified", ACT_SOURCE="SCIENTIFIC LITERATURE",
@@ -173,6 +175,7 @@ def test_drugcentral_without_accession_goes_to_the_queue(drugcentral):
     assert not h.relations("drug_target", subject="drugcentral:8")
     rat = h.relations("drug_target", subject="drugcentral:7")[0]
     assert _ctx(rat)["species"] == "Rattus norvegicus" and rat["note"] == "via DrugMatrix"
+    assert "flags" not in _ctx(rat)
 
 
 def test_drugcentral_ids_meet_other_sources_through_the_crosswalk(drugcentral):
@@ -213,6 +216,10 @@ def gdsc(tmp_path):
         '17,MGH,Cyclopamine,,"Tankyrase 1/2 (PARP5a, PARP5b)",Other,several,',
         '29,MGH,AZ628,AZ-628,BRAF,ERK MAPK signaling,CHEMBL2144069,',
         '30,SANGER,Mystery,,"not defined, others",Unclassified,none,',
+        '31,SANGER,Trametinib,,"MEK1, MEK2, MTORC1",ERK MAPK signaling,CHEMBL2103875,',
+        '32,SANGER,Paclitaxel,,Microtubule stabiliser,Mitosis,CHEMBL428647,',
+        # PDK1 is an HGNC symbol, but GDSC means PDPK1 by it: kept as GDSC's name
+        '33,SANGER,KIN001-244,,PDK1,"Other, kinases",,',
     ]) + "\n", encoding="utf-8")
     (raw / "model_list_20260921.csv").write_text(
         "model_id,model_name,RRID\nSIDM00848,A673,CVCL_0080\n", encoding="utf-8")
@@ -221,20 +228,37 @@ def gdsc(tmp_path):
     return h, report
 
 
-def test_gdsc_putative_targets_stay_gdsc_names(gdsc):
+def test_gdsc_putative_targets_map_to_symbols_where_they_name_one_protein(gdsc):
     h, report = gdsc
-    assert report["relations"] == {"compound_target": 4}
+    assert report["relations"] == {"compound_target": 8}
     rows = h.relations("compound_target", subject="inchikey:WINHZLLDWRZWRT-ATVHPVEESA-N")
-    assert {r["object_id"] for r in rows} == {"gdsc:target.PDGFR", "gdsc:target.KIT"}
+    # KIT is an HGNC symbol; PDGFR is a family and stays GDSC's name
+    assert {r["object_id"] for r in rows} == {"gdsc:target.PDGFR", "symbol:KIT"}
     assert all(r["evidence"] == "listed" and r["effect"] is None for r in rows)
     assert "Sutent" in rows[0]["subject_name"].split(" | ")
     # a comma inside parentheses does not split the target
     cyc = h.relations("compound_target", subject="gdsc:drug.17")
     assert [r["object_id"] for r in cyc] == ["gdsc:target.Tankyrase 1/2 (PARP5a, PARP5b)"]
     # a ChEMBL id is used only when it is one ("several" is not)
-    assert h.relations("compound_target", subject="chembl:CHEMBL2144069")
+    assert [r["object_id"] for r in h.relations("compound_target",
+                                                  subject="chembl:CHEMBL2144069")] \
+        == ["symbol:BRAF"]
     # "not defined" and "others" are no target at all
     assert not h.relations("compound_target", subject="gdsc:drug.30")
+    # an alias of one protein becomes its symbol, keeping GDSC's name; a complex does not
+    tram = {r["object_id"]: r["object_name"]
+            for r in h.relations("compound_target", subject="chembl:CHEMBL2103875")}
+    assert tram == {"symbol:MAP2K1": "MAP2K1 | MEK1", "symbol:MAP2K2": "MAP2K2 | MEK2",
+                    "gdsc:target.MTORC1": "MTORC1"}
+    assert [r["object_id"] for r in h.relations("compound_target",
+                                                  subject="gdsc:drug.33")] \
+        == ["gdsc:target.PDK1"]
+    # a mechanism names no target: it is queued, not a relation
+    assert not h.relations("compound_target", subject="chembl:CHEMBL428647")
+    assert report["unresolved"] == 1
+    queued = h.unresolved("gdsc")
+    assert [(q["subject_id"], q["object_name"]) for q in queued] == \
+        [("chembl:CHEMBL428647", "Microtubule stabiliser")]
 
 
 def test_gdsc_screen_tables_are_kept_as_files_and_rows_are_non_commercial(gdsc):

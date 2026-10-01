@@ -99,6 +99,9 @@ _DC_UPSTREAM = {"CHEMBL": "ChEMBL", "IUPHAR": "GtoPdb", "DRUGBANK": "DrugBank",
                 "KEGG DRUG": "KEGG", "WOMBAT-PK": "WOMBAT-PK", "DRUG MATRIX": "DrugMatrix",
                 "PDSP": "PDSP"}
 
+#: RELATION values that qualify ACT_VALUE (a bound or an estimate).
+_DC_COMPARISONS = frozenset({">", "<", ">=", "<=", "~"})
+
 _PUBMED = re.compile(r"pubmed\.ncbi\.nlm\.nih\.gov/(\d+)|ncbi\.nlm\.nih\.gov/pubmed/(\d+)")
 _DOI = re.compile(r"^https?://(?:dx\.)?doi\.org/(10\..+)$", re.I)
 
@@ -147,7 +150,8 @@ def _drugcentral(conn) -> Iterator[Row | None]:
             measure=v(r["ACT_TYPE"]),
             # DrugCentral standardises every activity to -log10 of the molar value
             unit="-log10(M)" if value else None,
-            flags=f"relation {relation}" if value and relation and relation != "=" else None,
+            # only a comparison qualifies the value; '=' is exact and '-' says nothing
+            flags=f"relation {relation}" if value and relation in _DC_COMPARISONS else None,
             # a mechanism-of-action record says "Mechanism of Action" where an assay
             # record describes its assay
             assay=None if (v(r["ACT_COMMENT"]) or "").lower() == "mechanism of action"
@@ -272,11 +276,74 @@ _GDSC_LICENSE = ("DepMap at Sanger Data Usage Policy: internal research and educ
 _GDSC_NO_TARGET = frozenset({"others", "other", "not defined", "none", "unknown"})
 _CHEMBL = re.compile(r"^CHEMBL\d+$")
 
+#: GDSC target names that are approved HGNC symbols for the protein GDSC means. Checked
+#: against the human canonical-protein symbols of Pharos400 (release 8.5's 382 names).
+#: PDK1, FAS and EIF2A are HGNC symbols too but GDSC means another protein by them
+#: (PDPK1, FASN and EIF2S1 for KIN001-244, C-75 and Salubrinal), so they are left out.
+_GDSC_SYMBOLS = frozenset("""
+ACACA ACVR1B ACVR1C ADRA1A ADRB1 AKT1 AKT2 AKT3 ALK AR ARAF ARFGAP1 ATM ATR AURKA AURKB
+AURKC AXL BAZ2A BAZ2B BCL2 BIRC5 BMX BRAF BRD2 BRD3 BRD4 BRD9 BRDT BRPF1 BRPF3 BTK CAPN1
+CDC7 CDK1 CDK2 CDK4 CDK5 CDK6 CDK7 CDK9 CECR2 CHEK1 CHEK2 CLK4 CRBN CSF1R DAPK3 DDR1 DDR2
+DOT1L DYRK1A DYRK1B EGFR EGLN1 EHMT1 EHMT2 EP300 EPHB4 ERBB2 ERBB3 ERBB4 ESR1 ESR2 EZH2
+FEN1 FGFR1 FGFR2 FGFR3 FGFR4 FLT1 FLT3 FLT4 FYN GLS GSK3A GSK3B HDAC1 HDAC10 HDAC11 HDAC2
+HDAC3 HDAC6 HDAC8 HIPK2 HSF1 IGF1R IRAK1 IRAK4 ITK JAK1 JAK2 JAK3 KDM3A KDM4A KDM4C KDM4E
+KDM6B KDR KIF11 KIT L3MBTL3 LCK LIMK1 LRRK2 LTK MAP4K2 MCL1 MDM2 MDM4 MET MKNK1 MKNK2
+MRE11 MTOR NAMPT NTRK1 NTRK2 NTRK3 NUAK1 NUAK2 PAK1 PAK2 PARP1 PARP2 PARP6 PDGFRA PDGFRB
+PIK3CB PIKFYVE PIM1 PIM2 PIM3 PLK1 PLK2 PLK3 PORCN PPM1D PPP1R15B RAC1 RAC2 RAC3 RET ROCK1
+ROCK2 ROS1 SGK2 SGK3 SIRT1 SMARCA2 SMARCA4 SMO SRC SYK TAF1 TBK1 TEC TERT TGFB1 TGFBR1
+TNKS2 TOP1 TP53 TTK TYMS ULK1 USP1 USP47 USP7 WEE1 XIAP
+""".split())
+
+#: GDSC names for one protein that are not its HGNC symbol: a common alias, a UniProt
+#: entry name, or a symbol GDSC gives in parentheses. Families (ERK, PI3K, VEGFR) and
+#: complexes (MTORC1) are not here: they stay GDSC's names.
+_GDSC_ALIASES = {
+    "ALK5": "TGFBR1", "CRAF": "RAF1", "c-FGR": "FGR", "eEF2K": "EEF2K", "EG5": "KIF11",
+    "ERK1": "MAPK3", "ERK2": "MAPK1", "ERK5": "MAPK7", "MEK1": "MAP2K1", "MEK2": "MAP2K2",
+    "MEK5": "MAP2K5", "JNK1": "MAPK8", "JNK2": "MAPK9", "JNK3": "MAPK10",
+    "p38alpha": "MAPK14", "p38beta": "MAPK11", "TAK1": "MAP3K7", "NIK": "MAP3K14",
+    "IKK1": "CHUK", "IKK-1": "CHUK", "IKK2": "IKBKB", "IKK-2": "IKBKB", "IKKb": "IKBKB",
+    "S6K1": "RPS6KB1", "KS6B1 (p70S6K)": "RPS6KB1", "RSK1": "RPS6KA1", "RSK2": "RPS6KA3",
+    "RSK3": "RPS6KA2", "MNK1": "MKNK1", "MNK2": "MKNK2", "M4K2": "MAP4K2",
+    "PK3CG": "PIK3CG", "VSP34": "PIK3C3", "PDK1 (PDPK1)": "PDPK1", "FAK1": "PTK2",
+    "VEGFR1": "FLT1", "VEGFR2": "KDR", "VEGFR3": "FLT4", "VEGFR3/FLT4": "FLT4",
+    "TIE2": "TEK", "RON": "MST1R", "MPS1": "TTK", "WIP1": "PPM1D", "LSD1": "KDM1A",
+    "G9A": "EHMT2", "GLP": "EHMT1", "TNKS1": "TNKS", "DNAPK": "PRKDC", "SETD8": "KMT5A",
+    "CBP": "CREBBP", "PERK": "EIF2AK3", "GADD34": "PPP1R15A", "UAF1": "WDR48",
+    "PMRT5": "PRMT5", "MRCKB": "CDC42BPB", "MRCKB_HUMAN": "CDC42BPB", "MCT1": "SLC16A1",
+    "MCT4": "SLC16A3", "PARP7": "TIPARP", "MCL-1": "MCL1", "BCL-XL": "BCL2L1",
+    "BCL-W": "BCL2L2", "BCL-B": "BCL2L10", "BFL1": "BCL2A1", "cIAP1": "BIRC2",
+    "cIAP2": "BIRC3", "FXR": "NR1H4", "FGRF1": "FGFR1", "IGFR1": "IGF1R",
+    "SHP-1 (PTPN6)": "PTPN6", "SHP-2 (PTPN11)": "PTPN11", "KRAS (G12C)": "KRAS",
+    "IDH1 (R132H)": "IDH1", "IDH2 R140Q mutant": "IDH2", "IDH2(R140Q)": "IDH2",
+    "Endothelin-1 receptor (EDNRA)": "EDNRA", "Dihydrofolate reductase (DHFR)": "DHFR",
+    "Farnesyl-transferase (FNTA)": "FNTA",
+}
+
+#: TARGET values that describe a mechanism or a drug class and name no protein: they go
+#: to the unresolved queue, not into compound_target.
+_GDSC_MECHANISMS = frozenset(s.lower() for s in (
+    "Alkylating agent", "DNA alkylating agent", "DNA crosslinker", "DNA damage",
+    "dsDNA break induction", "Anthracycline", "Anti-metabolite", "Antimetabolite",
+    "Antimetabolite (DNA & RNA)", "Pyrimidine antimetabolite",
+    "Pyrimidine synthesis inhibitor", "Autophagy inducer", "Biguanide agent",
+    "Broad spectrum kinase inhibitor", "G-quadruplex stabiliser", "Glycolysis",
+    "Induces reactive oxygen species", "Inflammatory related", "Metabo", "Metabolism",
+    "Microtubule destabiliser", "Microtubule stabiliser", "Mitochondria",
+    "anti-oxidant proteins", "Retinoic acid"))
+
+#: Whole TARGET values that the comma split would break apart.
+_GDSC_WHOLE = {"HDAC inhibitor Class I, IIa, IIb, IV": "HDAC class I, IIa, IIb, IV",
+               "Retinioic X receptor (RXR) agonist": "RXR"}
+
 
 def _split_targets(text: str | None) -> list[str]:
     """GDSC's comma-separated putative targets, keeping commas inside parentheses."""
+    text = (text or "").strip()
+    if text in _GDSC_WHOLE:
+        return [_GDSC_WHOLE[text]]
     out, depth, cur = [], 0, []
-    for ch in text or "":
+    for ch in text:
         if ch == "(":
             depth += 1
         elif ch == ")":
@@ -290,6 +357,13 @@ def _split_targets(text: str | None) -> list[str]:
     return [t for t in out if t and v(t) and t.lower() not in _GDSC_NO_TARGET]
 
 
+def _gdsc_target(name: str) -> str:
+    """The object id for one GDSC target name: an HGNC symbol where GDSC names one
+    protein, else GDSC's own name (a family, complex or unmapped name)."""
+    symbol = name if name in _GDSC_SYMBOLS else _GDSC_ALIASES.get(name)
+    return f"symbol:{symbol}" if symbol else f"gdsc:target.{name}"
+
+
 def _gdsc(conn) -> Iterator[Row | None]:
     if not has(conn, "compounds"):
         return
@@ -299,14 +373,21 @@ def _gdsc(conn) -> Iterator[Row | None]:
                    else f"chembl:{chembl}" if chembl and _CHEMBL.match(chembl)
                    else f"gdsc:drug.{v(r['DRUG_ID'])}")
         synonyms = [s.strip() for s in (v(r["SYNONYMS"]) or "").split(",")]
+        drug = names(r["DRUG_NAME"], *synonyms)
+        pathway = v(r["TARGET_PATHWAY"])
+        note = f"putative target; pathway: {pathway}" if pathway else "putative target"
         for target in _split_targets(v(r["TARGET"])):
-            # Free text: gene symbols (EGFR), families (PDGFR, PI3K), complexes (MTORC1)
-            # and mechanisms (Microtubule stabiliser). None is checked against HGNC, so
-            # the object is GDSC's own target name, not a symbol: ids/name stay as given.
-            yield rel("compound_target", "gdsc", subject, names(r["DRUG_NAME"], *synonyms),
-                      f"gdsc:target.{target}", target, "listed",
-                      note=f"putative target; pathway: {v(r['TARGET_PATHWAY'])}"
-                      if v(r["TARGET_PATHWAY"]) else "putative target")
+            if target.lower() in _GDSC_MECHANISMS:
+                yield unresolved("compound_target", "gdsc", subject, drug, target,
+                                 "GDSC gives a mechanism or drug class, not a target",
+                                 note=note)
+                continue
+            # Gene symbols (EGFR) and aliases of one protein (ERK1) become HGNC symbols;
+            # families (PDGFR, PI3K) and complexes (MTORC1) stay GDSC's own names.
+            obj = _gdsc_target(target)
+            yield rel("compound_target", "gdsc", subject, drug, obj,
+                      names(obj[7:], target) if obj.startswith("symbol:") else target,
+                      "listed", note=note)
 
 
 GDSC = DatasetSpec(
@@ -352,10 +433,12 @@ GDSC = DatasetSpec(
     notes="Cancer cell-line drug sensitivity measured at the Wellcome Sanger Institute and "
           "MGH. The fitted dose-response tables are screen results kept as files for "
           "analysis. The compound table's putative targets become compound_target rows "
-          "('listed': GDSC's annotation, not a measurement). They are free text (gene "
-          "symbols, families such as PDGFR, complexes such as MTORC1, mechanisms such as "
-          "'Microtubule stabiliser'), so the object is GDSC's own target name "
-          "(gdsc:target.<name>), never asserted to be an HGNC symbol. cancerrxgene.org "
+          "('listed': GDSC's annotation, not a measurement). They are free text: a name "
+          "that is an HGNC symbol (EGFR) or a fixed alias of one protein (ERK1 -> MAPK3) "
+          "becomes symbol:<HGNC>, checked against the human protein symbols; a family "
+          "(PDGFR, PI3K) or complex (MTORC1) stays GDSC's name (gdsc:target.<name>); a "
+          "mechanism or drug class that names no protein ('Microtubule stabiliser') goes "
+          "to the unresolved queue. cancerrxgene.org "
           "answers 410 since GDSC moved to Cell Model Passports. Non-commercial: the data "
           "may not be redistributed.",
     relations=("compound_target",),
