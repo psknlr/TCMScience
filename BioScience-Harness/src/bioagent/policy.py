@@ -358,6 +358,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # Orphadata and NHANES downloads
             "aopwiki.org", "api.orphadata.com", "www.orphadata.com",
             "clowder.edap-cluster.com", "wwwn.cdc.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: spectra and
+            # metabolomics (providers.supplement.spectra, tcmdb.extra.spectra). The
+            # Metabolomics Workbench robots.txt disallows all crawling: only its documented
+            # REST API is used, per entity.
+            "massbank.eu", "external.gnps2.org", "metabolomics-usi.gnps2.org",
+            "explorer.gnps2.org", "massive.ucsd.edu", "www.metabolomicsworkbench.org",
+            "np-mrd.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

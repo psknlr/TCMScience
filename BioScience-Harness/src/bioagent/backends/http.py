@@ -237,6 +237,9 @@ DEFAULT_RATES: Mapping[str, float] = {
     "api.mavedb.org": 1.0,
     # supplementary sources (review of 2026-09-30) -- safety: AOP-Wiki and Orphadata
     "aopwiki.org": 1.0, "api.orphadata.com": 1.0,
+    # supplementary sources (review of 2026-09-30): spectra and metabolomics servers
+    "massbank.eu": 1.0, "external.gnps2.org": 1.0, "metabolomics-usi.gnps2.org": 1.0,
+    "explorer.gnps2.org": 1.0, "massive.ucsd.edu": 1.0, "www.metabolomicsworkbench.org": 1.0,
 }
 
 
