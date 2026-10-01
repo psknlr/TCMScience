@@ -501,11 +501,11 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "use=reference; ClinPGx's API documentation limits clients to 2 requests "
               "per second. The four files are documented downloads, so they are fetched, "
               "and the hub spaces every request to the host (size probe and download) 30 "
-              "s apart (crawl_delay_s), so a fetch takes about four minutes. The "
+              "s apart (min_interval_s), so a fetch takes about four minutes. The "
               "ai-train=no signal reserves model training: the data must not be used to "
               "train models.",
         relations=("drug_pharmacogene", "variant_drug"), commercial_use="forbidden",
-        crawl_delay_s=30.0, crosswalk={"compound": _CLINPGX_COMPOUND_XWALK},
+        min_interval_s=30.0, crosswalk={"compound": _CLINPGX_COMPOUND_XWALK},
         upstream=("CPIC", "DPWG", "FDA", "EMA", "PMDA", "HCSC", "Swissmedic")),
     DatasetSpec(
         "gpcrdb", "GPCRdb drug-target table", (112,), "https://gpcrdb.org/",

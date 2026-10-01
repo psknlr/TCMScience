@@ -65,9 +65,6 @@ class DatasetSpec:
     #: source has no structure; the CID is then resolved to its InChIKey when another store
     #: knows it), ``symbol:`` for human genes.
     crosswalk: Mapping[str, str] = field(default_factory=dict)
-    #: seconds between requests to this dataset's download host, when its robots.txt sets
-    #: a Crawl-delay (``TCMDataHub.fetch`` paces every request, size probes included).
-    crawl_delay_s: float = 0.0
     #: the least seconds between two download requests to this dataset's host (its
     #: robots.txt Crawl-delay); ``hub.fetch`` paces every request by it.
     min_interval_s: float = 0.0

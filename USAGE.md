@@ -122,8 +122,9 @@ example.
 
 ### The TCM data hub · 中医药数据中枢
 
-The 66 databases of the TCM agent architecture are catalogued in `bioagent.tcmdb`, each
-with the way it can be reached:
+The 66 databases of the TCM agent architecture, and 67 more added from a review (sample
+chemistry, mechanisms, perturbation, genetics, safety, immunology, imaging), are catalogued
+in `bioagent.tcmdb`, each with the way it can be reached:
 - **live API**: called through the governed runtime;
 - **snapshot**: downloaded once and queried locally;
 - **manual import**: a person exports the files;
@@ -133,7 +134,7 @@ The downloaded databases are reduced to one relation shape (herb→ingredient,
 ingredient→target, formula→herb, …), with the evidence kind kept on every row.
 
 <!-- zh -->
-中医药智能体架构文档中的 66 个数据库都登记在 `bioagent.tcmdb` 里，每个都注明了接入方式：
+中医药智能体架构文档中的 66 个数据库，以及按审阅意见补充的 67 个来源（样品化学、作用机制、扰动、遗传、安全性、免疫、影像），都登记在 `bioagent.tcmdb` 里，每个都注明了接入方式：
 - **在线 API**：经受控运行时调用；
 - **快照**：下载一次，在本地查询；
 - **人工导入**：由人导出文件后读入；
@@ -150,6 +151,9 @@ python -m bioagent.cli tcmdb enrich 黄芪                  # 按需查询 SymMa
 python -m bioagent.cli tcmdb survey herb_ingredient       # 抽样估计各库之间的抄录关系，保存结果
 python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪   # 多库对账：统一 ID、按独立来源计数
 python -m bioagent.cli tcmdb compare formula_herb 补中益气汤          # 方剂按版本比较
+python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数
+python -m bioagent.cli tcmdb relations regulation --subject symbol:EGFR --commercial   # 只返回允许商用的行
+python -m bioagent.cli tcmdb relations compound_assay --outcome negative  # 只看“测试阴性”
 ```
 
 When several databases give the same relation, `tcmdb consensus` counts independent

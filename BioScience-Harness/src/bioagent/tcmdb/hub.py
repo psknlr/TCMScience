@@ -204,7 +204,6 @@ class TCMDataHub:
             raise HubError(f"{spec.name} is filled per entity: use hub.enrich(<name>) or "
                            f"hub.enrich_{'symmap' if key == 'symmap_api' else 'herb'}([...])")
         dl = Downloader(self.raw_dir(key), timeout_s=120, log=log,
-                        min_interval_s=spec.crawl_delay_s)
                         min_interval_s=spec.min_interval_s)
         results = []
         for f in spec.files:

@@ -1,6 +1,6 @@
 {
  "version": "2026-10-01",
- "source_document": "tcm_agent_architecture.docx (66 databases, 14 modules)",
+ "source_document": "tcm_agent_architecture.docx (66 databases, 14 modules); entries 67-133 added from the review of 2026-09-30",
  "entries": [
   {
    "no": 1,
@@ -43,10 +43,11 @@
    "access": "live_api+snapshot",
    "connector": "tcmbank",
    "dataset": "tcmbank",
-   "license": "not stated; Help page: 'this query is used for academic purposes or drug delivery queries by TCM physicians'.",
+   "license": "not stated; the site calls itself a 'non-commercial' database for 'academic purposes'; Chem Sci 2023 article CC BY-NC 3.0",
    "barriers": "None for download/API (login.js present for optional user features). HTTPS cert expired -> must use http:// or wait for renewal.",
-   "assessment": "Entity xlsx bulk files + undocumented but simple GET JSON API for relations; no auth.",
-   "checked": "2026-10-01"
+   "assessment": "Entity xlsx bulk files + undocumented but simple GET JSON API for relations; no auth. Rechecked 2026-10-01 (review of 2026-09-30): Already integrated; this group only rechecked the licence. Neither the site nor its Download page states a data licence. The home page calls TCMBank 'the largest non-commercial traditional Chinese medicine database' and the Help page limits queries to academic purposes. The catalogue note should say commercial use is unknown, with an implied non-commercial intent. Nothing was changed in code.",
+   "checked": "2026-10-01",
+   "commercial_use": "unknown"
   },
   {
    "no": 4,
@@ -725,10 +726,11 @@
    "access": "snapshot",
    "connector": null,
    "dataset": "immport",
-   "license": "ImmPort Data Use Agreement (https://docs.immport.org/home/agreement/): unrestricted right to use and distribute, redistribution on commensurate terms, cite data providers",
+   "license": "ImmPort User Agreement (accepted at login)",
    "barriers": "registration + data use agreement for study data downloads and token API; gene lists and study search open",
-   "assessment": "Open gene-list files and anonymous study search; study-level data needs a registered token.",
-   "checked": "2026-10-01"
+   "assessment": "Open gene-list files and anonymous study search; study-level data needs a registered token. Rechecked 2026-10-01 (review of 2026-09-30): ImmPort's shared gene lists are public and already form the immport dataset. Study-level data and the API sit behind a login with a click-through user agreement and a token. They are catalogued as restricted and not wrapped.",
+   "checked": "2026-10-01",
+   "commercial_use": "unknown"
   },
   {
    "no": 49,
@@ -737,13 +739,14 @@
     "M9"
    ],
    "url": "https://www.iedb.org/",
-   "access": "live_api",
+   "access": "live_api+snapshot",
    "connector": "iedb",
-   "dataset": null,
-   "license": "CC BY 4.0 (dc:terms license on iedb.org terms page)",
+   "dataset": "iedb",
+   "license": "CC BY 4.0",
    "barriers": "none",
-   "assessment": "Documented keyless PostgREST API plus full zip exports.",
-   "checked": "2026-10-01"
+   "assessment": "Documented keyless PostgREST API plus full zip exports. Rechecked 2026-10-01 (review of 2026-09-30): IEDB offers a documented PostgREST query API (IQ-API, no key) and downloadable zipped TSV exports under CC BY 4.0. Both answered anonymously. The API is wrapped for per-entity lookups across its epitope, assay, receptor and reference tables. The T-cell, receptor and reference exports are loaded as a snapshot, with each assay's own positive or negative call kept, and the larger B-cell and MHC exports are left optional.",
+   "checked": "2026-10-01",
+   "commercial_use": "allowed"
   },
   {
    "no": 50,
@@ -800,10 +803,11 @@
    "access": "snapshot",
    "connector": null,
    "dataset": "tmmc2",
-   "license": "not stated on site",
+   "license": "Per file, from the download-page icons (no deed link, no version): CC BY for medicinal_material, chemical_protein, protein_disease and prescription; CC BY-NC for medicinal_compound and chemical_property; README has no icon",
    "barriers": "none",
-   "assessment": "Complete, documented xlsx dumps of all tables; no API.",
-   "checked": "2026-10-01"
+   "assessment": "Complete, documented xlsx dumps of all tables; no API. Rechecked 2026-10-01 (review of 2026-09-30): The download page lists six xlsx files and a README, and its only licence statement is an icon per file: CC BY on four files, CC BY-NC on the herb-compound and compound-property files. Two of the four relation kinds are copies of other databases: compound-protein comes from STITCH v5.0 or PubChem, and protein-disease from DisGeNET v7.0. They are therefore labelled aggregated with via notes, and each kind keeps the licence of the files it comes from. The dataset already existed; this change records its licences, lineage and evidence semantics.",
+   "checked": "2026-10-01",
+   "commercial_use": "forbidden"
   },
   {
    "no": 54,
@@ -999,6 +1003,1171 @@
    "barriers": "none for browsing; no bulk export.",
    "assessment": "Only HTML pages, no download/API, all rights reserved and 20 s crawl delay; a person should export/request data, or rely on PubChem CIDs.",
    "checked": "2026-10-01"
+  },
+  {
+   "no": 67,
+   "name": "COCONUT 2.0 (COlleCtion of Open Natural prodUcTs)",
+   "modules": [
+    "M1"
+   ],
+   "url": "https://coconut.naturalproducts.net",
+   "access": "live_api+snapshot",
+   "connector": "coconut",
+   "dataset": "coconut",
+   "license": "CC0 (download page). The terms of service keep each collection's original owner restrictions.",
+   "barriers": "None for the S3 bulk files or POST /api/search. Every other REST resource needs a Sanctum bearer token (an account), so those are not wrapped.",
+   "assessment": "COCONUT publishes a monthly CC0 release on S3. Its CSV is the only file listing each compound's organisms, collections and DOIs, and the only unauthenticated API resource is POST /api/search. Because COCONUT collects 71 other natural-product databases without saying which collection reported which organism, organism_compound rows are labelled aggregated. Each row names its collections in a 'via ...' note, and rows resting on KNApSAcK or DrugBankNP carry those non-commercial terms. Rows are keyed by InChIKey, and records sharing one InChIKey are merged.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 68,
+   "name": "World Flora Online Plant List (June 2026)",
+   "modules": [
+    "M1",
+    "M14"
+   ],
+   "url": "https://www.worldfloraonline.org/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "wfo",
+   "license": "CC0 1.0 (Zenodo record 20782718)",
+   "barriers": "None for the Zenodo files (Crawl-delay 10 respected). The matching and GraphQL API host serves an incomplete TLS chain (missing GeoTrust intermediate), so verification fails and the connector stays PENDING.",
+   "assessment": "WFO's twice-yearly CC0 Plant List is on Zenodo. Its Darwin Core backbone is loaded as name tables (accepted names, synonyms, WFO ids, IPNI LSIDs) for resolving plant names from other sources. It is a taxonomy backbone of species, not a materia medica, so it yields no relations. The documented matching API was defined but not shipped, because its host omits an intermediate certificate and TLS verification is never disabled.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 69,
+   "name": "IMPPAT 3.0 (Indian Medicinal Plants, Phytochemistry And Therapeutics)",
+   "modules": [
+    "M11",
+    "M1"
+   ],
+   "url": "https://cb.imsc.res.in/imppat/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "imppat3",
+   "license": "CC BY-NC-ND 4.0 (site footer)",
+   "barriers": "None (plain file links; robots.txt disallows nothing). There is no API.",
+   "assessment": "IMPPAT 3.0 (released 2026-09-30) offers eight TSVs and two SDFs as plain downloads, with no API. The TSVs are loaded and the SDFs kept optional. Plant-phytochemical, plant-use and formulation-plant links are digitised listings, so their evidence is listed. Target rows from ChEMBL, NPASS and BindingDB are aggregated. Bioactivity rows with a measured EC50/IC50/Kd/Ki are known, and those without a UniProt target go to the unresolved queue. The NC-ND licence allows internal non-commercial use only, with no redistribution of derived tables.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 70,
+   "name": "KNApSAcK Core",
+   "modules": [
+    "M1"
+   ],
+   "url": "https://www.knapsackfamily.com/knapsack_core/top.php",
+   "access": "live_api",
+   "connector": "knapsack",
+   "dataset": null,
+   "license": "CC BY-NC-ND 4.0 (terms of service, Art. 2); no redistribution or commercial use without contacting the KNApSAcK DB group; cite Afendi et al. 2012, doi:10.1093/pcp/pcr165",
+   "barriers": "None technically (no login or key). The terms forbid redistribution and commercial use without contact, so only per-entity research look-ups are offered and there is no snapshot.",
+   "assessment": "KNApSAcK has no bulk data: its download is a 2008 Java client with demo spectra. Its top page documents a URL scheme 'for incorporation to program', and the wrapper calls the pages that scheme leads to (information.php, result.php) for one metabolite, an organism's metabolites, a name search, or one pair's reference, returning the HTML whole. The terms forbid redistribution, so nothing is stored as a dataset.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 71,
+   "name": "TCMToxDB",
+   "modules": [
+    "M7"
+   ],
+   "url": "https://www.sdu-idea.cn/TCMToxDB/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "tcmtoxdb",
+   "license": "not stated (no data licence or terms on the site; the paper is CC BY 4.0 for the article only)",
+   "barriers": "The relation API (/prod-api-1/cms/...) is undocumented and returned 502 throughout the survey and recheck. No robots.txt (the SPA index is served instead).",
+   "assessment": "The Download page serves four public static entity CSVs (about 10 MB). The herb-ingredient, herb-target and ingredient-target edges and the literature toxicity records are served only by an undocumented backend that answered 502 on every try. The snapshot therefore yields only what the CSV columns state: formula->herb with doses parsed from the Prescription text, herb toxicity grades, and gene organ toxicities.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 72,
+   "name": "PhytoHub",
+   "modules": [
+    "M6"
+   ],
+   "url": "https://phytohub.eu/",
+   "access": "live_api",
+   "connector": "phytohub",
+   "dataset": null,
+   "license": "not stated (home page: 'freely available electronic database')",
+   "barriers": "No bulk download (/downloads is 404) and no licence. Relations (food sources, biotransformations) are rendered only as HTML. The site is Cloudflare-fronted but answered without a challenge. robots.txt has every rule commented out.",
+   "assessment": "PhytoHub offers no download or documented API. Its Rails pages answer .json and .sdf formats for single compounds, name searches and food names without any login. Those are wrapped as per-entity look-ups. The food-compound and precursor-metabolite relations exist only as HTML, so no snapshot dataset is built and they remain manual.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 73,
+   "name": "MIBiG 4.0",
+   "modules": [
+    "M1"
+   ],
+   "url": "https://mibig.secondarymetabolites.org/",
+   "access": "live_api+snapshot",
+   "connector": "mibig",
+   "dataset": "mibig",
+   "license": "CC BY 4.0",
+   "barriers": "None. The API is undocumented. The /api/v1/search endpoint is broken server-side (400 SQL error). No robots rules.",
+   "assessment": "MIBiG publishes its 4.0 release as a 0.95 MB CC BY 4.0 JSON tarball, which is the default snapshot. GBK and FASTA files are optional raw files, and the 5.0rc1 release candidate is not used. The site's per-entry annotations.json files are identical to the release records. Those files and the stats endpoint are wrapped for live look-ups. The full repository listing (a bulk dump) and the broken search are not.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 74,
+   "name": "gutMGene v2.0",
+   "modules": [
+    "M6"
+   ],
+   "url": "http://bio-computing.hrbmu.edu.cn/gutmgene",
+   "access": "live_api+snapshot",
+   "connector": "gutmgene",
+   "dataset": "gutmgene",
+   "license": "not stated on the site; the article is CC BY-NC 4.0",
+   "barriers": "None. /dow/downloadFolder answers 200 'success' for files that do not exist, so the loader refuses that body. The API is undocumented. robots.txt returns 404.",
+   "assessment": "The three literature-curated association CSVs are public direct downloads of about 3 MB. They are the default snapshot, and the large metabolic-reconstruction tarball (prediction output) is optional. The browse page's POST endpoint gives the evidence rows behind one association and is wrapped as a per-entity look-up. Causal rows are labelled known and correlational rows associated.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 75,
+   "name": "EMA herbal medicines (HMPC)",
+   "modules": [
+    "M10",
+    "M7",
+    "M11"
+   ],
+   "url": "https://www.ema.europa.eu/en/human-regulatory-overview/herbal-medicinal-products",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "ema_herbal",
+   "license": "EMA legal notice: reuse for any purpose, commercial included, with acknowledgement of EMA; not for third-party content",
+   "barriers": "None. robots.txt explicitly allows /*/documents/report/*.json. No PDFs are fetched or parsed.",
+   "assessment": "EMA documents its website data JSON exports, which are regenerated twice a day. The herbal medicines index (0.2 MB) lists the substances, and the whole-site documents index (37 MB) carries the document URLs. Herbal monographs, assessment reports, opinions, list entries, public statements and summaries become subject_monograph rows (reported) pointing at each document, linked to the substance its title names. Titles that cannot be matched without guessing go to the unresolved queue.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 76,
+   "name": "MassBank",
+   "modules": [
+    "M1",
+    "M6"
+   ],
+   "url": "https://massbank.eu/MassBank/",
+   "access": "live_api+snapshot",
+   "connector": "massbank",
+   "dataset": "massbank",
+   "license": "Per record: CC BY, CC BY-NC-SA, CC BY-SA, dl-de/by-2-0, CC BY-NC, CC0, CC BY-NC-ND (counts in 2026.03: 48404, 33478, 21086, 20658, 8434, 7031, 149); each record's LICENSE line is binding and the Zenodo cc-by-4.0 does not override it",
+   "barriers": "none (Zenodo 10 s crawl delay respected; massbank.eu has no robots.txt and /MassBank/robots.txt allows everything)",
+   "assessment": "MassBank publishes a documented MassBank3 REST API and export service, and versioned data releases on Zenodo. The live database lags the release: it served data version 2025.10 while release 2026.03 is out. The record-text zip is the only bulk form that keeps each record's LICENSE line, so the snapshot parses it into one row per record and leaves the peaks in the archive. The NIST MSP drops the per-record licences, so it is not used.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 77,
+   "name": "GNPS spectral libraries",
+   "modules": [
+    "M1",
+    "M6"
+   ],
+   "url": "https://external.gnps2.org/gnpslibrary",
+   "access": "live_api+snapshot",
+   "connector": "gnps",
+   "dataset": "gnps",
+   "license": "CC0 1.0 for spectra contributed directly to GNPS; imported libraries keep their upstream licences",
+   "barriers": "none (no robots.txt on the GNPS2 hosts)",
+   "assessment": "GNPS2 serves documented JSON endpoints and daily per-library JSON exports. The ALL_GNPS aggregates are 2-10 GB and gnpslibraryjson has no peaks and is stale. The snapshot therefore loads twelve small CC0 natural-product libraries, about 175 MB in total. The library quality class maps to evidence: gold is known, silver reported, bronze reported/inconclusive. Propagated libraries are aggregated, and imported libraries such as MassBank say 'via <upstream>' and are optional. Connectors: gnps, gnps_usi, gnps_explorer, massive.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 78,
+   "name": "NP-MRD",
+   "modules": [
+    "M1"
+   ],
+   "url": "https://np-mrd.org/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "np_mrd",
+   "license": "CC BY-NC 4.0",
+   "barriers": "moldb.np-mrd.org robots.txt disallows everything (not used); np-mrd.org crawl delay 2 s",
+   "assessment": "NP-MRD offers download archives (released 2025-08-01) for experimental peak lists, experimental shift-assignment tables, SMILES chunks and seven NP-Card JSON chunks. Predicted nmrML (2.9 GB) and the FIDs (13.7 GB) are separate archives. The snapshot loads only the experimental tables as known compound_spectrum rows. It uses two default card chunks for InChIKeys, which cover about 95% of the tables, and keeps the predicted spectra apart as optional raw files that are never loaded.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 79,
+   "name": "Metabolomics Workbench / RefMet",
+   "modules": [
+    "M6"
+   ],
+   "url": "https://www.metabolomicsworkbench.org/tools/mw_rest.php",
+   "access": "live_api",
+   "connector": "metabolomics_workbench",
+   "dataset": null,
+   "license": "Site terms: personal non-commercial use; public study data are public domain after embargo, and each study states its own licence; RefMet has no stated licence",
+   "barriers": "robots.txt is Disallow: / for every agent; the REST API is documented for programmatic access, so it is used only for per-entity look-ups at 1 req/s",
+   "assessment": "The site's robots.txt disallows everything, but the REST API v1.2 documentation explicitly offers the API to third-party scripts. The connector therefore wraps only per-entity look-ups: RefMet match/name/formula, compound by InChIKey or CID, one study's summary, analyses or metabolites, studies by RefMet name, and MetStat. It never wraps /refmet/all or the whole-study dumps. The m/z search redirects to an HTML page, so it is not wrapped.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 80,
+   "name": "ChEBI",
+   "modules": [
+    "M14",
+    "M1"
+   ],
+   "url": "https://www.ebi.ac.uk/chebi/",
+   "access": "live_api+snapshot",
+   "connector": "chebi",
+   "dataset": "chebi",
+   "license": "CC BY 4.0 (the LICENSE file and OBO header; one README sentence says CC BY-SA 4.0)",
+   "barriers": "None. The ftp.ebi.ac.uk robots.txt disallows crawling, so only the named documented flat files are fetched. www.ebi.ac.uk asks for a 10 s crawl delay; the API is used for per-entity lookups only.",
+   "assessment": "ChEBI 2.0 publishes PostgreSQL-style quoted TSV flat files under CC BY 4.0, and a documented OpenAPI REST API that answered without a key. The flat files are wrapped as a snapshot that gives natural-product origins and the is_a/has_role ontology assertions for chemical entities. The snapshot also maps ChEBI ids, primary and secondary, to InChIKeys for the crosswalk. The REST API is wrapped for per-entity lookups and structure search.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 81,
+   "name": "Rhea",
+   "modules": [
+    "M14",
+    "M6"
+   ],
+   "url": "https://www.rhea-db.org/",
+   "access": "live_api+snapshot",
+   "connector": "rhea",
+   "dataset": "rhea",
+   "license": "CC BY 4.0",
+   "barriers": "robots.txt disallows query URLs (Disallow: /*?). The REST help page documents the search URLs for programs, so only targeted searches with a small limit at 1 req/s are wrapped. Bulk data comes from the documented ftp.expasy.org TSV/RDF files; that host also disallows crawling, so only the named files are fetched.",
+   "assessment": "Rhea serves documented bulk TSV and RDF files on ftp.expasy.org under CC BY 4.0, plus a REST search that its help page offers to programs although robots.txt disallows query URLs. The participants and the rhea2uniprot_sprot file are snapshotted, keeping each participant's side or role and each enzyme's direction. The REST search is wrapped only for targeted, small-limit lookups.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 82,
+   "name": "MetaNetX/MNXref",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://www.metanetx.org/",
+   "access": "live_api+snapshot",
+   "connector": "metanetx",
+   "dataset": "metanetx",
+   "license": "CC BY 4.0 for MNXref's own content; each row is also subject to its upstream resource's terms, several of them non-commercial (KEGG, BiGG, HMDB, MetaCyc, enviPath CC BY-NC-SA 4.0, SABIO-RK)",
+   "barriers": "robots.txt sets Crawl-delay 10. The pinned 4.5 bundle is one request, and the SPARQL connector is rate-limited to 0.1 req/s.",
+   "assessment": "MetaNetX ships MNXref as one TSV bundle whose '#' headers state each upstream resource's licence, several of them non-commercial, so the dataset is marked commercial_use forbidden. It is loaded as an identifier-reconciliation layer that feeds the compound crosswalk and writes no evidence rows. The documented SPARQL endpoint is wrapped for single-id lookups at the 10 s crawl delay.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 83,
+   "name": "SABIO-RK",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://sabiork.h-its.org/",
+   "access": "live_api",
+   "connector": "sabio_rk",
+   "dataset": null,
+   "license": "HITS SABIO-RK Non-Commercial Purpose License (internal non-commercial research and academic use only; cite SABIO-RK)",
+   "barriers": "robots.txt is Disallow: / for the whole host. The OpenAPI-documented Export API is offered for programs, answered unauthenticated and allows 60 req/min, so only per-entity lookups and small searches at 1 req/s are wrapped. No bulk snapshot.",
+   "assessment": "SABIO-RK's documented Export API (OpenAPI 3.1.1) answered all five operations without a key. The site's robots.txt bars crawlers and the data are under a non-commercial licence. It is therefore wrapped only as a live connector for per-entity kinetic-law, compound, enzyme and protein lookups, with no bulk snapshot.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 84,
+   "name": "USDA FoodData Central",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://fdc.nal.usda.gov/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "fooddata_central",
+   "license": "CC0 1.0",
+   "barriers": "The API needs an api.data.gov key (a keyless call answers 403 API_KEY_MISSING), so it is not wrapped. The bulk CSV zips are public.",
+   "assessment": "FoodData Central publishes CC0 bulk CSV zips. The Foundation Foods (April 2026) and SR Legacy (2018) files are small and are snapshotted as per-100 g food_nutrient rows with amount and unit, using evidence derived from each row's derivation code. The API requires an api.data.gov key, so no live connector is built.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 85,
+   "name": "BioGRID (interactions, chemical associations) + BioGRID ORCS (CRISPR screens)",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://thebiogrid.org/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "biogrid",
+   "license": "MIT (BioGRID); rows imported from DrugBank carry CC BY-NC 4.0 per row; BindingDB rows also subject to BindingDB terms",
+   "barriers": "The REST API (webservice.thebiogrid.org) and the ORCS API need a registered access key: not used. Bulk downloads are anonymous and use stable URLs. thebiogrid.org robots.txt has Crawl-delay 1 and does not disallow download paths; downloads.thebiogrid.org has no robots.txt.",
+   "assessment": "BioGRID publishes all its curated interaction and chemical files under MIT at stable release URLs, but its REST APIs return 401 without a registered key, so it is a snapshot. Unpacked, the full Tab 3.0 file is 1.56 GB. The default store therefore holds the multi-validated physical set (35 MB) plus the chemtab (1.4 MB), and the ALL file is optional. ORCS screens are split per organism: the fly archive is the default and the human archive (753 MB) is optional. Datasets: biogrid, biogrid_orcs.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 86,
+   "name": "IntAct and Complex Portal (EMBL-EBI)",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://www.ebi.ac.uk/intact/",
+   "access": "live_api+snapshot",
+   "connector": "intact",
+   "dataset": "intact",
+   "license": "CC BY 4.0 (IntAct); CC0 1.0 (Complex Portal)",
+   "barriers": "None. www.ebi.ac.uk robots.txt sets Crawl-Delay 10 and does not disallow these API paths; only per-entity lookups are wrapped. ftp.ebi.ac.uk robots.txt disallows crawling, but these three files are the documented download files; they were fetched directly and no directory was listed.",
+   "assessment": "IntAct offers documented PSICQUIC and portal REST services, and Complex Portal has a web service, so positive interaction evidence is queried live per gene. The full IntAct MITAB is 11 GB. psimitab species/Human.zip holds human-virus interactions, not human ones, so it was not used. The snapshot holds Complex Portal's human and mouse complextab (CC0) as complex_member rows, plus IntAct's negative-interaction file as outcome-negative rows.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 87,
+   "name": "SIGNOR",
+   "modules": [
+    "M2"
+   ],
+   "url": "https://signor.uniroma2.it/",
+   "access": "live_api+snapshot",
+   "connector": "signor",
+   "dataset": "signor",
+   "license": "CC BY 4.0",
+   "barriers": "None. API/getHumanData.php (bulk) is not wrapped: it intermittently returns a PHP memory error as HTTP 200, and it is a bulk dump. The quarterly release file is the snapshot.",
+   "assessment": "SIGNOR documents a small per-entity and per-pathway API and publishes quarterly release files under CC BY 4.0, so it has both a live connector and a snapshot. The effect follows SIGNOR's curation manual: up/down-regulates activity -> activation/inhibition, up/down-regulates quantity (including by expression/repression or by stabilization/destabilization) -> increase/decrease, form complex -> binding. The manual calls bare up-regulates and down-regulates 'generic', used when no further information is given, so they map to modulation, and the signed word is kept in context.action. Mechanism, residue, direct, cell and tissue go into context, and the pmid is the reference.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 88,
+   "name": "IUPHAR/BPS Guide to PHARMACOLOGY (GtoPdb)",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://www.guidetopharmacology.org/",
+   "access": "restricted",
+   "connector": null,
+   "dataset": null,
+   "license": "Since September 2026, stated policy requires registration/login and an API key; fees for commercial organisations",
+   "barriers": "Registration/login and an API key are required by stated policy, and commercial use is paid. The /DATA/*.csv files still answer anonymously, but they were not fetched because the stated policy requires registration.",
+   "assessment": "GtoPdb's stated policy since September 2026 requires registered users and an API key, with fees for commercial organisations. Its CSV downloads still answer anonymously, but that does not override the policy. Nothing was downloaded or wrapped: a registered user could add it by manual import.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 89,
+   "name": "JASPAR 2026",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://jaspar.elixir.no/",
+   "access": "live_api+snapshot",
+   "connector": "jaspar",
+   "dataset": "jaspar",
+   "license": "CC BY 4.0",
+   "barriers": "None. The API allows 25 req/s; the harness keeps to 1.",
+   "assessment": "JASPAR has a documented REST API, so matrix lookup, factor matrices, search, versions and releases are a live connector. The snapshot loads the matrix, annotation, protein and species tables from the SQLite dump as tf_motif rows (factor UniProt -> CORE matrix). The CORE non-redundant matrices stay as raw MEME/JASPAR files for motif scanning. The sites and BED archives (about 300 MB each) are optional.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 90,
+   "name": "Cellosaurus",
+   "modules": [
+    "M14",
+    "M13"
+   ],
+   "url": "https://www.cellosaurus.org/",
+   "access": "live_api+snapshot",
+   "connector": "cellosaurus",
+   "dataset": "cellosaurus",
+   "license": "CC BY 4.0",
+   "barriers": "none for the API (api.cellosaurus.org has no robots.txt). ftp.expasy.org robots.txt disallows all crawling, so only the one documented release flat file is fetched, once per release.",
+   "assessment": "Cellosaurus offers a documented OpenAPI REST service with no key. It also publishes a documented quarterly flat file under CC BY 4.0. The API's Solr name search is ranked rather than exact (id:HepG2 does not return CVCL_0027), so the connector looks lines up by accession, by any primary or secondary accession, and by cross-reference. Exact name resolution is done offline against the snapshot's cell_line_name table. The snapshot also keeps disease rows, with the problematic-cell-line flag in the row context.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 91,
+   "name": "LINCS L1000 (GEO GSE92742 / GSE70138 metadata)",
+   "modules": [
+    "M13",
+    "M2"
+   ],
+   "url": "https://clue.io/GEO-guide",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "lincs_l1000",
+   "license": "No licence stated; GEO public deposit, LINCS release policy: no restrictions except citation",
+   "barriers": "CLUE API needs a registered key. CLUE LINCS2020 S3 files are under registered-user, academic-only terms with no redistribution, so they are not used. NCBI FTP robots.txt disallows crawling; only the named files that GEO's own series record links to are fetched.",
+   "assessment": "The L1000 signatures are deposited in GEO as frozen 2017 series. Their small metadata files (signatures, perturbagens, cell lines, genes) are loaded as tables. The Level 5 GCTX matrices (5-21 GB) are kept as optional raw analysis-layer files and are never turned into relation rows. GSE106127 is recorded as a re-processed subset of these two series. CLUE's own build sits behind registered-user academic terms, so it is not used.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 92,
+   "name": "DepMap Public 24Q4 + PRISM Repurposing 24Q2 (figshare)",
+   "modules": [
+    "M9",
+    "M13"
+   ],
+   "url": "https://depmap.org/portal/data_page/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "depmap",
+   "license": "CC BY 4.0",
+   "barriers": "Releases 25Q2, 25Q3 and 26Q1 are only reachable through a Cloudflare Turnstile challenge and under non-commercial DepMap terms, so they are manual_import and not wrapped. depmap.org robots.txt sets Crawl-delay 500. The figshare deposits are used instead.",
+   "assessment": "The last DepMap releases deposited on figshare under CC BY 4.0 are 24Q4 and Repurposing 24Q2. From these, Model.csv, the common-essential lists and the portal compound table are loaded. The extractor yields OncoTree diseases per model (Cellosaurus RRID when present), CRISPR-inferred common essentials, and aggregated compound targets. The gene-effect and viability matrices stay optional raw files and are never exploded into rows.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 93,
+   "name": "scPerturb",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://projects.sanderlab.org/scperturb/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "scperturb",
+   "license": "CC BY 4.0 (Zenodo record; original studies keep their own terms)",
+   "barriers": "Zenodo robots.txt sets Crawl-delay 10 and disallows /api except /api/records/*/files. Metadata comes from /records/<id>/export/json, fetched once. The h5ad files are 45 MB to 2.5 GB each.",
+   "assessment": "scPerturb is two Zenodo deposits of harmonised single-cell perturbation datasets with no query API. The record exports are loaded as a file catalogue (54 RNA/protein h5ad files and 6 ATAC zips). The eight drug-perturbation h5ad files are listed as pinned optional raw files. Relations would need per-perturbation differential expression, so none are extracted.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 94,
+   "name": "ARCHS4",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://archs4.org/download",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "archs4",
+   "license": "not stated (reprocessed public GEO/SRA samples; citation requested)",
+   "barriers": "Every HDF5 file is 38-400 GB, so nothing large is fetched by default. The version list is an undocumented JSON endpoint used by the download page (archs4.org has no robots rules).",
+   "assessment": "ARCHS4 publishes uniformly re-aligned RNA-seq compendia only as very large HDF5 files on S3, with no data licence stated. Only the version list (66 files with species, level, sample count, size and sha1) is loaded. The human and mouse v2.5 gene matrices are pinned as optional raw pointers with their sha1. Nothing is turned into rows.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 95,
+   "name": "eQTL Catalogue",
+   "modules": [
+    "M13",
+    "M5"
+   ],
+   "url": "https://www.ebi.ac.uk/eqtl/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "eqtl_catalogue",
+   "license": "CC BY 4.0 (data); code Apache-2.0",
+   "barriers": "None for files. The REST API is retired (HTTP 410). ftp.ebi.ac.uk robots.txt disallows all paths, but the provider's Data access page documents these file URLs; only documented files are fetched and no directory is crawled.",
+   "assessment": "The old REST API (/eqtl/api/) now answers HTTP 410 and points to file-based data access, so it is not wrapped. The dataset metadata tables (release 7, release 8 beta and tabix FTP paths) are a snapshot from the project's GitHub resources. One small GTEx v8 liver SuSiE credible-set file (1.3 MB, optional) is turned into variant_gene rows. The 779 MB merged r8-beta credible-set parquet is listed only as an optional raw file, documenting where it lives.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 96,
+   "name": "MaveDB",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://api.mavedb.org/docs",
+   "access": "live_api",
+   "connector": "mavedb",
+   "dataset": null,
+   "license": "Per score set: CC0 1.0 (default), CC BY 4.0, CC BY-SA 4.0, and CC BY-NC-SA 4.0 on a few older sets; API software AGPL-3.0",
+   "barriers": "None for public reads; a key is needed only for writes or private records",
+   "assessment": "MaveDB's documented REST API answers public reads without a key. It is wrapped for score-set lookup, search, scores-as-CSV, gene and target queries, and the licence list. The licence is chosen per score set, so callers must read license.shortName before reusing scores. The 1.9 GB CC0 Zenodo bulk archive is not fetched because it is over the size limit and the API serves the same records.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 97,
+   "name": "International Mouse Phenotyping Consortium (IMPC)",
+   "modules": [
+    "M5",
+    "M13"
+   ],
+   "url": "https://www.mousephenotype.org/",
+   "access": "live_api+snapshot",
+   "connector": "impc",
+   "dataset": "impc",
+   "license": "CC BY 4.0",
+   "barriers": "None. www.ebi.ac.uk robots.txt sets Crawl-Delay 10 and does not disallow /mi; the Solr cores are documented on IMPC's programmatic-access page. FTP files are documented release downloads.",
+   "assessment": "IMPC documents its Solr cores for programmatic access and they answer without authentication, so a live connector wraps per-gene and per-MP-term look-ups, statistical results and disease models. Data release 24.0 is pinned as a snapshot: the 5 MB genotype-phenotype assertions file becomes gene_phenotype rows with evidence 'known', species mouse, and zygosity/sex/procedure in context. Viability is loaded as a table. The 564 MB statistical-results file, which holds the tested negatives, stays optional raw.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 98,
+   "name": "FinnGen",
+   "modules": [
+    "M5",
+    "M13"
+   ],
+   "url": "https://www.finngen.fi/",
+   "access": "restricted",
+   "connector": null,
+   "dataset": null,
+   "license": "FinnGen data release terms (summary statistics after registration form)",
+   "barriers": "Summary statistics are distributed only after a registration form; the PheWeb browser's robots.txt disallows everything",
+   "assessment": "Getting FinnGen summary statistics requires filling in a registration form, and the PheWeb browser's robots.txt disallows all crawling. It is catalogued only, with no connector or snapshot.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 99,
+   "name": "IEU OpenGWAS",
+   "modules": [
+    "M5",
+    "M13"
+   ],
+   "url": "https://gwas.mrcieu.ac.uk/",
+   "access": "restricted",
+   "connector": null,
+   "dataset": null,
+   "license": "OpenGWAS EULA (non-commercial without a licence)",
+   "barriers": "Every data endpoint needs a personal JWT. The EULA forbids commercial use without a licence and bulk download through the API.",
+   "assessment": "Every OpenGWAS API data endpoint requires a personal JWT token, and its EULA restricts commercial use and bulk download. It is catalogued only; a connector would need a token supplied by the user and has not been built.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 100,
+   "name": "EPA ToxCast invitrodb v4.3 (CompTox)",
+   "modules": [
+    "M7"
+   ],
+   "url": "https://www.epa.gov/comptox-tools/exploring-toxcast-data",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "comptox",
+   "license": "CC0 1.0 / US EPA public domain (figshare 10.23645/epacomptox.6062623.v14 CC0; Clowder Public Domain Dedication)",
+   "barriers": "The CTX Bioactivity/Chemical/Hazard APIs need a personal API key issued by e-mail, so they are not wrapped. Clowder downloads are anonymous and the site has no robots.txt. The full INVITRODB_SUMMARY.zip is 7.5 GB and is optional (not fetched).",
+   "assessment": "EPA's CTX APIs need a personal key, so ToxCast is wrapped only as a snapshot. EPA's PubChem-deposition archive (193 MB, one workbook per endpoint) gives per-sample hit calls for 1,536 endpoints. The release workbooks declare wrong sheet sizes and one has a missing drawing, so a dedicated sheet-XML reader is used. The deposition's outcome code maps directly to positive/negative/inconclusive. AC50s, cytotoxicity-burst flags and analytical QC go in the context.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 101,
+   "name": "AOP-Wiki (OECD AOP Knowledge Base)",
+   "modules": [
+    "M7"
+   ],
+   "url": "https://aopwiki.org/",
+   "access": "live_api+snapshot",
+   "connector": "aopwiki",
+   "dataset": "aopwiki",
+   "license": "CC BY-SA 2.0 (AOP-Wiki default); AOPs marked 'All rights reserved' keep that licence per row",
+   "barriers": "None. robots.txt restricts nothing, and the quarterly XML is a documented download. /stressors/{id}.json answers 500 and is not shipped.",
+   "assessment": "AOP-Wiki publishes a dated quarterly AOP-XML (10.5 MB). A streaming reader turns it into tables of AOPs, events, KERs, stressors and chemicals. Live per-AOP XML and JSON views answer anonymously and are wrapped as look-ups. KERs carry each AOP's weight-of-evidence call, so evidence is 'known' where it was assessed and 'reported' where it was not. 30 of the 599 AOPs are 'All rights reserved' and keep that licence.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 102,
+   "name": "Orphadata Science (Orphanet)",
+   "modules": [
+    "M5"
+   ],
+   "url": "https://sciences.orphadata.com/",
+   "access": "live_api+snapshot",
+   "connector": "orphadata",
+   "dataset": "orphadata",
+   "license": "CC BY 4.0 (Orphadata Science); cite with data version; tools offering results to third parties must state Orphanet data were used",
+   "barriers": "None for the Science datasets and the API. The gene-symbol look-up endpoint answers 404 for listed genes and is kept in PENDING.",
+   "assessment": "Orphanet publishes its curated knowledge as CC BY 4.0 product XML files and as an OpenAPI service. Both answer anonymously, so the files are a snapshot and the API is wrapped for look-ups. Gene-disease associations become target_disease, with the association type as mechanism and Assessed or Not-yet-assessed setting the evidence. HPO annotations become disease_phenotype with the frequency class, and 'Excluded (0%)' is a negative outcome.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 103,
+   "name": "NHANES 2017-2018 public-use files (CDC/NCHS)",
+   "modules": [
+    "M10"
+   ],
+   "url": "https://wwwn.cdc.gov/nchs/nhanes/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "nhanes",
+   "license": "US public domain under the NCHS Data User Agreement (statistical use only, no re-identification or linkage)",
+   "barriers": "None for public-use files. 'RDC Only' variables are not public.",
+   "assessment": "NHANES publishes participant-level survey files as SAS transport, not relations. Three small public-use files (demographics with design variables, serum PFAS, supplement ingredients) are loaded as tables through a pandas XPT reader that decodes transport zeros. Associations must be estimated with survey weights, strata and PSUs, so the dataset yields no relation rows.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 104,
+   "name": "MIMIC-IV (PhysioNet)",
+   "modules": [
+    "M10"
+   ],
+   "url": "https://physionet.org/content/mimiciv/",
+   "access": "restricted",
+   "connector": null,
+   "dataset": null,
+   "license": "PhysioNet Credentialed Health Data License / DUA",
+   "barriers": "Credentialed access (training plus a signed DUA). The DUA forbids sharing access, and PhysioNet policy forbids sending the data to online LLM services that are not on its approved list.",
+   "assessment": "MIMIC-IV files are released only to credentialed PhysioNet users under a data use agreement. PhysioNet's policy forbids sending the data to online LLM services, so it is catalogue-only: no connector, no dataset, nothing downloaded. This is recorded in the safety module docstring.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 105,
+   "name": "DrugCentral",
+   "modules": [
+    "M8",
+    "M14"
+   ],
+   "url": "https://drugcentral.org/download",
+   "access": "live_api+snapshot",
+   "connector": "drugcentral",
+   "dataset": "drugcentral",
+   "license": "CC BY-SA 4.0",
+   "barriers": "none (no key or login). The public PostgreSQL instance with published credentials was not used (raw TCP is not possible through the proxy, and the rules forbid login). No robots.txt on any of the three hosts.",
+   "assessment": "DrugCentral publishes small, current bulk files on an open download server (the drug-target interaction TSV is under 1 MB, plus structures and FDA/EMA/PMDA approval lists) under CC BY-SA 4.0. It also runs an unauthenticated, OpenAPI-documented DRS REST service. The TSV becomes drug_target rows: evidence known, effect from ACTION_TYPE with the original word in context.action, act_value/type/source in score and context, the upstream database in note as 'via ...', and one row per component of a multi-protein target. The structures file feeds the drugcentral -> InChIKey crosswalk. The REST API is wrapped as a live connector for per-drug, per-gene, indication, ATC and FAERS lookups.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 106,
+   "name": "DrugComb",
+   "modules": [
+    "M8",
+    "M9"
+   ],
+   "url": "https://drugcomb.org/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "drugcomb",
+   "license": "CC BY 4.0 (the authors' Zenodo deposits); the collected screens keep their own terms (e.g. GDSC is non-commercial)",
+   "barriers": "The portal and api.drugcomb.org did not answer on 2026-10-01. Zenodo robots.txt allows /api/records/*/files with Crawl-delay 10, which was respected.",
+   "assessment": "The DrugComb portal and its API were unreachable. The authors' Zenodo deposits (CC BY 4.0) are the reference copy. The v1.4 synergy summary (one block per drug pair and cell line) is a screen result, so it is kept as a raw analysis-layer file and not exploded into relations. The drug and cell-line identifier tables are loaded to map DrugComb names to ChEMBL, InChIKey, PubChem, Cellosaurus and DepMap ids.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 107,
+   "name": "PharmacoDB",
+   "modules": [
+    "M9"
+   ],
+   "url": "https://pharmacodb.ca/",
+   "access": "live_api",
+   "connector": "pharmacodb",
+   "dataset": null,
+   "license": "Not stated (no licence on the site or in its code; the re-processed screens keep their own terms, e.g. GDSC is non-commercial)",
+   "barriers": "none (no key). robots.txt returns the SPA index (no real robots.txt).",
+   "assessment": "PharmacoDB serves a public GraphQL endpoint (used by its own site). It answered compound, cell-line, experiment, dataset-statistics, search and biomarker queries without a key. It re-processes GDSC, CCLE, CTRP and other screens, so it is wrapped as a live per-entity connector only, and its sensitivity data is not snapshotted (that would duplicate GDSC and be a bulk dump). No licence is stated.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 108,
+   "name": "GDSC (Genomics of Drug Sensitivity in Cancer)",
+   "modules": [
+    "M9"
+   ],
+   "url": "https://cellmodelpassports.sanger.ac.uk/downloads",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "gdsc",
+   "license": "DepMap at Sanger Data Usage Policy: internal research and educational use; no resale, redistribution or commercial services; commercial use not permitted without prior consent",
+   "barriers": "No key or login for the files. cancerrxgene.org is retired (robots 410). The other hosts publish no robots restrictions.",
+   "assessment": "The GDSC release 8.5 files are published anonymously by Sanger under a non-commercial data-usage policy. The GDSC1 and GDSC2 fitted dose-response workbooks are kept as raw analysis-layer files, not exploded. The screened-compound annotation becomes compound_target rows (evidence listed) under GDSC's own putative target names. The Cell Model Passports model list is loaded. No documented live API for drug response answered, so it is a snapshot only.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 109,
+   "name": "Pharos / TCRD (IDG)",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://pharos.nih.gov/",
+   "access": "live_api+snapshot",
+   "connector": "pharos",
+   "dataset": "pharos",
+   "license": "not stated: Pharos defers to its primary sources ('Please respect their individual licenses regarding proper use and redistribution'); the TCRD README says CC BY-SA 4.0 for TCRD",
+   "barriers": "none (no key). pharos.nih.gov/robots.txt returns 403 (unreadable). The GraphQL API at pharos-api.ncats.io is documented and has no robots.txt.",
+   "assessment": "Pharos serves a documented, keyless GraphQL API for target lookups by symbol: TDL, family, ligands, diseases, interactions, plus ligand and version queries. It is wrapped as a live connector. The Pharos400 canonical TDL file on the TCRD download server becomes gene_set_member rows (development level and IDG family per protein) with a UniProt -> symbol crosswalk. The 2.26 GB SQL dump is optional. Pharos itself states no licence and defers to its sources, so the check warns 'not licensed for reuse'.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 110,
+   "name": "PharmVar (Pharmacogene Variation Consortium)",
+   "modules": [
+    "M8"
+   ],
+   "url": "https://www.pharmvar.org/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "pharmvar",
+   "license": "CC BY-SA 4.0 under PharmVar Terms and Conditions (research use only; not for sale as a commercial item)",
+   "barriers": "The REST API answers 401 without an account-bound Api-Key header, so no connector was built. The all-genes zip download is public.",
+   "assessment": "PharmVar's REST API now needs an account key, but its documented all-genes zip download answers anonymously. The zip's haplotype tables are wrapped as star-allele definitions (GRCh38) with evidence 'listed'. Function assignments come only from the keyed API, so they are not included.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 111,
+   "name": "CPIC (Clinical Pharmacogenetics Implementation Consortium) / ClinPGx (formerly PharmGKB) annotations",
+   "modules": [
+    "M8"
+   ],
+   "url": "https://cpicpgx.org/",
+   "access": "live_api+snapshot",
+   "connector": "cpic",
+   "dataset": "cpic",
+   "license": "CC0 1.0 (attribution requested) | CC BY-SA 4.0 under ClinPGx Data Usage Policy (research use only; not for commercial sale; ai-train=no content signal)",
+   "barriers": "none No login is needed: the download URLs answer 303 to s3.pgkb.org anonymously. The content signals forbid model training.",
+   "assessment": "CPIC's documented PostgREST API at api.cpicpgx.org answers without authentication. It is wrapped for small filtered lookups: pairs, drugs, genes, alleles, recommendations and report files. The current gene-drug pairs report (xlsx) is the snapshot: levels A-B are 'known', B/C-D are 'listed' and retired pairs are dropped. ClinPGx's bulk files (relationships, summary annotations, chemicals, drug labels) download publicly without a login or click-through, so they are wrapped as a snapshot. Rows keep ClinPGx's own association calls: negatives, ambiguous results as inconclusive, and level-4 summary annotations as negative. Label annotations are 'listed', with the issuing agency noted as lineage. It shares catalogue card 111 with CPIC. Datasets: cpic, clinpgx.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 112,
+   "name": "GPCRdb",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://gpcrdb.org/",
+   "access": "live_api+snapshot",
+   "connector": "gpcrdb",
+   "dataset": "gpcrdb",
+   "license": "CC BY 4.0",
+   "barriers": "none",
+   "assessment": "GPCRdb's documented web services answer unauthenticated. They are wrapped for per-receptor lookups: protein, drugs, ligand bioactivities, mutants and structures. The documented drugs full-table download (596 KB) is the snapshot, giving drug_target rows with the stated mechanism as the effect.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 113,
+   "name": "KLIFS (Kinase-Ligand Interaction Fingerprints and Structures)",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://klifs.net/",
+   "access": "live_api",
+   "connector": "klifs",
+   "dataset": null,
+   "license": "see klifs.net terms (academic resource)",
+   "barriers": "none",
+   "assessment": "KLIFS's documented v1 API (/api) and beta v2 answer unauthenticated. They are wrapped for small lookups: kinases, ligands, structures, ChEMBL bioactivities per ligand, interaction fingerprints and the drug list. No bulk snapshot was taken.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 114,
+   "name": "ProteomicsDB",
+   "modules": [
+    "M13",
+    "M14"
+   ],
+   "url": "https://www.proteomicsdb.org/",
+   "access": "live_api",
+   "connector": "proteomicsdb",
+   "dataset": null,
+   "license": "Data CC BY 2.5; site terms license use of the service for research purposes only",
+   "barriers": "none",
+   "assessment": "ProteomicsDB's API answers unauthenticated for tissue expression per protein, plus the API v2 beta for proteins, Kinobeads dose-response curves and the drug-sensitivity dataset list. These are wrapped as per-protein lookups, with no bulk snapshot.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 115,
+   "name": "iPTMnet",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://research.bioinformatics.udel.edu/iptmnet/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "iptmnet",
+   "license": "CC BY-NC-SA 4.0 (licence and download pages). Contradicted by the readme footer (CC BY 4.0) and the Swagger spec (CC BY-NC-ND 4.0); the most restrictive statement on the licence page is applied and the contradiction is recorded in the spec licence. Citing the source databases is required on redistribution.",
+   "barriers": "None for the bulk files. The documented REST API answered HTTP 503 on every call (survey, and again during verification on 2026-10-01).",
+   "assessment": "iPTMnet publishes three headerless tab-separated bulk files (release 6.2) that download without any login. Its documented Swagger API was down (503) throughout, so the connector is defined but held in PENDING. Each ptm.txt row names its source. Curated upstream rows become 'aggregated' with 'via <db>'; RLIMS-P/eFIP rows are text mining and become 'mentioned'. The licence pages contradict each other, so the most restrictive (non-commercial, share-alike) is applied.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 116,
+   "name": "DisProt",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://disprot.org/",
+   "access": "live_api+snapshot",
+   "connector": "disprot",
+   "dataset": "disprot",
+   "license": "CC BY 4.0",
+   "barriers": "none; robots.txt allows /api",
+   "assessment": "DisProt serves an unauthenticated JSON API for per-entry and per-accession lookups, and the same /api/search endpoint exports the whole pinned release 2026_06 as TSV and JSON. Region annotations (IDPO/GO term, ECO code, PMID) are manual curation, labelled 'known'. Regions flagged as ambiguous evidence are 'inconclusive'; obsolete regions are dropped. Binding partners, which appear only in the JSON, become protein_interaction rows.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 117,
+   "name": "RNAcentral",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://rnacentral.org/",
+   "access": "live_api+snapshot",
+   "connector": "rnacentral",
+   "dataset": "rnacentral",
+   "license": "CC0 1.0 (release 20 onwards; earlier data under EMBL-EBI terms of use)",
+   "barriers": "robots.txt sets Crawl-delay 5 s and disallows /api/v1/ for crawlers, while the API documentation invites programmatic use. The connector makes per-entity lookups only, at 0.2 req/s. ftp.ebi.ac.uk robots disallows crawling; only the documented release files are fetched.",
+   "assessment": "RNAcentral has a documented REST API (OpenAPI) and release-pinned FTP id-mapping files (release 27). The snapshot loads only the small URS mapping tables (miRBase, HGNC, TarBase, LncBase, IntAct); the 2.66 GB full mapping is optional. Target and interaction pairs exist only per URS through the API, so they are served live by the connector, which keeps to the 5 s crawl delay.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 118,
+   "name": "miRTarBase",
+   "modules": [
+    "M2",
+    "M14"
+   ],
+   "url": "https://awi.cuhk.edu.cn/miRTarBase/",
+   "access": "snapshot",
+   "connector": null,
+   "dataset": "mirtarbase",
+   "license": "Self-declared public domain: the LICENSE file is a warranty disclaimer ('PROVIDED AT NO COST IN THE PUBLIC DOMAIN') with no licence grant, and the site footer says 'Copyright ISBLab, CUHK-Shenzhen'",
+   "barriers": "The host returns HTTP 429 after a few requests. Each file got one attempt with no retry loop; both default files answered 200.",
+   "assessment": "The MTI CSVs are public downloads with no API. The default file is the 3.3 MB strong-evidence set (reporter assay / western blot); the full 393 MB and human-only 337 MB MTI files are optional. Rows are 'known', with experiments in context.method. The support class (Functional MTI vs Functional MTI (Weak)) is kept in flags and never upgraded. 'Non-Functional MTI' records (an experiment found no regulation) are outcome negative. The file repeats records verbatim, so each record is emitted once.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 119,
+   "name": "ChIP-Atlas",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://chip-atlas.org/",
+   "access": "live_api+snapshot",
+   "connector": "chip_atlas",
+   "dataset": "chip_atlas",
+   "license": "CC BY 4.0 (site footer and OpenAPI); the NBDC archive licence page states CC BY-SA 4.0, so share-alike is assumed",
+   "barriers": "robots.txt on chip-atlas.org disallows /data for crawlers with Crawl-delay 30 s, but its /agents page documents these endpoints for agents; the connector runs at 1 request per 30 s. Bulk and per-TF files come from chip-atlas.dbcls.jp.",
+   "assessment": "ChIP-Atlas documents an HTTP API (/openapi.yaml, /agents), which is wrapped at the 30 s crawl delay. The analysis, antigen and cell-type lists are small and are loaded as tables; the 359 MB experiment list is optional. tf_target rows come only from per-TF Target Genes tables, fetched on demand by fetch_target_genes, and only for TFs the analysis list marks '+'; nothing is bulk-downloaded. Rows are 'predicted' binding near the TSS, scored by mean MACS2 score; genes with no peak in any experiment produce no row.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 120,
+   "name": "ReMap 2022",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://remap.univ-amu.fr/",
+   "access": "live_api+snapshot",
+   "connector": "remap",
+   "dataset": "remap",
+   "license": "CC BY-NC 4.0 (ReMap catalogues; ReMapEnrich and the pipeline are GPLv3)",
+   "barriers": "none. The Swagger UI is embedded from port 98, which is unreachable here; the REST dataset endpoints answer on 443.",
+   "assessment": "ReMap's REST dataset endpoints answer on port 443 and are wrapped as a live connector. The snapshot keeps only small metadata: the per-target download index (regulator, GEO/ENCODE series, biotype, BED URLs) and the human biotype sheet. The BED catalogues (200 MB CRM, 1.46 GB non-redundant peaks) are optional raw analysis files. The non-commercial CC BY-NC licence is recorded.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "forbidden"
+  },
+  {
+   "no": 121,
+   "name": "Human Cell Atlas Data Portal (Azul)",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://data.humancellatlas.org/",
+   "access": "live_api",
+   "connector": "hca_azul",
+   "dataset": null,
+   "license": "CC BY 4.0 for open-access projects (HCA data use agreement, dcp60); managed-access projects need HCA DAC approval",
+   "barriers": "Azul robots.txt disallows everything except / and /swagger/. The API is documented via OpenAPI and the Data Browser API page, so only per-entity look-ups are used. Managed-access files need a Google OAuth token and are not wrapped.",
+   "assessment": "Azul is a documented, versioned OpenAPI service that answers anonymously for open projects. Its robots.txt disallows the API paths for crawlers, so the connector offers only one project or one file by UUID and never pages the index or generates manifests. There are no small bulk metadata files: data files run to many GB and managed-access data needs OAuth. So it is live-only.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 122,
+   "name": "HuBMAP (search, entity and portal APIs; bulk metadata exports)",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://portal.hubmapconsortium.org/",
+   "access": "live_api+snapshot",
+   "connector": "hubmap_search",
+   "dataset": "hubmap",
+   "license": "HuBMAP External Data Sharing Policy: open data under a permissive licence such as CC BY 4.0 (DOI datasets CC BY 4.0); do not identify or contact participants. organs.json: UBKG/UBERON CC BY 3.0",
+   "barriers": "None for metadata. Protected sequence data needs dbGaP access and is not wrapped. The TSV exports are generated per request: HEAD returns 415 and Range is ignored, so each one is streamed whole under a byte cap.",
+   "assessment": "HuBMAP documents its search API, entity API and the portal's .json and bulk TSV exports (llms.txt), and all of them answer anonymously. The connectors request named _source fields only, so no file lists or contact details come back. The small bulk exports plus the UBKG organ list are kept as a snapshot. The reader drops submitter e-mail and name columns and the field-description line. The extractor yields dataset_tissue rows for published datasets only. Connectors: hubmap_search, hubmap_entity, hubmap_portal.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 123,
+   "name": "Human Tumor Atlas Network",
+   "modules": [
+    "M9",
+    "M13"
+   ],
+   "url": "https://humantumoratlas.org/",
+   "access": "restricted",
+   "connector": null,
+   "dataset": null,
+   "license": "Open tier CC BY 4.0; controlled tier dbGaP",
+   "barriers": "Every programmatic route to files needs an account (Synapse, Google/ISB-CGC, CGC or dbGaP). The portal reads its database through credentials embedded in its front end, which is not a public API.",
+   "assessment": "HTAN publishes open and controlled tiers. Every programmatic route to open-tier files still needs a Synapse or cloud account, and the controlled tier needs dbGaP. No documented anonymous metadata endpoint answered, so HTAN is catalogued only and not wrapped.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 124,
+   "name": "4D Nucleome Data Portal",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://data.4dnucleome.org/",
+   "access": "live_api+snapshot",
+   "connector": "fourdn",
+   "dataset": "fourdn",
+   "license": "4DN on AWS Open Data: 'External data users may freely download, analyze, and publish results based on any 4DN data provided here without restrictions'; cite the 4DN papers and acknowledge the lab",
+   "barriers": "Portal @@download URLs need an account and robots.txt disallows them, as well as limit=all. Neither is used. Processed files come from the anonymous AWS Open Data bucket.",
+   "assessment": "The 4DN portal documents programmatic metadata access (search and per-item JSON), and the connector uses it with field lists that leave out lab and submitter contacts. Portal downloads need an account, but the same processed files are on the public AWS Open Data bucket. The two small union loop sets of the joint analysis (HFFc6, H1-hESC) are snapshotted as chromatin_loop rows. Multi-GB contact matrices are left out.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 125,
+   "name": "EMBL-EBI BioSamples",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://www.ebi.ac.uk/biosamples",
+   "access": "live_api",
+   "connector": "biosamples",
+   "dataset": null,
+   "license": "EMBL-EBI terms of use; no BioSamples-specific data licence; attribution expected",
+   "barriers": "None. www.ebi.ac.uk robots.txt sets Crawl-Delay 10 and does not disallow /biosamples.",
+   "assessment": "BioSamples has a documented REST/HAL API that answers anonymously for sample look-ups, free-text search and exact attribute filters, for example a medicinal species as organism. It is wrapped live for look-ups only. A bulk snapshot would mean sweeping millions of records under a 10 s crawl delay.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 126,
+   "name": "iReceptor AIRR COVID-19 repository (AIRR Data Commons API) / VDJServer Community Data Portal (AIRR Data Commons API)",
+   "modules": [
+    "M9"
+   ],
+   "url": "https://covid19-1.ireceptor.org/airr/v1",
+   "access": "live_api",
+   "connector": "ireceptor_adc",
+   "dataset": null,
+   "license": "No data licence found (service software GNU LGPL v3; ADC API specification CC BY 4.0); the iReceptor Gateway terms charge commercial users from 2026-08-31 | No data licence found (service software GNU AGPL v3; ADC API specification CC BY 4.0)",
+   "barriers": "None for the ADC API on the repository (it defines no authentication). The iReceptor Gateway web front end needs a login and is not used. robots.txt allows everything. None for the ADC API. robots.txt has no disallow rule. max_size is 1000 records per query.",
+   "assessment": "The AIRR Data Commons API is a documented community standard with no authentication, and the iReceptor COVID-19 repository answered unauthenticated JSON POST queries for repertoires, facets and rearrangements. Requests are restricted to selected fields and small pages. The login-gated Gateway that federates repositories is not used. VDJServer is a second AIRR Data Commons repository with the same unauthenticated ADC API, so it shares the iReceptor operation set with its own working examples. It is catalogued under the iReceptor/AIRR ADC entry (126). Connectors: ireceptor_adc, vdjserver_adc.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 127,
+   "name": "BV-BRC Data API",
+   "modules": [
+    "M14"
+   ],
+   "url": "https://www.bv-brc.org/api",
+   "access": "live_api",
+   "connector": "bv_brc",
+   "dataset": null,
+   "license": "Not stated (cite Olson et al., Nucleic Acids Res 2023, gkac1003)",
+   "barriers": "No token for public data ('though this may change in the future'). robots.txt is a 404. The web pages showed a Cloudflare challenge on 2026-10-01 but /api answered; a challenge on /api would make the operations UNAVAILABLE and would not be solved. The bulk mirror is FTPS only and is not wrapped.",
+   "assessment": "BV-BRC documents an RQL Data API that serves public bacterial and viral genome data without a token. It answered JSON for genomes, taxonomy, AMR phenotypes, specialty genes, PPI, epitopes and antibiotics. The RQL expression is written into the operation path, and requests stay small and per-entity.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 128,
+   "name": "MGnify API v2",
+   "modules": [
+    "M6"
+   ],
+   "url": "https://www.ebi.ac.uk/metagenomics/api/v2",
+   "access": "live_api",
+   "connector": "mgnify",
+   "dataset": null,
+   "license": "EMBL-EBI Terms of Use (no additional restrictions beyond the original data owners')",
+   "barriers": "www.ebi.ac.uk robots.txt sets Crawl-Delay 10, and verification spaced calls 10.5 s apart. ftp.ebi.ac.uk robots.txt disallows all agents, so result files are not fetched. API v1 is deprecated and not wrapped.",
+   "assessment": "MGnify's documented v2 API answered studies, samples, analyses with taxonomic annotations, biomes and the MAG/isolate genome catalogues without a key. Only v2 is wrapped, because v1 is deprecated. The result files sit on ftp.ebi.ac.uk, whose robots.txt disallows agents, so they are not fetched.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 129,
+   "name": "NCI Imaging Data Commons (IDC)",
+   "modules": [
+    "M13",
+    "M9"
+   ],
+   "url": "https://portal.imaging.datacommons.cancer.gov/",
+   "access": "live_api+snapshot",
+   "connector": "idc",
+   "dataset": "idc",
+   "license": "Metadata MIT (idc-index / idc-index-data); images licensed per DICOM series: CC BY 4.0, CC BY 3.0, CC BY-NC 4.0, CC BY-NC 3.0, NLM Visible Human terms",
+   "barriers": "none for metadata; images not fetched; some series non-commercial (CC BY-NC)",
+   "assessment": "IDC has a documented public v3 REST API (collections, licence breakdowns, cohort counts, read-only SQL over its index) and publishes its full collection index as the MIT-licensed idc-index-data wheel on PyPI. The connector covers metadata queries. The snapshot reads the wheel's parquet members and lists each collection's cancer types. The per-series licences are recorded in each row's note, a flag marks non-commercial series, and re-hosted TCIA collections are marked 'via TCIA' so the copies do not count twice in consensus.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 130,
+   "name": "The Cancer Imaging Archive (TCIA)",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://www.cancerimagingarchive.net/",
+   "access": "live_api",
+   "connector": "tcia",
+   "dataset": null,
+   "license": "Per series/download item: mostly CC BY 3.0 / CC BY 4.0, some CC BY-NC 3.0/4.0; some collections TCIA Restricted/Limited, NCTN/NCORP or NIH Controlled Data Access; TCIA Data Usage Policy requires citing each dataset",
+   "barriers": "Restricted/controlled collections need registration or approval (not wrapped); images not fetched",
+   "assessment": "TCIA offers the documented NBIA v4 REST API (collections, patients, studies, series, modalities, body parts, series sizes) and a Collection Manager API that lists collections and download items, each with its data_license and access level. Both are wrapped as two metadata connectors (two hosts). Licences vary per collection, and some are non-commercial or controlled-access, so there is no snapshot. The older NBIA APIs lose support this month, so only v4 is used. IDC re-hosts most public TCIA collections; that overlap is recorded on the idc dataset as 'via TCIA'. Connectors: tcia, tcia_cm.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 131,
+   "name": "EMBL-EBI BioImage Archive",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://www.ebi.ac.uk/bioimage-archive/",
+   "access": "live_api",
+   "connector": "biostudies",
+   "dataset": null,
+   "license": "Per study ('License' attribute): CC0 or CC BY 4.0 for direct submissions; CC BY-NC-SA for JCB DataViewer imports; EMPIAR mirrors carry none (EMPIAR releases under CC0)",
+   "barriers": "www.ebi.ac.uk robots.txt Crawl-Delay 10 s: per-study lookups only; images not fetched",
+   "assessment": "The BioImage Archive runs on the BioStudies backend on the same host (www.ebi.ac.uk), so it was added as operations on the existing 'biostudies' connector instead of a new source. bioimages_search is the undocumented search endpoint the archive's own pages use. study_info is the documented info endpoint and returns file counts and FTP/HTTP/Globus locations. Licences are per study and include some non-commercial JCB imports, so there is no snapshot.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 132,
+   "name": "Image Data Resource (IDR)",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://idr.openmicroscopy.org/",
+   "access": "live_api+snapshot",
+   "connector": "idr",
+   "dataset": "idr",
+   "license": "Per study: mostly CC BY 4.0 or CC0; some CC BY-NC-SA 3.0, CC BY-NC 4.0, CC BY-NC-ND 4.0, CC BY-SA 3.0. Snapshot files: idr0013 MitoCheck CC0 1.0; idr0021 CC BY 4.0",
+   "barriers": "none; images not fetched; some studies non-commercial (not in the snapshot)",
+   "assessment": "IDR exposes the documented OMERO JSON API (screens, projects, study annotations) and a searcher API that looks up studies by gene or compound and exports a study's curated key-values as parquet or CSV. Both are wrapped as a metadata connector. The snapshot loads two openly licensed exports: MitoCheck (CC0), giving gene -> CMPO phenotype per siRNA and gene-level hits and tested non-hits, and idr0021 (CC BY 4.0), giving protein-localisation phenotypes. Studies with NC or ND licences are left to the live connector.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "allowed"
+  },
+  {
+   "no": 133,
+   "name": "OpenNeuro",
+   "modules": [
+    "M13"
+   ],
+   "url": "https://openneuro.org/",
+   "access": "live_api",
+   "connector": "openneuro",
+   "dataset": null,
+   "license": "Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",
+   "barriers": "none for metadata; imaging files not fetched",
+   "assessment": "OpenNeuro has a public GraphQL API that returns dataset metadata, snapshots and file listings without a login, so it is wrapped as a metadata connector (dataset, datasets, snapshot_files). Licences are per dataset, mostly CC0 but some non-commercial or unstated, and the content is raw neuroimaging, so there is no snapshot. No image is downloaded.",
+   "checked": "2026-10-01",
+   "origin": "review-2026-09-30",
+   "commercial_use": "unknown"
   }
  ]
 }

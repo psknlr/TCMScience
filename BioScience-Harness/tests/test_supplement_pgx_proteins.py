@@ -343,7 +343,7 @@ def test_clinpgx_is_fetched_at_its_crawl_delay(tmp_path, monkeypatch):
     from bioagent.acquisition import downloader as dlmod
     from bioagent.tcmdb.datasets import dataset
     spec = dataset("clinpgx")
-    assert spec.crawl_delay_s == 30.0
+    assert spec.min_interval_s == 30.0
     assert "Crawl-delay: 30" in spec.notes and "ai-train=no" in spec.notes
     clock = {"t": 1000.0}
     sent: list[tuple[float, str]] = []
