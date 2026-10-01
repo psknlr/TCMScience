@@ -102,6 +102,12 @@ def _like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _symmap_id(value: Any) -> str:
+    """SymMap's files number herbs 1, 2, ...; its pages and query endpoint say SMHB00001."""
+    text = str(value).strip()
+    return f"SMHB{int(text):05d}" if text.isdigit() else text
+
+
 def _split_names(text: str | None) -> list[str]:
     return [p.strip().casefold() for p in (text or "").split(" | ") if p.strip()]
 
@@ -145,7 +151,8 @@ class TCMDataHub:
         out = []
         for spec in (dataset(key),) if key else DATASETS:
             raw = self.raw_dir(spec.key)
-            files = {f.name: (raw / f.name).exists() for f in spec.files}
+            files = ({p.name: True for p in raw.glob("*.json")} if spec.access == "live"
+                     and raw.exists() else {f.name: (raw / f.name).exists() for f in spec.files})
             entry: dict[str, Any] = {
                 "dataset": spec.key, "name": spec.name, "access": spec.access,
                 "files_present": sum(files.values()),
@@ -171,6 +178,9 @@ class TCMDataHub:
         if spec.access == "manual":
             raise HubError(f"{spec.name} cannot be downloaded by a program. "
                            f"{spec.instructions} Directory: {self.raw_dir(key)}")
+        if spec.access == "live":
+            raise HubError(f"{spec.name} is filled per entity: use hub.enrich(<name>) or "
+                           f"hub.enrich_{'symmap' if key == 'symmap_api' else 'herb'}([...])")
         dl = Downloader(self.raw_dir(key), timeout_s=120, log=log)
         results = []
         for f in spec.files:
@@ -192,9 +202,15 @@ class TCMDataHub:
         spec = dataset(key)
         raw = self.raw_dir(key)
         if not raw.exists() or not any(raw.iterdir()):
-            hint = spec.instructions if spec.access == "manual" else f"run fetch('{key}')"
+            hint = (spec.instructions if spec.access == "manual"
+                    else "run hub.enrich(<name>) first" if spec.access == "live"
+                    else f"run fetch('{key}')")
             raise HubError(f"{spec.name}: no files in {raw}; {hint}")
-        report = build_store(spec, raw, self.db_path(key), log=log)
+        if spec.access == "live":
+            from .live import build_live_store
+            report = build_live_store(raw, self.db_path(key), license=spec.license)
+        else:
+            report = build_store(spec, raw, self.db_path(key), log=log)
         conn = connect(self.db_path(key), readonly=False)
         try:
             report["relations"] = build_relations(conn, key)
@@ -335,6 +351,77 @@ class TCMDataHub:
         for kind in ("subject_clinical_trial", "subject_meta_analysis", "subject_reference"):
             out += self.relations(kind, subject=subject, **kw)
         return out
+
+    # --------------------------------------------------------------- enrichment
+    def enrich_symmap(self, entity_ids: Iterable[str], *, related: Sequence[str] | None = None,
+                      refresh: bool = False, build: bool = True, log=print) -> list[dict]:
+        """Fetch (or reuse cached) SymMap relations of the given entities, then rebuild."""
+        from .live import SYMMAP_RELATED, fetch_symmap
+        ids = list(entity_ids)
+        names = self._names("symmap2", "herb", "Herb_id", ("Chinese_name", "Pinyin_name"), ids)
+        out = fetch_symmap(self, ids, related=related or SYMMAP_RELATED, names=names,
+                           refresh=refresh, log=log)
+        if build and any(r["ok"] for r in out):
+            self.build("symmap_api", log=log)
+        return out
+
+    def enrich_herb(self, entity_ids: Iterable[str], *, label: str = "Herb",
+                    refresh: bool = False, build: bool = True, log=print) -> list[dict]:
+        """Fetch (or reuse cached) HERB records of the given entities, then rebuild."""
+        from .live import fetch_herb
+        ids = list(entity_ids)
+        table, id_col, name_cols = (("herb", "Herb_id", ("Herb_cn_name", "Herb_pinyin_name"))
+                                    if label == "Herb" else
+                                    ("ingredient", "Ingredient_id", ("Ingredient_name",)))
+        names = self._names("herb2", table, id_col, name_cols, ids)
+        out = fetch_herb(self, ids, label=label, names=names, refresh=refresh, log=log)
+        if build and any(r["ok"] for r in out):
+            self.build("herb_api", log=log)
+        return out
+
+    def enrich(self, herb: str, *, refresh: bool = False, log=print) -> dict[str, Any]:
+        """Resolve a herb name in the SymMap and HERB entity tables, then enrich both."""
+        ids = self.resolve_herb(herb)
+        if not ids["symmap"] and not ids["herb"]:
+            raise HubError(f"{herb!r} is not a herb name in the built symmap2 or herb2 "
+                           "tables (build them, or pass ids to enrich_symmap/enrich_herb)")
+        return {"ids": ids,
+                "symmap": self.enrich_symmap(ids["symmap"], refresh=refresh, log=log)
+                if ids["symmap"] else [],
+                "herb": self.enrich_herb(ids["herb"], refresh=refresh, log=log)
+                if ids["herb"] else []}
+
+    def resolve_herb(self, name: str) -> dict[str, list[str]]:
+        """SymMap and HERB ids of a herb, by exact Chinese, pinyin or Latin name."""
+        out: dict[str, list[str]] = {"symmap": [], "herb": []}
+        wanted = name.casefold().replace(" ", "")
+        for key, table, id_col, cols, side in (
+                ("symmap2", "herb", "Herb_id", ("Chinese_name", "Pinyin_name", "Latin_name"),
+                 "symmap"),
+                ("herb2", "herb", "Herb_id", ("Herb_cn_name", "Herb_pinyin_name",
+                                              "Herb_latin_name"), "herb")):
+            if not self.db_path(key).exists():
+                continue
+            with closing(self._conn(key)) as conn:
+                for r in conn.execute(f'SELECT "{id_col}", {", ".join(cols)} FROM "{table}"'):
+                    names = {p.strip().casefold().replace(" ", "")
+                             for v in r[1:] if v for p in str(v).replace(";", ",").split(",")}
+                    if wanted in names:
+                        out[side].append(_symmap_id(r[0]) if side == "symmap" else r[0])
+        return out
+
+    def _names(self, key: str, table: str, id_col: str, cols: Sequence[str],
+               ids: Sequence[str]) -> dict[str, str]:
+        if not ids or not self.db_path(key).exists():
+            return {}
+        # SymMap's files number herbs 1, 2, ...; its pages and endpoint say SMHB00001
+        local = {(str(int(i[4:])) if key == "symmap2" and str(i).startswith("SMHB") else i): i
+                 for i in ids}
+        with closing(self._conn(key)) as conn:
+            marks = ", ".join("?" * len(local))
+            return {local[r[0]]: " | ".join(str(v) for v in r[1:] if v) for r in conn.execute(
+                f'SELECT "{id_col}", {", ".join(cols)} FROM "{table}" '
+                f'WHERE "{id_col}" IN ({marks})', list(local))}
 
     # --------------------------------------------------------------------- live
     def live(self, connector: str, operation: str, **arguments: Any) -> Any:

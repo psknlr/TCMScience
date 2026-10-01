@@ -217,6 +217,7 @@ DEFAULT_RATES: Mapping[str, float] = {
     "batman2api.cloudna.cn": 1.0, "bionet.ncpsb.org.cn": 1.0, "tcmbank.cn": 1.0,
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
+    "www.symmap.org": 1.0, "47.92.70.12": 1.0,
 }
 
 
@@ -492,6 +493,7 @@ class HTTPBackend(Backend):
     # --------------------------------------------------------------- Backend
     def invoke(self, manifest: ComponentManifest, *, path: str = "", method: str = "GET",
                params: Mapping[str, Any] | None = None, json_body: Any = None,
+               form: Mapping[str, Any] | None = None,
                headers: Mapping[str, str] | None = None, accept: str = "application/json",
                graphql: str | None = None, variables: Mapping[str, Any] | None = None,
                use_cache: bool = True, **_: Any) -> Any:
@@ -524,6 +526,14 @@ class HTTPBackend(Backend):
             req = HTTPRequest(url=url, method="POST",
                               json_body={"query": graphql, "variables": dict(variables or {})},
                               headers=dict(headers or {}), accept="application/json")
+        elif form is not None:
+            # A form post: the fields are the body, url-encoded, as a browser sends them.
+            body = urllib.parse.urlencode(
+                {k: v for k, v in dict(form).items() if v is not None}, doseq=True)
+            req = HTTPRequest(url=url, method="POST", params=dict(params or {}),
+                              headers={"Content-Type": "application/x-www-form-urlencoded",
+                                       **dict(headers or {})},
+                              data=body.encode("utf-8"), accept=accept)
         else:
             req = HTTPRequest(url=url, method=method.upper(), params=dict(params or {}),
                               headers=dict(headers or {}), json_body=json_body, accept=accept)

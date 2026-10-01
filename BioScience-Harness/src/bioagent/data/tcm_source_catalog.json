@@ -191,13 +191,13 @@
     "M10"
    ],
    "url": "http://herb.ac.cn/v2/ (301 -> http://47.92.70.12/)",
-   "access": "snapshot",
-   "connector": null,
+   "access": "live_api+snapshot",
+   "connector": "herb_api",
    "dataset": "herb2",
    "license": "not stated on site/bundle",
    "barriers": "none for download (UI toggles via download_switch.json); no login",
-   "assessment": "Static TSV files downloadable without login; relation pairs need undocumented POST API.",
-   "checked": "2026-10-01"
+   "assessment": "Nine V2 TSV entity tables are the dataset 'herb2'. Relations (a herb's ingredients and inferred targets/diseases, literature-graded targets, an ingredient's targets with their upstream source) come per entity from the JSON post HERB's own pages send (connector 'herb_api', dataset 'herb_api'), wrapped on the repository owner's decision of 2026-10-02 at 1 req/s, cached, no crawl.",
+   "checked": "2026-10-02"
   },
   {
    "no": 14,
@@ -405,13 +405,13 @@
     "M5"
    ],
    "url": "http://www.symmap.org/",
-   "access": "snapshot",
-   "connector": null,
+   "access": "live_api+snapshot",
+   "connector": "symmap",
    "dataset": "symmap2",
    "license": "not stated; help page: files 'free to download'; 'Copyright © 2022, BUCM; ICT CAS; Beijing Jiaotong University'",
    "barriers": "none",
-   "assessment": "Entity xlsx files are freely downloadable; associations need the undocumented POST endpoint or HTML.",
-   "checked": "2026-10-01"
+   "assessment": "Entity xlsx files are the dataset 'symmap2'. The relations (a herb's ingredients, targets, symptoms, diseases, syndromes; an ingredient's targets) come per entity from the form post SymMap's own detail pages send (connector 'symmap', dataset 'symmap_api'), wrapped on the repository owner's decision of 2026-10-02 at 1 req/s, cached, no crawl.",
+   "checked": "2026-10-02"
   },
   {
    "no": 28,

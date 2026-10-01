@@ -36,6 +36,8 @@ import re
 import sqlite3
 from typing import Any, Callable, Iterable, Iterator, Mapping
 
+from . import live as _live
+
 __all__ = ["RELATION_KINDS", "EVIDENCE", "EXTRACTORS", "build_relations"]
 
 RELATION_KINDS: Mapping[str, tuple[str, str]] = {
@@ -50,6 +52,12 @@ RELATION_KINDS: Mapping[str, tuple[str, str]] = {
     "drug_target": ("drug", "target"),
     "gene_set_member": ("gene_set", "target"),
     "drug_adverse_event": ("drug", "adverse_event"),
+    # from the SymMap and HERB site query endpoints (tcmdb.live)
+    "herb_target": ("herb", "target"),
+    "herb_disease": ("herb", "disease"),
+    "herb_symptom": ("herb", "symptom"),
+    "herb_syndrome": ("herb", "syndrome"),
+    "ingredient_disease": ("ingredient", "disease"),
 }
 EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", "signal"})
 
@@ -447,6 +455,8 @@ EXTRACTORS: dict[str, Callable[[sqlite3.Connection], Iterable[Row | None]]] = {
     "immport": _immport,
     "nsides": _nsides,
     "tcmsp_export": _tcmsp_export,
+    "symmap_api": lambda conn: _live.symmap_relations(conn, _rel),
+    "herb_api": lambda conn: _live.herb_relations(conn, _rel),
 }
 
 _COLUMNS = ("kind", "source", "subject_type", "subject_id", "subject_name", "object_type",

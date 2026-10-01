@@ -178,3 +178,6 @@ hf_datasets_server,Hugging Face datasets-server,splits,True,SUCCEEDED,200,1,358,
 hf_datasets_server,Hugging Face datasets-server,rows,False,SUCCEEDED,200,1,925,sha256:9d0878f78a2f,,datasets-server.huggingface.co,Per dataset (read the card's licence),2026-10-01T17:40:37Z
 figshare,figshare API v2,article,True,SUCCEEDED,200,1,613,sha256:c2e537eac773,,api.figshare.com,Per article (CC BY 4.0 for TCMP-300),2026-10-01T17:40:38Z
 figshare,figshare API v2,article_files,False,SUCCEEDED,200,1,623,sha256:4eecaea7033a,,api.figshare.com,Per article (CC BY 4.0 for TCMP-300),2026-10-01T17:40:39Z
+symmap,SymMap v2 (site query endpoint),related,True,SUCCEEDED,200,1,859,sha256:20fb69923bc2,,www.symmap.org,Not stated (files 'free to download'; BUCM copyright),2026-10-01T20:05:34Z
+herb_api,HERB 2.0 (site query endpoint),detail,False,SUCCEEDED,200,1,1381,sha256:66e79a6501df,,47.92.70.12,Not stated,2026-10-01T20:05:36Z
+herb_api,HERB 2.0 (site query endpoint),search,True,SUCCEEDED,200,1,517,sha256:83a255f5c888,,47.92.70.12,Not stated,2026-10-01T20:05:36Z

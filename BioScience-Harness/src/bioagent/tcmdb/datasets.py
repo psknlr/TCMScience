@@ -48,7 +48,7 @@ class DatasetSpec:
     homepage: str
     license: str
     files: tuple[FileSpec, ...]
-    access: str = "download"           # download | manual
+    access: str = "download"           # download | manual | live
     version: str = ""
     notes: str = ""
     instructions: str = ""             # for manual datasets: how a person obtains the files
@@ -297,6 +297,23 @@ DATASETS: tuple[DatasetSpec, ...] = (
                   "", fmt="raw", optional=True, note="12.8 GB of images")),
         notes="300 medicinal-plant classes for image recognition; the class table is the "
               "default, the images are optional."),
+    # ------------------------------------------------- live, per-entity (tcmdb.live)
+    DatasetSpec(
+        "symmap_api", "SymMap v2 (per-entity query endpoint)", (27,), "http://www.symmap.org/",
+        "not stated", (), access="live",
+        notes="Cached responses of the 'symmap' connector, one per entity and related type: "
+              "a herb's ingredients, targets, symptoms, diseases and syndromes, an "
+              "ingredient's targets. Filled by hub.enrich_symmap / hub.enrich.",
+        relations=("herb_ingredient", "herb_target", "herb_symptom", "herb_disease",
+                   "herb_syndrome", "ingredient_target")),
+    DatasetSpec(
+        "herb_api", "HERB 2.0 (per-entity query endpoint)", (13,), "http://herb.ac.cn/v2/",
+        "not stated", (), access="live",
+        notes="Cached responses of the 'herb_api' connector: Herb and Ingredient records "
+              "with their inferred and literature-reported relations, and the upstream "
+              "source of each ingredient-target pair. Filled by hub.enrich_herb / hub.enrich.",
+        relations=("herb_ingredient", "herb_target", "herb_disease", "ingredient_target",
+                   "ingredient_disease")),
     # ----------------------------------------------------------------- manual datasets
     DatasetSpec(
         "tcmsp_export", "TCMSP (exported tables)", (1,), "https://old.tcmsp-e.com/tcmsp.php",

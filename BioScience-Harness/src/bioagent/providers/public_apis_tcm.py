@@ -15,8 +15,13 @@ locally. This module holds the ones a program can query live:
   operation says so, the request rate is kept low, and the downloadable files in
   ``bioagent.tcmdb`` are the reference copy.
 
+* **Site query endpoints (POST)**: SymMap ``/related_components/`` and HERB
+  ``/chedi/api/``. These are the read queries the sites' own detail and search pages
+  send, with no token and no login. They are wrapped at the repository owner's request
+  (2026-10-02) for per-entity look-ups at one request per second. They are not used to
+  copy a database wholesale.
+
 Some sources were deliberately not wrapped:
-* undocumented POST endpoints (HERB ``/chedi/api/``, SymMap ``/related_components/``);
 * endpoints a site gates behind a login or a page token (the new TCMSP API, TCMSP
   pages, ImmPort data APIs, yiankb case search);
 * commercial services whose terms forbid automated use (Medscape, Natural Medicines).
@@ -121,6 +126,54 @@ TCM_SOURCES: tuple[PublicSource, ...] = (
                       example={"target_id": "T47101"}),
         ), smoke="target", docs="https://ttd.idrblab.cn/full-data-download",
         rate_note="undocumented; no stated limit; kept at 1 req/s"),
+
+    PublicSource(
+        "symmap", "SymMap v2 (site query endpoint)", "http://www.symmap.org",
+        "www.symmap.org", "Not stated (files 'free to download'; BUCM copyright)",
+        "Entities related to a SymMap entity: a herb's ingredients, targets, TCM and "
+        "modern-medicine symptoms, diseases and syndromes, or the herbs of an ingredient. "
+        "The form post SymMap's own detail pages send (undocumented); wrapped on the "
+        "repository owner's decision of 2026-10-02, per entity, at most 1 req/s.", "tcm", (
+            Operation("related", "Entities of one type related to an entity. entity_id is a "
+                      "SymMap id (SMHB herb, SMIT ingredient, SMTT target, SMTS TCM "
+                      "symptom, SMMS modern symptom, SMDE disease, SMSY syndrome); related "
+                      "is Herb, Mol, Gene, TCM_symptom, MM_symptom, Disease or Syndrome; "
+                      "filter 0 all, 1 P<0.05, 2 FDR(BH)<0.05, 3 FDR(Bonferroni)<0.05. "
+                      "Rows inferred through the network carry Relationship, IES Value, "
+                      "P_value and FDR; direct rows carry the supporting PubMed abstract.",
+                      "related_components/", method="POST",
+                      form={"rrid": "{entity_id}", "table_name": "{related}",
+                            "filter": "{filter}"},
+                      args=("entity_id", "related"),
+                      example={"entity_id": "SMHB00187", "related": "Syndrome",
+                               "filter": 0}),
+        ), smoke="related", docs="http://www.symmap.org/help/",
+        rate_note="undocumented form endpoint; kept at 1 req/s"),
+
+    PublicSource(
+        "herb_api", "HERB 2.0 (site query endpoint)", "http://47.92.70.12/chedi",
+        "47.92.70.12", "Not stated",
+        "A HERB 2.0 entity's record with its relations: a herb's ingredients, formulas, "
+        "targets and diseases (inferred, with P and FDR), literature-reported targets and "
+        "diseases (PubMed, grade, supporting sentence), meta-analyses and trials; an "
+        "ingredient's targets with the upstream source of each pair. The JSON post HERB's "
+        "own pages send (undocumented); wrapped on the repository owner's decision of "
+        "2026-10-02, per entity, at most 1 req/s.", "tcm", (
+            Operation("detail", "Record of one entity; label is Herb, Ingredient, Formula, "
+                      "Target or Disease; entity_id a HERB id (HERB…, HBIN…, HBFO…, "
+                      "HBTAR…, HBDIS…). About 0.5 MB for a well-studied herb.",
+                      "api/", method="POST",
+                      json_body={"v": "{entity_id}", "label": "{label}",
+                                 "key_id": "{entity_id}", "func_name": "detail_api"},
+                      args=("entity_id", "label"),
+                      example={"entity_id": "HBTAR000113", "label": "Target"}),
+            Operation("search", "Search one entity type by name or id",
+                      "api/", method="POST",
+                      json_body={"keyword": "{keyword}", "label": "{label}",
+                                 "func_name": "search_api"},
+                      args=("keyword", "label"), example={"keyword": "黄芪", "label": "Herb"}),
+        ), smoke="search", docs="http://47.92.70.12/#/Help",
+        rate_note="undocumented JSON endpoint; kept at 1 req/s"),
 
     PublicSource(
         "iedb", "IEDB Query API", "https://query-api.iedb.org", "query-api.iedb.org",

@@ -36,6 +36,9 @@ class Operation:
     #: JSON request body template for POST endpoints that are not GraphQL. Substituted
     #: like ``params``; ``None`` means the request has no body.
     json_body: Any = None
+    #: Form fields for POST endpoints that read ``application/x-www-form-urlencoded``
+    #: (a site's own search form). Substituted like ``params``.
+    form: Any = None
     accept: str = "application/json"
     args: tuple[str, ...] = ()            # required argument names
     example: Mapping[str, Any] = field(default_factory=dict)
@@ -68,6 +71,8 @@ class Operation:
             out["variables"] = sub(dict(self.variables))
         if self.json_body is not None:
             out["json_body"] = sub(self.json_body)
+        if self.form is not None:
+            out["form"] = sub(self.form)
         return out
 
 

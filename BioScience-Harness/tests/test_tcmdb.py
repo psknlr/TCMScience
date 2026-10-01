@@ -35,7 +35,7 @@ def test_the_catalogue_has_every_source_of_the_architecture_document_once():
     assert [c.no for c in cards] == list(range(1, 67))
     assert all(c.access in ACCESS_MODES for c in cards)
     for c in cards:
-        assert c.assessment and c.checked == "2026-10-01", c.name
+        assert c.assessment and c.checked in ("2026-10-01", "2026-10-02"), c.name
         if c.access in ("restricted", "unreachable"):
             assert c.barriers or c.assessment, f"{c.name}: say why it cannot be reached"
 
@@ -277,7 +277,7 @@ def test_status_fetch_and_build_refuse_with_the_reason(hub, tmp_path):
     with pytest.raises(HubError, match="not built"):
         hub.query("herb2", "herb")
     with pytest.raises(HubError, match="unknown relation kind"):
-        hub.relations("herb_target")
+        hub.relations("herb_compound")
 
 
 # -------------------------------------------------------------- more source formats
@@ -406,3 +406,87 @@ def test_the_cli_lists_the_catalogue(capsys):
     assert len(cards) == 66
     assert main(["tcmdb", "sources", "--module", "M6"]) == 0
     assert "DCABM-TCM" in capsys.readouterr().out
+
+
+# ------------------------------------------------- SymMap / HERB site query endpoints
+class _Result:
+    def __init__(self, value, status="SUCCEEDED"):
+        from bioagent.status import ExecutionStatus
+        self.status, self.value, self.error = ExecutionStatus(status), value, None
+
+
+_SYMMAP = {
+    "Mol": {"data": [
+        {"MOL_id": "SMIT00013", "Molecule_name": "Quercetin", "PubChem_CID": "5280343",
+         "TCMSP_id": "MOL000098", "evidence": '<div>...(<a href="x">&nbspPMID:32726039</a>'},
+        {"MOL_id": "SMIT00009", "Molecule_name": "Uridine", "PubChem_CID": "6029|1177",
+         "TCMSP_id": "MOL000059", "evidence": ""}]},
+    "Gene": {"data": [{"Gene_symbol": "A2M", "Gene_name": "Alpha-2-macroglobulin",
+                       "Value": "0.1884", "P_value": "0.028", "FDR(BH)": "0.07",
+                       "Relationship": "By_ingredient"}]},
+    "Syndrome": {"data": [{"Syndrome_id": "SMSY00003", "Syndrome_name": "中气下陷",
+                           "Syndrome_English": "sinking of the middle qi",
+                           "Type": "Summarized terms"}]},
+}
+
+_HERB = {
+    "herb_ingredient": [["Ingredient id", "Ingredient name"],
+                        [{"link": "/Detail/?v=HBIN041495", "title": "HBIN041495"}, "Quercetin"]],
+    "herb_target": [["Target id", "Gene symbol", "Protein name", "P value", "FDR BH"],
+                    [{"title": "HBTAR000113"}, "IL6", "interleukin 6", 1e-5, 0.01]],
+    "drug_paper_target": [["Target id", "Gene symbol", "Protein name", "Reference"],
+                          [{"title": "HBTAR001257"}, "EPO", "erythropoietin",
+                           [["Reference ID", "PubMed ID", "Reference title", "Relationship",
+                             "Grade", "Supporting sentences"],
+                            [{"title": "HBREF1"}, {"title": "32009956"}, "t", "NA",
+                             "Grade C", "s"]]]],
+}
+
+
+def test_site_queries_are_cached_per_entity_and_labelled_by_what_they_are(tmp_path):
+    h = TCMDataHub(tmp_path)
+    calls = []
+
+    def live(connector, operation, **kw):
+        calls.append((connector, operation, kw))
+        if connector == "symmap":
+            return _Result(_SYMMAP.get(kw["related"], {"data": []}))
+        return _Result(_HERB)
+    h.live = live
+    h.enrich_symmap(["SMHB00187"], related=("Mol", "Gene", "Syndrome"), log=lambda m: None)
+    h.enrich_herb(["HERB002560"], log=lambda m: None)
+    assert len(calls) == 4
+    h.enrich_symmap(["SMHB00187"], related=("Mol",), log=lambda m: None)   # cached
+    assert len(calls) == 4
+
+    rows = h.relations(sources=["symmap_api"], limit=100)
+    mol = {(r["object_id"], r["evidence"], r["reference"]) for r in rows
+           if r["kind"] == "herb_ingredient"}
+    assert mol == {("pubchem:5280343", "known", "pmid:32726039"),
+                   ("pubchem:6029", "aggregated", None)}
+    target = next(r for r in rows if r["kind"] == "herb_target")
+    assert target["evidence"] == "predicted" and "By_ingredient" in target["note"]
+    assert next(r for r in rows if r["kind"] == "herb_syndrome")["evidence"] == "listed"
+
+    herb = h.relations(sources=["herb_api"], limit=100)
+    inferred = next(r for r in herb if r["object_id"] == "symbol:IL6")
+    paper = next(r for r in herb if r["object_id"] == "symbol:EPO")
+    assert inferred["evidence"] == "predicted"
+    assert paper["evidence"] == "known" and paper["reference"] == "pmid:32009956"
+    assert "Grade C" in paper["note"]
+
+
+def test_a_failed_site_query_is_not_cached(tmp_path):
+    h = TCMDataHub(tmp_path)
+    h.live = lambda *a, **k: _Result(None, status="FAILED")
+    out = h.enrich_herb(["HERB002560"], log=lambda m: None)
+    assert out == [{"file": "HERB002560__Herb.json", "cached": False, "ok": False,
+                    "error": "FAILED"}]
+    assert not list(h.raw_dir("herb_api").glob("*.json"))
+
+
+def test_form_posts_are_encoded_as_a_browser_sends_them():
+    from bioagent.providers.public_apis import render_call
+    call = render_call("symmap", "related", entity_id="SMHB00187", related="Mol", filter=0)
+    assert call["method"] == "POST"
+    assert call["form"] == {"rrid": "SMHB00187", "table_name": "Mol", "filter": 0}
