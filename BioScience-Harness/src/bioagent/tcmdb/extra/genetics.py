@@ -45,7 +45,8 @@ significant knockout phenotype call; each becomes a ``gene_phenotype`` row:
 * context: species (mouse), zygosity, sex, procedure, parameter, statistical method,
   P value, effect size, allele, colony, phenotyping centre and resource;
 * ``Supplied as data`` marks categorical and pathology calls: their effect size of 1.0 and
-  P value of 0.0 are placeholders, not measurements, and are not kept;
+  P value of exactly 0 or 1 (3i's anti-nuclear antibody calls carry 1.0) are placeholders,
+  not measurements, and are not kept;
 * rows from the legacy resources the file re-hosts (EuroPhenome, MGP, 3i) carry
   ``via <resource>``; the Pain Working Group's (``pwg``) ran at IMPC centres and do not;
 * a sex of ``no data`` is unknown and is not kept; ``not_considered`` is kept.
@@ -265,9 +266,11 @@ def _impc(conn: sqlite3.Connection) -> Iterator[Row | None]:
         method = v(r["statistical_method"])
         supplied = (method or "").lower() == _SUPPLIED
         # A categorical or pathology call is "Supplied as data": its effect size of 1.0
-        # and P value of 0.0 are placeholders. A real P value (a viability test's) stays.
+        # and a P value of exactly 0 or 1 are placeholders (DR 24.0's 3i anti-nuclear
+        # antibody calls are significant with P 1.0). A real P value (a viability test's)
+        # stays.
         pvalue = v(r["p_value"])
-        if supplied and _float(pvalue) == 0.0:
+        if supplied and _float(pvalue) in (0.0, 1.0):
             pvalue = None
         effect_size = None if supplied else v(r["effect_size"])
         change = v(r["percentage_change"])

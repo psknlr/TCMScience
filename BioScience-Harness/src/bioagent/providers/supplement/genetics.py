@@ -120,8 +120,12 @@ SOURCES: tuple[PublicSource, ...] = (
                               "wt": "json", "rows": "{rows}"},
                       args=("symbol",), example={"symbol": "Car4", "rows": 3}),
         ), smoke="gene", docs="https://www.mousephenotype.org/help/programmatic-data-access/",
-        rate_note="www.ebi.ac.uk robots.txt Crawl-delay 10 s: per-gene look-ups only; the "
-                  "full calls are the impc snapshot"),
+        rate_note="www.ebi.ac.uk robots.txt sets Crawl-delay 10 s for crawling; these "
+                  "per-gene and per-term look-ups on the Solr cores IMPC documents for "
+                  "programmatic access are documented API use, not crawling, and are paced "
+                  "by the shared www.ebi.ac.uk host limit (10 req/s; the transport limits "
+                  "per host, not per path). Never enumerate genes through it: the full "
+                  "calls are the impc snapshot"),
 )
 
 #: Nothing is pending: every operation above answered the verification run.

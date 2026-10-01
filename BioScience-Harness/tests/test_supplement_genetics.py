@@ -213,6 +213,10 @@ def _impc(raw):
         _gp("MGI:104659", "Dll1", "", "", p="8.4E-6", effect="-0.88",
             method="Linear Mixed Model framework, LME, including Weight",
             resource="EuroPhenome", parameter="Food consumption"),
+        # 3i's anti-nuclear antibody calls are "Supplied as data" with a placeholder P of 1
+        _gp("MGI:1918000", "Ankrd11", "MP:0020113", "increased anti-nuclear antigen "
+            "antibody level", p="1.0", resource="3i", centre="WTSI",
+            procedure="Anti-nuclear antibody assay", parameter="ANA classification"),
         # the same call twice in the file is one row
         _gp("MGI:1914346", "Mmachc", "MP:0001297", "microphthalmia"),
     ], gz=True)
@@ -235,9 +239,9 @@ def impc(tmp_path):
 
 def test_impc_loads_calls_and_viability_and_keeps_the_readme_as_a_file(impc):
     _, report = impc
-    assert report["tables"] == {"genotype_phenotype": 8, "viability": 1}
+    assert report["tables"] == {"genotype_phenotype": 9, "viability": 1}
     assert report["skipped"] == ["README.md"]
-    assert report["relations"] == {"gene_phenotype": 6}            # duplicate merged
+    assert report["relations"] == {"gene_phenotype": 7}            # duplicate merged
     assert report["unresolved"] == 1
 
 
@@ -255,6 +259,9 @@ def test_a_knockout_call_is_a_known_gene_phenotype_in_mouse(impc):
     assert context["model"] == "Mmachc<tm1> | C57BL/6NCrl"
     # "Supplied as data": the 0.0 P value and the 1.0 effect size are placeholders
     assert "pvalue" not in context and "value" not in context
+    # ... and so is the 1.0 P value of a significant categorical call
+    ana = json.loads(rows["Ankrd11"]["context"])
+    assert "pvalue" not in ana and "value" not in ana
     viability = json.loads(rows["Letmd1"]["context"])
     assert viability["pvalue"] == "8.27058E-5" and "value" not in viability
     assert viability["sex"] == "not_considered"
