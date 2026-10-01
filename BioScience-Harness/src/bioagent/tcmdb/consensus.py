@@ -50,7 +50,17 @@ sources, and a ``support`` class:
 ``predicted``
     only model output;
 ``signal``
-    only disproportionality signals.
+    only disproportionality signals;
+``tested_negative``
+    every row that reaches the pair says it was tested and not found (an inactive assay,
+    a screen without a hit);
+``inconclusive``
+    only rows the sources flag as unreliable.
+
+A negative result never counts as support, and support never cancels a negative result:
+an assertion with both lists the sources on each side (``outcomes``,
+``contradicted_by``). Effects are reported per source; activation against inhibition,
+or increase against decrease, is flagged as ``effect_conflict`` rather than resolved.
 
 Scores are never combined across sources: an IES, a STITCH score, a P value and a PRR
 are on different scales, so each is reported under its own source.
@@ -59,6 +69,7 @@ are on different scales, so each is reported under its own source.
 from __future__ import annotations
 
 import itertools
+import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -75,7 +86,9 @@ EVIDENCE_RANK = ("known", "reported", "listed", "aggregated", "mentioned", "pred
                  "signal")
 OBSERVED = frozenset({"known", "reported"})
 SUPPORT_CLASSES = ("independently_replicated", "documented", "integrated", "mentioned",
-                   "predicted", "signal")
+                   "predicted", "signal", "tested_negative", "inconclusive")
+#: Effects that contradict each other when two sources report them for one pair.
+OPPOSED_EFFECTS = (frozenset({"activation", "inhibition"}), frozenset({"increase", "decrease"}))
 #: Two sources whose object sets for the same subjects overlap at least this much
 #: (Jaccard) are counted as one lineage.
 REDUNDANT_JACCARD = 0.5
@@ -287,21 +300,44 @@ class Assertion:
     object_names: set[str] = field(default_factory=set)
     rows: list[dict] = field(default_factory=list)
     silent: list[str] = field(default_factory=list)       # cover the subject, lack the object
+    not_tested: list[str] = field(default_factory=list)   # screens with no row for the pair
 
     @property
     def sources(self) -> list[str]:
         return sorted({r["source"] for r in self.rows})
 
     @property
+    def positive(self) -> list[dict]:
+        """The rows that found the relation (a row without an outcome found it)."""
+        return [r for r in self.rows if (r.get("outcome") or "positive") == "positive"]
+
+    def _with(self, outcome: str) -> list[str]:
+        return sorted({r["source"] for r in self.rows
+                       if (r.get("outcome") or "positive") == outcome})
+
+    @property
     def evidence(self) -> dict[str, list[str]]:
         out: dict[str, set[str]] = defaultdict(set)
-        for r in self.rows:
+        for r in self.positive or self.rows:
             out[r["evidence"]].add(r["source"])
         return {e: sorted(out[e]) for e in EVIDENCE_RANK if e in out}
 
     @property
     def best_evidence(self) -> str:
         return next(iter(self.evidence))
+
+    @property
+    def effects(self) -> dict[str, list[str]]:
+        out: dict[str, set[str]] = defaultdict(set)
+        for r in self.positive:
+            if r.get("effect"):
+                out[r["effect"]].add(r["source"])
+        return {e: sorted(out[e]) for e in sorted(out)}
+
+    @property
+    def effect_conflict(self) -> bool:
+        have = set(self.effects)
+        return any(pair <= have for pair in OPPOSED_EFFECTS)
 
     def lineages(self, evidence: Iterable[str] | None = None,
                  redundant: Mapping[str, str] | None = None) -> set[str]:
@@ -315,7 +351,7 @@ class Assertion:
         wanted = set(evidence) if evidence else None
         redundant = redundant or {}
         units: set[str] = set()
-        for r in self.rows:
+        for r in self.positive:
             if wanted is None or r["evidence"] in wanted:
                 cluster = redundant.get(f"db:{r['source']}")
                 if cluster and r["evidence"] not in OBSERVED:
@@ -326,6 +362,8 @@ class Assertion:
         return units
 
     def support(self, redundant: Mapping[str, str] | None = None) -> str:
+        if not self.positive:
+            return "tested_negative" if self._with("negative") else "inconclusive"
         best = self.best_evidence
         if best in OBSERVED:
             return ("independently_replicated"
@@ -353,7 +391,40 @@ class Assertion:
             "references": refs,
             "scores": {r["source"]: r["score"] for r in self.rows if r.get("score")},
             "silent_sources": self.silent,
+            "not_tested_in": self.not_tested,
+            "outcomes": {o: self._with(o) for o in ("positive", "negative", "inconclusive")
+                         if self._with(o)},
+            "contradicted_by": self._with("negative") if self.positive else [],
+            "effects": self.effects,
+            "effect_conflict": self.effect_conflict,
+            "contexts": len({r["context"] for r in self.rows if r.get("context")}),
         }
+
+
+def _screening_sources(hub: Any) -> set[str]:
+    """Source labels whose rows include negative or inconclusive results (assay screens).
+
+    ``build`` records them per store; a store built without that record is read directly.
+    """
+    out: set[str] = set()
+    built = hub.built() if hasattr(hub, "built") else []
+    for key in built:
+        with closing(sqlite3.connect(hub.db_path(key))) as conn:
+            try:
+                row = conn.execute("SELECT value FROM _tcmdb_build "
+                                   "WHERE key = 'sources_with_negatives'").fetchone()
+                if row is not None:
+                    out.update(json.loads(row[0]))
+                    continue
+            except sqlite3.OperationalError:
+                pass
+            try:
+                out.update(r[0] for r in conn.execute(
+                    "SELECT DISTINCT source FROM relations "
+                    "WHERE outcome IN ('negative', 'inconclusive')"))
+            except sqlite3.OperationalError:          # built before the outcome column
+                pass
+    return out
 
 
 def _gather(hub: Any, kind: str, *, subject: str | None, object: str | None,
@@ -414,7 +485,8 @@ def redundancy(rows: Sequence[Mapping[str, Any]], *, threshold: float = REDUNDAN
     """
     by: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for r in rows:
-        if r["evidence"] in ("aggregated", "listed", "known"):
+        if r["evidence"] in ("aggregated", "listed", "known") \
+                and (r.get("outcome") or "positive") == "positive":
             by[r["source"]][r["_s"]].add(r["_o"])
     pairs = {}
     parent = {s: s for s in by}
@@ -491,8 +563,13 @@ def consensus(hub: Any, kind: str, *, subject: str | None = None, object: str | 
     covering: dict[str, set[str]] = defaultdict(set)      # subject -> sources covering it
     for r in rows:
         covering[r["_s"]].add(r["source"])
+    # A source that records negative results (an assay screen) would have a row for a
+    # pair it tested; its missing row means "not tested", not silence.
+    screening = _screening_sources(hub) & set(subject_ids)
     for a in groups.values():
-        a.silent = sorted(covering[a.subject] - set(a.sources))
+        lacking = covering[a.subject] - set(a.sources)
+        a.silent = sorted(lacking - screening)
+        a.not_tested = sorted(lacking & screening)
 
     order = {c: i for i, c in enumerate(SUPPORT_CLASSES)}
     out = [a.as_dict(red["lineage_map"]) for a in groups.values()]

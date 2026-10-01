@@ -20,46 +20,9 @@ derived from them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Mapping
+from .spec import DatasetSpec, FileSpec
 
 __all__ = ["FileSpec", "DatasetSpec", "DATASETS", "dataset"]
-
-
-@dataclass(frozen=True)
-class FileSpec:
-    url: str
-    name: str                          # local file name under raw/<dataset>/
-    table: str                         # SQLite table it becomes
-    fmt: str = "tsv"                   # tsv | csv | ws (whitespace) | xlsx | parquet |
-    #                                    json | jsonl | gmt | ttd | text
-    optional: bool = False             # large or rarely needed: fetched only on request
-    expected_bytes: int | None = None
-    sheet: str | None = None           # xlsx sheet (default: the first)
-    columns: tuple[str, ...] = ()      # header for a headerless file
-    note: str = ""
-
-
-@dataclass(frozen=True)
-class DatasetSpec:
-    key: str
-    name: str
-    catalog: tuple[int, ...]           # entry numbers in the source catalogue
-    homepage: str
-    license: str
-    files: tuple[FileSpec, ...]
-    access: str = "download"           # download | manual | live
-    version: str = ""
-    notes: str = ""
-    instructions: str = ""             # for manual datasets: how a person obtains the files
-    relations: tuple[str, ...] = ()    # relation kinds its extractor yields (tcmdb.relations)
-    extra: Mapping[str, str] = field(default_factory=dict)
-
-    def file(self, name: str) -> FileSpec:
-        for f in self.files:
-            if f.name == name or f.table == name:
-                return f
-        raise KeyError(f"{self.key} has no file {name!r}")
 
 
 _HERB2 = "http://47.92.70.12/static/download_data/V2/"
@@ -81,8 +44,8 @@ DATASETS: tuple[DatasetSpec, ...] = (
                                ("meta_info", "meta_analysis"),
                                ("reference_info", "reference"))),
         version="2.0",
-        notes="Entity tables only. Herb-ingredient and ingredient-target pairs are served "
-              "only by an undocumented POST API, which is not used. The formula table lists "
+        notes="Entity tables. Herb-ingredient and ingredient-target pairs come per entity "
+              "from the site's query endpoint (dataset 'herb_api'). The formula table lists "
               "each formula's herbs; the clinical-trial, meta-analysis and reference tables "
               "link herbs, formulas and ingredients to their evidence.",
         relations=("formula_herb", "subject_clinical_trial", "subject_meta_analysis",
@@ -113,8 +76,8 @@ DATASETS: tuple[DatasetSpec, ...] = (
         version="2.0",
         notes="Entity tables with their mappings to UMLS, MeSH, OMIM, ICD-10-CM and HPO, and "
               "a name index per entity (the 'key' files). The symptom-herb-target "
-              "associations are served only by an undocumented POST endpoint, which is not "
-              "used."),
+              "associations come per entity from the site's query endpoint (dataset "
+              "'symmap_api')."),
     DatasetSpec(
         "itcm", "ITCM", (20,), "http://itcm.biotcm.net/", "not stated",
         tuple(FileSpec(f"http://itcm.biotcm.net/downDetail/{t}", f"itcm_{t}_detail.txt", t)
@@ -343,6 +306,10 @@ DATASETS: tuple[DatasetSpec, ...] = (
                      "drugbank_all_drugbank_vocabulary.csv.zip in a browser, unzip it as "
                      "drugbank_vocabulary.csv into raw/drugbank_vocabulary/."),
 )
+
+from .extra import EXTRA_DATASETS  # noqa: E402
+
+DATASETS = DATASETS + EXTRA_DATASETS
 
 _BY_KEY = {d.key: d for d in DATASETS}
 if len(_BY_KEY) != len(DATASETS):                       # pragma: no cover

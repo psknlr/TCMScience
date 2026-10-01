@@ -5,7 +5,10 @@ BATMAN PubChem CIDs, TM-MC its own codes. Each extractor reads one built store
 (``tcmdb.store``) and writes rows of a single shape into its ``relations`` table:
 
     kind, source, subject_type, subject_id, subject_name,
-    object_type, object_id, object_name, evidence, score, reference, note
+    object_type, object_id, object_name, evidence, score, reference, note,
+    effect, outcome, context, license
+
+(``effect``, ``outcome``, ``context`` and ``license`` are described in ``tcmdb.rowkit``.)
 
 * **ids** use a global identifier when the source gives one: ``pubchem:<CID>`` for a
   compound, ``ncbigene:<id>`` or ``symbol:<HGNC symbol>`` for a human gene, ``uniprot:`` for a
@@ -35,96 +38,18 @@ BATMAN PubChem CIDs, TM-MC its own codes. Each extractor reads one built store
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
-from typing import Any, Callable, Iterable, Iterator, Mapping
+from typing import Any, Callable, Iterable, Iterator
 
 from . import live as _live
+from .rowkit import (COLUMNS, EFFECTS, EVIDENCE, OUTCOMES, RELATION_KINDS, Row, cid as _cid,
+                     col as _col, has as _has, names as _names, rel as _rel, rows as _rows,
+                     unresolved as _unresolved, v as _v)
 
-__all__ = ["RELATION_KINDS", "EVIDENCE", "EXTRACTORS", "build_relations"]
-
-RELATION_KINDS: Mapping[str, tuple[str, str]] = {
-    "herb_ingredient": ("herb", "ingredient"),
-    "ingredient_target": ("ingredient", "target"),
-    "formula_herb": ("formula", "herb"),
-    "target_disease": ("target", "disease"),
-    "subject_clinical_trial": ("subject", "clinical_trial"),
-    "subject_meta_analysis": ("subject", "meta_analysis"),
-    "subject_reference": ("subject", "publication"),
-    "herb_drug_interaction": ("herb", "drug"),
-    "drug_target": ("drug", "target"),
-    "gene_set_member": ("gene_set", "target"),
-    "drug_adverse_event": ("drug", "adverse_event"),
-    # from the SymMap and HERB site query endpoints (tcmdb.live)
-    "herb_target": ("herb", "target"),
-    "herb_disease": ("herb", "disease"),
-    "herb_symptom": ("herb", "symptom"),
-    "herb_syndrome": ("herb", "syndrome"),
-    "ingredient_disease": ("ingredient", "disease"),
-}
-EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", "mentioned",
-                      "signal"})
-
-_NA = frozenset({"", "na", "n/a", "nan", "none", "null", "-", "--"})
-
-Row = dict[str, Any]
-
-
-def _v(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return None if text.lower() in _NA else text
-
-
-def _names(*values: Any) -> str | None:
-    out: list[str] = []
-    for value in values:
-        for part in re.split(r"\s*[;|]\s*", _v(value) or ""):
-            part = part.strip()
-            if part and part.lower() not in _NA and part not in out:
-                out.append(part)
-    return " | ".join(out) or None
-
-
-def _cid(value: Any) -> str | None:
-    text = _v(value)
-    if not text:
-        return None
-    text = text.split(".")[0] if re.fullmatch(r"\d+\.0", text) else text
-    return f"pubchem:{text}" if text.isdigit() else None
-
-
-def _rel(kind: str, source: str, subject_id: Any, subject_name: Any, object_id: Any,
-         object_name: Any, evidence: str, *, score: Any = None, reference: Any = None,
-         note: Any = None, subject_type: str | None = None,
-         object_type: str | None = None) -> Row | None:
-    sid, oid = _v(subject_id), _v(object_id)
-    if not sid or not oid:
-        return None
-    st, ot = RELATION_KINDS[kind]
-    return {"kind": kind, "source": source, "subject_type": subject_type or st,
-            "subject_id": sid, "subject_name": _v(subject_name), "object_type": object_type or ot,
-            "object_id": oid, "object_name": _v(object_name), "evidence": evidence,
-            "score": _v(score), "reference": _v(reference), "note": _v(note)}
-
-
-def _has(conn: sqlite3.Connection, *tables: str) -> bool:
-    have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    return all(t in have for t in tables)
-
-
-def _rows(conn: sqlite3.Connection, sql: str) -> Iterator[sqlite3.Row]:
-    conn.row_factory = sqlite3.Row
-    yield from conn.execute(sql)
-
-
-def _col(row: sqlite3.Row, *names: str) -> Any:
-    keys = {k.lower(): k for k in row.keys()}
-    for n in names:
-        if n.lower() in keys:
-            return row[keys[n.lower()]]
-    return None
+__all__ = ["RELATION_KINDS", "EVIDENCE", "EFFECTS", "OUTCOMES", "EXTRACTORS",
+           "build_relations", "relations_digest"]
 
 
 # ------------------------------------------------------------------------------- ITCM
@@ -258,13 +183,24 @@ def _tmmc2(conn: sqlite3.Connection) -> Iterator[Row | None]:
         for r in _rows(conn, "SELECT * FROM medicinal_compound"):
             latin = _v(r["LATIN"])
             pmid = _v(r["PMID"])
+            ref = f"pmid:{pmid}" if pmid and pmid.isdigit() else pmid
+            target = compound_id(r["ID"])
+            if target is None:
+                # ID 0: TM-MC could not identify the compound the paper names. The name,
+                # the material and the paper go to the queue, not under a shared id.
+                yield _unresolved("herb_ingredient", "tmmc2", f"tmmc:material.{latin}",
+                                  material.get(latin, latin), r["COMPOUND"],
+                                  "TM-MC compound ID 0 (not identified)", reference=ref)
+                continue
             yield _rel("herb_ingredient", "tmmc2", f"tmmc:material.{latin}",
-                       material.get(latin, latin), compound_id(r["ID"]), r["COMPOUND"],
-                       "known", reference=f"pmid:{pmid}" if pmid and pmid.isdigit() else pmid)
+                       material.get(latin, latin), target, r["COMPOUND"], "known",
+                       reference=ref)
     if _has(conn, "chemical_protein"):
         for r in _rows(conn, "SELECT * FROM chemical_protein"):
             # STITCH's combined score mixes experiments, databases, text mining and
-            # prediction; PubChem rows have no score. Neither says which a pair rests on.
+            # prediction. TM-MC writes 0 as the score of the rows it added from PubChem,
+            # where the score does not apply (README): that 0 is not "no activity", so it
+            # is not kept. Neither source says which kind of evidence a pair rests on.
             yield _rel("ingredient_target", "tmmc2", compound_id(r["ID"]), None,
                        f"ensembl:{r['PROTEINID']}", _names(r["PREFERRED_NAME"]), "aggregated",
                        score=r["SCORE"] if _v(r["SOURCE"]) == "STITCH" else None,
@@ -465,41 +401,81 @@ EXTRACTORS: dict[str, Callable[[sqlite3.Connection], Iterable[Row | None]]] = {
     "herb_api": lambda conn: _live.herb_relations(conn, _rel),
 }
 
-_COLUMNS = ("kind", "source", "subject_type", "subject_id", "subject_name", "object_type",
-            "object_id", "object_name", "evidence", "score", "reference", "note")
+from .extra import EXTRA_EXTRACTORS as _EXTRA  # noqa: E402
+
+EXTRACTORS.update(_EXTRA)
+
+
+def _digest(row: tuple) -> int:
+    blob = "\x1f".join("" if x is None else str(x) for x in row).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(blob).digest()[:16], "big")
+
+
+def relations_digest(conn: sqlite3.Connection) -> str:
+    """An order-independent digest of the ``relations`` table.
+
+    Building the same files twice must give the same digest; ``build`` records it, so a
+    rebuild that silently changes the relations is visible.
+    """
+    total = 0
+    for row in conn.execute(f"SELECT {', '.join(COLUMNS)} FROM relations"):
+        total = (total + _digest(row)) % (1 << 128)
+    return f"sum128:{total:032x}"
 
 
 def build_relations(conn: sqlite3.Connection, dataset_key: str) -> dict[str, int]:
-    """(Re)write the ``relations`` table of one built store; counts per kind."""
+    """(Re)write the ``relations`` and ``unresolved`` tables of one built store.
+
+    Returns counts per kind. Each row gets the licence of the file it came from (the
+    dataset spec's ``relation_licenses``, else its licence) unless the extractor set one.
+    """
+    from .datasets import DATASETS
+    spec = next((d for d in DATASETS if d.key == dataset_key), None)
     conn.execute("DROP TABLE IF EXISTS relations")
-    conn.execute(f"CREATE TABLE relations ({', '.join(c + ' TEXT' for c in _COLUMNS)})")
+    conn.execute(f"CREATE TABLE relations ({', '.join(c + ' TEXT' for c in COLUMNS)})")
+    conn.execute("DROP TABLE IF EXISTS unresolved")
+    conn.execute("CREATE TABLE unresolved (kind TEXT, source TEXT, subject_id TEXT, "
+                 "subject_name TEXT, object_name TEXT, reason TEXT, reference TEXT, "
+                 "note TEXT)")
     extractor = EXTRACTORS.get(dataset_key)
     counts: dict[str, int] = {}
     if extractor is None:
         conn.commit()
         return counts
     batch: list[tuple] = []
-    insert = f"INSERT INTO relations VALUES ({', '.join('?' * len(_COLUMNS))})"
+    queue: list[tuple] = []
+    insert = f"INSERT INTO relations VALUES ({', '.join('?' * len(COLUMNS))})"
     seen: set[tuple] = set()
     for row in extractor(conn):
         if row is None:
             continue
+        if "_unresolved" in row:
+            queue.append((row["kind"], row["source"], row["subject_id"], row["subject_name"],
+                          row["object_name"], row["_unresolved"], row["reference"],
+                          row["note"]))
+            continue
         if row["evidence"] not in EVIDENCE:                # pragma: no cover - programming
             raise ValueError(f"{dataset_key}: evidence {row['evidence']!r}")
-        # one row per pair, evidence and reference: two papers on the same pair are two rows
+        row.setdefault("outcome", "positive")
+        if not row.get("license") and spec is not None:
+            row["license"] = spec.licence_of(row["kind"])
+        # one row per pair, evidence, reference, effect, outcome and context: two papers
+        # on the same pair are two rows, and so are two cell lines of one screen
         key = (row["kind"], row["subject_id"], row["object_id"], row["evidence"],
-               row["reference"])
+               row["reference"], row.get("effect"), row["outcome"], row.get("context"))
         if key in seen:
             continue
         seen.add(key)
-        batch.append(tuple(row[c] for c in _COLUMNS))
+        batch.append(tuple(row.get(c) for c in COLUMNS))
         counts[row["kind"]] = counts.get(row["kind"], 0) + 1
         if len(batch) >= 5000:
             conn.executemany(insert, batch)
             batch.clear()
     if batch:
         conn.executemany(insert, batch)
-    for col in ("kind", "subject_id", "object_id"):
-        conn.execute(f"CREATE INDEX IF NOT EXISTS relations_{col} ON relations({col})")
+    if queue:
+        conn.executemany("INSERT INTO unresolved VALUES (?, ?, ?, ?, ?, ?, ?, ?)", queue)
+    for c in ("kind", "subject_id", "object_id"):
+        conn.execute(f"CREATE INDEX IF NOT EXISTS relations_{c} ON relations({c})")
     conn.commit()
     return counts

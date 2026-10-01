@@ -36,7 +36,9 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .datasets import DATASETS, dataset
-from .relations import EVIDENCE, RELATION_KINDS, build_relations
+from .relations import EVIDENCE, OUTCOMES, RELATION_KINDS, build_relations, relations_digest
+from .rowkit import COLUMNS
+from .spec import allows_commercial, licence_class
 from .store import StoreError, build_store, connect, safe_name
 
 __all__ = ["SourceCard", "TCMDataHub", "catalog", "HubError", "ENV_TCMDB"]
@@ -63,6 +65,10 @@ class SourceCard:
     barriers: str
     assessment: str
     checked: str
+    #: "architecture" for the 66 sources of the architecture document; the review a
+    #: source was added from otherwise.
+    origin: str = "architecture"
+    commercial_use: str = "unknown"            # allowed | forbidden | unknown
 
     @property
     def callable_live(self) -> bool:
@@ -87,7 +93,9 @@ def catalog() -> tuple[SourceCard, ...]:
                             url=e["url"], access=e["access"], connector=e.get("connector"),
                             dataset=e.get("dataset"), license=e["license"],
                             barriers=e["barriers"], assessment=e["assessment"],
-                            checked=e["checked"]) for e in entries)
+                            checked=e["checked"], origin=e.get("origin", "architecture"),
+                            commercial_use=e.get("commercial_use", "unknown"))
+                 for e in entries)
 
 
 def _default_root() -> Path:
@@ -107,6 +115,19 @@ def _symmap_id(value: Any) -> str:
     """SymMap's files number herbs 1, 2, ...; its pages and query endpoint say SMHB00001."""
     text = str(value).strip()
     return f"SMHB{int(text):05d}" if text.isdigit() else text
+
+
+def _looks_like_html(path: Path) -> bool:
+    """Whether a downloaded file is an HTML page (checked on its first bytes)."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(1024)
+    except OSError:
+        return False
+    if head[:2] == b"\x1f\x8b" or head[:4] == b"PK\x03\x04":
+        return False                                # gzip / zip
+    text = head.lstrip(b"\xef\xbb\xbf \t\r\n").lower()
+    return text.startswith((b"<!doctype html", b"<html", b"<head", b"<body"))
 
 
 def _split_names(text: str | None) -> list[str]:
@@ -189,10 +210,14 @@ class TCMDataHub:
                 continue
             try:
                 r = dl.fetch(f.url, f.name, expected_bytes=f.expected_bytes, confirm=confirm)
+                if not f.html_ok and _looks_like_html(self.raw_dir(key) / f.name):
+                    (self.raw_dir(key) / f.name).unlink(missing_ok=True)
+                    raise HubError(f"{f.url} returned an HTML page (a login, challenge or "
+                                   "error page), not the file; it was not kept")
                 results.append({"file": f.name, "bytes": r.bytes, "checksum": r.checksum,
                                 "cached": r.from_cache, "ok": True})
                 log(f"{key}: {f.name} {r.bytes} bytes{' (cached)' if r.from_cache else ''}")
-            except (DownloadError, OSError) as exc:
+            except (DownloadError, OSError, HubError) as exc:
                 results.append({"file": f.name, "ok": False, "error": str(exc)[:300]})
                 log(f"{key}: {f.name} FAILED {exc}")
         return results
@@ -215,6 +240,17 @@ class TCMDataHub:
         conn = connect(self.db_path(key), readonly=False)
         try:
             report["relations"] = build_relations(conn, key)
+            report["unresolved"] = conn.execute("SELECT count(*) FROM unresolved").fetchone()[0]
+            report["relations_digest"] = relations_digest(conn)
+            conn.execute("CREATE TABLE IF NOT EXISTS _tcmdb_build (key TEXT, value TEXT)")
+            conn.execute("DELETE FROM _tcmdb_build")
+            negatives = sorted(r[0] for r in conn.execute(
+                "SELECT DISTINCT source FROM relations WHERE outcome != 'positive'"))
+            conn.executemany("INSERT INTO _tcmdb_build VALUES (?, ?)", [
+                ("relations_digest", report["relations_digest"]),
+                ("sources_with_negatives", json.dumps(negatives)),
+                ("built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))])
+            conn.commit()
         finally:
             conn.close()
         return report
@@ -273,6 +309,7 @@ class TCMDataHub:
     def relations(self, kind: str | None = None, *, subject: str | None = None,
                   object: str | None = None, sources: Iterable[str] | None = None,
                   evidence: Iterable[str] | None = None, contains: bool = False,
+                  outcomes: Iterable[str] | None = None, commercial: bool = False,
                   limit: int = 200) -> list[dict[str, Any]]:
         """Relations across every built store.
 
@@ -281,12 +318,21 @@ class TCMDataHub:
         ``HUANG QI``). ``contains=True`` matches a substring of the names instead, so
         ``黄芪`` then also finds ``炙黄芪`` and ``黄芪鳖甲散``. ``limit`` applies per
         source, so one large source cannot crowd the others out.
+
+        ``outcomes`` keeps only rows with those outcomes (``positive``, ``negative``,
+        ``inconclusive``); by default every row is returned, negative results included.
+        ``commercial=True`` keeps only rows whose licence allows commercial reuse of
+        derived data (``tcmdb.spec.licence_class``: open or share-alike); rows under a
+        non-commercial, no-derivatives or unstated licence are left out.
         """
         if kind is not None and kind not in RELATION_KINDS:
             raise HubError(f"unknown relation kind {kind!r}; have {sorted(RELATION_KINDS)}")
         ev = set(evidence or ())
         if ev - EVIDENCE:
             raise HubError(f"unknown evidence {sorted(ev - EVIDENCE)}; have {sorted(EVIDENCE)}")
+        oc = set(outcomes or ())
+        if oc - OUTCOMES:
+            raise HubError(f"unknown outcome {sorted(oc - OUTCOMES)}; have {sorted(OUTCOMES)}")
         keys = [k for k in (sources or self.built()) if self.db_path(k).exists()]
         out: list[dict[str, Any]] = []
         for key in keys:
@@ -311,12 +357,50 @@ class TCMDataHub:
                     continue                  # a store built before relations existed
                 for r in conn.execute(sql, params):
                     row = dict(r)
+                    for c in COLUMNS:             # a store built before these columns
+                        row.setdefault(c, None)
+                    row["outcome"] = row["outcome"] or "positive"
+                    if not row["license"]:
+                        row["license"] = self._licence(key, row["kind"])
+                    if oc and row["outcome"] not in oc:
+                        continue
+                    if commercial and not allows_commercial(row["license"]):
+                        continue
                     if not contains and not self._exact(row, subject, object):
                         continue
                     out.append(row)
                     taken += 1
                     if taken >= limit:
                         break
+        return out
+
+    @staticmethod
+    def _licence(key: str, kind: str) -> str | None:
+        try:
+            return dataset(key).licence_of(kind)
+        except KeyError:
+            return None
+
+    def unresolved(self, key: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        """Rows a source gave whose object it could not identify (``rowkit.unresolved``)."""
+        with closing(self._conn(key)) as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='unresolved'") \
+                    .fetchone():
+                return []
+            return [dict(r) for r in conn.execute("SELECT * FROM unresolved LIMIT ?",
+                                                  (max(0, int(limit)),))]
+
+    def licences(self) -> list[dict[str, Any]]:
+        """Each built dataset's relation kinds with their licence and reuse class."""
+        out = []
+        for key in self.built():
+            spec = dataset(key)
+            kinds = spec.relations or tuple(spec.relation_licenses)
+            for kind in kinds:
+                text = spec.licence_of(kind)
+                out.append({"dataset": key, "kind": kind, "license": text,
+                            "class": licence_class(text),
+                            "commercial": allows_commercial(text)})
         return out
 
     @staticmethod

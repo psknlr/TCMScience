@@ -350,6 +350,7 @@ SOURCES: tuple[PublicSource, ...] = (
 #: ``scripts/verify_connectors.py``.
 from .public_apis_ext import EXTENDED_SOURCES  # noqa: E402
 from .public_apis_tcm import OPENFDA_HERBAL_OPERATIONS, TCM_SOURCES  # noqa: E402
+from .supplement import SUPPLEMENT_SOURCES  # noqa: E402
 
 
 def _with_herbal_operations(source: PublicSource) -> PublicSource:
@@ -359,7 +360,7 @@ def _with_herbal_operations(source: PublicSource) -> PublicSource:
 
 
 CORE_SOURCES: tuple[PublicSource, ...] = tuple(_with_herbal_operations(s) for s in SOURCES)
-SOURCES = CORE_SOURCES + EXTENDED_SOURCES + TCM_SOURCES
+SOURCES = CORE_SOURCES + EXTENDED_SOURCES + TCM_SOURCES + SUPPLEMENT_SOURCES
 
 BY_KEY: Mapping[str, PublicSource] = {s.key: s for s in SOURCES}
 if len(BY_KEY) != len(SOURCES):                       # pragma: no cover - programming error
