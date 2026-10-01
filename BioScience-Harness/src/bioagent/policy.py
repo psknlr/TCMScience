@@ -375,6 +375,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # tcmdb.extra.rna_reg)
             "disprot.org", "rnacentral.org", "chip-atlas.org", "chip-atlas.dbcls.jp",
             "remap.univ-amu.fr", "research.bioinformatics.udel.edu", "awi.cuhk.edu.cn",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: atlases
+            # (HCA Azul, HuBMAP search/entity/portal/ontology APIs, 4DN portal and its
+            # AWS Open Data bucket; BioSamples is on www.ebi.ac.uk, covered above)
+            "service.azul.data.humancellatlas.org", "search.api.hubmapconsortium.org",
+            "entity.api.hubmapconsortium.org", "portal.hubmapconsortium.org",
+            "ontology.api.hubmapconsortium.org", "data.4dnucleome.org",
+            "4dn-open-data-public.s3.amazonaws.com",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

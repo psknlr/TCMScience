@@ -249,6 +249,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # 30 s (its /agents page invites the /data calls robots.txt disallows for crawlers).
     "rnacentral.org": 0.2, "chip-atlas.org": 1.0 / 30.0, "disprot.org": 1.0,
     "remap.univ-amu.fr": 1.0, "research.bioinformatics.udel.edu": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: atlases
+    "service.azul.data.humancellatlas.org": 1.0, "search.api.hubmapconsortium.org": 1.0,
+    "entity.api.hubmapconsortium.org": 1.0, "portal.hubmapconsortium.org": 1.0,
+    "data.4dnucleome.org": 1.0,
 }
 
 
