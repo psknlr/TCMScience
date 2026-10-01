@@ -341,6 +341,8 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # TCM safety download hosts (TCMToxDB, MIBiG, gutMGene, EMA herbal index)
             "www.sdu-idea.cn", "dl.secondarymetabolites.org",
             "bio-computing.hrbmu.edu.cn", "www.ema.europa.eu",
+            # ... and TCM safety live look-ups (MIBiG entries, PhytoHub compounds)
+            "mibig.secondarymetabolites.org", "phytohub.eu",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

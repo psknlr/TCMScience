@@ -495,3 +495,59 @@ def test_a_generated_file_answering_head_with_length_zero_is_sized_by_a_ranged_g
     monkeypatch.setattr(downloader.urllib.request, "urlopen", fake_urlopen)
     dl = downloader.Downloader(tmp_path)
     assert dl._remote_size("https://www.ema.europa.eu/en/documents/report/x.json") == 37223213
+
+
+# -------------------------------------------------------------------------- connectors
+def test_the_mibig_and_phytohub_requests_are_the_ones_verified_live():
+    from bioagent.providers.public_apis import BY_KEY, render_call
+    assert BY_KEY["mibig"].base_url == "https://mibig.secondarymetabolites.org"
+    entry = render_call("mibig", "entry")
+    assert (entry["method"], entry["path"]) == ("GET",
+                                                "repository/BGC0000001.5/annotations.json")
+    assert render_call("mibig", "stats")["path"] == "api/v1/stats"
+    assert {o.name for o in BY_KEY["mibig"].operations} == {"entry", "stats"}  # no bulk list
+
+    assert BY_KEY["phytohub"].base_url == "https://phytohub.eu"
+    assert render_call("phytohub", "entry")["path"] == "entries/PHUB000006.json"
+    search = render_call("phytohub", "search", name="cafestol")
+    assert (search["path"], search["params"]) == ("search/compounds.json",
+                                                  {"query": "cafestol"})
+    assert render_call("phytohub", "food_source")["path"] == "food_sources/39.json"
+    sdf = render_call("phytohub", "structure_sdf")
+    assert sdf["path"] == "structures/entries/PHUB000006.sdf"
+    assert sdf["accept"] != "application/json"
+
+
+def test_the_gutmgene_request_posts_the_browse_page_body():
+    from bioagent.providers.public_apis import BY_KEY, render_call
+    call = render_call("gutmgene", "association_evidence")
+    assert (call["method"], call["path"]) == ("POST", "browse/getbrowsetable")
+    assert call["json_body"] == {"data": {
+        "dataset": "metabolite_gene", "index_id": "1", "species": "human",
+        "datatype": "detail", "substrate_id": "", "microbe_id": "",
+        "metabolite_id": "Acetate", "gene_id": "FFAR3", "alteration": "activation"}}
+    with pytest.raises(ValueError):                  # index_id is required
+        BY_KEY["gutmgene"].op("association_evidence").render(dataset="metabolite_gene")
+
+
+def test_every_connector_and_download_host_is_allowed_and_paced():
+    from bioagent.backends.http import DEFAULT_RATES
+    from bioagent.policy import PROFILES
+    from bioagent.providers.public_apis import BY_KEY
+    from bioagent.providers.supplement import MODULES
+    from bioagent.providers.supplement.tcm_safety import PENDING, SOURCES
+    from bioagent.tcmdb.datasets import dataset
+    allowed = PROFILES["biomedical-research"].allowed_hosts
+
+    def ok(host):
+        return any(host == a or host.endswith("." + a) for a in allowed)
+
+    assert "tcm_safety" in MODULES and PENDING == ()
+    assert [s.key for s in SOURCES] == ["mibig", "gutmgene", "phytohub"]
+    for s in SOURCES:
+        assert ok(s.host) and DEFAULT_RATES[s.host] <= 1.0, s.key
+        assert s.host == s.base_url.split("/")[2]
+        assert s.key in BY_KEY and s.smoke in {o.name for o in s.operations}
+    for key in ("tcmtoxdb", "mibig", "gutmgene", "ema_herbal"):
+        for f in dataset(key).files:
+            assert ok(f.url.split("/")[2]), f.url
