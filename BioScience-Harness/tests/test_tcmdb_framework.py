@@ -242,3 +242,22 @@ def test_every_added_dataset_and_connector_is_registered_once():
         assert d.commercial_use in ("allowed", "forbidden", "unknown"), d.key
         if d.relations:
             assert d.key in EXTRACTORS, f"{d.key} declares relations but has no extractor"
+
+
+def test_the_acceptance_check_passes_a_clean_dataset_and_names_what_fails(tmmc):
+    h, _ = tmmc
+    result = h.check("tmmc2")
+    assert result["ok"], result["problems"]
+    assert result["unresolved"] == 2
+    assert set(result["licences"]) == {"herb_ingredient", "ingredient_target",
+                                       "target_disease", "formula_herb"}
+    (h.raw_dir("tmmc2") / "README.txt").write_text("<html><body>Sign in</body></html>")
+    result = h.check("tmmc2", rebuild=False)
+    assert not result["ok"] and any("HTML page" in p for p in result["problems"])
+
+
+def test_the_check_command_reports_and_fails_on_a_problem(tmmc, capsys):
+    from bioagent.cli import main
+    h, _ = tmmc
+    assert main(["tcmdb", "--root", str(h.root), "check", "tmmc2", "--no-rebuild"]) == 0
+    assert '"ok": true' in capsys.readouterr().out

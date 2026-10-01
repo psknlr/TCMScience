@@ -255,6 +255,96 @@ class TCMDataHub:
             conn.close()
         return report
 
+    def check(self, key: str, *, rebuild: bool = True) -> dict[str, Any]:
+        """The acceptance checks a dataset passes before research tasks use it.
+
+        * every default file is present, and none is an HTML page saved in its place;
+        * the store is built, and rebuilding it from the same files gives the same
+          relations (the digests match);
+        * every relation row uses a declared kind and a known evidence, effect and
+          outcome, and its context is JSON with known keys;
+        * every relation kind has a licence, and its reuse class is reported (an
+          ``unknown`` class is a warning: not permission);
+        * rows the source could not resolve are counted, not hidden.
+        """
+        from .rowkit import CONTEXT_KEYS, EFFECTS
+        spec = dataset(key)
+        problems: list[str] = []
+        warnings: list[str] = []
+        raw = self.raw_dir(key)
+        for f in spec.files:
+            path = raw / f.name
+            if not path.exists():
+                if not f.optional and spec.access != "live":
+                    problems.append(f"missing file {f.name}")
+                continue
+            if not f.html_ok and _looks_like_html(path):
+                problems.append(f"{f.name} is an HTML page, not data")
+        out: dict[str, Any] = {"dataset": key, "access": spec.access}
+        if not self.db_path(key).exists():
+            problems.append("not built")
+            return {**out, "ok": False, "problems": problems, "warnings": warnings}
+        with closing(connect(self.db_path(key))) as conn:
+            try:
+                before = conn.execute("SELECT value FROM _tcmdb_build "
+                                      "WHERE key = 'relations_digest'").fetchone()
+            except sqlite3.OperationalError:
+                before = None
+        if rebuild:
+            report = self.build(key, log=lambda m: None)
+            if before and before[0] != report["relations_digest"]:
+                problems.append(f"rebuilding changed the relations ({before[0]} -> "
+                                f"{report['relations_digest']})")
+            again = self.build(key, log=lambda m: None)
+            if again["relations_digest"] != report["relations_digest"]:
+                problems.append("two builds from the same files gave different relations")
+            out["relations_digest"] = report["relations_digest"]
+        with closing(connect(self.db_path(key))) as conn:
+            counts = conn.execute(
+                "SELECT kind, evidence, coalesce(outcome, 'positive'), effect, count(*) "
+                "FROM relations GROUP BY 1, 2, 3, 4").fetchall()
+            bad_ctx = 0
+            for (text,) in conn.execute("SELECT DISTINCT context FROM relations "
+                                        "WHERE context IS NOT NULL LIMIT 100000"):
+                try:
+                    keys = set(json.loads(text))
+                except (ValueError, TypeError):
+                    bad_ctx += 1
+                    continue
+                bad_ctx += bool(keys - set(CONTEXT_KEYS))
+            queue = conn.execute("SELECT count(*) FROM unresolved").fetchone()[0] \
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='unresolved'") \
+                .fetchone() else 0
+        by_kind: dict[str, dict[str, int]] = {}
+        for kind, evidence, outcome, effect, n in counts:
+            if kind not in RELATION_KINDS or kind not in spec.relations:
+                problems.append(f"undeclared relation kind {kind!r}")
+            if evidence not in EVIDENCE:
+                problems.append(f"unknown evidence {evidence!r} in {kind}")
+            if outcome not in OUTCOMES:
+                problems.append(f"unknown outcome {outcome!r} in {kind}")
+            if effect is not None and effect not in EFFECTS:
+                problems.append(f"unknown effect {effect!r} in {kind}")
+            k = by_kind.setdefault(kind, {})
+            k[f"{evidence}/{outcome}"] = k.get(f"{evidence}/{outcome}", 0) + n
+        if bad_ctx:
+            problems.append(f"{bad_ctx} contexts are not JSON with known keys")
+        if spec.relations and not counts:
+            warnings.append("the extractor yielded no relations from these files")
+        licences = {kind: {"license": spec.licence_of(kind),
+                           "class": licence_class(spec.licence_of(kind))}
+                    for kind in spec.relations}
+        for kind, lic in licences.items():
+            if lic["class"] == "unknown":
+                warnings.append(f"{kind}: licence {lic['license']!r} grants nothing "
+                                "recognisable; treat as not licensed for reuse")
+        cards = {c.no for c in catalog()}
+        missing_cards = [n for n in spec.catalog if n not in cards]
+        if missing_cards:
+            problems.append(f"catalogue entries {missing_cards} do not exist")
+        return {**out, "ok": not problems, "problems": problems, "warnings": warnings,
+                "relations": by_kind, "unresolved": queue, "licences": licences}
+
     def built(self) -> list[str]:
         return [d.key for d in DATASETS if self.db_path(d.key).exists()]
 

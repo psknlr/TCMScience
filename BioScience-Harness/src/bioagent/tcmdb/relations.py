@@ -25,7 +25,9 @@ BATMAN PubChem CIDs, TM-MC its own codes. Each extractor reads one built store
       sentence in a paper that states the relation;
     - ``mentioned``: a text-mined co-mention (an abstract naming both), which shows the
       two appear together, not that one was measured in or on the other;
-    - ``signal``: a disproportionality signal mined from spontaneous reports (PRR).
+    - ``signal``: a disproportionality signal mined from spontaneous reports (PRR);
+    - ``associated``: a statistical association measured in a population or screen
+      (an eQTL, a GWAS hit), which shows covariation, not a mechanism.
   Predicted, aggregated and signal relations support a hypothesis, never a claim of
   effect. The hub only labels them; a claim must go through the snapshot pipeline,
   where ``tcm.EvidenceTier`` and the artifact validator apply.

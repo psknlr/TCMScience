@@ -17,6 +17,9 @@ Beyond the original twelve columns a row now says, when the source says it:
 * ``context``: the conditions the result holds under, as JSON: species, cell line,
   tissue, dose and unit, time, method or assay, whether the interaction is direct, the
   residue, the source's quality flags. Keys are listed in ``CONTEXT_KEYS``.
+* ``associated`` evidence: a statistical association measured in a population or a
+  screen (an eQTL, a GWAS hit, a correlation). It is an observation of covariation, not
+  of a mechanism, and it is kept apart from ``known``.
 * ``license``: the licence of the file the row came from (filled by ``build_relations``
   from the dataset's spec when the extractor does not set it).
 """
@@ -51,10 +54,34 @@ RELATION_KINDS: dict[str, tuple[str, str]] = {
     "herb_symptom": ("herb", "symptom"),
     "herb_syndrome": ("herb", "syndrome"),
     "ingredient_disease": ("ingredient", "disease"),
+    # sources added after the architecture document (tcmdb.extra); one vocabulary, so the
+    # same relation from two sources meets in one kind
+    "organism_compound": ("organism", "compound"),      # a natural product found in a taxon
+    "compound_target": ("compound", "target"),          # a non-drug ligand on a target
+    "drug_indication": ("drug", "disease"),
+    "protein_interaction": ("protein", "protein"),      # physical (direct or co-complex)
+    "genetic_interaction": ("gene", "gene"),
+    "complex_member": ("complex", "protein"),
+    "regulation": ("regulator", "target"),              # signed, from curated mechanisms
+    "screen_gene": ("screen", "gene"),                  # a CRISPR/RNAi screen's hit or non-hit
+    "compound_assay": ("compound", "assay"),            # an assay endpoint, active or inactive
+    "compound_spectrum": ("compound", "spectrum"),      # a reference spectrum of a compound
+    "reaction_participant": ("reaction", "compound"),
+    "enzyme_reaction": ("protein", "reaction"),
+    "mirna_target": ("mirna", "gene"),
+    "tf_target": ("regulator", "gene"),                 # a transcription factor's bound genes
+    "variant_gene": ("variant", "gene"),                # eQTL / sQTL
+    "gene_phenotype": ("gene", "phenotype"),            # a knockout's or a variant's phenotype
+    "disease_phenotype": ("disease", "phenotype"),
+    "key_event_relationship": ("event", "event"),       # adverse outcome pathways
+    "stressor_event": ("compound", "event"),
+    "food_nutrient": ("food", "compound"),
+    "subject_monograph": ("subject", "monograph"),      # a regulator's assessment document
+    "ptm_site": ("enzyme", "protein"),                  # a modification of a substrate
 }
 
 EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", "mentioned",
-                      "signal"})
+                      "signal", "associated"})
 
 #: Signed effects. activation/inhibition act on activity (agonist, activator / antagonist,
 #: inhibitor, blocker); increase/decrease act on amount or expression (up-regulates
@@ -62,9 +89,12 @@ EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", 
 EFFECTS = frozenset({"activation", "inhibition", "increase", "decrease", "binding",
                      "degradation", "modulation", "other"})
 OUTCOMES = frozenset({"positive", "negative", "inconclusive"})
-CONTEXT_KEYS = ("species", "cell", "tissue", "dose", "dose_unit", "time", "method", "assay",
-                "direct", "mechanism", "residue", "action", "measure", "value", "unit",
-                "flags", "dataset", "sample", "study", "genome_build", "model")
+CONTEXT_KEYS = ("species", "cell", "tissue", "part", "dose", "dose_unit", "concentration",
+                "time", "method", "assay", "direct", "mechanism", "residue", "action",
+                "measure", "value", "unit", "pvalue", "beta", "se", "n", "variant",
+                "effect_allele", "flags", "qc", "confidence", "dataset", "sample", "study",
+                "screen", "library", "phenotype", "zygosity", "sex", "stage", "condition",
+                "genome_build", "model", "instrument", "ion_mode", "source_db", "source_id")
 
 COLUMNS = ("kind", "source", "subject_type", "subject_id", "subject_name", "object_type",
            "object_id", "object_name", "evidence", "score", "reference", "note", "effect",

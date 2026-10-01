@@ -43,6 +43,8 @@ sources, and a ``support`` class:
     known or reported evidence from at least two independent lineages;
 ``documented``
     known or reported evidence from one lineage;
+``associated``
+    a statistical association (eQTL, GWAS, correlation) and no direct observation;
 ``integrated``
     only aggregated or listed rows (database integrations, composition lists);
 ``mentioned``
@@ -82,11 +84,11 @@ __all__ = ["Crosswalk", "Assertion", "EVIDENCE_RANK", "SUPPORT_CLASSES", "consen
            "compare", "redundancy", "survey", "lineage_of", "independent_count"]
 
 #: Best first. ``known`` and ``reported`` point at observations; the rest do not.
-EVIDENCE_RANK = ("known", "reported", "listed", "aggregated", "mentioned", "predicted",
-                 "signal")
+EVIDENCE_RANK = ("known", "reported", "associated", "listed", "aggregated", "mentioned",
+                 "predicted", "signal")
 OBSERVED = frozenset({"known", "reported"})
-SUPPORT_CLASSES = ("independently_replicated", "documented", "integrated", "mentioned",
-                   "predicted", "signal", "tested_negative", "inconclusive")
+SUPPORT_CLASSES = ("independently_replicated", "documented", "associated", "integrated",
+                   "mentioned", "predicted", "signal", "tested_negative", "inconclusive")
 #: Effects that contradict each other when two sources report them for one pair.
 OPPOSED_EFFECTS = (frozenset({"activation", "inhibition"}), frozenset({"increase", "decrease"}))
 #: Two sources whose object sets for the same subjects overlap at least this much
@@ -371,7 +373,7 @@ class Assertion:
                     else "documented")
         if best in ("listed", "aggregated"):
             return "integrated"
-        return best                                   # mentioned | predicted | signal
+        return best                       # associated | mentioned | predicted | signal
 
     def as_dict(self, redundant: Mapping[str, str] | None = None) -> dict[str, Any]:
         refs = sorted({r["reference"] for r in self.rows

@@ -223,8 +223,15 @@ def _cmd_tcmdb(a) -> int:
                 report = hub.build(key, log=lambda m: None)
                 print(json.dumps({"dataset": key, "tables": report["tables"],
                                   "relations": report["relations"],
+                                  "unresolved": report["unresolved"],
+                                  "relations_digest": report["relations_digest"],
                                   "missing": report["missing"]}, ensure_ascii=False))
             return 0
+        if a.tcmdb_cmd == "check":
+            keys = hub.built() if a.dataset == "all" else [a.dataset]
+            results = [hub.check(k, rebuild=not a.no_rebuild) for k in keys]
+            show(results if len(results) > 1 else results[0])
+            return 0 if all(r["ok"] for r in results) else 1
         if a.tcmdb_cmd == "tables":
             show(hub.tables(a.dataset))
             return 0
@@ -235,7 +242,8 @@ def _cmd_tcmdb(a) -> int:
         if a.tcmdb_cmd == "relations":
             show(hub.relations(a.kind, subject=a.subject or None, object=a.object or None,
                                sources=a.source or None, evidence=a.evidence or None,
-                               contains=a.contains, limit=a.limit))
+                               contains=a.contains, outcomes=a.outcome or None,
+                               commercial=a.commercial, limit=a.limit))
             return 0
         if a.tcmdb_cmd == "consensus":
             result = hub.consensus(a.kind, subject=a.subject or None, object=a.object or None,
@@ -508,6 +516,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--confirm", action="store_true", help="allow files above the size gate")
     t = tsub.add_parser("build", help="load downloaded files into the local store")
     t.add_argument("dataset", help="a dataset key, or 'all'")
+    t = tsub.add_parser("check", help="acceptance checks: files, rebuild digest, row "
+                                      "vocabulary, licences, unresolved rows")
+    t.add_argument("dataset", help="a dataset key, or 'all' (every built dataset)")
+    t.add_argument("--no-rebuild", action="store_true", help="skip the two rebuilds")
     t = tsub.add_parser("tables", help="tables and columns of a built dataset")
     t.add_argument("dataset")
     t = tsub.add_parser("query", help="rows of one source table")
@@ -524,6 +536,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--source", action="append", default=[])
     t.add_argument("--evidence", action="append", default=[])
     t.add_argument("--contains", action="store_true", help="substring name match")
+    t.add_argument("--outcome", action="append", default=[],
+                   help="positive, negative or inconclusive (default: all)")
+    t.add_argument("--commercial", action="store_true",
+                   help="only rows whose licence allows commercial reuse")
     t.add_argument("--limit", type=int, default=50, help="per source")
     t = tsub.add_parser("consensus", help="one relation kind reconciled across sources: ids "
                                           "unified, copies counted once, evidence kept apart")
@@ -531,8 +547,10 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--subject", default="")
     t.add_argument("--object", default="")
     t.add_argument("--min-support", default="",
-                   choices=("", "independently_replicated", "documented", "integrated",
-                            "mentioned", "predicted", "signal"))
+                   choices=("", "independently_replicated", "documented", "associated",
+                            "integrated",
+                            "mentioned", "predicted", "signal", "tested_negative",
+                            "inconclusive"))
     t.add_argument("--merge-processed", action="store_true",
                    help="treat processed forms (炙黄芪) as the crude drug")
     t.add_argument("--limit", type=int, default=50)
