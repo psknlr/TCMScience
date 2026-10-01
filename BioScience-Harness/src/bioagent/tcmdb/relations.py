@@ -286,16 +286,35 @@ def _tcmio(conn: sqlite3.Connection) -> Iterator[Row | None]:
             if a and b:
                 yield _rel("herb_ingredient", "tcmio", a[0], a[1], b[0], b[1], "aggregated")
     if _has(conn, "ingredient_target"):
-        # The relation file names targets by a number its target table does not carry
-        # (that table has no id column), so the target is left as TCMIO's own id rather
-        # than guessed from row order.
+        # The relation file names a target by its TCMIO id, and target.xlsx has no id
+        # column: the id is the target's row number (1-based, under the header). That was
+        # confirmed on 2026-10-02 against the site's own JSON (scripts/verify_tcmio_targets.py):
+        # 22 of 22 sampled /targets/<id>/json records matched the row's gene and UniProt
+        # accession, and for 16 of 16 sampled ingredients /ingredients/<id>/targets returned
+        # exactly the targets the relation file lists. The store keeps rows in file order,
+        # so a row's SQLite rowid is that number. If the relation file names an id beyond
+        # the table, the numbering is not the one that was verified (a different release),
+        # and no target is mapped: they stay TCMIO ids.
+        target: dict[str, tuple[str, str | None]] = {}
+        if _has(conn, "target"):
+            rows = list(_rows(conn, "SELECT rowid AS _row, * FROM target"))
+            used = [int(x[0]) for x in conn.execute("SELECT target_id FROM ingredient_target")
+                    if str(x[0] or "").isdigit()]
+            if used and max(used) <= len(rows):
+                for r in rows:
+                    acc, gene = _v(r["Uniprot_id"]), _v(r["Gene_name"])
+                    tid = f"uniprot:{acc}" if acc else (f"symbol:{gene}" if gene
+                                                       else f"tcmio:target.{r['_row']}")
+                    target[str(r["_row"])] = (tid, _names(gene, r["Target_name"]))
         for r in _rows(conn, "SELECT * FROM ingredient_target"):
             a = ing.get(r["ingredient_id"])
             if a:
                 evidence = "predicted" if "predict" in (_v(r["type"]) or "").lower() \
                     else "aggregated"
-                yield _rel("ingredient_target", "tcmio", a[0], a[1],
-                           f"tcmio:target.{r['target_id']}", None, evidence, note=r["type"])
+                tid, tname = target.get(str(_v(r["target_id"])),
+                                        (f"tcmio:target.{r['target_id']}", None))
+                yield _rel("ingredient_target", "tcmio", a[0], a[1], tid, tname, evidence,
+                           note=_names(r["type"], f"tcmio:target.{r['target_id']}"))
     if _has(conn, "prescription_herb"):
         names = {(_v(r["chinese_name"]) or ""): r["id"]
                  for r in _rows(conn, "SELECT * FROM herb")} if _has(conn, "herb") else {}

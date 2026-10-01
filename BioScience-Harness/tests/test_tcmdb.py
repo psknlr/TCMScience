@@ -281,10 +281,8 @@ def test_status_fetch_and_build_refuse_with_the_reason(hub, tmp_path):
 
 
 # -------------------------------------------------------------- more source formats
-def test_tcmio_targets_are_not_guessed_from_row_order(tmp_path):
+def _tcmio_raw(raw: Path, *, target_id: int) -> None:
     openpyxl = pytest.importorskip("openpyxl")
-    h = TCMDataHub(tmp_path)
-    raw = h.raw_dir("tcmio")
     raw.mkdir(parents=True)
 
     def xlsx(name, *rows):
@@ -292,21 +290,41 @@ def test_tcmio_targets_are_not_guessed_from_row_order(tmp_path):
         for r in rows:
             wb.active.append(list(r))
         wb.save(raw / name)
+    # target.xlsx has no id column: a target's id is its row number under the header
+    xlsx("target.xlsx", ("Target_name", "Gene_name", "Organism", "Uniprot_id"),
+         ("5'-nucleotidase", "NT5E", "Homo sapiens (Human)", "P21589"),
+         ("Oxysterols receptor LXR-beta", "NR1H2", "Homo sapiens (Human)", "P55055"))
     xlsx("tcm.xlsx", ("id", "chinese_name", "pinyin_name", "english_name"),
          (1, "黄芪", "Huang Qi", "ASTRAGALI RADIX"))
-    xlsx("ingredient.xlsx", ("id", "name", "inchikey"), (5, "quercetin", "REFJWTPEDVJJIY-UHFFFAOYSA-N"))
+    xlsx("ingredient.xlsx", ("id", "name", "inchikey"),
+         (5, "quercetin", "REFJWTPEDVJJIY-UHFFFAOYSA-N"))
     xlsx("tcm_ingredient_relation.xlsx", ("id", "tcm_id", "ingredient_id"), (1, 1, 5))
     xlsx("ingredient_target_relation.xlsx", ("id", "target_id", "ingredient_id", "type"),
-         (1, 157, 5, "Network-based prediction"))
+         (1, target_id, 5, "Network-based prediction"))
     xlsx("prescription_tcm_relation.xlsx", ("id", "pres_name", "tcm_name", "quantity"),
          (1, "一捻金", "黄芪", "100g"))
-    report = h.build("tcmio", log=lambda m: None)
-    assert report["relations"]["ingredient_target"] == 1
+
+
+def test_tcmio_target_ids_are_the_target_table_row_numbers(tmp_path):
+    h = TCMDataHub(tmp_path)
+    _tcmio_raw(h.raw_dir("tcmio"), target_id=2)
+    h.build("tcmio", log=lambda m: None)
     target = h.relations("ingredient_target")[0]
-    assert target["object_id"] == "tcmio:target.157" and target["object_name"] is None
-    assert target["evidence"] == "predicted"
+    assert target["object_id"] == "uniprot:P55055"
+    assert target["object_name"].startswith("NR1H2")
+    assert target["evidence"] == "predicted" and "tcmio:target.2" in target["note"]
     assert h.herb_ingredients("黄芪")[0]["object_id"] == "inchikey:REFJWTPEDVJJIY-UHFFFAOYSA-N"
     assert h.herb_formulas("黄芪")[0]["note"] == "100g"
+
+
+def test_tcmio_ids_beyond_the_table_are_not_mapped(tmp_path):
+    # a relation file naming target 157 against a two-row table is not the numbering
+    # that was verified, so nothing is mapped
+    h = TCMDataHub(tmp_path)
+    _tcmio_raw(h.raw_dir("tcmio"), target_id=157)
+    h.build("tcmio", log=lambda m: None)
+    target = h.relations("ingredient_target")[0]
+    assert target["object_id"] == "tcmio:target.157" and target["object_name"] is None
 
 
 def test_ddid_keeps_herb_rows_and_one_row_per_paper(tmp_path):

@@ -117,8 +117,13 @@ always be compared with the row it came from.
   which stay the reference copy.
 
   The undocumented **POST** APIs of HERB (`/chedi/api/`) and SymMap
-  (`/related_components/`) are not used. A read-only GET that a page makes is one thing;
-  driving a site's private write-shaped interface is another.
+  (`/related_components/`) are not wrapped. SymMap's detail pages send a plain form
+  (`rrid`, `table_name`, `filter`) with no token or login. The first test request to it
+  was blocked by this environment's permission policy, so it was not pursued and HERB's
+  was not probed either. Whether to wrap these read queries is the repository owner's
+  decision. Their sites state no terms against it, and neither has a robots.txt; a
+  wrapper would be per-entity, cached and at most one request per second. That decision
+  also needs this environment to permit the requests.
 
 - **TCMSP and CancerHSP are not scraped.** The old site embeds its data in HTML pages
   and requires a per-page token copied from the home page; reproducing that token is
@@ -136,10 +141,18 @@ always be compared with the row it came from.
   after `python scripts/verify_connectors.py --only batman_tcm2` succeeds. Its six
   complete download files are the `batman2` dataset, so its data is available now.
 
-- **TCMIO targets are left as TCMIO ids.** The ingredient–target file refers to targets
-  by a number, and the target table has no id column. Mapping the numbers by row order
-  might be right, but nothing in the download confirms it, so the relation keeps
-  `tcmio:target.<n>` and no gene name.
+- **TCMIO target ids are the target table's row numbers, and that was checked.**
+  The ingredient–target file refers to targets by a number, and `target.xlsx` has no id
+  column. The mapping was tested against TCMIO's own site, through the GET JSON
+  endpoints its pages call (`scripts/verify_tcmio_targets.py`):
+  - on 2026-10-02, 22 of 22 sampled `/targets/<id>/json` records matched the gene and
+    UniProt accession of row `<id>`;
+  - for 16 of 16 sampled ingredients, `/ingredients/<id>/targets` returned exactly the
+    targets the relation file lists.
+
+  All 41,527 TCMIO ingredient→target pairs therefore carry `uniprot:` ids, with the
+  TCMIO id kept in `note`. If a future release names an id beyond the target table,
+  nothing is mapped and the TCMIO ids are kept.
 
 - **Dead or compromised hosts are recorded, not used.**
   - HIT 1.0's page is defaced ("Hacked By …"), so the host is treated as compromised.
