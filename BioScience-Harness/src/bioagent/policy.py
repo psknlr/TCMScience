@@ -337,6 +337,12 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01:
+            # chemical identity, reactions, kinetics, id mapping and food composition
+            # (providers.supplement.chem_onto, tcmdb.extra.chem_onto). ChEBI's API and
+            # files are on ebi.ac.uk / ftp.ebi.ac.uk, already listed.
+            "rhea-db.org", "ftp.expasy.org", "sabiork.h-its.org", "metanetx.org",
+            "fdc.nal.usda.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

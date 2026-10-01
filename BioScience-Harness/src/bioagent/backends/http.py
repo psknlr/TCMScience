@@ -218,6 +218,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # supplementary chemistry/reaction connectors (providers.supplement.chem_onto):
+    # Rhea's and SABIO-RK's robots.txt bar crawlers, their API docs invite programs;
+    # SABIO-RK allows 60 requests a minute; MetaNetX asks for a 10 s crawl delay
+    "www.rhea-db.org": 1.0, "sabiork.h-its.org": 1.0, "rdf.metanetx.org": 0.1,
 }
 
 
