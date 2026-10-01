@@ -218,6 +218,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # immune_microbe (supplementary sources): AIRR Data Commons repositories and BV-BRC
+    "covid19-1.ireceptor.org": 1.0, "vdjserver.org": 1.0, "www.bv-brc.org": 1.0,
 }
 
 

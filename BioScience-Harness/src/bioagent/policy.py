@@ -337,6 +337,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # immune_microbe: supplementary sources (review of 2026-09-30), checked
+            # 2026-10-01. AIRR Data Commons repositories, BV-BRC; MGnify is on
+            # www.ebi.ac.uk and the IEDB exports on www.iedb.org (both covered above).
+            "covid19-1.ireceptor.org", "vdjserver.org", "www.bv-brc.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
