@@ -18,7 +18,7 @@ from bioagent.providers.supplement import rna_reg as connectors
 from bioagent.tcmdb import TCMDataHub
 from bioagent.tcmdb.datasets import dataset
 from bioagent.tcmdb.extra import rna_reg
-from bioagent.tcmdb.spec import allows_commercial
+from bioagent.tcmdb.spec import allows_commercial, licence_class
 
 pytestmark = pytest.mark.unit
 
@@ -57,6 +57,11 @@ def _iptmnet(raw):
         # RLIMS-P text mining
         _tsv("O-GLYCOSYLATION", "rlim+", "P34707", "skn-1", "Caenorhabditis elegans",
              "S470", "O18158", "ogt-1", "", "28272406"),
+        # an isoform substrate: the id is the base accession, the isoform is kept
+        _tsv("PHOSPHORYLATION", "unip", "O00716-1", "E2F3", "Homo sapiens (Human)", "S124",
+             "", "", "", "11111111"),
+        _tsv("PHOSPHORYLATION", "sign", "O00716-1", "E2F3", "Homo sapiens (Human)",
+             "S125", "P06493", "CDK1", "", "22222222"),
         # a row with no source cannot be attributed: dropped
         _tsv("PHOSPHORYLATION", "", "P04637", "TP53", "Homo sapiens (Human)", "S20",
              "O96017", "CHEK2", "", "1"),
@@ -73,7 +78,7 @@ def _iptmnet(raw):
 def test_iptmnet_labels_curated_and_text_mined_rows_per_source(hub):
     _iptmnet(hub.raw_dir("iptmnet"))
     report = hub.build("iptmnet", **_QUIET)
-    assert report["relations"] == {"ptm_site": 2, "protein_site": 1}
+    assert report["relations"] == {"ptm_site": 3, "protein_site": 2}
     sites = {_ctx(r)["source_db"]: r
              for r in hub.relations("ptm_site")}
     hprd = sites["hprd"]
@@ -87,10 +92,19 @@ def test_iptmnet_labels_curated_and_text_mined_rows_per_source(hub):
     mined = sites["rlim+"]
     assert mined["evidence"] == "mentioned" and mined["note"] == "via RLIMS-P"
     assert mined["score"] is None                    # not in score.txt: no score, not 0
-    (site,) = hub.relations("protein_site")
+    site, iso_site = sorted(hub.relations("protein_site"), key=lambda r: r["subject_id"])
     assert site["subject_id"] == "uniprot:A8TX70"
     assert site["object_id"] == "uniprot:A8TX70/K652"
     assert site["note"] == "via IEDB" and _ctx(site)["source_id"] == "iedb:1797193"
+    # isoform O00716-1: joins other sources as uniprot:O00716; the site keeps the isoform
+    assert iso_site["subject_id"] == "uniprot:O00716"
+    assert iso_site["object_id"] == "uniprot:O00716-1/S124"
+    assert iso_site["note"] == "via UniProt; substrate isoform O00716-1"
+    signor = sites["sign"]
+    assert (signor["subject_id"], signor["object_id"]) == ("uniprot:P06493",
+                                                           "uniprot:O00716")
+    assert signor["note"] == "via SIGNOR; substrate isoform O00716-1"
+    assert _ctx(signor)["residue"] == "S125 (O00716-1)"
 
 
 def test_iptmnet_is_non_commercial_with_the_licence_contradiction_recorded():
@@ -164,6 +178,7 @@ def test_disprot_regions_and_partners(hub):
     assert disorder["outcome"] == "positive" and disorder["reference"] == "pmid:8632448"
     assert _ctx(disorder)["residue"] == "1-93" and _ctx(disorder)["assay"] == "ECO:0006220"
     assert "TP53" in disorder["subject_name"]
+    assert _ctx(disorder)["species"] == "Homo sapiens"         # a name, not the taxon
     assert regions["go:0005515"]["outcome"] == "inconclusive"   # ambiguous evidence
     (pair,) = hub.relations("protein_interaction")
     assert (pair["subject_id"], pair["object_id"]) == ("uniprot:P04637", "uniprot:Q00987")
@@ -191,6 +206,8 @@ def test_mirtarbase_keeps_support_classes_and_deduplicates(hub):
         "Non-Functional MTI,20000000.0",
         "MIRT000004,hsa-miR-1-3p,hsa,FOO1,0.0,hsa,Western blot,Functional MTI,21000000.0",
     ], bom=True)
+    # an optional full file repeating a strong-evidence record: still emitted once
+    _write(raw / "miRTarBase_MTI.csv", [_MTB_HEAD, row], bom=True)
     report = hub.build("mirtarbase", **_QUIET)
     assert report["relations"] == {"mirna_target": 3} and report["unresolved"] == 1
     got = {r["object_id"]: r for r in hub.relations("mirna_target")}
@@ -203,6 +220,14 @@ def test_mirtarbase_keeps_support_classes_and_deduplicates(hub):
     assert got["ncbigene:596"]["outcome"] == "negative"
     spec = dataset("mirtarbase")
     assert spec.commercial_use == "unknown"
+    # the LICENSE file grants nothing: the licence text must not read as open
+    assert licence_class(spec.license) == "unknown"
+    assert not allows_commercial(spec.license)
+    # human targets only (Cd320 is a mouse gene, FOO1 has no Entrez id)
+    import sqlite3
+    conn = sqlite3.connect(hub.db_path("mirtarbase"))
+    pairs = set(conn.execute(spec.crosswalk["gene"]))
+    assert pairs == {("ncbigene:5728", "symbol:PTEN"), ("ncbigene:596", "symbol:BCL2")}
     assert [f.name for f in spec.files if not f.optional] == ["LICENSE",
                                                               "miRTarBase_SE_WR.csv"]
 

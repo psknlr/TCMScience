@@ -249,9 +249,11 @@ _IPTMNET_LICENCE = ("CC BY-NC-SA 4.0 (iPTMnet licence page, download page and re
                     "source databases of each row is required when redistributing.")
 _CHIP_LICENCE = ("CC BY 4.0 (chip-atlas.org footer and OpenAPI); the NBDC LSDB archive "
                  "licence page (2020-05-14) states CC BY-SA 4.0, so share-alike is assumed")
-_MTB_LICENCE = ("Self-declared public domain: the LICENSE file is a warranty disclaimer "
-                "('MIRTARBASE IS PROVIDED AT NO COST IN THE PUBLIC DOMAIN'), with no "
-                "licence grant; the site footer says 'Copyright ISBLab, CUHK-Shenzhen'")
+#: Worded so ``licence_class`` reads it as unknown: the LICENSE file's own phrase (that
+#: the database is provided at no cost "in the p.d.") grants nothing and is not quoted.
+_MTB_LICENCE = ("No licence grant stated: the LICENSE file is only a warranty disclaimer "
+                "(it calls the database provided at no cost); the site footer says "
+                "'Copyright ISBLab, CUHK-Shenzhen'")
 _RNAC_COLS = ("urs", "database", "external_id", "taxid", "rna_type", "gene")
 
 #: iPTMnet ``source`` codes -> the resource a row comes from. Codes not listed are kept
@@ -369,7 +371,13 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "upgraded. 'Non-Functional' support types (an experiment found no "
               "regulation) are outcome 'negative'. The host answers HTTP 429 after a few "
               "requests: download each file once, at most one request every few minutes.",
-        relations=("mirna_target",), commercial_use="unknown"),
+        relations=("mirna_target",), commercial_use="unknown",
+        # human targets only: a mouse or rat symbol is not an HGNC symbol
+        crosswalk={"gene": "SELECT DISTINCT 'ncbigene:' || CAST(CAST("
+                           "Target_Gene_Entrez_ID AS REAL) AS INTEGER), 'symbol:' || "
+                           "Target_Gene FROM mti_strong WHERE Species_Target_Gene = 'hsa' "
+                           "AND Target_Gene IS NOT NULL AND Target_Gene <> '' AND "
+                           "CAST(Target_Gene_Entrez_ID AS REAL) > 0"}),
     DatasetSpec(
         "chip_atlas", "ChIP-Atlas", (119,), "https://chip-atlas.org/", _CHIP_LICENCE,
         (FileSpec(_CHIP + "metadata/analysisList.tab", "analysisList.tab", "analysis",
@@ -435,11 +443,13 @@ _UNIPROT = re.compile(r"(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9](?:[A-Z][A-Z0
 
 
 def _protein_id(acc: Any) -> str | None:
+    """A global id; a UniProt isoform (``O00716-1``) is written as its base accession,
+    so the row joins other sources' ``uniprot:`` ids (``_isoform`` keeps the suffix)."""
     acc = v(acc)
     if not acc:
         return None
     if _UNIPROT.fullmatch(acc):
-        return f"uniprot:{acc}"
+        return f"uniprot:{acc.split('-')[0]}"
     if acc.startswith("PR:"):
         return f"pro:{acc[3:]}"
     if acc.startswith("GO:"):                     # a complex named by its GO term
@@ -448,6 +458,11 @@ def _protein_id(acc: Any) -> str | None:
 
 
 _CONDITION = frozenset({"in vivo", "in vitro", "in vitro;in vivo", "in vivo;in vitro"})
+
+
+def _isoform(acc: Any) -> str | None:
+    acc = v(acc)
+    return acc if acc and "-" in acc and _UNIPROT.fullmatch(acc) else None
 
 
 def _iptm_note(code: str, note: Any) -> dict[str, str]:
@@ -492,17 +507,24 @@ def _iptmnet(conn: sqlite3.Connection) -> Iterator[Row | None]:
         ptm = (v(r["ptm_type"]) or "").lower() or None
         site = v(r["site"])
         substrate = _protein_id(r["substrate_ac"])
-        context = ctx(species=r["organism"], residue=site, mechanism=ptm, source_db=code,
-                      **_iptm_note(code, r["note"]))
+        # a residue number is relative to the isoform it was mapped on, and a source may
+        # list one site on several isoforms: the residue names it ("S358 (P35372-2)")
+        iso = _isoform(r["substrate_ac"])
+        context = ctx(species=r["organism"], residue=f"{site} ({iso})" if site and iso
+                      else site, mechanism=ptm, source_db=code, **_iptm_note(code, r["note"]))
+        isoforms = [f"{role} isoform {iso}" for role, iso in
+                    (("enzyme", _isoform(r["enzyme_ac"])),
+                     ("substrate", _isoform(r["substrate_ac"]))) if iso]
         common = dict(score=r["_score"], reference=_pmids(r["pmid"]),
-                      note=f"via {upstream}", context=context)
+                      note="; ".join([f"via {upstream}", *isoforms]), context=context)
         enzyme = _protein_id(r["enzyme_ac"])
         if enzyme:
             yield rel("ptm_site", "iptmnet", enzyme, r["enzyme_gene"], substrate,
                       r["substrate_gene"], evidence, **common)
         elif substrate and site:
+            # the site id keeps the isoform: residue numbers are per isoform
             yield rel("protein_site", "iptmnet", substrate, r["substrate_gene"],
-                      f"{substrate}/{site}",
+                      f"uniprot:{iso}/{site}" if iso else f"{substrate}/{site}",
                       " ".join(x for x in (v(r["substrate_gene"]) or v(r["substrate_ac"]),
                                            site, ptm) if x), evidence, **common)
 
@@ -543,7 +565,9 @@ def _disprot(conn: sqlite3.Connection) -> Iterator[Row | None]:
                       "known", reference=_reference(r["reference"]),
                       note=r["term_namespace"],
                       outcome="inconclusive" if _ambiguous(r["confidence"]) else "positive",
-                      context=ctx(species=r["ncbi_taxon_id"],
+                      context=ctx(species=r["organism"] or (
+                                      f"ncbitaxon:{v(r['ncbi_taxon_id'])}"
+                                      if v(r["ncbi_taxon_id"]) else None),
                                   residue=f"{v(r['start'])}-{v(r['end'])}",
                                   method=r["ec_name"], assay=r["ec"],
                                   flags=r["confidence"], source_id=r["region_id"]))
@@ -572,43 +596,57 @@ def _partner_range(r: sqlite3.Row) -> str | None:
     return f"partner residues {start}-{end}" if start and end else None
 
 
+#: miRTarBase columns as loaded -> the names written in other releases of the files.
+_MTB_COLS: dict[str, tuple[str, ...]] = {
+    "miRTarBase_ID": (), "miRNA": (), "Species_miRNA": (), "Target_Gene": (),
+    "Target_Gene_Entrez_ID": ("Target_Gene_Entrez_Gene_ID",), "Species_Target_Gene": (),
+    "Experiments": (), "Support_Type": (), "References_PMID": ("References",),
+}
+
+
+def _mtb_select(conn: sqlite3.Connection, table: str) -> str:
+    have = {r[1].lower(): r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+    parts = []
+    for name, alts in _MTB_COLS.items():
+        found = next((have[c.lower()] for c in (name, *alts) if c.lower() in have), None)
+        parts.append(f'"{found}" AS "{name}"' if found else f'NULL AS "{name}"')
+    return f'SELECT {", ".join(parts)} FROM "{table}"'
+
+
 def _mirtarbase(conn: sqlite3.Connection) -> Iterator[Row | None]:
     """The files repeat a record verbatim (same MTI, experiments, support and paper), and
-    the strong-evidence file is a subset of the full ones: each record is emitted once."""
-    seen: set[tuple[Any, ...]] = set()
-    for table in ("mti_strong", "mti", "mti_hsa"):
-        if not has(conn, table):
+    the strong-evidence file is a subset of the full ones: each record is emitted once.
+    The deduplication is SQL's UNION, so the optional files (hundreds of MB) are not
+    held in memory."""
+    tables = [t for t in ("mti_strong", "mti", "mti_hsa") if has(conn, t)]
+    if not tables:
+        return
+    for r in rows(conn, " UNION ".join(_mtb_select(conn, t) for t in tables)):
+        mirna = v(col(r, "miRNA"))
+        symbol = v(col(r, "Target_Gene"))
+        entrez = v(col(r, "Target_Gene_Entrez_ID", "Target_Gene_Entrez_Gene_ID"))
+        entrez = entrez.split(".")[0] if entrez and re.fullmatch(r"\d+(\.0)?", entrez) \
+            else None
+        support = v(col(r, "Support_Type"))
+        pmid = v(col(r, "References_PMID", "References"))
+        ref = f"pmid:{pmid.split('.')[0]}" if pmid and re.fullmatch(r"\d+(\.0)?", pmid) \
+            else pmid
+        mti = v(col(r, "miRTarBase_ID"))
+        if entrez in (None, "0"):
+            if mirna:
+                yield unresolved("mirna_target", "mirtarbase", f"mirbase:{mirna}", mirna,
+                                 symbol, "no Entrez gene id", reference=ref, note=mti)
             continue
-        for r in rows(conn, f'SELECT * FROM "{table}"'):
-            key = tuple(v(x) for x in r)
-            if key in seen:
-                continue
-            seen.add(key)
-            mirna = v(col(r, "miRNA"))
-            symbol = v(col(r, "Target_Gene"))
-            entrez = v(col(r, "Target_Gene_Entrez_ID", "Target_Gene_Entrez_Gene_ID"))
-            entrez = entrez.split(".")[0] if entrez and re.fullmatch(r"\d+(\.0)?", entrez) \
-                else None
-            support = v(col(r, "Support_Type"))
-            pmid = v(col(r, "References_PMID", "References"))
-            ref = f"pmid:{pmid.split('.')[0]}" if pmid and re.fullmatch(r"\d+(\.0)?", pmid) \
-                else pmid
-            mti = v(col(r, "miRTarBase_ID"))
-            if entrez in (None, "0"):
-                if mirna:
-                    yield unresolved("mirna_target", "mirtarbase", f"mirbase:{mirna}", mirna,
-                                     symbol, "no Entrez gene id", reference=ref, note=mti)
-                continue
-            methods = names(*re.split(r"//|;", v(col(r, "Experiments")) or ""))
-            low = (support or "").lower()
-            yield rel("mirna_target", "mirtarbase", f"mirbase:{mirna}" if mirna else None,
-                      mirna, f"ncbigene:{entrez}", symbol, "known", reference=ref,
-                      note=support,
-                      outcome="negative" if low.startswith("non-functional") else "positive",
-                      context=ctx(method=methods,
-                                  species=names(col(r, "Species_miRNA"),
-                                                col(r, "Species_Target_Gene")),
-                                  flags=support, source_id=mti))
+        methods = names(*re.split(r"//|;", v(col(r, "Experiments")) or ""))
+        low = (support or "").lower()
+        yield rel("mirna_target", "mirtarbase", f"mirbase:{mirna}" if mirna else None,
+                  mirna, f"ncbigene:{entrez}", symbol, "known", reference=ref,
+                  note=support,
+                  outcome="negative" if low.startswith("non-functional") else "positive",
+                  context=ctx(method=methods,
+                              species=names(col(r, "Species_miRNA"),
+                                            col(r, "Species_Target_Gene")),
+                              flags=support, source_id=mti))
 
 
 _HUMAN = ("hg38", "hg19")
