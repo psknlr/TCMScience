@@ -98,13 +98,14 @@ def _world(targets_of=None, tested_only=()):
     return (np_nodes, np_edges), (r_nodes, r_edges), (r_nodes[:60], s_edges)
 
 
-def _build(root: Path, ledger: SnapshotLedger | None = None, **kw):
+def _build(root: Path, ledger: SnapshotLedger | None = None, replace: bool = False, **kw):
     raw = root / "raw.txt"
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_text("fixture", encoding="utf-8")
     (np_nodes, np_edges), (r_nodes, r_edges), (s_nodes, s_edges) = _world(**kw)
     herb_nodes, herb_edges = herb_rows()
-    common = dict(raw_files={"raw.txt": raw}, parser="fixture", root=root, ledger=ledger)
+    common = dict(raw_files={"raw.txt": raw}, parser="fixture", root=root, ledger=ledger,
+                  replace=replace)
     return [
         build_snapshot(key=HERB_KEY, version="gold", nodes=herb_nodes, edges=herb_edges,
                        license=HERB_LICENSE, citation="fixture", **common),
@@ -274,8 +275,11 @@ def test_run_skill_refuses_to_skip_psh_silently(tmp_path, monkeypatch):
 def test_run_skill_refuses_a_snapshot_changed_after_it_was_recorded(tmp_path):
     ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
     _build(tmp_path / "snap", ledger=ledger)
-    # rebuild npass with an extra claim-relevant edge but without recording it
-    _build(tmp_path / "snap", targets_of={0: PATHWAY_A, 1: [], 2: [], 3: []})
+    # rebuild npass with an extra claim-relevant edge but without recording it; the
+    # builder refuses that overwrite unless forced, so force it, as a tamper would
+    with pytest.raises(Exception, match="already holds"):
+        _build(tmp_path / "snap", targets_of={0: PATHWAY_A, 1: [], 2: [], 3: []})
+    _build(tmp_path / "snap", replace=True, targets_of={0: PATHWAY_A, 1: [], 2: [], 3: []})
     with pytest.raises(Exception, match="recorded"):
         run_skill(skill_dir=SKILL_DIR, snapshot_root=tmp_path / "snap",
                   ledger_path=ledger.path, out_dir=tmp_path / "run", params=FAST,

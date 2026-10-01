@@ -87,7 +87,8 @@ def test_a_consistently_rewritten_snapshot_is_caught_by_the_ledger(tmp_path, sna
                    "publications": ["pmid:9"]}                  # a prediction "upgraded"
     build_snapshot(key="fixture", version="1", nodes=_nodes(), edges=tampered,
                    raw_files={"raw.txt": raw}, parser="def p(): pass",
-                   root=tmp_path / "snap", license="CC0-1.0", citation="doi:10/x")
+                   root=tmp_path / "snap", license="CC0-1.0", citation="doi:10/x",
+                   replace=True)                                 # a deliberate overwrite
     assert load_snapshot(tmp_path / "snap", "fixture", "1")        # self-consistent
     with pytest.raises(SnapshotError, match="not the recorded"):
         load_snapshot(tmp_path / "snap", "fixture", "1", ledger=ledger)
