@@ -26,7 +26,7 @@ from ..store import register_reader
 __all__ = ["MODULES", "EXTRA_DATASETS", "EXTRA_EXTRACTORS"]
 
 #: Domain modules, in the order their datasets are listed.
-MODULES: tuple[str, ...] = ("tcm_np", "tcm_safety", "genetics", "safety", "spectra", "chem_onto", "rna_reg", "atlases", "drugs", "pgx_proteins")
+MODULES: tuple[str, ...] = ("tcm_np", "tcm_safety", "genetics", "safety", "spectra", "chem_onto", "rna_reg", "atlases", "drugs", "pgx_proteins", "mechanism")
 
 EXTRA_DATASETS: tuple[DatasetSpec, ...] = ()
 EXTRA_EXTRACTORS: dict[str, Callable[[Any], Iterable[Any]]] = {}

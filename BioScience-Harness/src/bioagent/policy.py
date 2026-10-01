@@ -394,6 +394,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "api.cpicpgx.org", "gpcrdb.org", "klifs.net", "www.proteomicsdb.org",
             # ... and download hosts (api.clinpgx.org answers 303 to s3.pgkb.org)
             "files.cpicpgx.org", "api.clinpgx.org", "s3.pgkb.org", "www.pharmvar.org",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: mechanism
+            # (IntAct/Complex Portal on www.ebi.ac.uk and ftp.ebi.ac.uk, both covered by
+            # "ebi.ac.uk" above; SIGNOR; JASPAR; BioGRID and ORCS downloads)
+            "signor.uniroma2.it", "jaspar.elixir.no", "downloads.thebiogrid.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

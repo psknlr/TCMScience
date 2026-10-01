@@ -260,6 +260,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     # servers with no stated limit, kept at one request per second
     "api.cpicpgx.org": 1.0, "gpcrdb.org": 1.0, "klifs.net": 1.0,
     "www.proteomicsdb.org": 1.0,
+    # supplementary sources (review of 2026-09-30), mechanism: academic servers
+    "signor.uniroma2.it": 1.0, "jaspar.elixir.no": 1.0,
 }
 
 
