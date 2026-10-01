@@ -308,7 +308,11 @@ def _mibig(conn: sqlite3.Connection) -> Iterator[Row | None]:
 _GUT = "http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api/dow/downloadFolder?filepath=allfile/"
 _HOST = {"human": "9606", "mouse": "10090"}
 _MODE = {"causally": "known", "correlatively": "associated"}
-_ALTERATION = {"activation": "activation", "inhibition": "inhibition"}
+#: The source's alteration word describes the host gene's change, mostly in expression,
+#: so a causal row says the gene went up or down, not that it was mechanistically
+#: activated or inhibited. A correlative row states only the sign of a covariation and
+#: gets no effect. The word itself is kept in context.action either way.
+_ALTERATION = {"activation": "increase", "inhibition": "decrease"}
 
 
 def _read_gutmgene(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
@@ -422,10 +426,11 @@ def _gutmgene(conn: sqlite3.Connection) -> Iterator[Row | None]:
                 yield unresolved("regulation", "gutmgene", sid, sname, gene, reason,
                                  reference=pmid(r))
                 continue
-            word = v(col(r, "Alteration"))
+            word, ev = v(col(r, "Alteration")), evidence(r)
+            effect = _ALTERATION.get((word or "").lower()) if ev == "known" else None
             add(rel("regulation", "gutmgene", sid, sname, f"ncbigene:{gene_id}", gene,
-                    evidence(r), subject_type=kind_of, object_type="gene",
-                    effect=_ALTERATION.get((word or "").lower()), reference=pmid(r),
+                    ev, subject_type=kind_of, object_type="gene",
+                    effect=effect, reference=pmid(r),
                     context=_gut_context(r, action=word)),
                 v(col(r, "Strain")) if kind_of == "organism" else None,
                 substrate(r) if kind_of == "compound" else None)
@@ -458,23 +463,115 @@ _LINKS = ("et", "aut", "cum", "and", "ex", "sine", "vel")
 _BINOMIAL = re.compile(r"\b([A-Z][a-z]+)\s+(?:x\s+|×\s*)?([a-z][a-z-]+)")
 
 
+class _JsonStream:
+    """A minimal incremental reader of one top-level JSON object over a text handle.
+
+    Values are decoded one at a time with ``json.JSONDecoder.raw_decode`` from a buffer
+    refilled in 1 MB chunks, so the elements of a large array can be filtered as they are
+    read instead of materialising the whole document as Python objects.
+    """
+
+    _WS = " \t\r\n"
+
+    def __init__(self, fh: Any, chunk: int = 1 << 20) -> None:
+        self.fh, self.chunk, self.buf, self.i = fh, chunk, "", 0
+        self.decoder = json.JSONDecoder()
+
+    def _fill(self) -> bool:
+        more = self.fh.read(self.chunk)
+        if not more:
+            return False
+        self.buf, self.i = self.buf[self.i:] + more, 0
+        return True
+
+    def peek(self) -> str:
+        """The next non-blank character (not consumed), or "" at the end of the input."""
+        while True:
+            while self.i < len(self.buf) and self.buf[self.i] in self._WS:
+                self.i += 1
+            if self.i < len(self.buf):
+                return self.buf[self.i]
+            if not self._fill():
+                return ""
+
+    def take(self, char: str) -> None:
+        if self.peek() != char:
+            raise ValueError(f"expected {char!r} at offset {self.i}")
+        self.i += 1
+
+    def value(self) -> Any:
+        if self.peek() not in '{["':
+            # a bare number decodes from any prefix ("1." reads as 1), so read until
+            # the delimiter that ends it is in the buffer
+            while not any(c in self.buf[self.i:] for c in self._WS + ",]}") and self._fill():
+                pass
+        while True:
+            try:
+                obj, end = self.decoder.raw_decode(self.buf, self.i)
+            except json.JSONDecodeError:
+                if not self._fill():
+                    raise
+                continue
+            # a value ending exactly at the buffer's end may be cut short (a number)
+            if end == len(self.buf) and self._fill():
+                continue
+            self.i = end
+            return obj
+
+    def members(self, array_key: str) -> Iterator[tuple[str, Any]]:
+        """(key, value) of the top-level object; ``array_key``'s array is yielded one
+        element at a time as (array_key, element)."""
+        self.take("{")
+        while self.peek() != "}":
+            key = self.value()
+            self.take(":")
+            if key == array_key and self.peek() == "[":
+                self.take("[")
+                while self.peek() != "]":
+                    yield key, self.value()
+                    if self.peek() == ",":
+                        self.take(",")
+                self.take("]")
+            else:
+                yield key, self.value()
+            if self.peek() == ",":
+                self.take(",")
+        self.take("}")
+
+
 def _read_ema(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
     """The records of an EMA website data file (``{"meta": ..., "data": [...]}``).
 
     Each row also carries the file's ``meta.timestamp``: EMA regenerates these files
     twice a day, and the timestamp says which generation was loaded. For the documents
     file (table ``document``) only the herbal document types and public statements are
-    kept; the file indexes every document on EMA's website.
+    kept; the file indexes every document on EMA's website (37 MB, 70k records in
+    2026-10), so it is streamed and filtered record by record: memory is bounded by the
+    kept records (a few thousand) plus a 1 MB read buffer, not by the file.
     """
+    def keep(r: Any) -> bool:
+        if not isinstance(r, dict):
+            return False
+        return spec.table != "document" or str(r.get("type") or "").startswith(
+            "herbal-") or r.get("type") == "public-statement"
+
+    records: list[dict[str, Any]] = []
+    meta: Any = None
+    seen_data = False
     with open_text(path) as fh:
-        data = json.load(fh)
-    if not isinstance(data, dict) or not isinstance(data.get("data"), list):
+        try:
+            for key, value in _JsonStream(fh).members("data"):
+                if key == "data":
+                    seen_data = True
+                    if keep(value):
+                        records.append(value)
+                elif key == "meta":
+                    meta = value
+        except ValueError as exc:              # JSONDecodeError is a ValueError
+            raise StoreError(f"{path.name}: not an EMA data file ({exc})") from exc
+    if not seen_data:
         raise StoreError(f"{path.name}: not an EMA data file (no 'data' list)")
-    stamp = (data.get("meta") or {}).get("timestamp")
-    records = [r for r in data["data"] if isinstance(r, dict)]
-    if spec.table == "document":
-        records = [r for r in records if str(r.get("type") or "").startswith("herbal-")
-                   or r.get("type") == "public-statement"]
+    stamp = meta.get("timestamp") if isinstance(meta, dict) else None
     keys: list[str] = []
     for r in records:
         keys += [k for k in r if k not in keys]
@@ -679,9 +776,10 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "bioactivity the record says was observed (positive) or tested and not "
               "observed (negative), with the assay concentration. The 5.0 release "
               "candidate on the download server (2026-09-21) is not announced and not "
-              "used.",
-        relations=("organism_compound", "compound_assay"), commercial_use="allowed",
-        upstream=("NPAtlas",)),
+              "used. npatlas: (and other database) ids are MIBiG's own cross-references "
+              "to identify a compound; MIBiG does not redistribute NPAtlas records, and "
+              "every relation comes from MIBiG's own curation.",
+        relations=("organism_compound", "compound_assay"), commercial_use="allowed"),
     DatasetSpec(
         "gutmgene", "gutMGene v2.0", (74,), "http://bio-computing.hrbmu.edu.cn/gutmgene/",
         _NOT_STATED,
@@ -705,9 +803,11 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "mode: 'causally' (a controlled experiment) is 'known', 'correlatively' (a "
               "statistical correlation) is 'associated'. organism_compound: a microbe and "
               "the metabolite it produces or covaries with (substrates in the note). "
-              "regulation: a metabolite or microbe and the host gene it changes; effect "
-              "is the source's alteration word (activation / inhibition, also kept in "
-              "context.action), which describes the gene's change, mostly in expression. "
+              "regulation: a metabolite or microbe and the host gene it changes. The "
+              "source's alteration word (activation / inhibition, kept in context.action) "
+              "describes the gene's change, mostly in expression, so a causal row's "
+              "effect is increase / decrease; a correlative row has no effect (the word "
+              "is only the sign of a covariation). "
               "Host species, sample, method, measurement technique, condition (with DOID) "
               "and throughput are in the context. Rows naming a microbe without an NCBI "
               "Taxonomy id or a metabolite without any compound id go to the unresolved "

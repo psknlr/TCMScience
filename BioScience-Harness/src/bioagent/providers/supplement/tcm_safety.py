@@ -13,7 +13,9 @@ datasets of ``tcmdb.extra.tcm_safety``.
   ``/robots.txt`` with its single-page app, so no rules are stated.
 * **gutMGene v2.0** (``gutmgene``): the evidence rows behind one microbe-metabolite,
   microbe-gene or metabolite-gene association (``POST /browse/getbrowsetable``, as the
-  site's browse page sends it). ``robots.txt`` answers 404.
+  site's browse page sends it), one operation per table because the server matches on
+  every name field of that table and answers ``[]`` for any mismatch. ``robots.txt``
+  answers 404.
 * **PhytoHub** (``phytohub``): one dietary phytochemical or metabolite by PhytoHub id, a
   compound name search, a food source's name, and one structure as SDF (the Rails
   ``.json``/``.sdf`` format responders of its pages). Food-compound and
@@ -64,29 +66,53 @@ SOURCES: tuple[PublicSource, ...] = (
         "http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api", "bio-computing.hrbmu.edu.cn",
         _GUTMGENE_LICENSE,
         "Literature-curated gut microbe - metabolite - host gene associations (Harbin "
-        "Medical University). `association_evidence` returns the evidence rows behind one "
-        "association: PMID, microbe (NCBI taxid, rank, strain), substrate and metabolite "
-        "(PubChem, ChEBI, HMDB, KEGG ids), host gene (Entrez id), associative mode "
-        "('causally' from a controlled experiment, 'correlatively' from a correlation), "
-        "species, sample, method, alteration and condition. `dataset` is microbe_metabolite, "
-        "microbe_gene or metabolite_gene; ids are the names the site shows. Undocumented "
-        "endpoint of the site's browse page; answers {status:{code:'1'}, resultSet:[...]}.",
+        "Medical University). One operation per association table returns the evidence "
+        "rows behind one association: PMID, microbe (NCBI taxid, rank, strain), substrate "
+        "and metabolite (PubChem, ChEBI, HMDB, KEGG ids), host gene (Entrez id), "
+        "associative mode ('causally' from a controlled experiment, 'correlatively' from a "
+        "correlation), species, sample, method, alteration and condition. The server "
+        "matches on ALL of the association's fields - `index_id` (the Index column of the "
+        "download CSV), `species` ('human' or 'mouse'), the names exactly as the site and "
+        "the CSV show them and, for gene tables, `alteration` ('activation' or "
+        "'inhibition') - so every one is required: a wrong or missing field answers an "
+        "empty resultSet, which means 'no such association', NOT 'no evidence'. The "
+        "substrate is not matched (checked live), so microbe_metabolite returns every "
+        "substrate row. Undocumented endpoint of the site's browse page; answers "
+        "{status:{code:'1'}, resultSet:[...]}.",
         "microbiome", (
-            Operation("association_evidence", "Evidence rows of one association "
-                      "(dataset, index_id, species and the microbe/metabolite/gene names)",
+            Operation("microbe_metabolite", "Evidence rows of one microbe-metabolite "
+                      "association (index_id, microbe, metabolite, species)",
                       "browse/getbrowsetable", method="POST",
                       json_body={"data": {
-                          "dataset": "{dataset}", "index_id": "{index_id}",
-                          "species": "{species}", "datatype": "detail",
-                          "substrate_id": "{substrate}", "microbe_id": "{microbe}",
+                          "dataset": "microbe_metabolite", "datatype": "detail",
+                          "index_id": "{index_id}", "species": "{species}",
+                          "microbe_id": "{microbe}", "metabolite_id": "{metabolite}"}},
+                      args=("index_id", "microbe", "metabolite", "species"),
+                      example={"index_id": "1", "microbe": "Christensenella minuta",
+                               "metabolite": "Acetate", "species": "human"}),
+            Operation("microbe_gene", "Evidence rows of one microbe-host gene association "
+                      "(index_id, microbe, gene, alteration, species)",
+                      "browse/getbrowsetable", method="POST",
+                      json_body={"data": {
+                          "dataset": "microbe_gene", "datatype": "detail",
+                          "index_id": "{index_id}", "species": "{species}",
+                          "microbe_id": "{microbe}", "gene_id": "{gene}",
+                          "alteration": "{alteration}"}},
+                      args=("index_id", "microbe", "gene", "alteration", "species"),
+                      example={"index_id": "1", "microbe": "Streptococcus", "gene": "CXCL6",
+                               "alteration": "inhibition", "species": "human"}),
+            Operation("metabolite_gene", "Evidence rows of one metabolite-host gene "
+                      "association (index_id, metabolite, gene, alteration, species)",
+                      "browse/getbrowsetable", method="POST",
+                      json_body={"data": {
+                          "dataset": "metabolite_gene", "datatype": "detail",
+                          "index_id": "{index_id}", "species": "{species}",
                           "metabolite_id": "{metabolite}", "gene_id": "{gene}",
                           "alteration": "{alteration}"}},
-                      args=("dataset", "index_id"),
-                      example={"dataset": "metabolite_gene", "index_id": "1",
-                               "species": "human", "substrate": "", "microbe": "",
-                               "metabolite": "Acetate", "gene": "FFAR3",
-                               "alteration": "activation"}),
-        ), smoke="association_evidence", docs="http://bio-computing.hrbmu.edu.cn/gutmgene",
+                      args=("index_id", "metabolite", "gene", "alteration", "species"),
+                      example={"index_id": "1", "metabolite": "Acetate", "gene": "FFAR3",
+                               "alteration": "activation", "species": "human"}),
+        ), smoke="metabolite_gene", docs="http://bio-computing.hrbmu.edu.cn/gutmgene",
         rate_note="small academic server, no robots.txt; kept at 1 req/s"),
 
     PublicSource(

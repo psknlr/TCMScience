@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import tarfile
 
 import pytest
@@ -307,15 +308,18 @@ def test_gutmgene_gene_changes_keep_the_source_word(gut):
     h, report = gut
     rows = _by(h.relations("regulation", sources=["gutmgene"]), "subject_id", "object_id")
     ffar3 = rows[("pubchem:175", "ncbigene:2865")]
+    # the word is the gene's change (mostly expression): a causal row says up / down
     assert (ffar3["subject_type"], ffar3["object_type"], ffar3["effect"]) == (
-        "compound", "gene", "activation")
+        "compound", "gene", "increase")
     assert _ctx(ffar3)["action"] == "activation"
     fos = rows[("pubchem:2879", "ncbigene:14281")]
-    assert fos["effect"] == "inhibition"
+    assert fos["effect"] == "decrease" and _ctx(fos)["action"] == "inhibition"
     assert fos["note"] == "substrate: Tyrosine (pubchem:6057), Toluene (pubchem:1140)"
     cxcl6 = rows[("ncbitaxon:538", "ncbigene:6372")]
+    # a correlation's sign is not an effect: no effect, the word stays in the context
     assert (cxcl6["subject_type"], cxcl6["evidence"], cxcl6["effect"]) == (
-        "organism", "associated", "inhibition")
+        "organism", "associated", None)
+    assert _ctx(cxcl6)["action"] == "inhibition"
     assert _ctx(cxcl6)["condition"] == "ulcerative colitis | DOID:8577"
     assert rows[("ncbitaxon:239935", "ncbigene:21926")]["note"] == "strain: Muc(T)"
     # the GB18030 file is read as what it says, not as replacement characters
@@ -420,6 +424,20 @@ def test_ema_keeps_only_herbal_documents_and_the_file_generation(ema):
     assert "8" not in {r["id"] for r in rows}
 
 
+def test_the_ema_reader_streams_records_whatever_the_chunk_boundaries():
+    from bioagent.tcmdb.extra.tcm_safety import _JsonStream
+    text = ('{"data": [ {"id": 1, "type": "herbal-monograph", "n": 12345},'
+            '{"id": "2", "name": "\\u00e9 \\"q\\" ]}", "x": [1, {"y": null}]}, 7 ],'
+            ' "meta": {"timestamp": "T"}, "n": 1.5e3}')
+    want = [("data", {"id": 1, "type": "herbal-monograph", "n": 12345}),
+            ("data", {"id": "2", "name": 'é "q" ]}', "x": [1, {"y": None}]}),
+            ("data", 7), ("meta", {"timestamp": "T"}), ("n", 1500.0)]
+    for chunk in (1, 2, 3, 7, 1 << 20):
+        assert list(_JsonStream(io.StringIO(text), chunk).members("data")) == want
+    with pytest.raises(ValueError):
+        list(_JsonStream(io.StringIO('{"data": [1, 2'), 4).members("data"))
+
+
 def test_ema_links_a_document_to_the_substance_its_title_names(ema):
     h, _ = ema
     rows = h.relations("subject_monograph", sources=["ema_herbal"])
@@ -520,14 +538,29 @@ def test_the_mibig_and_phytohub_requests_are_the_ones_verified_live():
 
 def test_the_gutmgene_request_posts_the_browse_page_body():
     from bioagent.providers.public_apis import BY_KEY, render_call
-    call = render_call("gutmgene", "association_evidence")
+    call = render_call("gutmgene", "metabolite_gene")
     assert (call["method"], call["path"]) == ("POST", "browse/getbrowsetable")
     assert call["json_body"] == {"data": {
-        "dataset": "metabolite_gene", "index_id": "1", "species": "human",
-        "datatype": "detail", "substrate_id": "", "microbe_id": "",
-        "metabolite_id": "Acetate", "gene_id": "FFAR3", "alteration": "activation"}}
-    with pytest.raises(ValueError):                  # index_id is required
-        BY_KEY["gutmgene"].op("association_evidence").render(dataset="metabolite_gene")
+        "dataset": "metabolite_gene", "datatype": "detail", "index_id": "1",
+        "species": "human", "metabolite_id": "Acetate", "gene_id": "FFAR3",
+        "alteration": "activation"}}
+    # A caller's own association is sent as given: none of the example's names leak in.
+    call = render_call("gutmgene", "microbe_gene", index_id="1", microbe="Eikenella",
+                       gene="CXCL6", alteration="inhibition", species="human")
+    assert call["json_body"] == {"data": {
+        "dataset": "microbe_gene", "datatype": "detail", "index_id": "1",
+        "species": "human", "microbe_id": "Eikenella", "gene_id": "CXCL6",
+        "alteration": "inhibition"}}
+    body = render_call("gutmgene", "microbe_metabolite")["json_body"]["data"]
+    assert body["dataset"] == "microbe_metabolite" and "gene_id" not in body
+    # Every field the server matches on is required, so no call can send a stale
+    # example value or a literal "{placeholder}" that would answer an empty list.
+    src = BY_KEY["gutmgene"]
+    for op in src.operations:
+        names = set(re.findall(r"\{(\w+)\}", json.dumps(op.json_body)))
+        assert names == set(op.args), op.name
+        with pytest.raises(ValueError):
+            op.render(index_id="1")
 
 
 def test_every_connector_and_download_host_is_allowed_and_paced():
