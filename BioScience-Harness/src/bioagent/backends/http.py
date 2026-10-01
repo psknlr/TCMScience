@@ -227,6 +227,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # Zenodo's robots.txt sets Crawl-delay: 10; the others are small academic servers
     "zenodo.org": 0.1, "coconut.s3.uni-jena.de": 1.0, "cb.imsc.res.in": 1.0,
     "tm-mc.kr": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: TCM safety
+    # (providers.supplement.tcm_safety), small academic servers
+    "mibig.secondarymetabolites.org": 1.0, "bio-computing.hrbmu.edu.cn": 1.0,
+    "phytohub.eu": 1.0,
 }
 
 
