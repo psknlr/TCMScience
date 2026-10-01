@@ -130,6 +130,15 @@ CHEM_ROWS = [
     _chem(4, 1956, "EGFR", "inhibitor/sars-cov-2 inhibitor", source_id="DB00002"),
     _chem(5, 1956, "EGFR", "sars-cov-2 inhibitor", source_id="DB00003",
           inchikey="BLCLNMBMMGCOAS-URPVMXJPSA-N"),
+    # a LYTAC: the row's gene (IGF2R) is the lysosome-targeting receptor; EGFR is degraded
+    _chem(6, 3482, "IGF2R", "degradation", source="BIOGRID", source_id="-", curated="BIOGRID",
+          itype="lysosome-targeting protein", Method="LYTAC",
+          **{"Related Entrez Gene ID": "1956", "Related BioGRID Gene ID": "108276",
+             "Related Official Symbol": "EGFR", "Related Organism ID": "9606",
+             "Related Type": "target"}),
+    # a non-target type without a related gene: no effect on the effector
+    _chem(7, 84557, "MAP1LC3A", "degradation", source="BIOGRID", source_id="-",
+          curated="BIOGRID", itype="autophagy-targeting protein"),
 ]
 
 
@@ -194,6 +203,30 @@ def test_a_degrader_degrades_the_related_gene_and_only_recruits_the_ligase(biogr
     assert rows["ncbigene:329"]["effect"] is None                     # BIRC2 is recruited
     assert rows["ncbigene:329"]["ctx"]["action"] == "recruited e3 ligase"
     assert rows["ncbigene:367"]["subject_id"] == "biogrid:chemical.93"
+
+
+def test_a_lysosome_targeting_chimera_degrades_the_related_gene_not_the_receptor(biogrid):
+    h, _ = biogrid
+    rows = {r["object_id"]: r for r in _rels(h, "biogrid", "compound_target")
+            if "interaction 6;" in r["note"]}
+    assert set(rows) == {"ncbigene:1956", "ncbigene:3482"}
+    assert rows["ncbigene:1956"]["effect"] == "degradation"           # EGFR is degraded
+    assert rows["ncbigene:1956"]["ctx"]["action"] == "degradation"
+    assert rows["ncbigene:3482"]["effect"] is None                    # IGF2R is the carrier
+    assert rows["ncbigene:3482"]["ctx"]["action"] == "lysosome-targeting protein"
+    (orphan,) = [r for r in _rels(h, "biogrid", "compound_target")
+                 if r["note"].startswith("BioGRID chemical interaction 7")]
+    assert orphan["object_id"] == "ncbigene:84557" and orphan["effect"] is None
+    assert orphan["ctx"]["action"] == "degradation"
+
+
+def test_upstream_lineage_lists_every_database_the_rows_can_name():
+    from bioagent.tcmdb.extra import mechanism
+    specs = {d.key: d for d in mechanism.DATASETS}
+    assert {"DrugBank", "BindingDB", "FlyBase", "WormBase", "PomBase", "BAR", "SGD",
+            "TAIR", "MGI"} <= set(specs["biogrid"].upstream)
+    assert {"MINT", "IMEx", "UniProt", "I2D", "BHF-UCL", "HPIDb", "InnateDB",
+            "MBInfo"} <= set(specs["intact"].upstream)
 
 
 def test_drugbank_rows_keep_drugbanks_non_commercial_licence(biogrid):
@@ -381,7 +414,8 @@ def intact(tmp_path):
         {"#Complex ac": "CPX-1", "Recommended name": "SMAD2-SMAD3-SMAD4 complex",
          "Taxonomy identifier": "9606",
          "Identifiers (and stoichiometry) of molecules in complex":
-             "P84022(1)|Q13485(0)|CHEBI:15422(2)|CPX-2(1)",
+             "P84022(1)|Q13485(0)|CHEBI:15422(2)|CPX-2(1)|P01308-PRO_0000015819(1)|"
+             "Q9Y6K9-2(0)",
          "Evidence Code": "ECO:0000353(physical interaction evidence used in manual "
                           "assertion)",
          "Ligand": "Chloride ion (CHEBI:15422)|ATP (CHEBI:15422)"}]), encoding="utf-8")
@@ -400,7 +434,11 @@ def test_complex_members_keep_stoichiometry_and_member_types(intact):
     h, _ = intact
     rows = {r["object_id"]: r for r in _rels(h, "intact", "complex_member")}
     assert set(rows) == {"uniprot:P84022", "uniprot:Q13485", "chebi:15422",
-                         "complexportal:CPX-2"}
+                         "complexportal:CPX-2", "uniprot:P01308", "uniprot:Q9Y6K9"}
+    # a processed chain or isoform gets the canonical accession; the variant is noted
+    assert rows["uniprot:P01308"]["note"] == ("chain PRO_0000015819 of P01308; "
+                                              "stoichiometry 1")
+    assert rows["uniprot:Q9Y6K9"]["note"] == "isoform Q9Y6K9-2 of Q9Y6K9"
     assert {r["subject_id"] for r in rows.values()} == {"complexportal:CPX-1"}
     assert rows["uniprot:P84022"]["note"] == "stoichiometry 1"
     assert rows["uniprot:Q13485"]["note"] is None                 # 0 means unknown
@@ -600,6 +638,9 @@ def test_jaspar_links_factors_to_core_matrices_from_its_sql_dump(tmp_path, compr
     assert dimer["note"] == "part of FOS::JUN" and dimer["subject_name"] is None
     (queued,) = h.unresolved("jaspar")
     assert queued["subject_id"] == "jaspar:MA2435.1"
+    # the unidentified side is the regulator: the queued row says it is inverted
+    assert queued["note"].startswith("inverted:")
+    assert "<regulator id> -> jaspar:MA2435.1" in queued["note"]
 
 
 def test_jaspar_keeps_the_matrices_as_files_and_the_large_archives_optional():

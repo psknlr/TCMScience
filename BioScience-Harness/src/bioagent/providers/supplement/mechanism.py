@@ -6,7 +6,10 @@ sent live with its example arguments and answered.
 * **IntAct / Complex Portal** (EMBL-EBI): PSICQUIC (MIQL queries, PSI-MITAB rows or a
   count), the IntAct portal's interaction search (OpenAPI-documented, JSON) and the
   Complex Portal web service (search, one complex). www.ebi.ac.uk's robots.txt sets
-  ``Crawl-Delay: 10`` and does not disallow these paths; they are per-entity lookups.
+  ``Crawl-Delay: 10`` and does not disallow these paths; they are per-entity lookups,
+  not crawling. The transport paces by host, and www.ebi.ac.uk is shared with other EBI
+  connectors at the existing ``DEFAULT_RATES`` entry (10 req/s); the Crawl-Delay is NOT
+  applied to these calls. Callers making many lookups should space them themselves.
 * **SIGNOR**: the documented API (``APIs.php``): an entity's causal relations, a
   pathway's relations and description. ``API/getHumanData.php`` (the whole human set)
   fails intermittently with a PHP memory error answered as HTTP 200, and is a bulk dump
@@ -78,7 +81,9 @@ SOURCES: tuple[PublicSource, ...] = (
         docs="https://www.ebi.ac.uk/intact/ws/interaction/v3/api-docs ; "
              "https://psicquic.github.io/PsicquicSpec_1_4_Rest.html ; "
              "https://www.ebi.ac.uk/intact/complex-ws/",
-        rate_note="robots.txt Crawl-Delay 10 for www.ebi.ac.uk; per-entity lookups only"),
+        rate_note="paced by the shared www.ebi.ac.uk host rate (10 req/s), not by the "
+                  "robots.txt Crawl-Delay 10 (which governs crawling); per-entity lookups "
+                  "only, space bulk use yourself"),
 
     PublicSource(
         "signor", "SIGNOR API", "https://signor.uniroma2.it", "signor.uniroma2.it",

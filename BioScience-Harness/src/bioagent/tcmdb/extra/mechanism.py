@@ -15,7 +15,9 @@ Checked from the harness on 2026-10-01 (review of 2026-09-30):
   links.
 
 GtoPdb (88) is not wrapped: since September 2026 its site requires registration and its
-web services an API key, and commercial organisations pay for access.
+web services an API key, and commercial organisations pay for access. Its licence is
+ODbL 1.0 (database) and CC BY-SA 4.0 (contents); commercial use is 'unknown' (fee-based
+access, not a licence prohibition).
 """
 
 from __future__ import annotations
@@ -46,6 +48,15 @@ _INTACT = "https://ftp.ebi.ac.uk/pub/databases/intact/current/psimitab/"
 _JASPAR = "https://jaspar.elixir.no/download/"
 
 _MIT = "MIT (BioGRID: 'freely available to both academic and commercial users')"
+_UPSTREAM_NAME = {"FLYBASE": "FlyBase", "WORMBASE": "WormBase", "POMBASE": "PomBase",
+                  "BAR": "BAR", "SGD": "SGD", "TAIR": "TAIR", "MGI": "MGI",
+                  "DRUGBANK": "DrugBank", "BINDINGDB": "BindingDB"}
+#: everything BioGRID's Source_Database / Curated_By columns can name besides itself
+_BIOGRID_UPSTREAM = tuple(_UPSTREAM_NAME.values())
+#: IntAct's Source_database names (lower case) other than IntAct itself -> lineage name
+_INTACT_UPSTREAM = {"mint": "MINT", "uniprot": "UniProt", "i2d": "I2D", "bhf-ucl": "BHF-UCL",
+                    "hpidb": "HPIDb", "innatedb": "InnateDB", "mbinfo": "MBInfo",
+                    "matrixdb": "MatrixDB", "molcon": "MolCon", "dip": "DIP"}
 _DRUGBANK_ROWS = ("CC BY-NC 4.0 (record imported by BioGRID from DrugBank, whose full "
                   "dataset is licensed CC BY-NC 4.0; BioGRID's own terms are MIT)")
 _BINDINGDB_ROWS = ("MIT (BioGRID's redistribution of a record imported from BindingDB; "
@@ -102,7 +113,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
                    "compound_target"),
         relation_licenses={"drug_target": "MIT (BioGRID curation); " + _DRUGBANK_ROWS},
         commercial_use="allowed",
-        upstream=("DrugBank", "BindingDB"),
+        upstream=_BIOGRID_UPSTREAM,
         # human genes only, and only ids that name one symbol (a Swiss-Prot accession
         # shared by two genes of a cluster maps to neither)
         crosswalk={
@@ -183,7 +194,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
                            "compound_target": "CC BY 4.0 (IntAct)",
                            "protein_interaction": "CC BY 4.0 (IntAct)"},
         commercial_use="allowed",
-        upstream=("MINT", "IMEx")),
+        upstream=("IMEx",) + tuple(_INTACT_UPSTREAM.values())),
     DatasetSpec(
         "signor", "SIGNOR causal relations", (87,), "https://signor.uniroma2.it/",
         "CC BY 4.0",
@@ -418,9 +429,6 @@ def _via(note: str | None, upstream: str | None) -> str | None:
 
 
 # ------------------------------------------------------------------------------ BioGRID
-_UPSTREAM_NAME = {"FLYBASE": "FlyBase", "WORMBASE": "WormBase", "POMBASE": "PomBase",
-                  "BAR": "BAR", "SGD": "SGD", "TAIR": "TAIR", "MGI": "MGI",
-                  "DRUGBANK": "DrugBank", "BINDINGDB": "BindingDB"}
 
 
 def _biogrid_gene(entrez: Any, biogrid_id: Any) -> str | None:
@@ -527,10 +535,11 @@ def _biogrid_chemicals(conn: sqlite3.Connection) -> Iterator[Row | None]:
         common = dict(reference=_ref(r["Pubmed_ID"]), license=licence)
         chemical = names(r["Chemical_Name"])
         related = _biogrid_gene(r["Related_Entrez_Gene_ID"], r["Related_BioGRID_Gene_ID"])
-        if itype.startswith("recruited") and related:
-            # A degrader (PROTAC, molecular glue, ...): the row's gene is the E3 ligase (or
-            # other effector) the compound recruits; the degraded protein is the related
-            # gene, and the Action ('degradation') is what happens to it.
+        if related and (itype.startswith("recruited") or itype.endswith("targeting protein")):
+            # A degrader (PROTAC, molecular glue, LYTAC, AUTAC/ATTEC, ...): the row's gene
+            # is the effector the compound recruits (an E3 ligase, IGF2R, LC3, ...); the
+            # degraded protein is the related gene, and the Action ('degradation') is what
+            # happens to it.
             yield rel(kind, "biogrid", subject, chemical, related,
                       names(r["Related_Official_Symbol"]), "known",
                       effect=_chem_effect(action), **common,
@@ -545,8 +554,11 @@ def _biogrid_chemicals(conn: sqlite3.Connection) -> Iterator[Row | None]:
                       context=ctx(action=itype, method=r["Method"],
                                   species=_species(r["Organism_ID"])))
             continue
+        # a non-'target' type with no related gene names no degraded protein: the effect
+        # word would land on the effector, so it is kept as context.action only
+        on_target = itype in ("", "target")
         yield rel(kind, "biogrid", subject, chemical, gene, names(r["Official_Symbol"]),
-                  "known", effect=_chem_effect(action), **common,
+                  "known", effect=_chem_effect(action) if on_target else None, **common,
                   note=_via(label + (f"; {itype}" if itype and itype != "target" else ""),
                             upstream),
                   context=ctx(action=action, method=r["Method"],
@@ -634,22 +646,34 @@ def _mi_name(field: Any) -> str | None:
     return m.group(1) if m else None
 
 
-def _member_id(ac: str) -> tuple[str, str]:
-    """(id, entity type) of a Complex Portal or SIGNOR member accession."""
+_UNIPROT_VARIANT = re.compile(r"^([A-Z0-9]{6,10})-(PRO_\d+|\d+)$", re.I)
+
+
+def _member_id(ac: str) -> tuple[str, str, str | None]:
+    """(id, entity type, variant) of a Complex Portal or SIGNOR member accession.
+
+    A UniProt processed chain (``P01308-PRO_0000015819``) or isoform (``Q9Y6K9-2``) gets
+    the canonical accession as its id, so it meets other sources' ``uniprot:`` ids; the
+    chain or isoform is returned as the variant, for the row's note."""
     a = ac.strip()
     up = a.upper()
     if up.startswith("CHEBI:"):
-        return "chebi:" + a.split(":", 1)[1], "compound"
+        return "chebi:" + a.split(":", 1)[1], "compound", None
     if up.startswith("CPX-"):
-        return f"complexportal:{a}", "complex"
+        return f"complexportal:{a}", "complex", None
     if up.startswith("URS"):
-        return f"rnacentral:{a}", "rna"
+        return f"rnacentral:{a}", "rna", None
     if up.startswith("RNACENTRAL:"):
-        return "rnacentral:" + a.split(":", 1)[1], "rna"
+        return "rnacentral:" + a.split(":", 1)[1], "rna", None
     if up.startswith("SIGNOR-"):
-        return f"signor:{a}", "complex" if up.startswith("SIGNOR-C") else "protein_family" \
-            if up.startswith("SIGNOR-PF") else "entity"
-    return f"uniprot:{a}", "protein"
+        return (f"signor:{a}", "complex" if up.startswith("SIGNOR-C") else "protein_family"
+                if up.startswith("SIGNOR-PF") else "entity", None)
+    m = _UNIPROT_VARIANT.match(a)
+    if m:
+        part = m.group(2)
+        variant = f"chain {part}" if part.upper().startswith("PRO_") else f"isoform {a}"
+        return f"uniprot:{m.group(1)}", "protein", f"{variant} of {m.group(1)}"
+    return f"uniprot:{a}", "protein", None
 
 
 _MEMBER = re.compile(r"^(.+?)\((\d+)\)$")
@@ -666,10 +690,11 @@ def _complexes(conn: sqlite3.Connection, table: str) -> Iterator[Row | None]:
                 continue
             m = _MEMBER.match(member)
             ac, stoich = (m.group(1), m.group(2)) if m else (member, None)
-            oid, otype = _member_id(ac)
+            oid, otype, variant = _member_id(ac)
+            stoich = f"stoichiometry {stoich}" if stoich and stoich != "0" else None
             yield rel("complex_member", "complexportal", f"complexportal:{cpx}",
                       names(r["Recommended_name"]), oid, None, "listed", object_type=otype,
-                      note=f"stoichiometry {stoich}" if stoich and stoich != "0" else None,
+                      note="; ".join(x for x in (variant, stoich) if x) or None,
                       context=ctx(species=_species(r["Taxonomy_identifier"]), confidence=eco),
                       license="CC0 1.0 (Complex Portal)")
 
@@ -721,7 +746,8 @@ def _intact_negative(conn: sqlite3.Connection) -> Iterator[Row | None]:
         doi = next((p.split(":", 1)[1] for p in pubs if p.startswith("doi:")), None)
         itype = _mi_name(r["Interaction_type_s"])
         source_db = _mi_name(r["Source_database_s"])
-        upstream = source_db if source_db and source_db.lower() != "intact" else None
+        upstream = (_INTACT_UPSTREAM.get(source_db.lower(), source_db)
+                    if source_db and source_db.lower() != "intact" else None)
         yield rel(kind, "intact", a, na, b, nb, "known",
                   outcome="negative", subject_type=st, object_type=ot,
                   reference=f"pmid:{pmid}" if pmid else (f"doi:{doi}" if doi else None),
@@ -830,10 +856,11 @@ def _signor_complexes(conn: sqlite3.Connection) -> Iterator[Row | None]:
         cpx = v(r["COMPLEX_PORTAL_ID"])
         for member in (v(r["MEMBERS"]) or "").split(";"):
             if member.strip():
-                oid, otype = _member_id(member)
+                oid, otype, variant = _member_id(member)
+                cp = f"Complex Portal {cpx}" if cpx else None
                 yield rel("complex_member", "signor", f"signor:{cid}", names(r["COMPLEX_NAME"]),
                           oid, None, "listed", object_type=otype,
-                          note=f"Complex Portal {cpx}" if cpx else None)
+                          note="; ".join(x for x in (variant, cp) if x) or None)
 
 
 def _signor(conn: sqlite3.Connection) -> Iterator[Row | None]:
@@ -871,9 +898,15 @@ def _jaspar(conn: sqlite3.Connection) -> Iterator[Row | None]:
         context = ctx(method=names(*notes.get((m["ID"], "type"), [])),
                       species=_species(*species.get(m["ID"], [])))
         if not accs:
+            # unresolved() queues an unidentified object; here the unidentified side is the
+            # regulator (the relation's subject), so the row is inverted and says so: a
+            # resolver must build <factor id> -> jaspar:<matrix>, not the reverse.
             yield unresolved("tf_motif", "jaspar", f"jaspar:{mid}", name, name,
                              "JASPAR gives no UniProt accession for the factor of this "
-                             "matrix (the regulator side is unidentified)", reference=ref)
+                             "matrix (the regulator side is unidentified)", reference=ref,
+                             note=f"inverted: subject_id is the motif (the relation's "
+                                  f"object); object_name is the regulator; resolve as "
+                                  f"<regulator id> -> jaspar:{mid}")
             continue
         dimer = "::" in (name or "") or len(accs) > 1
         for acc in accs:
