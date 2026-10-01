@@ -218,6 +218,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # imaging archives (providers.supplement.imaging): academic services, one at a time
+    "api.imaging.datacommons.cancer.gov": 1.0, "services.cancerimagingarchive.net": 1.0,
+    "www.cancerimagingarchive.net": 1.0, "idr.openmicroscopy.org": 1.0,
+    "openneuro.org": 1.0,
 }
 
 

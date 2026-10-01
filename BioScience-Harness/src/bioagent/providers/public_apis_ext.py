@@ -211,14 +211,33 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
 
     PublicSource(
         "biostudies", "BioStudies", "https://www.ebi.ac.uk/biostudies/api/v1", "www.ebi.ac.uk",
-        "Open (EMBL-EBI terms)", "Studies, including the ArrayExpress functional genomics collection.",
+        "Open (EMBL-EBI terms)", "Studies, including the ArrayExpress functional genomics "
+        "collection and the BioImage Archive (BioImages: microscopy and EM studies, with "
+        "EMPIAR and JCB DataViewer mirrors; licence per study in the Study section's "
+        "'License' attribute, CC0 or CC BY 4.0 for direct submissions, CC BY-NC-SA for JCB "
+        "imports, none for EMPIAR mirrors, which EMPIAR releases under CC0).",
         "expression", (
             Operation("search", "Search studies", "search",
                       params={"query": "{query}", "pageSize": "{page_size}"}, args=("query",),
                       example={"query": "single cell lung", "page_size": 3}),
-            Operation("study", "Study by accession", "studies/{accession}", args=("accession",),
-                      example={"accession": "E-MTAB-5214"}),
-        ), smoke="study", docs="https://www.ebi.ac.uk/biostudies/help"),
+            Operation("study", "Study by accession (also BioImage Archive S-BIAD/S-BSST/"
+                      "S-JCBD and EMPIAR accessions)", "studies/{accession}",
+                      args=("accession",), example={"accession": "E-MTAB-5214"}),
+            Operation("bioimages_search", "Search the BioImage Archive collection "
+                      "(BioImages); undocumented endpoint used by the archive's own pages",
+                      "BioImages/search",
+                      params={"query": "{query}", "pageSize": "{page_size}", "page": "{page}"},
+                      args=("query",), example={"query": "hepatocyte", "page_size": 5,
+                                                "page": 1}),
+            Operation("study_info", "File count, release dates and the FTP/HTTP/Globus "
+                      "locations of a study's files, as the BioImage Archive documents it "
+                      "(https://www.ebi.ac.uk/bioimage-archive/help-download/); the files "
+                      "themselves are not fetched",
+                      "studies/{accession}/info", args=("accession",),
+                      example={"accession": "S-BIAD623"}),
+        ), smoke="study", docs="https://www.ebi.ac.uk/biostudies/help",
+        rate_note="www.ebi.ac.uk robots.txt sets Crawl-Delay 10: per-study look-ups only, "
+                  "no harvesting"),
 
     PublicSource(
         "cellxgene", "CZ CELLxGENE Discover", "https://api.cellxgene.cziscience.com/curation/v1",

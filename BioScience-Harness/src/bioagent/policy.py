@@ -337,6 +337,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # imaging: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # Metadata APIs (IDC v3, TCIA NBIA v4 and Collection Manager, IDR, OpenNeuro;
+            # the BioImage Archive goes through www.ebi.ac.uk) and the snapshot hosts
+            # (the idc-index-data wheel on PyPI; IDR exports come from idr.openmicroscopy.org)
+            "api.imaging.datacommons.cancer.gov", "services.cancerimagingarchive.net",
+            "www.cancerimagingarchive.net", "idr.openmicroscopy.org", "openneuro.org",
+            "files.pythonhosted.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
