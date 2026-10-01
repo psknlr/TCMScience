@@ -55,8 +55,13 @@ class Downloader:
 
     def __init__(self, root: Path | str, *, timeout_s: float = 60.0, chunk: int = 1 << 20,
                  max_retries: int = 4, size_gate_bytes: int = 512 * 1024 * 1024,
-                 log: Callable[[str], None] | None = None) -> None:
+                 log: Callable[[str], None] | None = None,
+                 min_interval_s: float = 0.0) -> None:
         self.root = Path(root)
+        #: the least time between two requests this downloader sends (a robots.txt
+        #: Crawl-delay); every HEAD, ranged probe, download and retry waits for it.
+        self.min_interval_s = min_interval_s
+        self._last_request: float | None = None
         self.root.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
         self.chunk = chunk
@@ -66,6 +71,13 @@ class Downloader:
         self.manifest_path = self.root / ".downloads.json"
 
     # ------------------------------------------------------------------ helpers
+    def _pace(self) -> None:
+        if self.min_interval_s > 0 and self._last_request is not None:
+            wait = self._last_request + self.min_interval_s - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        self._last_request = time.monotonic()
+
     @staticmethod
     def _hash(path: Path, algo: str = "sha256") -> str:
         h = hashlib.new(algo)
@@ -79,6 +91,7 @@ class Downloader:
         for method, hdrs in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
             try:
                 req = urllib.request.Request(url, method=method, headers={"User-Agent": _UA, **hdrs})
+                self._pace()
                 with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
                     cr = r.headers.get("Content-Range")
                     if cr and "/" in cr and cr.rsplit("/", 1)[1].isdigit():
@@ -189,6 +202,7 @@ class Downloader:
                 return
             try:
                 req = urllib.request.Request(url, headers=headers)
+                self._pace()
                 with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
                     if resumed and r.status != 206:
                         have = 0          # server ignored Range: start over

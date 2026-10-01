@@ -4,8 +4,8 @@ IEDB curates immune epitopes and the assays that tested them from the literature
 from direct submissions. The exports were checked from this environment on 2026-10-01:
 ``https://www.iedb.org/downloader.php?file_name=doc/<file>`` answers without a login,
 with no Content-Length and ignoring Range (a made-up file name answers 200 with an empty
-body). www.iedb.org's robots.txt sets ``Crawl-delay: 10``; the files were fetched one
-request each, more than ten seconds apart.
+body). www.iedb.org's robots.txt sets ``Crawl-delay: 10``; the spec's ``min_interval_s``
+makes ``hub.fetch`` send every request (size probe, download, retry) 10.5 s apart.
 
 Each ``*_full_v3`` export is a zipped TSV with a two-row header: a category row
 (``Reference``, ``Epitope``, ``Host``, ``Assay``, ...) above a field row (``IEDB IRI``,
@@ -31,6 +31,13 @@ What the relations mean:
   with the protein's species; ``listed``, one row per pair.
 * ``receptor_epitope``: a T-cell or B-cell receptor group (identical CDR3s) and an
   epitope it recognises, per reference; ``known``.
+
+Ids: ``ncbiprotein:<accession>`` (an NCBI Protein accession, when IEDB names no UniProt
+entry for the antigen) and ``obi:<7 digits>`` (an OBI assay-type term, ``OBI_0001234``)
+are global identifiers, registered with the shared prefixes in docs/tcm-data-sources.md;
+IEDB's own records are ``iedb:epitope.<n>``, ``iedb:receptor.<n>``, ``iedb:assay.<n>``,
+``iedb:reference.<n>``. ``context["species"]`` is always prefixed (``ncbitaxon:9606``, or
+IEDB's ``iedb:ONTIE_<n>`` strain term with the strain's name in the note).
 
 MHC binding and elution assays (``mhc_ligand_full``, 10 GB uncompressed), the epitope
 table and the B-cell assays are optional; the MHC export and the complete XML export
@@ -190,11 +197,12 @@ DATASETS = (
               "products) are keyed by PubChem/ChEBI so they meet compound rows of other "
               "sources. Licence: CC BY 4.0 (iedb.org JSON-LD and the site's licence text); "
               "the terms of use add that submitters may claim intellectual-property rights "
-              "in data they submitted. Fetch the files one at a time at least ten seconds "
-              "apart (robots.txt Crawl-delay: 10).",
+              "in data they submitted. robots.txt sets Crawl-delay: 10, so fetch sends every "
+              "request (each file is a size probe and a download) 10.5 s apart.",
         relations=("compound_assay", "epitope_assay", "epitope_antigen", "receptor_epitope"),
         commercial_use="allowed",
-        upstream=()),
+        upstream=(),
+        min_interval_s=10.5),
 )
 
 
@@ -206,6 +214,8 @@ def _c(name: str) -> str:
 
 _NUM = re.compile(r"/(?:epitope|reference|receptor|assay)/(\d+)\s*$")
 _TAXON = re.compile(r"NCBITaxon_(\d+)$")
+_ONTIE = re.compile(r"/(ONTIE_\d+)$")
+_IEDB_TAXON = re.compile(r"ontology\.iedb\.org/taxon/(\d+)$")
 _OBI = re.compile(r"/(OBI)_(\d+)$")
 _CHEBI = re.compile(r"CHEBI[_:](\d+)$")
 _UNIPROT = re.compile(r"uniprot\.org/uniprot/([A-Z0-9]+(?:-\d+)?)$", re.I)
@@ -220,9 +230,25 @@ def _num(iri: str | None) -> str | None:
     return m.group(1) if m else None
 
 
-def _taxon(iri: str | None, name: str | None = None) -> str | None:
-    m = _TAXON.search(iri or "")
-    return m.group(1) if m else v(name)
+def _species(iri: str | None, name: str | None = None) -> tuple[str | None, str | None]:
+    """(species id, the name to note) for a host, source or receptor organism IRI.
+
+    The id is always prefixed: ``ncbitaxon:<n>`` for an NCBI taxon, else IEDB's own term
+    (``iedb:ONTIE_<n>`` for a strain or transgenic line such as "Mus musculus HLA-A2 Tg",
+    ``iedb:taxon.<n>`` for an IEDB taxon). The name is returned only when the id is not
+    an NCBI taxon, for the row's note, so a strain stays readable.
+    """
+    text = iri or ""
+    m = _TAXON.search(text)
+    if m:
+        return f"ncbitaxon:{m.group(1)}", None
+    m = _ONTIE.search(text)
+    if m:
+        return f"iedb:{m.group(1)}", v(name)
+    m = _IEDB_TAXON.search(text)
+    if m:
+        return f"iedb:taxon.{m.group(1)}", v(name)
+    return None, v(name)
 
 
 def _outcome(call: str | None) -> str | None:
@@ -280,12 +306,15 @@ def _assays(conn: sqlite3.Connection, table: str, epitope: _Epitopes,
         parent = r[_c("Epitope | Molecule Parent IRI")] or r[_c("Epitope | Source Molecule IRI")]
         up, ncbi = _UNIPROT.search(parent or ""), _NCBI_PROTEIN.search(parent or "")
         if up or ncbi:
+            species, species_name = _species(r[_c("Epitope | Species IRI")],
+                                             r[_c("Epitope | Species")])
             yield rel("epitope_antigen", "iedb", sid, sname,
                       f"uniprot:{up.group(1)}" if up else f"ncbiprotein:{ncbi.group(1)}",
                       r[_c("Epitope | Molecule Parent")], "listed",
-                      note=None if not compound else f"iedb:epitope.{num}",
-                      context=ctx(species=_taxon(r[_c("Epitope | Species IRI")],
-                                                 r[_c("Epitope | Species")])))
+                      note="; ".join(x for x in (
+                          f"iedb:epitope.{num}" if compound else None,
+                          f"species {species_name}" if species_name else None) if x) or None,
+                      context=ctx(species=species))
         outcome = _outcome(r[call_col])
         obi = _OBI.search(r[_c("Assay | IRI")] or "")
         assay_id = _num(r[_c("Assay ID | IEDB IRI")])
@@ -320,6 +349,9 @@ def _assays(conn: sqlite3.Connection, table: str, epitope: _Epitopes,
             extra += [f"antibody {iso}"] if iso else []
         if tested and positive:
             extra.append(f"{positive}/{tested} subjects positive")
+        host, host_name = _species(r[_c("Host | IRI")], r[_c("Host | Name")])
+        if host_name:
+            extra.append(f"host {host_name}")
         if compound:
             extra.append(f"iedb:epitope.{num}")
         yield rel(
@@ -330,7 +362,7 @@ def _assays(conn: sqlite3.Connection, table: str, epitope: _Epitopes,
                 assay=cell,
                 value=(f"{ineq}{value}" if ineq and ineq != "=" and value else value),
                 unit=v(r[_c("Assay | Units")]) if value else None,
-                species=_taxon(r[_c("Host | IRI")], r[_c("Host | Name")]),
+                species=host,
                 cell=v(r["Effector_Cell_Name"]) if cell == "T cell" else None,
                 tissue=v(r["Effector_Cell_Source_Tissue"]) if cell == "T cell" else None,
                 condition=names(r[_c("1st in vivo Process | Process Type")],
@@ -360,8 +392,8 @@ def _receptors(conn: sqlite3.Connection, table: str, epitope: _Epitopes,
                                              f"MHC {mhc.replace('|', ', ')}" if mhc else None)
                                  if x) or None,
                   context=ctx(assay=v(r[_c("Assay | Type")]),
-                              species=_taxon(r[_c("Chain 1 | Organism IRI")])
-                              or _taxon(r[_c("Chain 2 | Organism IRI")])))
+                              species=_species(r[_c("Chain 1 | Organism IRI")])[0]
+                              or _species(r[_c("Chain 2 | Organism IRI")])[0]))
 
 
 def _iedb(conn: sqlite3.Connection) -> Iterator[Row | None]:

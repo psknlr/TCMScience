@@ -92,7 +92,8 @@ always be compared with the row it came from.
 
 - **ids**: a global identifier where the source gives one (`pubchem:`, `inchikey:`,
   `symbol:`, `ncbigene:`, `uniprot:`, `ensembl:`, `umls:`, `nct:`, `pmid:`, `rxnorm:`,
-  `meddra:`); otherwise `<source>:<local id>`.
+  `meddra:`, and `ncbiprotein:` for an NCBI Protein accession, `obi:` for an OBI
+  assay-type term); otherwise `<source>:<local id>`.
 - **names**: every name the source gives, joined by ` | `. A query matches any one of
   them exactly, ignoring case. `contains=True` switches to substring matching.
 - **evidence**: how the source knows the relation, never upgraded:

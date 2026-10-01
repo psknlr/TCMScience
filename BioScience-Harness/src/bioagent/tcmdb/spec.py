@@ -63,6 +63,9 @@ class DatasetSpec:
     #: "gene" -> SQL over the built store returning (id, canonical id) pairs, already
     #: prefixed: ``inchikey:`` (27 characters) for compounds, ``symbol:`` for human genes.
     crosswalk: Mapping[str, str] = field(default_factory=dict)
+    #: the least seconds between two download requests to this dataset's host (its
+    #: robots.txt Crawl-delay); ``hub.fetch`` paces every request by it.
+    min_interval_s: float = 0.0
 
     def file(self, name: str) -> FileSpec:
         for f in self.files:

@@ -20,7 +20,9 @@ Checked from this environment on 2026-10-01 (supplementary sources, review of
 * **MGnify API v2** (EMBL-EBI metagenomics). v1 was deprecated in June 2026 and may be
   switched off after 2026-09-01, so only v2 is wrapped. Result files listed by the API
   live on ftp.ebi.ac.uk, whose robots.txt disallows automated agents; they are not
-  fetched. www.ebi.ac.uk's robots.txt sets ``Crawl-Delay: 10``.
+  fetched. www.ebi.ac.uk's robots.txt sets ``Crawl-Delay: 10``; the HTTP backend paces
+  ``www.ebi.ac.uk/metagenomics/`` at one request per 10 s (``DEFAULT_RATES``), apart from
+  the host's own rate for the other EBI APIs.
 
 ImmPort's study data needs a registered account and an API key, so it is not wrapped
 (its gene lists are the ``immport`` dataset). IEDB's IQ-API operations are on the
@@ -249,7 +251,8 @@ SOURCES: tuple[PublicSource, ...] = (
                       "cross-references", "genomes/{accession}", args=("accession",),
                       example={"accession": "MGYG000450016"}),
         ), smoke="study", docs="https://docs.mgnify.org/src/docs/api.html",
-        rate_note="www.ebi.ac.uk robots.txt: Crawl-Delay 10; space MGnify calls 10 s apart. "
+        rate_note="www.ebi.ac.uk robots.txt: Crawl-Delay 10; the backend paces "
+                  "www.ebi.ac.uk/metagenomics/ at one request per 10 s. "
                   "API v1 is deprecated and not used."),
 )
 

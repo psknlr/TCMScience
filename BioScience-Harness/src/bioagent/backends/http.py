@@ -220,6 +220,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
     # immune_microbe (supplementary sources): AIRR Data Commons repositories and BV-BRC
     "covid19-1.ireceptor.org": 1.0, "vdjserver.org": 1.0, "www.bv-brc.org": 1.0,
+    # MGnify sits on www.ebi.ac.uk, whose robots.txt sets Crawl-Delay: 10. A path-prefix key
+    # ("host/path") paces only the URLs under it, on top of the host's own rate, so the
+    # other EBI APIs on that host keep theirs.
+    "www.ebi.ac.uk/metagenomics/": 0.1,
 }
 
 
@@ -237,22 +241,32 @@ def _default_rates() -> dict[str, float]:
 
 
 class _RateLimiter:
-    """Token-bucket limiter per host; thread-safe."""
+    """Token-bucket limiter per host; thread-safe.
+
+    A rate keyed ``"host/path-prefix"`` (it contains a ``/``) paces only the requests whose
+    ``host + path`` starts with it, in addition to the host's own rate: one service on a
+    shared host (MGnify on www.ebi.ac.uk) can be held to a slower pace than its neighbours.
+    """
 
     def __init__(self, rates: Mapping[str, float], default_rps: float = 2.0) -> None:
-        self._rates = dict(rates)
+        self._rates = {k: v for k, v in rates.items() if "/" not in k}
+        self._prefixes = {k: v for k, v in rates.items() if "/" in k}
         self._default = default_rps
         self._next_ok: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def wait(self, host: str) -> float:
-        rps = self._rates.get(host, self._default)
-        interval = 1.0 / max(rps, 0.01)
+    def wait(self, host: str, path: str = "") -> float:
+        buckets = {host: self._rates.get(host, self._default)}
+        target = host + (path or "/")
+        for prefix, rps in self._prefixes.items():
+            if target.startswith(prefix):
+                buckets[prefix] = rps
         with self._lock:
             now = time.monotonic()
-            ready = self._next_ok.get(host, now)
-            delay = max(0.0, ready - now)
-            self._next_ok[host] = max(ready, now) + interval
+            start = max([now] + [self._next_ok.get(k, now) for k in buckets])
+            for k, rps in buckets.items():
+                self._next_ok[k] = start + 1.0 / max(rps, 0.01)
+        delay = start - now
         if delay > 0:
             time.sleep(delay)
         return delay
@@ -375,7 +389,7 @@ class HTTPBackend(Backend):
         last_err = ""
         for attempt in range(1, self.max_retries + 1):
             meta["attempts"] = attempt
-            self._limiter.wait(req.host)
+            self._limiter.wait(req.host, urllib.parse.urlsplit(req.url).path)
             self.stats["requests"] += 1
             try:
                 r = urllib.request.Request(req.full_url, data=body, method=req.method, headers=headers)

@@ -171,7 +171,9 @@ def iedb(tmp_path):
     _export(raw / "tcell_full_v3_tsv.zip", "tcell_full_v3.tsv", keep["tcell"], [
         _assay(29, 31803, "Positive", **{"Assay | Number of Subjects Tested": "4",
                                          "Assay | Number of Subjects Positive": "4"}),
-        _assay(28, 31803, "Negative", **{"Reference | PMID": ""}),
+        _assay(28, 31803, "Negative", **{
+            "Reference | PMID": "", "Host | Name": "Mus musculus HLA-A2 Tg",
+            "Host | IRI": "https://ontology.iedb.org/ontology/ONTIE_0000490"}),
         hapten, unmapped,
         _assay(32, 31803, ""),                                  # no outcome: queued
     ])
@@ -199,10 +201,14 @@ def test_assays_keep_their_own_outcome_negatives_included(iedb):
                                                                    "pmid:15448372")
     assert neg["outcome"] == "negative" and neg["reference"] is None
     ctx = json.loads(pos["context"])
-    assert ctx["species"] == "9606" and ctx["cell"] == "PBMC" and ctx["tissue"] == "blood"
+    assert ctx["species"] == "ncbitaxon:9606" and ctx["cell"] == "PBMC" and ctx["tissue"] == "blood"
     assert ctx["n"] == "4" and ctx["assay"] == "T cell"
     assert "MHC HLA-A*02:01 (class I)" in pos["note"] and "4/4 subjects" in pos["note"]
     assert pos["license"] == "CC BY 4.0"
+    # a strain host keeps IEDB's prefixed term as the species and its name in the note
+    assert json.loads(neg["context"])["species"] == "iedb:ONTIE_0000490"
+    assert "host Mus musculus HLA-A2 Tg" in neg["note"]
+    assert "host" not in pos["note"]
 
 
 def test_a_mapped_non_peptidic_epitope_is_a_compound(iedb):
@@ -218,7 +224,7 @@ def test_the_antigen_is_listed_once_per_epitope_and_unknown_outcomes_queue(iedb)
     antigen = h.relations("epitope_antigen", limit=100)
     assert [(r["subject_id"], r["object_id"], r["evidence"]) for r in antigen] == [
         ("iedb:epitope.31803", "uniprot:P29996", "listed")]
-    assert json.loads(antigen[0]["context"])["species"] == "12475"
+    assert json.loads(antigen[0]["context"])["species"] == "ncbitaxon:12475"
     assert report["unresolved"] == 1
     assert "assay 32" in h.unresolved("iedb")[0]["reason"]
 
@@ -247,3 +253,36 @@ def test_the_iedb_dataset_passes_the_check_and_a_changed_layout_is_refused(iedb,
     tcell = next(f for f in spec.files if f.table == "tcell")
     with pytest.raises(Exception, match="IEDB changed its layout"):
         list(data_mod.READERS["iedb_tsv"](bad, tcell))
+
+
+def test_mgnify_is_paced_at_the_ebi_crawl_delay_without_slowing_the_host(monkeypatch):
+    import time
+
+    from bioagent.backends.http import _RateLimiter, _default_rates
+
+    rates = _default_rates()
+    assert rates["www.ebi.ac.uk/metagenomics/"] <= 0.1
+    assert rates["www.ebi.ac.uk"] > 0.1                   # other EBI APIs keep their rate
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    lim = _RateLimiter({"www.ebi.ac.uk": 10.0, "www.ebi.ac.uk/metagenomics/": 0.1})
+    assert lim.wait("www.ebi.ac.uk", "/metagenomics/api/v2/studies") == 0
+    assert lim.wait("www.ebi.ac.uk", "/metagenomics/api/v2/biomes") == pytest.approx(10)
+    assert lim.wait("www.ebi.ac.uk", "/chembl/api/data/molecule") == pytest.approx(0.1)
+
+
+def test_iedb_downloads_are_paced_at_the_crawl_delay(monkeypatch, tmp_path):
+    from bioagent.acquisition import downloader as dl_mod
+    from bioagent.tcmdb.datasets import dataset
+
+    assert dataset("iedb").min_interval_s >= 10
+    clock = {"t": 50.0}
+    monkeypatch.setattr(dl_mod.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(dl_mod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+    d = dl_mod.Downloader(tmp_path, min_interval_s=10.5)
+    d._pace()
+    start = clock["t"]
+    clock["t"] += 2.0
+    d._pace()
+    assert clock["t"] == pytest.approx(start + 10.5)
