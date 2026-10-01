@@ -337,6 +337,12 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: natural
+            # products and plant names (providers.supplement.tcm_np, tcmdb.extra.tcm_np);
+            # live query endpoints ...
+            "coconut.naturalproducts.net", "www.knapsackfamily.com",
+            # ... and download hosts (zenodo.org, above, serves the WFO Plant List)
+            "coconut.s3.uni-jena.de", "cb.imsc.res.in",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
