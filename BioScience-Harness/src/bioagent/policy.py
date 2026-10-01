@@ -337,6 +337,12 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: cells and
+            # perturbations. Cellosaurus API (live) and its documented release file on
+            # ftp.expasy.org; DepMap's CC BY figshare deposits (figshare.com above), LINCS
+            # on the GEO FTP (ncbi.nlm.nih.gov above), scPerturb on Zenodo (above) and the
+            # ARCHS4 version list and HDF5 files (s3.dev -> s3.k8s.maayanlab.cloud)
+            "cellosaurus.org", "ftp.expasy.org", "archs4.org", "maayanlab.cloud",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
