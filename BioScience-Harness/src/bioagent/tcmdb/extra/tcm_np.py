@@ -138,17 +138,26 @@ COCONUT = DatasetSpec(
           "of a compound with its InChIKey (inchikey:..., else coconut:<CNP id>); records "
           "of one structure (one standard InChIKey under several CNP ids) are merged, and "
           "their CNP ids are the row's context source_id. The evidence is aggregated, and "
-          "the note names every collection of the records that gave the pair ('via "
-          "KNApSaCK; NPASS; UNPD', short names): COCONUT does not say which collection "
-          "reported which organism, and its DOIs are not paired with organisms either, so "
-          "no row carries a reference. Organisms are free "
-          "text, as COCONUT writes them (coconut:organism.<name>). COCONUT's CC0 keeps the "
-          "original owners' restrictions, so a row whose compound also came from a "
-          "collection under non-commercial terms (KNApSaCK, DrugBankNP) carries those "
-          "terms as its licence. The release URL embeds the month (2026-10) and the "
-          "server keeps only the current month.",
+          "the note names the collections of the records that gave the pair as 'via any: "
+          "KNApSAcK; NPASS; UNPD' (one-token names): the pair rests on at least one of "
+          "them, not on all, because COCONUT does not say which collection reported which "
+          "organism, and its DOIs are not paired with organisms either, so no row carries "
+          "a reference. Organisms are free text, as COCONUT writes them "
+          "(coconut:organism.<name>), not yet resolved to WFO ids. COCONUT's CC0 keeps "
+          "the original owners' restrictions, so a row whose compound also came from a "
+          "collection under non-commercial terms (KNApSAcK, DrugBankNP, FooDB) carries "
+          "those terms as its licence, and one that may rest on a vendor catalogue "
+          "(InterBioScreen, AnalytiCon, Specs, PhytoLab, Indofine) carries an unverified "
+          "proprietary licence (class 'unknown'); other collections' own terms were not "
+          "checked one by one. The release URL embeds the month (2026-10) and the server "
+          "keeps only the current month: the file URLs expire when November's release "
+          "replaces it (see extra['expires']).",
     relations=("organism_compound",),
     commercial_use="allowed",
+    extra={"expires": "2026-10-31: S3 keeps only the current month's release, so the "
+                      "file URLs (2026-10) must be moved to the new month's names, taken "
+                      "from https://coconut.naturalproducts.net/download, before fetching "
+                      "again"},
     # its largest collections and the TCM ones (organism-bearing compounds, 2026-10 CSV)
     upstream=("Wikidata", "Super Natural", "NPASS", "KNApSAcK", "CMAUP", "NPAtlas", "CMNPD",
               "ZINC", "UNPD", "TCMDB@Taiwan", "NPEdia", "ChEBI", "TIPdb", "StreptomeDB",
@@ -168,23 +177,68 @@ def _split(value: object, sep: str = "|") -> list[str]:
 #: releases its data under CC0 but keeps "the restrictions of the original data owners",
 #: and it does not say which collection reported an organism: a row whose compound came
 #: from one of these may rest on it, so the row carries that collection's terms.
+#: Keyed by COCONUT's collection title without its parenthesis.
 NON_COMMERCIAL_COLLECTIONS = {
     "KNApSaCK": "KNApSAcK CC BY-NC-ND 4.0",
     "DrugBankNP": "DrugBank CC BY-NC 4.0",
+    "FooDB": "FooDB non-commercial; commercial use requires permission",
+}
+
+#: Vendor catalogues: compounds a company sells, under its own proprietary terms, which
+#: no open licence covers. A row that may rest on one is not classed as open.
+VENDOR_COLLECTIONS = frozenset({
+    "InterBioScreen Ltd", "AnalytiCon Discovery NPs", "Specs Natural Products",
+    "PhytoLab phyproof® Reference Substances", "Indofine Chemical Company"})
+
+#: One-token lineage names for collections whose title is several words, so a 'via'
+#: note names each collection once (``consensus.lineage_of`` reads the first token of
+#: each name). Versions of one database share a name (Super Natural II and 3).
+_SHORT_NAMES = {
+    "Wikidata Natural Products": "Wikidata", "Super Natural II": "SuperNatural",
+    "Supernatural3": "SuperNatural", "ChEBI NPs": "ChEBI", "ChEMBL NPs": "ChEMBL",
+    "PubChem NPs": "PubChem", "ChemSpider NPs": "ChemSpider", "ZINC NP": "ZINC",
+    "DrugBankNP": "DrugBank", "KNApSaCK": "KNApSAcK", "TCMDB-Taiwan": "TCMDB-Taiwan",
+    "NCI DTP data": "NCI-DTP", "Nat-UV DB": "Nat-UV",
 }
 
 
 def _collection(title: str) -> str:
-    """A collection's short name: 'UNPD (Universal Natural Products Database)' -> 'UNPD'."""
+    """A collection's title without its parenthesis: 'UNPD (Universal ...)' -> 'UNPD'."""
     return re.sub(r"\s*\(.*\)\s*$", "", title).strip() or title
 
 
+def _short(collection: str) -> str:
+    """A one-token lineage name: 'Super Natural II' -> 'SuperNatural', 'Latin America
+    dataset' -> 'Latin-America-dataset'."""
+    return _SHORT_NAMES.get(collection) or "-".join(collection.split())
+
+
 def _coconut_licence(collections: list[str]) -> str | None:
+    """The row's licence when a collection it may rest on is not open (None: CC0)."""
     terms = [NON_COMMERCIAL_COLLECTIONS[c] for c in collections
              if c in NON_COMMERCIAL_COLLECTIONS]
-    if not terms:
-        return None                 # the dataset's licence (build_relations fills it)
-    return f"CC0 (COCONUT); collected from non-commercial sources ({'; '.join(terms)})"
+    if terms:
+        return f"CC0 (COCONUT); collected from non-commercial sources ({'; '.join(terms)})"
+    vendors = [c for c in collections if c in VENDOR_COLLECTIONS]
+    if vendors:
+        # no open licence named, so licence_class reads it as 'unknown', not 'open'
+        return ("COCONUT aggregate; may rest on vendor catalogues under proprietary "
+                f"terms, unverified ({'; '.join(vendors)})")
+    return None                     # the dataset's licence (build_relations fills it)
+
+
+def _coconut_via(collections: list[str]) -> str | None:
+    """'via X' for one collection; 'via any: X; Y' when the row rests on at least one of
+    several, and COCONUT does not say which (``consensus.lineage_of`` reads it as one
+    unit that may be any of them, not as independent lineages)."""
+    short: list[str] = []
+    for c in collections:
+        name = _short(c)
+        if name not in short:
+            short.append(name)
+    if not short:
+        return None
+    return f"via {short[0]}" if len(short) == 1 else f"via any: {'; '.join(short)}"
 
 
 def _coconut(conn: sqlite3.Connection) -> Iterator[Row | None]:
@@ -217,7 +271,7 @@ def _coconut(conn: sqlite3.Connection) -> Iterator[Row | None]:
         for organism, (cnps, colls) in pairs.items():
             yield rel("organism_compound", "coconut", f"coconut:organism.{organism}",
                       organism, compound, name, "aggregated",
-                      note=f"via {'; '.join(colls)}" if colls else None,
+                      note=_coconut_via(colls),
                       context=ctx(source_id=" | ".join(cnps) or None),
                       license=_coconut_licence(colls))
 
@@ -279,7 +333,10 @@ WFO = DatasetSpec(
           "use. Names come from IPNI and Tropicos, taxonomy from the WFO Taxonomic Expert "
           "Networks and WCVP, seeded from The Plant List 1.1. No relations: the tables are "
           "for look-up (hub.query('wfo', 'name', where={'scientificName': ...})). Zenodo's "
-          "robots.txt asks for 10 s between requests.",
+          "robots.txt asks for 10 s between requests: fetch waits that long between "
+          "requests to zenodo.org (acquisition.Downloader paces by the HTTP backend's "
+          "DEFAULT_RATES, zenodo.org 0.1/s), so the three default files take about a "
+          "minute (a size probe and a GET each).",
     commercial_use="allowed",
     upstream=("IPNI", "Tropicos", "WCVP", "The Plant List"))
 
@@ -315,9 +372,15 @@ IMPPAT = DatasetSpec(
           "(organism_compound), plant->therapeutic use (herb_disease) and formula->plant "
           "(formula_herb, with the ISBN as reference) are listed, digitised from books and "
           "articles without a per-row citation. compound_target rows from the target file "
-          "are aggregated (human genes 'via ChEMBL; NPASS; BindingDB' as the file says); "
+          "are aggregated (human genes 'via ChEMBL; NPASS; BindingDB' as the file says) "
+          "and name genes by HGNC symbol, while bioactivity rows name UniProt accessions: "
+          "IMPPAT gives no mapping between the two, so the two files' pairs meet in "
+          "consensus only through a dataset that maps UniProt accessions to symbols; "
           "rows from the bioactivity file are known (an EC50/IC50/Kd/Ki measured upstream, "
-          "kept as written in context, 'via NPASS' or 'via BindingDB'); a bioactivity "
+          "kept as written in context, 'via NPASS' or 'via BindingDB'), positive when a "
+          "value is measured ('=', '<'), negative when every value is right-censored at "
+          "10 uM or more ('> 100000.0 nM': inactive up to the highest concentration "
+          "tested), inconclusive when censored lower or in another unit; a bioactivity "
           "whose target has no UniProt accession (an organism, a cell line, an assay "
           "readout) waits in the unresolved queue. Formulation uses are kept in the tables "
           "only. CC BY-NC-ND 4.0: non-commercial use only, and the derived tables are not "
@@ -362,6 +425,36 @@ def _isbn(value: object) -> str | None:
 
 
 _MEASURES = ("EC50", "IC50", "Kd", "Ki")
+#: one value of a measurement cell: an optional qualifier, a number and a unit
+_VALUE = re.compile(r"^\s*([<>=~]*)\s*([-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*(\S*)")
+#: a right-censored value at or above this (in nM) means inactive in the range tested:
+#: 10 uM is the usual ceiling of a potency screen
+INACTIVE_NM = 10_000.0
+
+
+def _measure_outcome(cell: str) -> str:
+    """Whether a measurement cell ('= 1420.0 nM|> 50000.0 nM') found activity.
+
+    The cell holds one or more '|'-separated values. One that is '=', '<', '<=', '~' or
+    unqualified is a measured potency: ``positive``. When every value is right-censored
+    ('> 100000.0 nM': no half-maximal effect up to the highest concentration tested),
+    the compound was tested and found inactive: ``negative`` when every censoring
+    threshold is at least ``INACTIVE_NM`` nM, else ``inconclusive`` ('> 100 nM' says only
+    that it is not potent, and a threshold in another unit cannot be judged).
+    """
+    parts = [p for p in cell.split("|") if p.strip()]
+    censored = []
+    for part in parts:
+        m = _VALUE.match(part)
+        qualifier = m.group(1) if m else ""
+        if not qualifier.startswith(">"):
+            return "positive"
+        censored.append(m)
+    if not censored:
+        return "positive"
+    if all(m.group(3) == "nM" and float(m.group(2)) >= INACTIVE_NM for m in censored):
+        return "negative"
+    return "inconclusive"
 
 
 def _measure_note(measure: str, value: str, source: object) -> str:
@@ -455,6 +548,7 @@ def _imppat(conn: sqlite3.Connection) -> Iterator[Row | None]:
                     continue
                 yield rel("compound_target", "imppat3", sid, sname, f"uniprot:{acc}",
                           names(target), "known", note=_via(col(r, "Source")),
+                          outcome=_measure_outcome(value),
                           context=ctx(species=col(r, "Target_organism"), measure=measure,
                                       value=value))
 

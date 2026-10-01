@@ -223,6 +223,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # Crawl-delay: 10 in its robots.txt.
     "coconut.naturalproducts.net": 1.0, "www.knapsackfamily.com": 1.0,
     "list.worldfloraonline.org": 0.1,
+    # bulk files these sources' datasets fetch (acquisition.Downloader paces by these too):
+    # Zenodo's robots.txt sets Crawl-delay: 10; the others are small academic servers
+    "zenodo.org": 0.1, "coconut.s3.uni-jena.de": 1.0, "cb.imsc.res.in": 1.0,
+    "tm-mc.kr": 1.0,
 }
 
 

@@ -23,6 +23,8 @@ pytestmark = pytest.mark.unit
 IK_A = "WQZGKKKJIJFFOK-GASJEMHNSA-N"
 IK_B = "NWKFECICNXDNOQ-UHFFFAOYSA-N"
 IK_C = "HNKJADCVZUBCPG-UHFFFAOYSA-N"
+IK_D = "RYYVLZVUVIJVGH-UHFFFAOYSA-N"
+IK_E = "BSYNRYMUTXBXSQ-UHFFFAOYSA-N"
 
 
 @pytest.fixture
@@ -79,7 +81,11 @@ def coconut(tmp_path, catalogued):
                             "UNPD (Universal Natural Products Database)"))
     w.writerow(_coconut_row("CNP0000002.0", IK_B, "Flavylium", "", "ChEBI NPs"))
     w.writerow(_coconut_row("CNP0000003.0", IK_C, "Thioanisole", "Ascophyllum nodosum",
-                            "ChEBI NPs|FooDB"))
+                            "ChEBI NPs|Super Natural II"))
+    # FooDB's terms ask permission for commercial use; a vendor catalogue's are its own
+    w.writerow(_coconut_row("CNP0000004.0", IK_D, "Caffeine", "Coffea arabica", "FooDB"))
+    w.writerow(_coconut_row("CNP0000005.0", IK_E, "Aspirin", "Salix alba",
+                            "Specs Natural Products|ChEBI NPs"))
     with zipfile.ZipFile(raw / "coconut_csv-10-2026.zip", "w") as z:
         z.writestr("coconut_csv-10-2026.csv", buf.getvalue())
     report = h.build("coconut", log=lambda m: None)
@@ -88,12 +94,14 @@ def coconut(tmp_path, catalogued):
 
 def test_coconut_pairs_each_organism_with_the_compound_inchikey(coconut):
     h, report = coconut
-    assert report["tables"] == {"molecule": 4}
+    assert report["tables"] == {"molecule": 6}
     rows = h.relations("organism_compound", limit=100)
     pairs = {(r["subject_id"], r["object_id"]) for r in rows}
     assert pairs == {("coconut:organism.Scutellaria baicalensis", f"inchikey:{IK_A}"),
                      ("coconut:organism.Homo sapiens", f"inchikey:{IK_A}"),
-                     ("coconut:organism.Ascophyllum nodosum", f"inchikey:{IK_C}")}
+                     ("coconut:organism.Ascophyllum nodosum", f"inchikey:{IK_C}"),
+                     ("coconut:organism.Coffea arabica", f"inchikey:{IK_D}"),
+                     ("coconut:organism.Salix alba", f"inchikey:{IK_E}")}
     assert all(r["evidence"] == "aggregated" and r["outcome"] == "positive"
                and r["reference"] is None for r in rows)       # DOIs are not per organism
     assert not any(r["object_id"] == f"inchikey:{IK_B}" for r in rows)   # no organism
@@ -105,10 +113,27 @@ def test_coconut_merges_the_records_of_one_structure_and_names_their_collections
     assert len(rows) == 1
     row = rows[0]
     assert json.loads(row["context"]) == {"source_id": "CNP0000001.0 | CNP0000001.1"}
-    assert row["note"] == "via KNApSaCK; NPASS; UNPD"
+    # the pair rests on one of these collections, not on each: one lineage unit
+    assert row["note"] == "via any: KNApSAcK; NPASS; UNPD"
     assert row["object_name"] == "Baicalin | baicalin (variant)"
     human = h.relations("organism_compound", subject="Homo sapiens")[0]
-    assert human["note"] == "via KNApSaCK; NPASS"          # only the record that gave it
+    assert human["note"] == "via any: KNApSAcK; NPASS"     # only the record that gave it
+
+
+def test_coconut_collections_are_one_lineage_with_one_token_names(coconut):
+    from bioagent.tcmdb.consensus import independent_count, lineage_of
+    h, _ = coconut
+    row = h.relations("organism_compound", subject="Scutellaria baicalensis")[0]
+    assert lineage_of(row) == {"any:KNAPSACK|NPASS|UNPD"}
+    assert independent_count(lineage_of(row)) == 1
+    # multi-word titles become one token each (not SUPER for 'Super Natural II')
+    other = h.relations("organism_compound", subject="Ascophyllum nodosum")[0]
+    assert other["note"] == "via any: ChEBI; SuperNatural"
+    assert lineage_of(other) == {"any:CHEBI|SUPERNATURAL"}
+    single = h.relations("organism_compound", subject="Coffea arabica")[0]
+    assert single["note"] == "via FooDB" and lineage_of(single) == {"FOODB"}
+    # another source's row naming one of the collections may share the upstream
+    assert independent_count(lineage_of(row) | {"KNAPSACK"}) == 1
 
 
 def test_coconut_rows_resting_on_a_non_commercial_collection_carry_its_terms(coconut):
@@ -118,6 +143,11 @@ def test_coconut_rows_resting_on_a_non_commercial_collection_carry_its_terms(coc
     assert licence_class(knapsack["license"]) == "non-commercial"
     open_row = h.relations("organism_compound", subject="Ascophyllum nodosum")[0]
     assert open_row["license"] == dataset("coconut").license
+    foodb = h.relations("organism_compound", subject="Coffea arabica")[0]
+    assert licence_class(foodb["license"]) == "non-commercial"
+    vendor = h.relations("organism_compound", subject="Salix alba")[0]
+    assert licence_class(vendor["license"]) == "unknown"
+    assert "Specs Natural Products" in vendor["license"]
     assert {r["subject_name"] for r in h.relations("organism_compound", commercial=True)} \
         == {"Ascophyllum nodosum"}
 
@@ -126,7 +156,7 @@ def test_coconut_passes_the_acceptance_check(coconut):
     h, _ = coconut
     result = h.check("coconut")
     assert result["ok"], result["problems"]
-    assert result["relations"] == {"organism_compound": {"aggregated/positive": 3}}
+    assert result["relations"] == {"organism_compound": {"aggregated/positive": 5}}
 
 
 # --------------------------------------------------------------------------------- WFO
@@ -275,7 +305,16 @@ def imppat(tmp_path, catalogued):
          ("IMPPAT3_PHYID000002", "Brain glycogen phosphorylase", "Homo sapiens", "P11216",
           "", "= 900000.0 nM", "", "= 7400000.0 nM|= 1700000.0 nM", "BindingDB|NPASS"),
          ("IMPPAT3_PHYID000002", "SARS-CoV-2", "Severe acute respiratory syndrome "
-          "coronavirus 2", "", "", "> 20000.0 nM", "", "", "NPASS"))
+          "coronavirus 2", "", "", "> 20000.0 nM", "", "", "NPASS"),
+         # every value right-censored at >= 10 uM: tested and inactive
+         ("IMPPAT3_PHYID000002", "Aldose reductase", "Homo sapiens", "P15121",
+          "", "> 100000.0 nM|>= 50000.0 nM", "", "", "NPASS"),
+         # censored below 10 uM: says only that it is not potent
+         ("IMPPAT3_PHYID000002", "Carbonic anhydrase 2", "Homo sapiens", "P00918",
+          "> 100.0 nM", "", "", "", "BindingDB"),
+         # one measured value among censored ones: activity was found
+         ("IMPPAT3_PHYID000002", "Alpha-glucosidase", "Homo sapiens", "P10253",
+          "", "", "= 48800.0 nM|> 50000.0 nM", "", "NPASS"))
     form_cols = ("Formulation_identifier", "Formulation_name_in_API_original",
                  "Ingredient name in API_original", "Plant part in API_original",
                  "Therapeutic_uses (according to The Ayurvedic Pharmacopoeia of India)",
@@ -322,7 +361,7 @@ def test_imppat_targets_keep_the_upstream_and_measured_values(imppat):
     assert set(listed) == {"symbol:AKR1B1", "ensembl:ENSG00000291368"}
     assert listed["symbol:AKR1B1"]["note"] == "via ChEMBL; NPASS"
     measured = {json.loads(r["context"])["measure"]: r for r in rows
-                if r["evidence"] == "known"}
+                if r["evidence"] == "known" and r["object_id"] == "uniprot:P11216"}
     assert set(measured) == {"IC50", "Ki"}
     ki = measured["Ki"]
     assert ki["object_id"] == "uniprot:P11216" and ki["note"] == "via BindingDB; NPASS"
@@ -334,6 +373,28 @@ def test_imppat_targets_keep_the_upstream_and_measured_values(imppat):
     assert [q["object_name"] for q in queue] == ["SARS-CoV-2"]
     assert queue[0]["note"] == "IC50 > 20000.0 nM; via NPASS"
     assert report["unresolved"] == 1
+
+
+def test_imppat_right_censored_bioactivities_are_not_positive(imppat):
+    h, _ = imppat
+    known = {r["object_id"]: r for r in h.relations("compound_target", limit=100)
+             if r["evidence"] == "known" and r["object_id"] != "uniprot:P11216"}
+    assert known["uniprot:P15121"]["outcome"] == "negative"
+    assert json.loads(known["uniprot:P15121"]["context"])["value"] == \
+        "> 100000.0 nM|>= 50000.0 nM"
+    assert known["uniprot:P00918"]["outcome"] == "inconclusive"
+    assert known["uniprot:P10253"]["outcome"] == "positive"
+
+
+def test_imppat_measure_outcome_rules():
+    from bioagent.tcmdb.extra.tcm_np import _measure_outcome
+    assert _measure_outcome("= 1420.0 nM|= 1630.0 nM") == "positive"
+    assert _measure_outcome("42700 nM") == "positive"                # unqualified
+    assert _measure_outcome("< 10.0 nM") == "positive"
+    assert _measure_outcome("> 100000.0 nM") == "negative"
+    assert _measure_outcome(">> 20000.0 nM|> 19952.62 nM") == "negative"
+    assert _measure_outcome("> 500.0 nM|> 20000.0 nM") == "inconclusive"
+    assert _measure_outcome("> 100.0 ug.mL-1") == "inconclusive"      # unit not judged
 
 
 def test_imppat_formulations_map_plants_and_keep_minerals_named(imppat):
@@ -428,6 +489,61 @@ def test_every_host_is_allowed_and_paced_and_wfo_waits_for_its_certificate_chain
             assert ok(f.url.split("/")[2]), f.url
     assert [p.key for p in PENDING] == ["wfo"] and "wfo" not in BY_KEY
     assert DEFAULT_RATES["list.worldfloraonline.org"] <= 0.1      # robots Crawl-delay: 10
+    # the datasets' download hosts are paced too (acquisition.Downloader reads these)
+    for key in ("coconut", "wfo", "imppat3", "tmmc2"):
+        for f in dataset(key).files:
+            assert DEFAULT_RATES[f.url.split("/")[2]] <= 1.0, f.url
+    assert DEFAULT_RATES["zenodo.org"] <= 0.1                     # robots Crawl-delay: 10
+
+
+def test_the_hub_fetch_waits_out_zenodos_crawl_delay(tmp_path, monkeypatch):
+    """``tcmdb fetch wfo``: a HEAD and a GET per file, each request starting at least
+    10 s after the previous request to zenodo.org ended."""
+    from bioagent.acquisition import downloader
+    from bioagent.tcmdb.datasets import dataset
+
+    clock = [1000.0]
+    calls: list[tuple[str, str, float]] = []
+
+    class Resp:
+        status = 200
+
+        def __init__(self, body):
+            self._body, self.headers = io.BytesIO(body), {}
+
+        def read(self, n=-1):
+            return self._body.read(n)
+
+        def close(self):
+            clock[0] += 3.0                       # the transfer took 3 s
+
+    def fake_urlopen(req, timeout=None):
+        calls.append((req.get_method(), req.full_url, clock[0]))
+        name = req.full_url.rsplit("/", 2)[-2]
+        size = dataset("wfo").file(name).expected_bytes
+        resp = Resp(b"" if req.get_method() == "HEAD" else b"x" * size)
+        resp.headers = {"Content-Length": str(size)}
+        return resp
+
+    monkeypatch.setattr(downloader, "PACER", downloader._HostPacer())
+    monkeypatch.setattr(downloader.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(downloader.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
+    monkeypatch.setattr(downloader.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(downloader.Downloader, "_hash", staticmethod(lambda p, a="sha256": "x"))
+    h = TCMDataHub(tmp_path / "hub")
+    results = h.fetch("wfo", log=lambda m: None)
+    assert [r["ok"] for r in results] == [True, True, True]
+    assert [c[0] for c in calls] == ["HEAD", "GET"] * 3
+    for (_, _, start), (_, _, nxt) in zip(calls, calls[1:]):
+        assert nxt - (start + 3.0) >= 10.0                          # end -> next start
+
+
+def test_the_downloader_paces_unlisted_hosts_at_one_request_a_second():
+    from bioagent.acquisition import downloader
+    pacer = downloader._HostPacer(default_rps=1.0)
+    assert pacer.interval("files.example.org", {}) == 1.0
+    assert pacer.interval("localhost", {}) == 0.0
+    assert pacer.interval("zenodo.org", {"zenodo.org": 0.1}) == pytest.approx(10.0)
 
 
 def test_an_html_page_a_connector_asked_for_is_returned_whole():
