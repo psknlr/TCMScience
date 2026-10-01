@@ -337,6 +337,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: mechanism
+            # (IntAct/Complex Portal on www.ebi.ac.uk and ftp.ebi.ac.uk, both covered by
+            # "ebi.ac.uk" above; SIGNOR; JASPAR; BioGRID and ORCS downloads)
+            "signor.uniroma2.it", "jaspar.elixir.no", "downloads.thebiogrid.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
