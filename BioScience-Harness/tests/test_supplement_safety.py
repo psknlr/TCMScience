@@ -4,8 +4,8 @@ The connectors are checked for the requests verified live on 2026-10-01 and for 
 hosts being allowed. The snapshots are built from tiny files written here in the real
 formats (ToxCast workbooks and the PubChem-deposition archive of workbooks, the AOP-XML
 feed, Orphadata product XML) with the real column headers and element names, and checked
-for what the rows claim: ids, evidence, outcomes (active, inactive, inconclusive, an
-excluded phenotype), context, per-AOP licences and lineage.
+for what the rows claim: ids, evidence, outcomes (active, inactive, a negative hit call,
+an excluded phenotype), context, per-AOP licences and lineage.
 """
 
 from __future__ import annotations
@@ -89,6 +89,18 @@ _QC = ["analytical_qc_id", "dsstox_substance_id", "chnm", "spid", "qc_level",
 _RESULTS = ["PUBCHEM_RESULT_TAG", "PUBCHEM_EXT_DATASOURCE_REGID", "PUBCHEM_ACTIVITY_OUTCOME",
             "PUBCHEM_ACTIVITY_URL", "AC50", "HITC", "BMD"]
 _URL = "https://comptox.epa.gov/dashboard/chemical/invitrodb/"
+_DSSTOX = ('"DTXSID","PREFERRED_NAME","CASRN","DTXCID","INCHIKEY","IUPAC_NAME","SMILES",'
+           '"MOLECULAR_FORMULA","AVERAGE_MASS","MONOISOTOPIC_MASS","QSAR_READY_SMILES",'
+           '"MS_READY_SMILES","IDENTIFIER"\n')
+_DSSTOX_ROWS = [
+    'DTXSID7020182,Bisphenol A,"80-05-7",DTXCID30182,IISBACLAFKSPIT-UHFFFAOYSA-N,'
+    '"4,4\'-(Propane-2,2-diyl)diphenol",CC(C)(C1=CC=C(O)C=C1)C1=CC=C(O)C=C1,C15H16O2,'
+    '228.291,228.115029755,x,x,"80-05-7 | Bisphenol A | BPA"\n',
+    'DTXSID7020005,Acetamide,"60-35-5",DTXCID505,DLFVBJFMPXGRIB-UHFFFAOYSA-N,Acetamide,'
+    'CC(N)=O,C2H5NO,59.068,59.037113785,CC(N)=O,CC(N)=O,"60-35-5 | Acetamide"\n',
+    'DTXSID9020001,An untested chemical,"1-1-1",DTXCID1,AAAAAAAAAAAAAA-UHFFFAOYSA-N,x,C,'
+    'CH4,16,16,C,C,"x"\n',
+    'DTXSID2021234,Tested mixture,,,,,,,,,,,"mixture"\n']
 
 
 def _xlsx(rows: list[list], sheet: str = "Sheet1") -> bytes:
@@ -143,10 +155,19 @@ def _comptox(raw):
                        [1, "TX0001", 2, _URL + "DTXSID7020182", 50.0, 0.98, 40.0],
                        [2, "TX0002", 1, _URL + "DTXSID7020005", 0.3, 0, None],
                        [3, "TX0003", 3, _URL + "DTXSID7020005", 2.0, -0.4, None],
+                       [5, "TX0005", 1, _URL + "DTXSID2021234", None, 0.1, None],
                        [4, "TX0004", 2, "https://comptox.epa.gov/dashboard/", 1.0, 1, 1]]))
         z.writestr("pubchem_invitrodb_v4_3/invitrodb_v4.3_aeid30_for_pubchem_18Aug2026.xlsx",
                    endpoint([[1, "TX0001", 2, _URL + "DTXSID7020182", 50.0, 0.95, 30.0]]))
     (raw / files["hitcall"]).write_bytes(buf.getvalue())
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("DSSTox_CCD_dump_12092025/DSSToxCCDdump.csv",
+                   _DSSTOX + "".join(_DSSTOX_ROWS))
+        # the same rows split into parts: not read again
+        z.writestr("DSSTox_CCD_dump_12092025/DSSToxCCDdump1.csv",
+                   _DSSTOX + "".join(_DSSTOX_ROWS[:2]))
+    (raw / files["dsstox"]).write_bytes(buf.getvalue())
 
 
 @pytest.fixture
@@ -157,11 +178,11 @@ def comptox(tmp_path):
     return h, _relations(h, "comptox")
 
 
-def test_toxcast_hit_calls_become_positive_negative_and_inconclusive(comptox):
+def test_toxcast_hit_calls_become_positive_and_negative(comptox):
     h, rels = comptox
     calls = {(r["subject_id"], r["object_id"], r["context"]["sample"]): r
              for r in rels if r["kind"] == "compound_assay"}
-    assert len(calls) == 4                    # the description rows are not results
+    assert len(calls) == 5                    # the description rows are not results
     active = calls[("comptox:DTXSID7020182", "comptox:aeid.10", "TX0001")]
     assert (active["outcome"], active["evidence"], active["score"]) == ("positive", "known",
                                                                        "0.98")
@@ -177,11 +198,33 @@ def test_toxcast_hit_calls_become_positive_negative_and_inconclusive(comptox):
     inactive = calls[("comptox:DTXSID7020005", "comptox:aeid.10", "TX0002")]
     assert inactive["outcome"] == "negative" and "measure" not in inactive["context"]
     assert inactive["context"]["qc"] == "substance QC: caution"   # no sample-level call
+    # code 3 is a negative hit call: inactive by EPA's threshold, flagged
     flagged = calls[("comptox:DTXSID7020005", "comptox:aeid.10", "TX0003")]
-    assert flagged["outcome"] == "inconclusive"
+    assert flagged["outcome"] == "negative"
+    assert flagged["context"]["flags"] == ["negative_hitc_unintended_direction"]
+    assert "flags" not in inactive["context"]
+    # a chemical with no cytotox or QC row takes its name from DSSTox
+    mixture = calls[("comptox:DTXSID2021234", "comptox:aeid.10", "TX0005")]
+    assert mixture["subject_name"] == "Tested mixture"
     # a burst (cytotoxicity) endpoint is not flagged against its own burst estimate
     burst = calls[("comptox:DTXSID7020182", "comptox:aeid.30", "TX0001")]
     assert "flags" not in burst["context"]
+
+
+def test_toxcast_chemicals_map_to_inchikeys_through_dsstox(comptox):
+    h, _ = comptox
+    sql = dataset("comptox").crosswalk["compound"]
+    with sqlite3.connect(h.db_path("comptox")) as conn:
+        pairs = sorted(conn.execute(sql).fetchall())
+        # the whole dump is read once (the split parts are not), three columns kept
+        assert conn.execute("SELECT count(*) FROM dsstox").fetchone()[0] == 4
+        assert [r[1] for r in conn.execute("PRAGMA table_info(dsstox)")] == [
+            "dtxsid", "preferred_name", "inchikey"]
+        # the hit calls keep the DTXSID, not the URL
+        assert "dtxsid" in [r[1] for r in conn.execute("PRAGMA table_info(hitcall)")]
+    # only tested chemicals with a structure; the mixture has no InChIKey
+    assert pairs == [("comptox:DTXSID7020005", "inchikey:DLFVBJFMPXGRIB-UHFFFAOYSA-N"),
+                     ("comptox:DTXSID7020182", "inchikey:IISBACLAFKSPIT-UHFFFAOYSA-N")]
 
 
 def test_toxcast_rows_without_a_dtxsid_wait_in_the_queue(comptox):
@@ -245,6 +288,11 @@ _AOP_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <aop-stressor stressor-id="s2"><evidence>Not Specified</evidence></aop-stressor>
     </aop-stressors>
   </aop>
+  <aop id="a3">
+    <title>An AOP open for adoption</title>
+    <status><wiki-license>Open for adoption</wiki-license></status>
+    <key-events><key-event key-event-id="e2"/></key-events>
+  </aop>
   <aop id="a2">
     <title>A draft AOP</title>
     <status><wiki-license>All Rights Reserved</wiki-license></status>
@@ -264,6 +312,7 @@ _AOP_XML = """<?xml version="1.0" encoding="UTF-8"?>
     <key-event-relationship-reference id="k1" aop-wiki-id="888"/>
     <aop-reference id="a1" aop-wiki-id="3"/>
     <aop-reference id="a2" aop-wiki-id="999"/>
+    <aop-reference id="a3" aop-wiki-id="555"/>
   </vendor-specific>
 </data>
 """
@@ -303,13 +352,27 @@ def test_aop_events_and_stressors(aopwiki):
               if r["kind"] == "aop_event"}
     assert events == {("aopwiki:aop.3", "aopwiki:event.887", "MolecularInitiatingEvent"),
                       ("aopwiki:aop.3", "aopwiki:event.177", "AdverseOutcome"),
-                      ("aopwiki:aop.999", "aopwiki:event.887", "KeyEvent")}
+                      ("aopwiki:aop.999", "aopwiki:event.887", "KeyEvent"),
+                      ("aopwiki:aop.555", "aopwiki:event.177", "KeyEvent")}
     stress = {r["subject_id"]: r for r in rels if r["kind"] == "stressor_aop"}
     chem = stress["comptox:DTXSID6021248"]
     assert chem["subject_type"] == "compound" and chem["evidence"] == "known"
     assert chem["note"].startswith("aopwiki:stressor.50")
     other = stress["aopwiki:stressor.222"]
     assert other["subject_type"] == "stressor" and other["evidence"] == "reported"
+    assert data_mod.KINDS["stressor_aop"] == ("stressor", "aop")
+
+
+def test_an_aop_licence_is_cc_by_sa_only_when_the_wiki_says_so(aopwiki):
+    from bioagent.tcmdb.spec import allows_commercial, licence_class
+    _, rels = aopwiki
+    lic = {r["subject_id"]: r["license"] for r in rels if r["kind"] == "aop_event"}
+    assert licence_class(lic["aopwiki:aop.3"]) == "share-alike"
+    assert licence_class(lic["aopwiki:aop.555"]) == "unknown"   # 'Open for adoption'
+    assert "Open for adoption" in lic["aopwiki:aop.555"]
+    assert not allows_commercial(lic["aopwiki:aop.555"])
+    assert not allows_commercial(lic["aopwiki:aop.999"])        # All rights reserved
+    assert data_mod._aop_licence(None) == data_mod._aop_licence("BY-SA")
 
 
 def test_aopwiki_maps_its_chemicals_to_inchikeys(aopwiki):
@@ -338,26 +401,32 @@ _GENE = """<DisorderGeneAssociation>
             </ExternalReference></ExternalReferenceList>
           </Gene>
           <DisorderGeneAssociationType id="17949">
-            <Name lang="en">Disease-causing germline mutation(s) in</Name>
+            <Name lang="en">{atype}</Name>
           </DisorderGeneAssociationType>
           <DisorderGeneAssociationStatus id="17991">
             <Name lang="en">{status}</Name></DisorderGeneAssociationStatus>
         </DisorderGeneAssociation>"""
+_CAUSAL = "Disease-causing germline mutation(s) in"
 _PRODUCT6 = _HEAD + """  <DisorderList count="1">
     <Disorder id="17601">
       {disorder}
-      <DisorderGeneAssociationList count="3">{a}{b}{c}</DisorderGeneAssociationList>
+      <DisorderGeneAssociationList count="5">{a}{b}{c}{d}{e}</DisorderGeneAssociationList>
     </Disorder>
   </DisorderList>
 </JDBOR>
 """.format(disorder=_DISORDER.format(code=166024, name="MED-macrocephaly syndrome"),
            a=_GENE.format(refs="22587682[PMID]_11309371[PMID]_ISBN-1[OTHER]_99999",
                           gname="kinesin family member 7", symbol="<Symbol>KIF7</Symbol>",
-                          status="Assessed"),
+                          status="Assessed", atype=_CAUSAL),
            b=_GENE.format(refs="", gname="aspartylglucosaminidase",
-                          symbol="<Symbol>AGA</Symbol>", status="Not yet assessed"),
+                          symbol="<Symbol>AGA</Symbol>", status="Not yet assessed",
+                          atype=_CAUSAL),
            c=_GENE.format(refs="", gname="a locus without a symbol", symbol="",
-                          status="Assessed"))
+                          status="Assessed", atype=_CAUSAL),
+           d=_GENE.format(refs="", gname="a candidate", symbol="<Symbol>CAND1</Symbol>",
+                          status="Assessed", atype="Candidate gene tested in"),
+           e=_GENE.format(refs="", gname="a biomarker", symbol="<Symbol>BIOM1</Symbol>",
+                          status="Assessed", atype="Biomarker tested in"))
 _PRODUCT4 = _HEAD + """  <HPODisorderSetStatusList count="1">
     <HPODisorderSetStatus id="1">
       <Disorder id="2">
@@ -419,7 +488,7 @@ def orphadata(tmp_path):
 def test_orphanet_gene_disease_associations(orphadata):
     h, rels = orphadata
     genes = {r["subject_id"]: r for r in rels if r["kind"] == "target_disease"}
-    assert set(genes) == {"symbol:KIF7", "symbol:AGA"}
+    assert set(genes) == {"symbol:KIF7", "symbol:AGA", "symbol:CAND1", "symbol:BIOM1"}
     kif7 = genes["symbol:KIF7"]
     assert (kif7["object_id"], kif7["evidence"], kif7["effect"]) == ("orpha:166024", "known",
                                                                     None)
@@ -429,6 +498,11 @@ def test_orphanet_gene_disease_associations(orphadata):
     assert kif7["reference"] == "pmid:22587682 | pmid:11309371 | ISBN-1"
     assert kif7["license"].startswith("CC BY 4.0")
     assert genes["symbol:AGA"]["evidence"] == "reported"
+    # assessed, but not a confirmed causal role: not upgraded to 'known'
+    assert genes["symbol:CAND1"]["evidence"] == "reported"
+    assert genes["symbol:CAND1"]["context"]["mechanism"] == "Candidate gene tested in"
+    assert genes["symbol:BIOM1"]["evidence"] == "associated"
+    assert genes["symbol:BIOM1"]["context"]["qc"] == "Assessed"
     with sqlite3.connect(h.db_path("orphadata")) as conn:
         assert conn.execute("SELECT count(*) FROM unresolved").fetchone()[0] == 1
         assert conn.execute("SELECT Source, Reference FROM disorder_xref").fetchall() == [

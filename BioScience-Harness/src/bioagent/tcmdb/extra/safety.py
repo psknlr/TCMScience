@@ -19,12 +19,14 @@ Four snapshot datasets, each checked from the harness on 2026-10-01:
   under the survey design (weights, strata, PSUs), so the dataset yields no relations.
 
 MIMIC-IV is not here: its files are released only to credentialed users under a data use
-agreement that forbids sharing access, and PhysioNet's policy forbids sending the data to
-online LLM services that are not on its list.
+agreement that forbids sharing access and limits use to "lawful use in scientific research
+and no other" (so commercial use is forbidden), and PhysioNet's policy forbids sending the
+data to online LLM services that are not on its list.
 """
 
 from __future__ import annotations
 
+import csv
 import io
 import math
 import re
@@ -43,12 +45,14 @@ __all__ = ["DATASETS", "EXTRACTORS", "KINDS", "READERS"]
 #: gene it is meant to measure and with the AOP-Wiki key events it informs; the AOP-Wiki
 #: lists the events that make up each AOP and the stressors known to trigger an AOP (its
 #: XML carries stressors per AOP, not per key event, so ``stressor_event`` cannot hold
-#: them without guessing which event a stressor acts on).
+#: them without guessing which event a stressor acts on). A stressor is often not a
+#: chemical (radiation, hypoxia), so ``stressor_aop`` is declared stressor -> aop; rows
+#: whose stressor is a chemical say subject_type 'compound' so that the crosswalk maps them.
 KINDS: dict[str, tuple[str, str]] = {
     "assay_target": ("assay", "target"),     # an assay endpoint's intended gene target
     "assay_event": ("assay", "event"),       # an assay endpoint mapped to an AOP key event
     "aop_event": ("aop", "event"),           # a key event in an adverse outcome pathway
-    "stressor_aop": ("compound", "aop"),     # a stressor known to trigger an AOP
+    "stressor_aop": ("stressor", "aop"),     # a stressor known to trigger an AOP
 }
 
 _NA = frozenset({"#n/a", "na", "n/a", "nan", "none", "null", ""})
@@ -130,6 +134,13 @@ def _read_xlsx(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
 
 
 _AEID = re.compile(r"aeid(\d+)_")
+_DTXSID = re.compile(r"(DTXSID\d+)")
+#: Columns of the deposition kept in the store. The CompTox URL is cut to its DTXSID (it
+#: is the same URL prefix on all 3.3M rows) and the PubChem result tag (a row counter) is
+#: dropped, which keeps the store about 200 MB smaller.
+_HITCALL = ("aeid", "sample", "outcome", "dtxsid", "AC50", "HITC", "BMD")
+_HITCALL_SOURCE = ("PUBCHEM_EXT_DATASOURCE_REGID", "PUBCHEM_ACTIVITY_OUTCOME",
+                   "PUBCHEM_ACTIVITY_URL", "AC50", "HITC", "BMD")
 
 
 def _read_pubchem_zip(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
@@ -138,8 +149,11 @@ def _read_pubchem_zip(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
     Each member is one assay endpoint (``..._aeid<N>_for_pubchem_...xlsx``); its aeid
     becomes the first column. The rows under the header that describe the columns
     (RESULT_TYPE, RESULT_DESCR, RESULT_UNIT, ...) are not results and are left out.
+    Rows are written as ``_HITCALL``: the CompTox URL becomes its DTXSID (None when the
+    URL names none) and the result tag is dropped.
     """
     header: list[str | None] | None = None
+    pick: list[int] = []
     with zipfile.ZipFile(path) as z:
         for info in z.infolist():
             if info.is_dir() or not info.filename.lower().endswith(".xlsx"):
@@ -154,12 +168,47 @@ def _read_pubchem_zip(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
                     continue
                 if header is None:
                     header = head
-                    yield ["aeid", *head]
+                    missing = [c for c in _HITCALL_SOURCE if c not in head]
+                    if missing:
+                        raise StoreError(f"{info.filename}: no column(s) {missing}")
+                    pick = [head.index(c) for c in _HITCALL_SOURCE]
+                    yield list(_HITCALL)
                 elif head != header:
                     raise StoreError(f"{info.filename}: columns {head} differ from {header}")
+                url = pick[2]
                 for r in it:
                     if r and (r[0] or "").strip().isdigit():
-                        yield [m.group(1), *r]
+                        r = r + [None] * (len(header) - len(r))
+                        out = [r[i] for i in pick]
+                        found = _DTXSID.search(r[url] or "")
+                        out[2] = found.group(1) if found else None
+                        yield [m.group(1), *out]
+
+
+def _read_dsstox(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
+    """DTXSID, preferred name and InChIKey from EPA's DSSTox dump (CSV members in a zip).
+
+    The archive holds the whole dump (``DSSToxCCDdump.csv``) and the same rows split into
+    ``DSSToxCCDdump<N>.csv``; only the whole one is read, so no row is loaded twice. The
+    other columns (SMILES, IUPAC name, masses, the long identifier list) are not kept.
+    """
+    keep = ("DTXSID", "PREFERRED_NAME", "INCHIKEY")
+    with zipfile.ZipFile(path) as z:
+        members = [i for i in z.infolist()
+                   if i.filename.rsplit("/", 1)[-1].lower() == "dsstoxccddump.csv"]
+        if len(members) != 1:
+            raise StoreError(f"{path.name}: expected one DSSToxCCDdump.csv, found "
+                             f"{len(members)}")
+        with z.open(members[0]) as raw:
+            reader = csv.reader(io.TextIOWrapper(raw, encoding="utf-8", newline=""))
+            head = next(reader, None) or []
+            if any(c not in head for c in keep):
+                raise StoreError(f"{path.name}: columns {head} lack {keep}")
+            pick = [head.index(c) for c in keep]
+            yield ["dtxsid", "preferred_name", "inchikey"]
+            for r in reader:
+                if len(r) > max(pick):
+                    yield [_val(r[i]) for i in pick]
 
 
 # ------------------------------------------------------------------------- AOP-Wiki
@@ -396,13 +445,16 @@ def _read_xpt(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
 
 
 READERS = {"toxcast_xlsx": _read_xlsx, "toxcast_pubchem": _read_pubchem_zip,
+           "dsstox_csv_zip": _read_dsstox,
            "aopwiki_xml": _read_aopwiki, "orphadata_xml": _read_orphadata,
            "nhanes_xpt": _read_xpt}
 
 
 # ---------------------------------------------------------------- ToxCast extractor
-_DTXSID = re.compile(r"(DTXSID\d+)")
-_OUTCOME = {"2": "positive", "1": "negative", "3": "inconclusive"}
+#: PubChem outcome code -> outcome. Code 3 marks a negative hit call (a fit in the
+#: direction the endpoint does not test); EPA's README counts every hitc < 0.9 as
+#: inactive, so it is a negative, flagged.
+_OUTCOME = {"2": "positive", "1": "negative", "3": "negative"}
 
 
 def _comptox(conn) -> Iterator[Row | dict | None]:
@@ -422,6 +474,11 @@ def _comptox(conn) -> Iterator[Row | dict | None]:
                 sample_qc[r["spid"]] = f"sample QC: {call}"
             elif call and r["qc_level"] == "substance" and dtx:
                 substance_qc[dtx] = f"substance QC: {call}"
+    if has(conn, "dsstox") and has(conn, "hitcall"):
+        for r in rows(conn, "SELECT dtxsid, preferred_name FROM dsstox WHERE dtxsid IN "
+                            "(SELECT DISTINCT dtxsid FROM hitcall)"):
+            if _val(r["preferred_name"]):
+                chem_name.setdefault(r["dtxsid"], r["preferred_name"])
     if has(conn, "cytotox"):
         for r in rows(conn, "SELECT * FROM cytotox"):
             dtx = _val(r["dsstox_substance_id"])
@@ -451,16 +508,16 @@ def _comptox(conn) -> Iterator[Row | dict | None]:
     if has(conn, "hitcall"):
         for r in rows(conn, "SELECT * FROM hitcall"):
             aeid = _val(r["aeid"])
-            m = _DTXSID.search(r["PUBCHEM_ACTIVITY_URL"] or "")
-            if not m:
-                yield unresolved("compound_assay", "comptox", None, r["PUBCHEM_EXT_DATASOURCE_REGID"],
+            dtx = _val(r["dtxsid"])
+            if not dtx:
+                yield unresolved("compound_assay", "comptox", None, r["sample"],
                                  endpoint_name(aeid or ""), "no DTXSID in the activity URL",
                                  reference=f"comptox:aeid.{aeid}")
                 continue
-            outcome = _OUTCOME.get(_val(r["PUBCHEM_ACTIVITY_OUTCOME"]) or "")
+            code = _val(r["outcome"]) or ""
+            outcome = _OUTCOME.get(code)
             if outcome is None:
                 continue                          # not a result PubChem defines
-            dtx = m.group(1)
             ep = endpoint.get(aeid)
             extra: dict[str, Any] = {}
             if outcome == "positive":
@@ -471,10 +528,10 @@ def _comptox(conn) -> Iterator[Row | dict | None]:
                     burst = ep is not None and _val(ep["burst_assay"]) == "1"
                     if bound is not None and ac50 > bound and not burst:
                         extra["flags"] = ["ac50_above_cytotox_lower_bound"]
-            elif outcome == "inconclusive":
+            elif code == "3":
                 extra["flags"] = ["negative_hitc_unintended_direction"]
             source = _val(ep["assay_source_name"]) if ep is not None else None
-            sample = _val(r["PUBCHEM_EXT_DATASOURCE_REGID"])
+            sample = _val(r["sample"])
             yield rel("compound_assay", "comptox", f"comptox:{dtx}", chem_name.get(dtx),
                       f"comptox:aeid.{aeid}", endpoint_name(aeid or ""), "known",
                       score=_val(r["HITC"]), outcome=outcome,
@@ -509,7 +566,19 @@ _ASSESSED = frozenset({"High", "Moderate", "Low"})
 
 
 def _aop_licence(value: str | None) -> str:
-    return _ARR if (value or "").strip().lower() == "all rights reserved" else _BY_SA
+    """The licence of an AOP's rows from its ``wiki-license`` value.
+
+    'BY-SA' (and an empty value: CC BY-SA is the wiki's documented default) is CC BY-SA;
+    'All rights reserved' is kept. Any other value, such as 'Open for adoption' (an
+    authorship status, not a licence grant), states no licence: the rows say so and
+    classify as unknown, so they are left out of commercial queries.
+    """
+    text = (value or "").strip()
+    if text.lower() in ("", "by-sa", "cc by-sa", "cc-by-sa"):
+        return _BY_SA
+    if text.lower() == "all rights reserved":
+        return _ARR
+    return f"Not stated (AOP-Wiki wiki-license value '{text}' is not a licence grant)"
 
 
 def _aopwiki(conn) -> Iterator[Row | dict | None]:
@@ -576,13 +645,17 @@ def _aopwiki(conn) -> Iterator[Row | dict | None]:
         for r in rows(conn, "SELECT * FROM stressor"):
             stressor.setdefault(r["id"], []).append(r)
 
-    def stressor_subjects(uid: str) -> Iterator[tuple[str | None, str | None, str, str | None]]:
-        """(id, names, type, note) for each chemical of a stressor, or the stressor."""
+    def stressor_subjects(uid: str) -> Iterator[tuple[str | None, str | None, str | None,
+                                                      str | None]]:
+        """(id, names, type, note) for each chemical of a stressor, or the stressor.
+
+        The type is 'compound' for a chemical, else 'stressor' (None: the kind's own).
+        """
         sid = ident("stressor", uid)
         for s in stressor.get(uid, []):
             c = chemical.get(s["chemical_id"]) if s["chemical_id"] else None
             if c is None:
-                yield sid, names(s["name"]), "stressor", None
+                yield sid, names(s["name"]), None, None
                 continue
             key = _inchikey(c)
             cid = (f"comptox:{c['dsstox_id']}" if _val(c["dsstox_id"])
@@ -601,6 +674,8 @@ def _aopwiki(conn) -> Iterator[Row | dict | None]:
                 (oid, oname), licence, ref, note = event_id(r["event_id"]), _BY_SA, None, None
             evidence = _val(r["evidence"])
             for sid, sname, stype, snote in stressor_subjects(r["stressor_id"]):
+                if stype is None and kind == "stressor_event":
+                    stype = "stressor"            # registered as compound -> event
                 yield rel(kind, "aopwiki", sid, sname, oid, oname,
                           "known" if evidence in _ASSESSED else "reported",
                           subject_type=stype, reference=ref, license=licence,
@@ -632,6 +707,14 @@ def _citations(text: str | None) -> str | None:
     return names(*out)
 
 
+#: Association types that are not a confirmed causal role, whatever the assessment
+#: status: a candidate gene was tested without causality being confirmed, and a biomarker
+#: is a non-causal association. Other types (disease-causing, susceptibility factor,
+#: modifier, fusion gene, role in the phenotype) take their evidence from the status.
+_ORPHA_EVIDENCE = {"candidate gene tested in": "reported",
+                   "biomarker tested in": "associated"}
+
+
 def _orphadata(conn) -> Iterator[Row | dict | None]:
     if has(conn, "gene_association"):
         for r in rows(conn, "SELECT * FROM gene_association"):
@@ -642,12 +725,13 @@ def _orphadata(conn) -> Iterator[Row | dict | None]:
                                  reference=f"orpha:{r['OrphaCode']}")
                 continue
             status = _val(r["DisorderGeneAssociationStatus"])
+            kind = _val(r["DisorderGeneAssociationType"])
             yield rel("target_disease", "orphadata", f"symbol:{symbol}",
                       names(symbol, r["GeneName"]), f"orpha:{r['OrphaCode']}", r["Name"],
-                      "known" if status == "Assessed" else "reported",
+                      _ORPHA_EVIDENCE.get((kind or "").strip().lower())
+                      or ("known" if status == "Assessed" else "reported"),
                       reference=_citations(r["SourceOfValidation"]),
-                      context=ctx(mechanism=_val(r["DisorderGeneAssociationType"]),
-                                  qc=status))
+                      context=ctx(mechanism=kind, qc=status))
     if has(conn, "phenotype"):
         for r in rows(conn, "SELECT * FROM phenotype"):
             hpo = _val(r["HPOId"]) or ""
@@ -685,8 +769,8 @@ DATASETS: tuple[DatasetSpec, ...] = (
                   expected_bytes=192901527, sheet="Results",
                   note="EPA's PubChem-deposition tables, one workbook per assay endpoint "
                        "(1,536 endpoints): sample id, PubChem outcome (1 inactive, 2 active, "
-                       "3 inconclusive), CompTox URL with the DTXSID, AC50 (uM), continuous "
-                       "hit call, BMD (uM)."),
+                       "3 negative hit call), the DTXSID from the CompTox URL, AC50 (uM), "
+                       "continuous hit call, BMD (uM)."),
          FileSpec(_CLOWDER + "68af6bd3e4b02565fc7c3aa8/blob",
                   "assay_annotations_invitrodb_v4_3_AUG2025.xlsx", "assay_endpoint",
                   fmt="toxcast_xlsx", sheet="annotations_combined", expected_bytes=1088201,
@@ -705,6 +789,12 @@ DATASETS: tuple[DatasetSpec, ...] = (
                   "analytical_qc_invitrodb_v4_3_AUG2025.xlsx", "analytical_qc",
                   fmt="toxcast_xlsx", expected_bytes=2915329,
                   note="Analytical QC per substance and sample (pass/caution, stability)."),
+         FileSpec(_CLOWDER + "69529775e4b0731a616efc4b/blob",
+                  "DSSTox_CCD_dump_12092025_CSVs.zip", "dsstox", fmt="dsstox_csv_zip",
+                  expected_bytes=289824966,
+                  note="EPA's DSSTox dump of December 2025 (CompTox Chemicals Dashboard, "
+                       "CC0, linked from figshare 10.23645/epacomptox.5588566): DTXSID, "
+                       "preferred name and InChIKey are kept, for the compound crosswalk."),
          FileSpec(_CLOWDER + "697b7530e4b0731a6170449e/blob", "DB_release_README_SUMMARY.pdf",
                   "", fmt="raw", expected_bytes=171736,
                   note="Column definitions of every summary file."),
@@ -718,10 +808,11 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "endpoint: the subject is the chemical's DSSTox id (comptox:DTXSID...), the "
               "object the endpoint (comptox:aeid.<aeid>), the score the continuous hit "
               "call. Outcome is the deposition's own PubChem code: 2 active (hitc >= 0.9) "
-              "-> positive, 1 inactive (0 <= hitc < 0.9) -> negative, 3 -> inconclusive "
-              "(on these files code 3 marks a negative hit call, a response in the "
-              "direction the endpoint does not test, mostly near zero; the README counts "
-              "hitc < 0.9 as inactive). Evidence is 'known' (measured). Active rows carry "
+              "-> positive, 1 inactive (0 <= hitc < 0.9) -> negative, and 3 -> negative "
+              "with the context flag negative_hitc_unintended_direction (on these files "
+              "code 3 marks a negative hit call, between -1 and about 0: a fit in the "
+              "direction the endpoint does not test; the README counts every hitc < 0.9 "
+              "as inactive). Evidence is 'known' (measured). Active rows carry "
               "the AC50 (uM) and the flag ac50_above_cytotox_lower_bound when the AC50 lies "
               "above the chemical's cytotoxicity-burst lower bound (not set on the burst "
               "endpoints themselves). The context gives the sample id, the sample's "
@@ -736,14 +827,24 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "dashboard. Licence: the figshare record 10.23645/epacomptox.6062623.v14 is "
               "CC0, the Clowder datasets declare a Public Domain Dedication, and EPA calls "
               "the data 'free of all copyright restrictions ... for both non-commercial and "
-              "commercial use'. The CTX Bioactivity API needs a personal key (not wrapped); "
+              "commercial use'. Compound crosswalk: the DSSTox dump (December 2025, "
+              "CC0) maps the tested DTXSIDs to InChIKeys (8,931 of 9,614; substances "
+              "without a "
+              "defined structure, such as mixtures and polymers, have none and stay "
+              "comptox ids); its preferred names fill the chemical names. Store size: "
+              "about 1.9 GB (3.3M hit-call rows kept for rebuilds, as DTXSID rather than "
+              "URL, beside 3.3M relation rows and a 3-column DSSTox table). The CTX "
+              "Bioactivity API needs a personal key (not wrapped); "
               "Clowder has no robots.txt and answers anonymous downloads.",
         relations=("compound_assay", "assay_target", "assay_event"),
         commercial_use="allowed", upstream=("Tox21",),
         crosswalk={"gene": "SELECT DISTINCT 'ncbigene:' || target_id, 'symbol:' || "
                            "official_symbol FROM assay_target WHERE target_type = "
                            "'entrez_gene_id' AND ncbi_taxon_id = '9606' AND "
-                           "official_symbol NOT IN ('#N/A', '')"}),
+                           "official_symbol NOT IN ('#N/A', '')",
+                   "compound": "SELECT DISTINCT 'comptox:' || dtxsid, 'inchikey:' || "
+                               "inchikey FROM dsstox WHERE length(inchikey) = 27 AND "
+                               "dtxsid IN (SELECT dtxsid FROM hitcall)"}),
     DatasetSpec(
         "aopwiki", "AOP-Wiki (OECD AOP Knowledge Base)", (101,), "https://aopwiki.org/",
         "CC BY-SA 2.0 (AOP-Wiki default for all content); AOP pages an author marked "
@@ -773,12 +874,16 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "MolecularInitiatingEvent, KeyEvent or AdverseOutcome; 'listed'). "
               "stressor_aop links each stressor an AOP names to the AOP, with the same "
               "evidence rule; a chemical stressor is its DSSTox id (comptox:DTXSID...), "
-              "otherwise the stressor (aopwiki:stressor.<n>). stressor_event is filled "
+              "otherwise the stressor (aopwiki:stressor.<n>); the kind is stressor -> aop "
+              "and chemical rows say subject_type 'compound'. stressor_event is filled "
               "only from key-event stressors, which this release does not export. The XML "
               "leaves out key events and KERs that belong to no AOP. Rows from AOPs marked "
               "'All rights reserved' carry that licence and are left out of commercial "
-              "queries (30 of 599 AOPs on 2026-10-01); the rest are CC BY-SA, version 2.0 "
-              "per the handbook's link (share-alike: derived tables keep the licence). OECD "
+              "queries (30 of 599 AOPs on 2026-10-01). AOPs marked 'BY-SA' or with no "
+              "value are CC BY-SA, version 2.0 per the handbook's link (share-alike: "
+              "derived tables keep the licence). Any other value, such as 'Open for "
+              "adoption' (an authorship status, 41 AOPs), grants no licence: those rows "
+              "say the licence is not stated and are left out of commercial queries. OECD "
               "status, when set, is in the note; AOPs 'under development' should not be "
               "cited (FAQ). robots.txt restricts nothing.",
         relations=("key_event_relationship", "aop_event", "stressor_aop", "stressor_event"),
@@ -813,9 +918,11 @@ DATASETS: tuple[DatasetSpec, ...] = (
         notes="Orphanet's expert curation of the literature. target_disease: gene "
               "(symbol:<HGNC symbol>) -> disease (orpha:<ORPHAcode>), evidence 'known' when "
               "Orphanet assessed the association and 'reported' when it is 'Not yet "
-              "assessed'; the association type (disease-causing germline mutation, loss "
-              "or gain of function, susceptibility factor, candidate gene, biomarker, ...) "
-              "is the context mechanism, the status is qc and the validating PMIDs are the "
+              "assessed', except that a 'Candidate gene tested in' association is always "
+              "'reported' (causality unconfirmed) and a 'Biomarker tested in' one is "
+              "always 'associated' (non-causal); the association type (disease-causing "
+              "germline mutation, loss or gain of function, susceptibility factor, "
+              "candidate gene, biomarker, ...) is the context mechanism, the status is qc and the validating PMIDs are the "
               "reference. No effect is set: a loss-of-function association is not a "
               "direction of the gene on the disease. disease_phenotype: disease -> HPO term "
               "(hp:<digits>), 'known', with the frequency class as context (measure "
