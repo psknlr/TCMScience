@@ -66,18 +66,30 @@ def test_pharmvar_allele_definitions_come_from_grch38_and_skip_the_reference(tmp
     table = h.query("pharmvar", "haplotypes", where={"Reference_Set": "GRCh37"})
     assert len(table) == 1 and table[0]["PharmVar_Version"] == "pharmvar-6.2.29"
     rows = {(r["subject_id"], r["object_id"]): r for r in _rows(h, "pharmvar")}
-    assert set(rows) == {("allele:NUDT15*3", "dbsnp:rs116855232"),
-                         ("allele:NUDT15*3.001", "dbsnp:rs116855232"),
-                         ("allele:NUDT15*2", "dbsnp:rs746071566"),
-                         ("pharmvar:rs112766203.1", "dbsnp:rs112766203")}
-    star3 = rows[("allele:NUDT15*3", "dbsnp:rs116855232")]
+    # substitutions in the shared GRCh38 form of the genetics datasets; an insertion has
+    # no anchor base in the table, so it keeps PharmVar's notation
+    ins_id = "pharmvar:NC_000013.11:48037747-48037748:->GGAGTC"
+    assert set(rows) == {("allele:NUDT15*3", "grch38:13-48045719-C-T"),
+                         ("allele:NUDT15*3.001", "grch38:13-48045719-C-T"),
+                         ("allele:NUDT15*2", ins_id),
+                         ("pharmvar:rs112766203.1", "grch38:1-97305279-G-A")}
+    star3 = rows[("allele:NUDT15*3", "grch38:13-48045719-C-T")]
     assert star3["kind"] == "allele_variant" and star3["evidence"] == "listed"
     assert star3["subject_type"] == "allele" and star3["object_type"] == "variant"
-    assert json.loads(star3["context"]) == {"genome_build": "GRCh38",
-                                            "variant": "NC_000013.11:48045719:C>T"}
-    ins = rows[("allele:NUDT15*2", "dbsnp:rs746071566")]
-    assert json.loads(ins["context"])["variant"] == "NC_000013.11:48037747-48037748:->GGAGTC"
+    assert star3["object_name"] == "rs116855232"
+    assert json.loads(star3["context"]) == {
+        "genome_build": "GRCh38", "variant": "rs116855232 | NC_000013.11:48045719:C>T"}
+    ins = rows[("allele:NUDT15*2", ins_id)]
+    assert json.loads(ins["context"])["variant"] == (
+        "rs746071566 | NC_000013.11:48037747-48037748:->GGAGTC")
     assert ins["note"] == "insertion"
+    # the variant crosswalk maps each rsID PharmVar defines to the GRCh38 id it writes
+    import sqlite3
+    from bioagent.tcmdb.datasets import dataset
+    with sqlite3.connect(h.db_path("pharmvar")) as conn:
+        pairs = set(conn.execute(dataset("pharmvar").crosswalk["variant"]).fetchall())
+    assert pairs == {("dbsnp:rs116855232", "grch38:13-48045719-C-T"),
+                     ("dbsnp:rs112766203", "grch38:1-97305279-G-A")}
     assert "research use only" in star3["license"]
     assert h.relations("allele_variant", sources=["pharmvar"], commercial=True) == []
 
@@ -303,6 +315,74 @@ def test_clinpgx_rows_are_left_out_of_commercial_queries(clinpgx):
     assert _rows(h, "clinpgx")
     assert h.relations(sources=["clinpgx"], commercial=True) == []
     assert all("research use only" in r["license"] for r in _rows(h, "clinpgx"))
+
+
+def test_clinpgx_rxnorm_drugs_meet_their_pubchem_cid_in_the_crosswalk(clinpgx):
+    from bioagent.tcmdb.consensus import Crosswalk
+    h, _ = clinpgx
+    cw = Crosswalk(h)
+    # rxnorm ids the extractor writes, single PubChem CID -> pubchem (or its InChIKey)
+    assert cw.canon("drug", "rxnorm:32968") == "pubchem:60606"
+    assert cw.canon("drug", "rxnorm:2670") == "pubchem:5284371"
+    # two RxNorm ids (the extractor writes pubchem:) or no CID: nothing declared
+    assert "rxnorm:111, 222" not in cw.compound and "rxnorm:9999" not in cw.compound
+
+
+def test_a_declared_pubchem_mapping_resolves_to_a_known_inchikey(tmp_path, monkeypatch):
+    from bioagent.tcmdb.consensus import Crosswalk
+    cw = Crosswalk(_hub(tmp_path))
+    ik = "inchikey:GKTWGGQPFAXNFI-HNNXBMFYSA-N"
+    monkeypatch.setattr(cw, "_declared", lambda entity: [
+        ("rxnorm:32968", "pubchem:60606"), ("chembl:CHEMBL1771", ik),
+        ("pubchem:60606", ik)])
+    assert cw.canon("drug", "rxnorm:32968") == ik
+
+
+def test_clinpgx_is_fetched_at_its_crawl_delay(tmp_path, monkeypatch):
+    """robots.txt of api.clinpgx.org sets Crawl-delay: 30; every request is spaced."""
+    from bioagent.acquisition import downloader as dlmod
+    from bioagent.tcmdb.datasets import dataset
+    spec = dataset("clinpgx")
+    assert spec.crawl_delay_s == 30.0
+    assert "Crawl-delay: 30" in spec.notes and "ai-train=no" in spec.notes
+    clock = {"t": 1000.0}
+    sent: list[tuple[float, str]] = []
+    monkeypatch.setattr(dlmod.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr(dlmod.time, "sleep", lambda s: clock.__setitem__("t", clock["t"] + s))
+
+    class _Answer:
+        status, headers = 200, {"Content-Length": "4"}
+
+        def __init__(self, req):
+            sent.append((clock["t"], req.get_method()))
+            self._body = [b"PK\x03\x04"]
+
+        def read(self, n=-1):
+            return self._body.pop() if self._body else b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(dlmod.urllib.request, "urlopen", lambda req, timeout=None: _Answer(req))
+    results = _hub(tmp_path).fetch("clinpgx", log=lambda m: None)
+    assert all(r["ok"] for r in results) and len(results) == len(spec.files)
+    times = [t for t, _ in sent]
+    assert len(sent) == 2 * len(spec.files)              # a size probe and a download each
+    assert all(b - a >= 30.0 for a, b in zip(times, times[1:]))
+
+
+def test_a_supplement_module_can_be_the_first_import_of_a_process():
+    import subprocess
+    import sys
+    out = subprocess.run([sys.executable, "-c",
+                          "import bioagent.providers.supplement.pgx_proteins as m; "
+                          "print(len(m.SOURCES))"],
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    assert int(out.stdout.strip()) == 4
 
 
 def test_a_drug_with_two_rxnorm_ids_falls_back_to_pubchem():

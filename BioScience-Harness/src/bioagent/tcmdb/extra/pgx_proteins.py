@@ -24,7 +24,14 @@ services.
 
 Ids. Drugs are ``rxnorm:`` when the source gives exactly one RxNorm id (CPIC always, and
 ClinPGx when its chemical record has one), else ``pubchem:``, else the source's own id.
-Genes are ``symbol:`` (HGNC); GPCRs ``uniprot:``; variants ``dbsnp:rs…``. A named allele
+Genes are ``symbol:`` (HGNC); GPCRs ``uniprot:``. A PharmVar single-nucleotide variant is
+``grch38:<chrom>-<pos>-<ref>-<alt>``, the form the genetics datasets use (eQTL Catalogue),
+with its rsID in the context; a PharmVar insertion or deletion keeps PharmVar's own
+notation (``pharmvar:<NC_ accession>:<pos>:<ref>><alt>``), because its tables give no
+anchor base for the VCF form. ClinPGx names variants only by rsID, so they are
+``dbsnp:rs…``; PharmVar's ``crosswalk["variant"]`` maps each rsID it defines to the
+GRCh38 id. ClinPGx's ``crosswalk["compound"]`` maps its RxNorm drugs (and so CPIC's) to
+their PubChem CID. A named allele
 (``CYP2D6*4``, ``HLA-B*57:01``) is ``allele:<name>``: the star-allele and HLA names are
 the nomenclature PharmVar, IPD-IMGT/HLA and the gene consortia assign, and CPIC and
 ClinPGx use the same names, so one allele meets itself across sources. Haplotypes ClinPGx
@@ -178,6 +185,30 @@ _PV_LICENSE = ("CC BY-SA 4.0 under the PharmVar Terms and Conditions (last modif
                "commercial item")
 
 
+#: RefSeq accession of a GRCh38 chromosome -> chromosome name (NC_000001 .. NC_000024)
+_NC_CHROM = re.compile(r"NC_0000(\d\d)\.\d+")
+_BASES = re.compile(r"[ACGT]+")
+
+
+def _chrom(accession: str | None) -> str | None:
+    m = _NC_CHROM.fullmatch(accession or "")
+    if not m:
+        return None
+    n = int(m.group(1))
+    return {23: "X", 24: "Y"}.get(n, str(n) if 1 <= n <= 22 else None)
+
+
+def _grch38(acc: str | None, start: str | None, stop: str | None, ref: str | None,
+            alt: str | None) -> str | None:
+    """The shared GRCh38 id of a PharmVar substitution, else None (indels lack an anchor)."""
+    chrom = _chrom(acc)
+    if (chrom and start and start.isdigit() and (not stop or stop == start)
+            and ref and alt and len(ref) == len(alt) == 1
+            and _BASES.fullmatch(ref) and _BASES.fullmatch(alt)):
+        return f"grch38:{chrom}-{start}-{ref}-{alt}"
+    return None
+
+
 def _pharmvar(conn) -> Iterator[Row | None]:
     if not has(conn, "haplotypes"):
         return
@@ -192,10 +223,11 @@ def _pharmvar(conn) -> Iterator[Row | None]:
         ref, alt = v(r["Reference_Allele"]), v(r["Variant_Allele"])
         pos = start if start == stop or not stop else f"{start}-{stop}"
         change = f"{acc}:{pos}:{ref or '-'}>{alt or '-'}"
-        variant = f"dbsnp:{rsid}" if rsid and _RSID.fullmatch(rsid) else f"pharmvar:{change}"
+        rsid = rsid if rsid and _RSID.fullmatch(rsid) else None
+        variant = _grch38(acc, start, stop, ref, alt) or f"pharmvar:{change}"
         yield rel("allele_variant", "pharmvar", allele, name, variant, rsid or change,
                   "listed", note=v(r["Type"]),
-                  context=ctx(variant=change, genome_build="GRCh38"))
+                  context=ctx(variant=names(rsid, change), genome_build="GRCh38"))
 
 
 # --------------------------------------------------------------------------------- CPIC
@@ -383,6 +415,27 @@ def _gpcrdb(conn) -> Iterator[Row | None]:
 # ------------------------------------------------------------------------------ specs
 _CLINPGX = "https://api.clinpgx.org/v1/download/file/data/"
 
+#: PharmVar's GRCh38 single-nucleotide definitions: rsID -> the shared GRCh38 id the
+#: extractor writes (NC_0000NN.v -> chromosome NN, 23 -> X, 24 -> Y).
+_PV_VARIANT_XWALK = (
+    "SELECT DISTINCT 'dbsnp:' || rsID, 'grch38:' || "
+    "CASE CAST(substr(ReferenceSequence, 4, 6) AS INTEGER) WHEN 23 THEN 'X' WHEN 24 THEN 'Y' "
+    "ELSE CAST(substr(ReferenceSequence, 4, 6) AS INTEGER) END || '-' || Variant_Start || "
+    "'-' || Reference_Allele || '-' || Variant_Allele FROM haplotypes "
+    "WHERE Reference_Set = 'GRCh38' AND rsID GLOB 'rs[0-9]*' AND rsID NOT GLOB 'rs*[^0-9]*' "
+    "AND ReferenceSequence GLOB 'NC_0000[0-2][0-9].*' "
+    "AND (Variant_Stop IS NULL OR Variant_Stop = Variant_Start) "
+    "AND Reference_Allele GLOB '[ACGT]' AND Variant_Allele GLOB '[ACGT]'")
+
+#: ClinPGx drugs the extractor names ``rxnorm:`` (exactly one RxNorm id) -> their one
+#: PubChem CID, so CPIC's and ClinPGx's RxNorm drugs meet structure-keyed sources.
+_CLINPGX_COMPOUND_XWALK = (
+    "SELECT 'rxnorm:' || RxNorm_Identifiers, 'pubchem:' || PubChem_Compound_Identifiers "
+    "FROM chemical WHERE RxNorm_Identifiers GLOB '[0-9]*' "
+    "AND RxNorm_Identifiers NOT GLOB '*[^0-9]*' "
+    "AND PubChem_Compound_Identifiers GLOB '[0-9]*' "
+    "AND PubChem_Compound_Identifiers NOT GLOB '*[^0-9]*'")
+
 DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec(
         "pharmvar", "PharmVar (Pharmacogene Variation Consortium)", (110,),
@@ -390,9 +443,13 @@ DATASETS: tuple[DatasetSpec, ...] = (
         (FileSpec("https://www.pharmvar.org/get-download-file?name=ALL&refSeq=ALL&"
                   "fileType=zip&version=current", "pharmvar_all.zip", "haplotypes",
                   fmt="pharmvar_haplotypes",
-                  note="all genes, all reference sequences; 193 MB for 6.2.29 (sent "
-                       "chunked, no size announced), of which the haplotype tables are "
-                       "2.9 MB; per-allele VCFs and FASTA sequences are not loaded"),),
+                  note="all genes, all reference sequences; 193,085,083 bytes for "
+                       "6.2.29 (sent chunked, no size announced, so a re-fetch cannot "
+                       "check the size; the downloader's 512 MB gate still applies), of "
+                       "which the haplotype tables are 2.9 MB; per-allele VCFs and FASTA "
+                       "sequences are not loaded. The sha256 of the fetched file is in "
+                       "raw/pharmvar/.downloads.json. Not pinned by size: the URL serves "
+                       "the current release, which changes size with every release"),),
         version="6.2.29 (VCF fileDate 2026-09-22; 15 genes)",
         notes="Star-allele definitions of the PharmVar genes (CYP1A2, CYP2A6, CYP2A13, "
               "CYP2B6, CYP2C8, CYP2C9, CYP2C19, CYP2D6, CYP3A4, CYP3A5, CYP4F2, DPYD, NAT2, "
@@ -401,7 +458,8 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "definitions, evidence 'listed' (nomenclature, not an association). "
               "Function assignments are not in the files (PharmVar's API, which serves "
               "them, needs an account key; CPIC's API serves CPIC's).",
-        relations=("allele_variant",), commercial_use="forbidden"),
+        relations=("allele_variant",), commercial_use="forbidden",
+        crosswalk={"variant": _PV_VARIANT_XWALK}),
     DatasetSpec(
         "cpic", "CPIC gene-drug pairs", (111,), "https://cpicpgx.org/", _CPIC_LICENSE,
         (FileSpec("https://files.cpicpgx.org/data/report/current/pair/"
@@ -437,10 +495,17 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "result. Each becomes a gene-drug row and, when it names one variant or "
               "allele, a variant-drug row. drugLabels.tsv: regulators' label annotations, "
               "'listed', with the testing level and the agency (note 'via FDA', ...). "
-              "The download URLs answer 303 to s3.pgkb.org. Content signals on "
-              "clinpgx.org reserve AI training (ai-train=no): the data must not be used "
-              "to train models.",
+              "The download URLs answer 303 to s3.pgkb.org. robots.txt of api.clinpgx.org "
+              "and www.clinpgx.org (checked 2026-10-01): 'User-agent: * Allow: /' with "
+              "'Crawl-delay: 30', and the content signals search=yes, ai-train=no, "
+              "use=reference; ClinPGx's API documentation limits clients to 2 requests "
+              "per second. The four files are documented downloads, so they are fetched, "
+              "and the hub spaces every request to the host (size probe and download) 30 "
+              "s apart (crawl_delay_s), so a fetch takes about four minutes. The "
+              "ai-train=no signal reserves model training: the data must not be used to "
+              "train models.",
         relations=("drug_pharmacogene", "variant_drug"), commercial_use="forbidden",
+        crawl_delay_s=30.0, crosswalk={"compound": _CLINPGX_COMPOUND_XWALK},
         upstream=("CPIC", "DPWG", "FDA", "EMA", "PMDA", "HCSC", "Swissmedic")),
     DatasetSpec(
         "gpcrdb", "GPCRdb drug-target table", (112,), "https://gpcrdb.org/",
