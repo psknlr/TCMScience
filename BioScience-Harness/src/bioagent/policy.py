@@ -337,6 +337,11 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01 -- safety:
+            # AOP-Wiki and Orphadata live look-ups; ToxCast (EPA Clowder), AOP-Wiki,
+            # Orphadata and NHANES downloads
+            "aopwiki.org", "api.orphadata.com", "www.orphadata.com",
+            "clowder.edap-cluster.com", "wwwn.cdc.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
