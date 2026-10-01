@@ -262,6 +262,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     "www.proteomicsdb.org": 1.0,
     # supplementary sources (review of 2026-09-30), mechanism: academic servers
     "signor.uniroma2.it": 1.0, "jaspar.elixir.no": 1.0,
+    # supplementary sources (review of 2026-09-30): cells and perturbations
+    "api.cellosaurus.org": 1.0,
 }
 
 

@@ -398,6 +398,12 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # (IntAct/Complex Portal on www.ebi.ac.uk and ftp.ebi.ac.uk, both covered by
             # "ebi.ac.uk" above; SIGNOR; JASPAR; BioGRID and ORCS downloads)
             "signor.uniroma2.it", "jaspar.elixir.no", "downloads.thebiogrid.org",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: cells and
+            # perturbations. Cellosaurus API (live) and its documented release file on
+            # ftp.expasy.org; DepMap's CC BY figshare deposits (figshare.com above), LINCS
+            # on the GEO FTP (ncbi.nlm.nih.gov above), scPerturb on Zenodo (above) and the
+            # ARCHS4 version list and HDF5 files (s3.dev -> s3.k8s.maayanlab.cloud)
+            "cellosaurus.org", "ftp.expasy.org", "archs4.org", "maayanlab.cloud",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
