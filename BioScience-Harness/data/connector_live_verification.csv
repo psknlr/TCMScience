@@ -21,8 +21,6 @@ pubchem,PubChem PUG-REST,cid_by_name,False,SUCCEEDED,200,1,288,sha256:316685e68e
 pubchem,PubChem PUG-REST,synonyms,False,SUCCEEDED,200,1,235,sha256:89b6a8baca4a,,pubchem.ncbi.nlm.nih.gov,Public-domain (US Gov),2026-09-17T07:31:22Z
 clinicaltrials,ClinicalTrials.gov v2,search,True,SUCCEEDED,200,1,196,sha256:f8e9992c88b4,,clinicaltrials.gov,Public-domain (US Gov),2026-09-17T07:31:22Z
 clinicaltrials,ClinicalTrials.gov v2,study,False,SUCCEEDED,200,1,336,sha256:cbe09b41dbea,,clinicaltrials.gov,Public-domain (US Gov),2026-09-17T07:31:22Z
-openfda,openFDA,drug_label,True,SUCCEEDED,200,1,553,sha256:f4aee9685610,,api.fda.gov,Public-domain (US Gov),2026-09-17T07:31:23Z
-openfda,openFDA,drug_event,False,SUCCEEDED,200,1,960,sha256:10e700d8fd78,,api.fda.gov,Public-domain (US Gov),2026-09-17T07:31:24Z
 string,STRING,map_ids,True,SUCCEEDED,200,1,397,sha256:ecdd62ad4856,,string-db.org,CC-BY-4.0,2026-09-17T07:31:24Z
 string,STRING,network,False,SUCCEEDED,200,1,992,sha256:a10d4c30605d,,string-db.org,CC-BY-4.0,2026-09-17T07:31:25Z
 kegg,KEGG REST,get,True,SUCCEEDED,200,1,1372,sha256:4d5d65f09838,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:27Z
@@ -152,3 +150,31 @@ wikidata_sparql,Wikidata SPARQL,sparql,False,SUCCEEDED,200,1,89871,sha256:ac6073
 gbif,GBIF API,match,True,SUCCEEDED,200,1,461,sha256:05a61db930ff,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:02Z
 gbif,GBIF API,species,False,SUCCEEDED,200,1,457,sha256:4fe3cb269d0b,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:03Z
 gbif,GBIF API,occurrences,False,SUCCEEDED,200,2,13607,sha256:8d6584736148,,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),2026-09-17T15:04:16Z
+openfda,openFDA,drug_label,True,SUCCEEDED,200,1,778,sha256:04b2dc5947c0,,api.fda.gov,Public-domain (US Gov),2026-10-01T17:40:00Z
+openfda,openFDA,drug_event,False,SUCCEEDED,200,1,850,sha256:3b0adff993aa,,api.fda.gov,Public-domain (US Gov),2026-10-01T17:40:01Z
+openfda,openFDA,herbal_event_reactions,False,SUCCEEDED,200,1,521,sha256:ee7018d1854d,,api.fda.gov,Public-domain (US Gov),2026-10-01T17:40:01Z
+openfda,openFDA,herbal_event_coreported_drugs,False,SUCCEEDED,200,1,1221,sha256:45f0226219c2,,api.fda.gov,Public-domain (US Gov),2026-10-01T17:40:02Z
+dcabm_tcm,DCABM-TCM RESTful search,prescription_blood,False,SUCCEEDED,200,1,1554,sha256:6e16760c5816,,bionet.ncpsb.org.cn,Not stated (sister of BATMAN-TCM: free for academic use),2026-10-01T17:40:04Z
+dcabm_tcm,DCABM-TCM RESTful search,herb_blood,True,SUCCEEDED,200,1,1006,sha256:83bbe2797c49,,bionet.ncpsb.org.cn,Not stated (sister of BATMAN-TCM: free for academic use),2026-10-01T17:40:05Z
+dcabm_tcm,DCABM-TCM RESTful search,ingredient,False,SUCCEEDED,200,1,752,sha256:07d1a495a74f,,bionet.ncpsb.org.cn,Not stated (sister of BATMAN-TCM: free for academic use),2026-10-01T17:40:06Z
+tcmbank,TCMBank (site JSON endpoints),herb_search,False,SUCCEEDED,200,1,1707,sha256:f9ed72f72484,,tcmbank.cn,Not stated (help page: for academic queries),2026-10-01T17:40:07Z
+tcmbank,TCMBank (site JSON endpoints),ingredient_search,False,SUCCEEDED,200,1,1581,sha256:141edb192312,,tcmbank.cn,Not stated (help page: for academic queries),2026-10-01T17:40:09Z
+tcmbank,TCMBank (site JSON endpoints),detail,False,SUCCEEDED,200,1,1523,sha256:dfd7bff0fd7e,,tcmbank.cn,Not stated (help page: for academic queries),2026-10-01T17:40:10Z
+tcmbank,TCMBank (site JSON endpoints),herb_ingredients,True,SUCCEEDED,200,1,1769,sha256:b258e7ccf341,,tcmbank.cn,Not stated (help page: for academic queries),2026-10-01T17:40:12Z
+itcm,ITCM (site JSON endpoints),herb,True,SUCCEEDED,200,1,992,sha256:72953293445d,,itcm.biotcm.net,Not stated,2026-10-01T17:40:13Z
+itcm,ITCM (site JSON endpoints),herb_ingredients,False,SUCCEEDED,200,1,2615,sha256:0e8c0f6432eb,,itcm.biotcm.net,Not stated,2026-10-01T17:40:16Z
+itcm,ITCM (site JSON endpoints),herb_formulas,False,SUCCEEDED,200,1,4096,sha256:67af2c044558,,itcm.biotcm.net,Not stated,2026-10-01T17:40:20Z
+itcm,ITCM (site JSON endpoints),herb_diseases,False,SUCCEEDED,200,1,1993,sha256:3cdcf757881d,,itcm.biotcm.net,Not stated,2026-10-01T17:40:22Z
+itcm,ITCM (site JSON endpoints),ingredient_targets,False,SUCCEEDED,200,1,1997,sha256:b31ad3cb2e37,,itcm.biotcm.net,Not stated,2026-10-01T17:40:24Z
+ttd,TTD (site JSON endpoints),target,True,SUCCEEDED,200,1,1806,sha256:c97f8ac7bcd4,,ttd.idrblab.cn,Not stated (citation requested),2026-10-01T17:40:26Z
+ttd,TTD (site JSON endpoints),target_drugs,False,SUCCEEDED,200,1,1452,sha256:3b083709d095,,ttd.idrblab.cn,Not stated (citation requested),2026-10-01T17:40:27Z
+ttd,TTD (site JSON endpoints),target_pathways,False,SUCCEEDED,200,1,1300,sha256:11d11ee77995,,ttd.idrblab.cn,Not stated (citation requested),2026-10-01T17:40:28Z
+iedb,IEDB Query API,epitopes_by_sequence,True,SUCCEEDED,200,1,474,sha256:a04c76a88d94,,query-api.iedb.org,CC-BY-4.0,2026-10-01T17:40:29Z
+iedb,IEDB Query API,antigens,False,SUCCEEDED,200,1,1058,sha256:7a246a651e52,,query-api.iedb.org,CC-BY-4.0,2026-10-01T17:40:30Z
+iedb,IEDB Query API,tcell_assays,False,SUCCEEDED,200,1,5711,sha256:0b777e3fad20,,query-api.iedb.org,CC-BY-4.0,2026-10-01T17:40:36Z
+huggingface,Hugging Face Hub API,dataset,True,SUCCEEDED,200,1,163,sha256:7d033fb50f1c,,huggingface.co,Per dataset (read the card's licence),2026-10-01T17:40:36Z
+huggingface,Hugging Face Hub API,dataset_tree,False,SUCCEEDED,200,1,360,sha256:e909b744187a,,huggingface.co,Per dataset (read the card's licence),2026-10-01T17:40:36Z
+hf_datasets_server,Hugging Face datasets-server,splits,True,SUCCEEDED,200,1,358,sha256:d88e20c91360,,datasets-server.huggingface.co,Per dataset (read the card's licence),2026-10-01T17:40:37Z
+hf_datasets_server,Hugging Face datasets-server,rows,False,SUCCEEDED,200,1,925,sha256:9d0878f78a2f,,datasets-server.huggingface.co,Per dataset (read the card's licence),2026-10-01T17:40:37Z
+figshare,figshare API v2,article,True,SUCCEEDED,200,1,613,sha256:c2e537eac773,,api.figshare.com,Per article (CC BY 4.0 for TCMP-300),2026-10-01T17:40:38Z
+figshare,figshare API v2,article_files,False,SUCCEEDED,200,1,623,sha256:4eecaea7033a,,api.figshare.com,Per article (CC BY 4.0 for TCMP-300),2026-10-01T17:40:39Z

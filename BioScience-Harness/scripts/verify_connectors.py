@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from bioagent.backends.http import HTTPBackend  # noqa: E402
 from bioagent.providers.public_apis import SOURCES, PublicAPIProvider, render_call  # noqa: E402
+from bioagent.providers.public_apis_tcm import PENDING_TCM_SOURCES  # noqa: E402
 
 FIELDS = ("source", "source_name", "operation", "smoke", "status", "http_status", "attempts",
           "latency_ms", "result_hash", "error", "host", "license", "verified_at")
@@ -39,16 +40,21 @@ def main() -> int:
     ap.add_argument("--timeout", type=float, default=30.0)
     args = ap.parse_args()
 
-    manifests = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider().discover()}
+    # Pending connectors are verified only when named: they are not shipped, and a run
+    # of everything should not start recording them.
+    pending = tuple(p for p in PENDING_TCM_SOURCES if args.only and p.key in args.only)
+    sources = SOURCES + pending
+    manifests = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider(sources).discover()}
     backend = HTTPBackend(cache_dir=None, timeout_s=args.timeout, max_retries=2)
     rows: list[dict] = []
     failures = 0
-    for source in SOURCES:
+    for source in sources:
         if args.only and source.key not in args.only:
             continue
         manifest = manifests[source.key]
         for op in source.operations:
-            rendered = render_call(source.key, op.name)
+            rendered = (op.render(**op.example) if source in pending
+                        else render_call(source.key, op.name))
             t0 = time.perf_counter()
             result = backend.invoke(manifest, use_cache=False, **rendered)
             latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -76,6 +82,12 @@ def main() -> int:
           f"{len({r['source'] for r in rows})} sources")
     if not args.no_write:
         out = Path(args.out)
+        if args.only and out.exists():
+            # A subset run replaces those sources' rows and keeps everyone else's: the
+            # file stays a record of every shipped operation, not of the last run.
+            with out.open(newline="", encoding="utf-8") as fh:
+                kept = [r for r in csv.DictReader(fh) if r["source"] not in set(args.only)]
+            rows = kept + rows
         with out.open("w", newline="", encoding="utf-8") as fh:
             writer = csv.DictWriter(fh, fieldnames=FIELDS)
             writer.writeheader()

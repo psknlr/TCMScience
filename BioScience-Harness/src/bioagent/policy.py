@@ -327,6 +327,16 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "query.wikidata.org", "api.gbif.org",
             # v2.5 bulk natural-product and reference datasets (acquisition layer)
             "bidd.group", "npatlas.org", "zenodo.org",
+            # TCM connectors and datasets, each checked from the harness on 2026-10-01
+            # (docs/tcm-data-sources.md): live query endpoints ...
+            "batman2api.cloudna.cn", "bionet.ncpsb.org.cn", "tcmbank.cn",
+            "itcm.biotcm.net", "ttd.idrblab.cn", "query-api.iedb.org", "huggingface.co",
+            "api.figshare.com",
+            # ... and download hosts (bioagent.tcmdb)
+            "47.92.70.12", "symmap.org", "batman2.cloudna.cn", "tm-mc.kr",
+            "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
+            "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
+            "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

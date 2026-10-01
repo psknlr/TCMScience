@@ -13,9 +13,9 @@ module means, and a connector that silently fails without a key would report UNA
 for a reason the operator did not choose. Services that did not answer the verification
 run are not shipped whatever their documentation promises: Pathway Commons timed out,
 PharmGKB was unreachable from the verification network, and Semantic Scholar throttles
-unauthenticated shared addresses. And traditional-Chinese-medicine resources (TCMSP,
-HERB, SymMap, BATMAN-TCM, ETCM) publish downloadable tables rather than stable JSON APIs;
-they belong to the acquisition layer as datasets, not here as connectors.
+unauthenticated shared addresses. Traditional-Chinese-medicine databases are in
+``public_apis_tcm`` (the few with a queryable endpoint) and ``bioagent.tcmdb`` (the
+many that publish files).
 """
 
 from __future__ import annotations

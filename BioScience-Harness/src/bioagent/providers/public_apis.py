@@ -314,9 +314,17 @@ SOURCES: tuple[PublicSource, ...] = (
 #: registry here and every operation of both is verified live by
 #: ``scripts/verify_connectors.py``.
 from .public_apis_ext import EXTENDED_SOURCES  # noqa: E402
+from .public_apis_tcm import OPENFDA_HERBAL_OPERATIONS, TCM_SOURCES  # noqa: E402
 
-CORE_SOURCES: tuple[PublicSource, ...] = SOURCES
-SOURCES = CORE_SOURCES + EXTENDED_SOURCES
+
+def _with_herbal_operations(source: PublicSource) -> PublicSource:
+    from dataclasses import replace
+    return (replace(source, operations=source.operations + OPENFDA_HERBAL_OPERATIONS)
+            if source.key == "openfda" else source)
+
+
+CORE_SOURCES: tuple[PublicSource, ...] = tuple(_with_herbal_operations(s) for s in SOURCES)
+SOURCES = CORE_SOURCES + EXTENDED_SOURCES + TCM_SOURCES
 
 BY_KEY: Mapping[str, PublicSource] = {s.key: s for s in SOURCES}
 if len(BY_KEY) != len(SOURCES):                       # pragma: no cover - programming error
@@ -328,8 +336,11 @@ class PublicAPIProvider(ProviderBase):
 
     name = "public-apis"
 
+    def __init__(self, sources: tuple[PublicSource, ...] | None = None) -> None:
+        self.sources = SOURCES if sources is None else sources
+
     def discover(self) -> Iterator[ComponentManifest]:
-        for s in SOURCES:
+        for s in self.sources:
             yield ComponentManifest(
                 id=f"public.connector.{s.key}", kind="connector", name=s.name,
                 version="2024.1", description=s.description, domain=s.domain,

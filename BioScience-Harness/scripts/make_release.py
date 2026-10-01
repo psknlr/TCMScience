@@ -73,6 +73,7 @@ REQUIRED_PACKAGES = (
     "bioagent.tools",
     "bioagent.updates",
     "bioagent.tcm",
+    "bioagent.tcmdb",
     "bioagent.workspace",
 )
 

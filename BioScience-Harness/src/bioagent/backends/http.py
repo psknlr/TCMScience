@@ -121,6 +121,11 @@ DEFAULT_RATES: Mapping[str, float] = {
     # network Wikidata treats better.
     "query.wikidata.org": 1.0 / 90.0,
     "api.gbif.org": 5.0,
+    # TCM connectors (providers.public_apis_tcm): small academic servers, several of
+    # which ask for one request per second
+    "batman2api.cloudna.cn": 1.0, "bionet.ncpsb.org.cn": 1.0, "tcmbank.cn": 1.0,
+    "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
+    "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
 }
 
 
