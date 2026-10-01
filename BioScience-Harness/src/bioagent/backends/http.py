@@ -235,6 +235,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     "phytohub.eu": 1.0,
     # genetics supplementary sources: MaveDB enforces no limit but asks to be considerate
     "api.mavedb.org": 1.0,
+    # supplementary sources (review of 2026-09-30) -- safety: AOP-Wiki and Orphadata
+    "aopwiki.org": 1.0, "api.orphadata.com": 1.0,
 }
 
 

@@ -19,7 +19,7 @@ from typing import Any
 
 __all__ = ["MODULES", "load_sources", "load_pending"]
 
-MODULES: tuple[str, ...] = ("tcm_np", "tcm_safety", "genetics")
+MODULES: tuple[str, ...] = ("tcm_np", "tcm_safety", "genetics", "safety")
 
 
 def _modules() -> list[ModuleType]:

@@ -353,6 +353,11 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # MaveDB's API; IMPC's Solr and both datasets' files are on ebi.ac.uk and
             # ftp.ebi.ac.uk above; the eQTL Catalogue's metadata tables are on GitHub.
             "api.mavedb.org", "raw.githubusercontent.com",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01 -- safety:
+            # AOP-Wiki and Orphadata live look-ups; ToxCast (EPA Clowder), AOP-Wiki,
+            # Orphadata and NHANES downloads
+            "aopwiki.org", "api.orphadata.com", "www.orphadata.com",
+            "clowder.edap-cluster.com", "wwwn.cdc.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
