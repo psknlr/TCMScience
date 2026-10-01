@@ -147,7 +147,7 @@ def test_hubmap_datasets_are_linked_to_uberon_organs(hubmap):
     # an organ label outside HuBMAP's organ list keeps HuBMAP's own label as its id
     assert ("hubmap:HBM555.EEEE.555", "hubmap:organ.Spinal Disc") in by
     assert report["relations"] == {"dataset_tissue": 7} and report["unresolved"] == 0
-    assert all(r["license"].startswith("CC BY 4.0") for r in rows)
+    assert all(r["license"].startswith("HuBMAP External Data Sharing Policy") for r in rows)
     assert len(h.relations("dataset_tissue", commercial=True, limit=100)) == 7
 
 
@@ -207,8 +207,13 @@ def test_fourdn_passes_the_check_and_says_its_licence_is_not_a_named_one(fourdn,
     _with_cards(monkeypatch, 124)
     result = h.check("fourdn")
     assert result["ok"], result["problems"]
+    # the AWS registry quotes a "without restrictions" statement but names no licence:
+    # the class and the spec's commercial_use both say unknown, so commercial use skips it
     assert result["licences"]["chromatin_loop"]["class"] == "unknown"
     assert any("chromatin_loop" in w for w in result["warnings"])
+    from bioagent.tcmdb.datasets import dataset
+    assert dataset("fourdn").commercial_use == "unknown"
+    assert h.relations("chromatin_loop", commercial=True, limit=10) == []
 
 
 def test_atlas_datasets_are_registered_with_their_catalogue_numbers():
@@ -219,9 +224,10 @@ def test_atlas_datasets_are_registered_with_their_catalogue_numbers():
     assert dataset("hubmap").catalog == (122,) and dataset("fourdn").catalog == (124,)
     assert RELATION_KINDS["dataset_tissue"] == ("dataset", "tissue")
     assert RELATION_KINDS["chromatin_loop"] == ("region", "region")
+    assert dataset("hubmap").commercial_use == "allowed"
+    assert dataset("fourdn").commercial_use == "unknown"
     for key in ("hubmap", "fourdn"):
         spec = dataset(key)
-        assert spec.commercial_use == "allowed"
         for f in spec.files:
             host = urllib.parse.urlsplit(f.url).hostname
             assert any(host == a or host.endswith("." + a) for a in allowed), host

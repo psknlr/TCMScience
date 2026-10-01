@@ -146,10 +146,11 @@ def _hubmap(conn) -> Iterator[Row | None]:
                           context=context, note="anatomical structure of the sampled region")
 
 
-_HUBMAP_LICENCE = ("CC BY 4.0 (HuBMAP External Data Sharing Policy: open data released "
-                   "under a permissive licence such as CC BY 4.0; DOI-registered datasets "
-                   "carry CC BY 4.0); do not use the data to identify or contact "
-                   "participants")
+#: The policy names CC BY 4.0 only as an example of the permissive licence open data is
+#: released under; only DOI-registered datasets state CC BY 4.0 explicitly.
+_HUBMAP_LICENCE = ("HuBMAP External Data Sharing Policy: open data released under a "
+                   "permissive licence, e.g. CC BY 4.0; DOI-registered datasets CC BY 4.0. "
+                   "Do not use the data to identify or contact participants")
 
 HUBMAP = DatasetSpec(
     key="hubmap", name="HuBMAP bulk metadata (datasets, samples, donors) and organ list",
@@ -214,6 +215,9 @@ def _fourdn(conn) -> Iterator[Row | None]:
                       note="union loop set of the 4DN joint analysis")
 
 
+#: The AWS Open Data registry entry (datasets/4dnucleome.yaml) gives this statement as its
+#: License field and names no standard licence, so the statement is quoted as is and
+#: classes as "unknown"; commercial_use stays "unknown" to match until 4DN names one.
 _FOURDN_LICENCE = ("4DN data on AWS Open Data: 'External data users may freely download, "
                    "analyze, and publish results based on any 4DN data provided here "
                    "without restrictions'; cite the 4DN papers and acknowledge the lab")
@@ -241,7 +245,7 @@ FOURDN = DatasetSpec(
           "context.assay; a loop seen by one platform only is as much a row as one seen "
           "by five. Evidence 'known': measured contacts, called computationally.",
     relations=("chromatin_loop",),
-    commercial_use="allowed",
+    commercial_use="unknown",
 )
 
 DATASETS = (HUBMAP, FOURDN)

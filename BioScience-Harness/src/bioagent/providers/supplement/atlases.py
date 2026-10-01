@@ -24,8 +24,10 @@ data) are never wrapped. Checked from the harness on 2026-10-01:
   AWS Open Data bucket (``open_data_url`` in the file record) and the loop sets used here
   are in ``tcmdb.extra.atlases``.
 * **EMBL-EBI BioSamples**: documented REST/HAL API. www.ebi.ac.uk sets ``Crawl-Delay:
-  10`` in robots.txt (``/biosamples`` itself is not disallowed); the host shares its rate
-  with the other EBI connectors, so use it for look-ups, not sweeps.
+  10`` in robots.txt (``/biosamples`` itself is not disallowed). The connector does not
+  pace at that delay: it is paced by the rate the host shares with the other EBI
+  connectors (``DEFAULT_RATES``), so it offers per-sample look-ups and one-page searches
+  only, never sweeps.
 
 HTAN is not wrapped: every programmatic route to its files needs an account (Synapse,
 Google, CGC or dbGaP), and the portal reads a database through credentials embedded in
@@ -205,7 +207,8 @@ SOURCES: tuple[PublicSource, ...] = (
                       args=("organism",), example={"organism": "Panax ginseng", "size": 2}),
         ), smoke="sample",
         docs="https://www.ebi.ac.uk/biosamples/docs/references/api/overview",
-        rate_note="www.ebi.ac.uk robots.txt sets Crawl-Delay 10; look-ups, not sweeps"),
+        rate_note="look-ups only, paced by the shared www.ebi.ac.uk rate; robots.txt "
+                  "Crawl-Delay 10 is for crawlers and no sweeps are made"),
 )
 
 #: Nothing defined and held back: every connector above answered.
