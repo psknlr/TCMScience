@@ -337,6 +337,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs.
+            # Live connectors (providers.supplement.drugs): the DrugCentral API runs on an
+            # App Runner host, listed exactly (never the shared awsapprunner.com suffix) ...
+            "uxn2ycvimg.us-east-2.awsapprunner.com", "pharmacodb.ca", "pharos-api.ncats.io",
+            # ... and download hosts (tcmdb.extra.drugs; zenodo.org is listed above)
+            "unmtid-dbs.net", "drugcentral.org", "cog.sanger.ac.uk",
+            "opendata.ncats.nih.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
