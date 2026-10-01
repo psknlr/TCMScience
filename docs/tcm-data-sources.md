@@ -83,7 +83,8 @@ Every source is reduced to one row shape:
 
 ```
 kind, source, subject_type, subject_id, subject_name,
-object_type, object_id, object_name, evidence, score, reference, note
+object_type, object_id, object_name, evidence, score, reference, note,
+effect, outcome, context, license
 ```
 
 The source tables stay in the same SQLite file next to the relations, so a relation can
@@ -100,6 +101,9 @@ always be compared with the row it came from.
   - `aggregated`: integrated from other databases without per-row provenance;
   - `listed`: a composition list;
   - `reported`: a document about the subject;
+  - `mentioned`: a text-mined co-mention;
+  - `associated`: a statistical association measured in a population or a screen
+    (eQTL, GWAS);
   - `signal`: a disproportionality signal from spontaneous reports.
 
   Only `known` and `reported` rows point at observations; the others support a
@@ -110,7 +114,53 @@ always be compared with the row it came from.
 - **score / reference / note**:
   - `score` is the source's own number (prediction score, STITCH or DisGeNET score, PRR);
   - `reference` is a citation;
-  - `note` holds the qualifiers (dose, clinical status, mechanism, effect direction).
+  - `note` holds the qualifiers (dose, clinical status, mechanism), and `via X` when the
+    row names the upstream database it came from.
+- **effect**: what the subject does to the object, only when the source says so:
+  `activation` / `inhibition` (on activity: agonist, inhibitor, blocker), `increase` /
+  `decrease` (on amount or expression), `binding`, `degradation`, `modulation`, `other`.
+  The source's own word stays in the context (`action`). An effect is never inferred.
+- **outcome**: `positive` (the relation was found), `negative` (tested and not found: an
+  inactive assay, a screen without a hit) or `inconclusive` (the source flags the
+  result). A pair that was never tested has no row, so "not tested" and "tested
+  negative" stay apart.
+- **context**: the conditions as JSON: species, cell line, tissue, plant part, dose and
+  unit, time, method or assay, whether the interaction is direct, the residue, P value,
+  effect size, sample size, quality flags (`tcmdb.rowkit.CONTEXT_KEYS`).
+- **license**: the licence of the file the row came from. TM-MC, for one, licenses its
+  files differently. `relations(commercial=True)` keeps only rows whose licence allows
+  commercial reuse of derived data: open or share-alike. Non-commercial, no-derivatives
+  and unstated licences are left out, because "not stated" grants nothing.
+
+A row whose object the source could not identify (TM-MC's compound `ID 0`) is not a
+relation, and it is not dropped either: it goes to the store's `unresolved` table
+(`hub.unresolved(key)`). Merging all such rows under one placeholder id would make one
+compound out of every compound the source could not identify.
+
+### Three layers, not one graph
+
+| Layer | Holds | Where |
+| --- | --- | --- |
+| Raw files | each download as served, with its URL, size and SHA-256 | `raw/<key>/`, `.downloads.json` |
+| Tables | each file loaded as written (values kept as text) | `db/<key>.sqlite`, one table per file |
+| Relations | the uniform rows above, pointing back to their source rows | the `relations` table of the same store |
+
+Matrices (expression profiles, dose-response curves, screens, spectra archives, images)
+stay files or tables. They are not exploded into millions of low-information relation
+rows. A relation points at the record it summarises, and statistics run on the matrix.
+
+### Before a dataset is used: `tcmdb check`
+
+`python -m bioagent.cli tcmdb check <key>` (or `all`) is the minimum acceptance test:
+- every default file is present, and none is an HTML page (a login, challenge or error
+  page) saved in its place; `fetch` refuses such a page as well;
+- the store is built, and two rebuilds from the same files give the same relations.
+  Each build records an order-independent digest of its relations;
+- every row uses a declared relation kind and a known evidence, effect and outcome, and
+  its context is JSON with known keys;
+- each relation kind's licence and reuse class is reported; an unstated licence is a
+  warning;
+- the unresolved rows are counted.
 
 ## Decisions that are not obvious
 
@@ -216,6 +266,7 @@ databases is it" looks like a vote but is not one, for six reasons:
 | Trace lineage | An observed row's lineage is its paper (PMID/DOI/NCT); an integrated row's is the upstreams its note names; a prediction's is its model; a declared "one of A, B, C" is one unit, not three; anything else is the database itself. |
 | Count independent lineages | Units that may share an upstream are joined, and connected components are counted. When in doubt it counts fewer. |
 | Detect copying | A **survey** (`tcmdb survey <kind>`) samples subjects that ≥3 sources cover and measures pairwise Jaccard of their object sets. Pairs at ≥0.5 (with ≥20 objects) form a copy cluster that counts once. The clusters come from the saved survey, not from one query: on a well-studied subject independent sources converge on the truth, and a per-query overlap would mistake that for copying. |
+| Keep results and directions apart | A negative result (an inactive assay, a non-hit) never counts as support, and support never cancels it: both sides are listed (`outcomes`, `contradicted_by`). Opposite effects (activation and inhibition) are flagged as `effect_conflict`, not resolved. A screen that has no row for a pair did not test it (`not_tested_in`); that is not silence. |
 | Report silence and ambiguity | Each assertion names the sources that cover the subject but lack the object. Names that resolve to several entities are listed, not merged. |
 | Compare versions | Formulas are compared version by version (`tcmdb compare formula_herb 补中益气汤`), never pooled. |
 
@@ -225,10 +276,13 @@ Each assertion ends in one **support class**, from the best evidence it has:
 | --- | --- |
 | independently_replicated | observed (known/reported) in ≥2 independent lineages |
 | documented | observed in one lineage |
+| associated | a statistical association (eQTL, GWAS), no direct observation |
 | integrated | only listed or aggregated rows, however many databases |
 | mentioned | only text co-mention |
 | predicted | only model predictions |
 | signal | only pharmacovigilance disproportionality |
+| tested_negative | every row on the pair says it was tested and not found |
+| inconclusive | only rows the sources flag as unreliable |
 
 Scores (BATMAN's model score, SymMap's IES, a PRR) are kept per source and never
 combined: they measure different things on different scales.
