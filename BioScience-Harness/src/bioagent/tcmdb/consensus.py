@@ -219,9 +219,16 @@ class Crosswalk:
         for tid, cid, ik in self._rows("tmmc2", "SELECT ID, CID, INCHIKEY FROM chemical_property"):
             if ik and len(str(ik)) == 27:
                 out[f"tmmc:{tid}"] = f"inchikey:{ik}"
-        for local, canon in self._declared("compound"):
+        declared = self._declared("compound")
+        for local, canon in declared:
             if canon.startswith("inchikey:") and len(canon) == 36:
                 out.setdefault(local, canon)
+        for local, canon in declared:
+            cid = _int(canon[8:]) if canon.startswith("pubchem:") else None
+            if cid:
+                # a source that knows only the CID (an RxNorm drug's PubChem compound):
+                # the CID's InChIKey when any store maps it, else the CID itself
+                out.setdefault(local, out.get(f"pubchem:{cid}", f"pubchem:{cid}"))
         return out
 
     def _declared(self, entity: str) -> list[tuple[str, str]]:

@@ -61,8 +61,13 @@ class DatasetSpec:
     upstream: tuple[str, ...] = ()
     #: id mappings this dataset contributes to ``consensus.Crosswalk``: "compound" or
     #: "gene" -> SQL over the built store returning (id, canonical id) pairs, already
-    #: prefixed: ``inchikey:`` (27 characters) for compounds, ``symbol:`` for human genes.
+    #: prefixed: ``inchikey:`` (27 characters) for compounds (or ``pubchem:<CID>`` when the
+    #: source has no structure; the CID is then resolved to its InChIKey when another store
+    #: knows it), ``symbol:`` for human genes.
     crosswalk: Mapping[str, str] = field(default_factory=dict)
+    #: seconds between requests to this dataset's download host, when its robots.txt sets
+    #: a Crawl-delay (``TCMDataHub.fetch`` paces every request, size probes included).
+    crawl_delay_s: float = 0.0
 
     def file(self, name: str) -> FileSpec:
         for f in self.files:

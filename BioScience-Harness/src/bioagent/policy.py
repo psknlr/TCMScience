@@ -389,6 +389,11 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # ... and download hosts (tcmdb.extra.drugs; zenodo.org is listed above)
             "unmtid-dbs.net", "drugcentral.org", "cog.sanger.ac.uk",
             "opendata.ncats.nih.gov",
+            # pharmacogenomics and protein families (providers.supplement.pgx_proteins,
+            # tcmdb.extra.pgx_proteins); live APIs ...
+            "api.cpicpgx.org", "gpcrdb.org", "klifs.net", "www.proteomicsdb.org",
+            # ... and download hosts (api.clinpgx.org answers 303 to s3.pgkb.org)
+            "files.cpicpgx.org", "api.clinpgx.org", "s3.pgkb.org", "www.pharmvar.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

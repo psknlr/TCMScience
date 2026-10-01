@@ -125,12 +125,16 @@ class Downloader:
       so an agent cannot trigger a 6 GB pull as a side effect.
     * The environment handed to any subprocess is never consulted here; this
       module makes direct HTTPS calls and reads no credentials.
+    * `min_interval_s` spaces every request this downloader sends (size probes,
+      downloads, retries) at least that many seconds apart, for a host whose
+      robots.txt sets a Crawl-delay.
     """
 
     def __init__(self, root: Path | str, *, timeout_s: float = 60.0, chunk: int = 1 << 20,
                  max_retries: int = 4, size_gate_bytes: int = 512 * 1024 * 1024,
                  log: Callable[[str], None] | None = None,
                  rates: Mapping[str, float] | None = None) -> None:
+                 min_interval_s: float = 0.0) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
@@ -153,6 +157,8 @@ class Downloader:
             PACER.done(host)                 # a refused request still counts
             raise
         return _Paced(resp, host)
+        self.min_interval_s = max(0.0, float(min_interval_s))
+        self._last_request: float | None = None
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
@@ -163,10 +169,20 @@ class Downloader:
                 h.update(block)
         return f"{algo}:{h.hexdigest()}"
 
+    def _pace(self) -> None:
+        """Wait until `min_interval_s` has passed since this downloader's last request."""
+        if self.min_interval_s and self._last_request is not None:
+            wait = self._last_request + self.min_interval_s - time.monotonic()
+            if wait > 0:
+                self._log(f"waiting {wait:.0f} s (crawl-delay {self.min_interval_s:g} s)")
+                time.sleep(wait)
+        self._last_request = time.monotonic()
+
     def _remote_size(self, url: str) -> int | None:
         """Content-Length via HEAD, falling back to a 1-byte ranged GET."""
         for method, hdrs in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
             try:
+                self._pace()
                 req = urllib.request.Request(url, method=method, headers={"User-Agent": _UA, **hdrs})
                 with self._open(req) as r:
                     cr = r.headers.get("Content-Range")
@@ -282,6 +298,7 @@ class Downloader:
             elif have and remote_size and have >= remote_size:
                 return
             try:
+                self._pace()
                 req = urllib.request.Request(url, headers=headers)
                 with self._open(req) as r:
                     if resumed and r.status != 206:

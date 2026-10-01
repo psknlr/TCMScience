@@ -256,6 +256,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs
     "uxn2ycvimg.us-east-2.awsapprunner.com": 1.0, "pharmacodb.ca": 1.0,
     "pharos-api.ncats.io": 1.0,
+    # pharmacogenomics and protein families (providers.supplement.pgx_proteins): academic
+    # servers with no stated limit, kept at one request per second
+    "api.cpicpgx.org": 1.0, "gpcrdb.org": 1.0, "klifs.net": 1.0,
+    "www.proteomicsdb.org": 1.0,
 }
 
 
