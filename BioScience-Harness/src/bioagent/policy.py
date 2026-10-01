@@ -370,6 +370,11 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # files are on ebi.ac.uk / ftp.ebi.ac.uk, already listed.
             "rhea-db.org", "ftp.expasy.org", "sabiork.h-its.org", "metanetx.org",
             "fdc.nal.usda.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: RNA,
+            # regulation and protein modification (providers.supplement.rna_reg,
+            # tcmdb.extra.rna_reg)
+            "disprot.org", "rnacentral.org", "chip-atlas.org", "chip-atlas.dbcls.jp",
+            "remap.univ-amu.fr", "research.bioinformatics.udel.edu", "awi.cuhk.edu.cn",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

@@ -244,6 +244,11 @@ DEFAULT_RATES: Mapping[str, float] = {
     # Rhea's and SABIO-RK's robots.txt bar crawlers, their API docs invite programs;
     # SABIO-RK allows 60 requests a minute; MetaNetX asks for a 10 s crawl delay
     "www.rhea-db.org": 1.0, "sabiork.h-its.org": 1.0, "rdf.metanetx.org": 0.1,
+    # supplementary sources (review of 2026-09-30): RNA, regulation and protein
+    # modification. Crawl-delays in robots.txt become rates: RNAcentral 5 s, ChIP-Atlas
+    # 30 s (its /agents page invites the /data calls robots.txt disallows for crawlers).
+    "rnacentral.org": 0.2, "chip-atlas.org": 1.0 / 30.0, "disprot.org": 1.0,
+    "remap.univ-amu.fr": 1.0, "research.bioinformatics.udel.edu": 1.0,
 }
 
 
