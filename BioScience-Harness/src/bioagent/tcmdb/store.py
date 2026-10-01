@@ -23,11 +23,12 @@ import sqlite3
 import time
 import zipfile
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Sequence
+from typing import Any, Callable, Iterable, Iterator, Sequence
 
-from .datasets import DatasetSpec, FileSpec
+from .spec import DatasetSpec, FileSpec
 
-__all__ = ["read_table", "build_store", "connect", "safe_name", "StoreError"]
+__all__ = ["read_table", "build_store", "connect", "safe_name", "StoreError", "READERS",
+           "register_reader", "open_text"]
 
 csv.field_size_limit(1 << 30)
 _BATCH = 5000
@@ -227,10 +228,32 @@ def _ttd(path: Path) -> Iterator[list[str | None]]:
             yield _strip((row + [None] * 5)[:5])
 
 
+#: Readers for formats beyond the built-in ones, added by ``tcmdb.extra`` modules: format
+#: name -> function(path, spec) yielding rows, the first being the header. A reader must
+#: stream (a file can be larger than memory) and keep values as the file wrote them.
+READERS: dict[str, Callable[[Path, FileSpec], Iterator[list[str | None]]]] = {}
+
+
+def register_reader(fmt: str, reader: Callable[[Path, FileSpec], Iterator[list[str | None]]]
+                    ) -> None:
+    builtin = {"tsv", "csv", "ws", "xlsx", "parquet", "json", "jsonl", "gmt", "ttd", "raw",
+               "text"}
+    if fmt in builtin or (fmt in READERS and READERS[fmt] is not reader):
+        raise ValueError(f"format {fmt!r} already has a reader")
+    READERS[fmt] = reader
+
+
+def open_text(path: str | Path) -> io.TextIOBase:
+    """A text handle on a plain, gzip or single-member zip file (UTF-8, BOM dropped)."""
+    return _open_text(Path(path))
+
+
 def read_table(path: str | Path, spec: FileSpec) -> Iterator[list[str | None]]:
     """The file's rows, the first being its header, for any format a ``FileSpec`` names."""
     path = Path(path)
     fmt = spec.fmt
+    if fmt in READERS:
+        return READERS[fmt](path, spec)
     if fmt == "tsv":
         return _tsv(path, spec.columns)
     if fmt == "csv":
