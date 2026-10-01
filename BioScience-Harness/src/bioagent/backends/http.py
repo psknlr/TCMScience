@@ -240,6 +240,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # supplementary sources (review of 2026-09-30): spectra and metabolomics servers
     "massbank.eu": 1.0, "external.gnps2.org": 1.0, "metabolomics-usi.gnps2.org": 1.0,
     "explorer.gnps2.org": 1.0, "massive.ucsd.edu": 1.0, "www.metabolomicsworkbench.org": 1.0,
+    # supplementary chemistry/reaction connectors (providers.supplement.chem_onto):
+    # Rhea's and SABIO-RK's robots.txt bar crawlers, their API docs invite programs;
+    # SABIO-RK allows 60 requests a minute; MetaNetX asks for a 10 s crawl delay
+    "www.rhea-db.org": 1.0, "sabiork.h-its.org": 1.0, "rdf.metanetx.org": 0.1,
 }
 
 

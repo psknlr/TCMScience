@@ -365,6 +365,11 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "massbank.eu", "external.gnps2.org", "metabolomics-usi.gnps2.org",
             "explorer.gnps2.org", "massive.ucsd.edu", "www.metabolomicsworkbench.org",
             "np-mrd.org",
+            # chemical identity, reactions, kinetics, id mapping and food composition
+            # (providers.supplement.chem_onto, tcmdb.extra.chem_onto). ChEBI's API and
+            # files are on ebi.ac.uk / ftp.ebi.ac.uk, already listed.
+            "rhea-db.org", "ftp.expasy.org", "sabiork.h-its.org", "metanetx.org",
+            "fdc.nal.usda.gov",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
