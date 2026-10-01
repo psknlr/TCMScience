@@ -218,6 +218,15 @@ DEFAULT_RATES: Mapping[str, float] = {
     "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
     "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
     "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: natural products
+    # and plant names (providers.supplement.tcm_np). list.worldfloraonline.org states
+    # Crawl-delay: 10 in its robots.txt.
+    "coconut.naturalproducts.net": 1.0, "www.knapsackfamily.com": 1.0,
+    "list.worldfloraonline.org": 0.1,
+    # bulk files these sources' datasets fetch (acquisition.Downloader paces by these too):
+    # Zenodo's robots.txt sets Crawl-delay: 10; the others are small academic servers
+    "zenodo.org": 0.1, "coconut.s3.uni-jena.de": 1.0, "cb.imsc.res.in": 1.0,
+    "tm-mc.kr": 1.0,
 }
 
 
@@ -480,6 +489,12 @@ class HTTPBackend(Backend):
                 return json.loads(text)
             except json.JSONDecodeError:
                 pass
+        if "text/html" in ct or "application/xhtml" in ct:
+            # A page a connector asked for (accept text/html; any other caller is refused
+            # before this). Indented markup has tabs and newlines, and read as a table it
+            # kept only each line's text up to its first tab.
+            return {"format": "html", "text": text[:_TEXT_LIMIT],
+                    "truncated": len(text) > _TEXT_LIMIT}
         if "tab-separated" in ct or "tsv" in ct or ("\t" in text[:2000] and "\n" in text[:2000]):
             lines = [ln for ln in text.splitlines() if ln.strip()]
             if lines:

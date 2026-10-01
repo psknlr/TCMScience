@@ -129,9 +129,16 @@ def lineage_of(row: Mapping[str, Any]) -> frozenset[str]:
     note = row.get("note") or ""
     m = _VIA.search(note) if "via " in note else None
     if m:
-        units = {re.split(r"[:\s]", u.strip())[0] for u in re.split(r"[;|]", m.group(1))
+        listed = m.group(1).strip()
+        # 'via any: A; B': the row rests on at least one of these, not on each of them
+        either = listed[:4].lower() == "any:"
+        if either:
+            listed = listed[4:]
+        units = {re.split(r"[:\s]", u.strip())[0] for u in re.split(r"[;|]", listed)
                  if u.strip()}
         if units:
+            if either and len(units) > 1:
+                return frozenset({"any:" + "|".join(sorted(u.upper() for u in units))})
             return frozenset(u.upper() for u in units)
     if evidence == "predicted":
         return frozenset({f"model:{source}"})

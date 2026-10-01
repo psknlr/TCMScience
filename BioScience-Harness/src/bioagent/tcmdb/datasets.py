@@ -32,6 +32,9 @@ _BATMAN = "http://batman2.cloudna.cn/downloadApiFile/data/browser/"
 _TTD = "https://ttd.idrblab.cn/files/download/"
 _DDID = "https://bddg.hznu.edu.cn/ddid/static/download/"
 _NSIDES = "https://tatonettilab-resources.s3.amazonaws.com/nsides/"
+#: TM-MC gives each download a licence icon and nothing else (no deed link, no version)
+_TMMC_BY = "CC BY (version unstated)"
+_TMMC_NC = "CC BY-NC (version unstated)"
 
 DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec(
@@ -128,15 +131,53 @@ DATASETS: tuple[DatasetSpec, ...] = (
         notes="Entity tables; relations come from the live endpoints (connector 'tcmbank'). "
               "Plain http because the site's TLS certificate expired on 2026-06-02."),
     DatasetSpec(
-        "tmmc2", "TM-MC 2.0", (53,), "https://tm-mc.kr/", "not stated",
-        (FileSpec("https://tm-mc.kr/download/README.txt", "README.txt", "", fmt="raw"),)
-        + tuple(FileSpec(f"https://tm-mc.kr/download/{n}.xlsx", f"{n}.xlsx", n, fmt="xlsx")
-                for n in ("medicinal_material", "medicinal_compound", "chemical_property",
-                          "chemical_protein", "protein_disease", "prescription")),
-        version="2.0 (2026-06-15)",
-        notes="Medicinal materials of the Chinese, Japanese and Korean pharmacopoeias, their "
-              "compounds, compound-protein and protein-disease links, and prescriptions.",
-        relations=("herb_ingredient", "ingredient_target", "target_disease", "formula_herb")),
+        "tmmc2", "TM-MC 2.0", (53,), "https://tm-mc.kr/",
+        "per file, by the icons on the download page (no deed link, no version, no terms "
+        "page): CC BY for medicinal_material, chemical_protein, protein_disease and "
+        "prescription; CC BY-NC for medicinal_compound and chemical_property",
+        (FileSpec("https://tm-mc.kr/download/README.txt", "README.txt", "", fmt="raw",
+                  license="no licence icon"),)
+        + tuple(FileSpec(f"https://tm-mc.kr/download/{n}.xlsx", f"{n}.xlsx", n, fmt="xlsx",
+                         license=lic)
+                for n, lic in (("medicinal_material", _TMMC_BY),
+                               ("medicinal_compound", _TMMC_NC),
+                               ("chemical_property", _TMMC_NC),
+                               ("chemical_protein", _TMMC_BY),
+                               ("protein_disease", _TMMC_BY),
+                               ("prescription", _TMMC_BY))),
+        version="2.0 (files of 2026-01-08 to 2026-06-15)",
+        notes="Medicinal materials of the Korean, Chinese and Japanese pharmacopoeias (one "
+              "Latin name each; one material of one pharmacopoeia can map to two of "
+              "another), their compounds, and prescriptions from Korean-medicine textbooks. "
+              "Evidence: herb_ingredient is known (compound names curated by hand from "
+              "PubMed chromatography papers, one PMID per row; compound ID 0 means TM-MC "
+              "could not identify the compound, and those rows wait in the unresolved "
+              "queue); formula_herb is listed (textbook and page as the reference; a "
+              "prescription is identified by its Hanja name, so one name found in several "
+              "textbooks is one formula whose rows carry each book). ingredient_target and "
+              "target_disease are not TM-MC observations: compound-protein pairs are copied "
+              "from STITCH v5.0 (combined score) or PubChem (score 0, which means 'not "
+              "applicable' and is not kept as a score), and every protein-disease pair is a "
+              "DisGeNET v7.0 copy, so both are aggregated and their rows say 'via STITCH', "
+              "'via PubChem' or 'via DisGeNET v7.0'. TM-MC deposits its compounds in PubChem "
+              "(source 29715), so PubChem-derived sources can carry its herb-compound links "
+              "back.",
+        relations=("herb_ingredient", "ingredient_target", "target_disease", "formula_herb"),
+        # Every row stores its licence, so these stay short. target_disease: DisGeNET
+        # distributed v7.0 under CC BY-NC-SA 4.0 (recorded by the 2026-10-01 review; its
+        # current legal page is rendered by script and was not re-read).
+        relation_licenses={
+            "herb_ingredient": "CC BY-NC (medicinal_compound, chemical_property)",
+            "ingredient_target": "CC BY pairs (chemical_protein); ids via CC BY-NC "
+                                 "chemical_property",
+            "target_disease": "CC BY (protein_disease); a DisGeNET v7.0 copy, CC BY-NC-SA "
+                              "4.0 upstream",
+            "formula_herb": "CC BY (prescription, medicinal_material)",
+        },
+        # the core herb->compound file is CC BY-NC; relation_licenses says per kind which
+        # rows a commercial query may still use (formula_herb)
+        commercial_use="forbidden",
+        upstream=("STITCH", "PubChem", "DisGeNET")),
     DatasetSpec(
         "tcmio", "TCMIO", (47,), "http://tcmio.xielab.net/", "not stated",
         tuple(FileSpec(f"http://tcmio.xielab.net/download/{i}", n, t, fmt="xlsx")
