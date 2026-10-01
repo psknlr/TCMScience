@@ -408,6 +408,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             # 2026-10-01. AIRR Data Commons repositories, BV-BRC; MGnify is on
             # www.ebi.ac.uk and the IEDB exports on www.iedb.org (both covered above).
             "covid19-1.ireceptor.org", "vdjserver.org", "www.bv-brc.org",
+            # imaging: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # Metadata APIs (IDC v3, TCIA NBIA v4 and Collection Manager, IDR, OpenNeuro;
+            # the BioImage Archive goes through www.ebi.ac.uk) and the snapshot hosts
+            # (the idc-index-data wheel on PyPI; IDR exports come from idr.openmicroscopy.org)
+            "api.imaging.datacommons.cancer.gov", "services.cancerimagingarchive.net",
+            "www.cancerimagingarchive.net", "idr.openmicroscopy.org", "openneuro.org",
+            "files.pythonhosted.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

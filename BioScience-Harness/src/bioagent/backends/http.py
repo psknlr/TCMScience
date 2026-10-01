@@ -270,6 +270,10 @@ DEFAULT_RATES: Mapping[str, float] = {
     # ("host/path") paces only the URLs under it, on top of the host's own rate, so the
     # other EBI APIs on that host keep theirs.
     "www.ebi.ac.uk/metagenomics/": 0.1,
+    # imaging archives (providers.supplement.imaging): academic services, one at a time
+    "api.imaging.datacommons.cancer.gov": 1.0, "services.cancerimagingarchive.net": 1.0,
+    "www.cancerimagingarchive.net": 1.0, "idr.openmicroscopy.org": 1.0,
+    "openneuro.org": 1.0,
 }
 
 
