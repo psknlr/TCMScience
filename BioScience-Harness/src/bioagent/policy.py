@@ -337,6 +337,13 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: atlases
+            # (HCA Azul, HuBMAP search/entity/portal/ontology APIs, 4DN portal and its
+            # AWS Open Data bucket; BioSamples is on www.ebi.ac.uk, covered above)
+            "service.azul.data.humancellatlas.org", "search.api.hubmapconsortium.org",
+            "entity.api.hubmapconsortium.org", "portal.hubmapconsortium.org",
+            "ontology.api.hubmapconsortium.org", "data.4dnucleome.org",
+            "4dn-open-data-public.s3.amazonaws.com",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
