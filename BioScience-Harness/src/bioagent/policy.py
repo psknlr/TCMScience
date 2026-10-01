@@ -337,6 +337,12 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01:
+            # pharmacogenomics and protein families (providers.supplement.pgx_proteins,
+            # tcmdb.extra.pgx_proteins); live APIs ...
+            "api.cpicpgx.org", "gpcrdb.org", "klifs.net", "www.proteomicsdb.org",
+            # ... and download hosts (api.clinpgx.org answers 303 to s3.pgkb.org)
+            "files.cpicpgx.org", "api.clinpgx.org", "s3.pgkb.org", "www.pharmvar.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
