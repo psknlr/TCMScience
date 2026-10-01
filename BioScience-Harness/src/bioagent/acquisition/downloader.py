@@ -84,7 +84,9 @@ class Downloader:
                     if cr and "/" in cr and cr.rsplit("/", 1)[1].isdigit():
                         return int(cr.rsplit("/", 1)[1])
                     cl = r.headers.get("Content-Length")
-                    if cl and cl.isdigit() and method == "HEAD":
+                    # a HEAD answered with length 0 for a generated file (EMA's reports)
+                    # says nothing about the body's size: try the ranged GET instead
+                    if cl and cl.isdigit() and int(cl) > 0 and method == "HEAD":
                         return int(cl)
             except (urllib.error.URLError, OSError):
                 continue

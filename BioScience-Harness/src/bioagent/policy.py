@@ -337,6 +337,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01:
+            # TCM safety download hosts (TCMToxDB, MIBiG, gutMGene, EMA herbal index)
+            "www.sdu-idea.cn", "dl.secondarymetabolites.org",
+            "bio-computing.hrbmu.edu.cn", "www.ema.europa.eu",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
