@@ -18,7 +18,10 @@ BATMAN PubChem CIDs, TM-MC its own codes. Each extractor reads one built store
     - ``predicted``: a model's output, with its ``score``;
     - ``aggregated``: integrated from other databases without per-row provenance;
     - ``listed``: a composition list (a formula's herbs, a herb's constituents as listed);
-    - ``reported``: a document that is about the subject (a trial, a review, a paper);
+    - ``reported``: a document that is about the subject (a trial, a review, a paper), or a
+      sentence in a paper that states the relation;
+    - ``mentioned``: a text-mined co-mention (an abstract naming both), which shows the
+      two appear together, not that one was measured in or on the other;
     - ``signal``: a disproportionality signal mined from spontaneous reports (PRR).
   Predicted, aggregated and signal relations support a hypothesis, never a claim of
   effect. The hub only labels them; a claim must go through the snapshot pipeline,
@@ -59,7 +62,8 @@ RELATION_KINDS: Mapping[str, tuple[str, str]] = {
     "herb_syndrome": ("herb", "syndrome"),
     "ingredient_disease": ("ingredient", "disease"),
 }
-EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", "signal"})
+EVIDENCE = frozenset({"known", "predicted", "aggregated", "listed", "reported", "mentioned",
+                      "signal"})
 
 _NA = frozenset({"", "na", "n/a", "nan", "none", "null", "-", "--"})
 
@@ -186,8 +190,10 @@ def _batman2(conn: sqlite3.Connection) -> Iterator[Row | None]:
                     yield _rel("herb_ingredient", "batman2", hid, hname, f"pubchem:{m.group(2)}",
                                m.group(1).strip(), "aggregated")
     if _has(conn, "formula"):
-        for r in _rows(conn, "SELECT * FROM formula"):
-            fid = f"batman2:formula.{_v(r['Pinyin_Name'])}"
+        # one id per row: BATMAN lists several formulas under one name (different books,
+        # different compositions), and merging them by name would make one formula of all
+        for r in _rows(conn, "SELECT rowid AS _row, * FROM formula"):
+            fid = f"batman2:formula.{r['_row']}"
             for herb in (_v(r["Pinyin_composition"]) or "").split(","):
                 if herb.strip():
                     yield _rel("formula_herb", "batman2", fid,

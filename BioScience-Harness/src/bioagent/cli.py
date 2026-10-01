@@ -237,6 +237,28 @@ def _cmd_tcmdb(a) -> int:
                                sources=a.source or None, evidence=a.evidence or None,
                                contains=a.contains, limit=a.limit))
             return 0
+        if a.tcmdb_cmd == "consensus":
+            result = hub.consensus(a.kind, subject=a.subject or None, object=a.object or None,
+                                   merge_processed=a.merge_processed,
+                                   min_support=a.min_support or None)
+            result["items"] = result["items"][:a.limit]
+            show(result)
+            return 0
+        if a.tcmdb_cmd == "compare":
+            show(hub.compare(a.kind, a.subject, merge_processed=a.merge_processed))
+            return 0
+        if a.tcmdb_cmd == "survey":
+            show(hub.survey(a.kind, sample=a.sample, min_sources=a.min_sources, seed=a.seed))
+            return 0
+        if a.tcmdb_cmd == "enrich":
+            if a.symmap or a.herb:
+                if a.symmap:
+                    hub.enrich_symmap(a.symmap)
+                if a.herb:
+                    hub.enrich_herb(a.herb, label=a.label)
+            else:
+                show(hub.enrich(a.name)["ids"])
+            return 0
         if a.tcmdb_cmd == "live":
             result = hub.live(a.connector, a.operation, **_pairs(a.args, parse_json=True))
             show({"status": result.status.value, "error": result.error, "value": result.value})
@@ -503,6 +525,31 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--evidence", action="append", default=[])
     t.add_argument("--contains", action="store_true", help="substring name match")
     t.add_argument("--limit", type=int, default=50, help="per source")
+    t = tsub.add_parser("consensus", help="one relation kind reconciled across sources: ids "
+                                          "unified, copies counted once, evidence kept apart")
+    t.add_argument("kind")
+    t.add_argument("--subject", default="")
+    t.add_argument("--object", default="")
+    t.add_argument("--min-support", default="",
+                   choices=("", "independently_replicated", "documented", "integrated",
+                            "mentioned", "predicted", "signal"))
+    t.add_argument("--merge-processed", action="store_true",
+                   help="treat processed forms (炙黄芪) as the crude drug")
+    t.add_argument("--limit", type=int, default=50)
+    t = tsub.add_parser("compare", help="per-source (or per-version) object sets of a subject")
+    t.add_argument("kind")
+    t.add_argument("subject")
+    t.add_argument("--merge-processed", action="store_true")
+    t = tsub.add_parser("survey", help="how much the sources of a relation kind copy each other")
+    t.add_argument("kind")
+    t.add_argument("--sample", type=int, default=300)
+    t.add_argument("--min-sources", type=int, default=3)
+    t.add_argument("--seed", type=int, default=0)
+    t = tsub.add_parser("enrich", help="fetch SymMap/HERB relations per entity (cached)")
+    t.add_argument("name", nargs="?", default="", help="a herb name, e.g. 黄芪")
+    t.add_argument("--symmap", nargs="*", default=[], help="SymMap ids, e.g. SMHB00187")
+    t.add_argument("--herb", nargs="*", default=[], help="HERB ids, e.g. HERB002560")
+    t.add_argument("--label", default="Herb", help="HERB entity type of --herb ids")
     t = tsub.add_parser("live", help="a governed call to a live connector")
     t.add_argument("connector")
     t.add_argument("operation")

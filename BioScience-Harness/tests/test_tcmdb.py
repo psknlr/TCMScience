@@ -462,7 +462,7 @@ def test_site_queries_are_cached_per_entity_and_labelled_by_what_they_are(tmp_pa
     rows = h.relations(sources=["symmap_api"], limit=100)
     mol = {(r["object_id"], r["evidence"], r["reference"]) for r in rows
            if r["kind"] == "herb_ingredient"}
-    assert mol == {("pubchem:5280343", "known", "pmid:32726039"),
+    assert mol == {("pubchem:5280343", "mentioned", "pmid:32726039"),
                    ("pubchem:6029", "aggregated", None)}
     target = next(r for r in rows if r["kind"] == "herb_target")
     assert target["evidence"] == "predicted" and "By_ingredient" in target["note"]
@@ -472,7 +472,7 @@ def test_site_queries_are_cached_per_entity_and_labelled_by_what_they_are(tmp_pa
     inferred = next(r for r in herb if r["object_id"] == "symbol:IL6")
     paper = next(r for r in herb if r["object_id"] == "symbol:EPO")
     assert inferred["evidence"] == "predicted"
-    assert paper["evidence"] == "known" and paper["reference"] == "pmid:32009956"
+    assert paper["evidence"] == "reported" and paper["reference"] == "pmid:32009956"
     assert "Grade C" in paper["note"]
 
 
@@ -490,3 +490,160 @@ def test_form_posts_are_encoded_as_a_browser_sends_them():
     call = render_call("symmap", "related", entity_id="SMHB00187", related="Mol", filter=0)
     assert call["method"] == "POST"
     assert call["form"] == {"rrid": "SMHB00187", "table_name": "Mol", "filter": 0}
+
+
+# ----------------------------------------------------------- reconciling many sources
+_COLS = ("kind", "source", "subject_type", "subject_id", "subject_name", "object_type",
+         "object_id", "object_name", "evidence", "score", "reference", "note")
+
+
+def _store(hub: TCMDataHub, key: str, rows, tables: dict | None = None) -> None:
+    path = hub.db_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.execute(f"CREATE TABLE relations ({', '.join(c + ' TEXT' for c in _COLS)})")
+    conn.executemany(f"INSERT INTO relations VALUES ({', '.join('?' * len(_COLS))})",
+                     [tuple(r.get(c) for c in _COLS) for r in rows])
+    for name, (cols, data) in (tables or {}).items():
+        conn.execute(f"CREATE TABLE {name} ({', '.join(c + ' TEXT' for c in cols)})")
+        conn.executemany(f"INSERT INTO {name} VALUES ({', '.join('?' * len(cols))})", data)
+    conn.commit()
+    conn.close()
+
+
+def _it(source, subject, obj, evidence, *, reference=None, note=None, name="quercetin",
+        obj_name=None):
+    return {"kind": "ingredient_target", "source": source, "subject_type": "ingredient",
+            "subject_id": subject, "subject_name": name, "object_type": "target",
+            "object_id": obj, "object_name": obj_name, "evidence": evidence,
+            "reference": reference, "note": note}
+
+
+@pytest.fixture
+def many(tmp_path) -> TCMDataHub:
+    h = TCMDataHub(tmp_path)
+    ik = "REFJWTPEDVJJIY-UHFFFAOYSA-N"
+    # HERB maps its ingredient to the structure, and NCBI Gene ids to symbols
+    _store(h, "herb2", [], {
+        "ingredient": (("Ingredient_id", "PubChem_id", "InChIKey"),
+                       [("HBIN041495", "5280343", ik)]),
+        "target": (("Target_id", "Entrez_id", "Gene_symbol"),
+                   [("HBTAR1", "7124", "TNF"), ("HBTAR2", "3569", "IL6")])})
+    _store(h, "itcm", [_it("itcm", "pubchem:5280343", f"symbol:{g}", "aggregated")
+                       for g in ("TNF", "IL6", "AKT1", "CAT")])
+    # a copy of ITCM under another name: same pairs, more than the overlap threshold
+    _store(h, "tmmc2", [_it("tmmc2", f"inchikey:{ik}", f"ensembl:ENSP{i}", "aggregated",
+                            note="via STITCH", obj_name=g)
+                        for i, g in enumerate(("TNF", "IL6", "AKT1", "CAT"))])
+    _store(h, "batman2", [_it("batman2", "pubchem:5280343", "ncbigene:7124", "known"),
+                          _it("batman2", "pubchem:5280343", "ncbigene:3569", "predicted")])
+    _store(h, "dbpth", [_it("dbpth", "pubchem:5280343", "uniprot:P01375", "known",
+                            obj_name="TNF")])
+    _store(h, "herb_api", [_it("herb_api", "herb2:HBIN041495", "symbol:TNF", "reported",
+                               reference="pmid:111"),
+                           _it("herb_api", "herb2:HBIN041495", "symbol:TNF", "reported",
+                               reference="pmid:222"),
+                           _it("herb_api", "herb2:HBIN041495", "symbol:IL6", "aggregated",
+                               note="via SymMap:SMTT1; HIT:T2")])
+    return h
+
+
+def _by_object(result):
+    return {x["object"]: x for x in result["items"]}
+
+
+def test_every_name_of_one_compound_and_one_gene_meets_in_one_assertion(many):
+    out = many.consensus("ingredient_target", subject="pubchem:5280343")
+    assert out["subjects"] == ["inchikey:REFJWTPEDVJJIY-UHFFFAOYSA-N"]
+    tnf = _by_object(out)["symbol:TNF"]
+    # ITCM pubchem+symbol, TM-MC inchikey+ensembl, BATMAN ncbigene, HERB its own id
+    assert set(tnf["sources"]) == {"itcm", "tmmc2", "batman2", "herb_api"}
+
+
+def test_a_name_also_reaches_the_sources_that_store_only_ids(many):
+    _store(many, "batman1", [_it("batman1", "pubchem:5280343", "symbol:CAT", "known",
+                                 name=None)])
+    out = many.consensus("ingredient_target", subject="quercetin")
+    assert "batman1" in out["sources"]
+    assert "batman1" in _by_object(out)["symbol:CAT"]["sources"]
+
+
+def test_evidence_kinds_are_kept_apart_and_never_summed(many):
+    items = _by_object(many.consensus("ingredient_target", subject="pubchem:5280343"))
+    il6 = items["symbol:IL6"]
+    assert il6["evidence"] == {"aggregated": ["herb_api", "itcm", "tmmc2"],
+                               "predicted": ["batman2"]}
+    assert il6["support"] == "integrated"          # three integrations are not an observation
+    assert items["symbol:AKT1"]["support"] == "integrated"
+
+
+def test_replication_counts_independent_lineages_not_databases(many):
+    tnf = _by_object(many.consensus("ingredient_target", subject="pubchem:5280343"))["symbol:TNF"]
+    # two papers (HERB) and BATMAN's curated set: independent observations
+    assert tnf["support"] == "independently_replicated"
+    assert tnf["references"] == ["pmid:111", "pmid:222"]
+    assert tnf["independent"]["observed"] == 3
+
+
+def test_a_declared_any_of_lineage_does_not_count_as_several():
+    from bioagent.tcmdb.consensus import independent_count, lineage_of
+    batman = lineage_of({"source": "batman2", "evidence": "known"})
+    assert len(batman) == 1                         # one of HIT/DrugBank/KEGG/TTD, not four
+    herb_via_hit = lineage_of({"source": "herb_api", "evidence": "aggregated",
+                               "note": "via HIT:T0128"})
+    assert independent_count(batman | herb_via_hit) == 1   # may be the same upstream
+    assert independent_count(batman | {"pmid:1"}) == 2
+
+
+def test_copies_found_by_overlap_count_once(many):
+    out = many.consensus("ingredient_target", subject="pubchem:5280343")
+    # four objects each is below the minimum for judging overlap: no cluster yet
+    assert out["redundancy"]["clusters"] == []
+    from bioagent.tcmdb.consensus import redundancy
+    rows = [{"source": s, "evidence": "aggregated", "_s": "c", "_o": f"g{i}"}
+            for s in ("itcm", "tmmc2") for i in range(30)]
+    found = redundancy(rows)
+    assert found["clusters"] == [["itcm", "tmmc2"]]
+    assert found["lineage_map"]["db:itcm"] == found["lineage_map"]["db:tmmc2"]
+
+
+def test_a_saved_survey_supplies_the_copy_clusters(many):
+    path = many.root / "consensus" / "ingredient_target.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"clusters": [["itcm", "tmmc2"]], "subjects_sampled": 300}))
+    out = many.consensus("ingredient_target", subject="pubchem:5280343")
+    assert out["redundancy"]["survey_clusters"] == [["itcm", "tmmc2"]]
+    akt1 = _by_object(out)["symbol:AKT1"]
+    assert akt1["independent"]["all"] == 1          # ITCM and its copy: one lineage
+
+
+def test_silence_is_reported_separately_from_not_covering(many):
+    cat = _by_object(many.consensus("ingredient_target", subject="pubchem:5280343"))["symbol:CAT"]
+    assert set(cat["sources"]) == {"itcm", "tmmc2"}
+    # BATMAN, dbPTH and HERB cover quercetin and do not list CAT
+    assert set(cat["silent_sources"]) == {"batman2", "dbpth", "herb_api"}
+
+
+def test_herbs_meet_by_drug_and_processed_forms_stay_apart():
+    from bioagent.tcmdb.consensus import herb_key
+    assert herb_key("黄芪 | HUANG QI", "a") == herb_key("HUANG QI", "b") == "materia:huangqi"
+    assert herb_key("炙黄芪", "c") == "materia:huangqi#炙黄芪"
+    assert herb_key("炙黄芪", "c", merge_processed=True) == "materia:huangqi"
+
+
+def test_formula_versions_are_compared_not_pooled(tmp_path):
+    h = TCMDataHub(tmp_path)
+
+    def fh(source, fid, herbs):
+        return [{"kind": "formula_herb", "source": source, "subject_type": "formula",
+                 "subject_id": fid, "subject_name": "补中益气汤", "object_type": "herb",
+                 "object_id": f"{source}:{x}", "object_name": x, "evidence": "listed"}
+                for x in herbs]
+    _store(h, "batman2", fh("batman2", "batman2:formula.1", ["黄芪", "人参", "白术"])
+           + fh("batman2", "batman2:formula.2", ["黄芪", "当归"]))
+    _store(h, "herb2", fh("herb2", "herb2:HBFO403", ["黄芪", "人参", "白术"]))
+    out = h.compare("formula_herb", "补中益气汤")
+    assert out["compared"] == "versions"
+    assert out["sources"] == {"batman2:formula.1": 3, "batman2:formula.2": 2,
+                              "herb2:HBFO403": 3}
+    assert out["jaccard"]["batman2:formula.1|herb2:HBFO403"] == 1.0

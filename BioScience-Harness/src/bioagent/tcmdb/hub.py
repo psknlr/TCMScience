@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from contextlib import closing
 from dataclasses import dataclass
 from functools import lru_cache
@@ -351,6 +352,42 @@ class TCMDataHub:
         for kind in ("subject_clinical_trial", "subject_meta_analysis", "subject_reference"):
             out += self.relations(kind, subject=subject, **kw)
         return out
+
+    # ------------------------------------------------------------- reconciliation
+    def consensus(self, kind: str, *, subject: str | None = None, object: str | None = None,
+                  **kw: Any) -> dict[str, Any]:
+        """Every source's rows of ``kind`` for a subject, reconciled (``tcmdb.consensus``):
+        ids unified, copies counted once, evidence kinds kept apart, silence reported."""
+        from .consensus import consensus
+        if kind not in RELATION_KINDS:
+            raise HubError(f"unknown relation kind {kind!r}; have {sorted(RELATION_KINDS)}")
+        return consensus(self, kind, subject=subject, object=object, **kw)
+
+    def survey(self, kind: str, *, save: bool = True, **kw: Any) -> dict[str, Any]:
+        """How much the sources of one relation kind copy each other (``consensus.survey``).
+
+        Saved under ``<root>/consensus/<kind>.json``. ``consensus()`` then takes its copy
+        clusters from this survey rather than from the one query's overlap: on a single
+        well-studied subject, independent sources overlap because they converge on the
+        truth, which a per-query measure would mistake for copying.
+        """
+        from .consensus import survey
+        result = survey(self, kind, **kw)
+        if save:
+            path = self.root / "consensus" / f"{kind}.json"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            result["surveyed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            path.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+        return result
+
+    def saved_survey(self, kind: str) -> dict[str, Any] | None:
+        path = self.root / "consensus" / f"{kind}.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def compare(self, kind: str, subject: str, **kw: Any) -> dict[str, Any]:
+        """Per-source object sets for one subject: shared, source-only, overlaps."""
+        from .consensus import compare
+        return compare(self, kind, subject, **kw)
 
     # --------------------------------------------------------------- enrichment
     def enrich_symmap(self, entity_ids: Iterable[str], *, related: Sequence[str] | None = None,

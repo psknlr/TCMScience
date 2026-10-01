@@ -19,8 +19,10 @@ row is:
 
 * rows SymMap or HERB *infer* through their network (a herb's targets and diseases,
   with an IES value or a P value and FDR) are ``predicted``;
-* rows backed by a cited paper (SymMap's PubMed abstract, HERB's graded references) are
-  ``known``, with the PubMed id as the reference;
+* rows backed by a paper are labelled by what the paper does. SymMap's evidence is an
+  abstract that names both entities, which makes the row ``mentioned`` (a text
+  co-mention, not a measurement). HERB's are graded sentences that state the relation,
+  which makes the row ``reported``. Both cite the PubMed id;
 * rows integrated from other databases are ``aggregated``. HERB names the upstream source
   of each ingredient-target pair, and that source is kept in ``note``.
 """
@@ -177,8 +179,9 @@ def symmap_relations(conn: sqlite3.Connection, rel) -> Iterator[dict | None]:
                 cid = str(r.get("PubChem_CID") or "").split("|")[0].strip()
                 obj = f"pubchem:{cid}" if cid.isdigit() else f"symmap:{r.get('MOL_id')}"
                 for ref in (pmids or [None]):
+                    # SymMap's evidence is an abstract that names both (text co-mention)
                     yield rel("herb_ingredient", "symmap_api", subject, name, obj,
-                              r.get("Molecule_name"), "known" if ref else "aggregated",
+                              r.get("Molecule_name"), "mentioned" if ref else "aggregated",
                               reference=f"pmid:{ref}" if ref else None,
                               note=f"symmap:{r.get('MOL_id')}; TCMSP {r.get('TCMSP_id')}")
             elif part == "Gene" and herb_subject:
@@ -191,7 +194,7 @@ def symmap_relations(conn: sqlite3.Connection, rel) -> Iterator[dict | None]:
                 for ref in (pmids or [None]):
                     yield rel("ingredient_target", "symmap_api", subject, name,
                               f"symbol:{r.get('Gene_symbol')}" if r.get("Gene_symbol") else None,
-                              r.get("Gene_name"), "known" if ref else "aggregated",
+                              r.get("Gene_name"), "mentioned" if ref else "aggregated",
                               score=r.get("score"), reference=f"pmid:{ref}" if ref else None)
             elif part == "TCM_symptom" and herb_subject:
                 yield rel("herb_symptom", "symmap_api", subject, name,
@@ -268,9 +271,10 @@ def _papers(value: dict, subject: str, name: str | None, target_kind: str,
         refs = list(_table(r.get("Reference")))
         for ref in refs or [{}]:
             pmid = _text(ref.get("PubMed ID"))
+            # a graded sentence in the paper that states the relation
             yield rel(target_kind, "herb_api", subject, name,
                       f"symbol:{_text(r.get('Gene symbol'))}", _text(r.get("Protein name")),
-                      "known", reference=f"pmid:{pmid}" if pmid else _text(ref.get("Reference ID")),
+                      "reported", reference=f"pmid:{pmid}" if pmid else _text(ref.get("Reference ID")),
                       note="; ".join(x for x in (_text(ref.get("Grade")),
                                                   _text(ref.get("Relationship"))) if x) or None)
     for r in _table(value.get("drug_paper_disease")):

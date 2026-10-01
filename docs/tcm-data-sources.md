@@ -18,8 +18,8 @@ it is reachable through one interface, `bioagent.tcmdb.TCMDataHub`, and its comm
 | Access | Sources | What the hub does |
 | --- | ---: | --- |
 | live API | 4 | Calls a connector through the governed runtime |
-| live API + snapshot | 7 | Both live calls and a local copy |
-| snapshot | 14 | Downloads the files once, loads them into SQLite and extracts relations |
+| live API + snapshot | 9 | Both live calls and a local copy |
+| snapshot | 12 | Downloads the files once, loads them into SQLite and extracts relations |
 | manual import | 7 | A person exports the files; the same loader reads them |
 | restricted | 16 | Nothing to call. The card says what a person would need (an account, a fee, a request to the authors) |
 | unreachable | 18 | Nothing to call. The card records what was observed |
@@ -47,6 +47,9 @@ Live connectors add, per query:
 - **DCABM-TCM**: constituents detected in blood for prescriptions, herbs and ingredients.
 - **TCMBank and ITCM**: herb, ingredient, target and disease look-ups.
 - **TTD**: target details, drugs and pathways.
+- **SymMap and HERB 2.0** (`tcmdb enrich <herb>`): a herb's ingredients, targets,
+  symptoms, diseases and syndromes, an ingredient's targets, and HERB's paper-graded
+  targets, cached and built into the stores `symmap_api` and `herb_api`.
 - **IEDB**: epitopes, antigens and T-cell assays.
 - **openFDA**: reactions reported with a herbal product, and the drugs co-reported with it.
 - **Hugging Face and figshare**: the metadata of the training sets.
@@ -116,14 +119,23 @@ always be compared with the row it came from.
   operation, rate-limited to one request per second, and backed by the downloaded files,
   which stay the reference copy.
 
-  The undocumented **POST** APIs of HERB (`/chedi/api/`) and SymMap
-  (`/related_components/`) are not wrapped. SymMap's detail pages send a plain form
-  (`rrid`, `table_name`, `filter`) with no token or login. The first test request to it
-  was blocked by this environment's permission policy, so it was not pursued and HERB's
-  was not probed either. Whether to wrap these read queries is the repository owner's
-  decision. Their sites state no terms against it, and neither has a robots.txt; a
-  wrapper would be per-entity, cached and at most one request per second. That decision
-  also needs this environment to permit the requests.
+  The undocumented **POST** APIs of HERB (`/chedi/api/`, a JSON body) and SymMap
+  (`/related_components/`, a plain form of `rrid`, `table_name`, `filter`) are wrapped,
+  on the repository owner's decision of 2026-10-02, as the connectors `herb_api` and
+  `symmap`. Neither needs a token or login, neither site states terms against it, and
+  neither has a robots.txt. The wrapper only asks about the entities a person names:
+  `tcmdb enrich 黄芪` resolves the herb in the downloaded entity tables, sends one request
+  per relation at most once a second, and caches each answer under
+  `raw/<symmap_api|herb_api>/`; it never walks the id space. The cached answers are built
+  into the stores `symmap_api` and `herb_api` like any other dataset.
+
+  What the answers are is kept on each row:
+  - SymMap's herb→target, herb→disease and modern-medicine symptoms are inferred through
+    ingredients, so they are `predicted` (with the IES score, P and FDR);
+  - SymMap's ingredient lists with PubMed ids are **text co-mentions**, not experiments
+    (黄芪 is "linked" to arsenic by 104 such papers), so they are `mentioned`;
+  - HERB's literature-graded targets and diseases name the paper, so they are `reported`;
+  - HERB's ingredient→target rows name their upstream databases (`via TTD; STITCH`).
 
 - **TCMSP and CancerHSP are not scraped.** The old site embeds its data in HTML pages
   and requires a per-page token copied from the home page; reproducing that token is
@@ -173,6 +185,94 @@ always be compared with the row it came from.
 
   The hub's safety evidence therefore comes from openFDA/FAERS, OFFSIDES and DDID.
 
+## When several databases give the same relation
+
+Herb→ingredient comes from six sources and ingredient→target from eight. "In how many
+databases is it" looks like a vote but is not one, for six reasons:
+
+1. **The same thing has different ids.** Quercetin is `pubchem:5280343` in ITCM and
+   BATMAN, an InChIKey in TM-MC, `HBIN041495` in HERB and `SMIT…` in SymMap. TNF is a
+   symbol, an Entrez id, a UniProt accession or an Ensembl protein.
+2. **Databases copy each other.** ITCM integrates TCMSP, SymMap, TCMID and ETCM; HERB
+   lists the upstream of each target (`via TTD; STITCH`); BATMAN's known targets come from
+   HIT, DrugBank, KEGG or TTD. Five databases repeating one TCMSP row are one source.
+3. **The rows are different kinds of claim.** An experiment in a paper, a curated
+   listing, an integration of other databases, a text co-mention, a model prediction and
+   a pharmacovigilance signal are not interchangeable, and many of one kind do not make
+   one of another.
+4. **Absence is not denial.** A database that never covers 黄芪 says nothing about it; a
+   database that covers 黄芪 and lists 80 other ingredients but not this one is *silent*.
+5. **Names collide.** One name can resolve to two compounds; 黄芪 and 炙黄芪 are
+   different materia medica.
+6. **Formulas have versions.** BATMAN lists 13 records named 补中益气汤 with different
+   herbs; pooling them gave a "formula" of 58 herbs.
+
+`tcmdb.consensus` handles them in this order:
+
+| Step | What it does |
+| --- | --- |
+| Unify ids | Compounds to an InChIKey (via HERB's and TM-MC's CID↔InChIKey tables), genes to a symbol, herbs to a materia medica entry (Chinese, Latin or pinyin); a processed form stays separate unless `--merge-processed`. A name query is also run under every id it resolves to, so sources that store ids only are reached. |
+| Keep evidence kinds apart | Each assertion keeps its rows by kind: known, reported, listed, aggregated, mentioned, predicted, signal. They are ranked, never summed or upgraded. |
+| Trace lineage | An observed row's lineage is its paper (PMID/DOI/NCT); an integrated row's is the upstreams its note names; a prediction's is its model; a declared "one of A, B, C" is one unit, not three; anything else is the database itself. |
+| Count independent lineages | Units that may share an upstream are joined, and connected components are counted. When in doubt it counts fewer. |
+| Detect copying | A **survey** (`tcmdb survey <kind>`) samples subjects that ≥3 sources cover and measures pairwise Jaccard of their object sets. Pairs at ≥0.5 (with ≥20 objects) form a copy cluster that counts once. The clusters come from the saved survey, not from one query: on a well-studied subject independent sources converge on the truth, and a per-query overlap would mistake that for copying. |
+| Report silence and ambiguity | Each assertion names the sources that cover the subject but lack the object. Names that resolve to several entities are listed, not merged. |
+| Compare versions | Formulas are compared version by version (`tcmdb compare formula_herb 补中益气汤`), never pooled. |
+
+Each assertion ends in one **support class**, from the best evidence it has:
+
+| Class | Meaning |
+| --- | --- |
+| independently_replicated | observed (known/reported) in ≥2 independent lineages |
+| documented | observed in one lineage |
+| integrated | only listed or aggregated rows, however many databases |
+| mentioned | only text co-mention |
+| predicted | only model predictions |
+| signal | only pharmacovigilance disproportionality |
+
+Scores (BATMAN's model score, SymMap's IES, a PRR) are kept per source and never
+combined: they measure different things on different scales.
+
+**On the local data (2026-10-01/02):**
+
+| Query | Assertions | In ≥2 databases | independently_replicated | documented | integrated | mentioned | predicted |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| quercetin (`pubchem:5280343`) → targets, 8 sources | 4,451 | 3,556 | 215 | 378 | 3,749 | 33 | 76 |
+| 黄芪 → ingredients (6 sources) | 862 | 196 | 80 | 114 | 492 | 176 | – |
+
+Counting databases would call 3,556 quercetin targets "confirmed by several databases";
+215 have independent observations behind them. On one query, ITCM and TM-MC agree at
+Jaccard 0.82 for quercetin. Across 300 sampled compounds the survey puts them at 0.31,
+so most of that agreement is convergence, not copying. For herb→ingredient, BATMAN 2.0
+and ITCM overlap at 0.52 across 300 herbs and are counted as one cluster. 补中益气汤 has
+15 versions (13 BATMAN, HERB, TM-MC), and similar versions agree at Jaccard 0.5–0.8.
+
+**What remains judgment.** The Jaccard threshold and the sampling frame are choices. With
+`--min-sources 2` the measured overlaps drop, so copy detection is a diagnostic to read,
+not a proof; the threshold and the survey date are reported with every result.
+Declared lineages (BATMAN, ITCM) come from the databases' own papers. When a lineage is
+unknown, the row counts as its own database, which can overcount; the copy survey is the
+check on that.
+
+```bash
+python -m bioagent.cli tcmdb enrich 黄芪                     # SymMap + HERB per-entity queries, cached
+python -m bioagent.cli tcmdb survey herb_ingredient          # copy clusters, saved
+python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪 --min-support documented
+python -m bioagent.cli tcmdb compare formula_herb 补中益气汤
+```
+
+<!-- zh -->
+**同一类关系，多个数据库都有时怎么办（中文摘要）**：数据库条数不是票数。
+
+- **先统一 ID**：化合物统一到 InChIKey，基因统一到符号，药材统一到本草条目；炮制品默认单列。
+- **证据类型分开，不相加、不升级**：实验/文献、收录、整合、共现、预测、信号，各算各的。
+- **按独立来源计数，不按数据库计数**：沿着每行的来源（论文、上游库、模型）追溯谱系；“A、B、C 之一”只算一个；可能同源的就合并。
+- **抄录检测**：用全局抽样调查判断哪些库互相复制（Jaccard ≥ 0.5），而不是用单次查询的重叠。单次查询里，对研究充分的对象，独立来源本来就会趋同。
+- **区分“没收录”和“收录了却没有”**；重名不合并；方剂按版本比较，不合并。
+- **分数保留在各自来源上，不合成**。
+
+最终每条关系落到一个支持等级。以槲皮素为例：3,556 个靶点“出现在 ≥2 个库”，但有独立观察支持的只有 215 个。
+
 ## Licences
 
 Most of these databases state **no data licence**: HERB, SymMap, ITCM, TM-MC, TCMIO,
@@ -212,7 +312,7 @@ The table is generated from `bioagent/data/tcm_source_catalog.json`, which is al
 | 10 | HIT 1.0 | M2 | unreachable | – | Host defaced ('Hacked By ...'); treat as compromised and do not fetch from it. |
 | 11 | dbPTH 1.0 | M2 | snapshot | `dbpth` | Large, free bulk text/SQL files; no API. |
 | 12 | PharmMapper | M2 | restricted | – | Only an asynchronous email job service; no API or data dump - must be run manually per compound. |
-| 13 | HERB 2.0 | M3, M10 | snapshot | `herb2` | Static TSV files downloadable without login; relation pairs need undocumented POST API. |
+| 13 | HERB 2.0 | M3, M10 | live API + snapshot | `herb_api` / `herb2` | Static TSV entity files; relations per entity from the JSON post HERB's own pages send (wrapped on the owner's decision, 1 req/s, cached). |
 | 14 | HERB 1.0 | M3 | snapshot | `herb1` | Use V1 TSVs from HERB 2.0 host; herb.ac.cn's own download endpoint is disabled. |
 | 15 | ETCM v2.0 | M3, M4 | unreachable | – | Only static SPA shell reachable; all data come from :18124 which times out from this egress (would be web_export/undocumented API elsewhere). |
 | 16 | TCMID 2.0 | M3 | unreachable | – | Origin times out; only a tiny unofficial herb table on Zenodo; TCMID ids survive as cross-refs in HERB 2.0/ITCM. |
@@ -226,7 +326,7 @@ The table is generated from `bioagent/data/tcm_source_catalog.json`, which is al
 | 24 | TCMKD | M4, M5 | restricted | – | Login/registration required; origin blocks this egress. |
 | 25 | 古今医案云平台/方剂数据库 | M4 | restricted | – | Only aggregate stats public; case content requires login + CAPTCHA. |
 | 26 | 中国中医药数据库(CINTCM/CINTMED) | M4 | restricted | – | Login + fee schedule; no export/API. |
-| 27 | SymMap v2 | M5 | snapshot | `symmap2` | Entity xlsx files are freely downloadable; associations need the undocumented POST endpoint or HTML. |
+| 27 | SymMap v2 | M5 | live API + snapshot | `symmap` / `symmap2` | Entity xlsx files; associations per entity from the form post SymMap's own detail pages send (wrapped on the owner's decision, 1 req/s, cached). |
 | 28 | DCABM-TCM | M6 | live API + snapshot | `dcabm_tcm` / `dcabm` | Documented JSON query API for prescription/herb/ingredient blood exposure plus a structure file dump. |
 | 29 | MRTCM | M7 | unreachable | – | No public site found; only the paper (and possibly its supplementary tables) is usable. |
 | 30 | HIM数据库 | M7 | unreachable | – | Domain no longer resolves; only paper supplementary data could be used. |

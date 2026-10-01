@@ -146,7 +146,18 @@ python -m bioagent.cli tcmdb sources --module M2          # 某个模块的数�
 python -m bioagent.cli tcmdb fetch itcm && python -m bioagent.cli tcmdb build itcm
 python -m bioagent.cli tcmdb relations herb_ingredient --subject 黄芪
 python -m bioagent.cli tcmdb live dcabm_tcm herb_blood names='["HUANG QI"]'
+python -m bioagent.cli tcmdb enrich 黄芪                  # 按需查询 SymMap、HERB 的该药材关系（缓存，1 次/秒）
+python -m bioagent.cli tcmdb survey herb_ingredient       # 抽样估计各库之间的抄录关系，保存结果
+python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪   # 多库对账：统一 ID、按独立来源计数
+python -m bioagent.cli tcmdb compare formula_herb 补中益气汤          # 方剂按版本比较
 ```
+
+When several databases give the same relation, `tcmdb consensus` counts independent
+lineages rather than databases and keeps evidence kinds apart. See "When several
+databases give the same relation" in the data-sources document.
+
+<!-- zh -->
+多个数据库给出同一类关系时，`tcmdb consensus` 按独立来源而不是按数据库个数计数，并且不混合证据类型。见数据源文档中的“When several databases give the same relation”一节。
 
 See [docs/tcm-data-sources.md](docs/tcm-data-sources.md) for every source, what was found
 on its site, and why it is wrapped the way it is.
