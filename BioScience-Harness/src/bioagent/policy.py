@@ -337,6 +337,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
             "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
             "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # genetics: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # MaveDB's API; IMPC's Solr and both datasets' files are on ebi.ac.uk and
+            # ftp.ebi.ac.uk above; the eQTL Catalogue's metadata tables are on GitHub.
+            "api.mavedb.org", "raw.githubusercontent.com",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
