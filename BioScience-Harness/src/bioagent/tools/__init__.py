@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
 from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
-               stats, survival, tcm, variants)
+               spatial, stats, survival, tcm, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -37,6 +37,7 @@ DOMAINS: Mapping[str, str] = {
     "clinical-calculators": "clinical", "pharmacology": "clinical",
     "survival-analysis": "clinical", "population-genetics": "genomics",
     "phylogenetics": "genomics", "tcm-knowledge": "clinical",
+    "spatial-transcriptomics": "spatial",
 }
 
 
@@ -123,6 +124,10 @@ _OBO = ("format-version: 1.2\nontology: go\n\n[Term]\nid: GO:0008150\nname: biol
         "[Term]\nid: GO:0009987\nname: cellular process\nnamespace: biological_process\n"
         "def: \"Any process carried out at the cellular level.\" [GOC:go_curators]\n"
         "synonym: \"cell process\" EXACT []\nis_a: GO:0008150 ! biological_process\n")
+
+_GRID = [[float(x), float(y)] for y in range(6) for x in range(6)]
+_GRADIENT = [p[0] for p in _GRID]
+_HALVES = ["left" if p[0] < 3 else "right" for p in _GRID]
 
 TOOLS: tuple[NativeTool, ...] = (
     # ------------------------------------------------------------- sequences
@@ -461,6 +466,15 @@ TOOLS: tuple[NativeTool, ...] = (
     _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence"),
     _t("tcm_classical_search", tcm.tcm_classical_search, "tcm-knowledge", {"query": "桂枝汤主之"},
        "tcm", "classics", "search"),
+    # ------------------------------------------------- spatial transcriptomics
+    _t("spatial_neighbors", spatial.spatial_neighbors, "spatial-transcriptomics",
+       {"coords": _GRID, "k": 4}, "spatial", "graph", "visium"),
+    _t("spatial_morans_i", spatial.spatial_morans_i, "spatial-transcriptomics",
+       {"coords": _GRID, "values": _GRADIENT, "k": 4}, "spatial", "autocorrelation",
+       "spatially-variable-genes"),
+    _t("spatial_neighborhood_enrichment", spatial.spatial_neighborhood_enrichment,
+       "spatial-transcriptomics", {"coords": _GRID, "labels": _HALVES, "k": 4, "n_perms": 100},
+       "spatial", "neighbourhood", "co-localisation"),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}

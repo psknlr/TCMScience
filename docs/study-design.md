@@ -338,7 +338,7 @@ It reads only the public sample metadata.
 | Route | Status |
 | --- | --- |
 | Cell composition vs state | **Run** on GSE250498: no composition shift passes FDR per patient; state vs composition for inflammation genes not resolvable with 4 controls |
-| Spatial neighbourhood | Implemented and tested. The GSE250498 spatial subseries is not yet read |
+| Spatial neighbourhood | Per-patient comparison implemented; a processed-data spatial workflow (`bioagent.spatial`) is validated on public Visium data against Squidpy ([spatial-transcriptomics.md](spatial-transcriptomics.md)). The GSE250498 spatial subseries is not yet read |
 | Inflammation vs repair | **Run** on GSE73661: residual change is mostly unresolved inflammation |
 | Tissue-specific genetic targets | Contract and gate only; needs eQTL and colocalisation inputs |
 | Splicing / isoforms | Contract and gate only (3'-tag data flagged) |

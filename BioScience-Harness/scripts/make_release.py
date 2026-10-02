@@ -69,7 +69,7 @@ REQUIRED_PACKAGES = (
     "bioagent.runtime",
     "bioagent.sources",
     "bioagent.sources.parsers",
-    "bioagent.studies",
+    "bioagent.studies", "bioagent.spatial",
     "bioagent.skills",
     "bioagent.skills.p0",
     "bioagent.tools",

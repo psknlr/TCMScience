@@ -412,6 +412,27 @@ broken pairing, or two formulas sharing a name. See `docs/study-design.md`.
 
 ---
 
+## Spatial transcriptomics on processed data · 处理后数据的空间转录组分析
+
+```bash
+pip install -e "BioScience-Harness[spatial]"          # optional h5py: 10x HDF5 and .h5ad
+cd BioScience-Harness
+python -m bioagent.spatial --config run.yaml --out results/
+```
+
+`run.yaml` lists sections (`path`, `section_id`, `sample_id`, `subject_id`, `condition`).
+Inputs are Space Ranger outputs (Visium, or one Visium HD bin directory) or an `.h5ad`
+with `obsm['spatial']` and raw counts. Inputs that cannot be spatial (no positions,
+inconsistent scale factors, coordinates off the image, UMAP instead of tissue) are
+refused with the reason. From Python, `bioagent.spatial.runner.run_isolated` runs the
+analysis in a separate interpreter with a timeout and memory limit and returns only the
+summary and output paths. See `docs/spatial-transcriptomics.md`.
+
+<!-- zh -->
+输入为 Space Ranger 输出（Visium，或 Visium HD 的某一个分箱目录），或带 `obsm['spatial']` 和原始计数的 `.h5ad`。不能用于空间分析的输入（缺坐标、比例因子不一致、坐标超出图像、用 UMAP 代替组织坐标）会直接报错并说明原因。在 Python 中，`run_isolated` 在独立解释器中运行分析并施加超时和内存限制，只返回摘要和结果路径。详见 `docs/spatial-transcriptomics.md`。
+
+---
+
 ## Troubleshooting · 故障排查
 
 | Symptom | Cause |

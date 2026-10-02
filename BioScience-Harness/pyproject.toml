@@ -23,6 +23,12 @@ dependencies = ["pandas>=2.0", "pyarrow>=14.0", "pyyaml>=6.0"]
 dev = ["pytest>=7.0", "build>=1.0", "openpyxl>=3.1"]
 # Reading the formula table (中医方剂数据表.xlsx).
 formulas = ["openpyxl>=3.1"]
+# Spatial transcriptomics: the core (Matrix Market input, all statistics) needs numpy
+# only; h5py adds the 10x HDF5 and .h5ad readers and the .h5ad output.
+spatial = ["h5py>=3.8"]
+# Only for scripts/crosscheck_spatial_squidpy.py, which re-computes the statistics with
+# the reference implementations. Not needed to run an analysis.
+spatial-crosscheck = ["h5py>=3.8", "scanpy>=1.10", "squidpy>=1.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

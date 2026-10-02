@@ -1,0 +1,16 @@
+capability,catalogue_component_id,status_here,implemented_by,what_is_missing
+processed Visium / Visium HD bin / spatial .h5ad reading with checks,,implemented and validated,bioagent.spatial.io (read_visium; read_h5ad_spatial),Visium HD validated on synthetic bins only; Xenium / CosMx / MERFISH / Stereo-seq readers absent
+spot QC and normalisation; variable genes; PCA; expression clusters; markers,,implemented and validated,bioagent.spatial.qc + bioagent.spatial.expression,Leiden/Louvain clustering absent (k-means on PCs)
+spatial neighbour graph per section (grid / kNN / radius),,implemented and validated against Squidpy,bioagent.spatial.graph; native.tool.spatial_neighbors,
+Moran's I spatially variable genes,,implemented and validated against Squidpy,bioagent.spatial.statistics.morans_i; native.tool.spatial_morans_i,Geary's C and SPARK-X / nnSVG absent
+neighbourhood enrichment,,implemented and validated against Squidpy,bioagent.spatial.statistics.neighbourhood_enrichment; native.tool.spatial_neighborhood_enrichment,co-occurrence curves and Ripley statistics absent
+per-patient neighbourhood comparison between conditions,,implemented (simulation-tested),bioagent.studies.spatial.compare_neighbourhoods,no public multi-patient spatial cohort run yet
+isolated execution with timeout and memory limit,,implemented,bioagent.spatial.runner.run_isolated; SubprocessBackend(python=; memory_mb=); ContainerBackend mounts,container path untested on a live runtime (none on this machine)
+single-cell reference to spatial mapping,pantheonos.skill.single-cell-to-spatial-mapping,not implemented,,needs Tangram / Cell2location environment and a matched reference
+cell-type deconvolution (Cell2location / Tangram),pantheonos.skill.spatial-cell-type-deconvolution-cell2location-tangram,not implemented,,needs Cell2location (GPU recommended) and a reference; output is a model estimate of abundance
+cell-cell interaction (Spateo LR),pantheonos.skill.spatial-cell-cell-interaction-spateo-lr,not implemented,,ligand-receptor inference; results would be labelled inferred
+3D slice alignment (Spateo),pantheonos.skill.spatial-3d-slice-alignment-spateo,not implemented,,registration; until then sections are never joined
+spatial signal / boundary analysis,pantheonos.skill.spatial-signal-boundary-analysis,not implemented,,spatial domain detection (expression clusters are not domains)
+3D visualisation and LiveViews,pantheonos.skill.3d-spatial-data-visualization;pantheonos.skill.3d-spatial-transcriptomics-liveview;pantheonos.skill.3d-volume-mip-iso-liveview;pantheonos.skill.view-bioimages-with-the-viv-liveview,not implemented,,interactive viewers; static SVG tissue plots only
+nf-core spatial pipelines (raw data),pantheonos.skill.nf-core-spatial-omics-pipelines,not implemented,,raw sequencing / image processing is out of scope
+DeepSpot (expression from histology),k-dense.skill.deepspot-m,not implemented,,predicted expression would be labelled predicted (OmicsArtifact provenance)

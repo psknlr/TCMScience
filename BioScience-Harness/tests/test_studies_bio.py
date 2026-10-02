@@ -515,7 +515,7 @@ def test_workspace_layout_and_verification(tmp_path):
 
 
 def test_study_skills_are_consistent():
-    assert len(STUDY_SKILLS) == 8
+    assert len(STUDY_SKILLS) == 9
     for s in STUDY_SKILLS.values():
         assert s.question_type in QUESTION_TYPES and s.id.startswith("bio.")
     assert not skill("bio.isoform-context").implemented

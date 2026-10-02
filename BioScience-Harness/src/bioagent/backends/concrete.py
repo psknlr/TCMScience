@@ -155,9 +155,27 @@ class SubprocessBackend(Backend):
     backend = "subprocess"
 
     def __init__(self, project_roots: dict[str, Path] | None = None,
-                 timeout_s: float = 120.0) -> None:
+                 timeout_s: float = 120.0, *, python: str | None = None,
+                 memory_mb: int | None = None, env: dict[str, str] | None = None) -> None:
+        """``python``: the interpreter of the analysis environment (default: this one).
+        ``memory_mb``: address-space limit for the child (POSIX). ``env``: the child's
+        environment (default: inherited). The 120 s default suits quick calls; analysis
+        components pass a longer ``timeout_s``."""
         self.project_roots = {k: Path(v) for k, v in (project_roots or {}).items()}
         self.timeout_s = timeout_s
+        self.python = python or sys.executable
+        self.memory_mb = memory_mb
+        self.env = dict(env) if env is not None else None
+
+    def _preexec(self):
+        if self.memory_mb is None or not hasattr(__import__("os"), "fork"):
+            return None
+        limit = int(self.memory_mb) * 1024 * 1024
+
+        def apply():
+            import resource
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        return apply
 
     @staticmethod
     def _code_for(manifest: ComponentManifest, arguments: dict) -> str:
@@ -186,8 +204,9 @@ class SubprocessBackend(Backend):
             kwargs = {}
         try:
             proc = subprocess.run(  # noqa: S603
-                [sys.executable, "-I", "-c", code], cwd=str(root),
-                capture_output=True, text=True, timeout=self.timeout_s, check=False)
+                [self.python, "-I", "-c", code], cwd=str(root),
+                capture_output=True, text=True, timeout=self.timeout_s, check=False,
+                env=self.env, preexec_fn=self._preexec())
         except subprocess.TimeoutExpired:
             return self._result(manifest, ExecutionStatus.TIMEOUT, t0,
                                 error=f"timed out after {self.timeout_s}s")
@@ -296,12 +315,17 @@ class ContainerBackend(Backend):
             return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
                                 error=self.unavailable_reason())
         timeout_s = kwargs.pop("timeout_s", 300)
+        try:
+            extra = self._mount_args(kwargs.pop("mounts", ())) + \
+                self._resource_args(kwargs.pop("memory", None), kwargs.pop("cpus", None))
+        except ValueError as exc:
+            return self._result(manifest, ExecutionStatus.FAILED, t0, error=str(exc))
         payload = json.dumps({"entrypoint": entrypoint, "arguments": kwargs}, default=str)
         runtime_bin = self.runtime_bin
         if runtime_bin is None:                  # raced with a daemon going away
             return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
                                 error=self.unavailable_reason())
-        cmd = [runtime_bin, "run", "--rm", "--network", "none",
+        cmd = [runtime_bin, "run", "--rm", "--network", "none", *extra,
                "--env", f"BIOAGENT_INVOCATION={payload}", image, *self._argv(entrypoint, kwargs)]
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,  # noqa: S603
@@ -326,6 +350,34 @@ class ContainerBackend(Backend):
             value = {"stdout": out[:4000]}
         return self._result(manifest, status, t0, value=value,
                             error=(None if proc.returncode == 0 else proc.stderr[:1500]))
+
+    @staticmethod
+    def _mount_args(mounts) -> list[str]:
+        """``-v host:container:mode`` per mount. Inputs are read-only unless a mount says
+        ``rw`` (the output directory); host paths must exist and be absolute, and the
+        container path must be absolute, so a typo fails here rather than mounting an
+        empty directory the analysis then reads as "no data"."""
+        args: list[str] = []
+        for m in mounts or ():
+            host, cont = Path(m["host"]), str(m["container"])
+            mode = m.get("mode", "ro")
+            if mode not in ("ro", "rw"):
+                raise ValueError(f"mount mode {mode!r} is 'ro' or 'rw'")
+            if not host.is_absolute() or not host.exists():
+                raise ValueError(f"mount source {host} must be an existing absolute path")
+            if not cont.startswith("/"):
+                raise ValueError(f"mount target {cont!r} must be an absolute container path")
+            args += ["-v", f"{host}:{cont}:{mode}"]
+        return args
+
+    @staticmethod
+    def _resource_args(memory: str | None, cpus: float | str | None) -> list[str]:
+        out: list[str] = []
+        if memory:
+            out += ["--memory", str(memory)]
+        if cpus:
+            out += ["--cpus", str(cpus)]
+        return out
 
     @staticmethod
     def _argv(entrypoint: str, kwargs: dict) -> list[str]:

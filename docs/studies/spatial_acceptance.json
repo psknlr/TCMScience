@@ -1,0 +1,208 @@
+{
+  "dataset": "10x Genomics V1_Human_Lymph_Node (Visium, Space Ranger 1.1.0)",
+  "environment": {
+    "timeout_s": 3600,
+    "memory_mb": 12000
+  },
+  "reproducibility": {
+    "files_compared": 11,
+    "identical": true,
+    "elapsed_s": [
+      48.35,
+      45.21
+    ]
+  },
+  "run": {
+    "spots": 4032,
+    "genes_kept": 19813,
+    "hvg_tested": 2000,
+    "clusters": 10,
+    "spatially_variable_genes_q05": 908,
+    "top_spatially_variable": [
+      {
+        "gene": "IGHG1",
+        "I": 0.7240978491438788
+      },
+      {
+        "gene": "CCL21",
+        "I": 0.7056272194429704
+      },
+      {
+        "gene": "FDCSP",
+        "I": 0.7018875584650988
+      },
+      {
+        "gene": "IGHG2",
+        "I": 0.6564551934399923
+      },
+      {
+        "gene": "MT-CO1",
+        "I": 0.6095252012650286
+      },
+      {
+        "gene": "CR2",
+        "I": 0.5989715261991579
+      },
+      {
+        "gene": "MT-CO3",
+        "I": 0.5871994950577136
+      },
+      {
+        "gene": "MT-CO2",
+        "I": 0.586971506204123
+      },
+      {
+        "gene": "IGLC1",
+        "I": 0.5497376908783764
+      },
+      {
+        "gene": "CXCL13",
+        "I": 0.546019073817757
+      }
+    ],
+    "claim_scope": "within-section description; no between-subject or treatment claim",
+    "graph": {
+      "undirected_edges": 11733,
+      "mean_degree": 5.819940476190476,
+      "isolated_nodes": 3,
+      "degree_counts": {
+        "0": 3,
+        "1": 6,
+        "2": 16,
+        "3": 72,
+        "4": 143,
+        "5": 112,
+        "6": 3680
+      }
+    }
+  },
+  "qc": {
+    "spots_in": 4035,
+    "spots_kept": 4032,
+    "removed_by": {
+      "low_counts": 3,
+      "low_genes": 2,
+      "high_mt": 0
+    },
+    "mt_genes_found": 13,
+    "total_counts": {
+      "n": 4035,
+      "min": 23.0,
+      "p5": 10017.5,
+      "median": 20239.0,
+      "p95": 33411.899999999994,
+      "max": 54931.0
+    },
+    "n_genes": {
+      "n": 4035,
+      "min": 23.0,
+      "p5": 3893.7000000000003,
+      "median": 5999.0,
+      "p95": 7534.299999999999,
+      "max": 9168.0
+    },
+    "pct_mt": {
+      "n": 4035,
+      "min": 0.0,
+      "p5": 0.7331333360944841,
+      "median": 0.9893129770992366,
+      "p95": 2.6418103868237433,
+      "max": 5.4101221640488655
+    }
+  },
+  "input_checks": [
+    {
+      "check": "in_tissue",
+      "spots": 4035,
+      "not_in_tissue": 0
+    },
+    {
+      "check": "spot_spacing",
+      "nn_distance_px": 137.00364958642524,
+      "spot_diameter_px": 89.48996643177776,
+      "ratio": 1.5309386632843283,
+      "expected": 1.8181818181818181
+    },
+    {
+      "check": "hex_parity",
+      "violations": 0
+    },
+    {
+      "check": "image_bounds",
+      "image_px": [
+        1921,
+        2000
+      ],
+      "fullres_extent": [
+        11292.598697959254,
+        11757.000206100212
+      ],
+      "outside": 0
+    }
+  ],
+  "h5_vs_mex": {
+    "identical_tables": true,
+    "inputs_differ": true
+  },
+  "refusals": {
+    "barcodes_without_positions": "5 of 4035 expression barcodes have no tissue position (e.g. [np.str_('AAACGGGTTGGTATCC-1'), np.str_('CTTCGTGCCCGCATCG-1'), np.str_('GACGGGATGTCTTATG-1')]): expression and positions do not describe the",
+    "spot_diameter_doubled": "spot spacing (137.0 px) is 0.77 spot diameters; Visium spots are 1.82 diameters apart, so the scale factors or the coordinates do not belong together",
+    "hires_scale_tripled": "3781 spots fall outside the tissue image under the recorded tissue_hires_scalef 0.51033426",
+    "no_spatial_folder": "/tmp/claude-0/accept/no_spatial has no spatial/ directory: expression without tissue positions cannot be analysed spatially"
+  },
+  "shuffled_positions_control": {
+    "svg_q05_true": 908,
+    "svg_q05_shuffled": 1,
+    "max_I_true": 0.724098,
+    "max_I_shuffled": 0.0444435
+  },
+  "graph_is_tissue_grid": {
+    "modal_degree": 6
+  },
+  "section_isolation": {
+    "edges_two_copies": 23466,
+    "edges_single": 11733,
+    "edges_exactly_doubled": true,
+    "max_abs_I_difference_vs_single": 1.4999999999987246e-05,
+    "genes_compared": 1936
+  },
+  "squidpy_crosscheck": {
+    "versions": {
+      "anndata": "0.12.19",
+      "scanpy": "1.11.5",
+      "squidpy": "1.8.2"
+    },
+    "h5ad_opens_with_anndata": true,
+    "shape": [
+      4032,
+      19813
+    ],
+    "reading": {
+      "spots_compared": 4032,
+      "max_abs_coordinate_difference_px": 0.0,
+      "max_abs_total_counts_difference": 0.0
+    },
+    "graph": {
+      "edges_ours": 23466,
+      "edges_squidpy": 23466,
+      "only_ours": 0,
+      "only_squidpy": 0
+    },
+    "morans_i": {
+      "genes": 2000,
+      "max_abs_difference": 4.990144961691811e-07,
+      "pearson_r": 0.9999999999993011,
+      "top100_overlap": 100,
+      "genes_with_positive_z": 1594,
+      "max_abs_p_difference_positive_z": 5.369009560829419e-07
+    },
+    "nhood_enrichment": {
+      "clusters": 9,
+      "pairs_compared": 80,
+      "pairs_without_z": 1,
+      "pearson_r_z": 0.9997532420736079,
+      "max_abs_z_difference": 2.14967559899479,
+      "sign_agreement": 1.0
+    }
+  }
+}

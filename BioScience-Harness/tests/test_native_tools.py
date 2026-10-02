@@ -38,7 +38,7 @@ def test_every_tool_is_deterministic(native):
 
 def test_the_provider_yields_valid_offline_python_components():
     manifests = list(NativeToolProvider().discover())
-    assert len(manifests) == len(TOOLS) == 147
+    assert len(manifests) == len(TOOLS) == 150
     for m in manifests:
         assert m.validate() == []
         assert m.runtime.backend == "python" and m.runtime.deterministic

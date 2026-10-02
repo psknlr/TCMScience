@@ -55,6 +55,17 @@ STUDY_SKILLS = {s.id: s for s in (
                 "validation.grouped_cv"), "validated_association",
                ("sample-level splits", "windows chosen after seeing results",
                 "skill claimed without beating persistence")),
+    StudySkill("bio.spatial-transcriptomics", "spatial_neighbourhood",
+               ("processed Visium / Visium HD bin output or an .h5ad with obsm['spatial'] and "
+                "raw counts", "section, sample and subject identifiers per input"),
+               ("spatial.runner.run_isolated", "spatial.io.read_visium",
+                "spatial.qc.apply_qc", "spatial.expression", "spatial.graph.build_graph",
+                "spatial.statistics.morans_i", "spatial.statistics.neighbourhood_enrichment",
+                "studies.spatial.compare_neighbourhoods"), "exploratory",
+               ("an .h5ad without tissue coordinates", "UMAP or other embeddings as positions",
+                "edges between unregistered sections", "spots or cells as replicates in a "
+                "between-condition comparison", "expression clusters reported as spatial "
+                "domains", "deconvolution or communication results without their method")),
     StudySkill("bio.genetic-triangulation", "genetic_target",
                ("tissue/cell-type QTL summary statistics", "GWAS summary statistics"),
                (), "association",
