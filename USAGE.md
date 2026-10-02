@@ -120,6 +120,55 @@ example.
 <!-- zh -->
 如果某个技能申请的权限是 envelope 并不持有的，`compile_skill` 会**拒绝**它（`SKILL101`），而不是悄悄裁掉——一次悄悄的裁剪，会把一个申报有误的技能变成一个莫名其妙失败的技能。你需要从 `psh.policy.PolicySnapshot` 取得 `envelope`；完整示例见 `tests/test_skill_compiler.py`。
 
+### The TCM data hub · 中医药数据中枢
+
+The 66 databases of the TCM agent architecture, and 67 more added from a review (sample
+chemistry, mechanisms, perturbation, genetics, safety, immunology, imaging), are catalogued
+in `bioagent.tcmdb`, each with the way it can be reached:
+- **live API**: called through the governed runtime;
+- **snapshot**: downloaded once and queried locally;
+- **manual import**: a person exports the files;
+- **restricted** or **unreachable**: the catalogue records why.
+
+The downloaded databases are reduced to one relation shape (herb→ingredient,
+ingredient→target, formula→herb, …), with the evidence kind kept on every row.
+
+<!-- zh -->
+中医药智能体架构文档中的 66 个数据库，以及按审阅意见补充的 67 个来源（样品化学、作用机制、扰动、遗传、安全性、免疫、影像），都登记在 `bioagent.tcmdb` 里，每个都注明了接入方式：
+- **在线 API**：经受控运行时调用；
+- **快照**：下载一次，在本地查询；
+- **人工导入**：由人导出文件后读入；
+- **受限**或**不可达**：目录里写明原因。
+
+已下载的数据库统一成一种关系格式（药材→成分、成分→靶点、方剂→药材……），每一行都保留证据类型。
+
+```bash
+python -m bioagent.cli tcmdb sources --module M2          # 某个模块的数据源及其接入方式
+python -m bioagent.cli tcmdb fetch itcm && python -m bioagent.cli tcmdb build itcm
+python -m bioagent.cli tcmdb relations herb_ingredient --subject 黄芪
+python -m bioagent.cli tcmdb live dcabm_tcm herb_blood names='["HUANG QI"]'
+python -m bioagent.cli tcmdb enrich 黄芪                  # 按需查询 SymMap、HERB 的该药材关系（缓存，1 次/秒）
+python -m bioagent.cli tcmdb survey herb_ingredient       # 抽样估计各库之间的抄录关系，保存结果
+python -m bioagent.cli tcmdb consensus herb_ingredient --subject 黄芪   # 多库对账：统一 ID、按独立来源计数
+python -m bioagent.cli tcmdb compare formula_herb 补中益气汤          # 方剂按版本比较
+python -m bioagent.cli tcmdb check all                    # 验收：文件非 HTML、重建一致、标签合法、许可、待消歧数
+python -m bioagent.cli tcmdb relations regulation --subject symbol:EGFR --commercial   # 只返回允许商用的行
+python -m bioagent.cli tcmdb relations compound_assay --outcome negative  # 只看“测试阴性”
+```
+
+When several databases give the same relation, `tcmdb consensus` counts independent
+lineages rather than databases and keeps evidence kinds apart. See "When several
+databases give the same relation" in the data-sources document.
+
+<!-- zh -->
+多个数据库给出同一类关系时，`tcmdb consensus` 按独立来源而不是按数据库个数计数，并且不混合证据类型。见数据源文档中的“When several databases give the same relation”一节。
+
+See [docs/tcm-data-sources.md](docs/tcm-data-sources.md) for every source, what was found
+on its site, and why it is wrapped the way it is.
+
+<!-- zh -->
+每个数据源的网站检查结果，以及为什么这样接入，见 [docs/tcm-data-sources.md](docs/tcm-data-sources.md)。
+
 ### Asking a research question · 提出一个研究问题
 
 The P0 skills work on the shipped seed corpus. A research question on the source

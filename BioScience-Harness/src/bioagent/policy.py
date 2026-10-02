@@ -327,6 +327,94 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "query.wikidata.org", "api.gbif.org",
             # v2.5 bulk natural-product and reference datasets (acquisition layer)
             "bidd.group", "npatlas.org", "zenodo.org",
+            # TCM connectors and datasets, each checked from the harness on 2026-10-01
+            # (docs/tcm-data-sources.md): live query endpoints ...
+            "batman2api.cloudna.cn", "bionet.ncpsb.org.cn", "tcmbank.cn",
+            "itcm.biotcm.net", "ttd.idrblab.cn", "query-api.iedb.org", "huggingface.co",
+            "api.figshare.com",
+            # ... and download hosts (bioagent.tcmdb)
+            "47.92.70.12", "symmap.org", "batman2.cloudna.cn", "tm-mc.kr",
+            "tcmio.xielab.net", "bddg.hznu.edu.cn", "s3.immport.org", "iedb.org",
+            "tatonettilab-resources.s3.amazonaws.com", "dbpth.biocuckoo.cn", "figshare.com",
+            "fis.fda.gov", "download.open.fda.gov", "nlmpubs.nlm.nih.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: natural
+            # products and plant names (providers.supplement.tcm_np, tcmdb.extra.tcm_np);
+            # live query endpoints ...
+            "coconut.naturalproducts.net", "www.knapsackfamily.com",
+            # ... and download hosts (zenodo.org, above, serves the WFO Plant List)
+            "coconut.s3.uni-jena.de", "cb.imsc.res.in",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01:
+            # TCM safety download hosts (TCMToxDB, MIBiG, gutMGene, EMA herbal index)
+            "www.sdu-idea.cn", "dl.secondarymetabolites.org",
+            "bio-computing.hrbmu.edu.cn", "www.ema.europa.eu",
+            # ... and TCM safety live look-ups (MIBiG entries, PhytoHub compounds)
+            "mibig.secondarymetabolites.org", "phytohub.eu",
+            # genetics: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # MaveDB's API; IMPC's Solr and both datasets' files are on ebi.ac.uk and
+            # ftp.ebi.ac.uk above; the eQTL Catalogue's metadata tables are on GitHub.
+            "api.mavedb.org", "raw.githubusercontent.com",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01 -- safety:
+            # AOP-Wiki and Orphadata live look-ups; ToxCast (EPA Clowder), AOP-Wiki,
+            # Orphadata and NHANES downloads
+            "aopwiki.org", "api.orphadata.com", "www.orphadata.com",
+            "clowder.edap-cluster.com", "wwwn.cdc.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: spectra and
+            # metabolomics (providers.supplement.spectra, tcmdb.extra.spectra). The
+            # Metabolomics Workbench robots.txt disallows all crawling: only its documented
+            # REST API is used, per entity.
+            "massbank.eu", "external.gnps2.org", "metabolomics-usi.gnps2.org",
+            "explorer.gnps2.org", "massive.ucsd.edu", "www.metabolomicsworkbench.org",
+            "np-mrd.org",
+            # chemical identity, reactions, kinetics, id mapping and food composition
+            # (providers.supplement.chem_onto, tcmdb.extra.chem_onto). ChEBI's API and
+            # files are on ebi.ac.uk / ftp.ebi.ac.uk, already listed.
+            "rhea-db.org", "ftp.expasy.org", "sabiork.h-its.org", "metanetx.org",
+            "fdc.nal.usda.gov",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: RNA,
+            # regulation and protein modification (providers.supplement.rna_reg,
+            # tcmdb.extra.rna_reg)
+            "disprot.org", "rnacentral.org", "chip-atlas.org", "chip-atlas.dbcls.jp",
+            "remap.univ-amu.fr", "research.bioinformatics.udel.edu", "awi.cuhk.edu.cn",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: atlases
+            # (HCA Azul, HuBMAP search/entity/portal/ontology APIs, 4DN portal and its
+            # AWS Open Data bucket; BioSamples is on www.ebi.ac.uk, covered above)
+            "service.azul.data.humancellatlas.org", "search.api.hubmapconsortium.org",
+            "entity.api.hubmapconsortium.org", "portal.hubmapconsortium.org",
+            "ontology.api.hubmapconsortium.org", "data.4dnucleome.org",
+            "4dn-open-data-public.s3.amazonaws.com",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs.
+            # Live connectors (providers.supplement.drugs): the DrugCentral API runs on an
+            # App Runner host, listed exactly (never the shared awsapprunner.com suffix) ...
+            "uxn2ycvimg.us-east-2.awsapprunner.com", "pharmacodb.ca", "pharos-api.ncats.io",
+            # ... and download hosts (tcmdb.extra.drugs; zenodo.org is listed above)
+            "unmtid-dbs.net", "drugcentral.org", "cog.sanger.ac.uk",
+            "opendata.ncats.nih.gov",
+            # pharmacogenomics and protein families (providers.supplement.pgx_proteins,
+            # tcmdb.extra.pgx_proteins); live APIs ...
+            "api.cpicpgx.org", "gpcrdb.org", "klifs.net", "www.proteomicsdb.org",
+            # ... and download hosts (api.clinpgx.org answers 303 to s3.pgkb.org)
+            "files.cpicpgx.org", "api.clinpgx.org", "s3.pgkb.org", "www.pharmvar.org",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: mechanism
+            # (IntAct/Complex Portal on www.ebi.ac.uk and ftp.ebi.ac.uk, both covered by
+            # "ebi.ac.uk" above; SIGNOR; JASPAR; BioGRID and ORCS downloads)
+            "signor.uniroma2.it", "jaspar.elixir.no", "downloads.thebiogrid.org",
+            # supplementary sources (review of 2026-09-30), checked 2026-10-01: cells and
+            # perturbations. Cellosaurus API (live) and its documented release file on
+            # ftp.expasy.org; DepMap's CC BY figshare deposits (figshare.com above), LINCS
+            # on the GEO FTP (ncbi.nlm.nih.gov above), scPerturb on Zenodo (above) and the
+            # ARCHS4 version list and HDF5 files (s3.dev -> s3.k8s.maayanlab.cloud)
+            "cellosaurus.org", "ftp.expasy.org", "archs4.org", "maayanlab.cloud",
+            # immune_microbe: supplementary sources (review of 2026-09-30), checked
+            # 2026-10-01. AIRR Data Commons repositories, BV-BRC; MGnify is on
+            # www.ebi.ac.uk and the IEDB exports on www.iedb.org (both covered above).
+            "covid19-1.ireceptor.org", "vdjserver.org", "www.bv-brc.org",
+            # imaging: supplementary sources (review of 2026-09-30), checked 2026-10-01.
+            # Metadata APIs (IDC v3, TCIA NBIA v4 and Collection Manager, IDR, OpenNeuro;
+            # the BioImage Archive goes through www.ebi.ac.uk) and the snapshot hosts
+            # (the idc-index-data wheel on PyPI; IDR exports come from idr.openmicroscopy.org)
+            "api.imaging.datacommons.cancer.gov", "services.cancerimagingarchive.net",
+            "www.cancerimagingarchive.net", "idr.openmicroscopy.org", "openneuro.org",
+            "files.pythonhosted.org",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,

@@ -6,13 +6,14 @@ import hashlib
 import json
 import os
 import shutil
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
 
 def _user_agent() -> str:
     # One definition, in the HTTP backend: the downloader used to carry its own copy of
@@ -23,6 +24,56 @@ def _user_agent() -> str:
 
 
 _UA = _user_agent()
+
+
+def _host_rates() -> dict[str, float]:
+    """Per-host request rates (requests / second) the HTTP backend declares, including
+    each source card's rate and a robots.txt Crawl-delay (``zenodo.org``: 0.1)."""
+    try:
+        from ..backends.http import _default_rates
+    except ImportError:                      # pragma: no cover - partial installs
+        return {}
+    return _default_rates()
+
+
+class _HostPacer:
+    """At least ``1 / rate`` seconds between one request to a host ending and the next
+    one starting, process-wide, so several datasets fetched from one host in a row (or
+    the HEAD and GET of one file) do not run back to back. Hosts without a declared rate
+    get ``default_rps``; loopback hosts are not paced."""
+
+    def __init__(self, default_rps: float = 1.0) -> None:
+        self.default_rps = default_rps
+        self._rates: dict[str, float] | None = None
+        self._last_end: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def interval(self, host: str, rates: Mapping[str, float] | None = None) -> float:
+        if host in ("localhost", "127.0.0.1", "::1", ""):
+            return 0.0
+        if rates is None:
+            if self._rates is None:
+                self._rates = _host_rates()
+            rates = self._rates
+        rps = rates.get(host, self.default_rps)
+        return 1.0 / max(rps, 1e-3)
+
+    def wait(self, host: str, rates: Mapping[str, float] | None = None) -> float:
+        gap = self.interval(host, rates)
+        with self._lock:
+            last = self._last_end.get(host)
+        delay = 0.0 if last is None else max(0.0, last + gap - time.monotonic())
+        if delay > 0:
+            time.sleep(delay)
+        return delay
+
+    def done(self, host: str) -> None:
+        with self._lock:
+            self._last_end[host] = time.monotonic()
+
+
+#: shared by every Downloader in the process
+PACER = _HostPacer()
 
 
 class DownloadError(RuntimeError):
@@ -41,6 +92,29 @@ class DownloadResult:
     from_cache: bool = False
 
 
+class _Paced:
+    """A response that records, when it is closed, that its host's request ended."""
+
+    def __init__(self, resp, host: str) -> None:
+        self._resp, self._host = resp, host
+
+    def __getattr__(self, name):
+        return getattr(self._resp, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        try:
+            exit_ = getattr(self._resp, "__exit__", None)
+            if exit_ is not None:
+                exit_(*exc)
+            else:
+                self._resp.close()
+        finally:
+            PACER.done(self._host)
+
+
 class Downloader:
     """Fetch files into `root` with resume, verification and atomic completion.
 
@@ -51,12 +125,22 @@ class Downloader:
       so an agent cannot trigger a 6 GB pull as a side effect.
     * The environment handed to any subprocess is never consulted here; this
       module makes direct HTTPS calls and reads no credentials.
+    * `min_interval_s` spaces every request this downloader sends (size probes,
+      downloads, retries) at least that many seconds apart, for a host whose
+      robots.txt sets a Crawl-delay.
     """
 
     def __init__(self, root: Path | str, *, timeout_s: float = 60.0, chunk: int = 1 << 20,
                  max_retries: int = 4, size_gate_bytes: int = 512 * 1024 * 1024,
-                 log: Callable[[str], None] | None = None) -> None:
+                 log: Callable[[str], None] | None = None,
+                 rates: Mapping[str, float] | None = None,
+                 min_interval_s: float = 0.0) -> None:
         self.root = Path(root)
+        #: the least time between two requests this downloader sends (a robots.txt
+        #: Crawl-delay); every HEAD, ranged probe, download and retry waits for it. It
+        #: adds to the per-host pacing of ``PACER``; the longer of the two applies.
+        self.min_interval_s = max(0.0, float(min_interval_s))
+        self._last_request: float | None = None
         self.root.mkdir(parents=True, exist_ok=True)
         self.timeout_s = timeout_s
         self.chunk = chunk
@@ -64,8 +148,23 @@ class Downloader:
         self.size_gate_bytes = size_gate_bytes
         self._log = log or (lambda s: None)
         self.manifest_path = self.root / ".downloads.json"
+        #: per-host rates overriding the HTTP backend's (``None``: use those)
+        self.rates = rates
+
+    def _open(self, req: urllib.request.Request):
+        """``urlopen`` paced per host (``PACER``); the pause counts from the end of the
+        previous request to that host, the way a robots.txt Crawl-delay is meant."""
+        host = urllib.parse.urlsplit(req.full_url).hostname or ""
+        PACER.wait(host, self.rates)
+        try:
+            resp = urllib.request.urlopen(req, timeout=self.timeout_s)  # noqa: S310
+        except BaseException:
+            PACER.done(host)                 # a refused request still counts
+            raise
+        return _Paced(resp, host)
 
     # ------------------------------------------------------------------ helpers
+
     @staticmethod
     def _hash(path: Path, algo: str = "sha256") -> str:
         h = hashlib.new(algo)
@@ -74,17 +173,29 @@ class Downloader:
                 h.update(block)
         return f"{algo}:{h.hexdigest()}"
 
+    def _pace(self) -> None:
+        """Wait until `min_interval_s` has passed since this downloader's last request."""
+        if self.min_interval_s and self._last_request is not None:
+            wait = self._last_request + self.min_interval_s - time.monotonic()
+            if wait > 0:
+                self._log(f"waiting {wait:.0f} s (crawl-delay {self.min_interval_s:g} s)")
+                time.sleep(wait)
+        self._last_request = time.monotonic()
+
     def _remote_size(self, url: str) -> int | None:
         """Content-Length via HEAD, falling back to a 1-byte ranged GET."""
         for method, hdrs in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
             try:
+                self._pace()
                 req = urllib.request.Request(url, method=method, headers={"User-Agent": _UA, **hdrs})
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
+                with self._open(req) as r:
                     cr = r.headers.get("Content-Range")
                     if cr and "/" in cr and cr.rsplit("/", 1)[1].isdigit():
                         return int(cr.rsplit("/", 1)[1])
                     cl = r.headers.get("Content-Length")
-                    if cl and cl.isdigit() and method == "HEAD":
+                    # a HEAD answered with length 0 for a generated file (EMA's reports)
+                    # says nothing about the body's size: try the ranged GET instead
+                    if cl and cl.isdigit() and int(cl) > 0 and method == "HEAD":
                         return int(cl)
             except (urllib.error.URLError, OSError):
                 continue
@@ -128,6 +239,9 @@ class Downloader:
             shutil.copyfile(src, part)
             remote_size = src.stat().st_size
         else:
+            # The size probe is kept even when a size is declared: the server's size
+            # must be able to overrule an understated declaration at the gate. PACER
+            # spaces the probe and the GET by the host's interval.
             remote_size = self._remote_size(url)
             # The most pessimistic estimate wins. `expected_bytes or remote_size`
             # took the manifest's declared size in preference to the server's, so
@@ -188,8 +302,9 @@ class Downloader:
             elif have and remote_size and have >= remote_size:
                 return
             try:
+                self._pace()
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=self.timeout_s) as r:  # noqa: S310
+                with self._open(req) as r:
                     if resumed and r.status != 206:
                         have = 0          # server ignored Range: start over
                     mode = "ab" if (resumed and r.status == 206) else "wb"

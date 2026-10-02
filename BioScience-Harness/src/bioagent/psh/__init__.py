@@ -61,6 +61,12 @@ _NEEDS_PSH: dict[str, str] = {
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
     "DeploymentProfile": ".profiles", "PROFILES": ".profiles", "profile_named": ".profiles",
+    # Lost when PR #26 merged main: listed in __all__ but unresolvable, so importing them
+    # (tests/test_tcm_epistemics.py) failed.
+    "DESIGN_FOR_TIER": ".epistemics", "CLAIM_KIND_FOR": ".epistemics",
+    "SUBJECT_FOR_DESIGN": ".epistemics", "TierMapping": ".epistemics",
+    "design_for": ".epistemics", "evidence_type_for": ".epistemics",
+    "claim_type_for": ".epistemics", "licensing_for": ".epistemics",
 }
 
 __all__ = [

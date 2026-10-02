@@ -170,7 +170,7 @@ def test_a_missing_required_source_refuses(tmp_path):
 
 def test_a_snapshot_changed_after_it_was_recorded_is_never_worked_around(tmp_path):
     ledger = _world(tmp_path)
-    _build(tmp_path / "snap", targets_of={0: PROTEINS[:2], 1: [], 2: [], 3: []})
+    _build(tmp_path / "snap", replace=True, targets_of={0: PROTEINS[:2], 1: [], 2: [], 3: []})
     with pytest.raises(ResearchRefused, match="failed verification"):
         _run(tmp_path, ledger)
 
