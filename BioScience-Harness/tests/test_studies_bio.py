@@ -423,11 +423,11 @@ def test_next_visit_against_persistence():
     m, f, o = _visits(signal=True)
     pairs = visit_pairs(m, window=(7, 21))["pairs"]
     r = next_visit_prediction(f, o, pairs, task="continuous", k=5, n_boot=200)
-    assert r["verdict"] == "beats persistence" and r["split"] == "by subject"
+    assert r["verdict"] == "beats both baselines" and r["split"] == "by subject"
     m, f, o = _visits(signal=False, seed=1)
     pairs = visit_pairs(m, window=(7, 21))["pairs"]
     r = next_visit_prediction(f, o, pairs, task="continuous", k=5, n_boot=200)
-    assert r["verdict"] != "beats persistence"
+    assert r["verdict"] != "beats both baselines"
 
 
 def test_match_layers_same_collection():
@@ -521,3 +521,127 @@ def test_study_skills_are_consistent():
     assert not skill("bio.isoform-context").implemented
     with pytest.raises(KeyError):
         skill("bio.unknown")
+
+
+# Regressions from the independent review ---------------------------------------------------
+
+def test_paired_neighbourhoods_compare_each_subject_with_itself():
+    rng = np.random.default_rng(0)
+    per, samples = {}, []
+    for i in range(6):
+        base = rng.normal(0, 3)                 # large between-subject spread
+        for lvl, shift in (("pre", 0.0), ("post", 0.5)):
+            sid = f"S{i}_{lvl}"
+            samples.append(Sample(sid, f"S{i}", "d", condition=lvl))
+            per[sid] = {"log2_ratio": base + shift + rng.normal(0, 0.1)}
+    c = ContrastSpec("p", "condition", "post", "pre", paired=True)
+    r = compare_neighbourhoods(per, CohortManifest(samples), c)
+    assert r["paired"] and r["pairs"] == 6
+    assert r["ci"][0] > 0 and r["p_perm"] <= 0.05
+
+
+def test_next_visit_needs_to_beat_the_mean_too():
+    # low autocorrelation: persistence is a poor baseline, a noise model must not "win"
+    rng = np.random.default_rng(3)
+    samples, feats, outc = [], {}, {}
+    for s in range(40):
+        y = rng.normal()
+        for v in range(6):
+            sid = f"S{s}_v{v}"
+            samples.append(Sample(sid, f"S{s}", "d", attrs={"day": str(v * 14)}))
+            y = 0.2 * y + rng.normal()
+            outc[sid] = y
+            feats[sid] = list(rng.normal(size=3))
+    pairs = visit_pairs(CohortManifest(samples), window=(7, 21))["pairs"]
+    r = next_visit_prediction(feats, outc, pairs, task="continuous", n_boot=200)
+    assert r["persistence"] < r["mean_baseline"]
+    assert r["verdict"] != "beats both baselines"
+
+
+def test_pairing_consistency_with_three_pairs_warns_instead_of_stopping():
+    paired = ContrastSpec("p", "condition", "post", "pre", paired=True)
+    rng = np.random.default_rng(0)
+    ids, feats = [], []
+    for i in range(3):
+        person = rng.normal(size=6) * 3
+        for t in ("pre", "post"):
+            ids.append(f"S{i}_{t}")
+            feats.append(person + rng.normal(0, 0.01, 6))
+    m = CohortManifest(Sample(x, x.split("_")[0], "d", condition=x.split("_")[1]) for x in ids)
+    f = pairing_consistency(np.array(feats), ids, m, paired)
+    assert f and f[0].severity == "warn" and "too few" in f[0].message
+
+
+def test_coverage_with_panel_size_only_and_named_backgrounds():
+    panel = OmicsArtifact("p", "spatial", feature_space="targeted_panel", n_features=300)
+    assert check_coverage([panel], [{"artifact": "p",
+                                     "background": [f"g{i}" for i in range(20000)]}])
+    assert check_coverage([panel], [{"artifact": "p", "background": "transcriptome"}])
+    assert check_coverage([panel], [{"artifact": "p", "background": "panel"}]) == []
+
+
+def test_decompose_reports_the_true_subject_difference():
+    m, cs, ct, ex, _ = _cells(shift_state=0.5, seed=5)
+    # a rare third type, below min_cells in every subject
+    cs, ct, ex = list(cs), list(ct), list(ex)
+    for s in m:
+        for _ in range(2):
+            cs.append(s.sample_id)
+            ct.append("rare")
+            ex.append(9.0)
+    ex = np.array(ex)
+    d = decompose_bulk(ex, cs, ct, m, C1, n_boot=300)
+    tissue = {}
+    for v, smp in zip(ex, cs):
+        tissue.setdefault(smp, []).append(v)
+    truth = (np.mean([np.mean(tissue[s.sample_id]) for s in m if s.condition == "UC"])
+             - np.mean([np.mean(tissue[s.sample_id]) for s in m if s.condition == "HC"]))
+    assert math.isclose(d["difference_observed"], truth, rel_tol=1e-9)
+    total = d["difference"] + d["within_arm_covariance"] + d["sparse_cell_remainder"]
+    assert math.isclose(total, truth, rel_tol=1e-9)
+
+
+def test_decompose_verdict_is_calibrated_under_the_null():
+    hits = 0
+    for r in range(40):
+        m, cs, ct, ex, _ = _cells(seed=100 + r, n=4, m=150)
+        hits += decompose_bulk(ex, cs, ct, m, C1, n_boot=200, seed=r)["verdict"] != "unresolved"
+    assert hits <= 5
+
+
+def test_small_paired_composition_flags_that_it_cannot_reject():
+    samples, cs, ct = [], [], []
+    rng = np.random.default_rng(0)
+    for i in range(4):
+        for lvl, p in (("pre", 0.5), ("post", 0.2)):
+            sid = f"S{i}_{lvl}"
+            samples.append(Sample(sid, f"S{i}", "d", condition=lvl))
+            for _ in range(200):
+                cs.append(sid)
+                ct.append("epi" if rng.random() < p else "imm")
+    c = ContrastSpec("p", "condition", "post", "pre", paired=True)
+    r = composition_test(cs, ct, CohortManifest(samples), c)
+    assert r["permutation"]["exact"] and r["permutation"]["min_attainable_p"] == 0.125
+    assert not r["permutation"]["can_reject_at_0.05"] and "cannot reject" in r["warning"]
+
+
+def test_exact_permutation_helpers():
+    from bioagent.studies.stats import permutation_p, signflip_p
+    r = permutation_p([10, 11, 12], [1, 2, 3])
+    assert r["exact"] and math.isclose(r["p"], 0.1) and math.isclose(r["min_p"], 0.1)
+    s = signflip_p([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    assert s["exact"] and math.isclose(s["p"], 2 / 64)
+
+
+def test_batch_nested_in_subject_is_not_a_stop():
+    s = [Sample(f"{a}{i}", f"{a}{i}", "d", condition=a, batch=f"run_{a}{i}")
+         for a in ("UC", "HC") for i in range(10)]
+    f = check_batch_confounding(CohortManifest(s), C1)
+    assert f and f[0].severity == "warn"
+
+
+def test_leakage_respects_explicit_roles():
+    m = CohortManifest([Sample("a", "p1", "D", role="validation"),
+                        Sample("b", "p2", "D", role="discovery")])
+    plan = ValidationPlan(discovery=("D",), validation=(), frozen_selection="x")
+    assert check_leakage(m, plan) == []

@@ -14,7 +14,7 @@ from typing import Sequence
 import numpy as np
 
 __all__ = ["t_cdf", "t_sf", "t_ppf", "welch_from_summary", "ratio_from_summary", "WelchDifference", "welch_difference", "tost", "bh",
-           "OLSFit", "ols"]
+           "OLSFit", "ols", "permutation_p", "signflip_p"]
 
 
 def _betacf(a: float, b: float, x: float) -> float:
@@ -224,3 +224,51 @@ def ratio_from_summary(mean_a: float, sd_a: float, n_a: int, mean_b: float, sd_b
     lr = math.log(mean_a / mean_b)
     return {"ratio": mean_a / mean_b, "ci": [math.exp(lr - q * se), math.exp(lr + q * se)],
             "level": level, "df": df, "se_log": se}
+
+
+def permutation_p(a: Sequence[float], b: Sequence[float], *, n_perm: int = 5000,
+                  seed: int = 0, exact_limit: int = 20000) -> dict:
+    """Two-sided permutation p for a difference in means between independent units.
+
+    All relabellings are enumerated when there are at most ``exact_limit`` of them, so the
+    smallest attainable p is reported exactly; otherwise ``n_perm`` random relabellings
+    (p = (hits + 1) / (n_perm + 1)).
+    """
+    xa, xb = np.asarray(a, float), np.asarray(b, float)
+    pooled, na, n = np.r_[xa, xb], len(xa), len(xa) + len(xb)
+    obs = abs(xa.mean() - xb.mean())
+    total = math.comb(n, na)
+    if total <= exact_limit:
+        from itertools import combinations
+        idx = np.array(list(combinations(range(n), na)))
+        mask = np.zeros((len(idx), n), bool)
+        mask[np.arange(len(idx))[:, None], idx] = True
+        sa = (mask * pooled).sum(1) / na
+        sb = (~mask * pooled).sum(1) / (n - na)
+        p = float(np.mean(np.abs(sa - sb) >= obs - 1e-12))
+        return {"p": p, "exact": True, "min_p": 2 / total if na * 2 == n else 1 / total,
+                "relabellings": total}
+    rng = np.random.default_rng(seed)
+    hits = 0
+    for _ in range(n_perm):
+        q = rng.permutation(pooled)
+        hits += abs(q[:na].mean() - q[na:].mean()) >= obs - 1e-12
+    return {"p": (hits + 1) / (n_perm + 1), "exact": False, "min_p": 1 / (n_perm + 1),
+            "relabellings": total}
+
+
+def signflip_p(d: Sequence[float], *, n_perm: int = 5000, seed: int = 0,
+               exact_limit: int = 16) -> dict:
+    """Two-sided sign-flip p for paired differences; exact for ``n <= exact_limit``."""
+    x = np.asarray(d, float)
+    n = len(x)
+    obs = abs(x.mean())
+    if n <= exact_limit:
+        signs = 1 - 2 * ((np.arange(2 ** n)[:, None] >> np.arange(n)) & 1)
+        p = float(np.mean(np.abs((signs * x).mean(1)) >= obs - 1e-12))
+        return {"p": p, "exact": True, "min_p": 2 / 2 ** n, "relabellings": 2 ** n}
+    rng = np.random.default_rng(seed)
+    signs = rng.choice([-1.0, 1.0], size=(n_perm, n))
+    hits = np.sum(np.abs((signs * x).mean(1)) >= obs - 1e-12)
+    return {"p": float((hits + 1) / (n_perm + 1)), "exact": False,
+            "min_p": 1 / (n_perm + 1), "relabellings": 2 ** n}

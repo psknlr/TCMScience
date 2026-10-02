@@ -94,10 +94,12 @@ def create_workspace(root: str | Path, spec: StudySpec, manifest: CohortManifest
         f"platform={platform.platform()}\ncode_commit={_git_commit()}\n", encoding="utf-8")
     if gate is not None:
         (root / "qc" / "design_gate.json").write_text(json.dumps(gate.as_dict(), indent=2,
-                                                                 ensure_ascii=False))
+                                                                 ensure_ascii=False),
+                                                      encoding="utf-8")
     if audit is not None:
         (root / "qc" / "audit.json").write_text(json.dumps(audit.as_dict(), indent=2,
-                                                           ensure_ascii=False, default=str))
+                                                           ensure_ascii=False, default=str),
+                                                encoding="utf-8")
         (root / "qc" / "audit.md").write_text(audit.to_markdown(), encoding="utf-8")
     (root / "claims.json").write_text("[]\n", encoding="utf-8")
     prov = {"created": datetime.now(timezone.utc).isoformat(timespec="seconds"),

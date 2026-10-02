@@ -155,6 +155,14 @@ def check_batch_confounding(manifest: CohortManifest, contrast: ContrastSpec, *,
         return []
     batches = sorted({b for b, _ in rows})
     levels = [contrast.case, contrast.control]
+    units_per_batch = Counter(b for b, _ in rows)
+    if len(batches) > 1 and max(units_per_batch.values()) == 1:
+        # every batch holds a single subject: batch is part of the subject effect, which
+        # a subject-level test already absorbs; it cannot be told apart from the person
+        return [_f("batch_confounding", "warn",
+                   f"each {batch_field} holds one {contrast.unit}: {batch_field} effects are "
+                   "inseparable from subject effects (absorbed by a subject-level test)",
+                   contrast=contrast.id)]
     table = np.array([[sum(1 for b, lv in rows if b == bb and lv == ll) for ll in levels]
                       for bb in batches], float)
     if len(batches) == 1:
@@ -182,10 +190,14 @@ def check_batch_confounding(manifest: CohortManifest, contrast: ContrastSpec, *,
 def check_leakage(manifest: CohortManifest, plan: ValidationPlan) -> list[Finding]:
     out = []
     unit = plan.split_unit
-    disc = {s.get(unit) for s in manifest if s.dataset in plan.discovery or
-            s.role == "discovery"}
-    val = {s.get(unit) for s in manifest if s.dataset in plan.validation or
-           s.role == "validation"}
+    def part(s):
+        # an explicit role wins; otherwise the dataset's place in the plan
+        if s.role in ("discovery", "validation"):
+            return s.role
+        return ("discovery" if s.dataset in plan.discovery else
+                "validation" if s.dataset in plan.validation else "")
+    disc = {s.get(unit) for s in manifest if part(s) == "discovery"}
+    val = {s.get(unit) for s in manifest if part(s) == "validation"}
     both = sorted((disc & val) - {""})
     if both:
         out.append(_f("leakage", "stop",
@@ -270,8 +282,14 @@ def check_coverage(artifacts: Sequence[OmicsArtifact], analyses: Sequence[Mappin
         bg = an.get("background")
         if a.feature_space == "targeted_panel":
             panel = set(a.features)
-            if bg == "genome" or (isinstance(bg, (list, tuple, set)) and panel and
-                                  not set(bg) <= panel):
+            if isinstance(bg, str):
+                beyond = bg != "panel"          # "genome", "transcriptome", …
+            elif isinstance(bg, (list, tuple, set, frozenset)):
+                beyond = (not set(bg) <= panel) if panel else \
+                    (a.n_features is not None and len(set(bg)) > a.n_features)
+            else:
+                beyond = False
+            if beyond:
                 out.append(_f("coverage", "stop",
                               f"{a.id} measures a {len(panel) or a.n_features}-feature panel "
                               "but the analysis uses a background beyond it; enrichment must "
@@ -395,12 +413,24 @@ def pairing_consistency(identity: np.ndarray, sample_ids: Sequence[str],
         return float(np.mean(np.linalg.norm(x[pa] - x[pb], axis=1)))
 
     observed = mean_dist(ia, ib)
-    rng = np.random.default_rng(seed)
-    null = np.array([mean_dist(ia, rng.permutation(ib)) for _ in range(n_perm)])
-    p = float((1 + np.sum(null <= observed)) / (n_perm + 1))
+    n = len(units)
+    if math.factorial(n) <= n_perm:
+        from itertools import permutations
+        null = np.array([mean_dist(ia, ib[list(p)]) for p in permutations(range(n))])
+        p = float(np.mean(null <= observed + 1e-12))
+        min_p = 1 / len(null)
+    else:
+        rng = np.random.default_rng(seed)
+        null = np.array([mean_dist(ia, rng.permutation(ib)) for _ in range(n_perm)])
+        p = float((1 + np.sum(null <= observed)) / (n_perm + 1))
+        min_p = 1 / (n_perm + 1)
     ev = {"contrast": contrast.id, "paired_distance": round(observed, 4),
           "random_distance": round(float(null.mean()), 4), "p_value": round(p, 4),
-          "pairs": len(units)}
+          "pairs": n, "min_attainable_p": round(min_p, 4)}
+    if min_p > 0.05:
+        return [_f("pairing", "warn",
+                   f"{n} pairs are too few to verify the pairing on identity features (the "
+                   f"smallest attainable p is {min_p:.3f})", **ev)]
     if p > 0.05:
         return [_f("pairing", "stop",
                    "declared pairs are no more alike on identity features than random "

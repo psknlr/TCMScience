@@ -113,10 +113,10 @@
             0.06965866436087825
           ],
           "p_t": 0.10289844393897256,
-          "p_perm": 0.14739263036848158,
+          "p_perm": 0.14747474747474748,
           "mean_prop_case": 0.14578912372900288,
           "mean_prop_control": 0.19782253107605974,
-          "q_perm": 0.5746712664366782
+          "q_perm": 0.5727272727272728
         },
         {
           "cell_type": "02-B",
@@ -126,10 +126,10 @@
             0.9956559736490811
           ],
           "p_t": 0.7711515330883825,
-          "p_perm": 0.7328133593320334,
+          "p_perm": 0.7353535353535353,
           "mean_prop_case": 0.07107704331436739,
           "mean_prop_control": 0.06565443964788546,
-          "q_perm": 0.7987100644967752
+          "q_perm": 0.7979797979797981
         },
         {
           "cell_type": "03-CD4 T",
@@ -139,10 +139,10 @@
             0.5347422043502352
           ],
           "p_t": 0.3616785552178774,
-          "p_perm": 0.41557922103894807,
+          "p_perm": 0.4161616161616162,
           "mean_prop_case": 0.29954458754787155,
           "mean_prop_control": 0.26716939123898226,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "04-CD8 T",
@@ -152,10 +152,10 @@
             0.45421653218049407
           ],
           "p_t": 0.42470594178817533,
-          "p_perm": 0.4385780710964452,
+          "p_perm": 0.43434343434343436,
           "mean_prop_case": 0.12331323524505369,
           "mean_prop_control": 0.16475340952299494,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "05-ILC2 and ILC3",
@@ -165,10 +165,10 @@
             0.15580223594950138
           ],
           "p_t": 0.09109385289812766,
-          "p_perm": 0.11014449277536123,
+          "p_perm": 0.1111111111111111,
           "mean_prop_case": 0.005065450988988285,
           "mean_prop_control": 0.0109481836310467,
-          "q_perm": 0.5746712664366782
+          "q_perm": 0.5727272727272728
         },
         {
           "cell_type": "06-NK",
@@ -178,10 +178,10 @@
             0.5025115398613451
           ],
           "p_t": 0.7023426961188466,
-          "p_perm": 0.7987100644967752,
+          "p_perm": 0.797979797979798,
           "mean_prop_case": 0.006396362358785065,
           "mean_prop_control": 0.005229293336946442,
-          "q_perm": 0.7987100644967752
+          "q_perm": 0.7979797979797981
         },
         {
           "cell_type": "07-Mast",
@@ -191,10 +191,10 @@
             1.6031973802991133
           ],
           "p_t": 0.28168254261668557,
-          "p_perm": 0.3289835508224589,
+          "p_perm": 0.3292929292929293,
           "mean_prop_case": 0.008674768740136403,
           "mean_prop_control": 0.003838759229429216,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "08-MNP",
@@ -204,10 +204,10 @@
             0.715703171225045
           ],
           "p_t": 0.7217719888069325,
-          "p_perm": 0.743912804359782,
+          "p_perm": 0.7454545454545455,
           "mean_prop_case": 0.03920473532370136,
           "mean_prop_control": 0.04185890926508329,
-          "q_perm": 0.7987100644967752
+          "q_perm": 0.7979797979797981
         },
         {
           "cell_type": "09-Cycling",
@@ -217,10 +217,10 @@
             1.0797630683297665
           ],
           "p_t": 0.3233461824593762,
-          "p_perm": 0.37918104094795263,
+          "p_perm": 0.3838383838383838,
           "mean_prop_case": 0.01743829333442125,
           "mean_prop_control": 0.011855456115482256,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "10-Epithelial",
@@ -230,10 +230,10 @@
             1.274915013549983
           ],
           "p_t": 0.4487682921920849,
-          "p_perm": 0.4269286535673216,
+          "p_perm": 0.4262626262626263,
           "mean_prop_case": 0.09675543393136408,
           "mean_prop_control": 0.07320079772635163,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "11-Stromal-fibroblast",
@@ -243,10 +243,10 @@
             1.085144688255951
           ],
           "p_t": 0.23457786734441666,
-          "p_perm": 0.2673866306684666,
+          "p_perm": 0.2686868686868687,
           "mean_prop_case": 0.0831466506209235,
           "mean_prop_control": 0.05400406026474742,
-          "q_perm": 0.6140092995350233
+          "q_perm": 0.6080808080808081
         },
         {
           "cell_type": "12-Endothelial",
@@ -256,10 +256,10 @@
             1.2245319791255813
           ],
           "p_t": 0.11177235436444616,
-          "p_perm": 0.1641917904104795,
+          "p_perm": 0.16363636363636364,
           "mean_prop_case": 0.0260488043519675,
           "mean_prop_control": 0.013812915635059694,
-          "q_perm": 0.5746712664366782
+          "q_perm": 0.5727272727272728
         },
         {
           "cell_type": "13-Enteric neural",
@@ -269,10 +269,10 @@
             -0.08624044587908819
           ],
           "p_t": 0.030898378361894813,
-          "p_perm": 0.07744612769361532,
+          "p_perm": 0.07676767676767676,
           "mean_prop_case": 0.0038450231555744725,
           "mean_prop_control": 0.007383731576385633,
-          "q_perm": 0.5746712664366782
+          "q_perm": 0.5727272727272728
         },
         {
           "cell_type": "14-Mito Hi immune",
@@ -282,12 +282,18 @@
             0.4084540531673393
           ],
           "p_t": 0.7431170155513094,
-          "p_perm": 0.7546622668866557,
+          "p_perm": 0.7535353535353535,
           "mean_prop_case": 0.07370048735784254,
           "mean_prop_control": 0.08246812173354529,
-          "q_perm": 0.7987100644967752
+          "q_perm": 0.7979797979797981
         }
       ],
+      "permutation": {
+        "exact": true,
+        "relabellings": 495,
+        "min_attainable_p": 0.00202020202020202,
+        "can_reject_at_0.05": true
+      },
       "note": "CLR differences are relative to the other cell types; a rise in one type lowers the share of all others"
     },
     "ucv_vs_ucnb": {
@@ -307,10 +313,10 @@
             0.5385349789493707
           ],
           "p_t": 0.5651036563660561,
-          "p_perm": 0.5380730963451827,
+          "p_perm": 0.5428571428571428,
           "mean_prop_case": 0.11906128252505527,
           "mean_prop_control": 0.1725169649329505,
-          "q_perm": 0.7533023348832558
+          "q_perm": 0.76
         },
         {
           "cell_type": "02-B",
@@ -320,10 +326,10 @@
             0.7296413505426682
           ],
           "p_t": 0.4567273793135401,
-          "p_perm": 0.4272286385680716,
+          "p_perm": 0.42857142857142855,
           "mean_prop_case": 0.05516254420465374,
           "mean_prop_control": 0.08699154242408103,
-          "q_perm": 0.6645778822170002
+          "q_perm": 0.6666666666666666
         },
         {
           "cell_type": "03-CD4 T",
@@ -333,10 +339,10 @@
             0.9261890195934378
           ],
           "p_t": 0.09452005734212955,
-          "p_perm": 0.11724413779311034,
+          "p_perm": 0.11428571428571428,
           "mean_prop_case": 0.33320593615352223,
           "mean_prop_control": 0.2658832389422209,
-          "q_perm": 0.32828358582070893
+          "q_perm": 0.31999999999999995
         },
         {
           "cell_type": "04-CD8 T",
@@ -346,10 +352,10 @@
             1.3760654089024416
           ],
           "p_t": 0.18698382838432348,
-          "p_perm": 0.17254137293135344,
+          "p_perm": 0.17142857142857143,
           "mean_prop_case": 0.14669846901707367,
           "mean_prop_control": 0.09992800147303374,
-          "q_perm": 0.4025965368398247
+          "q_perm": 0.39999999999999997
         },
         {
           "cell_type": "05-ILC2 and ILC3",
@@ -359,10 +365,10 @@
             1.9161189644696732
           ],
           "p_t": 0.5137067794882373,
-          "p_perm": 0.6260686965651717,
+          "p_perm": 0.6285714285714286,
           "mean_prop_case": 0.005365000334525589,
           "mean_prop_control": 0.004765901643450982,
-          "q_perm": 0.7968147047193095
+          "q_perm": 0.8
         },
         {
           "cell_type": "06-NK",
@@ -372,10 +378,10 @@
             0.8579384171164113
           ],
           "p_t": 0.357469934528043,
-          "p_perm": 0.39778011099445026,
+          "p_perm": 0.4,
           "mean_prop_case": 0.0031971036736297355,
           "mean_prop_control": 0.009595621043940397,
-          "q_perm": 0.6645778822170002
+          "q_perm": 0.6666666666666666
         },
         {
           "cell_type": "07-Mast",
@@ -385,10 +391,10 @@
             0.4905749996645288
           ],
           "p_t": 0.15816228701961088,
-          "p_perm": 0.11314434278286085,
+          "p_perm": 0.11428571428571428,
           "mean_prop_case": 0.003712259715023146,
           "mean_prop_control": 0.01363727776524966,
-          "q_perm": 0.32828358582070893
+          "q_perm": 0.31999999999999995
         },
         {
           "cell_type": "08-MNP",
@@ -398,10 +404,10 @@
             -0.09653892602534098
           ],
           "p_t": 0.035574009069680466,
-          "p_perm": 0.027248637568121594,
+          "p_perm": 0.02857142857142857,
           "mean_prop_case": 0.017929182920235976,
           "mean_prop_control": 0.06048028772716675,
-          "q_perm": 0.19459027048647567
+          "q_perm": 0.19999999999999998
         },
         {
           "cell_type": "09-Cycling",
@@ -411,10 +417,10 @@
             1.4334861044387126
           ],
           "p_t": 0.7247244307590283,
-          "p_perm": 0.7656617169141543,
+          "p_perm": 0.7714285714285715,
           "mean_prop_case": 0.017946446652516598,
           "mean_prop_control": 0.01693014001632591,
-          "q_perm": 0.8245587720613969
+          "q_perm": 0.8285714285714286
         },
         {
           "cell_type": "10-Epithelial",
@@ -424,10 +430,10 @@
             1.6214113725665094
           ],
           "p_t": 0.06467276719963418,
-          "p_perm": 0.08824558772061397,
+          "p_perm": 0.08571428571428572,
           "mean_prop_case": 0.1287608546145202,
           "mean_prop_control": 0.064750013248208,
-          "q_perm": 0.32828358582070893
+          "q_perm": 0.31999999999999995
         },
         {
           "cell_type": "11-Stromal-fibroblast",
@@ -437,10 +443,10 @@
             0.7438341276558564
           ],
           "p_t": 0.3916088390403101,
-          "p_perm": 0.34268286585670715,
+          "p_perm": 0.34285714285714286,
           "mean_prop_case": 0.05330890128058513,
           "mean_prop_control": 0.11298439996126187,
-          "q_perm": 0.6645778822170002
+          "q_perm": 0.6666666666666666
         },
         {
           "cell_type": "12-Endothelial",
@@ -450,10 +456,10 @@
             1.4326747760436764
           ],
           "p_t": 0.779819671433886,
-          "p_perm": 0.8286585670716464,
+          "p_perm": 0.8285714285714286,
           "mean_prop_case": 0.02275887295392885,
           "mean_prop_control": 0.029338735750006152,
-          "q_perm": 0.8286585670716464
+          "q_perm": 0.8285714285714286
         },
         {
           "cell_type": "13-Enteric neural",
@@ -463,10 +469,10 @@
             1.6485678755380693
           ],
           "p_t": 0.6882860851985613,
-          "p_perm": 0.7458627068646567,
+          "p_perm": 0.7428571428571429,
           "mean_prop_case": 0.00364102456080139,
           "mean_prop_control": 0.004049021750347556,
-          "q_perm": 0.8245587720613969
+          "q_perm": 0.8285714285714286
         },
         {
           "cell_type": "14-Mito Hi immune",
@@ -476,12 +482,18 @@
             0.9490134203727686
           ],
           "p_t": 0.008544929313783884,
-          "p_perm": 0.027798610069496524,
+          "p_perm": 0.02857142857142857,
           "mean_prop_case": 0.0892521213939285,
           "mean_prop_control": 0.05814885332175659,
-          "q_perm": 0.19459027048647567
+          "q_perm": 0.19999999999999998
         }
       ],
+      "permutation": {
+        "exact": true,
+        "relabellings": 70,
+        "min_attainable_p": 0.02857142857142857,
+        "can_reject_at_0.05": true
+      },
       "note": "CLR differences are relative to the other cell types; a rise in one type lowers the share of all others"
     }
   },
@@ -665,9 +677,10 @@
       "composition": {
         "estimate": 0.007055386637369766,
         "ci": [
-          -0.008069727959300183,
-          0.020593302235076872
+          -0.022404399237948472,
+          0.036515172512688
         ],
+        "se": 0.00705364302246771,
         "by_cell_type": {
           "01-Plasma cells": -0.0005589776695255291,
           "02-B": 3.8499815001744306e-05,
@@ -688,9 +701,10 @@
       "state": {
         "estimate": 0.04009611882698817,
         "ci": [
-          0.013025151353505585,
-          0.06999562009137945
+          -0.02115654674241773,
+          0.10134878439639408
         ],
+        "se": 0.01466590554764244,
         "by_cell_type": {
           "01-Plasma cells": 0.0008787020891485802,
           "02-B": 4.8972620383643374e-05,
@@ -709,10 +723,12 @@
         }
       },
       "within_arm_covariance": -0.015806224208328806,
+      "sparse_cell_remainder": 0.0,
       "excluded_cell_types": [],
-      "verdict": "state",
+      "verdict": "unresolved",
       "level": 0.95,
-      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+      "interval": "bootstrap SE × t(3), each term at 0.975",
+      "note": "bootstrap over subjects. composition + state decompose the difference of arm-mean composition times arm-mean expression exactly. The observed difference of subject means also carries the within-arm covariance of proportion and expression, and the cells of types too sparse in a subject (fewer than min_cells) to estimate their expression; both are reported separately"
     },
     "uc_vs_hc:DUOX2": {
       "contrast": "uc_vs_hc",
@@ -721,13 +737,14 @@
         "HC": 4
       },
       "difference": 0.01030255227630907,
-      "difference_observed": 0.006891144101277101,
+      "difference_observed": 0.006891144101277103,
       "composition": {
         "estimate": 0.0016218282308444391,
         "ci": [
-          -0.0016358932404387956,
-          0.005756548227300048
+          -0.005996741583037785,
+          0.009240398044726662
         ],
+        "se": 0.001824136537730112,
         "by_cell_type": {
           "01-Plasma cells": -0.0001826138479672449,
           "02-B": 1.808931362371504e-05,
@@ -748,9 +765,10 @@
       "state": {
         "estimate": 0.008680724045464631,
         "ci": [
-          0.0006234265562253207,
-          0.023576927041124074
+          -0.01834162085567166,
+          0.03570306894660093
         ],
+        "se": 0.006470039373989745,
         "by_cell_type": {
           "01-Plasma cells": -0.0002905560721141478,
           "02-B": -0.00013041886305314404,
@@ -769,10 +787,12 @@
         }
       },
       "within_arm_covariance": -0.0034114081750319693,
+      "sparse_cell_remainder": 1.734723475976807e-18,
       "excluded_cell_types": [],
-      "verdict": "state",
+      "verdict": "unresolved",
       "level": 0.95,
-      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+      "interval": "bootstrap SE × t(3), each term at 0.975",
+      "note": "bootstrap over subjects. composition + state decompose the difference of arm-mean composition times arm-mean expression exactly. The observed difference of subject means also carries the within-arm covariance of proportion and expression, and the cells of types too sparse in a subject (fewer than min_cells) to estimate their expression; both are reported separately"
     },
     "uc_vs_hc:S100A8": {
       "contrast": "uc_vs_hc",
@@ -781,13 +801,14 @@
         "HC": 4
       },
       "difference": 0.007047057907267334,
-      "difference_observed": 0.011247754605169294,
+      "difference_observed": 0.011247754605169292,
       "composition": {
         "estimate": -0.00026617030821218655,
         "ci": [
-          -0.002325177531232846,
-          0.004108543185536381
+          -0.007113449755002529,
+          0.006581109138578157
         ],
+        "se": 0.0016394642207228035,
         "by_cell_type": {
           "01-Plasma cells": -0.00012402645118790166,
           "02-B": 4.153718882414904e-06,
@@ -808,9 +829,10 @@
       "state": {
         "estimate": 0.00731322821547952,
         "ci": [
-          0.0022234875524200356,
-          0.017277889660985174
+          -0.009202396852950379,
+          0.02382885328390942
         ],
+        "se": 0.003954384597996164,
         "by_cell_type": {
           "01-Plasma cells": 0.0006356635000062716,
           "02-B": 0.00010473642875865455,
@@ -829,10 +851,12 @@
         }
       },
       "within_arm_covariance": 0.00420069669790196,
+      "sparse_cell_remainder": -1.734723475976807e-18,
       "excluded_cell_types": [],
-      "verdict": "state",
+      "verdict": "unresolved",
       "level": 0.95,
-      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+      "interval": "bootstrap SE × t(3), each term at 0.975",
+      "note": "bootstrap over subjects. composition + state decompose the difference of arm-mean composition times arm-mean expression exactly. The observed difference of subject means also carries the within-arm covariance of proportion and expression, and the cells of types too sparse in a subject (fewer than min_cells) to estimate their expression; both are reported separately"
     },
     "ucv_vs_ucnb:ITGA4": {
       "contrast": "ucv_vs_ucnb",
@@ -841,13 +865,14 @@
         "UCNB": 4
       },
       "difference": 0.019296261694933578,
-      "difference_observed": 0.011798376090704582,
+      "difference_observed": 0.011798376090704527,
       "composition": {
         "estimate": 0.01812916918783466,
         "ci": [
-          -0.013826634952550659,
-          0.040218797741132205
+          -0.03986759967196728,
+          0.07612593804763661
         ],
+        "se": 0.013886336639546108,
         "by_cell_type": {
           "01-Plasma cells": -0.0075933509361683135,
           "02-B": -0.009417674807011974,
@@ -868,9 +893,10 @@
       "state": {
         "estimate": 0.0011670925070989165,
         "ci": [
-          -0.044142293086139664,
-          0.036457287423460244
+          -0.08658252768501955,
+          0.08891671269921737
         ],
+        "se": 0.021010149184787375,
         "by_cell_type": {
           "01-Plasma cells": 0.0025588357853332903,
           "02-B": 0.0011191952046720115,
@@ -889,10 +915,12 @@
         }
       },
       "within_arm_covariance": -0.007497885604228996,
+      "sparse_cell_remainder": -5.551115123125783e-17,
       "excluded_cell_types": [],
       "verdict": "unresolved",
       "level": 0.95,
-      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+      "interval": "bootstrap SE × t(3), each term at 0.975",
+      "note": "bootstrap over subjects. composition + state decompose the difference of arm-mean composition times arm-mean expression exactly. The observed difference of subject means also carries the within-arm covariance of proportion and expression, and the cells of types too sparse in a subject (fewer than min_cells) to estimate their expression; both are reported separately"
     },
     "ucv_vs_ucnb:ITGB7": {
       "contrast": "ucv_vs_ucnb",
@@ -901,13 +929,14 @@
         "UCNB": 4
       },
       "difference": -0.01013174635933884,
-      "difference_observed": -0.018667318873133276,
+      "difference_observed": -0.018749168533679944,
       "composition": {
         "estimate": 0.014399811167268763,
         "ci": [
-          -0.011194547787103016,
-          0.03224543245860458
+          -0.03334484522672641,
+          0.06214446756126395
         ],
+        "se": 0.011431643252905499,
         "by_cell_type": {
           "01-Plasma cells": -0.0054269175551293425,
           "02-B": -0.004270433667929272,
@@ -928,9 +957,10 @@
       "state": {
         "estimate": -0.024531557526607604,
         "ci": [
-          -0.07030043377477731,
-          0.013453178250439112
+          -0.11410002787348489,
+          0.06503691282026969
         ],
+        "se": 0.021445641817263623,
         "by_cell_type": {
           "01-Plasma cells": -0.004176719169340788,
           "02-B": 0.0010716540886032346,
@@ -949,10 +979,12 @@
         }
       },
       "within_arm_covariance": -0.008535572513794436,
+      "sparse_cell_remainder": -8.184966054666787e-05,
       "excluded_cell_types": [],
       "verdict": "unresolved",
       "level": 0.95,
-      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+      "interval": "bootstrap SE × t(3), each term at 0.975",
+      "note": "bootstrap over subjects. composition + state decompose the difference of arm-mean composition times arm-mean expression exactly. The observed difference of subject means also carries the within-arm covariance of proportion and expression, and the cells of types too sparse in a subject (fewer than min_cells) to estimate their expression; both are reported separately"
     }
   },
   "state": {
@@ -1030,9 +1062,9 @@
   "claims": [
     {
       "id": "C-LCN2",
-      "statement": "LCN2: the uc_vs_hc difference is a state effect",
+      "statement": "LCN2: the uc_vs_hc difference is a unresolved effect",
       "chain": "disease",
-      "level": "exploratory",
+      "level": "not_supported",
       "contrasts": [
         "uc_vs_hc"
       ],
@@ -1044,19 +1076,13 @@
         "4 people per arm",
         "cross-sectional"
       ],
-      "downgrades": [
-        {
-          "from": "association",
-          "to": "exploratory",
-          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
-        }
-      ]
+      "downgrades": []
     },
     {
       "id": "C-DUOX2",
-      "statement": "DUOX2: the uc_vs_hc difference is a state effect",
+      "statement": "DUOX2: the uc_vs_hc difference is a unresolved effect",
       "chain": "disease",
-      "level": "exploratory",
+      "level": "not_supported",
       "contrasts": [
         "uc_vs_hc"
       ],
@@ -1068,19 +1094,13 @@
         "4 people per arm",
         "cross-sectional"
       ],
-      "downgrades": [
-        {
-          "from": "association",
-          "to": "exploratory",
-          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
-        }
-      ]
+      "downgrades": []
     },
     {
       "id": "C-S100A8",
-      "statement": "S100A8: the uc_vs_hc difference is a state effect",
+      "statement": "S100A8: the uc_vs_hc difference is a unresolved effect",
       "chain": "disease",
-      "level": "exploratory",
+      "level": "not_supported",
       "contrasts": [
         "uc_vs_hc"
       ],
@@ -1092,13 +1112,7 @@
         "4 people per arm",
         "cross-sectional"
       ],
-      "downgrades": [
-        {
-          "from": "association",
-          "to": "exploratory",
-          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
-        }
-      ]
+      "downgrades": []
     },
     {
       "id": "C-ITGA4",

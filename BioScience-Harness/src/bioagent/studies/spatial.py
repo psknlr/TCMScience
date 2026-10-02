@@ -19,7 +19,7 @@ from typing import Sequence
 import numpy as np
 
 from .contract import CohortManifest, ContrastSpec
-from .stats import welch_difference
+from .stats import permutation_p, signflip_p, t_ppf, t_sf, welch_difference
 
 __all__ = ["neighbour_pairs", "neighbourhood_enrichment", "compare_neighbourhoods",
            "detectable_genes"]
@@ -83,29 +83,42 @@ def neighbourhood_enrichment(coords: np.ndarray, labels: Sequence[str], type_a: 
 def compare_neighbourhoods(per_sample: dict[str, dict], manifest: CohortManifest,
                            contrast: ContrastSpec, *, n_perm: int = 5000, seed: int = 0,
                            level: float = 0.95) -> dict:
-    """Compare per-sample log ratios between arms, one value per subject (sections of one
-    subject averaged)."""
+    """Compare per-section log ratios between levels, one value per subject and level
+    (sections averaged). Paired contrasts compare each subject with itself."""
     by_subject: dict[tuple[str, str], list[float]] = defaultdict(list)
     for lvl, ss in contrast.select(manifest).items():
         for s in ss:
             r = per_sample.get(s.sample_id)
             if r is not None and not math.isnan(r.get("log2_ratio", math.nan)):
                 by_subject[(s.get(contrast.unit), lvl)].append(r["log2_ratio"])
-    a = np.array([np.mean(v) for (_, lv), v in sorted(by_subject.items()) if lv == contrast.case])
-    b = np.array([np.mean(v) for (_, lv), v in sorted(by_subject.items())
-                  if lv == contrast.control])
+    per = {key: float(np.mean(v)) for key, v in by_subject.items()}
+    if contrast.paired:
+        subj = sorted({u for u, lv in per if lv == contrast.case} &
+                      {u for u, lv in per if lv == contrast.control})
+        if len(subj) < 3:
+            raise ValueError(f"{len(subj)} subjects have usable sections at both levels; "
+                             "a paired comparison needs 3")
+        d = np.array([per[(u, contrast.case)] - per[(u, contrast.control)] for u in subj])
+        est = float(d.mean())
+        se = float(d.std(ddof=1) / math.sqrt(len(d)))
+        q = t_ppf(1 - (1 - level) / 2, len(d) - 1)
+        perm = signflip_p(d, n_perm=n_perm, seed=seed)
+        return {"contrast": contrast.id, "paired": True, "pairs": len(d),
+                "difference_log2_ratio": est, "ci": [est - q * se, est + q * se],
+                "p_t": 2 * t_sf(abs(est) / se, len(d) - 1) if se > 0 else
+                (0.0 if est else 1.0),
+                "p_perm": perm["p"], "min_attainable_p": perm["min_p"],
+                "unit": contrast.unit}
+    a = np.array([v for (_, lv), v in sorted(per.items()) if lv == contrast.case])
+    b = np.array([v for (_, lv), v in sorted(per.items()) if lv == contrast.control])
     if min(len(a), len(b)) < 2:
         raise ValueError(f"subjects with a usable section per arm: {len(a)}/{len(b)}")
     w = welch_difference(a, b, level=level)
-    rng = np.random.default_rng(seed)
-    pooled = np.r_[a, b]
-    obs = abs(a.mean() - b.mean())
-    hits = sum(abs((p := rng.permutation(pooled))[:len(a)].mean() - p[len(a):].mean())
-               >= obs - 1e-12 for _ in range(n_perm))
-    return {"contrast": contrast.id, "subjects": {contrast.case: len(a),
-                                                  contrast.control: len(b)},
+    perm = permutation_p(a, b, n_perm=n_perm, seed=seed)
+    return {"contrast": contrast.id, "paired": False,
+            "subjects": {contrast.case: len(a), contrast.control: len(b)},
             "difference_log2_ratio": w.estimate, "ci": [w.ci_low, w.ci_high],
-            "p_welch": w.p_value, "p_perm": (hits + 1) / (n_perm + 1),
+            "p_welch": w.p_value, "p_perm": perm["p"], "min_attainable_p": perm["min_p"],
             "unit": contrast.unit}
 
 

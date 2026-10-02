@@ -6,7 +6,7 @@
 > - 所有统计都以患者为单位。
 > - 在三个真实公开数据集上运行：
 >   - GSE73661：发现元数据身份冲突；基线转录组预测内镜愈合的增益未达预设标准；愈合后黏膜的"残余差异"主要是未完全消退的炎症，而不是修复信号。
->   - GSE250498：把细胞当重复时 14 个细胞类型中有 13 个"显著"，按患者检验后无一通过 FDR；LCN2、DUOX2、S100A8 的升高来自细胞状态而非细胞组成。
+>   - GSE250498：把细胞当重复时 14 个细胞类型中有 13 个"显著"，按患者检验后无一通过 FDR；LCN2、DUOX2、S100A8 的差异点估计几乎全部落在"细胞状态"项，但每组只有 4 名对照，校准后的区间无法区分状态与组成，结论记为不支持（需更多患者）。
 >   - HMP2：中心与诊断中度混杂；HBI 与 SCCAI 不能合并为一个结局。
 > - 缺陷注入基准：门控流程检出 99% 的设计缺陷，在缺陷数据上的错误结论为 0；朴素流程为 66%。
 
@@ -73,14 +73,14 @@ For every question type the gate also counts independent units per arm:
 | --- | --- | --- |
 | `independent_units` | A sample has no subject. Cells, spots or barcodes are the unit of a contrast. A pooled library is treated as a person | Samples are the unit and subjects contribute several |
 | `identity_consistency` | Fields that name the person disagree | |
-| `batch_confounding` | No batch contains both levels. Counted in people, not samples | Cramér's V at or above the threshold |
+| `batch_confounding` | No batch contains both levels. Counted in people, not samples | Cramér's V at or above the threshold; a warning when every batch holds a single subject |
 | `leakage` | A subject is in both discovery and validation. Validation data were used for selection | No frozen record of the selection |
 | `duplicate_studies` | One original study, or one source sample, supplies both discovery and validation | |
 | `coverage` | A panel is analysed against a genome background or used for a transcriptome-wide claim. Predicted data stand in for a measurement | |
 | `outcome` | No outcome, or only one value | The outcome is derived from the predictors |
 | `test_family` | | A tested contrast belongs to no prespecified family |
 | `sufficiency` | Fewer than 3 units in an arm | Fewer than the plan's minimum (default 5) |
-| `pairing` | Fewer than 3 complete pairs. `pairing_consistency`: declared pairs are no more alike on identity features (sex genes, genotype) than random pairs | |
+| `pairing` | Fewer than 3 complete pairs. `pairing_consistency`: declared pairs are no more alike on identity features (sex genes, genotype) than random pairs; exact enumeration when pairs are few, and a warning instead of a stop when too few to verify | |
 | `intervention_identity` | One name, several compositions (four-herb 葛根芩连汤 vs the seven-herb trial formula) | |
 
 `apply_audit` caps a claim:
@@ -93,16 +93,16 @@ For every question type the gate also counts independent units per arm:
 | Module | Function | Unit and safeguard |
 | --- | --- | --- |
 | `singlecell` | `pseudobulk` | Sums per sample × cell type, with a minimum number of cells |
-| | `composition_test` | Per-subject counts. CLR difference with a Welch interval and a permutation p over subjects (sign-flips when paired), BH across cell types |
+| | `composition_test` | Per-subject counts. CLR difference with a Welch interval and a permutation p over subjects (sign-flips when paired; enumerated exactly when small, with the smallest attainable p reported and a warning when it exceeds 0.05), BH across cell types |
 | | `state_test` | Per-subject log-CPM within one cell type |
 | | `decompose_bulk` | Splits a tissue-level difference into composition (Σ Δp·ē) and state (Σ p̄·Δe), with subject-bootstrap intervals and a verdict (composition / state / both / unresolved). The within-arm covariance term is reported separately |
 | `spatial` | `neighbourhood_enrichment` | Labels permuted within each section |
-| | `compare_neighbourhoods` | Compares per-subject log ratios between arms |
+| | `compare_neighbourhoods` | Compares per-subject log ratios between arms, or within each subject when the contrast is paired |
 | | `detectable_genes` | Gives the panel background |
 | `validation` | `grouped_cv` | Leave-subjects-out, with selection inside folds and a subject-level permutation null. `sample_split_cv` exists only to show the leak |
 | `longitudinal` | `match_layers` | Same collection, or within a tolerance in days |
 | | `visit_pairs` | Uses windows fixed in the plan |
-| | `next_visit_prediction` | Split by subject, compared against *persistence* (the next visit equals this one) |
+| | `next_visit_prediction` | Split by subject; must beat both *persistence* (the next visit equals this one) and the training mean, since persistence is weak when autocorrelation is low |
 | `power` | `simulate_power` | Cells nested in people. Shows that more cells do not replace more people, and how far a cell-level test overstates |
 | `workspace` | `create_workspace` / `verify_workspace` | The study directory below. A changed input makes the study exploratory |
 
@@ -265,24 +265,31 @@ It reads the processed GSE250487 biopsy object (`layers/counts`, 93,900 cells).
   (UCV) and 4 UC without biologics (UCNB).
 - The gate **downgrades** the study to estimates only, with fewer than 5 people per arm.
 
-**Composition** (UC vs HC, CLR per person, 20,000 permutations, 14 coarse cell types):
+**Composition** (UC vs HC, CLR per person, all 495 relabellings enumerated, 14 coarse cell types):
 - Per person, no cell type passes FDR. The smallest q is 0.58.
 - Treating the 93,900 cells as replicates makes **13 of the 14 shifts "significant"**.
-- Vedolizumab vs UCNB: the largest shift is fewer MNPs (CLR −0.92, p = 0.027, q = 0.20).
+- Vedolizumab vs UCNB (all 70 relabellings): the largest shift is fewer MNPs (CLR −0.92, p = 0.029, q = 0.20).
 
 **Composition against state** for genes named before the counts were read:
 
 | Gene | Composition term | State term | Verdict | Within-type state, per person |
 | --- | --- | --- | --- | --- |
-| LCN2 (UC vs HC) | 0.007 [−0.008, 0.021] | 0.040 [0.013, 0.070] | state | epithelium log2 +2.45, p = 0.016 |
-| DUOX2 (UC vs HC) | 0.002 [−0.002, 0.006] | 0.009 [0.001, 0.024] | state | epithelium log2 +2.39, p = 0.057 |
-| S100A8 (UC vs HC) | 0.000 [−0.002, 0.004] | 0.007 [0.002, 0.017] | state | MNP log2 +3.63, p = 0.007 |
-| ITGA4 (UCV vs UCNB) | 0.018 [−0.014, 0.040] | 0.001 [−0.044, 0.036] | unresolved | CD4 T log2 −0.16, p = 0.44 |
-| ITGB7 (UCV vs UCNB) | 0.014 [−0.011, 0.032] | −0.025 [−0.070, 0.013] | unresolved | CD4 T log2 −0.61, p = 0.14 |
+| LCN2 (UC vs HC) | 0.007 [−0.022, 0.037] | 0.040 [−0.021, 0.101] | unresolved | epithelium log2 +2.45, p = 0.016 |
+| DUOX2 (UC vs HC) | 0.002 [−0.006, 0.009] | 0.009 [−0.018, 0.036] | unresolved | epithelium log2 +2.39, p = 0.057 |
+| S100A8 (UC vs HC) | 0.000 [−0.007, 0.007] | 0.007 [−0.009, 0.024] | unresolved | MNP log2 +3.63, p = 0.007 |
+| ITGA4 (UCV vs UCNB) | 0.018 [−0.040, 0.076] | 0.001 [−0.087, 0.089] | unresolved | CD4 T log2 −0.16, p = 0.44 |
+| ITGB7 (UCV vs UCNB) | 0.014 [−0.033, 0.062] | −0.025 [−0.114, 0.065] | unresolved | CD4 T log2 −0.61, p = 0.14 |
 
-- The three inflammation genes rise through within-cell-type state, not through more of
-  the cells that express them.
-- With 4 controls this stays **exploratory**.
+- Intervals are the bootstrap SE over people × a t quantile on the smaller arm's degrees
+  of freedom (3 here), each term at 97.5% so the verdict, which reads both terms, keeps
+  5% overall.
+- An earlier percentile-bootstrap version labelled the first three "state". An independent
+  review showed it returned a verdict other than "unresolved" in about 22% of null data;
+  it was replaced, and the null rate is now at most 5% (tested).
+- For the three inflammation genes the point estimates sit almost entirely in the state
+  term (LCN2: 0.040 vs 0.007), and the per-person within-type tests point the same way.
+  With 4 controls the calibrated decomposition still cannot separate state from
+  composition, so the claim is recorded as `not_supported`, pending more people.
 - The vedolizumab target chains show no resolvable change.
 
 **Power.** The observed per-person spread gives the following power for a plasma-cell
@@ -317,7 +324,7 @@ It reads only the public sample metadata.
 - **Next-visit pairs.** With a 7–35-day window fixed in advance:
   - 1,268 metagenome pairs from 111 people;
   - 422 metatranscriptome pairs from 96 people.
-  Persistence is the baseline to beat.
+  Persistence and the training mean are the baselines to beat.
 
 ### Not fetched, and why
 
@@ -330,7 +337,7 @@ It reads only the public sample metadata.
 
 | Route | Status |
 | --- | --- |
-| Cell composition vs state | **Run** on GSE250498 (exploratory, n = 4 per arm) |
+| Cell composition vs state | **Run** on GSE250498: no composition shift passes FDR per patient; state vs composition for inflammation genes not resolvable with 4 controls |
 | Spatial neighbourhood | Implemented and tested. The GSE250498 spatial subseries is not yet read |
 | Inflammation vs repair | **Run** on GSE73661: residual change is mostly unresolved inflammation |
 | Tissue-specific genetic targets | Contract and gate only; needs eQTL and colocalisation inputs |

@@ -123,26 +123,44 @@ def next_visit_prediction(features: Mapping[str, Sequence[float]], outcome: Mapp
     # Persistence: the score is the current outcome (for a continuous outcome, its
     # prediction); for a binary outcome its AUC is that of the current state.
     persist = y_now
+    # Mean: the training-fold mean of the outcome, predicted for every test pair (for a
+    # binary outcome a constant score, AUC 0.5).
+    mean_pred = np.full(len(y), np.nan)
+    for test in folds:
+        train = np.setdiff1d(np.arange(len(y)), test)
+        mean_pred[test] = y[train].mean()
     model_m = _metric(task, y[ok], score[ok])
     pers_m = _metric(task, y[ok], persist[ok])
+    mean_m = _metric(task, y[ok], mean_pred[ok])
     rng = np.random.default_rng(seed)
     uniq = np.unique(groups[ok])
     idx_by = {u: np.flatnonzero((groups == u) & ok) for u in uniq}
-    diffs = []
+    d_pers, d_mean = [], []
     for _ in range(n_boot):
         take = np.concatenate([idx_by[u] for u in rng.choice(uniq, len(uniq))])
         yy = y[take]
         if task == "binary" and len(set(yy)) < 2:
             continue
-        diffs.append(_metric(task, yy, score[take]) - _metric(task, yy, persist[take]))
-    diffs = np.array(diffs)
-    ci = [float(np.nanpercentile(diffs, 2.5)), float(np.nanpercentile(diffs, 97.5))]
-    verdict = ("beats persistence" if ci[0] > 0 else
-               "worse than persistence" if ci[1] < 0 else "not distinguishable from "
-                                                          "persistence")
+        m = _metric(task, yy, score[take])
+        d_pers.append(m - _metric(task, yy, persist[take]))
+        d_mean.append(m - _metric(task, yy, mean_pred[take]))
+
+    def ci(v):
+        v = np.array(v)
+        return [float(np.nanpercentile(v, 2.5)), float(np.nanpercentile(v, 97.5))]
+
+    ci_p, ci_m = ci(d_pers), ci(d_mean)
+    if ci_p[0] > 0 and ci_m[0] > 0:
+        verdict = "beats both baselines"
+    elif ci_p[1] < 0 or ci_m[1] < 0:
+        verdict = "worse than a baseline"
+    else:
+        verdict = "not distinguishable from the better baseline"
     return {"metric": "auc" if task == "binary" else "r2", "pairs": int(ok.sum()),
             "subjects": int(len(uniq)), "model": model_m, "persistence": pers_m,
-            "difference_ci95": ci, "verdict": verdict, "split": "by subject",
-            "baseline_note": "persistence predicts the next visit from the current one; "
-                             "a model that does not beat it adds no forecasting value"}
-
+            "mean_baseline": mean_m,
+            "difference_vs_persistence_ci95": ci_p, "difference_vs_mean_ci95": ci_m,
+            "verdict": verdict, "split": "by subject",
+            "baseline_note": "persistence predicts the next visit from the current one, the "
+                             "mean baseline predicts the training mean; a model must beat "
+                             "both (persistence is weak when autocorrelation is low)"}

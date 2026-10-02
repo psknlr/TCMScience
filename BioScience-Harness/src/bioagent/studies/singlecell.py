@@ -35,7 +35,7 @@ from typing import Sequence
 import numpy as np
 
 from .contract import CohortManifest, ContrastSpec
-from .stats import bh, t_ppf, t_sf, welch_difference
+from .stats import bh, permutation_p, signflip_p, t_ppf, t_sf, welch_difference
 
 __all__ = ["Pseudobulk", "pseudobulk", "subject_levels", "composition_test", "state_test",
            "decompose_bulk", "clr"]
@@ -86,24 +86,6 @@ def subject_levels(manifest: CohortManifest, contrast: ContrastSpec) -> dict[str
     return out
 
 
-def _perm_p(a: np.ndarray, b: np.ndarray, n_perm: int, rng) -> float:
-    """Two-sided permutation p for a difference in means, over units."""
-    pooled = np.r_[a, b]
-    obs = abs(a.mean() - b.mean())
-    na = len(a)
-    hits = 0
-    for _ in range(n_perm):
-        p = rng.permutation(pooled)
-        hits += abs(p[:na].mean() - p[na:].mean()) >= obs - 1e-12
-    return (hits + 1) / (n_perm + 1)
-
-
-def _signflip_p(d: np.ndarray, n_perm: int, rng) -> float:
-    obs = abs(d.mean())
-    signs = rng.choice([-1.0, 1.0], size=(n_perm, len(d)))
-    return float((np.sum(np.abs((signs * d).mean(1)) >= obs - 1e-12) + 1) / (n_perm + 1))
-
-
 def _paired_t(d: np.ndarray, level: float) -> dict:
     n = len(d)
     est = float(d.mean())
@@ -136,8 +118,8 @@ def composition_test(cell_sample: Sequence[str], cell_type: Sequence[str],
             acc[lv[smp]][tidx[t]] += 1      # a subject's samples at one level are pooled
     table = _subject_table(dict(acc))
     case, ctrl = table.get(contrast.case, {}), table.get(contrast.control, {})
-    rng = np.random.default_rng(seed)
     rows = []
+    perm = {}
     if contrast.paired:
         subj = sorted(set(case) & set(ctrl))
         if len(subj) < 3:
@@ -149,8 +131,9 @@ def composition_test(cell_sample: Sequence[str], cell_type: Sequence[str],
         for i, t in enumerate(types):
             d = ca[:, i] - cb[:, i]
             r = _paired_t(d, level)
+            perm = signflip_p(d, n_perm=n_perm, seed=seed + i)
             rows.append({"cell_type": t, "clr_difference": r["estimate"], "ci": r["ci"],
-                         "p_t": r["p_value"], "p_perm": _signflip_p(d, n_perm, rng),
+                         "p_t": r["p_value"], "p_perm": perm["p"],
                          "mean_prop_case": float(props_a[:, i].mean()),
                          "mean_prop_control": float(props_b[:, i].mean())})
         n_units = {"pairs": len(subj)}
@@ -168,18 +151,26 @@ def composition_test(cell_sample: Sequence[str], cell_type: Sequence[str],
                 est, ci, p = w.estimate, [w.ci_low, w.ci_high], w.p_value
             except ValueError:
                 est, ci, p = float(ca[:, i].mean() - cb[:, i].mean()), [math.nan, math.nan], 1.0
+            perm = permutation_p(ca[:, i], cb[:, i], n_perm=n_perm, seed=seed + i)
             rows.append({"cell_type": t, "clr_difference": est, "ci": ci, "p_t": p,
-                         "p_perm": _perm_p(ca[:, i], cb[:, i], n_perm, rng),
+                         "p_perm": perm["p"],
                          "mean_prop_case": float(props_a[:, i].mean()),
                          "mean_prop_control": float(props_b[:, i].mean())})
         n_units = {contrast.case: len(sa), contrast.control: len(sb)}
     q = bh([r["p_perm"] for r in rows])
     for r, qq in zip(rows, q):
         r["q_perm"] = qq
-    return {"contrast": contrast.id, "unit": contrast.unit, "paired": contrast.paired,
-            "units": n_units, "cell_types": rows,
-            "note": "CLR differences are relative to the other cell types; a rise in one "
-                    "type lowers the share of all others"}
+    out = {"contrast": contrast.id, "unit": contrast.unit, "paired": contrast.paired,
+           "units": n_units, "cell_types": rows,
+           "permutation": {"exact": perm["exact"], "relabellings": perm["relabellings"],
+                           "min_attainable_p": perm["min_p"],
+                           "can_reject_at_0.05": perm["min_p"] <= 0.05},
+           "note": "CLR differences are relative to the other cell types; a rise in one "
+                   "type lowers the share of all others"}
+    if perm["min_p"] > 0.05:
+        out["warning"] = (f"with these units the smallest attainable permutation p is "
+                          f"{perm['min_p']:.3f}: the permutation test cannot reject at 0.05")
+    return out
 
 
 def _logcpm(counts: np.ndarray, prior: float = 1.0) -> np.ndarray:
@@ -227,9 +218,11 @@ def state_test(pb: Pseudobulk, manifest: CohortManifest, contrast: ContrastSpec,
                 w = welch_difference(la[:, j], lb[:, j], level=level)
                 rows.append({"gene": pb.genes[g], "log2_difference": w.estimate,
                              "ci": [w.ci_low, w.ci_high], "p_value": w.p_value})
-            except ValueError:
-                rows.append({"gene": pb.genes[g], "log2_difference": 0.0,
-                             "ci": [math.nan, math.nan], "p_value": 1.0})
+            except ValueError:      # no variation within either arm
+                rows.append({"gene": pb.genes[g],
+                             "log2_difference": float(la[:, j].mean() - lb[:, j].mean()),
+                             "ci": [math.nan, math.nan], "p_value": 1.0,
+                             "note": "no variation within either arm; no test"})
         units = {contrast.case: len(sa), contrast.control: len(sb)}
     for r, q in zip(rows, bh([r["p_value"] for r in rows])):
         r["q_value"] = q
@@ -273,7 +266,9 @@ def decompose_bulk(expression: np.ndarray, cell_sample: Sequence[str],
         with np.errstate(invalid="ignore", divide="ignore"):
             E = np.array([np.where(cnt[key] >= min_cells, sums[key] / cnt[key], np.nan)
                           for key in keys])
-        arms[lvl] = (P, E, [key[0] for key in keys])
+        # the subject's own mean over all its cells, sparse types included
+        tissue = np.array([sums[key].sum() / cnt[key].sum() for key in keys])
+        arms[lvl] = (P, E, [key[0] for key in keys], tissue)
     if min(len(arms[contrast.case][2]), len(arms[contrast.control][2])) < 3:
         raise ValueError("at least three subjects per arm are needed to decompose")
 
@@ -289,8 +284,8 @@ def decompose_bulk(expression: np.ndarray, cell_sample: Sequence[str],
         state = np.where(ok, (pa + pb_) / 2 * (ea - eb), 0.0)
         return comp, state, ok
 
-    Pa, Ea, sa = arms[contrast.case]
-    Pb, Eb, sb = arms[contrast.control]
+    Pa, Ea, sa, ta = arms[contrast.case]
+    Pb, Eb, sb, tb = arms[contrast.control]
     with np.errstate(invalid="ignore"):
         comp, state, ok = terms(Pa, Ea, Pb, Eb)
         rng = np.random.default_rng(seed)
@@ -298,30 +293,41 @@ def decompose_bulk(expression: np.ndarray, cell_sample: Sequence[str],
         for _ in range(n_boot):
             ia = rng.integers(0, len(sa), len(sa))
             ib = rng.integers(0, len(sb), len(sb))
-            c, s, _ = terms(Pa[ia], Ea[ia], Pb[ib], Eb[ib])
+            c, s_, _ = terms(Pa[ia], Ea[ia], Pb[ib], Eb[ib])
             bc.append(c.sum())
-            bs.append(s.sum())
-    lo, hi = (1 - level) / 2 * 100, (1 + level) / 2 * 100
-    ci_c = [float(np.nanpercentile(bc, lo)), float(np.nanpercentile(bc, hi))]
-    ci_s = [float(np.nanpercentile(bs, lo)), float(np.nanpercentile(bs, hi))]
+            bs.append(s_.sum())
+    # Percentile intervals under-cover with a handful of subjects per arm. Use the
+    # bootstrap SE with a t quantile on the smaller arm's degrees of freedom, and split
+    # alpha across the two terms, since the verdict looks at both.
+    df = min(len(sa), len(sb)) - 1
+    q = t_ppf(1 - (1 - level) / 4, df)
+    est_c, est_s = float(comp.sum()), float(state.sum())
+    se_c, se_s = float(np.nanstd(bc, ddof=1)), float(np.nanstd(bs, ddof=1))
+    ci_c = [est_c - q * se_c, est_c + q * se_c]
+    ci_s = [est_s - q * se_s, est_s + q * se_s]
     sig_c = ci_c[0] > 0 or ci_c[1] < 0
     sig_s = ci_s[0] > 0 or ci_s[1] < 0
     verdict = ("both" if sig_c and sig_s else "composition" if sig_c else
                "state" if sig_s else "unresolved")
-    observed = float(np.nansum(Pa * np.nan_to_num(Ea), 1).mean()
+    observed = float(ta.mean() - tb.mean())
+    complete = float(np.nansum(Pa * np.nan_to_num(Ea), 1).mean()
                      - np.nansum(Pb * np.nan_to_num(Eb), 1).mean())
     return {"contrast": contrast.id, "subjects": {contrast.case: len(sa),
                                                   contrast.control: len(sb)},
-            "difference": float(comp.sum() + state.sum()),
+            "difference": est_c + est_s,
             "difference_observed": observed,
-            "composition": {"estimate": float(comp.sum()), "ci": ci_c,
+            "composition": {"estimate": est_c, "ci": ci_c, "se": se_c,
                             "by_cell_type": dict(zip(types, map(float, comp)))},
-            "state": {"estimate": float(state.sum()), "ci": ci_s,
+            "state": {"estimate": est_s, "ci": ci_s, "se": se_s,
                       "by_cell_type": dict(zip(types, map(float, state)))},
-            "within_arm_covariance": observed - float(comp.sum() + state.sum()),
+            "within_arm_covariance": complete - (est_c + est_s),
+            "sparse_cell_remainder": observed - complete,
             "excluded_cell_types": [t for t, good in zip(types, ok) if not good],
-            "verdict": verdict, "level": level,
-            "note": "bootstrap over subjects. The terms decompose the difference of "
-                    "arm-mean composition times arm-mean expression exactly; the observed "
+            "verdict": verdict, "level": level, "interval": f"bootstrap SE × t({df}), "
+            f"each term at {1 - (1 - level) / 2:.3f}",
+            "note": "bootstrap over subjects. composition + state decompose the difference "
+                    "of arm-mean composition times arm-mean expression exactly. The observed "
                     "difference of subject means also carries the within-arm covariance of "
-                    "proportion and expression, reported separately"}
+                    "proportion and expression, and the cells of types too sparse in a "
+                    "subject (fewer than min_cells) to estimate their expression; both are "
+                    "reported separately"}
