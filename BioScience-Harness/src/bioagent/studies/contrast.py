@@ -77,16 +77,21 @@ def contrast_formula_monomer(formula: Group, monomer: Group, *, higher_is_better
     sign = 1 if higher_is_better else -1
     lo, hi = sorted((sign * diff.ci_low, sign * diff.ci_high))
     equivalence = tost(diff, margin, alpha=alpha) if margin is not None else None
-    if lo > 0:
+    # Equivalence within a prespecified margin takes precedence: a difference that is
+    # statistically non-zero but inside the margin is, by the protocol, not a meaningful one.
+    if equivalence and equivalence["equivalent"]:
+        verdict = "equivalent"
+    elif lo > 0:
         verdict = "formula_exceeds"
     elif hi < 0:
         verdict = "monomer_exceeds"
-    elif equivalence and equivalence["equivalent"]:
-        verdict = "equivalent"
     else:
         verdict = "inconclusive"
     allowed, not_allowed = _allowed(verdict, margin)
     notes = []
+    if verdict == "equivalent" and (lo > 0 or hi < 0):
+        notes.append("the difference is statistically non-zero but lies within the "
+                     "prespecified margin")
     if dose_matched is None:
         notes.append("whether the monomer dose matches its amount in the formula is not "
                      "recorded; a dose mismatch can create or hide a difference")
@@ -113,6 +118,9 @@ def unexplained_response(formula: Sequence[float],
     judged on. The interval is a one-sample t interval over the held-out formula units and
     ignores the uncertainty of the expectation, so it is narrower than the truth.
     """
+    clash = {"control", "formula"} & set(constituents)
+    if clash:
+        raise ValueError(f"constituent names {sorted(clash)} are reserved")
     rng = np.random.default_rng(seed)
     groups = {"control": np.asarray(control, float), "formula": np.asarray(formula, float),
               **{k: np.asarray(v, float) for k, v in constituents.items()}}

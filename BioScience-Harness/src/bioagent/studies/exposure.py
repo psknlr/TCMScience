@@ -29,9 +29,17 @@ from .design import AssayResult, ExposureRecord
 
 __all__ = ["to_molar", "exposure_ratio", "screen_exposure"]
 
-_MOLAR = {"M": 1.0, "mM": 1e-3, "uM": 1e-6, "µM": 1e-6, "μM": 1e-6, "nM": 1e-9, "pM": 1e-12}
-_MASS = {"g/L": 1.0, "mg/L": 1e-3, "ug/mL": 1e-3, "µg/mL": 1e-3, "μg/mL": 1e-3,
-         "ng/mL": 1e-6, "ug/L": 1e-6, "µg/L": 1e-6, "pg/mL": 1e-9}
+_MOLAR = {"M": 1.0, "mM": 1e-3, "uM": 1e-6, "nM": 1e-9, "pM": 1e-12,
+          "mol/L": 1.0, "mmol/L": 1e-3, "umol/L": 1e-6, "nmol/L": 1e-9, "pmol/L": 1e-12}
+_MASS = {"g/L": 1.0, "mg/L": 1e-3, "mg/mL": 1.0, "mg/dL": 1e-2, "ug/mL": 1e-3, "ug/L": 1e-6,
+         "ng/mL": 1e-6, "ng/L": 1e-9, "pg/mL": 1e-9}
+
+
+def _norm_unit(unit: str) -> str:
+    u = unit.strip().replace("µ", "u").replace("μ", "u").replace(" ", "")
+    for a, b in (("ml", "mL"), ("dl", "dL"), ("/l", "/L")):
+        u = u.replace(a, b)
+    return u
 _TIME_INTEGRATED = re.compile(r"[*·.\s]\s*(h|hr|min)\b|\b(h|hr|min)\s*/|h\*|·h")
 
 
@@ -39,6 +47,10 @@ def to_molar(value: float, unit: str, *, mw: float | None = None) -> float:
     u = unit.strip()
     if _TIME_INTEGRATED.search(u):
         raise ValueError(f"{unit!r} is time-integrated (an AUC), not a concentration")
+    if re.search(r"/(g|kg|mg)$", u.replace(" ", "")):
+        raise ValueError(f"{unit!r} is per tissue mass: converting it to a molar concentration "
+                         "needs the tissue density, which is not assumed")
+    u = _norm_unit(u)
     if u in _MOLAR:
         return value * _MOLAR[u]
     if u in _MASS:
@@ -145,6 +157,18 @@ def screen_exposure(exposures: Iterable[ExposureRecord], assays: Iterable[AssayR
                                   + (f" (measured at {others}; another site is not this one)"
                                      if others else "")})
             continue
-        best = max(at_site, key=lambda e: (e.concentration.value or e.concentration.bound or 0))
+        # Compare exposures in molar units, and a measured value before any bound: a
+        # below-LOD record says only that the concentration was lower than its bound.
+        def molar(e: ExposureRecord) -> float:
+            c = e.concentration
+            v = c.value if c.known else c.bound
+            try:
+                return to_molar(v, c.unit, mw=(mw or {}).get(a.molecule)) if v is not None \
+                    else -1.0
+            except ValueError:
+                return -1.0
+        measured = [e for e in at_site if e.concentration.known and molar(e) >= 0]
+        pool = measured or at_site
+        best = max(pool, key=molar)
         out.append(exposure_ratio(best, a, mw=(mw or {}).get(a.molecule), **kw))
     return out

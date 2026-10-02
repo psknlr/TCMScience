@@ -6,7 +6,12 @@
 2. **Does it exceed what the single agents predict?** The excess over a reference model:
    Bliss independence (``E_A + E_B − E_A·E_B``), highest single agent (HSA), or Loewe
    additivity (from Hill fits of each single agent). The primary model is fixed before
-   the analysis; the others are reported as sensitivity, never picked afterwards.
+   the analysis; the others are reported as sensitivity, never picked afterwards. The
+   interval on the excess is a t interval: the variance of the observed mean plus the
+   propagated variance of the reference (delta method for Bliss and HSA; refitting both
+   Hill curves to replicate-resampled single-agent data for Loewe), with conservative
+   degrees of freedom (the smallest group's replicates − 1). A percentile bootstrap over
+   three replicates flagged "exceeds" several times too often.
 3. **Is the excess selective?** When a cytotoxicity readout of the same wells is given,
    cells where the combination is also broadly cytotoxic are flagged, and the excess on
    cytotoxicity is reported beside the excess on the target endpoint.
@@ -26,6 +31,8 @@ from typing import Sequence
 
 import numpy as np
 
+from .stats import t_ppf
+
 __all__ = ["Cell", "analyse_combination", "fit_hill", "REFERENCE_MODELS"]
 
 REFERENCE_MODELS = ("bliss", "hsa", "loewe")
@@ -40,24 +47,36 @@ class Cell:
 
 
 def fit_hill(doses: Sequence[float], effects: Sequence[float]) -> dict:
-    """Least-squares Hill fit E = Emax·d^h / (EC50^h + d^h) over a log grid (no scipy)."""
+    """Least-squares Hill fit E = Emax·d^h / (EC50^h + d^h), no scipy.
+
+    A coarse grid over (Emax, h, log EC50), then two finer grids around the best point,
+    all vectorised.
+    """
     d = np.asarray(doses, float)
     e = np.asarray(effects, float)
     mask = d > 0
     d, e = d[mask], e[mask]
     if len(set(d.tolist())) < 3:
         raise ValueError("a Hill fit needs a single agent at three or more doses")
+    lo_ec, hi_ec = math.log(d.min()) - 2, math.log(d.max()) + 2
+    ranges = [(max(0.05, float(e.max()) * 0.8), 1.0), (0.3, 4.0), (lo_ec, hi_ec)]
     best = None
-    for emax in np.linspace(max(0.05, e.max()), 1.0, 20):
-        for h in np.linspace(0.3, 4.0, 38):
-            for log_ec in np.linspace(math.log(d.min()) - 2, math.log(d.max()) + 2, 60):
-                ec = math.exp(log_ec)
-                pred = emax * d ** h / (ec ** h + d ** h)
-                sse = float(((pred - e) ** 2).sum())
-                if best is None or sse < best[0]:
-                    best = (sse, emax, h, ec)
-    sse, emax, h, ec = best
-    return {"emax": float(emax), "hill": float(h), "ec50": float(ec), "sse": sse}
+    for _ in range(3):
+        em = np.linspace(*ranges[0], 24)
+        hh = np.linspace(*ranges[1], 24)
+        lec = np.linspace(*ranges[2], 40)
+        EM, HH, LEC = np.meshgrid(em, hh, lec, indexing="ij")
+        pred = EM[..., None] * d ** HH[..., None] / (
+            np.exp(LEC)[..., None] ** HH[..., None] + d ** HH[..., None])
+        sse = ((pred - e) ** 2).sum(-1)
+        k = np.unravel_index(np.argmin(sse), sse.shape)
+        best = (float(sse[k]), float(EM[k]), float(HH[k]), float(LEC[k]))
+        steps = [(r[1] - r[0]) / n for r, n in zip(ranges, (24, 24, 40))]
+        ranges = [(max(0.01, best[1] - 2 * steps[0]), min(1.0, best[1] + 2 * steps[0])),
+                  (max(0.05, best[2] - 2 * steps[1]), best[2] + 2 * steps[1]),
+                  (best[3] - 2 * steps[2], best[3] + 2 * steps[2])]
+    sse, emax, h, lec = best
+    return {"emax": emax, "hill": h, "ec50": math.exp(lec), "sse": sse}
 
 
 def _dose_for(effect: float, fit: dict) -> float:
@@ -84,7 +103,7 @@ def _loewe(da: float, db: float, fa: dict, fb: dict) -> float:
 
 
 def analyse_combination(cells: Sequence[Cell], *, primary: str, seed: int = 0,
-                        boot: int = 2000, cytotoxic_above: float = 0.5,
+                        boot: int = 200, cytotoxic_above: float = 0.5,
                         level: float = 0.95) -> dict:
     if primary not in REFERENCE_MODELS:
         raise ValueError(f"primary reference model {primary!r} is not one of {REFERENCE_MODELS}")
@@ -108,32 +127,54 @@ def analyse_combination(cells: Sequence[Cell], *, primary: str, seed: int = 0,
         except ValueError as exc:
             fits[name] = {"error": str(exc)}
     rng = np.random.default_rng(seed)
+    loewe_ok = "error" not in fits["a"] and "error" not in fits["b"]
+    # the Loewe reference depends on the fitted curves: their uncertainty comes from
+    # refitting both curves to replicate-resampled single-agent data
+    loewe_refits = []
+    if loewe_ok and primary == "loewe":
+        for _ in range(boot):
+            ra = {d: rng.choice(v, len(v)).mean() for d, v in single_a.items()}
+            rb = {d: rng.choice(v, len(v)).mean() for d, v in single_b.items()}
+            try:
+                loewe_refits.append((fit_hill(list(ra), list(ra.values())),
+                                     fit_hill(list(rb), list(rb.values()))))
+            except ValueError:
+                continue
     rows = []
     for c in combos:
         obs = np.asarray(c.effect, float)
         a, b = single_a[c.dose_a], single_b[c.dose_b]
-        expected = {"bliss": a.mean() + b.mean() - a.mean() * b.mean(),
-                    "hsa": max(a.mean(), b.mean())}
-        if "error" not in fits["a"] and "error" not in fits["b"]:
+        ma, mb = a.mean(), b.mean()
+        expected = {"bliss": ma + mb - ma * mb, "hsa": max(ma, mb)}
+        if loewe_ok:
             expected["loewe"] = _loewe(c.dose_a, c.dose_b, fits["a"], fits["b"])
         if primary not in expected:
             raise ValueError(f"the primary model {primary!r} cannot be computed: "
                              f"{fits['a'].get('error') or fits['b'].get('error')}")
-        # bootstrap over replicates of the combination and of both single agents
-        excess = []
-        for _ in range(boot):
-            o = rng.choice(obs, len(obs)).mean()
-            ea, eb = rng.choice(a, len(a)).mean(), rng.choice(b, len(b)).mean()
-            ref = {"bliss": ea + eb - ea * eb, "hsa": max(ea, eb)}.get(primary,
-                                                                        expected.get(primary))
-            excess.append(o - ref)
-        lo, hi = np.quantile(excess, [(1 - level) / 2, 1 - (1 - level) / 2])
+        if min(len(obs), len(a), len(b)) < 2:
+            raise ValueError("an interval needs at least two replicates of the combination "
+                             "and of each single agent at that dose")
+        var_obs = obs.var(ddof=1) / len(obs)
+        va, vb = a.var(ddof=1) / len(a), b.var(ddof=1) / len(b)
+        if primary == "bliss":                        # delta method
+            var_ref = (1 - mb) ** 2 * va + (1 - ma) ** 2 * vb
+        elif primary == "hsa":
+            var_ref = va if ma >= mb else vb
+        else:
+            refs = [_loewe(c.dose_a, c.dose_b, fa, fb) for fa, fb in loewe_refits]
+            var_ref = float(np.var(refs, ddof=1)) if len(refs) > 1 else math.inf
+        se = math.sqrt(var_obs + var_ref)
+        # conservative degrees of freedom: the smallest group drives them
+        df = max(1, min(len(obs), len(a), len(b)) - 1)
+        q = t_ppf(1 - (1 - level) / 2, df)
+        est = float(obs.mean() - expected[primary])
+        lo, hi = est - q * se, est + q * se
         cyto = float(np.mean(c.cytotoxicity)) if c.cytotoxicity else None
         rows.append({
             "dose_a": c.dose_a, "dose_b": c.dose_b, "observed": float(obs.mean()),
             "expected": {k: float(v) for k, v in expected.items()},
             "excess": {k: float(obs.mean() - v) for k, v in expected.items()},
-            "primary_excess_ci": [float(lo), float(hi)],
+            "primary_excess_ci": [float(lo), float(hi)], "df": df,
             "exceeds_primary": bool(lo > 0), "below_primary": bool(hi < 0),
             "cytotoxicity": cyto,
             "near_general_cytotoxicity": cyto is not None and cyto >= cytotoxic_above})

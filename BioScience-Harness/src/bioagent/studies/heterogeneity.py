@@ -40,6 +40,8 @@ def effect_modification(outcome: Sequence[float], treated: Sequence[int],
                         covariates: Mapping[str, Sequence[float]] | None = None,
                         prespecified: int | None = None, level: float = 0.95) -> dict:
     n = len(outcome)
+    if any(t not in (0, 1) for t in treated):
+        raise ValueError("treatment is coded 0 (control) or 1 (treated), nothing else")
     arms = set(int(t) for t in treated)
     if arms != {0, 1}:
         raise ValueError("effect modification needs a treated and a control arm; one arm "

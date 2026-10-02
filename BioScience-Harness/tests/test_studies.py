@@ -307,3 +307,87 @@ def test_a_version_cannot_be_republished_with_different_content(tmp_path):
         build_snapshot(nodes=nodes + [{"id": "fixture:b", "category": "ingredient", "name": "b",
                                 "source": "fixture"}],
                        edges=[], **common)
+
+
+# ------------------------------------------- regressions from the independent review
+def test_combination_does_not_flag_excess_on_bliss_independent_data_at_three_replicates():
+    import numpy as np
+    H = lambda d, em, h, ec: em * d ** h / (ec ** h + d ** h)  # noqa: E731
+    flagged = total = 0
+    for s in range(15):
+        rng = np.random.default_rng(s)
+        cells = []
+        for a in (0, 1, 3, 10, 30):
+            for b in (0, 1, 3, 10, 30):
+                if a or b:
+                    ea = H(a, 0.9, 1, 10) if a else 0
+                    eb = H(b, 0.7, 2, 5) if b else 0
+                    cells.append(Cell(a, b, tuple(ea + eb - ea * eb + rng.normal(0, .05, 3))))
+        out = analyse_combination(cells, primary="bliss", seed=s)
+        flagged += out["exceeds_reference"]["cells"]
+        total += out["exceeds_reference"]["of"]
+    assert flagged / total <= 0.05          # was 0.094 with the percentile bootstrap
+
+
+def test_exposure_is_compared_in_molar_units_and_measured_values_come_first():
+    a = AssayResult("inchikey:B", "symbol:X", "IC50", Measurement("measured", 1.0, "uM"))
+    mixed = [ExposureRecord("inchikey:B", "rat", "plasma", 1, Measurement("measured", 2.0, "uM"),
+                            free=True),
+             ExposureRecord("inchikey:B", "rat", "plasma", 1,
+                            Measurement("measured", 50.0, "ng/mL"), free=True)]
+    out = screen_exposure(mixed, [a], site="plasma", mw={"inchikey:B": 400.0})[0]
+    assert out["verdict"] == "plausible" and out["ratio"] == pytest.approx([2.0, 2.0])
+    censored = [ExposureRecord("inchikey:B", "rat", "plasma", 1,
+                               Measurement("measured", 5.0, "uM"), free=True),
+                ExposureRecord("inchikey:B", "rat", "plasma", 24,
+                               Measurement("below_lod", unit="uM", bound=10.0), free=True)]
+    out = screen_exposure(censored, [a], site="plasma")[0]
+    assert out["ratio"] == pytest.approx([5.0, 5.0])
+
+
+@pytest.mark.parametrize("unit,factor", [("umol/L", 1e-6), ("µmol/L", 1e-6), ("nmol/L", 1e-9),
+                                         ("mmol/L", 1e-3), ("ug/ml", 1e-3 / 400),
+                                         ("mg/dL", 1e-2 / 400), ("μM", 1e-6)])
+def test_common_concentration_units_convert(unit, factor):
+    assert to_molar(1.0, unit, mw=400.0) == pytest.approx(factor)
+
+
+def test_tissue_mass_units_are_not_assumed_to_be_volumes():
+    with pytest.raises(ValueError, match="tissue density"):
+        to_molar(1.0, "ng/g", mw=400.0)
+
+
+def test_extreme_quantiles_and_small_p_values_are_not_clamped():
+    assert t_ppf(0.9999, 1) == pytest.approx(3183.1, rel=1e-3)
+    from bioagent.studies.stats import t_sf
+    assert 0 < t_sf(40, 200) < 1e-50
+    with pytest.raises(ValueError):
+        bh([float("nan"), 0.01])
+
+
+def test_equivalence_within_the_margin_takes_precedence_and_is_noted():
+    import numpy as np
+    rng = np.random.default_rng(0)
+    f = Group("formula", tuple(1.1 + rng.normal(0, .05, 50)), "s")
+    m = Group("monomer", tuple(1.0 + rng.normal(0, .05, 50)), "s")
+    out = contrast_formula_monomer(f, m, margin=1.0)
+    assert out["verdict"] == "equivalent" and any("non-zero" in n for n in out["notes"])
+    with pytest.raises(ValueError):
+        unexplained_response([1] * 4, {"control": [1] * 4}, [0] * 4)
+
+
+def test_treatment_is_coded_zero_or_one():
+    z = tuple(float(i) for i in range(20))
+    with pytest.raises(ValueError):
+        effect_modification(list(z), [0.5] * 10 + [1] * 10, [Feature("z", z, True)])
+
+
+def test_a_rerecorded_snapshot_is_the_latest_and_a_lock_has_no_extra_keys():
+    from types import SimpleNamespace
+
+    from bioagent.analysis.skill_runner import SkillRunRefused, _choose, _recorded
+    entries = [SimpleNamespace(key="k", version="1", snapshot_id=i) for i in ("A", "B", "A")]
+    rec = _recorded(SimpleNamespace(entries=lambda: iter(entries)))
+    assert _choose(rec, ["k"], None, latest=True)["k"] == ("1", "A")
+    with pytest.raises(SkillRunRefused, match="does not use"):
+        _choose(rec, ["k"], {"k": "A", "extra": "Z"}, latest=False)

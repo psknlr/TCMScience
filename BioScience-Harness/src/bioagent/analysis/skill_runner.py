@@ -56,8 +56,10 @@ def _recorded(ledger: SnapshotLedger) -> dict[str, list[tuple[str, str]]]:
     out: dict[str, list[tuple[str, str]]] = {}
     for e in ledger.entries():
         pair = (e.version, e.snapshot_id)
-        if pair not in out.setdefault(e.key, []):
-            out[e.key].append(pair)
+        pairs = out.setdefault(e.key, [])
+        if pair in pairs:                  # re-recorded: it is now the latest
+            pairs.remove(pair)
+        pairs.append(pair)
     return out
 
 
@@ -75,6 +77,9 @@ def _choose(recorded: dict[str, list[tuple[str, str]]], wanted: list[str],
     missing = [k for k in wanted if k not in recorded]
     if missing:
         raise SkillRunRefused(f"no snapshot recorded for {missing}; build them first")
+    if lock is not None and set(lock) - set(wanted):
+        raise SkillRunRefused(f"the lock pins {sorted(set(lock) - set(wanted))}, which this run "
+                              "does not use; a lock describes exactly one run's inputs")
     for key in wanted:
         if lock is not None:
             if key not in lock:
@@ -122,8 +127,10 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                                accept_review=accept_review) for key in wanted]
     for snap in snapshots:
         if snap.snapshot_id != chosen[snap.key][1]:
-            raise SkillRunRefused(f"{snap.key}: loaded {snap.snapshot_id}, but the run "
-                                  f"pins {chosen[snap.key][1]}")
+            raise SkillRunRefused(
+                f"{snap.key}: the run pins {chosen[snap.key][1]}, but version "
+                f"{chosen[snap.key][0]} on disk now holds {snap.snapshot_id}: the pinned build "
+                "was replaced and cannot be reproduced from this snapshot store")
     herbs = next(s for s in snapshots if s.key == HERB_LAYER)
     if not any(e.get("subject") == formula.id and e.get("predicate") == "contains"
                for e in herbs.edges):

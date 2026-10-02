@@ -13,7 +13,7 @@ from typing import Sequence
 
 import numpy as np
 
-__all__ = ["t_cdf", "t_ppf", "WelchDifference", "welch_difference", "tost", "bh",
+__all__ = ["t_cdf", "t_sf", "t_ppf", "WelchDifference", "welch_difference", "tost", "bh",
            "OLSFit", "ols"]
 
 
@@ -62,10 +62,21 @@ def t_cdf(t: float, df: float) -> float:
     return 1.0 - tail if t > 0 else tail
 
 
+def t_sf(t: float, df: float) -> float:
+    """Upper tail P(T > t), computed directly so small tails do not cancel to 0."""
+    x = df / (df + t * t)
+    tail = 0.5 * _betainc(df / 2.0, 0.5, x)
+    return tail if t > 0 else 1.0 - tail
+
+
 def t_ppf(p: float, df: float) -> float:
     if not 0 < p < 1:
         raise ValueError("p lies in (0, 1)")
-    lo, hi = -1e3, 1e3
+    lo, hi = -1.0, 1.0
+    while t_cdf(lo, df) > p:
+        lo *= 2
+    while t_cdf(hi, df) < p:
+        hi *= 2
     for _ in range(200):
         mid = (lo + hi) / 2
         if t_cdf(mid, df) < p:
@@ -105,7 +116,7 @@ def welch_difference(a: Sequence[float], b: Sequence[float], *,
         raise ValueError("no variation in either group: an interval cannot be estimated")
     df = (va + vb) ** 2 / (va ** 2 / (len(xa) - 1) + vb ** 2 / (len(xb) - 1))
     q = t_ppf(1 - (1 - level) / 2, df)
-    p = 2 * (1 - t_cdf(abs(est) / se, df))
+    p = 2 * t_sf(abs(est) / se, df)
     return WelchDifference(est, se, df, est - q * se, est + q * se, level, len(xa), len(xb), p)
 
 
@@ -116,7 +127,7 @@ def tost(diff: WelchDifference, margin: float, *, alpha: float = 0.05) -> dict:
     """
     if margin <= 0:
         raise ValueError("an equivalence margin is positive and fixed before the analysis")
-    p_low = 1 - t_cdf((diff.estimate + margin) / diff.se, diff.df)
+    p_low = t_sf((diff.estimate + margin) / diff.se, diff.df)
     p_high = t_cdf((diff.estimate - margin) / diff.se, diff.df)
     q = t_ppf(1 - alpha, diff.df)
     lo, hi = diff.estimate - q * diff.se, diff.estimate + q * diff.se
@@ -128,6 +139,8 @@ def tost(diff: WelchDifference, margin: float, *, alpha: float = 0.05) -> dict:
 def bh(p_values: Sequence[float]) -> list[float]:
     """Benjamini-Hochberg adjusted p values, in the input order."""
     p = np.asarray(p_values, float)
+    if np.isnan(p).any():
+        raise ValueError("a p value is missing (NaN); adjust only complete sets")
     n = len(p)
     if n == 0:
         return []
@@ -152,7 +165,7 @@ class OLSFit:
         q = t_ppf(1 - (1 - level) / 2, self.df)
         est, se = self.coef[i], self.se[i]
         return {"term": name, "estimate": est, "se": se, "ci": [est - q * se, est + q * se],
-                "level": level, "p_value": 2 * (1 - t_cdf(abs(est) / se, self.df)),
+                "level": level, "p_value": 2 * t_sf(abs(est) / se, self.df),
                 "df": self.df}
 
 

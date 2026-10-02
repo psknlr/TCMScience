@@ -84,6 +84,31 @@ stay hypotheses; this says what they rest on.
 The statistics are implemented on numpy, with no scipy; the t distribution is checked
 against tables in `tests/test_studies.py`.
 
+An independent review checked the statistics numerically, against exact formulas, numerical
+integration and simulation:
+- the t distribution, Welch intervals, TOST, BH and OLS were correct;
+- five defects were found and fixed, each now with a regression test.
+
+The worst was in the combination analysis. A percentile bootstrap over three replicates,
+with the Loewe reference held fixed, flagged "exceeds the reference" in 9–20% of cells of
+data that had no excess, against a nominal 2.5%. The interval is now a t interval on
+excess = observed − reference. Its variance adds the propagated variance of the reference:
+a delta method for Bliss and HSA, and refitting both Hill curves to replicate-resampled
+data for Loewe. Degrees of freedom are conservative.
+
+| Data with no excess | Before (exceeds / below) | After (exceeds / below) | Nominal |
+| --- | --- | --- | --- |
+| Bliss, 3 replicates | 9.4% / 11.1% | 0.3% / 0.3% | 2.5% each |
+| Bliss, 8 replicates | 5.9% / 4.2% | 2.0% / 1.6% | 2.5% each |
+| Loewe, sham combination | 17–18% / 19–20% | 0.3–0.6% / 0.8–1.1% | 2.5% each |
+
+The test is now conservative at very few replicates, which is the safer direction for a
+synergy claim. The other four defects:
+- the exposure screen compared records in different units before converting them;
+- it preferred a below-LOD bound over a measured value;
+- `umol/L`-style units were refused;
+- tiny p values cancelled to 0, and the t quantile was clamped at ±1000.
+
 ## The eight routes: status and what each still needs
 
 | Route | Status in this branch | What it needs next |
