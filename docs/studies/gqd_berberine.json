@@ -1,0 +1,906 @@
+{
+  "protocol": {
+    "locked": "sha256:94f9536e706f9b0bb5e7c633bd5eea2a33fc3b0988b97196ac8020882e572c57",
+    "status": "exploratory",
+    "amendments": [
+      {
+        "reason": "the primary contrast (berberine AUC, GQD vs HL) was computed during code testing before the protocol was locked",
+        "changed": [],
+        "from": "sha256:94f9536e706f9b0bb5e7c633bd5eea2a33fc3b0988b97196ac8020882e572c57"
+      }
+    ],
+    "hypothesis": "The whole formula raises berberine AUC relative to Huang-Lian alone, and Gan-Cao contributes to that rise.",
+    "competing": [
+      "AUC_last differs because sampling windows and half-lives differ, not absorption",
+      "summary statistics hide skewed concentration-time data (SDs near the means)",
+      "Cmax and AUC move in opposite directions, so 'more exposure' depends on the metric",
+      "in vitro activities at plasma-achievable concentrations are cytotoxicity or assay interference, not specific mechanisms"
+    ],
+    "decision_rules": {
+      "ratio_ci_above_1.25": "the formula raises berberine AUC relative to Huang-Lian alone, in rats, at this dose",
+      "ratio_ci_within_0.80_1.25": "berberine AUC is equivalent between formula and Huang-Lian alone",
+      "otherwise": "no conclusion about a change in exposure",
+      "exposure_implausible": "a plasma-mediated mechanism at that assay is not supported at the measured exposure; a gut-lumen mechanism is not addressed"
+    }
+  },
+  "pk_contrasts": [
+    {
+      "analyte": "berberine",
+      "contrast": "GQD vs HL",
+      "why": "whole formula vs the same Huang-Lian dose alone",
+      "metric": "AUC_last (h·ng/mL)",
+      "mean_a": 389.12,
+      "mean_b": 197.98,
+      "difference": {
+        "estimate": 191.14000000000001,
+        "se": 64.04376566067926,
+        "df": 11.952109981601184,
+        "ci_low": 51.53858602796012,
+        "ci_high": 330.74141397203994,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.0114342216544999
+      },
+      "ratio": {
+        "ratio": 1.9654510556621883,
+        "ci": [
+          1.3988060575147339,
+          2.761639350538
+        ],
+        "level": 0.9,
+        "df": 17.233046996189582,
+        "se_log": 0.19565762645141685
+      },
+      "verdict": "increased"
+    },
+    {
+      "analyte": "berberine",
+      "contrast": "GQD vs HL",
+      "why": "whole formula vs the same Huang-Lian dose alone",
+      "metric": "Cmax (ng/mL)",
+      "mean_a": 28.2,
+      "mean_b": 76.65,
+      "difference": {
+        "estimate": -48.45,
+        "se": 10.403627252069347,
+        "df": 15.110047391653891,
+        "ci_low": -70.61074865173903,
+        "ci_high": -26.289251348260972,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.0003041983716839514
+      },
+      "ratio": {
+        "ratio": 0.3679060665362035,
+        "ci": [
+          0.2469257987559846,
+          0.5481601131840457
+        ],
+        "level": 0.9,
+        "df": 14.559144317710965,
+        "se_log": 0.22700259062696074
+      },
+      "verdict": "decreased"
+    },
+    {
+      "analyte": "berberine",
+      "contrast": "GQD vs GQD-GC",
+      "why": "whole formula vs formula without Gan-Cao",
+      "metric": "AUC_last (h·ng/mL)",
+      "mean_a": 389.12,
+      "mean_b": 148.97,
+      "difference": {
+        "estimate": 240.15,
+        "se": 63.33495440907809,
+        "df": 11.521512737053984,
+        "ci_low": 101.51668899903021,
+        "ci_high": 378.7833110009698,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.002754483016049736
+      },
+      "ratio": {
+        "ratio": 2.612069544203531,
+        "ci": [
+          1.8023512306054252,
+          3.7855592117102326
+        ],
+        "level": 0.9,
+        "df": 17.99718837972586,
+        "se_log": 0.2139757978798988
+      },
+      "verdict": "increased"
+    },
+    {
+      "analyte": "berberine",
+      "contrast": "GQD vs GQD-GC",
+      "why": "whole formula vs formula without Gan-Cao",
+      "metric": "Cmax (ng/mL)",
+      "mean_a": 28.2,
+      "mean_b": 32.28,
+      "difference": {
+        "estimate": -4.080000000000002,
+        "se": 6.919122054133747,
+        "df": 16.759236309770582,
+        "ci_low": -18.6940632487019,
+        "ci_high": 10.5340632487019,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.5632778309360345
+      },
+      "ratio": {
+        "ratio": 0.8736059479553903,
+        "ci": [
+          0.5796910190165155,
+          1.3165416183225231
+        ],
+        "level": 0.9,
+        "df": 15.601676060199278,
+        "se_log": 0.23454713077473435
+      },
+      "verdict": "inconclusive"
+    },
+    {
+      "analyte": "berberine",
+      "contrast": "GQD-GC vs HL",
+      "why": "formula without Gan-Cao vs Huang-Lian alone",
+      "metric": "AUC_last (h·ng/mL)",
+      "mean_a": 148.97,
+      "mean_b": 197.98,
+      "difference": {
+        "estimate": -49.00999999999999,
+        "se": 33.07061006392232,
+        "df": 17.878154685999107,
+        "ci_low": -118.5227307912369,
+        "ci_high": 20.502730791236914,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.155757187681825
+      },
+      "ratio": {
+        "ratio": 0.752449742398222,
+        "ci": [
+          0.536932889482499,
+          1.0544718454122657
+        ],
+        "level": 0.9,
+        "df": 17.314419618817706,
+        "se_log": 0.19418967810184182
+      },
+      "verdict": "inconclusive"
+    },
+    {
+      "analyte": "berberine",
+      "contrast": "GQD-GC vs HL",
+      "why": "formula without Gan-Cao vs Huang-Lian alone",
+      "metric": "Cmax (ng/mL)",
+      "mean_a": 32.28,
+      "mean_b": 76.65,
+      "difference": {
+        "estimate": -44.370000000000005,
+        "se": 9.757520689191493,
+        "df": 12.839378962967924,
+        "ci_low": -65.47668013426684,
+        "ci_high": -23.263319865733173,
+        "level": 0.95,
+        "n_a": 10,
+        "n_b": 10,
+        "p_value": 0.0005651039093135477
+      },
+      "ratio": {
+        "ratio": 0.42113502935420744,
+        "ci": [
+          0.3118677216028711,
+          0.5686856980185038
+        ],
+        "level": 0.9,
+        "df": 17.76010116460448,
+        "se_log": 0.17309318030577606
+      },
+      "verdict": "decreased"
+    }
+  ],
+  "exposure": {
+    "assays_active": 128,
+    "assays_inactive": 379,
+    "by_group": {
+      "GQD": {
+        "cmax_ng_ml": 28.2,
+        "cmax_nM_total": 83.8,
+        "verdicts": {
+          "implausible": 106,
+          "depends_on_unknowns": 22
+        },
+        "not_ruled_out": [
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_number",
+            "ratio_range": [
+              0.010506684237315395,
+              1.0506684237315393
+            ],
+            "potency_uM": 0.0798,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_LDH",
+            "ratio_range": [
+              0.009518994308178291,
+              0.9518994308178291
+            ],
+            "potency_uM": 0.0881,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_mutual_information_norm",
+            "ratio_range": [
+              0.00905596791862699,
+              0.905596791862699
+            ],
+            "potency_uM": 0.0926,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_rate",
+            "ratio_range": [
+              0.00903316287889631,
+              0.9033162878896311
+            ],
+            "potency_uM": 0.0928,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_duration_std",
+            "ratio_range": [
+              0.008609282411102025,
+              0.8609282411102026
+            ],
+            "potency_uM": 0.0974,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_correlation_coefficient_mean",
+            "ratio_range": [
+              0.0079057690096642,
+              0.7905769009664201
+            ],
+            "potency_uM": 0.106,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_firing_rate_mean",
+            "ratio_range": [
+              0.007876445036161321,
+              0.787644503616132
+            ],
+            "potency_uM": 0.1064,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_number_mean",
+            "ratio_range": [
+              0.007673402459366264,
+              0.7673402459366264
+            ],
+            "potency_uM": 0.1093,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_percent",
+            "ratio_range": [
+              0.00714013067997269,
+              0.7140130679972689
+            ],
+            "potency_uM": 0.1174,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_bursting_electrodes_number",
+            "ratio_range": [
+              0.006468535808239038,
+              0.6468535808239038
+            ],
+            "potency_uM": 0.1296,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_spike_duration_mean",
+            "ratio_range": [
+              0.006458446107448379,
+              0.6458446107448379
+            ],
+            "potency_uM": 0.1298,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_SHH_3T3_GLI3_LUC_Antagonist",
+            "ratio_range": [
+              0.005823592235170896,
+              0.5823592235170896
+            ],
+            "potency_uM": 0.144,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_spike_percent",
+            "ratio_range": [
+              0.005797497623329917,
+              0.5797497623329917
+            ],
+            "potency_uM": 0.1446,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_peak",
+            "ratio_range": [
+              0.005380812254337498,
+              0.5380812254337498
+            ],
+            "potency_uM": 0.1558,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_active_electrodes_number",
+            "ratio_range": [
+              0.00521824759419266,
+              0.521824759419266
+            ],
+            "potency_uM": 0.1607,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_inter_network_spike_interval_mean",
+            "ratio_range": [
+              0.0035506489983587325,
+              0.35506489983587325
+            ],
+            "potency_uM": 0.2361,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_interburst_interval_mean",
+            "ratio_range": [
+              0.0029262038362435207,
+              0.29262038362435205
+            ],
+            "potency_uM": 0.2865,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_duration_mean",
+            "ratio_range": [
+              0.002881826144552908,
+              0.28818261445529075
+            ],
+            "potency_uM": 0.2909,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_interspike_interval",
+            "ratio_range": [
+              0.0022031117615864643,
+              0.2203111761586464
+            ],
+            "potency_uM": 0.3805,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_AB",
+            "ratio_range": [
+              0.0018636947673511411,
+              0.18636947673511411
+            ],
+            "potency_uM": 0.4499,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_AhR_LUC_Agonist",
+            "ratio_range": [
+              0.0013209997663222257,
+              0.13209997663222256
+            ],
+            "potency_uM": 0.6347,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_p450_CYP2D6_Antagonist",
+            "ratio_range": [
+              0.0011881047154246773,
+              0.11881047154246774
+            ],
+            "potency_uM": 0.7057,
+            "verdict": "depends_on_unknowns"
+          }
+        ]
+      },
+      "GQD-GC": {
+        "cmax_ng_ml": 32.28,
+        "cmax_nM_total": 96.0,
+        "verdicts": {
+          "implausible": 106,
+          "depends_on_unknowns": 22
+        },
+        "not_ruled_out": [
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_number",
+            "ratio_range": [
+              0.012026800254629114,
+              1.2026800254629113
+            ],
+            "potency_uM": 0.0798,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_LDH",
+            "ratio_range": [
+              0.01089621050595728,
+              1.089621050595728
+            ],
+            "potency_uM": 0.0881,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_mutual_information_norm",
+            "ratio_range": [
+              0.010366193064300684,
+              1.0366193064300684
+            ],
+            "potency_uM": 0.0926,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_rate",
+            "ratio_range": [
+              0.010340088572013227,
+              1.0340088572013226
+            ],
+            "potency_uM": 0.0928,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_duration_std",
+            "ratio_range": [
+              0.009854880717389129,
+              0.9854880717389128
+            ],
+            "potency_uM": 0.0974,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_correlation_coefficient_mean",
+            "ratio_range": [
+              0.00904958239829647,
+              0.9049582398296468
+            ],
+            "potency_uM": 0.106,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_firing_rate_mean",
+            "ratio_range": [
+              0.009016015807350621,
+              0.9016015807350619
+            ],
+            "potency_uM": 0.1064,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_number_mean",
+            "ratio_range": [
+              0.008783596857742661,
+              0.878359685774266
+            ],
+            "potency_uM": 0.1093,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_percent",
+            "ratio_range": [
+              0.008173170863458102,
+              0.8173170863458101
+            ],
+            "potency_uM": 0.1174,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_bursting_electrodes_number",
+            "ratio_range": [
+              0.007404409074111921,
+              0.7404409074111921
+            ],
+            "potency_uM": 0.1296,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_spike_duration_mean",
+            "ratio_range": [
+              0.007392859586823891,
+              0.739285958682389
+            ],
+            "potency_uM": 0.1298,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_SHH_3T3_GLI3_LUC_Antagonist",
+            "ratio_range": [
+              0.006666154516004133,
+              0.6666154516004132
+            ],
+            "potency_uM": 0.144,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_spike_percent",
+            "ratio_range": [
+              0.00663628451351382,
+              0.663628451351382
+            ],
+            "potency_uM": 0.1446,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_peak",
+            "ratio_range": [
+              0.006159312750709733,
+              0.6159312750709732
+            ],
+            "potency_uM": 0.1558,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_active_electrodes_number",
+            "ratio_range": [
+              0.005973228097182238,
+              0.5973228097182237
+            ],
+            "potency_uM": 0.1607,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_inter_network_spike_interval_mean",
+            "ratio_range": [
+              0.0040643599172702095,
+              0.40643599172702094
+            ],
+            "potency_uM": 0.2361,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_interburst_interval_mean",
+            "ratio_range": [
+              0.0033495694976574775,
+              0.33495694976574775
+            ],
+            "potency_uM": 0.2865,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_duration_mean",
+            "ratio_range": [
+              0.0032987712037648186,
+              0.3298771203764818
+            ],
+            "potency_uM": 0.2909,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_interspike_interval",
+            "ratio_range": [
+              0.0025218598462415274,
+              0.2521859846241527
+            ],
+            "potency_uM": 0.3805,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_AB",
+            "ratio_range": [
+              0.0021333357124147106,
+              0.21333357124147106
+            ],
+            "potency_uM": 0.4499,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_AhR_LUC_Agonist",
+            "ratio_range": [
+              0.001512123136768846,
+              0.1512123136768846
+            ],
+            "potency_uM": 0.6347,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_p450_CYP2D6_Antagonist",
+            "ratio_range": [
+              0.0013600007168052693,
+              0.1360000716805269
+            ],
+            "potency_uM": 0.7057,
+            "verdict": "depends_on_unknowns"
+          }
+        ]
+      },
+      "HL": {
+        "cmax_ng_ml": 76.65,
+        "cmax_nM_total": 227.9,
+        "verdicts": {
+          "implausible": 100,
+          "depends_on_unknowns": 28
+        },
+        "not_ruled_out": [
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_number",
+            "ratio_range": [
+              0.028558061942915786,
+              2.8558061942915787
+            ],
+            "potency_uM": 0.0798,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_LDH",
+            "ratio_range": [
+              0.025873436656803764,
+              2.5873436656803763
+            ],
+            "potency_uM": 0.0881,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_mutual_information_norm",
+            "ratio_range": [
+              0.02461489152350209,
+              2.461489152350209
+            ],
+            "potency_uM": 0.0926,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_rate",
+            "ratio_range": [
+              0.02455290548465966,
+              2.455290548465966
+            ],
+            "potency_uM": 0.0928,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_duration_std",
+            "ratio_range": [
+              0.023400762298261362,
+              2.340076229826136
+            ],
+            "potency_uM": 0.0974,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_correlation_coefficient_mean",
+            "ratio_range": [
+              0.021488552999672377,
+              2.148855299967238
+            ],
+            "potency_uM": 0.106,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_firing_rate_mean",
+            "ratio_range": [
+              0.021408847944034234,
+              2.1408847944034233
+            ],
+            "potency_uM": 0.1064,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_number_mean",
+            "ratio_range": [
+              0.020856960940085968,
+              2.0856960940085965
+            ],
+            "potency_uM": 0.1093,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_network_spike_spike_percent",
+            "ratio_range": [
+              0.019407482858861944,
+              1.9407482858861942
+            ],
+            "potency_uM": 0.1174,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_bursting_electrodes_number",
+            "ratio_range": [
+              0.017582030840479518,
+              1.7582030840479517
+            ],
+            "potency_uM": 0.1296,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_spike_duration_mean",
+            "ratio_range": [
+              0.017554606175032565,
+              1.7554606175032565
+            ],
+            "potency_uM": 0.1298,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_SHH_3T3_GLI3_LUC_Antagonist",
+            "ratio_range": [
+              0.015829019320065574,
+              1.5829019320065576
+            ],
+            "potency_uM": 0.144,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_spike_percent",
+            "ratio_range": [
+              0.015758091944263766,
+              1.5758091944263766
+            ],
+            "potency_uM": 0.1446,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_network_spike_peak",
+            "ratio_range": [
+              0.014625505648757777,
+              1.4625505648757777
+            ],
+            "potency_uM": 0.1558,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_active_electrodes_number",
+            "ratio_range": [
+              0.014183641067193883,
+              1.4183641067193882
+            ],
+            "potency_uM": 0.1607,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_inter_network_spike_interval_mean",
+            "ratio_range": [
+              0.009650966160432515,
+              0.9650966160432515
+            ],
+            "potency_uM": 0.2361,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_interburst_interval_mean",
+            "ratio_range": [
+              0.007953671065534252,
+              0.7953671065534252
+            ],
+            "potency_uM": 0.2865,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_burst_duration_mean",
+            "ratio_range": [
+              0.00783304872269434,
+              0.7833048722694341
+            ],
+            "potency_uM": 0.2909,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_per_burst_interspike_interval",
+            "ratio_range": [
+              0.005988245266865337,
+              0.5988245266865337
+            ],
+            "potency_uM": 0.3805,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "CCTE_Shafer_MEA_dev_AB",
+            "ratio_range": [
+              0.005065680989981028,
+              0.5065680989981028
+            ],
+            "potency_uM": 0.4499,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_AhR_LUC_Agonist",
+            "ratio_range": [
+              0.0035905897903758376,
+              0.35905897903758377
+            ],
+            "potency_uM": 0.6347,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_p450_CYP2D6_Antagonist",
+            "ratio_range": [
+              0.0032293697318192035,
+              0.3229369731819204
+            ],
+            "potency_uM": 0.7057,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_AChE_Colorimetric_Antagonist",
+            "ratio_range": [
+              0.0016484496894749266,
+              0.16484496894749265
+            ],
+            "potency_uM": 1.3824,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_MMP_rhodamine",
+            "ratio_range": [
+              0.0013536849347187843,
+              0.13536849347187843
+            ],
+            "potency_uM": 1.6834,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_MMP_ratio",
+            "ratio_range": [
+              0.0013054789917230202,
+              0.130547899172302
+            ],
+            "potency_uM": 1.7456,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_p450_CYP2D6_Antagonist",
+            "ratio_range": [
+              0.001258593125400915,
+              0.1258593125400915
+            ],
+            "potency_uM": 1.8106,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_AR_LUC_MDAKB2_Antagonist_10nM_R1881",
+            "ratio_range": [
+              0.0011696314464579405,
+              0.11696314464579403
+            ],
+            "potency_uM": 1.9483,
+            "verdict": "depends_on_unknowns"
+          },
+          {
+            "assay": "TOX21_ARE_BLA_Agonist_ch2",
+            "ratio_range": [
+              0.0010811071793324517,
+              0.10811071793324516
+            ],
+            "potency_uM": 2.1078,
+            "verdict": "depends_on_unknowns"
+          }
+        ]
+      }
+    }
+  },
+  "efficacy_study": {
+    "study": "PMC8377040 (Genomics Proteomics Bioinformatics 2020)",
+    "design": "GK rats, n = 6 per group; GQD 22 g/kg (≈200 mg berberine) vs berberine 200 mg/kg; 12 weeks; normal, diabetic and metformin groups",
+    "public": [
+      "GSA CRA001199: 16S rRNA gene sequencing (raw reads)",
+      "GSA CRA001200: ileum RNA-seq (raw reads)",
+      "Table S2/S3: differentially expressed genes and clusters"
+    ],
+    "not_public": [
+      "per-animal glucose, OGTT, insulin, HOMA-IR (figures only)",
+      "numerical group summaries of the efficacy endpoints"
+    ],
+    "assessment": "The paper's 'attributable to berberine' rests on non-significant differences between GQD and berberine (e.g. microbiota structure, adjusted P = 0.269) and on few DEGs between them. Under the contrast rules (studies.contrast) that is 'inconclusive' unless an equivalence margin was set and met; with n = 6 per group only a large difference could have been detected. A re-analysis of the efficacy endpoints needs the per-animal values (request to the authors); the sequencing can be re-processed from GSA, which needs a 16S/RNA-seq pipeline and tens of GB."
+  }
+}

@@ -391,3 +391,31 @@ def test_a_rerecorded_snapshot_is_the_latest_and_a_lock_has_no_extra_keys():
     assert _choose(rec, ["k"], None, latest=True)["k"] == ("1", "A")
     with pytest.raises(SkillRunRefused, match="does not use"):
         _choose(rec, ["k"], {"k": "A", "extra": "Z"}, latest=False)
+
+
+def test_summary_statistics_match_the_raw_data_versions():
+    import numpy as np
+
+    from bioagent.studies.stats import ratio_from_summary, welch_from_summary
+    a, b = [5.1, 4.9, 5.3, 5.0, 5.2], [4.0, 4.2, 3.9, 4.1, 4.3]
+    raw = welch_difference(a, b)
+    s = welch_from_summary(np.mean(a), np.std(a, ddof=1), 5, np.mean(b), np.std(b, ddof=1), 5)
+    assert (s.ci_low, s.ci_high, s.df) == pytest.approx((raw.ci_low, raw.ci_high, raw.df))
+    r = ratio_from_summary(200, 40, 10, 100, 20, 10)
+    assert r["ratio"] == 2 and r["ci"][0] < 2 < r["ci"][1]
+    with pytest.raises(ValueError):
+        ratio_from_summary(-1, 1, 10, 1, 1, 10)
+
+
+def test_the_gqd_berberine_study_is_exploratory_and_its_contrasts_are_reproducible():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parents[1] / "scripts" / "study_gqd_berberine.py"
+    spec = importlib.util.spec_from_file_location("study_gqd_berberine", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.PROTOCOL.locked and not mod.PROTOCOL.confirmatory      # amended: exploratory
+    rows = {(c["contrast"], c["metric"][:3]): c for c in mod.pk_contrasts()}
+    assert rows[("GQD vs HL", "AUC")]["verdict"] == "increased"
+    assert rows[("GQD vs HL", "Cma")]["verdict"] == "decreased"
+    assert rows[("GQD-GC vs HL", "AUC")]["verdict"] == "inconclusive"

@@ -13,7 +13,7 @@ from typing import Sequence
 
 import numpy as np
 
-__all__ = ["t_cdf", "t_sf", "t_ppf", "WelchDifference", "welch_difference", "tost", "bh",
+__all__ = ["t_cdf", "t_sf", "t_ppf", "welch_from_summary", "ratio_from_summary", "WelchDifference", "welch_difference", "tost", "bh",
            "OLSFit", "ols"]
 
 
@@ -185,3 +185,42 @@ def ols(y: Sequence[float], columns: dict[str, Sequence[float]]) -> OLSFit:
     cov = sigma2 * np.linalg.inv(X.T @ X)
     return OLSFit(names, tuple(map(float, beta)), tuple(map(float, np.sqrt(np.diag(cov)))),
                   n - k, n)
+
+
+def welch_from_summary(mean_a: float, sd_a: float, n_a: int, mean_b: float, sd_b: float,
+                       n_b: int, *, level: float = 0.95) -> WelchDifference:
+    """``welch_difference`` from published group summaries (mean, SD, n).
+
+    For re-analysis when only summaries are published; it assumes the SDs are standard
+    deviations (not standard errors) and the groups are independent animals.
+    """
+    if min(n_a, n_b) < 2 or min(sd_a, sd_b) < 0:
+        raise ValueError("each group needs n >= 2 and a non-negative SD")
+    va, vb = sd_a ** 2 / n_a, sd_b ** 2 / n_b
+    se = math.sqrt(va + vb)
+    if se == 0:
+        raise ValueError("both SDs are zero: an interval cannot be estimated")
+    df = (va + vb) ** 2 / (va ** 2 / (n_a - 1) + vb ** 2 / (n_b - 1))
+    est = mean_a - mean_b
+    q = t_ppf(1 - (1 - level) / 2, df)
+    return WelchDifference(est, se, df, est - q * se, est + q * se, level, n_a, n_b,
+                           2 * t_sf(abs(est) / se, df))
+
+
+def ratio_from_summary(mean_a: float, sd_a: float, n_a: int, mean_b: float, sd_b: float,
+                       n_b: int, *, level: float = 0.90) -> dict:
+    """Ratio of means a/b with a delta-method interval on the log scale.
+
+    ``level`` 0.90 is the interval used for two one-sided tests at α = 0.05: the ratio is
+    equivalent within (1/m, m) when the 90% interval lies inside it.
+    """
+    if mean_a <= 0 or mean_b <= 0:
+        raise ValueError("a ratio of means needs positive means")
+    va = (sd_a / mean_a) ** 2 / n_a
+    vb = (sd_b / mean_b) ** 2 / n_b
+    se = math.sqrt(va + vb)
+    df = (va + vb) ** 2 / (va ** 2 / (n_a - 1) + vb ** 2 / (n_b - 1))
+    q = t_ppf(1 - (1 - level) / 2, df)
+    lr = math.log(mean_a / mean_b)
+    return {"ratio": mean_a / mean_b, "ci": [math.exp(lr - q * se), math.exp(lr + q * se)],
+            "level": level, "df": df, "se_log": se}

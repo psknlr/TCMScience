@@ -114,9 +114,9 @@ synergy claim. The other four defects:
 | Route | Status in this branch | What it needs next |
 | --- | --- | --- |
 | A. Mechanism robustness | **Run** on 葛根芩连汤 (above) | Matching by assay type and compound properties; leave-one-study-out through the tcmdb lineage (`consensus`) for curated, non-screening evidence |
-| B. Exposure-constrained mechanism | Analysis implemented and tested | Measured concentration–time and free-fraction data for the marker compounds, mapped to the formula and batch (e.g. the 2018 whole-formula / no-licorice / single-herb pharmacokinetic study); availability not yet checked |
+| B. Exposure-constrained mechanism | **Run** on berberine from published summaries ([studies/gqd_berberine.md](studies/gqd_berberine.md)): no ToxCast activity plausible at plasma Cmax | Measured concentration–time and free-fraction data for the marker compounds, mapped to the formula and batch (e.g. the 2018 whole-formula / no-licorice / single-herb pharmacokinetic study); availability not yet checked |
 | C. Cell context and direction | Not started | Disease pseudobulk per individual × cell type; real perturbation signatures (LINCS metadata is in `tcmdb`); baselines (no change, mean, linear) before any model |
-| D. Formula vs monomer | Analysis implemented and tested | The individual-level data of the 葛根芩连汤 vs berberine study; availability to be checked before any analysis |
+| D. Formula vs monomer | **Run** at the exposure level: the formula doubles berberine AUC (甘草-dependent) but lowers Cmax; the efficacy contrast is inconclusive without per-animal data | The individual-level data of the 葛根芩连汤 vs berberine study; availability to be checked before any analysis |
 | E. Combination | Analysis implemented and tested | Same-experiment single-agent and combination dose matrices (DrugComb's summary is kept in `tcmdb`; berberine–glycyrrhizin needs pharmacodynamic data) |
 | F. Preparation and batch | Records in place (`PreparationBatch`) | Paired batch × chemistry × function data, with leave-batch-out validation |
 | G. Response heterogeneity | Analysis implemented and tested | Patient-level baseline, arm and outcome tables; the 2024 seven-herb trial's sequencing (PRJCA007557) is public, its linked clinical data are on request |
