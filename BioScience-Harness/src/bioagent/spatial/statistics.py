@@ -40,66 +40,98 @@ def _norm_sf(z: np.ndarray) -> np.ndarray:
     return 0.5 * np.vectorize(math.erfc)(z / math.sqrt(2))
 
 
-def morans_i(values: np.ndarray, g: SpatialGraph, *, transformation: str = "r",
-             n_perms: int = 0, seed: int = 0) -> dict[str, np.ndarray]:
-    """Moran's I for each column of ``values`` (nodes × features)."""
-    x = np.asarray(values, float)
-    if x.ndim == 1:
-        x = x[:, None]
-    if x.shape[0] != g.n:
-        raise ValueError("one row of values per graph node")
-    z = x.copy()
-    for s in np.unique(g.section):
-        m = g.section == s
-        z[m] -= z[m].mean(0)
-    w = edge_weights(g, transformation)
+def _column_blocks(values, block: int):
+    """Yield (column slice, dense float64 block) from a dense array or a CSR matrix."""
+    from .matrix import CSR
+    if isinstance(values, CSR):
+        p = values.shape[1]
+        for start in range(0, p, block):
+            cols = np.arange(start, min(p, start + block))
+            yield cols, values.take_cols(cols).to_dense(np.float64)
+    else:
+        x = np.asarray(values, float)
+        if x.ndim == 1:
+            x = x[:, None]
+        for start in range(0, x.shape[1], block):
+            cols = np.arange(start, min(x.shape[1], start + block))
+            yield cols, x[:, cols]
+
+
+def morans_i(values, g: SpatialGraph, *, transformation: str = "r",
+             n_perms: int = 0, seed: int = 0, block: int = 128,
+             edge_chunk: int = 200_000) -> dict[str, np.ndarray]:
+    """Moran's I for each column of ``values`` (nodes × features; dense or ``CSR``).
+
+    Features are processed ``block`` columns at a time and edges ``edge_chunk`` at a
+    time, so memory does not grow with spots × features.
+    """
+    from .matrix import CSR
+    if not isinstance(values, CSR):
+        values = np.asarray(values, float)
+        if values.ndim == 1:
+            values = values[:, None]
     n = g.n
+    p = values.shape[1]
+    if values.shape[0] != n:
+        raise ValueError("one row of values per graph node")
+    w = edge_weights(g, transformation)
     s0 = w.sum()
+    groups = [np.flatnonzero(g.section == s) for s in np.unique(g.section)]
+
+    def centre(z):
+        z = z.copy()
+        for idx in groups:
+            z[idx] -= z[idx].mean(0)
+        return z
 
     def stat(zz):
         num = np.zeros(zz.shape[1])
-        for start in range(0, len(g.src), 200000):
-            sl = slice(start, start + 200000)
+        for start in range(0, len(g.src), edge_chunk):
+            sl = slice(start, start + edge_chunk)
             num += (w[sl, None] * zz[g.src[sl]] * zz[g.dst[sl]]).sum(0)
         den = (zz * zz).sum(0)
         with np.errstate(invalid="ignore", divide="ignore"):
             return (n / s0) * num / den
 
-    obs = stat(z)
+    obs = np.full(p, np.nan)
+    hits = np.zeros(p)
+    rng = np.random.default_rng(seed)
+    perms = [[rng.permutation(idx) for idx in groups] for _ in range(n_perms)]
+    for cols, block_vals in _column_blocks(values, block):
+        z = centre(block_vals)
+        o = stat(z)
+        obs[cols] = o
+        for perm in perms:
+            zp = z.copy()
+            for idx, pi in zip(groups, perm):
+                zp[idx] = z[pi]
+            hits[cols] += stat(zp) >= o - 1e-12
     # normality-assumption moments (Cliff & Ord)
     e = -1.0 / (n - 1)
-    # S1 = 1/2 Σ (w_ij + w_ji)^2 ; S2 = Σ_i (w_i. + w_.i)^2
     key = g.src * n + g.dst
     rev = g.dst * n + g.src
     order = np.argsort(key)
-    pos = np.searchsorted(key[order], rev)
-    pos = np.clip(pos, 0, len(key) - 1)
-    has_rev = key[order][pos] == rev
-    w_rev = np.where(has_rev, w[order][pos], 0.0)
+    pos = np.clip(np.searchsorted(key[order], rev), 0, max(len(key) - 1, 0))
+    has_rev = key[order][pos] == rev if len(key) else np.zeros(0, bool)
+    w_rev = np.where(has_rev, w[order][pos], 0.0) if len(key) else np.zeros(0)
     s1 = 0.5 * ((w + w_rev) ** 2).sum() + 0.5 * (w[~has_rev] ** 2).sum()
     out_w = np.bincount(g.src, weights=w, minlength=n)
     in_w = np.bincount(g.dst, weights=w, minlength=n)
     s2 = ((out_w + in_w) ** 2).sum()
     var = (n * n * s1 - n * s2 + 3 * s0 * s0) / ((n * n - 1) * s0 * s0) - e * e
     zscore = (obs - e) / math.sqrt(var)
-    p = _norm_sf(zscore)
-    res = {"I": obs, "expected": np.full(x.shape[1], e), "var_norm": np.full(x.shape[1], var),
-           "z": zscore, "p_norm": p}
-    ok = np.isfinite(p)
-    q = np.full(len(p), np.nan)
+    pv = _norm_sf(zscore)
+    res = {"I": obs, "expected": np.full(p, e), "var_norm": np.full(p, var),
+           "z": zscore, "p_norm": pv}
+    ok = np.isfinite(pv)
+    q = np.full(p, np.nan)
     if ok.any():
-        q[ok] = bh(p[ok])
+        q[ok] = bh(pv[ok])
     res["q_norm"] = q
     if n_perms:
-        rng = np.random.default_rng(seed)
-        hits = np.zeros(x.shape[1])
-        groups = [np.flatnonzero(g.section == s) for s in np.unique(g.section)]
-        for _ in range(n_perms):
-            zp = z.copy()
-            for idx in groups:
-                zp[idx] = z[rng.permutation(idx)]
-            hits += stat(zp) >= obs - 1e-12
-        res["p_perm"] = (hits + 1) / (n_perms + 1)
+        pp = (hits + 1) / (n_perms + 1)
+        pp[~np.isfinite(obs)] = np.nan          # a constant feature has no I and no p
+        res["p_perm"] = pp
     return res
 
 

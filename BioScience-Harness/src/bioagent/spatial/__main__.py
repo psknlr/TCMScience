@@ -17,9 +17,14 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     try:
         summary = run_spatial(a.config, a.out)
-    except SpatialInputError as exc:
-        sys.stdout.write(json.dumps({"status": "input_error", "error": str(exc)}))
+    except (SpatialInputError, ValueError) as exc:
+        # bad input, bad configuration, nothing passing QC: the user's to fix, not a crash
+        sys.stdout.write(json.dumps({"status": "input_error",
+                                     "error": f"{type(exc).__name__}: {exc}"}))
         return 2
+    except ImportError as exc:
+        sys.stdout.write(json.dumps({"status": "unavailable", "error": str(exc)}))
+        return 3
     sys.stdout.write(json.dumps(summary, default=float))
     return 0
 

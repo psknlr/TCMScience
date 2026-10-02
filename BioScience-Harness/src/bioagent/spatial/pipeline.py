@@ -37,7 +37,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from .expression import ExpressionParams, choose_k, highly_variable, kmeans, markers, \
-    normalise, pca
+    normalise, pca_csr
 from .graph import build_graph
 from .io import SpatialSection, read_h5ad_spatial, read_visium, sha256_file
 from .matrix import CSR
@@ -67,7 +67,7 @@ class SpatialConfig:
     sections: tuple[SectionInput, ...]
     qc: QCParams = QCParams()
     expression: ExpressionParams = ExpressionParams()
-    graph_mode: str = "grid"
+    graph_mode: str = "auto"          # grid where the platform has one, else knn
     graph_rings: int = 1
     graph_k: int = 6
     graph_radius: float | None = None
@@ -199,18 +199,19 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
     gene_ids = sections[0].gene_ids
     lognorm, factors = normalise(counts, cfg.expression.target_sum)
     hvg = highly_variable(counts, factors, cfg.expression.n_hvg)
-    dense = lognorm.take_cols(hvg).to_dense(np.float64)
-    pcs, var_ratio = pca(dense, cfg.expression.n_pcs, seed=rng_seed)
+    hv_mat = lognorm.take_cols(hvg)          # sparse; densified in blocks only
+    pcs, var_ratio = pca_csr(hv_mat, cfg.expression.n_pcs)
     if cfg.expression.k:
         k, sil = cfg.expression.k, {}
     else:
         k, sil = choose_k(pcs[:, :15], cfg.expression.k_range, seed=rng_seed)
     labels, _ = kmeans(pcs[:, :15], k, seed=rng_seed)
-    mk = markers(lognorm, labels, genes, cfg.expression.n_markers)
+    small = [int(c) for c, n_ in zip(*np.unique(labels, return_counts=True)) if n_ < 10]
+    mk = markers(lognorm, labels, genes, cfg.expression.n_markers, gene_ids)
 
     graph = build_graph(sections, mode=cfg.graph_mode, rings=cfg.graph_rings, k=cfg.graph_k,
                         radius=cfg.graph_radius)
-    mi = morans_i(dense, graph, transformation=cfg.moran_transformation,
+    mi = morans_i(hv_mat, graph, transformation=cfg.moran_transformation,
                   n_perms=cfg.moran_perms, seed=rng_seed)
     nh = neighbourhood_enrichment(labels, graph, n_perms=cfg.nhood_perms, seed=rng_seed)
 
@@ -223,7 +224,8 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
                 for sid, b, p, c in zip(sec_of, bcs, xy, labels)]
     _write_tsv(out / "clusters.tsv", clusters,
                ["spot", "section", "barcode", "x_px", "y_px", "cluster"])
-    _write_tsv(out / "markers.tsv", mk, ["cluster", "gene", "t", "log2fc_approx", "pct_in",
+    _write_tsv(out / "markers.tsv", mk, ["cluster", "gene", "gene_id", "t", "log2fc_approx",
+                                         "pct_in",
                                          "pct_out", "mean_log_in", "mean_log_out"])
     stat_rows = [{"gene": str(genes[g]), "gene_id": str(gene_ids[g]), "I": float(mi["I"][j]),
                   "expected": float(mi["expected"][j]), "z": float(mi["z"][j]),
@@ -247,8 +249,9 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
                 "p_enriched", "p_depleted"])
 
     # figures (per section) ---------------------------------------------------------------------
-    top = [r["gene"] for r in stat_rows[:cfg.n_svg_figures]]
-    gene_col = {str(genes[g]): j for j, g in enumerate(hvg)}
+    top = [(r["gene"], r["gene_id"]) for r in stat_rows[:cfg.n_svg_figures]]
+    gene_col = {str(gene_ids[g]): j for j, g in enumerate(hvg)}     # ids: symbols repeat
+    dup = {n_ for n_, c in zip(*np.unique(genes.astype(str), return_counts=True)) if c > 1}
     start = 0
     for s in sections:
         sl = slice(start, start + s.n_spots)
@@ -256,11 +259,13 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
         (out / "figures" / f"{s.section_id}_clusters.svg").write_text(
             svg_spots(s.xy, title=f"{s.section_id}: expression clusters (not spatial domains)",
                       labels=labels[sl], spot_diameter_px=diam), encoding="utf-8")
-        for gname in top:
-            safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in gname)
+        for gname, gid in top:
+            label = f"{gname}_{gid}" if gname in dup else gname
+            safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in label)
+            col = hv_mat.take_cols([gene_col[gid]]).take_rows(np.arange(sl.start, sl.stop))
             (out / "figures" / f"{s.section_id}_{safe}.svg").write_text(
-                svg_spots(s.xy, title=f"{s.section_id}: {gname} (log-normalised)",
-                          values=dense[sl, gene_col[gname]], spot_diameter_px=diam),
+                svg_spots(s.xy, title=f"{s.section_id}: {label} (log-normalised)",
+                          values=col.to_dense(np.float64)[:, 0], spot_diameter_px=diam),
                 encoding="utf-8")
         start += s.n_spots
 
@@ -297,7 +302,8 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
     qc_report["graph"] = graph.summary()
     qc_report["expression"] = {"hvg": int(len(hvg)), "pcs": int(pcs.shape[1]),
                                "pc_variance_ratio": [float(v) for v in var_ratio[:10]],
-                               "k": int(k), "silhouette_by_k": {int(a): float(b)
+                               "k": int(k), "clusters_under_10_spots": small,
+                               "silhouette_by_k": {int(a): float(b)
                                                                 for a, b in sil.items()},
                                "cluster_sizes": {int(c): int(n) for c, n in
                                                  zip(*np.unique(labels, return_counts=True))}}
@@ -307,8 +313,14 @@ def run_spatial(config: SpatialConfig | Mapping[str, Any] | str | Path,
 
     outputs = {p.relative_to(out).as_posix(): sha256_file(p) for p in sorted(out.rglob("*"))
                if p.is_file() and p.name not in ("provenance.json", "summary.json")}
+    import os
     versions = {"python": sys.version.split()[0], "numpy": np.__version__,
-                "platform": platform.platform(), "pipeline": PIPELINE_VERSION}
+                "platform": platform.platform(), "pipeline": PIPELINE_VERSION,
+                # BLAS threading changes float results in the last bits (PCA scores in
+                # processed.h5ad); tables are rounded at write time and do not change
+                "threads": {v: os.environ.get(v, "") for v in
+                            ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")},
+                "cpu_count": os.cpu_count()}
     try:
         import h5py
         versions["h5py"] = h5py.__version__

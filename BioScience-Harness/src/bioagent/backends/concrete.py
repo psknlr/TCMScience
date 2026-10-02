@@ -8,7 +8,6 @@ resolve to UNAVAILABLE with a reason rather than silently appearing usable.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import sys
 import time
@@ -203,16 +202,22 @@ class SubprocessBackend(Backend):
                            "'module:function' entrypoint to build one from"))
             kwargs = {}
         try:
+            # -I (isolated) ignores PYTHONPATH, so an explicit environment would have no
+            # effect on imports; with env= given, only the user site is dropped (-s).
+            flag = "-I" if self.env is None else "-s"
             proc = subprocess.run(  # noqa: S603
-                [self.python, "-I", "-c", code], cwd=str(root),
+                [self.python, flag, "-c", code], cwd=str(root),
                 capture_output=True, text=True, timeout=self.timeout_s, check=False,
                 env=self.env, preexec_fn=self._preexec())
         except subprocess.TimeoutExpired:
             return self._result(manifest, ExecutionStatus.TIMEOUT, t0,
                                 error=f"timed out after {self.timeout_s}s")
         if proc.returncode != 0:
-            return self._result(manifest, ExecutionStatus.FAILED, t0,
-                                error=proc.stderr.strip()[:1500])
+            err = proc.stderr.strip()
+            if self.memory_mb is not None and ("MemoryError" in err or proc.returncode == -9):
+                err = (f"resource limit: the child exceeded memory_mb={self.memory_mb}\n"
+                       + err)
+            return self._result(manifest, ExecutionStatus.FAILED, t0, error=err[:1500])
         out = proc.stdout.strip()
         try:
             value = json.loads(out) if out else None
@@ -251,7 +256,10 @@ class ContainerBackend(Backend):
     backend = "container"
     RUNTIMES = CONTAINER_RUNTIMES
 
-    def __init__(self) -> None:
+    def __init__(self, allowed_mount_roots: tuple[str | Path, ...] = ()) -> None:
+        #: Host directories under which mounts may be made. Empty: no mounts at all, so a
+        #: caller cannot hand a container the host's root or its Docker socket.
+        self.allowed_mount_roots = tuple(Path(p).resolve() for p in allowed_mount_roots)
         # Deliberately not probed here. Construction happens at import time in several
         # places and spawning a process per construction would be paid by every caller,
         # including those that never touch a container. The probe is memoised, so asking
@@ -316,7 +324,7 @@ class ContainerBackend(Backend):
                                 error=self.unavailable_reason())
         timeout_s = kwargs.pop("timeout_s", 300)
         try:
-            extra = self._mount_args(kwargs.pop("mounts", ())) + \
+            extra = self._mount_args(kwargs.pop("mounts", ()), self.allowed_mount_roots) + \
                 self._resource_args(kwargs.pop("memory", None), kwargs.pop("cpus", None))
         except ValueError as exc:
             return self._result(manifest, ExecutionStatus.FAILED, t0, error=str(exc))
@@ -352,22 +360,39 @@ class ContainerBackend(Backend):
                             error=(None if proc.returncode == 0 else proc.stderr[:1500]))
 
     @staticmethod
-    def _mount_args(mounts) -> list[str]:
-        """``-v host:container:mode`` per mount. Inputs are read-only unless a mount says
-        ``rw`` (the output directory); host paths must exist and be absolute, and the
-        container path must be absolute, so a typo fails here rather than mounting an
-        empty directory the analysis then reads as "no data"."""
+    def _mount_args(mounts, allowed_roots: tuple[Path, ...] = ()) -> list[str]:
+        """``-v host:container:mode`` per mount, after checks that fail closed.
+
+        A mount must resolve (symlinks followed) to an existing directory or file under one
+        of ``allowed_roots`` and may not be a root itself; read-write is allowed only when
+        the mount says ``rw`` (the output directory). Paths with ``:`` or ``,`` are refused
+        because they would be parsed as extra volume options, and anything resolving to a
+        container runtime socket is refused outright. With no allowed roots, no mount is
+        allowed.
+        """
         args: list[str] = []
         for m in mounts or ():
-            host, cont = Path(m["host"]), str(m["container"])
+            if not allowed_roots:
+                raise ValueError("no allowed mount roots are configured for this backend")
+            raw_host, cont = str(m["host"]), str(m["container"])
             mode = m.get("mode", "ro")
             if mode not in ("ro", "rw"):
                 raise ValueError(f"mount mode {mode!r} is 'ro' or 'rw'")
+            for part in (raw_host, cont):
+                if ":" in part or "," in part:
+                    raise ValueError(f"mount path {part!r} contains ':' or ','")
+            host = Path(raw_host)
             if not host.is_absolute() or not host.exists():
                 raise ValueError(f"mount source {host} must be an existing absolute path")
-            if not cont.startswith("/"):
+            real = host.resolve()
+            if "docker.sock" in str(real) or real.name.endswith(".sock"):
+                raise ValueError(f"mount source {real} is a runtime socket")
+            if not any(root in real.parents for root in allowed_roots):
+                raise ValueError(f"mount source {real} is not inside an allowed root "
+                                 f"{[str(r) for r in allowed_roots]}")
+            if not cont.startswith("/") or cont == "/":
                 raise ValueError(f"mount target {cont!r} must be an absolute container path")
-            args += ["-v", f"{host}:{cont}:{mode}"]
+            args += ["-v", f"{real}:{cont}:{mode}"]
         return args
 
     @staticmethod

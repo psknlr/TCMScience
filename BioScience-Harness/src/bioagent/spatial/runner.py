@@ -123,8 +123,9 @@ def run_isolated(config: Mapping[str, Any], out_dir: str | Path,
     if proc.returncode == 0 and summary:
         return {"status": "succeeded", "summary": summary,
                 "provenance": str(out / "provenance.json"), **record}
-    if proc.returncode == 2 and summary:
-        return {"status": "input_error", "error": summary.get("error"), **record}
+    if proc.returncode in (2, 3) and summary:
+        return {"status": summary.get("status", "input_error"), "error": summary.get("error"),
+                **record}
     err = proc.stderr.strip()
     limit_hit = "MemoryError" in err or proc.returncode in (-9, -24, 137, 152)
     return {"status": "resource_limit" if limit_hit else "failed",

@@ -8,15 +8,15 @@
     "files_compared": 11,
     "identical": true,
     "elapsed_s": [
-      48.35,
-      45.21
+      39.15,
+      36.73
     ]
   },
   "run": {
     "spots": 4032,
     "genes_kept": 19813,
     "hvg_tested": 2000,
-    "clusters": 10,
+    "clusters": 8,
     "spatially_variable_genes_q05": 908,
     "top_spatially_variable": [
       {
@@ -121,7 +121,7 @@
       "nn_distance_px": 137.00364958642524,
       "spot_diameter_px": 89.48996643177776,
       "ratio": 1.5309386632843283,
-      "expected": 1.8181818181818181
+      "expected": 1.5384615384615385
     },
     {
       "check": "hex_parity",
@@ -146,7 +146,7 @@
   },
   "refusals": {
     "barcodes_without_positions": "5 of 4035 expression barcodes have no tissue position (e.g. [np.str_('AAACGGGTTGGTATCC-1'), np.str_('CTTCGTGCCCGCATCG-1'), np.str_('GACGGGATGTCTTATG-1')]): expression and positions do not describe the",
-    "spot_diameter_doubled": "spot spacing (137.0 px) is 0.77 spot diameters; Visium spots are 1.82 diameters apart, so the scale factors or the coordinates do not belong together",
+    "spot_diameter_doubled": "spot spacing (137.0 px) is 0.77 spot diameters; Visium spots are 1.54 diameters apart, so the scale factors or the coordinates do not belong together",
     "hires_scale_tripled": "3781 spots fall outside the tissue image under the recorded tissue_hires_scalef 0.51033426",
     "no_spatial_folder": "/tmp/claude-0/accept/no_spatial has no spatial/ directory: expression without tissue positions cannot be analysed spatially"
   },
@@ -197,11 +197,11 @@
       "max_abs_p_difference_positive_z": 5.369009560829419e-07
     },
     "nhood_enrichment": {
-      "clusters": 9,
-      "pairs_compared": 80,
-      "pairs_without_z": 1,
-      "pearson_r_z": 0.9997532420736079,
-      "max_abs_z_difference": 2.14967559899479,
+      "clusters": 8,
+      "pairs_compared": 64,
+      "pairs_without_z": 0,
+      "pearson_r_z": 0.9997363453112005,
+      "max_abs_z_difference": 2.2456998819115626,
       "sign_agreement": 1.0
     }
   }

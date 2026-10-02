@@ -20,7 +20,7 @@
 >   - 读取：坐标和计数完全一致；
 >   - 邻接图：23,466 条边完全相同；
 >   - Moran's I：最大差异 5×10⁻⁷；
->   - 邻域富集 z 值：相关系数 0.9998，方向全部一致。
+>   - 邻域富集 z 值：相关系数 0.9997，方向全部一致。
 > - **阴性对照：** 打乱点位后，空间变异基因从 908 个降到 1 个。
 > - **切片隔离：** 同一切片以两个编号载入时，两份之间没有任何边，边数恰好加倍。
 > - **可复现性：** 两次运行的 11 个输出文件逐字节相同。
@@ -69,7 +69,7 @@ r["status"]   # succeeded | input_error | timeout | resource_limit | unavailable
 
 | Module | Does | Refuses |
 | --- | --- | --- |
-| `spatial.io` | Reads Visium (Space Ranger 1.x `tissue_positions_list.csv`, 2.x `tissue_positions.csv`, 3.x `.parquet`), the HDF5 matrix (`h5py`) or the Matrix Market folder (numpy only), and `scalefactors_json.json`. Reads one Visium HD bin directory as a square grid. Reads `.h5ad` with `obsm['spatial']` and raw counts | Expression barcodes without a position. Spot spacing that disagrees with the spot diameter (Visium spots sit 100 µm apart with a 55 µm diameter, a ratio of 1.82). Coordinates outside the image under the recorded `tissue_hires_scalef`. Broken hexagonal parity. A Visium HD `outs` folder without a chosen bin. A folder with no `spatial/`. An `.h5ad` without tissue coordinates ("UMAP is not a tissue position"). Normalised `X` with no raw counts |
+| `spatial.io` | Reads Visium (Space Ranger 1.x `tissue_positions_list.csv`, 2.x `tissue_positions.csv`, 3.x `.parquet`), the HDF5 matrix (`h5py`) or the Matrix Market folder (numpy only), and `scalefactors_json.json`. Reads one Visium HD bin directory as a square grid. Reads `.h5ad` with `obsm['spatial']` and raw counts | Expression barcodes without a position. Spot spacing that disagrees with the scale factor (spots sit 100 µm apart and `spot_diameter_fullres` spans a 65 µm reference spot, a ratio of 1.54 ± 15%; the 10x section measures 1.531). Coordinates outside the image under the recorded `tissue_hires_scalef`. Broken hexagonal parity. A Visium HD `outs` folder without a chosen bin. A folder with no `spatial/`. An `.h5ad` without tissue coordinates ("UMAP is not a tissue position"). Normalised `X` with no raw counts |
 | `spatial.qc` | Per-spot counts, genes, mitochondrial %, recorded thresholds, gene filter | A section with fewer than 10 spots after QC; sections whose gene lists differ |
 | `spatial.expression` | Library-size normalisation and log1p, Seurat-flavour variable genes, PCA, k-means (k-means++ starts, size-ordered labels), markers with effect sizes | p values for markers (clusters are chosen from the same spots, and spots are not independent) |
 | `spatial.graph` | Visium hexagonal grid (6 neighbours), Visium HD square grid (4 or 8), kNN or radius in pixels | Any edge between sections. Unregistered sections are separate tissue; `assert_section_isolated` checks this on every graph |
@@ -105,14 +105,14 @@ summary.json              small summary for the harness
   The 120 s default timeout is unchanged for quick calls; analysis components pass a
   longer `timeout_s`.
 - **`ContainerBackend`** now takes:
-  - `mounts=[{host, container, mode}]`, where inputs are read-only by default and the
-    output directory is `rw`;
+  - `allowed_mount_roots=` at construction; with none configured, no mount is allowed;
+  - `mounts=[{host, container, mode}]` per call: read-only unless `rw` (the output
+    directory), symlinks resolved, sources strictly inside an allowed root, runtime
+    sockets and `:`/`,` in paths refused;
   - `memory=` and `cpus=`.
 
-  A relative, missing or non-absolute path is refused before `docker run`, so a typo
-  cannot mount an empty folder that the analysis would read as "no data". There is no
-  container runtime on this machine, so the container path is unit-tested but has not
-  run live.
+  There is no container runtime on this machine, so the container path is unit-tested
+  but has not run live.
 - **Native tools** `spatial_neighbors`, `spatial_morans_i` and
   `spatial_neighborhood_enrichment` make the statistics callable as offline components.
   There are now 150 native tools in 13 domains.
@@ -137,18 +137,18 @@ re-verified today.
 | --- | --- | --- |
 | Data correspondence | HDF5 and Matrix Market inputs give identical tables | identical |
 | | 5 barcodes removed from positions | refused: "5 of 4035 expression barcodes have no tissue position" |
-| | Spot diameter doubled | refused: spacing is 0.77 diameters, expected 1.82 |
+| | Spot diameter doubled | refused: spacing is 0.77 diameters, expected 1.54 |
 | | `tissue_hires_scalef` tripled | refused: 3,781 spots fall outside the image |
 | | No `spatial/` folder | refused |
 | Space is really used | Graph mode | hexagonal tissue grid; modal degree 6; 11,733 edges, 3 isolated spots |
 | | Positions shuffled (negative control) | spatially variable genes at q < 0.05: 908 before, 1 after; max Moran's I: 0.72 before, 0.044 after |
 | Sections stay apart | Same section loaded twice under two ids (identical pixel coordinates) | edges exactly double (23,466 vs 11,733); no edge between the copies; per-gene I differs by at most 1.5×10⁻⁵ from the single run |
-| Reproducible | Two runs | 11 tables and figures byte-identical; about 45 s per run |
+| Reproducible | Two runs | 11 tables and figures byte-identical; about 40 s per run |
 | Claim scope | Single section | "within-section description; no between-subject or treatment claim"; `limitations.md` says the run supports no patient, condition or treatment difference |
 
 **Result on the tissue.**
 - 4,032 of 4,035 spots and 19,813 genes pass QC.
-- There are 10 expression clusters.
+- There are 8 expression clusters (the smallest has 57 spots).
 - 908 of 2,000 variable genes are spatially autocorrelated at q < 0.05.
 - The top genes follow lymph-node architecture:
   - IGHG1, IGHG2 and IGLC1: plasma cells;
@@ -170,12 +170,45 @@ implementations, on the same spots and the same matrix. It used anndata 0.12.19,
 | Reading vs `squidpy.read.visium` | coordinates and per-spot total counts identical (max difference 0) |
 | Neighbour graph vs `sq.gr.spatial_neighbors(coord_type="grid", n_neighs=6)` | 23,466 directed edges, identical sets |
 | Moran's I vs `sq.gr.spatial_autocorr` (row-standardised) | max difference 5.0×10⁻⁷ over 2,000 genes; top-100 overlap 100/100; p identical (5×10⁻⁷) where z > 0 |
-| Neighbourhood enrichment z vs `sq.gr.nhood_enrichment` | r = 0.9998, sign agreement 100% over 80 cluster pairs (both permutation estimates; 1 pair has no z in either, because no edge is possible) |
+| Neighbourhood enrichment z vs `sq.gr.nhood_enrichment` | r = 0.9997, sign agreement 100% over all 64 cluster pairs (both are permutation estimates) |
 
 The two tools differ only in the p-value convention. Squidpy reports the tail in the
 direction of z; this pipeline reports the upper tail, which tests positive spatial
 autocorrelation, the question asked of spatially variable genes. The variance formula is
 the same.
+
+## Independent review
+
+A second review of the code (reproductions on the real data and against Scanpy / Squidpy
+/ scikit-learn) found no error in the reading, the sparse operations, the variable genes,
+PCA (variance ratios equal to Scanpy's to 1e-6), the graphs or Moran's I (equal to a dense
+recomputation to 1e-17, including isolated nodes), and nine smaller defects, all fixed with
+regression tests:
+
+1. The spacing check assumed a 55 µm spot; `spot_diameter_fullres` is defined on a 65 µm
+   spot, so the accepted band was lopsided (the real section sat 4% from the refusal edge).
+   It is now centred on 100/65 with ±15%.
+2. kNN graphs linked a spot to itself when `k` ≥ the spots in a section.
+3. The silhouette gave a one-spot cluster a score of 1 (scikit-learn gives 0), rewarding
+   outlier clusters; the earlier lymph-node run had a 1-spot cluster. Singletons now score
+   0 and `k` is chosen among clusterings whose smallest cluster has ≥ 10 spots.
+4. Memory grew with spots × genes (a dense copy of the variable genes, PCA copies, kNN
+   distance blocks): PCA is now streamed from the sparse matrix, Moran's I runs in gene
+   blocks and edge chunks, and kNN blocks are bounded (~160 MB). Visium HD at 8 or 2 µm
+   has still not been run on real data.
+5. Container mounts were unrestricted: any host path, read-write, including `/` or the
+   Docker socket, and `:`/`,` injected volume options. Mounts now need configured allowed
+   roots, resolve symlinks, refuse sockets and option characters, and default to read-only.
+6. `SubprocessBackend` kept `python -I`, which ignores the `PYTHONPATH` of a supplied
+   `env=`; a memory-limit failure was indistinguishable from a crash.
+7. Configuration errors and "no spot passes QC" came back as `failed` with a traceback;
+   they are now `input_error` (missing optional readers: `unavailable`). The default
+   graph mode is `auto`, so an `.h5ad` without an array grid uses kNN instead of failing.
+8. BLAS thread counts change PCA scores in the last bits; the runner pins one thread and
+   provenance records the thread settings (tables were already identical).
+9. Duplicate gene symbols (10 in this dataset): markers now carry `gene_id` and figures
+   are looked up by id; a constant feature's permutation p is NaN, not 0.01; k-means
+   labels always belong to the final centroids.
 
 ## What it does not do
 

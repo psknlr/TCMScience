@@ -40,7 +40,10 @@ __all__ = ["SpatialInputError", "SpatialSection", "read_visium", "read_h5ad_spat
            "sha256_file", "VISIUM_SPOT_PITCH_UM", "VISIUM_SPOT_DIAMETER_UM"]
 
 VISIUM_SPOT_PITCH_UM = 100.0       # centre-to-centre distance of neighbouring spots
-VISIUM_SPOT_DIAMETER_UM = 55.0
+# Space Ranger's spot_diameter_fullres is the pixel span of a theoretical 65 µm spot (the
+# capture area is 55 µm, but the scale factor is defined on 65 µm). The 10x lymph-node
+# section measures 137.0 px spacing over 89.49 px diameter = 1.531, against 100/65 = 1.538.
+VISIUM_SPOT_DIAMETER_UM = 65.0
 
 
 class SpatialInputError(ValueError):
@@ -179,7 +182,10 @@ def _read_positions(spatial: Path) -> tuple[dict[str, tuple], str]:
         raise SpatialInputError(f"{spatial} holds no tissue_positions file: without tissue "
                                 "coordinates there is no spatial analysis")
     if p.suffix == ".parquet":
-        import pyarrow.parquet as pq
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:
+            raise SpatialInputError(f"{p.name} is Parquet and pyarrow is not installed") from exc
         t = pq.read_table(p).to_pydict()
         missing = [c for c in _POS_COLS if c not in t]
         if missing:
@@ -244,7 +250,7 @@ def _check_geometry(sec: SpatialSection, spatial: Path | None) -> None:
         expected = VISIUM_SPOT_PITCH_UM / VISIUM_SPOT_DIAMETER_UM
         checks.append({"check": "spot_spacing", "nn_distance_px": nn,
                        "spot_diameter_px": diam, "ratio": ratio, "expected": expected})
-        if not 0.8 * expected <= ratio <= 1.2 * expected:
+        if not 0.85 * expected <= ratio <= 1.15 * expected:
             raise SpatialInputError(
                 f"spot spacing ({nn:.1f} px) is {ratio:.2f} spot diameters; Visium spots are "
                 f"{expected:.2f} diameters apart, so the scale factors or the coordinates do "

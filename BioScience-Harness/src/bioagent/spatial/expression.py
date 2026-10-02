@@ -14,7 +14,7 @@ import numpy as np
 
 from .matrix import CSR
 
-__all__ = ["ExpressionParams", "normalise", "highly_variable", "pca", "kmeans",
+__all__ = ["ExpressionParams", "normalise", "highly_variable", "pca", "pca_csr", "kmeans",
            "choose_k", "markers"]
 
 
@@ -72,6 +72,36 @@ def pca(x: np.ndarray, n_pcs: int, seed: int = 0) -> tuple[np.ndarray, np.ndarra
     return scores, var_ratio
 
 
+def pca_csr(m: CSR, n_pcs: int, *, chunk: int = 4096) -> tuple[np.ndarray, np.ndarray]:
+    """The same PCA as ``pca`` (scaled, clipped at 10), streamed from a sparse matrix.
+
+    Rows are densified ``chunk`` at a time to accumulate the gene × gene scatter matrix;
+    its eigenvectors give the loadings and the scores are projected chunk by chunk, so
+    memory is O(chunk · genes + spots · n_pcs), not O(spots · genes).
+    """
+    n, p = m.shape
+    mean, var = m.col_mean_var()
+    sd = np.sqrt(var)
+    sd = np.where(sd > 0, sd, 1.0)
+    scatter = np.zeros((p, p))
+    for start in range(0, n, chunk):
+        z = np.clip((m.take_rows(np.arange(start, min(n, start + chunk))).to_dense(np.float64)
+                     - mean) / sd, -10, 10)
+        scatter += z.T @ z
+    evals, evecs = np.linalg.eigh(scatter)
+    order = np.argsort(evals)[::-1]
+    evals, evecs = np.maximum(evals[order], 0), evecs[:, order]
+    k = min(n_pcs, p)
+    v = evecs[:, :k]
+    v = v * np.sign(v[np.abs(v).argmax(0), np.arange(k)])
+    scores = np.zeros((n, k))
+    for start in range(0, n, chunk):
+        rows = np.arange(start, min(n, start + chunk))
+        z = np.clip((m.take_rows(rows).to_dense(np.float64) - mean) / sd, -10, 10)
+        scores[rows] = z @ v
+    return scores, (evals / evals.sum())[:k]
+
+
 def kmeans(x: np.ndarray, k: int, *, seed: int = 0, n_init: int = 10, iters: int = 100
            ) -> tuple[np.ndarray, float]:
     """k-means with k-means++ starts; the run with the lowest inertia wins."""
@@ -91,6 +121,7 @@ def kmeans(x: np.ndarray, k: int, *, seed: int = 0, n_init: int = 10, iters: int
             if np.allclose(new, c):
                 break
             c = new
+        lab = _sqdist(x, c).argmin(1)     # labels of the final centroids
         inertia = float(((x - c[lab]) ** 2).sum())
         if inertia < best_inertia:
             best, best_inertia = lab, inertia
@@ -111,25 +142,33 @@ def _silhouette(x: np.ndarray, lab: np.ndarray) -> float:
     ks = np.unique(lab)
     if len(ks) < 2:
         return -1.0
-    a = np.array([d[i, lab == lab[i]].sum() / max((lab == lab[i]).sum() - 1, 1)
-                  for i in range(len(x))])
+    size = np.array([(lab == lab[i]).sum() for i in range(len(x))])
+    a = np.array([d[i, lab == lab[i]].sum() / max(size[i] - 1, 1) for i in range(len(x))])
     b = np.array([min(d[i, lab == k].mean() for k in ks if k != lab[i]) for i in range(len(x))])
-    return float(np.mean((b - a) / np.maximum(a, b)))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        s = np.where(np.maximum(a, b) > 0, (b - a) / np.maximum(a, b), 0.0)
+    s[size == 1] = 0.0                    # a singleton scores 0 (scikit-learn convention)
+    return float(np.mean(s))
 
 
-def choose_k(x: np.ndarray, k_range: tuple[int, int], *, seed: int = 0, sample: int = 1500
-             ) -> tuple[int, dict[int, float]]:
+def choose_k(x: np.ndarray, k_range: tuple[int, int], *, seed: int = 0, sample: int = 1500,
+             min_cluster_size: int = 10) -> tuple[int, dict[int, float]]:
+    """k with the best silhouette among clusterings whose smallest cluster has at least
+    ``min_cluster_size`` spots (an outlier spot is not a cluster)."""
     rng = np.random.default_rng(seed)
     idx = rng.choice(len(x), min(sample, len(x)), replace=False)
-    scores = {}
+    scores, admissible = {}, {}
     for k in range(k_range[0], k_range[1] + 1):
         lab, _ = kmeans(x, k, seed=seed, n_init=4)
         scores[k] = _silhouette(x[idx], lab[idx])
-    return max(scores, key=scores.get), scores
+        if np.bincount(lab, minlength=k).min() >= min_cluster_size:
+            admissible[k] = scores[k]
+    pool = admissible or scores
+    return max(pool, key=pool.get), scores
 
 
-def markers(lognorm: CSR, labels: np.ndarray, gene_names: np.ndarray, n_top: int
-            ) -> list[dict]:
+def markers(lognorm: CSR, labels: np.ndarray, gene_names: np.ndarray, n_top: int,
+            gene_ids: np.ndarray | None = None) -> list[dict]:
     """Top genes per cluster by Welch t of log-normalised expression against all other
     spots, with log2 fold change of mean normalised expression and detection rates."""
     out = []
@@ -145,7 +184,9 @@ def markers(lognorm: CSR, labels: np.ndarray, gene_names: np.ndarray, n_top: int
         # from the means of log values: a geometric-type fold change, hence "approx"
         lfc = np.log2((np.expm1(ma) + 1e-9) / (np.expm1(mb) + 1e-9))
         for j in np.argsort(-t)[:n_top]:
-            out.append({"cluster": int(c), "gene": str(gene_names[j]), "t": float(t[j]),
+            out.append({"cluster": int(c), "gene": str(gene_names[j]),
+                        "gene_id": str(gene_ids[j]) if gene_ids is not None else "",
+                        "t": float(t[j]),
                         "log2fc_approx": float(lfc[j]), "pct_in": float(pa[j]),
                         "pct_out": float(pb[j]), "mean_log_in": float(ma[j]),
                         "mean_log_out": float(mb[j])})

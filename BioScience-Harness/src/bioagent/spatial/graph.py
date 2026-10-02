@@ -10,6 +10,7 @@ Modes:
 * ``grid``: the platform's array grid. Visium spots are hexagonal (array_col steps by
   two), giving 6 neighbours per ring; Visium HD bins are square, giving 4 (or 8).
 * ``knn``: the ``k`` nearest spots by Euclidean distance in full-resolution pixels.
+* ``auto`` (default): ``grid`` for sections with an array grid, ``knn`` otherwise.
 * ``radius``: all spots closer than ``radius`` pixels.
 """
 
@@ -78,12 +79,17 @@ def _grid_edges(rc: np.ndarray, offsets, rings: int) -> tuple[np.ndarray, np.nda
 
 def _knn_edges(xy: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
     n = len(xy)
+    k = min(k, n - 1)                    # never the spot itself
+    if k < 1:
+        return np.zeros(0, np.int64), np.zeros(0, np.int64)
     src, dst = [], []
-    for start in range(0, n, 1024):
-        q = xy[start:start + 1024]
-        d = ((q[:, None, :] - xy[None]) ** 2).sum(-1)
+    step = max(1, min(1024, 20_000_000 // max(n, 1)))   # bound memory to ~160 MB
+    sq = (xy * xy).sum(1)
+    for start in range(0, n, step):
+        q = xy[start:start + step]
+        d = np.maximum(sq[start:start + step, None] + sq[None] - 2 * q @ xy.T, 0.0)
         d[np.arange(len(q)), np.arange(start, start + len(q))] = np.inf
-        nn = np.argpartition(d, min(k, n - 1) - 1, axis=1)[:, :k]
+        nn = np.argpartition(d, k - 1, axis=1)[:, :k]
         src.append(np.repeat(np.arange(start, start + len(q)), nn.shape[1]))
         dst.append(nn.ravel())
     s, t = np.concatenate(src), np.concatenate(dst)
@@ -115,22 +121,25 @@ def _radius_edges(xy: np.ndarray, radius: float) -> tuple[np.ndarray, np.ndarray
     return np.concatenate(src), np.concatenate(dst)
 
 
-def build_graph(sections: list[SpatialSection], *, mode: str = "grid", rings: int = 1,
+def build_graph(sections: list[SpatialSection], *, mode: str = "auto", rings: int = 1,
                 k: int = 6, radius: float | None = None, square_neighbours: int = 4
                 ) -> SpatialGraph:
     srcs, dsts, sec_idx = [], [], []
     offset = 0
     for si, sec in enumerate(sections):
-        if mode == "grid":
+        sec_mode = mode
+        if mode == "auto":                # the platform grid where there is one, else kNN
+            sec_mode = "grid" if sec.array_rc is not None and sec.grid != "none" else "knn"
+        if sec_mode == "grid":
             if sec.array_rc is None or sec.grid == "none":
                 raise ValueError(f"section {sec.section_id} has no array grid; use mode='knn' "
                                  "or 'radius'")
             offs = _HEX if sec.grid == "visium_hex" else (_SQ8 if square_neighbours == 8
                                                           else _SQ4)
             s, t = _grid_edges(sec.array_rc, offs, rings)
-        elif mode == "knn":
+        elif sec_mode == "knn":
             s, t = _knn_edges(sec.xy, k)
-        elif mode == "radius":
+        elif sec_mode == "radius":
             if not radius or radius <= 0:
                 raise ValueError("mode='radius' needs a positive radius in pixels")
             s, t = _radius_edges(sec.xy, radius)

@@ -21,7 +21,7 @@ from bioagent.spatial.graph import SpatialGraph
 from bioagent.spatial.runner import AnalysisEnvironment, run_isolated
 
 DIAM = 50.0
-PITCH = 100 / 55 * DIAM
+PITCH = 100 / 65 * DIAM        # spot_diameter_fullres spans a 65 µm spot
 
 
 def _png(path: Path, w: int, h: int) -> None:
@@ -137,7 +137,7 @@ def test_read_visium_matrix_market_all_position_formats(tmp_path, positions):
     assert np.allclose(sec.counts.to_dense(), truth["counts"])
     assert sec.grid == "visium_hex" and sec.platform == "visium"
     checks = {c["check"]: c for c in sec.checks}
-    assert abs(checks["spot_spacing"]["ratio"] - 100 / 55) < 0.01
+    assert abs(checks["spot_spacing"]["ratio"] - 100 / 65) < 0.01
     assert checks["image_bounds"]["outside"] == 0
     assert all(v.startswith("sha256:") for v in sec.source_files.values())
 
@@ -399,14 +399,99 @@ def test_subprocess_backend_takes_an_interpreter_and_limits():
 
 
 def test_container_mounts_are_checked(tmp_path):
-    args = ContainerBackend._mount_args([{"host": str(tmp_path), "container": "/data"},
-                                         {"host": str(tmp_path), "container": "/out",
-                                          "mode": "rw"}])
-    assert args == ["-v", f"{tmp_path}:/data:ro", "-v", f"{tmp_path}:/out:rw"]
+    root = tmp_path.resolve()
+    (root / "data").mkdir()
+    (root / "out").mkdir()
+    args = ContainerBackend._mount_args(
+        [{"host": str(root / "data"), "container": "/data"},
+         {"host": str(root / "out"), "container": "/out", "mode": "rw"}], (root,))
+    assert args == ["-v", f"{root / 'data'}:/data:ro", "-v", f"{root / 'out'}:/out:rw"]
+    (root / "link").symlink_to("/")
     for bad in ({"host": "relative", "container": "/d"},
-                {"host": str(tmp_path / "nope"), "container": "/d"},
-                {"host": str(tmp_path), "container": "d"},
-                {"host": str(tmp_path), "container": "/d", "mode": "x"}):
+                {"host": str(root / "nope"), "container": "/d"},
+                {"host": str(root / "data"), "container": "d"},
+                {"host": str(root / "data"), "container": "/d", "mode": "x"},
+                {"host": str(root / "data"), "container": "/in:rw,z"},
+                {"host": "/", "container": "/host", "mode": "rw"},
+                {"host": str(root), "container": "/r"},            # the root itself
+                {"host": str(root / "link"), "container": "/l"}):  # symlink out of the root
         with pytest.raises(ValueError):
-            ContainerBackend._mount_args([bad])
+            ContainerBackend._mount_args([bad], (root,))
+    with pytest.raises(ValueError, match="no allowed mount roots"):
+        ContainerBackend._mount_args([{"host": str(root / "data"), "container": "/d"}])
     assert ContainerBackend._resource_args("8g", 4) == ["--memory", "8g", "--cpus", "4"]
+
+
+# Regressions from the independent review ---------------------------------------------------
+
+def test_knn_never_links_a_spot_to_itself():
+    from bioagent.spatial.graph import _knn_edges
+    xy = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    s, t = _knn_edges(xy, 6)
+    assert len(s) and (s != t).all()
+
+
+def test_silhouette_scores_singletons_zero_and_choose_k_avoids_them():
+    from bioagent.spatial.expression import _silhouette, choose_k
+    rng = np.random.default_rng(0)
+    x = np.r_[rng.normal(0, 0.1, (50, 2)), [[10.0, 10.0]]]
+    lab = np.r_[np.zeros(50, int), [1]]
+    a = np.sqrt(((x[:50, None] - x[None, :50]) ** 2).sum(-1)).sum(1) / 49
+    b = np.sqrt(((x[:50] - x[50]) ** 2).sum(-1))
+    assert math.isclose(_silhouette(x, lab), float(np.sum((b - a) / b) / 51), rel_tol=1e-9)
+    # three real clusters and a 3-spot speck: k = 4 isolates the speck, which is not a cluster
+    blobs = np.r_[rng.normal(0, 0.3, (60, 2)), rng.normal(6, 0.3, (60, 2)),
+                  rng.normal((0, 6), 0.3, (60, 2)), rng.normal(12, 0.05, (3, 2))]
+    k, scores = choose_k(blobs, (3, 4), sample=400)
+    lab4, _ = kmeans(blobs, 4, n_init=4)
+    assert np.bincount(lab4).min() < 10 and k == 3
+
+
+def test_streamed_pca_matches_dense_pca():
+    from bioagent.spatial.expression import pca_csr
+    rng = np.random.default_rng(2)
+    x = rng.poisson(1.5, (300, 40)).astype(float) + rng.normal(0, 0.01, (300, 40)).clip(0)
+    a, va = pca(x, 5)
+    b, vb = pca_csr(CSR.from_dense(x.astype(np.float32)), 5, chunk=37)
+    assert np.allclose(np.abs(a), np.abs(b), atol=1e-3) and np.allclose(va, vb, atol=1e-5)
+
+
+def test_morans_i_blocks_and_sparse_input_agree():
+    g, rc = _grid_graph()
+    rng = np.random.default_rng(3)
+    v = np.c_[rc[:, 1].astype(float), rng.poisson(1, len(rc)), np.ones(len(rc))]
+    dense = morans_i(v, g, n_perms=20)
+    sparse = morans_i(CSR.from_dense(v.astype(np.float32)), g, block=1, edge_chunk=7,
+                      n_perms=20)
+    assert np.allclose(dense["I"][:2], sparse["I"][:2])
+    assert np.isnan(dense["I"][2]) and np.isnan(dense["p_perm"][2])
+
+
+def test_runner_reports_configuration_and_qc_problems_as_input_errors(tmp_path):
+    make_visium(tmp_path / "in", seed=2)
+    cfg = _config({"s": tmp_path / "in"})
+    r = run_isolated({**cfg, "bogus": 1}, tmp_path / "o1")
+    assert r["status"] == "input_error" and "bogus" in r["error"]
+    r = run_isolated({**cfg, "qc": {"min_counts": 10**9}}, tmp_path / "o2")
+    assert r["status"] == "input_error" and "pass QC" in r["error"]
+
+
+def test_markers_and_figures_use_gene_ids(tmp_path):
+    make_visium(tmp_path / "in", seed=4)
+    run_spatial(_config({"s": tmp_path / "in"}), tmp_path / "out")
+    head = (tmp_path / "out" / "markers.tsv").read_text().splitlines()[0].split("\t")
+    assert "gene_id" in head
+    prov = json.loads((tmp_path / "out" / "provenance.json").read_text())
+    assert "OPENBLAS_NUM_THREADS" in prov["versions"]["threads"]
+
+
+def test_subprocess_backend_env_reaches_imports(tmp_path):
+    from types import SimpleNamespace
+    (tmp_path / "proj").mkdir()
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "probe_mod.py").write_text("def f():\n    return {'ok': 1}\n")
+    b = SubprocessBackend({"P": tmp_path / "proj"},
+                          env={"PYTHONPATH": str(tmp_path / "lib"), "PATH": "/usr/bin"})
+    manifest = SimpleNamespace(provider=SimpleNamespace(project="P"), id="x")
+    res = b.invoke(manifest, code="import probe_mod, json; print(json.dumps(probe_mod.f()))")
+    assert res.value == {"ok": 1}, res
