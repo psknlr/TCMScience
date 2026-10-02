@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, is_dataclass, replace
 from typing import Any, Mapping
 
 __all__ = ["InterventionSpec", "PreparationBatch", "Measurement", "QUALIFIERS",
@@ -33,7 +33,7 @@ __all__ = ["InterventionSpec", "PreparationBatch", "Measurement", "QUALIFIERS",
 
 
 def fingerprint(obj: Any) -> str:
-    blob = json.dumps(obj if isinstance(obj, (dict, list)) else asdict(obj),
+    blob = json.dumps(asdict(obj) if is_dataclass(obj) and not isinstance(obj, type) else obj,
                       ensure_ascii=False, sort_keys=True, default=str)
     return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 

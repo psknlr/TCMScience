@@ -1,0 +1,19 @@
+{
+  "all_timepoints_sample_split": {
+    "metric": "auc",
+    "estimate": 0.7180653162463828,
+    "split": "by sample (leaky)",
+    "warning": "samples of one subject can fall in training and test folds",
+    "leak": "subject and outcome leakage: the same patient's biopsies fall in training and test, and post-treatment biopsies are the outcome"
+  },
+  "all_timepoints_subject_split": {
+    "metric": "auc",
+    "estimate": 0.7197188921041753,
+    "k": 5,
+    "n_samples": 159,
+    "n_subjects": 64,
+    "split": "by subject",
+    "selection": "inside each training fold",
+    "leak": "post-treatment biopsies are measured when the outcome is assessed: a healed biopsy predicts 'healed' because it is the outcome"
+  }
+}

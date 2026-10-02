@@ -1,0 +1,102 @@
+{
+  "n_rep": 50,
+  "seed": 20261002,
+  "pipelines": {
+    "naive": {
+      "null_claims": 17,
+      "positive_claims": 50,
+      "clean_false_alarms": 0,
+      "clean_runs": 150,
+      "faults": {
+        "cells_as_units": {
+          "detected": 0,
+          "spurious_claims": 50,
+          "runs": 50
+        },
+        "shuffled_pairing": {
+          "detected": 0,
+          "spurious_claims": 1,
+          "runs": 50
+        },
+        "batch_is_condition": {
+          "detected": 0,
+          "spurious_claims": 50,
+          "runs": 50
+        },
+        "panel_as_transcriptome": {
+          "detected": 0,
+          "spurious_claims": 50,
+          "runs": 50
+        },
+        "predicted_as_measured": {
+          "detected": 0,
+          "spurious_claims": 50,
+          "runs": 50
+        },
+        "merged_formulas": {
+          "detected": 0,
+          "spurious_claims": 15,
+          "runs": 50
+        },
+        "validation_in_selection": {
+          "detected": 0,
+          "spurious_claims": 15,
+          "runs": 50
+        }
+      },
+      "false_positive_rate": 0.34,
+      "power": 1.0,
+      "false_alarm_rate": 0.0,
+      "detection_rate": 0.0,
+      "spurious_claim_rate_under_faults": 0.66
+    },
+    "gated": {
+      "null_claims": 2,
+      "positive_claims": 46,
+      "clean_false_alarms": 0,
+      "clean_runs": 150,
+      "faults": {
+        "cells_as_units": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "shuffled_pairing": {
+          "detected": 47,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "batch_is_condition": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "panel_as_transcriptome": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "predicted_as_measured": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "merged_formulas": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        },
+        "validation_in_selection": {
+          "detected": 50,
+          "spurious_claims": 0,
+          "runs": 50
+        }
+      },
+      "false_positive_rate": 0.04,
+      "power": 0.92,
+      "false_alarm_rate": 0.0,
+      "detection_rate": 0.9914285714285714,
+      "spurious_claim_rate_under_faults": 0.0
+    }
+  }
+}

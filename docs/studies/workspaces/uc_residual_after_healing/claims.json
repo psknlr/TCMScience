@@ -1,0 +1,21 @@
+[
+  {
+    "id": "B1",
+    "statement": "mucosa healed after infliximab differs from control mucosa in genes that move opposite to the inflammation signature (repair rather than residual inflammation)",
+    "chain": "disease",
+    "level": "not_supported",
+    "contrasts": [
+      "healed_vs_control"
+    ],
+    "evidence": [
+      "GSE73661"
+    ],
+    "validated_in": [],
+    "limitations": [
+      "8 healed patients",
+      "controls are not age- or site-matched in the deposited metadata",
+      "Mayo 0-1 includes mild residual inflammation"
+    ],
+    "downgrades": []
+  }
+]

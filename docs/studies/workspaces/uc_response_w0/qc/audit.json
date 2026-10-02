@@ -1,0 +1,36 @@
+{
+  "verdict": "proceed",
+  "checks_run": [
+    "independent_units",
+    "batch_confounding:responder_w0",
+    "sufficiency:responder_w0",
+    "pairing:responder_w0",
+    "leakage",
+    "duplicate_studies",
+    "coverage",
+    "outcome",
+    "test_family",
+    "intervention_identity"
+  ],
+  "findings": [
+    {
+      "check": "batch_confounding",
+      "severity": "warn",
+      "message": "batch determines therapy in therapy_by_period: no batch contains both levels, so condition and batch effects cannot be separated; therapy is a covariate here, so it is recorded, not a stop",
+      "evidence": {
+        "contrast": "therapy_by_period",
+        "table": {
+          "Bp<300": {
+            "IFX": 23,
+            "VDZ": 0
+          },
+          "Bp>=700": {
+            "IFX": 0,
+            "VDZ": 41
+          }
+        },
+        "cramers_v": 1.0
+      }
+    }
+  ]
+}

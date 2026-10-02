@@ -1,0 +1,76 @@
+study:
+  id: uc_response_w0
+  title: Baseline transcriptome and endoscopic healing
+  question: does the W0 mucosal transcriptome predict endoscopic healing beyond W0
+    endoscopic severity and therapy?
+  question_type: response_prediction
+  chain: disease
+  hypothesis: W0 expression adds discrimination of later healing over severity and
+    therapy
+  falsifier: subject-level cross-validated AUC of expression + severity + therapy
+    does not exceed severity + therapy (the difference's permutation p ≥ 0.05, or
+    AUC within 0.05)
+  competing:
+  - baseline severity alone predicts healing
+  - therapy (IFX vs VDZ) differs in healing rate and in baseline expression
+  - collection period differs by therapy
+  primary_contrast: responder_w0
+  unit_of_inference: subject_id
+  datasets:
+    GSE73661: discovery
+  original:
+  - accession: GSE73661
+    design: rct_substudy_and_open_label_cohort
+    randomized: false
+    blinded: false
+    sample_unit: biopsy
+    pooled: false
+    outcome_definition: endoscopic mucosal healing, Mayo endoscopic subscore 0 or
+      1; VDZ assessed at W6/W12/W52, IFX at W4-6
+    timepoints:
+    - W0
+    - W4_W6
+    - W6
+    - W12
+    - W52
+    n_subjects_reported: 79
+    notes:
+    - vedolizumab patients come from randomised trials, but the biopsy substudy compares
+      responders and non-responders, which is not a randomised contrast
+    - the infliximab cohort is open-label, before/after
+    - 'no hybridisation batch or scan date is deposited; the biobank numbers form
+      three ranges: infliximab and 6 controls 69-207, 6 controls 607-616, vedolizumab
+      and placebo 771-1473'
+  decision_rules:
+    adds: expression predicts beyond severity in these trials; needs an external cohort
+      before any claim
+    does_not_add: no evidence that baseline expression adds to severity and therapy
+validation_plan:
+  discovery:
+  - GSE73661
+  validation: []
+  split_unit: subject_id
+  selection_datasets: []
+  frozen_selection: ''
+  families:
+    primary:
+    - responder_w0
+  alpha: 0.05
+  min_subjects_per_arm: 5
+  windows: {}
+  stop_rules: []
+artifacts:
+- id: gse73661_rma
+  modality: bulk_rna
+  level: sample
+  provenance: measured
+  feature_space: whole_transcriptome
+  n_features: null
+  features: []
+  annotations: []
+  protocol: ''
+  accession: GSE73661
+  path: ''
+  checksum: ''
+  samples: []
+protocol_hash: sha256:dbc0a1c83a2c33b6eef2675d5e6622f39028779ac7085cad6018395615c484d6

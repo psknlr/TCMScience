@@ -1,0 +1,1140 @@
+{
+  "dataset": "GSE250498",
+  "seed": 20261002,
+  "cells": 93900,
+  "biopsies": 21,
+  "people": 12,
+  "people_by_group": {
+    "HC": 4,
+    "UCV": 4,
+    "UCNB": 4
+  },
+  "geo_samples_are_lanes": {
+    "lanes": 10,
+    "people_per_lane": {
+      "XAUT1-POOL-SCG1": 10,
+      "XAUT1-POOL-SCG10": 11,
+      "XAUT1-POOL-SCG2": 10,
+      "XAUT1-POOL-SCG3": 10,
+      "XAUT1-POOL-SCG4": 10,
+      "XAUT1-POOL-SCG5": 11,
+      "XAUT1-POOL-SCG6": 11,
+      "XAUT1-POOL-SCG7": 11,
+      "XAUT1-POOL-SCG8": 11,
+      "XAUT1-POOL-SCG9": 10
+    }
+  },
+  "geo_view_audit": [
+    {
+      "check": "independent_units",
+      "severity": "stop",
+      "message": "GSE250487 libraries pool several people; a library is not a subject — demultiplex (genotype or hashtag) before any subject-level analysis",
+      "evidence": {
+        "dataset": "GSE250487"
+      }
+    }
+  ],
+  "gate": {
+    "question_type": "composition_vs_state",
+    "status": "downgraded",
+    "missing": [],
+    "downgrades": [
+      "fewer than 5 subject_ids in an arm ({'UC': 8, 'HC': 4}): estimates only, no confirmatory test"
+    ],
+    "notes": [
+      "no measured bulk profile: the tissue-level signal is the mean over the same cells, so cell types lost in dissociation (epithelium, neutrophils) bias both terms alike and cannot be detected",
+      "independent subject_id per arm: {'UC': 8, 'HC': 4}"
+    ]
+  },
+  "audit": {
+    "verdict": "downgrade",
+    "checks_run": [
+      "independent_units",
+      "batch_confounding:uc_vs_hc",
+      "sufficiency:uc_vs_hc",
+      "pairing:uc_vs_hc",
+      "batch_confounding:ucv_vs_ucnb",
+      "sufficiency:ucv_vs_ucnb",
+      "pairing:ucv_vs_ucnb",
+      "leakage",
+      "duplicate_studies",
+      "coverage",
+      "test_family",
+      "intervention_identity"
+    ],
+    "findings": [
+      {
+        "check": "sufficiency",
+        "severity": "downgrade",
+        "message": "uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests",
+        "evidence": {
+          "contrast": "uc_vs_hc",
+          "per_arm": {
+            "UC": 8,
+            "HC": 4
+          }
+        }
+      },
+      {
+        "check": "sufficiency",
+        "severity": "downgrade",
+        "message": "ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests",
+        "evidence": {
+          "contrast": "ucv_vs_ucnb",
+          "per_arm": {
+            "UCV": 4,
+            "UCNB": 4
+          }
+        }
+      },
+      {
+        "check": "independent_units",
+        "severity": "warn",
+        "message": "GSE250498 deposits pooled libraries; subjects must come from demultiplexed cell metadata",
+        "evidence": {}
+      }
+    ]
+  },
+  "composition": {
+    "uc_vs_hc": {
+      "contrast": "uc_vs_hc",
+      "unit": "subject_id",
+      "paired": false,
+      "units": {
+        "UC": 8,
+        "HC": 4
+      },
+      "cell_types": [
+        {
+          "cell_type": "01-Plasma cells",
+          "clr_difference": -0.28189971056514906,
+          "ci": [
+            -0.6334580854911764,
+            0.06965866436087825
+          ],
+          "p_t": 0.10289844393897256,
+          "p_perm": 0.14739263036848158,
+          "mean_prop_case": 0.14578912372900288,
+          "mean_prop_control": 0.19782253107605974,
+          "q_perm": 0.5746712664366782
+        },
+        {
+          "cell_type": "02-B",
+          "clr_difference": 0.11094640321126481,
+          "ci": [
+            -0.7737631672265515,
+            0.9956559736490811
+          ],
+          "p_t": 0.7711515330883825,
+          "p_perm": 0.7328133593320334,
+          "mean_prop_case": 0.07107704331436739,
+          "mean_prop_control": 0.06565443964788546,
+          "q_perm": 0.7987100644967752
+        },
+        {
+          "cell_type": "03-CD4 T",
+          "clr_difference": 0.15902875102959824,
+          "ci": [
+            -0.2166847022910387,
+            0.5347422043502352
+          ],
+          "p_t": 0.3616785552178774,
+          "p_perm": 0.41557922103894807,
+          "mean_prop_case": 0.29954458754787155,
+          "mean_prop_control": 0.26716939123898226,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "04-CD8 T",
+          "clr_difference": -0.2537234966278079,
+          "ci": [
+            -0.9616635254361099,
+            0.45421653218049407
+          ],
+          "p_t": 0.42470594178817533,
+          "p_perm": 0.4385780710964452,
+          "mean_prop_case": 0.12331323524505369,
+          "mean_prop_control": 0.16475340952299494,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "05-ILC2 and ILC3",
+          "clr_difference": -0.7761336891982535,
+          "ci": [
+            -1.7080696143460083,
+            0.15580223594950138
+          ],
+          "p_t": 0.09109385289812766,
+          "p_perm": 0.11014449277536123,
+          "mean_prop_case": 0.005065450988988285,
+          "mean_prop_control": 0.0109481836310467,
+          "q_perm": 0.5746712664366782
+        },
+        {
+          "cell_type": "06-NK",
+          "clr_difference": -0.10667035446321993,
+          "ci": [
+            -0.715852248787785,
+            0.5025115398613451
+          ],
+          "p_t": 0.7023426961188466,
+          "p_perm": 0.7987100644967752,
+          "mean_prop_case": 0.006396362358785065,
+          "mean_prop_control": 0.005229293336946442,
+          "q_perm": 0.7987100644967752
+        },
+        {
+          "cell_type": "07-Mast",
+          "clr_difference": 0.5357522790362648,
+          "ci": [
+            -0.5316928222265838,
+            1.6031973802991133
+          ],
+          "p_t": 0.28168254261668557,
+          "p_perm": 0.3289835508224589,
+          "mean_prop_case": 0.008674768740136403,
+          "mean_prop_control": 0.003838759229429216,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "08-MNP",
+          "clr_difference": -0.13301074787219047,
+          "ci": [
+            -0.981724666969426,
+            0.715703171225045
+          ],
+          "p_t": 0.7217719888069325,
+          "p_perm": 0.743912804359782,
+          "mean_prop_case": 0.03920473532370136,
+          "mean_prop_control": 0.04185890926508329,
+          "q_perm": 0.7987100644967752
+        },
+        {
+          "cell_type": "09-Cycling",
+          "clr_difference": 0.34077721203973677,
+          "ci": [
+            -0.398208644250293,
+            1.0797630683297665
+          ],
+          "p_t": 0.3233461824593762,
+          "p_perm": 0.37918104094795263,
+          "mean_prop_case": 0.01743829333442125,
+          "mean_prop_control": 0.011855456115482256,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "10-Epithelial",
+          "clr_difference": 0.3148456273642155,
+          "ci": [
+            -0.6452237588215518,
+            1.274915013549983
+          ],
+          "p_t": 0.4487682921920849,
+          "p_perm": 0.4269286535673216,
+          "mean_prop_case": 0.09675543393136408,
+          "mean_prop_control": 0.07320079772635163,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "11-Stromal-fibroblast",
+          "clr_difference": 0.3881980969196115,
+          "ci": [
+            -0.308748494416728,
+            1.085144688255951
+          ],
+          "p_t": 0.23457786734441666,
+          "p_perm": 0.2673866306684666,
+          "mean_prop_case": 0.0831466506209235,
+          "mean_prop_control": 0.05400406026474742,
+          "q_perm": 0.6140092995350233
+        },
+        {
+          "cell_type": "12-Endothelial",
+          "clr_difference": 0.5366911796853202,
+          "ci": [
+            -0.151149619754941,
+            1.2245319791255813
+          ],
+          "p_t": 0.11177235436444616,
+          "p_perm": 0.1641917904104795,
+          "mean_prop_case": 0.0260488043519675,
+          "mean_prop_control": 0.013812915635059694,
+          "q_perm": 0.5746712664366782
+        },
+        {
+          "cell_type": "13-Enteric neural",
+          "clr_difference": -0.7658521507090257,
+          "ci": [
+            -1.4454638555389632,
+            -0.08624044587908819
+          ],
+          "p_t": 0.030898378361894813,
+          "p_perm": 0.07744612769361532,
+          "mean_prop_case": 0.0038450231555744725,
+          "mean_prop_control": 0.007383731576385633,
+          "q_perm": 0.5746712664366782
+        },
+        {
+          "cell_type": "14-Mito Hi immune",
+          "clr_difference": -0.06894939985036042,
+          "ci": [
+            -0.5463528528680601,
+            0.4084540531673393
+          ],
+          "p_t": 0.7431170155513094,
+          "p_perm": 0.7546622668866557,
+          "mean_prop_case": 0.07370048735784254,
+          "mean_prop_control": 0.08246812173354529,
+          "q_perm": 0.7987100644967752
+        }
+      ],
+      "note": "CLR differences are relative to the other cell types; a rise in one type lowers the share of all others"
+    },
+    "ucv_vs_ucnb": {
+      "contrast": "ucv_vs_ucnb",
+      "unit": "subject_id",
+      "paired": false,
+      "units": {
+        "UCV": 4,
+        "UCNB": 4
+      },
+      "cell_types": [
+        {
+          "cell_type": "01-Plasma cells",
+          "clr_difference": -0.15001178128257786,
+          "ci": [
+            -0.8385585415145265,
+            0.5385349789493707
+          ],
+          "p_t": 0.5651036563660561,
+          "p_perm": 0.5380730963451827,
+          "mean_prop_case": 0.11906128252505527,
+          "mean_prop_control": 0.1725169649329505,
+          "q_perm": 0.7533023348832558
+        },
+        {
+          "cell_type": "02-B",
+          "clr_difference": -0.351132360469141,
+          "ci": [
+            -1.4319060714809502,
+            0.7296413505426682
+          ],
+          "p_t": 0.4567273793135401,
+          "p_perm": 0.4272286385680716,
+          "mean_prop_case": 0.05516254420465374,
+          "mean_prop_control": 0.08699154242408103,
+          "q_perm": 0.6645778822170002
+        },
+        {
+          "cell_type": "03-CD4 T",
+          "clr_difference": 0.4105900124144184,
+          "ci": [
+            -0.10500899476460102,
+            0.9261890195934378
+          ],
+          "p_t": 0.09452005734212955,
+          "p_perm": 0.11724413779311034,
+          "mean_prop_case": 0.33320593615352223,
+          "mean_prop_control": 0.2658832389422209,
+          "q_perm": 0.32828358582070893
+        },
+        {
+          "cell_type": "04-CD8 T",
+          "clr_difference": 0.5204471466056564,
+          "ci": [
+            -0.3351711156911288,
+            1.3760654089024416
+          ],
+          "p_t": 0.18698382838432348,
+          "p_perm": 0.17254137293135344,
+          "mean_prop_case": 0.14669846901707367,
+          "mean_prop_control": 0.09992800147303374,
+          "q_perm": 0.4025965368398247
+        },
+        {
+          "cell_type": "05-ILC2 and ILC3",
+          "clr_difference": 0.40742230833257875,
+          "ci": [
+            -1.1012743478045157,
+            1.9161189644696732
+          ],
+          "p_t": 0.5137067794882373,
+          "p_perm": 0.6260686965651717,
+          "mean_prop_case": 0.005365000334525589,
+          "mean_prop_control": 0.004765901643450982,
+          "q_perm": 0.7968147047193095
+        },
+        {
+          "cell_type": "06-NK",
+          "clr_difference": -0.5091028614921986,
+          "ci": [
+            -1.8761441401008085,
+            0.8579384171164113
+          ],
+          "p_t": 0.357469934528043,
+          "p_perm": 0.39778011099445026,
+          "mean_prop_case": 0.0031971036736297355,
+          "mean_prop_control": 0.009595621043940397,
+          "q_perm": 0.6645778822170002
+        },
+        {
+          "cell_type": "07-Mast",
+          "clr_difference": -0.943984999934441,
+          "ci": [
+            -2.3785449995334105,
+            0.4905749996645288
+          ],
+          "p_t": 0.15816228701961088,
+          "p_perm": 0.11314434278286085,
+          "mean_prop_case": 0.003712259715023146,
+          "mean_prop_control": 0.01363727776524966,
+          "q_perm": 0.32828358582070893
+        },
+        {
+          "cell_type": "08-MNP",
+          "clr_difference": -0.9247044699660147,
+          "ci": [
+            -1.7528700139066884,
+            -0.09653892602534098
+          ],
+          "p_t": 0.035574009069680466,
+          "p_perm": 0.027248637568121594,
+          "mean_prop_case": 0.017929182920235976,
+          "mean_prop_control": 0.06048028772716675,
+          "q_perm": 0.19459027048647567
+        },
+        {
+          "cell_type": "09-Cycling",
+          "clr_difference": 0.18789067185125863,
+          "ci": [
+            -1.0577047607361956,
+            1.4334861044387126
+          ],
+          "p_t": 0.7247244307590283,
+          "p_perm": 0.7656617169141543,
+          "mean_prop_case": 0.017946446652516598,
+          "mean_prop_control": 0.01693014001632591,
+          "q_perm": 0.8245587720613969
+        },
+        {
+          "cell_type": "10-Epithelial",
+          "clr_difference": 0.7766203982705961,
+          "ci": [
+            -0.06817057602531706,
+            1.6214113725665094
+          ],
+          "p_t": 0.06467276719963418,
+          "p_perm": 0.08824558772061397,
+          "mean_prop_case": 0.1287608546145202,
+          "mean_prop_control": 0.064750013248208,
+          "q_perm": 0.32828358582070893
+        },
+        {
+          "cell_type": "11-Stromal-fibroblast",
+          "clr_difference": -0.3966037986202178,
+          "ci": [
+            -1.537041724896292,
+            0.7438341276558564
+          ],
+          "p_t": 0.3916088390403101,
+          "p_perm": 0.34268286585670715,
+          "mean_prop_case": 0.05330890128058513,
+          "mean_prop_control": 0.11298439996126187,
+          "q_perm": 0.6645778822170002
+        },
+        {
+          "cell_type": "12-Endothelial",
+          "clr_difference": 0.14636945616274055,
+          "ci": [
+            -1.139935863718195,
+            1.4326747760436764
+          ],
+          "p_t": 0.779819671433886,
+          "p_perm": 0.8286585670716464,
+          "mean_prop_case": 0.02275887295392885,
+          "mean_prop_control": 0.029338735750006152,
+          "q_perm": 0.8286585670716464
+        },
+        {
+          "cell_type": "13-Enteric neural",
+          "clr_difference": 0.23716087208335024,
+          "ci": [
+            -1.1742461313713688,
+            1.6485678755380693
+          ],
+          "p_t": 0.6882860851985613,
+          "p_perm": 0.7458627068646567,
+          "mean_prop_case": 0.00364102456080139,
+          "mean_prop_control": 0.004049021750347556,
+          "q_perm": 0.8245587720613969
+        },
+        {
+          "cell_type": "14-Mito Hi immune",
+          "clr_difference": 0.5890394060439965,
+          "ci": [
+            0.22906539171522444,
+            0.9490134203727686
+          ],
+          "p_t": 0.008544929313783884,
+          "p_perm": 0.027798610069496524,
+          "mean_prop_case": 0.0892521213939285,
+          "mean_prop_control": 0.05814885332175659,
+          "q_perm": 0.19459027048647567
+        }
+      ],
+      "note": "CLR differences are relative to the other cell types; a rise in one type lowers the share of all others"
+    }
+  },
+  "composition_cells_as_replicates": {
+    "01-Plasma cells": {
+      "difference_in_fraction": -0.04976134487049469,
+      "p_cells_as_replicates": 8.32927551896035e-83
+    },
+    "02-B": {
+      "difference_in_fraction": 0.006874786121352824,
+      "p_cells_as_replicates": 4.317951312047909e-05
+    },
+    "03-CD4 T": {
+      "difference_in_fraction": 0.0292455297462878,
+      "p_cells_as_replicates": 5.46498492346369e-22
+    },
+    "04-CD8 T": {
+      "difference_in_fraction": -0.032843319205114296,
+      "p_cells_as_replicates": 3.287962005737214e-40
+    },
+    "05-ILC2 and ILC3": {
+      "difference_in_fraction": -0.006388529732233219,
+      "p_cells_as_replicates": 6.802897712311511e-24
+    },
+    "06-NK": {
+      "difference_in_fraction": -0.00021965250101510427,
+      "p_cells_as_replicates": 0.6524535373946501
+    },
+    "07-Mast": {
+      "difference_in_fraction": 0.0022259483622866713,
+      "p_cells_as_replicates": 2.2312128999473164e-06
+    },
+    "08-MNP": {
+      "difference_in_fraction": -0.004422559999516136,
+      "p_cells_as_replicates": 0.0009705551171244231
+    },
+    "09-Cycling": {
+      "difference_in_fraction": 0.005541423109027747,
+      "p_cells_as_replicates": 3.563469274013498e-12
+    },
+    "10-Epithelial": {
+      "difference_in_fraction": 0.02440914778835497,
+      "p_cells_as_replicates": 2.0185346575898203e-39
+    },
+    "11-Stromal-fibroblast": {
+      "difference_in_fraction": 0.02211853451440523,
+      "p_cells_as_replicates": 4.1474357649429814e-41
+    },
+    "12-Endothelial": {
+      "difference_in_fraction": 0.011408449998428697,
+      "p_cells_as_replicates": 3.3421230054771345e-36
+    },
+    "13-Enteric neural": {
+      "difference_in_fraction": -0.0036359704659981677,
+      "p_cells_as_replicates": 1.4564641726598558e-11
+    },
+    "14-Mito Hi immune": {
+      "difference_in_fraction": -0.00455244286577236,
+      "p_cells_as_replicates": 0.012874845943614169
+    }
+  },
+  "power": {
+    "01-Plasma cells": {
+      "observed_clr_difference": -0.28189971056514906,
+      "between_subject_sd": 0.2716557850807539,
+      "grid": [
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.192
+        },
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.198
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.4775
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.489
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.807
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.814
+        }
+      ]
+    },
+    "10-Epithelial": {
+      "observed_clr_difference": 0.3148456273642155,
+      "between_subject_sd": 0.6244784766322155,
+      "grid": [
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.084
+        },
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.082
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.1485
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.148
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.296
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.301
+        }
+      ]
+    },
+    "03-CD4 T": {
+      "observed_clr_difference": 0.15902875102959824,
+      "between_subject_sd": 0.2881517258306447,
+      "grid": [
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.0885
+        },
+        {
+          "n_per_arm": 4,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.0895
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.165
+        },
+        {
+          "n_per_arm": 8,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.166
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 500,
+          "subject_level_rejection": 0.3275
+        },
+        {
+          "n_per_arm": 16,
+          "cells_per_subject": 5000,
+          "subject_level_rejection": 0.3355
+        }
+      ]
+    }
+  },
+  "decomposition": {
+    "uc_vs_hc:LCN2": {
+      "contrast": "uc_vs_hc",
+      "subjects": {
+        "UC": 8,
+        "HC": 4
+      },
+      "difference": 0.04715150546435794,
+      "difference_observed": 0.03134528125602913,
+      "composition": {
+        "estimate": 0.007055386637369766,
+        "ci": [
+          -0.008069727959300183,
+          0.020593302235076872
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.0005589776695255291,
+          "02-B": 3.8499815001744306e-05,
+          "03-CD4 T": 0.00018539775811201158,
+          "04-CD8 T": -0.0003185716467178612,
+          "05-ILC2 and ILC3": -6.599637914026791e-06,
+          "06-NK": 2.5953810308139726e-06,
+          "07-Mast": 5.551026355434255e-06,
+          "08-MNP": -2.2497940989380337e-05,
+          "09-Cycling": 3.336340158019245e-05,
+          "10-Epithelial": 0.0074364288419555965,
+          "11-Stromal-fibroblast": 0.00026279355929392757,
+          "12-Endothelial": 9.193393981677941e-05,
+          "13-Enteric neural": -1.1066624239319634e-05,
+          "14-Mito Hi immune": -8.346356639061827e-05
+        }
+      },
+      "state": {
+        "estimate": 0.04009611882698817,
+        "ci": [
+          0.013025151353505585,
+          0.06999562009137945
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": 0.0008787020891485802,
+          "02-B": 4.8972620383643374e-05,
+          "03-CD4 T": 0.00020530389019046677,
+          "04-CD8 T": 0.0004512509295189107,
+          "05-ILC2 and ILC3": -1.7965152695223485e-05,
+          "06-NK": -2.585366049382482e-05,
+          "07-Mast": 1.4363686300601308e-05,
+          "08-MNP": -4.464586276165621e-05,
+          "09-Cycling": 0.0001750613690421038,
+          "10-Epithelial": 0.03811165855541329,
+          "11-Stromal-fibroblast": -0.00034283496516969555,
+          "12-Endothelial": 0.00010399530513688568,
+          "13-Enteric neural": -3.5115752561947504e-05,
+          "14-Mito Hi immune": 0.0005732257755360362
+        }
+      },
+      "within_arm_covariance": -0.015806224208328806,
+      "excluded_cell_types": [],
+      "verdict": "state",
+      "level": 0.95,
+      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+    },
+    "uc_vs_hc:DUOX2": {
+      "contrast": "uc_vs_hc",
+      "subjects": {
+        "UC": 8,
+        "HC": 4
+      },
+      "difference": 0.01030255227630907,
+      "difference_observed": 0.006891144101277101,
+      "composition": {
+        "estimate": 0.0016218282308444391,
+        "ci": [
+          -0.0016358932404387956,
+          0.005756548227300048
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.0001826138479672449,
+          "02-B": 1.808931362371504e-05,
+          "03-CD4 T": 8.831244668820536e-05,
+          "04-CD8 T": -0.00010772110647112783,
+          "05-ILC2 and ILC3": -1.7968526309705163e-05,
+          "06-NK": 7.75132165037165e-06,
+          "07-Mast": 2.6602146967584218e-05,
+          "08-MNP": -2.634163278692707e-06,
+          "09-Cycling": 4.284508385312091e-05,
+          "10-Epithelial": 0.0017065904894234785,
+          "11-Stromal-fibroblast": 5.2710521154819713e-05,
+          "12-Endothelial": 6.9760237431003565e-06,
+          "13-Enteric neural": -6.931372281198413e-06,
+          "14-Mito Hi immune": -1.01800999519875e-05
+        }
+      },
+      "state": {
+        "estimate": 0.008680724045464631,
+        "ci": [
+          0.0006234265562253207,
+          0.023576927041124074
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.0002905560721141478,
+          "02-B": -0.00013041886305314404,
+          "03-CD4 T": -4.010839453795165e-05,
+          "04-CD8 T": -0.00021840655514874054,
+          "05-ILC2 and ILC3": -4.8912883262262465e-05,
+          "06-NK": -3.3219022914637313e-06,
+          "07-Mast": 6.883499906117453e-05,
+          "08-MNP": 1.6640606319385156e-06,
+          "09-Cycling": -1.802718424388327e-05,
+          "10-Epithelial": 0.009301611199587188,
+          "11-Stromal-fibroblast": 5.0004568270614306e-05,
+          "12-Endothelial": -1.767043518873466e-05,
+          "13-Enteric neural": 2.1994092207134445e-05,
+          "14-Mito Hi immune": 4.037415546908734e-06
+        }
+      },
+      "within_arm_covariance": -0.0034114081750319693,
+      "excluded_cell_types": [],
+      "verdict": "state",
+      "level": 0.95,
+      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+    },
+    "uc_vs_hc:S100A8": {
+      "contrast": "uc_vs_hc",
+      "subjects": {
+        "UC": 8,
+        "HC": 4
+      },
+      "difference": 0.007047057907267334,
+      "difference_observed": 0.011247754605169294,
+      "composition": {
+        "estimate": -0.00026617030821218655,
+        "ci": [
+          -0.002325177531232846,
+          0.004108543185536381
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.00012402645118790166,
+          "02-B": 4.153718882414904e-06,
+          "03-CD4 T": 2.885171536139429e-05,
+          "04-CD8 T": -5.9038866922368195e-05,
+          "05-ILC2 and ILC3": -8.299008122833948e-06,
+          "06-NK": 5.4092703672621124e-06,
+          "07-Mast": 9.82417856556392e-06,
+          "08-MNP": -0.00026375812879808185,
+          "09-Cycling": 0.0,
+          "10-Epithelial": 5.3716939948613e-05,
+          "11-Stromal-fibroblast": 2.821639600360586e-05,
+          "12-Endothelial": 6.535971609187432e-05,
+          "13-Enteric neural": -0.0,
+          "14-Mito Hi immune": -6.579788401729323e-06
+        }
+      },
+      "state": {
+        "estimate": 0.00731322821547952,
+        "ci": [
+          0.0022234875524200356,
+          0.017277889660985174
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": 0.0006356635000062716,
+          "02-B": 0.00010473642875865455,
+          "03-CD4 T": -0.00019024393140729373,
+          "04-CD8 T": -6.169109476801378e-06,
+          "05-ILC2 and ILC3": -2.2591080008909506e-05,
+          "06-NK": -5.388397230854449e-05,
+          "07-Mast": 2.5420779877708288e-05,
+          "08-MNP": 0.006536516073167375,
+          "09-Cycling": 0.0,
+          "10-Epithelial": 0.00029884913142573484,
+          "11-Stromal-fibroblast": -0.00010694066094911837,
+          "12-Endothelial": -2.5327763581596685e-05,
+          "13-Enteric neural": 0.0,
+          "14-Mito Hi immune": 0.00011719881997603869
+        }
+      },
+      "within_arm_covariance": 0.00420069669790196,
+      "excluded_cell_types": [],
+      "verdict": "state",
+      "level": 0.95,
+      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+    },
+    "ucv_vs_ucnb:ITGA4": {
+      "contrast": "ucv_vs_ucnb",
+      "subjects": {
+        "UCV": 4,
+        "UCNB": 4
+      },
+      "difference": 0.019296261694933578,
+      "difference_observed": 0.011798376090704582,
+      "composition": {
+        "estimate": 0.01812916918783466,
+        "ci": [
+          -0.013826634952550659,
+          0.040218797741132205
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.0075933509361683135,
+          "02-B": -0.009417674807011974,
+          "03-CD4 T": 0.023581065337111903,
+          "04-CD8 T": 0.01582902538482762,
+          "05-ILC2 and ILC3": 0.00021892053949035207,
+          "06-NK": -0.0022936853943944643,
+          "07-Mast": -0.001443885343325459,
+          "08-MNP": -0.0072828511205448015,
+          "09-Cycling": 0.0001938583433213214,
+          "10-Epithelial": 0.0021356119774287117,
+          "11-Stromal-fibroblast": -0.002699142886875785,
+          "12-Endothelial": -0.0001725718600106482,
+          "13-Enteric neural": -1.5630905739762496e-05,
+          "14-Mito Hi immune": 0.007089480859725959
+        }
+      },
+      "state": {
+        "estimate": 0.0011670925070989165,
+        "ci": [
+          -0.044142293086139664,
+          0.036457287423460244
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": 0.0025588357853332903,
+          "02-B": 0.0011191952046720115,
+          "03-CD4 T": -0.007905984208823855,
+          "04-CD8 T": 0.006159361772615038,
+          "05-ILC2 and ILC3": -0.000496298316999295,
+          "06-NK": -0.0007271533878562674,
+          "07-Mast": -0.00023499411011022273,
+          "08-MNP": -0.002999827313459142,
+          "09-Cycling": 0.0003949093174570192,
+          "10-Epithelial": -0.0003941359659579635,
+          "11-Stromal-fibroblast": 0.0007094016566343523,
+          "12-Endothelial": 0.0005390170914419648,
+          "13-Enteric neural": -0.00012378237161737526,
+          "14-Mito Hi immune": 0.002568547353769362
+        }
+      },
+      "within_arm_covariance": -0.007497885604228996,
+      "excluded_cell_types": [],
+      "verdict": "unresolved",
+      "level": 0.95,
+      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+    },
+    "ucv_vs_ucnb:ITGB7": {
+      "contrast": "ucv_vs_ucnb",
+      "subjects": {
+        "UCV": 4,
+        "UCNB": 4
+      },
+      "difference": -0.01013174635933884,
+      "difference_observed": -0.018667318873133276,
+      "composition": {
+        "estimate": 0.014399811167268763,
+        "ci": [
+          -0.011194547787103016,
+          0.03224543245860458
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.0054269175551293425,
+          "02-B": -0.004270433667929272,
+          "03-CD4 T": 0.010439126760115115,
+          "04-CD8 T": 0.01779038853003006,
+          "05-ILC2 and ILC3": 0.00017256760230182033,
+          "06-NK": -0.002179986952537231,
+          "07-Mast": -0.0009253388563412805,
+          "08-MNP": -0.004844180016742469,
+          "09-Cycling": 0.0002102501466681122,
+          "10-Epithelial": 0.0014157166364929124,
+          "11-Stromal-fibroblast": -0.0009760375411625352,
+          "12-Endothelial": -5.550052681488779e-05,
+          "13-Enteric neural": -1.4671828158282554e-05,
+          "14-Mito Hi immune": 0.0030648284364760427
+        }
+      },
+      "state": {
+        "estimate": -0.024531557526607604,
+        "ci": [
+          -0.07030043377477731,
+          0.013453178250439112
+        ],
+        "by_cell_type": {
+          "01-Plasma cells": -0.004176719169340788,
+          "02-B": 0.0010716540886032346,
+          "03-CD4 T": -0.017698800137551235,
+          "04-CD8 T": 0.0019238626800072568,
+          "05-ILC2 and ILC3": -0.0005717753263691607,
+          "06-NK": -0.0007623292157629474,
+          "07-Mast": -6.992410557102728e-06,
+          "08-MNP": -0.0014769558162246652,
+          "09-Cycling": -0.001654207046823385,
+          "10-Epithelial": 1.7081726487591647e-05,
+          "11-Stromal-fibroblast": 5.4071659066197746e-05,
+          "12-Endothelial": -0.00025839965150122637,
+          "13-Enteric neural": -3.183362629260086e-05,
+          "14-Mito Hi immune": -0.0009602152803487725
+        }
+      },
+      "within_arm_covariance": -0.008535572513794436,
+      "excluded_cell_types": [],
+      "verdict": "unresolved",
+      "level": 0.95,
+      "note": "bootstrap over subjects. The terms decompose the difference of arm-mean composition times arm-mean expression exactly; the observed difference of subject means also carries the within-arm covariance of proportion and expression, reported separately"
+    }
+  },
+  "state": {
+    "uc_vs_hc:LCN2@10-Epithelial": {
+      "units": {
+        "UC": 8,
+        "HC": 4
+      },
+      "gene": "LCN2",
+      "log2_difference": 2.4497175095274777,
+      "ci": [
+        0.5678595914902269,
+        4.3315754275647285
+      ],
+      "p_value": 0.01582143208266571,
+      "q_value": 0.01582143208266571
+    },
+    "uc_vs_hc:DUOX2@10-Epithelial": {
+      "units": {
+        "UC": 8,
+        "HC": 4
+      },
+      "gene": "DUOX2",
+      "log2_difference": 2.386020638398408,
+      "ci": [
+        -0.08826707764276653,
+        4.860308354439583
+      ],
+      "p_value": 0.0568430038386609,
+      "q_value": 0.0568430038386609
+    },
+    "uc_vs_hc:S100A8@08-MNP": {
+      "units": {
+        "UC": 8,
+        "HC": 4
+      },
+      "gene": "S100A8",
+      "log2_difference": 3.6314693113834275,
+      "ci": [
+        1.2696283222151363,
+        5.993310300551719
+      ],
+      "p_value": 0.007162066285540596,
+      "q_value": 0.007162066285540596
+    },
+    "ucv_vs_ucnb:ITGA4@03-CD4 T": {
+      "units": {
+        "UCV": 4,
+        "UCNB": 4
+      },
+      "gene": "ITGA4",
+      "log2_difference": -0.1576516602996776,
+      "ci": [
+        -0.6285061452124758,
+        0.3132028246131206
+      ],
+      "p_value": 0.44385008572598506,
+      "q_value": 0.44385008572598506
+    },
+    "ucv_vs_ucnb:ITGB7@03-CD4 T": {
+      "units": {
+        "UCV": 4,
+        "UCNB": 4
+      },
+      "gene": "ITGB7",
+      "log2_difference": -0.6065004879273008,
+      "ci": [
+        -1.483088009493683,
+        0.27008703363908126
+      ],
+      "p_value": 0.14140092519163885,
+      "q_value": 0.14140092519163885
+    }
+  },
+  "claims": [
+    {
+      "id": "C-LCN2",
+      "statement": "LCN2: the uc_vs_hc difference is a state effect",
+      "chain": "disease",
+      "level": "exploratory",
+      "contrasts": [
+        "uc_vs_hc"
+      ],
+      "evidence": [
+        "GSE250487"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "4 people per arm",
+        "cross-sectional"
+      ],
+      "downgrades": [
+        {
+          "from": "association",
+          "to": "exploratory",
+          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
+        }
+      ]
+    },
+    {
+      "id": "C-DUOX2",
+      "statement": "DUOX2: the uc_vs_hc difference is a state effect",
+      "chain": "disease",
+      "level": "exploratory",
+      "contrasts": [
+        "uc_vs_hc"
+      ],
+      "evidence": [
+        "GSE250487"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "4 people per arm",
+        "cross-sectional"
+      ],
+      "downgrades": [
+        {
+          "from": "association",
+          "to": "exploratory",
+          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
+        }
+      ]
+    },
+    {
+      "id": "C-S100A8",
+      "statement": "S100A8: the uc_vs_hc difference is a state effect",
+      "chain": "disease",
+      "level": "exploratory",
+      "contrasts": [
+        "uc_vs_hc"
+      ],
+      "evidence": [
+        "GSE250487"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "4 people per arm",
+        "cross-sectional"
+      ],
+      "downgrades": [
+        {
+          "from": "association",
+          "to": "exploratory",
+          "reason": "audit downgraded the analysis: uc_vs_hc: {'UC': 8, 'HC': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests; ucv_vs_ucnb: {'UCV': 4, 'UCNB': 4} subject_ids per arm, fewer than 5; report estimates, not confirmatory tests"
+        }
+      ]
+    },
+    {
+      "id": "C-ITGA4",
+      "statement": "ITGA4: the ucv_vs_ucnb difference is a unresolved effect",
+      "chain": "disease",
+      "level": "not_supported",
+      "contrasts": [
+        "ucv_vs_ucnb"
+      ],
+      "evidence": [
+        "GSE250487"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "4 people per arm",
+        "cross-sectional"
+      ],
+      "downgrades": []
+    },
+    {
+      "id": "C-ITGB7",
+      "statement": "ITGB7: the ucv_vs_ucnb difference is a unresolved effect",
+      "chain": "disease",
+      "level": "not_supported",
+      "contrasts": [
+        "ucv_vs_ucnb"
+      ],
+      "evidence": [
+        "GSE250487"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "4 people per arm",
+        "cross-sectional"
+      ],
+      "downgrades": []
+    }
+  ]
+}

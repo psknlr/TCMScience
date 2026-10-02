@@ -18,4 +18,21 @@ here ask questions that data can answer no:
 censored measurements, exposures, assay results, perturbation contrasts, and the study
 protocol, which is locked by hash so a confirmatory analysis cannot quietly change its
 endpoint or thresholds after seeing the data.
+
+Study design for bioinformatics (questions before tools):
+
+* ``contract``: ``StudySpec``, ``OriginalDesign`` (how the source data were made, kept
+  apart from this analysis), ``CohortManifest``, ``ContrastSpec``, ``OmicsArtifact``,
+  ``ValidationPlan`` and ``ClaimRecord``; disease and intervention evidence are separate
+  chains, and a bridge claim needs both.
+* ``gate``: whether the question can be answered from these data at all.
+* ``audit``: rigor checks (independent units, batch confounding, leakage, duplicate
+  studies, measured coverage, outcomes, test families, sufficiency, pairing, same-name
+  interventions) with stop / downgrade / warn.
+* ``singlecell``, ``spatial``, ``validation``, ``longitudinal``, ``power``: subject-level
+  analyses (pseudobulk, composition against state, neighbourhoods per patient,
+  leave-subjects-out prediction, next-visit prediction against persistence, power by
+  simulation).
+* ``faults``: a benchmark that injects design defects into studies with known truth.
+* ``workspace``: the study directory; ``skills``: the ``bio.*`` study-skill contracts.
 """

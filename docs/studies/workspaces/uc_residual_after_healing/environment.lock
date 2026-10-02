@@ -1,0 +1,4 @@
+python=3.11.15
+numpy=2.4.6
+platform=Linux-6.18.44-fc-v51-x86_64-with-glibc2.39
+code_commit=3a3f588512cc43f97e15ff73495bcb2b3961884b+dirty

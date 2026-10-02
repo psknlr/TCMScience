@@ -1,0 +1,25 @@
+[
+  {
+    "check": "batch_confounding",
+    "severity": "stop",
+    "message": "batch determines condition in vdz_healed_vs_control: no batch contains both levels, so condition and batch effects cannot be separated",
+    "evidence": {
+      "contrast": "vdz_healed_vs_control",
+      "table": {
+        "Bp600s": {
+          "healed": 0,
+          "control": 6
+        },
+        "Bp<300": {
+          "healed": 0,
+          "control": 5
+        },
+        "Bp>=700": {
+          "healed": 16,
+          "control": 0
+        }
+      },
+      "cramers_v": 1.0
+    }
+  }
+]

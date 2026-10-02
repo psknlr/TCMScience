@@ -1,0 +1,2 @@
+id	variable	case	control	unit	paired	family	where	covariates	description
+healed_vs_control	condition	healed	control	subject_id	false	primary			

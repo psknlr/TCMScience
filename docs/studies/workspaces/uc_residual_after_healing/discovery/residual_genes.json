@@ -1,0 +1,440 @@
+{
+  "vedolizumab_pooling_check": [
+    {
+      "check": "batch_confounding",
+      "severity": "stop",
+      "message": "batch determines condition in vdz_healed_vs_control: no batch contains both levels, so condition and batch effects cannot be separated",
+      "evidence": {
+        "contrast": "vdz_healed_vs_control",
+        "table": {
+          "Bp600s": {
+            "healed": 0,
+            "control": 6
+          },
+          "Bp<300": {
+            "healed": 0,
+            "control": 5
+          },
+          "Bp>=700": {
+            "healed": 16,
+            "control": 0
+          }
+        },
+        "cramers_v": 1.0
+      }
+    }
+  ],
+  "subjects": {
+    "healed_ifx": 8,
+    "control": 11,
+    "control_same_period": 5,
+    "active_ifx_w0": 23
+  },
+  "genes_tested": 22195,
+  "residual_genes": 229,
+  "residual_up": 135,
+  "residual_down": 94,
+  "residual_genes_same_period_controls": 109,
+  "residual_surviving_same_period": 80,
+  "classes": {
+    "exceeds_active_disease": 91,
+    "partly_resolved_inflammation": 134,
+    "opposite_to_inflammation": 4
+  },
+  "noncoding_or_histone_by_class": {
+    "exceeds_active_disease": 41,
+    "partly_resolved_inflammation": 1,
+    "opposite_to_inflammation": 0
+  },
+  "survive_same_period_by_class": {
+    "exceeds_active_disease": 31,
+    "partly_resolved_inflammation": 49,
+    "opposite_to_inflammation": 0
+  },
+  "top": {
+    "opposite_to_inflammation": [
+      {
+        "gene": "JCHAIN",
+        "log2_healed_minus_control": -1.558,
+        "q": 0.005762996306024727,
+        "log2_active_minus_control": 0.337,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "APOBEC3A_B///APOBEC3A",
+        "log2_healed_minus_control": -1.293,
+        "q": 0.010578893736391029,
+        "log2_active_minus_control": 0.094,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "MEF2C",
+        "log2_healed_minus_control": -1.048,
+        "q": 0.025859773265066655,
+        "log2_active_minus_control": 0.318,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "PLA2G7",
+        "log2_healed_minus_control": -1.273,
+        "q": 0.03632443190044866,
+        "log2_active_minus_control": 1.131,
+        "survives_same_period_controls": false
+      }
+    ],
+    "exceeds_active_disease": [
+      {
+        "gene": "HIST1H4C",
+        "log2_healed_minus_control": 1.144,
+        "q": 3.0667708587416125e-06,
+        "log2_active_minus_control": 0.837,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORA7B",
+        "log2_healed_minus_control": 1.949,
+        "q": 4.130248142342468e-05,
+        "log2_active_minus_control": 1.442,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "RMRP",
+        "log2_healed_minus_control": 1.011,
+        "q": 4.130248142342468e-05,
+        "log2_active_minus_control": 0.847,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "TRIB1",
+        "log2_healed_minus_control": 1.226,
+        "q": 0.00011331013856684143,
+        "log2_active_minus_control": 1.021,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SNORA61///SNHG12",
+        "log2_healed_minus_control": 1.356,
+        "q": 0.00011475026390630304,
+        "log2_active_minus_control": 0.862,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNX2",
+        "log2_healed_minus_control": -1.084,
+        "q": 0.00015631507480310772,
+        "log2_active_minus_control": -0.974,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SNORA8///TAF1D",
+        "log2_healed_minus_control": 1.191,
+        "q": 0.00020452181750269996,
+        "log2_active_minus_control": 0.805,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORA24",
+        "log2_healed_minus_control": 1.664,
+        "q": 0.0002175985283682144,
+        "log2_active_minus_control": 1.35,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "MAB21L3",
+        "log2_healed_minus_control": -1.296,
+        "q": 0.00028603281061068814,
+        "log2_active_minus_control": -1.259,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORD50A",
+        "log2_healed_minus_control": 1.333,
+        "q": 0.00029263720068793296,
+        "log2_active_minus_control": 1.154,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "C8orf4",
+        "log2_healed_minus_control": 1.9,
+        "q": 0.00036381732653851655,
+        "log2_active_minus_control": 1.697,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "RNU5B-1",
+        "log2_healed_minus_control": 2.39,
+        "q": 0.00042645844076528126,
+        "log2_active_minus_control": 1.759,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "STK17B",
+        "log2_healed_minus_control": -1.045,
+        "q": 0.00045652423224599607,
+        "log2_active_minus_control": -0.521,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SCARNA5",
+        "log2_healed_minus_control": 1.179,
+        "q": 0.0006625625549245587,
+        "log2_active_minus_control": 0.887,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "DEFA5",
+        "log2_healed_minus_control": 2.903,
+        "q": 0.0006916923183579602,
+        "log2_active_minus_control": 1.835,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORD60",
+        "log2_healed_minus_control": 1.55,
+        "q": 0.000808054802314169,
+        "log2_active_minus_control": 1.28,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "FFAR4",
+        "log2_healed_minus_control": 1.198,
+        "q": 0.0009460287664064614,
+        "log2_active_minus_control": 0.842,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "TCP11L2",
+        "log2_healed_minus_control": -1.161,
+        "q": 0.0011196885738565707,
+        "log2_active_minus_control": -0.835,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SLCO4C1",
+        "log2_healed_minus_control": -1.71,
+        "q": 0.0011605573174385286,
+        "log2_active_minus_control": -1.592,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "PTPRR",
+        "log2_healed_minus_control": -1.343,
+        "q": 0.0012205803303660249,
+        "log2_active_minus_control": -1.056,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "KCNE3",
+        "log2_healed_minus_control": 1.163,
+        "q": 0.0012804268061957279,
+        "log2_active_minus_control": 0.952,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORA54",
+        "log2_healed_minus_control": 1.439,
+        "q": 0.0013111837212505608,
+        "log2_active_minus_control": 1.111,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "PLOD2",
+        "log2_healed_minus_control": -1.049,
+        "q": 0.0013319927094363807,
+        "log2_active_minus_control": -0.303,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SNORD34",
+        "log2_healed_minus_control": 1.511,
+        "q": 0.0013550702716423843,
+        "log2_active_minus_control": 1.38,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SNORD3D///SNORD3C///SNORD3B-2///SNORD3A///SNORD3B-1",
+        "log2_healed_minus_control": 1.693,
+        "q": 0.001429854778948273,
+        "log2_active_minus_control": 1.659,
+        "survives_same_period_controls": true
+      }
+    ],
+    "partly_resolved_inflammation": [
+      {
+        "gene": "PHLPP2",
+        "log2_healed_minus_control": -1.5,
+        "q": 3.0667708587416125e-06,
+        "log2_active_minus_control": -2.31,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "LRRC19",
+        "log2_healed_minus_control": -1.042,
+        "q": 2.1492597062568592e-05,
+        "log2_active_minus_control": -1.901,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "APOBEC3B",
+        "log2_healed_minus_control": -2.221,
+        "q": 7.871596150365284e-05,
+        "log2_active_minus_control": -2.682,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "PLPP1",
+        "log2_healed_minus_control": -1.119,
+        "q": 0.00011475026390630304,
+        "log2_active_minus_control": -1.398,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "ENC1",
+        "log2_healed_minus_control": 1.005,
+        "q": 0.00011475026390630304,
+        "log2_active_minus_control": 1.109,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SLC17A4",
+        "log2_healed_minus_control": -1.294,
+        "q": 0.00011475026390630304,
+        "log2_active_minus_control": -2.613,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "AQP11",
+        "log2_healed_minus_control": -1.013,
+        "q": 0.000115302911969176,
+        "log2_active_minus_control": -1.325,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "C1QTNF3-AMACR///AMACR",
+        "log2_healed_minus_control": -1.267,
+        "q": 0.0001292619581953273,
+        "log2_active_minus_control": -1.977,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SLC22A5",
+        "log2_healed_minus_control": -1.191,
+        "q": 0.00013537082936616933,
+        "log2_active_minus_control": -2.071,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SLC10A5",
+        "log2_healed_minus_control": -1.053,
+        "q": 0.00013537082936616933,
+        "log2_active_minus_control": -2.169,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "PDE6A",
+        "log2_healed_minus_control": -1.366,
+        "q": 0.0001951383018614076,
+        "log2_active_minus_control": -1.973,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SLC6A14",
+        "log2_healed_minus_control": 3.899,
+        "q": 0.0002091374494338364,
+        "log2_active_minus_control": 6.39,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "S100P",
+        "log2_healed_minus_control": 2.171,
+        "q": 0.0002175985283682144,
+        "log2_active_minus_control": 2.204,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "SLC30A10",
+        "log2_healed_minus_control": -1.547,
+        "q": 0.00023539243482157747,
+        "log2_active_minus_control": -2.873,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "ASPHD2",
+        "log2_healed_minus_control": 1.265,
+        "q": 0.0002539749209963831,
+        "log2_active_minus_control": 1.646,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "CCL20",
+        "log2_healed_minus_control": 2.026,
+        "q": 0.00038701899786944006,
+        "log2_active_minus_control": 2.633,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "MIR21",
+        "log2_healed_minus_control": 1.314,
+        "q": 0.0005288049719327388,
+        "log2_active_minus_control": 1.392,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "DPP10",
+        "log2_healed_minus_control": -1.69,
+        "q": 0.0005555479117282043,
+        "log2_active_minus_control": -1.91,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "AQP8",
+        "log2_healed_minus_control": -2.754,
+        "q": 0.0006365049120798335,
+        "log2_active_minus_control": -5.629,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "CYP2B7P",
+        "log2_healed_minus_control": -2.297,
+        "q": 0.0006784513446635529,
+        "log2_active_minus_control": -2.849,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "BRINP3",
+        "log2_healed_minus_control": -2.503,
+        "q": 0.0007251163747581761,
+        "log2_active_minus_control": -2.603,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "PLK3",
+        "log2_healed_minus_control": 1.078,
+        "q": 0.0007854643511880117,
+        "log2_active_minus_control": 1.381,
+        "survives_same_period_controls": false
+      },
+      {
+        "gene": "SLC51B",
+        "log2_healed_minus_control": -1.183,
+        "q": 0.0008185605420648665,
+        "log2_active_minus_control": -1.814,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "MUC5B",
+        "log2_healed_minus_control": 1.63,
+        "q": 0.0008613309739236566,
+        "log2_active_minus_control": 1.75,
+        "survives_same_period_controls": true
+      },
+      {
+        "gene": "KRT12",
+        "log2_healed_minus_control": -1.089,
+        "q": 0.0009144393584398215,
+        "log2_active_minus_control": -1.259,
+        "survives_same_period_controls": false
+      }
+    ]
+  }
+}

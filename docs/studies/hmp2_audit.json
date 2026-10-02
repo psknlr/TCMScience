@@ -1,0 +1,226 @@
+{
+  "cohort": "HMP2/IBDMDB",
+  "metadata": "hmp2_metadata_2018-08-20.csv",
+  "samples_by_layer": {
+    "MBX": 546,
+    "MGX": 1638,
+    "MTX": 835,
+    "PRT": 450,
+    "VIR": 703
+  },
+  "collections": 1729,
+  "people_with_metagenomes": {
+    "CD": 65,
+    "UC": 38,
+    "nonIBD": 27
+  },
+  "metagenomes_per_person": {
+    "median": 12,
+    "max": 26,
+    "min": 1
+  },
+  "site_confounding": {
+    "CD_vs_nonIBD": [
+      {
+        "check": "batch_confounding",
+        "severity": "downgrade",
+        "message": "batch and condition are strongly associated (Cramér's V 0.37, counted in subject_ids); 5 of 5 batch values contain both levels",
+        "evidence": {
+          "contrast": "CD_vs_nonIBD",
+          "table": {
+            "Cedars-Sinai": {
+              "CD": 20,
+              "nonIBD": 1
+            },
+            "Cincinnati": {
+              "CD": 17,
+              "nonIBD": 9
+            },
+            "Emory": {
+              "CD": 7,
+              "nonIBD": 1
+            },
+            "MGH": {
+              "CD": 13,
+              "nonIBD": 13
+            },
+            "MGH Pediatrics": {
+              "CD": 8,
+              "nonIBD": 3
+            }
+          },
+          "cramers_v": 0.375
+        }
+      }
+    ],
+    "CD_vs_nonIBD_samples": {
+      "Cedars-Sinai/CD": 224,
+      "Cedars-Sinai/nonIBD": 22,
+      "Cincinnati/CD": 219,
+      "Cincinnati/nonIBD": 159,
+      "Emory/CD": 42,
+      "Emory/nonIBD": 5,
+      "MGH/CD": 149,
+      "MGH/nonIBD": 198,
+      "MGH Pediatrics/CD": 116,
+      "MGH Pediatrics/nonIBD": 45
+    },
+    "CD_vs_nonIBD_people": {
+      "Cedars-Sinai/CD": 20,
+      "Cedars-Sinai/nonIBD": 1,
+      "Cincinnati/CD": 17,
+      "Cincinnati/nonIBD": 9,
+      "Emory/CD": 7,
+      "Emory/nonIBD": 1,
+      "MGH/CD": 13,
+      "MGH/nonIBD": 13,
+      "MGH Pediatrics/CD": 8,
+      "MGH Pediatrics/nonIBD": 3
+    },
+    "UC_vs_nonIBD": [
+      {
+        "check": "batch_confounding",
+        "severity": "downgrade",
+        "message": "batch and condition are strongly associated (Cramér's V 0.39, counted in subject_ids); 5 of 5 batch values contain both levels",
+        "evidence": {
+          "contrast": "UC_vs_nonIBD",
+          "table": {
+            "Cedars-Sinai": {
+              "UC": 12,
+              "nonIBD": 1
+            },
+            "Cincinnati": {
+              "UC": 7,
+              "nonIBD": 9
+            },
+            "Emory": {
+              "UC": 3,
+              "nonIBD": 1
+            },
+            "MGH": {
+              "UC": 11,
+              "nonIBD": 13
+            },
+            "MGH Pediatrics": {
+              "UC": 5,
+              "nonIBD": 3
+            }
+          },
+          "cramers_v": 0.385
+        }
+      }
+    ],
+    "UC_vs_nonIBD_samples": {
+      "Cedars-Sinai/UC": 167,
+      "Cedars-Sinai/nonIBD": 22,
+      "Cincinnati/UC": 104,
+      "Cincinnati/nonIBD": 159,
+      "Emory/UC": 16,
+      "Emory/nonIBD": 5,
+      "MGH/UC": 104,
+      "MGH/nonIBD": 198,
+      "MGH Pediatrics/UC": 68,
+      "MGH Pediatrics/nonIBD": 45
+    },
+    "UC_vs_nonIBD_people": {
+      "Cedars-Sinai/UC": 12,
+      "Cedars-Sinai/nonIBD": 1,
+      "Cincinnati/UC": 7,
+      "Cincinnati/nonIBD": 9,
+      "Emory/UC": 3,
+      "Emory/nonIBD": 1,
+      "MGH/UC": 11,
+      "MGH/nonIBD": 13,
+      "MGH Pediatrics/UC": 5,
+      "MGH Pediatrics/nonIBD": 3
+    }
+  },
+  "layer_matching": {
+    "MGX+MTX": {
+      "layers": [
+        "MGX",
+        "MTX"
+      ],
+      "subjects_with_any": 130,
+      "subjects_with_all_layers": 109,
+      "collections_with_all_layers": 815,
+      "subjects_with_a_complete_collection": 109,
+      "per_layer_samples": {
+        "MGX": 1638,
+        "MTX": 835
+      },
+      "anchor_samples_matched_within_14_days": 1260
+    },
+    "MGX+MTX+MBX": {
+      "layers": [
+        "MGX",
+        "MTX",
+        "MBX"
+      ],
+      "subjects_with_any": 130,
+      "subjects_with_all_layers": 104,
+      "collections_with_all_layers": 332,
+      "subjects_with_a_complete_collection": 102,
+      "per_layer_samples": {
+        "MGX": 1638,
+        "MTX": 835,
+        "MBX": 546
+      },
+      "anchor_samples_matched_within_14_days": 848
+    }
+  },
+  "activity": {
+    "CD_samples_with_HBI": 689,
+    "CD_samples": 750,
+    "UC_samples_with_SCCAI": 436,
+    "UC_samples": 459,
+    "nonIBD_with_any_index": 0,
+    "samples_with_fecal_calprotectin": 456,
+    "mgx_samples": 1638,
+    "pooled_activity_outcome": [
+      {
+        "check": "outcome",
+        "severity": "warn",
+        "message": "945 of 1638 samples lack 'hbi'",
+        "evidence": {}
+      },
+      {
+        "check": "outcome",
+        "severity": "stop",
+        "message": "HBI (CD) and SCCAI (UC) are different instruments; an 'active vs inactive' outcome pooled across diagnoses mixes two scales, and nonIBD participants have neither"
+      }
+    ]
+  },
+  "antibiotics_mgx_samples": 166,
+  "visit_pairs": {
+    "MGX_next_visit": {
+      "window": [
+        7.0,
+        35.0
+      ],
+      "subjects": 111,
+      "consecutive_gaps_outside_window": 240,
+      "undated_samples": 0,
+      "pairs": 1268
+    },
+    "MTX_next_visit": {
+      "window": [
+        7.0,
+        35.0
+      ],
+      "subjects": 96,
+      "consecutive_gaps_outside_window": 304,
+      "undated_samples": 0,
+      "pairs": 422
+    }
+  },
+  "gate_microbial_function": {
+    "question_type": "microbial_function",
+    "status": "answerable",
+    "missing": [],
+    "downgrades": [],
+    "notes": [
+      "independent subject_id per arm: {'CD': 65, 'nonIBD': 27}"
+    ]
+  }
+}

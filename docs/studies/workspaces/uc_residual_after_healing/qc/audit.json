@@ -1,0 +1,15 @@
+{
+  "verdict": "proceed",
+  "checks_run": [
+    "independent_units",
+    "batch_confounding:healed_vs_control",
+    "sufficiency:healed_vs_control",
+    "pairing:healed_vs_control",
+    "leakage",
+    "duplicate_studies",
+    "coverage",
+    "test_family",
+    "intervention_identity"
+  ],
+  "findings": []
+}

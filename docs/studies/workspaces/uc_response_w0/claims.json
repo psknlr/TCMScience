@@ -1,0 +1,20 @@
+[
+  {
+    "id": "A1",
+    "statement": "W0 expression adds to severity and therapy in predicting endoscopic healing",
+    "chain": "disease",
+    "level": "not_supported",
+    "contrasts": [
+      "responder_w0"
+    ],
+    "evidence": [
+      "GSE73661"
+    ],
+    "validated_in": [],
+    "limitations": [
+      "single dataset, no external validation",
+      "therapy and collection period coincide"
+    ],
+    "downgrades": []
+  }
+]

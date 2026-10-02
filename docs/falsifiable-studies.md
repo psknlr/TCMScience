@@ -115,12 +115,16 @@ synergy claim. The other four defects:
 | --- | --- | --- |
 | A. Mechanism robustness | **Run** on 葛根芩连汤 (above) | Matching by assay type and compound properties; leave-one-study-out through the tcmdb lineage (`consensus`) for curated, non-screening evidence |
 | B. Exposure-constrained mechanism | **Run** on berberine from published summaries ([studies/gqd_berberine.md](studies/gqd_berberine.md)): no ToxCast activity plausible at plasma Cmax | Measured concentration–time and free-fraction data for the marker compounds, mapped to the formula and batch (e.g. the 2018 whole-formula / no-licorice / single-herb pharmacokinetic study); availability not yet checked |
-| C. Cell context and direction | Not started | Disease pseudobulk per individual × cell type; real perturbation signatures (LINCS metadata is in `tcmdb`); baselines (no change, mean, linear) before any model |
+| C. Cell context and direction | Disease side **run** per patient on UC single-cell data (GSE250498: inflammation genes change by cell state, not composition; [study-design.md](study-design.md)) | Intervention side: real perturbation signatures in colonic epithelium or myeloid cells (LINCS metadata is in `tcmdb`), with no-change, mean and linear baselines; a bridge claim needs both chains (`contract.assess_bridge`) |
 | D. Formula vs monomer | **Run** at the exposure level: the formula doubles berberine AUC (甘草-dependent) but lowers Cmax; the efficacy contrast is inconclusive without per-animal data | The individual-level data of the 葛根芩连汤 vs berberine study; availability to be checked before any analysis |
 | E. Combination | Analysis implemented and tested | Same-experiment single-agent and combination dose matrices (DrugComb's summary is kept in `tcmdb`; berberine–glycyrrhizin needs pharmacodynamic data) |
 | F. Preparation and batch | Records in place (`PreparationBatch`) | Paired batch × chemistry × function data, with leave-batch-out validation |
 | G. Response heterogeneity | Analysis implemented and tested | Patient-level baseline, arm and outcome tables; the 2024 seven-herb trial's sequencing (PRJCA007557) is public, its linked clinical data are on request |
 | H. Benefit vs toxicity | Partly (ToxCast with negatives and cytotoxicity in `tcmdb`) | Efficacy and toxicity curves under comparable exposure; compare at equal benefit, not equal nominal dose |
+
+The study-design layer that now precedes these analyses (contracts, design gate, rigor
+audit, subject-level single-cell, spatial, longitudinal and validation tools, and a
+fault-injection benchmark) is described in [study-design.md](study-design.md).
 
 None of the analyses runs on data it does not have. Where data are missing, the route
 stops and says what is missing.

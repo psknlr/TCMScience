@@ -1,0 +1,10 @@
+{
+  "created": "2026-10-02T01:33:55+00:00",
+  "protocol_hash": "sha256:fb0a8016f66381d174aa38f7954811c2e5b99af2f4709956d6b085485db00f8f",
+  "inputs": {
+    "protocol.yaml": "sha256:cd8f9be95b6a9ca2d40aa41f0496734468d6ae0ea7fa3759c42c1d2bf1123465",
+    "cohort_manifest.tsv": "sha256:6ce31caabd7d5bc3b15a16cf085092e5d4c55d69b932684f893073ab7d4e7c87",
+    "contrasts.tsv": "sha256:76c7473b37245cb5b69ff8ff9d3045aec43f1bf62cfb15a878cd2ce3de299a4f",
+    "snapshot_lock.json": "sha256:2e6a81664fcf2addb272ae61d1c4ab02bcaed552decd6fc5a7660b16f3edd209"
+  }
+}

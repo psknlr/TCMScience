@@ -1,0 +1,35 @@
+{
+  "severity_and_therapy": {
+    "metric": "auc",
+    "estimate": 0.3660826032540676,
+    "k": 5,
+    "n_samples": 64,
+    "n_subjects": 64,
+    "split": "by subject",
+    "selection": "none",
+    "null_mean": 0.4690644555694618,
+    "p_perm": 0.8407960199004975
+  },
+  "expression_top50": {
+    "metric": "auc",
+    "estimate": 0.6620775969962454,
+    "k": 5,
+    "n_samples": 64,
+    "n_subjects": 64,
+    "split": "by subject",
+    "selection": "inside each training fold",
+    "null_mean": 0.48885481852315393,
+    "p_perm": 0.04477611940298507
+  },
+  "expression_top50_plus_severity_therapy": {
+    "metric": "auc",
+    "estimate": 0.6520650813516896,
+    "k": 5,
+    "n_samples": 64,
+    "n_subjects": 64,
+    "split": "by subject",
+    "selection": "inside each training fold",
+    "null_mean": 0.48986858573216524,
+    "p_perm": 0.05970149253731343
+  }
+}

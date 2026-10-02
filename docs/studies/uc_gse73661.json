@@ -1,0 +1,779 @@
+{
+  "dataset": "GSE73661",
+  "seed": 20261002,
+  "amendments": [
+    {
+      "study": "uc_residual_after_healing",
+      "reason": "first run counted any residual gene whose active-disease difference was smaller or opposite as 'not explained by inflammation'; many were snoRNA and histone genes higher in both healed and active mucosa than in controls, pointing at the controls rather than at repair",
+      "changed": [
+        "three-way classification against the inflammation axis",
+        "sensitivity with controls of the same collection period only",
+        "falsifier restricted to genes opposite to active disease"
+      ]
+    },
+    {
+      "study": "uc_response_w0",
+      "reason": "therapy coincides with collection period; the first run stopped on it, but therapy is a covariate, not the contrast",
+      "changed": [
+        "therapy-by-period confounding recorded as a warning"
+      ]
+    }
+  ],
+  "cohort_audit": {
+    "samples": 178,
+    "subjects": 78,
+    "biopsies_per_subject": {
+      "1": 10,
+      "2": 36,
+      "3": 32
+    },
+    "controls": {
+      "samples": 12,
+      "subjects": 11
+    },
+    "by_therapy_subjects": {
+      "IFX": 23,
+      "control": 11,
+      "VDZ": 41,
+      "placebo": 3
+    },
+    "identity_conflicts": [
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900152: the subject is named differently by {'subject_char': '4', 'subject_title': '4', 'subject_source': '2'}",
+        "evidence": {
+          "sample": "GSM1900152",
+          "values": {
+            "subject_char": "4",
+            "subject_title": "4",
+            "subject_source": "2"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900153: the subject is named differently by {'subject_char': '7', 'subject_title': '7', 'subject_source': '2'}",
+        "evidence": {
+          "sample": "GSM1900153",
+          "values": {
+            "subject_char": "7",
+            "subject_title": "7",
+            "subject_source": "2"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900163: the subject is named differently by {'subject_char': '37', 'subject_title': '37', 'subject_source': '75'}",
+        "evidence": {
+          "sample": "GSM1900163",
+          "values": {
+            "subject_char": "37",
+            "subject_title": "37",
+            "subject_source": "75"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900165: the subject is named differently by {'subject_char': '24', 'subject_title': '24', 'subject_source': '78'}",
+        "evidence": {
+          "sample": "GSM1900165",
+          "values": {
+            "subject_char": "24",
+            "subject_title": "24",
+            "subject_source": "78"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900166: the subject is named differently by {'subject_char': '78', 'subject_title': '78', 'subject_source': '32'}",
+        "evidence": {
+          "sample": "GSM1900166",
+          "values": {
+            "subject_char": "78",
+            "subject_title": "78",
+            "subject_source": "32"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900167: the subject is named differently by {'subject_char': '32', 'subject_title': '32', 'subject_source': '51'}",
+        "evidence": {
+          "sample": "GSM1900167",
+          "values": {
+            "subject_char": "32",
+            "subject_title": "32",
+            "subject_source": "51"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900168: the subject is named differently by {'subject_char': '51', 'subject_title': '51', 'subject_source': '70'}",
+        "evidence": {
+          "sample": "GSM1900168",
+          "values": {
+            "subject_char": "51",
+            "subject_title": "51",
+            "subject_source": "70"
+          }
+        }
+      },
+      {
+        "check": "identity_consistency",
+        "severity": "stop",
+        "message": "GSM1900169: the subject is named differently by {'subject_char': '70', 'subject_title': '70', 'subject_source': '56'}",
+        "evidence": {
+          "sample": "GSM1900169",
+          "values": {
+            "subject_char": "70",
+            "subject_title": "70",
+            "subject_source": "56"
+          }
+        }
+      }
+    ],
+    "response_label_vs_mayo_conflicts": [],
+    "response_label_title_vs_source_conflicts": [],
+    "outcome": [],
+    "responders": {
+      "NR": 47,
+      "R": 17
+    },
+    "collection_period_by_therapy": {
+      "Bp600s/control": 6,
+      "Bp<300/IFX": 46,
+      "Bp<300/control": 6,
+      "Bp>=700/VDZ": 113,
+      "Bp>=700/placebo": 7
+    }
+  },
+  "study_a": {
+    "gate": {
+      "question_type": "response_prediction",
+      "status": "answerable",
+      "missing": [],
+      "downgrades": [],
+      "notes": [
+        "independent subject_id per arm: {'R': 17, 'NR': 47}"
+      ]
+    },
+    "audit": {
+      "verdict": "proceed",
+      "checks_run": [
+        "independent_units",
+        "batch_confounding:responder_w0",
+        "sufficiency:responder_w0",
+        "pairing:responder_w0",
+        "leakage",
+        "duplicate_studies",
+        "coverage",
+        "outcome",
+        "test_family",
+        "intervention_identity"
+      ],
+      "findings": [
+        {
+          "check": "batch_confounding",
+          "severity": "warn",
+          "message": "batch determines therapy in therapy_by_period: no batch contains both levels, so condition and batch effects cannot be separated; therapy is a covariate here, so it is recorded, not a stop",
+          "evidence": {
+            "contrast": "therapy_by_period",
+            "table": {
+              "Bp<300": {
+                "IFX": 23,
+                "VDZ": 0
+              },
+              "Bp>=700": {
+                "IFX": 0,
+                "VDZ": 41
+              }
+            },
+            "cramers_v": 1.0
+          }
+        }
+      ]
+    },
+    "subjects": {
+      "NR": 47,
+      "R": 17
+    },
+    "by_therapy": {
+      "IFX/NR": 15,
+      "IFX/R": 8,
+      "VDZ/NR": 32,
+      "VDZ/R": 9
+    },
+    "honest": {
+      "severity_and_therapy": {
+        "metric": "auc",
+        "estimate": 0.3660826032540676,
+        "k": 5,
+        "n_samples": 64,
+        "n_subjects": 64,
+        "split": "by subject",
+        "selection": "none",
+        "null_mean": 0.4690644555694618,
+        "p_perm": 0.8407960199004975
+      },
+      "expression_top50": {
+        "metric": "auc",
+        "estimate": 0.6620775969962454,
+        "k": 5,
+        "n_samples": 64,
+        "n_subjects": 64,
+        "split": "by subject",
+        "selection": "inside each training fold",
+        "null_mean": 0.48885481852315393,
+        "p_perm": 0.04477611940298507
+      },
+      "expression_top50_plus_severity_therapy": {
+        "metric": "auc",
+        "estimate": 0.6520650813516896,
+        "k": 5,
+        "n_samples": 64,
+        "n_subjects": 64,
+        "split": "by subject",
+        "selection": "inside each training fold",
+        "null_mean": 0.48986858573216524,
+        "p_perm": 0.05970149253731343
+      }
+    },
+    "leaky_for_comparison": {
+      "all_timepoints_sample_split": {
+        "metric": "auc",
+        "estimate": 0.7180653162463828,
+        "split": "by sample (leaky)",
+        "warning": "samples of one subject can fall in training and test folds",
+        "leak": "subject and outcome leakage: the same patient's biopsies fall in training and test, and post-treatment biopsies are the outcome"
+      },
+      "all_timepoints_subject_split": {
+        "metric": "auc",
+        "estimate": 0.7197188921041753,
+        "k": 5,
+        "n_samples": 159,
+        "n_subjects": 64,
+        "split": "by subject",
+        "selection": "inside each training fold",
+        "leak": "post-treatment biopsies are measured when the outcome is assessed: a healed biopsy predicts 'healed' because it is the outcome"
+      }
+    },
+    "samples_used": {
+      "honest": 64,
+      "leaky": 159
+    }
+  },
+  "study_b": {
+    "gate": {
+      "question_type": "inflammation_vs_repair",
+      "status": "answerable",
+      "missing": [],
+      "downgrades": [],
+      "notes": [
+        "independent subject_id per arm: {'healed': 8, 'control': 11}"
+      ]
+    },
+    "audit": {
+      "verdict": "proceed",
+      "checks_run": [
+        "independent_units",
+        "batch_confounding:healed_vs_control",
+        "sufficiency:healed_vs_control",
+        "pairing:healed_vs_control",
+        "leakage",
+        "duplicate_studies",
+        "coverage",
+        "test_family",
+        "intervention_identity"
+      ],
+      "findings": []
+    },
+    "vedolizumab_pooling_check": [
+      {
+        "check": "batch_confounding",
+        "severity": "stop",
+        "message": "batch determines condition in vdz_healed_vs_control: no batch contains both levels, so condition and batch effects cannot be separated",
+        "evidence": {
+          "contrast": "vdz_healed_vs_control",
+          "table": {
+            "Bp600s": {
+              "healed": 0,
+              "control": 6
+            },
+            "Bp<300": {
+              "healed": 0,
+              "control": 5
+            },
+            "Bp>=700": {
+              "healed": 16,
+              "control": 0
+            }
+          },
+          "cramers_v": 1.0
+        }
+      }
+    ],
+    "subjects": {
+      "healed_ifx": 8,
+      "control": 11,
+      "control_same_period": 5,
+      "active_ifx_w0": 23
+    },
+    "genes_tested": 22195,
+    "residual_genes": 229,
+    "residual_up": 135,
+    "residual_down": 94,
+    "residual_genes_same_period_controls": 109,
+    "residual_surviving_same_period": 80,
+    "classes": {
+      "exceeds_active_disease": 91,
+      "partly_resolved_inflammation": 134,
+      "opposite_to_inflammation": 4
+    },
+    "noncoding_or_histone_by_class": {
+      "exceeds_active_disease": 41,
+      "partly_resolved_inflammation": 1,
+      "opposite_to_inflammation": 0
+    },
+    "survive_same_period_by_class": {
+      "exceeds_active_disease": 31,
+      "partly_resolved_inflammation": 49,
+      "opposite_to_inflammation": 0
+    },
+    "top": {
+      "opposite_to_inflammation": [
+        {
+          "gene": "JCHAIN",
+          "log2_healed_minus_control": -1.558,
+          "q": 0.005762996306024727,
+          "log2_active_minus_control": 0.337,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "APOBEC3A_B///APOBEC3A",
+          "log2_healed_minus_control": -1.293,
+          "q": 0.010578893736391029,
+          "log2_active_minus_control": 0.094,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "MEF2C",
+          "log2_healed_minus_control": -1.048,
+          "q": 0.025859773265066655,
+          "log2_active_minus_control": 0.318,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "PLA2G7",
+          "log2_healed_minus_control": -1.273,
+          "q": 0.03632443190044866,
+          "log2_active_minus_control": 1.131,
+          "survives_same_period_controls": false
+        }
+      ],
+      "exceeds_active_disease": [
+        {
+          "gene": "HIST1H4C",
+          "log2_healed_minus_control": 1.144,
+          "q": 3.0667708587416125e-06,
+          "log2_active_minus_control": 0.837,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORA7B",
+          "log2_healed_minus_control": 1.949,
+          "q": 4.130248142342468e-05,
+          "log2_active_minus_control": 1.442,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "RMRP",
+          "log2_healed_minus_control": 1.011,
+          "q": 4.130248142342468e-05,
+          "log2_active_minus_control": 0.847,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "TRIB1",
+          "log2_healed_minus_control": 1.226,
+          "q": 0.00011331013856684143,
+          "log2_active_minus_control": 1.021,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SNORA61///SNHG12",
+          "log2_healed_minus_control": 1.356,
+          "q": 0.00011475026390630304,
+          "log2_active_minus_control": 0.862,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNX2",
+          "log2_healed_minus_control": -1.084,
+          "q": 0.00015631507480310772,
+          "log2_active_minus_control": -0.974,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SNORA8///TAF1D",
+          "log2_healed_minus_control": 1.191,
+          "q": 0.00020452181750269996,
+          "log2_active_minus_control": 0.805,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORA24",
+          "log2_healed_minus_control": 1.664,
+          "q": 0.0002175985283682144,
+          "log2_active_minus_control": 1.35,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "MAB21L3",
+          "log2_healed_minus_control": -1.296,
+          "q": 0.00028603281061068814,
+          "log2_active_minus_control": -1.259,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORD50A",
+          "log2_healed_minus_control": 1.333,
+          "q": 0.00029263720068793296,
+          "log2_active_minus_control": 1.154,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "C8orf4",
+          "log2_healed_minus_control": 1.9,
+          "q": 0.00036381732653851655,
+          "log2_active_minus_control": 1.697,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "RNU5B-1",
+          "log2_healed_minus_control": 2.39,
+          "q": 0.00042645844076528126,
+          "log2_active_minus_control": 1.759,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "STK17B",
+          "log2_healed_minus_control": -1.045,
+          "q": 0.00045652423224599607,
+          "log2_active_minus_control": -0.521,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SCARNA5",
+          "log2_healed_minus_control": 1.179,
+          "q": 0.0006625625549245587,
+          "log2_active_minus_control": 0.887,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "DEFA5",
+          "log2_healed_minus_control": 2.903,
+          "q": 0.0006916923183579602,
+          "log2_active_minus_control": 1.835,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORD60",
+          "log2_healed_minus_control": 1.55,
+          "q": 0.000808054802314169,
+          "log2_active_minus_control": 1.28,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "FFAR4",
+          "log2_healed_minus_control": 1.198,
+          "q": 0.0009460287664064614,
+          "log2_active_minus_control": 0.842,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "TCP11L2",
+          "log2_healed_minus_control": -1.161,
+          "q": 0.0011196885738565707,
+          "log2_active_minus_control": -0.835,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SLCO4C1",
+          "log2_healed_minus_control": -1.71,
+          "q": 0.0011605573174385286,
+          "log2_active_minus_control": -1.592,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "PTPRR",
+          "log2_healed_minus_control": -1.343,
+          "q": 0.0012205803303660249,
+          "log2_active_minus_control": -1.056,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "KCNE3",
+          "log2_healed_minus_control": 1.163,
+          "q": 0.0012804268061957279,
+          "log2_active_minus_control": 0.952,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORA54",
+          "log2_healed_minus_control": 1.439,
+          "q": 0.0013111837212505608,
+          "log2_active_minus_control": 1.111,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "PLOD2",
+          "log2_healed_minus_control": -1.049,
+          "q": 0.0013319927094363807,
+          "log2_active_minus_control": -0.303,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SNORD34",
+          "log2_healed_minus_control": 1.511,
+          "q": 0.0013550702716423843,
+          "log2_active_minus_control": 1.38,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SNORD3D///SNORD3C///SNORD3B-2///SNORD3A///SNORD3B-1",
+          "log2_healed_minus_control": 1.693,
+          "q": 0.001429854778948273,
+          "log2_active_minus_control": 1.659,
+          "survives_same_period_controls": true
+        }
+      ],
+      "partly_resolved_inflammation": [
+        {
+          "gene": "PHLPP2",
+          "log2_healed_minus_control": -1.5,
+          "q": 3.0667708587416125e-06,
+          "log2_active_minus_control": -2.31,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "LRRC19",
+          "log2_healed_minus_control": -1.042,
+          "q": 2.1492597062568592e-05,
+          "log2_active_minus_control": -1.901,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "APOBEC3B",
+          "log2_healed_minus_control": -2.221,
+          "q": 7.871596150365284e-05,
+          "log2_active_minus_control": -2.682,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "PLPP1",
+          "log2_healed_minus_control": -1.119,
+          "q": 0.00011475026390630304,
+          "log2_active_minus_control": -1.398,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "ENC1",
+          "log2_healed_minus_control": 1.005,
+          "q": 0.00011475026390630304,
+          "log2_active_minus_control": 1.109,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SLC17A4",
+          "log2_healed_minus_control": -1.294,
+          "q": 0.00011475026390630304,
+          "log2_active_minus_control": -2.613,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "AQP11",
+          "log2_healed_minus_control": -1.013,
+          "q": 0.000115302911969176,
+          "log2_active_minus_control": -1.325,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "C1QTNF3-AMACR///AMACR",
+          "log2_healed_minus_control": -1.267,
+          "q": 0.0001292619581953273,
+          "log2_active_minus_control": -1.977,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SLC22A5",
+          "log2_healed_minus_control": -1.191,
+          "q": 0.00013537082936616933,
+          "log2_active_minus_control": -2.071,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SLC10A5",
+          "log2_healed_minus_control": -1.053,
+          "q": 0.00013537082936616933,
+          "log2_active_minus_control": -2.169,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "PDE6A",
+          "log2_healed_minus_control": -1.366,
+          "q": 0.0001951383018614076,
+          "log2_active_minus_control": -1.973,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SLC6A14",
+          "log2_healed_minus_control": 3.899,
+          "q": 0.0002091374494338364,
+          "log2_active_minus_control": 6.39,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "S100P",
+          "log2_healed_minus_control": 2.171,
+          "q": 0.0002175985283682144,
+          "log2_active_minus_control": 2.204,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "SLC30A10",
+          "log2_healed_minus_control": -1.547,
+          "q": 0.00023539243482157747,
+          "log2_active_minus_control": -2.873,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "ASPHD2",
+          "log2_healed_minus_control": 1.265,
+          "q": 0.0002539749209963831,
+          "log2_active_minus_control": 1.646,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "CCL20",
+          "log2_healed_minus_control": 2.026,
+          "q": 0.00038701899786944006,
+          "log2_active_minus_control": 2.633,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "MIR21",
+          "log2_healed_minus_control": 1.314,
+          "q": 0.0005288049719327388,
+          "log2_active_minus_control": 1.392,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "DPP10",
+          "log2_healed_minus_control": -1.69,
+          "q": 0.0005555479117282043,
+          "log2_active_minus_control": -1.91,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "AQP8",
+          "log2_healed_minus_control": -2.754,
+          "q": 0.0006365049120798335,
+          "log2_active_minus_control": -5.629,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "CYP2B7P",
+          "log2_healed_minus_control": -2.297,
+          "q": 0.0006784513446635529,
+          "log2_active_minus_control": -2.849,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "BRINP3",
+          "log2_healed_minus_control": -2.503,
+          "q": 0.0007251163747581761,
+          "log2_active_minus_control": -2.603,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "PLK3",
+          "log2_healed_minus_control": 1.078,
+          "q": 0.0007854643511880117,
+          "log2_active_minus_control": 1.381,
+          "survives_same_period_controls": false
+        },
+        {
+          "gene": "SLC51B",
+          "log2_healed_minus_control": -1.183,
+          "q": 0.0008185605420648665,
+          "log2_active_minus_control": -1.814,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "MUC5B",
+          "log2_healed_minus_control": 1.63,
+          "q": 0.0008613309739236566,
+          "log2_active_minus_control": 1.75,
+          "survives_same_period_controls": true
+        },
+        {
+          "gene": "KRT12",
+          "log2_healed_minus_control": -1.089,
+          "q": 0.0009144393584398215,
+          "log2_active_minus_control": -1.259,
+          "survives_same_period_controls": false
+        }
+      ]
+    }
+  },
+  "claims": [
+    {
+      "id": "A1",
+      "statement": "W0 expression adds to severity and therapy in predicting endoscopic healing",
+      "chain": "disease",
+      "level": "not_supported",
+      "contrasts": [
+        "responder_w0"
+      ],
+      "evidence": [
+        "GSE73661"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "single dataset, no external validation",
+        "therapy and collection period coincide"
+      ],
+      "downgrades": []
+    },
+    {
+      "id": "B1",
+      "statement": "mucosa healed after infliximab differs from control mucosa in genes that move opposite to the inflammation signature (repair rather than residual inflammation)",
+      "chain": "disease",
+      "level": "not_supported",
+      "contrasts": [
+        "healed_vs_control"
+      ],
+      "evidence": [
+        "GSE73661"
+      ],
+      "validated_in": [],
+      "limitations": [
+        "8 healed patients",
+        "controls are not age- or site-matched in the deposited metadata",
+        "Mayo 0-1 includes mild residual inflammation"
+      ],
+      "downgrades": []
+    }
+  ]
+}

@@ -388,6 +388,30 @@ scout **无法执行晋级**，而这是结构性的，不是约定俗成的：`
 
 ---
 
+## Designing a study before running tools · 先设计研究，再运行工具
+
+```bash
+cd BioScience-Harness
+# fault-injection benchmark: naive pipeline vs contract-gated pipeline
+python scripts/eval_design_faults.py --reps 50
+# real public cohorts (inputs are downloaded to a folder outside the repository)
+python scripts/study_uc_gse73661.py --geo /path/to/geo --workspace ../docs/studies/workspaces
+python scripts/study_uc_gse250498.py --h5ad /path/to/GSE250487_biopsy_RNA.h5ad   # needs h5py
+python scripts/audit_hmp2.py --metadata /path/to/hmp2_metadata_2018-08-20.csv
+```
+
+Each study is a contract (`bioagent.studies.contract`): question, unit of inference,
+contrasts, falsifier, validation plan, and the original data-generating design. The
+design gate decides whether the data can answer the question at all; the rigor audit
+stops or downgrades the analysis on pseudo-replication, batch confounding, leakage,
+duplicate studies, panel coverage, missing outcomes, unplanned tests, too few people,
+broken pairing, or two formulas sharing a name. See `docs/study-design.md`.
+
+<!-- zh -->
+每个研究先写成契约：问题、推断单位、对照、可证伪条件、验证计划，以及原始数据的产生设计。设计闸门先判断数据能否回答该问题；严谨性审计在遇到伪重复、批次混杂、信息泄漏、重复研究、靶向面板覆盖、缺少真实结局、未预设检验、患者数不足、配对错误或同名不同方时，停止分析或下调结论等级。详见 `docs/study-design.md`。
+
+---
+
 ## Troubleshooting · 故障排查
 
 | Symptom | Cause |

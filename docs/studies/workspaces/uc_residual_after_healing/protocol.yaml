@@ -1,0 +1,73 @@
+study:
+  id: uc_residual_after_healing
+  title: Residual mucosal change after infliximab healing
+  question: does healed mucosa after infliximab differ from control mucosa, and are
+    the differences part of the inflammation signature?
+  question_type: inflammation_vs_repair
+  chain: disease
+  hypothesis: healed mucosa retains differences from controls that are not explained
+    by inflammation
+  falsifier: no gene differs between healed and control mucosa at q < 0.05 with |log2
+    FC| ≥ 1 in the direction opposite to active disease, against controls of the same
+    collection period
+  competing:
+  - residual inflammation below the endoscopic threshold
+  - processing batch
+  - biopsy site and patient age
+  primary_contrast: healed_vs_control
+  unit_of_inference: subject_id
+  datasets:
+    GSE73661: discovery
+  original:
+  - accession: GSE73661
+    design: rct_substudy_and_open_label_cohort
+    randomized: false
+    blinded: false
+    sample_unit: biopsy
+    pooled: false
+    outcome_definition: endoscopic mucosal healing, Mayo endoscopic subscore 0 or
+      1; VDZ assessed at W6/W12/W52, IFX at W4-6
+    timepoints:
+    - W0
+    - W4_W6
+    - W6
+    - W12
+    - W52
+    n_subjects_reported: 79
+    notes:
+    - vedolizumab patients come from randomised trials, but the biopsy substudy compares
+      responders and non-responders, which is not a randomised contrast
+    - the infliximab cohort is open-label, before/after
+    - 'no hybridisation batch or scan date is deposited; the biobank numbers form
+      three ranges: infliximab and 6 controls 69-207, 6 controls 607-616, vedolizumab
+      and placebo 771-1473'
+  decision_rules: {}
+validation_plan:
+  discovery:
+  - GSE73661
+  validation: []
+  split_unit: subject_id
+  selection_datasets: []
+  frozen_selection: ''
+  families:
+    primary:
+    - healed_vs_control
+  alpha: 0.05
+  min_subjects_per_arm: 5
+  windows: {}
+  stop_rules: []
+artifacts:
+- id: gse73661_rma
+  modality: bulk_rna
+  level: sample
+  provenance: measured
+  feature_space: whole_transcriptome
+  n_features: null
+  features: []
+  annotations: []
+  protocol: ''
+  accession: GSE73661
+  path: ''
+  checksum: ''
+  samples: []
+protocol_hash: sha256:fb0a8016f66381d174aa38f7954811c2e5b99af2f4709956d6b085485db00f8f
