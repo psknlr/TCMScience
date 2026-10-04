@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
 from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
-               stats, survival, tcm, variants)
+               stats, survival, tcm, tcmdb, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -461,6 +461,13 @@ TOOLS: tuple[NativeTool, ...] = (
     _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence"),
     _t("tcm_classical_search", tcm.tcm_classical_search, "tcm-knowledge", {"query": "桂枝汤主之"},
        "tcm", "classics", "search"),
+    # ------------------------------------- locally built manual TCM datasets (tcmdb)
+    _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
+       {"formula": "演示方剂（非真实）", "limit": 20}, "tcm", "provenance"),
+    _t("hkcmms_standard_lookup", tcmdb.hkcmms_standard_lookup, "tcm-knowledge",
+       {"herb": "演示药材（非真实）", "limit": 20}, "tcm", "quality", "standard"),
+    _t("hk_cmm_dna_lookup", tcmdb.hk_cmm_dna_lookup, "tcm-knowledge",
+       {"name": "演示物种", "limit": 20}, "tcm", "dna", "authentication"),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}

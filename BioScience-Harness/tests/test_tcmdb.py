@@ -32,14 +32,16 @@ def _allowed(host: str) -> bool:
 # ------------------------------------------------------------------------- catalogue
 def test_the_catalogue_has_every_source_of_the_architecture_document_once():
     cards = catalog()
-    assert [c.no for c in cards] == list(range(1, 134))
-    # 1-66 are the architecture document's; 67-133 were added from the review of 2026-09-30
+    assert [c.no for c in cards] == list(range(1, 137))
+    # 1-66 the architecture document's; 67-133 the review of 2026-09-30; 134-136 the
+    # integration guide's first phase (HKBU formulas, HKCMMS standards, reference DNA)
     assert {c.origin for c in cards if c.no <= 66} == {"architecture"}
-    assert {c.origin for c in cards if c.no > 66} == {"review-2026-09-30"}
+    assert {c.origin for c in cards if 66 < c.no <= 133} == {"review-2026-09-30"}
+    assert {c.origin for c in cards if c.no > 133} == {"integration-2026-10-04"}
     assert all(c.commercial_use in ("allowed", "forbidden", "unknown") for c in cards)
     assert all(c.access in ACCESS_MODES for c in cards)
     for c in cards:
-        assert c.assessment and c.checked in ("2026-10-01", "2026-10-02"), c.name
+        assert c.assessment and c.checked in ("2026-10-01", "2026-10-02", "2026-10-04"), c.name
         if c.access in ("restricted", "unreachable"):
             assert c.barriers or c.assessment, f"{c.name}: say why it cannot be reached"
 
@@ -407,7 +409,7 @@ def test_the_cli_lists_the_catalogue(capsys):
     from bioagent.cli import main
     assert main(["tcmdb", "sources", "--json"]) == 0
     cards = json.loads(capsys.readouterr().out)
-    assert len(cards) == 133 and sum(c["origin"] == "architecture" for c in cards) == 66
+    assert len(cards) == 136 and sum(c["origin"] == "architecture" for c in cards) == 66
     assert main(["tcmdb", "sources", "--module", "M6"]) == 0
     assert "DCABM-TCM" in capsys.readouterr().out
 
