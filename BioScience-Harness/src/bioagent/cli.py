@@ -8,6 +8,10 @@
     python -m bioagent.cli skill <id> --arg name=value [--dir skills/tcm] [--json]
     python -m bioagent.cli research "<question>" --snapshots DIR --ledger FILE \
         --state-dir DIR --out DIR [--activity npass ...] [--background assayed]
+    python -m bioagent.cli tcmdb sources [--module M2] [--access live_api]
+    python -m bioagent.cli tcmdb fetch itcm [--all] && python -m bioagent.cli tcmdb build itcm
+    python -m bioagent.cli tcmdb relations herb_ingredient --subject 黄芪
+    python -m bioagent.cli tcmdb live dcabm_tcm herb_blood names='["SANG YE"]'
 """
 
 from __future__ import annotations
@@ -172,6 +176,105 @@ def _cmd_skill(a) -> int:
     if len(artifact.limitations) > 4:
         print(f"      (+{len(artifact.limitations) - 4} more)")
     return code
+
+
+def _pairs(items, *, parse_json: bool = False) -> dict:
+    out = {}
+    for item in items or []:
+        if "=" not in item:
+            raise SystemExit(f"expected name=value, got {item!r}")
+        key, value = item.split("=", 1)
+        if parse_json:
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                pass                                   # a plain string
+        out[key.strip()] = value
+    return out
+
+
+def _cmd_tcmdb(a) -> int:
+    """The TCM data hub (``bioagent.tcmdb``): catalogue, downloads, local queries, live calls."""
+    from .tcmdb import DATASETS, HubError, TCMDataHub
+
+    hub = TCMDataHub(a.root or None)
+    show = lambda obj: print(json.dumps(obj, indent=1, ensure_ascii=False, default=str))  # noqa: E731
+    try:
+        if a.tcmdb_cmd == "sources":
+            cards = hub.catalog(module=a.module, access=a.access, name=a.name)
+            if a.json:
+                show([c.as_dict() for c in cards])
+            else:
+                for c in cards:
+                    via = c.connector or c.dataset or "-"
+                    print(f"{c.no:>2} {c.access:18} {via:20} {c.name}  [{','.join(c.modules)}]")
+                print(f"{len(cards)} sources")
+            return 0
+        if a.tcmdb_cmd == "status":
+            show(hub.status(a.dataset))
+            return 0
+        if a.tcmdb_cmd == "fetch":
+            results = hub.fetch(a.dataset, include_optional=a.all, confirm=a.confirm)
+            return 0 if all(r["ok"] for r in results) else 1
+        if a.tcmdb_cmd == "build":
+            keys = [d.key for d in DATASETS if hub.raw_dir(d.key).exists()] \
+                if a.dataset == "all" else [a.dataset]
+            for key in keys:
+                report = hub.build(key, log=lambda m: None)
+                print(json.dumps({"dataset": key, "tables": report["tables"],
+                                  "relations": report["relations"],
+                                  "unresolved": report["unresolved"],
+                                  "relations_digest": report["relations_digest"],
+                                  "missing": report["missing"]}, ensure_ascii=False))
+            return 0
+        if a.tcmdb_cmd == "check":
+            keys = hub.built() if a.dataset == "all" else [a.dataset]
+            results = [hub.check(k, rebuild=not a.no_rebuild) for k in keys]
+            show(results if len(results) > 1 else results[0])
+            return 0 if all(r["ok"] for r in results) else 1
+        if a.tcmdb_cmd == "tables":
+            show(hub.tables(a.dataset))
+            return 0
+        if a.tcmdb_cmd == "query":
+            show(hub.query(a.dataset, a.table, where=_pairs(a.where),
+                           contains=_pairs(a.contains), limit=a.limit))
+            return 0
+        if a.tcmdb_cmd == "relations":
+            show(hub.relations(a.kind, subject=a.subject or None, object=a.object or None,
+                               sources=a.source or None, evidence=a.evidence or None,
+                               contains=a.contains, outcomes=a.outcome or None,
+                               commercial=a.commercial, limit=a.limit))
+            return 0
+        if a.tcmdb_cmd == "consensus":
+            result = hub.consensus(a.kind, subject=a.subject or None, object=a.object or None,
+                                   merge_processed=a.merge_processed,
+                                   min_support=a.min_support or None)
+            result["items"] = result["items"][:a.limit]
+            show(result)
+            return 0
+        if a.tcmdb_cmd == "compare":
+            show(hub.compare(a.kind, a.subject, merge_processed=a.merge_processed))
+            return 0
+        if a.tcmdb_cmd == "survey":
+            show(hub.survey(a.kind, sample=a.sample, min_sources=a.min_sources, seed=a.seed))
+            return 0
+        if a.tcmdb_cmd == "enrich":
+            if a.symmap or a.herb:
+                if a.symmap:
+                    hub.enrich_symmap(a.symmap)
+                if a.herb:
+                    hub.enrich_herb(a.herb, label=a.label)
+            else:
+                show(hub.enrich(a.name)["ids"])
+            return 0
+        if a.tcmdb_cmd == "live":
+            result = hub.live(a.connector, a.operation, **_pairs(a.args, parse_json=True))
+            show({"status": result.status.value, "error": result.error, "value": result.value})
+            return 0 if result.status.value in ("SUCCEEDED", "DEGRADED") else 1
+    except (HubError, KeyError) as exc:
+        print(f"tcmdb: {exc}", file=sys.stderr)
+        return 2
+    return 2
 
 
 def _cmd_research(a) -> int:
@@ -394,9 +497,87 @@ def main(argv: list[str] | None = None) -> int:
                     choices=("trusted_local", "restricted_research", "sensitive_data"),
                     help="PSH deployment profile the analysis executes under")
 
+    tc = sub.add_parser("tcmdb", help="the TCM data hub: 66 catalogued sources, local "
+                                      "stores, cross-source relations, live connectors")
+    tc.add_argument("--root", default="", help="hub directory (default: $BIOAGENT_TCMDB "
+                                                "or <data lake>/tcmdb)")
+    tsub = tc.add_subparsers(dest="tcmdb_cmd", required=True)
+    t = tsub.add_parser("sources", help="the source catalogue")
+    t.add_argument("--module", default=None, help="M1..M14")
+    t.add_argument("--access", default=None, help="live_api, snapshot, manual_import, "
+                                                  "restricted, unreachable")
+    t.add_argument("--name", default=None)
+    t.add_argument("--json", action="store_true")
+    t = tsub.add_parser("status", help="what is downloaded and built")
+    t.add_argument("dataset", nargs="?", default=None)
+    t = tsub.add_parser("fetch", help="download a dataset's files")
+    t.add_argument("dataset")
+    t.add_argument("--all", action="store_true", help="include optional (large) files")
+    t.add_argument("--confirm", action="store_true", help="allow files above the size gate")
+    t = tsub.add_parser("build", help="load downloaded files into the local store")
+    t.add_argument("dataset", help="a dataset key, or 'all'")
+    t = tsub.add_parser("check", help="acceptance checks: files, rebuild digest, row "
+                                      "vocabulary, licences, unresolved rows")
+    t.add_argument("dataset", help="a dataset key, or 'all' (every built dataset)")
+    t.add_argument("--no-rebuild", action="store_true", help="skip the two rebuilds")
+    t = tsub.add_parser("tables", help="tables and columns of a built dataset")
+    t.add_argument("dataset")
+    t = tsub.add_parser("query", help="rows of one source table")
+    t.add_argument("dataset")
+    t.add_argument("table")
+    t.add_argument("--where", action="append", default=[], help="column=value (exact)")
+    t.add_argument("--contains", action="append", default=[], help="column=text (substring)")
+    t.add_argument("--limit", type=int, default=20)
+    t = tsub.add_parser("relations", help="relations across every built dataset")
+    t.add_argument("kind", nargs="?", default=None,
+                   help="herb_ingredient, ingredient_target, formula_herb, target_disease, ...")
+    t.add_argument("--subject", default="")
+    t.add_argument("--object", default="")
+    t.add_argument("--source", action="append", default=[])
+    t.add_argument("--evidence", action="append", default=[])
+    t.add_argument("--contains", action="store_true", help="substring name match")
+    t.add_argument("--outcome", action="append", default=[],
+                   help="positive, negative or inconclusive (default: all)")
+    t.add_argument("--commercial", action="store_true",
+                   help="only rows whose licence allows commercial reuse")
+    t.add_argument("--limit", type=int, default=50, help="per source")
+    t = tsub.add_parser("consensus", help="one relation kind reconciled across sources: ids "
+                                          "unified, copies counted once, evidence kept apart")
+    t.add_argument("kind")
+    t.add_argument("--subject", default="")
+    t.add_argument("--object", default="")
+    t.add_argument("--min-support", default="",
+                   choices=("", "independently_replicated", "documented", "associated",
+                            "integrated",
+                            "mentioned", "predicted", "signal", "tested_negative",
+                            "inconclusive"))
+    t.add_argument("--merge-processed", action="store_true",
+                   help="treat processed forms (炙黄芪) as the crude drug")
+    t.add_argument("--limit", type=int, default=50)
+    t = tsub.add_parser("compare", help="per-source (or per-version) object sets of a subject")
+    t.add_argument("kind")
+    t.add_argument("subject")
+    t.add_argument("--merge-processed", action="store_true")
+    t = tsub.add_parser("survey", help="how much the sources of a relation kind copy each other")
+    t.add_argument("kind")
+    t.add_argument("--sample", type=int, default=300)
+    t.add_argument("--min-sources", type=int, default=3)
+    t.add_argument("--seed", type=int, default=0)
+    t = tsub.add_parser("enrich", help="fetch SymMap/HERB relations per entity (cached)")
+    t.add_argument("name", nargs="?", default="", help="a herb name, e.g. 黄芪")
+    t.add_argument("--symmap", nargs="*", default=[], help="SymMap ids, e.g. SMHB00187")
+    t.add_argument("--herb", nargs="*", default=[], help="HERB ids, e.g. HERB002560")
+    t.add_argument("--label", default="Herb", help="HERB entity type of --herb ids")
+    t = tsub.add_parser("live", help="a governed call to a live connector")
+    t.add_argument("connector")
+    t.add_argument("operation")
+    t.add_argument("args", nargs="*", help="name=value (values may be JSON)")
+
     a = ap.parse_args(argv)
     if a.cmd == "research":
         return _cmd_research(a)
+    if a.cmd == "tcmdb":
+        return _cmd_tcmdb(a)
 
     if a.cmd == "scout":
         return _cmd_scout(a)

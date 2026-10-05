@@ -166,6 +166,8 @@ DEFAULT_RATES: Mapping[str, float] = {
     "pubchem.ncbi.nlm.nih.gov": 5.0,
     "rest.ensembl.org": 15.0,
     "rest.uniprot.org": 10.0,
+    # www.ebi.ac.uk: documented per-entity API look-ups (including IMPC's Solr cores);
+    # robots.txt's Crawl-delay 10 s governs crawling, which no connector does
     "www.ebi.ac.uk": 10.0,
     "string-db.org": 1.0,
     "rest.kegg.jp": 3.0,
@@ -212,6 +214,66 @@ DEFAULT_RATES: Mapping[str, float] = {
     # network Wikidata treats better.
     "query.wikidata.org": 1.0 / 90.0,
     "api.gbif.org": 5.0,
+    # TCM connectors (providers.public_apis_tcm): small academic servers, several of
+    # which ask for one request per second
+    "batman2api.cloudna.cn": 1.0, "bionet.ncpsb.org.cn": 1.0, "tcmbank.cn": 1.0,
+    "itcm.biotcm.net": 1.0, "ttd.idrblab.cn": 1.0, "query-api.iedb.org": 3.0,
+    "huggingface.co": 3.0, "datasets-server.huggingface.co": 3.0, "api.figshare.com": 3.0,
+    "www.symmap.org": 1.0, "47.92.70.12": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: natural products
+    # and plant names (providers.supplement.tcm_np). list.worldfloraonline.org states
+    # Crawl-delay: 10 in its robots.txt.
+    "coconut.naturalproducts.net": 1.0, "www.knapsackfamily.com": 1.0,
+    "list.worldfloraonline.org": 0.1,
+    # bulk files these sources' datasets fetch (acquisition.Downloader paces by these too):
+    # Zenodo's robots.txt sets Crawl-delay: 10; the others are small academic servers
+    "zenodo.org": 0.1, "coconut.s3.uni-jena.de": 1.0, "cb.imsc.res.in": 1.0,
+    "tm-mc.kr": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: TCM safety
+    # (providers.supplement.tcm_safety), small academic servers
+    "mibig.secondarymetabolites.org": 1.0, "bio-computing.hrbmu.edu.cn": 1.0,
+    "phytohub.eu": 1.0,
+    # genetics supplementary sources: MaveDB enforces no limit but asks to be considerate
+    "api.mavedb.org": 1.0,
+    # supplementary sources (review of 2026-09-30) -- safety: AOP-Wiki and Orphadata
+    "aopwiki.org": 1.0, "api.orphadata.com": 1.0,
+    # supplementary sources (review of 2026-09-30): spectra and metabolomics servers
+    "massbank.eu": 1.0, "external.gnps2.org": 1.0, "metabolomics-usi.gnps2.org": 1.0,
+    "explorer.gnps2.org": 1.0, "massive.ucsd.edu": 1.0, "www.metabolomicsworkbench.org": 1.0,
+    # supplementary chemistry/reaction connectors (providers.supplement.chem_onto):
+    # Rhea's and SABIO-RK's robots.txt bar crawlers, their API docs invite programs;
+    # SABIO-RK allows 60 requests a minute; MetaNetX asks for a 10 s crawl delay
+    "www.rhea-db.org": 1.0, "sabiork.h-its.org": 1.0, "rdf.metanetx.org": 0.1,
+    # supplementary sources (review of 2026-09-30): RNA, regulation and protein
+    # modification. Crawl-delays in robots.txt become rates: RNAcentral 5 s, ChIP-Atlas
+    # 30 s (its /agents page invites the /data calls robots.txt disallows for crawlers).
+    "rnacentral.org": 0.2, "chip-atlas.org": 1.0 / 30.0, "disprot.org": 1.0,
+    "remap.univ-amu.fr": 1.0, "research.bioinformatics.udel.edu": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: atlases
+    "service.azul.data.humancellatlas.org": 1.0, "search.api.hubmapconsortium.org": 1.0,
+    "entity.api.hubmapconsortium.org": 1.0, "portal.hubmapconsortium.org": 1.0,
+    "data.4dnucleome.org": 1.0,
+    # supplementary sources (review of 2026-09-30), checked 2026-10-01: drugs
+    "uxn2ycvimg.us-east-2.awsapprunner.com": 1.0, "pharmacodb.ca": 1.0,
+    "pharos-api.ncats.io": 1.0,
+    # pharmacogenomics and protein families (providers.supplement.pgx_proteins): academic
+    # servers with no stated limit, kept at one request per second
+    "api.cpicpgx.org": 1.0, "gpcrdb.org": 1.0, "klifs.net": 1.0,
+    "www.proteomicsdb.org": 1.0,
+    # supplementary sources (review of 2026-09-30), mechanism: academic servers
+    "signor.uniroma2.it": 1.0, "jaspar.elixir.no": 1.0,
+    # supplementary sources (review of 2026-09-30): cells and perturbations
+    "api.cellosaurus.org": 1.0,
+    # immune_microbe (supplementary sources): AIRR Data Commons repositories and BV-BRC
+    "covid19-1.ireceptor.org": 1.0, "vdjserver.org": 1.0, "www.bv-brc.org": 1.0,
+    # MGnify sits on www.ebi.ac.uk, whose robots.txt sets Crawl-Delay: 10. A path-prefix key
+    # ("host/path") paces only the URLs under it, on top of the host's own rate, so the
+    # other EBI APIs on that host keep theirs.
+    "www.ebi.ac.uk/metagenomics/": 0.1,
+    # imaging archives (providers.supplement.imaging): academic services, one at a time
+    "api.imaging.datacommons.cancer.gov": 1.0, "services.cancerimagingarchive.net": 1.0,
+    "www.cancerimagingarchive.net": 1.0, "idr.openmicroscopy.org": 1.0,
+    "openneuro.org": 1.0,
 }
 
 
@@ -229,22 +291,32 @@ def _default_rates() -> dict[str, float]:
 
 
 class _RateLimiter:
-    """Token-bucket limiter per host; thread-safe."""
+    """Token-bucket limiter per host; thread-safe.
+
+    A rate keyed ``"host/path-prefix"`` (it contains a ``/``) paces only the requests whose
+    ``host + path`` starts with it, in addition to the host's own rate: one service on a
+    shared host (MGnify on www.ebi.ac.uk) can be held to a slower pace than its neighbours.
+    """
 
     def __init__(self, rates: Mapping[str, float], default_rps: float = 2.0) -> None:
-        self._rates = dict(rates)
+        self._rates = {k: v for k, v in rates.items() if "/" not in k}
+        self._prefixes = {k: v for k, v in rates.items() if "/" in k}
         self._default = default_rps
         self._next_ok: dict[str, float] = {}
         self._lock = threading.Lock()
 
-    def wait(self, host: str) -> float:
-        rps = self._rates.get(host, self._default)
-        interval = 1.0 / max(rps, 0.01)
+    def wait(self, host: str, path: str = "") -> float:
+        buckets = {host: self._rates.get(host, self._default)}
+        target = host + (path or "/")
+        for prefix, rps in self._prefixes.items():
+            if target.startswith(prefix):
+                buckets[prefix] = rps
         with self._lock:
             now = time.monotonic()
-            ready = self._next_ok.get(host, now)
-            delay = max(0.0, ready - now)
-            self._next_ok[host] = max(ready, now) + interval
+            start = max([now] + [self._next_ok.get(k, now) for k in buckets])
+            for k, rps in buckets.items():
+                self._next_ok[k] = start + 1.0 / max(rps, 0.01)
+        delay = start - now
         if delay > 0:
             time.sleep(delay)
         return delay
@@ -374,7 +446,7 @@ class HTTPBackend(Backend):
         last_err = ""
         for attempt in range(1, self.max_retries + 1):
             meta["attempts"] = attempt
-            self._limiter.wait(req.host)
+            self._limiter.wait(req.host, urllib.parse.urlsplit(req.url).path)
             self.stats["requests"] += 1
             try:
                 r = urllib.request.Request(req.full_url, data=body, method=req.method, headers=headers)
@@ -481,6 +553,12 @@ class HTTPBackend(Backend):
                 return json.loads(text)
             except json.JSONDecodeError:
                 pass
+        if "text/html" in ct or "application/xhtml" in ct:
+            # A page a connector asked for (accept text/html; any other caller is refused
+            # before this). Indented markup has tabs and newlines, and read as a table it
+            # kept only each line's text up to its first tab.
+            return {"format": "html", "text": text[:_TEXT_LIMIT],
+                    "truncated": len(text) > _TEXT_LIMIT}
         if "tab-separated" in ct or "tsv" in ct or ("\t" in text[:2000] and "\n" in text[:2000]):
             lines = [ln for ln in text.splitlines() if ln.strip()]
             if lines:
@@ -494,6 +572,7 @@ class HTTPBackend(Backend):
     # --------------------------------------------------------------- Backend
     def invoke(self, manifest: ComponentManifest, *, path: str = "", method: str = "GET",
                params: Mapping[str, Any] | None = None, json_body: Any = None,
+               form: Mapping[str, Any] | None = None,
                headers: Mapping[str, str] | None = None, accept: str = "application/json",
                graphql: str | None = None, variables: Mapping[str, Any] | None = None,
                use_cache: bool = True, **_: Any) -> Any:
@@ -526,6 +605,14 @@ class HTTPBackend(Backend):
             req = HTTPRequest(url=url, method="POST",
                               json_body={"query": graphql, "variables": dict(variables or {})},
                               headers=dict(headers or {}), accept="application/json")
+        elif form is not None:
+            # A form post: the fields are the body, url-encoded, as a browser sends them.
+            body = urllib.parse.urlencode(
+                {k: v for k, v in dict(form).items() if v is not None}, doseq=True)
+            req = HTTPRequest(url=url, method="POST", params=dict(params or {}),
+                              headers={"Content-Type": "application/x-www-form-urlencoded",
+                                       **dict(headers or {})},
+                              data=body.encode("utf-8"), accept=accept)
         else:
             req = HTTPRequest(url=url, method=method.upper(), params=dict(params or {}),
                               headers=dict(headers or {}), json_body=json_body, accept=accept)

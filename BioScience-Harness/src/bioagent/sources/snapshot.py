@@ -319,10 +319,16 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
                    gold: Mapping[str, Mapping[str, Any]] | None = None,
                    gold_edges: Mapping[str, Sequence[tuple[str, str, str]]] | None = None,
                    extra: Mapping[str, Any] | None = None,
-                   ledger: Any = None) -> Snapshot:
+                   ledger: Any = None, replace: bool = False) -> Snapshot:
     """Validate, hash and publish one source version. Raises ``SnapshotRejected`` when the
     quality gate fails; a ``review`` result is published but ``load`` will not hand it out
-    until a person accepts it. With a ``SnapshotLedger`` the id is recorded there."""
+    until a person accepts it. With a ``SnapshotLedger`` the id is recorded there.
+
+    Snapshots are stored by version. Publishing *different* content under a version that
+    already holds a snapshot would overwrite it on disk while the ledger keeps the old id,
+    so a study locked to that id could no longer be reproduced. That is refused; give the
+    new content a new version, or pass ``replace=True`` to overwrite deliberately (runs
+    locked to the old id are then refused at load, not silently changed)."""
     try:
         check_key_version(key, version)
     except ValueError as exc:
@@ -362,6 +368,14 @@ def build_snapshot(*, key: str, version: str, nodes: Iterable[Mapping[str, Any]]
         raise SnapshotError("a snapshot names the raw files it was built from")
     sid = _snapshot_id(key, version, content)
     path = Path(root) / key / version
+    existing = path / "manifest.json"
+    if existing.is_file() and not replace:
+        old = json.loads(existing.read_text(encoding="utf-8")).get("snapshot_id")
+        if old and old != sid:
+            raise SnapshotError(
+                f"{key}@{version} already holds {old}; this build is {sid}. Publishing it "
+                "under the same version would overwrite the snapshot a ledger entry and "
+                "any locked study refer to: use a new version (or replace=True)")
     path.mkdir(parents=True, exist_ok=True)
     _write_table(node_rows, path / "nodes.parquet")
     _write_table(edge_rows, path / "edges.parquet")

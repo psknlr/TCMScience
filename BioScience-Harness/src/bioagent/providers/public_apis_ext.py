@@ -13,9 +13,9 @@ module means, and a connector that silently fails without a key would report UNA
 for a reason the operator did not choose. Services that did not answer the verification
 run are not shipped whatever their documentation promises: Pathway Commons timed out,
 PharmGKB was unreachable from the verification network, and Semantic Scholar throttles
-unauthenticated shared addresses. And traditional-Chinese-medicine resources (TCMSP,
-HERB, SymMap, BATMAN-TCM, ETCM) publish downloadable tables rather than stable JSON APIs;
-they belong to the acquisition layer as datasets, not here as connectors.
+unauthenticated shared addresses. Traditional-Chinese-medicine databases are in
+``public_apis_tcm`` (the few with a queryable endpoint) and ``bioagent.tcmdb`` (the
+many that publish files).
 """
 
 from __future__ import annotations
@@ -211,14 +211,41 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
 
     PublicSource(
         "biostudies", "BioStudies", "https://www.ebi.ac.uk/biostudies/api/v1", "www.ebi.ac.uk",
-        "Open (EMBL-EBI terms)", "Studies, including the ArrayExpress functional genomics collection.",
+        "Open (EMBL-EBI terms)", "Studies, including the ArrayExpress functional genomics "
+        "collection and the BioImage Archive (BioImages: microscopy and EM studies, with "
+        "EMPIAR and JCB DataViewer mirrors; licence per study in the Study section's "
+        "'License' attribute, CC0 or CC BY 4.0 for direct submissions, CC BY-NC-SA for JCB "
+        "imports, none for EMPIAR mirrors, which EMPIAR releases under CC0).",
         "expression", (
             Operation("search", "Search studies", "search",
                       params={"query": "{query}", "pageSize": "{page_size}"}, args=("query",),
                       example={"query": "single cell lung", "page_size": 3}),
-            Operation("study", "Study by accession", "studies/{accession}", args=("accession",),
-                      example={"accession": "E-MTAB-5214"}),
-        ), smoke="study", docs="https://www.ebi.ac.uk/biostudies/help"),
+            Operation("study", "Study by accession (also BioImage Archive S-BIAD/S-BSST/"
+                      "S-JCBD and EMPIAR accessions)", "studies/{accession}",
+                      args=("accession",), example={"accession": "E-MTAB-5214"}),
+            Operation("bioimages_search", "Search the BioImage Archive collection "
+                      "(BioImages); undocumented endpoint used by the archive's own pages",
+                      "BioImages/search",
+                      params={"query": "{query}", "pageSize": "{page_size}", "page": "{page}"},
+                      args=("query",), example={"query": "hepatocyte", "page_size": 5,
+                                                "page": 1}),
+            Operation("study_info", "File count, release dates and the FTP/HTTP/Globus "
+                      "locations of a study's files, as the BioImage Archive documents it "
+                      "(https://www.ebi.ac.uk/bioimage-archive/help-download/); the files "
+                      "themselves are not fetched",
+                      "studies/{accession}/info", args=("accession",),
+                      example={"accession": "S-BIAD623"}),
+        ), smoke="study", docs="https://www.ebi.ac.uk/biostudies/help",
+        # www.ebi.ac.uk robots.txt (checked 2026-10-01) sets "Crawl-Delay: 10" for every
+        # user agent and disallows no /biostudies path. That delay governs crawling; the
+        # operations here are per-query API look-ups made for a user (one search page, one
+        # study), never a walk over accessions. The transport paces per HOST, and this host
+        # also serves ChEMBL, OLS, EBI Search, MetaboLights and others whose documented
+        # APIs allow far more, so the shared 10 req/s in DEFAULT_RATES is kept rather than
+        # throttling all of them to 0.1 req/s. Nothing may harvest BioStudies/BioImages
+        # through these operations: bulk access is the archive's FTP/Globus, not this API.
+        rate_note="per-query look-ups only, never harvesting; robots.txt Crawl-Delay 10 is "
+                  "for crawlers and is not applied to these API look-ups (host-wide 10 req/s)"),
 
     PublicSource(
         "cellxgene", "CZ CELLxGENE Discover", "https://api.cellxgene.cziscience.com/curation/v1",
