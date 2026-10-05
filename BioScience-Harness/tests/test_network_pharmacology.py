@@ -109,11 +109,11 @@ def _build(root: Path, ledger: SnapshotLedger | None = None, replace: bool = Fal
     return [
         build_snapshot(key=HERB_KEY, version="gold", nodes=herb_nodes, edges=herb_edges,
                        license=HERB_LICENSE, citation="fixture", **common),
-        build_snapshot(key="npass", version="fx", nodes=np_nodes, edges=np_edges,
+        build_snapshot(key="npass", version="2.0+fx", nodes=np_nodes, edges=np_edges,
                        license="fixture", citation="fixture", **common),
         build_snapshot(key="reactome", version="current", nodes=r_nodes, edges=r_edges,
                        license="CC0-1.0", citation="fixture", **common),
-        build_snapshot(key="string", version="fx", nodes=s_nodes, edges=s_edges,
+        build_snapshot(key="string", version="12.0+fx", nodes=s_nodes, edges=s_edges,
                        license="CC-BY-4.0", citation="fixture", **common),
     ]
 
@@ -247,7 +247,7 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
     assert provenance["source_allowance"] == ["npass", "reactome", "string"]
     assert set(provenance["dataset_hashes"]) == {"tcm_herbs", "npass", "reactome", "string"}
     assert set(provenance["sources_refused"]) == {"cmaup@2.0", "lotus@2026-04-13",
-                                                  "opentargets@26.06+MONDO_0005148",
+                                                  "opentargets@26.09+MONDO_0005148",
                                                   "pubchem_bioassay"}
     assert provenance["disease"] == {}
     assert provenance["claims"] == {"candidates": 1, "released": 1, "refused": 0}
@@ -284,7 +284,55 @@ def test_run_skill_refuses_a_snapshot_changed_after_it_was_recorded(tmp_path):
         run_skill(skill_dir=SKILL_DIR, snapshot_root=tmp_path / "snap",
                   ledger_path=ledger.path, out_dir=tmp_path / "run", params=FAST,
                   allowed={"npass", "string", "reactome"})
-    assert load_snapshot(tmp_path / "snap", "npass", "fx")   # consistent in itself
+    assert load_snapshot(tmp_path / "snap", "npass", "2.0+fx")   # consistent in itself
+
+
+def test_a_run_refuses_a_ledger_cut_short_since_an_earlier_run(tmp_path):
+    """Review O2: a hash chain cannot see its own end cut off, so a run records the head
+    it read, and a later run given that head refuses a ledger that no longer holds it."""
+    from bioagent.sources.ledger import LedgerError
+
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    _build(tmp_path / "snap", ledger=ledger)
+    kw = dict(skill_dir=SKILL_DIR, snapshot_root=tmp_path / "snap", ledger_path=ledger.path,
+              out_dir=tmp_path / "run", params=FAST, allowed={"npass", "string", "reactome"})
+    first = run_skill(**kw)
+    assert first["ledger_head"]["seq"] == ledger.verify() == 4
+    again = run_skill(**kw, expected_ledger_head=first["ledger_head"])
+    assert again["ledger_head"] == first["ledger_head"]
+    lines = ledger.path.read_text(encoding="utf-8").splitlines(keepends=True)
+    ledger.path.write_text("".join(lines[:-1]), encoding="utf-8")
+    assert ledger.verify() == 3                 # what is left is still a valid chain
+    with pytest.raises(LedgerError, match="cut short"):
+        run_skill(**kw, expected_ledger_head=first["ledger_head"])
+
+
+def test_a_run_uses_the_release_the_skill_pins_not_the_last_one_recorded(tmp_path):
+    """The runner took the last snapshot recorded for each source whatever its version,
+    so a skill asking for ``npass@2.0`` ran on whichever NPASS build came last."""
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    _build(tmp_path / "snap", ledger=ledger)
+    kw = dict(snapshot_root=tmp_path / "snap", ledger_path=ledger.path,
+              out_dir=tmp_path / "run", params=FAST, allowed={"npass", "string", "reactome"})
+    pinned = run_skill(skill_dir=SKILL_DIR, **kw)["dataset_hashes"]["npass"]
+    assert pinned.startswith("npass@2.0+fx#")
+    (np_nodes, np_edges), _, _ = _world()
+    later = build_snapshot(key="npass", version="2.1+fx", nodes=np_nodes, edges=np_edges,
+                           raw_files={"raw.txt": tmp_path / "snap" / "raw.txt"},
+                           parser="fixture", root=tmp_path / "snap", ledger=ledger,
+                           license="fixture", citation="fixture")
+    assert run_skill(skill_dir=SKILL_DIR, **kw)["dataset_hashes"]["npass"] == pinned
+    assert later.snapshot_id != pinned
+    # a pin nothing recorded fits is refused, and the refusal says what there is
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    text = (SKILL_DIR / "skill.yaml").read_text(encoding="utf-8")
+    (skill / "skill.yaml").write_text(text.replace("- npass@2.0", "- npass@3.0"),
+                                      encoding="utf-8")
+    (skill / "SKILL.md").write_text((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"),
+                                    encoding="utf-8")
+    with pytest.raises(SkillRunRefused, match=r"npass@3\.0 \(recorded: 2\.0\+fx, 2\.1\+fx\)"):
+        run_skill(skill_dir=skill, **kw)
 
 
 def ot_row(ensg: str, uniprot: str, score: float, **types: float) -> dict:

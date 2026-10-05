@@ -51,17 +51,28 @@ def _parse(key: str, raw_dir: Path, taxa: TaxonFilter | None,
         return lotus.parse_lotus(raw_dir / kw.get("lotus_file", LOTUS_FILE), taxa=taxa), lotus
     if key == "bindingdb":
         return bindingdb.parse_bindingdb(kw["path"], inchikeys=kw["inchikeys"]), bindingdb
+    primary = raw_dir / pubchem_bioassay.PRIMARY_FILE
     if key == "string":
-        return string_db.parse_string(raw_dir, proteins=kw["proteins"],
-                                      mode=kw.get("mode", "induced")), string_db
+        return string_db.parse_string(
+            raw_dir, proteins=kw["proteins"], mode=kw.get("mode", "induced"),
+            primary=pubchem_bioassay.read_primary(primary) if primary.is_file() else None
+        ), string_db
     if key == "reactome":
         return reactome.parse_reactome(raw_dir / reactome.FILE,
                                        proteins=kw.get("proteins")), reactome
     if key == "opentargets":
         return opentargets.parse_opentargets(kw["path"]), opentargets
     if key == "pubchem_bioassay":
+        if not primary.is_file():
+            # Without it the mapping would fall back to whichever accession STRING lists
+            # first, which is the primary for under a quarter of human proteins.
+            raise SnapshotError(
+                f"PubChem targets are mapped to Swiss-Prot primary accessions, which needs "
+                f"{pubchem_bioassay.PRIMARY_FILE} in {raw_dir}; fetch it with "
+                f"`bioagent datasets fetch {pubchem_bioassay.PRIMARY_FILE}`")
         return pubchem_bioassay.parse_pubchem_bioassay(
-            kw["path"], aliases=raw_dir / string_db.FILES["aliases"]), pubchem_bioassay
+            kw["path"], aliases=raw_dir / string_db.FILES["aliases"],
+            primary=primary), pubchem_bioassay
     raise KeyError(f"no parser for source {key!r}")
 
 

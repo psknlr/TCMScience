@@ -25,6 +25,8 @@ def _user_agent() -> str:
 
 _UA = _user_agent()
 
+from ..backends.http import _RedirectRefused  # noqa: E402
+
 
 def _host_rates() -> dict[str, float]:
     """Per-host request rates (requests / second) the HTTP backend declares, including
@@ -128,6 +130,10 @@ class Downloader:
     * `min_interval_s` spaces every request this downloader sends (size probes,
       downloads, retries) at least that many seconds apart, for a host whose
       robots.txt sets a Crawl-delay.
+    * An answer that came from another host than the URL's, or fell from https to
+      http, is refused unread. None of the shipped downloads redirects at all (checked
+      2026-09-30), so a file that arrives from somewhere else is something other than
+      the file that was specified.
     """
 
     def __init__(self, root: Path | str, *, timeout_s: float = 60.0, chunk: int = 1 << 20,
@@ -153,14 +159,31 @@ class Downloader:
 
     def _open(self, req: urllib.request.Request):
         """``urlopen`` paced per host (``PACER``); the pause counts from the end of the
-        previous request to that host, the way a robots.txt Crawl-delay is meant."""
-        host = urllib.parse.urlsplit(req.full_url).hostname or ""
+        previous request to that host, the way a robots.txt Crawl-delay is meant.
+
+        ``urlopen`` follows redirects by itself, so the URL the answer finally came from
+        is checked: one from another host, or one that fell from https to http, is closed
+        unread and refused (``_RedirectRefused``, which is not retried).
+        """
+        parts = urllib.parse.urlsplit(req.full_url)
+        host = parts.hostname or ""
         PACER.wait(host, self.rates)
         try:
             resp = urllib.request.urlopen(req, timeout=self.timeout_s)  # noqa: S310
         except BaseException:
             PACER.done(host)                 # a refused request still counts
             raise
+        final = urllib.parse.urlsplit(getattr(resp, "url", None) or req.full_url)
+        moved = (final.hostname or "").lower() != host.lower()
+        if moved or (parts.scheme == "https" and final.scheme != "https"):
+            try:
+                resp.close()
+            finally:
+                PACER.done(host)
+            raise _RedirectRefused(
+                f"redirected to {final.hostname or final.geturl()!r}, which is not a host "
+                f"this call may contact ({host})" if moved
+                else f"redirected from https down to {final.scheme}")
         return _Paced(resp, host)
 
     # ------------------------------------------------------------------ helpers
@@ -197,8 +220,8 @@ class Downloader:
                     # says nothing about the body's size: try the ranged GET instead
                     if cl and cl.isdigit() and int(cl) > 0 and method == "HEAD":
                         return int(cl)
-            except (urllib.error.URLError, OSError):
-                continue
+            except (urllib.error.URLError, OSError, _RedirectRefused):
+                continue                   # a refused redirect too: the size is unknown
         return None
 
     def _record(self, res: DownloadResult) -> None:
@@ -326,6 +349,9 @@ class Downloader:
                             if remote_size and done % (32 << 20) < self.chunk:
                                 self._log(f"{part.name}: {done / 1e6:.0f}/{remote_size / 1e6:.0f} MB")
                 return
+            except _RedirectRefused as exc:
+                # Not a transient: a retry would be redirected the same way.
+                raise DownloadError(f"{part.name}: {exc}") from exc
             except (urllib.error.URLError, OSError, TimeoutError) as exc:
                 if isinstance(exc, urllib.error.HTTPError) and exc.code == 403:
                     body = ""

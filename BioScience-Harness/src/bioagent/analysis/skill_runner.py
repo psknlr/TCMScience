@@ -14,11 +14,14 @@ The intervention is a parameter: any ``FormulaVersion`` the herb-layer snapshot 
 (the 葛根芩连汤 of 伤寒论 is only the default). A formula the snapshot does not record is
 refused rather than analysed as an empty composition.
 
-The inputs are pinned. Every run writes ``snapshot_lock.json`` (each source's exact
-snapshot id); a run given a lock uses exactly those snapshots and refuses if one is no
-longer in the ledger, so a later import cannot silently change a study's inputs. Without a
-lock, a source with several recorded snapshots is refused unless the caller asks for the
-latest (``latest=True``): "whichever was recorded last" is not a reproducible input.
+The inputs are pinned. Only snapshots of the release ``skill.yaml`` names count
+(``npass@2.0`` is release 2.0 or a scoped build of it). Every run writes
+``snapshot_lock.json`` (each source's exact snapshot id); a run given a lock uses exactly
+those snapshots and refuses if one is no longer in the ledger, so a later import cannot
+silently change a study's inputs. Without a lock, a source with several recorded snapshots
+of that release is refused unless the caller asks for the latest (``latest=True``):
+"whichever was recorded last" is not a reproducible input. A run also records the ledger
+head it read; given an earlier run's head, it refuses a ledger cut short since.
 
 The provenance record is what ``ProvenanceCapsule`` asks for and nothing filled before:
 snapshot ids (``dataset_hashes``), parameters and seed (``random_seed``), a digest of the
@@ -34,7 +37,7 @@ import platform
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from ..providers.skills import SkillContract
 from ..sources.herbs import GEGEN_QINLIAN, KEY as HERB_LAYER, FormulaVersion
@@ -49,6 +52,17 @@ LOCK_FILE = "snapshot_lock.json"
 
 class SkillRunRefused(RuntimeError):
     """The run cannot proceed under the skill's contract, or its claims were refused."""
+
+
+def _fits(version: str, pin: str) -> bool:
+    """Whether a recorded snapshot ``version`` is one the contract's ``pin`` names.
+
+    ``2.0`` names release 2.0 and any scoped build of it (``2.0+subset-…``); a pin with a
+    scope (``26.09+MONDO_0005148``) names that scope only; a bare key names any version.
+    Without this, a skill that asked for ``npass@2.0`` ran on whichever NPASS build was
+    recorded last.
+    """
+    return pin == "latest-approved" or version == pin or version.startswith(pin + "+")
 
 
 def _recorded(ledger: SnapshotLedger) -> dict[str, list[tuple[str, str]]]:
@@ -72,7 +86,11 @@ def read_lock(path: str | Path) -> dict[str, str]:
 
 
 def _choose(recorded: dict[str, list[tuple[str, str]]], wanted: list[str],
-            lock: dict[str, str] | None, latest: bool) -> dict[str, tuple[str, str]]:
+            lock: dict[str, str] | None, latest: bool,
+            pins: dict[str, str] | None = None) -> dict[str, tuple[str, str]]:
+    """One (version, snapshot id) per wanted source: the lock's, else the only one the
+    skill's pin names, else (``latest``) the last recorded of those."""
+    pins = pins or {}
     chosen: dict[str, tuple[str, str]] = {}
     missing = [k for k in wanted if k not in recorded]
     if missing:
@@ -81,6 +99,8 @@ def _choose(recorded: dict[str, list[tuple[str, str]]], wanted: list[str],
         raise SkillRunRefused(f"the lock pins {sorted(set(lock) - set(wanted))}, which this run "
                               "does not use; a lock describes exactly one run's inputs")
     for key in wanted:
+        pin = pins.get(key, "latest-approved")
+        fitting = [p for p in recorded[key] if _fits(p[0], pin)]
         if lock is not None:
             if key not in lock:
                 raise SkillRunRefused(f"the lock pins no snapshot for {key!r}")
@@ -89,14 +109,23 @@ def _choose(recorded: dict[str, list[tuple[str, str]]], wanted: list[str],
                 raise SkillRunRefused(
                     f"the locked snapshot {lock[key]} is not in the ledger; the study's "
                     "inputs cannot be reproduced (start a new analysis version instead)")
+            if match[0] not in fitting:
+                raise SkillRunRefused(
+                    f"the locked snapshot {lock[key]} is {key}@{match[0][0]}, which the "
+                    f"skill's pin {key}@{pin} does not name")
             chosen[key] = match[0]
-        elif len(recorded[key]) > 1 and not latest:
+        elif not fitting:
+            versions = ", ".join(sorted({p[0] for p in recorded[key]}))
             raise SkillRunRefused(
-                f"{key} has {len(recorded[key])} recorded snapshots "
-                f"({', '.join(p[1] for p in recorded[key])}); pass a lock naming one, "
+                f"no snapshot recorded for {key}@{pin} (recorded: {versions}); build it "
+                "first, or change the skill's pin")
+        elif len(fitting) > 1 and not latest:
+            raise SkillRunRefused(
+                f"{key} has {len(fitting)} recorded snapshots "
+                f"({', '.join(p[1] for p in fitting)}); pass a lock naming one, "
                 "or latest=True to take the last recorded")
         else:
-            chosen[key] = recorded[key][-1]
+            chosen[key] = fitting[-1]
     return chosen
 
 
@@ -115,14 +144,21 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
               allowed: set[str] | None = None, accept_review: bool = False,
               require_psh: bool = True, formula: FormulaVersion = GEGEN_QINLIAN,
               lock: str | Path | dict[str, str] | None = None,
-              latest: bool = False) -> dict[str, Any]:
+              latest: bool = False, purpose: str = "academic",
+              expected_ledger_head: Mapping[str, Any] | None = None) -> dict[str, Any]:
     contract = SkillContract.load(Path(skill_dir) / "skill.yaml")
     ledger = SnapshotLedger(ledger_path)
-    ledger.verify()
-    granted, refused = contract.grant(allowed=allowed)
+    # ``expected_ledger_head`` is the head an earlier run recorded: the ledger must still
+    # hold that entry as it was, i.e. it has only been appended to since.
+    ledger.verify(expected_head=expected_ledger_head)
+    # The ledger entry this run reads up to, taken before it picks its snapshots. A chain
+    # cannot see its own end cut off; a later ``verify(expected_head=...)`` with this can.
+    head = ledger.head()
+    granted, refused = contract.grant(allowed=allowed, purpose=purpose)
     wanted = [HERB_LAYER, *sorted(granted)]
     pinned = lock if isinstance(lock, dict) or lock is None else read_lock(lock)
-    chosen = _choose(_recorded(ledger), wanted, pinned, latest)
+    chosen = _choose(_recorded(ledger), wanted, pinned, latest,
+                     pins={HERB_LAYER: "latest-approved", **granted})
     snapshots = [load_snapshot(snapshot_root, key, chosen[key][0], ledger=ledger,
                                accept_review=accept_review) for key in wanted]
     for snap in snapshots:
@@ -204,6 +240,8 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         # sources"; it is "no allowance was given", said out loud so a reader does not
         # take a two-way intersection for the three-way one the contract describes.
         "source_allowance": sorted(allowed) if allowed is not None else "unrestricted",
+        "purpose": purpose,
+        "ledger_head": head,
         "parameters": asdict(params), "random_seed": params.seed,
         "code_digest": result.code_digest,
         "psh_program_fingerprint": compiled.fingerprint if compiled else None,

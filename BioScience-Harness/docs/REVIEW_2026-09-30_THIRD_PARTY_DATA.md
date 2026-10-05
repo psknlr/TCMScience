@@ -27,6 +27,20 @@
 以上四项和另外十四项已经修复；改变代码行为的每一项都有回归测试（L4 只改正文档）。另有两项怀疑经核实**不是**缺陷，撤回（§4）。
 还有十一项需要决定或需要真实文件才能做，列在 §5，没有假装做完。
 
+**第二轮（同日）**：§5 的十一项中关闭了七项（O1、O2、O3、O5、O6、O8、O9），O4 维持现状（有意为之），
+O7、O10、O11 仍待决。用真实数据重跑时又发现四个问题，均已修复（§7）：
+
+5. **PubChem 基因号 → UniProt 映射多数不是 Swiss-Prot 主号**（O9 核实为真）：旧映射只有 23.7% 落在
+   主号上，与 Reactome 的交集从应有的 11,201 个蛋白缩到 2,422 个。规范和 README 中筛选模式的数字
+   是在这个映射上算出的。
+6. **Open Targets 分页在同分处漏靶点**：接口对同分靶点每次请求排序不同，分页会重复一些、漏掉同样多，
+   总数照样对得上。第一轮加的"每个靶点恰好出现一次"检查在实时接口上当场触发。
+7. **Skill 声明的数据版本没有被执行**：运行器取每个源最后记录的快照，`npass@2.0` 这类版本声明被忽略。
+8. **发布检查把实体名称当成了陈述的措辞**：通路名 "PPARA activates gene expression" 被读成"声称激活"，
+   6 条真实的通路假说被误拒。这一条方向相反——是拒绝了不该拒绝的，而不是放过了不该放过的。
+
+受影响的真实数据结果已重算，见 §7.6。
+
 ---
 
 ## 1. 规范前部提出的问题，逐条核对
@@ -168,22 +182,25 @@ Wikidata 服务端对共享云地址的限流（HTTP 429，"Aggressively rate-li
 
 ## 5. 未修复、需要决定或需要真实文件的事项
 
-| ID | 事项 | 原因 / 建议 |
-| --- | --- | --- |
-| O1 | 与许可证联动的运行授权（例如商业用途的运行拒绝 NPASS、CMAUP） | 需要先定义"运行的数据许可策略"；`commercial_use` 字段目前无人读取。现有 `LicensePolicy` 管的是**代码**复用方式（vendor / native / federated），不是数据。 |
-| O2 | 快照账本：从尾部截断或回滚不可检测；只有进程内锁 | 哈希链能发现中间篡改，不能发现截尾。建议把链头（序号 + 哈希）写入 PSH 审计日志和 `provenance.json`，并改用文件锁。 |
-| O3 | `parsers.common.open_text` 以 `errors="replace"` 读文件 | ETCM / HERB 导出常为 GBK。写这两个导入器时应显式指定编码，并把含替换字符的行计数。 |
-| O4 | 重试耗尽、`Retry-After` 超过上限时报 `FAILED` | 与状态词表一致，建议保留，并在规范中写明是有意为之。 |
-| O5 | 响应缓存无 TTL | 抓取器不使用缓存，影响有限；若日后在分析中启用缓存，应要求设置 `version`。 |
-| O6 | 批量下载器不检查重定向落点 | 由校验值（17 / 24）和声明大小兜底；剩下 7 个 `current` 文件只有大小校验。 |
-| O7 | web 客户端 | 尚不存在；写之前满足 §3.2。 |
-| O8 | "BATMAN-TCM 结果一律标为预测"等规则没有落地 | 这些源还没有卡片，规则只写在规范里。加卡片时应在 `EdgeDefault` 中固定 `knowledge_level=prediction`。 |
-| O9 | PubChem 基因号 → UniProt 取 STRING 别名文件中列出的第一个 `UniProt_AC` | 未确认它总是 Swiss-Prot 主号；若不是，与 Reactome（主号）的交集会静默变小。需要用真实别名文件核对。 |
-| O10 | BindingDB 解析器未经真实文件验证 | 下载需人工操作，本环境无法代为完成（规范已列）。 |
-| O11 | Wikidata 三个操作在云地址上被服务端限流 | 不是代码问题；在 Wikidata 待遇更好的网络上可用 `rates=` 放宽。 |
+第一轮列出十一项；"第二轮"一列是同日后续处理的结果。
 
-**对已发表的真实数据结论的影响**：规范中葛根芩连汤的结论（1,792 个成分、370 个实测靶点、
-66 条通路，以及改用"实测过的蛋白"背景后无显著通路）**不受本次修复影响**，已核实：
+| ID | 事项 | 第二轮 |
+| --- | --- | --- |
+| O1 | 与许可证联动的运行授权（例如商业用途的运行拒绝 NPASS、CMAUP） | **已修复**。运行声明用途（`--purpose academic\|commercial`，默认 `academic`，写入 `provenance.json`）。商业用途只授予卡片写明 `commercial_use: allowed` 的源，`unknown` 同样拒绝——"没查过"不是许可。现有卡片：LOTUS、STRING、Reactome、Open Targets、BindingDB 为 `allowed`，NPASS、CMAUP 为 `forbidden`，PubChem BioAssay 为 `unknown`；商业用途运行本 Skill 时后三者被拒绝，原因写进 `sources_refused`。 |
+| O2 | 快照账本：截尾或回滚不可检测；只有进程内锁 | **已修复**。追加时持有跨进程文件锁（`<账本>.lock` 上的 `flock`）：实测两个进程并发追加，无锁 3 次中 3 次断链，有锁 100 次中 0 次。每次运行把读到的链头（序号 + 哈希）写进 `provenance.json` 的 `ledger_head`；`verify(expected_head=…)` 与 `run_network_pharmacology.py --ledger-head-from 上次的provenance.json` 拒绝已不含该条目的账本（截短、回滚或改写）。作为锚点的那份 provenance 需保存在 agent 不可写处。 |
+| O3 | `open_text` 以 `errors="replace"` 读文件 | **已修复**。`open_text` / `read_rows` 接受 `encoding`（ETCM / HERB 导入时传 `gb18030`）；不可解码的字节仍以替换字符读入（一个坏字节不至于丢掉整个文件），但传入 `report` 时逐行计为警告，写进快照 manifest；没有警告时 manifest 不变，已有快照 ID 不受影响。NPASS、CMAUP、LOTUS、Reactome 解析器已传入 `report`；本次下载的真实文件全部是有效 UTF-8。 |
+| O4 | 重试耗尽、`Retry-After` 超过上限时报 `FAILED` | **维持**。与状态词表一致（"执行了且上游出错"），是有意的。 |
+| O5 | 响应缓存无 TTL | **已修复**。`HTTPBackend(max_age_s=…)`：超过时限的缓存条目视为未命中并重新请求；默认 `None`（永久）只适合带数据 `version` 的请求。 |
+| O6 | 批量下载器不检查重定向落点 | **已修复**。下载器改用传输层同一个重定向处理器：只允许同一主机，禁止 https→http；被拒绝的重定向不重试（重试也会被同样重定向），报 `DownloadError`。25 个下载地址实测无一重定向，现有下载不受影响。 |
+| O7 | web 客户端 | 未变：尚不存在；写之前满足 §3.2。 |
+| O8 | "BATMAN-TCM 结果一律标为预测"等规则没有落地 | **已修复**（落在卡片校验里）。`PREDICTION_ONLY`：BATMAN-TCM 的所有默认边必须是 `prediction`；`PREDICTED_TARGETS`：ETCM、TCMSP、TCMToxDB 的 `targets` 默认必须是 `prediction`。为这些源写的卡片若声明更高的知识等级，加载卡片时即报错；解析器只能在记录本身写明"经验证"时逐条上调。 |
+| O9 | PubChem 基因号 → UniProt 取别名文件中第一个 `UniProt_AC` | **确认是缺陷，已修复**，影响重大，见 §7.1。 |
+| O10 | BindingDB 解析器未经真实文件验证 | 未变：下载需人工操作，本环境无法代为完成。 |
+| O11 | Wikidata 三个操作在云地址上被服务端限流 | 未变：不是代码问题；在 Wikidata 待遇更好的网络上可用 `rates=` 放宽。 |
+
+**对已发表的真实数据结论的影响**（第一轮）：规范中葛根芩连汤的结论（1,792 个成分、370 个实测靶点、
+66 条通路，以及改用"实测过的蛋白"背景后无显著通路）**不受第一轮修复影响**，已核实（第二轮发现的
+问题影响 PubChem 筛选模式和 Open Targets 的数字，见 §7.6）：
 
 - 在四味药的 NPASS 子集上重跑解析，丢弃计数与规范 M2 一节**完全一致**（细胞系 / 整体生物
   43,297 条，无文献 202 条）——说明本次下载的正是规范所用的文件，去重也没有改动原有计数；
@@ -216,3 +233,149 @@ from bioagent.sources.parsers import parse_npass, parse_cmaup
 for f in (parse_npass, parse_cmaup):
     r = f('.'); print(f.__name__, dict(r.report.dropped))"
 ```
+
+---
+
+## 7. 第二轮：真实数据重跑中发现的问题
+
+第一轮之后，用修复后的代码在真实文件上从头重建快照、重新抓取 Open Targets 与 PubChem、
+重跑分析，以更新规范中的数字。过程中发现下面几个问题，均已修复并有回归测试。
+
+### 7.1 N1（即 O9）PubChem 基因号 → UniProt：多数不是 Swiss-Prot 主号（高）
+
+- **位置**：`parsers/pubchem_bioassay.py` `gene_to_uniprot`。
+- **问题**：对每个 STRING 蛋白取别名文件中列出的第一个 `UniProt_AC`。这一列混有次要号和
+  TrEMBL 号，顺序没有约定。Reactome 和其他快照只用主号，所以映射到非主号的蛋白与通路注释对不上。
+  这些检测照常进入快照（丢弃计数不受影响），却在通路检验中不属于任何通路——没有报错，也没有计数。
+- **真实数据**（STRING v12 别名文件 × UniProt 人类 Swiss-Prot 主号列表）：旧映射覆盖 19,197 个
+  基因，其中**只有 4,547 个（23.7%）是主号**；14,354 个（74.8%）是 6 位但不是主号（次要号或
+  TrEMBL），296 个（1.5%）是 10 位 TrEMBL 号。能与 Reactome 人类注释对上的蛋白只有 2,422 个；
+  修复后映射 18,868 个基因，全部是主号，对上 11,201 个。
+- **例子**：旧结果中起作用的 CYP1A2、CYP2C9、CYP2D6、CYP2E1 碰巧映射到了主号；但 **CYP3A4**
+  被映射到次要号 P05184（主号 P08684），CA2、PTGS2、EGFR、PPARG、AKT1、TNF 被映射到 TrEMBL
+  或次要号（如 PTGS2 → A8K802，EGFR → O00688），全部从通路检验中消失。对于"中药—药物相互作用"
+  这个结论，漏掉最重要的药物代谢酶 CYP3A4 是实质性的缺失。
+- **修复**：只接受 UniProt 人类 Swiss-Prot 主号列表中的号。列表作为新的下载项
+  （`uniprot_human_reviewed_accessions.txt`，`bioagent datasets fetch` 可取）并作为原始文件计入
+  快照哈希；缺少时拒绝构建，并提示下载命令。一个基因对应多个主号时仍视为歧义、不映射。
+  STRING 解析器在有该文件时也优先选主号。
+
+### 7.2 N2 Open Targets 分页在同分处漏靶点（高）
+
+- **位置**：`sources/fetch_opentargets.py`。
+- **问题**：接口每页最多 3,000 条（3,001 即报错）。同分的靶点，接口每次请求的排列顺序都不同，
+  所以同一列表的相邻两页会在同分块上重复一些靶点、漏掉同样多，而总数照样对得上。第一轮 M4 加的
+  "每个靶点恰好出现一次"检查在实时接口上当场触发，抓取失败——这是正确的失败：只比总数的旧代码会把
+  这样的结果当作完整的保存下来。
+- **真实数据**（2026-09-30，2 型糖尿病，平台 26.09，10,206 个靶点，4 页）：几次诊断性分页每次
+  重复 1–11 个靶点，都在同分块跨页处（第 3 页末 10 个与第 4 页开头 103 个同分 0.00296 的靶点）；
+  有一次两遍分页合起来仍漏 10 个，所以"多抓几遍取并集"也不可靠。同一靶点在两次请求中返回的
+  `datatypeScores` 顺序也不同（10 个）。规范中 26.06 的结果是 2026-09-23 用只比总数的代码抓的，
+  原始文件未保留，无法事后核对；同分块位于低分尾部，默认疾病基因集（遗传关联 ≥ 0.5）不太可能受
+  影响，但"不设阈值"等敏感性分析可能受影响。
+- **修复**：不再对一个列表分页。接口的 `BFilter` 按靶点 ID 前缀过滤（实测：对 ID 前缀有效、不区分
+  大小写，也匹配基因符号前缀）。按 Ensembl ID 逐位分组，直到每组不超过 3,000 个，每组用一次请求
+  整组取回；分组前先用 `size: 0` 的请求只取计数。每一层各组计数之和必须等于上一层，每个靶点必须
+  恰好出现一次（符号前缀也会匹配，重叠是可能的，检查会发现），抓取前后的数据版本必须相同。2 型
+  糖尿病实测：`ENSG000000` 1,306 个、`ENSG000001` 7,874 个（再分 10 组）、`ENSG000002` 1,023 个、
+  `ENSG000003` 3 个，共 10,206 个，逐一出现一次。保存时把 `datatypeScores`、`proteinIds` 排成
+  固定顺序。
+
+### 7.3 N3 Skill 的数据版本声明没有被执行（中）
+
+- **位置**：`analysis/skill_runner.py` `_latest`。
+- **问题**：运行器取账本中每个源**最后记录**的快照，`skill.yaml` 的版本号被忽略：声明
+  `npass@2.0` 的 Skill 会在最后构建的任何 NPASS 版本上运行，声明 `opentargets@26.06+…` 的会在
+  26.09 上运行。`provenance.json` 记录了实际的快照 ID，所以事后可查，但契约没有被执行——规范 M3
+  的验收标准就是"在指定的快照版本上运行"。
+- **修复**：`npass@2.0` 只接受 2.0 版及其范围子集（`2.0+subset-…`），带范围的声明
+  （`26.09+MONDO_0005148`）只接受该范围，不写版本才表示"最新"；没有相符的快照时拒绝运行，并列出
+  账本中已有的版本。随包 Skill 的 Open Targets 声明改为 `26.09+MONDO_0005148`：接口只提供当前
+  版本，26.06 已无法重新抓取。研究循环（`bioagent.research`）按源名而不是版本选快照、并把快照 ID
+  预先登记，是另一种契约，未改动。
+
+### 7.4 N4 发布检查把实体名称当成了陈述的措辞（中）
+
+- **位置**：`sources/release.py` `_statement_problem`。
+- **问题**：检查"陈述是否声称了作用方向"时扫描整句，包括句中引用的实体名称。分析生成的陈述写的是
+  "……，<通路名> may be involved in its action"，而 Reactome 有大量带动词的通路名。这条检查是在
+  规范 09-23 那次运行之后加入的（5811cad），测试夹具里的通路名没有动词，所以没有测出来。
+- **真实数据**：以完整 Reactome 为背景时，66 条显著通路中 6 条被拒（如 "PPARA activates gene
+  expression"），运行以非零状态退出；筛选模式阈值 10 与 50 下各有 1 条被拒（"WNT mediated
+  activation of DVL"、"Aflatoxin activation and detoxification"）。同理，Reactome 中大量
+  "Defective … causes …" 的疾病通路名、UniProt 名称 "Inhibitor of nuclear factor kappa-B kinase
+  subunit beta" 也会被误读。
+- **修复**：检查措辞前，把路径上实体（主语、宾语和各条支持边的两端）在已校验快照中记录的名称
+  （`name` 与 `names`）从陈述中去掉，而且名称必须独立出现（不在更长的词里）。只去掉路径上实体的
+  名称，Skill 不能靠自选的措辞为自己开脱。重跑后 66 / 66、8 / 8、8 / 8 全部通过。
+
+### 7.5 其他（低）
+
+- 两个抓取器把原始文件直接写到最终文件名，中途被中止会留下截断的文件（构建时会报 gzip / JSON
+  错误，不会静默）。现在先写 `.part` 再改名，与批量下载器一致。
+
+### 7.6 重算结果（2026-09-30，同一批原始文件，10,000 次置换用于筛选模式）
+
+**不受影响的部分**（与规范一致，逐项核对）：整理型数据的默认运行——1,792 个成分，391 个被测
+人类蛋白中 237 个 ≤ 10 µM，检验 959 条通路，0 条显著，命中率 61%，0 条主张；以完整 Reactome 为
+背景时 12,155 个蛋白、1,684 条通路、66 条显著；STRING 子网络 237 个节点、624 条边、最大连通分量
+195。两次独立运行的结果摘要一致（默认运行、筛选模式各重复一次）。
+
+**Open Targets（26.06 → 26.09，改用分组抓取）**：
+
+| 疾病基因集（Reactome 背景） | 26.06（旧抓取器） | 26.09（分组抓取） |
+| --- | --- | --- |
+| 关联靶点 | 9,907 | 10,206（每个恰好一次） |
+| 遗传关联 ≥ 0.5：背景内 / 重叠 / 倍数 / p | 486 / 9 / 0.95 / 0.61 | 478 / 9 / 0.97 / 0.59 |
+| 遗传关联不设阈值 | 2,001 / 45 / 1.15 / 0.17 | 2,215 / 41 / 0.95 / 0.67 |
+| 遗传关联 ≥ 0.8 | 49 / 2 / 2.09 / 0.25 | 82 / 2 / 1.25 / 0.48 |
+| 总分 ≥ 0.5 | 126 / 8 / 3.26 / 0.003 | 156 / 8 / 2.63 / 0.011 |
+| 文献共现 ≥ 0.5 | 557 / 58 / 5.34 / 7.7e-27 | 556 / 57 / 5.26 / 5.2e-26 |
+| 实测背景：疾病基因 / 命中 / 倍数 | 16 / 9 / 0.93 | 14 / 9 / 1.06（p = 0.50） |
+
+结论不变：用遗传证据定义疾病基因时没有富集，用文献定义时有极强的"富集"（循环论证）。
+
+**PubChem 筛选模式（修正映射）**：
+
+| | 旧映射 | 修正后 |
+| --- | --- | --- |
+| 保留的明确判定（有活性 / 无活性） | 143,702（10,710 / 132,992） | 143,679（10,696 / 132,983），1,029 个蛋白 |
+| 参与检验的蛋白（阈值 10 / 20 / 50） | 130 / 116 / 98 | 524 / 472 / 417 |
+| 检验的通路（同上） | 68 / 58 / 49 | 516 / 468 / 406 |
+| 阈值 20 的检测数、活性比例 | 12,579，8.6% | 51,304，6.5% |
+| 通过的通路（同上） | 1 / 2 / 2 | 8 / 9 / 8 |
+| 被充分测过的 2 型糖尿病基因 | 6–8，倍数 1.2–1.4 | 31–39，倍数 0.85–0.97（p = 0.50–0.69） |
+
+- **CYP 信号保留且更完整**：CYP1A2 136/205、CYP2C9 78/206 与原来相同；新增进入检验的 CYP2C19
+  91/204、CYP2D6 75/204、**CYP3A4 70/224**（旧映射下被映到次要号）。外源物代谢、EET/DHET、
+  16-20-HETE、类 maresin SPM、阿司匹林 ADME 在三个阈值下都通过，CYP2E1 反应在阈值 20 与 50 下通过。"中药—药物相互作用
+  信号，不是作用机制证据"的解读不变，而且现在覆盖了最主要的药物代谢酶 CYP3A4。
+- **新信号：核受体转录通路**（阈值 20、50）：22 个核受体、3,355 次检测中 568 次有活性（16.9%，
+  2.6 倍），来自 Tox21 / Attagene / Odyssey Thera 等统一面板。ESR1 以激动模式为主（黄酮与异黄酮，
+  与植物雌激素一致）；AR、PPARG、THRB 等以拮抗模式报告基因检测为主，易受细胞毒性和荧光素酶抑制
+  干扰。规范按"值得核对的线索，不是机制"记录。
+- **碳酸酐酶**现在在阈值 10 与 20 下通过（旧映射下 CA2 被映到 TrEMBL 号，只在阈值 10 出现），
+  但 121 次检测中 116 次有活性、全部来自按阳性挑选的文献检测，阈值 50 下消失，解读不变。
+
+### 7.7 验证
+
+```bash
+cd BioScience-Harness
+PYTHONPATH=src:../PSH-Harness/src python -m pytest tests -q        # 1129 passed, 6 skipped（单元层 1127）
+cd ../PSH-Harness && PYTHONPATH=src python -m pytest -q && cd -   # 1086 passed
+PYTHONPATH=src:../PSH-Harness/src python scripts/check_lockfile.py
+# 真实数据（原始文件放在 RAW；Open Targets 与 PubChem 为唯一联网的两步）
+python scripts/build_source_snapshots.py gold --network --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
+python scripts/fetch_opentargets.py MONDO_0005148 --raw RAW
+python scripts/build_source_snapshots.py opentargets --file RAW/opentargets_MONDO_0005148.json --out SNAP --ledger SNAP/audit/snapshots.jsonl
+python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW
+python scripts/build_source_snapshots.py pubchem --file RAW/pubchem_bioassay.json.gz --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
+python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
+python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN_S \
+    --hits screening --permutations 10000                     # --screening-min-compounds 10 / 50
+python scripts/run_network_pharmacology.py ... --background reactome --disease-evidence literature   # 敏感性分析
+```
+
+RAW 需要：NPASS 2.0 ×6、CMAUP 2.0 ×5、LOTUS 冻结版、STRING v12 的 links / aliases / info、
+`UniProt2Reactome.txt`，以及新增的 `uniprot_human_reviewed_accessions.txt`（下载地址均在
+`acquisition/sources.py`）。

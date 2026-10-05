@@ -204,6 +204,30 @@ def test_a_statement_within_its_edges_is_released():
     assert len(directed.released) == 1
 
 
+def test_an_entitys_recorded_name_is_not_read_as_the_statements_wording():
+    """Six real 葛根芩连汤 pathway hypotheses were refused (2026-09-30): the Reactome
+    pathway "PPARA activates gene expression" read as the formula activating something."""
+    from bioagent.sources.release import CandidateClaim, check_release
+    from bioagent.sources.snapshot import Snapshot
+    nodes = ({"id": "protein:B", "category": "pathway",
+              "name": "PPARA activates gene expression"},
+             {"id": "compound:A", "category": "ingredient", "name": "act"},
+             {"id": "protein:Z", "category": "target", "name": "Zeta inhibits all"})
+    snap = Snapshot("audit-snapshot", "audit", "1", Path("."), {}, nodes, (_edge(),))
+    support = (("audit-snapshot", "r1"),)
+
+    def released(statement: str) -> bool:
+        claim = CandidateClaim("mechanism", "compound:A", "protein:B", support, statement)
+        return len(check_release([claim], [snap]).released) == 1
+
+    assert released("PPARA activates gene expression may be involved in the action of act.")
+    # wording outside the name is still read; a name inside a longer word is not a name
+    assert not released("act activates PPARA activates gene expression.")
+    assert not released("Compound A activates protein B.")
+    # only the names of entities on the claim's path are blanked, not any recorded name
+    assert not released("Compound A may act on protein B; Zeta inhibits all.")
+
+
 def test_an_inactive_measurement_supports_no_effect():
     from bioagent.sources.release import CandidateClaim, check_release
     verdict = check_release([

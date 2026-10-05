@@ -259,7 +259,9 @@ def test_the_tcm_tools_are_registered_native_tools():
     names = {t.name for t in TOOLS if t.domain == "tcm-knowledge"}
     assert names == {"tcm_lookup", "tcm_herb", "tcm_formula", "tcm_syndrome",
                      "tcm_compatibility", "tcm_applicability", "tcm_evidence_tiers",
-                     "tcm_classical_search"}
+                     "tcm_classical_search",
+                     # read-only lookups of locally built manual datasets (tools/tcmdb.py)
+                     "hkbu_formula_lookup", "hkcmms_standard_lookup", "hk_cmm_dna_lookup"}
     assert DOMAINS["tcm-knowledge"] == "clinical"
     assert BY_NAME["tcm_herb"].component_id == "native.tool.tcm_herb"
 

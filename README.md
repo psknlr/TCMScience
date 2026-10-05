@@ -72,14 +72,16 @@ The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) w
 
 All 12 carbonic-anhydrase-pathway proteins had been assayed, and 11 were hits. The pathways looked enriched because they had been tested, not because they had been hit. The assayed background has little power in turn: 61 % of assayed proteins are recorded as hits, because databases rarely record inactive results.
 
-**2 · With inactive results included, one signal remains: CYP inhibition.** PubChem BioAssay contributes 143,702 results (10,710 active, 132,992 inactive). On the 116 proteins tested against ≥ 20 constituents (12,579 tests, 8.6 % active), the pathways that pass are cytochrome P450 pathways (q = 0.023–0.026 with 10,000 permutations), as they are at ≥ 50 constituents (q = 0.017). They are driven by **CYP1A2** (136 of 205 constituents active) and **CYP2C9** (78 of 206) in uniform Tox21 panels. At the loosest threshold (≥ 10) a carbonic-anhydrase pathway passes instead, carried by small literature sets chosen for their actives. This is a **herb–drug interaction signal**, not evidence for a mechanism of action.
+**2 · With inactive results included, the signal is drug-metabolising enzymes.** PubChem BioAssay contributes 143,679 results on 1,029 human proteins (10,696 active, 132,983 inactive). On the 472 proteins tested against ≥ 20 constituents (51,304 tests, 6.5 % active), nine pathways pass (10,000 permutations, q = 0.008–0.026). Six are drug-metabolism pathways carried by cytochrome P450s (xenobiotics, EET/DHET and 16-20-HETE synthesis, maresin-like SPM biosynthesis, aspirin ADME, CYP2E1 reactions), five of which pass at every threshold (≥ 10, 20 and 50 constituents). They are driven by uniform Tox21 and qHTS panels: **CYP1A2** (136 of 205 constituents active), **CYP2C19** (91/204), **CYP2C9** (78/206), **CYP2D6** (75/204) and **CYP3A4** (70/224). This is a **herb–drug interaction signal**, not evidence for a mechanism of action. The nuclear-receptor transcription pathway also passes (22 receptors, 16.9 % of tests active): ESR1 activity is mostly agonist-mode (flavonoids and isoflavones, as expected of phytoestrogens), while the AR, PPARG and THRB actives come mostly from antagonist-mode reporter assays, which cytotoxicity and luciferase inhibition confound. Carbonic-anhydrase pathways pass at the lower thresholds but rest on small literature sets chosen for their actives (116 of 121 tests active), and they vanish at ≥ 50.
 
-**3 · The disease overlap depends on how the disease is defined.** Measured targets against type 2 diabetes genes (Open Targets 26.06):
+*Corrected 2026-09-30:* earlier figures here mapped three quarters of PubChem's gene ids to UniProt accessions that no other source uses. That silently removed CYP3A4, among others, from the test ([review](BioScience-Harness/docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md), §7).
+
+**3 · The disease overlap depends on how the disease is defined.** Measured targets against type 2 diabetes genes (Open Targets 26.09):
 
 | Disease gene set | Overlap | Fold | p |
 |---|---:|---:|---:|
-| Human genetic association, score ≥ 0.5 (default) | 9 | 0.95 | 0.61 |
-| Literature co-mention, score ≥ 0.5 | 58 | 5.34 | 7.7 × 10⁻²⁷ |
+| Human genetic association, score ≥ 0.5 (default) | 9 | 0.97 | 0.59 |
+| Literature co-mention, score ≥ 0.5 | 57 | 5.26 | 5.2 × 10⁻²⁶ |
 
 The literature-defined enrichment is circular, because compound–target data and text mining study the same well-known proteins. The pipeline therefore defaults to genetic evidence and warns whenever literature is chosen. Full methods, sensitivity analyses and limitations are in the [design spec](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md).
 
@@ -134,11 +136,13 @@ python -m bioagent.cli skill normalize-tcm-entities --arg names=姜,白芍 --dir
 cd BioScience-Harness
 python scripts/build_source_snapshots.py gold --network --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/fetch_opentargets.py MONDO_0005148 --raw RAW
+python scripts/build_source_snapshots.py opentargets --file RAW/opentargets_MONDO_0005148.json --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW
+python scripts/build_source_snapshots.py pubchem --file RAW/pubchem_bioassay.json.gz --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
 python scripts/run_network_pharmacology.py ... --hits screening          # PubChem, inactives included
 
-# tests: PSH 1084 · BioScience 1056
+# tests: PSH 1086 · BioScience 1127 (unit tier)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -176,8 +180,9 @@ Every source has a card stating its licence and access path. Web access is off u
 | BindingDB | measured binding | CC BY 4.0 |
 | PubChem BioAssay | screening results, inactives included | NCBI data policy |
 | STRING v12 | protein associations | CC BY 4.0 |
+| UniProt (reviewed human) | Swiss-Prot primary accessions, for mapping PubChem's gene ids | CC BY 4.0 |
 | Reactome | pathway membership | CC0 |
-| Open Targets 26.06 | target–disease associations | CC0 |
+| Open Targets 26.09 | target–disease associations | CC0 |
 
 ## TCMScience Arena
 

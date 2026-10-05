@@ -15,9 +15,15 @@ gave one. The assay type (Screening / Confirmatory / Other / Summary), the assay
 the depositor's activity value are kept, so an analysis can choose which results count.
 
 NCBI Gene ids are mapped to UniProt through STRING's alias file (``UniProt_DR_GeneID`` /
-``Ensembl_HGNC_entrez_id`` to a STRING protein, ``UniProt_AC`` to its accession, the
-first listed as in ``parsers.string_db``), so targets carry the same ids as the STRING
-and Reactome snapshots.
+``Ensembl_HGNC_entrez_id`` to a STRING protein, ``UniProt_AC`` to its accessions), keeping
+the one accession that is a **UniProtKB/Swiss-Prot primary accession** — the namespace
+NPASS, CMAUP, BindingDB, Reactome and Open Targets all use. STRING lists every accession
+of an entry, secondary and TrEMBL ones included, and does not say which is primary; the
+first one listed is the primary for only 23% of human STRING proteins. Taking it put
+PubChem targets on accessions that joined Reactome for 2,422 of 19,197 mapped genes,
+where the primary joins for 11,201. So the primary list
+(``uniprot_human_reviewed_accessions.txt``, from UniProt) is an input like the alias file,
+and its hash is part of the snapshot.
 """
 
 from __future__ import annotations
@@ -25,19 +31,35 @@ from __future__ import annotations
 import gzip
 import json
 from pathlib import Path
+from typing import Iterable
 
 from .common import NodeBook, ParseReport, ParseResult, clean, is_uniprot, parse_measure, read_rows
 
-__all__ = ["parse_pubchem_bioassay", "gene_to_uniprot"]
+__all__ = ["parse_pubchem_bioassay", "gene_to_uniprot", "read_primary", "PRIMARY_FILE"]
 
 KEY = "pubchem_bioassay"
 LICENSE = "NCBI-data-policy"
+#: One UniProtKB/Swiss-Prot primary accession per line (``format=list`` from UniProt's REST
+#: service, ``organism_id:9606 AND reviewed:true``).
+PRIMARY_FILE = "uniprot_human_reviewed_accessions.txt"
 _GENE_SOURCES = ("UniProt_DR_GeneID", "Ensembl_HGNC_entrez_id")
 _EDGE = {"Active": "targets", "Inactive": "tested_against"}
 
 
-def gene_to_uniprot(aliases: str | Path) -> dict[str, str]:
-    """NCBI Gene id -> UniProt accession for human proteins, from STRING's alias file."""
+def read_primary(path: str | Path) -> frozenset[str]:
+    """The Swiss-Prot primary accessions in a UniProt ``format=list`` file."""
+    with open(path, encoding="utf-8") as fh:
+        return frozenset(line.strip() for line in fh if is_uniprot(line.strip()))
+
+
+def gene_to_uniprot(aliases: str | Path, *, primary: Iterable[str]) -> dict[str, str]:
+    """NCBI Gene id -> Swiss-Prot primary accession for human proteins.
+
+    A gene maps when the STRING proteins it names carry exactly one primary accession
+    between them: two STRING proteins that are one UniProt entry agree; two different
+    proteins are ambiguous and the gene is left out, as is a gene with no reviewed entry.
+    """
+    primary = frozenset(primary)
     genes: dict[str, set[str]] = {}
     accessions: dict[str, list[str]] = {}
     for row in read_rows(aliases):
@@ -48,19 +70,20 @@ def gene_to_uniprot(aliases: str | Path) -> dict[str, str]:
             accessions.setdefault(protein, []).append(alias)
     out = {}
     for gene, proteins in genes.items():
-        accs = sorted({accessions[p][0] for p in proteins if p in accessions})
-        if len(accs) == 1:                      # a gene naming two proteins is ambiguous
-            out[gene] = accs[0]
+        candidates = {a for p in proteins for a in accessions.get(p, ()) if a in primary}
+        if len(candidates) == 1:
+            out[gene] = next(iter(candidates))
     return out
 
 
-def parse_pubchem_bioassay(path: str | Path, *, aliases: str | Path) -> ParseResult:
-    path, aliases = Path(path), Path(aliases)
+def parse_pubchem_bioassay(path: str | Path, *, aliases: str | Path,
+                           primary: str | Path) -> ParseResult:
+    path, aliases, primary = Path(path), Path(aliases), Path(primary)
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         data = json.load(fh)
     report = ParseReport(KEY)
     book = NodeBook(KEY)
-    uniprot = gene_to_uniprot(aliases)
+    uniprot = gene_to_uniprot(aliases, primary=read_primary(primary))
     inchikey_of = {str(cid): key for key, cids in data["cids"].items() for cid in cids}
     col = {name: i for i, name in enumerate(data["columns"])}
     edges, seen = [], set()
@@ -80,7 +103,8 @@ def parse_pubchem_bioassay(path: str | Path, *, aliases: str | Path) -> ParseRes
             continue
         acc = uniprot.get(gene)
         if acc is None:
-            report.drop("target gene is not a human protein with one UniProt accession")
+            report.drop("target gene is not one human protein with a Swiss-Prot primary "
+                        "accession")
             continue
         key = inchikey_of.get(get("CID") or "")
         if key is None:
@@ -113,4 +137,5 @@ def parse_pubchem_bioassay(path: str | Path, *, aliases: str | Path) -> ParseRes
             measure = {**measure, "value": round(measure["value"] * 1000, 6), "unit": "nM"}
             edge["measure"] = measure
         edges.append(edge)
-    return ParseResult(book.rows(), edges, report, {path.name: path, aliases.name: aliases})
+    return ParseResult(book.rows(), edges, report,
+                       {path.name: path, aliases.name: aliases, primary.name: primary})

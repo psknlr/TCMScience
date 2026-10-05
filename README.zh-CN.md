@@ -72,14 +72,16 @@
 
 「二氧化碳可逆水合」通路的 12 个蛋白全都被测过，其中 11 个命中。这些通路显得显著，是因为被测过，而不是因为被选择性地命中。「实测背景」本身的检验功效也很低：61% 的被测蛋白被记为命中，因为数据库很少收录阴性结果。
 
-**2 · 纳入阴性结果后，只剩一个信号：CYP 抑制。** PubChem BioAssay 提供 143,702 条检测结果（10,710 条有活性，132,992 条无活性）。在测过 ≥ 20 个成分的 116 个蛋白上（12,579 次检测，8.6% 有活性），通过检验的是细胞色素 P450 通路（10,000 次置换，q = 0.023–0.026）；阈值为 ≥ 50 时同样如此（q = 0.017）。信号来自 Tox21 等统一检测面板中的 **CYP1A2**（205 个成分中 136 个有活性）和 **CYP2C9**（206 个中 78 个）。这是**中药—药物相互作用信号**，不是作用机制的证据。阈值放宽到 ≥ 10 时，通过的变成碳酸酐酶通路，那是少量按阳性挑选的文献检测造成的。
+**2 · 纳入阴性结果后，信号落在药物代谢酶上。** PubChem BioAssay 提供 143,679 条检测结果，涉及 1,029 个人类蛋白（10,696 条有活性，132,983 条无活性）。在测过 ≥ 20 个成分的 472 个蛋白上（51,304 次检测，6.5% 有活性），有 9 条通路通过检验（10,000 次置换，q = 0.008–0.026）。其中 6 条是由细胞色素 P450 承载的药物代谢通路（外源物代谢、EET/DHET 与 16-20-HETE 合成、类 maresin SPM 合成、阿司匹林 ADME、CYP2E1 反应），其中 5 条在 ≥ 10、20、50 三个阈值下都通过。信号来自 Tox21、qHTS 等统一检测面板：**CYP1A2**（205 个成分中 136 个有活性）、**CYP2C19**（204 中 91）、**CYP2C9**（206 中 78）、**CYP2D6**（204 中 75）和 **CYP3A4**（224 中 70）。这是**中药—药物相互作用信号**，不是作用机制的证据。核受体转录通路也通过了（22 个核受体，16.9% 的检测有活性）：ESR1 的活性以激动模式为主（黄酮与异黄酮，符合植物雌激素的性质），AR、PPARG、THRB 的活性则主要来自拮抗模式的报告基因检测，易受细胞毒性和荧光素酶抑制干扰。碳酸酐酶通路在较低阈值下通过，但依据的是少量按阳性挑选的文献检测（121 次检测中 116 次有活性），阈值 ≥ 50 时消失。
 
-**3 · 与疾病的重叠取决于「疾病基因」怎么定义。** 实测靶点与 2 型糖尿病基因（Open Targets 26.06）：
+*2026-09-30 更正*：此前这里的数字把 PubChem 四分之三的基因号映射到了其他数据源都不用的 UniProt 号，CYP3A4 等蛋白因此在检验中悄悄消失（见[复核文档](BioScience-Harness/docs/REVIEW_2026-09-30_THIRD_PARTY_DATA.md) §7）。
+
+**3 · 与疾病的重叠取决于「疾病基因」怎么定义。** 实测靶点与 2 型糖尿病基因（Open Targets 26.09）：
 
 | 疾病基因集 | 重叠 | 倍数 | p |
 |---|---:|---:|---:|
-| 人类遗传关联，分数 ≥ 0.5（默认） | 9 | 0.95 | 0.61 |
-| 文献共现，分数 ≥ 0.5 | 58 | 5.34 | 7.7 × 10⁻²⁷ |
+| 人类遗传关联，分数 ≥ 0.5（默认） | 9 | 0.97 | 0.59 |
+| 文献共现，分数 ≥ 0.5 | 57 | 5.26 | 5.2 × 10⁻²⁶ |
 
 用文献定义得到的富集是循环论证：成分—靶点数据和文本挖掘研究的是同一批热门蛋白。所以流程默认使用遗传证据，选用文献时会给出警告。完整方法、敏感性分析与局限见[设计规范](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md)。
 
@@ -134,11 +136,13 @@ python -m bioagent.cli skill normalize-tcm-entities --arg names=姜,白芍 --dir
 cd BioScience-Harness
 python scripts/build_source_snapshots.py gold --network --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/fetch_opentargets.py MONDO_0005148 --raw RAW
+python scripts/build_source_snapshots.py opentargets --file RAW/opentargets_MONDO_0005148.json --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/fetch_pubchem.py --composition SNAP/composition.json --raw RAW
+python scripts/build_source_snapshots.py pubchem --file RAW/pubchem_bioassay.json.gz --raw RAW --out SNAP --ledger SNAP/audit/snapshots.jsonl
 python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
 python scripts/run_network_pharmacology.py ... --hits screening          # PubChem，含阴性结果
 
-# 测试：PSH 961 · BioScience 949
+# 测试：PSH 1086 · BioScience 1127（单元层）
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -175,8 +179,9 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | BindingDB | 实测结合 | CC BY 4.0 |
 | PubChem BioAssay | 筛选结果，含阴性 | NCBI 数据政策 |
 | STRING v12 | 蛋白关联 | CC BY 4.0 |
+| UniProt（人类，已审阅） | Swiss-Prot 主号，用于映射 PubChem 的基因号 | CC BY 4.0 |
 | Reactome | 通路成员 | CC0 |
-| Open Targets 26.06 | 靶点—疾病关联 | CC0 |
+| Open Targets 26.09 | 靶点—疾病关联 | CC0 |
 
 ## TCMScience Arena 评测平台
 

@@ -2168,6 +2168,51 @@
    "checked": "2026-10-01",
    "origin": "review-2026-09-30",
    "commercial_use": "unknown"
+  },
+  {
+   "no": 134,
+   "name": "HKBU Chinese medicine formula database (manual integration)",
+   "modules": [],
+   "url": "https://library.hkbu.edu.hk/electronic/libdbs/cmfid/index.html",
+   "access": "manual_import",
+   "connector": null,
+   "dataset": "hkbu_formulas_manual",
+   "license": "not stated; verify applicable data permissions before production use",
+   "barriers": "No confirmed public bulk API or export. Obtain permitted data and review it before import; nothing is downloaded or scraped.",
+   "assessment": "Formula composition, doses, herb base species and citation, as lists the source. Adapter and extractor verified with synthetic records only; no real HKBU dataset was downloaded. Yields formula_herb rows with evidence 'listed' (composition, not efficacy); unverified or unidentified rows go to the unresolved queue. Module assignment is left empty until the architecture document's M1-M14 legend is applied.",
+   "checked": "2026-10-04",
+   "origin": "integration-2026-10-04",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 135,
+   "name": "Hong Kong Chinese Materia Medica Standards (HKCMMS)",
+   "modules": [],
+   "url": "https://www.cmro.gov.hk/html/gb/useful_information/hkcmms/volumes.html",
+   "access": "manual_import",
+   "connector": null,
+   "dataset": "hkcmms_manual",
+   "license": "Hong Kong Government publication; terms not stated here, verify reproduction and redistribution before production use",
+   "barriers": "Per-volume monographs; a person reads the permitted volumes and records each test item. The standard version, method, sample basis and unit must be kept.",
+   "assessment": "Identity, safety and quality monographs (identification, checks, assay limits), searchable by herb name, base species and chemical marker. Query-only: a limit or an identification method is not a herb-ingredient relation and is not forced into one. Adapter verified with synthetic records only.",
+   "checked": "2026-10-04",
+   "origin": "integration-2026-10-04",
+   "commercial_use": "unknown"
+  },
+  {
+   "no": 136,
+   "name": "Hong Kong Chinese Materia Medica reference DNA sequences",
+   "modules": [],
+   "url": "https://www.cmro.gov.hk/html/gb/useful_information/gcmti/research/dna_sequences/CMMR_SL.html",
+   "access": "manual_import",
+   "connector": null,
+   "dataset": "hk_cmm_dna_manual",
+   "license": "not stated; verify applicable data permissions before production use",
+   "barriers": "Published reference sequences (FASTA) plus specimen metadata; this review did not reach the entry page (it timed out), so the exact bundle and its terms must be confirmed with the publisher.",
+   "assessment": "Sequences linked to an identified base species and a voucher specimen, for authentication and adulterant discrimination. The FASTA is kept as a raw file and the metadata as a table. Query-only: a barcode is not a drug ingredient, and the relation vocabulary has no has_base_species. Authentication also needs a sequence quality check, a reference set and a discrimination method, which this dataset does not supply.",
+   "checked": "2026-10-04",
+   "origin": "integration-2026-10-04",
+   "commercial_use": "unknown"
   }
  ]
 }

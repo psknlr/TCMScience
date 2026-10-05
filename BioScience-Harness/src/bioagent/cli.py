@@ -271,7 +271,44 @@ def _cmd_tcmdb(a) -> int:
             result = hub.live(a.connector, a.operation, **_pairs(a.args, parse_json=True))
             show({"status": result.status.value, "error": result.error, "value": result.value})
             return 0 if result.status.value in ("SUCCEEDED", "DEGRADED") else 1
-    except (HubError, KeyError) as exc:
+        if a.tcmdb_cmd == "template":
+            from .tcmdb.manual import templates
+            for path in templates(a.dataset, a.out, demo=a.demo):
+                print(path)
+            return 0
+        if a.tcmdb_cmd == "verify":
+            from .tcmdb.manual import EXIT_NONE_CHECKED, verify
+            report = verify(hub, a.dataset or None)
+            if report["unknown"]:
+                print(f"tcmdb: not manual datasets: {report['unknown']}", file=sys.stderr)
+                return 2
+            if a.json:
+                show(report)
+            else:
+                print(f"hub: {report['hub']}")
+                for r in report["results"]:
+                    print(f"== {r['dataset']}: {'PASS' if r['ok'] else 'FAIL'}")
+                    if r.get("error"):
+                        print(f"   {r['error']}")
+                    if "tables" in r:
+                        print(f"   tables {r['tables']} | relations {r['relations']} | "
+                              f"unresolved {r['unresolved']}")
+                    if r.get("lookup"):
+                        lk = r["lookup"]
+                        queue = (f", {lk['unreviewed_rows']} unreviewed row(s) in the queue"
+                                 if lk.get("unreviewed_rows") else "")
+                        print(f"   lookup {lk['tool']}({lk['query']!r}): {lk['status']}, "
+                              f"{lk['records']} record(s){queue}")
+                    for line in r.get("problems", []):
+                        print(f"   PROBLEM: {line}")
+                    for line in r.get("warnings", []):
+                        print(f"   warning: {line}")
+                print(f"{report['outcome']} ({report['passed']}/{report['checked']} "
+                      "datasets checked passed)")
+            if not report["checked"]:
+                return EXIT_NONE_CHECKED
+            return 0 if report["passed"] == report["checked"] else 1
+    except (HubError, KeyError, FileExistsError) as exc:
         print(f"tcmdb: {exc}", file=sys.stderr)
         return 2
     return 2
@@ -554,6 +591,18 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--merge-processed", action="store_true",
                    help="treat processed forms (炙黄芪) as the crude drug")
     t.add_argument("--limit", type=int, default=50)
+    t = tsub.add_parser("template", help="write a manual dataset's import template: the "
+                                         "header row only, or with --demo invented rows "
+                                         "that are all pending")
+    t.add_argument("dataset", help="hkbu_formulas_manual, hkcmms_manual or hk_cmm_dna_manual")
+    t.add_argument("--out", default=".", help="directory to write into (never overwrites)")
+    t.add_argument("--demo", action="store_true",
+                   help="invented, obviously fictional rows, every one pending review")
+    t = tsub.add_parser("verify", help="build, check and look up every manual dataset that "
+                                       "has files; exit 0 all passed, 1 a failure, "
+                                       "3 nothing to check")
+    t.add_argument("dataset", nargs="*", help="limit to these manual datasets")
+    t.add_argument("--json", action="store_true")
     t = tsub.add_parser("compare", help="per-source (or per-version) object sets of a subject")
     t.add_argument("kind")
     t.add_argument("subject")

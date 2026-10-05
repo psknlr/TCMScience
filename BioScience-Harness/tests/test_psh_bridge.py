@@ -424,6 +424,15 @@ def test_the_isolated_child_is_told_the_filesystem_roots_this_process_resolved(
     argv = shlex.split(bridge.admit(echo).entrypoint)
     assert argv[argv.index("--workspace") + 1] == str(work.resolve())
     assert "--data-lake" in argv
+    # the TCM data hub too: $BIOAGENT_TCMDB, else the hub inside the data lake given
+    lake, hub = tmp_path / "lake", tmp_path / "lake" / "hub"
+    other = BioScienceBridge(kernel, runtime, isolate=True,
+                             roots={"data_lake": lake, "tcmdb": hub})
+    argv = shlex.split(other._isolated_entrypoint(echo))
+    assert argv[argv.index("--tcmdb") + 1] == str(hub.resolve())
+    if not __import__("os").environ.get("BIOAGENT_TCMDB"):
+        lake_only = BioScienceBridge(kernel, runtime, isolate=True, roots={"data_lake": lake})
+        assert lake_only.roots["tcmdb"] == str(lake.resolve() / "tcmdb")
     with pytest.raises(BridgeRefused, match="unknown filesystem roots"):
         BioScienceBridge(kernel, runtime, isolate=True, roots={"home": tmp_path})
     with pytest.raises(BridgeRefused, match="only be given to isolated"):

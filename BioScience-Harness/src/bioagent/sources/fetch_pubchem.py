@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import os
 import time
 import urllib.parse
 from pathlib import Path
@@ -131,6 +132,10 @@ def fetch_assay_summaries(inchikeys: Iterable[str], out_dir: str | Path, *,
         "columns": columns,
         "rows": sorted(rows),
     }
-    with gzip.open(out, "wt", encoding="utf-8") as fh:
+    # Written beside and renamed into place: a fetch stopped mid-write leaves no
+    # truncated file under the name a build reads.
+    part = out.with_name(out.name + ".part")
+    with gzip.open(part, "wt", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, sort_keys=True)
+    os.replace(part, out)
     return out

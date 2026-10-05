@@ -99,11 +99,8 @@ def catalog() -> tuple[SourceCard, ...]:
 
 
 def _default_root() -> Path:
-    env = os.environ.get(ENV_TCMDB)
-    if env:
-        return Path(env).expanduser()
-    from ..config import data_lake_dir
-    return Path(data_lake_dir()) / "tcmdb"
+    from ..config import tcmdb_dir
+    return tcmdb_dir()
 
 
 def _like(text: str) -> str:
@@ -225,7 +222,14 @@ class TCMDataHub:
 
     # ------------------------------------------------------------------- build
     def build(self, key: str, *, log=print) -> dict[str, Any]:
-        """Load the present files into ``db/<key>.sqlite`` and extract its relations."""
+        """Load the present files into ``db/<key>.sqlite`` and extract its relations.
+
+        Everything is built in a staging file that replaces the store only once the
+        relations are extracted, so a build that fails — a file the reader refuses, an
+        extractor that raises — leaves the previous store exactly as it was. (The tables
+        used to replace it first: a bad import turned a good store into one without its
+        relations.)
+        """
         spec = dataset(key)
         raw = self.raw_dir(key)
         if not raw.exists() or not any(raw.iterdir()):
@@ -233,27 +237,36 @@ class TCMDataHub:
                     else "run hub.enrich(<name>) first" if spec.access == "live"
                     else f"run fetch('{key}')")
             raise HubError(f"{spec.name}: no files in {raw}; {hint}")
-        if spec.access == "live":
-            from .live import build_live_store
-            report = build_live_store(raw, self.db_path(key), license=spec.license)
-        else:
-            report = build_store(spec, raw, self.db_path(key), log=log)
-        conn = connect(self.db_path(key), readonly=False)
+        target = self.db_path(key)
+        staging = target.with_name(target.name + ".staging")
+        staging.unlink(missing_ok=True)
         try:
-            report["relations"] = build_relations(conn, key)
-            report["unresolved"] = conn.execute("SELECT count(*) FROM unresolved").fetchone()[0]
-            report["relations_digest"] = relations_digest(conn)
-            conn.execute("CREATE TABLE IF NOT EXISTS _tcmdb_build (key TEXT, value TEXT)")
-            conn.execute("DELETE FROM _tcmdb_build")
-            negatives = sorted(r[0] for r in conn.execute(
-                "SELECT DISTINCT source FROM relations WHERE outcome != 'positive'"))
-            conn.executemany("INSERT INTO _tcmdb_build VALUES (?, ?)", [
-                ("relations_digest", report["relations_digest"]),
-                ("sources_with_negatives", json.dumps(negatives)),
-                ("built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))])
-            conn.commit()
-        finally:
-            conn.close()
+            if spec.access == "live":
+                from .live import build_live_store
+                report = build_live_store(raw, staging, license=spec.license)
+            else:
+                report = build_store(spec, raw, staging, log=log)
+            conn = connect(staging, readonly=False)
+            try:
+                report["relations"] = build_relations(conn, key)
+                report["unresolved"] = conn.execute(
+                    "SELECT count(*) FROM unresolved").fetchone()[0]
+                report["relations_digest"] = relations_digest(conn)
+                conn.execute("CREATE TABLE IF NOT EXISTS _tcmdb_build (key TEXT, value TEXT)")
+                conn.execute("DELETE FROM _tcmdb_build")
+                negatives = sorted(r[0] for r in conn.execute(
+                    "SELECT DISTINCT source FROM relations WHERE outcome != 'positive'"))
+                conn.executemany("INSERT INTO _tcmdb_build VALUES (?, ?)", [
+                    ("relations_digest", report["relations_digest"]),
+                    ("sources_with_negatives", json.dumps(negatives)),
+                    ("built_at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))])
+                conn.commit()
+            finally:
+                conn.close()
+            os.replace(staging, target)
+        except BaseException:
+            staging.unlink(missing_ok=True)
+            raise
         return report
 
     def check(self, key: str, *, rebuild: bool = True) -> dict[str, Any]:
@@ -265,8 +278,12 @@ class TCMDataHub:
         * every relation row uses a declared kind and a known evidence, effect and
           outcome, and its context is JSON with known keys;
         * every relation kind has a licence, and its reuse class is reported (an
-          ``unknown`` class is a warning: not permission);
-        * rows the source could not resolve are counted, not hidden.
+          ``unknown`` class is a warning: not permission); a dataset that yields no
+          relations (its tables are queried as they are) has its own licence reported
+          and warned on the same way;
+        * rows the source could not resolve are counted, not hidden;
+        * the dataset's own checks pass (``tcmdb.extra`` modules' ``CHECKS``: rows a
+          person has not reviewed, a raw file the tables must agree with).
         """
         from .rowkit import CONTEXT_KEYS, EFFECTS
         spec = dataset(key)
@@ -339,12 +356,26 @@ class TCMDataHub:
             if lic["class"] == "unknown":
                 warnings.append(f"{kind}: licence {lic['license']!r} grants nothing "
                                 "recognisable; treat as not licensed for reuse")
+        dataset_licence = {"license": spec.license, "class": licence_class(spec.license),
+                           "commercial_use": spec.commercial_use}
+        if not spec.relations and dataset_licence["class"] == "unknown":
+            # a query-only dataset has no relation kind to carry the warning
+            warnings.append(f"dataset licence {spec.license!r} grants nothing recognisable; "
+                            "treat its tables as not licensed for reuse")
+        from .extra import EXTRA_CHECKS
+        extra_check = EXTRA_CHECKS.get(key)
+        if extra_check is not None:
+            with closing(connect(self.db_path(key))) as conn:
+                more_problems, more_warnings = extra_check(raw, conn)
+            problems += more_problems
+            warnings += more_warnings
         cards = {c.no for c in catalog()}
         missing_cards = [n for n in spec.catalog if n not in cards]
         if missing_cards:
             problems.append(f"catalogue entries {missing_cards} do not exist")
         return {**out, "ok": not problems, "problems": problems, "warnings": warnings,
-                "relations": by_kind, "unresolved": queue, "licences": licences}
+                "relations": by_kind, "unresolved": queue, "licences": licences,
+                "dataset_licence": dataset_licence}
 
     def built(self) -> list[str]:
         return [d.key for d in DATASETS if self.db_path(d.key).exists()]

@@ -176,7 +176,10 @@ def bridge_manifest(bio: BioManifest, *, host_policy: HostPolicy | None = None,
         "bridge": "bioscience", "bio_id": bio.id, "bio_kind": bio.kind,
         "bio_backend": bio.runtime.backend, "project": bio.provider.project,
         "commit": bio.provider.commit, "source_path": bio.provider.source_path,
-        "data_license": bio.license.spdx, "license_note": bio.license.note,
+        # a component whose data is licensed apart from its code says so; the code's
+        # licence is then not reported as the data's
+        "data_license": bio.license.data or bio.license.spdx,
+        "license_note": bio.license.note,
         "integration_mode_declared": bio.license.integration_mode,
         "docs": bio.provider.repo,
         "verified_at": verified.get("verified_at", ""),
@@ -184,6 +187,8 @@ def bridge_manifest(bio: BioManifest, *, host_policy: HostPolicy | None = None,
                          if verified else "unverified"),
         "operations": [op.name for op in operations],
     }
+    if bio.license.data:
+        provenance["code_license"] = bio.license.spdx
     if description_sensitivity:
         provenance["description_sensitivity"] = description_sensitivity
     provenance.update(dict(extra_provenance or {}))

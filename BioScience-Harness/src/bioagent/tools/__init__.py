@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterator, Mapping
 
 from . import (align, clinical, formats, pharmacology, phylo, popgen, protein, sequence,
-               stats, survival, tcm, variants)
+               stats, survival, tcm, tcmdb, variants)
 
 __all__ = ["NativeTool", "TOOLS", "BY_NAME", "NativeToolProvider", "run_smoke", "tool",
            "native_smoke_runner", "DOMAINS"]
@@ -50,6 +50,12 @@ class NativeTool:
     example: Mapping[str, Any]
     tags: tuple[str, ...] = ()
     description: str = field(default="")
+    #: Filesystem roots the tool reads (``${tcmdb}``, ``${data_lake}/x``), declared so the
+    #: permission profile rules on them; empty for a tool that reads only its arguments.
+    reads: tuple[str, ...] = ()
+    #: Local datasets (``tcmdb`` keys) whose records the tool returns: their licences are
+    #: the data's, apart from the MIT licence of the tool's code.
+    data: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.domain not in DOMAINS:
@@ -78,8 +84,19 @@ class NativeTool:
 
 
 def _t(name: str, fn: Callable[..., Any], domain: str, example: Mapping[str, Any],
-       *tags: str) -> NativeTool:
-    return NativeTool(name=name, fn=fn, domain=domain, example=example, tags=tuple(tags))
+       *tags: str, reads: tuple[str, ...] = (), data: tuple[str, ...] = ()) -> NativeTool:
+    return NativeTool(name=name, fn=fn, domain=domain, example=example, tags=tuple(tags),
+                      reads=reads, data=data)
+
+
+def _data_licences(keys: tuple[str, ...]) -> str:
+    """``key: licence (class ..., commercial use ...)`` for each dataset a tool returns."""
+    if not keys:
+        return ""
+    from ..tcmdb.datasets import dataset
+    from ..tcmdb.spec import licence_class
+    return "; ".join(f"{k}: {dataset(k).license} (class {licence_class(dataset(k).license)}, "
+                     f"commercial use {dataset(k).commercial_use})" for k in keys)
 
 
 _DNA = "ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATAG"
@@ -461,6 +478,16 @@ TOOLS: tuple[NativeTool, ...] = (
     _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence"),
     _t("tcm_classical_search", tcm.tcm_classical_search, "tcm-knowledge", {"query": "桂枝汤主之"},
        "tcm", "classics", "search"),
+    # ------------------------------------- locally built manual TCM datasets (tcmdb)
+    _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
+       {"formula": "演示方剂（非真实）", "limit": 20}, "tcm", "provenance",
+       reads=("${tcmdb}",), data=("hkbu_formulas_manual",)),
+    _t("hkcmms_standard_lookup", tcmdb.hkcmms_standard_lookup, "tcm-knowledge",
+       {"herb": "演示药材（非真实）", "limit": 20}, "tcm", "quality", "standard",
+       reads=("${tcmdb}",), data=("hkcmms_manual",)),
+    _t("hk_cmm_dna_lookup", tcmdb.hk_cmm_dna_lookup, "tcm-knowledge",
+       {"name": "演示物种", "limit": 20}, "tcm", "dna", "authentication",
+       reads=("${tcmdb}",), data=("hk_cmm_dna_manual",)),
 )
 
 BY_NAME: Mapping[str, NativeTool] = {t.name: t for t in TOOLS}
@@ -525,8 +552,12 @@ class NativeToolProvider:
                 inputs={"parameters": t.parameters, "example": dict(t.example)},
                 outputs={"type": "object"},
                 requires=Requirements(python=("bioagent",)),
-                permissions=Permissions(),
-                license=LicenseSpec(spdx="MIT", integration_mode="native"),
+                permissions=Permissions(filesystem_read=tuple(t.reads)),
+                license=LicenseSpec(
+                    spdx="MIT", integration_mode="native",
+                    note=("MIT is the licence of this tool's code; the records it returns "
+                          "are under their datasets' terms (license.data)") if t.data else "",
+                    data=_data_licences(t.data)),
                 validation=Validation(smoke_test=f"native:{t.name}"),
                 offline_capable=True, native_connectors=(), signature=", ".join(
                     p["name"] for p in t.parameters))

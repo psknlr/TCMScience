@@ -141,26 +141,41 @@ UNCONFINED_BACKENDS = frozenset({"python"})
 
 #: Symbolic roots a profile may name instead of a machine-specific absolute path,
 #: so profiles stay portable across checkouts and CI. Expanded at check time.
-_ROOT_TOKENS = ("${workspace}", "${data_lake}", "${tmp}")
+_ROOT_TOKENS = ("${workspace}", "${data_lake}", "${tmp}", "${tcmdb}")
 
 
 def expand_root(root: str) -> Path:
-    """Resolve a profile root, expanding `${workspace}`, `${data_lake}`, `${tmp}`."""
+    """Resolve a profile root, expanding `${workspace}`, `${data_lake}`, `${tmp}` and
+    `${tcmdb}` (the TCM data hub's directory, ``config.tcmdb_dir``)."""
     r = str(root).strip()
     if r == "${tmp}":
         return Path(tempfile.gettempdir()).resolve()
-    if r in ("${workspace}", "${data_lake}"):
-        from .config import data_lake_dir, workspace_dir
+    if r in ("${workspace}", "${data_lake}", "${tcmdb}"):
+        from .config import data_lake_dir, tcmdb_dir, workspace_dir
 
-        base = workspace_dir() if r == "${workspace}" else data_lake_dir()
+        base = {"${workspace}": workspace_dir, "${data_lake}": data_lake_dir,
+                "${tcmdb}": tcmdb_dir}[r]()
         # the directory need not exist yet; resolve(strict=False) still normalizes
         return Path(base).expanduser().resolve()
     return Path(r).expanduser().resolve()
 
 
 def _resolve_requested(path: str) -> Path:
-    """Normalize a requested path, so `..` cannot walk out of an allowed root."""
-    p = Path(str(path).strip()).expanduser()
+    """Normalize a requested path, so `..` cannot walk out of an allowed root.
+
+    A declared path may start with a root token (``${tcmdb}``, ``${data_lake}/x``), so a
+    manifest can name where it reads without a machine-specific path; the token is
+    expanded here and the result still has to fall inside a root the profile grants. A
+    token is never a grant: ``${tcmdb}`` set to a directory outside the profile's roots is
+    refused like any other path there.
+    """
+    text = str(path).strip()
+    for token in _ROOT_TOKENS:
+        if text == token or text.startswith(token + "/"):
+            rest = text[len(token):].lstrip("/")
+            base = expand_root(token)
+            return (base / rest).resolve() if rest else base
+    p = Path(text).expanduser()
     if not p.is_absolute():
         from .config import workspace_dir
 
@@ -242,9 +257,15 @@ class PermissionProfile:
             if not any(target == root or root in target.parents for root in resolved_roots):
                 outside.append(raw)
         if outside:
+            def shown(raw: str) -> str:
+                try:
+                    where = _resolve_requested(raw)
+                except (OSError, RuntimeError):
+                    return raw
+                return raw if str(where) == raw else f"{raw} ({where})"
             return Ruling(PolicyDecision.DENY,
                           f"filesystem {mode} paths outside the roots profile {self.name!r} "
-                          f"permits: {', '.join(outside[:3])}",
+                          f"permits: {', '.join(shown(r) for r in outside[:3])}",
                           f"perm.fs_{mode}.outside_root")
         return Ruling(PolicyDecision.ALLOW,
                       f"filesystem {mode} paths within profile roots", f"perm.fs_{mode}.ok")

@@ -16,7 +16,7 @@ from bioagent.sources import validate_edge, validate_node
 from bioagent.sources.build import build_source
 from bioagent.sources.fetch_pubchem import RAW_FILE, PubChemFetchError, fetch_assay_summaries
 from bioagent.sources.parsers import parse_pubchem_bioassay
-from bioagent.sources.parsers.pubchem_bioassay import gene_to_uniprot
+from bioagent.sources.parsers.pubchem_bioassay import PRIMARY_FILE, gene_to_uniprot
 from bioagent.status import ExecutionStatus
 
 COLUMNS = ["AID", "Panel Member ID", "SID", "CID", "Activity Outcome", "Target Accession",
@@ -36,6 +36,13 @@ def aliases(d: Path) -> Path:
     with gzip.open(path, "wt", encoding="utf-8") as fh:
         fh.write("#string_protein_id\talias\tsource\n")
         fh.writelines("\t".join(r) + "\n" for r in rows)
+    return path
+
+
+def primary(d: Path, accessions=("P05177", "P11712", "Q16678", "P10635")) -> Path:
+    """UniProt's ``format=list`` answer: one Swiss-Prot primary accession per line."""
+    path = d / PRIMARY_FILE
+    path.write_text("\n".join(accessions) + "\n", encoding="utf-8")
     return path
 
 
@@ -69,7 +76,8 @@ def test_active_and_inactive_results_are_kept_apart(tmp_path):
         row(417, 999, "Active"),
         row(410, 2353, "Active", value="1.5", name="IC50", pmid="123"),   # the same again
     ])
-    result = parse_pubchem_bioassay(path, aliases=tmp_path / "9606.protein.aliases.v12.0.txt.gz")
+    result = parse_pubchem_bioassay(path, aliases=tmp_path / "9606.protein.aliases.v12.0.txt.gz",
+                                    primary=primary(tmp_path))
     edges = sorted(result.edges, key=lambda e: e["source_record_id"])
     assert [(e["predicate"], e["object"]) for e in edges] == [
         ("targets", "uniprot:P05177"), ("targets", "uniprot:P05177"),
@@ -84,7 +92,7 @@ def test_active_and_inactive_results_are_kept_apart(tmp_path):
         "outcome Inconclusive (neither active nor inactive)": 1,
         "outcome Unspecified (neither active nor inactive)": 1,
         "no protein target": 1, "RNAi screen": 1,
-        "target gene is not a human protein with one UniProt accession": 1,
+        "target gene is not one human protein with a Swiss-Prot primary accession": 1,
         "compound not in the queried set": 1, "duplicate result": 1}
     for e in result.edges:
         assert validate_edge(e) == [], e
@@ -93,12 +101,37 @@ def test_active_and_inactive_results_are_kept_apart(tmp_path):
 
 
 def test_an_ambiguous_gene_is_not_mapped(tmp_path):
-    mapping = gene_to_uniprot(aliases(tmp_path))
+    mapping = gene_to_uniprot(aliases(tmp_path), primary={"P05177", "P11712", "Q16678", "P10635"})
     assert mapping == {"1544": "P05177", "1559": "P11712"}
+
+
+def test_a_gene_maps_to_the_primary_accession_not_the_first_one_listed(tmp_path):
+    """The real layout: STRING lists an entry's secondary and TrEMBL accessions beside the
+    primary, in no useful order — MGP is listed B2R519, A0M8W5, J3KMX7, P08493. Taking
+    the first put PubChem targets on accessions Reactome does not use for 88% of genes."""
+    path = tmp_path / "9606.protein.aliases.v12.0.txt.gz"
+    rows = [("9606.ENSP228938", "4256", "UniProt_DR_GeneID")] + [
+        ("9606.ENSP228938", acc, "UniProt_AC") for acc in ("B2R519", "A0M8W5", "J3KMX7", "P08493")]
+    rows += [("9606.ENSP9", "9999", "UniProt_DR_GeneID"), ("9606.ENSP9", "A0A0A0MRZ7", "UniProt_AC")]
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        fh.write("#string_protein_id\talias\tsource\n")
+        fh.writelines("\t".join(r) + "\n" for r in rows)
+    mapping = gene_to_uniprot(path, primary={"P08493"})
+    assert mapping == {"4256": "P08493"}, "a gene with no reviewed entry is left out, not guessed"
+
+
+def test_a_pubchem_build_without_the_primary_list_is_refused(tmp_path):
+    from bioagent.sources.snapshot import SnapshotError
+
+    aliases(tmp_path)
+    path = saved(tmp_path, [row(410, 2353, "Active")])
+    with pytest.raises(SnapshotError, match=PRIMARY_FILE):
+        build_source("pubchem_bioassay", tmp_path, tmp_path / "snap", path=path)
 
 
 def test_the_snapshot_version_is_the_fetch_date_and_the_compound_set(tmp_path):
     aliases(tmp_path)
+    primary(tmp_path)
     path = saved(tmp_path, [row(410, 2353, "Active")])
     snap = build_source("pubchem_bioassay", tmp_path, tmp_path / "snap", path=path)
     assert snap.snapshot_id.startswith("pubchem_bioassay@2026-09-24+subset-")

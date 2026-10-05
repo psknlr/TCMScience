@@ -47,28 +47,42 @@ def clean(value: Any) -> str | None:
     return None if text.lower() in BLANKS else text
 
 
-def open_text(path: str | Path) -> io.TextIOBase:
-    """Plain, ``.gz`` or ``.zip`` (first member) as UTF-8 text."""
+def open_text(path: str | Path, encoding: str = "utf-8") -> io.TextIOBase:
+    """Plain, ``.gz`` or ``.zip`` (first member) as text in ``encoding``.
+
+    Undecodable bytes become U+FFFD rather than an exception, so one bad byte does not
+    lose a file — and ``read_rows`` counts the rows it happened to. Chinese exports
+    (ETCM, HERB) are often GB18030; pass it rather than let UTF-8 mangle every name.
+    """
     path = Path(path)
     if path.suffix == ".gz":
-        return io.TextIOWrapper(gzip.open(path, "rb"), encoding="utf-8", errors="replace",
+        return io.TextIOWrapper(gzip.open(path, "rb"), encoding=encoding, errors="replace",
                                 newline="")
     if path.suffix == ".zip":
         archive = zipfile.ZipFile(path)
         member = next(n for n in archive.namelist() if not n.endswith("/"))
-        return io.TextIOWrapper(archive.open(member), encoding="utf-8", errors="replace",
+        return io.TextIOWrapper(archive.open(member), encoding=encoding, errors="replace",
                                 newline="")
-    return open(path, encoding="utf-8", errors="replace", newline="")
+    return open(path, encoding=encoding, errors="replace", newline="")
 
 
 def read_rows(path: str | Path, *, delimiter: str = "\t",
-              fieldnames: Sequence[str] | None = None) -> Iterator[dict[str, str | None]]:
-    """Rows as dicts with blanks normalised to None. ``fieldnames`` for headerless files."""
-    with open_text(path) as fh:
+              fieldnames: Sequence[str] | None = None, encoding: str = "utf-8",
+              report: "ParseReport | None" = None) -> Iterator[dict[str, str | None]]:
+    """Rows as dicts with blanks normalised to None. ``fieldnames`` for headerless files.
+
+    With a ``report``, a row holding bytes that are not valid ``encoding`` is counted as a
+    warning: the row is kept, but its text is not what the file said, and a snapshot
+    built from it should say so.
+    """
+    with open_text(path, encoding) as fh:
         reader = csv.DictReader(fh, delimiter=delimiter, fieldnames=fieldnames,
                                 quoting=csv.QUOTE_NONE if delimiter == "\t" else csv.QUOTE_MINIMAL)
         for row in reader:
-            yield {(k or "").strip(): clean(v) for k, v in row.items() if k is not None}
+            out = {(k or "").strip(): clean(v) for k, v in row.items() if k is not None}
+            if report is not None and any(v and "\ufffd" in v for v in out.values()):
+                report.warn(f"row with bytes that are not valid {encoding}")
+            yield out
 
 
 def publication(ref_id: str | None, ref_type: str | None) -> str | None:
@@ -153,12 +167,21 @@ class ParseReport:
     source: str
     read: Counter = field(default_factory=Counter)
     dropped: Counter = field(default_factory=Counter)
+    #: Rows kept with a caveat (undecodable bytes). Absent from ``as_dict`` when empty, so
+    #: a clean file's report — and the snapshot id it is part of — is unchanged.
+    warnings: Counter = field(default_factory=Counter)
 
     def drop(self, reason: str, n: int = 1) -> None:
         self.dropped[reason] += n
 
+    def warn(self, reason: str, n: int = 1) -> None:
+        self.warnings[reason] += n
+
     def as_dict(self) -> dict[str, Any]:
-        return {"source": self.source, "read": dict(self.read), "dropped": dict(self.dropped)}
+        out = {"source": self.source, "read": dict(self.read), "dropped": dict(self.dropped)}
+        if self.warnings:
+            out["warnings"] = dict(self.warnings)
+        return out
 
 
 @dataclass

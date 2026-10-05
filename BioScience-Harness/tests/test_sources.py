@@ -646,3 +646,117 @@ def test_an_academic_only_licence_grants_no_commercial_use():
     assert {c.key for c in academic} >= {"npass", "cmaup"}
     assert all(c.commercial_use == "forbidden" for c in academic), [
         (c.key, c.commercial_use) for c in academic]
+
+
+def test_a_commercial_run_gets_only_sources_whose_terms_allow_it():
+    """``commercial_use`` was on every card and read by nothing."""
+    from bioagent.sources.cards import SOURCE_CARDS, effective_sources
+
+    wanted = [c.key for c in SOURCE_CARDS]
+    academic, refused = effective_sources(wanted)
+    assert set(academic) == set(wanted) and not refused
+    commercial, refused = effective_sources(wanted, purpose="commercial")
+    assert {"npass", "cmaup"} & set(refused), "academic-only terms are refused"
+    assert "pubchem_bioassay" in refused, "unknown terms fail closed"
+    assert "academic" in refused["npass"] or "Free for academic use" in refused["npass"]
+    assert set(commercial) == {c.key for c in SOURCE_CARDS if c.commercial_use == "allowed"}
+    with pytest.raises(ValueError, match="purpose"):
+        effective_sources(wanted, purpose="internal")
+
+
+def test_a_ledger_cut_short_after_a_run_is_caught_by_the_head_it_recorded(tmp_path, raw):
+    """Drop the last entries and the rest is still a valid chain; the recorded head is not."""
+    from bioagent.sources.ledger import LedgerError, SnapshotLedger
+
+    ledger = SnapshotLedger(tmp_path / "audit" / "snapshots.jsonl")
+    _build(tmp_path, raw, ledger=ledger)
+    _build(tmp_path, raw, version="2.0", ledger=ledger)
+    head = ledger.head()
+    assert head["seq"] == 2 and ledger.verify(expected_head=head) == 2
+
+    lines = ledger.path.read_text(encoding="utf-8").splitlines(keepends=True)
+    ledger.path.write_text("".join(lines[:1]), encoding="utf-8")        # roll back one
+    assert ledger.verify() == 1, "on its own, the shortened chain still verifies"
+    with pytest.raises(LedgerError, match="cut short or rolled back"):
+        ledger.verify(expected_head=head)
+
+
+def test_ledger_appends_are_serialised_across_threads(tmp_path, raw):
+    import threading
+
+    from bioagent.sources.ledger import SnapshotLedger
+
+    first = _build(tmp_path, raw)
+    ledgers = [SnapshotLedger(tmp_path / "audit" / "l.jsonl") for _ in range(4)]
+    threads = [threading.Thread(target=lambda lg=lg: [lg.record(first) for _ in range(5)])
+               for lg in ledgers]                     # separate objects: no shared lock
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert ledgers[0].verify() == 20
+
+
+def test_a_card_for_a_computed_source_cannot_default_to_a_measurement():
+    """"BATMAN-TCM results are always predictions" lived in the spec's prose only."""
+    from bioagent.sources.cards import Access, EdgeDefault, SourceCard, SourceCardError
+
+    def card_for(key, level, agent, design):
+        return SourceCard(key=key, name=key, citation="doi:10.1/x", license="CC-BY-4.0",
+                          terms_url="https://x.example/terms",
+                          access=(Access("manual"),),
+                          provides=(EdgeDefault("targets", "ingredient", "target",
+                                                level, agent, design),))
+
+    for key in ("batman_tcm", "etcm", "tcmsp", "tcmtoxdb"):
+        with pytest.raises(SourceCardError, match="must be a prediction"):
+            card_for(key, "knowledge_assertion", "manual_agent", "in_vitro")
+        assert card_for(key, "prediction", "computational_model", "in_silico").key == key
+    # other sources are not constrained by this rule
+    assert card_for("npass_like", "knowledge_assertion", "manual_agent", "in_vitro")
+
+
+def test_undecodable_rows_are_counted_and_a_clean_file_report_is_unchanged(tmp_path):
+    from bioagent.sources.parsers.common import ParseReport, read_rows
+
+    good = tmp_path / "good.tsv"
+    good.write_text("名称\t拉丁名\n黄芩\tScutellaria baicalensis\n", encoding="utf-8")
+    report = ParseReport("x")
+    list(read_rows(good, report=report))
+    assert "warnings" not in report.as_dict()
+
+    gbk = tmp_path / "gbk.tsv"
+    gbk.write_bytes("名称\t拉丁名\n黄芩\tScutellaria baicalensis\n".encode("gbk"))
+    report = ParseReport("x")
+    rows = list(read_rows(gbk, report=report))
+    assert report.as_dict()["warnings"] == {"row with bytes that are not valid utf-8": 1}
+    assert rows and "黄芩" not in str(rows)
+    rows = list(read_rows(gbk, encoding="gb18030", report=ParseReport("x")))
+    assert rows == [{"名称": "黄芩", "拉丁名": "Scutellaria baicalensis"}]
+
+
+def test_a_cached_answer_older_than_the_limit_is_fetched_again(server, tmp_path):
+    import gzip
+    import json
+
+    from bioagent.backends.http import HTTPBackend, HTTPRequest
+
+    req = HTTPRequest(url=server + "/json")
+    with gzip.open(tmp_path / f"{req.key()}.json.gz", "wt", encoding="utf-8") as fh:
+        json.dump({"http_status": 200, "content_type": "application/json",
+                   "value": {"stale": True}, "fetched_at": 0}, fh)
+    kept = HTTPBackend(cache_dir=tmp_path, rates={"127.0.0.1": 1000.0})
+    assert kept.request(req)[1] == {"stale": True}, "without a limit the entry is kept"
+    fresh = HTTPBackend(cache_dir=tmp_path, rates={"127.0.0.1": 1000.0}, max_age_s=3600)
+    status, value, _, meta = fresh.request(req)
+    assert value == {"ok": True} and not meta["cached"]
+
+
+def test_a_download_redirected_off_its_host_is_refused(server, tmp_path):
+    from bioagent.acquisition.downloader import DownloadError, Downloader
+
+    with pytest.raises(DownloadError, match="not a host this call may contact"):
+        Downloader(tmp_path).fetch(server + "/away", "x.json")
+    assert not (tmp_path / "x.json").exists()
+    ok = Downloader(tmp_path / "b").fetch(server + "/stay", "y.json")
+    assert (tmp_path / "b" / "y.json").read_bytes() == b'{"ok": true}' and ok.bytes == 12
