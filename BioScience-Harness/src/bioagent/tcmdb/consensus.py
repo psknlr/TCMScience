@@ -99,9 +99,10 @@ REDUNDANT_JACCARD = 0.5
 MIN_OBJECTS = 20
 
 #: Processing prefixes that make a different material (炙黄芪 is not 黄芪): kept apart
-#: unless a query asks to merge processed forms.
+#: unless a query asks to merge processed forms. 炮 and 煨 were missing, so 炮附子 was the
+#: same herb as 附子 — the processing that makes aconite root far less toxic.
 _PROCESSED = ("炙", "炒", "麸炒", "焦", "炭", "煅", "制", "酒", "醋", "盐", "姜", "蜜", "熟",
-              "法", "清", "胆")
+              "法", "清", "胆", "炮", "煨")
 _CJK = re.compile(r"[一-鿿]")
 #: Entity types the crosswalk maps (compounds to InChIKeys, genes to symbols).
 _MAPPED = ("ingredient", "compound", "drug", "ligand", "target", "gene", "protein")

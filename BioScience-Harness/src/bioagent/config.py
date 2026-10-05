@@ -17,6 +17,7 @@ ENV_DATA_LAKE = "BIOAGENT_DATA_LAKE"
 ENV_WORKSPACE = "BIOAGENT_WORKSPACE"
 ENV_CATALOGUE = "BIOAGENT_CATALOGUE"
 ENV_SKILLS = "BIOAGENT_SKILLS"
+ENV_TCMDB = "BIOAGENT_TCMDB"
 
 
 def data_lake_dir(explicit: str | os.PathLike | None = None) -> Path:
@@ -35,6 +36,21 @@ def workspace_dir(explicit: str | os.PathLike | None = None) -> Path:
     if env:
         return Path(env).expanduser()
     return REPO_ROOT / "workspace"
+
+
+def tcmdb_dir(explicit: str | os.PathLike | None = None) -> Path:
+    """Where the TCM data hub keeps its raw files and built stores (``tcmdb.TCMDataHub``).
+
+    ``$BIOAGENT_TCMDB``, else ``<data lake>/tcmdb``. A governed call may read it only when
+    it lies inside a root the permission profile grants (the data lake or the workspace),
+    which ``<data lake>/tcmdb`` always does.
+    """
+    if explicit:
+        return Path(explicit).expanduser()
+    env = os.environ.get(ENV_TCMDB)
+    if env:
+        return Path(env).expanduser()
+    return data_lake_dir() / "tcmdb"
 
 
 def skills_dir(explicit: str | os.PathLike | None = None) -> Path:

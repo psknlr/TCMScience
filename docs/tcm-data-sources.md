@@ -134,8 +134,9 @@ EBI hosts are paced by the downloader.
 - 134 HKBU 方剂库：一行表示“某版本方剂中的一味药”，产出 `formula_herb` 关系，证据为 `listed`（记录该方含此药，不等于疗效）；缺稳定 ID、缺出处或未人工审核的行进入待消歧队列；同名方异版本、生品与炮制品分别用不同 ID。
 - 135 港标 HKCMMS：一份专论一项检测一行（鉴别、检查、含量限度、化学指标），保留版次、方法、数值、单位与页码；仅可查询——限度或鉴别方法不是药材—成分关系，不强行转换。
 - 136 参考 DNA 序列库：序列以原始 FASTA 保留，另表存标本元数据（基原物种、标记、登录号、凭证标本）；仅可查询——条形码标识基原物种，不是药物成分，单独也不构成物种鉴定。
-- 三者许可均为 `unknown`：适配器能跑不等于获得数据许可，`tcmdb check` 把 `unknown` 类作为警告而非许可。
-- 新增只读工具 `hkbu_formula_lookup`、`hkcmms_standard_lookup`、`hk_cmm_dna_lookup`，未载入或未命中均返回明确状态，不表述为“无效”。
+- 三者许可均为 `unknown`：适配器能跑不等于获得数据许可，`tcmdb check` 把 `unknown` 类作为警告而非许可（只供查询的港标、DNA 也会提示）。
+- 新增只读工具 `hkbu_formula_lookup`、`hkcmms_standard_lookup`、`hk_cmm_dna_lookup`，返回 `not_loaded`（未载入）、`incomplete_dataset`（缺表、缺列或缺文件）、`no_matching_record`（无匹配）、`withheld`（有匹配但未经人工核对，或许可不允许本次用途）或 `ok`，不表述为“无效”。每条记录带数据集、文件许可、许可类别和商业使用说明；PSH 中工具的 `data_license` 是数据许可，MIT 只作为 `code_license`。
+- 2026-10-05 修订（独立复核后）：三个模板文件严格读取（列名、字段数、引号、UTF-8 不符即拒绝并指出行号）；构建在临时库完成后才替换正式库，失败不影响原库；炮制信息并入药材名（黄芪 + 炙 = 炙黄芪），经 `consensus` 后生品与炮制品不再合并，并补上「炮」「煨」两个炮制前缀；`check` 核对 FASTA 与标本元数据是否一致；隔离（PSH）调用与直接调用读取同一个库，库在许可的根目录之外时明确拒绝；新增 `tcmdb template`（只含表头的模板，`--demo` 生成全部为 pending 的虚构示例）与 `tcmdb verify`（无可检查数据集时以退出码 3 报告 `NO DATASETS CHECKED`）。
 - 后续阶段的 TCMSSD、古籍、WHO ICTRP/ChiCTR、2025 版《中国药典》、HerbComb、GNDC 尚未登记，需先取得获准导出与字段、许可核验后才接入。
 
 ## Using it
@@ -601,11 +602,41 @@ not permission. A person obtains the data under its terms and reviews it before 
 | 136 | Hong Kong Chinese Materia Medica reference DNA sequences | – | manual import | – / `hk_cmm_dna_manual` | unknown | Published reference sequences (kept as a raw FASTA file) and one row per sequence's specimen metadata (base species, marker, accession, voucher). Query-only: a barcode identifies a base species, it is not a drug ingredient, and authentication also needs a sequence quality check, a reference set and a discrimination method, which this dataset does not supply. This review did not reach the entry page (it timed out), so the exact bundle and its terms must be confirmed with the publisher. |
 
 `bioagent.tools.tcmdb` adds three read-only lookups over these stores
-(`hkbu_formula_lookup`, `hkcmms_standard_lookup`, `hk_cmm_dna_lookup`). Each returns a
-status rather than raising when the store is absent — `not_loaded` or
-`no_matching_record` both mean *no record found*, and neither licenses a statement that a
-herb, formula or sample is ineffective. Each record carries its own licence; that is not
-the licence of the wrapper code.
+(`hkbu_formula_lookup`, `hkcmms_standard_lookup`, `hk_cmm_dna_lookup`). Each answers with a
+status rather than raising: `not_loaded` (no store where the tool looks; `store` names the
+path), `incomplete_dataset` (a table, column or file the dataset needs is missing, such as
+the reference FASTA without its specimen table), `no_matching_record`, `withheld` (records
+matched, but none a person has verified, or none whose licence allows the call's data
+use) and `ok`. None of them licenses a statement that a herb, formula or sample is
+ineffective. Every record carries its dataset, the licence of the file it came from, that
+licence's reuse class and the dataset's stated commercial use; that is not the licence of
+the wrapper code, and the PSH bridge reports it as the tool's `data_license` (with the
+wrapper's MIT as `code_license`). Table rows are returned only once verified
+(`include_pending=True` shows the rest, marked). `commercial=True`, or the operator's
+`BIOAGENT_DATA_USE=commercial`, withholds records whose licence does not allow commercial
+use, which today is all of them.
+
+Revised 2026-10-05 after an independent review of the first phase:
+
+* the three files are read strictly, as the templates they are: exactly the template's
+  columns, the header's number of fields on every line, a tab or line break inside a value
+  only when quoted, valid UTF-8 (the lenient shared `tsv` reader had shifted a 15-value row
+  under a 14-column header one column right and dropped its last value);
+* a build runs in a staging file and replaces the store only when the relations are
+  extracted, so a failed import leaves the previous store as it was (this holds for every
+  dataset in the hub);
+* the processing column is part of the listed material's name (黄芪 with 炙 is 炙黄芪),
+  so a crude drug and its processed form stay two herbs through `consensus`, not only two
+  ids in the store; 炮 and 煨 now count as processing prefixes (炮附子 is not 附子);
+* `tcmdb check` warns on a query-only dataset's unknown licence, counts rows not yet
+  verified, and requires the specimen metadata and the reference FASTA to describe the same
+  sequences;
+* the tools declare that they read `${tcmdb}`, and an isolated (PSH) call reads the same
+  hub as a direct one; a hub outside the profile's roots (the data lake, the workspace) is
+  refused with the path named, not reported as not loaded;
+* `tcmdb template <key>` writes the header-only template (`--demo`: invented rows, all
+  pending) and `tcmdb verify` builds, checks and looks up every manual dataset present
+  (exit 0 all passed, 1 a failure, 3 nothing to check).
 
 For later phases the guide lists TCMSSD, the classical-text library, WHO ICTRP/ChiCTR,
 the 2025 Chinese Pharmacopoeia, HerbComb and GNDC. None is catalogued or wrapped yet:

@@ -4,7 +4,7 @@
 
 建议第一期做“HKBU 方剂组成 + 港标质量标准”，先完成许可范围内的数据整理、本地查询和来源追溯；再做证候、古籍与临床试验数据。不要把每个新库都包装成药材—靶点数据库。
 
-本指南的适配器、只读查询函数和证据快照示例已用合成数据验证。指南内 8 个 Python 代码块通过语法检查；只读工具注册与发现已验证。**没有下载真实 HKBU 数据，没有验证任何未公开 API**。示例中的药材、方剂和证候均为虚构。第一期实际实现见第 11 节：仅合成数据验证，推送到 fork 分支，未写入上游 `main`。
+本指南的适配器、只读查询函数和证据快照示例已用合成数据验证。指南内的 Python 代码块均通过语法检查（2026-10-05 修订后为 7 个）；只读工具注册与发现已验证。**没有下载真实 HKBU 数据，没有验证任何未公开 API**。示例中的药材、方剂和证候均为虚构。第一期实际实现见第 11 节：仅合成数据验证，推送到 fork 分支，未写入上游 `main`。第 11 节末尾记录了 2026-10-05 根据独立复核所做的修订（严格读取人工模板、构建失败不影响原库、数据许可随记录传递、隔离执行读同一个库、炮制品不在共识中合并、查询状态细分）；下文各节已按修订后的行为更新。
 
 ## 1. 先理解项目的四个接入层次
 
@@ -29,12 +29,14 @@ python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e "PSH-Harness[test]"
 python -m pip install -e "BioScience-Harness[dev]"
-export BIOAGENT_TCMDB="$PWD/data/tcmdb"
+export BIOAGENT_DATA_LAKE="$PWD/data/lake"      # Hub 默认在 $BIOAGENT_DATA_LAKE/tcmdb
 python -m bioagent.cli tcmdb sources --name HERB --json
 python -m bioagent.cli tcmdb status
 ```
 
 上面的固定版本用于复现本指南；日常开发可以使用项目当前版本，但需要重新核对接口和来源编号。
+
+Hub 的位置：不设 `BIOAGENT_TCMDB` 时，Hub 在 `<数据湖>/tcmdb`。Agent 经受治理的运行时（包括 PSH 隔离子进程）调用查询工具时，只能读取权限配置许可的根目录（数据湖与工作区）之内的文件；`<数据湖>/tcmdb` 总在其中。若另设 `BIOAGENT_TCMDB`，它也必须位于数据湖或工作区之内，否则调用会被拒绝，拒绝原因里给出实际路径（不会被当作“未载入”）。
 
 HERB、SymMap、ITCM、TCMBank 等已有接入定义，应优先复用。以已有的 `herb2` 数据集为例，在核对其当期许可和下载情况后执行：
 
@@ -208,10 +210,10 @@ path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encodi
 先使用独立演示目录，避免混入实际数据：
 
 ```bash
-export BIOAGENT_TCMDB="$PWD/data/tcmdb-demo"
+export BIOAGENT_TCMDB="$BIOAGENT_DATA_LAKE/tcmdb-demo"   # 在数据湖之内，受治理的调用也能读
 ```
 
-以下 Python 代码在仓库根目录执行，生成一条可接入关系和一条待消歧记录。
+以下 Python 代码在仓库根目录执行，生成一条可接入关系和一条待消歧记录。示例中的 `verified` 只用于演示准入规则，名称是明显虚构的；真实模板一律从 `pending` 开始，由人工核对后才改为 `verified`。也可以直接生成模板：`python -m bioagent.cli tcmdb template hkbu_formulas_manual --out <目录>` 只写表头；加 `--demo` 写入全部为 `pending` 的虚构示例（构建后不产生任何关系，全部进入待审队列）。
 
 ```python
 import csv
@@ -263,44 +265,33 @@ records = hub.relations(
 print(records)
 ```
 
-真实接入时，把 `BIOAGENT_TCMDB` 切回生产数据目录，放入已获准使用的真实 TSV，重新构建、核查和抽样审核。合成数据应一直保留在演示目录。
+真实接入时，取消演示用的 `BIOAGENT_TCMDB`（或指向数据湖内的生产目录），放入已获准使用的真实 TSV，重新构建、核查和抽样审核。合成数据应一直保留在演示目录。放好文件后可用 `python -m bioagent.cli tcmdb verify` 一次完成构建、核查和一次工具查询：全部通过退出码为 0，有失败为 1，一个数据集都没有检查到时输出 `NO DATASETS CHECKED` 并以 3 退出（不会被误读为“全部通过”）。
+
+**人工模板的读取规则（2026-10-05）**：三个模板文件按模板严格读取——列名必须正好是模板的列（顺序不限、不重复）；每行字段数必须与表头相同；值里含制表符、换行或以引号开头时必须加引号（`csv.writer(delimiter="\t")` 写出的文件自动满足）；文件必须是 UTF-8。不符合时构建失败并指出文件和行号，原来的库保持不变。项目共用的宽松 `tsv` 读取器为了兼容某些上游导出，会把字段少的行与下一行拼接、把多出的字段截掉，用于人工模板会把一个多余的制表符变成整行错位，所以人工模板不使用它。
 
 ## 5. 怎样让 Agent 使用新库
 
-新增 `BioScience-Harness/src/bioagent/tools/tcmdb.py`：
+查询工具在 `BioScience-Harness/src/bioagent/tools/tcmdb.py`（`hkbu_formula_lookup`、`hkcmms_standard_lookup`、`hk_cmm_dna_lookup`）。读取本地数据的只读工具应满足以下几点，新增同类工具时照此实现：
 
-```python
-"""Read-only lookup of a previously built manual dataset."""
-from ..tcmdb.hub import TCMDataHub
+| 要求 | 第一期工具的做法 |
+|---|---|
+| 状态分清 | `not_loaded`（工具查找的位置没有库，`store` 给出路径）、`incomplete_dataset`（缺表、缺列或缺文件，如只有 FASTA 没有标本表）、`no_matching_record`（库完整但无匹配）、`withheld`（有匹配，但没有经人工核对的行，或许可不允许本次用途；`withheld` 给出各原因的条数）、`ok`。任何一种都不能表述为药物无效或不安全 |
+| 数据许可随记录 | 每条记录带 `source_dataset`、`license`（该文件构建时的许可）、`licence_class`、`commercial_use`；回答里另有 `dataset_licence` |
+| 待审记录 | 港标、DNA 默认只返回 `review_status=verified` 的行；`include_pending=True` 才显示其余行，且保留其审核状态。HKBU 未核对的行本就不进入关系表，回答中以 `unreviewed_rows` 计数 |
+| 数据用途 | `commercial=True` 只返回许可允许商用的记录；运营方可设 `BIOAGENT_DATA_USE=commercial` 作为下限，调用只能收紧不能放宽，无法识别的值按商用处理 |
+| 声明读取与许可 | 在 `TOOLS` 注册时写明 `reads=("${tcmdb}",)` 和 `data=(<dataset key>,)`。生成的 manifest 因此声明 `filesystem_read` 与 `license.data`，权限配置据此裁决读取路径，PSH 桥接把数据许可报告为 `data_license`、把包装代码的 MIT 报告为 `code_license` |
 
-def hkbu_formula_lookup(formula: str, limit: int = 20) -> dict:
-    """Find listed formula constituents with source provenance, not efficacy claims."""
-    if not isinstance(formula, str) or not formula.strip():
-        raise ValueError("formula must be a non-empty name or identifier")
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
-        raise ValueError("limit must be an integer from 1 to 100")
-    key = "hkbu_formulas_manual"
-    hub = TCMDataHub()
-    if not hub.db_path(key).is_file():
-        return {"status": "not_loaded", "source_dataset": key, "records": []}
-    result = hub.relations("formula_herb", sources=[key], subject=formula.strip(), limit=limit)
-    return {"status": "ok" if result else "no_matching_record",
-            "source_dataset": key, "claim_scope": "listed formula composition",
-            "records": result}
-```
-
-在 `tools/__init__.py` 顶部现有模块导入中加入 `tcmdb`，再在 `TOOLS` 元组中添加：
+注册示例（`tools/__init__.py` 的 `TOOLS` 元组中的一项）：
 
 ```python
 _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
-   {"formula": "演示方剂（非真实）", "limit": 20}, "tcm", "provenance"),
+   {"formula": "演示方剂（非真实）", "limit": 20}, "tcm", "provenance",
+   reads=("${tcmdb}",), data=("hkbu_formulas_manual",)),
 ```
 
-这段是元组中的一项，不是独立脚本。注册后组件 ID 是 `native.tool.hkbu_formula_lookup`，由 `NativeToolProvider` 发现。相关 skill 的 manifest 还需要声明实际使用的工具和来源范围，再按项目现有运行、权限与审核流程启用。
+注册后组件 ID 是 `native.tool.hkbu_formula_lookup`，由 `NativeToolProvider` 发现。相关 skill 的 manifest 还需要声明实际使用的工具和来源范围，再按项目现有运行、权限与审核流程启用。
 
-工具只读取已构建的数据，不接收任意 SQL 或数据根目录参数。`BIOAGENT_TCMDB` 由部署端固定。返回 `not_loaded` 或 `no_matching_record` 时，Agent 应表达未载入/未找到记录，不能表述为药物无效。
-
-注意：生成的 native tool manifest 中 MIT 是包装代码的许可证。数据的许可来自返回记录中的 `license` 和来源约定，不能用包装代码许可证覆盖第三方数据许可。组件被发现也不代表已在所有 Agent 工作流中启用。
+工具只读取已构建的数据，不接收任意 SQL 或数据根目录参数。Hub 的位置由部署端固定（见第 2 节）；PSH 隔离执行时，子进程会收到与父进程相同的 Hub 路径，与直接调用读取同一个库。组件被发现也不代表已在所有 Agent 工作流中启用。
 
 ## 6. 科研分析还要接入证据快照
 
@@ -322,7 +313,8 @@ _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
 - 模型生成的证候预测、靶点预测和对接结果使用 `knowledge_level=prediction`，并配套适当的预测型 `study_design`。
 - 药材含某成分时区分物种报告、药用部位、炮制品/煎液、体内检出，分别对应 C1、C2、C3、C4。没有证据不能升格。
 - 试验注册信息存成注册记录；即使计划为随机试验，也不能据此制造具有疗效结果的 `randomized_trial` 边。需要进一步找到真实结果论文并解析。
-- 标准文件、序列、临床样本等不一定是当前科学节点类别；先保留原始文件/元数据，确需进入图谱时再设计并验证 schema 扩展。
+- 科研快照 schema（`sources/schema.py`）已有 `organism`、`processed_herb` 节点类别和 `has_base_species` 关系，并已由 `sources/herbs.py` 实际生成；药材—基原物种关系可以直接复用这一层。Hub 的关系词表（`tcmdb.rowkit`）则没有药材—物种关系，两套词表不要混用。
+- 标准条款、DNA 序列对象、临床样本等不是当前科学节点类别；先保留原始文件/元数据，确需进入图谱时再设计并验证 schema 扩展。
 
 下面是完整、可独立运行的“快照构建 → 校验加载 → 结论审核”演示。将其保存为仓库根目录的 `snapshot_demo.py` 后执行 `python snapshot_demo.py`。合成数据由本例声明 CC0，仅适用于这个演示，不适用于 HKBU、药典等上游数据。
 
@@ -405,13 +397,16 @@ source_url, page, source_row_id, review_status
 文件定义可采用以下写法；这是放入一个 DatasetSpec 的 `files`，需另外提供实际 key、目录条目和许可：
 
 ```python
+from bioagent.tcmdb.extra.traditional import FMT     # 人工模板的严格读取格式
 from bioagent.tcmdb.spec import FileSpec
 
 files = (
-    FileSpec("", "quality_standards.tsv", "quality_standards", fmt="tsv"),
+    FileSpec("", "quality_standards.tsv", "quality_standards", fmt=FMT),
     FileSpec("", "monographs.pdf", "", fmt="raw"),
 )
 ```
+
+人工整理的固定模板用 `FMT` 严格读取（列名、字段数、引号和编码不符即拒绝）；共用的 `tsv` 读取器只用于不受我们控制格式的上游导出。新的模板表要在 `traditional.SCHEMAS` 中登记列名。
 
 `raw` 保留文件，不会自动 OCR 或解析 PDF。多份文件逐一声明或使用明确的文件清单。先用 `tcmdb query <dataset> quality_standards` 提供表查询；有跨库关系需求时再通过 extra 模块的 `KINDS` 定义质量标准关系和 extractor。
 
@@ -462,7 +457,8 @@ python scripts/verify_connectors.py --only your_registered_key --no-write
 | 数据重建 | 同输入重复 `check` 无 digest 漂移；报错不能默认为成功 |
 | 科学快照 | 原文件和解析器代码固定；结构/QC 通过；重新加载与 ledger 一致 |
 | 语义 | 预测与实验证据分开；注册计划与结果分开；组成与疗效分开 |
-| 查询工具 | 限制来源、查询范围和条数；未载入/未找到返回明确状态 |
+| 人工模板 | 列名、字段数、引号与编码严格校验；不符即拒绝并指出行号，原库保持不变 |
+| 查询工具 | 限制来源、查询范围和条数；未载入、数据不完整、无匹配、被扣留、成功五种状态分开；每条记录带数据许可；声明读取路径与数据许可 |
 | 商业查询 | 未知、非商业或禁止衍生数据许可不会混入商业可复用结果；机器过滤不能代替许可核对 |
 | 更新 | 新输入/解析代码采用新版本；审查条数和 ID 变化，不覆盖旧科研快照 |
 
@@ -517,3 +513,19 @@ python -m pytest tests/test_tcmdb_framework.py tests/test_sources.py tests/test_
 1. **模块归属留空**：134–136 目录条目的 `modules` 为空。无法在仓库内找到 M1–M14 图例（架构文档 `tcm_agent_architecture.docx` 在仓库外），未臆测归属，已在条目的 `assessment` 中注明。若你能给出该图例，可再补。
 2. **港标与 DNA 仅可查询**：未导入科研快照（`sources/` 层）。指南第 6/7 节要求质量标准和序列进入图谱前先做 schema 扩展与解析器，"标准文件、序列……先保留原始文件/元数据，确需进入图谱时再设计并验证 schema 扩展"，因此本期保留为可查询表 + 原始文件。
 3. **后续阶段未登记**：TCMSSD、古籍、WHO ICTRP/ChiCTR、2025 版《中国药典》、HerbComb、GNDC 未写入目录，避免把未取得数据或未验证的接口列为已接入。需要时可按 134–136 的同一条路线补 manual 条目。
+
+### 2026-10-05 修订（根据独立复核）
+
+复核在独立副本上复现了五个问题，均已修正并有回归测试（`tests/test_supplement_traditional.py`，合成数据）：
+
+| 问题 | 复现 | 修正 |
+|---|---|---|
+| ① 人工 TSV 没有严格校验 | 港标测试样例表头 14 列、数据 15 个值，来源 URL、页码、行 ID、审核状态依次错位，最后一个值被截掉，`check` 仍为 `ok`；含制表符的值被拆开；缺 `herb_id` 列时构建抛 `IndexError`，原有效库被替换，关系 1 条变 0 条 | 三个模板文件改用严格读取器（`traditional.FMT`）；构建在临时库中完成并提取关系后才替换正式库（对 Hub 的所有数据集生效）；修正港标测试并逐字段断言 |
+| ② PSH 隔离执行看不到 `BIOAGENT_TCMDB` | 直接调用 `ok`，隔离调用 `not_loaded` | 隔离子进程收到父进程解析出的 Hub 路径（`--tcmdb`）；工具声明读取 `${tcmdb}`，权限配置按实际路径裁决：在数据湖或工作区内则读同一个库，在外则明确拒绝 |
+| ③ 数据许可没有传到结果和治理层 | 港标、DNA 记录没有许可字段；`check` 无警告；PSH 中 `data_license` 是包装代码的 MIT | 记录带数据集、许可、许可类别、商业使用；只供查询的数据集也提示未知许可；manifest 声明 `license.data` 与读取路径，PSH 报告 `data_license`（数据）与 `code_license`（MIT）；`commercial` 参数与 `BIOAGENT_DATA_USE` |
+| ④ 生品与炮制品经 `consensus` 后合并 | 黄芪（生）与黄芪（炙）在库中是两个 ID，共识中成为一个 `materia:huangqi` | 炮制并入所列药材名（炙黄芪），原药名与炮制仍保存在备注中；共识中保持为两条；补充「炮」「煨」前缀（炮附子不再等同附子） |
+| ⑤ 库文件存在不等于数据完整 | 只有 FASTA 时 DNA 工具抛 `HubError`；待审行可被查询；FASTA 与元数据不核对 | 五种状态；默认只返回已核对行；`check` 要求 FASTA 与标本元数据一一对应，重复或空序列报错 |
+
+交接材料同时修正：生产模板只留表头（`tcmdb template`），演示数据单独生成、名称明显虚构、全部 `pending`（`--demo`）；安装命令改为同级目录 `-e "../PSH-Harness[test]"`；验证改为 `tcmdb verify`，一个数据集都没检查到时报告 `NO DATASETS CHECKED`（退出码 3），并包含一次实际的工具查询。
+
+范围说明：这些测试证明的是读取、构建、查询、许可传递和隔离执行的行为，**不**等于三个来源已经完成端到端的科研证据发布验收。三个来源都还没有进入 `sources/` 科研快照，也没有接入既有的科研 skill；发现了工具，并不会让已有的方剂或机制研究流程自动使用这些数据。第 4 节第 7 个测试证明的是 `listed` 标签与商业过滤，第 6 节的独立示例证明的是 `integration_demo` 的发布门行为，两者都不应扩大解读。

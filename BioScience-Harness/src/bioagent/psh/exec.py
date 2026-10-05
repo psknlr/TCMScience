@@ -33,16 +33,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--profile", default="biomedical-research")
     parser.add_argument("--workspace", help="the workspace root the admitting process resolved")
     parser.add_argument("--data-lake", help="the data-lake root the admitting process resolved")
+    parser.add_argument("--tcmdb", help="the TCM data hub root the admitting process resolved")
     args = parser.parse_args(argv)
 
-    # The environment is cleared; the profile's ${workspace} and ${data_lake} are the
-    # admitting process's, passed on the command line fixed at admission.
+    # The environment is cleared; the profile's ${workspace}, ${data_lake} and ${tcmdb} are
+    # the admitting process's, passed on the command line fixed at admission.
     import os
-    from bioagent.config import ENV_DATA_LAKE, ENV_WORKSPACE
+    from bioagent.config import ENV_DATA_LAKE, ENV_TCMDB, ENV_WORKSPACE
     if args.workspace:
         os.environ[ENV_WORKSPACE] = args.workspace
     if args.data_lake:
         os.environ[ENV_DATA_LAKE] = args.data_lake
+    if args.tcmdb:
+        os.environ[ENV_TCMDB] = args.tcmdb
 
     from bioagent.psh.arguments import ArgumentError, arguments_for
     from bioagent.psh.assembly import default_runtime

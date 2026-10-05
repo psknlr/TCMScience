@@ -130,6 +130,10 @@ class LicenseSpec:
     spdx: str = "NONE"
     integration_mode: str = "federated"   # vendor | native | federated
     note: str = ""
+    #: The licence of the data the component reads or returns, when it is not ``spdx``:
+    #: a tool's code can be MIT while the records it hands back are under terms nobody has
+    #: stated. Empty when ``spdx`` covers both (a connector's or dataset's own licence).
+    data: str = ""
 
 
 @dataclass

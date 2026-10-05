@@ -92,20 +92,29 @@ class BioScienceBridge:
             raise BridgeRefused(f"profile {p.name} requires isolation, and there is no "
                                 "state or manifest directory to run isolated components from")
         # The permission profile names its filesystem roots symbolically (${workspace},
-        # ${data_lake}); the isolated child starts from a cleared environment, so it is told
-        # the roots this process resolved rather than falling back to repository defaults.
-        from ..config import data_lake_dir, workspace_dir
-        unknown = sorted(set(roots or {}) - {"workspace", "data_lake"})
+        # ${data_lake}, ${tcmdb}); the isolated child starts from a cleared environment, so
+        # it is told the roots this process resolved rather than falling back to repository
+        # defaults. Without ``tcmdb`` a hub the operator kept at $BIOAGENT_TCMDB answered
+        # in-process and read as "not loaded" in the child.
+        import os
+
+        from ..config import ENV_TCMDB, data_lake_dir, workspace_dir
+        unknown = sorted(set(roots or {}) - {"workspace", "data_lake", "tcmdb"})
         if unknown:
             raise BridgeRefused(f"unknown filesystem roots {unknown}; "
-                                "known: data_lake, workspace")
+                                "known: data_lake, tcmdb, workspace")
         if roots and not self.isolate:
             raise BridgeRefused("filesystem roots can only be given to isolated components; "
                                 "in-process components use this process's configuration")
-        self.roots = {"workspace": str(Path(workspace_dir()).expanduser().resolve()),
-                      "data_lake": str(Path(data_lake_dir()).expanduser().resolve()),
-                      **{k: str(Path(v).expanduser().resolve())
-                         for k, v in (roots or {}).items()}}
+        given = {k: str(Path(v).expanduser().resolve()) for k, v in (roots or {}).items()}
+        lake = given.get("data_lake") or str(Path(data_lake_dir()).expanduser().resolve())
+        # $BIOAGENT_TCMDB, else the hub inside the data lake the child is given
+        tcmdb = given.get("tcmdb") or (str(Path(os.environ[ENV_TCMDB]).expanduser().resolve())
+                                       if os.environ.get(ENV_TCMDB)
+                                       else str(Path(lake) / "tcmdb"))
+        self.roots = {"workspace": given.get("workspace")
+                      or str(Path(workspace_dir()).expanduser().resolve()),
+                      "data_lake": lake, "tcmdb": tcmdb}
         self._components: dict[str, BridgedComponent] = {}
         self._by_bio_id: dict[str, str] = {}
         self._harnesses: dict[str, PSHManifest] = {}
@@ -279,7 +288,8 @@ class BioScienceBridge:
         import shlex
         return " ".join(shlex.quote(str(a)) for a in (
             sys.executable, EXEC_PATH, "--manifest", target,
-            "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"]))
+            "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"],
+            "--tcmdb", self.roots["tcmdb"]))
 
     def _audit(self, event: str, **fields: Any) -> None:
         audit = getattr(self.kernel, "audit", None)
