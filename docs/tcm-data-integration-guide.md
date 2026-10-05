@@ -488,7 +488,7 @@ python -m pytest tests/test_tcmdb_framework.py tests/test_sources.py tests/test_
 
 ## 11. 第一期实施记录（2026-10-04）
 
-已按本指南第 4–6 节，在分支 `data/tcm-integration-phase1`（基线 `df0cd3e`）完成第一期接入，并推送到 fork `rachael1216/TCMScience`。上游 `psknlr/TCMScience` 未直接写入；如需并入上游，从上面的分支开 PR 即可。
+已按本指南第 4–6 节，在分支 `data/tcm-integration-phase1`（基线 `df0cd3e`）完成第一期接入，并推送到 fork `rachael1216/TCMScience`（[PR #28](https://github.com/psknlr/TCMScience/pull/28)）。2026-10-05，这些提交连同下文“2026-10-05 修订”中的修正，经 [PR #29](https://github.com/psknlr/TCMScience/pull/29) 合并进上游 `psknlr/TCMScience` 的 `main`（合并提交 `9343a91`）。
 
 **已实现（代码 + 合成数据，未下载任何真实数据）**
 
