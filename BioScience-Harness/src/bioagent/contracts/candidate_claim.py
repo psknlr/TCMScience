@@ -28,7 +28,7 @@ in with ordinary mistakes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, NamedTuple
+from typing import Any, Mapping, NamedTuple, Sequence
 
 from ..tcm.model import CLAIM_KINDS, EvidenceTier, licenses
 from .claim_language import overreaching_language
@@ -98,6 +98,7 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM010": "a supporting quote was not located in its source",
     "CLM011": "the claim's wording asserts more than its declared claim_kind",
     "CLM012": "an extrapolation is marked validated by evidence that is not present",
+    "CLM013": "the claim's stated evidence scope is not what its cited evidence covers",
 }
 
 
@@ -327,6 +328,12 @@ def _norm(text: str) -> str:
                     .replace("、", ",").split())
 
 
+def _covered_by(recorded: Sequence[str], asserted: str) -> bool:
+    """Whether the evidence items' scopes, one by one or together, cover `asserted`."""
+    return any(_covers(r, asserted) for r in recorded) or _covers("; ".join(recorded),
+                                                                    asserted)
+
+
 def _split(text: str) -> list[str]:
     """Enumerated items. Only explicit separators split: "and" does not, because
     "adults with hypertension and diabetes" is one population (an intersection),
@@ -424,7 +431,34 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
                     f"evidence {item.id!r} is {item.design}; a {claim.claim_kind} "
                     "claim in humans extrapolates across species and must say so")))
 
-    for gap in claim.undeclared_extrapolations():
+    # For a claim about people the covered scope is the cited evidence's, not the
+    # claim's word for it. A claim could state "the evidence covers children,
+    # mortality" over a trial in adults with heart failure that measured NT-proBNP,
+    # and the extrapolation check then compared the claim with itself and found
+    # nothing to declare. A stated scope the evidence contradicts is refused; a
+    # scope the evidence does not state is an extrapolation, to be declared.
+    # Claims of the other kinds (mechanism hypotheses, traditional use,
+    # attribution) carry descriptive scope labels ("in silico", "seed corpus") over
+    # evidence that records relations rather than study populations, so they keep
+    # the comparison of their own fields.
+    if claim.clinical:
+        gaps = []
+        for label, asserted, stated, attr in (
+                ("population", claim.asserted_population, claim.supported_population,
+                 "population"),
+                ("outcome", claim.asserted_outcome, claim.supported_outcome, "outcome")):
+            recorded = sorted({str(getattr(i, attr, "") or "").strip()
+                               for i in usable} - {""})
+            if stated and recorded and not _covered_by(recorded, stated):
+                reasons.append(Reason("CLM013", (
+                    f"the claim says its evidence covers {label} {stated!r}; the cited "
+                    f"evidence covers {recorded}")))
+            if asserted and not (recorded and _covered_by(recorded, asserted)):
+                gaps.append(f"{label}:{asserted}")
+        undeclared = tuple(g for g in gaps if g not in claim.declared_extrapolations)
+    else:
+        undeclared = claim.undeclared_extrapolations()
+    for gap in undeclared:
         reasons.append(Reason("CLM009", f"undeclared extrapolation {gap!r}"))
 
     # The kind is what licensing reads, so the words must not outrun it. An

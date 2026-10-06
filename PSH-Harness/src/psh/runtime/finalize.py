@@ -26,6 +26,7 @@ from typing import Any, Mapping, Sequence
 from ..contracts import (
     ApprovalRequired, EgressDenied, PolicyDenied, RunEnvelope, VerificationFailed,
 )
+from ..evidence.record import cited_source
 from ..evidence.support import ClaimSupport
 from ..labels import DataLabel, Destination, Labeled, combine, unwrap
 from ..workgraph import EdgeKind, NodeKind
@@ -46,7 +47,7 @@ class ReleasedResult:
     label: DataLabel = field(default_factory=DataLabel)
     termination: str = ""
     goal_status: str = "unverified"
-    refused_at: str = ""                          # execution | goal_verification | release_gate
+    refused_at: str = ""      # execution | goal_verification | ingest_evidence | release_gate
     refusal_kind: str = ""                        # the exception class, never its text
     citations: tuple[str, ...] = ()
     claims_checked: int = 0
@@ -77,19 +78,37 @@ def ingest_evidence(kernel: Any, sources: Mapping[str, Any] | None,
     text. Bare text is accepted but marked untrusted, so it cannot on its own establish
     support — the fabricated-abstract path a reviewer identified.
     """
-    from ..evidence.record import EvidenceRecord, revalidate_trust
+    from ..evidence.record import EvidenceRecord, canonical_identifier, revalidate_trust
 
     records: dict[str, Any] = {}
     for identifier, source in (sources or {}).items():
         if isinstance(source, EvidenceRecord):
+            # The key is what the output cites and the gate looks up; the record is what is
+            # verified. A record of PMID 34449189 supplied under 99999999 was verified as
+            # itself and then displayed as 99999999. They must be one identifier, and a
+            # bibliographic record must be of the type its identifier says.
+            cited, held = canonical_identifier(identifier), canonical_identifier(source.identifier)
+            if cited != held:
+                raise PolicyDenied(
+                    f"source {identifier!r} is supplied as the record of {source.identifier!r}; "
+                    "a citation must name the record it is verified against")
+            kind = source.source_type.value
+            if held[0] and kind in ("pmid", "doi", "nct", "pmcid") and kind != held[0]:
+                raise PolicyDenied(
+                    f"source {identifier!r} is a {held[0]} identifier, but its record says "
+                    f"{kind}")
             # A record's `trusted` flag is data the caller set. Recompute it from the
             # signature: an unsigned or tampered record enters the run untrusted no
             # matter what its flag says.
             records[identifier] = revalidate_trust(source, kernel.evidence_signer)
             continue
+        # Bare text is typed by the identifier it is supplied under, not as a PMID by
+        # default: text under NCT01234567 is a trial registration, under a free-form key
+        # it is user-supplied text.
         records[identifier] = EvidenceRecord.from_text(
             identifier=identifier, text=str(source), retrieved_by="caller_supplied",
-            retrieval_run=envelope.run_id, trusted=False, retracted=None)
+            retrieval_run=envelope.run_id, trusted=False, retracted=None,
+            source_type=canonical_identifier(identifier)[0] or "user_supplied")
     return records
 
 
@@ -103,8 +122,8 @@ def verify_claims(kernel: Any, output: str, records: Mapping[str, Any]) -> list[
         identifiers = gate._identifiers(sentence)
         statement = gate._strip_citations(sentence)
         for identifier in identifiers:
-            record = records.get(identifier)
-            if record is None:
+            record, mismatch = cited_source(records, identifier)
+            if record is None or mismatch:
                 supports.append(kernel.verifier.verify(
                     statement=statement, identifier=identifier, source_text=None))
                 continue
@@ -225,7 +244,18 @@ class Finalizer:
                                   quarantine_ref=ref.ref, limitations=tuple(limitations),
                                   **base)
 
-        records = ingest_evidence(self.kernel, sources, envelope)
+        try:
+            records = ingest_evidence(self.kernel, sources, envelope)
+        except PolicyDenied as exc:
+            # A source supplied under an identifier that is not its own is refused like
+            # any other release failure, not raised past the caller.
+            self.kernel.quarantine.refuse(ref, type(exc).__name__, run_id=envelope.run_id)
+            self._audit(envelope, "refused", stage="ingest_evidence",
+                        kind=type(exc).__name__)
+            return ReleasedResult(status="refused", refused_at="ingest_evidence",
+                                  refusal_kind=type(exc).__name__, label=label,
+                                  quarantine_ref=ref.ref, limitations=tuple(limitations),
+                                  **base)
         supports = verify_claims(self.kernel, candidate, records)
         citations = tuple(dict.fromkeys(s.identifier for s in supports))
         unsupported = sum(1 for s in supports if s.supports is False)

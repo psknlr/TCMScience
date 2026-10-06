@@ -7,8 +7,8 @@ lands as its own pull request. This page is updated as each batch lands.
 
 | Batch | Issues | Status |
 | --- | --- | --- |
-| 1. Herb names, doses, entity types, formula versions | AUD-01 to AUD-05 | fixed (this change) |
-| 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | in progress |
+| 1. Herb names, doses, entity types, formula versions | AUD-01 to AUD-05 | fixed ([#32](https://github.com/psknlr/TCMScience/pull/32)) |
+| 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed (this change) |
 | 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | in progress |
 | 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | in progress |
 | 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | in progress |
@@ -83,6 +83,87 @@ or a constituent; 16 gained one. `docs/formula-table.md` has the details.
 
 Tests: `tests/test_audit_2026_10_identity.py` (61, on the audit's examples).
 
+## Batch 2: what a claim rests on
+
+| Probe | Before | After |
+| --- | --- | --- |
+| Evidence in adults with heart failure measuring NT-proBNP; an efficacy claim about children and mortality that fills its own `supported_*` with children, mortality | allowed, no codes | refused: `CLM013` for population and outcome, and both are undeclared extrapolations |
+| "A inhibits T1" citing A's binding constant for T1 and an antagonist record for B and T2 | released | refused: no path from A to T1 records a direction |
+| A knowledge-base relation recorded as `RANDOMIZED_TRIAL` that cites a 伤寒论 passage; efficacy claim in 儿童 | `licensed=True`, `within_scope` | `extend` refuses the relation; placed in the base directly, it rests on `CLASSICAL_TEXT` and licenses no efficacy claim |
+| "黄芪能治愈肺癌，未来研究将优化剂量。" from a Runner whose policy requires claim support | released | refused, like "黄芪能治愈肺癌。" |
+| A signed record marked retracted, its retraction edited to `not_retracted` | signature verifies, source accepted | signature fails; the record is marked tampered and supports nothing |
+| A record of PMID 34449189 supplied under the key 99999999 | verified as 34449189, displayed as 99999999, success | refused at `ingest_evidence`; the output gate checks the record behind every citation |
+
+**AUD-07, scope stated by the claim.** `check_claim` compared the claim's asserted scope
+with the scope the claim itself said its evidence covered. For a claim about people
+(`efficacy`, `association`, `safety_signal`, `recommendation`) the covered population and
+outcome are now read from the cited evidence items. A `supported_*` value the evidence
+contradicts is refused with `CLM013` (`ART105` in an artifact), and declaring the gap does
+not excuse it. A scope the evidence does not state is an extrapolation the claim must
+declare (`CLM009`): the claim's own word no longer establishes it. Mechanism hypotheses,
+traditional use and attribution keep comparing their own fields, because their scope
+labels ("in silico", "seed corpus") describe the claim and their evidence records
+relations, not study populations. Of the shipped skills only `assess-tcm-safety` can make
+a claim about people (a `safety_signal`, once the corpus holds a case report); it now takes
+that claim's population and outcome from the record it cites, and a test runs that case.
+
+**AUD-08, direction borrowed from another edge.** Once a path existed, the release check
+collected directions from every cited edge. The direction is now composed along each
+directed path from the claim's subject to its object: composition and identity edges pass
+it through, an inhibitor of an inhibitor increases, and an effect edge that records no
+direction (a binding constant, an interaction) leaves its path without one. The stated
+direction must be one the paths record, and paths that record both directions support
+neither. The default network-pharmacology hypotheses state no direction and are not
+affected.
+
+**AUD-09, a relation's tier was its own word.** `TCMKnowledgeBase.extend`, which also
+builds the base, refuses a relation recorded above the strongest evidence it cites.
+`applicability` reads the tier off the usable evidence, so a relation placed in the base
+by other means is bounded too. For a claim about people, the population and condition are
+the ones its studies state. The relation's own fields can narrow that scope and no longer
+establish it alone, and a clinical claim about a population the evidence does not state
+is `extrapolated`, not licensed (before, the reason was recorded and the claim licensed).
+Every seed relation sits at or below its evidence.
+
+**AUD-10, a plan exempted the sentence.** The exemption for plans, methods and calls for
+further work applied to the whole sentence. It now applies to the clause
+(`psh/evidence/clauses.py`). A sentence is cut at clause punctuation, at conjunctions and
+just before a construction that opens a plan, and only the clauses that are plans or open
+questions are set aside. A sentence without such a construction is read exactly as
+before. "黄芪能降低死亡率，但机制尚未明确" is now checked as the claim it makes; the open
+question is the mechanism. Checking for the same fault found a second copy in the claim
+parser, which also exempted reporting constructions ("This study reports that…", "The
+results were…", "Table 2 shows…"). Those sentences skipped the scope check, so a trial
+in adults supported "This study reports that empagliflozin reduced … in children" at
+0.95. The constructions are now defined once, for the gate and the parser, and reporting
+constructions are not among them; a plan or a source's open question contributes no
+subject, population or direction to a parsed claim. Not covered: a plan that presupposes
+its result ("future studies will confirm that X …") is still read as a plan.
+
+**AUD-11, unsigned decision fields.** Every field of an evidence record is now signed
+except the signature, the `trusted` and `tampered` flags derived from it, and the content,
+which the signed content hash binds; a field added later is signed without being listed.
+A record whose signature does not verify is marked tampered and supports nothing. An
+unsigned record is still untrusted text, usable with a provenance caveat. The message
+carries a version, so a record signed under the old five-field scheme no longer verifies;
+records are signed at retrieval within a run and none is stored with its signature.
+
+**AUD-12, the displayed citation and the verified record.** The mapping key, the record's
+identifier and the citation in the text are compared as identifiers
+(`canonical_identifier`: `PMID: 34449189`, `pmid:34449189` and `34449189` are one id).
+`ingest_evidence` refuses a record supplied under an identifier that is not its own, and
+a bibliographic record whose type differs from its identifier's. The Runner and the
+Finalizer report either as a refusal at `ingest_evidence`. The output gate and the claim
+commit look sources up the same way and treat a citation whose record is another's as
+unsupported, for callers that hand sources to the gate directly. Bare text is typed by the
+identifier it is supplied under, rather than as a PMID.
+
+Tests: `BioScience-Harness/tests/test_audit_2026_10_evidence.py` (20) and
+`PSH-Harness/tests/test_audit_2026_10_gates.py` (41). Run against `main`, 14 of the first
+fail, and 24 of the 37 in the second that do not need the new functions; the rest are
+cases that pass both before and after. The contract tests' default evidence item now
+states the population and outcome its default claim relies on.
+
 ## 中文摘要
 
 第一批（药材身份）已修复：
@@ -92,4 +173,14 @@ Tests: `tests/test_audit_2026_10_identity.py` (61, on the audit's examples).
 - **AUD-04 成分与药材**：成分、部位、制成品不再被当成“药材＋炮制”，未解析成分标出类型。
 - **AUD-05 方剂版本绑定**：组成指纹与快照不一致时，所有分析入口都会拒绝运行。
 
-随包方剂表能完整解析的方剂由 53,206 首变为 50,291 首；减少的部分原本依赖错误的解析。第二至第五批正在进行。
+随包方剂表能完整解析的方剂由 53,206 首变为 50,291 首；减少的部分原本依赖错误的解析。
+
+第二批（主张所依据的证据）已修复：
+- **AUD-07 证据范围**：关于人的主张（疗效、相关性、安全性信号、推荐），其人群和终点从被引证据读取。与证据矛盾的自填范围以 `CLM013` 拒绝，且不能靠声明外推豁免；证据没有写明的范围算作外推，必须声明。
+- **AUD-08 作用方向**：方向沿主体到客体的每条路径合成，组成边原样传递，“抑制剂的抑制剂”为增强，没有方向的效应边（结合常数、相互作用）使该路径没有方向；无关边不能再借出方向，两个方向都有记录时两者都不支持。
+- **AUD-09 证据等级**：知识库关系的等级不能高于其引用证据，`extend` 直接拒绝；适用性判断按实际可用证据计算等级。临床主张的人群和病症以研究写明的为准，关系自带的字段只能收窄，不能单独授予。
+- **AUD-10 最终文本**：“未来研究”等计划和开放问题只豁免它所在的子句，同句的疗效断言照常检查。同时发现并修复主张解析器中“This study reports that…”等报告式写法跳过范围检查的问题。
+- **AUD-11 签名**：证据记录除签名本身、由签名派生的标志和内容（由已签名的内容哈希绑定）外，所有字段都纳入签名；签名不符的记录标记为被篡改，不能支持任何主张。
+- **AUD-12 引用一致**：映射键、记录内部 ID 与正文引用按规范化标识比较；键与记录不一致、文献类型与标识不符时拒绝，输出闸门也逐条核对引用背后的记录。
+
+第三至第五批正在进行。

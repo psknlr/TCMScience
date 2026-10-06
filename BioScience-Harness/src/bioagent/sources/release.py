@@ -203,13 +203,65 @@ def _statement_problem(claim: "CandidateClaim", edges: Sequence[Mapping[str, Any
                 f"{claim.kind} claim does not license")
     stated = _stated_directions(wording)
     if stated:
-        recorded = {_edge_direction(e) for e in edges if not _definitional(e)} - {""}
+        # The direction is the one the paths from the subject to the object record,
+        # composed along each path. Directions used to be collected from every cited
+        # edge, so an antagonist record for another compound and another target, cited
+        # alongside, lent its direction to "A inhibits T1" when A's own record was a
+        # binding constant with no direction at all.
+        recorded = _path_directions(claim.subject, claim.object, edges)
+        if recorded is None:
+            return ("the statement asserts a direction of effect, and the cited edges form "
+                    "too many paths to compose one")
         unsupported = stated - recorded
         if unsupported:
             return (f"the statement asserts a direction of effect ({', '.join(sorted(unsupported))}) "
-                    f"that no supporting edge records (edges record "
+                    f"that no path of supporting edges records (the paths record "
                     f"{sorted(recorded) or 'no direction'})")
+        if len(recorded) > 1:
+            return ("the statement asserts a direction of effect, and the cited paths record "
+                    "both directions")
     return ""
+
+
+def _path_directions(subject: str, obj: str, edges: Sequence[Mapping[str, Any]],
+                     limit: int = 100_000) -> set[str] | None:
+    """The direction of effect each directed path from ``subject`` to ``obj`` records.
+
+    A path's direction is composed from its effect edges: identity and composition edges
+    (``contains`` at any composition level) pass it through, an inhibitor of an
+    inhibitor increases, and an effect edge that records no direction (a binding
+    constant, an interaction) leaves the path without one. ``None`` when the paths are
+    too many to enumerate within ``limit``.
+    """
+    out: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for e in edges:
+        out[e["subject"]].append(e)
+    found: set[str] = set()
+    steps = 0
+    stack: list[tuple[str, str, frozenset[str]]] = [(subject, "", frozenset({subject}))]
+    while stack:
+        node, state, seen = stack.pop()
+        if node == obj:
+            if state:
+                found.add(state)
+            continue
+        for e in out.get(node, ()):
+            nxt = e["object"]
+            if nxt in seen:
+                continue
+            steps += 1
+            if steps > limit:
+                return None
+            if _definitional(e) or e.get("predicate") == "contains":
+                nxt_state = state             # what a thing is or holds, not what it does
+            else:
+                direction = _edge_direction(e)
+                if not direction:
+                    continue                  # this path records no direction
+                nxt_state = (direction if not state
+                             else "increase" if state == direction else "decrease")
+            stack.append((nxt, nxt_state, seen | {nxt}))
+    return found
 
 
 def _connected(subject: str, obj: str, edges: Iterable[Mapping[str, Any]]) -> bool:

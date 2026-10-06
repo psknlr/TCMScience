@@ -62,8 +62,11 @@ def quality(**kw) -> EvidenceQuality:
 
 def item(id: str = "e1", design: str = "randomized_trial", card_id: str = "herb",
          **kw) -> EvidenceItem:
+    # The scope a claim about people rests on is what its evidence records, so the
+    # default item states the population and outcome the default claim relies on.
     base = dict(id=id, design=design, quote="the verbatim excerpt relied on",
-                source_card_id=card_id, quality=quality())
+                source_card_id=card_id, quality=quality(),
+                population="adults with malaria", outcome="fever clearance")
     base.update(kw)
     if base.pop("quote_verified", True) is False or "content_hash" in base:
         return EvidenceItem(**base)
