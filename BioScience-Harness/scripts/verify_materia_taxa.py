@@ -65,6 +65,8 @@ REVIEWED = {
     "Carpesium abrotanoides", "Cynanchum glaucescens", "Cynanchum stauntonii",
     "Hydnocarpus anthelminthicus", "Kochia scoparia", "Rhaponticum uniflorum",
     "Vaccaria segetalis", "Vespertilio superans", "Viola yedoensis", "Yulania denudata",
+    # 2026-10-06 (化橘红, 川木通, 川木香): a synonym and two spellings, not homonyms
+    "Citrus grandis", "Clematis armandii", "Vladimiria souliei",
 }
 
 

@@ -87,12 +87,21 @@ _ROWS = [ ("gancao", "甘草", "Glycyrrhizae Radix et Rhizoma", "plant", ("root"
   ["Saposhnikovia divaricata"], ["北防风", "关防风"]),
  ("chuanxiong", "川芎", "Chuanxiong Rhizoma", "plant", ("rhizome",), "根茎",
   ["Ligusticum chuanxiong"], ["芎䓖", "芎藭", "芎\ue840", "抚芎", "芎", "川芎䓖"]),
+ ("chuanmuxiang", "川木香", "Vladimiriae Radix", "plant", ("root",), "根",
+  ["Dolomiaea souliei", "Vladimiria souliei"], []),
  ("muxiang", "木香", "Aucklandiae Radix", "plant", ("root",), "根",
   ["Aucklandia lappa", "Dolomiaea costus", "Saussurea costus"], ["广木香", "云木香", "南木香"]),
  ("fuling", "茯苓", "Poria", "fungus", ("sclerotium",), "菌核",
   ["Wolfiporia cocos", "Poria cocos", "Wolfiporia extensa"], ["白茯苓", "赤茯苓", "云苓", "茯神", "白茯神", "朱茯神", "云茯苓", "茯苓皮", "赤苓", "白苓", "白茯"]),
  ("chenpi", "陈皮", "Citri Reticulatae Pericarpium", "plant", ("pericarp", "peel"), "果皮",
-  ["Citrus reticulata"], ["橘皮", "陈橘皮", "广陈皮", "橘红", "新会皮", "橘皮白", "化橘红", "广皮", "陈皮白"]),
+  ["Citrus reticulata"], ["橘皮", "陈橘皮", "广陈皮", "新会皮", "橘皮白", "广皮", "陈皮白"]),
+ # 橘红 and 化橘红 are two monographs of their own, not 陈皮 (Pharmacopoeia 2020): 橘红 is
+ # the outer pericarp of 橘 itself, 化橘红 that of 化州柚 or 柚 — another species. Writing
+ # 化橘红 as an alias of 陈皮 sent its formulas to Citrus reticulata's constituents.
+ ("juhong", "橘红", "Citri Exocarpium Rubrum", "plant", ("pericarp", "peel"), "外层果皮",
+  ["Citrus reticulata"], []),
+ ("huajuhong", "化橘红", "Citri Grandis Exocarpium", "plant", ("pericarp", "peel"), "外层果皮",
+  ["Citrus maxima", "Citrus grandis"], ["化州橘红"]),
  ("qingpi", "青皮", "Citri Reticulatae Pericarpium Viride", "plant", ("fruit", "pericarp"), "幼果或未成熟果皮",
   ["Citrus reticulata"], ["青橘皮"]),
  ("banxia", "半夏", "Pinelliae Rhizoma", "plant", ("tuber",), "块茎",
@@ -153,6 +162,8 @@ _ROWS = [ ("gancao", "甘草", "Glycyrrhizae Radix et Rhizoma", "plant", ("root"
   ["Schisandra chinensis"], ["北五味子", "北五味", "五味"]),
  ("maidong", "麦冬", "Ophiopogonis Radix", "plant", ("root",), "块根",
   ["Ophiopogon japonicus"], ["麦门冬", "寸冬", "麦门冬汁"]),
+ ("chuanmutong", "川木通", "Clematidis Armandii Caulis", "plant", ("stem",), "藤茎",
+  ["Clematis armandii", "Clematis montana"], []),
  ("mutong", "木通", "Akebiae Caulis", "plant", ("stem",), "藤茎",
   ["Akebia quinata", "Akebia trifoliata"], []),
  ("cangzhu", "苍术", "Atractylodis Rhizoma", "plant", ("rhizome",), "根茎",
@@ -165,10 +176,16 @@ _ROWS = [ ("gancao", "甘草", "Glycyrrhizae Radix et Rhizoma", "plant", ("root"
   ["Anemarrhena asphodeloides"], ["肥知母", "盐知母"]),
  ("niuxi", "牛膝", "Achyranthis Bidentatae Radix", "plant", ("root",), "根",
   ["Achyranthes bidentata"], ["怀牛膝", "淮牛膝"]),
+ # 川牛膝 is Cyathula officinalis, not 牛膝 (Achyranthes bidentata): stripping 川 made it so.
+ ("chuanniuxi", "川牛膝", "Cyathulae Radix", "plant", ("root",), "根",
+  ["Cyathula officinalis"], []),
  ("duhuo", "独活", "Angelicae Pubescentis Radix", "plant", ("root",), "根",
   ["Angelica biserrata", "Angelica pubescens"], ["川独活", "香独活"]),
  ("lianqiao", "连翘", "Forsythiae Fructus", "plant", ("fruit",), "果实",
   ["Forsythia suspensa"], ["青连翘", "连翘心", "连乔"]),
+ # 白丁香 is the sparrow's droppings (雄雀屎), not 丁香 with a 白 in front of it.
+ ("baidingxiang", "白丁香", "Passeris Faeces", "animal", ("faeces",), "粪便",
+  ["Passer montanus"], ["雄雀屎", "雀屎"]),
  ("dingxiang", "丁香", "Caryophylli Flos", "plant", ("flower", "bud"), "花蕾",
   ["Syzygium aromaticum"], ["公丁香", "丁香皮", "母丁香", "鸡舌香"]),
  ("zexie", "泽泻", "Alismatis Rhizoma", "plant", ("tuber", "rhizome"), "块茎",
@@ -285,6 +302,9 @@ _ROWS = [ ("gancao", "甘草", "Glycyrrhizae Radix et Rhizoma", "plant", ("root"
   ["Curcuma phaeocaulis", "Curcuma kwangsiensis", "Curcuma wenyujin"], ["蓬莪术", "蓬术", "莪荗", "蓬莪茂"]),
  ("sanleng", "三棱", "Sparganii Rhizoma", "plant", ("tuber",), "块茎",
   ["Sparganium stoloniferum"], ["京三棱", "荆三棱"]),
+ # 茺蔚子 is the fruit of 益母草's species, a monograph of its own, not the herb.
+ ("chongweizi", "茺蔚子", "Leonuri Fructus", "plant", ("fruit",), "果实",
+  ["Leonurus japonicus"], ["茺蔚实"]),
  ("yimucao", "益母草", "Leonuri Herba", "plant", ("herb", "aerial"), "地上部分",
   ["Leonurus japonicus"], ["茺蔚", "坤草"]),
  ("niubangzi", "牛蒡子", "Arctii Fructus", "plant", ("fruit",), "果实",
@@ -372,7 +392,11 @@ _ROWS = [ ("gancao", "甘草", "Glycyrrhizae Radix et Rhizoma", "plant", ("root"
  ("zhuru", "竹茹", "Bambusae Caulis in Taenias", "plant", ("stem",), "茎秆的中间层",
   ["Bambusa tuldoides", "Phyllostachys nigra"], ["青竹茹", "淡竹茹", "竹沥", "淡竹沥", "竹沥汁"]),
  ("danzhuye", "淡竹叶", "Lophatheri Herba", "plant", ("leaf", "stem"), "茎叶",
-  ["Lophatherum gracile"], ["竹叶", "苦竹叶"]),
+  ["Lophatherum gracile"], []),
+ # 竹叶 (竹叶石膏汤) is the leaf of the bamboo 淡竹, not the grass Pharmacopoeia 淡竹叶;
+ # 苦竹叶 is another bamboo's and is left unresolved.
+ ("zhuye", "竹叶", "Phyllostachydis Henonis Folium", "plant", ("leaf",), "叶",
+  ["Phyllostachys nigra var. henonis"], []),
  ("lugen", "芦根", "Phragmitis Rhizoma", "plant", ("rhizome",), "根茎",
   ["Phragmites australis"], ["苇茎", "芦苇根", "鲜芦根"]),
  ("dafupi", "大腹皮", "Arecae Pericarpium", "plant", ("pericarp",), "果皮",
@@ -807,6 +831,50 @@ MATERIA: Mapping[str, MateriaEntry] = {
     r[0]: MateriaEntry(r[0], r[1], r[2], r[3], tuple(r[4]), r[5], tuple(r[6]), tuple(r[7]))
     for r in _ROWS}
 
+#: Names that resolved only by stripping 川, 大, 小 or 白, or by reading a part word as
+#: processing, each checked against what it denotes and kept because it is the drug it is
+#: listed under: 川当归 is 当归 from Sichuan, 大半夏 a large 半夏, 白云苓 is 茯苓, 败龟版 is
+#: 龟甲, 枸杞根皮 is 地骨皮. Where a part has no entry of its own the drug's entry already
+#: holds that part (瓜蒌仁 is in 瓜蒌, 皂角刺 in 皂荚), and these follow it. Names of the same
+#: forms that denote something else stay unresolved: 川牛膝, 川木通, 川木香 and 白丁香 are
+#: entries of their own, 大麦 is barley, 大麻子 (hemp or castor), 胡麻子 (sesame or flax) and
+#: 大椒 are ambiguous, and 牛蒡根, 车前叶, 红花子 are other parts. Three were a different
+#: species under the old rules: 莲子草 is 墨旱莲 (not 莲子), 金头蜈蚣 a centipede (not 金箔).
+_REVIEWED_ALIASES: Mapping[str, str] = {
+    # 川: the drug from its Sichuan origin
+    "川山甲": "chuanshanjia", "川朴消": "mangxiao", "川芒消": "mangxiao", "川当归": "danggui",
+    "川归身": "danggui", "川姜": "ganjiang", "川白姜": "ganjiang", "川干姜": "ganjiang",
+    "川巴戟": "bajitian", "小川连": "huanglian", "川雅连": "huanglian", "川椒红": "huajiao",
+    "川附片": "fuzi", "川五灵脂": "wulingzhi", "川桂枝": "guizhi", "川常山": "changshan",
+    "川蜈蚣": "wugong", "川文蛤": "wubeizi",
+    # 大 / 小: a size of the same drug
+    "大川乌": "chuanwu", "大川乌头": "chuanwu", "大梅片": "bingpian", "大冰片": "bingpian",
+    "大半夏": "banxia", "大川芎": "chuanxiong", "小川芎": "chuanxiong", "大芎": "chuanxiong",
+    "大贝母": "zhebeimu", "大南星": "tiannanxing", "大天南星": "tiannanxing",
+    "小枳实": "zhishi", "大当归": "danggui", "小生地": "shengdi", "小青皮": "qingpi",
+    "大黑豆": "heidou", "小黑豆": "heidou", "大蜈蚣": "wugong", "大麦冬": "maidong",
+    "大槟榔": "binglang", "大乌梅": "wumei", "大朱砂": "zhusha", "大粉草": "gancao",
+    "大麻子仁": "huomaren", "大栀子": "zhizi", "大丁香": "dingxiang", "小红枣": "dazao",
+    # 白: the drug's own colour or grade
+    "白芜荑": "wuyi", "白槟榔": "binglang", "白滑石": "huashi", "白硼砂": "pengsha",
+    "白龙脑": "bingpian", "白云苓": "fuling", "白粳米": "jingmi", "白石膏": "shigao",
+    "白酒": "jiu", "白干姜": "ganjiang", "白通草": "tongcao", "白明矾": "baifan",
+    "白雷丸": "leiwan", "白干葛": "gegen", "白松香": "songzhi",
+    # a form of the drug that a part or product word left unresolved
+    "香附米": "xiangfu", "诃子皮": "hezi", "白矾灰": "baifan", "猪牙皂荚": "zaojiao",
+    "牙皂角": "zaojiao", "皂角针": "zaojiao", "皂荚刺": "zaojiao", "槐角子": "huaihua",
+    "败龟版": "guijia", "枸杞根皮": "digupi", "枸杞根": "digupi", "黄柏皮": "huangbo",
+    "菟丝饼": "tusizi", "百部根": "baibu", "瓜蒌子": "gualou", "栝楼子": "gualou",
+    "三七根": "sanqi", "紫苏茎": "zisuye", "连翘壳": "lianqiao", "云母石": "yunmu",
+    "禹余粮石": "yuyuliang", "牵牛头末": "qianniuzi", "黑丑头末": "qianniuzi",
+    "马兜铃根": "qingmuxiang", "大麦蘖": "maiya", "麦糵面": "maiya", "香薷叶": "xiangru",
+    "地榆根": "diyu", "猪脂油": "zhuzhi", "血余灰": "xueyu", "胡桃瓤": "hetaoren",
+    "茯苓块": "fuling", "木瓜干": "mugua", "生姜自然汁": "shengjiang", "杏仁泥": "xingren",
+    "蕲艾叶": "aiye",
+    # a different species under the old rules
+    "莲子草": "mohanlian", "金头蜈蚣": "wugong",
+}
+
 
 def _names() -> dict[str, str]:
     out: dict[str, str] = {}
@@ -815,6 +883,12 @@ def _names() -> dict[str, str]:
             if name in out and out[name] != entry.id:
                 raise ValueError(f"name {name!r} is claimed by {out[name]} and {entry.id}")
             out[name] = entry.id
+    for name, drug in _REVIEWED_ALIASES.items():
+        if drug not in MATERIA:
+            raise ValueError(f"reviewed alias {name!r} names no entry {drug!r}")
+        if name in out and out[name] != drug:
+            raise ValueError(f"name {name!r} is claimed by {out[name]} and {drug}")
+        out[name] = drug
     return out
 
 
@@ -823,9 +897,15 @@ _NAME_INDEX = _names()
 #: Processing words written before or after a drug name (炙甘草, 酒大黄, 麸炒枳壳, 甘草末).
 #: Stripped only when the remainder is itself a known name, so 生姜 stays 生姜 and 熟地黄
 #: stays 熟地黄 (both listed as names in their own right).
+#:
+#: Besides processing, only words of quality or state are stripped (真阿胶, 嫩黄耆, 陈枳壳,
+#: 鲜芦根, 干地龙): they leave the drug what it is. Words of origin, size or colour do not:
+#: 川牛膝 is not 牛膝, 白丁香 is not 丁香 and 大麦 is not 小麦. Stripping 川, 大, 小 and 白
+#: folded such near names into another species; the names of that form that do denote the
+#: drug they contain (川当归, 大半夏, 白云苓) are reviewed aliases now (``_REVIEWED_ALIASES``).
 _PREFIXES = ("麸炒", "土炒", "酒炒", "醋炒", "盐炒", "姜炒", "蜜炙", "酒洗", "酒浸", "醋炙",
              "炙", "炒", "焙", "煨", "煅", "酒", "醋", "盐", "蜜", "制", "生", "净", "焦",
-             "川", "真", "好", "上", "嫩", "新", "陈", "鲜", "干", "大", "小", "白", "细")
+             "真", "好", "上", "嫩", "新", "陈", "鲜", "干", "细")
 _SUFFIXES = ("末", "粉", "片", "汁", "炭", "霜", "屑", "肉", "仁", "心", "头", "尖", "梢", "节")
 
 #: Traditional characters and their simplified forms, for the characters this table's

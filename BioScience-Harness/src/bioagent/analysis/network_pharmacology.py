@@ -54,7 +54,8 @@ from ..sources.release import CandidateClaim, check_release, path_licenses
 from ..sources.snapshot import Snapshot
 from ..tools.stats import benjamini_hochberg, hypergeometric_test
 
-__all__ = ["Parameters", "NetworkPharmacologyResult", "run_network_pharmacology"]
+__all__ = ["Parameters", "NetworkPharmacologyResult", "run_network_pharmacology",
+           "FormulaNotRecorded", "recorded_composition"]
 
 _POTENCY = ("IC50", "Ki", "Kd", "EC50")
 #: the snapshot whose active *and* inactive results define screening hits
@@ -148,6 +149,37 @@ class NetworkPharmacologyResult:
 
 
 # ------------------------------------------------------------------ helpers
+class FormulaNotRecorded(ValueError):
+    """The herb layer does not hold the composition the run was asked to analyse."""
+
+
+def recorded_composition(herbs: Snapshot, formula: FormulaVersion) -> list[Mapping[str, Any]]:
+    """The composition edges of ``formula`` in the herb-layer snapshot, once they are known
+    to be the composition the caller means.
+
+    The analysis reads the composition from the snapshot, never from ``formula``; the
+    caller's formula only names it and is what the provenance reports. So the two must be
+    one record: a formula that keeps its id but changes its herbs (葛根芩连汤 with 黄连
+    removed, for a 拆方 study) would otherwise be reported as analysed while the old
+    composition, 黄连 and its berberine included, was the one computed on. The snapshot's
+    formula node records the fingerprint it was built from; a different one is refused.
+    """
+    edges = [e for e in herbs.edges
+             if e.get("subject") == formula.id and e.get("predicate") == "contains"]
+    if not edges:
+        raise FormulaNotRecorded(
+            f"the herb-layer snapshot {herbs.snapshot_id} records no composition for "
+            f"{formula.id} ({formula.chinese}); build it with that formula first")
+    node = next((n for n in herbs.nodes if n.get("id") == formula.id), None) or {}
+    recorded = (node.get("raw") or {}).get("fingerprint")
+    if recorded and recorded != formula.fingerprint:
+        raise FormulaNotRecorded(
+            f"{formula.id} ({formula.chinese}): the herb-layer snapshot {herbs.snapshot_id} "
+            f"records composition {recorded}, but the formula given is {formula.fingerprint}; "
+            "the record changed after the snapshot was built, so rebuild the herb layer")
+    return edges
+
+
 def _level_at_least(level: str | None, minimum: str) -> bool:
     return level in _COMPOSITION_ORDER and (
         _COMPOSITION_ORDER.index(level) >= _COMPOSITION_ORDER.index(minimum))
@@ -352,8 +384,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
 
     # 1. composition: formula -> herb -> species -> compound -------------------------------
     herbs_snap = by_key["tcm_herbs"]
-    formula_edges = {e["object"]: e for e in herbs_snap.edges
-                     if e["subject"] == formula.id and e["predicate"] == "contains"}
+    formula_edges = {e["object"]: e for e in recorded_composition(herbs_snap, formula)}
     base_edges = {(e["subject"], e["object"]): e for e in herbs_snap.edges
                   if e["predicate"] == "has_base_species"}
     from ..sources.materia import all_drugs

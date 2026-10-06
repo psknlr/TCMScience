@@ -628,7 +628,10 @@ class _GovernedAnalysis:
             "formula": {"id": formula.id, "chinese": formula.chinese,
                         "source": formula.source,
                         "components": [list(c) for c in formula.components],
-                        "license": formula.license},
+                        "license": formula.license,
+                        "primary_source": formula.primary_source,
+                        "record_ids": list(formula.record_ids),
+                        "written": list(formula.written)},
             "parameters": json.loads(json.dumps(asdict(params), default=str)),
             "skill": self.skill, "accept_review": self.accept_review,
         }
