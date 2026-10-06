@@ -54,11 +54,19 @@ def _tokens(text: str) -> set[str]:
 
 @dataclass(frozen=True, slots=True)
 class Resolution:
-    """What a name denotes: one entity, several candidates, or nothing."""
+    """What a name denotes: one entity, several candidates, or nothing.
+
+    Only an id, a recorded name or a recorded alias identifies an entity. A name that is
+    only part of a recorded one, or contains one, is a *candidate*, never a match: 白附子
+    contains 附子 and is another drug, 土茯苓 is not 茯苓, 黄芪甲苷 is a compound in 黄芪
+    and not the herb. ``match`` says how the candidates were found (``exact`` or
+    ``partial``); ``status`` is ``resolved``, ``ambiguous`` or ``unresolved``.
+    """
 
     query: str
     entity: Any = None
     candidates: tuple[Any, ...] = ()
+    match: str = ""
 
     @property
     def ambiguous(self) -> bool:
@@ -68,8 +76,13 @@ class Resolution:
     def found(self) -> bool:
         return self.entity is not None
 
+    @property
+    def status(self) -> str:
+        return "resolved" if self.found else "ambiguous" if self.ambiguous else "unresolved"
+
     def as_dict(self) -> dict[str, Any]:
         return {"query": self.query, "found": self.found, "ambiguous": self.ambiguous,
+                "status": self.status, "match": self.match,
                 "entity": self.entity.as_dict() if self.entity is not None else None,
                 "candidates": [{"id": c.id, "chinese": getattr(c, "chinese", ""),
                                 "kind": _kind_of(c)} for c in self.candidates]}
@@ -229,34 +242,40 @@ class TCMKnowledgeBase:
 
         direct = self.entity(query)
         if direct is not None and accept(direct):
-            return Resolution(query=query, entity=direct, candidates=(direct,))
+            return Resolution(query=query, entity=direct, candidates=(direct,), match="exact")
         exact = [e for e in self._names.get(_norm(query), ()) if accept(e)]
         exact = list(dict.fromkeys(exact))
         if len(exact) == 1:
-            return Resolution(query=query, entity=exact[0], candidates=tuple(exact))
+            return Resolution(query=query, entity=exact[0], candidates=tuple(exact),
+                              match="exact")
         if len(exact) > 1:
-            return Resolution(query=query, candidates=tuple(exact))
+            return Resolution(query=query, candidates=tuple(exact), match="exact")
+        # Names that contain the query or that it contains are suggestions, even when
+        # there is only one: a near name is often another drug (白附子 and 附子, 水半夏 and
+        # 半夏), and taking it for a match carried its compatibility, toxicity and source
+        # species into the answer about the drug that was asked for.
         needle = _norm(query)
         partial: list[Any] = []
         for key, entities in self._names.items():
             if needle and (needle in key or key in needle and len(key) >= 2):
                 partial.extend(e for e in entities if accept(e))
         partial = list(dict.fromkeys(partial))
-        if len(partial) == 1:
-            return Resolution(query=query, entity=partial[0], candidates=tuple(partial))
-        return Resolution(query=query, candidates=tuple(partial))
+        return Resolution(query=query, candidates=tuple(partial),
+                          match="partial" if partial else "")
 
     def require(self, name: str, *, kind: str = "") -> Any:
         """The one entity ``name`` denotes, or a ValueError that lists the alternatives."""
         resolution = self.resolve(name, kind=kind)
         if resolution.found:
             return resolution.entity
+        options = ", ".join(f"{getattr(c, 'chinese', c.id)} ({c.id})"
+                            for c in resolution.candidates[:8])
         if resolution.ambiguous:
-            options = ", ".join(f"{getattr(c, 'chinese', c.id)} ({c.id})"
-                                for c in resolution.candidates[:8])
             raise ValueError(f"{name!r} is ambiguous; it could mean {options}")
         raise ValueError(f"{name!r} names nothing in this knowledge base"
-                         + (f" of kind {kind!r}" if kind else ""))
+                         + (f" of kind {kind!r}" if kind else "")
+                         + (f"; names that contain it or that it contains: {options} — a "
+                            "partial match is not an identification" if options else ""))
 
     # ------------------------------------------------------------------ queries
     def relations_of(self, subject_id: str = "", *, predicate: str = "",

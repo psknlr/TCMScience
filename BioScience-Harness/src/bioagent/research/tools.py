@@ -54,7 +54,10 @@ def network_pharmacology_tool(snapshot_root: str, ledger_path: str,
     version = FormulaVersion(
         str(formula["id"]), str(formula["chinese"]), str(formula["source"]),
         tuple(tuple(c) for c in formula["components"]),
-        license=str(formula.get("license") or "CC0-1.0"))
+        license=str(formula.get("license") or "CC0-1.0"),
+        primary_source=str(formula.get("primary_source") or ""),
+        record_ids=tuple(str(r) for r in formula.get("record_ids") or ()),
+        written=tuple(str(w) for w in formula.get("written") or ()))
     params = Parameters(**{k: _tupled(v) for k, v in parameters.items()})
     contract = SkillContract.from_mapping(skill) if skill else None
     result = run_network_pharmacology(loaded, formula=version, params=params,

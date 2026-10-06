@@ -49,7 +49,8 @@ from ..sources.herbs import GEGEN_QINLIAN, KEY as HERB_LAYER, FormulaVersion
 from ..sources.ledger import SnapshotLedger
 from ..sources.snapshot import Snapshot, load_snapshot
 from ..tcmdb.spec import allows_commercial
-from .network_pharmacology import NetworkPharmacologyResult, Parameters, run_network_pharmacology
+from .network_pharmacology import (FormulaNotRecorded, NetworkPharmacologyResult, Parameters,
+                                    recorded_composition, run_network_pharmacology)
 
 __all__ = ["run_skill", "SkillRunRefused", "read_lock", "LOCK_FILE"]
 
@@ -149,19 +150,10 @@ def _composition_licences(herbs: Snapshot, formula: FormulaVersion, purpose: str
     """The licences of ``formula``'s composition record in the herb layer, once it is
     known to be the record the snapshot holds and, for a commercial run, one that allows
     commercial use."""
-    edges = [e for e in herbs.edges
-             if e.get("subject") == formula.id and e.get("predicate") == "contains"]
-    if not edges:
-        raise SkillRunRefused(
-            f"the herb-layer snapshot {herbs.snapshot_id} records no composition for "
-            f"{formula.id} ({formula.chinese}); build it with that formula first")
-    node = next((n for n in herbs.nodes if n.get("id") == formula.id), None) or {}
-    recorded = (node.get("raw") or {}).get("fingerprint")
-    if recorded and recorded != formula.fingerprint:
-        raise SkillRunRefused(
-            f"{formula.id} ({formula.chinese}): the herb-layer snapshot {herbs.snapshot_id} "
-            f"records composition {recorded}, but the formula given is {formula.fingerprint}; "
-            "the record changed after the snapshot was built, so rebuild the herb layer")
+    try:
+        edges = recorded_composition(herbs, formula)
+    except FormulaNotRecorded as exc:
+        raise SkillRunRefused(str(exc)) from exc
     licences = sorted({str(e.get("license") or "") for e in edges})
     barred = [lic or "no stated licence" for lic in licences if not allows_commercial(lic)]
     if purpose == "commercial" and barred:
