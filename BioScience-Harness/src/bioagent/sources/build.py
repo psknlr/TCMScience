@@ -171,14 +171,18 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
                sources: Iterable[str] = ("npass", "cmaup", "lotus"),
                ledger: Any = None, network: bool = False,
                formulas: Iterable[Any] | None = None,
-               drugs: Mapping[str, Any] | None = None) -> GoldBuild:
+               drugs: Mapping[str, Any] | None = None,
+               formula_files: Mapping[str, str | Path] | None = None) -> GoldBuild:
     """Herb layer + natural-product sources, checked against ``herbs.GOLD``.
 
     By default the herb layer is 葛根芩连汤 alone and the sources are restricted to its four
     herbs' species. ``formulas`` (``FormulaVersion`` records, e.g. the resolved rows of the
-    formula table) are added to the herb layer, and the sources are then restricted to the
-    species of every drug in ``drugs`` (default: the whole materia table with verified
-    species). The gold markers are checked either way.
+    formula table, or the exported formulas of a reviewed HKBU export, ``sources.hkbu``)
+    are added to the herb layer, and the sources are then restricted to the species of
+    every drug in ``drugs`` (default: the whole materia table with verified species). The
+    gold markers are checked either way. The herb layer's licence and citation name every
+    composition source it holds, and ``formula_files`` (name -> path, e.g. the HKBU
+    ``formula_herb.tsv``) are hashed into it as raw files.
 
     With ``network``, also STRING (the induced subnetwork over the protein targets those
     sources report for the herbs' compounds) and Reactome's full human annotation — the
@@ -192,13 +196,23 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         layer = [herb_layer.GEGEN_QINLIAN, *extra]
         version = "fx-" + hashlib.sha256("\n".join(sorted(
             f.fingerprint for f in layer)).encode()).hexdigest()[:12]
-        citation = (herb_layer.CITATION + "; formula compositions from the user-supplied "
-                    "formula table (origin and licence not stated)")
-        license_ = f"{herb_layer.LICENSE} (herb → species); {layer[-1].license} (compositions)"
-        raw = {"herbs.py": Path(herb_layer.__file__)}
-        from . import formulas as formula_module, materia as materia_module
-        raw.update({"materia.py": Path(materia_module.__file__),
-                    "formulas.py": Path(formula_module.__file__)})
+        from . import formulas as formula_module, hkbu, materia as materia_module
+        origins = {getattr(f, "primary_source", "") for f in extra}
+        described = (["the user-supplied formula table (origin and licence not stated)"]
+                     if "" in origins else [])
+        described += [hkbu.CITATION] if hkbu.KEY in origins else []
+        described += sorted(origins - {"", hkbu.KEY})
+        citation = herb_layer.CITATION + "; formula compositions from " + "; ".join(described)
+        license_ = (f"{herb_layer.LICENSE} (herb → species); "
+                    f"{', '.join(sorted({f.license for f in extra}))} (compositions)")
+        raw = {"herbs.py": Path(herb_layer.__file__), "materia.py": Path(materia_module.__file__)}
+        if "" in origins:
+            raw["formulas.py"] = Path(formula_module.__file__)
+        if hkbu.KEY in origins:
+            from ..tcmdb.extra import traditional
+            raw.update({"hkbu.py": Path(hkbu.__file__),
+                        "traditional.py": Path(traditional.__file__)})
+        raw.update({name: Path(p) for name, p in (formula_files or {}).items()})
         if materia_module.TAXA_FILE.is_file():
             raw["materia_taxa.json"] = materia_module.TAXA_FILE
     else:

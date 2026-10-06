@@ -25,6 +25,13 @@ Adapter-only (NO license granted; invoked in place, never copied):
   CellAgent           liu-shiqiang/CellAgent
   CRISPR-GPT          cong-lab/crispr-gpt-pub
 
+Data derived from third-party tables:
+  OpenCC              Apache-2.0   BYVoid/OpenCC
+      The 254 traditional-to-simplified character pairs in
+      src/bioagent/sources/materia.py (_TRADITIONAL / _SIMPLIFIED) are taken from
+      OpenCC's TSCharacters and HKVariantsRev dictionaries, cut to the simplified
+      characters that occur in the materia table's names.
+
 Data: the Biomni data lake is redistributed by Stanford under the terms of
 its own upstream sources; individual datasets (BindingDB, DepMap, genebass,
 Broad Repurposing Hub, ...) carry their own licenses and are NOT redistributed

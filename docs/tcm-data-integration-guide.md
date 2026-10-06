@@ -316,6 +316,28 @@ _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
 - 科研快照 schema（`sources/schema.py`）已有 `organism`、`processed_herb` 节点类别和 `has_base_species` 关系，并已由 `sources/herbs.py` 实际生成；药材—基原物种关系可以直接复用这一层。Hub 的关系词表（`tcmdb.rowkit`）则没有药材—物种关系，两套词表不要混用。
 - 标准条款、DNA 序列对象、临床样本等不是当前科学节点类别；先保留原始文件/元数据，确需进入图谱时再设计并验证 schema 扩展。
 
+### HKBU 方剂组成进入药材层
+
+审核过的 HKBU 导出（`raw/hkbu_formulas_manual/formula_herb.tsv`）可以直接进入药材层快照，由网络药理 skill 研究，不必另写解析器。`sources/hkbu.py` 用 Hub 的同一个严格读取器读这份文件，把每首能完整研究的方剂转成药材层的 `FormulaVersion`，与方剂表（`中医方剂数据表.xlsx`）的方剂走同一条路：
+
+```bash
+python BioScience-Harness/scripts/build_source_snapshots.py gold \
+    --raw RAW --out WORK/snapshots --ledger WORK/audit/snapshots.jsonl \
+    --hkbu-formulas "$BIOAGENT_DATA_LAKE/tcmdb/raw/hkbu_formulas_manual/formula_herb.tsv"
+python BioScience-Harness/scripts/run_network_pharmacology.py --snapshots WORK/snapshots \
+    --ledger WORK/audit/snapshots.jsonl --out WORK/run --formula hkbu:formula.<formula_id>
+```
+
+`--formula hkbu:formula.<id>` 默认从 `<Hub>/raw/hkbu_formulas_manual/formula_herb.tsv` 读取，也可用 `--hkbu-formulas` 指定。规则如下：
+
+- **整首方剂才导出。** 一首方剂的每一行都必须满足：`verified`；有 `herb_id`、`source_row_id`、`reference`；各行的方名、版本、出处一致；`source_row_id` 不重复；药名能解析为 `sources.materia` 中的一味药材，且同一药材不重复出现。有一行不满足，整首方剂就不导出——只研究审核过的那几味，等于研究另一首方剂。构建时在 `excluded` 中列出原因；运行时选中这首方剂会被拒绝，并给出同样的原因。
+- **繁体药名。** 黃芩、大棗、乾薑等按原文解析不出时，逐字转为简体再解析一次，转换后必须正好是已知药名。字表取自 OpenCC，只限药名用到的字（见 `NOTICE`）。
+- **组成边可追溯。** 方剂 ID 为 `hkbu:formula.<formula_id>`；每条组成边的主要知识来源是 `hkbu_formulas_manual`，记录号是 `hkbu_formulas_manual:<source_row_id>`；原文药名、剂量（原数值加单位）和炮制保留在边的 `raw` 中；许可为 `LicenseRef-hkbu-formulas-unstated`。组成边是定义性的，本身不支持任何结论；放行的机制假说，其支撑路径从这条记录开始。
+- **生品与炮制品。** 同一首方剂里同时有一味药材的生品和炮制品（生甘草与炙甘草）时，整首不导出：药材层每味药材只有一条组成边。
+- **商用运行。** `--purpose commercial` 要求被研究方剂的组成记录本身允许商用。HKBU 和方剂表的许可都没有声明，因此都会被拒绝；手工核对的葛根芩连汤（CC0）不受影响。
+- **改动后须重建。** 方剂在快照构建之后被改动（指纹与快照记录的不同）时，运行会被拒绝，需先重建药材层。
+- **尚未覆盖。** 研究闭环（`research.loop`）的问题解析还不识别 `hkbu:formula` ID；目前通过 `run_network_pharmacology.py --formula` 或 `run_skill(formula=...)` 使用。
+
 下面是完整、可独立运行的“快照构建 → 校验加载 → 结论审核”演示。将其保存为仓库根目录的 `snapshot_demo.py` 后执行 `python snapshot_demo.py`。合成数据由本例声明 CC0，仅适用于这个演示，不适用于 HKBU、药典等上游数据。
 
 ```python
@@ -528,4 +550,19 @@ python -m pytest tests/test_tcmdb_framework.py tests/test_sources.py tests/test_
 
 交接材料同时修正：生产模板只留表头（`tcmdb template`），演示数据单独生成、名称明显虚构、全部 `pending`（`--demo`）；安装命令改为同级目录 `-e "../PSH-Harness[test]"`；验证改为 `tcmdb verify`，一个数据集都没检查到时报告 `NO DATASETS CHECKED`（退出码 3），并包含一次实际的工具查询。
 
-范围说明：这些测试证明的是读取、构建、查询、许可传递和隔离执行的行为，**不**等于三个来源已经完成端到端的科研证据发布验收。三个来源都还没有进入 `sources/` 科研快照，也没有接入既有的科研 skill；发现了工具，并不会让已有的方剂或机制研究流程自动使用这些数据。第 4 节第 7 个测试证明的是 `listed` 标签与商业过滤，第 6 节的独立示例证明的是 `integration_demo` 的发布门行为，两者都不应扩大解读。
+范围说明：这些测试证明的是读取、构建、查询、许可传递和隔离执行的行为，**不**等于三个来源已经完成端到端的科研证据发布验收。三个来源都还没有进入 `sources/` 科研快照，也没有接入既有的科研 skill；发现了工具，并不会让已有的方剂或机制研究流程自动使用这些数据。第 4 节第 7 个测试证明的是 `listed` 标签与商业过滤，第 6 节的独立示例证明的是 `integration_demo` 的发布门行为，两者都不应扩大解读。（HKBU 此后接入了科研快照，见下文 2026-10-06 的记录。）
+
+### 2026-10-06 HKBU 方剂接入科研快照（打通通道）
+
+复核建议的第 6 项是：选一个来源，走完“实体映射 → 一个既有科研任务 → 来源追溯与发布门”。这次先在 HKBU 方剂组成上打通了通道，以合成数据验证：
+
+- 新增 `sources/hkbu.py`，构建脚本增加 `--hkbu-formulas`，运行脚本支持 `--formula hkbu:formula.<id>`。规则见第 6 节“HKBU 方剂组成进入药材层”。
+- 在合成数据上，网络药理 skill 对一首 HKBU 方剂运行，放行一条机制假说，其支撑路径的第一条记录正是 HKBU 行的 `source_row_id`（`tests/test_hkbu_formulas.py`）。
+- 修正了 `run_skill` 的两个漏洞，现在两种情况都会被拒绝：
+  1. 商用运行此前不检查被研究方剂组成记录的许可。药材层每次都参与运行，用途检查却只看 skill 声明的数据源，所以许可未声明的方剂（方剂表的方剂也是如此）照样能跑。
+  2. 方剂在快照构建后被改动时，运行照常进行，`provenance.json` 却记录了分析从未读取的组成。
+
+仍然没有做的：
+- 真实的、获准使用并经人工核对的 HKBU 记录，以及用真实记录跑一次、核对结果；
+- 港标和 DNA 仍只可查询；
+- 研究闭环尚不识别 HKBU 方剂 ID。

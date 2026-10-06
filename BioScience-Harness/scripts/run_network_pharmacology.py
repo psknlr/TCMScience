@@ -12,8 +12,11 @@
 Writes compounds/targets/enrichment/network tables, claims.json, release.json,
 provenance.json, limitations.md and snapshot_lock.json to RUN. ``--lock RUN/snapshot_lock.json``
 reruns on exactly those snapshots; ``--formula ID`` analyses another formula version the
-herb-layer snapshot records (an id from the formula table, e.g. ``fx:…``). Exit status is non-zero when a snapshot does not
-match the ledger, the skill's contract refuses the run, or a claim is refused at release.
+herb-layer snapshot records: an id from the formula table (``tcm:formula.fx…``) or from a
+reviewed HKBU export (``hkbu:formula.<formula_id>``, read from ``--hkbu-formulas``,
+default ``<tcmdb>/raw/hkbu_formulas_manual/formula_herb.tsv``). Exit status is non-zero
+when a snapshot does not match the ledger, the skill's contract refuses the run, or a
+claim is refused at release.
 """
 
 from __future__ import annotations
@@ -30,12 +33,29 @@ from bioagent.analysis.network_pharmacology import Parameters  # noqa: E402
 from bioagent.analysis.skill_runner import SkillRunRefused, run_skill  # noqa: E402
 from bioagent.sources.ledger import LedgerError  # noqa: E402
 from bioagent.sources.snapshot import SnapshotError  # noqa: E402
+from bioagent.tcmdb.store import StoreError  # noqa: E402
 
 
-def _formula(formula_id: str | None):
+def _formula(formula_id: str | None, hkbu_formulas: str | None = None):
     from bioagent.sources.herbs import GEGEN_QINLIAN
     if not formula_id or formula_id == GEGEN_QINLIAN.id:
         return GEGEN_QINLIAN
+    from bioagent.sources import hkbu
+    if formula_id.startswith(hkbu.ID_PREFIX):
+        from bioagent.config import tcmdb_dir
+        path = Path(hkbu_formulas) if hkbu_formulas else (
+            tcmdb_dir() / "raw" / hkbu.KEY / "formula_herb.tsv")
+        if not path.is_file():
+            raise SkillRunRefused(f"no reviewed HKBU export at {path} to read {formula_id} "
+                                  "from; pass --hkbu-formulas")
+        export = hkbu.load_hkbu_formulas(path)
+        version = export.by_id(formula_id)
+        if version is not None:
+            return version
+        why = export.why_excluded(formula_id)
+        if why:
+            raise SkillRunRefused(f"{formula_id} cannot be studied: " + "; ".join(why))
+        raise SkillRunRefused(f"no formula {formula_id!r} in {path}")
     from bioagent.sources.formulas import load_formula_table
     record = load_formula_table().by_id(formula_id)
     if record is None:
@@ -73,8 +93,12 @@ def main(argv: list[str] | None = None) -> int:
                          "request ∩ the enabled source cards ∩ these; without the option "
                          "the last term is unrestricted, and provenance.json says so")
     ap.add_argument("--formula", default=None,
-                    help="formula id (default: 葛根芩连汤 of 伤寒论); ids other than the default "
-                         "are looked up in the formula table")
+                    help="formula id (default: 葛根芩连汤 of 伤寒论); hkbu:formula.<id> is "
+                         "looked up in the reviewed HKBU export, any other id in the formula "
+                         "table")
+    ap.add_argument("--hkbu-formulas", default=None, metavar="TSV",
+                    help="the reviewed HKBU export (default: "
+                         "<tcmdb>/raw/hkbu_formulas_manual/formula_herb.tsv)")
     ap.add_argument("--lock", default=None,
                     help="snapshot_lock.json of an earlier run: use exactly those snapshots")
     ap.add_argument("--latest", action="store_true",
@@ -82,7 +106,8 @@ def main(argv: list[str] | None = None) -> int:
                          "has several (otherwise the run is refused)")
     ap.add_argument("--purpose", choices=("academic", "commercial"), default="academic",
                     help="what the run is for; a commercial run may use only sources whose "
-                         "card allows commercial use (NPASS and CMAUP are academic-only)")
+                         "card allows commercial use (NPASS and CMAUP are academic-only), and "
+                         "only a formula whose composition record allows it too")
     ap.add_argument("--ledger-head-from", default="", metavar="PROVENANCE",
                     help="a previous run's provenance.json: refuse this run if the ledger no "
                          "longer holds the entry that run read up to (cut short, rolled back "
@@ -106,14 +131,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"refused: no ledger head in {args.ledger_head_from} ({exc!r})", file=sys.stderr)
             return 1
     try:
-        formula = _formula(args.formula)
+        formula = _formula(args.formula, args.hkbu_formulas)
         provenance = run_skill(skill_dir=args.skill, snapshot_root=args.snapshots,
                                formula=formula, lock=args.lock, latest=args.latest,
                                ledger_path=args.ledger, out_dir=args.out, params=params,
                                allowed=set(args.allow_source) if args.allow_source else None,
                                purpose=args.purpose, expected_ledger_head=head,
                                require_psh=not args.allow_ungoverned)
-    except (SkillRunRefused, SnapshotError, LedgerError) as exc:
+    except (SkillRunRefused, SnapshotError, LedgerError, StoreError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
     print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "background", "network",
