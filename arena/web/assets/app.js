@@ -39,6 +39,7 @@
     ART114: 'a declared output file does not match its content hash',
     ART115: 'a quote receipt does not verify against the content it names',
     ART116: 'a claim rests on an extrapolation that is declared but not validated',
+    ART117: 'the artifact declares an attestation that its audit chain does not record',
     CLM001: 'claim cites no evidence',
     CLM002: 'a cited evidence item is not present',
     CLM003: 'all supporting evidence is retracted',

@@ -149,8 +149,20 @@ def fisher_exact(a: int, b: int, c: int, d: int) -> dict[str, Any]:
 
 
 def enrichment_analysis(genes: Sequence[str], gene_sets: Mapping[str, Sequence[str]],
-                        background: int, min_overlap: int = 1) -> dict[str, Any]:
-    """Over-representation analysis of a gene list against named sets, BH-adjusted."""
+                        background: int, min_overlap: int = 1, *, min_set_size: int = 1,
+                        max_set_size: int | None = None) -> dict[str, Any]:
+    """Over-representation analysis of a gene list against named sets, BH-adjusted.
+
+    The family of tests is fixed before the query is looked at: every set whose size is
+    within ``min_set_size``..``max_set_size``. Each of them is tested, and the
+    Benjamini–Hochberg adjustment runs over all of them. ``min_overlap`` only chooses
+    which results are shown. The tool used to drop the sets the query did not hit before
+    adjusting, so the family shrank to what the data selected: with 100 sets tested and
+    one overlapping the query by two genes, that set had q = 0.022 instead of 1.0.
+
+    The result says how many sets were tested (``tests``, the family size) and how many
+    are shown, and counts the significant sets over the whole family.
+    """
     query = {str(g).upper() for g in genes if str(g).strip()}
     if not query:
         raise ValueError("genes must be a non-empty list")
@@ -158,23 +170,39 @@ def enrichment_analysis(genes: Sequence[str], gene_sets: Mapping[str, Sequence[s
         raise ValueError("gene_sets must be a non-empty mapping of name -> genes")
     if not isinstance(background, int) or background < len(query):
         raise ValueError("background must be an integer no smaller than the query")
-    rows = []
+    for name, v in (("min_overlap", min_overlap), ("min_set_size", min_set_size)):
+        if not isinstance(v, int) or isinstance(v, bool) or v < 0:
+            raise ValueError(f"{name} must be a non-negative integer")
+    if max_set_size is not None and (not isinstance(max_set_size, int)
+                                     or isinstance(max_set_size, bool)
+                                     or max_set_size < min_set_size):
+        raise ValueError("max_set_size must be an integer no smaller than min_set_size")
+    tested = []
     for name, members in gene_sets.items():
         member_set = {str(g).upper() for g in members}
+        if len(member_set) < min_set_size or (max_set_size is not None
+                                              and len(member_set) > max_set_size):
+            continue                      # outside the family, whatever the query
         overlap = sorted(query & member_set)
-        if len(overlap) < min_overlap:
-            continue
         test = hypergeometric_test(len(overlap), len(query), min(len(member_set), background),
                                    background)
-        rows.append({"set": name, "overlap": len(overlap), "set_size": len(member_set),
-                     "p_value": test["p_value"], "fold_enrichment": test["fold_enrichment"],
-                     "genes": overlap})
-    adjusted = benjamini_hochberg([r["p_value"] for r in rows])["q_values"] if rows else []
-    for row, q in zip(rows, adjusted):
+        tested.append({"set": name, "overlap": len(overlap), "set_size": len(member_set),
+                       "p_value": test["p_value"], "fold_enrichment": test["fold_enrichment"],
+                       "genes": overlap})
+    if not tested:
+        raise ValueError("no gene set is within the set-size bounds; nothing was tested")
+    adjusted = benjamini_hochberg([r["p_value"] for r in tested])["q_values"]
+    for row, q in zip(tested, adjusted):
         row["q_value"] = q
-    rows.sort(key=lambda r: (r["p_value"], r["set"]))
-    return {"query_size": len(query), "background": background, "results": rows,
-            "significant_at_0_05": sum(1 for r in rows if r["q_value"] <= 0.05)}
+    shown = sorted((r for r in tested if r["overlap"] >= min_overlap),
+                   key=lambda r: (r["p_value"], r["set"]))
+    significant = [r for r in tested if r["q_value"] <= 0.05]
+    return {"query_size": len(query), "background": background, "tests": len(tested),
+            "shown": len(shown), "min_overlap": min_overlap,
+            "correction": f"benjamini_hochberg over all {len(tested)} sets tested",
+            "results": shown, "significant_at_0_05": len(significant),
+            "significant_not_shown": sum(1 for r in significant
+                                         if r["overlap"] < min_overlap)}
 
 
 def benjamini_hochberg(p_values: Sequence[float]) -> dict[str, Any]:

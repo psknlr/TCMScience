@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from bioagent.contracts import validate_artifact
+from bioagent.contracts.attestation import AuditChainAttestor
 from bioagent.research import (QuestionRefused, ResearchRefused, default_protocol,
                                parse_question, run_research, snapshot_content_store)
 from bioagent.research.loop import Protocol
@@ -101,7 +102,7 @@ def test_every_stage_is_recorded_in_order_and_the_protocol_comes_first(tmp_path)
     assert events == ["research_protocol_registered", "research_program_compiled",
                       "research_sources_retrieved",
                       "research_analysis_completed", "research_rebuttal_completed",
-                      "research_release_validated"]
+                      "research_release_validated", "research_artifact_attested"]
 
 
 def test_a_pathway_explained_by_which_proteins_were_assayed_is_refuted(tmp_path):
@@ -228,8 +229,13 @@ def test_receipts_are_checked_against_the_snapshots_not_the_run(tmp_path):
                                   ("tcm_herbs", "gold"))]
     store = snapshot_content_store(snaps)
     store.put((Path(run.output_dir) / "enrichment.jsonl").read_text(encoding="utf-8"))
-    assert validate_artifact(run.artifact, output_root=run.output_dir,
-                             content_store=store).release_authorized
+    with AuditChainAttestor.open(Path(run.state_dir) / "psh") as attestor:
+        assert validate_artifact(run.artifact, output_root=run.output_dir,
+                                 content_store=store, attestor=attestor).release_authorized
+    # Without the audit chain the artifact only declares its attestation.
+    alone = validate_artifact(run.artifact, output_root=run.output_dir, content_store=store)
+    assert alone.execution_declared and not alone.execution_attested
+    assert not alone.release_authorized
     edge_item = next(e for e in run.artifact.evidence if e.design == "in_vitro")
     forged = dc.replace(edge_item, quote=edge_item.quote.replace('"IC50"', '"Kd"'))
     tampered = dc.replace(run.artifact, evidence=tuple(
