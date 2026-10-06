@@ -79,19 +79,25 @@ class Directness(str, Enum):
 #: Words that assert certainty beyond what a single trial can establish.
 _DEFINITIVE = re.compile(
     r"\b(?:cures?|cured|eliminat\w+|always|never|all patients|every patient|guarantee\w*"
-    r"|prov(?:es|en)|definitively|invariably|in all cases|no risk|completely)\b", re.I)
+    r"|prov(?:es|en)|definitively|invariably|in all cases|no risk|completely)\b"
+    # Chinese: a cure, a proof (not 尚未证实, which is the opposite), all patients, no risk.
+    r"|治愈|根治|痊愈|(?<![未没尚])证实|(?<![未没尚])证明|确证|必然|所有患者|全部患者|绝对"
+    r"|完全(?:缓解|治愈|消除)|毫无风险|无任何风险", re.I)
 _STRONG = re.compile(
     r"\b(?:reduc\w+|increas\w+|improv\w+|prevent\w+|lower\w*|caus\w+|contraindicated"
-    r"|is (?:the )?first-line|superior|inferior|significant\w*)\b", re.I)
+    r"|is (?:the )?first-line|superior|inferior|significant\w*)\b"
+    r"|降低|升高|减少|增加|改善|提高|预防|导致|引起|显著|优于|劣于|禁忌", re.I)
 _MODERATE = re.compile(
     r"\b(?:associat\w+|correlat\w+|relat\w+ to|linked|observ\w+|report\w+|was lower"
-    r"|was higher|trend\w*)\b", re.I)
+    r"|was higher|trend\w*)\b|相关|关联|有关|观察到|报道|报告|趋势", re.I)
 _TENTATIVE = re.compile(
     r"\b(?:may|might|could|suggest\w*|appear\w*|possibl\w+|potential\w*|likely"
-    r"|seems?|prelimin\w+)\b", re.I)
+    r"|seems?|prelimin\w+)\b|可能|或许|也许|提示|似乎|潜在|初步|有望|或可", re.I)
 _UNCERTAIN = re.compile(
     r"\b(?:unclear|uncertain|unknown|inconclusive|requires? (?:further|more)|not "
-    r"established|insufficient evidence|remains? to be)\b", re.I)
+    r"established|insufficient evidence|remains? to be)\b"
+    r"|尚不清楚|尚不明确|尚未证实|尚未明确|不确定|未知|尚无定论|有待(?:进一步|今后)|尚需进一步"
+    r"|证据不足|仍需进一步|仍不明确", re.I)
 
 #: Negation cues for polarity comparison — restricted to constructions that negate the
 #: *finding itself*.
@@ -113,13 +119,20 @@ _NEGATION = re.compile(
     r"|non-?significant\b"
     r"|lack\s+of\s+(?:effect|benefit|association|efficacy)\b"
     r"|neither\b|contraindicated\b|ineffective\b|worsen\w*\b"
-    r")", re.I)
+    r")"
+    # The same in Chinese, attached to a finding (未能降低, 无显著差异, 差异无统计学意义),
+    # never a bare 未见 or 无: "未见明显不良反应" reports safety, not a failed effect.
+    r"|(?:未能|并未|不能|未)(?:显著|明显)?(?:降低|减少|改善|提高|增加|延长|缩短|影响)"
+    r"|(?:未见|未发现|未观察到|未显示出?|没有|无)(?:显著|明显|统计学)?"
+    r"(?:差异|意义|改善|降低|疗效|效果|获益|关联|相关性|影响|作用)"
+    r"|差异无统计学意义|不显著|无效|不优于|禁忌|加重|恶化", re.I)
 
 #: Clauses that carry a negation word without denying the finding. Removed before the
 #: polarity test so a qualifying clause cannot flip the verdict.
 _CONCESSIVE = re.compile(
     r"\b(?:irrespective of|regardless of|whether or not|with or without|"
-    r"in the presence or absence of|the presence or absence of)\b[^,.;]*", re.I)
+    r"in the presence or absence of|the presence or absence of)\b[^,.;]*"
+    r"|(?:无论|不论|不管)[^，,。；;]*", re.I)
 
 #: Tokens too common to count as shared terminology.
 _STOPWORDS = frozenset("""
@@ -131,14 +144,27 @@ between among during after before while when where how what why all any both eac
 other some such only own same so too can also into over under again further once
 patients patient study trial group groups compared comparison versus vs result results
 outcome outcomes effect effects treatment treated placebo risk rate ratio mg daily once
-""".split())
+""".split()) | frozenset(
+    # The same generic study vocabulary in Chinese, as words and as the bigrams the
+    # tokeniser cuts from them.
+    "患者 研究 试验 结果 治疗 对照 比较 相比 显示 表明 发现 进行 通过 可以 能够 我们 本研 "
+    "研究 以及 其中 风险 效果 作用 影响 安慰 慰剂 安慰剂 每日 剂量 组患 者的".split())
 
-_NUM = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)\s*(%|percent|fold|mg|days?|months?|years?)?",
-                  re.I)
+#: Numbers with their unit. The look-behind is ASCII: ``\w`` includes Chinese characters,
+#: so 降低了30% read as no number at all, and a Chinese claim's figure was never checked.
+_NUM = re.compile(r"(?<![A-Za-z0-9_.])(\d+(?:\.\d+)?)\s*(%|％|percent|fold|倍|mg|毫克|days?|天"
+                  r"|months?|个月|years?|年)?", re.I)
+_UNIT = {"％": "%", "倍": "fold", "毫克": "mg", "天": "day", "个月": "month", "年": "year"}
 
 
 def _tokens(text: str) -> set[str]:
-    words = re.findall(r"[a-z][a-z-]{2,}", text.lower())
+    """Substantive terms: English words, and the words and bigrams of Chinese runs
+    (``psh.context.terms``). English alone gave a Chinese claim no terms, so a claim
+    identical to its source was ``unknown`` with confidence 0."""
+    from ..context.terms import cjk_terms
+
+    lowered = text.lower()
+    words = set(re.findall(r"[a-z][a-z-]{2,}", lowered)) | cjk_terms(lowered)
     return {w for w in words if w not in _STOPWORDS}
 
 
@@ -168,7 +194,8 @@ def _numbers(text: str) -> set[str]:
         # Ignore small integers: they are usually counts or doses, not claim-bearing.
         if num.is_integer() and abs(num) < 10 and not unit:
             continue
-        out.add(f"{num:g}{(unit or '').lower().rstrip('s')}")
+        unit = _UNIT.get(unit, unit or "")
+        out.add(f"{num:g}{unit.lower().rstrip('s')}")
     return out
 
 
@@ -343,7 +370,8 @@ class LexicalSupportVerifier:
         source_tokens = _tokens(source_text)
         shared = claim_tokens & source_tokens
         overlap = len(shared) / max(1, len(claim_tokens))
-        sentences = [s.strip() for s in re.split(r"(?<=[.;])\s+", source_text) if s.strip()]
+        sentences = [s.strip() for s in re.split(r"(?<=[.;])\s+|(?<=[。！？；])", source_text)
+                     if s.strip()]
 
         # Best-matching source sentence becomes the candidate span. Numeric agreement
         # contributes, so a sentence containing the claim's effect estimate is preferred

@@ -9,8 +9,8 @@ lands as its own pull request. This page is updated as each batch lands.
 | --- | --- | --- |
 | 1. Herb names, doses, entity types, formula versions | AUD-01 to AUD-05 | fixed ([#32](https://github.com/psknlr/TCMScience/pull/32)) |
 | 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed ([#33](https://github.com/psknlr/TCMScience/pull/33)) |
-| 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed (this change) |
-| 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | in progress |
+| 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed ([#34](https://github.com/psknlr/TCMScience/pull/34)) |
+| 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | fixed (this change) |
 | 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | in progress |
 
 ## Batch 1: identity
@@ -211,6 +211,71 @@ Tests: `BioScience-Harness/tests/test_audit_2026_10_provenance.py` (12); all 12 
 `main`. The research-loop tests now validate a resumed artifact against its audit chain
 and expect the attestation event.
 
+## Batch 4: Chinese, and the model-to-tool link
+
+| Probe | Before | After |
+| --- | --- | --- |
+| Component search for 附子安全, 中文无关词, 量子力学 | the same three DNA tools for each | 附子安全: `tcm_compatibility`, `tcm_herb`; the other two: nothing |
+| A Chinese claim checked against the identical Chinese sentence | `unknown`, confidence 0 (English: `support`, 0.95) | `support`, 0.95 |
+| The same claim about 儿童 against a trial in 成人 | (unreachable: no Chinese claim was ever supported) | refused: population extrapolation |
+| The model plans `{"id": "native.tool.translate", "arguments": {"sequence": "ATGC"}}` | the step has no arguments; the tool fails for want of `sequence` | the step carries `{"sequence": "ATGC"}` and the tool runs |
+
+**AUD-15, Chinese queries.** The component registry indexed and split queries on
+`[^a-z0-9]+`, so a Chinese query had no terms and the search returned the first components
+of the pool. The registry now uses PSH's bilingual terms (`psh.context.terms`). Chinese
+runs contribute their lexicon words, the English of those words, and bigrams, so Chinese
+meets Chinese and 附子 also meets *aconite*. A query with no term the catalogue knows now
+matches nothing; before, it returned the pool. Manifests now carry `keywords`, and native
+tools register their tags there. The tags were never indexed before, so the TCM tools now
+answer to Chinese (配伍禁忌, 十八反, 性味归经, 证候 …). The capability catalogue
+(`bioagent.registry`) ranks Chinese the same way, and a query nothing matches no longer
+returns the whole catalogue unranked. Cross-language matching is only as wide as the
+lexicon: a Chinese word it lacks finds Chinese text only.
+
+**AUD-16, Chinese claim support.** The default support verifier read English words only,
+split sentences only after `.` and `;`, missed every number written next to a Chinese
+character (`\w` includes Chinese, so 降低了30% had no number), and had English cues for
+negation and certainty. All of these now read Chinese:
+- tokens: words and bigrams of Chinese runs, with a Chinese list of generic study
+  vocabulary;
+- sentence ends: 。！？；;
+- numbers and units: %, 倍, 毫克, 天, 个月, 年;
+- negation tied to a finding: 未能降低, 无显著影响, 差异无统计学意义. A bare 未见 is not a
+  cue, because 未见明显不良反应 reports safety, not a failed effect;
+- concessive clauses: 无论…;
+- certainty: 治愈 and 证实 are definitive, but 尚未证实 is not.
+
+Lexical support alone would have opened a hole: the structured scope check also read
+English only, so a Chinese claim had no subject and was never checked for population.
+The claim parser and the source scope now extract Chinese subjects, directions,
+outcomes, populations (儿童, 孕妇, 老年, 透析 …), conditions, designs and sample sizes.
+A trial in 成人 therefore does not support the same claim about 儿童 or 孕妇, a 黄芪
+trial does not support a 丹参 claim, and a 再住院率 trial does not support a 死亡率 claim.
+The extraction is pattern-based. A subject it cannot find leaves the claim unchecked for
+subject, as in English, and is never read as a match.
+
+**AUD-17, planner arguments.** `LLMPlanner` built each step from the component id alone.
+It now shows the model each candidate's parameters, asks for arguments, keeps them, and
+checks them against the parameters the component declares. An unknown name, a missing
+required parameter, or a value of the wrong type (judged by the declared type, or by the
+type of the declared default) refuses that step, and the note says why. When no step
+survives, the planner falls back to heuristic ordering, as it does when no model is bound.
+An end-to-end test runs a planned `translate` call and checks that the tool received its
+`sequence`.
+
+One Chinese research task runs end to end, as the batch's acceptance standard asks. For
+附子与半夏合用是否存在十八反配伍禁忌？ the registry offers the compatibility tool and nothing
+else. The planner keeps the herbs the model chose, and the tool returns the 十八反 record
+(半夏反乌头). On the PSH side, a Runner whose policy requires claim support releases a
+Chinese conclusion its cited Chinese trial supports. It refuses the same conclusion about
+children, a claim of cure, and the conclusion without a citation.
+
+Tests: `BioScience-Harness/tests/test_audit_2026_10_language.py` (23) and
+`PSH-Harness/tests/test_audit_2026_10_chinese.py` (19). Against `main`, 22 and 15 of them
+fail. The tests that pass on `main` cover behaviour that should not change: English
+queries, an unrelated source supporting nothing, and refusals that `main` also made,
+though there only because it could read no Chinese at all.
+
 ## 中文摘要
 
 第一批（药材身份）已修复：
@@ -235,4 +300,9 @@ and expect the attestation event.
 - **AUD-13 已声明与已认证**：仅填写 `policy_id`、`audit_head` 只算“已声明”；只有对照审计链核实（链完整、所指头部存在、其后记录了本产物摘要与策略）才算“已认证”。伪造的策略或头部、发布后被修改的产物都以 `ART117` 拒绝。
 - **AUD-14 缓存与治理状态**：分析与反驳阶段的缓存键包含执行模式、配置、编译程序、分析代码和环境身份，并需审计链中有对应的完成记录才能复用；产物按各阶段实际执行情况记录，进程内结果不会被“升级”为受治理执行。
 
-第四、第五批正在进行。
+第四批（中文与模型到工具的连接）已修复：
+- **AUD-15 中文检索**：组件注册表使用 PSH 的双语分词，中文词、词典对应的英文和二元组都参与检索；与目录无关的中文查询返回空结果，不再返回任意的 DNA 工具。中医药工具登记了中文关键词，“附子安全”会找到配伍禁忌和药材工具。
+- **AUD-16 中文证据核验**：支持核验器读取中文词元、句末标点、数字和单位、与结论相连的否定（“未能降低”“无显著影响”“差异无统计学意义”）、让步从句和证据强度。同时补上结构化范围检查的中文抽取（主体、方向、终点、人群、病症、设计、样本量），成人试验不能支持儿童或孕妇的同一主张。
+- **AUD-17 规划器参数**：LLM 规划器保留模型给出的工具参数，并按组件声明校验参数名、必填项和类型；不合格的步骤被拒绝并说明原因。
+
+第五批正在进行。

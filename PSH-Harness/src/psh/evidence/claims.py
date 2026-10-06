@@ -59,39 +59,42 @@ __all__ = [
 _POPULATION_AXES: dict[str, tuple[tuple[str, str], ...]] = {
     "age": (
         (r"\b(?:elderly|older adults?|geriatric|aged\s*(?:>|over|≥)\s*\d+"
-         r"|age[ds]?\s*(?:>|over|≥)\s*(?:6[5-9]|[7-9]\d))\b", "elderly"),
-        (r"\b(?:middle-aged|mean age\s*(?:of\s*)?[45]\d)\b", "middle-aged"),
+         r"|age[ds]?\s*(?:>|over|≥)\s*(?:6[5-9]|[7-9]\d))\b|老年|高龄|老人", "elderly"),
+        (r"\b(?:middle-aged|mean age\s*(?:of\s*)?[45]\d)\b|中年", "middle-aged"),
         (r"\b(?:children|paediatric|pediatric|infants?|neonat\w+|under\s*5"
-         r"|age[ds]?\s*(?:<|under)\s*1[0-8])\b", "paediatric"),
-        (r"\b(?:young adults?|adolescents?)\b", "young-adult"),
+         r"|age[ds]?\s*(?:<|under)\s*1[0-8])\b|儿童|小儿|患儿|儿科|婴儿|婴幼儿|幼儿|新生儿",
+         "paediatric"),
+        (r"\b(?:young adults?|adolescents?)\b|青少年|青年", "young-adult"),
     ),
     "sex": (
-        (r"\b(?:women|females?|postmenopausal)\b", "female"),
-        (r"\b(?:men|males?)\b", "male"),
+        (r"\b(?:women|females?|postmenopausal)\b|女性|妇女|绝经", "female"),
+        (r"\b(?:men|males?)\b|男性", "male"),
     ),
     "ancestry": (
-        (r"\b(?:asian|east asian|south asian|chinese|japanese|korean)\b", "asian"),
+        (r"\b(?:asian|east asian|south asian|chinese|japanese|korean)\b"
+         r"|中国人|华人|亚洲人", "asian"),
         (r"\b(?:european|caucasian|white)\b", "european"),
         (r"\b(?:african|black|african[- ]american)\b", "african"),
         (r"\b(?:hispanic|latino|latina)\b", "hispanic"),
     ),
     "physiological_state": (
-        (r"\b(?:pregnan\w+|gestation\w*|obstetric)\b", "pregnant"),
-        (r"\b(?:lactating|breastfeeding)\b", "lactating"),
+        (r"\b(?:pregnan\w+|gestation\w*|obstetric)\b|孕妇|妊娠|孕期|怀孕|产科", "pregnant"),
+        (r"\b(?:lactating|breastfeeding)\b|哺乳", "lactating"),
     ),
     "organ_function": (
-        (r"\b(?:dialysis|end-stage renal|ESRD|renal failure|CKD stage [45])\b",
-         "renal-failure"),
-        (r"\b(?:hepatic (?:impairment|failure)|cirrho\w+|Child-Pugh)\b", "hepatic-impairment"),
+        (r"\b(?:dialysis|end-stage renal|ESRD|renal failure|CKD stage [45])\b"
+         r"|透析|肾衰竭|肾功能衰竭|终末期肾病", "renal-failure"),
+        (r"\b(?:hepatic (?:impairment|failure)|cirrho\w+|Child-Pugh)\b"
+         r"|肝功能不全|肝功能损害|肝衰竭|肝硬化", "hepatic-impairment"),
     ),
     "condition": (
-        (r"\bHFpEF\b|\bpreserved ejection fraction\b", "hfpef"),
-        (r"\bHFrEF\b|\breduced ejection fraction\b", "hfref"),
-        (r"\b(?:heart failure)\b", "heart-failure"),
-        (r"\b(?:type 2 diabetes|T2D|T2DM)\b", "type-2-diabetes"),
-        (r"\b(?:osteoporo\w+)\b", "osteoporosis"),
-        (r"\b(?:pancreatic cancer)\b", "pancreatic-cancer"),
-        (r"\b(?:chronic kidney disease)\b", "ckd"),
+        (r"\bHFpEF\b|\bpreserved ejection fraction\b|射血分数保留", "hfpef"),
+        (r"\bHFrEF\b|\breduced ejection fraction\b|射血分数降低", "hfref"),
+        (r"\b(?:heart failure)\b|心力衰竭|心衰", "heart-failure"),
+        (r"\b(?:type 2 diabetes|T2D|T2DM)\b|2型糖尿病|二型糖尿病", "type-2-diabetes"),
+        (r"\b(?:osteoporo\w+)\b|骨质疏松", "osteoporosis"),
+        (r"\b(?:pancreatic cancer)\b|胰腺癌", "pancreatic-cancer"),
+        (r"\b(?:chronic kidney disease)\b|慢性肾脏病|慢性肾病", "ckd"),
     ),
 }
 
@@ -239,23 +242,26 @@ def extract_population(text: str) -> PopulationSpec:
 #: GRADE treats surrogate outcomes as indirect evidence, and the distinction is why a bone
 #: density trial cannot license a fracture claim.
 _CLINICAL_OUTCOMES: tuple[tuple[str, str], ...] = (
-    (r"\b(?:all-cause mortality|overall survival|survival|death|mortalit\w+)\b", "mortality"),
-    (r"\b(?:fractures?|vertebral fracture|hip fracture)\b", "fracture"),
-    (r"\b(?:hospitali[sz]ation|admission)\b", "hospitalisation"),
-    (r"\b(?:myocardial infarction|stroke|MACE|cardiovascular death)\b",
-     "cardiovascular-event"),
-    (r"\b(?:progression-free survival|PFS)\b", "progression-free-survival"),
-    (r"\b(?:remission|cure[ds]?|resolution)\b", "remission"),
-    (r"\b(?:quality of life|QoL|functional status)\b", "quality-of-life"),
+    (r"\b(?:all-cause mortality|overall survival|survival|death|mortalit\w+)\b"
+     r"|死亡率|病死率|死亡|(?<!无进展)生存", "mortality"),
+    (r"\b(?:fractures?|vertebral fracture|hip fracture)\b|骨折", "fracture"),
+    (r"\b(?:hospitali[sz]ation|admission)\b|住院|入院", "hospitalisation"),
+    (r"\b(?:myocardial infarction|stroke|MACE|cardiovascular death)\b"
+     r"|心肌梗死|心梗|卒中|中风|心血管事件", "cardiovascular-event"),
+    (r"\b(?:progression-free survival|PFS)\b|无进展生存", "progression-free-survival"),
+    (r"\b(?:remission|cure[ds]?|resolution)\b|缓解|治愈|痊愈", "remission"),
+    (r"\b(?:quality of life|QoL|functional status)\b|生活质量", "quality-of-life"),
 )
 
 _SURROGATE_OUTCOMES: tuple[tuple[str, str], ...] = (
-    (r"\b(?:bone mineral density|BMD)\b", "bone-density"),
-    (r"\b(?:HbA1c|glycated haemoglobin|glycated hemoglobin)\b", "hba1c"),
-    (r"\b(?:LDL|cholesterol|lipid)\b", "lipids"),
-    (r"\b(?:blood pressure|systolic|diastolic)\b", "blood-pressure"),
-    (r"\b(?:ejection fraction|eGFR|creatinine|biomarker levels?)\b", "surrogate-marker"),
-    (r"\b(?:tumou?r (?:size|response)|response rate)\b", "tumour-response"),
+    (r"\b(?:bone mineral density|BMD)\b|骨密度", "bone-density"),
+    (r"\b(?:HbA1c|glycated haemoglobin|glycated hemoglobin)\b|糖化血红蛋白", "hba1c"),
+    (r"\b(?:LDL|cholesterol|lipid)\b|血脂|胆固醇|低密度脂蛋白", "lipids"),
+    (r"\b(?:blood pressure|systolic|diastolic)\b|血压|收缩压|舒张压", "blood-pressure"),
+    (r"\b(?:ejection fraction|eGFR|creatinine|biomarker levels?)\b|射血分数|肌酐"
+     r"|生物标志物", "surrogate-marker"),
+    (r"\b(?:tumou?r (?:size|response)|response rate)\b|肿瘤缩小|客观缓解率",
+     "tumour-response"),
 )
 
 
@@ -290,6 +296,13 @@ _DIRECTION_PATTERNS: tuple[tuple[str, EffectDirection], ...] = (
     (r"\b(?:no (?:significant )?(?:effect|difference|association|benefit)"
      r"|did not (?:reduce|improve|affect))\b", EffectDirection.NO_EFFECT),
     (r"\b(?:predict\w*|associat\w+|correlat\w+|linked to)\b", EffectDirection.ASSOCIATION),
+    # The same in Chinese. The earliest match wins, so 未能降低 (a no-effect finding) is
+    # read before the 降低 it contains.
+    ("(?:未能|未|并未|不能|没有)(?:显著|明显)?(?:降低|减少|改善|提高|增加|影响)"
+     "|无(?:显著|明显|统计学)?(?:差异|影响|效果|获益|意义)", EffectDirection.NO_EFFECT),
+    ("降低|减少|下降|减轻|预防|治愈|根治|消除", EffectDirection.DECREASE),
+    ("升高|增加|增高|提高|上升|加重|恶化", EffectDirection.INCREASE),
+    ("相关|关联|预测", EffectDirection.ASSOCIATION),
 )
 
 #: The claim's subject: the intervention or exposure it is about. Captured before the
@@ -366,6 +379,35 @@ _SUBJECT_PATTERNS: tuple[str, ...] = (
     r"^\s*([A-Z][A-Za-z0-9-]{1,24})\b",
 )
 
+#: A Chinese claim's subject: what stands before its first claim verb, less the reporting
+#: frame (研究显示, 结果表明 …) and any modal or adverb between it and the verb (可, 能,
+#: 显著 …). The English patterns above match Latin words only, so a Chinese claim had no
+#: subject, was never a clinical claim, and skipped the scope check entirely.
+_ZH_VERB = ("降低|减少|下降|减轻|预防|治愈|根治|消除|升高|增加|增高|提高|上升|加重|恶化|改善"
+            "|相关|关联|预测|未能|并未|不能|没有|无(?:显著|明显)")
+_ZH_SUBJECT = re.compile(
+    "([\u4e00-\u9fffA-Za-z0-9-]{2,16}?)(?:可以|可|能够|能|可能|或许|也许|显著|明显|均|也|都|亦)*"
+    f"(?:{_ZH_VERB})")
+_ZH_FRAME = re.compile("^(?:研究显示|研究表明|研究发现|结果显示|结果表明|数据显示|我们发现|本研究中"
+                       "|本研究|研究中|结果|与安慰剂相比|与对照组相比|相比于|相比|在)+")
+#: What heads a Chinese clause without being its agent: an outcome ("再住院率降低") or the
+#: people studied. Such a clause leaves the subject unextracted rather than wrong.
+_ZH_NOT_SUBJECT = re.compile("率|死亡|住院|生存|骨折|风险|水平|评分|指标|发生|患者|受试者|研究对象")
+
+
+def _zh_subject(text: str) -> str:
+    for clause in re.split("[，,；;。！？]", text):
+        m = _ZH_SUBJECT.search(clause)
+        if not m:
+            continue
+        # "X与Y相关": the association's subject is X.
+        subject = _ZH_FRAME.sub("", m.group(1)).split("与", 1)[0]
+        if len(subject) >= 2 and not _ZH_NOT_SUBJECT.search(subject):
+            return subject
+        return ""
+    return ""
+
+
 #: Normative language: a recommendation or a standard-of-care assertion rather than an
 #: empirical finding. A trial establishes what an intervention *did*, never what a clinician
 #: *should do* — that inference needs guidelines, comparative effectiveness and cost, none of
@@ -438,8 +480,9 @@ class ScientificClaim:
 
     @property
     def subject_key(self) -> str:
-        """Normalised subject, for comparison across a claim and a source."""
-        return re.sub(r"[^a-z0-9]", "", self.subject.lower())
+        """Normalised subject, for comparison across a claim and a source. Chinese is kept:
+        stripping everything but [a-z0-9] reduced a Chinese subject to nothing."""
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", self.subject.lower())
 
     @classmethod
     def parse(cls, text: str) -> "ScientificClaim":
@@ -473,6 +516,8 @@ class ScientificClaim:
                     break
             if subject:
                 break
+        if not subject and re.search("[\u4e00-\u9fff]", stripped):
+            subject = _zh_subject(stripped)
 
         # Earliest match in the sentence wins, not earliest pattern in the table. Ordering
         # by pattern made direction depend on the arbitrary order of the alternation: a
@@ -542,15 +587,21 @@ class Downgrade:
 
 #: Study designs, ordered by how much a single study licenses.
 _DESIGN_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"\b(?:meta-analys\w+|systematic review)\b", "meta-analysis"),
-    (r"\b(?:randomi[sz]ed|randomly assigned|double-blind|placebo-controlled|RCT)\b",
-     "randomised-trial"),
-    (r"\b(?:prospective cohort|followed prospectively)\b", "prospective-cohort"),
-    (r"\b(?:cohort study|cohort of)\b", "cohort"),
-    (r"\b(?:case-control)\b", "case-control"),
-    (r"\b(?:cross-sectional)\b", "cross-sectional"),
-    (r"\b(?:case (?:report|series))\b", "case-series"),
+    (r"\b(?:meta-analys\w+|systematic review)\b|荟萃分析|Meta分析|系统评价", "meta-analysis"),
+    (r"\b(?:randomi[sz]ed|randomly assigned|double-blind|placebo-controlled|RCT)\b"
+     r"|随机|双盲|安慰剂对照", "randomised-trial"),
+    (r"\b(?:prospective cohort|followed prospectively)\b|前瞻性队列", "prospective-cohort"),
+    (r"\b(?:cohort study|cohort of)\b|队列研究", "cohort"),
+    (r"\b(?:case-control)\b|病例对照", "case-control"),
+    (r"\b(?:cross-sectional)\b|横断面", "cross-sectional"),
+    (r"\b(?:case (?:report|series))\b|病例报告|病例系列", "case-series"),
 )
+
+#: Clause boundaries in a source, Latin and Chinese: a Chinese abstract is one run of text
+#: with no spaces, and splitting only after "." and ";" left it one clause, whose first
+#: subject stood for the whole abstract.
+_SOURCE_CLAUSE = re.compile(r"(?<=[.;])\s+|(?<=\)),\s+|(?<=[a-z]),\s+(?=[A-Z])"
+                            r"|(?<=[。；！？，])")
 
 
 @dataclass(frozen=True, slots=True)
@@ -582,7 +633,8 @@ class LicensedScope:
 
     @property
     def subject_keys(self) -> frozenset[str]:
-        return frozenset(re.sub(r"[^a-z0-9]", "", s.lower()) for s in self.subjects if s)
+        return frozenset(re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", s.lower())
+                         for s in self.subjects if s)
 
     @classmethod
     def from_text(cls, text: str) -> "LicensedScope":
@@ -605,13 +657,14 @@ class LicensedScope:
         # design-and-population clause ("In this randomized trial of ..., Drug A improved
         # ..."), so sentence-level parsing alone finds no subject in exactly the sentence
         # that carries the finding.
-        for clause in re.split(r"(?<=[.;])\s+|(?<=\)),\s+|(?<=[a-z]),\s+(?=[A-Z])", text):
+        for clause in _SOURCE_CLAUSE.split(text):
             parsed = ScientificClaim.parse(clause.strip())
             if parsed.subject and parsed.subject not in subjects:
                 subjects.append(parsed.subject)
 
         sample = None
-        nm = re.search(r"\bn\s*=\s*(\d[\d,]*)", text, re.I)
+        nm = (re.search(r"\bn\s*=\s*(\d[\d,]*)", text, re.I)
+              or re.search(r"(?:纳入|共|入组)\s*(\d[\d,]*)\s*例", text))
         if nm:
             try:
                 sample = int(nm.group(1).replace(",", ""))
@@ -630,7 +683,7 @@ class LicensedScope:
 
         # The source's own direction, taken from the clause that carries its finding.
         direction = EffectDirection.UNKNOWN
-        for clause in re.split(r"(?<=[.;])\s+|(?<=\)),\s+|(?<=[a-z]),\s+(?=[A-Z])", text):
+        for clause in _SOURCE_CLAUSE.split(text):
             parsed = ScientificClaim.parse(clause.strip())
             if parsed.direction is not EffectDirection.UNKNOWN:
                 direction = parsed.direction
