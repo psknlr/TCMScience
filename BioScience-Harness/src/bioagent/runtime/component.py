@@ -167,6 +167,9 @@ class ComponentManifest:
     offline_capable: bool = False
     native_connectors: tuple[str, ...] = ()
     signature: str = ""
+    #: Retrieval terms beyond the name and description, in any language: the tags a
+    #: native tool is registered with, the Chinese a TCM tool answers to.
+    keywords: tuple[str, ...] = ()
     #: mutable runtime state — not authoritative when persisted
     state: LifecycleState = LifecycleState.DISCOVERED
     blocking_reason: str = ""
@@ -223,6 +226,7 @@ class ComponentManifest:
         d = asdict(self)
         d["state"] = self.state.value
         d["native_connectors"] = list(self.native_connectors)
+        d["keywords"] = list(self.keywords)
         for key in ("requires", "permissions"):
             v = d.get(key)
             if isinstance(v, dict):
@@ -282,6 +286,7 @@ class ComponentManifest:
             offline_capable=bool(d.get("offline_capable", False)),
             native_connectors=tuple(d.get("native_connectors") or ()),
             signature=str(d.get("signature", "")),
+            keywords=tuple(str(k) for k in d.get("keywords") or ()),
             state=LifecycleState(state) if not isinstance(state, LifecycleState) else state,
             blocking_reason=str(d.get("blocking_reason", "")),
         )

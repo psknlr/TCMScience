@@ -170,10 +170,15 @@ class CapabilityRegistry:
 
     @staticmethod
     def _rank(df: pd.DataFrame, query: str) -> pd.DataFrame:
-        """Score rows by term overlap: name hits weigh more than description."""
-        terms = [t for t in re.split(r"[^a-z0-9]+", query.lower()) if len(t) > 1]
+        """Score rows by term overlap: name hits weigh more than description.
+
+        Chinese is tokenised too (``runtime.registry.query_terms``); a query with no term
+        at all matches no row, where it used to return the catalogue unranked.
+        """
+        from .runtime.registry import query_terms
+        terms = sorted(query_terms(query))
         if not terms:
-            return df
+            return df.iloc[0:0]
         name = df["name"].astype(str).str.lower()
         desc = df["description"].astype(str).str.lower() if "description" in df else pd.Series("", index=df.index)
         domain = df["domain"].astype(str).str.lower()

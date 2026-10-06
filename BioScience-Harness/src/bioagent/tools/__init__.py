@@ -464,20 +464,22 @@ TOOLS: tuple[NativeTool, ...] = (
        {"fasting_glucose_mg_dl": 100, "fasting_insulin_uU_ml": 10}, "diabetes", "metabolism"),
     # ------------------------------------------------------------- tcm knowledge
     _t("tcm_lookup", tcm.tcm_lookup, "tcm-knowledge", {"name": "黄芪"},
-       "tcm", "herb", "formula", "disambiguation"),
-    _t("tcm_herb", tcm.tcm_herb, "tcm-knowledge", {"name": "黄芪"}, "tcm", "herb", "materia-medica"),
+       "tcm", "herb", "formula", "disambiguation", "中药", "药名", "名称解析", "别名", "消歧"),
+    _t("tcm_herb", tcm.tcm_herb, "tcm-knowledge", {"name": "黄芪"}, "tcm", "herb", "materia-medica",
+       "safety", "中药", "药材", "性味归经", "功效", "炮制", "安全性", "毒性"),
     _t("tcm_formula", tcm.tcm_formula, "tcm-knowledge", {"name": "桂枝汤"},
-       "tcm", "formula", "prescription"),
+       "tcm", "formula", "prescription", "方剂", "组成", "君臣佐使", "出处"),
     _t("tcm_syndrome", tcm.tcm_syndrome, "tcm-knowledge", {"name": "脾胃气虚证"},
-       "tcm", "syndrome", "pattern"),
+       "tcm", "syndrome", "pattern", "证候", "辨证", "舌象", "脉象", "治法"),
     _t("tcm_compatibility", tcm.tcm_compatibility, "tcm-knowledge", {"herbs": ["甘草", "甘遂"]},
-       "tcm", "safety", "incompatibility"),
+       "tcm", "safety", "incompatibility", "配伍禁忌", "十八反", "十九畏", "安全性", "相反"),
     _t("tcm_applicability", tcm.tcm_applicability, "tcm-knowledge",
        {"subject": "桂枝汤", "object": "太阳中风证", "claim_kind": "attribution"},
-       "tcm", "evidence", "scope"),
-    _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence"),
+       "tcm", "evidence", "scope", "证据", "适用范围", "疗效主张", "适用人群"),
+    _t("tcm_evidence_tiers", tcm.tcm_evidence_tiers, "tcm-knowledge", {}, "tcm", "evidence",
+       "证据等级", "证据分级"),
     _t("tcm_classical_search", tcm.tcm_classical_search, "tcm-knowledge", {"query": "桂枝汤主之"},
-       "tcm", "classics", "search"),
+       "tcm", "classics", "search", "古籍", "经典条文", "原文检索"),
     # ------------------------------------- locally built manual TCM datasets (tcmdb)
     _t("hkbu_formula_lookup", tcmdb.hkbu_formula_lookup, "tcm-knowledge",
        {"formula": "演示方剂（非真实）", "limit": 20}, "tcm", "provenance",
@@ -560,4 +562,4 @@ class NativeToolProvider:
                     data=_data_licences(t.data)),
                 validation=Validation(smoke_test=f"native:{t.name}"),
                 offline_capable=True, native_connectors=(), signature=", ".join(
-                    p["name"] for p in t.parameters))
+                    p["name"] for p in t.parameters), keywords=tuple(t.tags))

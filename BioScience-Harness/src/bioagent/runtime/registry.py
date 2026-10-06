@@ -31,6 +31,31 @@ from ..status import LifecycleState
 from .component import ComponentManifest
 
 
+def query_terms(text: str) -> set[str]:
+    """Retrieval terms of ``text``: Latin words of two or more characters, and the terms
+    of its CJK runs (lexicon words, their English, bigrams; ``psh.context.terms``).
+
+    The index and the query were split on ``[^a-z0-9]+`` alone, so a Chinese query had
+    no terms at all and the search returned the first components of the pool: 附子安全,
+    and a phrase about nothing in the catalogue, both chose the same DNA tool (audit
+    AUD-15). Chinese now meets Chinese, a lexicon word also meets its English, and a
+    query with no term the catalogue knows matches nothing.
+    """
+    lowered = (text or "").lower()
+    out = {t for t in re.split(r"[^a-z0-9]+", lowered) if len(t) > 1}
+    return out | _cjk_terms(lowered)
+
+
+def _cjk_terms(text: str) -> set[str]:
+    try:
+        from psh.context.terms import cjk_terms
+    except ImportError:                       # without PSH: the runs and their bigrams
+        runs = re.findall("[\u4e00-\u9fff]+", text)
+        return ({r for r in runs if len(r) <= 2}
+                | {r[i:i + 2] for r in runs for i in range(len(r) - 1)})
+    return cjk_terms(text)
+
+
 class ComponentRegistry:
     """An index of component manifests. Pure lookup — no execution."""
 
@@ -53,14 +78,14 @@ class ComponentRegistry:
         return self._by_name
 
     def _ensure_index(self) -> dict[str, set[str]]:
-        """Inverted term index over name/description/domain, built lazily."""
+        """Inverted term index over name/description/domain/keywords, built lazily."""
         if self._index is None:
             idx: dict[str, set[str]] = {}
             for m in self._by_id.values():
-                text = f"{m.name} {m.description} {m.domain} {m.omics_type}".lower()
-                for t in set(re.split(r"[^a-z0-9]+", text)):
-                    if len(t) > 1:
-                        idx.setdefault(t, set()).add(m.id)
+                text = (f"{m.name} {m.description} {m.domain} {m.omics_type} "
+                        f"{' '.join(m.keywords)}")
+                for t in query_terms(text):
+                    idx.setdefault(t, set()).add(m.id)
             self._index = idx
         return self._index
 
@@ -130,9 +155,9 @@ class ComponentRegistry:
             pool = [m for m in pool if m.state is LifecycleState.READY]
         if not query:
             return pool[:limit]
-        terms = [t for t in re.split(r"[^a-z0-9]+", query.lower()) if len(t) > 1]
+        terms = sorted(query_terms(query))
         if not terms:
-            return pool[:limit]
+            return []                         # a query nothing can match matches nothing
         # candidate narrowing: only components sharing at least one term
         idx = self._ensure_index()
         hit_ids: set[str] = set()
@@ -144,7 +169,7 @@ class ComponentRegistry:
         for m in pool:
             name = m.name.lower()
             desc = m.description.lower()
-            dom = f"{m.domain} {m.omics_type}".lower()
+            dom = f"{m.domain} {m.omics_type} {' '.join(m.keywords)}".lower()
             s = 0.0
             for t in terms:
                 s += name.count(t) * 3.0
