@@ -91,7 +91,7 @@ installed wheel runs a governed skill from any directory:
 `--dir` 可以省略，此时 CLI 使用安装自带的已审核技能。在源码 checkout 中就是 `BioScience-Harness/skills/tcm`。wheel 在包内携带同样的技能、固定它们的锁文件和 `registry/` 的其余内容，所以从 wheel 安装后，在任何目录下都能运行受治理技能：
 
 ```bash
-pip install PSH-Harness/ BioScience-Harness/
+pip install "./PSH-Harness[test]" "./BioScience-Harness[dev]"    # not -e: built wheels
 cd /tmp && python -m bioagent.cli skill normalize-tcm-entities --arg names=黄芪
 ```
 
