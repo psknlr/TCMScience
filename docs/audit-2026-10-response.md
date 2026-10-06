@@ -3,7 +3,7 @@
 The audit found 26 issues (AUD-01 to AUD-26) and proposed fixing them in five batches,
 identity first. Each issue is reproduced on `main` before it is fixed, the fix is
 pinned by a regression test that starts from the audit's own example, and each batch
-lands as its own pull request. This page is updated as each batch lands.
+lands as its own pull request. All five batches have landed.
 
 | Batch | Issues | Status |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ lands as its own pull request. This page is updated as each batch lands.
 | 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed ([#33](https://github.com/psknlr/TCMScience/pull/33)) |
 | 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed ([#34](https://github.com/psknlr/TCMScience/pull/34)) |
 | 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | fixed ([#35](https://github.com/psknlr/TCMScience/pull/35)) |
-| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | fixed (this change); for AUD-26 the workflow now states its scope, and the benchmark runner is still to be built |
+| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | fixed ([#36](https://github.com/psknlr/TCMScience/pull/36)); for AUD-26 the workflow now states its scope, and the benchmark runner is still to be built |
 
 ## Batch 1: identity
 
