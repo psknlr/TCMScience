@@ -121,12 +121,21 @@ class IngressGateway:
         effective = computed.merged_with(supplied) if supplied is not None else computed
 
         # Declassification is the one lawful way a label goes DOWN. It is honoured only when
-        # every declassification on the value was issued by this kernel (its id is in the
-        # registry) — the record itself is data a caller can construct, so its presence
-        # proves nothing. Unauthorised records are stripped from consideration and counted.
+        # the record was issued by this kernel for this content: the record on the value is
+        # data a caller can construct, so it is compared with the one the kernel registered
+        # (every field), and the content is compared with the content it was issued for.
+        # Matching the id alone let an issued record lower other content, with its target
+        # edited to PUBLIC. Records that fail are stripped from consideration and counted.
         declass = tuple(getattr(value, "declassifications", ()) or ())
         if declass:
-            authorised = [d for d in declass if d.id in self._authorised_declassifications]
+            from ..contracts import content_hash
+
+            digest = content_hash(inner)
+            authorised = []
+            for d in declass:
+                issued = self._authorised_declassifications.get(getattr(d, "id", None))
+                if issued is not None and issued[0] == d and issued[1] == digest:
+                    authorised.append(issued[0])
             forged = len(declass) - len(authorised)
             if forged:
                 self.forged_declassifications = getattr(self, "forged_declassifications", 0) + forged
@@ -169,11 +178,15 @@ class IngressGateway:
                 "strict": self.strict}
 
 
-def _authorise(self, record: Any) -> None:
-    """Register a kernel-issued declassification so ingress will honour it."""
+def _authorise(self, record: Any, content: Any) -> None:
+    """Register a kernel-issued declassification, and the content it was issued for, so
+    ingress will honour it for that content and nothing else."""
+    from ..contracts import content_hash
+    from ..labels import unwrap_deep
+
     if not hasattr(self, "_authorised_declassifications"):
         self._authorised_declassifications = {}
-    self._authorised_declassifications[record.id] = record
+    self._authorised_declassifications[record.id] = (record, content_hash(unwrap_deep(content)))
 
 
 IngressGateway.authorise_declassification = _authorise  # type: ignore[attr-defined]

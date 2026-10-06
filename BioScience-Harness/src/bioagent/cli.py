@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from .acquisition import BulkDatasetProvider, Downloader, acquisition_for
-from .config import data_lake_dir
+from .config import data_lake_dir, registry_dir, skills_dir
 from .runtime.registry import ComponentRegistry, Resolver
 
 
@@ -38,12 +38,22 @@ def _skill_callables() -> dict:
     return skill_callables()
 
 
+def _skill_root(a) -> Path:
+    """``--dir``, else the reviewed TCM skills this installation ships.
+
+    The default was the relative path ``skills/tcm``: right only when the command was run
+    from the repository's package directory, and never right for an installed wheel.
+    """
+    return Path(a.dir) if a.dir else skills_dir() / "tcm"
+
+
 def _cmd_skills(a) -> int:
     """List what this installation can run, and what each skill refuses to do."""
     import json as _json
 
     from .skills.loader import load_skills
 
+    a.dir = _skill_root(a)
     loaded, refused = load_skills(a.dir)
     callables = _skill_callables()
     rows = []
@@ -69,7 +79,7 @@ def _cmd_skills(a) -> int:
 
     if not rows:
         print(f"no skills found under {a.dir}")
-        print("  (run from the repository root, or pass --dir)")
+        print("  (pass --dir to name the directory that holds the skills)")
         return 1
     print(f"{len(rows)} skill(s) under {a.dir}\n")
     for row in rows:
@@ -125,7 +135,7 @@ def _cmd_skill(a) -> int:
 
     try:
         kwargs = coerce_arguments(fn, raw)
-        run = run_governed(a.skill_id, kwargs, skill_dir=a.dir,
+        run = run_governed(a.skill_id, kwargs, skill_dir=_skill_root(a),
                            state_dir=a.state_dir or None,
                            output_dir=a.out_dir or None,
                            lockfile=a.lockfile or None)
@@ -143,7 +153,8 @@ def _cmd_skill(a) -> int:
         payload["validation"] = verdict.as_dict()
         payload["governed"] = {"audit_head": run.audit_head, "state_dir": run.state_dir,
                                "output_dir": run.output_dir,
-                               "skill_content_hash": run.content_hash}
+                               "skill_content_hash": run.content_hash,
+                               "lockfile": run.lockfile}
         text = _json.dumps(payload, indent=2, ensure_ascii=False, default=str)
         if a.out:
             Path(a.out).write_text(text, encoding="utf-8")
@@ -163,6 +174,8 @@ def _cmd_skill(a) -> int:
     for state, ok in verdict.states.items():
         print(f"      {'✓' if ok else '✗'} {state}")
     print(f"  audit head: {run.audit_head[:16]}…  ({run.state_dir})")
+    print(f"  pinned by:  "
+          f"{run.lockfile or 'no lockfile (the skill was not checked against a pin)'}")
     if not verdict.publishable:
         for violation in verdict.violations:
             print(f"      {violation}")
@@ -366,7 +379,7 @@ def _cmd_scout(a) -> int:
     from .updates.scout import SourceError
 
     sources = []
-    path = Path(a.sources)
+    path = Path(a.sources) if a.sources else registry_dir() / "skill_sources.yaml"
     if path.is_file():
         try:
             sources = load_sources(path.read_text(encoding="utf-8"))
@@ -423,7 +436,7 @@ def _cmd_registry_release(a) -> int:
 
     from .updates import RegistryRelease, load_lockfile
 
-    lockfile = Path(a.lockfile)
+    lockfile = Path(a.lockfile) if a.lockfile else registry_dir() / "skills.lock.yaml"
     if not lockfile.is_file():
         print(f"no lockfile at {lockfile}", file=sys.stderr)
         return 2
@@ -475,8 +488,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- governed skill updates ------------------------------------------
     sc = sub.add_parser("scout", help="discover and score candidate skills (never promotes)")
-    sc.add_argument("--sources", default="registry/skill_sources.yaml",
-                    help="declared source registry")
+    sc.add_argument("--sources", default="",
+                    help="declared source registry (default: the shipped "
+                         "registry/skill_sources.yaml)")
     sc.add_argument("--skills", action="append", default=[],
                     help="a directory tree to scan; repeatable")
     sc.add_argument("--out", default="", help="write the candidate report here")
@@ -485,7 +499,9 @@ def main(argv: list[str] | None = None) -> int:
 
     rr = sub.add_parser("registry-release",
                         help="cut a verifiable release from the stable lockfile")
-    rr.add_argument("--lockfile", default="registry/skills.lock.yaml")
+    rr.add_argument("--lockfile", default="",
+                    help="the lockfile to release (default: the shipped "
+                         "registry/skills.lock.yaml)")
     rr.add_argument("--release-id", required=True)
     rr.add_argument("--season", default="")
     rr.add_argument("--created-at", default="")
@@ -493,14 +509,16 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- running the skills -------------------------------------------------
     sk = sub.add_parser("skills", help="list the skills this installation can run")
-    sk.add_argument("--dir", default="skills/tcm",
-                    help="where the skill directories live")
+    sk.add_argument("--dir", default="",
+                    help="where the skill directories live (default: the reviewed TCM "
+                         "skills this installation ships)")
     sk.add_argument("--json", action="store_true", help="machine-readable output")
 
     sr = sub.add_parser("skill", help="run one skill and show what it produced")
     sr.add_argument("skill_id", help="skill id, e.g. normalize-tcm-entities")
-    sr.add_argument("--dir", default="skills/tcm",
-                    help="where the skill manifests live; the skill must be here")
+    sr.add_argument("--dir", default="",
+                    help="where the skill manifests live; the skill must be here "
+                         "(default: the reviewed TCM skills this installation ships)")
     sr.add_argument("--lockfile", default="",
                     help="pin to check against (default: registry/skills.lock.yaml "
                          "found above --dir)")

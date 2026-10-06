@@ -28,7 +28,11 @@ from typing import Any, Mapping, Sequence
 from .models import (BenchmarkCase, CaseScore, RunRecord, SCORE_DIMENSIONS,
                      ScoreComponents)
 
-__all__ = ["GATES", "GATE_DESCRIPTIONS", "score_run", "score_track"]
+__all__ = ["GATES", "GATE_DESCRIPTIONS", "ScoringRefused", "score_run", "score_track"]
+
+
+class ScoringRefused(ValueError):
+    """A submission that cannot be scored against its Season as it stands."""
 
 #: The plan's hard gates. A run failing any of these cannot enter the trusted
 #: board; it appears on the Experimental board with the reason.
@@ -56,6 +60,12 @@ GATE_DESCRIPTIONS: Mapping[str, str] = {
     "CASE_ERROR": "at least one case errored before it could be scored",
     "UNSCORED_CASES": ("the run did not score every case of the Season, so it is "
                        "not comparable with a run that attempted them all"),
+    "GATES_NOT_RUN": ("a run-level gate could not be evaluated because its evidence was "
+                      "not supplied (the run's claims for GATE002 and GATE004, the "
+                      "re-run of its artifact for GATE003); an unchecked gate is not a "
+                      "passed one"),
+    "UNTRACEABLE": ("the run does not name all four version axes, its trace digest and "
+                    "its artifact digest, so nobody can tell what was scored"),
     "GATE004": ("stating a clinical efficacy conclusion on evidence that is only "
                 "computational prediction is the failure this project exists to "
                 "prevent; it is a gate rather than a low score because it is a "
@@ -63,20 +73,57 @@ GATE_DESCRIPTIONS: Mapping[str, str] = {
 }
 
 
-def score_run(run: RunRecord, cases: Sequence[BenchmarkCase]) -> dict[str, Any]:
+def score_run(run: RunRecord, cases: Sequence[BenchmarkCase], *,
+              claims: Sequence[Mapping[str, Any]] | None = None,
+              artifact_reruns: bool | None = None) -> dict[str, Any]:
     """Score one run across a Season.
 
     Returns a leaderboard row carrying every dimension, the aggregate, the four
     version axes and any gate failures. The row is built here rather than at the
     renderer so a renderer cannot lose the decomposition.
+
+    The case set must be the Season's: a case scored twice, a case the Season does
+    not have, or a case scored on another track is refused, because each of them
+    lets a submitter reweight the result (one easy case scored 99 times raised
+    task_success from 0.50 to 0.99). The run-level gates are evaluated here, from
+    the scores and from ``claims`` and ``artifact_reruns``, not taken from what the
+    scores report about themselves: a missed critical case failed GATE001 when the
+    gate was computed and passed when only the scores were aggregated. A gate whose
+    evidence is not supplied blocks trust (``GATES_NOT_RUN``), and so does a run that
+    does not say what it was (``UNTRACEABLE``).
     """
     from .models import aggregate
 
     by_id = {c.id: c for c in cases}
-    scored = [s for s in run.scores if s.case_id in by_id]
+    if len(by_id) != len(cases):
+        raise ScoringRefused("the Season lists a case id more than once")
+    ids = [s.case_id for s in run.scores]
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    if repeated:
+        raise ScoringRefused(f"case(s) scored more than once: {repeated}; each case of "
+                             "the Season is scored once")
+    extra = sorted(set(ids) - set(by_id))
+    if extra:
+        raise ScoringRefused(f"case(s) not in this Season: {extra}")
+    off_track = sorted(s.case_id for s in run.scores if s.track != by_id[s.case_id].track)
+    if off_track:
+        raise ScoringRefused(f"case(s) scored under another track than the Season's: "
+                             f"{off_track}")
+    scored = list(run.scores)
 
     row = aggregate(scored)
-    gates = list(row["gates_failed"])
+    gates = set(row["gates_failed"])
+    gates |= set(gate_failures(claims=claims or (), scores=scored,
+                               artifact_reruns=artifact_reruns))
+    not_run = ([] if claims is not None else ["GATE002", "GATE004"]) + (
+        [] if artifact_reruns is not None else ["GATE003"])
+    if not_run:
+        gates.add("GATES_NOT_RUN")
+    if (any(not run.composite_version.get(k) for k in ("runtime", "skill", "source",
+                                                       "benchmark"))
+            or not run.trace_digest or not run.artifact_digest):
+        gates.add("UNTRACEABLE")
+    gates = sorted(gates)
     # Every case of the Season must be scored. A run that skips the cases it
     # would fail and reports only the rest is not comparable with one that
     # attempted them all, so a gap blocks the trusted board.
@@ -102,6 +149,7 @@ def score_run(run: RunRecord, cases: Sequence[BenchmarkCase]) -> dict[str, Any]:
         "not_evaluated": row["not_evaluated"],
         "unscored_cases": unscored,
         "gates_failed": gates,
+        "gates_not_run": sorted(not_run),
         "gate_reasons": [GATE_DESCRIPTIONS.get(g, g) for g in gates],
         "trusted": trusted,
         "board": "trusted" if trusted else "experimental",
@@ -111,8 +159,9 @@ def score_run(run: RunRecord, cases: Sequence[BenchmarkCase]) -> dict[str, Any]:
     }
 
 
-def score_track(track: str, run: RunRecord, cases: Sequence[BenchmarkCase]
-                ) -> dict[str, Any]:
+def score_track(track: str, run: RunRecord, cases: Sequence[BenchmarkCase], *,
+                claims: Sequence[Mapping[str, Any]] | None = None,
+                artifact_reruns: bool | None = None) -> dict[str, Any]:
     """Score one track. The unit a track-specific leaderboard is built from."""
     members = [c for c in cases if c.track == track]
     if not members:
@@ -125,7 +174,7 @@ def score_track(track: str, run: RunRecord, cases: Sequence[BenchmarkCase]
                        started_at=run.started_at, finished_at=run.finished_at,
                        trace_digest=run.trace_digest,
                        artifact_digest=run.artifact_digest)
-    row = score_run(subset, members)
+    row = score_run(subset, members, claims=claims, artifact_reruns=artifact_reruns)
     return {"track": track, **row}
 
 

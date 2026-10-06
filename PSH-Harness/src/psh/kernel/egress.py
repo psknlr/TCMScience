@@ -343,6 +343,7 @@ class ToolGateway(_GateBase):
         # Declarative policy first. A command payload is anything with a "command"/"cmd"/
         # "argv" key or a bare string.
         command = _candidate_command(raw) if _executes_commands(manifest) else None
+        prompt = ""
         if command is not None:
             evaluation = self.policy.evaluate(command)
             if evaluation.decision.value == "forbidden":
@@ -352,10 +353,10 @@ class ToolGateway(_GateBase):
                     reason=(f"execution policy forbids this command: "
                             f"{evaluation.describe()}; refused regardless of autonomy")))
             if evaluation.decision.value == "prompt":
-                return self._record(EgressDecision(
-                    allowed=True, destination=destination, label=label, gate=self.name,
-                    target=target, requires_approval=True,
-                    reason=f"execution policy requires approval: {evaluation.describe()}"))
+                # Approval is an extra requirement, not an exemption: the denials and the
+                # path checks below still rule. Returning here made "git push --force",
+                # which the denylist refuses, an approvable "git push".
+                prompt = f"execution policy requires approval: {evaluation.describe()}"
 
         for pattern in self.DENIED_COMMANDS:
             if pattern.search(text):
@@ -384,6 +385,10 @@ class ToolGateway(_GateBase):
                         reason=(f"access to {path!r} is outside the allowed paths "
                                 f"{list(self.allowed_paths)}: {why}")))
 
+        if prompt:
+            return self._record(EgressDecision(
+                allowed=True, destination=destination, label=label, gate=self.name,
+                target=target, requires_approval=True, reason=prompt))
         return self._record(EgressDecision(
             allowed=True, destination=destination, label=label, gate=self.name,
             target=target,
@@ -640,24 +645,14 @@ class ExecutionBroker:
             self._bump("refusals")
             decision.raise_if_denied()
 
-        needs_approval = (
-            decision.requires_approval        # the execution policy said PROMPT
-            or manifest.human_approval
-            or manifest.risk_tier >= RiskTier.R3_CLINICAL
-            or (manifest.mutates and envelope.autonomy is Autonomy.ACT_WITH_APPROVAL))
-        if needs_approval:
-            what = (f"run {manifest.id}: {decision.reason[:80]}" if decision.requires_approval
-                    else f"run {manifest.id}")
-            self.approvals.request(
-                _tool_approval_request(manifest, payload, envelope, summary=what),
-                envelope, mutates=manifest.mutates,
-                policy_prompt=decision.requires_approval)
-
         self.budget.check_tool_call(envelope)
 
-        # PreToolUse hooks. After every gate has already ruled, so a hook cannot widen; it
-        # can deny, ask, or rewrite. A rewrite goes back through ingress — a hook cannot
-        # launder a label by rewriting the payload.
+        # PreToolUse hooks. After the gate has ruled on what was asked, so a hook cannot
+        # widen it; it can deny, ask, or rewrite. A rewrite goes back through ingress — a
+        # hook cannot launder a label by rewriting the payload — and through every gate
+        # check again, and approval is decided only now, on the payload that will run.
+        # Approval used to be settled before the hooks ran, so a hook that turned
+        # "git status" into "git push origin main" got a push run with no approval asked.
         from .hooks import HookBlocked, HookDecision, HookEvent
         from ..labels import unwrap_deep
         try:
@@ -674,6 +669,19 @@ class ExecutionBroker:
             if not decision.allowed:
                 self._bump("refusals")
                 decision.raise_if_denied()
+
+        needs_approval = (
+            decision.requires_approval        # the execution policy said PROMPT
+            or manifest.human_approval
+            or manifest.risk_tier >= RiskTier.R3_CLINICAL
+            or (manifest.mutates and envelope.autonomy is Autonomy.ACT_WITH_APPROVAL))
+        if needs_approval:
+            what = (f"run {manifest.id}: {decision.reason[:80]}" if decision.requires_approval
+                    else f"run {manifest.id}")
+            self.approvals.request(
+                _tool_approval_request(manifest, payload, envelope, summary=what),
+                envelope, mutates=manifest.mutates,
+                policy_prompt=decision.requires_approval)
         if hook_decision is HookDecision.ASK:
             self.approvals.request(
                 _tool_approval_request(

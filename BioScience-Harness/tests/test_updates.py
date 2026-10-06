@@ -27,6 +27,7 @@ from bioagent.updates import (DIMENSIONS, ELIMINATIONS, GROWTH_CEILING, Candidat
                               RegistryError, SkillSource, SourceError, content_digest,
                               eliminations, load_lockfile, rank, score_candidate,
                               to_candidate, version_from_spec)
+from bioagent.updates.registry import review_digest
 from bioagent.updates.scout import ALLOWED_HOSTS, Scout, load_sources
 
 REPO = Path(__file__).resolve().parents[1]          # BioScience-Harness/
@@ -45,10 +46,13 @@ def spec(**kw) -> SkillSpec:
 
 
 def decision(**kw) -> PromotionDecision:
+    """A decision on the default candidate at ``version``, naming its digest."""
     base = dict(skill_id="candidate", version="1.0.0", decision="approve",
                 decided_by="reviewer@example.org", decided_at="2026-09-25T00:00:00Z",
                 reason="reviewed")
     base.update(kw)
+    base.setdefault("candidate_digest",
+                    review_digest(version_from_spec(spec(version=base["version"]))))
     return PromotionDecision(**base)
 
 
@@ -259,8 +263,8 @@ def test_a_second_promotion_records_what_it_replaces_for_rollback():
     cand = to_candidate(spec(), score_candidate(spec()))
     reg.add_candidate(cand)
     reg.promote(cand, decision(), decided_version=version_from_spec(spec()))
-    newer = version_from_spec(spec(version="1.1.0"))
-    entry = reg.promote(cand, decision(version="1.1.0"), decided_version=newer)
+    newer = to_candidate(spec(version="1.1.0"), score_candidate(spec(version="1.1.0")))
+    entry = reg.promote(newer, decision(version="1.1.0"), decided_version=newer.version)
     assert entry.version.rollback_version == "1.0.0"
 
 
@@ -269,8 +273,8 @@ def test_rollback_is_also_a_decision():
     cand = to_candidate(spec(), score_candidate(spec()))
     reg.add_candidate(cand)
     reg.promote(cand, decision(), decided_version=version_from_spec(spec()))
-    reg.promote(cand, decision(version="1.1.0"),
-                decided_version=version_from_spec(spec(version="1.1.0")))
+    newer = to_candidate(spec(version="1.1.0"), score_candidate(spec(version="1.1.0")))
+    reg.promote(newer, decision(version="1.1.0"), decided_version=newer.version)
     back = reg.rollback("candidate", "1.0.0",
                         decision(version="1.0.0", reason="regression in 1.1.0"))
     assert back.version.version == "1.0.0"

@@ -56,6 +56,7 @@ def run(scores=(), **kw) -> RunRecord:
                 season="season-1",
                 composite_version={"runtime": "psh-0.5.3", "skill": "s@1.0.0",
                                    "source": "s1", "benchmark": "season-1"},
+                trace_digest="sha256:trace", artifact_digest="sha256:artifact",
                 scores=tuple(scores))
     base.update(kw)
     return RunRecord(**base)
@@ -317,7 +318,8 @@ def test_a_gate_blocks_the_board_without_erasing_the_score():
     gated = CaseScore(case_id="case-1", track="TCM-Entity",
                       components=components(task_success=0.9,
                                             gates_failed=("GATE004",)))
-    row = score_run(run(scores=[gated]), [case(visibility="dev")])
+    row = score_run(run(scores=[gated]), [case(visibility="dev")], claims=(),
+                    artifact_reruns=True)
     assert row["trusted"] is False
     assert row["board"] == "experimental"
     assert row["gates_failed"] == ["GATE004"]
@@ -328,9 +330,10 @@ def test_a_gate_blocks_the_board_without_erasing_the_score():
 
 def test_a_clean_run_lands_on_the_trusted_board():
     clean = CaseScore(case_id="case-1", track="TCM-Entity", components=components())
-    row = score_run(run(scores=[clean]), [case(visibility="dev")])
+    row = score_run(run(scores=[clean]), [case(visibility="dev")], claims=(),
+                    artifact_reruns=True)
     assert row["trusted"] is True and row["board"] == "trusted"
-    assert row["gates_failed"] == []
+    assert row["gates_failed"] == [] and row["gates_not_run"] == []
 
 
 def test_a_declined_claim_is_not_a_failure():
@@ -341,7 +344,8 @@ def test_a_declined_claim_is_not_a_failure():
                          components=components(claim_calibration=1.0),
                          refusals=(("ART106", "prediction cannot support efficacy"),))
     row = score_run(run(scores=[refusing]),
-                    [case(id="case-1", track="TCM-NetPharm", visibility="dev")])
+                    [case(id="case-1", track="TCM-NetPharm", visibility="dev")],
+                    claims=(), artifact_reruns=True)
     assert row["trusted"] is True
     assert row["dimensions"]["claim_calibration"] == 1.0
 

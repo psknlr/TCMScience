@@ -984,8 +984,14 @@ def _identifier(edge: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def _skill_directory(skill_dir: str | Path | None) -> Path:
-    return Path(skill_dir) if skill_dir else (
-        Path(__file__).resolve().parents[3] / "skills" / "tcm" / "network-pharmacology")
+    """The run contract's directory: given, else the shipped ``network-pharmacology``.
+
+    Resolved through ``config.skills_dir`` rather than from this file's location, which
+    an installed package does not share with the skills: there the contract was silently
+    absent and the run went ahead without it (audit AUD-25).
+    """
+    from ..config import skills_dir
+    return Path(skill_dir) if skill_dir else skills_dir() / "tcm" / "network-pharmacology"
 
 
 def _contract(skill_dir: str | Path | None) -> Any:

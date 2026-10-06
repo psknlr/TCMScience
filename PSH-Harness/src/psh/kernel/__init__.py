@@ -231,10 +231,11 @@ class TrustedKernel:
         record = Declassification(
             from_sensitivity=labeled.label.sensitivity, to_sensitivity=to, method=method,
             principal=principal, rationale=rationale or method)
-        # The kernel remembers every declassification it issued. Ingress honours a lowered
-        # label ONLY when its declassification ids are all in this registry — a caller who
-        # constructs a Declassification themselves gets re-classified upward like anyone else.
-        self.ingress.authorise_declassification(record)
+        # The kernel remembers every declassification it issued, and the content it issued
+        # it for. Ingress honours a lowered label ONLY when the record on the value is one
+        # it issued, unedited, for that content — a caller who constructs or edits a
+        # Declassification, or moves one onto other content, is re-classified upward.
+        self.ingress.authorise_declassification(record, labeled.value)
         new_label = DataLabel(to, categories=(), shareable=to <= Sensitivity.RESEARCH_DEIDENTIFIED,
                               rationale=f"declassified by {principal}: {method}",
                               classifier=labeled.label.classifier)

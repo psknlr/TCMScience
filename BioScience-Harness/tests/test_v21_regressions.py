@@ -109,7 +109,7 @@ def test_B_evolution_runs_a_real_test_stage_before_benchmark() -> None:
 
     def bench(m, b):
         calls.append("bench")
-        return BenchmarkResult(b, 1.0)
+        return BenchmarkResult(b, 1.0, 1)
 
     pipe = EvolutionPipeline(reg, HotReloader(reg, smoke_runner=smoke),
                              benchmark_runner=bench, smoke_runner=smoke)

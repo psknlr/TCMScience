@@ -385,7 +385,7 @@ def _pipeline(reg):
     scores = {"1.0.0": 0.2, "1.1.0": 0.9, "2.0.0": 0.9}
     from bioagent.evolution.pipeline import BenchmarkResult
     return EvolutionPipeline(
-        reg, hr, benchmark_runner=lambda m, b: BenchmarkResult(b, scores.get(m.version, 0.0)),
+        reg, hr, benchmark_runner=lambda m, b: BenchmarkResult(b, scores.get(m.version, 0.0), 1),
         min_improvement=0.0)
 
 

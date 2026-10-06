@@ -214,8 +214,12 @@ class ScoreComponents:
             value = getattr(self, name)
             if value is None:
                 continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise CaseError(f"{name} must be a number, not {type(value).__name__}")
             if value != value:
                 raise CaseError(f"{name} is NaN; use None for not evaluated")
+            if value in (float("inf"), float("-inf")):
+                raise CaseError(f"{name} is not finite")
             if value < 0:
                 raise CaseError(f"{name} cannot be negative")
             if name not in LOWER_IS_BETTER and value > 1.0:

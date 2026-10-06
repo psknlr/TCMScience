@@ -3,15 +3,15 @@
 The audit found 26 issues (AUD-01 to AUD-26) and proposed fixing them in five batches,
 identity first. Each issue is reproduced on `main` before it is fixed, the fix is
 pinned by a regression test that starts from the audit's own example, and each batch
-lands as its own pull request. This page is updated as each batch lands.
+lands as its own pull request. All five batches have landed.
 
 | Batch | Issues | Status |
 | --- | --- | --- |
 | 1. Herb names, doses, entity types, formula versions | AUD-01 to AUD-05 | fixed ([#32](https://github.com/psknlr/TCMScience/pull/32)) |
 | 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed ([#33](https://github.com/psknlr/TCMScience/pull/33)) |
 | 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed ([#34](https://github.com/psknlr/TCMScience/pull/34)) |
-| 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | fixed (this change) |
-| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | in progress |
+| 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | fixed ([#35](https://github.com/psknlr/TCMScience/pull/35)) |
+| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | fixed ([#36](https://github.com/psknlr/TCMScience/pull/36)); for AUD-26 the workflow now states its scope, and the benchmark runner is still to be built |
 
 ## Batch 1: identity
 
@@ -276,6 +276,125 @@ fail. The tests that pass on `main` cover behaviour that should not change: Engl
 queries, an unrelated source supporting nothing, and refusals that `main` also made,
 though there only because it could read no Chinese at all.
 
+## Batch 5: evaluation, promotion, permissions, packaging
+
+| Probe | Before | After |
+| --- | --- | --- |
+| AUD-18: a missed critical case, run through `score_run` | `gates_failed=[]`, trusted, aggregate 1.0; versions and digests may be empty | `GATE001`, experimental board |
+| AUD-19: the easy case scored 99 times, the hard one once | task_success 0.99 (once each: 0.50), trusted | refused: `easy` scored more than once |
+| AUD-21: incumbent 0.8, candidate NaN, required gain 0.1 | `PROMOTED`; the candidate is active | `QUARANTINED`: nan is not finite |
+| AUD-20: approve 1.0.0 (MIT, hash A), promote 999.0.0 (no licence, hash B) | a stable 999.0.0 carrying the reviewer's name | refused: differs in version, content_hash, license_spdx |
+| AUD-23: `git push --force origin main` at the tool gate | allowed, subject to approval | denied by the denylist |
+| AUD-22: a hook rewrites `git status` to `git push origin main` | the push reaches the tool; 0 approval requests | approval is asked for `git push origin main`; with no approver the tool is not called |
+| AUD-24: a record issued for one note, on another note, target edited to PUBLIC | PUBLIC (as issued: RESEARCH_DEIDENTIFIED) | PHI either way; the record is counted as forged |
+| AUD-25: the wheel, run from an empty directory: `bioagent.cli skill normalize-tcm-entities --arg names=黄芪` | no skill manifest or lockfile in the wheel; refused, no skill directory | runs, pinned by the lockfile inside the package, attested, released |
+
+**AUD-18, gates.** `score_run` aggregated the gates the case scores reported about
+themselves and never ran the run-level gates, so a missed critical case failed GATE001
+when the gate was computed and was trusted when the run was scored. It now evaluates every
+gate itself (`gate_failures`), from the scores and from the run's `claims` and
+`artifact_reruns`. A gate whose evidence is not supplied is not passed: the row reports it
+under `gates_not_run`, and the run stays off the trusted board (`GATES_NOT_RUN`). A run that
+does not name all four version axes, its trace digest and its artifact digest is
+`UNTRACEABLE`, and is kept off the trusted board too.
+
+**AUD-19, the case set.** A submission is scored only against its Season's cases, each
+once. A case scored twice, a case the Season does not have, a case scored on another
+track, or a Season that lists a case twice is refused with `ScoringRefused`. A missing
+case keeps the run off the trusted board, as before.
+
+**AUD-21, invalid numbers.** NaN compares False with every threshold, so the regression
+check and the improvement check both passed. The evolution pipeline now checks every
+benchmark result before comparing anything. The score must be a finite number in [0, 1],
+and it must rest on at least one case, for the candidate and for the incumbent. A result
+that fails quarantines the candidate, and the incumbent stays active. A case score
+(`ScoreComponents`) is refused when it is infinite or not a number. NaN was already refused
+there.
+
+**AUD-20, what an approval approves.** A `PromotionDecision` named a skill and a version
+string, and `promote` installed whatever `decided_version` it was given. An approval now
+carries `candidate_digest`, the digest of the reviewed fields: id, version, source and
+commit, content hash, licence, integration mode, hosts, filesystem and subprocess
+permissions, dependencies, SBOM and test digests. An approval without it is refused when it
+is made. `promote` refuses a decision about another skill or version, a digest that is not
+the candidate's, and a version that differs from the candidate in any reviewed field. The
+refusal names the fields. Rollback had the same fault: it renamed the current entry, so
+1.1.0's code and licence came back under 1.0.0's version. It now reinstates the version as
+it was promoted, and only on a decision naming that version's digest.
+
+**AUD-23 and AUD-22, the final payload.** Two faults in the tool path compounded each
+other. In `ToolGateway.check`, a command the execution policy asks approval for returned
+at once, before the denylist and the path checks, so `git push --force` (refused by the
+denylist) became an approvable `git push`. The prompt is now recorded and the remaining
+checks still run; approval is required only when all of them pass. In
+`ExecutionBroker.call_tool`, approval was decided before the PreToolUse hooks ran. A hook
+that rewrote `git status` into `git push origin main` therefore had the push reach the tool
+with no approval asked; in the audit's test the tool was a stand-in, and nothing was
+pushed. The order is now: the gate rules on the payload that was asked; the hooks run; a
+rewritten payload goes back through ingress and every gate check; and only then is approval
+decided, about the payload that will run. The approver sees that payload's argv.
+
+**AUD-24, declassification records.** Ingress honoured a lowered label when the
+declassification record's id was one the kernel had issued, so an issued record could be
+moved onto other content and have its target edited, to PUBLIC for example. The kernel now
+registers each record with the content it was issued for. Ingress honours a record only
+when it is the registered one, field for field, and the value's content is that content.
+Any other record is stripped and counted as forged, and the value is classified from its
+content. As the audit notes, this needed a record already issued by the same kernel and
+access to the Python label API; it was not shown to be reachable from the model's JSON
+interface.
+
+**AUD-25, the installed package.** The wheel was built from `src/` alone, and the
+resources a governed run needs live beside it: the skill manifests (`skills/`) and the
+lockfile and reviewed registry state (`registry/`). `setup.py` now copies both into the
+built package as `bioagent/_bundled/`, keeping their layout, and the sdist carries them.
+`bioagent.config` finds them in the checkout when running from one, and in the package
+otherwise. That resolution is used by the CLI defaults, the research loop's run contract
+and the materia taxa (`skills_dir`, `registry_dir`). The CLI's `--dir` had also defaulted
+to the relative path `skills/tcm`, which resolved only from the package's own directory;
+it now defaults to the shipped skills. Two more faults were silent:
+- An installed package found no `materia_taxa.json` and resolved 4 crude drugs instead
+  of 344. The research loop also ran without its run contract.
+- A skill's content hash depended on where its directory sat. Files were hashed in
+  absolute-path order, so a copy of a skill tree hashed differently from the tree, and an
+  installed skill would not have matched its own lockfile. They are now hashed in the
+  order of the names that enter the digest: the skill's own files, then its code. The
+  hashes of the tree are unchanged, so no pin moved.
+
+A governed run reports the lockfile it was checked against (`governed.lockfile`, and
+`pinned by` in the CLI). The release is now accepted only once a governed skill has run
+from the wheel alone. `scripts/make_release.py` builds the sdist and, from it, the wheel.
+It unpacks the wheel and runs `normalize-tcm-entities` in a fresh interpreter (`-S -P`).
+That interpreter sees the wheel, PSH and the third-party packages, and nothing of the
+checkout; its working directory is empty. The run must import bioagent from the wheel,
+load the packaged lockfile, and be attested and released. CI runs this on every push. A
+clean virtual environment with `pip install PSH-Harness/ BioScience-Harness/` runs the
+skill from an empty directory the same way.
+
+**AUD-26, the candidate benchmark.** The audit is right: `candidate-benchmark.yml` declared
+a candidate input and never used it, and it runs no case of a frozen Season. Its checks
+are the lockfile, the skill compiler and the unit tier. This batch does not build the
+benchmark run. It makes the workflow say what it does. The header and the job name now
+state that no benchmark case is executed and that a pass is not a score. The input is
+checked for the `<skill-id>@<version>` form and reported as not benchmarked. The six
+tracks of twenty cases remain an evaluation design with demonstration runs, as the site
+and the case directory already state, and not a completed validation of scientific
+capability. A real candidate benchmark needs these parts, none of which exists yet:
+- a case runner that executes the frozen Season against the candidate;
+- frozen data and scoring rules;
+- the run bound to the candidate's pinned version;
+- independent scoring, with results others can check.
+
+Tests: `BioScience-Harness/tests/test_audit_2026_10_release.py` (36) and
+`PSH-Harness/tests/test_audit_2026_10_permissions.py` (11). Against `main`, 34 and 9 of
+them fail. The tests that pass on `main` cover behaviour that should not change: a real
+improvement is still promoted, NaN case scores were already refused, an issued
+declassification still lowers its own content, and a call no hook touches still needs no
+approval. `tests/test_packaging.py` adds an integration test that builds the sdist and the
+wheel and runs the same acceptance. The `score_run` and promotion tests in
+`test_benchmarks.py` and `test_updates.py` now pass the run-level evidence and the
+candidate digest explicitly.
+
 ## 中文摘要
 
 第一批（药材身份）已修复：
@@ -305,4 +424,13 @@ though there only because it could read no Chinese at all.
 - **AUD-16 中文证据核验**：支持核验器读取中文词元、句末标点、数字和单位、与结论相连的否定（“未能降低”“无显著影响”“差异无统计学意义”）、让步从句和证据强度。同时补上结构化范围检查的中文抽取（主体、方向、终点、人群、病症、设计、样本量），成人试验不能支持儿童或孕妇的同一主张。
 - **AUD-17 规划器参数**：LLM 规划器保留模型给出的工具参数，并按组件声明校验参数名、必填项和类型；不合格的步骤被拒绝并说明原因。
 
-第五批正在进行。
+第五批（评测、晋升、权限与分发）已修复：
+- **AUD-18 评测闸门**：`score_run` 自行计算全部运行级闸门，不再采信评分自带的结果；缺少证据而无法检查的闸门记为“未运行”，不计为通过；没有写明四个版本轴、轨迹摘要和产物摘要的运行标为不可追溯。两者都不能进入可信榜。
+- **AUD-19 案例集合**：每个案例只能评分一次，重复、赛季外和赛道不符的案例直接拒绝。
+- **AUD-21 无效指标**：比较之前先检查每个基准结果：必须是 [0, 1] 内的有限数，且至少有一个案例。NaN、无穷大或越界的结果使候选被隔离，现有版本保持不变。
+- **AUD-20 审批对象**：审批决定绑定候选摘要，覆盖版本、来源与提交、代码哈希、许可、权限、依赖等审核字段；晋升对象与审核候选有任何字段不同即拒绝，并指出哪些字段不同。回滚恢复当初晋升的那个版本本身，而不是给当前版本改名。
+- **AUD-23 PROMPT 提前返回**：需要审批的命令仍要经过拒绝清单和路径检查，`git push --force` 被直接拒绝。
+- **AUD-22 Hook 改写**：Hook 改写后的参数重新经过入口检查和全部闸门检查，审批在最后、针对实际执行的参数进行，审批人看到的是实际要执行的命令。
+- **AUD-24 降密记录**：内核登记每条降密记录及其对应内容；只有记录未被修改、且用于原内容时才生效，挪用或篡改的记录按伪造处理，数据按内容重新定级。
+- **AUD-25 独立安装包**：wheel 和 sdist 现在携带技能清单、锁文件和注册表，配置在源码树和安装包中都能找到它们，CLI 默认目录不再依赖当前工作目录。同时修复两处静默差异：安装包原先只识别 4 味药材（源码中为 344 味），技能哈希曾随目录位置变化。发布验收会从 sdist 构建 wheel，在看不到源码树的全新解释器中运行受治理技能，CI 每次推送都执行。
+- **AUD-26 候选基准**：如实说明候选基准工作流目前只做锁文件、编译和单元测试检查，不运行冻结赛季的科学案例，通过不代表得分。完整案例执行器、冻结数据与评分规则、候选版本绑定和独立评分尚待建设。
