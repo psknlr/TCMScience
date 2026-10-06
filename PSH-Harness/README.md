@@ -4,38 +4,11 @@ A governed control plane for physician-scientist work. Not a bigger agent: the l
 agents, tools and harnesses run *through*.
 
 <!-- zh -->
-一个面向医师科学家工作的受治理控制平面（governed control plane）。它不是"更大的智能体"，而是你的智能体、工具与执行框架（harness）运行时所**穿过**的那一层。
+一个面向医师科学家工作的受治理控制平面（governed control plane）。它并非智能体的叠加，而是你的智能体、工具与执行框架（harness）运行时所**穿过**的那一层。
 
 
 Positioning, stated precisely, because the earlier "Kubernetes for AI agents" framing
 promised hard isolation, distributed scheduling and multi-tenancy that this does not have:
-
-<!-- zh -->
-这里精确陈述定位，因为早先"AI 智能体的 Kubernetes"这一说法承诺了硬隔离（hard isolation）、分布式调度与多租户，而本系统并不具备这些能力：
-
-
-> **A policy-enforced control plane for biomedical scientific agents.** Research prototype.
-
-<!-- zh -->
-> **面向生物医学科学智能体的策略强制控制平面（policy-enforced control plane）。** 研究原型。
-
-
-## v0.6 — a scientific compiler in front of the kernel · v0.6 —— 内核之前的一个科学编译器
-
-> **The three previous releases answered *may this agent do this?* This one answers a
-> different question: *is this science, and does the evidence reach the conclusion?***
-
-<!-- zh -->
-> **此前三个版本回答的是"这个智能体可以做这件事吗？"。本次发布回答的是另一个问题："这是科学吗？证据够得着结论吗？"**
-
-
-Nothing here weakens the first answer. Every path still runs through `PlanValidator`,
-`AgentLoopController`, `ExecutionBroker` and the release gate. What is added is a layer
-**in front** of them that refuses a research programme before it spends anything, and a
-layer **beside** them that remembers what the project concluded and why.
-
-<!-- zh -->
-这并不削弱第一个答案。所有路径仍然穿过 `PlanValidator`、`AgentLoopController`、`ExecutionBroker` 与发布门（release gate）。新增的是它们**之前**的一层 —— 在一个研究程序花掉任何开销之前就拒绝它 —— 以及它们**旁边**的一层：记住这个项目得出了什么结论、以及为什么。
 
 
 | Package | What it is | 是什么 |
