@@ -54,6 +54,7 @@ _CODES: Mapping[str, str] = {
     "ART114": "a declared output file does not match its content hash",
     "ART115": "a quote receipt does not verify against the content it names",
     "ART116": "a claim rests on an extrapolation that is declared but not validated",
+    "ART117": "the artifact declares an attestation that its audit chain does not record",
 }
 
 #: Claim-level reason code → artifact violation code. The claim layer numbers
@@ -261,11 +262,15 @@ class ArtifactVerdict:
       the content it names (needs a content store);
     * ``outputs_verified`` — every declared output was found and its bytes
       matched its hash (needs an output root or a content store);
-    * ``execution_attested`` — the artifact names the policy and the audit-chain
-      head it ran under.
+    * ``execution_attested`` — the audit chain the artifact names records its
+      release under that policy (needs an attestor; see
+      :mod:`~bioagent.contracts.attestation`).
 
-    ``release_authorized`` is the conjunction. Nothing is released on
-    ``publishable`` alone.
+    ``execution_declared`` only says the artifact names a policy and an audit
+    head. An independent check used to take the two strings as the attestation, so
+    a made-up policy and head made an imported artifact release-authorized (audit
+    AUD-13). ``release_authorized`` is the conjunction of the verified states.
+    Nothing is released on ``publishable`` alone.
     """
 
     artifact_id: str
@@ -279,6 +284,9 @@ class ArtifactVerdict:
     evidence_verified: bool = False
     outputs_verified: bool = False
     execution_attested: bool = False
+    #: The artifact names a policy and an audit head; whether they are real is
+    #: ``execution_attested``.
+    execution_declared: bool = False
     #: Why each unmet state is unmet, for a human.
     unverified: tuple[str, ...] = ()
 
@@ -301,6 +309,7 @@ class ArtifactVerdict:
         return {"schema_valid": self.publishable,
                 "evidence_verified": self.evidence_verified,
                 "outputs_verified": self.outputs_verified,
+                "execution_declared": self.execution_declared,
                 "execution_attested": self.execution_attested,
                 "release_authorized": self.release_authorized}
 
@@ -325,7 +334,7 @@ class ArtifactVerdict:
 
 
 def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
-                      content_store: Any = None) -> ArtifactVerdict:
+                      content_store: Any = None, attestor: Any = None) -> ArtifactVerdict:
     """Decide whether an artifact may be published, and what has been verified.
 
     Every check runs; nothing short-circuits. An artifact with five problems
@@ -339,6 +348,9 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
     :class:`~bioagent.contracts.receipts.ContentStore`) lets quote receipts and
     in-memory outputs be re-verified; without it they stay *unverified*, which
     does not block ``publishable`` but does block ``release_authorized``.
+    ``attestor`` (an :class:`~bioagent.contracts.attestation.AuditChainAttestor`)
+    checks the declared policy and audit head against the audit chain; without
+    it, an artifact that names them is ``execution_declared`` and not attested.
     """
     errors: list[Violation] = []
     warnings: list[Violation] = []
@@ -443,10 +455,18 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
                 "ART115", f"evidence {item.id!r}: the quote is not at offset "
                 f"{item.quote_offset} of the content its receipt names"))
 
-    attested = bool(artifact.policy_id and artifact.audit_head)
-    if not attested:
+    declared = bool(artifact.policy_id and artifact.audit_head)
+    attested = False
+    if not declared:
         unverified.append("no policy_id/audit_head: the run is not attested by the "
                           "kernel's audit chain")
+    elif attestor is None:
+        unverified.append("policy_id/audit_head are declared but not checked against an "
+                          "audit chain; the run is not attested")
+    else:
+        attested, why = attestor.attest(artifact)
+        if not attested:
+            errors.append(Violation("ART117", f"execution is not attested: {why}"))
 
     # -- limitations --------------------------------------------------------
     if not artifact.limitations:
@@ -486,7 +506,7 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
                            tuple(claim_verdicts), fixable_by_declaration=fixable,
                            evidence_verified=evidence_ok and not errors,
                            outputs_verified=outputs_ok,
-                           execution_attested=attested,
+                           execution_attested=attested, execution_declared=declared,
                            unverified=tuple(unverified))
 
 

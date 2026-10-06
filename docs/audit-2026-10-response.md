@@ -8,8 +8,8 @@ lands as its own pull request. This page is updated as each batch lands.
 | Batch | Issues | Status |
 | --- | --- | --- |
 | 1. Herb names, doses, entity types, formula versions | AUD-01 to AUD-05 | fixed ([#32](https://github.com/psknlr/TCMScience/pull/32)) |
-| 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed (this change) |
-| 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | in progress |
+| 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed ([#33](https://github.com/psknlr/TCMScience/pull/33)) |
+| 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed (this change) |
 | 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | in progress |
 | 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | in progress |
 
@@ -164,6 +164,53 @@ fail, and 24 of the 37 in the second that do not need the new functions; the res
 cases that pass both before and after. The contract tests' default evidence item now
 states the population and outcome its default claim relies on.
 
+## Batch 3: statistics and execution provenance
+
+| Probe | Before | After |
+| --- | --- | --- |
+| `enrichment_analysis`: background 1,000, 5 query genes, 100 sets of 50, one sharing 2 genes | p = q = 0.0222, significant | p = 0.0222, q = 1.0 over the 100 sets tested; `tests: 100`, `shown: 1` |
+| An otherwise valid artifact with `policy_id="policy-never-created"`, `audit_head="not-a-real-hash"` | `execution_attested`, `release_authorized` | `execution_declared` only; checked against an audit chain, refused with `ART117` |
+| A research run in-process, then resumed under the default governed configuration | stages reused, 0 tool calls, `governed_execution: true`, released | the in-process stages are not reused; analysis and rebuttal run governed, with their tool calls |
+
+**AUD-06, the multiple-testing family.** The generic `enrichment_analysis` tool kept only
+the sets that shared at least `min_overlap` genes with the query and then adjusted their
+p-values, so the family of tests was chosen by the data it was testing. Every set within
+the set-size bounds (`min_set_size`, `max_set_size`, which do not depend on the query) is
+now tested, and the Benjamini–Hochberg adjustment runs over all of them; `min_overlap` only
+chooses which rows are shown. The result reports the family size (`tests`), the rows shown,
+and the significant sets over the whole family (`significant_not_shown` counts any that the
+display filter hides). The network-pharmacology pipeline already adjusted over every
+pathway in its pre-set size range, as the audit found, and is unchanged.
+
+**AUD-13, declared versus attested.** `validate_artifact` took `policy_id` and
+`audit_head` as an attestation whenever both were non-empty. The two fields are now
+reported as `execution_declared`. `execution_attested`, which `release_authorized`
+requires, is decided only against an audit chain, through `attestor=`
+(`contracts/attestation.py`, `AuditChainAttestor.open(state_dir)`). The chain must verify,
+the named head must be an event in it, and after that head the run must have recorded an
+`…_artifact_attested` event with this artifact's digest, head and policy. Governed runs
+(`run_governed` and the research loop) now record that event at release and validate
+against their own chain. Because the digest is recomputed from the artifact in hand, an
+imported copy of a released artifact still attests, while one edited after release, or
+naming another policy or a made-up head, is refused with `ART117`. With the artifact file
+alone, a reviewer can see what it declares, not that it is attested.
+
+**AUD-14, a cache rewriting history.** The research loop keyed its analysis and rebuttal
+checkpoints on the protocol and the snapshots, and the artifact described the current
+configuration: a result computed in-process was reused by a governed resume, which then
+reported `governed_execution: true` with no tool call. The two stages are now keyed on how
+they execute as well: mode, deployment profile, compiled program, the analysis code (the
+skill's content hash over the tool's import closure) and the environment digest. Each
+stage's execution record is saved with it and in the audit chain, and a checkpoint is
+reused only when the chain holds the matching completion event, so a checkpoint edited to
+claim governed execution is recomputed. The artifact reports each stage as it ran
+(`provenance.execution`), and `tool_calls` is the sum recorded when the stages ran, not a
+recount. A governed resume of a governed run still reuses its stages.
+
+Tests: `BioScience-Harness/tests/test_audit_2026_10_provenance.py` (12); all 12 fail on
+`main`. The research-loop tests now validate a resumed artifact against its audit chain
+and expect the attestation event.
+
 ## 中文摘要
 
 第一批（药材身份）已修复：
@@ -183,4 +230,9 @@ states the population and outcome its default claim relies on.
 - **AUD-11 签名**：证据记录除签名本身、由签名派生的标志和内容（由已签名的内容哈希绑定）外，所有字段都纳入签名；签名不符的记录标记为被篡改，不能支持任何主张。
 - **AUD-12 引用一致**：映射键、记录内部 ID 与正文引用按规范化标识比较；键与记录不一致、文献类型与标识不符时拒绝，输出闸门也逐条核对引用背后的记录。
 
-第三至第五批正在进行。
+第三批（统计与执行溯源）已修复：
+- **AUD-06 多重检验族**：通用富集工具对所有符合预设集合大小的通路检验并做 BH 校正，最小重叠数只决定展示哪些结果；同时返回检验数量和展示数量。审计的例子校正后 q = 1.0，不再显著。
+- **AUD-13 已声明与已认证**：仅填写 `policy_id`、`audit_head` 只算“已声明”；只有对照审计链核实（链完整、所指头部存在、其后记录了本产物摘要与策略）才算“已认证”。伪造的策略或头部、发布后被修改的产物都以 `ART117` 拒绝。
+- **AUD-14 缓存与治理状态**：分析与反驳阶段的缓存键包含执行模式、配置、编译程序、分析代码和环境身份，并需审计链中有对应的完成记录才能复用；产物按各阶段实际执行情况记录，进程内结果不会被“升级”为受治理执行。
+
+第四、第五批正在进行。

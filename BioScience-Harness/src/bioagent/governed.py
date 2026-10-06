@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .contracts import ResearchArtifact, validate_artifact
+from .contracts.attestation import AuditChainAttestor
 from .contracts.artifact import ArtifactVerdict
 from .contracts.receipts import ContentStore, default_store
 
@@ -280,15 +281,21 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         if not chain:
             raise GovernedRunRefused("the audit chain does not verify after the run")
         head = kernel.events.head_hash
-        attested = replace(artifact, policy_id=kernel.policy.profile_id or "default",
-                           audit_head=head,
+        policy_id = kernel.policy.profile_id or "default"
+        attested = replace(artifact, policy_id=policy_id, audit_head=head,
                            provenance={**dict(artifact.provenance),
                                        "environment": environment,
                                        "governed": {"skill_content_hash": content_hash,
                                                     "arguments_sha256": args_digest,
                                                     "pre_attestation_digest": artifact.digest,
                                                     "state_dir": str(state)}})
-        verdict = validate_artifact(attested, output_root=out, content_store=store)
+        # The release is recorded after the head the artifact names, with the digest of
+        # the artifact as released: that record is what attests it (contracts.attestation).
+        kernel.audit("bioscience_artifact_attested", run_id=skill_id,
+                     detail={"artifact_digest": attested.digest, "audit_head": head,
+                             "policy_id": policy_id})
+        verdict = validate_artifact(attested, output_root=out, content_store=store,
+                                    attestor=AuditChainAttestor(kernel.events))
     finally:
         kernel.close()
     return GovernedRun(artifact=attested, verdict=verdict, skill_id=skill_id,

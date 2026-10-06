@@ -61,6 +61,7 @@ from ..analysis.network_pharmacology import Parameters
 from ..contracts import (ArtifactFile, CandidateClaim, EvidenceItem, SourceCard,
                          validate_artifact)
 from ..contracts.artifact import ArtifactVerdict, ResearchArtifact
+from ..contracts.attestation import AuditChainAttestor
 from ..contracts.evidence_item import STUDY_DESIGNS
 from ..contracts.receipts import ContentStore
 from ..sources.herbs import GEGEN_QINLIAN, FormulaVersion
@@ -372,6 +373,13 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
     deployment ``profile`` decides isolation. ``analyse`` replaces that with an
     in-process callable; it exists for tests, and the artifact then records
     ``governed_execution: false``.
+
+    A stage recorded by an earlier run is reused only if it was executed the way this
+    run would execute it: same mode (governed or in-process), profile, compiled program,
+    analysis code and environment. The record of how it ran is kept with it and in the
+    audit chain, and the artifact reports the stages as they ran. Before, a result
+    computed in-process was reused by a governed resume, which then reported
+    ``governed_execution: true`` with no tool call made (audit AUD-14).
     """
     try:
         from psh import PSHConfig, TrustedKernel
@@ -432,6 +440,7 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
             analyse = _GovernedAnalysis(kernel, snapshot_root, ledger_path, contract,
                                         accept_review, profile, state / "psh")
         governed = isinstance(analyse, _GovernedAnalysis)
+        execution = _execution(governed, profile, program, skill_dir)
         retrieve_input = _digest({"protocol": protocol.digest, "snapshots": ids})
         if ckpt.done("retrieve", retrieve_input):
             resumed.append("retrieve")
@@ -446,36 +455,56 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                                                    "deviations": deviations})
 
         # -- analyse ------------------------------------------------------------------
-        if ckpt.done("analyse", retrieve_input):
+        # Stages that execute analyses are keyed on how they execute, and reused only
+        # if the audit chain recorded them so: a checkpoint is a cache, the chain is the
+        # record of what ran.
+        analyse_input = _digest({"retrieve": retrieve_input, "execution": execution})
+        ran: dict[str, dict[str, Any]] = {}
+        reused = _reusable(ckpt, kernel, run_id, "analyse", analyse_input,
+                           "research_analysis_completed")
+        if reused is not None:
             resumed.append("analyse")
-            result = ckpt.data("analyse")
+            result, ran["analyse"] = reused
         else:
+            calls = analyse.calls if governed else 0
             result = _analyse(analyse, snaps, protocol, protocol.parameters, contract)
+            ran["analyse"] = {**execution, "tool_calls": (analyse.calls - calls
+                                                          if governed else 0)}
             audit("analysis_completed", result_digest=result["digest"],
                   released=len(result["release"]["released"]),
-                  refused=len(result["release"]["refused"]))
-            ckpt.save("analyse", retrieve_input, result)
+                  refused=len(result["release"]["refused"]), execution=ran["analyse"])
+            ckpt.save("analyse", analyse_input, {**result, "execution": ran["analyse"]})
 
         # -- rebut --------------------------------------------------------------------
         rebut_input = _digest({"analysis": result["digest"],
-                               "rebuttals": list(protocol.rebuttals)})
-        if ckpt.done("rebut", rebut_input):
+                               "rebuttals": list(protocol.rebuttals),
+                               "execution": execution})
+        reused = _reusable(ckpt, kernel, run_id, "rebut", rebut_input,
+                           "research_rebuttal_completed")
+        if reused is not None:
             resumed.append("rebut")
-            rebuttal = ckpt.data("rebut")
+            rebuttal, ran["rebut"] = reused
         else:
+            calls = analyse.calls if governed else 0
             rebuttal = _rebut(analyse, snaps, protocol, result, contract)
+            ran["rebut"] = {**execution, "tool_calls": (analyse.calls - calls
+                                                        if governed else 0)}
             audit("rebuttal_completed", survived=rebuttal["survived"],
                   refuted=[r["object"] for r in rebuttal["refuted"]],
-                  not_run=rebuttal["not_run"])
-            ckpt.save("rebut", rebut_input, rebuttal)
+                  not_run=rebuttal["not_run"], result_digest=_digest(rebuttal),
+                  execution=ran["rebut"])
+            ckpt.save("rebut", rebut_input, {**rebuttal, "execution": ran["rebut"]})
 
         # -- release ------------------------------------------------------------------
         artifact = _artifact(run_id, protocol, snaps, result, rebuttal, deviations, out)
+        # How the stages ran, as recorded when they ran: a resumed stage keeps its own
+        # record, whatever this invocation is configured to do.
         artifact = replace(artifact, provenance={
             **dict(artifact.provenance), "compiled_program": program,
-            "governed_execution": governed,
-            "tool_calls": analyse.calls if governed else 0,
-            "profile": profile if governed else ""})
+            "governed_execution": all(r["mode"] == "governed" for r in ran.values()),
+            "tool_calls": sum(r["tool_calls"] for r in ran.values()),
+            "profile": profile if governed else "",
+            "execution": {stage: dict(r) for stage, r in ran.items()}})
         store = snapshot_content_store(
             snaps, [tuple(s) for c in result["claims"] for s in c["support"]])
         for name in ("enrichment.jsonl",):
@@ -487,11 +516,16 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
         if not kernel.events.verify():
             raise ResearchRefused("the audit chain does not verify")
         head = kernel.events.head_hash
-        artifact = replace(artifact, policy_id=kernel.policy.profile_id or "default",
-                           audit_head=head,
+        policy_id = kernel.policy.profile_id or "default"
+        artifact = replace(artifact, policy_id=policy_id, audit_head=head,
                            provenance={**dict(artifact.provenance),
                                        "pre_attestation_digest": artifact.digest})
-        verdict = validate_artifact(artifact, output_root=out, content_store=store)
+        # The record after the named head, with the released artifact's digest, is what
+        # attests it (contracts.attestation); the two fields alone attest nothing.
+        audit("artifact_attested", artifact_digest=artifact.digest, audit_head=head,
+              policy_id=policy_id)
+        verdict = validate_artifact(artifact, output_root=out, content_store=store,
+                                    attestor=AuditChainAttestor(kernel.events))
         (out / "artifact.json").write_text(json.dumps(
             {**artifact.document(), "validation": verdict.as_dict()}, indent=2,
             ensure_ascii=False, default=str) + "\n", encoding="utf-8")
@@ -828,6 +862,41 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
 # helpers
 # ---------------------------------------------------------------------------
 
+def _execution(governed: bool, profile: str, program: str,
+               skill_dir: str | Path | None) -> dict[str, Any]:
+    """How this run executes its analyses: what a reused stage must have run under."""
+    from ..skills.loader import skill_content_hash
+    from .tools import TOOL_ENTRYPOINT
+    return {"mode": "governed" if governed else "in_process",
+            "profile": profile if governed else "", "program": program,
+            "code": skill_content_hash(_skill_directory(skill_dir), entrypoint=TOOL_ENTRYPOINT),
+            "environment": _environment()["digest"]}
+
+
+def _reusable(ckpt: "_Checkpoint", kernel: Any, run_id: str, stage: str, input_digest: str,
+              event: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """A recorded stage and how it ran, if it may stand for this run's; else None.
+
+    The checkpoint must match the stage's input, which includes the execution, and the
+    audit chain must hold the completion event of that run with the same result and the
+    same execution. A checkpoint edited to claim another execution is not reused.
+    """
+    if not ckpt.done(stage, input_digest):
+        return None
+    data = dict(ckpt.data(stage))
+    ran = data.pop("execution", None)
+    if not isinstance(ran, Mapping):
+        return None
+    digest = data["digest"] if stage == "analyse" else _digest(data)
+    for record in kernel.events.records():
+        detail = record.detail or {}
+        if (record.event_type == event and record.run_id == run_id
+                and detail.get("result_digest") == digest
+                and detail.get("execution") == ran):
+            return data, dict(ran)
+    return None
+
+
 def _environment() -> dict[str, Any]:
     from ..environment import environment_record
     return environment_record()
@@ -914,11 +983,14 @@ def _identifier(edge: Mapping[str, Any]) -> tuple[str, str]:
     return str(edge.get("source_record_id") or ""), "dataset"
 
 
+def _skill_directory(skill_dir: str | Path | None) -> Path:
+    return Path(skill_dir) if skill_dir else (
+        Path(__file__).resolve().parents[3] / "skills" / "tcm" / "network-pharmacology")
+
+
 def _contract(skill_dir: str | Path | None) -> Any:
     from ..providers.skills import SkillContract
-    directory = Path(skill_dir) if skill_dir else (
-        Path(__file__).resolve().parents[3] / "skills" / "tcm" / "network-pharmacology")
-    path = directory / "skill.yaml"
+    path = _skill_directory(skill_dir) / "skill.yaml"
     return SkillContract.load(path) if path.is_file() else None
 
 
