@@ -10,6 +10,12 @@
     python scripts/build_source_snapshots.py gold --raw DIR --out DIR --network \\
         --formula-table 中医方剂数据表.xlsx
 
+    # the reviewed HKBU formulas (catalogue 134) in the herb layer; a formula the export
+    # cannot give whole (a row not verified, a herb that does not resolve) is listed with
+    # the reasons and left out:
+    python scripts/build_source_snapshots.py gold --raw DIR --out DIR \\
+        --hkbu-formulas TCMDB/raw/hkbu_formulas_manual/formula_herb.tsv
+
     # one whole source:
     python scripts/build_source_snapshots.py source npass --raw DIR --out DIR
 
@@ -50,6 +56,7 @@ from bioagent.sources.build import build_gold, build_source  # noqa: E402
 from bioagent.sources.herbs import GOLD  # noqa: E402
 from bioagent.sources.ledger import SnapshotLedger  # noqa: E402
 from bioagent.sources.snapshot import SnapshotError  # noqa: E402
+from bioagent.tcmdb.store import StoreError  # noqa: E402
 
 
 def _summary(snap) -> dict:
@@ -71,6 +78,9 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--formula-table", default="",
                    help="add every fully resolved formula of this table (中医方剂数据表.xlsx) "
                         "to the herb layer, and restrict the sources to all their drugs")
+    g.add_argument("--hkbu-formulas", default="",
+                   help="add every formula of this reviewed HKBU export (formula_herb.tsv) "
+                        "that can be studied whole; the others are listed with the reasons")
     g.add_argument("--sources", nargs="+", default=["npass", "cmaup", "lotus"],
                    choices=("npass", "cmaup", "lotus"))
     s = sub.add_parser("source")
@@ -95,15 +105,23 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.cmd == "gold":
-            formulas = None
+            formulas, files = [], {}
             if args.formula_table:
                 from bioagent.sources.formulas import load_formula_table
                 table = load_formula_table(args.formula_table)
-                formulas = [r.version() for r in table.resolved]
+                formulas += [r.version() for r in table.resolved]
                 print(json.dumps({"formula_table": table.stats()}, ensure_ascii=False),
                       file=sys.stderr)
+            if args.hkbu_formulas:
+                from bioagent.sources.hkbu import load_hkbu_formulas
+                hkbu = load_hkbu_formulas(args.hkbu_formulas)
+                formulas += list(hkbu.versions)
+                files["formula_herb.tsv"] = args.hkbu_formulas
+                print(json.dumps({"hkbu_formulas": hkbu.stats(), "excluded": hkbu.excluded},
+                                 ensure_ascii=False), file=sys.stderr)
             build = build_gold(args.raw, args.out, ledger=ledger, network=args.network,
-                               sources=args.sources, formulas=formulas)
+                               sources=args.sources, formulas=formulas or None,
+                               formula_files=files or None)
             report = {"snapshots": {k: _summary(v) for k, v in build.snapshots.items()},
                       "gold_missing": build.missing,
                       "composition": build.composition}
@@ -127,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                                 inchikeys=[ik for _, ik in GOLD.values()])
         print(json.dumps(_summary(snap), ensure_ascii=False, indent=2))
         return 0
-    except SnapshotError as exc:
+    except (SnapshotError, StoreError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
 

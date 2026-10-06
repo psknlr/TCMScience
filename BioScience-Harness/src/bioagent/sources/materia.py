@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Mapping
 
 __all__ = ["CATEGORIES", "MATERIA", "MateriaEntry", "TAXA_FILE", "crude_drugs", "resolve_name",
-           "normalise_name", "unverified", "all_drugs"]
+           "normalise_name", "to_simplified", "unverified", "all_drugs"]
 
 CATEGORIES = ("plant", "fungus", "animal", "mineral", "other")
 TAXA_FILE = Path(__file__).resolve().parents[3] / "registry" / "materia_taxa.json"
@@ -828,11 +828,41 @@ _PREFIXES = ("麸炒", "土炒", "酒炒", "醋炒", "盐炒", "姜炒", "蜜炙
              "川", "真", "好", "上", "嫩", "新", "陈", "鲜", "干", "大", "小", "白", "细")
 _SUFFIXES = ("末", "粉", "片", "汁", "炭", "霜", "屑", "肉", "仁", "心", "头", "尖", "梢", "节")
 
+#: Traditional characters and their simplified forms, for the characters this table's
+#: names use. The names here are simplified, so a source written in traditional characters
+#: (黃芩, 大棗, 乾薑, as Hong Kong sources write them) would otherwise resolve to nothing.
+#: 252 pairs are OpenCC's ``TSCharacters`` and two its ``HKVariantsRev`` (枱, 衞), cut to
+#: the simplified characters that occur in these names (Apache-2.0; see NOTICE). Where
+#: OpenCC lists several simplified forms, the first is used (乾 → 干, 麴 → 曲).
+_TRADITIONAL = (
+    "乾亂佈倉側兒內兩凈劉勝參吳喬噁噹囌國圓實寶將崑帶幹廣恆惡懞懷捲撥撫敗斷於昇曬會朮東枱査梔條棗楓榦樓樸樹檯檳櫻歸殭殻殼決沒"
+    "淨漢澤濛瀉瀝烏無煉燈燻爐牀牽獨甦當痠發皁盧眞眾矇硃礬禦稜穀竈筆節糧紅紋紙細絨絲綠綿緑縮續罌翹脛脫腎腦膚膠膩膽臘臺荊莖莢華"
+    "萊葉葦葯蒼蓋蓮蓯蓽蔔蔘蔞蔥蕓蕪蕷薈薑藍藥藭藶蘄蘆蘇蘚蘞蘭蘿蛻蝟蝨螞蟬蟲蠍蠟蠣蠶衆術衚衛衞補製覈訶誌豬貓貝貞貫賊車軍軟輕連"
+    "遠遺遼醜針釵鈎鈡鈴鉅鉛鉤銀銅錦鍊鍋鍼鍾鎖鏇鐘鐵門閤闆關陞陳陸陽隨雙雞雲靈韆韋須頭風颱飛飯餘馬驢髮鬆鬍鬚鬱魚鮮鰂鱉鵝鶴鷄鹽"
+    "麗麥麩麪麫麯麴麵黃黨鼕齒龍龜")
+_SIMPLIFIED = (
+    "干乱布仓侧儿内两净刘胜参吴乔恶当苏国圆实宝将昆带干广恒恶蒙怀卷拨抚败断于升晒会术东台查栀条枣枫干楼朴树台槟樱归僵壳壳决没"
+    "净汉泽蒙泻沥乌无炼灯熏炉床牵独苏当酸发皂卢真众蒙朱矾御棱谷灶笔节粮红纹纸细绒丝绿绵绿缩续罂翘胫脱肾脑肤胶腻胆腊台荆茎荚华"
+    "莱叶苇药苍盖莲苁荜卜参蒌葱芸芜蓣荟姜蓝药䓖苈蕲芦苏藓蔹兰萝蜕猬虱蚂蝉虫蝎蜡蛎蚕众术胡卫卫补制核诃志猪猫贝贞贯贼车军软轻连"
+    "远遗辽丑针钗钩钟铃巨铅钩银铜锦炼锅针钟锁旋钟铁门合板关升陈陆阳随双鸡云灵千韦须头风台飞饭余马驴发松胡须郁鱼鲜鲗鳖鹅鹤鸡盐"
+    "丽麦麸面面曲曲面黄党冬齿龙龟")
+_T2S = str.maketrans(_TRADITIONAL, _SIMPLIFIED)
+
 
 def normalise_name(raw: str) -> str:
     """The bare name: parenthesised notes, spaces and trailing punctuation removed."""
     text = re.sub(r"[（(][^）)]*[）)]", "", raw or "")
     return re.sub(r"[\s　。，、；;,.:：]+", "", text)
+
+
+def to_simplified(text: str) -> str:
+    """``text`` with the traditional characters of this table's names simplified.
+
+    Character by character, so it is for resolving a name and nothing else: its result is
+    worth only as much as an exact match on a known name (``resolve_name`` of the result),
+    and a character no name here uses is left as it was.
+    """
+    return (text or "").translate(_T2S)
 
 
 def resolve_name(raw: str) -> str | None:

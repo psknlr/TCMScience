@@ -12,7 +12,12 @@
 
 The intervention is a parameter: any ``FormulaVersion`` the herb-layer snapshot records
 (the 葛根芩连汤 of 伤寒论 is only the default). A formula the snapshot does not record is
-refused rather than analysed as an empty composition.
+refused rather than analysed as an empty composition, and so is one whose composition is
+not the one the snapshot records: the analysis reads the composition from the snapshot, so
+a record edited after the build would be reported as a composition the run never analysed.
+The herb layer takes part in every run, so the purpose check on the skill's sources does
+not cover it: a commercial run also needs the studied composition record itself licensed
+for commercial use, and a formula from a table whose licence is unstated is refused.
 
 The inputs are pinned. Only snapshots of the release ``skill.yaml`` names count
 (``npass@2.0`` is release 2.0 or a scoped build of it). Every run writes
@@ -42,7 +47,8 @@ from typing import Any, Mapping
 from ..providers.skills import SkillContract
 from ..sources.herbs import GEGEN_QINLIAN, KEY as HERB_LAYER, FormulaVersion
 from ..sources.ledger import SnapshotLedger
-from ..sources.snapshot import load_snapshot
+from ..sources.snapshot import Snapshot, load_snapshot
+from ..tcmdb.spec import allows_commercial
 from .network_pharmacology import NetworkPharmacologyResult, Parameters, run_network_pharmacology
 
 __all__ = ["run_skill", "SkillRunRefused", "read_lock", "LOCK_FILE"]
@@ -139,6 +145,33 @@ def _tsv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _composition_licences(herbs: Snapshot, formula: FormulaVersion, purpose: str) -> list[str]:
+    """The licences of ``formula``'s composition record in the herb layer, once it is
+    known to be the record the snapshot holds and, for a commercial run, one that allows
+    commercial use."""
+    edges = [e for e in herbs.edges
+             if e.get("subject") == formula.id and e.get("predicate") == "contains"]
+    if not edges:
+        raise SkillRunRefused(
+            f"the herb-layer snapshot {herbs.snapshot_id} records no composition for "
+            f"{formula.id} ({formula.chinese}); build it with that formula first")
+    node = next((n for n in herbs.nodes if n.get("id") == formula.id), None) or {}
+    recorded = (node.get("raw") or {}).get("fingerprint")
+    if recorded and recorded != formula.fingerprint:
+        raise SkillRunRefused(
+            f"{formula.id} ({formula.chinese}): the herb-layer snapshot {herbs.snapshot_id} "
+            f"records composition {recorded}, but the formula given is {formula.fingerprint}; "
+            "the record changed after the snapshot was built, so rebuild the herb layer")
+    licences = sorted({str(e.get("license") or "") for e in edges})
+    barred = [lic or "no stated licence" for lic in licences if not allows_commercial(lic)]
+    if purpose == "commercial" and barred:
+        raise SkillRunRefused(
+            f"a commercial run needs commercial use allowed for the composition it studies; "
+            f"{formula.id} ({formula.chinese}) is recorded under {', '.join(barred)}, which "
+            "does not say so")
+    return licences
+
+
 def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: str | Path,
               out_dir: str | Path, params: Parameters = Parameters(),
               allowed: set[str] | None = None, accept_review: bool = False,
@@ -168,11 +201,7 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                 f"{chosen[snap.key][0]} on disk now holds {snap.snapshot_id}: the pinned build "
                 "was replaced and cannot be reproduced from this snapshot store")
     herbs = next(s for s in snapshots if s.key == HERB_LAYER)
-    if not any(e.get("subject") == formula.id and e.get("predicate") == "contains"
-               for e in herbs.edges):
-        raise SkillRunRefused(
-            f"the herb-layer snapshot {herbs.snapshot_id} records no composition for "
-            f"{formula.id} ({formula.chinese}); build it with that formula first")
+    composition_licences = _composition_licences(herbs, formula, purpose)
 
     compiled = None
     try:
@@ -231,7 +260,7 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "skill": {"id": contract.id, "version": contract.version,
                   "max_claim_kind": contract.max_claim_kind},
         "formula": {"id": formula.id, "chinese": formula.chinese, "source": formula.source,
-                    "fingerprint": formula.fingerprint},
+                    "fingerprint": formula.fingerprint, "license": composition_licences},
         "snapshot_lock": {s.key: s.snapshot_id for s in snapshots},
         "lock_given": pinned is not None,
         "dataset_hashes": result.snapshots,

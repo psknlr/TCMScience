@@ -137,6 +137,13 @@ EBI hosts are paced by the downloader.
 - 三者许可均为 `unknown`：适配器能跑不等于获得数据许可，`tcmdb check` 把 `unknown` 类作为警告而非许可（只供查询的港标、DNA 也会提示）。
 - 新增只读工具 `hkbu_formula_lookup`、`hkcmms_standard_lookup`、`hk_cmm_dna_lookup`，返回 `not_loaded`（未载入）、`incomplete_dataset`（缺表、缺列或缺文件）、`no_matching_record`（无匹配）、`withheld`（有匹配但未经人工核对，或许可不允许本次用途）或 `ok`，不表述为“无效”。每条记录带数据集、文件许可、许可类别和商业使用说明；PSH 中工具的 `data_license` 是数据许可，MIT 只作为 `code_license`。
 - 2026-10-05 修订（独立复核后）：三个模板文件严格读取（列名、字段数、引号、UTF-8 不符即拒绝并指出行号）；构建在临时库完成后才替换正式库，失败不影响原库；炮制信息并入药材名（黄芪 + 炙 = 炙黄芪），经 `consensus` 后生品与炮制品不再合并，并补上「炮」「煨」两个炮制前缀；`check` 核对 FASTA 与标本元数据是否一致；隔离（PSH）调用与直接调用读取同一个库，库在许可的根目录之外时明确拒绝；新增 `tcmdb template`（只含表头的模板，`--demo` 生成全部为 pending 的虚构示例）与 `tcmdb verify`（无可检查数据集时以退出码 3 报告 `NO DATASETS CHECKED`）。
+- 2026-10-06 新增 134 的科研层通道：`sources.hkbu` 用同一个严格读取器读审核过的 `formula_herb.tsv`，把能完整研究的方剂转成药材层方剂版本。用法：`build_source_snapshots.py gold --hkbu-formulas …`，然后 `run_network_pharmacology.py --formula hkbu:formula.<id>`。
+  - 整首方剂的每一行都已核对、字段齐全且一致，每味药都能解析为药材表中的一味药，才导出；其余列出原因。
+  - 繁体药名在原文解析不出时，逐字转简体再解析，字表取自 OpenCC。
+  - 组成边以 HKBU 导出为主要知识来源，以 `source_row_id` 为记录号，放行的假说可以追溯到原行。
+  - 商用运行现在要求被研究方剂的组成记录本身允许商用：HKBU 和方剂表都未声明许可，都会被拒绝。
+  - 方剂在快照构建后被改动时，运行被拒绝。
+  - 目前只用合成数据验证；研究闭环尚不识别 HKBU 方剂 ID。
 - 后续阶段的 TCMSSD、古籍、WHO ICTRP/ChiCTR、2025 版《中国药典》、HerbComb、GNDC 尚未登记，需先取得获准导出与字段、许可核验后才接入。
 
 ## Using it
@@ -637,6 +644,29 @@ Revised 2026-10-05 after an independent review of the first phase:
 * `tcmdb template <key>` writes the header-only template (`--demo`: invented rows, all
   pending) and `tcmdb verify` builds, checks and looks up every manual dataset present
   (exit 0 all passed, 1 a failure, 3 nothing to check).
+
+Added 2026-10-06, the research path for 134. `bioagent.sources.hkbu` reads the same
+reviewed `formula_herb.tsv`, with the same strict reader, and turns each formula that can
+be studied whole into a formula version of the herb layer:
+`build_source_snapshots.py gold --hkbu-formulas …`, then
+`run_network_pharmacology.py --formula hkbu:formula.<formula_id>`. The rules:
+
+* a formula is exported only when every row is verified, complete (herb id, source row
+  id, reference) and consistent, and every herb resolves once to a crude drug of the
+  materia table; the others are listed with their reasons;
+* a name in traditional characters (黃芩) is simplified character by character and
+  resolved again, but only when the name as written does not resolve; the table is
+  OpenCC's, cut to the characters the materia names use;
+* each composition edge names the HKBU export as its primary knowledge source and the
+  row's `source_row_id` as its record id. A hypothesis released on such a formula cites
+  that row, and so does the path behind it;
+* the licence is `LicenseRef-hkbu-formulas-unstated`. A commercial run now refuses a
+  formula whose composition record does not allow commercial use, which covers HKBU and
+  the formula table alike; before, the purpose check looked only at the skill's sources;
+* a run on a formula edited after the snapshot was built is refused.
+
+It has run on synthetic records only, and the research loop's question parser does not
+read HKBU ids yet.
 
 For later phases the guide lists TCMSSD, the classical-text library, WHO ICTRP/ChiCTR,
 the 2025 Chinese Pharmacopoeia, HerbComb and GNDC. None is catalogued or wrapped yet:

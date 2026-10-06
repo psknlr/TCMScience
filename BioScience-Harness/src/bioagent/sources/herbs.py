@@ -78,11 +78,32 @@ class FormulaVersion:
     #: CC0; formulas read from the user-supplied table carry that table's (unstated)
     #: licence. Not part of the fingerprint: it describes the record, not the formula.
     license: str = LICENSE
+    #: Where the composition record comes from when it is not this layer's own table
+    #: (``sources.hkbu``): the composition edges name it as their primary knowledge source.
+    #: Not part of the fingerprint.
+    primary_source: str = ""
+    #: The source's own record id for each component, in order, so a composition edge
+    #: leads back to the row it came from (default: the formula id and the herb id). Not
+    #: part of the fingerprint.
+    record_ids: tuple[str, ...] = ()
+    #: Each component's name as the source wrote it (炙甘草, 黃芩), in order, when it is
+    #: not the drug's own name. Part of the fingerprint only when given, so the formulas
+    #: that have none keep the fingerprints already recorded for them.
+    written: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for what, values in (("record ids", self.record_ids), ("written names", self.written)):
+            if values and len(values) != len(self.components):
+                raise ValueError(f"{self.id}: {len(values)} {what} for "
+                                 f"{len(self.components)} components")
 
     @property
     def fingerprint(self) -> str:
-        blob = json.dumps({"id": self.id, "source": self.source,
-                           "components": self.components}, ensure_ascii=False, sort_keys=True)
+        content: dict[str, Any] = {"id": self.id, "source": self.source,
+                                   "components": self.components}
+        if self.written:
+            content["written"] = self.written
+        blob = json.dumps(content, ensure_ascii=False, sort_keys=True)
         return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -129,7 +150,7 @@ def herb_rows(formula: "FormulaVersion | Iterable[FormulaVersion]" = GEGEN_QINLI
     for f in formulas:
         nodes[f.id] = {"id": f.id, "category": "formula", "name": f.chinese, "source": KEY,
                        "raw": {"source_text": f.source, "fingerprint": f.fingerprint}}
-        for herb_id, role, dose, processing in f.components:
+        for i, (herb_id, role, dose, processing) in enumerate(f.components):
             herb = drugs.get(herb_id)
             entry = MATERIA.get(herb_id.split(".", 1)[-1])
             if herb_id not in nodes:
@@ -143,12 +164,15 @@ def herb_rows(formula: "FormulaVersion | Iterable[FormulaVersion]" = GEGEN_QINLI
                     node["raw"] = {"category": entry.category, "part_zh": entry.part_zh,
                                    "no_organism": True}
                 nodes[herb_id] = node
+            raw = {"role": role, "dose": dose, "processing": processing}
+            if f.written:
+                raw["written"] = f.written[i]
             edges.append({
                 "subject": f.id, "predicate": "contains", "object": herb_id,
                 "knowledge_level": "knowledge_assertion", "agent_type": "manual_agent",
                 "study_design": "classical_text", "license": f.license,
-                "source_record_id": f"{f.id}|{herb_id}", "primary_knowledge_source": KEY,
-                "raw": {"role": role, "dose": dose, "processing": processing}})
+                "source_record_id": f.record_ids[i] if f.record_ids else f"{f.id}|{herb_id}",
+                "primary_knowledge_source": f.primary_source or KEY, "raw": raw})
             if herb is None:
                 continue
             for sp in herb.species:

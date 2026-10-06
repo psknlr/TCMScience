@@ -57,7 +57,7 @@ from ..store import StoreError
 
 __all__ = ["DATASETS", "EXTRACTORS", "READERS", "CHECKS", "SCHEMAS", "FMT", "VERIFIED",
            "FORMULA_HERB_COLUMNS", "QUALITY_STANDARD_COLUMNS", "SPECIMEN_COLUMNS",
-           "material_name", "fasta_ids"]
+           "CRUDE_PROCESSING", "material_name", "fasta_ids", "read_template"]
 
 KEY_FORMULAS = "hkbu_formulas_manual"
 KEY_STANDARDS = "hkcmms_manual"
@@ -146,6 +146,20 @@ def _manual_tsv(path: Path, spec: FileSpec) -> Iterator[list[str | None]]:
 
 READERS = {FMT: _manual_tsv}
 
+
+def read_template(path: str | Path, table: str) -> list[dict[str, str | None]]:
+    """The records of one reviewed template file, read strictly, as column -> value.
+
+    For readers outside the hub: the research layer reads ``formula_herb.tsv`` too
+    (``sources.hkbu``), and a file the hub's build refuses is refused there with the same
+    message.
+    """
+    spec = next(f for d in DATASETS for f in d.files if f.table == table)
+    records = _manual_tsv(Path(path), spec)
+    header = next(records)
+    return [dict(zip(header, record)) for record in records]
+
+
 DATASETS = (
     DatasetSpec(
         key=KEY_FORMULAS,
@@ -222,7 +236,7 @@ DATASETS = (
 
 
 #: ``processing`` values that name the crude drug itself rather than a processed form.
-_CRUDE = frozenset({"生", "生品", "生用", "原药材", "无", "none", "raw"})
+CRUDE_PROCESSING = frozenset({"生", "生品", "生用", "原药材", "无", "none", "raw"})
 
 
 def material_name(herb_name: object, processing: object) -> str | None:
@@ -235,7 +249,7 @@ def material_name(herb_name: object, processing: object) -> str | None:
     drug's. The row's note keeps both original fields.
     """
     name, proc = v(herb_name), v(processing)
-    if not name or not proc or proc.lower() in _CRUDE or proc in name \
+    if not name or not proc or proc.lower() in CRUDE_PROCESSING or proc in name \
             or name.startswith(proc[-1]):
         return name
     return f"{proc}{name}"
