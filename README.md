@@ -4,7 +4,7 @@
 
 ### The first governed autonomous research agent for Traditional Chinese Medicine
 
-**全球首个面向中医药与生物医学科学发现的受治理自主科研智能体**
+**全球首个面向中医药与生物医学科研的自主科研智能体**
 
 *The model may reason. It does not define the laws of the laboratory.*
 
