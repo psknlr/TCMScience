@@ -1,11 +1,20 @@
 name: candidate-benchmark
 
-# Score a candidate against the frozen benchmark, in a sandbox, before a human
-# is asked to decide. Runs on demand and on the scout's branch.
+# The checks a candidate must pass before it can be benchmarked, run on demand and
+# on the scout's branch: the lockfile and the tree agree, every skill compiles and
+# the kernel accepts it, and the unit tier passes.
 #
-# A candidate that cannot be pinned to an immutable commit is not benchmarked at
-# all: a score against a moving target measures nothing and would be quoted
-# anyway.
+# It does not benchmark the candidate. No case of a frozen Season is executed
+# here, and a pass is not a score. The six tracks of twenty cases are an
+# evaluation design with demonstration runs, not a completed validation of
+# scientific capability (audit AUD-26). Running them needs a case runner, frozen
+# data and scoring rules, the run bound to the candidate's version, and
+# independent scoring with results others can check
+# (docs/audit-2026-10-response.md).
+#
+# A candidate that cannot be pinned to an immutable commit will not be
+# benchmarked at all: a score against a moving target measures nothing and would
+# be quoted anyway.
 
 on:
   workflow_dispatch:
@@ -23,9 +32,18 @@ permissions:
 
 jobs:
   benchmark:
-    name: Sandbox benchmark of a candidate
+    name: Candidate checks (no benchmark case is run)
     runs-on: ubuntu-latest
     steps:
+      - name: Say what this run checks, and what it does not
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          if [ -n "$CANDIDATE" ] && ! [[ "$CANDIDATE" =~ ^[a-z0-9][a-z0-9-]*@[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::candidate must be <skill-id>@<major>.<minor>.<patch>"
+            exit 1
+          fi
+          echo "::notice::${CANDIDATE:-this change}: lockfile, compile and unit checks only; no frozen benchmark case is executed, so nothing here is a benchmark score"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:

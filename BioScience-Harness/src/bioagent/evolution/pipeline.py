@@ -10,6 +10,7 @@ This is controlled recursive improvement, not an agent rewriting itself.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -41,6 +42,28 @@ class BenchmarkResult:
     score: float
     n_cases: int = 0
     detail: dict[str, Any] = field(default_factory=dict)
+
+
+def _invalid_score(score: Any) -> str:
+    """Why ``score`` cannot be compared, or '' when it can: a finite number in [0, 1]."""
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        return f"{score!r} is not a number"
+    if not math.isfinite(score):
+        return f"{score!r} is not finite"
+    if not 0.0 <= score <= 1.0:
+        return f"{score!r} is outside [0, 1]"
+    return ""
+
+
+def _invalid_result(result: Any) -> str:
+    """Why a benchmark result cannot stand, or '': its score, and the cases behind it."""
+    why = _invalid_score(getattr(result, "score", None))
+    if why:
+        return why
+    n = getattr(result, "n_cases", 0)
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        return f"scored on {n!r} cases; a score needs at least one"
+    return ""
 
 
 @dataclass
@@ -129,6 +152,15 @@ class EvolutionPipeline:
         missing = [b for b in bms if b not in proposal.benchmark_scores]
         if missing:
             return False, f"benchmarks did not run: {', '.join(missing)}"
+        # Every number is checked before it is compared. A NaN compares False with
+        # everything, so a candidate scoring NaN passed both the regression check and
+        # the improvement check and was promoted over an incumbent at 0.8.
+        invalid = [f"{label} {b}: {why}"
+                   for label, scores in (("candidate", proposal.benchmark_scores),
+                                         ("incumbent", proposal.incumbent_scores))
+                   for b, score in scores.items() if (why := _invalid_score(score))]
+        if invalid:
+            return False, "invalid benchmark score(s): " + "; ".join(invalid)
 
         if incumbent is None:
             weak = {b: sc for b, sc in proposal.benchmark_scores.items()
@@ -212,12 +244,22 @@ class EvolutionPipeline:
             # Every declared benchmark runs. Scoring only `bms[0]` meant a
             # candidate that improved the first benchmark was promoted while a
             # declared safety or regression benchmark it broke was never run.
+            invalid: list[str] = []
             for bm in bms:
                 cand = self._benchmark(proposal.component, bm)
+                invalid += [f"candidate {bm}: {why}" for why in [_invalid_result(cand)] if why]
                 proposal.benchmark_scores[bm] = cand.score
                 if incumbent is not None:
                     inc = self._benchmark(incumbent, bm)
+                    invalid += [f"incumbent {bm}: {why}" for why in [_invalid_result(inc)]
+                                if why]
                     proposal.incumbent_scores[bm] = inc.score
+            if invalid:
+                msg = "invalid benchmark result(s): " + "; ".join(invalid)
+                proposal.state = ProposalState.QUARANTINED
+                proposal.log("benchmark", False, msg)
+                self._emit(events, EventType.EVALUATION_COMPLETED, proposal, ev, msg)
+                return proposal
             scores = list(proposal.benchmark_scores.values())
             proposal.candidate_score = sum(scores) / len(scores) if scores else 0.0
             if incumbent is not None:

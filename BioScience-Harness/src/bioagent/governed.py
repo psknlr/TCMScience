@@ -63,6 +63,7 @@ class GovernedRun:
     state_dir: str
     output_dir: str
     written: tuple[str, ...] = ()
+    lockfile: str = ""                 # the pin the skill was checked against, if any
 
     @property
     def released(self) -> bool:
@@ -300,4 +301,5 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         kernel.close()
     return GovernedRun(artifact=attested, verdict=verdict, skill_id=skill_id,
                        content_hash=content_hash, audit_head=head, state_dir=str(state),
-                       output_dir=str(out), written=written)
+                       output_dir=str(out), written=written,
+                       lockfile=str(lock) if lock else "")

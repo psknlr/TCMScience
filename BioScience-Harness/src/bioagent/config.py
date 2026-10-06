@@ -13,6 +13,15 @@ from pathlib import Path
 #: Repository root (this file is <repo>/src/bioagent/config.py).
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+#: Whether this module is running from a source checkout rather than an installed package.
+#: Installed, ``REPO_ROOT`` is a directory of the interpreter's (``lib/python3.x``), so
+#: anything found under it would be there by accident.
+SOURCE_TREE = (REPO_ROOT / "pyproject.toml").is_file() and \
+    Path(__file__).resolve().parent == REPO_ROOT / "src" / "bioagent"
+
+#: The skills and registry an installed package carries (copied by ``setup.py``).
+BUNDLED_ROOT = Path(__file__).resolve().parent / "_bundled"
+
 ENV_DATA_LAKE = "BIOAGENT_DATA_LAKE"
 ENV_WORKSPACE = "BIOAGENT_WORKSPACE"
 ENV_CATALOGUE = "BIOAGENT_CATALOGUE"
@@ -53,18 +62,44 @@ def tcmdb_dir(explicit: str | os.PathLike | None = None) -> Path:
     return data_lake_dir() / "tcmdb"
 
 
+def _shipped(name: str) -> Path:
+    """``<repo>/<name>`` in a source checkout, else the installed package's bundled copy.
+
+    Before the copy existed these locations resolved only in a checkout: an installed
+    wheel looked for ``skills/`` beside the interpreter's library directory, found
+    nothing, and could not run a governed skill (audit AUD-25).
+    """
+    if SOURCE_TREE or not (BUNDLED_ROOT / name).is_dir():
+        return REPO_ROOT / name
+    return BUNDLED_ROOT / name
+
+
 def skills_dir(explicit: str | os.PathLike | None = None) -> Path:
     """Reviewed research skills shipped with the project (``<repo>/skills``).
 
-    Skills an agent drafts at run time live in the workspace's ``skills/`` instead; they
-    are untrusted until the evolution pipeline promotes them.
+    Installed, the copy inside the package. Skills an agent drafts at run time live in the
+    workspace's ``skills/`` instead; they are untrusted until the evolution pipeline
+    promotes them.
     """
     if explicit:
         return Path(explicit).expanduser()
     env = os.environ.get(ENV_SKILLS)
     if env:
         return Path(env).expanduser()
-    return REPO_ROOT / "skills"
+    return _shipped("skills")
+
+
+def registry_dir(explicit: str | os.PathLike | None = None) -> Path:
+    """The reviewed registry state (``<repo>/registry``): the lockfile pinning the skills,
+    the declared skill sources, verified taxa. Installed, the copy inside the package.
+
+    The governed runner does not read this to find its pin: it looks for
+    ``registry/skills.lock.yaml`` above the skill directory it was given, so a skill tree
+    and the lockfile beside it travel together (``governed.run_governed``).
+    """
+    if explicit:
+        return Path(explicit).expanduser()
+    return _shipped("registry")
 
 
 #: Legacy location: the catalogue lived only here before it was packaged.

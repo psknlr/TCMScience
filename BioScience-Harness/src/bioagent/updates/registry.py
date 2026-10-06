@@ -32,7 +32,8 @@ from typing import Any, Iterable, Mapping, Sequence
 from ..skills.models import SkillSpec
 
 __all__ = ["CandidateSkill", "PromotionDecision", "Registry", "RegistryRelease",
-           "SkillVersion", "StableSkill", "DECISION_KINDS"]
+           "SkillVersion", "StableSkill", "DECISION_KINDS", "REVIEWED_FIELDS",
+           "review_digest"]
 
 #: What a human may decide about a candidate. `defer` is a real option and not a
 #: euphemism for rejection — most candidates will be deferred, and a process
@@ -46,6 +47,21 @@ class RegistryError(ValueError):
 
 class PromotionRefused(RegistryError):
     """A promotion was attempted without the authority to make it."""
+
+
+#: The fields a reviewer approves: what would run, from where, under which licence and with
+#: which permissions. Scores, approval stamps and the rollback pointer are about the review,
+#: not its object, and are left out.
+REVIEWED_FIELDS = ("skill_id", "version", "source_repo", "source_commit", "content_hash",
+                   "license_spdx", "integration_mode", "allowed_hosts",
+                   "filesystem_permissions", "subprocess_permissions", "dependencies",
+                   "sbom_digest", "test_digest")
+
+
+def review_digest(version: "SkillVersion") -> str:
+    """The digest a decision approves: :data:`REVIEWED_FIELDS` of ``version``."""
+    from ..contracts.source_card import canonical_hash
+    return canonical_hash({f: getattr(version, f) for f in REVIEWED_FIELDS})
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +170,16 @@ class CandidateSkill:
         """Whether this candidate may be put to a human decision at all."""
         return not self.eliminated_by
 
+    @property
+    def version(self) -> "SkillVersion":
+        """The version this candidate would be promoted as."""
+        return version_from_spec(self.spec)
+
+    @property
+    def digest(self) -> str:
+        """What a decision on this candidate approves (:func:`review_digest`)."""
+        return review_digest(self.version)
+
     def as_dict(self) -> dict[str, Any]:
         return {"skill": self.spec.as_dict(), "first_seen": self.first_seen,
                 "last_seen": self.last_seen,
@@ -176,6 +202,10 @@ class PromotionDecision:
     #: For `defer`, when to look again. A deferral with no date is a rejection
     #: that nobody wrote down.
     revisit_after: str = ""
+    #: The :func:`review_digest` of the candidate this decision is about. An approval
+    #: named a skill and a version string only, so a different object (another
+    #: version, another code hash, no licence) could be promoted under it.
+    candidate_digest: str = ""
 
     def __post_init__(self) -> None:
         if self.decision not in DECISION_KINDS:
@@ -187,6 +217,10 @@ class PromotionDecision:
             raise RegistryError(
                 f"decision on {self.skill_id}@{self.version} names no decider; an "
                 "unattributed promotion is not a review")
+        if self.decision == "approve" and not self.candidate_digest:
+            raise RegistryError(
+                f"approval of {self.skill_id}@{self.version} names no candidate_digest; an "
+                "approval binds to the exact candidate that was reviewed")
         if self.decision == "defer" and not self.revisit_after:
             raise RegistryError(
                 f"deferral of {self.skill_id}@{self.version} has no revisit_after; a "
@@ -247,6 +281,8 @@ class Registry:
         self._candidates: dict[str, CandidateSkill] = {}
         self._stable: dict[str, StableSkill] = {}
         self._decisions: list[PromotionDecision] = []
+        #: Every version ever promoted, as promoted: what a rollback reinstates.
+        self._promoted: dict[tuple[str, str], SkillVersion] = {}
         #: Set once a Season is cut. After that the stable registry is frozen:
         #: ADR-0001 forbids a monthly update from changing a benchmark.
         self._frozen_season: str = ""
@@ -291,6 +327,24 @@ class Registry:
             raise PromotionRefused(
                 f"decision names {decision.skill_id!r} but the version names "
                 f"{decided_version.skill_id!r}")
+        # The decision, the candidate and the version promoted must be one object. A
+        # review of 1.0.0 (MIT, hash A) approved 999.0.0 (no licence, hash B) when it was
+        # passed in, and the stable entry carried the reviewer's name.
+        reviewed = candidate.version
+        if (decision.skill_id, decision.version) != (reviewed.skill_id, reviewed.version):
+            raise PromotionRefused(
+                f"decision is about {decision.skill_id}@{decision.version}, the candidate "
+                f"is {reviewed.composite_id}")
+        if decision.candidate_digest != candidate.digest:
+            raise PromotionRefused(
+                f"decision approves candidate digest {decision.candidate_digest[:12]!r}, "
+                f"not this candidate ({candidate.digest[:12]})")
+        differs = [f for f in REVIEWED_FIELDS
+                   if getattr(decided_version, f) != getattr(reviewed, f)]
+        if differs:
+            raise PromotionRefused(
+                f"the version to promote is not the candidate that was reviewed: it "
+                f"differs in {', '.join(differs)}")
         if self._frozen_season:
             raise PromotionRefused(
                 f"benchmark season {self._frozen_season!r} is frozen; the stable "
@@ -310,6 +364,7 @@ class Registry:
 
         entry = StableSkill(version=decided_version, decision=decision)
         self._stable[decided_version.skill_id] = entry
+        self._promoted[(decided_version.skill_id, decided_version.version)] = decided_version
         self._decisions.append(decision)
         return entry
 
@@ -348,8 +403,19 @@ class Registry:
             raise PromotionRefused(f"{skill_id!r} is not in the stable registry")
         if current.version.version == to_version:
             raise PromotionRefused(f"{skill_id!r} is already at {to_version!r}")
-        target = replace(current.version, version=to_version,
-                         rollback_version=current.version.version,
+        # Reinstate the version as it was promoted. The current entry with its version
+        # string replaced kept the current code hash, licence and permissions under the
+        # old version's name.
+        prior = self._promoted.get((skill_id, to_version))
+        if prior is None:
+            raise PromotionRefused(
+                f"{skill_id}@{to_version} was never promoted; a rollback reinstates a "
+                "version that was reviewed")
+        if decision.version != to_version or decision.candidate_digest != review_digest(prior):
+            raise PromotionRefused(
+                f"the rollback decision does not approve {skill_id}@{to_version} as it was "
+                "promoted")
+        target = replace(prior, rollback_version=current.version.version,
                          approved_by=decision.decided_by,
                          approved_at=decision.decided_at)
         entry = StableSkill(version=target, decision=decision)

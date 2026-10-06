@@ -697,7 +697,9 @@ Building a release, with the checks that refuse a broken one:
 构建一次发布，以及那些会拒绝一个坏发布的检查：
 
     python scripts/make_release.py --check   # verify the tree; build nothing
-    python scripts/make_release.py           # sanitize, build sdist + wheel, verify both
+    python scripts/make_release.py           # sanitize, build sdist + wheel, verify both,
+                                             # and run a governed skill from the wheel
+                                             # outside this checkout (PSH on PYTHONPATH)
 
 ## What "trusted" means here, precisely · 这里的「可信」究竟指什么
 

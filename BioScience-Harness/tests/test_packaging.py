@@ -30,8 +30,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 
 sys.path.insert(0, str(REPO / "scripts"))
-from make_release import (REQUIRED_IN_WHEEL, find_junk,  # noqa: E402
-                          find_unparsable, verify_artifact)
+from make_release import (REQUIRED_IN_WHEEL, accept_wheel, find_junk,  # noqa: E402
+                          find_unparsable, required_in_wheel, verify_artifact)
 
 
 def test_no_appledouble_or_os_metadata_files_in_the_tree() -> None:
@@ -172,3 +172,18 @@ def test_the_built_wheel_contains_the_catalogue_and_no_sidecars(tmp_path) -> Non
     names = zipfile.ZipFile(wheels[0]).namelist()
     for required in REQUIRED_IN_WHEEL:
         assert required in names
+
+
+@pytest.mark.integration
+def test_a_wheel_built_from_the_sdist_runs_a_governed_skill_on_its_own(tmp_path) -> None:
+    """The release acceptance (audit AUD-25): the wheel carried no skill manifest and no
+    lockfile, installed cleanly, and could not run one governed skill. Build it the way
+    a release is built, sdist first, and run a skill from it outside this checkout."""
+    pytest.importorskip("build", reason="pip install build")
+    pytest.importorskip("psh", reason="a governed run needs PSH")
+    subprocess.run([sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir",
+                    str(tmp_path), str(REPO)], check=True, capture_output=True)
+    (wheel,) = tmp_path.glob("*.whl")
+    names = zipfile.ZipFile(wheel).namelist()
+    assert set(required_in_wheel()) <= set(names)
+    assert accept_wheel(wheel) == []

@@ -6,8 +6,13 @@
 # unpacked it. `scripts/make_release.py` refuses to build a package containing
 # them, and tests/test_packaging.py checks the working tree.
 
-include LICENSE NOTICE README.md
+include LICENSE NOTICE README.md setup.py
 recursive-include src/bioagent/data *.csv *.json *.parquet
+# setup.py copies these into the wheel's bioagent/_bundled/ (the skill manifests, the
+# lockfile pinning them, the reviewed registry), so a wheel built from this sdist can
+# run a governed skill. Without them here the wheel would be built without them.
+recursive-include skills *
+recursive-include registry *
 recursive-include tests *.py
 recursive-include docs *.md
 

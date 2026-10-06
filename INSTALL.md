@@ -82,6 +82,19 @@ edits take effect immediately.
 <!-- zh -->
 没有任何东西装到全局；`-e` 意味着这些包直接从当前这份 checkout 运行，所以改动立刻生效。
 
+`--dir` may be left out: the CLI then uses the reviewed skills the installation ships.
+In a checkout that is `BioScience-Harness/skills/tcm`. A wheel carries the same skills,
+the lockfile that pins them and the rest of `registry/` inside the package, so an
+installed wheel runs a governed skill from any directory:
+
+<!-- zh -->
+`--dir` 可以省略，此时 CLI 使用安装自带的已审核技能。在源码 checkout 中就是 `BioScience-Harness/skills/tcm`。wheel 在包内携带同样的技能、固定它们的锁文件和 `registry/` 的其余内容，所以从 wheel 安装后，在任何目录下都能运行受治理技能：
+
+```bash
+pip install PSH-Harness/ BioScience-Harness/
+cd /tmp && python -m bioagent.cli skill normalize-tcm-entities --arg names=黄芪
+```
+
 ---
 
 ## 3. Use it from Python · 3. 在 Python 里使用
@@ -146,6 +159,9 @@ cd BioScience-Harness   && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q
 cd BioScience-Harness
 python scripts/check_lockfile.py            # the pinned skills match the tree
 python scripts/make_release.py --check      # packaging hygiene
+PYTHONPATH=../PSH-Harness/src python scripts/make_release.py --outdir /tmp/dist
+                                            # build sdist + wheel, then run a governed
+                                            # skill from the wheel alone
 cd .. && python scripts/build_arena_data.py # regenerate the Arena's JSON
 ```
 

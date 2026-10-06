@@ -14,11 +14,18 @@ are checked here rather than trusted to whoever runs the build:
    as package data, so the wheel installed cleanly and then had nothing to
    index.
 
-The build therefore: sanitizes the tree, builds sdist + wheel, and verifies each
-artifact contains the runtime data and no sidecars. A failed check is a non-zero
-exit, not a warning — a release that only warns is a release that ships.
+A third reached a wheel later and passed both checks: the wheel carried no skill
+manifest and no lockfile, so it installed cleanly and could not run one governed
+skill (audit AUD-25). Listing contents could not have caught it — the defect was
+in what the installed package could do — so the release is accepted only once a
+governed skill has run from the wheel alone (:func:`accept_wheel`).
 
-    python scripts/make_release.py            # sanitize, build, verify
+The build therefore: sanitizes the tree, builds sdist + wheel, verifies each
+artifact contains the runtime data and no sidecars, and runs a governed skill from
+the wheel outside this checkout. A failed check is a non-zero exit, not a warning —
+a release that only warns is a release that ships.
+
+    python scripts/make_release.py            # sanitize, build, verify, accept
     python scripts/make_release.py --check    # verify the tree only, build nothing
 """
 
@@ -40,8 +47,17 @@ REPO = Path(__file__).resolve().parents[1]
 JUNK_PATTERNS = ("._*", ".DS_Store", "Thumbs.db")
 JUNK_DIRS = ("__MACOSX", ".ipynb_checkpoints")
 
-#: Paths that must be present inside every built wheel, relative to the wheel root.
-REQUIRED_IN_WHEEL = ("bioagent/data/unified_capability_catalogue.csv",)
+#: Where setup.py copies the reviewed skills and registry inside the package.
+BUNDLED = "bioagent/_bundled/"
+
+#: Paths that must be present inside every built wheel, relative to the wheel root. Every
+#: skill manifest in the tree is required too (:func:`required_in_wheel`).
+REQUIRED_IN_WHEEL = ("bioagent/data/unified_capability_catalogue.csv",
+                     BUNDLED + "registry/skills.lock.yaml",
+                     BUNDLED + "registry/materia_taxa.json")
+
+#: The release acceptance: this skill, with this argument, run from the wheel alone.
+ACCEPTANCE_RUN = ("normalize-tcm-entities", "names=黄芪")
 
 #: The public API surface, declared rather than discovered.
 #:
@@ -243,6 +259,18 @@ def _archive_names(artifact: Path) -> list[str]:
         return tf.getnames()
 
 
+def required_in_wheel(root: Path = REPO) -> tuple[str, ...]:
+    """``REQUIRED_IN_WHEEL`` and every skill manifest in the tree, as the wheel holds them."""
+    manifests = sorted(p.relative_to(root).as_posix()
+                       for p in (root / "skills").rglob("skill.yaml"))
+    return REQUIRED_IN_WHEEL + tuple(BUNDLED + m for m in manifests)
+
+
+def _in_sdist(wheel_path: str) -> str:
+    """Where a wheel path comes from in the source tree, and so in the sdist."""
+    return wheel_path[len(BUNDLED):] if wheel_path.startswith(BUNDLED) else "src/" + wheel_path
+
+
 def verify_artifact(artifact: Path) -> list[str]:
     """Problems found inside a built artifact; empty means it is releasable."""
     names = _archive_names(artifact)
@@ -253,14 +281,82 @@ def verify_artifact(artifact: Path) -> list[str]:
     if junk:
         problems.append(f"{len(junk)} AppleDouble/OS metadata entries, e.g. {junk[:3]}")
     if artifact.suffix == ".whl":
-        for required in REQUIRED_IN_WHEEL:
+        for required in required_in_wheel():
             if required not in names:
                 problems.append(f"missing runtime data: {required}")
     else:
-        for required in REQUIRED_IN_WHEEL:
-            leaf = Path(required).name
-            if not any(Path(n).name == leaf for n in names):
-                problems.append(f"missing runtime data: {leaf}")
+        # The wheel is built from the sdist, so what the sdist lacks the wheel lacks.
+        inside = {n.split("/", 1)[1] for n in names if "/" in n}
+        for required in map(_in_sdist, required_in_wheel()):
+            if required not in inside:
+                problems.append(f"missing runtime data: {required}")
+    return problems
+
+
+def accept_wheel(wheel: Path) -> list[str]:
+    """Run one governed skill from ``wheel`` alone: the problems found, empty if it ran.
+
+    The wheel is unpacked into an empty directory and run by a fresh interpreter whose
+    working directory is another empty one. Its path holds the unpacked wheel, PSH and
+    the third-party site directories, read without their ``.pth`` files (``-S``), so an
+    editable install of this checkout cannot reach it; ``-P`` keeps the working
+    directory off the path. The run must import bioagent from the wheel, load the skill
+    and the lockfile packaged inside it, match the pin, and be recorded in an audit chain
+    and authorised for release.
+    """
+    import importlib.util
+    import site
+    import tempfile
+
+    psh = importlib.util.find_spec("psh")
+    if psh is None or not psh.origin:
+        return ["PSH is not importable here, and a governed run needs it (set PYTHONPATH "
+                "to PSH-Harness/src)"]
+    skill, argument = ACCEPTANCE_RUN
+    with tempfile.TemporaryDirectory(prefix="bioagent-accept-") as tmp:
+        base = Path(tmp).resolve()
+        unpacked, cwd = base / "site", base / "work"
+        cwd.mkdir()
+        with zipfile.ZipFile(wheel) as zf:
+            zf.extractall(unpacked)
+        path = [str(unpacked), str(Path(psh.origin).resolve().parents[1]),
+                *site.getsitepackages(), site.getusersitepackages()]
+        env = {k: v for k, v in os.environ.items() if not k.startswith("BIOAGENT_")}
+        env["PYTHONPATH"] = os.pathsep.join(path)
+        python = [sys.executable, "-S", "-P"]
+
+        probe = subprocess.run(
+            python + ["-c", "import bioagent, json, sys; "
+                            "print(json.dumps([bioagent.__file__, sys.path]))"],
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=300)
+        if probe.returncode != 0:
+            return [f"the wheel does not import: {probe.stderr.strip()[-400:]}"]
+        imported, sys_path = json.loads(probe.stdout)
+        problems = []
+        if not Path(imported).resolve().is_relative_to(unpacked):
+            problems.append(f"bioagent was imported from {imported}, not from the wheel")
+        leaked = [p for p in sys_path if p and Path(p).resolve().is_relative_to(REPO)]
+        if leaked:
+            problems.append(f"this checkout is on the acceptance path: {leaked}")
+
+        run = subprocess.run(
+            python + ["-m", "bioagent.cli", "skill", skill, "--arg", argument, "--json",
+                      "--state-dir", str(base / "psh"), "--out-dir", str(base / "out")],
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=600)
+        try:
+            document = json.loads(run.stdout)
+        except ValueError:
+            return problems + [f"the governed run of {skill} exited {run.returncode}: "
+                               f"{(run.stderr or run.stdout).strip()[-400:]}"]
+        lockfile = document.get("governed", {}).get("lockfile") or ""
+        if not lockfile or not Path(lockfile).resolve().is_relative_to(unpacked):
+            problems.append(f"the run was not checked against the packaged lockfile "
+                            f"(pinned by {lockfile or 'nothing'})")
+        states = document.get("validation", {}).get("states", {})
+        if run.returncode != 0 or not states.get("release_authorized"):
+            failed = sorted(k for k, ok in states.items() if not ok)
+            problems.append(f"the governed run of {skill} was not released "
+                            f"(exit {run.returncode}; failed: {failed})")
     return problems
 
 
@@ -336,6 +432,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"           {pr}")
         else:
             print(f"[verify]   {art.name}: ok")
+
+    wheels = [art for art in artifacts if art.suffix == ".whl"]
+    if not wheels:
+        failures += 1
+        print("[accept]   no wheel was built")
+    for wheel in wheels:
+        problems = accept_wheel(wheel)
+        if problems:
+            failures += 1
+            print(f"[accept]   {wheel.name}: FAILED")
+            for pr in problems:
+                print(f"           {pr}")
+        else:
+            print(f"[accept]   {wheel.name}: {ACCEPTANCE_RUN[0]} ran from the wheel alone, "
+                  "pinned, attested and released")
 
     print("OK" if not failures else "FAILED")
     return 1 if failures else 0

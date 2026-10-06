@@ -35,11 +35,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
 
+from ..config import registry_dir
+
 __all__ = ["CATEGORIES", "MATERIA", "MateriaEntry", "TAXA_FILE", "crude_drugs", "resolve_name",
            "normalise_name", "to_simplified", "unverified", "all_drugs"]
 
 CATEGORIES = ("plant", "fungus", "animal", "mineral", "other")
-TAXA_FILE = Path(__file__).resolve().parents[3] / "registry" / "materia_taxa.json"
+#: ``registry/materia_taxa.json`` of the checkout, or the copy an installed package carries.
+#: It was resolved from this file's location alone, so an installed package found no taxa
+#: and silently knew only the four hand-checked herbs (audit AUD-25).
+TAXA_FILE = registry_dir() / "materia_taxa.json"
 
 
 @dataclass(frozen=True)

@@ -71,6 +71,15 @@ jobs:
       - name: Release hygiene
         working-directory: BioScience-Harness
         run: python scripts/make_release.py --check
+      # The release acceptance: build the sdist and, from it, the wheel, then run a
+      # governed skill from the unpacked wheel in a fresh interpreter that cannot see
+      # this checkout. A wheel that listed every file and could not run one skill
+      # passed the hygiene step above (audit AUD-25).
+      - name: Release acceptance (a governed skill runs from the wheel alone)
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+        run: python scripts/make_release.py --outdir "$RUNNER_TEMP/dist"
 
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
