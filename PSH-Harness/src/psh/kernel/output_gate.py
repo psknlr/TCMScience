@@ -25,6 +25,8 @@ from typing import Any, Callable, Mapping, Sequence
 from ..contracts import (
     ContextProjection, EgressDenied, RunEnvelope, VerificationFailed,
 )
+from ..evidence.clauses import asserted
+from ..evidence.record import cited_source
 from ..evidence.support import Claim, ClaimSupport, ClaimSupportVerifier, Relationship
 from ..labels import DataLabel, Destination, Labeled, label_of, unwrap
 
@@ -68,15 +70,9 @@ _STATISTICAL = re.compile(
     r"|(?:曲线下面积|风险比|比值比|相对危险度|置信区间|可信区间|统计学(?:意义|差异)|显著性差异))",
     re.I)
 
-#: Constructions that make a sentence NOT a claim about the world: statements of intent,
-#: methodology, or calls for further work. Distinct from hedging, which weakens a claim
-#: without removing it.
-_NON_CLAIM = re.compile(
-    r"\b(?:we (?:plan|propose|will|intend|aim)|this (?:study|analysis|paper) (?:will|aims)"
-    r"|further (?:study|research|work) is (?:needed|required|warranted)"
-    r"|future (?:studies|work)|methods? section|protocol specifies"
-    r"|has not been (?:studied|investigated))\b"
-    r"|(?:本研究拟|有待(?:进一步|今后)|尚需进一步|未来研究|尚未(?:研究|证实|明确)|方法部分)", re.I)
+# Plans, methods and calls for further work make no claim about the world. What counts as
+# one, and that it exempts only its own clause, is defined once in ``evidence.clauses``:
+# "黄芪能治愈肺癌，未来研究将优化剂量" still claims a cure.
 
 #: Hedge cues. Retained for certainty grading, no longer used to skip verification.
 _HEDGE = re.compile(
@@ -144,12 +140,13 @@ class OutputGate:
         claim needs weaker evidence than a definitive one, but it still needs evidence. A
         sentence that is purely methodological or forward-looking ("we plan to", "further
         study is needed") makes no claim about the world and is genuinely out of scope.
+
+        That is decided per clause. A forward-looking clause exempted the whole sentence,
+        so "黄芪能治愈肺癌，未来研究将优化剂量" passed a strict gate that refused "黄芪能治愈肺癌".
         """
-        asserts = (_CLINICAL.search(sentence) or _CLINICAL_ZH.search(sentence)
-                   or _STATISTICAL.search(sentence))
-        if not asserts:
-            return False
-        return not _NON_CLAIM.search(sentence)
+        rest = asserted(sentence)
+        return bool(_CLINICAL.search(rest) or _CLINICAL_ZH.search(rest)
+                    or _STATISTICAL.search(rest))
 
     def check(self, output: Any, envelope: RunEnvelope, *,
               sources: Mapping[str, Any] | None = None,
@@ -206,7 +203,10 @@ class OutputGate:
                 uncited.append(sentence[:200])
                 continue
             for identifier in identifiers:
-                source = sources.get(identifier)
+                source, mismatch = cited_source(sources, identifier)
+                if mismatch:
+                    unsupported.append(f"{identifier}: {mismatch}")
+                    continue
                 statement = self._strip_citations(sentence)
                 if source is not None and hasattr(source, "content_hash"):
                     support = self.verifier.verify_record(statement=statement,

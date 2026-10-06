@@ -193,6 +193,15 @@ class TCMKnowledgeBase:
             for e in r.evidence_ids:
                 if e not in known:
                     problems.append(f"relation {r.id}: unknown evidence {e!r}")
+            # A relation's tier is what its evidence is, not what the relation says: a
+            # relation recorded as a randomised trial that cites a 伤寒论 passage licensed
+            # an efficacy claim, in any population.
+            cited = [staged["passages"].get(e) or staged["studies"].get(e)
+                     or self.passages.get(e) or self.studies.get(e) for e in r.evidence_ids]
+            tiers = [_evidence_tier(c) for c in cited if c is not None]
+            if tiers and r.tier > max(tiers):
+                problems.append(f"relation {r.id}: recorded at {r.tier.name}, but its "
+                                f"evidence supports {max(tiers).name} at most")
         for s in staged["safety"].values():
             if s.subject_id not in known:
                 problems.append(f"safety {s.id}: unknown subject {s.subject_id!r}")
@@ -371,31 +380,50 @@ class TCMKnowledgeBase:
             reasons.append("no usable evidence behind the relation")
             return Applicability(relation.id, claim_kind, "unsupported", relation.tier, required,
                                  tuple(reasons), population, condition)
+        # The tier and the scope are the usable evidence's. The relation's own fields are
+        # the curator's reading and may narrow them, never widen them: a relation recorded
+        # at RANDOMIZED_TRIAL over a classical passage is a CLASSICAL_TEXT relation.
+        tier = min(relation.tier, max(_evidence_tier(e) for e in usable))
+        if tier < relation.tier:
+            reasons.append(f"the relation is recorded at {relation.tier.name}, but its usable "
+                           f"evidence supports {tier.name} at most")
         admitted = CLAIM_SUPPORT[claim_kind]
-        if relation.tier not in admitted:
+        if tier not in admitted:
             names = " or ".join(f"{t.name} ({t.chinese})" for t in sorted(admitted))
             reasons.append(
                 f"a {claim_kind} claim needs {names} evidence; "
-                f"this relation rests on {relation.tier.name} ({relation.tier.chinese})")
-            return Applicability(relation.id, claim_kind, "unsupported", relation.tier, required,
+                f"this relation rests on {tier.name} ({tier.chinese})")
+            return Applicability(relation.id, claim_kind, "unsupported", tier, required,
                                  tuple(reasons), population, condition)
+        # The scope of a claim about people is the scope its studies state. The
+        # relation's own population and condition are the curator's reading: they can
+        # narrow that scope, and on their own they do not establish it. A clinical claim
+        # about 儿童 over evidence that states no population used to be recorded as
+        # unchecked and licensed all the same.
+        studies = [e for e in usable if isinstance(e, StudyEvidence)]
         verdict = "within_scope"
-        if population and relation.population and not (
-                _tokens(population) & _tokens(relation.population)):
-            verdict = "extrapolated"
-            reasons.append(f"the evidence covers {relation.population!r}; the claim is about "
-                           f"{population!r}")
-        if condition and relation.condition and not (
-                _tokens(condition) & _tokens(relation.condition)):
-            verdict = "extrapolated"
-            reasons.append(f"the evidence concerns {relation.condition!r}; the claim is about "
-                           f"{condition!r}")
-        if population and not relation.population and required.clinical:
-            reasons.append("the evidence states no population; the claim's population "
-                           "cannot be checked")
+        for label, asked, curated, verb in (
+                ("population", population, relation.population, "covers"),
+                ("condition", condition, relation.condition, "concerns")):
+            if not asked:
+                continue
+            recorded = "；".join(sorted({getattr(e, label) for e in studies
+                                        if getattr(e, label)}))
+            if required.clinical and not recorded:
+                verdict = "extrapolated"
+                reasons.append(
+                    f"the evidence states no {label}; the claim's {label} cannot be checked"
+                    + (f" (the relation's own {curated!r} is not evidence)" if curated else ""))
+                continue
+            for scope in (recorded, curated):
+                if scope and not (_tokens(asked) & _tokens(scope)):
+                    verdict = "extrapolated"
+                    reasons.append(f"the evidence {verb} {scope!r}; the claim is about "
+                                   f"{asked!r}")
+                    break
         if verdict == "within_scope" and not reasons:
-            reasons.append(f"{relation.tier.name} evidence licenses a {claim_kind} claim")
-        return Applicability(relation.id, claim_kind, verdict, relation.tier, required,
+            reasons.append(f"{tier.name} evidence licenses a {claim_kind} claim")
+        return Applicability(relation.id, claim_kind, verdict, tier, required,
                              tuple(reasons), population, condition)
 
     def claims_between(self, subject_id: str, object_id: str, *, claim_kind: str = "efficacy",
@@ -784,6 +812,13 @@ def seed() -> TCMKnowledgeBase:
     return TCMKnowledgeBase(herbs=_HERBS, processed=_PROCESSED, formulas=_FORMULAS,
                             syndromes=_SYNDROMES, passages=_PASSAGES, studies=_STUDIES,
                             relations=_RELATIONS, safety=_SAFETY)
+
+
+def _evidence_tier(evidence: Any) -> EvidenceTier:
+    """What one evidence item can support: a classical passage is a classical text."""
+    if isinstance(evidence, ClassicalPassage):
+        return EvidenceTier.CLASSICAL_TEXT
+    return evidence.tier
 
 
 _DEFAULT: TCMKnowledgeBase | None = None

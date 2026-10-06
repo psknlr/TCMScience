@@ -42,6 +42,7 @@ from enum import Enum
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..contracts import new_id
+from .clauses import asserted
 
 __all__ = [
     "PopulationSpec", "EffectDirection", "ScientificClaim", "LicensedScope",
@@ -381,11 +382,6 @@ _OBJECT_PHRASE = re.compile(
     r"\b(?:reduc|increas|improv|predict|prevent|lower|rais|worsen|cure|eliminat)\w*\s+"
     r"(?:the\s+)?(?:risk\s+of\s+|rate\s+of\s+|incidence\s+of\s+)?[a-z][a-z-]+(?:\s+[a-z-]+){0,3}", re.I)
 
-_NON_CLAIM = re.compile(
-    r"\b(?:we (?:plan|propose|will|intend|aim)|further (?:study|research|work) is"
-    r"|future (?:studies|work)|the results were|this (?:paper|study) (?:describes|reports)"
-    r"|figure \d|table \d)\b", re.I)
-
 _MAGNITUDE = re.compile(
     r"\b(?:hazard ratio|HR|odds ratio|OR|risk ratio|RR|relative risk)\s*"
     r"(?:of\s*|[=:,]\s*)?(\d+\.?\d*)|(\d+\.?\d*)\s*%|by\s+(\d+\.?\d*)\s*(?:%|percent)", re.I)
@@ -423,7 +419,9 @@ class ScientificClaim:
         on sharing two terms with the abstract. A recommendation is the assertion most in
         need of evidence, so excluding it for lacking an outcome inverted the priority.
         """
-        if _NON_CLAIM.search(self.text):
+        # A plan or an open question exempts only the clause it is in: "X cures Y; future
+        # studies will tune the dose" still claims a cure (``evidence.clauses``).
+        if not asserted(self.text).strip():
             return False
         if self.normative and self.subject:
             return True
@@ -447,6 +445,10 @@ class ScientificClaim:
     def parse(cls, text: str) -> "ScientificClaim":
         """Extract structure from a sentence. Unextractable fields stay empty/UNKNOWN."""
         stripped = re.sub(r"\((?:PMID|NCT|DOI)[^)]*\)", "", text, flags=re.I).strip()
+        # Structure is read off what the sentence asserts. A plan or an open question in
+        # it contributes no subject, population or direction: "drug A reduces mortality in
+        # adults; future studies will test children" is a claim about adults.
+        stripped = asserted(stripped)
 
         subject = ""
         for pattern in _SUBJECT_PATTERNS:

@@ -33,8 +33,8 @@ from typing import Any, Mapping, Sequence
 from ..contracts import PolicyDenied, content_hash, new_id, utc_now
 from ..labels import DataLabel, Sensitivity
 
-__all__ = ["revalidate_trust", "SourceType", "RetractionStatus", "EvidenceRecord", "VerifiedSpan",
-           "locate_span"]
+__all__ = ["canonical_identifier", "cited_source", "revalidate_trust", "SourceType",
+           "RetractionStatus", "EvidenceRecord", "VerifiedSpan", "locate_span"]
 
 
 class SourceType(str, Enum):
@@ -45,6 +45,48 @@ class SourceType(str, Enum):
     DATASET = "dataset"
     LOCAL_ARTIFACT = "local_artifact"
     USER_SUPPLIED = "user_supplied"
+
+
+_CANONICAL = (
+    ("pmid", re.compile(r"(?:pmid:?\s*)?(\d{5,9})", re.I), str),
+    ("doi", re.compile(r"(?:doi:\s*|https?://(?:dx\.)?doi\.org/)?(10\.\d{4,9}/\S+)", re.I),
+     str.lower),
+    ("nct", re.compile(r"(nct\d{8})", re.I), str.upper),
+    ("pmcid", re.compile(r"(?:pmcid:?\s*)?(pmc\d+)", re.I), str.upper),
+)
+
+
+def canonical_identifier(value: str) -> tuple[str, str]:
+    """(scheme, id) of a cited identifier, so the ways of writing one id compare equal:
+    ``PMID: 34449189``, ``pmid:34449189`` and ``34449189`` are all ("pmid", "34449189")."""
+    text = (value or "").strip()
+    for scheme, pattern, fold in _CANONICAL:
+        m = pattern.fullmatch(text)
+        if m:
+            return scheme, fold(m.group(1))
+    return "", text.lower()
+
+
+def cited_source(sources: Mapping[str, Any], identifier: str) -> tuple[Any, str]:
+    """The source a text cites as ``identifier``, and why it may not stand for it.
+
+    Keys are matched as identifiers, not strings, so a source supplied as
+    ``PMID:34449189`` answers a citation written ``PMID: 34449189``. A record answers only
+    for its own identifier: a record of 34449189 supplied under 99999999 was verified as
+    itself while the text displayed 99999999, so it is returned with the reason it does
+    not stand for the citation, and the caller treats the citation as unsupported.
+    """
+    wanted = canonical_identifier(identifier)
+    found = sources.get(identifier)
+    if found is None:
+        found = next((v for k, v in sources.items() if canonical_identifier(k) == wanted),
+                     None)
+    if found is not None and hasattr(found, "content_hash"):
+        held = canonical_identifier(str(getattr(found, "identifier", "")))
+        if held != wanted:
+            return found, (f"the source supplied for {identifier} is the record of "
+                           f"{found.identifier}")
+    return found, ""
 
 
 class RetractionStatus(str, Enum):
@@ -148,6 +190,10 @@ class EvidenceRecord:
     #: typing the name. It is now set only by EvidenceSigner.sign(); from_text() defaults it
     #: to False regardless of the retriever name.
     trusted: bool = False
+    #: Set by ``revalidate_trust`` when the record carries a signature that does not verify:
+    #: it was changed after it was signed (its retraction status, say). Such a record
+    #: supports nothing, unlike an unsigned one, which is merely untrusted text.
+    tampered: bool = False
     evidence_id: str = field(default_factory=lambda: new_id("evr"))
     #: What this source licenses: the population enrolled, the outcomes measured, the design.
     #: Derived from the content at construction so every record carries its own boundary and
@@ -206,6 +252,9 @@ class EvidenceRecord:
         """
         if not self.content.strip():
             return False, "the record carries no content to check a claim against"
+        if self.tampered:
+            return False, (f"{self.identifier} was changed after it was signed; its signature "
+                           "no longer verifies, so none of its fields can be relied on")
         # Retraction is checked before provenance: it is the more specific finding, and a
         # reader needs to know a paper was retracted even when the copy in hand came from an
         # untrusted route.
@@ -263,4 +312,9 @@ def revalidate_trust(record: "EvidenceRecord", signer: Any) -> "EvidenceRecord":
     """
     from dataclasses import replace as _replace
 
-    return _replace(record, trusted=bool(signer.verify(record)))
+    verified = bool(signer.verify(record))
+    # Unsigned is not tampered: text a caller supplied is untrusted, and still usable as
+    # such. A signature that no longer matches means the record was edited after signing,
+    # and it is refused, so an edited retraction status cannot pass as supplied text.
+    return _replace(record, trusted=verified,
+                    tampered=bool(getattr(record, "signature", "")) and not verified)

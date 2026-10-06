@@ -10,10 +10,19 @@ untrusted provenance — rested on that. The check recorded *who claimed* to ret
 did*.
 
 The fix is the ordinary one: the retrieval capability signs each record with an HMAC over the
-fields that matter (identifier, content hash, retrieval run, retriever, source type) using a
-key the kernel holds and the capability is given at registration. ``trusted`` then derives
-from signature verification. A caller who types a retriever name gets an unsigned record,
-which is exactly as trusted as the text they pasted: not.
+fields that matter using a key the kernel holds and the capability is given at registration.
+``trusted`` then derives from signature verification. A caller who types a retriever name
+gets an unsigned record, which is exactly as trusted as the text they pasted: not.
+
+"The fields that matter" were five (identifier, content hash, retrieval run, retriever,
+source type), and decisions read others: a record's retraction status decides whether it may
+support anything, and its licence scope what it licenses. Editing a signed record's
+retraction from ``retracted`` to ``not_retracted`` left the signature valid and turned a
+refused source into an accepted one. Every field is now signed except the signature itself,
+the ``trusted`` and ``tampered`` flags derived from it, and the content, which the signed
+content hash binds (a record whose content does not match its hash cannot be built); a new
+field is signed without being listed. The message carries a version, so a signature from
+the five-field scheme does not verify.
 
 What this does and does not protect against
 --------------------------------------------
@@ -26,17 +35,31 @@ in the kernel's secret store (mode 0700) and is never written into a record or a
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import hmac
+import json
 import os
 import secrets
 from dataclasses import replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
-__all__ = ["EvidenceSigner"]
+__all__ = ["EvidenceSigner", "UNSIGNED_FIELDS"]
 
-_SIGNED_FIELDS = ("identifier", "content_hash", "retrieval_run", "retrieved_by", "source_type")
+#: What the signature does not cover: itself, what is derived from it, and the content,
+#: which ``content_hash`` (signed) already binds.
+UNSIGNED_FIELDS = frozenset({"signature", "trusted", "tampered", "content"})
+_VERSION = "v2"
+
+
+def _plain(value: Any) -> Any:
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (set, frozenset)):
+        return sorted(map(str, value))
+    return str(value)
 
 
 class EvidenceSigner:
@@ -70,11 +93,15 @@ class EvidenceSigner:
 
     @staticmethod
     def _message(record: Any) -> bytes:
-        parts = []
-        for name in _SIGNED_FIELDS:
-            value = getattr(record, name, "")
-            value = getattr(value, "value", value)  # enums
-            parts.append(f"{name}={value}")
+        names = sorted(f.name for f in dataclasses.fields(record)
+                       if f.name not in UNSIGNED_FIELDS)
+        parts = [_VERSION]
+        for name in names:
+            value = getattr(record, name)
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                value = dataclasses.asdict(value)
+            parts.append(f"{name}=" + json.dumps(value, sort_keys=True, ensure_ascii=False,
+                                                 default=_plain))
         return "\n".join(parts).encode("utf-8")
 
     def signature_for(self, record: Any) -> str:
@@ -83,7 +110,10 @@ class EvidenceSigner:
     def sign(self, record: Any) -> Any:
         """Return a copy of ``record`` carrying a signature and ``trusted=True``."""
         self.signed += 1
-        return replace(record, signature=self.signature_for(record), trusted=True)
+        fresh: dict[str, Any] = {"signature": self.signature_for(record), "trusted": True}
+        if hasattr(record, "tampered"):
+            fresh["tampered"] = False
+        return replace(record, **fresh)
 
     def verify(self, record: Any) -> bool:
         """True when the record's signature matches its signed fields under this key."""

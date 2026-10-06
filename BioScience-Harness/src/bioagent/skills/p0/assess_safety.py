@@ -35,6 +35,7 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from ...contracts import CandidateClaim, EvidenceItem, EvidenceQuality, RiskOfBias
+from ...contracts.candidate_claim import CLINICAL_CLAIM_KINDS
 from ...tcm import knowledge as tcm_knowledge
 from ...tcm.model import EvidenceTier, Herb, ProcessedHerb
 from .common import (SEED_SOURCE_ID, seed_evidence, SKILL_VERSIONS, _now, _quality_for, artifact,
@@ -210,6 +211,16 @@ def assess_tcm_safety(subject: str, *, co_administered: Sequence[str] = (),
             evidence, ("safety_signal", "mechanism", "traditional_use", "attribution"))
         strongest = max(evidence, key=lambda e: e.tier)
         subject_kinds = sorted({str(r.get("kind")) for r in records})
+        # A safety signal is a claim about people, and its scope is read off the record
+        # it cites (``check_claim``): the population that record names and the outcome
+        # it reports. The other kinds are claims about the corpus, and say so.
+        if kind in CLINICAL_CLAIM_KINDS:
+            population, outcome, declared = strongest.population, strongest.outcome, {}
+        else:
+            population, outcome = "seed corpus", "recorded safety information"
+            declared = {"outcome:recorded safety information":
+                        "these are corpus records at "
+                        f"{strongest.tier.name.lower()} level, not clinical safety data"}
         claims.append(CandidateClaim(
             id="safety.signals",
             text=(f"{len(records)} safety record(s) concern {subject}, "
@@ -221,16 +232,12 @@ def assess_tcm_safety(subject: str, *, co_administered: Sequence[str] = (),
                        else "recorded_in"),
             object="; ".join(subject_kinds),
             supports=(strongest.id,),
-            asserted_population="seed corpus", supported_population="seed corpus",
-            asserted_outcome="recorded safety information",
-            supported_outcome="recorded safety information",
+            asserted_population=population, supported_population=population,
+            asserted_outcome=outcome, supported_outcome=outcome,
             confidence=1.0,
             confidence_basis="counted from the corpus records listed above",
             direction="unclear",
-            declared_extrapolations={
-                "outcome:recorded safety information":
-                    "these are corpus records at "
-                    f"{strongest.tier.name.lower()} level, not clinical safety data"},
+            declared_extrapolations=declared,
             falsified_by="a corpus record that contradicts the table above",
             produced_by="assess-tcm-safety"))
 
@@ -296,5 +303,6 @@ def _item_for_record(record: Any, *, run_id: str, index: int,
         citation=f"TCMScience TCM seed corpus, safety record {record.id}",
         identifier=record.id, identifier_type="pharmacopoeia",
         subject=record.subject_id, outcome="adverse event or contraindication",
+        population=getattr(record, "population", ""),
         quality=_quality_for(tier, assessed_by="assess-tcm-safety"),
         source_card_id=SEED_SOURCE_ID, retrieved_by="assess-tcm-safety", retrieval_run=run_id)

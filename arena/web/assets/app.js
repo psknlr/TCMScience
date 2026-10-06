@@ -51,6 +51,7 @@
     CLM010: 'a supporting quote was not located in its source, or carries no receipt',
     CLM011: 'the claim wording asserts more than its declared claim_kind',
     CLM012: 'an extrapolation is marked validated by evidence that is not present',
+    CLM013: 'the claim states an evidence scope its cited evidence does not cover',
     SAF002: 'a severe safety signal was missed in a case the gold set flags'
   };
 
