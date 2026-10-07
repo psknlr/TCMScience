@@ -95,6 +95,15 @@ model of the human target, and the hypothesis says so.
 The Open Targets association is an aggregate score. It chose the disease, but no claim
 may cite it as evidence.
 
+With `--admet-models`, the case was also run on 2026-10-07 against all 22 TDC endpoint
+models, built from the pinned archive (scikit-learn 1.9.1, RDKit 2026.3.6, seed 0; every
+held-out score equal to the one `docs/analysis-pipelines.md` records). The ADMET step
+predicted all 22 and flagged three as outside their applicability domain: hepatocyte and
+microsomal clearance and plasma protein binding, where no training molecule reaches a
+Tanimoto similarity of 0.3. Among the others, the Ames model gives 0.72; the compound is an
+aromatic amine, and the Brenk filters flag its aniline. No drafted claim cites a
+prediction, and the four verdicts are the ones above.
+
 ## What the cases are not
 
 - **Not studies.** The RNA-seq experiment is simulated, the literature corpus is mostly
@@ -139,7 +148,7 @@ implementations they skip, and under `BIOAGENT_REQUIRE_TOOLS=1` they fail.
 **3. 化合物与靶点：Open Targets → 对接与 ADMET → 假说报告。**
 - **Open Targets：** 按遗传证据选择疾病，即遗传性慢性胰腺炎（遗传 0.917，文献 0.244），并标出以文献共现为主的关联。
 - **对接：** 先以苯甲脒重对接验证（RMSD 0.38 Å），再对接 4-氨基苯甲脒（−6.41 kcal/mol）。所用结构 3PTB 是牛胰蛋白酶，作为人源靶点的模型，假说中写明。
-- **ADMET：** 默认只给出规则与警示；指定 `--admet-models` 时，已构建的 TDC 终点模型同时给出预测，每项附适用域判断与模型卡上的留出集成绩。预测不支撑任何主张，裁决不变。
+- **ADMET：** 默认只给出规则与警示；指定 `--admet-models` 时，已构建的 TDC 终点模型同时给出预测，每项附适用域判断与模型卡上的留出集成绩。2026-10-07 用全部 22 个模型（由固定归档构建，留出成绩与文档记录完全一致）运行：22 项均有预测，肝细胞清除率、微粒体清除率与血浆蛋白结合 3 项超出适用域被标出。预测不支撑任何主张，裁决不变。
 - **复合物预测：** Boltz 未安装，状态为 UNAVAILABLE，没有任何替代。
 - **主张裁决：**
   - 允许：对接假说。
