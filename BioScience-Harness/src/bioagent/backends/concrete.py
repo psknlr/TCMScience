@@ -12,8 +12,9 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from ..runtime.component import ComponentManifest
 from ..runtime.registry import CONTAINER_RUNTIMES, Loader, probe_container_runtime
@@ -51,11 +52,60 @@ class PythonBackend(Backend):
                                 error=f"{type(exc).__name__}: {exc}")
 
 
+#: The statuses a dispatcher may report for a call that produced no result. SUCCEEDED is
+#: not among them: a dispatcher cannot raise its way to a success.
+_MCP_REFUSALS = frozenset({ExecutionStatus.FAILED, ExecutionStatus.TIMEOUT,
+                           ExecutionStatus.UNAVAILABLE, ExecutionStatus.DENIED})
+
+#: Characters of a server's own error text kept in a reason, and of a whole reason. Both
+#: are text another process produced, so both are bounded.
+_MCP_TEXT_CHARS = 300
+_MCP_REASON_CHARS = 600
+
+
+@dataclass(frozen=True)
+class MCPReply:
+    """A dispatcher's answer to one call, with the provenance of what gave it.
+
+    A bare return value still means "it ran, and this is what it returned". Wrapped, the
+    dispatcher can also say which server, tool, schema and configuration produced it, so
+    the result records what ran and not only that something did.
+    """
+
+    value: Any
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+
+class MCPCallError(RuntimeError):
+    """Why a dispatched MCP call produced no result, and the status that earns.
+
+    Reporting every exception as FAILED made four different facts look alike: the server
+    ran the call and it failed (FAILED); the call ran out of time and may still have done
+    its work (TIMEOUT); the server is not configured or cannot be reached, so nothing ran
+    (UNAVAILABLE); the reviewed configuration refuses the tool (DENIED). A dispatcher
+    raises this with the status it knows; any other exception it raises stays FAILED.
+    """
+
+    def __init__(self, reason: str, *, status: ExecutionStatus = ExecutionStatus.FAILED,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status = status if status in _MCP_REFUSALS else ExecutionStatus.FAILED
+        self.metadata = dict(metadata or {})
+
+
 class MCPBackend(Backend):
-    """Routes to a platform-native MCP connector via an injected dispatcher.
+    """Routes a component to an MCP server through an injected dispatcher.
 
     With no dispatcher bound the result is RESOLVED, never SUCCEEDED — this is the
     exact v1 false-success path, now unrepresentable.
+
+    With one bound, ``dispatcher(server, tool, **arguments)`` either returns (an
+    ``MCPReply`` carrying provenance, or a bare value) or raises ``MCPCallError`` with the
+    status the call earned. A reply in the protocol's ``tools/call`` shape is read as one:
+    ``isError`` is FAILED with the server's own text, because an error reply returned as a
+    value would record the server's failure as this component's output — whichever
+    dispatcher delivered it.
     """
 
     backend = "mcp"
@@ -63,11 +113,21 @@ class MCPBackend(Backend):
     def __init__(self, dispatcher: Callable[..., Any] | None = None) -> None:
         self._dispatcher = dispatcher
 
+    @property
+    def dispatcher(self) -> Callable[..., Any] | None:
+        return self._dispatcher
+
     def available(self) -> bool:
         return self._dispatcher is not None
 
     def unavailable_reason(self) -> str:
         return "" if self._dispatcher else "no MCP dispatcher bound to this runtime"
+
+    def close(self) -> None:
+        """Release what the dispatcher holds open (server processes, sessions), if anything."""
+        close = getattr(self._dispatcher, "close", None)
+        if callable(close):
+            close()
 
     def invoke(self, manifest: ComponentManifest, **kwargs: Any) -> Any:
         t0 = time.perf_counter()
@@ -83,14 +143,57 @@ class MCPBackend(Backend):
                        "arguments": kwargs, "dispatched": False,
                        "note": "routing resolved; no dispatcher bound so nothing executed"},
                 metadata={"connector": server})
+        tool = manifest.runtime.entrypoint or manifest.name
+        meta: dict[str, Any] = {"connector": server}
         try:
-            value = self._dispatcher(server, manifest.runtime.entrypoint or manifest.name, **kwargs)
-            return self._result(manifest, ExecutionStatus.SUCCEEDED, t0, value=value,
-                                metadata={"connector": server})
+            reply = self._dispatcher(server, tool, **kwargs)
+        except MCPCallError as exc:
+            return self._result(manifest, exc.status, t0,
+                                error=exc.reason[:_MCP_REASON_CHARS],
+                                metadata={**meta, **exc.metadata})
         except Exception as exc:  # noqa: BLE001
             return self._result(manifest, ExecutionStatus.FAILED, t0,
-                                error=f"{type(exc).__name__}: {exc}",
-                                metadata={"connector": server})
+                                error=f"{type(exc).__name__}: {exc}"[:_MCP_REASON_CHARS],
+                                metadata=meta)
+        if isinstance(reply, MCPReply):
+            meta.update(reply.metadata)
+            reply = reply.value
+        if _is_tool_reply(reply) and reply.get("isError"):
+            return self._result(
+                manifest, ExecutionStatus.FAILED, t0, metadata=meta,
+                error=(f"MCP tool {tool!r} on {server!r} reported an error: "
+                       f"{_reply_text(reply)}"))
+        return self._result(manifest, ExecutionStatus.SUCCEEDED, t0,
+                            value=_reply_value(reply), metadata=meta)
+
+
+def _is_tool_reply(reply: Any) -> bool:
+    """Whether ``reply`` is a ``tools/call`` result: a mapping whose ``content`` is a list."""
+    return isinstance(reply, Mapping) and isinstance(reply.get("content"), list)
+
+
+def _reply_texts(reply: Mapping[str, Any]) -> list[str]:
+    return [str(part.get("text", "")) for part in reply["content"]
+            if isinstance(part, Mapping) and part.get("type") == "text"]
+
+
+def _reply_text(reply: Mapping[str, Any]) -> str:
+    return (" ".join(_reply_texts(reply)) or "no text")[:_MCP_TEXT_CHARS]
+
+
+def _reply_value(reply: Any) -> Any:
+    """A ``tools/call`` result as a value, by the rule PSH's MCP adapter applies.
+
+    The structured content when the server sent it, the text when it sent one text part,
+    the parts otherwise. One rule for both paths, so a tool admitted through the bridge and
+    through ``psh.protocols.MCPToolAdapter`` returns the same value for the same reply.
+    """
+    if not _is_tool_reply(reply):
+        return reply
+    if reply.get("structuredContent") is not None:
+        return reply["structuredContent"]
+    texts = _reply_texts(reply)
+    return texts[0] if len(texts) == 1 else {"content": list(reply["content"])}
 
 
 class DatasetBackend(Backend):

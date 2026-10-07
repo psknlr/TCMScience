@@ -12,6 +12,13 @@ It bootstraps ``bioagent`` from its own location because the environment carries
 path, builds the smallest runtime that can serve the component, and reports failures on
 stderr with a non-zero exit so the kernel records a contract violation rather than a
 result.
+
+An MCP component's servers arrive the same way its manifest does: ``--mcp-config`` names
+the registry file the admitting process wrote (only the server the component calls), and
+``--mcp-config-digest`` the digest it admitted. A file whose digest differs is refused
+before anything starts. The child never reads the shipped registry, so it reaches exactly
+what was admitted, and it is given no credential source: a server that needs a credential
+is UNAVAILABLE here (docs/mcp-transport.md says why).
 """
 
 from __future__ import annotations
@@ -34,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workspace", help="the workspace root the admitting process resolved")
     parser.add_argument("--data-lake", help="the data-lake root the admitting process resolved")
     parser.add_argument("--tcmdb", help="the TCM data hub root the admitting process resolved")
+    parser.add_argument("--mcp-config",
+                        help="the MCP registry file the admitting process wrote")
+    parser.add_argument("--mcp-config-digest",
+                        help="the digest of that registry, as admitted")
     args = parser.parse_args(argv)
 
     # The environment is cleared; the profile's ${workspace}, ${data_lake} and ${tcmdb} are
@@ -47,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.tcmdb:
         os.environ[ENV_TCMDB] = args.tcmdb
 
+    from bioagent.mcp import MCPConfigError, MCPServerRegistry, load_registry
     from bioagent.psh.arguments import ArgumentError, arguments_for
     from bioagent.psh.assembly import default_runtime
     from bioagent.runtime.agentspec import AgentSpec
@@ -61,13 +73,36 @@ def main(argv: list[str] | None = None) -> int:
     payload = request.get("payload") if isinstance(request, dict) else None
     payload = payload if isinstance(payload, dict) else {}
 
+    # Exactly the MCP servers the admitting process handed over, verified; never the
+    # shipped registry, which may have changed since admission or name more than this
+    # component may reach.
+    mcp_servers = MCPServerRegistry(source="none given to this child")
+    if args.mcp_config or args.mcp_config_digest:
+        if not (args.mcp_config and args.mcp_config_digest):
+            print("ContractViolation: --mcp-config and --mcp-config-digest come together; "
+                  "an MCP registry without the digest it was admitted under is refused",
+                  file=sys.stderr)
+            return 2
+        try:
+            mcp_servers = load_registry(args.mcp_config)
+        except MCPConfigError as exc:
+            print(f"ContractViolation: {str(exc)[:300]}", file=sys.stderr)
+            return 1
+        if mcp_servers.digest != args.mcp_config_digest:
+            print(f"ContractViolation: the MCP registry {args.mcp_config} has digest "
+                  f"{mcp_servers.digest[:16]}, not the {args.mcp_config_digest[:16]} it was "
+                  "admitted under; refusing to reach servers nobody admitted",
+                  file=sys.stderr)
+            return 1
+
     if args.manifest:
         bio = ComponentManifest.load(args.manifest)
         connector = bio.id.startswith("public.connector.")
         runtime = default_runtime(catalogue=False, public_apis=connector,
-                                  extra_manifests=() if connector else (bio,))
+                                  extra_manifests=() if connector else (bio,),
+                                  mcp_servers=mcp_servers, mcp_credentials=None)
     else:
-        runtime = default_runtime()
+        runtime = default_runtime(mcp_servers=mcp_servers, mcp_credentials=None)
         bio = runtime.registry.get(args.component)
         if bio is None:
             print(f"no component {args.component!r}", file=sys.stderr)
@@ -91,6 +126,13 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 - the exit code is the contract
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+    finally:
+        # Stop any MCP server this call started before the child exits, while there is
+        # time to do it cleanly; the kernel kills only this child's process group, and
+        # the SDK starts a server in a session of its own.
+        close = getattr(runtime.backends.get("mcp"), "close", None)
+        if callable(close):
+            close()
     if result.status is ExecutionStatus.TIMEOUT:
         # 124 is what ``timeout(1)`` exits with; the kernel reads it as a ToolTimeout.
         print(f"TIMEOUT: {(result.error or 'no detail')[:300]}", file=sys.stderr)

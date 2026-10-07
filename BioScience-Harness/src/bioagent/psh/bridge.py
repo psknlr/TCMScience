@@ -14,7 +14,7 @@ from ..runtime.agentspec import AgentSpec
 from ..runtime.component import ComponentManifest as BioManifest
 from .assembly import load_verification
 from .component import BridgedComponent
-from .manifest import HostPolicy, bridge_manifest, psh_id_for
+from .manifest import HostPolicy, bridge_manifest, mcp_server_name, psh_id_for
 from .profiles import DeploymentProfile, profile_named
 
 __all__ = ["BioScienceBridge", "BridgeRefused", "EXEC_PATH"]
@@ -143,6 +143,14 @@ class BioScienceBridge:
 
         source = self._source_for(bio)
         operations = tuple(source.operations) if source is not None else ()
+        mcp_server = self._mcp_registry().get(mcp_server_name(bio)) \
+            if bio.runtime.backend == "mcp" else None
+        if self.isolate and mcp_server is not None and mcp_server.credentials:
+            raise BridgeRefused(
+                f"{bio.id}: MCP server {mcp_server.id!r} needs credentials "
+                f"({', '.join(mcp_server.credentials)}), and an isolated child is never "
+                "handed one (docs/mcp-transport.md); admit it in-process (isolate=False) "
+                "or use a server that needs none")
         # The description is text this kernel did not write. Classify it at admission
         # and carry the label on the rendered manifest item, as the MCP adapter does.
         text = bio.description or bio.name or bio.id
@@ -157,7 +165,7 @@ class BioScienceBridge:
             bio, host_policy=self.host_policy, local_ceiling=self.local_ceiling,
             backend=backend, entrypoint=entrypoint, operations=operations,
             verification=self.verification.get(source.key) if source is not None else None,
-            description_sensitivity=labelled.label.sensitivity.name)
+            description_sensitivity=labelled.label.sensitivity.name, mcp_server=mcp_server)
         if self.profile is not None:
             why = self.profile.admits(manifest.destinations)
             if why:
@@ -166,15 +174,20 @@ class BioScienceBridge:
                                      source=source, events=self.events)
         self._components[manifest.id] = component
         self._by_bio_id[bio.id] = manifest.id
-        self._audit("bioscience_component_admitted", component_id=manifest.id,
-                    detail={"bio_id": bio.id, "backend": bio.runtime.backend,
-                            "destinations": sorted(d.name for d in manifest.destinations),
-                            "max_label": manifest.max_label.name,
-                            "license": manifest.license_spdx or "unlicensed",
-                            "integration_mode": manifest.integration_mode,
-                            "isolated": self.isolate,
-                            "profile": self.profile.name if self.profile else "",
-                            "description_sensitivity": labelled.label.sensitivity.name})
+        detail = {"bio_id": bio.id, "backend": bio.runtime.backend,
+                  "destinations": sorted(d.name for d in manifest.destinations),
+                  "max_label": manifest.max_label.name,
+                  "license": manifest.license_spdx or "unlicensed",
+                  "integration_mode": manifest.integration_mode,
+                  "isolated": self.isolate,
+                  "profile": self.profile.name if self.profile else "",
+                  "description_sensitivity": labelled.label.sensitivity.name}
+        if bio.runtime.backend == "mcp":
+            # The audit chain records which reviewed entry the component was admitted
+            # against, so "what could this call reach" has an answer after the fact.
+            detail.update(mcp_server=mcp_server_name(bio),
+                          mcp_config_digest=mcp_server.digest if mcp_server else "")
+        self._audit("bioscience_component_admitted", component_id=manifest.id, detail=detail)
         return manifest
 
     def admit_all(self, manifests: Iterable[BioManifest] | None = None, *,
@@ -268,11 +281,22 @@ class BioScienceBridge:
         from ..providers.public_apis import BY_KEY
         return BY_KEY.get(bio.id.rsplit(".", 1)[-1])
 
+    def _mcp_registry(self) -> Any:
+        """The reviewed MCP registry this runtime dispatches to (empty when it has none)."""
+        from ..mcp import MCPServerRegistry
+
+        dispatcher = getattr(self.runtime.backends.get("mcp"), "dispatcher", None)
+        registry = getattr(dispatcher, "registry", None)
+        return registry if isinstance(registry, MCPServerRegistry) else MCPServerRegistry()
+
     def _isolated_entrypoint(self, bio: BioManifest) -> str:
         """``python exec.py --manifest <file> ...``: the child runs exactly the admitted manifest.
 
         Written under the kernel's state directory, owner-only, so the child needs no
-        catalogue and no environment variable to find its component.
+        catalogue and no environment variable to find its component. An MCP component's
+        servers travel the same way: a registry holding only the server it calls, written
+        beside the manifest, with the digest it was admitted under on the command line —
+        the child refuses the file if the two disagree.
         """
         if self.manifest_dir is None:
             raise BridgeRefused(f"{bio.id}: isolated execution needs a manifest directory "
@@ -285,11 +309,16 @@ class BioScienceBridge:
             os.chmod(target, 0o600)
         except OSError:                                  # pragma: no cover - platform
             pass
-        import shlex
-        return " ".join(shlex.quote(str(a)) for a in (
+        argv: list[Any] = [
             sys.executable, EXEC_PATH, "--manifest", target,
             "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"],
-            "--tcmdb", self.roots["tcmdb"]))
+            "--tcmdb", self.roots["tcmdb"]]
+        if bio.runtime.backend == "mcp":
+            child = self._mcp_registry().subset([mcp_server_name(bio)])
+            written = child.write(self.manifest_dir / f"{psh_id_for(bio.id)}.mcp.json")
+            argv += ["--mcp-config", written, "--mcp-config-digest", child.digest]
+        import shlex
+        return " ".join(shlex.quote(str(a)) for a in argv)
 
     def _audit(self, event: str, **fields: Any) -> None:
         audit = getattr(self.kernel, "audit", None)

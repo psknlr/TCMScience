@@ -1,0 +1,26 @@
+# mcp_servers.yaml — the MCP servers this installation may connect to, as reviewed.
+#
+# Empty by default: nothing is connected until a person reviews a server and commits its
+# entry here. Each entry pins what that review saw (bioagent/mcp/config.py states the
+# rules, docs/mcp-transport.md at the repository root explains them):
+#
+#   - id: example                       # plain identifier; a component names it as runtime.server
+#     transport: stdio                  # or streamable_http, with url: (and no env)
+#     command: npx                      # a bare name found on PATH, or an absolute path
+#     args: ["-y", "@example/mcp-server@1.2.3"]
+#     env: {EXAMPLE_TOKEN: EXAMPLE_TOKEN}   # server variable -> credential NAME, never a value
+#     destination: public_remote        # or trusted_remote; an MCP server is never local
+#     call_timeout_s: 30
+#     connect_timeout_s: 15
+#     package: "@example/mcp-server"    # what was reviewed, recorded on every result
+#     version: 1.2.3
+#     tools:                            # the allowlist, each tool with its reviewed snapshot
+#       search: {input_schema: <sha256>, output_schema: <sha256>, description: <sha256>}
+#
+# Write an entry with `python -m bioagent.mcp review draft.yaml`, which connects, lists the
+# server's tools and prints each one in full beside its digests; check this file with
+# `python -m bioagent.mcp check`. A server that needs a credential runs in-process only:
+# the isolated child is never handed one.
+
+api_version: "1"
+servers: []

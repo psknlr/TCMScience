@@ -80,6 +80,7 @@ REQUIRED_PACKAGES = (
     "bioagent.data",
     "bioagent.docking",
     "bioagent.evolution",
+    "bioagent.mcp",
     "bioagent.omics",
     "bioagent.omics.sc",
     "bioagent.planners",
