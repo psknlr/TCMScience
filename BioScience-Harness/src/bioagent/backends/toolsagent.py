@@ -64,10 +64,9 @@ from .jobs import (ArtefactSpec, JobExecutor, JobFetchError, JobRef, JobSpec, Jo
 
 __all__ = ["ToolsAgentTool", "ServerFile", "ToolsAgentRequestError", "ToolsAgentClient",
            "ToolsAgentJobs", "interpret", "TOOLS", "SMILES_TO_WEIGHT", "MOL_SIMILARITY",
-           "DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT", "RUN_FUNC", "DEFAULT_PORT"]
+           "DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT", "RUN_FUNC"]
 
 RUN_FUNC = "run-func"
-DEFAULT_PORT = 60002
 _OUTPUTS = ("text", "number", "server_file")
 
 

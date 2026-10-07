@@ -27,7 +27,6 @@ expresses; that takes refolding the design and then experiment.
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -233,6 +232,3 @@ class SequenceDesignResult:
                 "model_metrics": self.model_metrics,
                 "provenance": self.provenance.to_dict() if self.provenance else None,
                 "warnings": list(self.warnings)}
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, ensure_ascii=False, default=str)

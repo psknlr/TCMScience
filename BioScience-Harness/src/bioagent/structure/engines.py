@@ -59,7 +59,7 @@ from .pdbio import THREE_TO_ONE, Structure, read_pdb
 from .tasks import EngineRun, TaskInvalid, sha256_file
 
 __all__ = ["EngineProbe", "EngineRefusal", "Engine", "BoltzEngine", "ChaiEngine",
-           "ProteinMPNNEngine", "OpenMMEngine", "ENGINES"]
+           "ProteinMPNNEngine", "OpenMMEngine"]
 
 #: Run in the tool's interpreter. ``find_spec`` locates a package without importing it,
 #: so asking costs no torch start-up.
@@ -1073,6 +1073,3 @@ class OpenMMEngine(Engine):
                            "steps": doc["steps"]},
             provenance=run, warnings=list(prepared.warnings))
 
-
-ENGINES: dict[str, type[Engine]] = {"boltz": BoltzEngine, "chai-1": ChaiEngine,
-                                    "proteinmpnn": ProteinMPNNEngine, "openmm": OpenMMEngine}

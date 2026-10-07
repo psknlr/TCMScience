@@ -132,6 +132,7 @@ def test_an_absent_tool_is_unavailable_and_nothing_is_reported_as_run(engine, ta
     assert result.provenance.ran is False and result.provenance.job is None
     assert sys.executable in result.reason, "the reason names the interpreter it asked"
     assert not (tmp_path / task.name / "jobs").exists(), "no job was submitted"
+    assert json.loads(json.dumps(result.to_dict()))["provenance"]["ran"] is False
 
 
 def test_a_reviewed_interpreter_without_the_tool_is_named_in_the_refusal(tmp_path):
@@ -238,6 +239,8 @@ def test_boltz_reads_its_documented_outputs(tmp_path):
     assert result.pair_iptm["A"]["B"] == 0.6611 and result.pair_iptm["B"]["A"] == 0.6502
     assert result.model_metrics["confidence_score"] == 0.7512
     assert "complex_pde" in result.model_metrics, "model-specific numbers keep their names"
+    record = json.loads(json.dumps(result.to_dict()))
+    assert record["chains"]["A"]["plddt"] == 80.0 and record["structure"]["sha256"]
 
 
 def test_a_model_of_something_else_does_not_validate(tmp_path):
@@ -421,6 +424,7 @@ def test_proteinmpnn_designs_are_read_and_checked_against_the_request(tmp_path):
     assert result.designs[0].recovery == 0.5068 and result.designs[0].temperature == 0.1
     assert result.designs[1].sequences["A"].startswith("MQIF")
     assert result.model_metrics["git_hash"].startswith("8907e667")
+    assert json.loads(json.dumps(result.to_dict()))["designs"][0]["sequences"]["A"]
     with pytest.raises(ValueError, match="ran with seed 37, not 38"):
         read(seed=38)
     with pytest.raises(ValueError, match="changed fixed position A5"):
@@ -456,6 +460,7 @@ def test_openmm_runs_a_script_from_the_task_and_reads_its_records(tmp_path):
     assert result.minimised_energy_kj_mol < result.initial_energy_kj_mol
     assert result.model_metrics["platform"] == "CPU"
     assert any("no pKa model" in w for w in result.warnings)
+    assert len(json.loads(json.dumps(result.to_dict()))["energies"]) == 10
 
 
 def test_openmm_outputs_that_are_not_what_was_asked_do_not_validate(tmp_path):
