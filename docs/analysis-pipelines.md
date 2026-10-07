@@ -86,7 +86,13 @@ exon-skipping gene in the tests, this moves the estimate for the skipping isofor
   Where gene-wise dispersions differ, PyDESeq2's bounded optimiser stopped at the floor
   (1e-8) and this implementation found a higher Cox–Reid adjusted profile likelihood.
 - In CI, the job "Analysis pipelines with the standard tools" installs the tools and
-  PyDESeq2. In that job a missing tool fails the run rather than skipping it.
+  PyDESeq2. In that job a missing tool fails the run rather than skipping it. The
+  job's tests also pass with Ubuntu 24.04's packages, installed where this was built:
+  fastp 0.23.4, salmon 1.10.2, kallisto 0.48.0, HISAT2 2.2.1, featureCounts (subread)
+  2.0.6 and samtools 1.19.2. Each run records the version it found.
+- **Against R's DESeq2** (1.42.0): with four samples per condition the built-in
+  implementation calls all of R's genes and a few more. With two, it does not
+  reproduce R's calls, for reasons traced in [omics-backends.md](omics-backends.md).
 
 ### What a result is
 
@@ -144,7 +150,8 @@ Every input must be raw counts; normalised values are refused.
 
 Three choices are independent of one another:
 - `--analysis-backend scanpy` runs normalisation to markers with Scanpy;
-- `--integration none|harmony|scvi` sets the batch integration;
+- `--integration none|harmony|scvi` sets the batch integration (for scVI,
+  `--scvi-epochs` and `--scvi-threads` set its training);
 - `--de-backend pydeseq2` runs the pseudobulk test with PyDESeq2.
 
 `run.json` records which implementation ran each stage. See
@@ -449,6 +456,9 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 按方法定义逐项核对；
 - 用已知答案的模拟实验检验：内置路径及 salmon、kallisto、fastp、HISAT2 均找回全部 7 个预设差异基因；
 - 与独立实现 PyDESeq2 对比：倍数变化相关 0.99999，p 值相关 0.9995，显著基因几乎完全重合，实测 FDR 为 0.048。
+- 与 R 的 DESeq2 1.42.0 对照：每组 4 个样本时内置实现找到 R 的全部基因并略多几个；每组 2 个样本时与 R 的结果不同，原因已逐步查明（见 omics-backends.md）。
+
+上述工具测试在本机用 Ubuntu 24.04 软件包通过：fastp 0.23.4、salmon 1.10.2、kallisto 0.48.0、HISAT2 2.2.1、featureCounts（subread）2.0.6、samtools 1.19.2。
 
 结果只是本次实验内的统计关联，不证明机制、因果或任何临床效果。人体样本只能支持 `association`（相关性），细胞或动物实验只能支持 `mechanism_hypothesis`（机制假说）。
 
