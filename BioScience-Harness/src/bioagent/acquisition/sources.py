@@ -97,76 +97,77 @@ ACQUIRABLE: tuple[AcquisitionSpec, ...] = (
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_generalInfo.txt",
         "NPASSv2.0_download_naturalProducts_generalInfo.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 natural products: identifiers, names, ChEMBL/PubChem cross-references and "
         "organism/target/activity counts.", "natural-products", expected_bytes=9379911, checksum="sha256:4ec8f066abf7cebe8b172e1b16a6248f3b6a94efb00ed587f0a9489f5ca688bf",
         fmt="tsv", source_project="NPASS", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_species_pair.txt",
         "NPASSv2.0_download_naturalProducts_species_pair.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 natural product → source organism pairs with isolation part, collection "
         "location and reference.", "natural-products", expected_bytes=80284064, checksum="sha256:acc4f806d48327c6f258ef75afa6b69ff7d362455dff35e3a720976d09543c3e",
         fmt="tsv", source_project="NPASS", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_activities.txt",
         "NPASSv2.0_download_naturalProducts_activities.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 quantitative activities (IC50, Ki, MIC, ...) of natural products against "
         "targets and cell lines, with references.", "natural-products",
         expected_bytes=90364982, checksum="sha256:ced9ee333e7e5e12eb07d21d52ec20af777b6c429a6438ed9b402ca8fd547507", fmt="tsv", source_project="NPASS", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_speciesInfo.txt",
         "NPASSv2.0_download_naturalProducts_speciesInfo.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 source organisms with NCBI taxonomy lineage (species, genus, family, "
         "kingdom).", "natural-products", expected_bytes=3631384, checksum="sha256:a934641ce11140938c72f0fb63bd775a153398e4caf429a4a171b563669fb65a", fmt="tsv",
         source_project="NPASS", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_structureInfo.txt",
         "NPASSv2.0_download_naturalProducts_structureInfo.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 structures: InChI, InChIKey and SMILES per natural product.",
         "natural-products", expected_bytes=29748831, checksum="sha256:cbe688e9b6fdd0960c78d1a93d7f487ca4a2bbad3017275515c3d90d2a0f72fa", fmt="tsv", source_project="NPASS",
         version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_targetInfo.txt",
         "NPASSv2.0_download_naturalProducts_targetInfo.txt", "bidd.group",
-        "Free for academic use; see bidd.group/NPASS for terms",
+        "Not stated (bidd.group/NPASS states no licence or terms; read 2026-10-07)",
         "NPASS 2.0 targets: type, name, organism and UniProt accession.", "natural-products",
         expected_bytes=629317, checksum="sha256:d171c261e839a95ff6fdadeba6d1eeacf1536a70eae7668d6a179f85d44d83dc", fmt="tsv", source_project="NPASS", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plants.txt",
         "CMAUPv2.0_download_Plants.txt", "bidd.group",
-        "Free for academic use; see bidd.group/CMAUP for terms",
+        "Not stated (bidd.group/CMAUP states no licence or terms; read 2026-10-07)",
         "CMAUP 2.0 medicinal plants with NCBI taxonomy (species, genus, family).",
         "natural-products", expected_bytes=648352, checksum="sha256:74c41c5b1b85e041163c2b74ac74e400f49cd4696a8f8a2bb1d112da3fffe780", fmt="tsv", source_project="CMAUP",
         version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredients_All.txt",
         "CMAUPv2.0_download_Ingredients_All.txt", "bidd.group",
-        "Free for academic use; see bidd.group/CMAUP for terms",
+        "Not stated (bidd.group/CMAUP states no licence or terms; read 2026-10-07)",
         "CMAUP 2.0 plant ingredients: identifiers, physicochemical properties, InChI and "
         "SMILES.", "natural-products", expected_bytes=25238280, checksum="sha256:5b091ad0c4f8c576cfbd2b5ee5418dd25c1171ccaf2f9811acb558717f155c6f", fmt="tsv",
         source_project="CMAUP", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Targets.txt",
         "CMAUPv2.0_download_Targets.txt", "bidd.group",
-        "Free for academic use; see bidd.group/CMAUP for terms",
+        "Not stated (bidd.group/CMAUP states no licence or terms; read 2026-10-07)",
         "CMAUP 2.0 protein targets with UniProt, ChEMBL and TTD identifiers and target "
         "classes.", "natural-products", expected_bytes=117843, checksum="sha256:baf471c054fb858e130fdf6ab0b4e78869e8acb20336fad757828113b67ae16b", fmt="tsv",
         source_project="CMAUP", version="2.0"),
     AcquisitionSpec(
         "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt",
         "CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt", "bidd.group",
-        "Free for academic use; see bidd.group/CMAUP for terms",
+        "Not stated (bidd.group/CMAUP states no licence or terms; read 2026-10-07)",
         "CMAUP 2.0 plant → ingredient associations.", "natural-products",
         expected_bytes=7973286, checksum="sha256:a0a7321201b15f4465e615e97e6f01651e26db6a88c13faea47d8e337a7e598b", fmt="tsv", source_project="CMAUP", version="2.0",
         notes="headerless: plant_id\\tingredient_id"),
     AcquisitionSpec(
         "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
         "CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
-        "bidd.group", "Free for academic use; see bidd.group/CMAUP for terms",
+        "bidd.group",
+        "Not stated (bidd.group/CMAUP states no licence or terms; read 2026-10-07)",
         "CMAUP 2.0 ingredient → target activities with values, units and references.",
         "natural-products", expected_bytes=1338251, checksum="sha256:10b3ffacafcdae53180842945468aad726f1be30deafbc56fd04de4eca1165f5", fmt="tsv", source_project="CMAUP",
         version="2.0"),

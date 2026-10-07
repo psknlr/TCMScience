@@ -1,0 +1,533 @@
+# licence_records.yaml — the reviewed terms of what a run uses (bioagent.licences).
+#
+# A commercial run may use an asset only if a record here (or a source card, for data)
+# explicitly permits commercial use; an asset without one is refused, never assumed.
+# Research use is not gated by this file. Adding or editing a record is a governance
+# action, made by a pull request that cites where the terms were read.
+#
+# code     licence read from the upstream repository's own licence file at a pinned
+#          commit, with the sha256 of that text (the file's address is
+#          <repo>/blob/<commit>/<licence_path>, recorded as licence_url in a decision);
+#          `components` are the catalogue rows whose implementation it is, `modules` the
+#          import names it covers.
+# model    weights version and digest, licence, permitted purposes, output terms.
+# data     version, licence (per record where it differs), the provider's terms page,
+#          commercial use, retention and redistribution. The eight source cards
+#          (bioagent/sources/cards.py) rule on the snapshots built from their sources; a
+#          data record rules on the components that read a source directly.
+# service  terms reference and version, the account used (a reference, never a secret),
+#          permitted purposes, rate limit.
+#
+# A model, data or service record's `checked` also carries the sha256 of the terms as they
+# were read: a page has no commit to pin, and the digest is how a later reader tells
+# whether the page that was read is the one there now.
+#
+# The catalogue rows corrected below all came from Biomni/biomni/env_desc.py, Biomni's
+# list of other projects' packages ("[Python Package] ...", "[CLI Tool] ..."), and carried
+# Biomni's own Apache-2.0. Each licence was read from the package's own repository; the
+# catalogue's value stays on the manifest as LicenseSpec.catalogue, provenance of the row.
+
+api_version: "1"
+
+code:
+  - id: code.bioagent
+    name: bioagent (BioScience-Harness, this repository)
+    spdx: MIT
+    first_party: true
+    licence_path: LICENSE
+    licence_sha256: 9663d6283f1fc509133890d5347800a8c0b655ddec1f68a89d0d8254c096b94c
+    integration_mode: native
+    modules: [bioagent]
+    checked:
+      source: BioScience-Harness/LICENSE in this repository (MIT License text)
+      date: "2026-10-07"
+
+  - id: code.psh
+    name: psh (PSH-Harness, this repository)
+    spdx: MIT
+    first_party: true
+    licence_path: ../PSH-Harness/LICENSE
+    licence_sha256: 9a2b8ce070d7e322ce3905528c705c0f37f8876bd6f58f1fbe57fa01599fd7b5
+    integration_mode: native
+    modules: [psh]
+    checked:
+      source: PSH-Harness/LICENSE in this repository (MIT License text)
+      date: "2026-10-07"
+    note: >-
+      The kernel bioagent's governed runs, its bridge and the skill-program compiler run
+      under. PSH-Harness/pyproject.toml declared license = {text = "MIT"} with no licence
+      file; the file was added on 2026-10-07, the text of BioScience-Harness/LICENSE with
+      "Copyright (c) 2026 PSH-Harness contributors". The path is relative to
+      BioScience-Harness, as code.bioagent's is.
+
+  - id: code.pyarrow
+    name: Apache Arrow (pyarrow)
+    spdx: Apache-2.0
+    repo: https://github.com/apache/arrow
+    commit: beccec0d0c451b7aa3e4530416ac431b3c035c69
+    licence_path: LICENSE.txt
+    licence_sha256: d1c981370f1ffd4edcdd2fb3565c8939cc40c75e24e1f92d581d04e54f0dff81
+    integration_mode: vendor
+    modules: [pyarrow]
+    checked:
+      source: its licence file at the pinned commit, release tag apache-arrow-25.0.1
+      date: "2026-10-07"
+    note: >-
+      Reads every snapshot a skill run uses (Parquet). LICENSE.txt is the Apache License
+      2.0 followed by the notices of the third-party code Arrow vendors or links into its
+      binary wheels (BSD, MIT, Boost, ZPL-2.1, zlib, the OpenSSL licence and others), none
+      of them copyleft; the record rules on Arrow's own Apache-2.0, which is pyarrow's.
+
+  - id: code.pyyaml
+    name: PyYAML
+    spdx: MIT
+    repo: https://github.com/yaml/pyyaml
+    commit: 49790e73684bebad1df05ef8d828fa12f685bffb
+    licence_path: LICENSE
+    licence_sha256: 8d3928f9dc4490fd635707cb88eb26bd764102a7282954307d3e5167a577e8a4
+    integration_mode: vendor
+    modules: [yaml]
+    checked:
+      source: its licence file at the pinned commit, release tag 6.0.3
+      date: "2026-10-07"
+    note: Reads every skill manifest and contract; a hard dependency of bioagent.
+
+  - id: code.biomni
+    name: Biomni
+    spdx: Apache-2.0
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    licence_path: LICENSE
+    licence_sha256: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+    integration_mode: vendor
+    modules: [biomni]
+    checked:
+      source: its licence file at the commit data/repos_manifest.csv pins
+      date: "2026-10-07"
+    note: >-
+      The Apache License 2.0 text (the canonical text with one leading blank line);
+      pyproject.toml declares license = "Apache-2.0". Covers Biomni's own code only:
+      license_info.md in the same tree says much of the data Biomni ships needs a
+      separate licence for commercial use.
+
+  - id: code.gseapy
+    name: GSEApy
+    spdx: BSD-3-Clause
+    repo: https://github.com/zqfang/GSEApy
+    commit: 08cb2b689def365f7dee1f5da50c49d3a149cf5a
+    licence_path: LICENSE
+    licence_sha256: ec6ef3ceb5d66ce0fcf2a7aa42d1473f0bc79103bf31162763613a318370109d
+    integration_mode: vendor
+    components: [biomni.software.gseapy]
+    modules: [gseapy]
+    checked:
+      source: its licence file at the pinned commit, release tag v1.3.1
+      date: "2026-10-07"
+    note: >-
+      The catalogue row recorded Biomni's Apache-2.0; Biomni's env_desc.py lists gseapy
+      as "[Python Package] A Python wrapper for Gene Set Enrichment Analysis".
+
+  - id: code.scanpy
+    name: Scanpy
+    spdx: BSD-3-Clause
+    repo: https://github.com/scverse/scanpy
+    commit: ff2133115f639fccce9633aa7f5309c36a0972e7
+    licence_path: LICENSE
+    licence_sha256: fb02749e4f251401f2c4023b7a30e71f40a21e138b87025036f74c980cfa63b2
+    integration_mode: vendor
+    components: [biomni.software.scanpy]
+    modules: [scanpy]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.12.4
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.anndata
+    name: anndata
+    spdx: BSD-3-Clause
+    repo: https://github.com/scverse/anndata
+    commit: a487b81d38d4bfe7c7d76f01eed72a8622665c65
+    licence_path: LICENSE
+    licence_sha256: 55cad7a0454c86d36ebccbca6063fe23994c4fca99ffa7457f6d9fb0bd7cd2a0
+    integration_mode: vendor
+    components: [biomni.software.anndata]
+    modules: [anndata]
+    checked:
+      source: its licence file at the pinned commit, release tag 0.13.4
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.rdkit
+    name: RDKit
+    spdx: BSD-3-Clause
+    repo: https://github.com/rdkit/rdkit
+    commit: 0e0d85f4ca34aeae15dfc0f7cf5503bdb0a8e985
+    licence_path: license.txt
+    licence_sha256: daeb8d194502cbcf34c05c39541a0d02be65bc9bada5b891c1974cd24e9fca30
+    integration_mode: vendor
+    components: [biomni.software.rdkit]
+    modules: [rdkit]
+    checked:
+      source: its licence file at the pinned commit, release tag Release_2026_03_6
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.scikit-learn
+    name: scikit-learn
+    spdx: BSD-3-Clause
+    repo: https://github.com/scikit-learn/scikit-learn
+    commit: 866c0f51e7560ef0303cbcc5f159df5382ea9e3f
+    licence_path: COPYING
+    licence_sha256: 50d6a9d340f19ab355609917993114daf5f47e3161067bcf34955bbd05cd9cb0
+    integration_mode: vendor
+    components: [biomni.software.scikit-learn]
+    modules: [sklearn]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.9.1
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.umap-learn
+    name: UMAP (umap-learn)
+    spdx: BSD-3-Clause
+    repo: https://github.com/lmcinnes/umap
+    commit: cdb0eeb236f5d6759e0c3dd1fe132aef4db9e7b1
+    licence_path: LICENSE.txt
+    licence_sha256: 46fc974145ef85e0992ac3173d03ffe6cdf2611292950e323c5a69b9ca35ff1e
+    integration_mode: vendor
+    components: [biomni.software.umap-learn]
+    modules: [umap]
+    checked:
+      source: its licence file at the pinned commit, release tag release-0.5.12
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.python-igraph
+    name: python-igraph
+    spdx: GPL-2.0-or-later
+    repo: https://github.com/igraph/python-igraph
+    commit: b16f27618674dd1913007a52855b76075802cbf9
+    licence_path: LICENSE
+    licence_sha256: ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6
+    integration_mode: vendor
+    components: [biomni.software.igraph]
+    modules: [igraph]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.0.0
+      date: "2026-10-07"
+    note: >-
+      LICENSE is the GNU GPL version 2 text; the package's notice
+      (src/igraph/__init__.py, __license__) grants "either version 2 of the License, or
+      (at your option) any later version". The catalogue row recorded Biomni's
+      Apache-2.0, a permissive licence for copyleft code. Both licence tables
+      (psh.licensing, bioagent.policy) class GPL-2.0-or-later as copyleft since 2026-10-07:
+      vendoring it is permitted with a native equivalent preferred, and running it is
+      allowed, for a commercial purpose too; it was classed unlicensed before.
+
+  - id: code.harmony-pytorch
+    name: harmony-pytorch
+    spdx: BSD-3-Clause
+    repo: https://github.com/lilab-bcb/harmony-pytorch
+    commit: 87a5ae3647c473d04924eaa0d9e5f5956b743516
+    licence_path: LICENSE
+    licence_sha256: 1d252e765995054a2a442e0165a749f2ea02064a64440a14950d576b563653d8
+    integration_mode: vendor
+    components: [biomni.software.harmony-pytorch]
+    modules: [harmony]
+    checked:
+      source: its licence file at the pinned commit, release tag 0.1.8
+      date: "2026-10-07"
+    note: >-
+      The import name is harmony. The catalogue's separate `harmony` row is the R package
+      (immunogenomics/harmony), which ships no LICENSE file (its DESCRIPTION says GPL-3)
+      and has no record here.
+
+  - id: code.autodock-vina
+    name: AutoDock Vina
+    spdx: Apache-2.0
+    repo: https://github.com/ccsb-scripps/AutoDock-Vina
+    commit: 8eb40404f4f45608acb3b01427587ac049f27c1f
+    licence_path: LICENSE
+    licence_sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+    integration_mode: vendor
+    components: [biomni.software.vina]
+    modules: [vina]
+    checked:
+      source: its licence file at the pinned commit, release tag v1.2.7
+      date: "2026-10-07"
+    note: >-
+      Apache-2.0, as the catalogue row said — the copied value happened to be right. The
+      row now rests on Vina's own licence file rather than on Biomni's.
+
+# No model weights have a reviewed record yet, so a commercial run that uses one is refused
+# with the reason "no reviewed licence record".
+model: []
+
+# Data and services: each record's terms were read on 2026-10-07 from the provider's own
+# licence page or file (terms_url); `checked` names exactly what was read and the sha256 of
+# it as served. A record attaches to the components that draw on the source: the live
+# connectors, the reviewed ToolUniverse tools, the bulk datasets the acquisition layer
+# fetches and the operations of governed skills. The eight source cards
+# (bioagent/sources/cards.py) still rule on the snapshots a skill run reads.
+#
+# Not recorded, because the provider states no terms that could be read, so a commercial
+# use stays refused as unknown:
+#   NPASS   bidd.group/NPASS (home, about, help, download and privacy pages, now
+#           version 3.0): no licence or terms of use. The source card's "Free for academic
+#           use" is not on these pages.
+#   CMAUP   bidd.group/CMAUP (home, about, help, download): "All data can be freely
+#           downloaded" and a copyright line, no licence or terms of use.
+#   ESM Atlas fold service (api.esmatlas.com): esmatlas.com states no terms. The esm
+#           README (facebookresearch/esm at 2b369911) licenses ESM Atlas *data* CC BY 4.0
+#           "for academic and commercial use", subject to the Meta Open Source Terms of
+#           Use, which by their own text govern only opensource.fb.com; nothing covers
+#           what the fold service returns for a submitted sequence.
+data:
+  - id: data.opentargets
+    name: Open Targets Platform
+    version: "26.09"
+    licence: CC0-1.0
+    terms_url: https://platform-docs.opentargets.org/licence
+    commercial_use: allowed
+    retention: no limit (CC0 1.0 public-domain dedication)
+    redistribution: without conditions (CC0 1.0); a citation is requested
+    components: [public.connector.opentargets]
+    checked:
+      source: https://platform-docs.opentargets.org/licence (the licence page as served)
+      date: "2026-10-07"
+      sha256: 40d73aff4407f812a8f490b5a3e30aba67e2804389df117940497a0e825bb2d2
+    note: >-
+      "Open Targets Platform is marked with CC0 1.0 ... allowing downstream users to
+      consume the data without restriction"; its data sources, those marked "commercial
+      use for Open Targets" included, "have agreed for their data to be used without
+      restriction by all Open Targets users". Data release 26.09 (API 26.9.0), from the
+      GraphQL meta query the same day.
+
+  - id: data.reactome
+    name: Reactome
+    version: "97"
+    licence: CC0-1.0
+    terms_url: https://reactome.org/license
+    commercial_use: allowed
+    retention: no limit (CC0 1.0 public-domain dedication)
+    redistribution: without permission, commercial purposes included; attribution encouraged
+    components: [public.connector.reactome, tooluniverse.Reactome_map_uniprot_to_pathways,
+                 reactome.dataset.reactomepathways_txt, reactome.dataset.ensembl2reactome_txt]
+    checked:
+      source: https://reactome.org/license (the licence agreement as served)
+      date: "2026-10-07"
+      sha256: f6886a81c4dc713ed0d5c79b652edf343d26dca6aa198b17821e8a37c30baed1
+    note: >-
+      Section 1(c): "All data in the Reactome database and files derived from that data
+      are licensed under the Creative Commons Public Domain Dedication (CC0)". Pathway
+      illustrations and art are CC BY 4.0 (1a) and software Apache-2.0 (1b); no component
+      here returns either. The connector's manifest declares CC-BY-4.0, the illustrations'
+      licence. Database release 97, from ContentService the same day.
+
+  - id: data.string
+    name: STRING
+    version: 12.5 (current); 12.0 (the bulk files bioagent fetches)
+    licence: CC-BY-4.0
+    terms_url: https://string-db.org/cgi/access
+    commercial_use: allowed
+    retention: no limit stated
+    redistribution: with attribution, indicating changes (CC BY 4.0)
+    components: [public.connector.string, tooluniverse.STRING_get_interaction_partners,
+                 string.dataset.9606_protein_info_v12_0_txt_gz,
+                 string.dataset.9606_protein_links_v12_0_txt_gz]
+    checked:
+      source: https://string-db.org/cgi/access (the access and licensing page as served)
+      date: "2026-10-07"
+      sha256: 645d20bd00aa2a27d6630de0f2dcef4173f41a41c05335f663be6d9defcb66b7
+    note: >-
+      "All data and download files in STRING are freely available under a 'Creative
+      Commons BY 4.0' license", from the website, the APIs or the downloads, "including
+      commercial use". "Material from other resources that STRING incorporates or displays
+      remains subject to the terms of its original provider."
+
+  - id: data.uniprot
+    name: UniProt
+    version: "2026_03"
+    licence: CC-BY-4.0
+    terms_url: https://www.uniprot.org/help/license
+    commercial_use: allowed
+    retention: no limit stated
+    redistribution: with attribution (CC BY 4.0)
+    components: [public.connector.uniprot, tooluniverse.UniProt_get_entry_by_accession,
+                 uniprot.dataset.uniprot_human_reviewed_accessions_txt]
+    checked:
+      source: >-
+        https://rest.uniprot.org/help/license, the help entry www.uniprot.org/help/license
+        renders (lastModified 2024-12-18)
+      date: "2026-10-07"
+      sha256: 5960c22bf17f22286504b927dbb3ca41713c571ed91a10fe7a88ddd964b416ce
+    note: >-
+      CC BY 4.0 "to all copyrightable parts of our databases". The same entry disclaims:
+      "We cannot provide unrestricted permission regarding the use of the data, as some
+      data may be covered by patents or other rights." Release 2026_03 (X-UniProt-Release,
+      released 2026-09-02).
+
+  - id: data.chembl
+    name: ChEMBL
+    version: ChEMBL_37 (released 2026-05-01)
+    licence: CC-BY-SA-3.0
+    terms_url: https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/LICENSE
+    commercial_use: allowed
+    retention: no limit stated
+    redistribution: >-
+      with attribution, adaptations under the same licence (CC BY-SA 3.0), keeping the
+      ChEMBL IDs and showing the release number
+    components: [public.connector.chembl, tooluniverse.ChEMBL_search_activities,
+                 chembl.dataset.chembl_uniprot_mapping_txt]
+    checked:
+      source: the LICENSE file of the ChEMBL_37 release directory (ChEMBLdb/latest)
+      date: "2026-10-07"
+      sha256: f0c22ca33207ad8a85129a71f1454fcf8f2f71c99e68da5da01538210fa3ffba
+    note: >-
+      LICENSE is the CC BY-SA 3.0 Unported text. REQUIRED.ATTRIBUTION beside it (sha256
+      41eb0cf5eb2ceec5954db84f6c73969c7d928799fe39a7771140cdb0afc4a0df): "The data in
+      ChEMBL is covered by the licence in the file LICENSE"; incorporated in other works,
+      "the ChEMBL IDs are preserved, and ... the release number of ChEMBL is clearly
+      displayed". Release from the ChEMBL API status the same day.
+
+  - id: data.pubchem
+    name: PubChem
+    version: unversioned (updated continuously); read 2026-10-07
+    licence: NCBI data policy (NCBI places no restriction and grants nothing)
+    terms_url: https://www.ncbi.nlm.nih.gov/home/about/policies/
+    commercial_use: unknown
+    retention: not stated
+    redistribution: no restriction placed by NCBI; depositors' rights are not stated
+    components: [public.connector.pubchem, tooluniverse.PubChem_get_CID_by_compound_name,
+                 tooluniverse.PubChem_get_compound_properties_by_CID]
+    checked:
+      source: https://www.ncbi.nlm.nih.gov/home/about/policies/ (NCBI's policies page)
+      date: "2026-10-07"
+      sha256: 8ad8f6f186ca51ec73a5fb8935ecfa17b8cbaad300b7025b381898ab72621869
+    note: >-
+      "NCBI itself places no restrictions on the use or distribution of the data ...
+      However, some submitters ... may claim patent, copyright, or other intellectual
+      property rights ... NCBI cannot provide comment or unrestricted permission". The page
+      names PubChem among resources holding material that "may be protected" and expects
+      anyone "making commercial use of this information" to follow the copyright holder's
+      terms. No grant, so commercial use is unknown, as on the pubchem_bioassay card.
+
+  - id: data.bindingdb
+    name: BindingDB
+    version: BindingDB_All_202409 (the Biomni data-lake copy); the terms page is unversioned
+    licence: CC-BY-3.0
+    terms_url: https://www.bindingdb.org/rwd/bind/info.jsp
+    commercial_use: unknown
+    retention: not stated
+    redistribution: >-
+      records curated by BindingDB with attribution (CC BY 3.0); records imported from
+      ChEMBL under CC BY-SA 3.0; records imported from PubChem not stated
+    per_record:
+      curation:
+        ChEMBL: CC-BY-SA-3.0
+    components: [biomni.dataset.bindingdb_all_202409.tsv]
+    checked:
+      source: https://www.bindingdb.org/rwd/bind/info.jsp (the About page as served)
+      date: "2026-10-07"
+      sha256: 978c931bf77a9129edd12af00221f5f9f3e3dd8e485abf3effd104218c03a0a5
+    note: >-
+      "Data imported from ChEMBL are provided under their Creative Commons
+      Attribution-Share Alike 3.0 Unported License. All data curated by BindingDB staff are
+      provided under the Creative Commons Attribution 3.0 License." BindingDB also holds
+      "selected PubChem confirmatory BioAssays", for which the page states no licence, so
+      the file as a whole is unknown for commercial use. The bindingdb source card and its
+      parser give BindingDB's own records CC-BY-4.0, which this page does not say.
+
+  - id: data.lotus
+    name: LOTUS natural products occurrences (frozen export)
+    version: 2026-04-13 frozen export (doi:10.5281/zenodo.19360665)
+    licence: CC-BY-4.0
+    terms_url: https://zenodo.org/records/19360665
+    commercial_use: allowed
+    retention: no limit stated
+    redistribution: with attribution (CC BY 4.0)
+    components: [lotus.dataset.260413_frozen_csv_gz,
+                 lotus.dataset.260413_frozen_metadata_csv_gz]
+    checked:
+      source: https://zenodo.org/api/records/19360665 (the record's metadata, cc-by-4.0)
+      date: "2026-10-07"
+      sha256: 4ba40f3a44c1dc9aefbd7b48c80436b25cee3fa200fbbca40f98780edb8a4402
+    note: >-
+      The Zenodo record, published 2026-04-13 with open access, licenses the export CC BY
+      4.0; the Wikidata statements it is exported from are CC0. Its metadata table also
+      carries PubChem compound properties (PubChem's own terms: data.pubchem).
+
+  - id: data.rcsb-pdb
+    name: Protein Data Bank (RCSB PDB archive and programmatic APIs)
+    version: the archive as served on 2026-10-07 (updated weekly, unversioned)
+    licence: CC0-1.0
+    terms_url: https://www.rcsb.org/pages/usage-policy
+    commercial_use: allowed
+    retention: no limit (CC0 1.0 public-domain dedication)
+    redistribution: without conditions; attributing the structures' authors is encouraged
+    components: [structure.rcsb.entry, docking.rcsb.chemcomp, public.connector.rcsb]
+    checked:
+      source: https://www.rcsb.org/pages/usage-policy (the usage policies as served)
+      date: "2026-10-07"
+      sha256: 23843e4cfb471224511287a1a902f53c8dc8ec2a9d6c1910310489efdbb5cec3
+    note: >-
+      "The wwPDB policy states that data files contained in the PDB archive are available
+      under the CC0 1.0 Universal (CC0 1.0) Public Domain Dedication. All data provided by
+      RCSB PDB programmatic APIs are available under the same license."
+
+  - id: data.alphafold-db
+    name: AlphaFold Protein Structure Database
+    version: model version 6 (the prediction API's latestVersion)
+    licence: CC-BY-4.0
+    terms_url: https://alphafold.ebi.ac.uk
+    commercial_use: allowed
+    retention: no limit stated
+    redistribution: with attribution (CC BY 4.0)
+    components: [structure.alphafold.model]
+    checked:
+      source: >-
+        https://alphafold.ebi.ac.uk/main-EVWB2CEZ.js, the application bundle the site's
+        pages are rendered from, which holds its "Licence and attributions" text
+      date: "2026-10-07"
+      sha256: 51059626a3288c77c8d972f7c9eefb9b2044645cde182ac5872eeb4816100ebd
+    note: >-
+      "Data is available for academic and commercial use, under a CC-BY-4.0 licence.
+      EMBL-EBI expects attribution (e.g., in publications, services, or products) for any
+      of its online services, databases, or software".
+
+service:
+  - id: service.rcsb
+    name: RCSB PDB file download and data APIs
+    terms_url: https://www.rcsb.org/pages/usage-policy
+    terms_version: the usage policies as read on 2026-10-07 (the page carries no date)
+    account: none
+    permitted_use: [academic, commercial]
+    rate_limit: unknown (the usage policies state none)
+    components: [structure.rcsb.entry, docking.rcsb.chemcomp, public.connector.rcsb]
+    checked:
+      source: https://www.rcsb.org/pages/usage-policy (the usage policies as served)
+      date: "2026-10-07"
+      sha256: 23843e4cfb471224511287a1a902f53c8dc8ec2a9d6c1910310489efdbb5cec3
+    note: >-
+      The policies restrict no purpose, for the archive's files or for what "RCSB PDB
+      programmatic APIs" provide (CC0, as data.rcsb-pdb), and disclaim warranty and
+      liability.
+
+  - id: service.alphafold-db
+    name: AlphaFold DB API and model files (EMBL-EBI)
+    terms_url: https://www.ebi.ac.uk/about/terms-of-use
+    terms_version: EMBL-EBI terms of use, last revised 5 February 2024
+    account: none
+    permitted_use: [academic, commercial]
+    rate_limit: unknown (none stated; use that keeps EMBL-EBI from serving others is blocked)
+    components: [structure.alphafold.model]
+    checked:
+      source: https://www.ebi.ac.uk/about/terms-of-use/ (the terms as served)
+      date: "2026-10-07"
+      sha256: f3c148e6b91501af2a516e24edf0be61c21e2ce1b4e9f40bd834c606f1f23ae9
+    note: >-
+      EMBL-EBI provides its "freely available Data Resources and Tools ... to the largest
+      possible community", restricts no purpose, "expects attribution (e.g. in
+      publications, services or products)", and blocks use at "a level that prevents, or
+      is likely to prevent, EMBL-EBI providing services to others". What the API returns
+      is data.alphafold-db.

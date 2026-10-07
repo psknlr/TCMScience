@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# Literature evidence — a CANDIDATE skill, not in the stable lockfile: refused by a governed
+# run until a person promotes it; runnable as a development run.
+#
+# It indexes the documents a corpus manifest pins (each by its SHA-256) with PaperQA2's
+# document handling and a local sparse embedding, retrieves passages for a question by
+# vector search, and types each passage with fixed text rules. It calls no model and
+# reaches no network; it reads only under ${corpus} (and an existing index) and writes the
+# index to ${index_dir}, or to a new temporary directory when none is given.
+#
+# `evidence.claim_kinds`: it makes no claim. A retrieved passage is material for a claim,
+# and typing it does not turn it into a finding. The schema needs one kind, so it names the
+# weakest one literature evidence could support and forbids the rest, as predict-admet
+# does. `max_tier` is the strongest design an item may carry: a rule can read a systematic
+# review.
+
+api_version: "1"
+id: retrieve-literature-evidence
+name: Literature evidence retrieval
+version: "0.1.0"
+summary: >-
+  From a question and a corpus of local documents (text, HTML, PDF), each pinned by its
+  digest: a PaperQA2 index, the passages nearest the question with their offsets and
+  scores, and an evidence item for each passage whose study design a rule can read.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.literature.retrieve:retrieve_literature_evidence"
+  timeout_s: 1800
+  memory_mb: 2048
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network: []
+  filesystem_read:
+    - "${corpus}"
+    - "${index_dir}"
+  filesystem_write:
+    - "${index_dir}"
+  subprocess: false
+  secrets: []
+
+evidence:
+  max_tier: systematic_review
+  claim_kinds:
+    - mechanism_hypothesis
+  forbidden_claims:
+    - mechanism
+    - association
+    - safety_signal
+    - efficacy
+    - recommendation
+    - attribution
+    - traditional_use
+  require_pinned_sources: true
+  require_quote_verified: true
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 30.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [question, corpus]
+  properties:
+    question:
+      type: string
+    corpus:
+      type: string
+      description: "a directory holding manifest.json and the documents it lists"
+    k:
+      type: integer
+      description: how many passages to retrieve (default 5)
+    min_score:
+      type: number
+      description: drop passages below this cosine similarity
+    doc_ids:
+      type: array
+      items:
+        type: string
+      description: search only these documents
+    index_dir:
+      type: string
+      description: "where the index is written, or an index of this corpus to reuse"
+
+outputs:
+  type: object
+  properties:
+    passages:
+      type: array
+
+risk: r2_consequential
+min_autonomy: act_with_approval

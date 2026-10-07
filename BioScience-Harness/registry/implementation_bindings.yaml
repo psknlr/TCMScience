@@ -1,0 +1,104 @@
+# implementation_bindings.yaml — which upstream function a catalogue component runs.
+#
+# The capability catalogue records where a component was found, which for Biomni is the
+# tool's description (biomni/tool/tool_description/<area>.py); the function is defined in
+# biomni/tool/<area>.py. A python entrypoint derived from the catalogue path is a
+# candidate: discoverable, never run (runtime.registry.unbound_entrypoint). An entry here
+# is what makes one runnable, so adding one is a governance action, made by a pull request.
+#
+# Each entry names the component id, the module:function to import, the upstream
+# repository and the full commit it is pinned to, the implementation file and — kept
+# apart — the description file, the signature the function must have (each parameter's
+# name, kind and whether a default is present), and the implementation's own licence with
+# where that was read. `checked_on` is the date the entry was checked against the tree.
+#
+# providers.biomni.BiomniProvider re-checks every Biomni entry statically (AST, Biomni is
+# never imported) against a tree at the pinned commit; the integration test in
+# tests/test_bindings_licences.py does so against a fresh clone. Moving an entry to a new
+# commit means re-checking it there, not editing the SHA.
+
+api_version: "1"
+
+bindings:
+  - component: biomni.tool.annotate_celltype_scrna
+    project: Biomni
+    entrypoint: biomni.tool.genomics:annotate_celltype_scRNA
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    implementation_path: biomni/tool/genomics.py
+    description_path: biomni/tool/tool_description/genomics.py
+    signature:
+      - {name: adata_filename, kind: positional_or_keyword, default: false}
+      - {name: data_dir, kind: positional_or_keyword, default: false}
+      - {name: data_info, kind: positional_or_keyword, default: false}
+      - {name: data_lake_path, kind: positional_or_keyword, default: false}
+      - {name: cluster, kind: positional_or_keyword, default: true}
+      - {name: llm, kind: positional_or_keyword, default: true}
+      - {name: composition, kind: positional_or_keyword, default: true}
+    licence:
+      spdx: Apache-2.0
+      source: >-
+        LICENSE at 400c1f366b96a35ca253e13c9b06c5076af41d65 (Apache License 2.0 text,
+        sha256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4);
+        pyproject.toml declares license = "Apache-2.0"
+    checked_on: "2026-10-07"
+
+  - component: biomni.tool.create_harmony_embeddings_scrna
+    project: Biomni
+    entrypoint: biomni.tool.genomics:create_harmony_embeddings_scRNA
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    implementation_path: biomni/tool/genomics.py
+    description_path: biomni/tool/tool_description/genomics.py
+    signature:
+      - {name: adata_filename, kind: positional_or_keyword, default: false}
+      - {name: batch_key, kind: positional_or_keyword, default: false}
+      - {name: data_dir, kind: positional_or_keyword, default: false}
+    licence:
+      spdx: Apache-2.0
+      source: >-
+        LICENSE at 400c1f366b96a35ca253e13c9b06c5076af41d65 (Apache License 2.0 text,
+        sha256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4);
+        pyproject.toml declares license = "Apache-2.0"
+    checked_on: "2026-10-07"
+
+  - component: biomni.tool.create_scvi_embeddings_scrna
+    project: Biomni
+    entrypoint: biomni.tool.genomics:create_scvi_embeddings_scRNA
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    implementation_path: biomni/tool/genomics.py
+    description_path: biomni/tool/tool_description/genomics.py
+    signature:
+      - {name: adata_filename, kind: positional_or_keyword, default: false}
+      - {name: batch_key, kind: positional_or_keyword, default: false}
+      - {name: label_key, kind: positional_or_keyword, default: false}
+      - {name: data_dir, kind: positional_or_keyword, default: false}
+    licence:
+      spdx: Apache-2.0
+      source: >-
+        LICENSE at 400c1f366b96a35ca253e13c9b06c5076af41d65 (Apache License 2.0 text,
+        sha256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4);
+        pyproject.toml declares license = "Apache-2.0"
+    checked_on: "2026-10-07"
+
+  - component: biomni.tool.gene_set_enrichment_analysis
+    project: Biomni
+    entrypoint: biomni.tool.genomics:gene_set_enrichment_analysis
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    implementation_path: biomni/tool/genomics.py
+    description_path: biomni/tool/tool_description/genomics.py
+    signature:
+      - {name: genes, kind: positional_or_keyword, default: false}
+      - {name: top_k, kind: positional_or_keyword, default: true}
+      - {name: database, kind: positional_or_keyword, default: true}
+      - {name: background_list, kind: positional_or_keyword, default: true}
+      - {name: plot, kind: positional_or_keyword, default: true}
+    licence:
+      spdx: Apache-2.0
+      source: >-
+        LICENSE at 400c1f366b96a35ca253e13c9b06c5076af41d65 (Apache License 2.0 text,
+        sha256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4);
+        pyproject.toml declares license = "Apache-2.0"
+    checked_on: "2026-10-07"

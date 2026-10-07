@@ -4,11 +4,18 @@
 2. load every snapshot through the ledger, and keep only the sources the contract is
    granted (request ∩ enabled source cards ∩ run allowance);
 3. compile the skill into a PSH ``ScientificProgram`` — the compiler checks the steps'
-   study designs against the claim kind. PSH is required: a run without it is refused
-   unless the caller passes ``require_psh=False``, and the provenance record then says
-   ``governed: false`` (an earlier version skipped the compile silently on ImportError);
-4. run the analysis and the release check;
-5. write the outputs and a provenance record.
+   study designs against the claim kind, and each step's reach against the run's
+   envelope (every step runs inside the analysis, in this process, on snapshots it reads
+   from disk). PSH is required: a run without it is refused unless the caller passes
+   ``require_psh=False``, and the provenance record then says ``governed: false`` (an
+   earlier version skipped the compile silently on ImportError);
+4. for a commercial purpose, put everything the run draws on — the analysis code and the
+   libraries it reads its inputs with, PSH, each source snapshot — to the usage gate
+   (``bioagent.licences``), as a commercial ``Runtime.invoke`` does, and refuse the run
+   when an asset has no reviewed record permitting it. A skill run used to apply only the
+   source cards and the composition licence, so code nobody had reviewed passed unasked;
+5. run the analysis and the release check;
+6. write the outputs and a provenance record.
 
 The intervention is a parameter: any ``FormulaVersion`` the herb-layer snapshot records
 (the 葛根芩连汤 of 伤寒论 is only the default). A formula the snapshot does not record is
@@ -59,6 +66,61 @@ LOCK_FILE = "snapshot_lock.json"
 
 class SkillRunRefused(RuntimeError):
     """The run cannot proceed under the skill's contract, or its claims were refused."""
+
+
+def _analysis_manifest(snapshot_root: str | Path, ledger_path: str | Path) -> Any:
+    """The analysis as a component: what it runs, imports and reads.
+
+    The contract's tools (``np.composition``, ``np.pathway_enrichment`` …) are stages of
+    :func:`run_network_pharmacology`, which this run calls in process on snapshots it reads
+    from disk with pyarrow, under a contract it reads with PyYAML. So every step reaches
+    what the run reaches — local compute, reading the snapshot store and the ledger — and
+    that, not an assumption, is what the program declares and what the usage gate rules on.
+    """
+    from ..runtime.component import (ComponentManifest, LicenseSpec, Permissions,
+                                     Requirements, RuntimeSpec)
+
+    return ComponentManifest(
+        id="analysis.network_pharmacology", kind="tool", name="network pharmacology analysis",
+        runtime=RuntimeSpec(backend="python", deterministic=True,
+                            entrypoint="bioagent.analysis.network_pharmacology:"
+                                       "run_network_pharmacology"),
+        requires=Requirements(python=("pyarrow", "yaml")),
+        license=LicenseSpec(spdx="MIT", integration_mode="native"),
+        permissions=Permissions(filesystem_read=(str(Path(snapshot_root).resolve()),
+                                                 str(Path(ledger_path).resolve()))))
+
+
+def _analysis_components(contract: SkillContract, snapshot_root: str | Path,
+                         ledger_path: str | Path) -> dict[str, Any]:
+    """The component each step's tool names: the analysis itself, as the bridge admits it."""
+    from ..psh.manifest import bridge_manifest
+
+    admitted = bridge_manifest(_analysis_manifest(snapshot_root, ledger_path))
+    return {tool: admitted for tool in contract.tools}
+
+
+def _usage(analysis: Any, chosen: Mapping[str, tuple[str, str]], sources: Mapping[str, str],
+           governed: bool, purpose: str, licences: Any) -> Any:
+    """The usage gate's ruling on everything this run draws on, as ``Runtime.invoke`` asks it
+    for a component; ``None`` for a research run, which the gate does not rule on.
+
+    What the run draws on: the analysis (its code, by import root, and the libraries it
+    reads the inputs with), PSH when it compiled the program, and each source snapshot it
+    uses. The herb layer is not a source card; the studied composition's own licence is
+    ruled on separately (``_composition_licences``).
+    """
+    if purpose == "academic":
+        return None
+    from ..licences import Asset, LicenceRecords, assets_for, usage_decision
+
+    records = licences if licences is not None else LicenceRecords.load()
+    assets = list(assets_for(analysis, records=records))
+    if governed:
+        assets.append(Asset("code", "psh", "requirement"))
+    assets += [Asset("data", f"source:{key}@{chosen[key][0]}", "source")
+               for key in sorted(sources)]
+    return usage_decision(assets, purpose=purpose, records=records)
 
 
 def _fits(version: str, pin: str) -> bool:
@@ -170,7 +232,17 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
               require_psh: bool = True, formula: FormulaVersion = GEGEN_QINLIAN,
               lock: str | Path | dict[str, str] | None = None,
               latest: bool = False, purpose: str = "academic",
-              expected_ledger_head: Mapping[str, Any] | None = None) -> dict[str, Any]:
+              expected_ledger_head: Mapping[str, Any] | None = None,
+              licences: Any = None) -> dict[str, Any]:
+    """Run the skill under its contract; the provenance record it writes.
+
+    ``purpose`` is ``academic`` or ``commercial`` (``sources.cards.PURPOSES``). A commercial
+    run is also put to the usage gate, as a commercial ``Runtime.invoke`` is: every asset it
+    draws on needs a reviewed record permitting that use (``licences``, by default the
+    shipped ``registry/licence_records.yaml``), the analysis does not run if one is
+    refused, and the decision is recorded as ``provenance["usage"]``. A research run is
+    ruled on as it always was and records nothing new.
+    """
     contract = SkillContract.load(Path(skill_dir) / "skill.yaml")
     ledger = SnapshotLedger(ledger_path)
     # ``expected_ledger_head`` is the head an earlier run recorded: the ledger must still
@@ -194,6 +266,7 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                 "was replaced and cannot be reproduced from this snapshot store")
     herbs = next(s for s in snapshots if s.key == HERB_LAYER)
     composition_licences = _composition_licences(herbs, formula, purpose)
+    analysis = _analysis_manifest(snapshot_root, ledger_path)
 
     compiled = None
     try:
@@ -214,9 +287,17 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                            outcome="Reactome pathway over-representation")
         policy = PolicySnapshot(profile_id="tcm-network-pharmacology",
                                 require_claim_support=False)
+        envelope = policy.envelope()
         program = skill_program(contract, scope,
+                                components=_analysis_components(contract, snapshot_root,
+                                                                ledger_path),
+                                envelope=envelope,
                                 provenance=tuple(s.snapshot_id for s in snapshots))
-        compiled = ScientificCompiler().compile(program, policy.envelope(), policy=policy)
+        compiled = ScientificCompiler().compile(program, envelope, policy=policy)
+
+    usage = _usage(analysis, chosen, granted, compiled is not None, purpose, licences)
+    if usage is not None and not usage.allowed:
+        raise SkillRunRefused(f"the usage gate refused this {purpose} run: {usage.reason}")
 
     result: NetworkPharmacologyResult = run_network_pharmacology(
         snapshots, formula=formula, params=params, contract=contract)
@@ -278,6 +359,10 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                    "refused": len(result.release["refused"])},
         "python": platform.python_version(), "finished_at": time.time(),
     }
+    if usage is not None:
+        # every asset, the record and terms relied on, each verdict: what a commercial
+        # Runtime.invoke records on its policy event
+        provenance["usage"] = usage.as_dict()
     (out / "provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2),
                                          encoding="utf-8")
     if result.release["refused"]:

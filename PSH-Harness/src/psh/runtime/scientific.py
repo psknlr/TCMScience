@@ -387,6 +387,13 @@ class ScientificRunService:
                     envelope.run_id, event.task_id, signature=signature,
                     result=event.result, label=event.label, ceiling=ceiling,
                     allow_results=allow, program_id=program_id)
+            elif event.state == "waiting":
+                # Work started and not collected is neither a result nor a failure; the
+                # journal says so, so a later run neither reuses it nor starts it again.
+                self.journal.append(RecordKind.NODE_WAITING, envelope.run_id,
+                                    node_id=event.task_id, signature=signature,
+                                    program_id=program_id,
+                                    reference_sha256=event.reference_digest)
             else:
                 self.journal.append(RecordKind.NODE_FAILED, envelope.run_id,
                                     node_id=event.task_id, signature=signature,

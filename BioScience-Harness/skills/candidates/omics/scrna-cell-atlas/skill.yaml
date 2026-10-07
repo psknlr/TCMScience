@@ -81,6 +81,18 @@ inputs:
       type: string
     contrast:
       type: string
+    analysis_backend:
+      type: string
+      enum: [builtin, scanpy]
+      description: "who runs normalisation to markers"
+    integration_method:
+      type: string
+      enum: [none, harmony, scvi]
+      description: "batch integration; scvi needs scvi-tools"
+    de_backend:
+      type: string
+      enum: [builtin, pydeseq2]
+      description: "the DESeq2 implementation for the pseudobulk test"
     out_dir:
       type: string
 

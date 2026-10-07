@@ -433,7 +433,12 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                 f"the herb-layer snapshot {herbs.snapshot_id} does not contain {formula_id}; "
                 "rebuild it with build_source_snapshots.py gold --formula-table")
         ids = {s.key: s.snapshot_id for s in snaps}
-        program = _compile(contract, protocol, ids)
+        from ..psh import bridge_manifest, profile_named
+        analysis = bridge_manifest(
+            _analysis_manifest(str(Path(snapshot_root).resolve()),
+                               str(Path(ledger_path).resolve())),
+            local_ceiling=profile_named(profile).local_ceiling)
+        program = _compile(contract, protocol, ids, analysis)
         audit("program_compiled", fingerprint=program, steps=sorted(
             (contract.steps if contract is not None else {}).keys()))
         if analyse is None:
@@ -584,12 +589,15 @@ def _analyse(analyse: Callable[..., Any], snaps: Sequence[Snapshot], protocol: P
     return doc
 
 
-def _compile(contract: Any, protocol: Protocol, ids: Mapping[str, str]) -> str:
+def _compile(contract: Any, protocol: Protocol, ids: Mapping[str, str],
+             analysis: Any) -> str:
     """Compile the skill's ScientificProgram under PSH; its fingerprint, or a refusal.
 
     PSH's compiler checks the program's evidence designs against the claim kind. A
     mechanism claim resting on in-silico steps would be refused here, before any
-    analysis runs.
+    analysis runs. Every step of the contract runs inside one tool call, so each step's
+    tool names ``analysis``, the admitted manifest of that component, and the program
+    declares what it reaches.
     """
     if contract is None:
         raise ResearchRefused("no skill contract (skill.yaml) to compile the analysis from")
@@ -604,12 +612,35 @@ def _compile(contract: Any, protocol: Protocol, ids: Mapping[str, str]) -> str:
                        outcome="Reactome pathway over-representation")
     policy = PolicySnapshot(profile_id="tcm-network-pharmacology",
                             require_claim_support=False)
+    envelope = policy.envelope()
     try:
-        program = skill_program(contract, scope, provenance=tuple(sorted(ids.values())))
-        compiled = ScientificCompiler().compile(program, policy.envelope(), policy=policy)
+        program = skill_program(contract, scope,
+                                components={tool: analysis for tool in contract.tools},
+                                envelope=envelope, provenance=tuple(sorted(ids.values())))
+        compiled = ScientificCompiler().compile(program, envelope, policy=policy)
     except (PlanRejected, SkillProgramError) as exc:
         raise ResearchRefused(f"the analysis program does not compile: {exc}") from exc
     return compiled.fingerprint
+
+
+def _analysis_manifest(root: str, ledger: str) -> Any:
+    """The BioScience component the analysis runs as: one tool call over ledger-verified
+    snapshots, reading the snapshot store and the ledger and nothing else."""
+    from ..runtime.component import ComponentManifest, LicenseSpec, Permissions, RuntimeSpec
+    from .tools import TOOL_ENTRYPOINT, TOOL_ID
+
+    return ComponentManifest(
+        id=TOOL_ID, kind="tool", name="network pharmacology analysis",
+        description="composition, measured targets, enrichment and release check on "
+                    "ledger-verified snapshots",
+        # Real snapshots (a herb layer of 42k formulas, STRING, Reactome) need more
+        # than the kernel's defaults (2 GB, 120 s, 200k characters of result: the
+        # full enrichment table of one formula is 1-2 MB). They are still limits.
+        runtime=RuntimeSpec(backend="python", entrypoint=TOOL_ENTRYPOINT,
+                            deterministic=True, timeout_s=1800, memory_mb=16384,
+                            max_output_chars=32_000_000),
+        license=LicenseSpec(spdx="MIT", integration_mode="native"),
+        permissions=Permissions(filesystem_read=(root, ledger)))
 
 
 class _GovernedAnalysis:
@@ -618,9 +649,7 @@ class _GovernedAnalysis:
     def __init__(self, kernel: Any, snapshot_root: Any, ledger_path: Any, contract: Any,
                  accept_review: bool, profile: str, manifest_dir: Path) -> None:
         from ..psh import BioScienceBridge, default_runtime
-        from ..runtime.component import (ComponentManifest, LicenseSpec, Permissions,
-                                         RuntimeSpec)
-        from .tools import TOOL_ENTRYPOINT, TOOL_ID
+        from .tools import TOOL_ID
 
         self.kernel = kernel
         self.root = str(Path(snapshot_root).resolve())
@@ -633,18 +662,7 @@ class _GovernedAnalysis:
         if workspace == Path(workspace.anchor):
             raise ResearchRefused("the snapshots and the ledger share no directory but the "
                                   "filesystem root; put them under one work directory")
-        manifest = ComponentManifest(
-            id=TOOL_ID, kind="tool", name="network pharmacology analysis",
-            description="composition, measured targets, enrichment and release check on "
-                        "ledger-verified snapshots",
-            # Real snapshots (a herb layer of 42k formulas, STRING, Reactome) need more
-            # than the kernel's defaults (2 GB, 120 s, 200k characters of result: the
-            # full enrichment table of one formula is 1-2 MB). They are still limits.
-            runtime=RuntimeSpec(backend="python", entrypoint=TOOL_ENTRYPOINT,
-                                deterministic=True, timeout_s=1800, memory_mb=16384,
-                                max_output_chars=32_000_000),
-            license=LicenseSpec(spdx="MIT", integration_mode="native"),
-            permissions=Permissions(filesystem_read=(self.root, self.ledger)))
+        manifest = _analysis_manifest(self.root, self.ledger)
         runtime = default_runtime(catalogue=False, public_apis=False, skills=False,
                                   extra_manifests=(manifest,))
         self.bridge = BioScienceBridge(kernel, runtime, profile=profile,

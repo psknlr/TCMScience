@@ -301,6 +301,24 @@ def probe_container_runtime(*, timeout_s: float = 8.0,
     return probe
 
 
+def unbound_entrypoint(m: ComponentManifest) -> str:
+    """Why ``m``'s python entrypoint may not run, or "" when nothing stands in its way.
+
+    A catalogue row carries a source path, not an import path, so a python entrypoint
+    built from it is a derivation — and for Biomni the path is the tool's *description*
+    (``biomni/tool/tool_description/genomics.py``), while the function lives in
+    ``biomni/tool/genomics.py``. The derivation is a fine way to discover a candidate and
+    no way to choose code to execute: the entrypoint must come from a reviewed binding.
+    The component stays registered and searchable, and resolves UNAVAILABLE with this
+    reason, so the catalogue still says what exists without saying it can run.
+    """
+    if m.runtime.backend != "python" or m.runtime.entrypoint_basis != "derived":
+        return ""
+    return (f"entrypoint {m.runtime.entrypoint!r} was derived from the catalogue path "
+            f"{m.provider.source_path!r}, not bound to a verified implementation; add a "
+            "reviewed binding to registry/implementation_bindings.yaml")
+
+
 def default_backend_probe(backend: str) -> tuple[bool, str]:
     """Ask the live machine whether a backend can run, instead of assuming.
 
@@ -478,6 +496,9 @@ class Resolver:
         backend_ok, backend_reason = self._backend_probe(m.runtime.backend)
         if not backend_ok:
             problems.append(backend_reason or f"backend {m.runtime.backend!r} unavailable")
+        unbound = unbound_entrypoint(m)
+        if unbound:
+            problems.append(unbound)
         return (not problems), "; ".join(problems) or "requirements satisfied"
 
     # -------------------------------------------------------------- resolve
@@ -537,6 +558,9 @@ class Resolver:
         backend_ok, backend_reason = self._backend_probe(m.runtime.backend)
         if not backend_ok:
             problems.append(backend_reason or f"backend {m.runtime.backend!r} unavailable here")
+        unbound = unbound_entrypoint(m)
+        if unbound:
+            problems.append(unbound)
 
         if problems:
             reason = "; ".join(problems)

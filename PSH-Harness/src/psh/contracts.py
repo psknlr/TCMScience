@@ -51,6 +51,7 @@ __all__ = [
     "PSHError", "PolicyDenied", "EgressDenied", "BudgetExhausted", "ApprovalRequired",
     "ApprovalDenied", "VerificationFailed", "CapabilityUnavailable", "BrokerBypass",
     "ContractViolation", "ToolTimeout", "OperationUnresolved", "DegradedResult",
+    "PendingResult", "ResultPending", "reference_digest",
     "RiskTier", "Autonomy", "AUTONOMY_ORDER", "RunEnvelope", "Budget", "Principal",
     "ComponentKind", "ComponentManifest", "ContextProjection", "ContextItem",
     "DelegationContract", "EventEnvelope", "ModelProfile", "ArtifactRef",
@@ -167,6 +168,65 @@ class DegradedResult:
 
     value: Any
     reason: str = ""
+
+
+class ResultPending(PSHError):
+    """A tool call started work that has not finished, so there is no result to return.
+
+    The broker raises it when a component answers with a :class:`PendingResult`. It is
+    not a ``ContractViolation`` — the component kept its contract — and no retry policy
+    names it, because a retried submission is a second job. It carries the kernel's
+    record of the outstanding work (``pending``, a ``psh.kernel.PendingOutcome``): the
+    reference the work is collected by, labelled like the inputs that started it, and the
+    digest the audit chain holds. Nothing on it is a value. A caller that reads results
+    finds none here, and a caller that does not know this exception fails rather than
+    taking a submission for the work.
+    """
+
+    def __init__(self, message: str, *, pending: Any) -> None:
+        super().__init__(message)
+        self.pending = pending
+
+
+@dataclass(frozen=True, slots=True)
+class PendingResult:
+    """What a component returns when the work it started has not finished.
+
+    A structure prediction or a pipeline is accepted long before it is done. Returning the
+    job id as the result reports the *submission* as the work; failing records a violation
+    for a call that did what it should. This is the third answer: the work exists, here is
+    how to find it again, and there is nothing to read yet.
+
+    ``reference`` names the work (a job id, the executor, where it runs) and never holds
+    its output. It is written to the audit chain, so a key that would carry content
+    (``EventEnvelope.FORBIDDEN_KEYS``) is refused, and it must be plain JSON so the digest
+    that names it is the same in every process. The component receives that digest back
+    as ``_psh_pending`` on each later call for the same work, and must then only collect
+    it: a continuation never starts the work again.
+    """
+
+    reference: Mapping[str, Any]
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.reference, Mapping) or not self.reference:
+            raise ValueError("a pending result names the work it waits on; an empty or "
+                             "missing reference names nothing to collect")
+        offenders = _forbidden_keys_deep(self.reference, EventEnvelope.FORBIDDEN_KEYS)
+        if offenders:
+            raise ValueError(f"a pending reference names work and may not carry content "
+                             f"keys {offenders}")
+        try:
+            json.dumps(self.reference, sort_keys=True)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"a pending reference must be plain JSON, so that the digest "
+                             f"naming it is stable: {exc}") from None
+
+
+def reference_digest(reference: Mapping[str, Any]) -> str:
+    """The digest a pending reference is named by: in the chain, the ledger and the
+    ``_psh_pending`` key of a continuation. One function, so the three cannot disagree."""
+    return content_hash(dict(reference))
 
 
 # ------------------------------------------------------------------- run envelope

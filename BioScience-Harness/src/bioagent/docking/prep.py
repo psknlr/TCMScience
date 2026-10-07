@@ -15,16 +15,21 @@ charged, a neutral one stays neutral. No pKa model is applied, and the report sa
 **Co-crystal ligands** are read from the receptor file by residue name, their bond
 orders taken from a SMILES template (the RCSB Chemical Component Dictionary's when none
 is given), for defining the box and for the redocking check.
+
+Both downloads — an entry from RCSB, a SMILES from the Chemical Component Dictionary — go
+through :func:`bioagent.operations.operation`, so a governed run checks them against the
+skill's manifest and records them.
 """
 
 from __future__ import annotations
 
-import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+
+from ..operations import RCSB_CHEMCOMP, RCSB_ENTRY, fetch_bytes, operation
 
 __all__ = ["DockingError", "Receptor", "Ligand", "prepare_receptor", "prepare_ligand",
            "read_ligands", "cocrystal_ligand", "fetch_pdb", "ccd_smiles", "WATER"]
@@ -69,16 +74,15 @@ class Ligand:
 
 def fetch_pdb(code: str, *, timeout: float = 120.0) -> str:
     url = f"https://files.rcsb.org/download/{code.upper()}.pdb"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return r.read().decode("utf-8", errors="replace")
+    data = operation(RCSB_ENTRY, fetch_bytes, url=url, timeout=timeout)
+    return data.decode("utf-8", errors="replace")
 
 
 def ccd_smiles(resname: str, *, timeout: float = 60.0) -> str:
     """The Chemical Component Dictionary's SMILES for a ligand code (RCSB)."""
     import json
     url = f"https://data.rcsb.org/rest/v1/core/chemcomp/{resname.upper()}"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        doc = json.loads(r.read())
+    doc = json.loads(operation(RCSB_CHEMCOMP, fetch_bytes, url=url, timeout=timeout))
     desc = doc.get("rcsb_chem_comp_descriptor", {})
     smi = desc.get("smiles_stereo") or desc.get("smiles")
     if not smi:

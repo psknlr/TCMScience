@@ -33,14 +33,15 @@ from .ingress import IngressDecision, IngressGateway
 from .output_gate import OutputGate, OutputVerdict
 from .persistence import CommitRequest, PersistenceGateway, ValidationStatus
 from .release import Quarantine, QuarantineRef, ReleaseDecision
-from .results import ExecutionResult, ModelCallResult, ModelUsage
+from .results import ExecutionResult, ModelCallResult, ModelUsage, PendingOutcome
 
 __all__ = [
     "TrustedKernel", "Classifier", "IngressGateway", "IngressDecision",
     "ModelGateway", "ToolGateway", "DelegationGateway", "PersistenceGateway",
     "CommitRequest", "ValidationStatus", "Quarantine", "QuarantineRef", "ReleaseDecision",
     "AuthorityLattice", "AuthorityViolation", "ExecutionResult", "ModelCallResult",
-    "ModelUsage", "ExecutionBroker", "ApprovalEngine", "EgressDecision", "EventStore",
+    "ModelUsage", "PendingOutcome",
+    "ExecutionBroker", "ApprovalEngine", "EgressDecision", "EventStore",
     "ChainVerification", "BudgetGovernor", "BudgetState", "OutputGate", "OutputVerdict",
     "SABLE_AVAILABLE", "GENESIS_HASH",
 ]
@@ -187,7 +188,8 @@ class TrustedKernel:
         self.output_gate = OutputGate(verifier=self.verifier,
                                       require_support=self.policy.require_claim_support,
                                       require_citation=self.policy.require_citation,
-                                      audit=sink)
+                                      audit=sink,
+                                      citation_patterns=self.config.citation_patterns)
 
     # ------------------------------------------------------------ classification
     @property

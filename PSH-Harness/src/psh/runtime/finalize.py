@@ -214,12 +214,21 @@ class Finalizer:
         base = dict(run_id=envelope.run_id, loop_id=result.loop_id,
                     termination=result.termination.value, goal_status=result.goal_status)
 
-        if result.termination is not Termination.GOAL_SATISFIED:
-            self._audit(envelope, "not_completed", reason=result.termination.value)
-            return ReleasedResult(status="not_completed", refused_at="execution",
-                                  refusal_kind=result.termination.value,
-                                  limitations=(f"the loop ended {result.termination.value}",),
-                                  **base)
+        # Work that has not finished is never released, whatever the termination claims: a
+        # result handed over with tasks still waiting would release a submission as if it
+        # were the work. The loop cannot satisfy its goal with a task waiting, so this
+        # holds by construction there; it is checked here for every other caller too.
+        pending = tuple(sorted(getattr(result, "pending", None) or ()))
+        if result.termination is not Termination.GOAL_SATISFIED or pending:
+            ended = (result.termination.value if result.termination is not
+                     Termination.GOAL_SATISFIED else Termination.AWAITING.value)
+            self._audit(envelope, "not_completed", reason=ended, pending=list(pending))
+            return ReleasedResult(
+                status="not_completed", refused_at="execution", refusal_kind=ended,
+                limitations=(f"the loop ended {ended}",)
+                + tuple(f"task {task_id} waits on work that has not finished"
+                        for task_id in pending),
+                **base)
 
         candidate = output if output is not None else render_deliverable(result)
         # The deliverable's label: the join of everything the loop saw (its result label)

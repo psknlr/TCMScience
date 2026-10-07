@@ -760,19 +760,34 @@ def _preexec(memory_mb: int | None) -> Callable[[], None]:
 # --------------------------------------------------- executing a component isolated
 
 def _unwrap_child_result(parsed: Any) -> Any:
-    """A child's one JSON value, or the shortfall it wrapped that value in.
+    """A child's one JSON value, the shortfall it wrapped that value in, or pending work.
 
-    The protocol has one extension: a child that ran with a documented shortfall writes
+    The protocol has two extensions. A child that ran with a documented shortfall writes
     ``{"$psh": {"status": "degraded", "reason": "...", "value": ...}}`` and the kernel
-    records a degraded result with that caveat. Anything else is the value itself.
+    records a degraded result with that caveat. A child whose work outlives it — it
+    submitted a long job — writes ``{"$psh": {"status": "pending", "reason": "...",
+    "reference": {...}}}`` and the kernel records pending work, not a value. Anything else
+    is the value itself.
     """
     if isinstance(parsed, dict) and set(parsed) == {"$psh"} and isinstance(parsed["$psh"], dict):
-        from ..contracts import DegradedResult
+        from ..contracts import ContractViolation, DegradedResult, PendingResult
 
         envelope = parsed["$psh"]
-        if str(envelope.get("status", "")).lower() == "degraded":
+        status = str(envelope.get("status", "")).lower()
+        if status == "degraded":
             return DegradedResult(value=envelope.get("value"),
                                   reason=str(envelope.get("reason") or "")[:300])
+        if status == "pending":
+            # Pending work must say how it will be found again. Passed through as a plain
+            # value, an envelope without a usable reference would be a successful result
+            # holding a submission, which is the defect this kind exists to prevent.
+            try:
+                return PendingResult(reference=envelope.get("reference"),
+                                     reason=str(envelope.get("reason") or "")[:300])
+            except ValueError as exc:
+                raise ContractViolation(
+                    f"a child reported pending work without a usable reference: {exc}"
+                ) from None
     return parsed
 
 
@@ -792,7 +807,8 @@ class IsolatedExecutor:
     is a component boundary people will route around:
 
     * the child receives one JSON object on **stdin** — ``{"tool", "run_id", "payload"}``;
-    * it writes one JSON value on **stdout**, which becomes the tool result;
+    * it writes one JSON value on **stdout**, which becomes the tool result — or a
+      ``$psh`` envelope for a degraded value or pending work (``_unwrap_child_result``);
     * a non-zero exit is a ``ContractViolation`` carrying stderr, never a silent empty
       result.
 

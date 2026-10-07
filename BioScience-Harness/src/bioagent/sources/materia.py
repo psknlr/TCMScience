@@ -37,8 +37,10 @@ from typing import Mapping
 
 from ..config import registry_dir
 
-__all__ = ["CATEGORIES", "MATERIA", "MateriaEntry", "TAXA_FILE", "crude_drugs", "resolve_name",
-           "normalise_name", "to_simplified", "unverified", "all_drugs"]
+__all__ = ["CATEGORIES", "IDENTITY_PREFIXES", "MATERIA", "MateriaEntry", "NameMention",
+           "PROCESSING_WORDS", "TAXA_FILE", "all_drugs", "crude_drugs", "names_in",
+           "normalise_name", "processing_of", "resolve_name", "shared_name", "to_simplified",
+           "unverified"]
 
 CATEGORIES = ("plant", "fungus", "animal", "mineral", "other")
 #: ``registry/materia_taxa.json`` of the checkout, or the copy an installed package carries.
@@ -973,6 +975,158 @@ def resolve_name(raw: str) -> str | None:
         if c in _NAME_INDEX:
             return _NAME_INDEX[c]
     return None
+
+
+#: Words of origin, size or colour that make another drug of the name they precede: 川牛膝
+#: is not 牛膝, 白附子 is not 附子, 土茯苓 is not 茯苓, 水半夏 is not 半夏. ``resolve_name``
+#: never strips them; ``names_in`` uses them to tell a name from the end of another one.
+IDENTITY_PREFIXES: tuple[str, ...] = ("川", "大", "小", "白", "土", "水")
+
+#: What a formula or a preparation is called after the names in it (小柴胡汤, 大承气汤,
+#: 黄芪注射液). An identity word in front of a herb's name, with one of these after it, is
+#: the start of a formula's name, not a near name of the herb.
+_FORMULA_ENDINGS = ("汤", "散", "丸", "饮", "方", "膏", "丹", "颗粒", "胶囊", "注射液", "片",
+                    "口服液", "合剂", "糖浆", "冲剂", "滴丸", "软胶囊", "注射剂")
+
+#: Everyday words that end in an identity word. In 减小附子剂量 the 小 belongs to 减小, and
+#: in 加大黄芪用量 the 大 belongs to 加大: neither is part of the name after it. Place names
+#: are left out on purpose, because 四川牛膝 may well mean 川牛膝.
+_ENDS_IN_IDENTITY = frozenset({
+    "加大", "增大", "较大", "过大", "最大", "放大", "扩大", "偏大", "很大", "更大",
+    "减小", "较小", "最小", "缩小", "过小", "偏小", "很小", "更小",
+    "蛋白", "空白", "苍白", "饮水", "温水", "冷水", "热水", "开水", "沸水"})
+
+
+@dataclass(frozen=True)
+class NameMention:
+    """A drug name found in running text, and what it identifies.
+
+    ``drug_id`` is None when the name as written identifies no recorded drug: an identity
+    word stands before a known name and the two together are no name in the table
+    (白首乌 before 首乌). ``contains`` is then the drug the known part would have named,
+    which is the drug a careless reading would take it for.
+    """
+
+    name: str
+    drug_id: str | None
+    start: int
+    contains: str | None = None
+
+    @property
+    def identified(self) -> bool:
+        return self.drug_id is not None
+
+
+@lru_cache(maxsize=1)
+def _scan_index() -> dict[str, tuple[str, ...]]:
+    by_first: dict[str, list[str]] = {}
+    for name in _NAME_INDEX:
+        if len(name) >= 2:                  # one character is a word, not a name to scan for
+            by_first.setdefault(name[0], []).append(name)
+    return {k: tuple(sorted(v, key=len, reverse=True)) for k, v in by_first.items()}
+
+
+def names_in(text: str) -> list[NameMention]:
+    """Every drug name written in ``text``, longest match first, in order of appearance.
+
+    A name found right after an identity word is reported as the longer name, identified
+    only if the table knows it: in 白首乌 the scanner finds 首乌, an alias of 何首乌, and
+    reports 白首乌, unidentified, rather than 何首乌. Names of one character are not scanned
+    for; they are words (姜, 酒, 盐) far more often than names in running text.
+
+    An identity word that ends an everyday word belongs to that word: 减小附子 reads 附子,
+    and 加大黄芪 reads 黄芪, not 大黄. 加大黄, with no name after the 大, still reads 大黄.
+    """
+    text = to_simplified(text or "")
+    index = _scan_index()
+
+    def starts_name(at: int) -> bool:
+        return any(text.startswith(n, at) for n in index.get(text[at:at + 1], ()))
+
+    out: list[NameMention] = []
+    i = 0
+    while i < len(text):
+        if i > 0 and text[i - 1:i + 1] in _ENDS_IN_IDENTITY and starts_name(i + 1):
+            i += 1
+            continue
+        for name in index.get(text[i], ()):
+            if not text.startswith(name, i):
+                continue
+            drug = _NAME_INDEX[name]
+            before = text[i - 1] if i > 0 else ""
+            if before in IDENTITY_PREFIXES and text[i - 2:i] not in _ENDS_IN_IDENTITY:
+                longer = before + name
+                other = resolve_name(longer)
+                if other != drug:
+                    # 小柴胡汤 names a formula; it is no mention of 柴胡 at all.
+                    if not text.startswith(_FORMULA_ENDINGS, i + len(name)):
+                        out.append(NameMention(longer, other, i - 1, contains=drug))
+                    i += len(name)
+                    break
+            out.append(NameMention(name, drug, i))
+            i += len(name)
+            break
+        else:
+            i += 1
+    return out
+
+
+def shared_name(a: str, b: str) -> str | None:
+    """The longest drug name both ``a`` and ``b`` contain, if any: 附子 for 制白附子 and
+    制附子, 牛膝 for 川牛膝 and 牛膝. Two names sharing one are near names; two that share
+    only a character (黄芩, 黄芪) are not."""
+    a, b = to_simplified(a), to_simplified(b)
+    best: str | None = None
+    for i in range(len(a)):
+        for name in _scan_index().get(a[i], ()):
+            if a.startswith(name, i) and name in b and (best is None or len(name) > len(best)):
+                best = name
+    return best
+
+
+#: Processing that changes what a drug does, written before its name: 生附子 is the raw root,
+#: far more toxic than 制附子, and 炙甘草 is not 生甘草. ``resolve_name`` strips these to find
+#: the drug, which is right for identity; a claim must still not carry one state's evidence
+#: to another. Words of quality (真, 好, 陈, 鲜 …) are not processing and are not listed.
+PROCESSING_WORDS: tuple[str, ...] = ("麸炒", "土炒", "酒炒", "醋炒", "盐炒", "姜炒", "蜜炙",
+                                     "酒洗", "酒浸", "醋炙", "炙", "炒", "焙", "煨", "煅",
+                                     "酒", "醋", "盐", "蜜", "制", "生", "焦", "熟", "炮")
+
+#: Processed forms listed under their own names, whose processing no prefix shows: 姜半夏,
+#: 法半夏 and 清半夏 are 半夏 processed with ginger, with lime and liquorice, and with alum;
+#: 生半夏 is the raw tuber, toxic as it is.
+_PROCESSED_FORMS: Mapping[str, str] = {"姜半夏": "姜制", "法半夏": "法制", "清半夏": "清制"}
+
+#: Everyday words that end in a processing word: in 未发生附子相关不良反应 the 生 belongs to
+#: 发生, and in 抑制黄芪 the 制 to 抑制, not to the drug after them.
+_ENDS_IN_PROCESSING = frozenset({
+    "发生", "产生", "出生", "卫生", "学生", "医生", "先生", "再生", "新生", "衍生", "派生",
+    "共生", "寄生", "野生", "养生", "人生", "终生", "一生", "伴生", "滋生",
+    "抑制", "机制", "控制", "限制", "体制", "研制", "编制", "配制", "节制", "压制"})
+
+
+def processing_of(mention: NameMention, text: str = "") -> str:
+    """The processing state a drug name is written in, or "" when none is written.
+
+    Read from the listed name itself (制附子 is a name of 附子 with 制 before it) or from
+    the word immediately before the name in ``text`` (生 in 生附子, when only 附子 is
+    listed). A processing word that ends an everyday word (发生, 抑制) is not read.
+    """
+    name = mention.name
+    before = to_simplified(text or "")[:mention.start]
+    if name in _PROCESSED_FORMS:
+        return _PROCESSED_FORMS[name]
+    for word in PROCESSING_WORDS:
+        if (name.startswith(word) and len(name) > len(word)
+                and resolve_name(name[len(word):]) == mention.drug_id):
+            # 未发生附子…: the listed name 生附子 was read across the end of 发生.
+            return "" if (before[-1:] + word) in _ENDS_IN_PROCESSING else word
+    for word in PROCESSING_WORDS:
+        if before.endswith(word):
+            if before[-len(word) - 1:] in _ENDS_IN_PROCESSING:
+                return ""
+            return word
+    return ""
 
 
 @lru_cache(maxsize=4)

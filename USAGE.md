@@ -366,6 +366,27 @@ regenerating.
 <!-- zh -->
 要往里加东西，就得改 `bioagent/tcm/knowledge.py`，并把 `bioagent/skills/p0/common.py` 里的 `SEED_SNAPSHOT_AT` 往上提；语料哈希会自动变化，`scripts/check_lockfile.py` 会告诉你 lockfile 需要重新生成。
 
+### Asking what a signal means · 追问一个信号意味着什么
+
+The research loop runs a fixed set of rebuttals. When the question is which explanation of
+a pathway signal is true (the formula's activity, which proteins were assayed, or
+promiscuous chemistry), the inquiry decides what to run instead. The rival explanations and
+what each predicts every analysis will show are sealed first. PSH's inquiry engine then picks
+each next analysis by expected information per run and updates belief from the sealed
+predictions only. It stops only after a severe test against every rival, replicated
+([docs/inquiry.md](docs/inquiry.md)).
+
+<!-- zh -->
+研究闭环执行一组固定的反驳检验。如果要问的是一个通路信号该怎么解释——是方剂的活性，是哪些蛋白被检测过，还是化合物的「滥交」性——就改用推理引擎来决定该做哪些分析。它先封存竞争解释，以及每个解释对每个分析结果的预测。之后，PSH 的推理引擎按每次运行的期望信息量挑选下一个分析，只按封存的预测更新信念。只有对每个对手都通过严格检验并完成重复，才会停止（[docs/inquiry.md](docs/inquiry.md)）。
+
+```bash
+cd BioScience-Harness
+python scripts/run_inquiry.py --planted all --out WORK/inquiry          # worlds with a known answer
+python scripts/run_inquiry.py --snapshots WORK/snapshots --ledger WORK/audit/snapshots.jsonl \
+    --lock WORK/out/snapshot_lock.json --pathway reactome:R-HSA-1234567 \
+    --out WORK/inquiry --state WORK/state                                  # recorded in the world model
+```
+
 ---
 
 ## Running the governance layer · 运行治理层
@@ -385,6 +406,41 @@ The scout **cannot promote**, and that is structural rather than conventional:
 
 <!-- zh -->
 scout **无法执行晋级**，而这是结构性的，不是约定俗成的：`Registry.promote` 是稳定注册表条目的唯一写入者，而且它要求一份指名到人的 `PromotionDecision`。定时运行根本没有通往它的代码路径。见 `docs/adr/0001`。
+
+### Measuring the governance · 测量治理
+
+Whether the governance changes what gets released is measured, not assumed. Base outputs a
+reviewer would release are mutated by one known scientific error at a time and run through
+the runtime's own gates with each part switched on or off
+([docs/governance-ablation.md](docs/governance-ablation.md)). CI refuses a regression against
+the committed results.
+
+<!-- zh -->
+治理是否改变了发布的内容，要靠测量，不靠假设。具体做法：把审稿人会放行的基础输出每次注入一种已知的科学错误，送进运行时自己的闸门，并逐一开关各个部分（[docs/governance-ablation.md](docs/governance-ablation.md)）。CI 会拒绝相对已提交结果的任何回退。
+
+```bash
+cd BioScience-Harness
+python scripts/run_governance_ablation.py --out benchmarks/ablation               # regenerate
+python scripts/run_governance_ablation.py --check benchmarks/ablation/results.json
+python scripts/run_governance_ablation.py --drafts drafts.jsonl --out WORK/ablation # your outputs
+```
+
+### Measuring the evidence typing · 测量证据标注
+
+A type check is only as good as the design label it checks. The rules that type a passage's
+study design are measured on 478 real abstracts (Europe PMC, CC BY or CC0) against PubMed's
+publication types, with a dev/test split fixed by a hash of the PMID
+([docs/evidence-typing-accuracy.md](docs/evidence-typing-accuracy.md)). CI refuses a record
+read worse than the committed results show.
+
+<!-- zh -->
+类型检查的结论取决于它所检查的设计标签。标注研究设计的规则在 478 篇真实摘要（Europe PMC，CC BY 或 CC0）上，以 PubMed 出版类型为参照进行测量。开发集/测试集按 PMID 哈希固定划分（[docs/evidence-typing-accuracy.md](docs/evidence-typing-accuracy.md)）。若某条记录读得比已提交结果差，CI 会拒绝。
+
+```bash
+cd BioScience-Harness
+python scripts/run_evidence_typing_benchmark.py --out benchmarks/evidence_typing    # regenerate
+python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typing/results.json
+```
 
 ---
 

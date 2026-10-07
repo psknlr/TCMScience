@@ -5,10 +5,15 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-__all__ = ["ArgumentError", "arguments_for"]
+__all__ = ["ArgumentError", "arguments_for", "job_arguments", "JOB_RESERVED"]
 
 #: Keys PSH's runtime adds for its own bookkeeping; never a component's business.
 _RUNTIME_PREFIX = "_psh_"
+
+#: A job tool's keywords that only PSH's bookkeeping fills: the loop's idempotency key and
+#: the digest of the pending work a call continues. A payload that set them itself could
+#: pass off one call's job as another's.
+JOB_RESERVED = ("job_key", "job_pending")
 
 
 class ArgumentError(ValueError):
@@ -54,3 +59,24 @@ def arguments_for(payload: Any, *, source: Any = None, component_id: str = "") -
         return op.render(**{**defaults, **kwargs})
     except ValueError as exc:                     # a required argument is missing
         raise ArgumentError(f"connector {component_id!r}: {exc}") from None
+
+
+def job_arguments(payload: Any, *, component_id: str = "") -> dict[str, Any]:
+    """Keyword arguments for a job tool (``bioagent.backends.jobtool``) from a PSH payload.
+
+    The payload's own keys (``operation``, ``job``, ``grant`` and the job's arguments) pass
+    through as they are. PSH's idempotency key becomes ``job_key``, so a key names one job;
+    ``_psh_pending``, which the loop adds when it continues work a call left pending,
+    becomes ``job_pending``, which makes the call a collection that never submits.
+    """
+    kwargs = arguments_for(payload, component_id=component_id)
+    reserved = sorted(k for k in kwargs if k in JOB_RESERVED)
+    if reserved:
+        raise ArgumentError(f"job tool {component_id!r}: {reserved} are filled from PSH's "
+                            "bookkeeping and may not be set by a payload")
+    key, pending = payload.get("_psh_idempotency_key"), payload.get("_psh_pending")
+    if key:
+        kwargs["job_key"] = str(key)
+    if pending:
+        kwargs["job_pending"] = str(pending)
+    return kwargs

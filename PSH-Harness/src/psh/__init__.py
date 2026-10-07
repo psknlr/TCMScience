@@ -32,8 +32,8 @@ from .contracts import (
     ApprovalDenied, ApprovalRequired, ArtifactRef, Autonomy, Budget, BudgetExhausted,
     CapabilityUnavailable, ComponentKind, ComponentManifest, ContextItem,
     ContextProjection, ContractViolation, DelegationContract, EgressDenied, EventEnvelope,
-    ModelProfile, PolicyDenied, Principal, PSHError, RiskTier, RunEnvelope,
-    VerificationFailed,
+    ModelProfile, PendingResult, PolicyDenied, Principal, PSHError, ResultPending, RiskTier,
+    RunEnvelope, VerificationFailed,
 )
 from .evidence import (
     Certainty, Claim, ClaimSupport, ClaimSupportVerifier, Directness, Evidence,
@@ -41,11 +41,12 @@ from .evidence import (
 )
 from .kernel import (
     AuthorityLattice, ExecutionResult, IngressGateway, ModelCallResult, ModelUsage,
-    PersistenceGateway, Quarantine, TrustedKernel, ValidationStatus,
+    PendingOutcome, PersistenceGateway, Quarantine, TrustedKernel, ValidationStatus,
 )
 from .labels import (
-    DataLabel, Declassification, Destination, Labeled, Sensitivity, combine,
-    deep_label_of, unwrap_deep,
+    DNA_SEQUENCE, PROTEIN_SEQUENCE, RNA_SEQUENCE, SEQUENCE_FORMATS, DataLabel,
+    Declassification, Destination, Labeled, Sensitivity, combine, declared_sequence_problems,
+    deep_label_of, sequence_problem, unwrap_deep,
 )
 from .licensing import (
     INTEGRATION_MODES, LICENSE_CLASSES, LicenseClass, LicenseDecision, LicenseRuling,
@@ -90,8 +91,13 @@ __all__ = [
     "DEFAULT_SYSTEM_PROMPT", "default_state_dir", "environment_report", "__version__",
     "PolicySnapshot", "PolicyLattice", "PolicyViolation", "AuthorityLattice", "IngressGateway", "PersistenceGateway",
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
+    # long jobs: work a call started and has not finished is pending, never a result
+    "PendingResult", "PendingOutcome", "ResultPending",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",
     "deep_label_of", "unwrap_deep",
+    # typed inputs: a component declares which of its fields hold biological sequences
+    "PROTEIN_SEQUENCE", "DNA_SEQUENCE", "RNA_SEQUENCE", "SEQUENCE_FORMATS",
+    "sequence_problem", "declared_sequence_problems",
     "LicenseClass", "LicenseDecision", "LicenseRuling", "classify_license",
     "license_ruling", "INTEGRATION_MODES", "LICENSE_CLASSES",
     # v0.6 — the scientific compiler and the scientist plane

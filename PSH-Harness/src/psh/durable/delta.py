@@ -171,6 +171,12 @@ def diff(current: SIRProgram, replay: ReplayState, *,
                 "the previous attempt started and never reported, so what it did is "
                 "unknown", signature, recorded))
             continue
+        if outcome is NodeOutcome.WAITING:
+            deltas.append(_recompute_or_unsafe(
+                node, outcome,
+                "the previous attempt started work that had not finished and may still be "
+                "running", signature, recorded))
+            continue
         if outcome is NodeOutcome.FAILED:
             deltas.append(_recompute_or_unsafe(node, outcome, "the previous attempt failed",
                                                signature, recorded))
@@ -210,9 +216,11 @@ def _recompute_or_unsafe(node: Any, outcome: NodeOutcome, reason: str,
     """Recompute, unless doing so would repeat an effect nobody can undo.
 
     Only an attempt **in doubt** blocks. A node that plainly failed did not do its work, so
-    re-running it repeats nothing; a node that never reported may have done all of it.
+    re-running it repeats nothing; a node that never reported may have done all of it, and
+    a node whose work is still out there (WAITING) would be started a second time.
     """
-    if outcome is NodeOutcome.UNKNOWN and not node.side_effect.replayable:
+    if outcome in (NodeOutcome.UNKNOWN, NodeOutcome.WAITING) \
+            and not node.side_effect.replayable:
         return NodeDelta(
             node.node_id, Decision.UNSAFE,
             f"{reason}, and this node is {node.side_effect.value}: re-running it could "

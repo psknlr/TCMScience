@@ -94,6 +94,10 @@ inputs:
     trimmer:
       type: string
       enum: [auto, builtin, fastp, none]
+    de_backend:
+      type: string
+      enum: [builtin, pydeseq2]
+      description: "the DESeq2 implementation; a missing one is refused, not replaced"
     alpha:
       type: number
     out_dir:

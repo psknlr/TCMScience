@@ -1,0 +1,782 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "listed_at": "2026-10-07T10:35:54+00:00",
+ "server_info": {
+  "name": "BioMCP - Biomedical Model Context Protocol Server",
+  "version": "1.30.0"
+ },
+ "trimmed": "full descriptors kept for the allowlisted tools only; every tool name the server listed is in all_names.",
+ "all_names": [
+  "search",
+  "fetch",
+  "think",
+  "article_searcher",
+  "article_getter",
+  "trial_searcher",
+  "trial_getter",
+  "trial_protocol_getter",
+  "trial_references_getter",
+  "trial_outcomes_getter",
+  "trial_locations_getter",
+  "variant_searcher",
+  "variant_getter",
+  "alphagenome_predictor",
+  "gene_getter",
+  "enrichr_analyzer",
+  "disease_getter",
+  "drug_getter",
+  "nci_organization_searcher",
+  "nci_organization_getter",
+  "nci_intervention_searcher",
+  "nci_intervention_getter",
+  "nci_biomarker_searcher",
+  "nci_disease_searcher",
+  "openfda_adverse_searcher",
+  "openfda_adverse_getter",
+  "openfda_label_searcher",
+  "openfda_label_getter",
+  "openfda_device_searcher",
+  "openfda_device_getter",
+  "openfda_approval_searcher",
+  "openfda_approval_getter",
+  "openfda_recall_searcher",
+  "openfda_recall_getter",
+  "openfda_shortage_searcher",
+  "openfda_shortage_getter"
+ ],
+ "tools": [
+  {
+   "name": "article_searcher",
+   "description": "Search PubMed/PubTator3 for research articles and preprints.",
+   "inputSchema": {
+    "properties": {
+     "chemicals": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Chemical/drug names to search for",
+      "title": "Chemicals"
+     },
+     "diseases": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Disease names to search for",
+      "title": "Diseases"
+     },
+     "genes": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Gene symbols to search for",
+      "title": "Genes"
+     },
+     "keywords": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Free-text keywords to search for",
+      "title": "Keywords"
+     },
+     "variants": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Variant strings to search for (e.g., 'V600E', 'p.D277Y')",
+      "title": "Variants"
+     },
+     "include_preprints": {
+      "default": true,
+      "description": "Include preprints from bioRxiv/medRxiv",
+      "title": "Include Preprints",
+      "type": "boolean"
+     },
+     "include_cbioportal": {
+      "default": true,
+      "description": "Include cBioPortal cancer genomics summary when searching by gene",
+      "title": "Include Cbioportal",
+      "type": "boolean"
+     },
+     "page": {
+      "default": 1,
+      "description": "Page number (1-based)",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Results per page",
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "title": "article_searcherArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "article_searcherOutput",
+    "type": "object"
+   }
+  },
+  {
+   "name": "article_getter",
+   "description": "Fetch detailed information for a specific article.",
+   "inputSchema": {
+    "properties": {
+     "pmid": {
+      "description": "Article identifier - either a PubMed ID (e.g., '38768446' or 'PMC11193658') or DOI (e.g., '10.1101/2024.01.20.23288905')",
+      "title": "Pmid",
+      "type": "string"
+     }
+    },
+    "required": [
+     "pmid"
+    ],
+    "title": "article_getterArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "article_getterOutput",
+    "type": "object"
+   }
+  },
+  {
+   "name": "trial_searcher",
+   "description": "Search ClinicalTrials.gov for clinical studies.",
+   "inputSchema": {
+    "properties": {
+     "conditions": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Medical conditions to search for",
+      "title": "Conditions"
+     },
+     "interventions": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Treatment interventions to search for",
+      "title": "Interventions"
+     },
+     "other_terms": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Additional search terms",
+      "title": "Other Terms"
+     },
+     "recruiting_status": {
+      "anyOf": [
+       {
+        "enum": [
+         "OPEN",
+         "CLOSED",
+         "ANY"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by recruiting status",
+      "title": "Recruiting Status"
+     },
+     "phase": {
+      "anyOf": [
+       {
+        "enum": [
+         "EARLY_PHASE1",
+         "PHASE1",
+         "PHASE2",
+         "PHASE3",
+         "PHASE4",
+         "NOT_APPLICABLE"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by clinical trial phase",
+      "title": "Phase"
+     },
+     "location": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Location term for geographic filtering",
+      "title": "Location"
+     },
+     "lat": {
+      "anyOf": [
+       {
+        "maximum": 90,
+        "minimum": -90,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Latitude for location-based search. AI agents should geocode city names before using.",
+      "title": "Lat"
+     },
+     "long": {
+      "anyOf": [
+       {
+        "maximum": 180,
+        "minimum": -180,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Longitude for location-based search. AI agents should geocode city names before using.",
+      "title": "Long"
+     },
+     "distance": {
+      "anyOf": [
+       {
+        "minimum": 1,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Distance in miles from lat/long coordinates",
+      "title": "Distance"
+     },
+     "age_group": {
+      "anyOf": [
+       {
+        "enum": [
+         "CHILD",
+         "ADULT",
+         "OLDER_ADULT"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by age group",
+      "title": "Age Group"
+     },
+     "sex": {
+      "anyOf": [
+       {
+        "enum": [
+         "FEMALE",
+         "MALE",
+         "ALL"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by biological sex",
+      "title": "Sex"
+     },
+     "healthy_volunteers": {
+      "anyOf": [
+       {
+        "enum": [
+         "YES",
+         "NO"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by healthy volunteer eligibility",
+      "title": "Healthy Volunteers"
+     },
+     "study_type": {
+      "anyOf": [
+       {
+        "enum": [
+         "INTERVENTIONAL",
+         "OBSERVATIONAL",
+         "EXPANDED_ACCESS"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by study type",
+      "title": "Study Type"
+     },
+     "funder_type": {
+      "anyOf": [
+       {
+        "enum": [
+         "NIH",
+         "OTHER_GOV",
+         "INDUSTRY",
+         "OTHER"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Filter by funding source",
+      "title": "Funder Type"
+     },
+     "page": {
+      "default": 1,
+      "description": "Page number (1-based)",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Results per page",
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "title": "trial_searcherArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "trial_searcherOutput",
+    "type": "object"
+   }
+  },
+  {
+   "name": "trial_protocol_getter",
+   "description": "Fetch core protocol information for a clinical trial.",
+   "inputSchema": {
+    "properties": {
+     "nct_id": {
+      "description": "NCT ID (e.g., 'NCT06524388')",
+      "title": "Nct Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "nct_id"
+    ],
+    "title": "trial_protocol_getterArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "trial_protocol_getterOutput",
+    "type": "object"
+   }
+  },
+  {
+   "name": "variant_searcher",
+   "description": "Search MyVariant.info for genetic variant DATABASE RECORDS.",
+   "inputSchema": {
+    "properties": {
+     "gene": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Gene symbol (e.g., 'BRAF', 'TP53')",
+      "title": "Gene"
+     },
+     "hgvs": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "HGVS notation (genomic, coding, or protein)",
+      "title": "Hgvs"
+     },
+     "hgvsp": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Protein change in HGVS format (e.g., 'p.V600E')",
+      "title": "Hgvsp"
+     },
+     "hgvsc": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Coding sequence change (e.g., 'c.1799T>A')",
+      "title": "Hgvsc"
+     },
+     "rsid": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "dbSNP rsID (e.g., 'rs113488022')",
+      "title": "Rsid"
+     },
+     "region": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Genomic region (e.g., 'chr7:140753336-140753337')",
+      "title": "Region"
+     },
+     "significance": {
+      "anyOf": [
+       {
+        "enum": [
+         "pathogenic",
+         "likely_pathogenic",
+         "uncertain_significance",
+         "likely_benign",
+         "benign",
+         "conflicting"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Clinical significance filter",
+      "title": "Significance"
+     },
+     "frequency_min": {
+      "anyOf": [
+       {
+        "maximum": 1,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Minimum allele frequency",
+      "title": "Frequency Min"
+     },
+     "frequency_max": {
+      "anyOf": [
+       {
+        "maximum": 1,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Maximum allele frequency",
+      "title": "Frequency Max"
+     },
+     "consequence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Variant consequence (e.g., 'missense_variant')",
+      "title": "Consequence"
+     },
+     "cadd_score_min": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Minimum CADD score for pathogenicity",
+      "title": "Cadd Score Min"
+     },
+     "sift_prediction": {
+      "anyOf": [
+       {
+        "enum": [
+         "deleterious",
+         "tolerated"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "SIFT functional prediction",
+      "title": "Sift Prediction"
+     },
+     "polyphen_prediction": {
+      "anyOf": [
+       {
+        "enum": [
+         "probably_damaging",
+         "possibly_damaging",
+         "benign"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "PolyPhen-2 functional prediction",
+      "title": "Polyphen Prediction"
+     },
+     "include_cbioportal": {
+      "default": true,
+      "description": "Include cBioPortal cancer genomics summary when searching by gene",
+      "title": "Include Cbioportal",
+      "type": "boolean"
+     },
+     "include_oncokb": {
+      "default": true,
+      "description": "Include OncoKB precision oncology summary when searching by gene",
+      "title": "Include Oncokb",
+      "type": "boolean"
+     },
+     "page": {
+      "default": 1,
+      "description": "Page number (1-based)",
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+     },
+     "page_size": {
+      "default": 10,
+      "description": "Results per page",
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Page Size",
+      "type": "integer"
+     }
+    },
+    "title": "variant_searcherArguments",
+    "type": "object"
+   },
+   "outputSchema": {
+    "properties": {
+     "result": {
+      "title": "Result",
+      "type": "string"
+     }
+    },
+    "required": [
+     "result"
+    ],
+    "title": "variant_searcherOutput",
+    "type": "object"
+   }
+  }
+ ]
+}

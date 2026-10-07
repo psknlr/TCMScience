@@ -50,6 +50,12 @@ trt1,trt1_R1.fastq.gz,trt1_R2.fastq.gz,treated,1
 `--engine auto` uses salmon, then kallisto, then the built-in quantifier, whichever is
 installed first. `--trimmer auto` uses fastp, then the built-in trimmer.
 
+`--de-backend pydeseq2` runs the test with PyDESeq2 instead, on the same design matrix
+and contrast, into the same result columns. If PyDESeq2 is not installed the run is
+refused, not switched to the built-in test.
+[omics-backends.md](omics-backends.md) says how the two are kept equivalent and where
+they differ.
+
 One built-in step goes further than kallisto. By k-mers alone, a read pair whose mates
 both lie in shared exons is also compatible with an isoform that has an extra exon
 between them, where the fragment would be longer by that exon. The quantifier
@@ -80,7 +86,13 @@ exon-skipping gene in the tests, this moves the estimate for the skipping isofor
   Where gene-wise dispersions differ, PyDESeq2's bounded optimiser stopped at the floor
   (1e-8) and this implementation found a higher Cox–Reid adjusted profile likelihood.
 - In CI, the job "Analysis pipelines with the standard tools" installs the tools and
-  PyDESeq2. In that job a missing tool fails the run rather than skipping it.
+  PyDESeq2. In that job a missing tool fails the run rather than skipping it. The
+  job's tests also pass with Ubuntu 24.04's packages, installed where this was built:
+  fastp 0.23.4, salmon 1.10.2, kallisto 0.48.0, HISAT2 2.2.1, featureCounts (subread)
+  2.0.6 and samtools 1.19.2. Each run records the version it found.
+- **Against R's DESeq2** (1.42.0): with four samples per condition the built-in
+  implementation calls all of R's genes and a few more. With two, it does not
+  reproduce R's calls, for reasons traced in [omics-backends.md](omics-backends.md).
 
 ### What a result is
 
@@ -135,6 +147,15 @@ Every input must be raw counts; normalised values are refused.
 | Annotation | Scanpy's `score_genes` against a marker panel (30 human types shipped with their sources, or your own); `unassigned` when no type leads |
 | Trajectory | PAGA connectivity and tree; diffusion pseudotime from a named root, over the clusters PAGA joins to it |
 | Conditions | pseudobulk per sample and cell type, DESeq2 method; the samples are the replicates |
+
+Three choices are independent of one another:
+- `--analysis-backend scanpy` runs normalisation to markers with Scanpy;
+- `--integration none|harmony|scvi` sets the batch integration (for scVI,
+  `--scvi-epochs` and `--scvi-threads` set its training);
+- `--de-backend pydeseq2` runs the pseudobulk test with PyDESeq2.
+
+`run.json` records which implementation ran each stage. See
+[omics-backends.md](omics-backends.md).
 
 ### How it is checked
 
@@ -327,8 +348,16 @@ bioagent admet --verify admet/
 The archive is about 1.5 MB, fetched once from Harvard Dataverse and held to its pinned
 SHA-256. The models are built where they run, and nothing trained is shipped. Each model
 card records the data, the archive's digest, the train and test sizes, the TDC metric on
-the test set, the features, the library versions, and the model file's SHA-256, which is
-checked before the file is loaded.
+the test set, the features, the library versions, the seed and iteration cap, and the
+SHA-256 of the model file and of its applicability-domain file, both checked before they
+are loaded.
+
+A full build takes from minutes to most of an hour, depending on the machine. Each card is
+written as soon as its model is saved, so an interrupted build keeps what it finished, and
+running `--build-models` again trains only the endpoints that are missing or no longer
+stand: a model is kept only when both files match its card and the card was built from
+the same archive, seed, iteration cap, scikit-learn and RDKit. `--rebuild` trains every
+endpoint asked for again.
 
 ### How it is checked
 
@@ -417,7 +446,7 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 修剪：fastp，或内置的 cutadapt 式修剪；
 - 定量：salmon、kallisto 或内置的 k-mer 伪比对与 EM；也可用 HISAT2 + featureCounts；
 - 基因汇总：tximport 的规则；
-- 差异表达：DESeq2 方法；
+- 差异表达：DESeq2 方法，内置实现或 PyDESeq2（`--de-backend`，见 omics-backends.md）；
 - 探索分析：VST、PCA 和样本间距离；
 - 报告：带 SVG 图的 Markdown/HTML 报告，以及记录全部摘要的 `run.json`，可用 `--verify` 复核。
 
@@ -427,6 +456,9 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 按方法定义逐项核对；
 - 用已知答案的模拟实验检验：内置路径及 salmon、kallisto、fastp、HISAT2 均找回全部 7 个预设差异基因；
 - 与独立实现 PyDESeq2 对比：倍数变化相关 0.99999，p 值相关 0.9995，显著基因几乎完全重合，实测 FDR 为 0.048。
+- 与 R 的 DESeq2 1.42.0 对照：每组 4 个样本时内置实现找到 R 的全部基因并略多几个；每组 2 个样本时与 R 的结果不同，原因已逐步查明（见 omics-backends.md）。
+
+上述工具测试在本机用 Ubuntu 24.04 软件包通过：fastp 0.23.4、salmon 1.10.2、kallisto 0.48.0、HISAT2 2.2.1、featureCounts（subread）2.0.6、samtools 1.19.2。
 
 结果只是本次实验内的统计关联，不证明机制、因果或任何临床效果。人体样本只能支持 `association`（相关性），细胞或动物实验只能支持 `mechanism_hypothesis`（机制假说）。
 
@@ -440,6 +472,8 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 细胞类型注释：基于标记基因面板，无明确领先者时标为 unassigned；
 - 轨迹分析：PAGA，以及从指定起点出发的扩散伪时间；
 - 条件间比较：按细胞类型做伪批量 DESeq2。
+
+分析后端（内置或 Scanpy）、批次整合方法（none、harmony 或 scvi）和伪批量检验实现（内置或 PyDESeq2）三者可独立选择，见 omics-backends.md。
 
 验证有两类：
 - 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
@@ -491,7 +525,7 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 结构警示：PAINS、Brenk、NIH；
 - 22 个 ADMET 终点（需先运行一次 `bioagent admet --build-models`）：吸收、分布、代谢、排泄、毒性各项，每项都给出模型卡记录的留出成绩，以及该分子是否落在模型适用域内（与训练集的最大 Tanimoto 相似度低于 0.3 即判为域外）。
 
-模型训练数据为 Therapeutics Data Commons 的 ADMET 基准集，采用其官方骨架划分，因此留出成绩可与 TDC 排行榜对照。数据包约 1.5 MB，只下载一次并按固定 SHA-256 校验；模型在本机训练，不随代码分发。模型文件本身也带摘要，加载前校验。
+模型训练数据为 Therapeutics Data Commons 的 ADMET 基准集，采用其官方骨架划分，因此留出成绩可与 TDC 排行榜对照。数据包约 1.5 MB，只下载一次并按固定 SHA-256 校验；模型在本机训练，不随代码分发。模型文件与适用域文件都带摘要，加载前校验。每个终点训练完即写入模型卡，构建中断后已完成的部分保留，再次运行只训练缺失或不再匹配的终点（归档、种子、迭代上限、scikit-learn 与 RDKit 版本任一不同即重训）；`--rebuild` 全部重训。
 
 **适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
 

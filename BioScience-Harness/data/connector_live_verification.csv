@@ -27,11 +27,6 @@ kegg,KEGG REST,get,True,SUCCEEDED,200,1,1372,sha256:4d5d65f09838,,rest.kegg.jp,A
 kegg,KEGG REST,find,False,SUCCEEDED,200,1,4748,sha256:075bd84d005d,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:31Z
 kegg,KEGG REST,link,False,SUCCEEDED,200,1,1238,sha256:bde7b443b161,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:33Z
 kegg,KEGG REST,info,False,SUCCEEDED,200,1,1450,sha256:981d7b1e7282,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:34Z
-reactome,Reactome ContentService,query,True,SUCCEEDED,200,1,328,sha256:b719a7c8206e,,reactome.org,CC-BY-4.0,2026-09-17T07:31:34Z
-reactome,Reactome ContentService,pathways_for_entity,False,SUCCEEDED,200,1,360,sha256:6cbc12283fc3,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
-reactome,Reactome ContentService,version,False,SUCCEEDED,200,1,297,sha256:eea13a3c19d1,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
-opentargets,Open Targets Platform,target,True,SUCCEEDED,200,1,365,sha256:c373b8f9a3a8,,api.platform.opentargets.org,CC0-1.0,2026-09-17T07:31:35Z
-opentargets,Open Targets Platform,associated_diseases,False,SUCCEEDED,200,1,415,sha256:ccfb32416fe7,,api.platform.opentargets.org,CC0-1.0,2026-09-17T07:31:36Z
 rcsb,RCSB PDB Data API,entry,True,SUCCEEDED,200,1,283,sha256:61a8f2681862,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 rcsb,RCSB PDB Data API,polymer_entity,False,SUCCEEDED,200,1,219,sha256:b4764fcc2e97,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 europepmc,Europe PMC,search,True,SUCCEEDED,200,1,705,sha256:658e98040610,,www.ebi.ac.uk,CC-BY / mixed per article,2026-09-17T07:31:37Z
@@ -49,9 +44,6 @@ ncbi_datasets,NCBI Datasets v2,gene_by_symbol,True,SUCCEEDED,200,1,1528,sha256:6
 ncbi_datasets,NCBI Datasets v2,gene_by_id,False,SUCCEEDED,200,1,506,sha256:2c50929d9837,,api.ncbi.nlm.nih.gov,Public-domain (US Gov),2026-09-17T07:31:46Z
 ncbi_datasets,NCBI Datasets v2,taxonomy,False,SUCCEEDED,200,1,475,sha256:9d1476729ecd,,api.ncbi.nlm.nih.gov,Public-domain (US Gov),2026-09-17T07:31:46Z
 ncbi_datasets,NCBI Datasets v2,genome_report,False,SUCCEEDED,200,1,304,sha256:ae6fc243ae36,,api.ncbi.nlm.nih.gov,Public-domain (US Gov),2026-09-17T07:31:46Z
-gwas_catalog,GWAS Catalog,snp,True,SUCCEEDED,200,1,627,sha256:4b89ac04b695,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-09-17T07:31:47Z
-gwas_catalog,GWAS Catalog,associations_by_rsid,False,SUCCEEDED,200,1,97492,sha256:751f2a95f66e,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-09-17T07:33:25Z
-gwas_catalog,GWAS Catalog,snps_by_gene,False,SUCCEEDED,200,1,1111,sha256:404799c2e3b1,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-09-17T07:33:26Z
 ucsc,UCSC Genome Browser API,sequence,True,SUCCEEDED,200,1,1087,sha256:bf8626ebb26d,,api.genome.ucsc.edu,Public (UCSC terms),2026-09-17T07:33:27Z
 ucsc,UCSC Genome Browser API,track,False,SUCCEEDED,200,1,633,sha256:d4bca56a2b33,,api.genome.ucsc.edu,Public (UCSC terms),2026-09-17T07:33:28Z
 ucsc,UCSC Genome Browser API,genomes,False,SUCCEEDED,200,1,746,sha256:1c77b785e8c5,,api.genome.ucsc.edu,Public (UCSC terms),2026-09-17T07:33:28Z
@@ -443,3 +435,11 @@ idr,Image Data Resource (OMERO JSON API and IDR searcher),container_values,False
 openneuro,OpenNeuro GraphQL API,dataset,True,SUCCEEDED,200,1,357,sha256:62aef8209daf,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:41:59Z
 openneuro,OpenNeuro GraphQL API,datasets,False,SUCCEEDED,200,1,997,sha256:1b851b6fcac6,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:42:00Z
 openneuro,OpenNeuro GraphQL API,snapshot_files,False,SUCCEEDED,200,1,892,sha256:74466d869027,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:42:01Z
+opentargets,Open Targets Platform,target,True,SUCCEEDED,200,1,559,sha256:c373b8f9a3a8,,api.platform.opentargets.org,CC0-1.0,2026-10-07T11:07:30Z
+opentargets,Open Targets Platform,associated_diseases,False,SUCCEEDED,200,1,849,sha256:cdc0ad29982c,,api.platform.opentargets.org,CC0-1.0,2026-10-07T11:07:31Z
+gwas_catalog,GWAS Catalog,snp,True,SUCCEEDED,200,1,558,sha256:3ebc85c1899e,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:12Z
+gwas_catalog,GWAS Catalog,associations_by_rsid,False,SUCCEEDED,200,1,3747,sha256:ffcb3c88fc65,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:16Z
+gwas_catalog,GWAS Catalog,snps_by_gene,False,SUCCEEDED,200,1,6116,sha256:83bc0f070c1e,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:22Z
+reactome,Reactome ContentService,query,True,SUCCEEDED,200,1,681,sha256:b719a7c8206e,,reactome.org,CC0-1.0,2026-10-07T14:29:42Z
+reactome,Reactome ContentService,pathways_for_entity,False,SUCCEEDED,200,1,452,sha256:6cbc12283fc3,,reactome.org,CC0-1.0,2026-10-07T14:29:42Z
+reactome,Reactome ContentService,version,False,SUCCEEDED,200,1,427,sha256:eea13a3c19d1,,reactome.org,CC0-1.0,2026-10-07T14:29:43Z

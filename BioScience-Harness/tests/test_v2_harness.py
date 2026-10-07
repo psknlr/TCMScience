@@ -128,12 +128,17 @@ def test_container_backend_reports_unavailable_honestly(monkeypatch) -> None:
     bug below lived on. A test that disappears where the defect appears is not covering it.
     The probe is injected instead, so the unavailable branch is exercised everywhere.
     """
+    import time
+
     from bioagent.runtime import registry as registry_module
 
     monkeypatch.setattr(registry_module, "_CONTAINER_PROBE",
                         registry_module.RuntimeProbe(None, False,
                                                      "container backend requires a "
                                                      "container runtime (none found)"))
+    # Fresh, or the cache is ignored and the machine's own runtime answers instead: on a
+    # machine with a container CLI and no daemon this test then read the live probe.
+    monkeypatch.setattr(registry_module, "_CONTAINER_PROBE_AT", time.monotonic())
     cb = ContainerBackend()
     assert not cb.available()
     assert "container runtime" in cb.unavailable_reason()

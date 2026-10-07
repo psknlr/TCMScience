@@ -38,6 +38,18 @@ class EventType(str):
     COMPONENT_PROMOTED = "ComponentPromoted"
     COMPONENT_QUARANTINED = "ComponentQuarantined"
     RUN_COMPLETED = "RunCompleted"
+    # Long jobs (backends.jobs). A submission is recorded before the executor is asked
+    # (JobRequested) and again with the executor's job reference (JobSubmitted), so a
+    # crash at any point leaves a trace a restart can reconcile; only JobCollected can
+    # carry SUCCEEDED, because only collection validates what the job wrote.
+    JOB_REQUESTED = "JobRequested"
+    JOB_SUBMITTED = "JobSubmitted"
+    JOB_OBSERVED = "JobObserved"
+    JOB_COLLECTED = "JobCollected"
+    JOB_CANCELLED = "JobCancelled"
+    #: Permission to cancel one job, recorded before anyone may use it: a governed
+    #: cancellation names this record and is refused without it.
+    JOB_CANCEL_GRANTED = "JobCancelGranted"
 
 
 def content_hash(value: Any) -> str:
@@ -182,14 +194,46 @@ class EventLog:
         }
 
     def save(self, path: str | Path) -> Path:
+        """Write the log, replacing the previous file in one step.
+
+        A long job's reference lives here, and the log is rewritten after every job event;
+        writing in place meant a crash mid-write left a truncated file and lost the one
+        record that says which job is still running on a GPU somewhere.
+        """
+        import os
+
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex[:8]}.tmp")
+        tmp.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        os.replace(tmp, p)
         return p
 
     @classmethod
     def load(cls, path: str | Path) -> dict[str, Any]:
         return json.loads(Path(path).read_text(encoding="utf-8"))
+
+    @classmethod
+    def read(cls, path: str | Path) -> "EventLog":
+        """A saved log as a log that can be appended to and saved again.
+
+        What a process needs to continue another process's run: a long job's controller
+        started in a fresh process (an isolated child, a restart) appends to the trace that
+        holds the job, and appending to an empty log and saving it would replace the only
+        record that the job exists. A file that does not parse raises: unreadable is not
+        empty.
+        """
+        doc = cls.load(path)
+        log = cls(run_id=str(doc.get("run_id") or "") or None,
+                  catalogue_version=str(doc.get("catalogue_version") or "unknown"),
+                  git_commit=str(doc.get("git_commit") or ""),
+                  model=str(doc.get("model") or ""))
+        log.started_at = float(doc.get("started_at") or log.started_at)
+        log.environment = dict(doc.get("environment") or log.environment)
+        known = {f for f in Event.__dataclass_fields__}
+        log._events = [Event(**{k: v for k, v in e.items() if k in known})
+                       for e in doc.get("events") or ()]
+        return log
 
     # ------------------------------------------------------------------ replay
     @staticmethod

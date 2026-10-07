@@ -74,10 +74,10 @@
    "access": "snapshot",
    "connector": null,
    "dataset": "sources:npass",
-   "license": "Free for academic use",
+   "license": "not stated (no licence or terms on bidd.group/NPASS, read 2026-10-07)",
    "barriers": "none",
    "assessment": "Bulk files already acquired and parsed (sources.parsers.npass); used by the research loop.",
-   "checked": "2026-10-01"
+   "checked": "2026-10-07"
   },
   {
    "no": 6,
@@ -89,10 +89,10 @@
    "access": "snapshot",
    "connector": null,
    "dataset": "sources:cmaup",
-   "license": "Free for academic use",
+   "license": "not stated (no licence or terms on bidd.group/CMAUP, read 2026-10-07)",
    "barriers": "none",
    "assessment": "Bulk files already acquired and parsed (sources.parsers.cmaup); used by the research loop.",
-   "checked": "2026-10-01"
+   "checked": "2026-10-07"
   },
   {
    "no": 7,

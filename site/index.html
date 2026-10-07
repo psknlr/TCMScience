@@ -31,6 +31,7 @@
   <a class="brand" href="#top">TCM<span>·</span>Science</a>
   <div class="links">
     <a href="#abstract"><span lang="en">Abstract</span><span lang="zh">摘要</span></a>
+    <a href="#measured"><span lang="en">Measured</span><span lang="zh">测量</span></a>
     <a href="#results"><span lang="en">Results</span><span lang="zh">结果</span></a>
     <a href="#governance"><span lang="en">Method</span><span lang="zh">方法</span></a>
     <a href="#system"><span lang="en">System</span><span lang="zh">系统</span></a>
@@ -150,6 +151,44 @@
         <p class="prevents"><span lang="en">Prevents incomparable scores and unreviewed skills going live.</span><span lang="zh">防止分数不可比、未审查的 Skill 上线。</span></p>
       </div>
     </div>
+  </div>
+</section>
+
+<hr class="sep">
+
+<section id="measured">
+  <div class="wrap">
+    <div class="kicker"><span lang="en">Measured</span><span lang="zh">测量</span></div>
+    <h2><span lang="en">Is the governance worth it?</span><span lang="zh">治理值不值得？</span></h2>
+    <p class="lede">
+      <span lang="en">Ten outputs a reviewer would release, each mutated by one known scientific error, 121 mutants in all: a population the study did not enrol, a docking score cited for efficacy, 白附子 for 附子, a dose read ten times too high, a tampered or invented citation, a constituent's evidence carried to the whole formula, 制附子's to 生附子, an unmeasured outcome stated as absent. They run through the runtime's own gates with each part switched on or off.</span>
+      <span lang="zh">10 个审稿人会放行的输出，每次注入一种已知科学错误，共 121 个变异体：研究没纳入的人群、拿对接分数论证疗效、白附子冒充附子、剂量错读 10 倍、被篡改或捏造的引用、单一成分的证据推到整方、制附子的证据用于生附子、把无人测量的结局说成阴性。它们被送进运行时自己的闸门，逐一开关各部分。</span>
+    </p>
+    <div class="stats">
+      <div class="stat">
+        <div class="v">121<span class="arrow">→</span><span class="hot">0</span></div>
+        <div class="l"><span lang="en">errors released with no governance, and with the full stack</span><span lang="zh">无治理与完整治理时放行的错误数</span></div>
+      </div>
+      <div class="stat">
+        <div class="v">0<span class="arrow">/</span>10</div>
+        <div class="l"><span lang="en">correct outputs refused by the full stack</span><span lang="zh">完整治理误拒的正确输出</span></div>
+      </div>
+      <div class="stat">
+        <div class="v">19<span class="arrow">→</span>10<span class="arrow">→</span><span class="hot">0</span></div>
+        <div class="l"><span lang="en">errors the full stack released as the gaps the benchmark found were closed, in two rounds</span><span lang="zh">两轮补上基准发现的漏洞后，完整治理放行的错误数</span></div>
+      </div>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th><span lang="en">Configuration</span><span lang="zh">配置</span></th><th class="num"><span lang="en">Errors released</span><span lang="zh">放行的错误</span></th><th class="num"><span lang="en">95% CI</span><span lang="zh">95% 置信区间</span></th></tr></thead>
+      <tbody>
+        <tr><td><span lang="en">No governance</span><span lang="zh">无治理</span></td><td class="num">121/121</td><td class="num">97–100%</td></tr>
+        <tr><td><span lang="en">Domain layer only</span><span lang="zh">仅领域层</span></td><td class="num">57/121</td><td class="num">38–56%</td></tr>
+        <tr><td><span lang="en">Kernel only</span><span lang="zh">仅内核</span></td><td class="num">7/121</td><td class="num">3–11%</td></tr>
+        <tr class="emph"><td><span lang="en">Full stack</span><span lang="zh">完整治理</span></td><td class="num"><strong>0/121</strong></td><td class="num">0–3%</td></tr>
+      </tbody>
+    </table></div>
+    <p><span lang="en">Regression numbers with a stated construction, not field error rates: the cases and operators were written by the authors of the gates. With no survivors left the construction has stopped discriminating; it now guards against regression, and real drafts are needed to find what the gates miss. <a href="https://github.com/psknlr/TCMScience/blob/main/docs/governance-ablation.md">Method and full results</a>.</span><span lang="zh">这是有明确构造的回归基准数字，不是真实场景的错误率：用例和变异算子由闸门作者编写。没有漏网者，说明这个构造已不再有区分力，此后用于防止回退；要发现闸门遗漏的错误，需要真实的输出。<a href="https://github.com/psknlr/TCMScience/blob/main/docs/governance-ablation.md">方法与完整结果</a>。</span></p>
+    <p><span lang="en"><strong>Deciding what to find out next.</strong> The model proposes rival explanations and what each predicts every analysis will show; the kernel seals the predictions, picks the analysis with the most expected information, updates belief by those predictions alone, and accepts a leader only after severe tests and replication. On three planted worlds built on the real 葛根芩连汤 herb layer it recovers the true explanation each time, and releases a mechanism claim only where the mechanism is true. <a href="https://github.com/psknlr/TCMScience/blob/main/docs/inquiry.md">The inquiry</a>.</span><span lang="zh"><strong>下一步该查什么。</strong>模型提出竞争解释及其对每个分析的预测；内核封存预测，挑选期望信息量最大的分析，只按封存的预测更新信念，领先解释须经严格检验与重复才被接受。在基于真实葛根芩连汤药材层构建的三个人工世界上，它每次都找到了真正的解释，并且只在机制确实成立的世界里发布机制主张。<a href="https://github.com/psknlr/TCMScience/blob/main/docs/inquiry.md">推理引擎</a>。</span></p>
   </div>
 </section>
 
@@ -283,9 +322,9 @@
       <div class="tablewrap"><table>
         <thead><tr><th><span lang="en">Source</span><span lang="zh">数据源</span></th><th><span lang="en">Provides</span><span lang="zh">提供</span></th><th><span lang="en">Licence</span><span lang="zh">许可</span></th></tr></thead>
         <tbody>
-          <tr><td>NPASS 2.0 · CMAUP 2.0</td><td><span lang="en">composition, activity</span><span lang="zh">组成、活性</span></td><td><span lang="en">academic</span><span lang="zh">学术免费</span></td></tr>
+          <tr><td>NPASS 2.0 · CMAUP 2.0</td><td><span lang="en">composition, activity</span><span lang="zh">组成、活性</span></td><td><span lang="en">not stated</span><span lang="zh">未声明</span></td></tr>
           <tr><td>LOTUS</td><td><span lang="en">composition</span><span lang="zh">组成</span></td><td>CC BY 4.0</td></tr>
-          <tr><td>BindingDB</td><td><span lang="en">measured binding</span><span lang="zh">实测结合</span></td><td>CC BY 4.0</td></tr>
+          <tr><td>BindingDB</td><td><span lang="en">measured binding</span><span lang="zh">实测结合</span></td><td>CC BY 3.0</td></tr>
           <tr><td>PubChem BioAssay</td><td><span lang="en">screens, inactives included</span><span lang="zh">筛选，含阴性</span></td><td><span lang="en">NCBI policy</span><span lang="zh">NCBI 政策</span></td></tr>
           <tr><td>STRING v12</td><td><span lang="en">protein associations</span><span lang="zh">蛋白关联</span></td><td>CC BY 4.0</td></tr>
           <tr><td>Reactome</td><td><span lang="en">pathways</span><span lang="zh">通路</span></td><td>CC0</td></tr>
@@ -293,6 +332,23 @@
         </tbody>
       </table></div>
     </div>
+
+    <h3 style="margin-top:36px"><span lang="en">Connected implementations</span><span lang="zh">接入的成熟实现</span></h3>
+    <p><span lang="en">Established tools run inside the governance through reviewed bindings that pin their version, licence and failure semantics; none stands in for another. Three <a href="https://github.com/psknlr/TCMScience/blob/main/docs/end-to-end-cases.md">end-to-end cases</a> run them as chains.</span><span lang="zh">成熟工具通过经审查的绑定在治理之内运行，绑定固定版本、许可与失败语义；缺失时不以其他实现顶替。三个<a href="https://github.com/psknlr/TCMScience/blob/main/docs/end-to-end-cases.md">端到端案例</a>把它们串成链条运行。</span></p>
+    <div class="tablewrap"><table>
+      <thead><tr><th><span lang="en">Implementation</span><span lang="zh">实现</span></th><th><span lang="en">Refuses to</span><span lang="zh">拒绝</span></th></tr></thead>
+      <tbody>
+        <tr><td>MCP · BioMCP · DeepWiki</td><td><span lang="en">call a tool nobody reviewed, or one changed since review, over stdio or HTTPS</span><span lang="zh">经 stdio 或 HTTPS 调用未经审查或审查后已改变的工具</span></td></tr>
+        <tr><td>Operation broker</td><td><span lang="en">let a skill reach a host it did not declare</span><span lang="zh">让 Skill 访问未声明的主机</span></td></tr>
+        <tr><td>Bindings · licences</td><td><span lang="en">run code a description names, or read an unknown licence as permission</span><span lang="zh">只因描述提到就运行代码，或把未知许可当作许可</span></td></tr>
+        <tr><td>PyDESeq2 · Scanpy · GSEApy · scVI</td><td><span lang="en">fall back silently to another implementation</span><span lang="zh">静默改用另一个实现</span></td></tr>
+        <tr><td>PaperQA2</td><td><span lang="en">treat a summary as evidence, or guess a study design</span><span lang="zh">把总结当作证据，或猜测研究设计</span></td></tr>
+        <tr><td>ToolUniverse · Open Targets</td><td><span lang="en">count one paper twice, or pass co-mention as genetics</span><span lang="zh">把同一篇论文算两次，或把共现当作遗传证据</span></td></tr>
+        <tr><td>SciToolAgent ToolsAgent</td><td><span lang="en">read an error returned with HTTP 200 as a result</span><span lang="zh">把以 HTTP 200 返回的错误当作结果</span></td></tr>
+        <tr><td>Boltz-2 · Chai-1 · ProteinMPNN · OpenMM</td><td><span lang="en">approximate an engine that is not installed (each has run here through its adapter)</span><span lang="zh">在引擎未安装时用近似结果顶替（四者均已在本机经适配器实际运行）</span></td></tr>
+        <tr><td><span lang="en">Long jobs</span><span lang="zh">长任务</span></td><td><span lang="en">count a submitted job as a result</span><span lang="zh">把已提交的作业当作结果</span></td></tr>
+      </tbody>
+    </table></div>
 
     <div class="callout" style="margin-top:36px">
       <div>

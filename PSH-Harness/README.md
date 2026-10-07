@@ -15,7 +15,7 @@ promised hard isolation, distributed scheduling and multi-tenancy that this does
 | --- | --- | --- |
 | `psh.sir` | The Scientific IR: scientific types, an effect system, the programme graph | 科学中间表示：科学类型、效应系统、程序图 |
 | `psh.compiler` | Eight passes, 71 diagnostic codes, and lowering to `Plan` | 八个编译遍、71 个诊断码，以及向 `Plan` 的下降（lowering） |
-| `psh.scientist` | The relational half beside the record ledger: what competes, what bears on what | 记录账本旁边的"关系"一半：什么在竞争，什么关乎什么 |
+| `psh.scientist` | The relational half beside the record ledger (what competes, what bears on what), and the inquiry: which analysis to run next, what an outcome does to belief, when to stop | 记录账本旁边的"关系"一半（什么在竞争，什么关乎什么），以及推理引擎：下一步做哪个分析、结果如何改变信念、何时停止 |
 | `psh.durable` | An append-only journal and incremental recompute after an amendment | 只追加日志，以及修订后的增量重算 |
 
 The type system is the part worth reading. `Evidence` and `Claim` are separate types with

@@ -34,7 +34,7 @@ from typing import Any, Callable, Mapping
 
 from ..contracts import PolicyDenied
 from ..labels import (
-    DataLabel, Labeled, Sensitivity, deep_label_of,
+    Labeled, Sensitivity, deep_label_of,
 )
 
 __all__ = ["IngressGateway", "IngressDecision", "ensure_labeled"]
@@ -87,13 +87,17 @@ class IngressGateway:
         self._count_lock = threading.Lock()
 
     def ensure(self, value: Any, *, origin: str = "", require_labeled: bool | None = None,
-               ) -> Labeled:
+               schema: Mapping[str, Any] | None = None) -> Labeled:
         """Return ``value`` as a ``Labeled`` carrying its effective label.
 
         Idempotent in the sense that matters: calling ``ensure`` twice yields the same
         label, because the join of a label with itself is itself. It is *not* idempotent in
         the weaker sense of "already Labeled means skip" — that shortcut is precisely the
         bug this module exists to prevent.
+
+        ``schema`` is the input schema of the component a tool payload is for, from its
+        admitted manifest; the classifier reads the biological sequences it declares
+        (``Classifier.classify``). A caller's label still joins whatever that computes.
         """
         with self._count_lock:
             self.checks += 1
@@ -115,7 +119,7 @@ class IngressGateway:
         from ..labels import unwrap_deep
 
         inner = unwrap_deep(value)
-        computed = self.classifier.classify(inner, origin=origin).label
+        computed = self.classifier.classify(inner, origin=origin, schema=schema).label
         computed = computed.merged_with(deep_label_of(value))
 
         effective = computed.merged_with(supplied) if supplied is not None else computed

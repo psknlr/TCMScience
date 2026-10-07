@@ -37,7 +37,7 @@
 [![CI](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml/badge.svg)](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2d4a7a.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2d4a7a.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-1%2C910%20passing-2c7560.svg)
+![Tests](https://img.shields.io/badge/tests-3%2C902%20passing-2c7560.svg)
 ![Kernel](https://img.shields.io/badge/kernel-PSH%200.5.3-9a6428.svg)
 
 </div>
@@ -48,7 +48,25 @@
 
 ## Abstract
 
-Chinese medicine rests on evidence of very different kinds: a *Shanghan Lun* passage, a pharmacopoeia entry, a docking score, a cell assay, a randomized trial. A language-model agent that treats them all as "evidence text" will, sooner or later, present a classical record as a clinical finding or a network prediction as a mechanism. **TCMScience** makes that failure impossible to express rather than merely discouraged. The model plans and reasons; a separate **trusted kernel** decides what it may run, labels every datum at entry, and releases a scientific claim only when the evidence behind it *licenses* that kind of claim. Every dataset the agent reads is a **content-hashed snapshot** recorded in a hash-chained ledger, so each result names the exact data it came from. Applied to the classical formula 葛根芩连汤, the system reproduces the standard network-pharmacology result and then shows it to be an artefact of which proteins had been assayed. What survives is a cytochrome P450 inhibition signal that bears on herb–drug interactions rather than on efficacy.
+Chinese medicine rests on evidence of very different kinds: a *Shanghan Lun* passage, a pharmacopoeia entry, a docking score, a cell assay, a randomized trial. A language-model agent that treats them all as "evidence text" will, sooner or later, present a classical record as a clinical finding or a network prediction as a mechanism. **TCMScience** makes that failure impossible to express rather than merely discouraged. The model plans and reasons; a separate **trusted kernel** decides what it may run, labels every datum at entry, and releases a scientific claim only when the evidence behind it *licenses* that kind of claim. Every dataset the agent reads is a **content-hashed snapshot** recorded in a hash-chained ledger, so each result names the exact data it came from. Applied to the classical formula 葛根芩连汤, the system reproduces the standard network-pharmacology result and then shows it to be an artefact of which proteins had been assayed. What survives is a cytochrome P450 inhibition signal that bears on herb–drug interactions rather than on efficacy. An architecture is an advantage only if it changes what gets released, so that is measured too: the same 121 erroneous outputs go through every configuration of the real gates: the kernel alone releases 7 of them and the domain layer alone 57, the full stack none, and no configuration refuses a correct one. Which analysis to run next, and when to stop, is decided the same way the release is: the model proposes explanations and what each predicts, and the kernel decides what was learned.
+
+## What TCMScience is, and is not
+
+TCMScience is not primarily a tool-rich biomedical agent. It is a **governed scientific runtime** in which computational actions, evidence, claims and publication authority are each typed and controlled independently of the model that proposes them, with native support for Traditional Chinese Medicine.
+
+Agent systems for biomedical research put their weight on different layers. TCMScience puts its weight on the last two below, and is meant to connect to the others rather than compete with them on breadth.
+
+| Layer | The question it answers | Where published systems put their weight | TCMScience |
+|---|---|---|---|
+| Tools | What can an agent call? | [ToolUniverse](https://github.com/mims-harvard/ToolUniverse): more than 1,000 models, datasets, APIs and packages, and 68 prebuilt research workflows (README, Oct 2026) | 58 public sources, 153 typed operations and 147 native tools, each behind a source card |
+| Actions | How does an agent compose them into research? | [Biomni](https://doi.org/10.1126/science.adz4351) (*Science*, 2026): 150 tools, 59 databases and 105 software packages drawn from 25 biomedical subfields; tool retrieval, planning, code execution | plans compiled into typed, bounded programs before anything runs |
+| Cognition | How does it explore and decide? | [DeepEvidence](https://doi.org/10.1038/s42256-026-01266-0) (*Nat. Mach. Intell.*, 2026): breadth- and depth-first research over an evidence graph · [BioMedAgent](https://doi.org/10.1038/s41551-026-01634-6) (*Nat. Biomed. Eng.*, 2026): 77 % of 327 data-analysis tasks · [BioDiscoveryAgent](https://proceedings.iclr.cc/paper_files/paper/2025/hash/4252dc94531833029000f85dc5fac792-Abstract-Conference.html) (ICLR 2025): closed-loop design of genetic perturbation experiments | an inquiry engine over predictions sealed in advance ([below](#deciding-what-to-find-out-next)); new, and checked only on planted worlds |
+| **Epistemics** | What may this evidence support? | tracking, attribution and validation of the evidence gathered | **study designs are types, and one table the kernel enforces says which claim kinds each design licenses: at compile time, at the claim and at release** |
+| **Governance** | What may run, persist and be released, on whose authority? | left to the deployment: Biomni's README asks for an isolated environment, because its agent runs generated code with full system privileges | **a trusted kernel: authority that can only narrow, labels at entry, one gateway for every call, quarantine, a release gate, a hash-chained audit** |
+
+**Where others are stronger.** Breadth of tools, databases and software (ToolUniverse, Biomni); wet-laboratory protocols and multi-omics workflows; closed-loop experimental design run against real screens (BioDiscoveryAgent); and, above all, validation on public task benchmarks under peer review (Biomni, BioMedAgent, DeepEvidence). TCMScience's six-track Arena is an evaluation design with demonstration runs, not yet a completed validation.
+
+**What is measured instead, for now.** Whether the governance changes what an agent releases ([governance ablation](#is-the-governance-worth-it)), and whether the inquiry finds the true explanation where the answer is known ([planted worlds](#deciding-what-to-find-out-next)). [BiomniBench](https://doi.org/10.64898/2026.05.12.724604) reports that the agent harness can shift scores by more than a model generation does, which is the reason to study the harness itself. The comparison this architecture still owes is the same model, tools and tasks, with and without it, on a public task benchmark. Its protocol and harness now exist ([four-arm comparison](docs/comparison.md): prose, prose with one ordinary self-review, structured claims, checked claims, and checked claims with rival explanations and one revision round, at the same budget; blinded review; statistics by independent unit). No model has been run with it yet, so it has no results.
 
 ## Highlights
 
@@ -58,6 +76,53 @@ Chinese medicine rests on evidence of very different kinds: a *Shanghan Lun* pas
 | **2** | **A computational prediction cannot become a fact, by construction.** Predictive designs license a *mechanism hypothesis* and nothing stronger, enforced by the kernel's claim–support table. | Network-pharmacology output reported as "the mechanism of action". |
 | **3** | **Data enter as audited snapshots.** Parse → normalize → quality gate → content hash → ledger, each source under a card stating its licence and access terms. | Results that cannot say which release of which database produced them. |
 | **4** | **Skills, sources and benchmarks are versioned independently**, and a monthly update can discover skills but never promote them. | This month's score being incomparable with last month's, or an unreviewed skill going live. |
+| **5** | **Belief moves only by predictions sealed in advance.** The model proposes rival explanations and what each predicts; the kernel picks the next analysis by information gain, updates belief, and stops only after severe tests and replication. | Confirmatory analyses run until the story is good; a docking run moving belief in clinical efficacy; a posterior quoted as a licence. |
+| **6** | **The governance is measured, not asserted.** 121 erroneous outputs through every configuration of the real gates: all released with no governance, none with the full stack, no correct output refused; every gap the benchmark found was closed in a runtime check. | An architecture judged by its diagrams. |
+
+## Is the governance worth it?
+
+An architecture is only an advantage if the same outputs come out of it with fewer scientific errors. The governance ablation ([method and full results](docs/governance-ablation.md)) takes ten outputs a reviewer would release and injects one known error at a time: a population the study did not enrol, a docking score cited for efficacy, 白附子 for 附子, a dose read ten times too high, a tampered or invented citation, a plan clause hiding a claim of cure, and five errors specific to TCM: one constituent's evidence carried to the whole formula, 制附子's carried to 生附子, a bench result placed at the concentrations patients reach, one trial counted twice, and an outcome nobody measured stated as absent ("no adverse reactions", 无毒). That gives 121 mutants in 26 classes. They run through the runtime's own gates with each part switched on or off.
+
+| Configuration | Errors released (95 % CI) | Correct outputs refused |
+|---|---:|---:|
+| no governance | 121/121 · 100 % (97–100 %) | 0/10 |
+| domain layer only | 57/121 · 47 % (38–56 %) | 0/10 |
+| kernel only | 7/121 · 6 % (3–11 %) | 0/10 |
+| **full stack** | **0/121 · 0 % (0–3 %)** | **0/10** |
+
+The layers are not redundant. Switching off one gate releases more errors:
+
+| Gate switched off | Further errors released | Which |
+|---|---:|---|
+| output gate | 42 | inverted directions, drift in the text from the structured claim, the ×10 dose, invented citations, misquoted passages |
+| ingest signature check | 10 | the ten tampered records, a 伤寒论 passage among them |
+| claim contract | 6 | one trial counted as two (twice), a near-name herb in the text, a bench result placed at human exposure, "no adverse reactions" and 无毒 over trials that measured neither |
+| release check | 1 | a borrowed direction |
+| licensing | 0 | nothing the others do not also catch |
+
+The benchmark found every gap it now refuses, in two rounds (19 → 10 → 0), and each was closed in a runtime check rather than in the benchmark: citations checked in every sentence, cardiovascular death kept apart from all-cause mortality, the subject of a Chinese association sentence read, mechanism sentences held to their records, 伤寒论 passages cited by record id and looked up, quotations located in the passage cited, and five TCM domain checks (CLM015–CLM019; the fifth keeps an unmeasured outcome unknown rather than negative). With no survivors left, this construction has stopped discriminating: it now guards against regression, and finding what the gates miss needs real drafts labelled by a reviewer.
+
+These numbers are for regression testing, with a stated construction; they are not field error rates. The authors of the gates also wrote the cases and the operators. CI refuses any regression against these numbers.
+
+## Deciding what to find out next
+
+The kernel decides what an agent may run and what a released claim may say. Between the two sits the decision an autonomous scientist makes most often: which analysis to run next, how far its result moves belief, and when enough is known. `psh.scientist.inquiry` makes these computations over commitments made in advance ([docs](docs/inquiry.md)):
+
+- The model proposes rival explanations, an explicit catch-all, and what each explanation predicts every analysis will show. The predictions are sealed before anything runs.
+- The kernel picks the analysis with the most expected information per unit of cost, and updates belief by the sealed predictions alone. It holds fixed any explanation whose claim kind the analysis's design cannot license: a docking run cannot move belief in efficacy.
+- The leader is accepted only after a replicated severe test against every live rival. The conclusion is capped by the licensing table, not by the posterior. The trail replays to the same belief.
+
+We applied it to a pathway signal in 葛根芩连汤: is the signal the formula's activity, which proteins were assayed, or promiscuous chemistry? We tested it on three planted worlds whose answer is known:
+
+| World | True explanation | Verdict | Mechanism claims released | Network-pharmacology runs |
+|---|---|---|---:|---:|
+| selective | the formula's activity | accepted; a tentative mechanism hypothesis | 1 | 45 of 67 |
+| coverage | which proteins were assayed | accepted; a finding about the analysis | 0 | 14 of 67 |
+| promiscuous | promiscuous chemistry | accepted; a finding about the analysis | 0 | 45 of 67 |
+
+Before anything runs, the usual analysis (enrichment against the whole Reactome annotation) is worth 0.06 bits, because every explanation predicts it comes out enriched. The assayed background is worth 0.43 bits.
+
+Planted worlds show the mechanics. They are not evidence that the engine decides real questions well.
 
 ## Key results: a case study on 葛根芩连汤
 
@@ -142,10 +207,21 @@ python scripts/build_source_snapshots.py pubchem --file RAW/pubchem_bioassay.jso
 python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
 python scripts/run_network_pharmacology.py ... --hits screening          # PubChem, inactives included
 
+# the governance ablation, and the inquiry on worlds with a known answer
+python scripts/run_governance_ablation.py --out RUN/ablation              # docs/governance-ablation.md
+python scripts/run_inquiry.py --planted all --out RUN/inquiry              # docs/inquiry.md
+
+# the four-arm comparison: an offline self-test; a real run needs --model (docs/comparison.md)
+python scripts/run_comparison.py selftest --out RUN/comparison-selftest
+
+# the three end-to-end cases, and reviewing an MCP server before admitting it
+python scripts/run_end_to_end_cases.py --out RUN/cases                    # docs/end-to-end-cases.md
+python -m bioagent.mcp review DRAFT.yaml                                  # docs/mcp-transport.md
+
 # RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
-# tests: PSH 1086 · BioScience 1127 (unit tier)
+# tests: PSH 1380 · BioScience 2522 (unit tier)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -159,6 +235,7 @@ An LLM should not be its own planner, executor, security policy, evidence judge 
 
 - **Trusted kernel ([PSH-Harness](PSH-Harness)).** Labels data at entry, intersects every request with a policy lattice, compiles plans into typed and bounded programs, routes every model, tool and delegation call through one gateway, and quarantines output before release. Its audit is hash-chained.
 - **Scientific compiler ([PSH-Harness](PSH-Harness/docs/V6_SCIENTIFIC_COMPILER.md)).** In front of the kernel, not beside it: a research programme is typed and refused *before* it spends anything. An animal study cannot license a human efficacy claim, an analysis that does not depend on its protocol node is not preregistered, and a claim reaching beyond its source's population is an error with both populations named. 71 diagnostic codes, each with a remedy.
+- **Scientist plane ([psh.scientist](PSH-Harness/src/psh/scientist)).** Hypotheses, preregistered protocols and observations as content-hashed records; a world model of which explanations compete and which observations bore on which; and the inquiry engine, which chooses the next analysis by information gain over sealed predictions and decides when the project may stop.
 - **Capability plane ([BioScience-Harness](BioScience-Harness)).** 58 verified public sources with 153 typed operations, 147 native tools in 12 domains, a typed TCM layer (herbs, processing, formulas with 君臣佐使 roles, syndromes, classical passages, 十八反), and the source-snapshot layer.
 - **Governance layer.** Skill manifests compiled into kernel programs, data contracts with validators, a registry with a content-hashed lockfile, and the benchmark harness.
 
@@ -184,6 +261,21 @@ One call takes your own data through a complete analysis, with every parameter, 
 | `bioagent dock` — receptor + ligands → prepared PDBQT → redocking check → Vina poses, scores, contacts | Report a score as an affinity, or rank poses from a setup that failed its redocking check: validation comes first, and without it no claim is made. |
 | `bioagent admet` — structures → descriptors, rules, alerts → 22 TDC-trained endpoints | Present a prediction as a measurement, or predict outside what a model has seen: every endpoint carries its held-out error and an applicability-domain flag. |
 
+### Connected implementations
+
+Established tools now run inside the governance, not beside it. Each one is reached through a reviewed binding that pins its version, its licence and what each failure means. None stands in for another when it is missing. The [three end-to-end cases](docs/end-to-end-cases.md) run them as chains: counts to pathway claims, literature to claims, and a compound to a hypothesis.
+
+| Implementation | What it refuses to do |
+|---|---|
+| MCP servers through the kernel, over stdio or HTTPS, on SDK 1.x and 2.x: `bioagent.mcp`, with BioMCP and the public DeepWiki server ([docs](docs/mcp-transport.md)) | Call a tool nobody reviewed, or one whose schema or description has changed since the review, or follow a redirect off the server's origin. Each tool is pinned by digest, and the isolated child receives only the server its component calls. |
+| Operation broker ([docs](docs/operation-governance.md)) | Let a governed skill reach a host it did not declare. Each external call is checked, run through the kernel and recorded, and a run with a refused or unrecorded call is not released (ART118). A protein sequence in a field its component declares, sent or returned, is research data; anything else in that field is refused. |
+| Implementation bindings and licences ([docs](docs/provider-bindings-and-licences.md)) | Run a function because a description names it, or read an unknown licence as permission. Upstream code runs only through a verified binding, and a commercial run needs a recorded licence for every code, model, data and service asset it uses. |
+| PyDESeq2, Scanpy, harmonypy, GSEApy and scVI, with R's DESeq2 as the reference ([docs](docs/omics-backends.md)) | Fall back silently. A selected backend that is missing is refused, and every result names the implementation and version that ran. scVI trains on one thread and its weights are digested, so a rerun can be checked against the first. |
+| PaperQA2 ([docs](docs/literature-evidence.md)), with the typing rules measured on 478 open-access abstracts ([accuracy](docs/evidence-typing-accuracy.md)) | Treat a model's summary as evidence, or guess a study design. Passages are located and typed by rule, a passage with no readable design is withheld, and synthesis is a candidate answer behind the model gate, from a provider or a model on this machine. |
+| ToolUniverse (opt-in, `BIOAGENT_TOOLUNIVERSE=1`), BioMCP, Open Targets ([docs](docs/tool-providers.md)) | Expose an unreviewed tool, count one paper reached twice as two sources, or let literature co-mention pass as genetic evidence. |
+| SciToolAgent's ToolsAgent, deployed from its repository ([docs](docs/compute-tasks.md#deployed)) | Read an error the service returns with HTTP 200 as a result, run a function nobody reviewed, or send a salt's SMILES split at its dot as two molecules. |
+| Boltz-2, Chai-1, ProteinMPNN, OpenMM, and long jobs ([docs](docs/compute-tasks.md)) | Approximate an engine that is not installed. Tasks are typed contracts whose adapters refuse with the reason; each engine has run here through its adapter, on a CPU, in an environment of its own. Long jobs are submitted, polled, collected and cancelled, each step recorded, and inside PSH's loop unfinished work is pending, never a result, and collected after a restart. |
+
 ### Clinical decision support
 
 `bioagent clinic` turns a structured 四诊 record into a syndrome differentiation and a draft prescription for a licensed TCM practitioner to accept, modify or reject ([docs/tcm-clinic.md](docs/tcm-clinic.md)). It never prescribes.
@@ -199,9 +291,9 @@ Every source has a card stating its licence and access path. Web access is off u
 
 | Source | Provides | Licence |
 |---|---|---|
-| NPASS 2.0 · CMAUP 2.0 | composition, measured activity | free for academic use |
+| NPASS 2.0 · CMAUP 2.0 | composition, measured activity | not stated: their sites publish no terms, so commercial use is refused |
 | LOTUS (frozen export) | composition | CC BY 4.0 |
-| BindingDB | measured binding | CC BY 4.0 |
+| BindingDB | measured binding | CC BY 3.0 (records from ChEMBL: CC BY-SA 3.0) |
 | PubChem BioAssay | screening results, inactives included | NCBI data policy |
 | STRING v12 | protein associations | CC BY 4.0 |
 | UniProt (reviewed human) | Swiss-Prot primary accessions, for mapping PubChem's gene ids | CC BY 4.0 |
@@ -241,11 +333,13 @@ TCMScience/
 │   ├── src/bioagent/
 │   │   ├── sources/              source cards · parsers · snapshots · ledger · release check
 │   │   ├── analysis/             network pharmacology on verified snapshots
+│   │   ├── research/             the research loop, the pathway inquiry, planted worlds
 │   │   ├── contracts/            evidence · claim · artifact · quality validators
 │   │   ├── skills/               manifest loader · compiler · four P0 skills
-│   │   ├── updates/ benchmarks/  registry, scout, benchmark harness
+│   │   ├── updates/ benchmarks/  registry, scout, benchmark harness, governance ablation
 │   │   └── tcm/                  typed TCM knowledge + seed corpus
 │   ├── skills/tcm/               skill.yaml + SKILL.md
+│   ├── benchmarks/ablation/      the committed ablation results CI checks against
 │   └── registry/                 lockfiles and release records
 ├── arena/web/                    the read-only evaluation site
 ├── site/                         this project's page
@@ -255,12 +349,19 @@ TCMScience/
 
 ## What we do not claim
 
-TCMScience does **not** claim general immunity to prompt injection, certification-grade de-identification, or a tamper-proof execution environment:
+TCMScience does **not** claim to be more capable than Biomni, ToolUniverse, DeepEvidence or BioMedAgent. It has fewer tools, and its own benchmark is not yet a validation. Nor does it claim that the ablation's rates hold for real agent output: they come from a stated construction.
+
+It does **not** claim general immunity to prompt injection, certification-grade de-identification, or a tamper-proof execution environment:
 - Components running in-process are not isolated, and the egress proxy governs only clients that honour it.
 - The bundled sandbox backend is a no-op, and says so.
 - The audit chain is tamper-*evident*, not tamper-proof.
 
 Real isolation needs a container runtime or an OS sandbox. Every analytic result above comes with its stated limitations, and a result that is not significant is not evidence of irrelevance.
+
+Some connected implementations have not been run:
+- Boltz-2, Chai-1, ProteinMPNN and OpenMM have run on a CPU with one small complex or protein each, which shows the adapters read what these versions write; it validates none of the models. Local ESMFold has not run (its 8.4 GB of weights exceeded the memory here), nor has anything on a GPU or in a container.
+- PaperQA2's synthesis has run with a small model on this machine (Qwen2.5-1.5B through llama.cpp), not with a provider's model: there is no API key here.
+- The MCP transport has reached a remote server over HTTPS (DeepWiki) in process, but not from PSH's isolated child through the kernel's egress proxy.
 
 ## Citation
 

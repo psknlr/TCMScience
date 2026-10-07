@@ -19,6 +19,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     a.add_argument("--out", default="")
     a.add_argument("--build-models", action="store_true",
                    help="download the TDC ADMET benchmark group (once) and train the models")
+    a.add_argument("--rebuild", action="store_true",
+                   help="with --build-models: train every endpoint again, including those "
+                        "whose finished model still matches its card")
     a.add_argument("--archive", default="", help="a local copy of the TDC ADMET group zip")
     a.add_argument("--cache", default="", help="where models live (default: data lake/admet)")
     a.add_argument("--endpoint", action="append", default=[], help="only these; repeatable")
@@ -40,11 +43,12 @@ def dispatch(a: argparse.Namespace) -> int | None:
     if a.build_models:
         from .models import build_models
         try:
-            ms = build_models(cache, archive=a.archive or None, endpoints=a.endpoint or None)
+            ms = build_models(cache, archive=a.archive or None, endpoints=a.endpoint or None,
+                              rebuild=a.rebuild)
         except (ChemError, OSError) as exc:
             print(f"refused: {exc}", file=sys.stderr)
             return 1
-        print(f"built {len(ms.cards)} models in {ms.directory}")
+        print(f"{len(ms.cards)} models in {ms.directory}")
         if not a.molecules:
             return 0
     if not (a.molecules and a.out):

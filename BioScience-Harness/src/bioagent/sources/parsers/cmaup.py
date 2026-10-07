@@ -23,7 +23,7 @@ from .common import (NodeBook, ParseReport, ParseResult, TaxonFilter, compound_i
 __all__ = ["FILES", "parse_cmaup"]
 
 KEY = "cmaup"
-LICENSE = "Free for academic use"
+LICENSE = "Not stated"          # the card's: no licence on the site
 
 FILES: Mapping[str, str] = {
     "plants": "CMAUPv2.0_download_Plants.txt",

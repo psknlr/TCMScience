@@ -44,6 +44,10 @@ class PSHConfig:
     require_claim_support: bool = True
     #: Ceiling per destination. Overridable by a work-mode profile, never by a component.
     destination_ceilings: dict[Destination, Sensitivity] = field(default_factory=dict)
+    #: Citation shapes beyond PMID, NCT and DOI that this deployment's records answer to,
+    #: each a regular expression with one group (``OutputGate``): a TCM deployment cites
+    #: classical passages by record id. Deployment configuration, like the ceilings.
+    citation_patterns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # A string state_dir is the obvious way to write this from a script, and failing
@@ -55,6 +59,7 @@ class PSHConfig:
             raise ValueError("compaction_threshold must be in [0.1, 0.95]")
         if self.stuck_loop_threshold < 2:
             raise ValueError("stuck_loop_threshold must be >= 2")
+        object.__setattr__(self, "citation_patterns", tuple(self.citation_patterns))
 
     # --- the four stores, plus secrets outside them -------------------------
     @property

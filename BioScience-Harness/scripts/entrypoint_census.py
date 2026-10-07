@@ -16,6 +16,13 @@ CONSISTENT is checkable anywhere. IMPORTABLE and CALLABLE need the upstream
 projects installed, so they are reported as "not measurable here" rather than
 as failures on a machine that does not have them.
 
+Consistency with a path is not correctness: a module derived from Biomni's
+`tool_description/genomics.py` agrees with that path perfectly and holds no
+function. So the census also counts what each entrypoint rests on — BOUND by a
+reviewed binding (registry/implementation_bindings.yaml), or DERIVED from the
+catalogue path, which the resolver will not run — and how many derived ones
+point into a description file.
+
     python scripts/entrypoint_census.py
     python scripts/entrypoint_census.py --json
 """
@@ -79,8 +86,16 @@ def census(check_imports: bool = True) -> dict:
                  if m.runtime.backend == "python"]
     out = {"python_components": len(manifests), "consistent": 0, "inconsistent": 0,
            "importable": 0, "callable": 0, "not_importable_here": 0,
-           "malformed": 0, "examples_inconsistent": [], "examples_not_importable": []}
+           "malformed": 0, "bound": 0, "derived": 0, "derived_from_description": 0,
+           "examples_inconsistent": [], "examples_not_importable": []}
     for m in manifests:
+        basis = m.runtime.entrypoint_basis
+        if basis in ("bound", "verified"):
+            out["bound"] += 1
+        elif basis == "derived":
+            out["derived"] += 1
+            if "/tool_description/" in f"/{m.provider.source_path}":
+                out["derived_from_description"] += 1
         target = m.runtime.entrypoint
         if ":" not in target:
             out["malformed"] += 1
@@ -132,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
           f"({data['consistent'] / n:.1%})" if n else "")
     print(f"  inconsistent                 : {data['inconsistent']}")
     print(f"  malformed entrypoint         : {data['malformed']}")
+    print(f"  BOUND by a reviewed binding  : {data['bound']}")
+    print(f"  DERIVED, not run             : {data['derived']} "
+          f"({data['derived_from_description']} from a description file)")
     if not args.no_imports:
         print(f"  IMPORTABLE here              : {data['importable']}")
         print(f"  CALLABLE here                : {data['callable']}")

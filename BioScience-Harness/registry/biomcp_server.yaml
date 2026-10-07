@@ -1,0 +1,140 @@
+# biomcp_server.yaml — DRAFT reviewed configuration of the BioMCP MCP server.
+#
+# bioagent.providers.biomcp reads it to check a tools/list answer (check_listing), to
+# shape the arguments of a call (arguments_for) and to adapt the replies into source
+# records (adapt). bioagent.providers.biomcp_client starts the server from it through the
+# reviewed MCP transport (bioagent.mcp), which pins each tool's schemas and description.
+# While `status` is draft, the client serves only a development run that asks for it
+# (allow_draft=True), and says so on every result; a person sets `status: reviewed`.
+#
+# Everything below was read from biomcp-python 0.7.3 (its source in the virtualenv) and
+# from the server itself, started over stdio with the MCP SDK 1.30.0 on 2026-10-07.
+
+api_version: "1"
+status: draft
+reviewed_on: "2026-10-07"
+
+server:
+  id: biomcp
+  package: biomcp-python
+  # Records name this version as the server that answered, so the transport checks it is
+  # the installed release (check_installed) before starting the server.
+  version: "0.7.3"
+  licence: MIT
+  repo: https://github.com/genomoncology/biomcp
+  transport: stdio
+  # {python} is the interpreter of the environment biomcp-python is installed in; -I keeps
+  # the caller's PYTHONPATH and user site directory out of the server. `biomcp run` with
+  # no --mode is the stdio server.
+  command: ["{python}", "-I", "-m", "biomcp", "run"]
+  # {run_dir} is an empty directory owned by the run.
+  cwd: "{run_dir}"
+  env:
+    # The MCP SDK starts a stdio server with HOME, LOGNAME, PATH, SHELL, TERM and USER and
+    # nothing else, so behind an egress proxy BioMCP reaches nothing unless these are
+    # passed on. Values are the caller's; none is written here.
+    pass: [HTTPS_PROXY, NO_PROXY, SSL_CERT_FILE, REQUESTS_CA_BUNDLE]
+    set:
+      # BioMCP keeps HTTP answers in $XDG_CACHE_HOME/biomcp/http_cache (diskcache, with a
+      # per-request TTL) and answers from it. A cache shared between runs lets one run's
+      # answer be recorded as another run's retrieval; this one belongs to the run.
+      XDG_CACHE_HOME: "{run_dir}/cache"
+      BIOMCP_METRICS_ENABLED: "false"
+  # The queries leave for public services (PubTator3, Europe PMC, bioRxiv,
+  # ClinicalTrials.gov, MyVariant.info), whatever process sends them.
+  destination: PUBLIC_REMOTE
+  # What the server said about itself when listed. serverInfo.version is the MCP SDK's
+  # version, not BioMCP's: record server.version above, never this one.
+  listed:
+    at: "2026-10-07T10:35:54Z"
+    protocol_version: "2025-11-25"
+    server_info: {name: "BioMCP - Biomedical Model Context Protocol Server",
+                  version: "1.30.0"}
+    tools: 36
+  # BioMCP calls load_dotenv() at start-up, which reads the first .env file found walking
+  # up from its install directory. Keep the environment it is installed in free of one.
+
+# The admitted tools. input_schema_sha256 is SHA-256 over the tool's inputSchema as
+# listed, as canonical JSON (sorted keys, no spaces, UTF-8); output_schema_sha256 and
+# description_sha256 are the same over its outputSchema and description, which the MCP
+# transport (bioagent.mcp) also pins: a description rewritten after review is what a model
+# reads, so it is refused like a changed schema. None of the five declares annotations.
+# Taken with `python -m bioagent.mcp review` against biomcp-python 0.7.3 on 2026-10-07. fixed_arguments are sent on
+# every call whatever the caller asked; ignored_arguments are accepted by the schema and
+# dropped by 0.7.3's implementation, and a call that sets one is refused.
+tools:
+  article_searcher:
+    input_schema_sha256: b0bf61912d355d7b4c5918a49bfa10ee765fd7b3d7f1765b9e47a23c33e07232
+    output_schema_sha256: 055dd7aaf241a8a84913026b771feccdc5d9d72138bb32e745ae8b240abc2b66
+    description_sha256: a390ac1938e48cc8087c045c7c332d1665a69e5cc24772febef8fa25cea6f5e5
+    record_kind: article
+    # PubTator3 (search and entity autocomplete), bioRxiv/medRxiv and Europe PMC preprints
+    hosts: [www.ncbi.nlm.nih.gov, api.biorxiv.org, www.ebi.ac.uk]
+    # include_cbioportal adds a cBioPortal summary from a fourth host into the same text.
+    fixed_arguments: {include_cbioportal: false}
+    ignored_arguments: [page, page_size]
+    notes: >-
+      Returns at most ten PubMed records and, with include_preprints, preprints: page and
+      page_size are not passed on (asked for 3, it returned 10). Records are Markdown with
+      Pmid, Pmcid and Doi lines.
+
+  article_getter:
+    input_schema_sha256: 5bfda1319737507013744b23cdfababd7055c801684cc2556d65f20067e575da
+    output_schema_sha256: 3358e5b761dff3732f3c144d72068c52deb0cdb4b7e85f0482006e890108a494
+    description_sha256: 28f2d7d853fb0a04edee5b052d11c8fa459b8e5478c7cfdf354b0f82ba61b66d
+    record_kind: article
+    # PubTator3 for a PMID, Europe PMC for a DOI
+    hosts: [www.ncbi.nlm.nih.gov, www.ebi.ac.uk]
+    fixed_arguments: {}
+    ignored_arguments: []
+    notes: >-
+      Answers a JSON array. Its description says PMC ids are accepted; 0.7.3 refuses them
+      with [{"error": "Invalid identifier format ..."}] in a reply whose isError is false.
+      Pass a PMID or a DOI.
+
+  trial_searcher:
+    input_schema_sha256: 01cf2f034395231ad56a42f0b64e3895ee12dad21663e641338e2342f24221ef
+    output_schema_sha256: 28796c51ce08005c4547deb67466ad0b431473273959214ec9228dc074f9f834
+    description_sha256: 4ecf6a1b9676f431355732c924b39c36bf4ff70ea32e150777d5b3fe72d3f19a
+    record_kind: trial
+    hosts: [clinicaltrials.gov]
+    fixed_arguments: {}
+    ignored_arguments: [page, location, sex, healthy_volunteers, funder_type]
+    notes: Markdown records with an NCT Number line.
+
+  trial_protocol_getter:
+    input_schema_sha256: 7b4717a412d3fa911024e46dfc2d3a285da1d05ec5ae55fc5cc948e1902dcb66
+    output_schema_sha256: 58ee5ec16973057284bb8c842d367ef616fc69457c7f9419860ddbe18bebb116
+    description_sha256: c5aba1a34d449f152373104171a3be65cbd53af03f66851def8ba86303726981
+    record_kind: trial
+    hosts: [clinicaltrials.gov]
+    fixed_arguments: {}
+    ignored_arguments: []
+    notes: The protocol section only (no contact or location data).
+
+  variant_searcher:
+    input_schema_sha256: edb8d957d75c6928c4c36ef4918daf632164c385a289c3c75cf6f0383fd6b8ef
+    output_schema_sha256: a2b1b6b9b2ed0890f6bc52b1b04a25b40dbf8b4ecf555c684262c64b2c935a26
+    description_sha256: 31f5f5baed35238aace87bda7d3bf5fa6992d078bbc76825e17b947cefc9ef98
+    record_kind: variant
+    hosts: [myvariant.info]
+    # Both add summaries from other hosts (cBioPortal, OncoKB) into the same text.
+    fixed_arguments: {include_cbioportal: false, include_oncokb: false}
+    ignored_arguments: [hgvs, consequence]
+    # MyVariant.info answers in hg19 unless asked for another assembly, and 0.7.3 does
+    # not ask; the records' UCSC links say db=hg19.
+    assembly: GRCh37
+    notes: Markdown records whose Id is a GRCh37 genomic HGVS id, with the dbSNP rsID.
+
+# Listed tools deliberately not admitted, and why. Any tool not under `tools` is refused.
+not_admitted:
+  trial_getter: >-
+    Its reply includes the trial's contacts section: names, telephone numbers and e-mail
+    addresses of site staff, which nothing here needs and nothing here should store.
+    trial_protocol_getter returns the protocol without it.
+  trial_locations_getter: Contact data, as for trial_getter.
+  search: >-
+    The unified router reaches every BioMCP domain, including unreviewed ones, behind one
+    name and one schema, so what a call does cannot be read from which tool it names.
+  fetch: As for search.
+  think: Not a data source.

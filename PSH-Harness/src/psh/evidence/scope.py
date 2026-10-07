@@ -91,14 +91,20 @@ class ScopeVerdict:
 #: Outcomes that are hierarchically related, so one may inform a claim about the other. The
 #: relation is directional: a mortality finding informs a survival claim (same construct),
 #: but a bone-density finding does not license a fracture claim.
+#:
+#: A cardiovascular event does not license a mortality claim. It did, and a trial whose
+#: outcome was cardiovascular death or heart-failure hospitalisation then supported "reduced
+#: all-cause mortality" — a different, broader outcome the trial did not show to change.
 _OUTCOME_EQUIVALENTS: dict[str, frozenset[str]] = {
     "mortality": frozenset({"mortality"}),
     "fracture": frozenset({"fracture"}),
     "hospitalisation": frozenset({"hospitalisation"}),
-    "cardiovascular-event": frozenset({"cardiovascular-event", "mortality"}),
+    "cardiovascular-event": frozenset({"cardiovascular-event"}),
     "progression-free-survival": frozenset({"progression-free-survival"}),
     "remission": frozenset({"remission"}),
     "quality-of-life": frozenset({"quality-of-life"}),
+    "kidney-failure": frozenset({"kidney-failure"}),
+    "liver-injury": frozenset({"liver-injury"}),
 }
 
 #: Surrogate -> the clinical outcome it is commonly used to stand in for. Present so the

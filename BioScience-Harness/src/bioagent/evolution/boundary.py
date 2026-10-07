@@ -39,6 +39,9 @@ PROTECTED_MODULE_PREFIXES: tuple[str, ...] = (
     # Source cards decide which third-party data may be reached and how; enabling one is
     # a person's decision, so an agent may not even propose it.
     "bioagent.sources.cards",
+    # The same holds for which upstream function a component runs and which licence terms
+    # a commercial run may rely on: the gate, the binding verifier, and what they read.
+    "bioagent.licences", "bioagent.providers.bindings", "bioagent.providers.biomni",
 )
 
 #: Path fragments that identify the same plane on disk, for source paths and write targets.
@@ -47,6 +50,9 @@ PROTECTED_PATH_MARKERS: tuple[str, ...] = (
     "psh/licensing.py", "psh/profiles.py", "psh/config.py",
     "bioagent/policy.py", "bioagent/status.py", "bioagent/psh/",
     "bioagent/evolution/boundary.py", "bioagent/sources/cards.py",
+    "bioagent/licences.py", "bioagent/providers/bindings.py",
+    "bioagent/providers/biomni.py", "registry/implementation_bindings.yaml",
+    "registry/licence_records.yaml",
 )
 
 

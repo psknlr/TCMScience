@@ -252,3 +252,111 @@ def test_the_coding_profile_does_not_permit_vendoring():
                                  license_spdx="MIT", integration_mode="vendor")
     ok, why = vendored.compatible_with(policy.envelope())
     assert not ok and "vendor" in why
+
+
+# ============================================================ a commercial purpose
+
+@pytest.mark.parametrize("spdx,mode,expected", [
+    ("MIT", "vendor", LicenseDecision.ALLOW),
+    ("Apache-2.0", "federated", LicenseDecision.ALLOW),
+    ("GPL-3.0", "vendor", LicenseDecision.PREFER_ALTERNATIVE),
+    ("GPL-3.0", "federated", LicenseDecision.ALLOW),
+    ("NONE", "vendor", LicenseDecision.DENY),
+    ("NONE", "federated", LicenseDecision.DENY),
+    ("", "adapter-only", LicenseDecision.DENY),
+    ("NOASSERTION", "native", LicenseDecision.ALLOW),
+    ("Weird-Lab-Licence-1.0", "federated", LicenseDecision.DENY),
+])
+def test_a_commercial_purpose_needs_a_grant_to_run_upstream_code(spdx, mode, expected):
+    """``NONE + federated`` passes the research table — invoking is not redistributing —
+    and was being read as permission to use the code in a product. It is not one."""
+    assert license_ruling(spdx, mode, commercial=True).decision is expected
+
+
+def test_the_research_answers_are_unchanged_by_the_commercial_axis():
+    for cls_spdx in ("MIT", "GPL-3.0", "NONE", "", "Weird-Lab-Licence-1.0"):
+        for mode in (*INTEGRATION_MODES, "adapter-only", "sneak-it-in"):
+            assert license_ruling(cls_spdx, mode) == license_ruling(cls_spdx, mode,
+                                                                    commercial=False)
+
+
+def test_the_commercial_table_is_never_more_permissive_than_the_research_one():
+    """Cell for cell: a purpose can only narrow what the code licence allows."""
+    from psh.licensing import COMMERCIAL_LICENSE_TABLE, LICENSE_TABLE
+
+    rank = {LicenseDecision.DENY: 0, LicenseDecision.PREFER_ALTERNATIVE: 1,
+            LicenseDecision.ALLOW: 2}
+    assert set(COMMERCIAL_LICENSE_TABLE) == set(LICENSE_TABLE)
+    for license_class, row in LICENSE_TABLE.items():
+        assert set(COMMERCIAL_LICENSE_TABLE[license_class]) == set(row)
+        for mode, decision in row.items():
+            assert rank[COMMERCIAL_LICENSE_TABLE[license_class][mode]] <= rank[decision]
+
+
+def test_a_commercial_refusal_says_which_table_decided_and_why():
+    ruling = license_ruling("NONE", "federated", commercial=True)
+    assert ruling.rule == "license.none.federated.commercial"
+    assert "no permission to use it commercially" in ruling.reason
+    assert license_ruling("NONE", "federated").rule == "license.none.federated"
+
+
+# ======================================================= the current GNU licence ids
+
+#: SPDX's current ids. The bare ``GPL-2.0`` and friends are its deprecated spellings of
+#: the ``-only`` licences; upstream metadata states these, python-igraph's among them.
+CURRENT_GNU = ("GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later",
+               "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
+               "AGPL-3.0-only", "AGPL-3.0-or-later")
+
+
+@pytest.mark.parametrize("spdx", CURRENT_GNU)
+@pytest.mark.parametrize("commercial", [False, True])
+def test_the_current_gnu_ids_are_copyleft_in_every_mode(spdx, commercial):
+    """Before, each read as unlicensed: refused vendored, and refused a commercial run in
+    its own process, which every one of these licences grants."""
+    assert classify_license(spdx) == "copyleft"
+    expected = {"vendor": LicenseDecision.PREFER_ALTERNATIVE,
+                "native": LicenseDecision.ALLOW, "federated": LicenseDecision.ALLOW}
+    for mode, decision in expected.items():
+        ruling = license_ruling(spdx, mode, commercial=commercial)
+        assert ruling.decision is decision, (spdx, mode, commercial)
+        assert ruling.rule == f"license.copyleft.{mode}" + (
+            ".commercial" if commercial else "")
+
+
+@pytest.mark.parametrize("deprecated,current", [
+    ("GPL-2.0", "GPL-2.0-only"), ("GPL-3.0", "GPL-3.0-only"),
+    ("LGPL-2.1", "LGPL-2.1-only"), ("LGPL-3.0", "LGPL-3.0-only"),
+    ("AGPL-3.0", "AGPL-3.0-only")])
+def test_a_deprecated_id_rules_as_the_licence_it_spells(deprecated, current):
+    for mode in INTEGRATION_MODES:
+        for commercial in (False, True):
+            old = license_ruling(deprecated, mode, commercial=commercial)
+            new = license_ruling(current, mode, commercial=commercial)
+            assert (old.decision, old.rule) == (new.decision, new.rule)
+            assert old.reason.replace(deprecated, current) == new.reason
+
+
+def test_a_ruling_states_the_obligation_the_mode_does_or_does_not_incur():
+    from psh.licensing import COPYLEFT_OBLIGATIONS, COPYLEFT_SPDX
+
+    assert set(CURRENT_GNU) <= COPYLEFT_SPDX == set(COPYLEFT_OBLIGATIONS)
+    vendored = license_ruling("GPL-2.0-or-later", "vendor")
+    assert "vendored code keeps its terms" in vendored.reason
+    assert "distributed only with its source, under the same licence" in vendored.reason
+    federated = license_ruling("GPL-2.0-or-later", "federated", commercial=True)
+    assert "does not incur its copyleft terms" in federated.reason
+    assert "over a network" in license_ruling("AGPL-3.0-or-later", "vendor").reason
+    assert "relinkable" in license_ruling("LGPL-2.1-or-later", "federated").reason
+    assert license_ruling("GPL-3.0-only", "native").reason == "GPL-3.0-only permits native use"
+
+
+def test_a_profile_without_copyleft_now_refuses_the_current_ids():
+    """Read as unlicensed, a GPL-2.0-or-later component passed a profile that admits the
+    'none' class and refuses copyleft; it is refused there now."""
+    policy = PolicySnapshot(profile_id="no_copyleft",
+                            allowed_license_classes=("permissive", "none"))
+    igraph = ComponentManifest(id="igraph", name="python-igraph", kind=ComponentKind.TOOL,
+                               license_spdx="GPL-2.0-or-later", integration_mode="federated")
+    ok, why = igraph.compatible_with(policy.envelope())
+    assert not ok and "copyleft" in why

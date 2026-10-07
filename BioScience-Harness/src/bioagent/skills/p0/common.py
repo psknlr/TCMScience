@@ -69,8 +69,18 @@ def _quality_for(tier: EvidenceTier, *, assessed_by: str) -> EvidenceQuality:
     `directness` *is* assessed, because it is the one dimension this corpus can
     speak to honestly: a classical text recording a traditional use is direct
     evidence for an attribution claim and indirect for anything about a patient.
+    A computational prediction is neither, and the heuristic has nothing to say
+    about it, so its directness stays `NOT_ASSESSED` (it ranks below the texts in
+    `EvidenceTier`, and a comparison on that order once rated it DIRECT).
     """
-    directness = (Directness.DIRECT if tier <= EvidenceTier.EXPERT_EXPERIENCE
+    if tier == EvidenceTier.COMPUTATIONAL_PREDICTION:
+        return EvidenceQuality(
+            directness=Directness.NOT_ASSESSED,
+            rationale={"directness": "a computational prediction; the corpus-tier "
+                                     "heuristic does not assess it"},
+            assessed_by=assessed_by, assessment_tool="corpus-tier-heuristic")
+    directness = (Directness.DIRECT
+                  if tier in (EvidenceTier.CLASSICAL_TEXT, EvidenceTier.EXPERT_EXPERIENCE)
                   else Directness.PARTIAL)
     return EvidenceQuality(
         directness=directness,

@@ -49,6 +49,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
 
 from ..sources.herbs import GEGEN_QINLIAN, HERBS, FormulaVersion
+from ..sources.identity import group_sources
 from ..sources.parsers.opentargets import KNOWLEDGE_LEVEL as DISEASE_EVIDENCE_TYPES
 from ..sources.release import CandidateClaim, check_release, path_licenses
 from ..sources.snapshot import Snapshot
@@ -92,11 +93,19 @@ class Parameters:
     permutation_alpha: float = 0.05
     degree_bins: int = 10
     string_min_score: float = 0.7
-    #: the Open Targets evidence type that defines the disease gene set, and its minimum
-    #: score; used only when a disease-association snapshot is given
-    disease_evidence: str = "genetic_association"
+    #: the Open Targets evidence datatype that defines the disease gene set — or a tuple of
+    #: datatypes, whose union defines it — and the minimum score a target must reach in
+    #: one of them; used only when a disease-association snapshot is given. One name stays
+    #: a plain string, so a protocol written before tuples were accepted keeps its digest.
+    disease_evidence: str | tuple[str, ...] = "genetic_association"
     disease_min_score: float = 0.5
     seed: int = 20260923
+
+    @property
+    def evidence_datatypes(self) -> tuple[str, ...]:
+        """The datatypes ``disease_evidence`` names, as a tuple."""
+        return ((self.disease_evidence,) if isinstance(self.disease_evidence, str)
+                else tuple(self.disease_evidence))
 
     def __post_init__(self) -> None:
         if self.composition_min_level not in _COMPOSITION_ORDER:
@@ -109,9 +118,14 @@ class Parameters:
             raise ValueError("screening minimums are at least 1")
         if self.background not in ("assayed", "reactome"):
             raise ValueError(f"background {self.background!r} is not 'assayed' or 'reactome'")
-        if self.disease_evidence not in DISEASE_EVIDENCE_TYPES:
-            raise ValueError(f"disease evidence {self.disease_evidence!r} is not one of "
+        kinds = self.evidence_datatypes
+        unknown = [k for k in kinds if k not in DISEASE_EVIDENCE_TYPES]
+        if unknown or not kinds:
+            raise ValueError(f"disease evidence {unknown or kinds!r} is not one of "
                              f"{sorted(DISEASE_EVIDENCE_TYPES)}")
+        if len(set(kinds)) != len(kinds) or ("overall" in kinds and len(kinds) > 1):
+            raise ValueError(f"disease evidence {kinds!r} repeats a datatype or combines "
+                             "'overall', which already aggregates every datatype")
         if not 0 <= self.disease_min_score <= 1:
             raise ValueError("disease_min_score lies in [0, 1]")
         if self.permutations < 100:
@@ -362,21 +376,80 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
     return background, query, rows
 
 
-def _disease_genes(snap: Snapshot, params: Parameters) -> tuple[str, str, dict[str, float]]:
-    """(disease id, name, target -> score) for the stated evidence type and cut-off."""
+#: Open Targets datatypes that are text mining (Europe PMC co-mention), from the parser's
+#: own labels; "literature only" below means passing the cut-off through these alone.
+TEXT_MINED = frozenset(k for k, level in DISEASE_EVIDENCE_TYPES.items()
+                       if level == "text_co_occurrence")
+
+
+def _disease_genes(snap: Snapshot, params: Parameters
+                   ) -> tuple[str, str, dict[str, float], dict[str, dict[str, float]]]:
+    """(disease id, name, target -> score, datatype -> target -> score).
+
+    The gene set is the targets reaching the cut-off in at least one stated datatype, each
+    scored by its best stated datatype. The per-datatype scores at the cut-off come back
+    too, so what the choice of datatypes left out can be reported beside what it kept.
+    """
     diseases = sorted((n["id"], n.get("name") or n["id"]) for n in snap.nodes
                       if n.get("category") == "disease")
     if len(diseases) != 1:
         raise ValueError(f"{snap.snapshot_id} must hold exactly one disease, has "
                          f"{len(diseases)}")
     disease, name = diseases[0]
-    genes: dict[str, float] = {}
+    passing: dict[str, dict[str, float]] = defaultdict(dict)
     for e in snap.edges:
         if (e.get("predicate") == "associated_with" and e.get("object") == disease
-                and e.get("score_name") == params.disease_evidence
                 and float(e.get("score") or 0) >= params.disease_min_score):
-            genes[e["subject"]] = max(genes.get(e["subject"], 0.0), float(e["score"]))
-    return disease, name, genes
+            kind, target = str(e.get("score_name")), e["subject"]
+            passing[kind][target] = max(passing[kind].get(target, 0.0), float(e["score"]))
+    genes: dict[str, float] = {}
+    for kind in params.evidence_datatypes:
+        for target, score in passing.get(kind, {}).items():
+            genes[target] = max(genes.get(target, 0.0), score)
+    return disease, name, genes, dict(passing)
+
+
+def _by_datatype(passing: Mapping[str, Mapping[str, float]], genes: Mapping[str, float],
+                 snap: Snapshot, query: Iterable[str], background: set[str],
+                 params: Parameters) -> dict[str, Any]:
+    """What each datatype would contribute at the cut-off, and the literature-only targets.
+
+    A text-mining association and a genetic one carry the same predicate and score scale;
+    reported side by side, the reader can see how much of a gene set rests on co-mention.
+    """
+    used = set(params.evidence_datatypes)
+    query = set(query)
+    present = {str(e.get("score_name")) for e in snap.edges
+               if e.get("predicate") == "associated_with"}
+    datatypes = {kind: {"disease_genes": len(targets),
+                        "overlap": len(query & set(targets) & background),
+                        "used": kind in used}
+                 for kind, targets in sorted(passing.items())}
+    others = set().union(*(set(t) for k, t in passing.items()
+                           if k not in TEXT_MINED and k != "overall"))
+    text_only = set().union(*(set(passing.get(k, {})) for k in TEXT_MINED)) - others
+    return {
+        "datatypes": datatypes,
+        "literature_only": {
+            "disease_genes": len(text_only),
+            "overlap": len(query & text_only & background),
+            "in_gene_set": len(text_only & set(genes)),
+            "definition": (f"targets reaching {params.disease_min_score} through "
+                           f"{' or '.join(sorted(TEXT_MINED))} and through no other "
+                           "datatype")},
+        "declared_absent": sorted(k for k in params.evidence_datatypes if k not in present),
+    }
+
+
+def _sources(paths: Sequence[tuple[Snapshot, Mapping[str, Any]]]) -> int:
+    """Distinct publications behind a target's measurements (``sources.identity``).
+
+    NPASS, CMAUP, BindingDB and ChEMBL curate from the same papers, so one IC50 reported
+    once can arrive as four edges: ``measurements`` counts the edges, this counts the
+    papers, however each database spells them. A measurement that cites no paper is a
+    source of its own.
+    """
+    return group_sources([e.get("publications") or () for _, e in paths]).count
 
 
 # ------------------------------------------------------------------ the run
@@ -569,7 +642,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
     disease: dict[str, Any] = {}
     disease_genes: dict[str, float] = {}
     if "opentargets" in by_key:
-        disease_id, disease_name, disease_genes = _disease_genes(by_key["opentargets"], params)
+        disease_id, disease_name, disease_genes, passing = _disease_genes(
+            by_key["opentargets"], params)
         in_background = {g for g in disease_genes if g in background}
         hits = sorted(set(query) & in_background, key=lambda t: (-disease_genes[t], t))
         # its own stream, so adding the disease leaves the pathway permutations unchanged
@@ -606,6 +680,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             "p_value": test["p_value"], "fold_enrichment": test["fold_enrichment"],
             "empirical_p": empirical,
             **({k: rate[k] for k in ("tests", "active_tests", "active_rate") if k in rate}),
+            **_by_datatype(passing, disease_genes, by_key["opentargets"], query, background,
+                           params),
             "interpretation": ("descriptive: the overlap between measured targets and the "
                                "disease gene set is reported, not claimed; it does not show "
                                "that the formula acts on the disease"),
@@ -662,8 +738,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                         for r in compound_rows.values()), key=lambda r: r["compound"])
     targets = [{"target": t, "name": names.get(t, t),
                 "compounds": sorted({e["subject"] for _, e in target_paths[t]}),
-                "measurements": len(target_paths[t]), "in_background": t in background,
-                "disease_score": disease_genes.get(t)}
+                "measurements": len(target_paths[t]), "sources": _sources(target_paths[t]),
+                "in_background": t in background, "disease_score": disease_genes.get(t)}
                for t in sorted(target_paths)]
     hit_rate = len(set(query) & background) / len(background) if background else 0.0
     screen_tests = sum(len(tested_pairs[p]) for p in background) if screening else 0
@@ -755,9 +831,10 @@ def _screening_limitations(params: Parameters, proteins: int, tests: int,
 
 
 def _disease_limitations(disease: Mapping[str, Any], params: Parameters) -> list[str]:
+    kinds = params.evidence_datatypes
     out = [
         f"The indication is joined as a descriptive overlap with Open Targets "
-        f"{params.disease_evidence} associations (score >= {params.disease_min_score}) for "
+        f"{' + '.join(kinds)} associations (score >= {params.disease_min_score}) for "
         f"{disease['name']} ({disease['disease']}). The overlap is a statistic, not a claim: "
         "it neither shows that the formula acts on the disease nor licenses a stronger "
         "claim kind. Which disease is joined is the analyst's choice of indication; a "
@@ -767,8 +844,20 @@ def _disease_limitations(disease: Mapping[str, Any], params: Parameters) -> list
         "evidence type, the score cut-off and the Platform release (recorded in the snapshot "
         "id).",
     ]
-    if params.disease_evidence in ("literature", "overall"):
+    if set(kinds) & (TEXT_MINED | {"overall"}):
         out.append("The disease gene set includes literature co-mention, which shares its "
                    "sources with the compound-target measurements; the overlap is partly "
                    "circular.")
+    text_only = disease.get("literature_only") or {}
+    if text_only.get("in_gene_set"):
+        out.append(f"{text_only['in_gene_set']} of the disease genes rest on literature "
+                   "co-mention alone (no other datatype reaches the cut-off for them).")
+    elif text_only.get("disease_genes"):
+        out.append(f"{text_only['disease_genes']} targets reach the cut-off through "
+                   "literature co-mention alone; they are left out of the gene set and "
+                   "reported separately.")
+    for kind in disease.get("declared_absent") or ():
+        out.append(f"The snapshot holds no {kind} associations for this disease, so that "
+                   "datatype contributes nothing. A Platform release can rename a datatype: "
+                   "API 26.9 reports drug evidence as 'clinical' and has no 'known_drug'.")
     return out

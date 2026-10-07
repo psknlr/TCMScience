@@ -16,7 +16,11 @@ The **applicability domain** of a prediction is the largest Tanimoto similarity 
 query to the training molecules; below 0.3 the query is unlike anything the model saw
 and the prediction is flagged as outside the domain.
 
-The models are built where they run (``build_models``); nothing trained is shipped.
+The models are built where they run (``build_models``); nothing trained is shipped. A
+build writes each endpoint's card as soon as its model is saved, so an interrupted build
+keeps what it finished, and the next build trains only what is missing. A model is kept
+only when its file and its domain match its card and the card was built from the same
+archive, settings and library versions; anything else is trained again.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import time
 import urllib.request
 import zipfile
@@ -130,10 +135,15 @@ def fetch_archive(cache: Path, *, url: str = TDC_ADMET_URL, sha256: str = TDC_AD
             raise ChemError(f"{target} does not match the pinned SHA-256 {sha256}; delete it "
                             "and build again")
         return target
+    from ..backends.http import user_agent
+
+    # Harvard Dataverse answers Python's default User-Agent with 403 Forbidden, so the
+    # download names the harness the way every other request it makes does.
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
     data, last = None, None
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as r:
+            with urllib.request.urlopen(request, timeout=timeout) as r:
                 data = r.read()
             break
         except Exception as exc:                              # noqa: BLE001
@@ -184,9 +194,12 @@ class ModelSet:
             data = path.read_bytes()
             if _sha(data) != card["model_sha256"]:
                 raise ChemError(f"{path} does not match its model card; rebuild the models")
+            domain = self.directory / card["domain_file"]
+            if "domain_sha256" in card and _sha(domain.read_bytes()) != card["domain_sha256"]:
+                raise ChemError(f"{domain} does not match its model card; rebuild the models")
             import pickle
             self._models[endpoint] = pickle.loads(data)          # digest-checked above
-            self._domain[endpoint] = np.load(self.directory / card["domain_file"])
+            self._domain[endpoint] = np.load(domain)
         return self._models[endpoint]
 
     def predict(self, mols: Sequence[Any], endpoint: str) -> dict[str, np.ndarray]:
@@ -207,10 +220,32 @@ class ModelSet:
         return {"value": value, "similarity": sim, "in_domain": sim >= DOMAIN_THRESHOLD}
 
 
+def _kept(card: Mapping[str, Any] | None, out: Path, settings: Mapping[str, Any]) -> bool:
+    """Whether a finished model can stand: same archive, settings and libraries, and files
+    that still match the card's digests."""
+    if not card or any(card.get(k) != v for k, v in settings.items()):
+        return False
+    model, domain = out / card["model_file"], out / card["domain_file"]
+    return (model.is_file() and domain.is_file() and "domain_sha256" in card
+            and _sha(model.read_bytes()) == card["model_sha256"]
+            and _sha(domain.read_bytes()) == card["domain_sha256"])
+
+
+def _write_cards(out: Path, cards: Mapping[str, Any]) -> None:
+    tmp = out / "model_cards.json.tmp"
+    tmp.write_text(json.dumps(cards, indent=2), encoding="utf-8")
+    os.replace(tmp, out / "model_cards.json")
+
+
 def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
                  endpoints: Sequence[str] | None = None, seed: int = 0, max_iter: int = 600,
-                 log=print) -> ModelSet:
-    """Train and score every endpoint; write models, domains and model cards."""
+                 rebuild: bool = False, log=print) -> ModelSet:
+    """Train and score the endpoints; write models, domains and model cards.
+
+    Each card is written as soon as its model is saved. A finished model is kept, not
+    trained again, when ``_kept`` says it can stand (``rebuild`` trains every endpoint
+    asked for regardless). Cards of endpoints not asked for are left as they are.
+    """
     ensemble = need("sklearn.ensemble")
     sklearn = need("sklearn")
     rdkit = need("rdkit")
@@ -220,12 +255,20 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
     archive_sha = _sha(raw)
     out = cache / "models"
     out.mkdir(parents=True, exist_ok=True)
-    cards: dict[str, dict[str, Any]] = {}
+    existing = out / "model_cards.json"
+    cards: dict[str, dict[str, Any]] = (json.loads(existing.read_text(encoding="utf-8"))
+                                        if existing.is_file() else {})
+    settings = {"archive_sha256": archive_sha, "seed": seed, "max_iter": max_iter,
+                "sklearn": sklearn.__version__, "rdkit": rdkit.__version__}
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         available = {n.split("/")[1] for n in z.namelist() if n.count("/") >= 2}
         for name in (endpoints or list(ENDPOINTS)):
             if name not in available:
                 raise ChemError(f"the archive has no endpoint {name}")
+            if not rebuild and _kept(cards.get(name), out, settings):
+                log(f"  {name}: kept, its model matches its card")
+                continue
+            cards.pop(name, None)
             spec = ENDPOINTS[name]
             t0 = time.time()
             train_smiles, y_train = _read_split(z, name, "train_val")
@@ -253,6 +296,7 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
             blob = pickle.dumps(model, protocol=pickle.HIGHEST_PROTOCOL)
             (out / f"{name}.pkl").write_bytes(blob)
             np.save(out / f"{name}_domain.npy", bits(train_mols))
+            domain_sha = _sha((out / f"{name}_domain.npy").read_bytes())
             cards[name] = {
                 "endpoint": name, "group": spec.group, "task": spec.task,
                 "meaning": spec.meaning, "unit": spec.unit, "log10_target": spec.log10,
@@ -267,11 +311,13 @@ def build_models(cache_dir: str | Path, *, archive: str | Path | None = None,
                 "features": "Morgan count FP r2 2048 + 25 RDKit descriptors",
                 "sklearn": sklearn.__version__, "rdkit": rdkit.__version__,
                 "model_file": f"{name}.pkl", "model_sha256": _sha(blob),
-                "domain_file": f"{name}_domain.npy", "domain_threshold": DOMAIN_THRESHOLD,
+                "domain_file": f"{name}_domain.npy", "domain_sha256": domain_sha,
+                "domain_threshold": DOMAIN_THRESHOLD, "seed": seed, "max_iter": max_iter,
                 "seconds": round(time.time() - t0, 1)}
+            _write_cards(out, cards)
             log(f"  {name}: {spec.metric} {score:.3f} on {len(y_test)} test molecules "
                 f"({cards[name]['seconds']} s)")
-    (out / "model_cards.json").write_text(json.dumps(cards, indent=2), encoding="utf-8")
+    _write_cards(out, cards)
     return ModelSet(directory=out, cards=cards)
 
 

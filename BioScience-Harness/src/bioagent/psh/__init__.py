@@ -47,7 +47,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from .arguments import ArgumentError, arguments_for
+from .arguments import ArgumentError, arguments_for, job_arguments
 from .assembly import default_runtime, load_catalogue_rows, load_verification
 from .guard import BoundaryViolation, KernelBoundary
 
@@ -58,8 +58,12 @@ from .guard import BoundaryViolation, KernelBoundary
 _NEEDS_PSH: dict[str, str] = {
     "BioScienceBridge": ".bridge", "BridgeRefused": ".bridge", "EXEC_PATH": ".bridge",
     "BridgedComponent": ".component",
+    # long jobs as governed tool calls: pending work, grants, restarts (docs/compute-tasks.md)
+    "BridgedJobComponent": ".jobs", "Reconciliation": ".jobs",
+    "grant_cancellation": ".jobs", "reconcile": ".jobs",
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
+    "admit_mcp_server": ".mcp_tools", "mcp_transport": ".mcp_tools",
     "DeploymentProfile": ".profiles", "PROFILES": ".profiles", "profile_named": ".profiles",
     # Lost when PR #26 merged main: listed in __all__ but unresolvable, so importing them
     # (tests/test_tcm_epistemics.py) failed.
@@ -71,10 +75,13 @@ _NEEDS_PSH: dict[str, str] = {
 
 __all__ = [
     "ArgumentError", "BioScienceBridge", "BridgeRefused", "BridgedComponent",
+    "BridgedJobComponent", "Reconciliation", "grant_cancellation", "job_arguments",
+    "reconcile",
     "DeploymentProfile", "PROFILES", "profile_named",
     "BoundaryViolation", "EXEC_PATH", "HostPolicy", "KernelBoundary", "arguments_for",
     "bridge_manifest", "ceiling_for", "default_runtime", "destinations_for",
     "load_catalogue_rows", "load_verification", "normalise_spdx", "psh_id_for",
+    "admit_mcp_server", "mcp_transport",
     "DESIGN_FOR_TIER", "CLAIM_KIND_FOR", "SUBJECT_FOR_DESIGN", "TierMapping",
     "design_for", "evidence_type_for", "claim_type_for", "licensing_for",
 ]

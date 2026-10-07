@@ -1,0 +1,2567 @@
+{
+ "construction": "mutation testing: base cases a reviewer would release, each mutated by one named scientific error; base cases and operators were written by the authors of the gates, so this is a regression benchmark with a stated construction, not an estimate of field error rates",
+ "base_cases": 10,
+ "mutants": 121,
+ "gates": {
+  "provenance": "kernel",
+  "output": "kernel",
+  "licensing": "kernel",
+  "claim_contract": "domain",
+  "release_path": "domain"
+ },
+ "configurations": [
+  {
+   "configuration": "ungoverned",
+   "gates": [],
+   "errors_released": 121,
+   "mutants": 121,
+   "error_release_rate": 1.0,
+   "error_release_ci95": [
+    0.9692,
+    1.0
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "kernel only",
+   "gates": [
+    "provenance",
+    "output",
+    "licensing"
+   ],
+   "errors_released": 7,
+   "mutants": 121,
+   "error_release_rate": 0.0579,
+   "error_release_ci95": [
+    0.0283,
+    0.1146
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "domain only",
+   "gates": [
+    "claim_contract",
+    "release_path"
+   ],
+   "errors_released": 57,
+   "mutants": 121,
+   "error_release_rate": 0.4711,
+   "error_release_ci95": [
+    0.3844,
+    0.5595
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full",
+   "gates": [
+    "provenance",
+    "output",
+    "licensing",
+    "claim_contract",
+    "release_path"
+   ],
+   "errors_released": 0,
+   "mutants": 121,
+   "error_release_rate": 0.0,
+   "error_release_ci95": [
+    0.0,
+    0.0308
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full without provenance",
+   "gates": [
+    "output",
+    "licensing",
+    "claim_contract",
+    "release_path"
+   ],
+   "errors_released": 10,
+   "mutants": 121,
+   "error_release_rate": 0.0826,
+   "error_release_ci95": [
+    0.0455,
+    0.1455
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full without output",
+   "gates": [
+    "provenance",
+    "licensing",
+    "claim_contract",
+    "release_path"
+   ],
+   "errors_released": 42,
+   "mutants": 121,
+   "error_release_rate": 0.3471,
+   "error_release_ci95": [
+    0.2682,
+    0.4355
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full without licensing",
+   "gates": [
+    "provenance",
+    "output",
+    "claim_contract",
+    "release_path"
+   ],
+   "errors_released": 0,
+   "mutants": 121,
+   "error_release_rate": 0.0,
+   "error_release_ci95": [
+    0.0,
+    0.0308
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full without claim_contract",
+   "gates": [
+    "provenance",
+    "output",
+    "licensing",
+    "release_path"
+   ],
+   "errors_released": 6,
+   "mutants": 121,
+   "error_release_rate": 0.0496,
+   "error_release_ci95": [
+    0.0229,
+    0.104
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "full without release_path",
+   "gates": [
+    "provenance",
+    "output",
+    "licensing",
+    "claim_contract"
+   ],
+   "errors_released": 1,
+   "mutants": 121,
+   "error_release_rate": 0.0083,
+   "error_release_ci95": [
+    0.0015,
+    0.0453
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "provenance only",
+   "gates": [
+    "provenance"
+   ],
+   "errors_released": 111,
+   "mutants": 121,
+   "error_release_rate": 0.9174,
+   "error_release_ci95": [
+    0.8545,
+    0.9545
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "output only",
+   "gates": [
+    "output"
+   ],
+   "errors_released": 22,
+   "mutants": 121,
+   "error_release_rate": 0.1818,
+   "error_release_ci95": [
+    0.1232,
+    0.26
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "licensing only",
+   "gates": [
+    "licensing"
+   ],
+   "errors_released": 70,
+   "mutants": 121,
+   "error_release_rate": 0.5785,
+   "error_release_ci95": [
+    0.4894,
+    0.6628
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "claim_contract only",
+   "gates": [
+    "claim_contract"
+   ],
+   "errors_released": 58,
+   "mutants": 121,
+   "error_release_rate": 0.4793,
+   "error_release_ci95": [
+    0.3923,
+    0.5676
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  },
+  {
+   "configuration": "release_path only",
+   "gates": [
+    "release_path"
+   ],
+   "errors_released": 117,
+   "mutants": 121,
+   "error_release_rate": 0.9669,
+   "error_release_ci95": [
+    0.9181,
+    0.9871
+   ],
+   "false_refusals": 0,
+   "base_cases": 10,
+   "false_refusal_rate": 0.0
+  }
+ ],
+ "kill_matrix": {
+  "population": {
+   "n": 7,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "outcome": {
+   "n": 5,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "subject": {
+   "n": 5,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "direction": {
+   "n": 4,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "certainty": {
+   "n": 8,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.125,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "animal": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "docking": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.5,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "plan": {
+   "n": 3,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "population_text": {
+   "n": 7,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "outcome_text": {
+   "n": 5,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "subject_text": {
+   "n": 5,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "certainty_text": {
+   "n": 8,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.125,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "retracted": {
+   "n": 10,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "tampered": {
+   "n": 10,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "citation_mismatch": {
+   "n": 10,
+   "provenance": 1.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "fabricated_citation": {
+   "n": 10,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "constituent_formula": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "duplicate_source": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "unknown_as_negative": {
+   "n": 4,
+   "provenance": 0.0,
+   "output": 0.5,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.5,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "near_name": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.5,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "dose": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 0.0,
+   "full": 1.0
+  },
+  "near_name_text": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.5,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.5,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "processing_transfer": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "upgrade": {
+   "n": 4,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.25,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "borrowed_direction": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 0.0,
+   "release_path": 1.0,
+   "kernel": 0.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "exposure_text": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.0,
+   "domain": 1.0,
+   "full": 1.0
+  }
+ },
+ "adds": {
+  "provenance": [
+   "E1/tampered",
+   "E2/tampered",
+   "E3/tampered",
+   "E4/tampered",
+   "A1/tampered",
+   "A2/tampered",
+   "S1/tampered",
+   "M1/tampered",
+   "H1/tampered",
+   "C1/tampered"
+  ],
+  "output": [
+   "E1/direction",
+   "E1/population_text",
+   "E1/outcome_text",
+   "E1/subject_text",
+   "E1/tampered",
+   "E1/fabricated_citation",
+   "E2/direction",
+   "E2/population_text",
+   "E2/outcome_text",
+   "E2/subject_text",
+   "E2/tampered",
+   "E2/fabricated_citation",
+   "E3/direction",
+   "E3/population_text",
+   "E3/outcome_text",
+   "E3/subject_text",
+   "E3/tampered",
+   "E3/fabricated_citation",
+   "E4/dose",
+   "E4/direction",
+   "E4/population_text",
+   "E4/tampered",
+   "E4/fabricated_citation",
+   "A1/population_text",
+   "A1/outcome_text",
+   "A1/tampered",
+   "A1/fabricated_citation",
+   "A2/population_text",
+   "A2/outcome_text",
+   "A2/tampered",
+   "A2/fabricated_citation",
+   "S1/population_text",
+   "S1/tampered",
+   "S1/fabricated_citation",
+   "M1/tampered",
+   "M1/fabricated_citation",
+   "H1/subject_text",
+   "H1/tampered",
+   "H1/fabricated_citation",
+   "C1/subject_text",
+   "C1/tampered",
+   "C1/fabricated_citation"
+  ],
+  "licensing": [],
+  "claim_contract": [
+   "E1/duplicate_source",
+   "E1/unknown_as_negative",
+   "E2/duplicate_source",
+   "E4/near_name_text",
+   "E4/unknown_as_negative",
+   "M1/exposure_text"
+  ],
+  "release_path": [
+   "M1/borrowed_direction"
+  ]
+ },
+ "survivors": [],
+ "false_refusals": [],
+ "by_language": {
+  "en": {
+   "mutants": 48,
+   "base_cases": 4,
+   "released_by_full": 0,
+   "refused_by_full": 0
+  },
+  "zh": {
+   "mutants": 73,
+   "base_cases": 6,
+   "released_by_full": 0,
+   "refused_by_full": 0
+  }
+ },
+ "cases": {
+  "E1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "E2": {
+   "error_class": "",
+   "gold": "release",
+   "language": "en",
+   "refused_by": {}
+  },
+  "E3": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "E4": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "A1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "en",
+   "refused_by": {}
+  },
+  "A2": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "S1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "M1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "en",
+   "refused_by": {}
+  },
+  "H1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "en",
+   "refused_by": {}
+  },
+  "C1": {
+   "error_class": "",
+   "gold": "release",
+   "language": "zh",
+   "refused_by": {}
+  },
+  "E1/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E1/outcome": {
+   "error_class": "outcome",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E1/subject": {
+   "error_class": "subject",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ]
+   }
+  },
+  "E1/direction": {
+   "error_class": "direction",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E1/animal": {
+   "error_class": "animal",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM005",
+     "CLM008",
+     "CLM009"
+    ]
+   }
+  },
+  "E1/docking": {
+   "error_class": "docking",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM004",
+     "CLM005",
+     "CLM009"
+    ]
+   }
+  },
+  "E1/plan": {
+   "error_class": "plan",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E1/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/outcome_text": {
+   "error_class": "outcome_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/subject_text": {
+   "error_class": "subject_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "E1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "E1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E1/constituent_formula": {
+   "error_class": "constituent_formula",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM015"
+    ]
+   }
+  },
+  "E1/duplicate_source": {
+   "error_class": "duplicate_source",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM018"
+    ]
+   }
+  },
+  "E1/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
+  "E2/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E2/outcome": {
+   "error_class": "outcome",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E2/subject": {
+   "error_class": "subject",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ]
+   }
+  },
+  "E2/direction": {
+   "error_class": "direction",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E2/animal": {
+   "error_class": "animal",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM005",
+     "CLM008",
+     "CLM009"
+    ]
+   }
+  },
+  "E2/docking": {
+   "error_class": "docking",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM004",
+     "CLM005",
+     "CLM009"
+    ]
+   }
+  },
+  "E2/plan": {
+   "error_class": "plan",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E2/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/outcome_text": {
+   "error_class": "outcome_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/subject_text": {
+   "error_class": "subject_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E2/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "E2/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "E2/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E2/duplicate_source": {
+   "error_class": "duplicate_source",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "claim_contract": [
+     "CLM018"
+    ]
+   }
+  },
+  "E3/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E3/outcome": {
+   "error_class": "outcome",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E3/subject": {
+   "error_class": "subject",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ]
+   }
+  },
+  "E3/direction": {
+   "error_class": "direction",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E3/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E3/plan": {
+   "error_class": "plan",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E3/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E3/outcome_text": {
+   "error_class": "outcome_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E3/subject_text": {
+   "error_class": "subject_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E3/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "E3/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "E3/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E3/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "E3/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "E4/near_name": {
+   "error_class": "near_name",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM014"
+    ]
+   }
+  },
+  "E4/dose": {
+   "error_class": "dose",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/direction": {
+   "error_class": "direction",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/near_name_text": {
+   "error_class": "near_name_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM014"
+    ]
+   }
+  },
+  "E4/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "E4/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "E4/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "E4/processing_transfer": {
+   "error_class": "processing_transfer",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM016"
+    ]
+   }
+  },
+  "E4/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
+  "A1/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "A1/outcome": {
+   "error_class": "outcome",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "A1/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "A1/upgrade": {
+   "error_class": "upgrade",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM005"
+    ]
+   }
+  },
+  "A1/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A1/outcome_text": {
+   "error_class": "outcome_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A1/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "A1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "A1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "A1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A2/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "A2/outcome": {
+   "error_class": "outcome",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "A2/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011",
+     "CLM011"
+    ]
+   }
+  },
+  "A2/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A2/outcome_text": {
+   "error_class": "outcome_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A2/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011",
+     "CLM011"
+    ]
+   }
+  },
+  "A2/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "A2/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A2/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "A2/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "A2/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
+  "S1/population": {
+   "error_class": "population",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP103"
+    ],
+    "claim_contract": [
+     "CLM009"
+    ]
+   }
+  },
+  "S1/near_name": {
+   "error_class": "near_name",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM014"
+    ]
+   }
+  },
+  "S1/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "S1/population_text": {
+   "error_class": "population_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "S1/near_name_text": {
+   "error_class": "near_name_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM014"
+    ]
+   }
+  },
+  "S1/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "S1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "S1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "S1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "S1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "M1/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ],
+    "release_path": [
+     "release_refused"
+    ]
+   }
+  },
+  "M1/upgrade": {
+   "error_class": "upgrade",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM005",
+     "CLM008",
+     "CLM009",
+     "CLM009"
+    ],
+    "release_path": [
+     "release_refused"
+    ]
+   }
+  },
+  "M1/borrowed_direction": {
+   "error_class": "borrowed_direction",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "release_path": [
+     "release_refused"
+    ]
+   }
+  },
+  "M1/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ],
+    "release_path": [
+     "release_refused"
+    ]
+   }
+  },
+  "M1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "M1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "M1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "M1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "M1/constituent_formula": {
+   "error_class": "constituent_formula",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM015"
+    ]
+   }
+  },
+  "M1/exposure_text": {
+   "error_class": "exposure_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "claim_contract": [
+     "CLM017"
+    ]
+   }
+  },
+  "M1/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
+  "H1/subject": {
+   "error_class": "subject",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ]
+   }
+  },
+  "H1/certainty": {
+   "error_class": "certainty",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "H1/upgrade": {
+   "error_class": "upgrade",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM004",
+     "CLM005",
+     "CLM009",
+     "CLM009"
+    ]
+   }
+  },
+  "H1/subject_text": {
+   "error_class": "subject_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "H1/certainty_text": {
+   "error_class": "certainty_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ]
+   }
+  },
+  "H1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "H1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "H1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "H1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "C1/subject": {
+   "error_class": "subject",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ]
+   }
+  },
+  "C1/upgrade": {
+   "error_class": "upgrade",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM005",
+     "CLM009",
+     "CLM009"
+    ]
+   }
+  },
+  "C1/subject_text": {
+   "error_class": "subject_text",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "C1/retracted": {
+   "error_class": "retracted",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM003"
+    ]
+   }
+  },
+  "C1/tampered": {
+   "error_class": "tampered",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  },
+  "C1/citation_mismatch": {
+   "error_class": "citation_mismatch",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "provenance": [
+     "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "identifier_binding"
+    ]
+   }
+  },
+  "C1/fabricated_citation": {
+   "error_class": "fabricated_citation",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
+  }
+ }
+}

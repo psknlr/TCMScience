@@ -32,12 +32,13 @@ from pathlib import Path, PurePath
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ..contracts import (
-    ApprovalDenied, ApprovalRequired, Autonomy, BrokerBypass, ComponentManifest,
+    ApprovalDenied, ApprovalRequired, Autonomy, ComponentManifest,
     ContextProjection, DelegationContract, EgressDenied, ModelProfile, PolicyDenied,
     RiskTier, RunEnvelope,
 )
 from ..labels import (
-    DataLabel, Destination, Labeled, Sensitivity, label_of, unwrap,
+    DataLabel, Destination, Labeled, Sensitivity, declared_sequence_problems, label_of,
+    unwrap, unwrap_deep,
 )
 
 __all__ = ["EgressDecision", "ModelGateway", "ToolGateway", "DelegationGateway",
@@ -293,6 +294,19 @@ class ToolGateway(_GateBase):
             return self._record(EgressDecision(
                 allowed=False, destination=destination, label=label, gate=self.name,
                 target=target, reason=f"component rejected by run authority: {why}"))
+
+        # A field the component declares a biological sequence is labelled as one only
+        # when its value is one (the classifier). A value that is not one is refused here,
+        # at every destination: a key or a note in a sequence field must not pass under
+        # the sequence's label, nor under the one an undeclared string would get. The
+        # reason names the field and the kind of mismatch, never the value.
+        mismatched = declared_sequence_problems(manifest.input_schema, unwrap_deep(raw))
+        if mismatched:
+            return self._record(EgressDecision(
+                allowed=False, destination=destination, label=label, gate=self.name,
+                target=target,
+                reason=(f"payload for {target} does not hold what its input schema "
+                        f"declares: {'; '.join(mismatched[:3])}")))
 
         # The run's ceiling applies to what a tool is handed, not only to what a model is
         # shown. ``max_label`` is the highest sensitivity this run may handle at all.
@@ -638,8 +652,10 @@ class ExecutionBroker:
     def call_tool(self, component: Any, payload: Any, envelope: RunEnvelope) -> Any:
         """Run a tool call through the gateway and any required approval."""
         manifest: ComponentManifest = component.manifest
-        # Same rule as model calls: classify at the boundary, never trust the caller.
-        payload = self.ingress.ensure(payload, origin=f"tool:{manifest.id}")
+        # Same rule as model calls: classify at the boundary, never trust the caller. The
+        # admitted manifest's input schema says which fields hold biological sequences.
+        payload = self.ingress.ensure(payload, origin=f"tool:{manifest.id}",
+                                      schema=manifest.input_schema)
         decision = self.tool_gateway.check(payload, manifest, envelope)
         if not decision.allowed:
             self._bump("refusals")
@@ -654,7 +670,6 @@ class ExecutionBroker:
         # Approval used to be settled before the hooks ran, so a hook that turned
         # "git status" into "git push origin main" got a push run with no approval asked.
         from .hooks import HookBlocked, HookDecision, HookEvent
-        from ..labels import unwrap_deep
         try:
             hook_decision, rewritten, _ = self.hooks.dispatch(
                 HookEvent.PRE_TOOL_USE, target=manifest.id, run_id=envelope.run_id,
@@ -664,7 +679,8 @@ class ExecutionBroker:
             raise EgressDenied(f"hook {exc.hook} denied {manifest.id}: {exc}",
                                label=payload.label, destination=Destination.LOCAL_COMPUTE) from exc
         if rewritten is not None:
-            payload = self.ingress.ensure(rewritten, origin=f"hook_rewrite:{manifest.id}")
+            payload = self.ingress.ensure(rewritten, origin=f"hook_rewrite:{manifest.id}",
+                                          schema=manifest.input_schema)
             decision = self.tool_gateway.check(payload, manifest, envelope)
             if not decision.allowed:
                 self._bump("refusals")
@@ -703,14 +719,43 @@ class ExecutionBroker:
             raise EgressDenied(f"hook {exc.hook} withheld the result of {manifest.id}: {exc}",
                                label=payload.label, destination=Destination.LOCAL_COMPUTE) from exc
 
+        from ..contracts import PendingResult, ResultPending
+
+        if isinstance(raw, PendingResult):
+            # The work this call started has not finished. There is no value, so no
+            # ExecutionResult is built: the chain records the reference the work is
+            # collected by (``tool_call_pending``, a type of its own so nothing counting
+            # ``tool_call`` events reads it as a completed call), labelled like the
+            # inputs that started it, and the caller is told by an exception it cannot
+            # mistake for a value.
+            from .results import PendingOutcome
+
+            pending = PendingOutcome.from_component(
+                raw, inputs=[payload], component_id=manifest.id, run_id=envelope.run_id,
+                classifier=getattr(self.ingress, "classifier", None))
+            if self._audit is not None:
+                self._audit("tool_call_pending", run_id=envelope.run_id,
+                            component_id=manifest.id, status="pending",
+                            latency_s=round(time.time() - started, 4), execution=execution,
+                            sensitivity=pending.label.sensitivity.name,
+                            reference=dict(pending.reference),
+                            reference_sha256=pending.reference_digest,
+                            reason=pending.reason[:200])
+            raise ResultPending(
+                f"{manifest.id} started work that has not finished (reference "
+                f"{pending.reference_digest[:16]}): {pending.reason or 'no detail'}",
+                pending=pending)
+
         # The output inherits the input's label. Without this a component launders taint
         # simply by returning a plain dict, which is the ordinary case rather than an
-        # adversarial one.
+        # adversarial one. Its own content is classified against the admitted manifest's
+        # output schema, which says which fields hold biological sequences.
         from .results import ExecutionResult
 
         result = ExecutionResult.from_component(
             raw, inputs=[payload], component_id=manifest.id, run_id=envelope.run_id,
-            classifier=getattr(self.ingress, "classifier", None))
+            classifier=getattr(self.ingress, "classifier", None),
+            schema=manifest.output_schema)
         if self._audit is not None:
             self._audit("tool_call", run_id=envelope.run_id, component_id=manifest.id,
                         latency_s=round(time.time() - started, 4),
@@ -996,7 +1041,6 @@ def _tool_approval_request(manifest: ComponentManifest, payload: Any, envelope: 
 
     from ..contracts import content_hash
     from .approvals import ApprovalRequest
-    from ..labels import unwrap_deep
 
     raw = unwrap_deep(payload)
     command = _candidate_command(raw) if _executes_commands(manifest) else None

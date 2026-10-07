@@ -1,0 +1,23 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "tool": "article_getter",
+ "arguments": {
+  "pmid": "34956436"
+ },
+ "called_at": "2026-10-07T10:37:16+00:00",
+ "trimmed": "the 'abstract' and 'full_text' fields removed (publishers' text); the JSON was re-serialised with the server's own indent=2.",
+ "reply": {
+  "content": [
+   {
+    "type": "text",
+    "text": "[\n  {\n    \"pmid\": 34956436,\n    \"pmcid\": \"PMC8696197\",\n    \"date\": \"2021-12-15T00:00:00Z\",\n    \"journal\": \"Oxid Med Cell Longev\",\n    \"authors\": [\n      \"Guo J\",\n      \"Chen H\",\n      \"Zhang X\",\n      \"Lou W\",\n      \"Zhang P\",\n      \"Qiu Y\",\n      \"Zhang C\",\n      \"Wang Y\",\n      \"Liu WJ\"\n    ],\n    \"title\": \"The Effect of Berberine on Metabolic Profiles in Type 2 Diabetic Patients: A Systematic Review and Meta-Analysis of Randomized Controlled Trials\",\n    \"pubmed_url\": \"https://pubmed.ncbi.nlm.nih.gov/34956436/\",\n    \"pmc_url\": \"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8696197/\"\n  }\n]"
+   }
+  ],
+  "isError": false
+ }
+}

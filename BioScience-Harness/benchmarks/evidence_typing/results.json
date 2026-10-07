@@ -1,0 +1,9485 @@
+{
+ "benchmark": "evidence-typing",
+ "reference": "PubMed publication types, with MeSH Animals/Humans and cell-culture headings for animal and in-vitro studies; an imperfect reference assigned by indexers",
+ "sample_sha256": "d6b6080e9b80f0728488fbb65c8be49a4c0c6166a4c412a841fb041442c70c12",
+ "rules_sha256": "9f78756177f8c96dcdd67191c9784c24c1a346e4b6fdf46fea51e95ceaa88a74",
+ "splits": {
+  "dev": {
+   "records": 176,
+   "labelled": 140,
+   "negatives": 36,
+   "precision": {
+    "k": 119,
+    "n": 121,
+    "rate": 0.9835,
+    "ci95": [
+     0.9417,
+     0.9955
+    ]
+   },
+   "coverage": {
+    "k": 121,
+    "n": 140,
+    "rate": 0.8643,
+    "ci95": [
+     0.7977,
+     0.9114
+    ]
+   },
+   "correct_from_title": 71,
+   "designs": {
+    "systematic_review": {
+     "precision": {
+      "k": 27,
+      "n": 27,
+      "rate": 1.0,
+      "ci95": [
+       0.8754,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 27,
+      "n": 28,
+      "rate": 0.9643,
+      "ci95": [
+       0.8229,
+       0.9937
+      ]
+     },
+     "abstention": {
+      "k": 1,
+      "n": 28,
+      "rate": 0.0357,
+      "ci95": [
+       0.0063,
+       0.1771
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 28,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1206
+      ]
+     }
+    },
+    "randomized_trial": {
+     "precision": {
+      "k": 22,
+      "n": 22,
+      "rate": 1.0,
+      "ci95": [
+       0.8513,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 22,
+      "n": 24,
+      "rate": 0.9167,
+      "ci95": [
+       0.7415,
+       0.9768
+      ]
+     },
+     "abstention": {
+      "k": 2,
+      "n": 24,
+      "rate": 0.0833,
+      "ci95": [
+       0.0232,
+       0.2585
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 24,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.138
+      ]
+     }
+    },
+    "observational": {
+     "precision": {
+      "k": 30,
+      "n": 30,
+      "rate": 1.0,
+      "ci95": [
+       0.8865,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 30,
+      "n": 33,
+      "rate": 0.9091,
+      "ci95": [
+       0.7643,
+       0.9686
+      ]
+     },
+     "abstention": {
+      "k": 2,
+      "n": 33,
+      "rate": 0.0606,
+      "ci95": [
+       0.0168,
+       0.1961
+      ]
+     },
+     "wrong": {
+      "k": 1,
+      "n": 33,
+      "rate": 0.0303,
+      "ci95": [
+       0.0054,
+       0.1532
+      ]
+     }
+    },
+    "case_report": {
+     "precision": {
+      "k": 16,
+      "n": 16,
+      "rate": 1.0,
+      "ci95": [
+       0.8064,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 16,
+      "n": 16,
+      "rate": 1.0,
+      "ci95": [
+       0.8064,
+       1.0
+      ]
+     },
+     "abstention": {
+      "k": 0,
+      "n": 16,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1936
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 16,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1936
+      ]
+     }
+    },
+    "animal": {
+     "precision": {
+      "k": 13,
+      "n": 14,
+      "rate": 0.9286,
+      "ci95": [
+       0.6853,
+       0.9873
+      ]
+     },
+     "recall": {
+      "k": 13,
+      "n": 25,
+      "rate": 0.52,
+      "ci95": [
+       0.335,
+       0.6997
+      ]
+     },
+     "abstention": {
+      "k": 11,
+      "n": 25,
+      "rate": 0.44,
+      "ci95": [
+       0.2667,
+       0.6293
+      ]
+     },
+     "wrong": {
+      "k": 1,
+      "n": 25,
+      "rate": 0.04,
+      "ci95": [
+       0.0071,
+       0.1954
+      ]
+     }
+    },
+    "in_vitro": {
+     "precision": {
+      "k": 11,
+      "n": 12,
+      "rate": 0.9167,
+      "ci95": [
+       0.6461,
+       0.9851
+      ]
+     },
+     "recall": {
+      "k": 11,
+      "n": 14,
+      "rate": 0.7857,
+      "ci95": [
+       0.5241,
+       0.9243
+      ]
+     },
+     "abstention": {
+      "k": 3,
+      "n": 14,
+      "rate": 0.2143,
+      "ci95": [
+       0.0757,
+       0.4759
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 14,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2153
+      ]
+     }
+    }
+   },
+   "confusion": {
+    "systematic_review": {
+     "systematic_review": 27,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 1,
+     "no rule": 0
+    },
+    "randomized_trial": {
+     "systematic_review": 0,
+     "randomized_trial": 22,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 2
+    },
+    "observational": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 30,
+     "case_report": 0,
+     "animal": 1,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 2
+    },
+    "case_report": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 16,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 0
+    },
+    "animal": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 13,
+     "in_vitro": 1,
+     "ambiguous": 1,
+     "no rule": 10
+    },
+    "in_vitro": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 11,
+     "ambiguous": 0,
+     "no rule": 3
+    },
+    "narrative_review": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 13
+    },
+    "editorial": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 10
+    },
+    "protocol": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 13
+    }
+   },
+   "negatives_typed": {
+    "narrative_review": {
+     "typed": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     }
+    },
+    "editorial": {
+     "typed": {
+      "k": 0,
+      "n": 10,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2775
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 10,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2775
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 10,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2775
+      ]
+     }
+    },
+    "protocol": {
+     "typed": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 13,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2281
+      ]
+     }
+    },
+    "all": {
+     "typed": {
+      "k": 0,
+      "n": 36,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0964
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 36,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0964
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 36,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0964
+      ]
+     }
+    }
+   },
+   "wrong": 2,
+   "widening": {
+    "n": 1,
+    "efficacy": 0,
+    "ids": [
+     "35163542"
+    ]
+   },
+   "fields": {
+    "population": {
+     "read": {
+      "k": 19,
+      "n": 176,
+      "rate": 0.108,
+      "ci95": [
+       0.0702,
+       0.1624
+      ]
+     },
+     "ambiguous": 11,
+     "no_rule": 146,
+     "by_kind": {
+      "systematic_review": {
+       "k": 3,
+       "n": 28,
+       "rate": 0.1071,
+       "ci95": [
+        0.0371,
+        0.272
+       ]
+      },
+      "randomized_trial": {
+       "k": 2,
+       "n": 24,
+       "rate": 0.0833,
+       "ci95": [
+        0.0232,
+        0.2585
+       ]
+      },
+      "observational": {
+       "k": 7,
+       "n": 33,
+       "rate": 0.2121,
+       "ci95": [
+        0.1068,
+        0.3775
+       ]
+      },
+      "case_report": {
+       "k": 0,
+       "n": 16,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1936
+       ]
+      },
+      "animal": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      },
+      "in_vitro": {
+       "k": 1,
+       "n": 14,
+       "rate": 0.0714,
+       "ci95": [
+        0.0127,
+        0.3147
+       ]
+      },
+      "narrative_review": {
+       "k": 1,
+       "n": 13,
+       "rate": 0.0769,
+       "ci95": [
+        0.0137,
+        0.3331
+       ]
+      },
+      "editorial": {
+       "k": 1,
+       "n": 10,
+       "rate": 0.1,
+       "ci95": [
+        0.0179,
+        0.4042
+       ]
+      },
+      "protocol": {
+       "k": 4,
+       "n": 13,
+       "rate": 0.3077,
+       "ci95": [
+        0.1268,
+        0.5763
+       ]
+      }
+     }
+    },
+    "comparator": {
+     "read": {
+      "k": 19,
+      "n": 176,
+      "rate": 0.108,
+      "ci95": [
+       0.0702,
+       0.1624
+      ]
+     },
+     "ambiguous": 6,
+     "no_rule": 151,
+     "by_kind": {
+      "systematic_review": {
+       "k": 2,
+       "n": 28,
+       "rate": 0.0714,
+       "ci95": [
+        0.0198,
+        0.2265
+       ]
+      },
+      "randomized_trial": {
+       "k": 6,
+       "n": 24,
+       "rate": 0.25,
+       "ci95": [
+        0.12,
+        0.449
+       ]
+      },
+      "observational": {
+       "k": 3,
+       "n": 33,
+       "rate": 0.0909,
+       "ci95": [
+        0.0314,
+        0.2357
+       ]
+      },
+      "case_report": {
+       "k": 0,
+       "n": 16,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1936
+       ]
+      },
+      "animal": {
+       "k": 4,
+       "n": 25,
+       "rate": 0.16,
+       "ci95": [
+        0.064,
+        0.3465
+       ]
+      },
+      "in_vitro": {
+       "k": 2,
+       "n": 14,
+       "rate": 0.1429,
+       "ci95": [
+        0.0401,
+        0.3994
+       ]
+      },
+      "narrative_review": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      },
+      "editorial": {
+       "k": 1,
+       "n": 10,
+       "rate": 0.1,
+       "ci95": [
+        0.0179,
+        0.4042
+       ]
+      },
+      "protocol": {
+       "k": 1,
+       "n": 13,
+       "rate": 0.0769,
+       "ci95": [
+        0.0137,
+        0.3331
+       ]
+      }
+     }
+    },
+    "outcome": {
+     "read": {
+      "k": 12,
+      "n": 176,
+      "rate": 0.0682,
+      "ci95": [
+       0.0394,
+       0.1154
+      ]
+     },
+     "ambiguous": 2,
+     "no_rule": 162,
+     "by_kind": {
+      "systematic_review": {
+       "k": 4,
+       "n": 28,
+       "rate": 0.1429,
+       "ci95": [
+        0.057,
+        0.3149
+       ]
+      },
+      "randomized_trial": {
+       "k": 2,
+       "n": 24,
+       "rate": 0.0833,
+       "ci95": [
+        0.0232,
+        0.2585
+       ]
+      },
+      "observational": {
+       "k": 3,
+       "n": 33,
+       "rate": 0.0909,
+       "ci95": [
+        0.0314,
+        0.2357
+       ]
+      },
+      "case_report": {
+       "k": 0,
+       "n": 16,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1936
+       ]
+      },
+      "animal": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      },
+      "in_vitro": {
+       "k": 0,
+       "n": 14,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2153
+       ]
+      },
+      "narrative_review": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      },
+      "editorial": {
+       "k": 0,
+       "n": 10,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2775
+       ]
+      },
+      "protocol": {
+       "k": 3,
+       "n": 13,
+       "rate": 0.2308,
+       "ci95": [
+        0.0818,
+        0.5026
+       ]
+      }
+     }
+    }
+   },
+   "strata": {
+    "animal": {
+     "n": 22,
+     "correct": 11,
+     "abstained": 10,
+     "wrong": 1
+    },
+    "case_control": {
+     "n": 9,
+     "correct": 7,
+     "abstained": 1,
+     "wrong": 1
+    },
+    "case_report": {
+     "n": 14,
+     "correct": 14,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "cohort": {
+     "n": 10,
+     "correct": 10,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "cross_sectional": {
+     "n": 5,
+     "correct": 5,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "editorial": {
+     "n": 10,
+     "correct": 0,
+     "abstained": 10,
+     "wrong": 0
+    },
+    "in_vitro": {
+     "n": 12,
+     "correct": 9,
+     "abstained": 3,
+     "wrong": 0
+    },
+    "narrative_review": {
+     "n": 12,
+     "correct": 0,
+     "abstained": 12,
+     "wrong": 0
+    },
+    "observational": {
+     "n": 9,
+     "correct": 8,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "protocol": {
+     "n": 13,
+     "correct": 0,
+     "abstained": 13,
+     "wrong": 0
+    },
+    "randomized_trial": {
+     "n": 21,
+     "correct": 20,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "systematic_review": {
+     "n": 26,
+     "correct": 25,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "zh_animal": {
+     "n": 3,
+     "correct": 2,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "zh_case_report": {
+     "n": 2,
+     "correct": 2,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "zh_in_vitro": {
+     "n": 2,
+     "correct": 2,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "zh_narrative_review": {
+     "n": 1,
+     "correct": 0,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "zh_randomized_trial": {
+     "n": 3,
+     "correct": 2,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "zh_systematic_review": {
+     "n": 2,
+     "correct": 2,
+     "abstained": 0,
+     "wrong": 0
+    }
+   }
+  },
+  "test": {
+   "records": 302,
+   "labelled": 245,
+   "negatives": 57,
+   "precision": {
+    "k": 191,
+    "n": 196,
+    "rate": 0.9745,
+    "ci95": [
+     0.9417,
+     0.9891
+    ]
+   },
+   "coverage": {
+    "k": 192,
+    "n": 245,
+    "rate": 0.7837,
+    "ci95": [
+     0.7279,
+     0.8306
+    ]
+   },
+   "correct_from_title": 106,
+   "designs": {
+    "systematic_review": {
+     "precision": {
+      "k": 36,
+      "n": 38,
+      "rate": 0.9474,
+      "ci95": [
+       0.8271,
+       0.9854
+      ]
+     },
+     "recall": {
+      "k": 36,
+      "n": 40,
+      "rate": 0.9,
+      "ci95": [
+       0.7695,
+       0.9604
+      ]
+     },
+     "abstention": {
+      "k": 4,
+      "n": 40,
+      "rate": 0.1,
+      "ci95": [
+       0.0396,
+       0.2305
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 40,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0876
+      ]
+     }
+    },
+    "randomized_trial": {
+     "precision": {
+      "k": 35,
+      "n": 36,
+      "rate": 0.9722,
+      "ci95": [
+       0.8583,
+       0.9951
+      ]
+     },
+     "recall": {
+      "k": 35,
+      "n": 48,
+      "rate": 0.7292,
+      "ci95": [
+       0.59,
+       0.8343
+      ]
+     },
+     "abstention": {
+      "k": 12,
+      "n": 48,
+      "rate": 0.25,
+      "ci95": [
+       0.1492,
+       0.3878
+      ]
+     },
+     "wrong": {
+      "k": 1,
+      "n": 48,
+      "rate": 0.0208,
+      "ci95": [
+       0.0037,
+       0.109
+      ]
+     }
+    },
+    "observational": {
+     "precision": {
+      "k": 40,
+      "n": 41,
+      "rate": 0.9756,
+      "ci95": [
+       0.874,
+       0.9957
+      ]
+     },
+     "recall": {
+      "k": 40,
+      "n": 42,
+      "rate": 0.9524,
+      "ci95": [
+       0.8421,
+       0.9868
+      ]
+     },
+     "abstention": {
+      "k": 2,
+      "n": 42,
+      "rate": 0.0476,
+      "ci95": [
+       0.0132,
+       0.1579
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 42,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0838
+      ]
+     }
+    },
+    "case_report": {
+     "precision": {
+      "k": 35,
+      "n": 35,
+      "rate": 1.0,
+      "ci95": [
+       0.9011,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 35,
+      "n": 42,
+      "rate": 0.8333,
+      "ci95": [
+       0.694,
+       0.9168
+      ]
+     },
+     "abstention": {
+      "k": 7,
+      "n": 42,
+      "rate": 0.1667,
+      "ci95": [
+       0.0832,
+       0.306
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 42,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0838
+      ]
+     }
+    },
+    "animal": {
+     "precision": {
+      "k": 12,
+      "n": 13,
+      "rate": 0.9231,
+      "ci95": [
+       0.6669,
+       0.9863
+      ]
+     },
+     "recall": {
+      "k": 12,
+      "n": 31,
+      "rate": 0.3871,
+      "ci95": [
+       0.2373,
+       0.5618
+      ]
+     },
+     "abstention": {
+      "k": 19,
+      "n": 31,
+      "rate": 0.6129,
+      "ci95": [
+       0.4382,
+       0.7627
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 31,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1103
+      ]
+     }
+    },
+    "in_vitro": {
+     "precision": {
+      "k": 33,
+      "n": 33,
+      "rate": 1.0,
+      "ci95": [
+       0.8957,
+       1.0
+      ]
+     },
+     "recall": {
+      "k": 33,
+      "n": 42,
+      "rate": 0.7857,
+      "ci95": [
+       0.6406,
+       0.8829
+      ]
+     },
+     "abstention": {
+      "k": 9,
+      "n": 42,
+      "rate": 0.2143,
+      "ci95": [
+       0.1171,
+       0.3594
+      ]
+     },
+     "wrong": {
+      "k": 0,
+      "n": 42,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.0838
+      ]
+     }
+    }
+   },
+   "confusion": {
+    "systematic_review": {
+     "systematic_review": 36,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 4
+    },
+    "randomized_trial": {
+     "systematic_review": 0,
+     "randomized_trial": 35,
+     "observational": 1,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 2,
+     "no rule": 10
+    },
+    "observational": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 40,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 2
+    },
+    "case_report": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 35,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 1,
+     "no rule": 6
+    },
+    "animal": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 12,
+     "in_vitro": 0,
+     "ambiguous": 5,
+     "no rule": 14
+    },
+    "in_vitro": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 33,
+     "ambiguous": 0,
+     "no rule": 9
+    },
+    "narrative_review": {
+     "systematic_review": 2,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 23
+    },
+    "editorial": {
+     "systematic_review": 0,
+     "randomized_trial": 0,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 1,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 14
+    },
+    "protocol": {
+     "systematic_review": 0,
+     "randomized_trial": 1,
+     "observational": 0,
+     "case_report": 0,
+     "animal": 0,
+     "in_vitro": 0,
+     "ambiguous": 0,
+     "no rule": 16
+    }
+   },
+   "negatives_typed": {
+    "narrative_review": {
+     "typed": {
+      "k": 2,
+      "n": 25,
+      "rate": 0.08,
+      "ci95": [
+       0.0222,
+       0.2497
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 25,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1332
+      ]
+     },
+     "as_review": {
+      "k": 2,
+      "n": 25,
+      "rate": 0.08,
+      "ci95": [
+       0.0222,
+       0.2497
+      ]
+     }
+    },
+    "editorial": {
+     "typed": {
+      "k": 1,
+      "n": 15,
+      "rate": 0.0667,
+      "ci95": [
+       0.0119,
+       0.2982
+      ]
+     },
+     "as_trial": {
+      "k": 0,
+      "n": 15,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2039
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 15,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.2039
+      ]
+     }
+    },
+    "protocol": {
+     "typed": {
+      "k": 1,
+      "n": 17,
+      "rate": 0.0588,
+      "ci95": [
+       0.0105,
+       0.2698
+      ]
+     },
+     "as_trial": {
+      "k": 1,
+      "n": 17,
+      "rate": 0.0588,
+      "ci95": [
+       0.0105,
+       0.2698
+      ]
+     },
+     "as_review": {
+      "k": 0,
+      "n": 17,
+      "rate": 0.0,
+      "ci95": [
+       0.0,
+       0.1843
+      ]
+     }
+    },
+    "all": {
+     "typed": {
+      "k": 4,
+      "n": 57,
+      "rate": 0.0702,
+      "ci95": [
+       0.0276,
+       0.167
+      ]
+     },
+     "as_trial": {
+      "k": 1,
+      "n": 57,
+      "rate": 0.0175,
+      "ci95": [
+       0.0031,
+       0.0929
+      ]
+     },
+     "as_review": {
+      "k": 2,
+      "n": 57,
+      "rate": 0.0351,
+      "ci95": [
+       0.0097,
+       0.1192
+      ]
+     }
+    }
+   },
+   "wrong": 5,
+   "widening": {
+    "n": 4,
+    "efficacy": 3,
+    "ids": [
+     "35057843",
+     "35805058",
+     "36051702",
+     "36194175"
+    ]
+   },
+   "fields": {
+    "population": {
+     "read": {
+      "k": 28,
+      "n": 302,
+      "rate": 0.0927,
+      "ci95": [
+       0.0649,
+       0.1307
+      ]
+     },
+     "ambiguous": 14,
+     "no_rule": 260,
+     "by_kind": {
+      "systematic_review": {
+       "k": 8,
+       "n": 40,
+       "rate": 0.2,
+       "ci95": [
+        0.105,
+        0.3476
+       ]
+      },
+      "randomized_trial": {
+       "k": 3,
+       "n": 48,
+       "rate": 0.0625,
+       "ci95": [
+        0.0215,
+        0.1684
+       ]
+      },
+      "observational": {
+       "k": 6,
+       "n": 42,
+       "rate": 0.1429,
+       "ci95": [
+        0.0672,
+        0.2784
+       ]
+      },
+      "case_report": {
+       "k": 1,
+       "n": 42,
+       "rate": 0.0238,
+       "ci95": [
+        0.0042,
+        0.1232
+       ]
+      },
+      "animal": {
+       "k": 0,
+       "n": 31,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1103
+       ]
+      },
+      "in_vitro": {
+       "k": 2,
+       "n": 42,
+       "rate": 0.0476,
+       "ci95": [
+        0.0132,
+        0.1579
+       ]
+      },
+      "narrative_review": {
+       "k": 3,
+       "n": 25,
+       "rate": 0.12,
+       "ci95": [
+        0.0417,
+        0.2996
+       ]
+      },
+      "editorial": {
+       "k": 1,
+       "n": 15,
+       "rate": 0.0667,
+       "ci95": [
+        0.0119,
+        0.2982
+       ]
+      },
+      "protocol": {
+       "k": 4,
+       "n": 17,
+       "rate": 0.2353,
+       "ci95": [
+        0.0956,
+        0.4726
+       ]
+      }
+     }
+    },
+    "comparator": {
+     "read": {
+      "k": 41,
+      "n": 302,
+      "rate": 0.1358,
+      "ci95": [
+       0.1017,
+       0.179
+      ]
+     },
+     "ambiguous": 8,
+     "no_rule": 253,
+     "by_kind": {
+      "systematic_review": {
+       "k": 6,
+       "n": 40,
+       "rate": 0.15,
+       "ci95": [
+        0.0706,
+        0.2907
+       ]
+      },
+      "randomized_trial": {
+       "k": 11,
+       "n": 48,
+       "rate": 0.2292,
+       "ci95": [
+        0.1331,
+        0.3654
+       ]
+      },
+      "observational": {
+       "k": 9,
+       "n": 42,
+       "rate": 0.2143,
+       "ci95": [
+        0.1171,
+        0.3594
+       ]
+      },
+      "case_report": {
+       "k": 1,
+       "n": 42,
+       "rate": 0.0238,
+       "ci95": [
+        0.0042,
+        0.1232
+       ]
+      },
+      "animal": {
+       "k": 4,
+       "n": 31,
+       "rate": 0.129,
+       "ci95": [
+        0.0513,
+        0.2885
+       ]
+      },
+      "in_vitro": {
+       "k": 7,
+       "n": 42,
+       "rate": 0.1667,
+       "ci95": [
+        0.0832,
+        0.306
+       ]
+      },
+      "narrative_review": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      },
+      "editorial": {
+       "k": 0,
+       "n": 15,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2039
+       ]
+      },
+      "protocol": {
+       "k": 3,
+       "n": 17,
+       "rate": 0.1765,
+       "ci95": [
+        0.0619,
+        0.4103
+       ]
+      }
+     }
+    },
+    "outcome": {
+     "read": {
+      "k": 20,
+      "n": 302,
+      "rate": 0.0662,
+      "ci95": [
+       0.0433,
+       0.1001
+      ]
+     },
+     "ambiguous": 6,
+     "no_rule": 276,
+     "by_kind": {
+      "systematic_review": {
+       "k": 6,
+       "n": 40,
+       "rate": 0.15,
+       "ci95": [
+        0.0706,
+        0.2907
+       ]
+      },
+      "randomized_trial": {
+       "k": 4,
+       "n": 48,
+       "rate": 0.0833,
+       "ci95": [
+        0.0329,
+        0.1955
+       ]
+      },
+      "observational": {
+       "k": 5,
+       "n": 42,
+       "rate": 0.119,
+       "ci95": [
+        0.0519,
+        0.25
+       ]
+      },
+      "case_report": {
+       "k": 1,
+       "n": 42,
+       "rate": 0.0238,
+       "ci95": [
+        0.0042,
+        0.1232
+       ]
+      },
+      "animal": {
+       "k": 0,
+       "n": 31,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1103
+       ]
+      },
+      "in_vitro": {
+       "k": 0,
+       "n": 42,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0838
+       ]
+      },
+      "narrative_review": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      },
+      "editorial": {
+       "k": 0,
+       "n": 15,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2039
+       ]
+      },
+      "protocol": {
+       "k": 4,
+       "n": 17,
+       "rate": 0.2353,
+       "ci95": [
+        0.0956,
+        0.4726
+       ]
+      }
+     }
+    }
+   },
+   "strata": {
+    "animal": {
+     "n": 28,
+     "correct": 12,
+     "abstained": 16,
+     "wrong": 0
+    },
+    "case_control": {
+     "n": 11,
+     "correct": 10,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "case_report": {
+     "n": 36,
+     "correct": 32,
+     "abstained": 4,
+     "wrong": 0
+    },
+    "cohort": {
+     "n": 10,
+     "correct": 10,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "cross_sectional": {
+     "n": 15,
+     "correct": 14,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "editorial": {
+     "n": 15,
+     "correct": 0,
+     "abstained": 14,
+     "wrong": 1
+    },
+    "in_vitro": {
+     "n": 38,
+     "correct": 30,
+     "abstained": 8,
+     "wrong": 0
+    },
+    "narrative_review": {
+     "n": 18,
+     "correct": 0,
+     "abstained": 16,
+     "wrong": 2
+    },
+    "observational": {
+     "n": 6,
+     "correct": 6,
+     "abstained": 0,
+     "wrong": 0
+    },
+    "protocol": {
+     "n": 17,
+     "correct": 0,
+     "abstained": 16,
+     "wrong": 1
+    },
+    "randomized_trial": {
+     "n": 39,
+     "correct": 29,
+     "abstained": 9,
+     "wrong": 1
+    },
+    "systematic_review": {
+     "n": 34,
+     "correct": 30,
+     "abstained": 4,
+     "wrong": 0
+    },
+    "zh_animal": {
+     "n": 3,
+     "correct": 0,
+     "abstained": 3,
+     "wrong": 0
+    },
+    "zh_case_report": {
+     "n": 6,
+     "correct": 3,
+     "abstained": 3,
+     "wrong": 0
+    },
+    "zh_in_vitro": {
+     "n": 4,
+     "correct": 3,
+     "abstained": 1,
+     "wrong": 0
+    },
+    "zh_narrative_review": {
+     "n": 7,
+     "correct": 0,
+     "abstained": 7,
+     "wrong": 0
+    },
+    "zh_randomized_trial": {
+     "n": 9,
+     "correct": 6,
+     "abstained": 3,
+     "wrong": 0
+    },
+    "zh_systematic_review": {
+     "n": 6,
+     "correct": 6,
+     "abstained": 0,
+     "wrong": 0
+    }
+   }
+  }
+ },
+ "records": {
+  "20673485": {
+   "split": "dev",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "20673500": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "20673520": {
+   "split": "dev",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "20840818": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "21081042": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "单纯TP化疗方案",
+   "outcome": ""
+  },
+  "21762628": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "22104216": {
+   "split": "test",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "NL9980",
+   "outcome": ""
+  },
+  "22237121": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "22510505": {
+   "split": "dev",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "22510506": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "23075681": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "23327869": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "EP组",
+   "outcome": ""
+  },
+  "23676982": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "24949682": {
+   "split": "test",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "CD133-细胞",
+   "outcome": ""
+  },
+  "25676405": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "26182870": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "27335300": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "27760601": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "28532537": {
+   "split": "dev",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "胸腔镜辅助小切口切除术",
+   "outcome": ""
+  },
+  "28738961": {
+   "split": "test",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "29587904": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "31109438": {
+   "split": "test",
+   "stratum": "zh_systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "31650949": {
+   "split": "dev",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "31874677": {
+   "split": "dev",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "32429634": {
+   "split": "test",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34227307": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34227758": {
+   "split": "dev",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34423840": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34468557": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34505434": {
+   "split": "dev",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34586238": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34614271": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34779392": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34980198": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "34983504": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34992099": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "34996924": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35011100": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35016616": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35024838": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "clinical and microbiological cure"
+  },
+  "35026992": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35029876": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35030161": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35043245": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35048536": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35055745": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35056668": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "cancer cell lines",
+   "outcome": ""
+  },
+  "35057490": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "burden"
+  },
+  "35057755": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35057843": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35059430": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35061818": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35071257": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35075804": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35085300": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "non-FVs",
+   "outcome": ""
+  },
+  "35090391": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "composite events"
+  },
+  "35093032": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35100495": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with cancer",
+   "comparator": "nonmetastatic samples",
+   "outcome": ""
+  },
+  "35101083": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "35106632": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "35112281": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "women with frequent perineal talcum powder product is not well understood",
+   "comparator": "",
+   "outcome": "ovarian cancer"
+  },
+  "35115631": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35119006": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35119223": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35127193": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35127736": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35127937": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35130838": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35138259": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35139822": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35140276": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35151270": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with higher SOFA scores",
+   "comparator": "",
+   "outcome": "ICU mortality"
+  },
+  "35152841": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35157188": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "individuals who received COVID-19 adenoviral-vector-based vaccines",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35162786": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35163542": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35164043": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35164142": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35164705": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35167700": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35168103": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35168679": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35170388": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35177024": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35177087": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35179295": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "patients with thyroid carcinoma",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35184719": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35184740": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with acute ST-segment elevation myocardial infarction",
+   "comparator": "OCT",
+   "outcome": ""
+  },
+  "35186994": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35189925": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with SARS-CoV-2-induced ARDS",
+   "comparator": "placebo",
+   "outcome": "partial pressure of oxygen to fractional inspired oxygen"
+  },
+  "35190561": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35190612": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "fixed ones",
+   "outcome": ""
+  },
+  "35191746": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "six-level ordinal scale of clinical status on day 28 since randomization"
+  },
+  "35197974": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35202005": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35208593": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35209026": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35209892": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35216000": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35216560": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35217833": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35221352": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35222391": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35223310": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35226081": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "3-year overall survival"
+  },
+  "35236289": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35248120": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35264163": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35268024": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "35268803": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35272686": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "those without matched therapies",
+   "outcome": ""
+  },
+  "35274577": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35276780": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35284908": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35291519": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35296254": {
+   "split": "dev",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35296287": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients aged <1 year",
+   "comparator": "age- and gender-matched controls",
+   "outcome": ""
+  },
+  "35300697": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35303876": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35305653": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35308715": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35311410": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35312726": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35313957": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "memory for faces"
+  },
+  "35318394": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35325124": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "clinical pregnancy rate post-ET confirmed as viable pregnancy on ultrasound scan"
+  },
+  "35326155": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35327696": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35331138": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients undergoing coronary stent surgery",
+   "comparator": "",
+   "outcome": "success rate of no major adverse cardiovascular events"
+  },
+  "35333186": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "a random model",
+   "outcome": ""
+  },
+  "35334516": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35337312": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35350100": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "35351147": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35357350": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35365180": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35371855": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35378542": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "35392896": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35392925": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "ER alpha-negative breast cancer",
+   "outcome": ""
+  },
+  "35405934": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35410326": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "men who have sex with men in India",
+   "comparator": "",
+   "outcome": "CAI"
+  },
+  "35428629": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35433056": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35433065": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35433120": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35435123": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35436944": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "women with unexplained infertility",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35440020": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35441839": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35451418": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35457366": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35461314": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35465372": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35469123": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35472058": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "maternal sensitivity"
+  },
+  "35478000": {
+   "split": "test",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35478070": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "children with anisometropic amblyopia",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35478210": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35482803": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35486674": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35487745": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35488203": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "interest"
+  },
+  "35507596": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35508470": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35510023": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35524336": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35534546": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35543836": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35547621": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35551176": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "random-effect meta-analytic variability ratios"
+  },
+  "35551516": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35558083": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35562679": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35568711": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with GC",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35568879": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "controls",
+   "outcome": ""
+  },
+  "35568916": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35580089": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35581940": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35585092": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "cisplatin",
+   "outcome": ""
+  },
+  "35585558": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "conventional suture group",
+   "outcome": ""
+  },
+  "35608736": {
+   "split": "dev",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35610557": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35615013": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35624449": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35625299": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35627138": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35627203": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35628183": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35630522": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35636146": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "patients without NAFLD",
+   "outcome": "HCC"
+  },
+  "35637324": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with erosive osteoarthritis of the hand",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35639720": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35643520": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35646975": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "Women With Unexplained Positive Autoantibodies",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35647509": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35653037": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35657308": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "men",
+   "outcome": ""
+  },
+  "35659297": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35663653": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35669976": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with chronic renal insufficiency",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35676984": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with previous uterine procedures",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35681960": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "nutritionists",
+   "outcome": ""
+  },
+  "35682696": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35684113": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "subjects",
+   "outcome": ""
+  },
+  "35685133": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35685340": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35687293": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35688956": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "people with amyotrophic lateral sclerosis",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35692259": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35692550": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35698162": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with Alzheimer's disease",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35702409": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35707389": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients who presented with femoral neck fractures and underwent surgery in our institution between January 2016 and April 2020",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35710500": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35711777": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35712893": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "nonleukoreduced bags",
+   "outcome": ""
+  },
+  "35714138": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35715740": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35718834": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35721645": {
+   "split": "dev",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35721709": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35725486": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "traditional housing",
+   "outcome": "incidence of malaria"
+  },
+  "35729357": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "healthy subjects",
+   "outcome": ""
+  },
+  "35730146": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "another intervention",
+   "outcome": ""
+  },
+  "35730175": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35730882": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35731198": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35742506": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35742541": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35742944": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35743894": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35746693": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35746917": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35749503": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35749522": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35752787": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35757099": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35762773": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with intermittent claudication",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35765090": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35768453": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35769675": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35771740": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35773648": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35774103": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "children with chronic disease",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35782655": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35783012": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35785965": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35789042": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "nonbrachycephalic dogs",
+   "outcome": ""
+  },
+  "35791604": {
+   "split": "dev",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35794338": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35805058": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35807232": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35813933": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35815056": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35820811": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35821131": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35846374": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35846783": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "Patients With Schizophrenia",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35851309": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35853465": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35854245": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35865440": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35866200": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "native Dutch women",
+   "outcome": ""
+  },
+  "35869497": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "men with localized prostate cancer",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35877408": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35879366": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35885654": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with aortic coarctation",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35886279": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35886296": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35888373": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35889890": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35897887": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35903373": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35903835": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35906356": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35906531": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35906874": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "IFA",
+   "outcome": ""
+  },
+  "35911367": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35912017": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35915694": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35930629": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35933351": {
+   "split": "dev",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "anxiety and depressive symptoms"
+  },
+  "35933400": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35945749": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35945767": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35945910": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35956320": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35960121": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35962837": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35968595": {
+   "split": "test",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "A20细胞组",
+   "outcome": ""
+  },
+  "35974811": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35981008": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35984207": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients aged > 85 years",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35986400": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "30-day CS infection rates"
+  },
+  "35987848": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35990059": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "children with schizophrenia and its mechanism",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35990619": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35990663": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "35991835": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "normal tissue",
+   "outcome": ""
+  },
+  "35992827": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36011693": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36011932": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36014078": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36015207": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36028279": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36028847": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "composite response rate at week 6"
+  },
+  "36033397": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36035299": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "clinicopathological features",
+   "outcome": ""
+  },
+  "36035839": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36037813": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36038860": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36051593": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36051702": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36051716": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36052497": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "insects",
+   "outcome": ""
+  },
+  "36053364": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36053444": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with Parkinson's disease with in-home monitoring using a wearable system",
+   "comparator": "a paper-based fall diary",
+   "outcome": ""
+  },
+  "36060938": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36064325": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients receiving the 1 L polyethylene glycol-based preparation NER1006",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36077158": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36078070": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36078407": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "DXA",
+   "outcome": ""
+  },
+  "36080487": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36092037": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36100943": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "level of auditory hallucinations measured with the Psychotic Symptoms Rating Scales"
+  },
+  "36105084": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36111557": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36117234": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36120450": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36123649": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36125007": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36127349": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36131504": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36138270": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with keratoconus than in healthy patients in each of the following measured locations",
+   "comparator": "healthy population",
+   "outcome": ""
+  },
+  "36139390": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "other available models",
+   "outcome": ""
+  },
+  "36140841": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36142300": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36142621": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36143211": {
+   "split": "dev",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36146743": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36146758": {
+   "split": "test",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "other regimens",
+   "outcome": ""
+  },
+  "36147172": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36156182": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36159029": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36159344": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36168121": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36172533": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36172728": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36175532": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36176813": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36181321": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36189317": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "Clec7a- M1 macrophages",
+   "outcome": ""
+  },
+  "36191030": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36194175": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "wrong",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36195439": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36202604": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36203215": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "CY-BOCS score"
+  },
+  "36204035": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36211291": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36212669": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with ischemic stroke",
+   "comparator": "controls",
+   "outcome": ""
+  },
+  "36222832": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36225291": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36226977": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "Participants With COVID-19-Associated Acute Respiratory Distress Syndrome Who Require Mechanical Ventilation",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36231450": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36231985": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36232177": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.own.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36235039": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36237900": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36240174": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36242723": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36248621": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36249067": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with malignancies",
+   "comparator": "",
+   "outcome": "poor overall survival"
+  },
+  "36254034": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "ACEis and ARBs",
+   "outcome": "a significant reduction in all-cause mortality"
+  },
+  "36258939": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36259051": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36262462": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36273180": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36278483": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36287507": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36291080": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36291178": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36293173": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36293394": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "control mice",
+   "outcome": ""
+  },
+  "36299459": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36301246": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36303865": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with COVID-19",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36318586": {
+   "split": "dev",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36324044": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36333741": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36339111": {
+   "split": "test",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "individuals with or without preexisting thyroid disease",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36339158": {
+   "split": "test",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36339195": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36342777": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with SARIs",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36344653": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "hypertrophy"
+  },
+  "36344923": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36348862": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36349481": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36350193": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36351808": {
+   "split": "test",
+   "stratum": "zh_animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36351943": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36352470": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36355754": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36358573": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36360956": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36361014": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "Patients with Hospital-Associated Deconditioning",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36361570": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "cisplatin",
+   "outcome": ""
+  },
+  "36361921": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36362083": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "healthy tissue",
+   "outcome": ""
+  },
+  "36366946": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36368940": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36369039": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36369494": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36371180": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36371986": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "ambiguous",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36376968": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "people with musculoskeletal pain",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36381235": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "women with wild-type PIK3CA/PTEN wild-type TNBC at high risk",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36385210": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients with different tumor entities who underwent ICI therapy",
+   "comparator": "",
+   "outcome": "overall survival"
+  },
+  "36387181": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36388272": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36398052": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36419397": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "患者生存"
+  },
+  "36429386": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "People with Autism Spectrum Disorder",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36443789": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36457244": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36459628": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "Individuals with Chronic Conditions",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36466039": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36471444": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients undergoing ARCR",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36475248": {
+   "split": "test",
+   "stratum": "case_control",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "Individuals with Parkinson's Disease",
+   "comparator": "a healthy control",
+   "outcome": ""
+  },
+  "36480569": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36481875": {
+   "split": "dev",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36485027": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "other prevention interventions",
+   "outcome": ""
+  },
+  "36495891": {
+   "split": "dev",
+   "stratum": "cohort",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36498393": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36510288": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36513985": {
+   "split": "dev",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "patients receiving benzodiazepines",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36514034": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36514063": {
+   "split": "dev",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "survival after neoadjuvant therapy"
+  },
+  "36514570": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36522630": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": "objective response rate of the first-line osimertinib treatment"
+  },
+  "36527067": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36527073": {
+   "split": "dev",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "individuals with AATD",
+   "comparator": "",
+   "outcome": "FEV1"
+  },
+  "36528564": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36540475": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36541952": {
+   "split": "test",
+   "stratum": "cross_sectional",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": "mobility during the pandemic"
+  },
+  "36543869": {
+   "split": "test",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "nicotine gum",
+   "outcome": ""
+  },
+  "36555409": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36556978": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36559522": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36564754": {
+   "split": "dev",
+   "stratum": "randomized_trial",
+   "kind": "randomized_trial",
+   "design": "randomized_trial",
+   "rule": "design.trial.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36566235": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36570452": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36575438": {
+   "split": "test",
+   "stratum": "in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36581937": {
+   "split": "dev",
+   "stratum": "protocol",
+   "kind": "protocol",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "patients with foot drop due to peroneal nerve entrapment",
+   "comparator": "",
+   "outcome": "difference"
+  },
+  "36595871": {
+   "split": "test",
+   "stratum": "systematic_review",
+   "kind": "systematic_review",
+   "design": "systematic_review",
+   "rule": "design.review.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "placebo",
+   "outcome": ""
+  },
+  "36595999": {
+   "split": "test",
+   "stratum": "observational",
+   "kind": "observational",
+   "design": "observational",
+   "rule": "design.observational.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36614034": {
+   "split": "dev",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36654615": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36662189": {
+   "split": "test",
+   "stratum": "animal",
+   "kind": "animal",
+   "design": "animal",
+   "rule": "design.animal.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36705184": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36792084": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "36942134": {
+   "split": "test",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "37492181": {
+   "split": "dev",
+   "stratum": "case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.en",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "37555183": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "37803837": {
+   "split": "dev",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "38045648": {
+   "split": "dev",
+   "stratum": "narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "38163982": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "38624814": {
+   "split": "test",
+   "stratum": "editorial",
+   "kind": "editorial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "38845514": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "38966980": {
+   "split": "dev",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "39134495": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "39307728": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "39765356": {
+   "split": "dev",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "39765357": {
+   "split": "test",
+   "stratum": "zh_case_report",
+   "kind": "case_report",
+   "design": "case_report",
+   "rule": "design.case.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "传统MRD检测方法",
+   "outcome": ""
+  },
+  "39988438": {
+   "split": "test",
+   "stratum": "zh_randomized_trial",
+   "kind": "randomized_trial",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "40331605": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "42705852": {
+   "split": "test",
+   "stratum": "zh_narrative_review",
+   "kind": "narrative_review",
+   "design": "",
+   "rule": "",
+   "abstained": "no rule",
+   "verdict": "abstained",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  },
+  "42706173": {
+   "split": "dev",
+   "stratum": "zh_in_vitro",
+   "kind": "in_vitro",
+   "design": "in_vitro",
+   "rule": "design.cells.zh",
+   "abstained": "",
+   "verdict": "correct",
+   "population": "",
+   "comparator": "",
+   "outcome": ""
+  }
+ },
+ "manual_check": {
+  "checked": 30,
+  "method": "30 filled population, comparator and outcome readings of the test split, drawn by `run_evidence_typing_benchmark.py --draw-manual-check 30` (a seeded hash of PMID and field, fixed before reading). Each value was read in its abstract, with the span marked, by the agent that wrote the rules: one reader, not blind to the rules, not a domain expert. The verdicts were decided against criteria written before reading: correct if the value names this study's population (the people it enrolled or reviews), comparator (the group, treatment or condition it compares against) or outcome (something it measured); partly if it names that but is cut short or padded with other words; wrong if it names something else, such as a population from a background sentence.",
+  "correct": {
+   "k": 23,
+   "n": 30,
+   "rate": 0.7667,
+   "ci95": [
+    0.5907,
+    0.8821
+   ]
+  },
+  "partly": 5,
+  "wrong": 2,
+  "by_field": {
+   "population": {
+    "correct": 9,
+    "partly": 2,
+    "wrong": 2
+   },
+   "comparator": {
+    "correct": 12,
+    "partly": 2,
+    "wrong": 0
+   },
+   "outcome": {
+    "correct": 2,
+    "partly": 1,
+    "wrong": 0
+   }
+  },
+  "fields": [
+   {
+    "pmid": "35637324",
+    "field": "population",
+    "value": "patients with erosive osteoarthritis of the hand",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35085300",
+    "field": "comparator",
+    "value": "non-FVs",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36475248",
+    "field": "comparator",
+    "value": "a healthy control",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35990059",
+    "field": "population",
+    "value": "children with schizophrenia and its mechanism",
+    "verdict": "partly"
+   },
+   {
+    "pmid": "35698162",
+    "field": "population",
+    "value": "patients with Alzheimer's disease",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "22104216",
+    "field": "comparator",
+    "value": "NL9980",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36475248",
+    "field": "population",
+    "value": "Individuals with Parkinson's Disease",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35410326",
+    "field": "outcome",
+    "value": "CAI",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35885654",
+    "field": "population",
+    "value": "patients with aortic coarctation",
+    "verdict": "wrong"
+   },
+   {
+    "pmid": "35189925",
+    "field": "population",
+    "value": "patients with SARS-CoV-2-induced ARDS",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35190612",
+    "field": "comparator",
+    "value": "fixed ones",
+    "verdict": "partly"
+   },
+   {
+    "pmid": "36138270",
+    "field": "population",
+    "value": "patients with keratoconus than in healthy patients in each of the following measured locations",
+    "verdict": "partly"
+   },
+   {
+    "pmid": "35189925",
+    "field": "comparator",
+    "value": "placebo",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "23327869",
+    "field": "comparator",
+    "value": "EP组",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35333186",
+    "field": "comparator",
+    "value": "a random model",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "21081042",
+    "field": "comparator",
+    "value": "单纯TP化疗方案",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36064325",
+    "field": "population",
+    "value": "patients receiving the 1 L polyethylene glycol-based preparation NER1006",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35712893",
+    "field": "comparator",
+    "value": "nonleukoreduced bags",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36254034",
+    "field": "comparator",
+    "value": "ACEis and ARBs",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36303865",
+    "field": "population",
+    "value": "patients with COVID-19",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36212669",
+    "field": "population",
+    "value": "patients with ischemic stroke",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35684113",
+    "field": "comparator",
+    "value": "subjects",
+    "verdict": "partly"
+   },
+   {
+    "pmid": "35313957",
+    "field": "outcome",
+    "value": "memory for faces",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36385210",
+    "field": "outcome",
+    "value": "overall survival",
+    "verdict": "partly"
+   },
+   {
+    "pmid": "35968595",
+    "field": "comparator",
+    "value": "A20细胞组",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36376968",
+    "field": "population",
+    "value": "people with musculoskeletal pain",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35410326",
+    "field": "population",
+    "value": "men who have sex with men in India",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "35991835",
+    "field": "comparator",
+    "value": "normal tissue",
+    "verdict": "correct"
+   },
+   {
+    "pmid": "36381235",
+    "field": "population",
+    "value": "women with wild-type PIK3CA/PTEN wild-type TNBC at high risk",
+    "verdict": "wrong"
+   },
+   {
+    "pmid": "35350100",
+    "field": "comparator",
+    "value": "placebo",
+    "verdict": "correct"
+   }
+  ]
+ },
+ "baseline": {
+  "rules_sha256": "0b111264cdebc6e52ec496359f8577cc47d88744f31e2e39102b6d7175cebb19",
+  "splits": {
+   "dev": {
+    "records": 176,
+    "labelled": 140,
+    "negatives": 36,
+    "precision": {
+     "k": 86,
+     "n": 98,
+     "rate": 0.8776,
+     "ci95": [
+      0.7981,
+      0.9285
+     ]
+    },
+    "coverage": {
+     "k": 87,
+     "n": 140,
+     "rate": 0.6214,
+     "ci95": [
+      0.5389,
+      0.6975
+     ]
+    },
+    "correct_from_title": 55,
+    "designs": {
+     "systematic_review": {
+      "precision": {
+       "k": 11,
+       "n": 11,
+       "rate": 1.0,
+       "ci95": [
+        0.7412,
+        1.0
+       ]
+      },
+      "recall": {
+       "k": 11,
+       "n": 28,
+       "rate": 0.3929,
+       "ci95": [
+        0.2357,
+        0.5759
+       ]
+      },
+      "abstention": {
+       "k": 17,
+       "n": 28,
+       "rate": 0.6071,
+       "ci95": [
+        0.4241,
+        0.7643
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 28,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1206
+       ]
+      }
+     },
+     "randomized_trial": {
+      "precision": {
+       "k": 23,
+       "n": 34,
+       "rate": 0.6765,
+       "ci95": [
+        0.5084,
+        0.8087
+       ]
+      },
+      "recall": {
+       "k": 23,
+       "n": 24,
+       "rate": 0.9583,
+       "ci95": [
+        0.7976,
+        0.9926
+       ]
+      },
+      "abstention": {
+       "k": 1,
+       "n": 24,
+       "rate": 0.0417,
+       "ci95": [
+        0.0074,
+        0.2024
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 24,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.138
+       ]
+      }
+     },
+     "observational": {
+      "precision": {
+       "k": 23,
+       "n": 23,
+       "rate": 1.0,
+       "ci95": [
+        0.8569,
+        1.0
+       ]
+      },
+      "recall": {
+       "k": 23,
+       "n": 33,
+       "rate": 0.697,
+       "ci95": [
+        0.5266,
+        0.8262
+       ]
+      },
+      "abstention": {
+       "k": 9,
+       "n": 33,
+       "rate": 0.2727,
+       "ci95": [
+        0.1507,
+        0.4422
+       ]
+      },
+      "wrong": {
+       "k": 1,
+       "n": 33,
+       "rate": 0.0303,
+       "ci95": [
+        0.0054,
+        0.1532
+       ]
+      }
+     },
+     "case_report": {
+      "precision": {
+       "k": 14,
+       "n": 14,
+       "rate": 1.0,
+       "ci95": [
+        0.7847,
+        1.0
+       ]
+      },
+      "recall": {
+       "k": 14,
+       "n": 16,
+       "rate": 0.875,
+       "ci95": [
+        0.6398,
+        0.965
+       ]
+      },
+      "abstention": {
+       "k": 2,
+       "n": 16,
+       "rate": 0.125,
+       "ci95": [
+        0.035,
+        0.3602
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 16,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1936
+       ]
+      }
+     },
+     "animal": {
+      "precision": {
+       "k": 9,
+       "n": 10,
+       "rate": 0.9,
+       "ci95": [
+        0.5958,
+        0.9821
+       ]
+      },
+      "recall": {
+       "k": 9,
+       "n": 25,
+       "rate": 0.36,
+       "ci95": [
+        0.2025,
+        0.5548
+       ]
+      },
+      "abstention": {
+       "k": 16,
+       "n": 25,
+       "rate": 0.64,
+       "ci95": [
+        0.4452,
+        0.7975
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      }
+     },
+     "in_vitro": {
+      "precision": {
+       "k": 6,
+       "n": 6,
+       "rate": 1.0,
+       "ci95": [
+        0.6097,
+        1.0
+       ]
+      },
+      "recall": {
+       "k": 6,
+       "n": 14,
+       "rate": 0.4286,
+       "ci95": [
+        0.2138,
+        0.6741
+       ]
+      },
+      "abstention": {
+       "k": 8,
+       "n": 14,
+       "rate": 0.5714,
+       "ci95": [
+        0.3259,
+        0.7862
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 14,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2153
+       ]
+      }
+     }
+    },
+    "confusion": {
+     "systematic_review": {
+      "systematic_review": 11,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 15,
+      "no rule": 2
+     },
+     "randomized_trial": {
+      "systematic_review": 0,
+      "randomized_trial": 23,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 0,
+      "no rule": 1
+     },
+     "observational": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 23,
+      "case_report": 0,
+      "animal": 1,
+      "in_vitro": 0,
+      "ambiguous": 1,
+      "no rule": 8
+     },
+     "case_report": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 14,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 0,
+      "no rule": 2
+     },
+     "animal": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 9,
+      "in_vitro": 0,
+      "ambiguous": 2,
+      "no rule": 14
+     },
+     "in_vitro": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 6,
+      "ambiguous": 0,
+      "no rule": 8
+     },
+     "narrative_review": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 0,
+      "no rule": 13
+     },
+     "editorial": {
+      "systematic_review": 0,
+      "randomized_trial": 1,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 0,
+      "no rule": 9
+     },
+     "protocol": {
+      "systematic_review": 0,
+      "randomized_trial": 10,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 1,
+      "no rule": 2
+     }
+    },
+    "negatives_typed": {
+     "narrative_review": {
+      "typed": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      },
+      "as_trial": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      }
+     },
+     "editorial": {
+      "typed": {
+       "k": 1,
+       "n": 10,
+       "rate": 0.1,
+       "ci95": [
+        0.0179,
+        0.4042
+       ]
+      },
+      "as_trial": {
+       "k": 1,
+       "n": 10,
+       "rate": 0.1,
+       "ci95": [
+        0.0179,
+        0.4042
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 10,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2775
+       ]
+      }
+     },
+     "protocol": {
+      "typed": {
+       "k": 10,
+       "n": 13,
+       "rate": 0.7692,
+       "ci95": [
+        0.4974,
+        0.9182
+       ]
+      },
+      "as_trial": {
+       "k": 10,
+       "n": 13,
+       "rate": 0.7692,
+       "ci95": [
+        0.4974,
+        0.9182
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 13,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2281
+       ]
+      }
+     },
+     "all": {
+      "typed": {
+       "k": 11,
+       "n": 36,
+       "rate": 0.3056,
+       "ci95": [
+        0.18,
+        0.4686
+       ]
+      },
+      "as_trial": {
+       "k": 11,
+       "n": 36,
+       "rate": 0.3056,
+       "ci95": [
+        0.18,
+        0.4686
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 36,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0964
+       ]
+      }
+     }
+    },
+    "wrong": 12,
+    "widening": {
+     "n": 12,
+     "efficacy": 11,
+     "ids": [
+      "35057755",
+      "35163542",
+      "35365180",
+      "35436944",
+      "35472058",
+      "35478070",
+      "36123649",
+      "36143211",
+      "36273180",
+      "36471444",
+      "36510288",
+      "36581937"
+     ]
+    },
+    "fields": {
+     "population": {
+      "read": {
+       "k": 19,
+       "n": 176,
+       "rate": 0.108,
+       "ci95": [
+        0.0702,
+        0.1624
+       ]
+      },
+      "ambiguous": 11,
+      "no_rule": 146,
+      "by_kind": {
+       "systematic_review": {
+        "k": 3,
+        "n": 28,
+        "rate": 0.1071,
+        "ci95": [
+         0.0371,
+         0.272
+        ]
+       },
+       "randomized_trial": {
+        "k": 2,
+        "n": 24,
+        "rate": 0.0833,
+        "ci95": [
+         0.0232,
+         0.2585
+        ]
+       },
+       "observational": {
+        "k": 7,
+        "n": 33,
+        "rate": 0.2121,
+        "ci95": [
+         0.1068,
+         0.3775
+        ]
+       },
+       "case_report": {
+        "k": 0,
+        "n": 16,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1936
+        ]
+       },
+       "animal": {
+        "k": 0,
+        "n": 25,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1332
+        ]
+       },
+       "in_vitro": {
+        "k": 1,
+        "n": 14,
+        "rate": 0.0714,
+        "ci95": [
+         0.0127,
+         0.3147
+        ]
+       },
+       "narrative_review": {
+        "k": 1,
+        "n": 13,
+        "rate": 0.0769,
+        "ci95": [
+         0.0137,
+         0.3331
+        ]
+       },
+       "editorial": {
+        "k": 1,
+        "n": 10,
+        "rate": 0.1,
+        "ci95": [
+         0.0179,
+         0.4042
+        ]
+       },
+       "protocol": {
+        "k": 4,
+        "n": 13,
+        "rate": 0.3077,
+        "ci95": [
+         0.1268,
+         0.5763
+        ]
+       }
+      }
+     },
+     "comparator": {
+      "read": {
+       "k": 20,
+       "n": 176,
+       "rate": 0.1136,
+       "ci95": [
+        0.0748,
+        0.169
+       ]
+      },
+      "ambiguous": 6,
+      "no_rule": 150,
+      "by_kind": {
+       "systematic_review": {
+        "k": 2,
+        "n": 28,
+        "rate": 0.0714,
+        "ci95": [
+         0.0198,
+         0.2265
+        ]
+       },
+       "randomized_trial": {
+        "k": 7,
+        "n": 24,
+        "rate": 0.2917,
+        "ci95": [
+         0.1491,
+         0.4917
+        ]
+       },
+       "observational": {
+        "k": 3,
+        "n": 33,
+        "rate": 0.0909,
+        "ci95": [
+         0.0314,
+         0.2357
+        ]
+       },
+       "case_report": {
+        "k": 0,
+        "n": 16,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1936
+        ]
+       },
+       "animal": {
+        "k": 4,
+        "n": 25,
+        "rate": 0.16,
+        "ci95": [
+         0.064,
+         0.3465
+        ]
+       },
+       "in_vitro": {
+        "k": 2,
+        "n": 14,
+        "rate": 0.1429,
+        "ci95": [
+         0.0401,
+         0.3994
+        ]
+       },
+       "narrative_review": {
+        "k": 0,
+        "n": 13,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.2281
+        ]
+       },
+       "editorial": {
+        "k": 1,
+        "n": 10,
+        "rate": 0.1,
+        "ci95": [
+         0.0179,
+         0.4042
+        ]
+       },
+       "protocol": {
+        "k": 1,
+        "n": 13,
+        "rate": 0.0769,
+        "ci95": [
+         0.0137,
+         0.3331
+        ]
+       }
+      }
+     },
+     "outcome": {
+      "read": {
+       "k": 17,
+       "n": 176,
+       "rate": 0.0966,
+       "ci95": [
+        0.0612,
+        0.1492
+       ]
+      },
+      "ambiguous": 4,
+      "no_rule": 155,
+      "by_kind": {
+       "systematic_review": {
+        "k": 5,
+        "n": 28,
+        "rate": 0.1786,
+        "ci95": [
+         0.0788,
+         0.3559
+        ]
+       },
+       "randomized_trial": {
+        "k": 2,
+        "n": 24,
+        "rate": 0.0833,
+        "ci95": [
+         0.0232,
+         0.2585
+        ]
+       },
+       "observational": {
+        "k": 4,
+        "n": 33,
+        "rate": 0.1212,
+        "ci95": [
+         0.0482,
+         0.2733
+        ]
+       },
+       "case_report": {
+        "k": 1,
+        "n": 16,
+        "rate": 0.0625,
+        "ci95": [
+         0.0111,
+         0.2833
+        ]
+       },
+       "animal": {
+        "k": 0,
+        "n": 25,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1332
+        ]
+       },
+       "in_vitro": {
+        "k": 2,
+        "n": 14,
+        "rate": 0.1429,
+        "ci95": [
+         0.0401,
+         0.3994
+        ]
+       },
+       "narrative_review": {
+        "k": 0,
+        "n": 13,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.2281
+        ]
+       },
+       "editorial": {
+        "k": 0,
+        "n": 10,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.2775
+        ]
+       },
+       "protocol": {
+        "k": 3,
+        "n": 13,
+        "rate": 0.2308,
+        "ci95": [
+         0.0818,
+         0.5026
+        ]
+       }
+      }
+     }
+    },
+    "strata": {
+     "animal": {
+      "n": 22,
+      "correct": 7,
+      "abstained": 15,
+      "wrong": 0
+     },
+     "case_control": {
+      "n": 9,
+      "correct": 6,
+      "abstained": 2,
+      "wrong": 1
+     },
+     "case_report": {
+      "n": 14,
+      "correct": 14,
+      "abstained": 0,
+      "wrong": 0
+     },
+     "cohort": {
+      "n": 10,
+      "correct": 9,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "cross_sectional": {
+      "n": 5,
+      "correct": 4,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "editorial": {
+      "n": 10,
+      "correct": 0,
+      "abstained": 9,
+      "wrong": 1
+     },
+     "in_vitro": {
+      "n": 12,
+      "correct": 5,
+      "abstained": 7,
+      "wrong": 0
+     },
+     "narrative_review": {
+      "n": 12,
+      "correct": 0,
+      "abstained": 12,
+      "wrong": 0
+     },
+     "observational": {
+      "n": 9,
+      "correct": 4,
+      "abstained": 5,
+      "wrong": 0
+     },
+     "protocol": {
+      "n": 13,
+      "correct": 0,
+      "abstained": 3,
+      "wrong": 10
+     },
+     "randomized_trial": {
+      "n": 21,
+      "correct": 20,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "systematic_review": {
+      "n": 26,
+      "correct": 11,
+      "abstained": 15,
+      "wrong": 0
+     },
+     "zh_animal": {
+      "n": 3,
+      "correct": 2,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "zh_case_report": {
+      "n": 2,
+      "correct": 0,
+      "abstained": 2,
+      "wrong": 0
+     },
+     "zh_in_vitro": {
+      "n": 2,
+      "correct": 1,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "zh_narrative_review": {
+      "n": 1,
+      "correct": 0,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "zh_randomized_trial": {
+      "n": 3,
+      "correct": 3,
+      "abstained": 0,
+      "wrong": 0
+     },
+     "zh_systematic_review": {
+      "n": 2,
+      "correct": 0,
+      "abstained": 2,
+      "wrong": 0
+     }
+    }
+   },
+   "test": {
+    "records": 302,
+    "labelled": 245,
+    "negatives": 57,
+    "precision": {
+     "k": 155,
+     "n": 175,
+     "rate": 0.8857,
+     "ci95": [
+      0.8301,
+      0.9248
+     ]
+    },
+    "coverage": {
+     "k": 156,
+     "n": 245,
+     "rate": 0.6367,
+     "ci95": [
+      0.5748,
+      0.6944
+     ]
+    },
+    "correct_from_title": 83,
+    "designs": {
+     "systematic_review": {
+      "precision": {
+       "k": 22,
+       "n": 23,
+       "rate": 0.9565,
+       "ci95": [
+        0.7901,
+        0.9923
+       ]
+      },
+      "recall": {
+       "k": 22,
+       "n": 40,
+       "rate": 0.55,
+       "ci95": [
+        0.3983,
+        0.6929
+       ]
+      },
+      "abstention": {
+       "k": 18,
+       "n": 40,
+       "rate": 0.45,
+       "ci95": [
+        0.3071,
+        0.6017
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 40,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0876
+       ]
+      }
+     },
+     "randomized_trial": {
+      "precision": {
+       "k": 36,
+       "n": 52,
+       "rate": 0.6923,
+       "ci95": [
+        0.5573,
+        0.8009
+       ]
+      },
+      "recall": {
+       "k": 36,
+       "n": 48,
+       "rate": 0.75,
+       "ci95": [
+        0.6122,
+        0.8508
+       ]
+      },
+      "abstention": {
+       "k": 11,
+       "n": 48,
+       "rate": 0.2292,
+       "ci95": [
+        0.1331,
+        0.3654
+       ]
+      },
+      "wrong": {
+       "k": 1,
+       "n": 48,
+       "rate": 0.0208,
+       "ci95": [
+        0.0037,
+        0.109
+       ]
+      }
+     },
+     "observational": {
+      "precision": {
+       "k": 32,
+       "n": 33,
+       "rate": 0.9697,
+       "ci95": [
+        0.8468,
+        0.9946
+       ]
+      },
+      "recall": {
+       "k": 32,
+       "n": 42,
+       "rate": 0.7619,
+       "ci95": [
+        0.6147,
+        0.8652
+       ]
+      },
+      "abstention": {
+       "k": 10,
+       "n": 42,
+       "rate": 0.2381,
+       "ci95": [
+        0.1348,
+        0.3853
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 42,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0838
+       ]
+      }
+     },
+     "case_report": {
+      "precision": {
+       "k": 27,
+       "n": 27,
+       "rate": 1.0,
+       "ci95": [
+        0.8754,
+        1.0
+       ]
+      },
+      "recall": {
+       "k": 27,
+       "n": 42,
+       "rate": 0.6429,
+       "ci95": [
+        0.4917,
+        0.7701
+       ]
+      },
+      "abstention": {
+       "k": 15,
+       "n": 42,
+       "rate": 0.3571,
+       "ci95": [
+        0.2299,
+        0.5083
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 42,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0838
+       ]
+      }
+     },
+     "animal": {
+      "precision": {
+       "k": 12,
+       "n": 13,
+       "rate": 0.9231,
+       "ci95": [
+        0.6669,
+        0.9863
+       ]
+      },
+      "recall": {
+       "k": 12,
+       "n": 31,
+       "rate": 0.3871,
+       "ci95": [
+        0.2373,
+        0.5618
+       ]
+      },
+      "abstention": {
+       "k": 19,
+       "n": 31,
+       "rate": 0.6129,
+       "ci95": [
+        0.4382,
+        0.7627
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 31,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1103
+       ]
+      }
+     },
+     "in_vitro": {
+      "precision": {
+       "k": 26,
+       "n": 27,
+       "rate": 0.963,
+       "ci95": [
+        0.8172,
+        0.9934
+       ]
+      },
+      "recall": {
+       "k": 26,
+       "n": 42,
+       "rate": 0.619,
+       "ci95": [
+        0.4681,
+        0.75
+       ]
+      },
+      "abstention": {
+       "k": 16,
+       "n": 42,
+       "rate": 0.381,
+       "ci95": [
+        0.25,
+        0.5319
+       ]
+      },
+      "wrong": {
+       "k": 0,
+       "n": 42,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.0838
+       ]
+      }
+     }
+    },
+    "confusion": {
+     "systematic_review": {
+      "systematic_review": 22,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 14,
+      "no rule": 4
+     },
+     "randomized_trial": {
+      "systematic_review": 0,
+      "randomized_trial": 36,
+      "observational": 1,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 3,
+      "no rule": 8
+     },
+     "observational": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 32,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 2,
+      "no rule": 8
+     },
+     "case_report": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 27,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 1,
+      "no rule": 14
+     },
+     "animal": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 12,
+      "in_vitro": 0,
+      "ambiguous": 5,
+      "no rule": 14
+     },
+     "in_vitro": {
+      "systematic_review": 0,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 26,
+      "ambiguous": 0,
+      "no rule": 16
+     },
+     "narrative_review": {
+      "systematic_review": 1,
+      "randomized_trial": 0,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 1,
+      "no rule": 23
+     },
+     "editorial": {
+      "systematic_review": 0,
+      "randomized_trial": 1,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 1,
+      "in_vitro": 1,
+      "ambiguous": 0,
+      "no rule": 12
+     },
+     "protocol": {
+      "systematic_review": 0,
+      "randomized_trial": 15,
+      "observational": 0,
+      "case_report": 0,
+      "animal": 0,
+      "in_vitro": 0,
+      "ambiguous": 0,
+      "no rule": 2
+     }
+    },
+    "negatives_typed": {
+     "narrative_review": {
+      "typed": {
+       "k": 1,
+       "n": 25,
+       "rate": 0.04,
+       "ci95": [
+        0.0071,
+        0.1954
+       ]
+      },
+      "as_trial": {
+       "k": 0,
+       "n": 25,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1332
+       ]
+      },
+      "as_review": {
+       "k": 1,
+       "n": 25,
+       "rate": 0.04,
+       "ci95": [
+        0.0071,
+        0.1954
+       ]
+      }
+     },
+     "editorial": {
+      "typed": {
+       "k": 3,
+       "n": 15,
+       "rate": 0.2,
+       "ci95": [
+        0.0705,
+        0.4519
+       ]
+      },
+      "as_trial": {
+       "k": 1,
+       "n": 15,
+       "rate": 0.0667,
+       "ci95": [
+        0.0119,
+        0.2982
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 15,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.2039
+       ]
+      }
+     },
+     "protocol": {
+      "typed": {
+       "k": 15,
+       "n": 17,
+       "rate": 0.8824,
+       "ci95": [
+        0.6566,
+        0.9671
+       ]
+      },
+      "as_trial": {
+       "k": 15,
+       "n": 17,
+       "rate": 0.8824,
+       "ci95": [
+        0.6566,
+        0.9671
+       ]
+      },
+      "as_review": {
+       "k": 0,
+       "n": 17,
+       "rate": 0.0,
+       "ci95": [
+        0.0,
+        0.1843
+       ]
+      }
+     },
+     "all": {
+      "typed": {
+       "k": 19,
+       "n": 57,
+       "rate": 0.3333,
+       "ci95": [
+        0.2249,
+        0.4628
+       ]
+      },
+      "as_trial": {
+       "k": 16,
+       "n": 57,
+       "rate": 0.2807,
+       "ci95": [
+        0.1808,
+        0.4083
+       ]
+      },
+      "as_review": {
+       "k": 1,
+       "n": 57,
+       "rate": 0.0175,
+       "ci95": [
+        0.0031,
+        0.0929
+       ]
+      }
+     }
+    },
+    "wrong": 20,
+    "widening": {
+     "n": 19,
+     "efficacy": 17,
+     "ids": [
+      "35057843",
+      "35101083",
+      "35139822",
+      "35162786",
+      "35248120",
+      "35428629",
+      "35643520",
+      "35698162",
+      "35725486",
+      "35762773",
+      "35869497",
+      "35886296",
+      "35930629",
+      "35986400",
+      "36028847",
+      "36051702",
+      "36100943",
+      "36194175",
+      "36366946"
+     ]
+    },
+    "fields": {
+     "population": {
+      "read": {
+       "k": 28,
+       "n": 302,
+       "rate": 0.0927,
+       "ci95": [
+        0.0649,
+        0.1307
+       ]
+      },
+      "ambiguous": 14,
+      "no_rule": 260,
+      "by_kind": {
+       "systematic_review": {
+        "k": 8,
+        "n": 40,
+        "rate": 0.2,
+        "ci95": [
+         0.105,
+         0.3476
+        ]
+       },
+       "randomized_trial": {
+        "k": 3,
+        "n": 48,
+        "rate": 0.0625,
+        "ci95": [
+         0.0215,
+         0.1684
+        ]
+       },
+       "observational": {
+        "k": 6,
+        "n": 42,
+        "rate": 0.1429,
+        "ci95": [
+         0.0672,
+         0.2784
+        ]
+       },
+       "case_report": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "ci95": [
+         0.0042,
+         0.1232
+        ]
+       },
+       "animal": {
+        "k": 0,
+        "n": 31,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1103
+        ]
+       },
+       "in_vitro": {
+        "k": 2,
+        "n": 42,
+        "rate": 0.0476,
+        "ci95": [
+         0.0132,
+         0.1579
+        ]
+       },
+       "narrative_review": {
+        "k": 3,
+        "n": 25,
+        "rate": 0.12,
+        "ci95": [
+         0.0417,
+         0.2996
+        ]
+       },
+       "editorial": {
+        "k": 1,
+        "n": 15,
+        "rate": 0.0667,
+        "ci95": [
+         0.0119,
+         0.2982
+        ]
+       },
+       "protocol": {
+        "k": 4,
+        "n": 17,
+        "rate": 0.2353,
+        "ci95": [
+         0.0956,
+         0.4726
+        ]
+       }
+      }
+     },
+     "comparator": {
+      "read": {
+       "k": 42,
+       "n": 302,
+       "rate": 0.1391,
+       "ci95": [
+        0.1046,
+        0.1826
+       ]
+      },
+      "ambiguous": 8,
+      "no_rule": 252,
+      "by_kind": {
+       "systematic_review": {
+        "k": 6,
+        "n": 40,
+        "rate": 0.15,
+        "ci95": [
+         0.0706,
+         0.2907
+        ]
+       },
+       "randomized_trial": {
+        "k": 12,
+        "n": 48,
+        "rate": 0.25,
+        "ci95": [
+         0.1492,
+         0.3878
+        ]
+       },
+       "observational": {
+        "k": 9,
+        "n": 42,
+        "rate": 0.2143,
+        "ci95": [
+         0.1171,
+         0.3594
+        ]
+       },
+       "case_report": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "ci95": [
+         0.0042,
+         0.1232
+        ]
+       },
+       "animal": {
+        "k": 4,
+        "n": 31,
+        "rate": 0.129,
+        "ci95": [
+         0.0513,
+         0.2885
+        ]
+       },
+       "in_vitro": {
+        "k": 7,
+        "n": 42,
+        "rate": 0.1667,
+        "ci95": [
+         0.0832,
+         0.306
+        ]
+       },
+       "narrative_review": {
+        "k": 0,
+        "n": 25,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1332
+        ]
+       },
+       "editorial": {
+        "k": 0,
+        "n": 15,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.2039
+        ]
+       },
+       "protocol": {
+        "k": 3,
+        "n": 17,
+        "rate": 0.1765,
+        "ci95": [
+         0.0619,
+         0.4103
+        ]
+       }
+      }
+     },
+     "outcome": {
+      "read": {
+       "k": 28,
+       "n": 302,
+       "rate": 0.0927,
+       "ci95": [
+        0.0649,
+        0.1307
+       ]
+      },
+      "ambiguous": 8,
+      "no_rule": 266,
+      "by_kind": {
+       "systematic_review": {
+        "k": 6,
+        "n": 40,
+        "rate": 0.15,
+        "ci95": [
+         0.0706,
+         0.2907
+        ]
+       },
+       "randomized_trial": {
+        "k": 8,
+        "n": 48,
+        "rate": 0.1667,
+        "ci95": [
+         0.087,
+         0.2958
+        ]
+       },
+       "observational": {
+        "k": 7,
+        "n": 42,
+        "rate": 0.1667,
+        "ci95": [
+         0.0832,
+         0.306
+        ]
+       },
+       "case_report": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "ci95": [
+         0.0042,
+         0.1232
+        ]
+       },
+       "animal": {
+        "k": 1,
+        "n": 31,
+        "rate": 0.0323,
+        "ci95": [
+         0.0057,
+         0.1619
+        ]
+       },
+       "in_vitro": {
+        "k": 1,
+        "n": 42,
+        "rate": 0.0238,
+        "ci95": [
+         0.0042,
+         0.1232
+        ]
+       },
+       "narrative_review": {
+        "k": 0,
+        "n": 25,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.1332
+        ]
+       },
+       "editorial": {
+        "k": 0,
+        "n": 15,
+        "rate": 0.0,
+        "ci95": [
+         0.0,
+         0.2039
+        ]
+       },
+       "protocol": {
+        "k": 4,
+        "n": 17,
+        "rate": 0.2353,
+        "ci95": [
+         0.0956,
+         0.4726
+        ]
+       }
+      }
+     }
+    },
+    "strata": {
+     "animal": {
+      "n": 28,
+      "correct": 12,
+      "abstained": 16,
+      "wrong": 0
+     },
+     "case_control": {
+      "n": 11,
+      "correct": 9,
+      "abstained": 2,
+      "wrong": 0
+     },
+     "case_report": {
+      "n": 36,
+      "correct": 27,
+      "abstained": 9,
+      "wrong": 0
+     },
+     "cohort": {
+      "n": 10,
+      "correct": 9,
+      "abstained": 1,
+      "wrong": 0
+     },
+     "cross_sectional": {
+      "n": 15,
+      "correct": 13,
+      "abstained": 2,
+      "wrong": 0
+     },
+     "editorial": {
+      "n": 15,
+      "correct": 0,
+      "abstained": 12,
+      "wrong": 3
+     },
+     "in_vitro": {
+      "n": 38,
+      "correct": 24,
+      "abstained": 14,
+      "wrong": 0
+     },
+     "narrative_review": {
+      "n": 18,
+      "correct": 0,
+      "abstained": 17,
+      "wrong": 1
+     },
+     "observational": {
+      "n": 6,
+      "correct": 1,
+      "abstained": 5,
+      "wrong": 0
+     },
+     "protocol": {
+      "n": 17,
+      "correct": 0,
+      "abstained": 2,
+      "wrong": 15
+     },
+     "randomized_trial": {
+      "n": 39,
+      "correct": 30,
+      "abstained": 8,
+      "wrong": 1
+     },
+     "systematic_review": {
+      "n": 34,
+      "correct": 18,
+      "abstained": 16,
+      "wrong": 0
+     },
+     "zh_animal": {
+      "n": 3,
+      "correct": 0,
+      "abstained": 3,
+      "wrong": 0
+     },
+     "zh_case_report": {
+      "n": 6,
+      "correct": 0,
+      "abstained": 6,
+      "wrong": 0
+     },
+     "zh_in_vitro": {
+      "n": 4,
+      "correct": 2,
+      "abstained": 2,
+      "wrong": 0
+     },
+     "zh_narrative_review": {
+      "n": 7,
+      "correct": 0,
+      "abstained": 7,
+      "wrong": 0
+     },
+     "zh_randomized_trial": {
+      "n": 9,
+      "correct": 6,
+      "abstained": 3,
+      "wrong": 0
+     },
+     "zh_systematic_review": {
+      "n": 6,
+      "correct": 4,
+      "abstained": 2,
+      "wrong": 0
+     }
+    }
+   }
+  }
+ }
+}

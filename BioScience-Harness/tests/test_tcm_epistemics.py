@@ -25,7 +25,8 @@ from psh.evidence.support import Certainty                       # noqa: E402
 from psh.sir import ClaimKind, Licensing, Provenance, StudyDesign, Subject  # noqa: E402
 
 from bioagent.psh import (                                        # noqa: E402
-    CLAIM_KIND_FOR, claim_type_for, design_for, evidence_type_for, licensing_for,
+    CLAIM_KIND_FOR, DESIGN_FOR_TIER, SUBJECT_FOR_DESIGN, claim_type_for, design_for,
+    evidence_type_for, licensing_for,
 )
 from bioagent.tcm.knowledge import seed                           # noqa: E402
 from bioagent.tcm.model import ActionRelation, EvidenceTier, StudyEvidence  # noqa: E402
@@ -190,6 +191,7 @@ def test_the_matrix_is_never_the_more_permissive_of_the_two(kb):
 # =============================================================== the mapping
 
 @pytest.mark.parametrize("tier,expected", [
+    (EvidenceTier.COMPUTATIONAL_PREDICTION, StudyDesign.IN_SILICO),
     (EvidenceTier.CLASSICAL_TEXT, StudyDesign.CLASSICAL_TEXT),
     (EvidenceTier.EXPERT_EXPERIENCE, StudyDesign.EXPERT_CONSENSUS),
     (EvidenceTier.PRECLINICAL, StudyDesign.IN_VITRO),
@@ -288,3 +290,89 @@ def test_a_relation_maps_without_the_knowledge_base_too(kb):
     evidence = evidence_type_for(relation)
     assert evidence.design is StudyDesign.CLASSICAL_TEXT
     assert evidence.provenance is Provenance.UNKNOWN
+
+
+# ======================================== totality, and the computational tier
+
+def test_the_tier_tables_cover_every_tier_and_every_design():
+    """Checked against the enums, so a member added to either fails here, not in a run.
+
+    ``DESIGN_FOR_TIER`` had no entry for ``COMPUTATIONAL_PREDICTION`` — the tier split out
+    of ``PRECLINICAL`` precisely so a prediction could not license a mechanism claim — and
+    ``design_for`` indexed it, so the records the split protects raised ``KeyError``.
+    """
+    from bioagent.psh.epistemics import _DESIGN_CUES, _TIER_GROUP
+
+    assert set(DESIGN_FOR_TIER) == set(EvidenceTier)
+    assert set(_TIER_GROUP) == set(EvidenceTier)
+    assert set(SUBJECT_FOR_DESIGN) == set(StudyDesign)
+    for tier in EvidenceTier:
+        assert DESIGN_FOR_TIER[tier] in _TIER_GROUP[tier], tier
+    assert all(isinstance(candidate, StudyDesign) for _, candidate in _DESIGN_CUES)
+    assert SUBJECT_FOR_DESIGN[StudyDesign.UNKNOWN] is Subject.UNSPECIFIED, (
+        "a design nobody recorded is not evidence about people")
+
+
+#: One text per design cue, so every branch of ``_DESIGN_CUES`` is exercised.
+_CUE_TEXTS = ("网络药理学", "molecular docking", "小鼠", "in vivo", "HepG2 细胞", "in vitro",
+              "meta-analysis", "随机双盲", "randomised placebo", "single-arm",
+              "prospective cohort", "case-control", "cross-sectional survey", "case series",
+              "病例报告", "guideline", "药典", "commentary", "no recognisable design")
+
+
+@pytest.mark.parametrize("tier", list(EvidenceTier))
+def test_design_for_never_raises_and_never_leaves_the_tier(tier):
+    from bioagent.psh.epistemics import _TIER_GROUP
+
+    for text in ("", *_CUE_TEXTS):
+        mapping = design_for(tier, text)
+        assert mapping.design in _TIER_GROUP[tier], (tier, text, mapping.design)
+        assert mapping.subject is SUBJECT_FOR_DESIGN[mapping.design]
+
+
+def test_a_computational_prediction_maps_to_in_silico_whatever_its_text_says():
+    refined = design_for(EvidenceTier.COMPUTATIONAL_PREDICTION, "网络药理学预测")
+    assert refined.design is StudyDesign.IN_SILICO and refined.refined
+    assert refined.subject is Subject.COMPUTATIONAL
+
+    promoted = design_for(EvidenceTier.COMPUTATIONAL_PREDICTION, "randomised, double-blind")
+    assert promoted.design is StudyDesign.IN_SILICO and not promoted.refined
+    assert "the tier decides" in promoted.note
+
+
+def test_a_computational_prediction_stays_capped_at_a_mechanism_hypothesis():
+    """Through the public entry point, over every claim kind, beside the tier table.
+
+    The relation could not be ruled on at all before (``KeyError``). Now it reaches the
+    hypothesis row and nothing else — the same answer ``CLAIM_SUPPORT`` gives for the tier,
+    so the two tables agree on the case the tier exists for.
+    """
+    fresh = seed()
+    study = StudyEvidence(id="study.synthetic_prediction",
+                          tier=EvidenceTier.COMPUTATIONAL_PREDICTION,
+                          subject_id="herb.huangqi", design="网络药理学与分子对接",
+                          citation="synthetic network-pharmacology prediction (fixture)")
+    relation = ActionRelation(id="relation.synthetic_prediction", subject_id="herb.huangqi",
+                              predicate="treats", object_id="syndrome.qixu",
+                              tier=EvidenceTier.COMPUTATIONAL_PREDICTION,
+                              evidence_ids=("study.synthetic_prediction",))
+    fresh.extend(studies=[study], relations=[relation])
+
+    evidence = evidence_type_for(relation, knowledge=fresh)
+    assert evidence.design is StudyDesign.IN_SILICO
+    assert evidence.subject is Subject.COMPUTATIONAL
+
+    usable = {kind for kind in CLAIM_KIND_FOR
+              if licensing_for(fresh, relation.id, claim_kind=kind).grade
+              is not Licensing.UNLICENSED}
+    assert usable == {"mechanism_hypothesis"}
+    from bioagent.tcm.model import licenses as tier_licenses
+    assert {k for k in CLAIM_KIND_FOR
+            if tier_licenses(EvidenceTier.COMPUTATIONAL_PREDICTION, k)} == usable
+
+    direct = licensing_for(fresh, relation.id, claim_kind="mechanism_hypothesis",
+                           subject=Subject.COMPUTATIONAL, certainty=Certainty.TENTATIVE)
+    assert direct.grade is Licensing.DIRECT
+    refused = licensing_for(fresh, relation.id, claim_kind="mechanism",
+                            subject=Subject.CELL, certainty=Certainty.TENTATIVE)
+    assert refused.grade is Licensing.UNLICENSED

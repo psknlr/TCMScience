@@ -17,6 +17,11 @@ like the audit chain. The loop consults it before every tool call: a side-effect
 component (``manifest.idempotent=False``) whose earlier attempt is RUNNING, UNKNOWN or
 SUCCEEDED-but-withheld is not re-run; the task fails with ``OperationUnresolved`` and the
 loop escalates, because reconciling a side effect is a decision for whoever owns it.
+
+A call that started work which outlives it (a long job) is PENDING: not in doubt, because
+the reference the work is collected by is known (its digest is in ``result_digest``), and
+not finished. The loop's next call for that key collects the work instead of starting it,
+and a restart finds it in ``pending()``.
 """
 
 from __future__ import annotations
@@ -42,6 +47,7 @@ class OperationState(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"          # the attempt reported a failure; nothing is in flight
     UNKNOWN = "unknown"        # an attempt started and the process or the call was lost
+    PENDING = "pending"        # the call started work that has not finished; collect it
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,7 +180,7 @@ class OperationLedger:
                         raise OperationUnresolved("operation key belongs to a different invocation")
                     if (not (prior.idempotent and idempotent) and prior.state in (
                             OperationState.RUNNING, OperationState.UNKNOWN,
-                            OperationState.SUCCEEDED)):
+                            OperationState.SUCCEEDED, OperationState.PENDING)):
                         raise OperationUnresolved(
                             "operation may already have executed; unsafe replay refused atomically")
                 if prior is None:
@@ -211,6 +217,24 @@ class OperationLedger:
             return self._replace(record, state=OperationState.FAILED,
                                  finished_at=time.time(), error_class=error_class[:80])
 
+    def pend(self, key: str, reference_digest: str) -> OperationRecord:
+        """The call started work that has not finished; keep the digest it is collected by.
+
+        Nothing has come back, so the record is not terminal; the work is named, so it is
+        not in doubt either. A repeated call for the key collects that work (the loop
+        reads this record before every call), and a fresh attempt is refused by
+        ``begin`` for a non-idempotent component, as it would repeat the submission.
+        """
+        if not reference_digest:
+            raise ValueError(f"pending work for {key!r} must be named by its reference "
+                             "digest; without one it could not be collected again")
+        with self._lock:
+            record = self._row(key)
+            if record is None:
+                raise KeyError(f"no operation {key!r} to mark pending")
+            return self._replace(record, state=OperationState.PENDING, finished_at=0.0,
+                                 result_digest=reference_digest, error_class="")
+
     def mark_unknown(self, key: str, error_class: str = "") -> OperationRecord:
         """The attempt may have run; nothing can say. Distinct from FAILED on purpose."""
         with self._lock:
@@ -227,6 +251,17 @@ class OperationLedger:
                      + (" AND run_id = ?" if run_id else "") + " ORDER BY started_at")
             params: tuple[Any, ...] = (OperationState.RUNNING.value,
                                        OperationState.UNKNOWN.value)
+            if run_id:
+                params += (run_id,)
+            keys = [r[0] for r in self._conn.execute(query, params)]
+            return [rec for rec in (self._row(k) for k in keys) if rec is not None]
+
+    def pending(self, run_id: str = "") -> list[OperationRecord]:
+        """Work started and not yet collected: what a restart resumes collecting."""
+        with self._lock:
+            query = ("SELECT key FROM operations WHERE state = ?"
+                     + (" AND run_id = ?" if run_id else "") + " ORDER BY started_at")
+            params: tuple[Any, ...] = (OperationState.PENDING.value,)
             if run_id:
                 params += (run_id,)
             keys = [r[0] for r in self._conn.execute(query, params)]

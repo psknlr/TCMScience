@@ -115,6 +115,55 @@ def test_a_model_file_that_changed_is_refused(built, tmp_path):
         load_models(copy).model("caco2_wang")
 
 
+def test_a_domain_file_that_changed_is_refused(built, tmp_path):
+    root, _ = built
+    import shutil
+    from bioagent.admet.chem import ChemError
+    from bioagent.admet.models import load_models
+    copy = tmp_path / "cache"
+    shutil.copytree(root / "cache", copy)
+    domain = copy / "models" / "hia_hou_domain.npy"
+    np.save(domain, np.load(domain)[:1])          # a smaller domain flags more molecules out
+    with pytest.raises(ChemError, match="does not match its model card"):
+        load_models(copy).model("hia_hou")
+
+
+def test_an_interrupted_build_keeps_what_it_finished_and_resumes(tmp_path):
+    """A full build takes most of an hour; a build that stopped half way kept nothing,
+    because the cards were written only at the end."""
+    _tools()
+    from bioagent.admet.models import build_models, load_models
+
+    class Interrupted(Exception):
+        pass
+
+    def stop_after_first_endpoint(line):
+        raise Interrupted(line)
+
+    archive, cache = make_archive(tmp_path / "tdc.zip"), tmp_path / "cache"
+    both = ["caco2_wang", "hia_hou"]
+    with pytest.raises(Interrupted):
+        build_models(cache, archive=archive, endpoints=both, max_iter=50,
+                     log=stop_after_first_endpoint)
+    assert set(load_models(cache).cards) == {"caco2_wang"}, "the finished model is kept"
+    first = load_models(cache).cards["caco2_wang"]["model_sha256"]
+    said: list[str] = []
+    ms = build_models(cache, archive=archive, endpoints=both, max_iter=50, log=said.append)
+    assert set(ms.cards) == set(both) and ms.cards["caco2_wang"]["model_sha256"] == first
+    assert said[0] == "  caco2_wang: kept, its model matches its card"
+    assert said[1].startswith("  hia_hou: auroc")
+    # Other settings, or rebuild=True, train it again; other endpoints' cards stay.
+    said.clear()
+    build_models(cache, archive=archive, endpoints=["caco2_wang"], max_iter=60,
+                 log=said.append)
+    assert said[0].startswith("  caco2_wang: mae")
+    assert set(load_models(cache).cards) == set(both)
+    said.clear()
+    build_models(cache, archive=archive, endpoints=["hia_hou"], max_iter=50, rebuild=True,
+                 log=said.append)
+    assert said[0].startswith("  hia_hou: auroc")
+
+
 def test_the_archive_is_held_to_its_pinned_digest(tmp_path, monkeypatch):
     _tools()
     from bioagent.admet import models as M
@@ -126,10 +175,14 @@ def test_the_archive_is_held_to_its_pinned_digest(tmp_path, monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr(M.urllib.request, "urlopen", lambda *a, **k: Reply(b"PK\x03\x04fake"))
+    sent = []
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda request, **k: sent.append(request) or Reply(b"PK\x03\x04fake"))
     with pytest.raises(M.ChemError, match="not the pinned"):
         M.fetch_archive(tmp_path)
     assert not (tmp_path / "tdc_admet_group.zip").exists()
+    # Harvard Dataverse refuses Python's default User-Agent with 403.
+    assert sent[0].get_header("User-agent").startswith("bioagent-harness/")
 
 
 def test_the_pipeline_without_models_reports_rules_only(tmp_path):

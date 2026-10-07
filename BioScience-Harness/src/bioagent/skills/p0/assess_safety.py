@@ -289,7 +289,10 @@ def _item_for_record(record: Any, *, run_id: str, index: int,
     matters.
     """
     tier = getattr(record, "tier", EvidenceTier.CLASSICAL_TEXT)
+    # Every tier is mapped; the fallback that labelled an unmapped tier (a computational
+    # prediction) `classical_text` is gone, so a new tier fails here instead.
     design = design_hint or {
+        EvidenceTier.COMPUTATIONAL_PREDICTION: "in_silico",
         EvidenceTier.CLASSICAL_TEXT: "classical_text",
         EvidenceTier.EXPERT_EXPERIENCE: "expert_consensus",
         EvidenceTier.PRECLINICAL: "in_vitro",
@@ -297,7 +300,7 @@ def _item_for_record(record: Any, *, run_id: str, index: int,
         EvidenceTier.OBSERVATIONAL: "observational",
         EvidenceTier.RANDOMIZED_TRIAL: "randomized_trial",
         EvidenceTier.SYSTEMATIC_REVIEW: "systematic_review",
-    }.get(tier, "classical_text")
+    }[tier]
 
     quote = (f"kind={record.kind}; severity={record.severity}; "
              f"description={record.description}")

@@ -170,6 +170,23 @@ def test_release_holds_a_skill_to_its_ceiling(snap):
 
 # ================================================================ skill programs
 
+#: The functions the contract's tools name, run in process.
+_IMPLEMENTATIONS = {"sources.composition": "bioagent.sources.composition:herb_composition",
+                    "stats.enrichment_analysis": "bioagent.tools.stats:enrichment_analysis"}
+
+
+def _local(contract):
+    """Each tool as a local, in-process component, as the bridge admits it: the program's
+    destinations are derived from these, never assumed."""
+    from bioagent.psh import bridge_manifest
+    from bioagent.runtime.component import ComponentManifest, LicenseSpec, RuntimeSpec
+    return {tool: bridge_manifest(ComponentManifest(
+        id=f"test.{tool}", kind="tool", name=tool,
+        runtime=RuntimeSpec(backend="python", entrypoint=_IMPLEMENTATIONS[tool]),
+        license=LicenseSpec(spdx="MIT", integration_mode="native")))
+        for tool in contract.tools}
+
+
 def _contract(**kw):
     base = dict(id="tcm.network-pharmacology", version="0.1.0",
                 tools=("sources.composition", "stats.enrichment_analysis"),
@@ -199,20 +216,22 @@ def test_a_skill_compiles_into_a_psh_program_and_psh_enforces_the_evidence():
 
     policy = PolicySnapshot(profile_id="skill-test", require_claim_support=False)
     scope = ClaimScope("adults with type 2 diabetes", "葛根芩连汤", "glycaemic pathways")
-    program = skill_program(_contract(), scope, provenance=("npass@2.0+subset#abc",))
+    run = dict(components=_local(_contract()), envelope=policy.envelope())
+    program = skill_program(_contract(), scope, provenance=("npass@2.0+subset#abc",), **run)
     compiled = ScientificCompiler().compile(program, policy.envelope(), policy=policy)
     assert compiled.validated.order == ("composition", "enrichment", "claim")
     assert program.contracts["enrichment"].evidence.provenance == ("npass@2.0+subset#abc",)
 
     with pytest.raises(SkillProgramError, match="ceiling"):
-        skill_program(_contract(), scope, claim_kind="mechanism")
+        skill_program(_contract(), scope, claim_kind="mechanism", **run)
     # Even with the ceiling raised, PSH itself refuses what in_silico cannot license.
     raised = replace(_contract(), max_claim_kind="mechanism")
     with pytest.raises(PlanRejected, match="EVIDENCE103"):
-        ScientificCompiler().compile(skill_program(raised, scope), policy.envelope(),
+        ScientificCompiler().compile(skill_program(raised, scope, **run), policy.envelope(),
                                      policy=policy)
     with pytest.raises(SkillProgramError, match="no evidence step"):
-        skill_program(_contract(steps={"composition": {"tool": "sources.composition"}}), scope)
+        skill_program(_contract(steps={"composition": {"tool": "sources.composition"}}), scope,
+                      **run)
 
 
 def test_skill_yaml_with_steps_round_trips_through_the_block_parser(tmp_path):

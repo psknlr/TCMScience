@@ -23,13 +23,24 @@ dependencies = ["pandas>=2.0", "pyarrow>=14.0", "pyyaml>=6.0", "scipy>=1.10"]
 dev = ["pytest>=7.0", "build>=1.0", "openpyxl>=3.1"]
 # Reading the formula table (中医方剂数据表.xlsx).
 formulas = ["openpyxl>=3.1"]
-# The analysis pipelines' optional pieces: independent implementations the built-in
-# methods are compared with (PyDESeq2; Scanpy, leidenalg and umap-learn; TM-align through
-# tmtools), and readers for HDF5 count files (h5py, anndata). The pipelines themselves
-# need only the core dependencies; the command-line tools they use when present (fastp,
-# salmon, kallisto, HISAT2, featureCounts) are installed by the system's package manager.
+# The analysis pipelines' optional pieces: implementations a run may select instead of
+# the built-in ones (PyDESeq2 for differential expression; Scanpy, leidenalg and
+# umap-learn for the single-cell stages; harmonypy, Harmony under the Scanpy backend),
+# GSEApy for preranked GSEA, TM-align through tmtools, and readers for HDF5 count files
+# (h5py, anndata). One extra rather than several because CI's analysis job installs it
+# and fails, rather than skips, a test whose package is missing. The pipelines
+# themselves need only the core dependencies; the command-line tools they use when
+# present (fastp, salmon, kallisto, HISAT2, featureCounts) are installed by the system's
+# package manager. GSEApy 1.1.6 is the first release whose prerank keeps the order it is
+# given (1.1.5 fails the tests); harmonypy passes from 0.0.10, which returns its result
+# transposed, to 2.1 (docs/omics-backends.md).
 analysis = ["pydeseq2>=0.4", "scanpy>=1.9", "leidenalg>=0.10", "igraph>=0.10",
-            "umap-learn>=0.5", "anndata>=0.9", "h5py>=3.8", "tmtools>=0.2"]
+            "umap-learn>=0.5", "anndata>=0.9", "h5py>=3.8", "tmtools>=0.2",
+            "gseapy>=1.1.6", "harmonypy>=0.0.10"]
+# scVI integration (integration_method "scvi"): scvi-tools brings PyTorch and Lightning,
+# too heavy for the analysis extra. The floor is the release it was run with
+# (tests/test_omics_scvi.py); install PyTorch's CPU wheel first to keep it small.
+scvi = ["scvi-tools>=1.5.1"]
 # Local structure prediction with ESMFold (large: torch and the model weights). The
 # default predictor is the ESM Atlas service, which needs neither.
 fold = ["torch>=2.0", "transformers>=4.30"]
@@ -38,6 +49,22 @@ fold = ["torch>=2.0", "transformers>=4.30"]
 docking = ["rdkit>=2023.9", "meeko>=0.6", "vina>=1.2.5", "gemmi>=0.6"]
 # ADMET: RDKit for structures, descriptors and alerts; scikit-learn for the models.
 admet = ["rdkit>=2023.9", "scikit-learn>=1.3"]
+# MCP servers (bioagent.mcp): the official Python SDK, 1.x or 2.x; the transport refuses a
+# later major. BioMCP and ToolUniverse pin mcp<2 themselves, so an installation with
+# either resolves to 1.x.
+mcp = ["mcp>=1.29,<3"]
+# The reviewed ToolUniverse tools (bioagent.providers.tooluniverse). Pinned to the release
+# registry/tooluniverse_allowlist.yaml was reviewed against: any other release quarantines
+# every tool until a person re-reviews it, so a looser pin would install nothing usable.
+tooluniverse = ["tooluniverse==1.5.6"]
+# The BioMCP server whose replies bioagent.providers.biomcp adapts
+# (registry/biomcp_server.yaml), pinned for the same reason; it brings the MCP SDK.
+biomcp = ["biomcp-python==0.7.3"]
+# Literature evidence: PaperQA2 indexes and searches the caller's documents (its pypdf
+# reader for PDF). The floor is the release whose source bioagent.literature.paperqa was
+# written and tested against: it relies on paper-qa's character chunkers, Docs state and
+# vector store, not only on its public answer API.
+literature = ["paper-qa[pypdf]>=2026.8.12"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

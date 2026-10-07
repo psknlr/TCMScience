@@ -75,6 +75,12 @@ html[lang="zh"] body { font-size: 16.5px; line-height: 1.85; }
 .authors .a a { color: var(--ink); border-bottom: 1px solid var(--rule); }
 .affil { font-size: 14px; color: var(--muted); line-height: 1.75; max-width: 880px; margin: 0 auto; }
 .affil span { white-space: nowrap; margin: 0 8px; }
+/* On a phone an institution's name is wider than the screen: let each affiliation
+   take its own line and wrap, instead of pushing the whole page sideways. */
+@media (max-width: 620px) {
+  .affil span { white-space: normal; }
+  .affil > span { display: block; margin: 2px 0; }
+}
 .note { font-size: 13px; color: var(--muted); margin-top: 8px; }
 
 .buttons { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 34px 0 0; }
@@ -144,7 +150,10 @@ figcaption b { color: var(--ink); font-weight: 600; }
 .stat .v .hot { color: var(--vermilion); }
 .stat .l { font-size: 14.5px; color: var(--soft); margin-top: 10px; line-height: 1.55; }
 .finding { display: grid; grid-template-columns: 300px 1fr; gap: 36px; padding: 30px 0; border-top: 1px solid var(--rule); }
-@media (max-width: 900px) { .finding { grid-template-columns: 1fr; gap: 14px; } }
+@media (max-width: 900px) { .finding { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
+/* A grid item is as wide as its widest content by default, so a table inside a finding
+   widened the column past the screen; with min-width 0 the table scrolls in its wrap. */
+.finding > * { min-width: 0; }
 .finding .tag { font: 600 13px/1 var(--mono); color: var(--vermilion); margin-bottom: 10px; }
 .finding h3 { font-size: 22px; }
 .finding .body p { color: var(--soft); }

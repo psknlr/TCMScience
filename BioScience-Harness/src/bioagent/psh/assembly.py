@@ -8,15 +8,27 @@ build it in a child process and a test can build it in milliseconds.
 from __future__ import annotations
 
 import csv
+import os
 import statistics
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from ..config import REPO_ROOT, catalogue_path, data_lake_dir
 
-__all__ = ["default_runtime", "load_catalogue_rows", "load_verification"]
+__all__ = ["ENV_TOOLUNIVERSE", "default_runtime", "load_catalogue_rows", "load_verification",
+           "mcp_dispatcher", "tooluniverse_opted_in"]
 
 VERIFICATION_CSV = REPO_ROOT / "data" / "connector_live_verification.csv"
+
+#: Set to 1/true/yes to put the reviewed ToolUniverse tools in every ``default_runtime``
+#: that is not told otherwise; 0/false/no, or unset, leaves them out.
+ENV_TOOLUNIVERSE = "BIOAGENT_TOOLUNIVERSE"
+_YES = ("1", "true", "yes")
+_NO = ("", "0", "false", "no")
+
+#: ``default_runtime``'s default credential source for MCP servers: this process's
+#: environment. A sentinel, so ``mcp_credentials=None`` can mean "none at all".
+FROM_ENVIRONMENT = object()
 
 
 def load_catalogue_rows(path: str | Path | None = None) -> list[dict[str, str]]:
@@ -60,15 +72,81 @@ def load_verification(path: str | Path | None = None) -> dict[str, dict[str, Any
     return per_source
 
 
+def mcp_dispatcher(servers: Any = None, credentials: Any = FROM_ENVIRONMENT) -> Any:
+    """The MCP dispatcher for a runtime, or None when there is nothing to dispatch to.
+
+    ``servers=None`` reads the shipped ``registry/mcp_servers.yaml`` and binds a dispatcher
+    only when it configures something, so an installation that reviewed no server behaves
+    exactly as before (MCP components stay unresolvable, saying no dispatcher is bound). A
+    shipped file that cannot be read binds one that refuses every server with the reason,
+    rather than failing every runtime over an optional configuration.
+
+    Anything given explicitly — an ``MCPServerRegistry``, a path to one, or entries — is
+    always bound, even when empty, so a component naming a server it does not hold is told
+    that precisely. A path that cannot be read raises: it was asked for.
+    """
+    from ..mcp import (MCPConfigError, MCPDispatcher, MCPServerRegistry,
+                       environment_credentials, load_registry)
+
+    if credentials is FROM_ENVIRONMENT:
+        credentials = environment_credentials
+    if servers is None:
+        try:
+            registry = load_registry()
+        except MCPConfigError as exc:
+            registry = MCPServerRegistry(source=exc.subject, error="; ".join(exc.problems))
+        return None if registry.empty else MCPDispatcher(registry, credentials=credentials)
+    if isinstance(servers, MCPServerRegistry):
+        registry = servers
+    elif isinstance(servers, (str, os.PathLike)):
+        registry = load_registry(servers)
+    else:
+        registry = MCPServerRegistry(servers)
+    return MCPDispatcher(registry, credentials=credentials)
+
+
+def tooluniverse_opted_in(requested: bool | None = None) -> bool:
+    """Whether a runtime holds the reviewed ToolUniverse tools: ``requested`` when it is
+    given, else what ``$BIOAGENT_TOOLUNIVERSE`` says. Off unless asked for.
+
+    Off by default because adding the tools to every registry changes what its term search
+    ranks first for "UniProt" or "ChEMBL", which planners and tests rely on. A value the
+    variable does not define is refused, not read as either answer: a mistyped opt-in that
+    silently did nothing, or silently admitted eight remote tools, would both be wrong.
+    """
+    if requested is not None:
+        return bool(requested)
+    value = os.environ.get(ENV_TOOLUNIVERSE, "").strip().lower()
+    if value in _YES:
+        return True
+    if value in _NO:
+        return False
+    raise ValueError(f"${ENV_TOOLUNIVERSE} is {value!r}; set it to one of "
+                     f"{', '.join(_YES)} to add the reviewed ToolUniverse tools, or to one "
+                     f"of {', '.join(v for v in _NO if v)} (or unset it) to leave them out")
+
+
 def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
                     native_tools: bool = True, skills: bool = True,
                     skills_root: str | Path | None = None,
                     catalogue_rows: Iterable[Mapping[str, Any]] | None = None,
                     extra_manifests: Iterable[Any] = (), cache_dir: str | Path | None = None,
                     data_lake: str | Path | None = None, kernel: Any = None,
-                    http_timeout_s: float = 30.0) -> Any:
+                    http_timeout_s: float = 30.0, mcp_servers: Any = None,
+                    mcp_credentials: Any = FROM_ENVIRONMENT,
+                    tooluniverse: bool | None = None) -> Any:
     """A runtime over the packaged catalogue, the public sources, the native tools and the
-    project's reviewed skills (``config.skills_dir``, when present), with every backend."""
+    project's reviewed skills (``config.skills_dir``, when present), with every backend.
+
+    The MCP backend dispatches to the reviewed servers of ``mcp_servers`` (see
+    ``mcp_dispatcher``; by default the shipped registry). ``mcp_credentials`` resolves the
+    credential names an entry gives — by default from this process's environment; ``None``
+    holds none, and a server that needs one is UNAVAILABLE, which is how the isolated child
+    runs.
+
+    ``tooluniverse`` adds the reviewed ToolUniverse tools
+    (``registry/tooluniverse_allowlist.yaml``), each as checked against the installed
+    package; ``None`` defers to ``$BIOAGENT_TOOLUNIVERSE`` (``tooluniverse_opted_in``)."""
     from ..backends.base import BackendRegistry
     from ..backends.concrete import (ContainerBackend, DatasetBackend, MCPBackend, NoneBackend,
                                      PythonBackend, SubprocessBackend)
@@ -92,6 +170,9 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
         from ..config import skills_dir
         from ..providers.skills import SkillDirectoryProvider
         manifests.extend(SkillDirectoryProvider("tcmscience", skills_dir(skills_root)).discover())
+    if tooluniverse_opted_in(tooluniverse):
+        from ..providers.tooluniverse import ToolUniverseProvider
+        manifests.extend(ToolUniverseProvider().discover())
     manifests.extend(extra_manifests)
     registry = ComponentRegistry(manifests)
 
@@ -104,9 +185,16 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
     resolver = Resolver(registry, dataset_probe=lambda cid: cid in present,
                         backend_probe=lambda backend: probe["fn"](backend))
     loader = Loader(registry, resolver)
+    # The reviewed environment configuration $BIOAGENT_ENVIRONMENTS names, if any: the only
+    # way a provider runs in its own interpreter or a container sees a GPU or a data root.
+    # A named file that fails its review stops the assembly here rather than being skipped.
+    from ..backends.environments import ExecutionEnvironments
+
+    environments = ExecutionEnvironments.from_env()
     backends = BackendRegistry([
-        PythonBackend(loader), MCPBackend(), DatasetBackend(lake), SubprocessBackend(),
-        ContainerBackend(), NoneBackend(),
+        PythonBackend(loader), MCPBackend(mcp_dispatcher(mcp_servers, mcp_credentials)),
+        DatasetBackend(lake), SubprocessBackend(environments=environments),
+        ContainerBackend(environments), NoneBackend(),
         HTTPBackend(cache_dir=cache_dir, timeout_s=http_timeout_s),
     ])
     runtime = Runtime(registry, backends, kernel=kernel or PolicyKernel(), resolver=resolver,

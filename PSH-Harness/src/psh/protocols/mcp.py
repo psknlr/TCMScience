@@ -10,7 +10,9 @@ rules, and each rule closes a hole that the obvious adapter would have:
 require approval and raises its risk tier. ``readOnlyHint=True`` changes *nothing*: the
 manifest still says ``mutates=True``, because a server that can lie about being read-only
 is a server that can lie, and the whole point of the manifest is that the gate believes it.
-The only way to relax a default is an operator ``override``, recorded in provenance as the
+A biological-sequence ``format`` in the server's input schema is dropped for the same
+reason: it would lower the label of what is sent to that server (``psh.labels``). The only
+way to relax a default is an operator ``override``, recorded in provenance as the
 operator's decision rather than the server's.
 
 **The destination is the operator's, never the server's.** Whether a server is
@@ -42,7 +44,7 @@ from ..contracts import (
     ComponentKind, ComponentManifest, ContractViolation, PolicyDenied, RiskTier,
     _VALID_COMPONENT_ID,
 )
-from ..labels import DEFAULT_CEILINGS, Destination, Sensitivity
+from ..labels import DEFAULT_CEILINGS, Destination, Sensitivity, without_sequence_formats
 
 __all__ = ["MCPToolDescriptor", "MCPToolAdapter", "MCPComponent", "REMOTE_DESTINATIONS"]
 
@@ -191,12 +193,17 @@ class MCPToolAdapter:
         # would *relax* a default on the server's say-so.
         applied_overrides = self.overrides.get(descriptor.name, {})
         fields.update(applied_overrides)
+        # The same goes for a field the server's schema declares a biological sequence:
+        # the classifier labels a validated sequence research data, so honouring the
+        # declaration would let the server lower the label of what is sent to it. An
+        # operator who reviewed the schema supplies it as an ``input_schema`` override.
+        input_schema, ignored = without_sequence_formats(dict(descriptor.input_schema))
+        fields.setdefault("input_schema", input_schema)
 
         manifest = ComponentManifest(
             id=component_id, name=descriptor.name, kind=ComponentKind.TOOL,
             publisher=f"mcp:{self.server}",
             description=str(labelled.value),
-            input_schema=dict(descriptor.input_schema),
             backend="python",           # the CLIENT runs in-process; see module docstring
             allowed_hosts=self.allowed_hosts,
             max_label=self.max_label,
@@ -209,6 +216,7 @@ class MCPToolAdapter:
                 "description_chars": len(descriptor.description),
                 "annotations": annotations,
                 "overrides": applied_overrides,
+                "sequence_formats_ignored": list(ignored),
             },
             **fields)
         component = MCPComponent(manifest, descriptor.name, self.call_tool)
