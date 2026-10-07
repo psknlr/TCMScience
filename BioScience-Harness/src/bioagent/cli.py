@@ -649,10 +649,12 @@ def main(argv: list[str] | None = None) -> int:
     # -- analysis pipelines ---------------------------------------------------
     from .admet import commands as admet_commands
     from .docking import commands as docking_commands
+    from .clinic import commands as clinic_commands
     from .omics import commands as omics_commands
     from .structure import commands as structure_commands
     omics_commands.register(sub)
     structure_commands.register(sub)
+    clinic_commands.register(sub)
     docking_commands.register(sub)
     admet_commands.register(sub)
 
@@ -661,6 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         return omics_commands.dispatch(a)
     if a.cmd in structure_commands.COMMANDS:
         return structure_commands.dispatch(a)
+    if a.cmd in clinic_commands.COMMANDS:
+        return clinic_commands.dispatch(a)
     if a.cmd in docking_commands.COMMANDS:
         return docking_commands.dispatch(a)
     if a.cmd in admet_commands.COMMANDS:

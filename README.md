@@ -184,6 +184,15 @@ One call takes your own data through a complete analysis, with every parameter, 
 | `bioagent dock` — receptor + ligands → prepared PDBQT → redocking check → Vina poses, scores, contacts | Report a score as an affinity, or rank poses from a setup that failed its redocking check: validation comes first, and without it no claim is made. |
 | `bioagent admet` — structures → descriptors, rules, alerts → 22 TDC-trained endpoints | Present a prediction as a measurement, or predict outside what a model has seen: every endpoint carries its held-out error and an applicability-domain flag. |
 
+### Clinical decision support
+
+`bioagent clinic` turns a structured 四诊 record into a syndrome differentiation and a draft prescription for a licensed TCM practitioner to accept, modify or reject ([docs/tcm-clinic.md](docs/tcm-clinic.md)). It never prescribes.
+
+| Step | What it refuses to do |
+|---|---|
+| `bioagent clinic assess` — 四诊 → red flags → 辨证 → 处方草案 | Carry on past a red flag, draft for an emergency syndrome, or decide where the criteria are not met: it refers, or asks what would decide. |
+| `bioagent clinic sign` — the practitioner's decision | Sign anything itself, accept a draft over a stop issue, or pass a block issue without the practitioner's recorded reason. |
+
 ### Data sources
 
 Every source has a card stating its licence and access path. Web access is off unless a person has approved it, and a skill can narrow its sources but never widen them.
