@@ -179,6 +179,7 @@ One call takes your own data through a complete analysis, with every parameter, 
 | Pipeline | What it refuses to do |
 |---|---|
 | `bioagent rnaseq` — FASTQ → QC → trimming → quantification → DESeq2 → report | Report expression differences as a mechanism or an effect: human samples support an association, cells and animals a mechanism hypothesis. |
+| `bioagent scrna` — counts → QC → doublets → Harmony → Leiden → markers → annotation → PAGA / pseudotime → pseudobulk | Treat a marker-based label as a measurement or cells as replicates: labels and pseudotime are outputs, and conditions are compared on samples. |
 
 ### Data sources
 

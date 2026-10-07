@@ -1,4 +1,4 @@
-"""Command-line entry points for the omics pipelines (``bioagent rnaseq ...``).
+"""Command-line entry points for the omics pipelines (``bioagent rnaseq``, ``scrna``).
 
 Registered on the main parser by :func:`register`; :func:`dispatch` runs the command
 when it is one of these.
@@ -13,7 +13,7 @@ from pathlib import Path
 
 __all__ = ["register", "dispatch", "COMMANDS"]
 
-COMMANDS = ("rnaseq",)
+COMMANDS = ("rnaseq", "scrna")
 
 
 def register(sub: argparse._SubParsersAction) -> None:
@@ -47,10 +47,82 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--json", action="store_true", help="print the summary as JSON")
 
 
+    c = sub.add_parser("scrna", help="single-cell RNA-seq from count matrices to annotated "
+                                     "clusters (QC, doublets, Harmony, Leiden, markers, "
+                                     "trajectories, pseudobulk)")
+    c.add_argument("source", nargs="?", default="",
+                   help="a sample sheet (sample,path[,condition,batch]) or one count matrix "
+                        "(10x directory, .h5, .h5ad, CSV/TSV)")
+    c.add_argument("--out", default="", help="output directory")
+    c.add_argument("--doublets", default="remove", choices=("remove", "flag", "off"))
+    c.add_argument("--expected-doublet-rate", type=float, default=0.06)
+    c.add_argument("--min-genes", type=int, default=200)
+    c.add_argument("--n-top-genes", type=int, default=2000)
+    c.add_argument("--n-pcs", type=int, default=30)
+    c.add_argument("--batch-key", default="auto",
+                   help="sample-sheet column to integrate over (auto: batch, else sample)")
+    c.add_argument("--no-integration", action="store_true", help="skip Harmony")
+    c.add_argument("--resolution", type=float, default=1.0, help="Leiden resolution")
+    c.add_argument("--markers", default="", help="a marker panel (JSON or cell_type,gene CSV)")
+    c.add_argument("--root", default="",
+                   help="root cluster or cell type for diffusion pseudotime")
+    c.add_argument("--contrast", default="",
+                   help="factor,numerator,denominator for pseudobulk (default: the "
+                        "condition column's two levels)")
+    c.add_argument("--seed", type=int, default=0)
+    c.add_argument("--verify", default="", help="re-check a finished run directory and exit")
+    c.add_argument("--json", action="store_true")
+
+
 def dispatch(a: argparse.Namespace) -> int | None:
     if a.cmd == "rnaseq":
         return _rnaseq(a)
+    if a.cmd == "scrna":
+        return _scrna(a)
     return None
+
+
+def _scrna(a: argparse.Namespace) -> int:
+    from .scrna import ScConfig, ScError, run_scrna, verify_run
+
+    if a.verify:
+        ok, problems = verify_run(a.verify)
+        print("verified: every input and output matches run.json" if ok
+              else "NOT VERIFIED:\n" + "\n".join(f"  - {p}" for p in problems))
+        return 0 if ok else 1
+    if not (a.source and a.out):
+        print("a source and --out are required (or --verify DIR)", file=sys.stderr)
+        return 2
+    contrast = None
+    if a.contrast:
+        parts = [p.strip() for p in a.contrast.split(",")]
+        if len(parts) != 3:
+            print("--contrast is factor,numerator,denominator", file=sys.stderr)
+            return 2
+        contrast = (parts[0], parts[1], parts[2])
+    config = ScConfig(min_genes=a.min_genes, doublets=a.doublets,
+                      expected_doublet_rate=a.expected_doublet_rate,
+                      n_top_genes=a.n_top_genes, n_pcs=a.n_pcs, batch_key=a.batch_key,
+                      integrate="none" if a.no_integration else "harmony",
+                      resolution=a.resolution, markers=a.markers or None,
+                      root=a.root or None, contrast=contrast, seed=a.seed)
+    try:
+        run = run_scrna(a.source, config, a.out)
+    except (ScError, ValueError) as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 1
+    summary = run.summary()
+    if a.json:
+        print(json.dumps(summary, indent=1, ensure_ascii=False, default=str))
+        return 0
+    print(f"{summary['cells']:,} cells, {summary['genes']:,} genes, "
+          f"{len(summary['clusters'])} clusters")
+    for c, t in summary["cell_types"].items():
+        print(f"  cluster {c}: {t} ({summary['clusters'][c]} cells)")
+    for w in run.warnings:
+        print(f"warning: {w}")
+    print(f"report: {Path(a.out) / 'report.html'}")
+    return 0
 
 
 def _rnaseq(a: argparse.Namespace) -> int:

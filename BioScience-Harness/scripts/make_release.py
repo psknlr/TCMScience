@@ -78,6 +78,7 @@ REQUIRED_PACKAGES = (
     "bioagent.data",
     "bioagent.evolution",
     "bioagent.omics",
+    "bioagent.omics.sc",
     "bioagent.planners",
     "bioagent.providers",
     "bioagent.providers.supplement",

@@ -23,11 +23,13 @@ dependencies = ["pandas>=2.0", "pyarrow>=14.0", "pyyaml>=6.0", "scipy>=1.10"]
 dev = ["pytest>=7.0", "build>=1.0", "openpyxl>=3.1"]
 # Reading the formula table (中医方剂数据表.xlsx).
 formulas = ["openpyxl>=3.1"]
-# The analysis pipelines' optional pieces: PyDESeq2 to compare the DESeq2-method
-# implementation with an independent one. The pipelines themselves need only the core
+# The analysis pipelines' optional pieces: independent implementations the built-in
+# methods are compared with (PyDESeq2; Scanpy, leidenalg and umap-learn), and readers for
+# HDF5 count files (h5py, anndata). The pipelines themselves need only the core
 # dependencies; the command-line tools they use when present (fastp, salmon, kallisto,
 # HISAT2, featureCounts) are installed by the system's package manager.
-analysis = ["pydeseq2>=0.4"]
+analysis = ["pydeseq2>=0.4", "scanpy>=1.9", "leidenalg>=0.10", "igraph>=0.10",
+            "umap-learn>=0.5", "anndata>=0.9", "h5py>=3.8"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

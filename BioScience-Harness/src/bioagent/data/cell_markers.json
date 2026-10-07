@@ -1,0 +1,203 @@
+{
+ "about": "Canonical marker genes for common human cell types, for annotating clusters by marker scores. Curated from the markers used in the Seurat PBMC 3k tutorial (Satija lab), the Azimuth PBMC reference (Hao et al. 2021, Cell 184:3573), PanglaoDB (Franzen et al. 2019, Database baz046) and CellMarker 2.0 (Hu et al. 2023, Nucleic Acids Res 51:D870). Not exhaustive: a cluster whose type is not listed is reported unassigned, never forced into the nearest listed type. Symbols are human; they are matched case-insensitively, which also matches most mouse orthologues.",
+ "version": "2026-10",
+ "review_status": "curated",
+ "cell_types": {
+  "Naive CD4+ T cell": [
+   "CD3E",
+   "IL7R",
+   "CCR7",
+   "LEF1",
+   "TCF7",
+   "SELL"
+  ],
+  "Memory CD4+ T cell": [
+   "CD3E",
+   "IL7R",
+   "S100A4",
+   "LTB",
+   "CD40LG"
+  ],
+  "CD8+ T cell": [
+   "CD3E",
+   "CD8A",
+   "CD8B",
+   "GZMK",
+   "CCL5"
+  ],
+  "Regulatory T cell": [
+   "CD3E",
+   "FOXP3",
+   "IL2RA",
+   "CTLA4"
+  ],
+  "NK cell": [
+   "GNLY",
+   "NKG7",
+   "KLRD1",
+   "KLRF1",
+   "PRF1",
+   "NCAM1"
+  ],
+  "B cell": [
+   "MS4A1",
+   "CD79A",
+   "CD79B",
+   "CD19",
+   "BANK1"
+  ],
+  "Plasma cell": [
+   "JCHAIN",
+   "MZB1",
+   "IGHG1",
+   "SDC1",
+   "XBP1"
+  ],
+  "CD14+ monocyte": [
+   "CD14",
+   "LYZ",
+   "S100A8",
+   "S100A9",
+   "VCAN"
+  ],
+  "FCGR3A+ monocyte": [
+   "FCGR3A",
+   "MS4A7",
+   "CDKN1C",
+   "LST1"
+  ],
+  "Conventional dendritic cell": [
+   "FCER1A",
+   "CST3",
+   "CLEC10A",
+   "CD1C"
+  ],
+  "Plasmacytoid dendritic cell": [
+   "LILRA4",
+   "IL3RA",
+   "CLEC4C",
+   "IRF7"
+  ],
+  "Platelet": [
+   "PPBP",
+   "PF4",
+   "GP9",
+   "ITGA2B"
+  ],
+  "Erythrocyte": [
+   "HBB",
+   "HBA1",
+   "HBA2",
+   "ALAS2"
+  ],
+  "Macrophage": [
+   "CD68",
+   "C1QA",
+   "C1QB",
+   "C1QC",
+   "APOE"
+  ],
+  "Neutrophil": [
+   "CSF3R",
+   "FCGR3B",
+   "CXCR2",
+   "S100A8"
+  ],
+  "Mast cell": [
+   "TPSAB1",
+   "TPSB2",
+   "CPA3",
+   "KIT",
+   "MS4A2"
+  ],
+  "Epithelial cell": [
+   "EPCAM",
+   "KRT8",
+   "KRT18",
+   "KRT19",
+   "CDH1"
+  ],
+  "Endothelial cell": [
+   "PECAM1",
+   "VWF",
+   "CDH5",
+   "CLDN5",
+   "KDR"
+  ],
+  "Fibroblast": [
+   "COL1A1",
+   "COL1A2",
+   "DCN",
+   "LUM",
+   "PDGFRA"
+  ],
+  "Smooth muscle cell": [
+   "ACTA2",
+   "TAGLN",
+   "MYH11",
+   "CNN1",
+   "DES"
+  ],
+  "Pericyte": [
+   "RGS5",
+   "PDGFRB",
+   "KCNJ8",
+   "ABCC9"
+  ],
+  "Hepatocyte": [
+   "ALB",
+   "APOA1",
+   "TTR",
+   "SERPINA1",
+   "TF"
+  ],
+  "Keratinocyte": [
+   "KRT5",
+   "KRT14",
+   "KRT1",
+   "KRT10"
+  ],
+  "Cardiomyocyte": [
+   "TNNT2",
+   "MYH6",
+   "MYH7",
+   "ACTC1"
+  ],
+  "Neuron": [
+   "RBFOX3",
+   "SNAP25",
+   "SYT1",
+   "STMN2"
+  ],
+  "Astrocyte": [
+   "GFAP",
+   "AQP4",
+   "ALDH1L1",
+   "SLC1A3"
+  ],
+  "Oligodendrocyte": [
+   "MBP",
+   "PLP1",
+   "MOG",
+   "MOBP"
+  ],
+  "Microglia": [
+   "P2RY12",
+   "CX3CR1",
+   "TMEM119",
+   "C1QA"
+  ],
+  "Adipocyte": [
+   "ADIPOQ",
+   "PLIN1",
+   "LEP",
+   "FABP4"
+  ],
+  "Proliferating cell (state)": [
+   "MKI67",
+   "TOP2A",
+   "CENPF",
+   "NUSAP1"
+  ]
+ }
+}

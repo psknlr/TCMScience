@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# Single-cell cell atlas — a CANDIDATE skill, not in the stable lockfile: refused by a
+# governed run until a person promotes it; runnable as a development run.
+#
+# Clusters, cell-type labels and pseudotime are outputs, not claims. A claim is made
+# only for a comparison between conditions per cell type (pseudobulk), and its kind
+# follows the declared design.
+
+api_version: "1"
+id: scrna-cell-atlas
+name: Single-cell cell atlas
+version: "0.1.0"
+summary: >-
+  From single-cell count matrices to QC-filtered, doublet-screened, batch-integrated,
+  clustered and annotated cells, with markers, a PAGA trajectory, optional diffusion
+  pseudotime and pseudobulk comparisons between conditions.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.omics.scrna:scrna_cell_atlas"
+  timeout_s: 21600
+  memory_mb: 16384
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network: []
+  filesystem_read:
+    - "${source}"
+    - "${markers}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: false
+  secrets: []
+
+evidence:
+  max_tier: observational
+  claim_kinds:
+    - association
+    - mechanism_hypothesis
+  forbidden_claims:
+    - efficacy
+    - recommendation
+    - mechanism
+  require_pinned_sources: true
+  require_quote_verified: true
+  required_quality_dimensions:
+    - directness
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 300.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [source]
+  properties:
+    source:
+      type: string
+      description: "a sample sheet (sample,path[,condition,batch]) or one count matrix"
+    experiment_design:
+      type: string
+      enum: [in_vitro, animal, observational]
+    root:
+      type: string
+      description: root cluster or cell type for pseudotime
+    doublets:
+      type: string
+      enum: [remove, flag, "off"]
+    resolution:
+      type: number
+    markers:
+      type: string
+    contrast:
+      type: string
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    summary:
+      type: object
+
+risk: r2_consequential
+min_autonomy: act_with_approval

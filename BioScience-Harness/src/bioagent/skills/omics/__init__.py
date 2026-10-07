@@ -9,9 +9,11 @@ one through the registry's review (``updates.registry``).
 from __future__ import annotations
 
 from .rnaseq import rnaseq_differential_expression
+from .scrna import scrna_cell_atlas
 
-__all__ = ["rnaseq_differential_expression", "CANDIDATE_VERSIONS"]
+__all__ = ["rnaseq_differential_expression", "scrna_cell_atlas", "CANDIDATE_VERSIONS"]
 
 CANDIDATE_VERSIONS = {
     "rnaseq-differential-expression": "0.1.0",
+    "scrna-cell-atlas": "0.1.0",
 }

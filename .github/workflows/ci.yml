@@ -85,8 +85,9 @@ jobs:
     # The pipelines run the standard tools when they are installed (fastp, salmon,
     # kallisto, HISAT2, featureCounts). The unit tier above has none, so the tests that
     # need them skip there; here they are installed, and BIOAGENT_REQUIRE_TOOLS turns a
-    # missing tool into a failure, so this job cannot pass by skipping. PyDESeq2 is
-    # installed for the comparison with an independent implementation of the method.
+    # missing tool into a failure, so this job cannot pass by skipping. PyDESeq2, Scanpy,
+    # leidenalg and umap-learn are installed for the comparisons with independent
+    # implementations of the methods.
     name: Analysis pipelines with the standard tools
     runs-on: ubuntu-latest
     steps:
@@ -105,7 +106,7 @@ jobs:
         env:
           PYTHONPATH: ../PSH-Harness/src
           BIOAGENT_REQUIRE_TOOLS: "1"
-        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py
+        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py
 
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the

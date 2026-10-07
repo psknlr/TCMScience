@@ -14,7 +14,8 @@ from typing import Mapping, Sequence
 
 import numpy as np
 
-__all__ = ["PALETTE", "scatter", "histogram", "heatmap", "lines", "bars"]
+__all__ = ["PALETTE", "scatter", "histogram", "heatmap", "lines", "bars", "network",
+           "palette"]
 
 PALETTE = ("#0072B2", "#D55E00", "#009E73", "#E69F00", "#56B4E9", "#CC79A7", "#F0E442",
            "#000000")
@@ -26,6 +27,21 @@ _VIRIDIS = ((68, 1, 84), (72, 40, 120), (62, 74, 137), (49, 104, 142), (38, 130,
 W, H = 640, 420
 LEFT, RIGHT, TOP, BOTTOM = 70, 20, 40, 55
 LEGEND = 130                                  # width kept for a legend, right of the axes
+
+
+def palette(n: int) -> list[str]:
+    """``n`` distinct colours: Okabe-Ito first, then hues spaced by the golden angle."""
+    if n <= len(PALETTE):
+        return list(PALETTE[:n])
+    import colorsys
+    out = list(PALETTE)
+    h = 0.11
+    while len(out) < n:
+        h = (h + 0.381966) % 1.0
+        for light, sat in ((0.45, 0.65), (0.62, 0.55)):
+            r, g, b = colorsys.hls_to_rgb(h, light, sat)
+            out.append("#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255)))
+    return out[:n]
 
 
 def _f(v: float) -> str:
@@ -147,15 +163,26 @@ def _legend(c: _Canvas, items: Sequence[tuple[str, str]]) -> None:
 def scatter(x: Sequence[float], y: Sequence[float], *, title: str, xlabel: str, ylabel: str,
             groups: Sequence[str] | None = None, colours: Mapping[str, str] | None = None,
             labels: Sequence[str] | None = None, hlines: Sequence[float] = (),
-            vlines: Sequence[float] = (), radius: float = 2.5) -> str:
-    """Points, optionally coloured by group and labelled; dashed reference lines."""
+            vlines: Sequence[float] = (), radius: float = 2.5,
+            values: Sequence[float] | None = None, value_label: str = "",
+            legend_order: Sequence[str] | None = None) -> str:
+    """Points, coloured by group (a legend) or by a continuous value (viridis, a colour
+    bar), optionally labelled; dashed reference lines."""
     xs, ys = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    if values is not None:
+        return _scatter_values(xs, ys, np.asarray(values, dtype=float), title=title,
+                               xlabel=xlabel, ylabel=ylabel, radius=radius,
+                               value_label=value_label)
     order = list(dict.fromkeys(groups)) if groups is not None else ["all"]
+    if legend_order is not None and groups is not None:
+        order = [g for g in legend_order if g in set(order)] + \
+            [g for g in order if g not in set(legend_order)]
     c = _Canvas(title)
     ax = _Axes(c, _limits(xs), _limits(ys), xlabel, ylabel, legend=len(order) > 1)
-    palette = dict(colours or {})
+    colour_of = dict(colours or {})
+    auto = palette(len(order))
     for i, g in enumerate(order):
-        palette.setdefault(g, PALETTE[i % len(PALETTE)])
+        colour_of.setdefault(g, auto[i])
     for v in hlines:
         if ax.ylim[0] <= v <= ax.ylim[1]:
             c.add(f'<line x1="{ax.x0}" x2="{ax.x1}" y1="{_f(ax.py(v))}" y2="{_f(ax.py(v))}" '
@@ -165,12 +192,12 @@ def scatter(x: Sequence[float], y: Sequence[float], *, title: str, xlabel: str, 
             c.add(f'<line x1="{_f(ax.px(v))}" x2="{_f(ax.px(v))}" y1="{ax.y0}" y2="{ax.y1}" '
                   'stroke="#666666" stroke-dasharray="4 3"/>')
     # draw grey (background) groups first so highlighted points sit on top
-    draw = sorted(range(len(xs)), key=lambda i: (palette[groups[i]] != GREY) if groups else 0)
+    draw = sorted(range(len(xs)), key=lambda i: (colour_of[groups[i]] != GREY) if groups else 0)
     c.add('<g fill-opacity="0.8">')
     for i in draw:
         if not (math.isfinite(xs[i]) and math.isfinite(ys[i])):
             continue
-        colour = palette[groups[i]] if groups is not None else PALETTE[0]
+        colour = colour_of[groups[i]] if groups is not None else PALETTE[0]
         c.add(f'<circle cx="{_f(ax.px(xs[i]))}" cy="{_f(ax.py(ys[i]))}" r="{radius}" '
               f'fill="{colour}"/>')
     c.add("</g>")
@@ -180,7 +207,73 @@ def scatter(x: Sequence[float], y: Sequence[float], *, title: str, xlabel: str, 
                 c.add(f'<text x="{_f(ax.px(xs[i]) + 5)}" y="{_f(ax.py(ys[i]) - 5)}" '
                       f'fill="{INK}" font-size="11">{escape(text)}</text>')
     if groups is not None and len(order) > 1:
-        _legend(c, [(g, palette[g]) for g in order])
+        _legend(c, [(g, colour_of[g]) for g in order])
+    return c.done()
+
+
+def _scatter_values(xs: np.ndarray, ys: np.ndarray, vals: np.ndarray, *, title: str,
+                    xlabel: str, ylabel: str, radius: float, value_label: str) -> str:
+    c = _Canvas(title)
+    ax = _Axes(c, _limits(xs), _limits(ys), xlabel, ylabel, legend=True)
+    finite = vals[np.isfinite(vals)]
+    lo, hi = (float(finite.min()), float(finite.max())) if len(finite) else (0.0, 1.0)
+    span = hi - lo or 1.0
+    order = np.argsort(np.where(np.isfinite(vals), vals, -np.inf), kind="mergesort")
+    c.add('<g fill-opacity="0.85">')
+    for i in order:
+        if not (math.isfinite(xs[i]) and math.isfinite(ys[i])):
+            continue
+        colour = _viridis((vals[i] - lo) / span) if math.isfinite(vals[i]) else GREY
+        c.add(f'<circle cx="{_f(ax.px(xs[i]))}" cy="{_f(ax.py(ys[i]))}" r="{radius}" '
+              f'fill="{colour}"/>')
+    c.add("</g>")
+    bx = c.w - RIGHT - LEGEND + 16
+    for k in range(50):
+        t = k / 49
+        c.add(f'<rect x="{bx}" y="{_f(TOP + 10 + (1 - t) * 150)}" width="12" height="3.2" '
+              f'fill="{_viridis(t)}"/>')
+    c.add(f'<text x="{bx + 16}" y="{TOP + 18}" fill="{INK}">{_label(hi)}</text>')
+    c.add(f'<text x="{bx + 16}" y="{TOP + 163}" fill="{INK}">{_label(lo)}</text>')
+    c.add(f'<text x="{bx}" y="{TOP + 182}" fill="{INK}">{escape(value_label)}</text>')
+    return c.done()
+
+
+def _text_on(colour: str) -> str:
+    """Black or white, whichever reads on ``colour`` (WCAG relative luminance)."""
+    r, g, b = (int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    lin = [v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4 for v in (r, g, b)]
+    lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    return "#000000" if lum > 0.179 else "#ffffff"
+
+
+def network(positions: Mapping[str, tuple[float, float]], edges: Sequence[tuple[str, str, float]],
+            *, title: str, sizes: Mapping[str, float] | None = None,
+            colours: Mapping[str, str] | None = None, threshold: float = 0.05) -> str:
+    """Nodes at given positions joined by edges whose width is their weight (0-1); edges
+    below ``threshold`` are drawn dashed and thin."""
+    names = list(positions)
+    xs = np.array([positions[n][0] for n in names])
+    ys = np.array([positions[n][1] for n in names])
+    c = _Canvas(title)
+    ax = _Axes(c, _limits(xs), _limits(ys), "", "", xticks=False)
+    for a, b, w in edges:
+        if a not in positions or b not in positions:
+            continue
+        (x1, y1), (x2, y2) = positions[a], positions[b]
+        dash = ' stroke-dasharray="3 3"' if w < threshold else ""
+        c.add(f'<line x1="{_f(ax.px(x1))}" y1="{_f(ax.py(y1))}" x2="{_f(ax.px(x2))}" '
+              f'y2="{_f(ax.py(y2))}" stroke="#555555" stroke-width="{_f(0.6 + 6 * w)}"'
+              f'{dash}><title>{escape(a)} - {escape(b)}: {w:.3f}</title></line>')
+    auto = palette(len(names))
+    top = max((sizes or {}).values(), default=1.0) or 1.0
+    for i, n in enumerate(names):
+        r = 6 + 14 * math.sqrt((sizes or {}).get(n, top) / top)
+        colour = (colours or {}).get(n, auto[i])
+        c.add(f'<circle cx="{_f(ax.px(xs[i]))}" cy="{_f(ax.py(ys[i]))}" r="{_f(r)}" '
+              f'fill="{colour}" stroke="#222222" stroke-width="0.8"/>')
+        c.add(f'<text x="{_f(ax.px(xs[i]))}" y="{_f(ax.py(ys[i]) + 4)}" '
+              f'text-anchor="middle" font-size="11" fill="{_text_on(colour)}">'
+              f'{escape(n)}</text>')
     return c.done()
 
 
