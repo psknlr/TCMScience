@@ -106,6 +106,41 @@ def simulate_counts(n_genes: int = 300, *, seed: int = 0, numeric: bool = False)
     return np.column_stack(cols), [f"g{i}" for i in range(n_genes)], ids, meta
 
 
+def need_reviewed_engine(engine_cls):
+    """(engine, probe) for a structure engine in the interpreter the reviewed environments
+    file ($BIOAGENT_ENVIRONMENTS) names for its project; else a skip (a failure under
+    BIOAGENT_REQUIRE_TOOLS). A named file that fails its review raises: that is an error
+    in the configuration, not a missing tool."""
+    from bioagent.backends.environments import ExecutionEnvironments
+
+    envs = ExecutionEnvironments.from_env()
+    why = ""
+    if envs is None or envs.interpreter(engine_cls.project) is None:
+        why = f"no reviewed environment names {engine_cls.project!r} ($BIOAGENT_ENVIRONMENTS)"
+    else:
+        engine = engine_cls(envs)
+        probe = engine.probe()
+        if probe.available:
+            return engine, probe
+        why = probe.reason
+    if os.environ.get("BIOAGENT_REQUIRE_TOOLS"):
+        pytest.fail(why)
+    pytest.skip(why)
+
+
+def need_dir(variable: str, what: str) -> Path:
+    """The directory an environment variable names; else a skip (a failure under
+    BIOAGENT_REQUIRE_TOOLS)."""
+    raw = os.environ.get(variable, "").strip()
+    why = f"${variable} does not name {what}" if not raw else (
+        "" if Path(raw).is_dir() else f"${variable} names {raw}, which is not a directory")
+    if not why:
+        return Path(raw)
+    if os.environ.get("BIOAGENT_REQUIRE_TOOLS"):
+        pytest.fail(why)
+    pytest.skip(why)
+
+
 def revcomp(seq: str) -> str:
     return seq.translate(_COMP)[::-1]
 
