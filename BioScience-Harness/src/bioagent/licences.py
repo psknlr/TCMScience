@@ -69,18 +69,29 @@ class LicenceRecordError(ValueError):
 @dataclass(frozen=True)
 class Checked:
     """Where a record's facts were read (a file at a commit, a terms page and its version),
-    and on which day. The YAML key is ``date``: PyYAML reads a bare ``on`` as ``True``."""
+    on which day, and the sha256 of what was read. The YAML key is ``date``: PyYAML reads a
+    bare ``on`` as ``True``.
+
+    The digest is what lets a reviewer tell, later, whether the page that was read is the
+    page that is there now: a terms page has no commit to pin, and a licence that changes
+    under a record leaves nothing behind but the record's claim. A code record digests its
+    licence file in ``licence_sha256`` and needs none here; a model, data or service record
+    states one (``_read``)."""
 
     source: str
     date: str
+    sha256: str = ""
 
     def __post_init__(self) -> None:
         if not self.source.strip() or not _ISO.match(self.date):
             raise LicenceRecordError("a record says where its terms were read, and when "
                                      "(an ISO date)")
+        if self.sha256 and not _SHA256.match(self.sha256):
+            raise LicenceRecordError("checked.sha256 is the sha256 of what was read")
 
     def as_dict(self) -> dict[str, str]:
-        return {"source": self.source, "date": self.date}
+        out = {"source": self.source, "date": self.date}
+        return {**out, "sha256": self.sha256} if self.sha256 else out
 
 
 def _problems(record: Any) -> list[str]:
@@ -103,6 +114,12 @@ def _raise(record: Any, problems: list[str]) -> None:
 def _purposes(values: Iterable[str]) -> list[str]:
     bad = sorted(set(values) - set(PURPOSES))
     return [f"permitted_use names {bad}; purposes are {list(PURPOSES)}"] if bad else []
+
+
+def _read(record: Any) -> list[str]:
+    """Terms read from a page or a file other than a code licence file are digested."""
+    return [] if record.checked.sha256 else [
+        "checked.sha256, the digest of the terms as they were read, is required"]
 
 
 @dataclass(frozen=True)
@@ -201,7 +218,7 @@ class ModelLicence:
     note: str = ""
 
     def __post_init__(self) -> None:
-        problems = _problems(self) + _purposes(self.permitted_use)
+        problems = _problems(self) + _purposes(self.permitted_use) + _read(self)
         if not self.weights_version.strip() or not _SHA256.match(self.weights_sha256):
             problems.append("the weights version and the sha256 of the weights are required")
         if not self.licence.strip() or not self.terms_url.startswith("https://"):
@@ -242,6 +259,8 @@ class DataLicence:
     name: str
     version: str
     licence: str
+    #: The provider's own statement of the terms: its licence page or licence file.
+    terms_url: str
     commercial_use: str
     retention: str
     redistribution: str
@@ -252,9 +271,12 @@ class DataLicence:
     note: str = ""
 
     def __post_init__(self) -> None:
-        problems = _problems(self)
+        problems = _problems(self) + _read(self)
         if not self.licence.strip() or not self.version.strip():
             problems.append("the licence and the version it applies to are required")
+        if not self.terms_url.startswith("https://"):
+            problems.append("an https reference to the provider's statement of its terms "
+                            "is required")
         if self.commercial_use not in COMMERCIAL_USE:
             problems.append(f"commercial_use {self.commercial_use!r} is not one of "
                             f"{COMMERCIAL_USE}")
@@ -263,7 +285,8 @@ class DataLicence:
         _raise(self, problems)
 
     def terms(self) -> dict[str, Any]:
-        return {"licence": self.licence, "version": self.version,
+        return {"licence": self.licence, "terms_url": self.terms_url,
+                "version": self.version,
                 "per_record": {k: dict(v) for k, v in self.per_record.items()},
                 "commercial_use": self.commercial_use, "retention": self.retention,
                 "redistribution": self.redistribution,
@@ -300,7 +323,7 @@ class ServiceTerms:
     note: str = ""
 
     def __post_init__(self) -> None:
-        problems = _problems(self) + _purposes(self.permitted_use)
+        problems = _problems(self) + _purposes(self.permitted_use) + _read(self)
         if not self.terms_url.startswith("https://") or not self.terms_version.strip():
             problems.append("an https reference to the terms and their version are required")
         if not (self.account == "none" or re.match(r"^(env|vault):[A-Za-z0-9_./-]+$",
@@ -431,10 +454,12 @@ def _record(kind: str, entry: Any) -> Record:
     kwargs: dict[str, Any] = {}
     for key, value in entry.items():
         if key == "checked":
-            if not isinstance(value, Mapping) or set(value) != {"source", "date"}:
+            if not isinstance(value, Mapping) or set(value) - {"sha256"} != {"source",
+                                                                            "date"}:
                 raise LicenceRecordError(f"{kind} record {entry.get('id')!r}: checked is a "
-                                         "mapping of source and date")
-            value = Checked(str(value["source"]), str(value["date"]))
+                                         "mapping of source and date, and sha256")
+            value = Checked(str(value["source"]), str(value["date"]),
+                            str(value.get("sha256") or ""))
         elif key == "per_record":
             value = {str(k): {str(a): str(b) for a, b in dict(v).items()}
                      for k, v in dict(value or {}).items()}
@@ -462,7 +487,8 @@ class Asset:
     kind: str
     #: A component id, an import name, or ``source:<key>[@version]`` for a source card.
     ref: str
-    #: implementation | requirement | returned_data | attached | dependency | source
+    #: implementation | reaches | requirement | returned_data | attached | dependency |
+    #: source
     role: str
     #: The licence the manifest or the catalogue states, kept so a refusal can say what
     #: was claimed and was not a reviewed grant.
@@ -493,12 +519,18 @@ def _implementation(m: Any, role: str) -> Asset:
 
 def assets_for(m: Any, *, dependencies: Iterable[Any] = (),
                records: LicenceRecords | None = None) -> tuple[Asset, ...]:
-    """Everything invoking ``m`` uses: what runs, the third-party code it imports, the data
-    it hands back, assets a record attaches to it (model weights, a service it calls), and
-    the same for every manifest in its dependency closure."""
+    """Everything invoking ``m`` uses: what runs, the service at the hosts its code reaches,
+    the third-party code it imports, the data it hands back, assets a record attaches to it
+    (model weights, the licence of what a service returns), and what runs for every
+    manifest in its dependency closure."""
     records = records if records is not None else LicenceRecords.load()
     own = _implementation(m, "implementation")
     out = [own]
+    if own.kind == "code" and any(m.permissions.network):
+        # Code that reaches a host uses the service there, under that service's terms. It
+        # used to count only when a record named it, so an unreviewed service called from
+        # python passed a commercial run: nothing said a service was used.
+        out.append(Asset("service", m.id, "reaches"))
     out += [Asset("code", module, "requirement") for module in m.requires.python
             if module != own.module]
     if m.license.data:

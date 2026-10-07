@@ -90,7 +90,18 @@ _DEFAULT_LICENSE_POLICY: Mapping[str, Mapping[str, PolicyDecision]] = MappingPro
     }),
 })
 
-COPYLEFT_SPDX = frozenset({"GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1"})
+#: The bare GNU ids are SPDX's deprecated spellings of the ``-only`` licences; the current
+#: ids are what upstream metadata states. ``-only`` and ``-or-later`` differ in which later
+#: versions a recipient may choose, not in what the licence obliges, so each is copyleft:
+#: vendoring brings its terms into what is distributed, and invoking it does not. Without
+#: them python-igraph (GPL-2.0-or-later) was ruled unlicensed. ``psh.licensing`` lists the
+#: same ids, and a test holds the two tables to the same answer for each.
+COPYLEFT_SPDX = frozenset({
+    "GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1",
+    "GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later",
+    "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
+    "AGPL-3.0-only", "AGPL-3.0-or-later",
+})
 
 
 def license_class(spdx: str | None) -> str:

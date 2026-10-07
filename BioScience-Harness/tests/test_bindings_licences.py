@@ -40,6 +40,8 @@ from bioagent.status import LifecycleState
 
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+#: the digest a fixture's model, data or service terms were "read" with
+READ = "d" * 64
 
 IMPLEMENTATION = '''\
 """Fixture: a Biomni tool module. Importing it raises, so a verifier that imports fails."""
@@ -430,11 +432,80 @@ def test_the_shipped_records_are_complete_and_cover_real_catalogue_rows(catalogu
         "08cb2b689def365f7dee1f5da50c49d3a149cf5a/LICENSE")
 
 
-def test_the_first_party_record_matches_the_licence_file_on_disk():
-    record = LicenceRecords.load().get("code.bioagent")
+@pytest.mark.parametrize("record_id,holder", [
+    ("code.bioagent", b"bioagent contributors"), ("code.psh", b"PSH-Harness contributors")])
+def test_the_first_party_records_match_the_licence_files_on_disk(record_id, holder):
+    """PSH-Harness had no licence file, so a commercial run that compiled its program with
+    PSH had nothing to rely on; its MIT text is the bioagent one with its own holder."""
+    record = LicenceRecords.load().get(record_id)
     text = (REPO / record.licence_path).read_bytes()
     assert hashlib.sha256(text).hexdigest() == record.licence_sha256
-    assert text.startswith(b"MIT License")
+    assert text.startswith(b"MIT License") and b"Copyright (c) 2026 " + holder in text
+    assert record.first_party and record.spdx == "MIT"
+    bioagent = (REPO / "LICENSE").read_bytes()
+    assert text.replace(holder, b"bioagent contributors") == bioagent
+
+
+def _operations_and_sources() -> dict[str, ComponentManifest]:
+    """Every component the framework builds that a data or service record may name."""
+    from bioagent.acquisition.sources import BulkDatasetProvider
+    from bioagent.operations import operation_components
+    from bioagent.providers.public_apis import PublicAPIProvider
+    from bioagent.providers.tooluniverse import ToolUniverseProvider
+
+    built = [*operation_components().values(), *PublicAPIProvider().discover(),
+             *BulkDatasetProvider().discover(),
+             *ToolUniverseProvider(install=None).discover()]
+    return {m.id: m for m in built}
+
+
+def test_the_data_and_service_records_were_read_and_name_real_components(catalogue):
+    """Read on 2026-10-07 from each provider's own terms, digested, and attached to the
+    components that draw on the source; none names a component nobody builds."""
+    records = LicenceRecords.load()
+    known = {**catalogue, **_operations_and_sources()}
+    read = [r for r in records.records if r.kind in ("data", "service")]
+    assert {r.id for r in read} == {
+        "data.opentargets", "data.reactome", "data.string", "data.uniprot", "data.chembl",
+        "data.pubchem", "data.bindingdb", "data.lotus", "data.rcsb-pdb",
+        "data.alphafold-db", "service.rcsb", "service.alphafold-db"}
+    for r in read:
+        assert len(r.checked.sha256) == 64 and r.checked.date == "2026-10-07", r.id
+        assert r.terms_url.startswith("https://") and r.components, r.id
+        assert set(r.components) <= set(known), (r.id, set(r.components) - set(known))
+    # where a provider grants nothing, the record says unknown rather than guessing
+    assert records.get("data.pubchem").commercial_use == "unknown"
+    assert records.get("data.bindingdb").commercial_use == "unknown"
+
+
+@pytest.mark.parametrize("component,allowed,unreviewed", [
+    ("structure.rcsb.entry", True, ()),
+    ("docking.rcsb.chemcomp", True, ()),
+    ("structure.alphafold.model", True, ()),
+    ("public.connector.rcsb", True, ()),
+    # the fold service publishes no terms: nothing permits a commercial fold
+    ("structure.esmatlas.fold", False, (("service", "reaches"),)),
+    ("structure.colabfold.batch", False, (("service", "reaches"),)),
+    # the API's own terms were not reviewed, only the licence of what it returns
+    ("public.connector.uniprot", False, (("service", "implementation"),)),
+    ("npass.dataset.npassv2_0_download_naturalproducts_activities_txt", False,
+     (("data", "implementation"),)),
+    ("lotus.dataset.260413_frozen_csv_gz", True, ()),
+])
+def test_a_commercial_use_is_ruled_on_the_records_read(component, allowed, unreviewed):
+    """Code that reaches a host draws on the service there. Before, a python component's
+    service counted only when a record named it, so an unreviewed service passed."""
+    records = LicenceRecords.load()
+    m = _operations_and_sources()[component]
+    decision = usage_decision(assets_for(m, records=records), purpose="commercial",
+                              records=records)
+    assert decision.allowed is allowed, decision.reason
+    refused = tuple((e.asset.kind, e.asset.role) for e in decision.entries
+                    if not e.ruling.allowed)
+    assert refused == unreviewed
+    for e in decision.entries:
+        if not e.ruling.allowed:
+            assert e.record == "" and "no reviewed licence record" in e.ruling.reason
 
 
 def _code(**override) -> CodeLicence:
@@ -459,12 +530,12 @@ def test_a_record_without_the_facts_is_refused():
         ServiceTerms(id="service.api", name="api", terms_url="https://example.org/terms",
                      terms_version="2026-01", account="sk-live-123",
                      permitted_use=("academic",), rate_limit="1/s",
-                     checked=Checked("fixture", "2026-10-07"))
+                     checked=Checked("fixture", "2026-10-07", READ))
     with pytest.raises(LicenceRecordError, match="output_terms"):
         ModelLicence(id="model.m", name="m", weights_version="1", weights_sha256="b" * 64,
                      licence="custom", terms_url="https://example.org/m",
                      permitted_use=("commercial",), output_terms="whatever",
-                     checked=Checked("fixture", "2026-10-07"))
+                     checked=Checked("fixture", "2026-10-07", READ))
 
 
 def test_the_records_file_refuses_what_it_does_not_know():
@@ -483,6 +554,34 @@ def test_the_records_file_refuses_what_it_does_not_know():
         LicenceRecords.parse(good + "    first_party: 'false'\n")
     with pytest.raises(LicenceRecordError, match="module 'x' has two records"):
         LicenceRecords.parse(good + good.split("code:\n", 1)[1].replace("code.x", "code.y"))
+
+
+def test_terms_read_from_a_page_are_digested_and_name_where_they_were_read():
+    """A terms page has no commit to pin: the digest of what was read is how a reviewer
+    tells later whether the page that was read is the page that is there now."""
+    data = dict(id="data.atlas", name="an atlas", version="2026.1", licence="CC-BY-4.0",
+                terms_url="https://example.org/atlas/licence", commercial_use="allowed",
+                retention="unknown", redistribution="with attribution",
+                components=("lab.dataset.atlas",))
+    with pytest.raises(LicenceRecordError, match="checked.sha256"):
+        DataLicence(**data, checked=Checked("https://example.org/atlas/licence",
+                                            "2026-10-07"))
+    with pytest.raises(LicenceRecordError, match="sha256 of what was read"):
+        Checked("https://example.org/atlas/licence", "2026-10-07", "not-a-digest")
+    with pytest.raises(LicenceRecordError, match="https reference"):
+        DataLicence(**{**data, "terms_url": "example.org/terms"},
+                    checked=Checked("fixture", "2026-10-07", READ))
+    record = DataLicence(**data, checked=Checked("fixture", "2026-10-07", READ))
+    assert record.terms()["checked"] == {"source": "fixture", "date": "2026-10-07",
+                                         "sha256": READ}
+    assert record.terms()["terms_url"] == "https://example.org/atlas/licence"
+    text = ("api_version: '1'\ndata:\n  - id: data.atlas\n    name: an atlas\n"
+            "    version: '2026.1'\n    licence: CC-BY-4.0\n"
+            "    terms_url: https://example.org/atlas/licence\n    commercial_use: allowed\n"
+            "    retention: unknown\n    redistribution: with attribution\n"
+            "    components: [lab.dataset.atlas]\n"
+            f"    checked: {{source: fixture, date: '2026-10-07', sha256: {READ}}}\n")
+    assert LicenceRecords.parse(text).get("data.atlas") == record
 
 
 # ============================================================================ the gate
@@ -516,14 +615,58 @@ def test_none_plus_federated_is_not_permission_for_a_commercial_run():
 
 def test_a_permissive_record_permits_and_an_unclassified_one_fails_closed():
     records = LicenceRecords([_code(),
-                              _code(id="code.gpl", spdx="GPL-2.0-or-later",
-                                    components=("lab.tool.gpl",))])
+                              _code(id="code.odd", spdx="Lab-Licence-1.0",
+                                    components=("lab.tool.odd",))])
     allowed = usage_decision([Asset("code", "lab.tool.licensed", "implementation",
                                     mode="federated")], purpose="commercial", records=records)
     assert allowed.allowed and allowed.entries[0].record == "code.lab-tool"
-    refused = usage_decision([Asset("code", "lab.tool.gpl", "implementation",
+    refused = usage_decision([Asset("code", "lab.tool.odd", "implementation",
                                     mode="federated")], purpose="commercial", records=records)
     assert not refused.allowed, "an SPDX id the table does not know is not a grant"
+
+
+#: SPDX's current GNU ids, which upstream metadata states (python-igraph's among them),
+#: and the deprecated bare spellings of the ``-only`` licences.
+GNU_IDS = ("GPL-2.0-only", "GPL-2.0-or-later", "GPL-3.0-only", "GPL-3.0-or-later",
+           "LGPL-2.1-only", "LGPL-2.1-or-later", "LGPL-3.0-only", "LGPL-3.0-or-later",
+           "AGPL-3.0-only", "AGPL-3.0-or-later",
+           "GPL-2.0", "GPL-3.0", "LGPL-2.1", "LGPL-3.0", "AGPL-3.0")
+
+
+@pytest.mark.parametrize("spdx", GNU_IDS)
+def test_both_licence_tables_rule_every_gnu_id_as_copyleft(spdx):
+    """Before, the current ids read as unlicensed in both tables: refused vendored by the
+    kernel, and refused a commercial run in their own process, which they grant."""
+    from psh.licensing import classify_license, license_ruling
+
+    from bioagent.policy import LicensePolicy, license_class
+
+    assert license_class(spdx) == classify_license(spdx) == "copyleft"
+    for mode in ("vendor", "native", "federated"):
+        ours = LicensePolicy().check(license_spdx=spdx, integration_mode=mode)
+        theirs = license_ruling(spdx, mode)
+        assert ours.decision.value.lower() == theirs.decision.value, (spdx, mode)
+        assert ours.rule == theirs.rule == f"license.copyleft.{mode}"
+    assert LicensePolicy().check(license_spdx=spdx, integration_mode="vendor").decision \
+        is PolicyDecision.PREFER_ALTERNATIVE
+
+
+def test_python_igraph_is_copyleft_and_may_run_for_a_commercial_purpose():
+    """Its record (GPL-2.0-or-later, read from its own licence file) was classed
+    unlicensed, so the gate refused it; the licence grants running it for any purpose."""
+    records = LicenceRecords.load()
+    igraph = records.get("code.python-igraph")
+    assert igraph.spdx == "GPL-2.0-or-later"
+    for mode, verdict in (("federated", "allow"), ("vendor", "prefer_alternative")):
+        decision = usage_decision([Asset("code", "igraph", "requirement", mode=mode)],
+                                  purpose="commercial", records=records)
+        entry = decision.entries[0]
+        assert decision.allowed and entry.record == "code.python-igraph"
+        assert entry.ruling.decision.value.lower() == verdict
+        assert entry.ruling.rule == f"usage.code.license.copyleft.{mode}.commercial"
+    federated = usage_decision([Asset("code", "igraph", "requirement", mode="federated")],
+                               purpose="commercial", records=records)
+    assert "does not incur its copyleft terms" in federated.entries[0].ruling.reason
 
 
 @pytest.mark.parametrize("purpose", PURPOSES)
@@ -541,13 +684,16 @@ def test_a_source_card_is_ruled_by_effective_sources_itself(purpose):
 
 
 def test_data_model_and_service_records_name_what_they_permit():
-    checked = Checked("fixture", "2026-10-07")
+    checked = Checked("fixture", "2026-10-07", READ)
     data = DataLicence(id="data.atlas", name="an atlas", version="2026.1", licence="CC-BY-4.0",
+                       terms_url="https://example.org/atlas/licence",
                        commercial_use="allowed", retention="cache 30 days",
                        redistribution="with attribution", checked=checked,
                        components=("lab.dataset.atlas",))
     closed = DataLicence(id="data.closed", name="a closed set", version="1",
-                         licence="Free for academic use", commercial_use="unknown",
+                         licence="Free for academic use",
+                         terms_url="https://example.org/closed/terms",
+                         commercial_use="unknown",
                          retention="unknown", redistribution="unknown", checked=checked,
                          components=("lab.dataset.closed",))
     weights = ModelLicence(id="model.folder", name="a folding model", weights_version="v1",
@@ -590,7 +736,7 @@ def test_assets_cover_what_runs_what_it_imports_and_what_a_record_attaches(tmp_p
                            weights_version="v1", weights_sha256="0" * 64, licence="MIT",
                            terms_url="https://example.org/w", permitted_use=PURPOSES,
                            output_terms="unrestricted",
-                           checked=Checked("fixture", "2026-10-07"),
+                           checked=Checked("fixture", "2026-10-07", READ),
                            components=(verified.id,))
     shipped = LicenceRecords.load()
     records = LicenceRecords([r for r in shipped.records if r.kind == "code"],

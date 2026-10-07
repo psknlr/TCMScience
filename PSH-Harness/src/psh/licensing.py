@@ -14,7 +14,11 @@ integration mode**", because the same licence gives different answers:
     federated   invoke upstream in its own process                 -> use, not redistribution
 
 So an unlicensed component may be *invoked* and may not be *copied*, which a single
-allow/deny per licence cannot express. The table below is the rule; ``PolicySnapshot``
+allow/deny per licence cannot express. A copyleft licence answers by mode for the opposite
+reason: it grants running the code for any purpose and attaches its obligations to passing
+it on, so vendoring — whose copy is distributed with this tree — is permitted with a
+native equivalent preferred, federated and native use are allowed, and a ruling states the
+obligation (``COPYLEFT_OBLIGATIONS``). The table below is the rule; ``PolicySnapshot``
 narrows which classes and modes a profile permits at all; and ``ToolGateway`` enforces it
 at the same gate as every other egress decision, so it cannot be bypassed by reaching the
 component another way.
@@ -42,8 +46,8 @@ from enum import Enum
 from typing import Mapping
 
 __all__ = ["LicenseClass", "LicenseDecision", "LicenseRuling", "INTEGRATION_MODES",
-           "LICENSE_CLASSES", "COMMERCIAL_LICENSE_TABLE", "classify_license",
-           "license_ruling", "normalise_mode"]
+           "LICENSE_CLASSES", "COMMERCIAL_LICENSE_TABLE", "COPYLEFT_OBLIGATIONS",
+           "classify_license", "license_ruling", "normalise_mode"]
 
 
 class LicenseClass(str, Enum):
@@ -74,12 +78,38 @@ PERMISSIVE_SPDX = frozenset({
     "CC-BY-4.0", "CC-BY-3.0", "ODC-BY-1.0", "CC-PDDC", "US-Gov-Public-Domain",
 })
 
-COPYLEFT_SPDX = frozenset({
-    "GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-3.0", "LGPL-2.1", "MPL-2.0", "EPL-2.0",
+_GPL = "a work built on it is distributed only with its source, under the same licence"
+_LGPL = ("the library and changes to it are distributed only with their source, under the "
+         "same licence, and a work linking it must stay relinkable")
+_AGPL = ("a work built on it is distributed, or a modified version offered to users over "
+         "a network, only with its source, under the same licence")
+_FILE_LEVEL = "a modified file is distributed only with its source, under the same licence"
+_SHARE_ALIKE = "an adaptation is shared only under the same terms"
+
+#: Copyleft licences, and what each asks in return, as a ruling states it. Each obligation
+#: attaches to passing the code (or data) on — the AGPL's also to offering a modified
+#: version over a network — and none to running it, which every one of these licences
+#: grants for any purpose. That is why the integration mode decides: vendoring copies the
+#: code into a tree that is then distributed, while federated use runs it in its own
+#: process and native use runs none of it.
+#:
+#: The bare GNU ids are SPDX's deprecated spellings of the "-only" licences; the current
+#: ids are what upstream metadata now states. "-only" and "-or-later" differ in which later
+#: versions a recipient may choose, not in what the licence obliges. Without them
+#: python-igraph (GPL-2.0-or-later) read as unlicensed, and was refused a commercial run
+#: its licence grants.
+COPYLEFT_OBLIGATIONS: Mapping[str, str] = {
+    **dict.fromkeys(("GPL-2.0", "GPL-2.0-only", "GPL-2.0-or-later",
+                     "GPL-3.0", "GPL-3.0-only", "GPL-3.0-or-later"), _GPL),
+    **dict.fromkeys(("LGPL-2.1", "LGPL-2.1-only", "LGPL-2.1-or-later",
+                     "LGPL-3.0", "LGPL-3.0-only", "LGPL-3.0-or-later"), _LGPL),
+    **dict.fromkeys(("AGPL-3.0", "AGPL-3.0-only", "AGPL-3.0-or-later"), _AGPL),
+    **dict.fromkeys(("MPL-2.0", "EPL-2.0"), _FILE_LEVEL),
     # Share-alike data licences: reuse is granted on the condition that derived data is
     # shared under the same terms — the copyleft shape, so the same rulings apply.
-    "CC-BY-SA-4.0", "CC-BY-SA-3.0", "ODbL-1.0",
-})
+    **dict.fromkeys(("CC-BY-SA-4.0", "CC-BY-SA-3.0", "ODbL-1.0"), _SHARE_ALIKE),
+}
+COPYLEFT_SPDX = frozenset(COPYLEFT_OBLIGATIONS)
 
 #: Treated as "no licence granted".
 NO_LICENSE_SPDX = frozenset({"NONE", "NOASSERTION", "", "UNKNOWN", "PROPRIETARY"})
@@ -199,12 +229,17 @@ def license_ruling(spdx: str | None, mode: str | None, *,
             f"{named} does not permit {normalised} use; invoke the upstream in its own "
             "process (federated) or use a native equivalent",
             rule=rule)
+    obligation = COPYLEFT_OBLIGATIONS.get((spdx or "").strip(), "")
     if decision is LicenseDecision.PREFER_ALTERNATIVE:
         return LicenseRuling(
             decision, license_class, normalised,
-            f"{named} is copyleft; prefer a native equivalent before vendoring",
+            f"{named} is copyleft: vendored code keeps its terms, and {obligation}; prefer "
+            "a native equivalent before vendoring",
             rule=rule)
-    return LicenseRuling(decision, license_class, normalised,
-                         f"{named} permits {normalised} use"
-                         + (" for a commercial purpose" if commercial else ""),
-                         rule=rule)
+    permits = (f"{named} permits {normalised} use"
+               + (" for a commercial purpose" if commercial else ""))
+    if obligation and normalised == "federated":
+        # Running upstream is what the licence grants unconditionally; say what is not.
+        permits += (f"; running it in its own process does not incur its copyleft terms "
+                    f"({obligation})")
+    return LicenseRuling(decision, license_class, normalised, permits, rule=rule)
