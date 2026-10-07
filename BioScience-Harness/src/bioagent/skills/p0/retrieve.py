@@ -46,8 +46,12 @@ __all__ = ["retrieve_tcm_evidence"]
 #: stores a *design*. `PRECLINICAL` is ambiguous between `animal` and `in_vitro`,
 #: and the corpus does not say which, so it maps to the weaker of the two rather
 #: than guessing the stronger — declaring an animal study when it might be a cell
-#: line would overstate what the evidence licenses.
+#: line would overstate what the evidence licenses. Every tier is mapped, and a
+#: tier with no entry is an error rather than a default: the default here used to
+#: label a computational prediction `expert_consensus`, a design that licenses
+#: attribution and traditional-use claims no prediction can.
 _DESIGN_FOR_TIER = {
+    EvidenceTier.COMPUTATIONAL_PREDICTION: "in_silico",
     EvidenceTier.CLASSICAL_TEXT: "classical_text",
     EvidenceTier.EXPERT_EXPERIENCE: "expert_consensus",
     EvidenceTier.PRECLINICAL: "in_vitro",
@@ -215,7 +219,7 @@ def retrieve_tcm_evidence(subject: str, *, claim_kind: str = "efficacy",
 
 def _item_from_study(study: StudyEvidence, *, run_id: str, index: int) -> EvidenceItem:
     """One corpus study as an `EvidenceItem`, keeping every caveat it carries."""
-    design = _DESIGN_FOR_TIER.get(study.tier, "expert_consensus")
+    design = _DESIGN_FOR_TIER[study.tier]
     quote = _study_quote(study)
 
     # A retracted study is marked as such; the corpus is the authority on
