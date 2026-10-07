@@ -137,6 +137,19 @@ attestation, or automatic claim publication. This API can record scientifically
 incorrect proposals; it preserves what was planned and changed so those proposals
 can be reviewed.
 
+Since then, two of these live beside the ledger. `psh.scientist.worldmodel` records which
+hypotheses compete and which observations corroborate or refute them. `psh.scientist.inquiry`
+ranks analyses by expected information gain and updates belief from predictions sealed
+before each outcome; `WorldModelRecorder` writes an inquiry into these records as it runs
+([docs/inquiry.md](../../docs/inquiry.md)). Neither executes an experiment or publishes a
+claim.
+
 <!-- zh -->
 此处未实现：假设竞争或排序、科学信念更新、统计有效性检查、实验执行、事件日志重放、远程见证，或自动的主张发布。该 API 可以记录科学上不正确的提案；它保留当初计划了什么、又改动了什么，以便这些提案能够被审查。
+
+此后，其中两项已在账本旁边实现：
+- `psh.scientist.worldmodel` 记录哪些假设相互竞争、哪些观察支持或驳斥它们。
+- `psh.scientist.inquiry` 按期望信息增益对分析排序，只用在每个结果出现之前封存的预测更新信念。`WorldModelRecorder` 在推理过程中把它写入这些记录（[docs/inquiry.md](../../docs/inquiry.md)）。
+
+两者都不执行实验，也不发布主张。
 
