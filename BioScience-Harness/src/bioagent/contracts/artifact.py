@@ -27,12 +27,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, NamedTuple
 
+from ..status import ExecutionStatus
 from .candidate_claim import CandidateClaim, check_claim
 from .evidence_item import EvidenceItem
 from .source_card import SourceCard, canonical_hash, merge_operation_hashes
 
 __all__ = ["ARTIFACT_STATUSES", "ArtifactFile", "ArtifactVerdict", "ResearchArtifact",
-           "Violation", "validate_artifact"]
+           "Violation", "operation_blockers", "validate_artifact"]
 
 ARTIFACT_STATUSES = ("draft", "validated", "refused", "experimental")
 
@@ -55,7 +56,12 @@ _CODES: Mapping[str, str] = {
     "ART115": "a quote receipt does not verify against the content it names",
     "ART116": "a claim rests on an extrapolation that is declared but not validated",
     "ART117": "the artifact declares an attestation that its audit chain does not record",
+    "ART118": "an operation of the run was refused, failed, or is not in its audit chain",
 }
+
+#: How a governed run's operation may end without blocking release. DEGRADED ran and
+#: produced a value with a stated shortfall; everything else did not produce one.
+_OPERATION_OK = (ExecutionStatus.SUCCEEDED.value, ExecutionStatus.DEGRADED.value)
 
 #: Claim-level reason code → artifact violation code. The claim layer numbers
 #: its own refusals (`CLM0xx`) so the benchmark can count them; the artifact
@@ -474,6 +480,13 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
         if not attested:
             errors.append(Violation("ART117", f"execution is not attested: {why}"))
 
+    # -- operations ---------------------------------------------------------
+    # What the skill did while it ran, as the governed run recorded it. A run that tried
+    # something its manifest does not declare, or whose call to a service failed, is not
+    # the run that was reviewed, whether or not the skill caught the error and carried on.
+    for problem in operation_blockers(artifact.provenance):
+        errors.append(Violation("ART118", problem))
+
     # -- limitations --------------------------------------------------------
     if not artifact.limitations:
         errors.append(Violation(
@@ -514,6 +527,38 @@ def validate_artifact(artifact: ResearchArtifact, *, output_root: Any = None,
                            outputs_verified=outputs_ok,
                            execution_attested=attested, execution_declared=declared,
                            unverified=tuple(unverified))
+
+
+def operation_blockers(provenance: Any) -> tuple[str, ...]:
+    """Why the operations a governed run declares bar its release; empty when they do not.
+
+    Reads ``provenance["governed"]["operations"]``, the ledger
+    :func:`bioagent.governed.run_governed` writes: one entry per external operation the
+    skill performed or tried to. An operation that did not end SUCCEEDED or DEGRADED, or
+    that the run could not record in its audit chain, blocks release. An artifact that
+    declares no ledger — one from before operations were recorded, or not governed — has
+    nothing here to check; whether the chain holds the ledger it does declare is the
+    attestor's question (:mod:`~bioagent.contracts.attestation`).
+    """
+    governed = provenance.get("governed") if isinstance(provenance, Mapping) else None
+    entries = governed.get("operations") if isinstance(governed, Mapping) else None
+    if entries is None:
+        return ()
+    if not isinstance(entries, (list, tuple)):
+        return ("the operation ledger is not a list of operations",)
+    out = []
+    for seq, entry in enumerate(entries, 1):
+        if not isinstance(entry, Mapping):
+            out.append(f"operation {seq} of the ledger is not a record")
+            continue
+        what = f"operation {entry.get('seq', seq)} ({entry.get('operation') or 'unnamed'})"
+        status = str(entry.get("status") or "")
+        if status not in _OPERATION_OK:
+            out.append(f"{what} ended {status or 'with no status'}: "
+                       f"{entry.get('reason') or 'no reason recorded'}")
+        elif entry.get("recorded") is not True:
+            out.append(f"{what} is not recorded in the run's audit chain")
+    return tuple(out)
 
 
 def _check_output(out: ArtifactFile, output_root: Any, content_store: Any) -> str:

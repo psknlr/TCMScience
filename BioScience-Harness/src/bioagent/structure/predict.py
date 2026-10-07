@@ -13,6 +13,11 @@
 Each returns a :class:`Prediction` holding the model as PDB text, per-residue pLDDT on a
 0-100 scale, the PAE matrix when the method gives one, and what produced it: method,
 version, whether it ran remotely, and digests of the request and the response.
+
+Every call that leaves this process — the fold request, a reference download, ColabFold
+with its MSA server, the ESMFold weights from the Hub — goes through
+:func:`bioagent.operations.operation`, so under a governed run it is checked against the
+skill's manifest, executed through both kernels and recorded (outside one it runs as is).
 """
 
 from __future__ import annotations
@@ -30,15 +35,18 @@ from typing import Any
 
 import numpy as np
 
+from ..operations import (ALPHAFOLD_MODEL, COLABFOLD_BATCH, ESMATLAS_FOLD, ESMFOLD_WEIGHTS,
+                          RCSB_ENTRY, fetch_bytes, operation)
 from .pdbio import parse_pdb
 
 __all__ = ["Prediction", "PredictionError", "predict", "PREDICTORS", "validate_sequence",
-           "fetch_reference"]
+           "fetch_reference", "esmatlas_fold", "colabfold_batch", "load_esmfold"]
 
 AMINO = set("ACDEFGHIKLMNPQRSTVWY")
 PREDICTORS = ("esmatlas", "esmfold", "colabfold")
 ESM_ATLAS = "https://api.esmatlas.com/foldSequence/v1/pdb/"
 ESM_ATLAS_MAX = 400
+ESMFOLD_MODEL = "facebook/esmfold_v1"
 
 
 class PredictionError(RuntimeError):
@@ -94,13 +102,22 @@ def _post(url: str, data: bytes, *, timeout: float, retries: int = 3) -> bytes:
     raise PredictionError(f"{url} did not answer after {retries} attempts: {last}")
 
 
+def esmatlas_fold(*, sequence: str, timeout: float) -> bytes:
+    """One fold request to the ESM Atlas service: the sequence out, the PDB text back.
+
+    The implementation of the ``structure.esmatlas.fold`` operation; the sequence is the
+    argument, so PSH's gate classifies what is actually sent.
+    """
+    return _post(ESM_ATLAS, sequence.encode(), timeout=timeout)
+
+
 def _esmatlas(name: str, seq: str, *, timeout: float) -> Prediction:
     if len(seq) > ESM_ATLAS_MAX:
         raise PredictionError(f"{name}: {len(seq)} residues; the ESM Atlas service folds at "
                               f"most {ESM_ATLAS_MAX}; run ESMFold or ColabFold locally")
     body = seq.encode()
     t0 = time.time()
-    raw = _post(ESM_ATLAS, body, timeout=timeout)
+    raw = operation(ESMATLAS_FOLD, esmatlas_fold, sequence=seq, timeout=timeout)
     text = raw.decode("utf-8", errors="replace")
     model = parse_pdb(text, source=f"esmatlas:{name}")
     if model.sequence() != seq:
@@ -112,16 +129,28 @@ def _esmatlas(name: str, seq: str, *, timeout: float) -> Prediction:
                       detail={"endpoint": ESM_ATLAS})
 
 
+def load_esmfold(*, model_id: str = ESMFOLD_MODEL) -> tuple[Any, Any]:
+    """The ESMFold tokenizer and model: from the local cache, or downloaded from the Hub.
+
+    The implementation of the ``structure.esmfold.weights`` operation. Unless the Hub is
+    set offline, ``from_pretrained`` contacts huggingface.co even for cached weights, so
+    loading them is an external call like any other.
+    """
+    from transformers import AutoTokenizer, EsmForProteinFolding
+
+    return (AutoTokenizer.from_pretrained(model_id),
+            EsmForProteinFolding.from_pretrained(model_id))
+
+
 def _esmfold_local(name: str, seq: str) -> Prediction:
     try:
         import torch
-        from transformers import AutoTokenizer, EsmForProteinFolding
+        import transformers
     except ImportError as exc:
         raise PredictionError("local ESMFold needs torch and transformers "
                               "(pip install torch transformers)") from exc
     t0 = time.time()
-    tok = AutoTokenizer.from_pretrained("facebook/esmfold_v1")
-    model = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1")
+    tok, model = operation(ESMFOLD_WEIGHTS, load_esmfold, model_id=ESMFOLD_MODEL)
     model.eval()
     if torch.cuda.is_available():
         model = model.cuda()
@@ -132,12 +161,23 @@ def _esmfold_local(name: str, seq: str) -> Prediction:
     parsed = parse_pdb(pdb, source=f"esmfold:{name}")
     pae = out["predicted_aligned_error"][0].cpu().numpy() if "predicted_aligned_error" in out \
         else None
-    import transformers
     return Prediction(name=name, sequence=seq, pdb=pdb, plddt=parsed.plddt(),
                       method="ESMFold (local, transformers)",
                       version=f"esmfold_v1 / transformers {transformers.__version__}",
                       remote=False, pae=pae, request_sha256=_sha(seq.encode()),
                       response_sha256=_sha(pdb.encode()), seconds=round(time.time() - t0, 2))
+
+
+def colabfold_batch(*, executable: str, fasta: str, out_dir: str) -> dict[str, Any]:
+    """One ``colabfold_batch`` run: its exit code and the end of its error output.
+
+    The implementation of the ``structure.colabfold.batch`` operation. ColabFold sends the
+    sequence to its MSA server from inside the subprocess, where no in-process guard can
+    see it, so the run as a whole is the operation that is declared and recorded.
+    """
+    done = subprocess.run([executable, "--num-models", "1", fasta, out_dir],
+                          capture_output=True, text=True)
+    return {"returncode": done.returncode, "stderr_tail": done.stderr[-800:]}
 
 
 def _colabfold(name: str, seq: str, workdir: Path) -> Prediction:
@@ -149,10 +189,10 @@ def _colabfold(name: str, seq: str, workdir: Path) -> Prediction:
     fasta = work / "input.fasta"
     fasta.write_text(f">{name}\n{seq}\n")
     t0 = time.time()
-    done = subprocess.run([exe, "--num-models", "1", str(fasta), str(work / "out")],
-                          capture_output=True, text=True)
-    if done.returncode != 0:
-        raise PredictionError(f"colabfold_batch failed: {done.stderr[-800:]}")
+    done = operation(COLABFOLD_BATCH, colabfold_batch, executable=exe, fasta=str(fasta),
+                     out_dir=str(work / "out"))
+    if done["returncode"] != 0:
+        raise PredictionError(f"colabfold_batch failed: {done['stderr_tail']}")
     pdbs = sorted((work / "out").glob(f"{name}*rank_001*.pdb"))
     scores = sorted((work / "out").glob(f"{name}*scores_rank_001*.json"))
     if not pdbs:
@@ -207,20 +247,19 @@ def fetch_reference(ref: str, *, allow_remote: bool, timeout: float = 120.0
     if kind.lower() == "pdb":
         code, _, chain = rest.partition(":")
         url = f"https://files.rcsb.org/download/{code.upper()}.pdb"
-        with urllib.request.urlopen(url, timeout=timeout) as r:
-            data = r.read()
+        data = operation(RCSB_ENTRY, fetch_bytes, url=url, timeout=timeout)
         return data.decode("utf-8", errors="replace"), chain, {
             "reference": f"PDB {code.upper()}", "url": url, "sha256": _sha(data),
             "kind": "experimental", "licence": "PDB data: CC0 1.0"}
     acc = rest.strip()
     api = f"https://alphafold.ebi.ac.uk/api/prediction/{acc}"
-    with urllib.request.urlopen(api, timeout=timeout) as r:
-        entries = json.loads(r.read())
+    entries = json.loads(operation(ALPHAFOLD_MODEL, fetch_bytes, url=api, timeout=timeout))
     if not entries:
         raise PredictionError(f"AlphaFold DB has no model for {acc}")
+    # The model's address comes from the service; the broker holds it to the component's
+    # declared host like any other.
     url = entries[0]["pdbUrl"]
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        data = r.read()
+    data = operation(ALPHAFOLD_MODEL, fetch_bytes, url=url, timeout=timeout)
     return data.decode("utf-8", errors="replace"), "", {
         "reference": f"AlphaFold DB {entries[0].get('entryId', acc)}", "url": url,
         "sha256": _sha(data), "kind": "predicted",

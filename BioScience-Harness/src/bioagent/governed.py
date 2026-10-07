@@ -24,16 +24,26 @@ released", and every step is a refusal point:
    validation event are appended to its hash-chained event store, and the
    artifact is stamped with the policy id and the chain head. A kernel that cannot
    record the run refuses it.
-5. **Verification.** The artifact is validated with the content store its quotes
+5. **Operations.** While the skill runs, every external call it makes goes through
+   one :class:`~bioagent.operations.OperationBroker`: checked against the hosts and
+   subprocess permission its manifest declares, executed through PSH's broker and
+   BioScience's runtime, and recorded in the chain and in the artifact's provenance.
+   A refused, failed or unrecorded operation leaves the artifact unattested, so
+   unreleased, even when the skill caught the error and finished.
+6. **Verification.** The artifact is validated with the content store its quotes
    and outputs were registered in, and with the directory its outputs were written
    to, so ``evidence_verified`` and ``outputs_verified`` are checked facts.
 
-The result carries the attested artifact and the full verdict; ``released`` is
-``verdict.release_authorized`` and nothing else.
+The run's PSH policy is PSH's default, plus a public remote destination when the
+manifest — checked against its pin in step 3 — declares hosts: the run is authorised
+for what the reviewed manifest asks and no more, and the broker narrows each call to the
+hosts it names. The result carries the attested artifact and the full verdict;
+``released`` is ``verdict.release_authorized`` and nothing else.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import inspect
 import json
@@ -67,6 +77,8 @@ class GovernedRun:
     output_dir: str
     written: tuple[str, ...] = ()
     lockfile: str = ""                 # the pin the skill was checked against, if any
+    #: one execution-evidence entry per external operation the skill performed or tried
+    operations: tuple[Mapping[str, Any], ...] = ()
 
     @property
     def released(self) -> bool:
@@ -299,8 +311,10 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
     ).encode("utf-8")).hexdigest()
 
     from .environment import environment_record
+    from .operations import OperationBroker
     environment = environment_record()
-    kernel = TrustedKernel(PSHConfig(state_dir=state).ensure_dirs())
+    config = PSHConfig(state_dir=state).ensure_dirs()
+    kernel = TrustedKernel(config, policy=_run_policy(config, skill.spec))
     try:
         try:
             kernel.audit("bioscience_skill_run_started", run_id=skill_id,
@@ -313,7 +327,20 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         except Exception as exc:                             # noqa: BLE001
             raise GovernedRunRefused(f"the audit chain refused the run: {exc}") from exc
 
-        artifact = fn(**dict(arguments))
+        broker = OperationBroker(skill.spec, kernel, run_id=skill_id,
+                                 anchor=kernel.events.head_hash)
+        try:
+            with broker.governing():
+                artifact = fn(**dict(arguments))
+        except Exception as exc:
+            # The chain says how the run ended, not only that it started: the operations
+            # it holds are otherwise followed by nothing. The skill's error is the one
+            # reported; a chain that cannot take this record changes nothing about it.
+            with contextlib.suppress(Exception):
+                kernel.audit("bioscience_skill_run_failed", run_id=skill_id,
+                             detail={"error_type": type(exc).__name__,
+                                     "operations": len(broker.entries)})
+            raise
         if not isinstance(artifact, ResearchArtifact):
             raise GovernedRunRefused(f"{skill_id} returned {type(artifact).__name__}, "
                                      "not a ResearchArtifact")
@@ -322,12 +349,15 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
         except ValueError as exc:
             raise GovernedRunRefused(f"outputs could not be materialised: {exc}") from exc
 
+        operations = broker.evidence()
+        blocked = broker.release_blockers()
         before = validate_artifact(artifact, output_root=out, content_store=store)
         kernel.audit("bioscience_artifact_validated", run_id=skill_id,
                      detail={"artifact_digest": artifact.digest,
                              "states": {k: v for k, v in before.states.items()
                                         if k != "execution_attested"},
-                             "codes": list(before.codes)})
+                             "codes": list(before.codes), "operations": len(operations),
+                             "operations_blocking": len(blocked)})
         chain = kernel.events.verify()
         if not chain:
             raise GovernedRunRefused("the audit chain does not verify after the run")
@@ -337,8 +367,9 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
                     "pinned_by": str(lock) if lock else "",
                     "arguments_sha256": args_digest,
                     "pre_attestation_digest": artifact.digest,
-                    "state_dir": str(state)}
-        if lock is not None:
+                    "state_dir": str(state),
+                    "run_anchor": broker.anchor, "operations": operations}
+        if lock is not None and not blocked:
             attested = replace(artifact, policy_id=policy_id, audit_head=head,
                                provenance={**dict(artifact.provenance),
                                            "environment": environment, "governed": governed})
@@ -351,19 +382,48 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
             verdict = validate_artifact(attested, output_root=out, content_store=store,
                                         attestor=AuditChainAttestor(kernel.events))
         else:
-            # An unpinned development run is recorded in the chain but declares no governed
-            # release: it names no policy and no head, so nothing can attest it, and its
-            # verdict reports the checks that did run with release refused.
+            # An unpinned development run, or a run whose skill performed an operation
+            # that was refused, failed or went unrecorded, is recorded in the chain but
+            # declares no governed release: it names no policy and no head, so nothing can
+            # attest it, and its verdict reports the checks that did run with release
+            # refused (ART118 names the operations).
+            reasons = ([f"unpinned: {unpinned}"] if lock is None else []) + [
+                f"operations: {b}" for b in blocked]
             attested = replace(artifact, provenance={
                 **dict(artifact.provenance), "environment": environment,
-                "governed": {**governed, "development_run": True, "audit_head": head}})
+                "governed": {**governed, "development_run": lock is None,
+                             "audit_head": head, "release_refused": reasons}})
             kernel.audit("bioscience_artifact_not_attested", run_id=skill_id,
                          detail={"artifact_digest": attested.digest, "audit_head": head,
-                                 "reason": f"unpinned: {unpinned}"})
+                                 "reason": "; ".join(reasons)})
             verdict = validate_artifact(attested, output_root=out, content_store=store)
     finally:
         kernel.close()
     return GovernedRun(artifact=attested, verdict=verdict, skill_id=skill_id,
                        content_hash=content_hash, audit_head=head, state_dir=str(state),
                        output_dir=str(out), written=written,
-                       lockfile=str(lock) if lock else "")
+                       lockfile=str(lock) if lock else "", operations=tuple(operations))
+
+
+def _run_policy(config: Any, spec: Any) -> Any:
+    """The PSH policy a governed run executes under, when it is not the kernel's default.
+
+    A skill whose manifest declares no host runs under the default ``TrustedKernel``
+    builds for ``config`` (``None`` here), exactly as before. One that declares hosts gets
+    that default, built the same way, plus the public remote destination: the manifest is
+    the reviewed request (its pin was checked before this), and it gets the destination,
+    not the hosts — each operation is held to the hosts it names by
+    :class:`~bioagent.operations.OperationBroker`, and to the trusted profile's host
+    allowlist by the BioScience policy kernel. The id says it is not the default, so the
+    artifact names the policy it really ran under.
+    """
+    if not spec.permissions.network:
+        return None
+    from psh import Destination, PolicySnapshot
+
+    default = PolicySnapshot(profile_id=config.profile,
+                             require_claim_support=config.require_claim_support,
+                             risk_ceiling=config.default_risk, budget=config.budget)
+    return replace(default, profile_id=f"{default.profile_id}+declared-remote",
+                   allowed_destinations=(*default.allowed_destinations,
+                                         Destination.PUBLIC_REMOTE))

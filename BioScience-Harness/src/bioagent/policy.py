@@ -436,6 +436,10 @@ PROFILES: Mapping[str, PermissionProfile] = MappingProxyType({
             "api.imaging.datacommons.cancer.gov", "services.cancerimagingarchive.net",
             "www.cancerimagingarchive.net", "idr.openmicroscopy.org", "openneuro.org",
             "files.pythonhosted.org",
+            # the fold service predict-protein-structure declares, now that a governed run
+            # puts each of its calls through this kernel (bioagent.operations); answered a
+            # fold request from the harness on 2026-10-07
+            "api.esmatlas.com",
         })),
     "sandbox-only": PermissionProfile(
         name="sandbox-only", allow_network=False, allow_subprocess=True,
