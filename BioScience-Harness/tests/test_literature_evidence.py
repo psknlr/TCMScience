@@ -496,6 +496,7 @@ def _local_model() -> tuple[str, str]:
     return url, name
 
 
+@pytest.mark.integration          # a model server: the manual local-model CI job starts one
 def test_a_local_model_writes_a_candidate_answer_through_paperqa(index):
     """A real model through paper-qa's answer step: the passages go in, a candidate answer
     comes out, and its citations are read against the passages it was given."""

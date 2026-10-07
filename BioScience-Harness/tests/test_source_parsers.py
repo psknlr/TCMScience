@@ -269,7 +269,7 @@ def test_bindingdb_filters_by_inchikey_licenses_per_record_and_reads_the_chain(t
     by_id = {e["source_record_id"]: e for e in result.edges}
     assert by_id["1|Ki"]["measure"] == {"type": "Ki", "relation": ">", "value": 10000.0,
                                         "unit": "nM"}
-    assert by_id["1|Ki"]["license"] == "CC-BY-4.0"
+    assert by_id["1|Ki"]["license"] == "CC-BY-3.0"          # BindingDB's own curation
     chembl = by_id["2|IC50"]
     assert chembl["license"] == "CC-BY-SA-3.0" and chembl["object"] == "uniprot:P23219"
     assert chembl["primary_knowledge_source"] == "chembl"
