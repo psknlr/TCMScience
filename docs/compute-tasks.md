@@ -35,9 +35,11 @@ those files. It proves the plumbing (detection through the reviewed environment,
 validation, reading). It does not prove anything about Boltz. The first run against each
 real tool should be checked by hand, and its outputs added as fixtures.
 
-The ToolsAgent adapter was checked in two ways. A local stub reproduces the endpoint's
+The ToolsAgent adapter was checked in three ways. A local stub reproduces the endpoint's
 behaviour. A FastAPI app with ToolsAgent's exact `run_func` signature, served by uvicorn,
-accepts the adapter's request and refuses the request shape the README shows.
+accepts the adapter's request and refuses the request shape the README shows. And the
+service itself, deployed from SciToolAgent's repository with its Chemical category,
+answered every call the way the adapter reads it ([below](#deployed)).
 
 ## The three tasks
 
@@ -232,13 +234,55 @@ shape with 422. The adapter follows the code.
 | 400 other, 422 (request shape), 500 (the tool raised, or an unknown `func_name`) | FAILED |
 | no connection | UNAVAILABLE; timeout: TIMEOUT |
 
-Three functions are defined, each read in the source: `SMILESToWeight` (the number is
+Four functions are defined, each read in the source: `SMILESToWeight` (the number is
 RDKit's `CalcExactMolWt`, the monoisotopic mass, which the service labels "Molecular
 Weight … g/mol"), `MolSimilarity` (Morgan radius 2, 2048 bits; the service answers
-identical molecules with an error, so 1.0 never comes back), and
-`DoubleSequenceGlobalAlignment` (computed by NovoPro's web service). Long calls run through
-the job protocol (`ToolsAgentJobs`). ToolsAgent has no job API and no cancellation, so
-`cancel` stops nothing and says so, and a call from a process that has ended is LOST.
+identical molecules with an error, so 1.0 never comes back), `SMILESToInChI` (RDKit's
+`MolToInchi` on the service; the ChemSpider call beside it is commented out), and
+`DoubleSequenceGlobalAlignment` (computed by NovoPro's web service). Two neighbours were
+read and left out: `SmilesToPdb` passes NovoPro's reply to `eval()` on the service host,
+and `ConvertSdfToCsv` writes into a directory hard-coded for its author's machine. Long
+calls run through the job protocol (`ToolsAgentJobs`). ToolsAgent has no job API and no
+cancellation, so `cancel` stops nothing and says so, and a call from a process that has
+ended is LOST.
+
+<a id="deployed"></a>
+### The deployed service
+
+`scripts/deploy_toolsagent.sh DIR [PORT]` fetches SciToolAgent at commit
+`ac1cf19fcef84e69f149db6da424afe4e9b2f11f`, installs the Chemical category's dependencies
+in a virtual environment of its own, and serves ToolsAgent on `127.0.0.1`. Upstream's
+`requirements.txt` cannot be installed as written: it pins numpy 2.1.3 beside
+langchain 0.3.8, which requires numpy<2, and rdkit 2023.9.3, which predates numpy 2. The
+script installs langchain 0.3.8, rdkit 2024.9.6 and numpy 1.26.4, and adds IPython, which
+rdkit's `IPythonConsole` needs and the Chemical tools import. The Biology and Material
+categories need PyTorch, transformers and model weights, and are not installed.
+
+On 2026-10-07 the service deployed this way answered:
+
+| Call through the adapter | The service answered | Status |
+| --- | --- | --- |
+| `SMILESToWeight` CCO | 200, `**Weight**: 46.04 g/mol` | SUCCEEDED, 46.04 |
+| `MolSimilarity` CCO, CCN | 200, `**Tanimoto Similarity**: 0.3333` | SUCCEEDED, 0.3333 |
+| `SMILESToInChI` CCO | 200, `InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3` | SUCCEEDED |
+| `MolSimilarity` CCO, CCO | 200, "Error: Input Molecules Are Identical" | FAILED |
+| `SMILESToWeight` C1CC | 200, "Invalid SMILES string" | FAILED |
+| `SMILESToInChI` C1CC | 200, `null` (the tool caught its own exception) | FAILED |
+| `DoubleSequenceGlobalAlignment` | 400, "Module for Biology not found …" | UNAVAILABLE |
+| an unknown `func_name` | 500 | FAILED |
+| `SMILESToWeight` through a governed `Runtime` | allowed by a profile naming the host, recorded; refused by the default profile | SUCCEEDED / DENIED |
+
+For phenol, aspirin and caffeine, the weight and the InChI the service computed (RDKit
+2024.9.6) equal those RDKit 2026.3.6 computes here, and the phenol–aniline similarity
+equals the Morgan-generator value to four places. A test does not call the alignment on a
+deployment that has Biology installed, because the service would send both sequences on to
+NovoPro.
+
+```bash
+scripts/deploy_toolsagent.sh "$HOME/toolsagent"      # prints TOOLSAGENT_URL, TOOLSAGENT_CATEGORIES
+TOOLSAGENT_URL=http://127.0.0.1:60002 TOOLSAGENT_CATEGORIES=Chemical \
+  python -m pytest -q tests/test_toolsagent.py
+```
 
 ## Use
 
@@ -299,9 +343,10 @@ reader), `test_compute_engines.py` (refusals, renderers, readers, the stand-in e
 lying digests, missing artefacts, unknown states, cancellation with and without grants,
 crash reconciliation), `test_backend_environments.py` (the review, container argv,
 interpreters, the default runtime), `test_toolsagent.py` (the stub, the governed path, long
-calls, the file-call guard, and FastAPI with ToolsAgent's signature when FastAPI and uvicorn
-are installed). All of them run in the unit tier. The SMILES check runs where RDKit is
-installed.
+calls, the file-call guard, FastAPI with ToolsAgent's signature when FastAPI and uvicorn
+are installed, and the deployed service when `TOOLSAGENT_URL` names one). All of them run
+in the unit tier, where the deployment tests skip; the `toolsagent` CI job deploys the
+service and runs them. The SMILES check runs where RDKit is installed.
 
 ## 中文摘要
 
@@ -313,5 +358,6 @@ installed.
 - **长作业协议** 提交、状态、收集、取消四步分开。作业引用先写入运行事件日志（先记请求，再记引用），崩溃后可用 `open_jobs` 对账，并用同一提交号重新提交而不重复运行。只有收集并校验产物（存在、非空、摘要一致、校验器通过）后才算 SUCCEEDED。取消须有点名该作业的授权，且以执行方确认为准。实现有本地受监督进程与通用 HTTP 作业服务两种。
 - **评审过的环境配置** 绑定内容摘要，评审后被改动即整体拒用。子进程后端按项目使用各自的解释器（仍为 `-I`），缺失或损坏时拒绝，不回退。容器后端只给配置点名的组件 GPU、只读数据挂载和唯一可写输出目录，默认仍 `--network none`；可直接查看将执行的完整命令。
 - **ToolsAgent 适配器** 每个函数一个组件，固定 `func_name` 并声明数据去向（含服务端再转发的主机）。参数按各工具自己的分隔规则渲染，含分隔符的值发送前即拒绝。HTTP 200 只有符合工具结果形态才算成功。文件只是服务端路径引用。长调用走作业协议，但 ToolsAgent 无法取消，也不保留作业记录，这两点如实说明。
+- **ToolsAgent 真实部署** `scripts/deploy_toolsagent.sh` 按审阅过的提交（ac1cf19）部署化学类工具，只监听 127.0.0.1。上游依赖清单本身无法安装（numpy 2.1.3 与 langchain 0.3.8 冲突），脚本给出可共存的版本。2026-10-07 实测：分子量、相似度、InChI 均按适配器的读法返回 SUCCEEDED，数值与本地 RDKit 一致；服务以 HTTP 200 返回的错误文本判为 FAILED；未安装的生物类模块判为 UNAVAILABLE；未知函数（HTTP 500）判为 FAILED；经受治理的 Runtime 调用被记录，默认权限下被拒。CI 的 `toolsagent` 任务每次部署并重跑这些测试。
 
 **未做与未验证：** 这里没有安装任何上述工具，也没有 GPU 与容器运行时，**没有运行任何模型**；读写格式按各项目 2026-10-07 的文档与源码实现，用手写的同格式样例测试。Boltz 的端到端测试使用替身解释器，只证明管线，不证明 Boltz。长作业尚未接入 PSH 循环；Boltz 亲和力、Chai-1 的 MSA 文件与共价键、ProteinMPNN 的绑定位置、OpenMM 的氢质量重分配等均未提供，也没有近似替代。

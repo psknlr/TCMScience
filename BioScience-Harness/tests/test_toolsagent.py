@@ -7,12 +7,18 @@ ValueError (an uninstalled tool module among them), 500 for any other exception 
 unknown ``func_name`` among them), and ``{"status_code": 200, "result": ...}`` otherwise.
 Its functions return what the ToolsAgent functions of the same names return, errors
 included. One test serves the same signature with FastAPI itself, when it is installed.
+
+The last section calls a real deployment, named by ``TOOLSAGENT_URL``, with
+``TOOLSAGENT_CATEGORIES`` listing the tool categories it has installed (CI deploys the
+Chemical category from the reviewed commit). It skips without one, and fails instead
+under BIOAGENT_REQUIRE_TOOLS.
 """
 
 from __future__ import annotations
 
 import http.server
 import json
+import os
 import socket
 import threading
 import time
@@ -25,9 +31,9 @@ from bioagent.backends.base import BackendRegistry
 from bioagent.backends.http import HTTPBackend
 from bioagent.backends.jobs import CancelGrant, JobController, JobState
 from bioagent.backends.toolsagent import (DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT, MOL_SIMILARITY,
-                                          SMILES_TO_WEIGHT, ServerFile, ToolsAgentClient,
-                                          ToolsAgentJobs, ToolsAgentRequestError,
-                                          ToolsAgentTool)
+                                          SMILES_TO_INCHI, SMILES_TO_WEIGHT, ServerFile,
+                                          ToolsAgentClient, ToolsAgentJobs,
+                                          ToolsAgentRequestError, ToolsAgentTool)
 from bioagent.policy import PROFILES, PermissionProfile, PolicyKernel
 from bioagent.runtime.agentspec import AgentSpec, Runtime
 from bioagent.runtime.events import EventLog, EventType
@@ -36,6 +42,7 @@ from bioagent.status import ExecutionStatus
 from omics_world import need_module
 
 WEIGHTS = {"CCO": 46.041864814, "c1ccccc1": 78.046950192}
+INCHIS = {"CCO": "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"}
 SLOW_ECHO = ToolsAgentTool("SlowEcho", ("text",), accept=r"^echo:(.*)$")
 WRITE_MODEL = ToolsAgentTool("WriteModel", ("name",), accept=r"^(\S+\.pdb)$",
                              output="server_file")
@@ -61,6 +68,13 @@ def _similarity(pair, files, workdir):
             "- **Tanimoto Similarity**: `0.1667`\n- **Interpretation**: not similar\n")
 
 
+def _inchi(smiles, files, workdir):
+    cleaned = smiles.replace("\n", "").replace(" ", "")
+    if cleaned not in INCHIS:
+        return None                            # MolToInchi(None) raises; the tool logs it
+    return f"\n**SMILES to InChI**\nSMILES={cleaned}\n**Result:**\n{INCHIS[cleaned]}\n"
+
+
 def _write_model(name, files, workdir):
     (Path(workdir) / f"{name}.pdb").write_text("ATOM      1  CA  GLY A   1       0.000"
                                                "   0.000   0.000  1.00 90.00           C\n")
@@ -72,7 +86,7 @@ def _raise(arg, files, workdir):
 
 
 FUNCTIONS = {
-    "SMILESToWeight": _weight, "MolSimilarity": _similarity,
+    "SMILESToWeight": _weight, "MolSimilarity": _similarity, "SMILESToInChI": _inchi,
     "DoubleSequenceGlobalAlignment": lambda pair, f, w: (
         "\n***Alignment of two sequences***\nInput sequences: ...\n"),
     "BrokenTool": lambda arg, f, w: None,
@@ -220,6 +234,16 @@ def test_the_request_on_the_wire_is_the_one_toolsagent_serves(toolsagent):
     assert files.status is ExecutionStatus.SUCCEEDED
     assert json.loads(httpd.seen[-1]["body"])["file_path_list"] == ["/srv/d/a.pdb",
                                                                     "/srv/d/b.pdb"]
+
+
+def test_a_string_result_is_the_value_its_shape_names(toolsagent):
+    url, _ = toolsagent
+    result = client(url).call(SMILES_TO_INCHI, smiles="CCO")
+    assert result.status is ExecutionStatus.SUCCEEDED, result.error
+    assert result.value["value"] == "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"
+    assert "not ChemSpider" in result.value["note"]
+    invalid = client(url).call(SMILES_TO_INCHI, smiles="C1CC")
+    assert invalid.status is ExecutionStatus.FAILED and "returned no result" in invalid.error
 
 
 @pytest.mark.parametrize("tool,arguments,words", [
@@ -394,3 +418,110 @@ def test_fastapi_accepts_the_request_with_toolsagents_signature(monkeypatch):
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+
+
+# -------------------------------------------------------- a real deployment
+def _deployment() -> tuple[str, set[str]]:
+    url = os.environ.get("TOOLSAGENT_URL", "")
+    if not url:
+        why = "no ToolsAgent deployment: set TOOLSAGENT_URL (and TOOLSAGENT_CATEGORIES)"
+        if os.environ.get("BIOAGENT_REQUIRE_TOOLS"):
+            pytest.fail(why)
+        pytest.skip(why)
+    categories = {c.strip() for c in os.environ.get("TOOLSAGENT_CATEGORIES", "").split(",")}
+    return url, categories - {""}
+
+
+def _deployed(url: str) -> ToolsAgentClient:
+    host = url.split("//", 1)[1].split("/", 1)[0].split(":")[0]
+    return ToolsAgentClient(url, http=HTTPBackend(max_retries=1, timeout_s=60,
+                                                  rates={host: 1000.0}))
+
+
+def test_the_deployed_service_answers_the_chemical_functions_as_reviewed():
+    url, categories = _deployment()
+    if "Chemical" not in categories:
+        pytest.skip("the deployment does not list the Chemical category")
+    agent = _deployed(url)
+    weight = agent.call(SMILES_TO_WEIGHT, smiles="CCO")
+    assert weight.status is ExecutionStatus.SUCCEEDED, weight.error
+    assert weight.value["value"] == 46.04, "RDKit's monoisotopic mass of ethanol, 46.0419"
+    similar = agent.call(MOL_SIMILARITY, smiles1="CCO", smiles2="CCN")
+    assert similar.status is ExecutionStatus.SUCCEEDED, similar.error
+    assert 0 < similar.value["value"] < 1
+    inchi = agent.call(SMILES_TO_INCHI, smiles="CCO")
+    assert inchi.status is ExecutionStatus.SUCCEEDED, inchi.error
+    assert inchi.value["value"] == "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"
+
+
+def test_the_deployed_service_agrees_with_rdkit_here():
+    url, categories = _deployment()
+    if "Chemical" not in categories:
+        pytest.skip("the deployment does not list the Chemical category")
+    rdkit = need_module("rdkit")
+    from rdkit import Chem, DataStructs
+    from rdkit.Chem import rdFingerprintGenerator, rdMolDescriptors
+
+    agent = _deployed(url)
+    for smiles in ("c1ccccc1O", "CC(=O)Oc1ccccc1C(=O)O", "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"):
+        mol = Chem.MolFromSmiles(smiles)
+        weight = agent.call(SMILES_TO_WEIGHT, smiles=smiles)
+        assert weight.value["value"] == round(rdMolDescriptors.CalcExactMolWt(mol), 2)
+        inchi = agent.call(SMILES_TO_INCHI, smiles=smiles)
+        assert inchi.value["value"] == Chem.MolToInchi(mol), rdkit.__version__
+    one, two = "c1ccccc1O", "c1ccccc1N"
+    # The service calls GetMorganFingerprintAsBitVect(mol, 2, nBits=2048); the generator
+    # makes the same bits without that function's deprecation.
+    morgan = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
+    fps = [morgan.GetFingerprint(Chem.MolFromSmiles(s)) for s in (one, two)]
+    similar = agent.call(MOL_SIMILARITY, smiles1=one, smiles2=two)
+    assert similar.value["value"] == round(DataStructs.TanimotoSimilarity(*fps), 4)
+
+
+def test_the_deployed_services_errors_are_failures_not_results():
+    url, categories = _deployment()
+    if "Chemical" not in categories:
+        pytest.skip("the deployment does not list the Chemical category")
+    agent = _deployed(url)
+    identical = agent.call(MOL_SIMILARITY, smiles1="CCO", smiles2="CCO")
+    assert identical.status is ExecutionStatus.FAILED and "Identical" in identical.error
+    invalid = agent.call(SMILES_TO_WEIGHT, smiles="C1CC")
+    assert invalid.status is ExecutionStatus.FAILED and "Invalid SMILES" in invalid.error
+    no_inchi = agent.call(SMILES_TO_INCHI, smiles="C1CC")
+    assert no_inchi.status is ExecutionStatus.FAILED
+    unknown = agent.call(ToolsAgentTool("NoSuchFunction", ("x",), accept=".+"), x="1")
+    assert unknown.status is ExecutionStatus.FAILED and "HTTP 500" in unknown.error
+
+
+def test_a_category_the_deployment_lacks_is_unavailable_not_failed():
+    """Only asked of a deployment without Biology: with it installed, the alignment would
+    send both sequences on to NovoPro, which a test does not do."""
+    url, categories = _deployment()
+    if "Biology" in categories:
+        pytest.skip("the deployment has the Biology category")
+    result = _deployed(url).call(DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT, sequence1="MKTAYIAK",
+                                 sequence2="MKTAHIAK")
+    assert result.status is ExecutionStatus.UNAVAILABLE, result.error
+    assert "the service has no DoubleSequenceGlobalAlignment" in result.error
+
+
+def test_a_governed_call_to_the_deployment_is_ruled_on_and_recorded():
+    url, categories = _deployment()
+    if "Chemical" not in categories:
+        pytest.skip("the deployment does not list the Chemical category")
+    manifest = SMILES_TO_WEIGHT.manifest(url)
+    host = manifest.permissions.network[0]
+    local = PermissionProfile(name="toolsagent", allow_network=True,
+                              allowed_hosts=frozenset({host}))
+    runtime = Runtime(ComponentRegistry([manifest]), BackendRegistry(
+        [HTTPBackend(max_retries=1, rates={host: 1000.0})]),
+        kernel=PolicyKernel(profiles={**PROFILES, "toolsagent": local}))
+    events = EventLog()
+    result = ToolsAgentClient(url, runtime=runtime, events=events,
+                              spec=AgentSpec(name="t", permission_profile="toolsagent")
+                              ).call(SMILES_TO_WEIGHT, smiles="c1ccccc1")
+    assert result.status is ExecutionStatus.SUCCEEDED and result.value["value"] == 78.05
+    assert events.of_type(EventType.TOOL_CALLED)[-1].component_id == manifest.id
+    denied = ToolsAgentClient(url, runtime=runtime, spec=AgentSpec(name="t")).call(
+        SMILES_TO_WEIGHT, smiles="CCO")
+    assert denied.status is ExecutionStatus.DENIED

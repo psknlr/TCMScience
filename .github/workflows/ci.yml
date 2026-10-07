@@ -163,6 +163,36 @@ jobs:
           BIOAGENT_REQUIRE_TOOLS: "1"
         run: python -m pytest -q -m "not integration" tests/test_mcp_transport.py tests/test_biomcp_client.py tests/test_biomcp_adapter.py tests/test_tooluniverse_provider.py tests/test_literature_evidence.py
 
+  toolsagent:
+    # SciToolAgent's ToolsAgent service, deployed from its repository at the reviewed
+    # commit with the Chemical category, and called through the adapter: answers read as
+    # results, errors returned with HTTP 200 as failures, the missing Biology category as
+    # UNAVAILABLE, the governed path (docs/compute-tasks.md). The deployment listens on
+    # 127.0.0.1 and the functions called compute locally; nothing leaves the runner.
+    name: SciToolAgent ToolsAgent, deployed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Deploy ToolsAgent (Chemical category)
+        working-directory: BioScience-Harness
+        run: scripts/deploy_toolsagent.sh "$RUNNER_TEMP/toolsagent"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,admet]" fastapi uvicorn
+      - name: The adapter against the deployed service
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+          TOOLSAGENT_URL: http://127.0.0.1:60002
+          TOOLSAGENT_CATEGORIES: Chemical
+        run: python -m pytest -q tests/test_toolsagent.py
+      - name: The service's log
+        if: failure()
+        run: cat "$RUNNER_TEMP/toolsagent/service.log"
+
   end-to-end:
     # The three end-to-end cases (docs/end-to-end-cases.md): counts to pathway claims,
     # literature to claims, a compound to a hypothesis. Each runs real implementations, so

@@ -11,7 +11,10 @@ behind one FastAPI endpoint. As ``main.py`` and ``tool_runner.py`` read on 2026-
     500                     any other exception; an unknown func_name is a KeyError
 
 The README shows the three fields in one JSON body; the code reads ``func_name`` and
-``func_args`` as query parameters, and the code is what answers.
+``func_args`` as query parameters, and the code is what answers. The service was also
+deployed from that commit (ac1cf19, Chemical category only) and called through this adapter:
+the answers below are the ones it gave, and ``tests/test_toolsagent.py`` repeats the calls
+against any deployment named by ``TOOLSAGENT_URL``.
 
 Three properties of the service decide this adapter:
 
@@ -64,10 +67,10 @@ from .jobs import (ArtefactSpec, JobExecutor, JobFetchError, JobRef, JobSpec, Jo
 
 __all__ = ["ToolsAgentTool", "ServerFile", "ToolsAgentRequestError", "ToolsAgentClient",
            "ToolsAgentJobs", "interpret", "TOOLS", "SMILES_TO_WEIGHT", "MOL_SIMILARITY",
-           "DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT", "RUN_FUNC"]
+           "SMILES_TO_INCHI", "DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT", "RUN_FUNC"]
 
 RUN_FUNC = "run-func"
-_OUTPUTS = ("text", "number", "server_file")
+_OUTPUTS = ("text", "number", "string", "server_file")
 
 
 class ToolsAgentRequestError(ValueError):
@@ -89,9 +92,10 @@ class ServerFile:
 class ToolsAgentTool:
     """One ToolsAgent function, with how to render its arguments and recognise its answer.
 
-    ``accept`` is a regular expression a successful answer contains; for ``number`` and
-    ``server_file`` outputs its first group is the value. It is required: a tool whose
-    successful answer cannot be told from its error text cannot report SUCCEEDED.
+    ``accept`` is a regular expression a successful answer contains; for ``number``,
+    ``string`` and ``server_file`` outputs its first group is the value. It is required: a
+    tool whose successful answer cannot be told from its error text cannot report
+    SUCCEEDED.
     """
 
     func_name: str
@@ -276,6 +280,11 @@ def interpret(tool: ToolsAgentTool, res: CallResult, *,
         except ValueError:
             return out(ExecutionStatus.FAILED,
                        error=f"{tool.func_name}: {match.group(1)!r} is not a number")
+        if tool.note:
+            value["note"] = tool.note
+        return out(ExecutionStatus.SUCCEEDED, value=value)
+    if tool.output == "string":
+        value["value"] = match.group(1).strip()
         if tool.note:
             value["note"] = tool.note
         return out(ExecutionStatus.SUCCEEDED, value=value)
@@ -478,7 +487,10 @@ class ToolsAgentJobs(JobExecutor):
 
 # --------------------------------------------------------------- reviewed functions
 # Each was read in the ToolsAgent source on 2026-10-07: what it returns on success and on
-# error, how it splits its argument, and what the number it returns is.
+# error, how it splits its argument, and what the number it returns is. The three Chemical
+# functions were then called on a deployment of that commit. Two neighbours were read and
+# left out: SmilesToPdb passes NovoPro's reply to eval() on the service host, and
+# ConvertSdfToCsv writes to a directory hard-coded for its author's machine.
 
 SMILES_TO_WEIGHT = ToolsAgentTool(
     func_name="SMILESToWeight", arguments=("smiles",), output="number",
@@ -495,6 +507,14 @@ MOL_SIMILARITY = ToolsAgentTool(
           "molecules with an error, so a similarity of 1 is never returned; '.' separates "
           "the two SMILES, so neither may contain a disconnected component such as a salt"))
 
+SMILES_TO_INCHI = ToolsAgentTool(
+    func_name="SMILESToInChI", arguments=("smiles",), output="string",
+    accept=r"\*\*Result:\*\*\s*\n(InChI=\S+)",
+    description="Standard InChI of a molecule from its SMILES, computed by RDKit on the "
+                "service",
+    note=("RDKit MolToInchi on the service, not ChemSpider (whose call is commented out in "
+          "the source); the service strips spaces and newlines from the SMILES first"))
+
 DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT = ToolsAgentTool(
     func_name="DoubleSequenceGlobalAlignment", arguments=("sequence1", "sequence2"),
     separator=".", output="text", accept=r"\*\*\*Alignment of two sequences\*\*\*",
@@ -503,5 +523,5 @@ DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT = ToolsAgentTool(
           "sequences"),
     onward_hosts=("www.novopro.cn",))
 
-TOOLS: tuple[ToolsAgentTool, ...] = (SMILES_TO_WEIGHT, MOL_SIMILARITY,
+TOOLS: tuple[ToolsAgentTool, ...] = (SMILES_TO_WEIGHT, MOL_SIMILARITY, SMILES_TO_INCHI,
                                      DOUBLE_SEQUENCE_GLOBAL_ALIGNMENT)
