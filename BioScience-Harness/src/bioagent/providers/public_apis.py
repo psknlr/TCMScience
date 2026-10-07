@@ -278,10 +278,15 @@ SOURCES: tuple[PublicSource, ...] = (
                       graphql="query($id:String!){target(ensemblId:$id){id approvedSymbol approvedName biotype}}",
                       variables={"id": "{ensembl_id}"}, args=("ensembl_id",),
                       example={"ensembl_id": "ENSG00000141510"}),
-            Operation("associated_diseases", "Top associated diseases for a target", "graphql",
+            # Each row carries its per-datatype scores as well as the overall one: an
+            # association resting on text mining alone and a genetic one have the same
+            # overall shape, and only datatypeScores tells them apart.
+            Operation("associated_diseases", "Top associated diseases for a target, with "
+                      "the score of each evidence datatype", "graphql",
                       method="POST",
                       graphql="query($id:String!,$n:Int!){target(ensemblId:$id){approvedSymbol "
-                              "associatedDiseases(page:{index:0,size:$n}){count rows{score disease{id name}}}}}",
+                              "associatedDiseases(page:{index:0,size:$n}){count rows{score "
+                              "datatypeScores{id score} disease{id name}}}}}",
                       variables={"id": "{ensembl_id}", "n": "{n}"}, args=("ensembl_id",),
                       example={"ensembl_id": "ENSG00000141510", "n": 5}),
         ), smoke="target", docs="https://platform-docs.opentargets.org/data-access/graphql-api"),

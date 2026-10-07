@@ -66,6 +66,12 @@ def _formula(formula_id: str | None, hkbu_formulas: str | None = None):
     return record.version()
 
 
+def _datatypes(text: str) -> str | tuple[str, ...]:
+    """One datatype stays a string, so a run that names one keeps its parameter digest."""
+    names = tuple(p.strip() for p in str(text).split(",") if p.strip())
+    return names[0] if len(names) == 1 else names
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--snapshots", required=True)
@@ -85,7 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--screening-min-compounds", type=int,
                     default=Parameters.screening_min_compounds)
     ap.add_argument("--disease-evidence", default=Parameters.disease_evidence,
-                    help="Open Targets evidence type defining the disease gene set")
+                    help="Open Targets evidence datatype defining the disease gene set; "
+                         "several, comma-separated, define it by their union (e.g. "
+                         "genetic_association,somatic_mutation,clinical)")
     ap.add_argument("--disease-min-score", type=float, default=Parameters.disease_min_score)
     ap.add_argument("--seed", type=int, default=Parameters.seed)
     ap.add_argument("--allow-source", action="append", default=None, metavar="KEY",
@@ -120,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
                         permutations=args.permutations, seed=args.seed,
                         background=args.background, hits=args.hits,
                         screening_min_compounds=args.screening_min_compounds,
-                        disease_evidence=args.disease_evidence,
+                        disease_evidence=_datatypes(args.disease_evidence),
                         disease_min_score=args.disease_min_score)
     head = None
     if args.ledger_head_from:

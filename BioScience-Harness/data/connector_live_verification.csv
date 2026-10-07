@@ -30,8 +30,6 @@ kegg,KEGG REST,info,False,SUCCEEDED,200,1,1450,sha256:981d7b1e7282,,rest.kegg.jp
 reactome,Reactome ContentService,query,True,SUCCEEDED,200,1,328,sha256:b719a7c8206e,,reactome.org,CC-BY-4.0,2026-09-17T07:31:34Z
 reactome,Reactome ContentService,pathways_for_entity,False,SUCCEEDED,200,1,360,sha256:6cbc12283fc3,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
 reactome,Reactome ContentService,version,False,SUCCEEDED,200,1,297,sha256:eea13a3c19d1,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
-opentargets,Open Targets Platform,target,True,SUCCEEDED,200,1,365,sha256:c373b8f9a3a8,,api.platform.opentargets.org,CC0-1.0,2026-09-17T07:31:35Z
-opentargets,Open Targets Platform,associated_diseases,False,SUCCEEDED,200,1,415,sha256:ccfb32416fe7,,api.platform.opentargets.org,CC0-1.0,2026-09-17T07:31:36Z
 rcsb,RCSB PDB Data API,entry,True,SUCCEEDED,200,1,283,sha256:61a8f2681862,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 rcsb,RCSB PDB Data API,polymer_entity,False,SUCCEEDED,200,1,219,sha256:b4764fcc2e97,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 europepmc,Europe PMC,search,True,SUCCEEDED,200,1,705,sha256:658e98040610,,www.ebi.ac.uk,CC-BY / mixed per article,2026-09-17T07:31:37Z
@@ -443,3 +441,5 @@ idr,Image Data Resource (OMERO JSON API and IDR searcher),container_values,False
 openneuro,OpenNeuro GraphQL API,dataset,True,SUCCEEDED,200,1,357,sha256:62aef8209daf,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:41:59Z
 openneuro,OpenNeuro GraphQL API,datasets,False,SUCCEEDED,200,1,997,sha256:1b851b6fcac6,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:42:00Z
 openneuro,OpenNeuro GraphQL API,snapshot_files,False,SUCCEEDED,200,1,892,sha256:74466d869027,,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",2026-10-01T22:42:01Z
+opentargets,Open Targets Platform,target,True,SUCCEEDED,200,1,559,sha256:c373b8f9a3a8,,api.platform.opentargets.org,CC0-1.0,2026-10-07T11:07:30Z
+opentargets,Open Targets Platform,associated_diseases,False,SUCCEEDED,200,1,849,sha256:cdc0ad29982c,,api.platform.opentargets.org,CC0-1.0,2026-10-07T11:07:31Z

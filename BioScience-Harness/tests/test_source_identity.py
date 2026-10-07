@@ -191,3 +191,15 @@ def test_a_consensus_lineage_names_a_paper_once_however_a_database_wrote_it():
     # a reference on a row that is not an observation is still not a citation lineage
     assert lineage_of({"source": "ddid", "evidence": "predicted",
                        "reference": "10.1016/j.jep.2019.112345"}) == {"model:ddid"}
+
+
+def test_a_target_measured_twice_in_one_paper_rests_on_one_source(tmp_path):
+    from test_network_pharmacology import FAST, PATHWAY_A, _build
+
+    from bioagent.analysis import run_network_pharmacology
+
+    result = run_network_pharmacology(
+        _build(tmp_path, targets_of={0: PATHWAY_A[:3], 1: PATHWAY_A[:3],
+                                     2: PATHWAY_A[3:7], 3: [PATHWAY_A[7]]}), params=FAST)
+    row = next(t for t in result.targets if t["target"] == f"uniprot:{PATHWAY_A[0]}")
+    assert row["measurements"] == 2 and row["sources"] == 1
