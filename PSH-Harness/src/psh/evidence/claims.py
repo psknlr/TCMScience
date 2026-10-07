@@ -47,6 +47,7 @@ from .clauses import asserted
 __all__ = [
     "PopulationSpec", "EffectDirection", "ScientificClaim", "LicensedScope",
     "Downgrade", "DowngradeReason", "extract_population", "extract_outcome",
+    "MECHANISM", "mechanism_subject",
 ]
 
 
@@ -58,8 +59,15 @@ __all__ = [
 #: distinction, and it is the distinction the population check depends on.
 _POPULATION_AXES: dict[str, tuple[tuple[str, str], ...]] = {
     "age": (
+        # "Adults aged 65 or older" is how cohorts usually state an older population, and
+        # with only "aged over 65" in the list it read as no population at all: a claim
+        # about children then met an unstated source population, which is noted rather
+        # than checked (governance ablation, 2026-10).
         (r"\b(?:elderly|older adults?|geriatric|aged\s*(?:>|over|≥)\s*\d+"
-         r"|age[ds]?\s*(?:>|over|≥)\s*(?:6[5-9]|[7-9]\d))\b|老年|高龄|老人", "elderly"),
+         r"|age[ds]?\s*(?:>|over|≥)\s*(?:6[5-9]|[7-9]\d)"
+         r"|(?:aged\s*)?(?:6\d|[7-9]\d)\s*(?:years?\s*)?(?:or|and)\s*(?:older|over|above))\b"
+         r"|≥\s*(?:6\d|[7-9]\d)\s*years?\b"
+         r"|老年|高龄|老人|(?:6\d|[7-9]\d)\s*岁(?:及|或)?以上", "elderly"),
         (r"\b(?:middle-aged|mean age\s*(?:of\s*)?[45]\d)\b|中年", "middle-aged"),
         (r"\b(?:children|paediatric|pediatric|infants?|neonat\w+|under\s*5"
          r"|age[ds]?\s*(?:<|under)\s*1[0-8])\b|儿童|小儿|患儿|儿科|婴儿|婴幼儿|幼儿|新生儿",
@@ -242,15 +250,28 @@ def extract_population(text: str) -> PopulationSpec:
 #: GRADE treats surrogate outcomes as indirect evidence, and the distinction is why a bone
 #: density trial cannot license a fracture claim.
 _CLINICAL_OUTCOMES: tuple[tuple[str, str], ...] = (
-    (r"\b(?:all-cause mortality|overall survival|survival|death|mortalit\w+)\b"
-     r"|死亡率|病死率|死亡|(?<!无进展)生存", "mortality"),
+    # Cardiovascular death is not all-cause mortality. Read as "death", it made a trial of
+    # cardiovascular death or heart-failure hospitalisation (EMPEROR-Preserved) license a
+    # claim about all-cause mortality, which that trial did not show to change. It is a
+    # cardiovascular event, below.
+    (r"\b(?:all-cause mortality|overall survival|survival"
+     r"|(?<!cardiovascular )death(?!\s+from\s+cardiovascular)"
+     r"|(?<!cardiovascular )mortalit\w+)\b"
+     r"|全因死亡|(?<!心血管)死亡率|病死率|(?<!心血管)死亡|(?<!无进展)生存", "mortality"),
     (r"\b(?:fractures?|vertebral fracture|hip fracture)\b|骨折", "fracture"),
     (r"\b(?:hospitali[sz]ation|admission)\b|住院|入院", "hospitalisation"),
-    (r"\b(?:myocardial infarction|stroke|MACE|cardiovascular death)\b"
-     r"|心肌梗死|心梗|卒中|中风|心血管事件", "cardiovascular-event"),
+    (r"\b(?:myocardial infarction|stroke|MACE|cardiovascular (?:death|mortality)"
+     r"|death from cardiovascular causes)\b"
+     r"|心肌梗死|心梗|卒中|中风|心血管事件|心血管死亡", "cardiovascular-event"),
     (r"\b(?:progression-free survival|PFS)\b|无进展生存", "progression-free-survival"),
     (r"\b(?:remission|cure[ds]?|resolution)\b|缓解|治愈|痊愈", "remission"),
     (r"\b(?:quality of life|QoL|functional status)\b|生活质量", "quality-of-life"),
+    # Organ injury, the outcomes of most herbal safety signals. Without them a sentence
+    # tying a herb to liver injury had no outcome, so it was never a claim to check.
+    (r"\b(?:end-stage (?:renal|kidney) disease|ESRD|ESKD|kidney failure)\b"
+     r"|终末期肾病|肾衰竭|肾功能衰竭", "kidney-failure"),
+    (r"\b(?:liver injury|hepatotoxicity|DILI|hepatic injury)\b"
+     r"|肝损伤|肝损害|肝毒性", "liver-injury"),
 )
 
 _SURROGATE_OUTCOMES: tuple[tuple[str, str], ...] = (
@@ -302,7 +323,8 @@ _DIRECTION_PATTERNS: tuple[tuple[str, EffectDirection], ...] = (
      "|无(?:显著|明显|统计学)?(?:差异|影响|效果|获益|意义)", EffectDirection.NO_EFFECT),
     ("降低|减少|下降|减轻|预防|治愈|根治|消除", EffectDirection.DECREASE),
     ("升高|增加|增高|提高|上升|加重|恶化", EffectDirection.INCREASE),
-    ("相关|关联|预测", EffectDirection.ASSOCIATION),
+    # 有关 is the counterpart of 相关 ("可能与肝损伤有关").
+    ("相关|关联|有关|预测", EffectDirection.ASSOCIATION),
 )
 
 #: The claim's subject: the intervention or exposure it is about. Captured before the
@@ -389,14 +411,28 @@ _ZH_SUBJECT = re.compile(
     "([\u4e00-\u9fffA-Za-z0-9-]{2,16}?)(?:可以|可|能够|能|可能|或许|也许|显著|明显|均|也|都|亦)*"
     f"(?:{_ZH_VERB})")
 _ZH_FRAME = re.compile("^(?:研究显示|研究表明|研究发现|结果显示|结果表明|数据显示|我们发现|本研究中"
-                       "|本研究|研究中|结果|与安慰剂相比|与对照组相比|相比于|相比|在)+")
+                       "|本研究|研究中|结果|与安慰剂相比|与对照组相比|相比于|相比|在"
+                       "|(?:结论|结果|目的|方法|背景|病例报告)[:：])+")
 #: What heads a Chinese clause without being its agent: an outcome ("再住院率降低") or the
 #: people studied. Such a clause leaves the subject unextracted rather than wrong.
 _ZH_NOT_SUBJECT = re.compile("率|死亡|住院|生存|骨折|风险|水平|评分|指标|发生|患者|受试者|研究对象")
 
+#: "(长期)服用X(可能)与Y相关/有关": the association's subject is the exposure X. The
+#: general pattern reads the characters just before the first claim verb, and in a long
+#: association sentence those are the outcome's ("…终末期肾病风险升高相关"), which head with
+#: an outcome noun and leave the subject unextracted — so the population and outcome of
+#: "长期服用含马兜铃酸的中药与儿童…相关" were never checked (governance ablation, 2026-10).
+_ZH_ASSOCIATION = re.compile(
+    "^(?:长期|持续|规律|反复|大量)?(?:服用|使用|应用|摄入|食用|接触|暴露于)?"
+    "([一-鿿A-Za-z0-9-]{2,20}?)(?:可能|或许|也许|均|也|都|亦)*与.+?(?:相关|有关|关联)")
+
 
 def _zh_subject(text: str) -> str:
     for clause in re.split("[，,；;。！？]", text):
+        frame_free = _ZH_FRAME.sub("", clause.strip())
+        association = _ZH_ASSOCIATION.search(frame_free)
+        if association and not _ZH_NOT_SUBJECT.search(association.group(1)):
+            return association.group(1)
         m = _ZH_SUBJECT.search(clause)
         if not m:
             continue
@@ -405,6 +441,47 @@ def _zh_subject(text: str) -> str:
         if len(subject) >= 2 and not _ZH_NOT_SUBJECT.search(subject):
             return subject
         return ""
+    return ""
+
+
+#: Verbs of a mechanistic assertion: what an agent does to a target. Such a sentence makes no
+#: claim about patients, so the clinical scope check never reads it, and a docking sentence
+#: naming one compound could cite the record of another (governance ablation, 2026-10).
+_MECHANISM_VERB = (r"(?:binds?|bound|binding\s+to|inhibit\w*|activat\w*|suppress\w*|block\w*"
+                   r"|antagoni[sz]\w*|agonis\w*|modulat\w*|up-?regulat\w*|down-?regulat\w*"
+                   r"|target(?:s|ed|ing)?|interacts?\s+with|phosphorylat\w*)")
+_ZH_MECHANISM_VERB = "结合|抑制|激活|阻断|拮抗|激动|调控|上调|下调|靶向"
+MECHANISM = re.compile(rf"(?i:\b{_MECHANISM_VERB}\b)|{_ZH_MECHANISM_VERB}")
+#: The agent before a mechanism verb. The optional second word must start with a capital or
+#: a digit ("compound A", "IL 6"), so "baicalin may bind" reads "baicalin", not "baicalin
+#: may"; only the verb and the modal are case-insensitive.
+#: Up to two adverbs may stand between them ("compound A always completely inhibits"), or
+#: the first adverb is read as the agent.
+_MECHANISM_SUBJECT = re.compile(
+    r"\b([A-Za-z][A-Za-z0-9-]*(?:\s+[A-Z0-9][A-Za-z0-9-]*)?)\s+(?i:" + _MODAL
+    + r"(?:(?:\w+ly|always|often|also|further|never|still)\s+){0,2}" + _MECHANISM_VERB
+    + r")\b")
+_ZH_MECHANISM_SUBJECT = re.compile(
+    "([\u4e00-\u9fffA-Za-z0-9-]{2,12}?)(?:可以|可|能够|能|可能|或许|也许|显著|明显)*"
+    f"(?:{_ZH_MECHANISM_VERB})")
+
+
+def mechanism_subject(text: str) -> str:
+    """The agent of a mechanistic sentence ("baicalin may bind PTP1B" -> "baicalin"), or "".
+
+    Pattern-based like the rest of this module: an unextractable agent is "", which a caller
+    must read as "not checked", never as a match.
+    """
+    for match in _MECHANISM_SUBJECT.finditer(text or ""):
+        words = match.group(1).split()
+        while words and words[0].lower() in _ASSAY_PREFIX:
+            words.pop(0)
+        if words and len(" ".join(words)) >= 3:
+            return " ".join(words)
+    for clause in re.split("[，,；;。！？]", text or ""):
+        m = _ZH_MECHANISM_SUBJECT.search(_ZH_FRAME.sub("", clause.strip()))
+        if m and not _ZH_NOT_SUBJECT.search(m.group(1)):
+            return m.group(1)
     return ""
 
 

@@ -13,7 +13,7 @@ runtime's own checks.
   and a passage of the 伤寒论. Each case has a statement, a structured claim and the source it
   cites (`bioagent.benchmarks.ablation_corpus`).
 - **Mutants.** Each mutation operator turns a base case into an output with one known
-  scientific error (`ablation.MUTATIONS`), giving 111 mutants in 21 classes:
+  scientific error (`ablation.MUTATIONS`), giving 117 mutants in 25 classes:
   - a finding carried to a population, outcome or intervention the study did not have;
   - its direction inverted, or stated as proven, always or curative;
   - a claim kind the evidence cannot reach: an association stated as efficacy, a docking score
@@ -22,7 +22,12 @@ runtime's own checks.
   - a near-name herb (制白附子 for 制附子, 白首乌 for 何首乌), or a dose read ten times too high;
   - a direction no edge on the claim's path records;
   - a retracted record, a record edited after it was signed, the record of one paper supplied
-    under another's identifier, or a citation with no record behind it.
+    under another's identifier, or a citation with no record behind it;
+  - what a TCM finding is about beyond its named subject: one constituent's evidence carried
+    to the whole formula or the formula's credited to one herb, one processing state's
+    evidence carried to another (制附子 to 生附子), a bench result placed at the
+    concentrations patients reach, and one study reached through two databases counted as
+    two independent ones.
 
   Five of the classes appear twice. The `*_text` variants change only the sentence a reader
   sees and leave the structured claim naming what was studied: an agent's summary drifting
@@ -32,9 +37,9 @@ runtime's own checks.
   | Gate | Layer | What it is |
   | --- | --- | --- |
   | `provenance` | kernel | `ingest_evidence`: identifier binding, and the signature re-checked so a tampered record is marked |
-  | `output` | kernel | `OutputGate`: per-sentence support, scope, citations and plan clauses |
+  | `output` | kernel | the kernel's own `OutputGate`: per-sentence support, scope, citations, quotations and plan clauses; a mechanism sentence is held to its record |
   | `licensing` | kernel | `psh.sir.licenses`, the compiler's TYP rules, on the structured claim |
-  | `claim_contract` | domain | `check_claim`: CLM codes, including the TCM near-name check |
+  | `claim_contract` | domain | `check_claim`: CLM codes, including the TCM near-name, level, processing, exposure and source-count checks |
   | `release_path` | domain | `check_release`: the claim's path of snapshot edges, its direction and licensing |
 
 - **Configurations.** Every combination worth reading: no governance at all, each layer
@@ -46,89 +51,98 @@ runtime's own checks.
 
 ## Results
 
-`python scripts/run_governance_ablation.py --out benchmarks/ablation` (1.5 s; committed as
-`BioScience-Harness/benchmarks/ablation/results.json` and `results.md`):
+`python scripts/run_governance_ablation.py --out benchmarks/ablation` (a few seconds;
+committed as `BioScience-Harness/benchmarks/ablation/results.json` and `results.md`):
 
 | Configuration | Errors released | 95% CI | Correct outputs refused |
 | --- | ---: | --- | ---: |
-| no governance | 111/111 (100%) | 97–100% | 0/10 |
-| kernel only | 14/111 (13%) | 8–20% | 0/10 |
-| domain layer only | 69/111 (62%) | 53–71% | 0/10 |
-| **full stack** | **10/111 (9%)** | **5–16%** | **0/10** |
-| full stack without ingest | 20/111 (18%) | 12–26% | 0/10 |
-| full stack without the output gate | 48/111 (43%) | 34–53% | 0/10 |
-| full stack without licensing | 13/111 (12%) | 7–19% | 0/10 |
-| full stack without the claim contract | 13/111 (12%) | 7–19% | 0/10 |
-| full stack without the release check | 11/111 (10%) | 6–18% | 0/10 |
+| no governance | 117/117 (100%) | 97–100% | 0/10 |
+| kernel only | 5/117 (4%) | 2–10% | 0/10 |
+| domain layer only | 57/117 (49%) | 40–58% | 0/10 |
+| **full stack** | **0/117 (0%)** | **0–3%** | **0/10** |
+| full stack without ingest | 10/117 (9%) | 5–15% | 0/10 |
+| full stack without the output gate | 42/117 (36%) | 28–45% | 0/10 |
+| full stack without licensing | 0/117 (0%) | 0–3% | 0/10 |
+| full stack without the claim contract | 4/117 (3%) | 1–8% | 0/10 |
+| full stack without the release check | 1/117 (1%) | 0–5% | 0/10 |
 
 **What each gate adds** (leave-one-out: errors the full stack refuses and releases once that
 gate is off):
 
 | Gate | Errors only it stops | Which |
 | --- | ---: | --- |
-| output gate | 38 | inverted directions, every text-only drift it catches, the ×10 dose, invented citations, and (with ingest) the tampered records |
-| ingest | 10 | all nine tampered records the output gate would cite, and a misattributed passage |
-| licensing | 3 | an over-certain mechanism claim, two misattributions in structured claims |
-| claim contract | 3 | both near-name herbs in the text, an over-certain hypothesis |
+| output gate | 42 | inverted directions, every text-only drift, the ×10 dose, invented citations, and (with ingest) the tampered records |
+| ingest | 10 | the ten tampered records, the passage of the 伤寒论 included |
+| claim contract | 4 | both duplicate sources, a near-name herb in the text, the exposure claim |
 | release check | 1 | the borrowed direction |
+| licensing | 0 | nothing the others do not also catch: every licensing refusal is now also a claim-contract or output-gate refusal |
 
-The layers are not redundant. The kernel's text gate does most of the work. The structured
-checks (licensing and the claim contract) each catch every structured population, outcome,
-kind, animal-evidence and docking-evidence error. The domain layer is the only part that
-catches a near-name herb written in the text or reads a snapshot path, and the kernel is the
-only part that knows a record was edited after signing.
+The layers are still not redundant. The kernel's text gate does most of the work. The domain
+layer alone catches what needs domain knowledge or structure the text does not show: a
+near-name herb written in the text, one study counted twice, a bench result placed at human
+exposure, a direction no snapshot edge records. Only the kernel knows a record was edited
+after signing.
 
-### What this change closed
+### What was closed, in two rounds
 
-Run on the code before this change (commit `2a0753e`), the full stack released **19/111
-(17%)** of the same mutants. It now releases **10/111 (9%)**, and still refuses none of the
-base cases. Three changes, each found by the benchmark; applied in the order listed they close
-6, 1 and 2 of the 9:
+The benchmark found every gap it now refuses, and each fix is a change to a runtime check,
+not to the benchmark.
 
-1. **Citations in non-clinical sentences** (`psh.kernel.output_gate`). The output gate
-   skipped any sentence that makes no claim about patients, citations included. A mechanism,
-   a hypothesis or a hedged safety sentence citing a retracted record, another paper's record,
-   or no record went out. Support is still checked only for claims about patients; now the
-   citation itself is checked in every sentence: the record must be supplied, be the record of
-   the identifier cited, and be usable.
-2. **Chinese association and safety wording** (`_CLINICAL_ZH`). 有关 is the counterpart of
-   相关, and 不良事件, 毒性, 肝损伤 and 肾损伤 are the counterparts of 不良反应. Without them,
-   "服用含何首乌的制剂可能与成人药物性肝损伤有关" was read as making no claim at all.
+**Round 1** (19 → 10 of 111). Run on commit `2a0753e`, the full stack released 19 of the
+then 111 mutants:
+
+1. **Citations in non-clinical sentences** (`psh.kernel.output_gate`). The output gate skipped
+   any sentence that makes no claim about patients, citations included; now the citation is
+   checked in every sentence: the record must be supplied, be the record of the identifier
+   cited, and be usable.
+2. **Chinese association and safety wording** (`_CLINICAL_ZH`): 有关, 不良事件, 毒性, 肝损伤, 肾损伤.
 3. **Near names in claim text** (`check_claim`, CLM014). `materia.names_in` reads drug names
-   out of running text, and treats 川, 大, 小, 白, 土 and 水 before a known name as part of
-   another name: 白首乌 is not read as 首乌, which is an alias of 何首乌. The exceptions are
-   a character that ends an everyday word (减小附子 reads 附子, 加大黄芪 reads 黄芪) and the
-   start of a formula or preparation (小柴胡汤, 小柴胡口服液). A claim naming a drug that
-   shares a drug name with the one its evidence studied, but is not it, is refused.
+   out of running text and treats 川, 大, 小, 白, 土 and 水 before a known name as part of
+   another name: 白首乌 is not read as 首乌, which is an alias of 何首乌. The exceptions are a
+   character that ends an everyday word (减小附子 reads 附子, 加大黄芪 reads 黄芪) and the start
+   of a formula or preparation (小柴胡汤, 小柴胡口服液).
+
+**Round 2** (10 → 0). The ten that still passed, each with its fix:
+
+| Mutant | Why it passed | Fix |
+| --- | --- | --- |
+| `E2/outcome_text` (all-cause mortality, from a trial of cardiovascular death) | "death" in "cardiovascular death" read as mortality, and a cardiovascular event licensed a mortality claim | cardiovascular death is a cardiovascular event and licenses no mortality claim (`psh.evidence.claims`, `scope`) |
+| `A1/population_text` (children, from adults aged 65 or older) | "adults aged 65 or older" was not read as a population | age phrases of that form, and 65岁及以上, read as older adults |
+| `A2/population_text`, `A2/outcome_text`, `S1/population_text` | the Chinese parser found no subject in 「长期服用X与…相关」 and 「服用X可能与…有关」, so scope was never checked | the exposure X is the subject of an association; 有关 is an association; kidney failure and liver injury are outcomes |
+| `M1/certainty_text` ("always completely inhibits") | a mechanism sentence was checked for its citation, not against its record | a mechanism sentence citing a record must be supported by it at the strength written (`OutputGate`); "always", "invariably", 总是, 必然 are absolute language no claim kind licenses (CLM011) |
+| `H1/subject_text` (berberine, from a baicalin docking run) | the same | the agent a mechanism sentence names must be one its record reports on |
+| `C1/subject_text`, `C1/tampered`, `C1/fabricated_citation` | a passage citation was no identifier the gate recognised, so its record was never looked up | a deployment gives the kernel its citation shapes (`PSHConfig.citation_patterns`; the TCM layer cites passages as `passage.shl_34`), and quoted words must be in the record they cite |
+
+The same round added the four TCM domain checks, with an operator each:
+
+| Code | The error it refuses |
+| --- | --- |
+| CLM015 | a formula claimed from one constituent's evidence, or a constituent credited with the formula's (黄连 from a trial of 葛根芩连汤) |
+| CLM016 | a processing state other than the one studied (生附子 on evidence about 制附子); the resolver strips processing to find the drug, so the near-name check cannot see it |
+| CLM017 | relevance at human exposure ("at concentrations reached in patients") on evidence that measured no exposure in people |
+| CLM018 | more independent sources counted than the evidence holds: the same trial through PubMed and a database is one study |
 
 ### What the full stack still releases
 
-Listed, not hidden. Each is a known gap with a named cause:
-
-| Mutant | Why it passes |
-| --- | --- |
-| `A1/population_text` (children, from a cohort of adults aged 65 or older) | the population parser reads nothing in "adults aged 65 or older", so the source's population is unstated, and the scope check notes an unstated population rather than checking against it |
-| `A2/population_text`, `A2/outcome_text` (儿童; 全因死亡率) | the Chinese claim parser does not find the subject of "长期服用X与…相关", so it does not check the scope |
-| `S1/population_text` (儿童) | the same, for "服用X可能与…有关" |
-| `E2/outcome_text` (all-cause mortality, from a trial of cardiovascular death) | both normalise to "mortality": outcome granularity is too coarse |
-| `M1/certainty_text` ("always completely inhibits") | a mechanism sentence is not checked for support or certainty, and "always" is not in the claim contract's over-reach vocabulary |
-| `H1/subject_text` (berberine, from a baicalin docking run) | non-clinical sentences are checked for citation integrity, not for support |
-| `C1/subject_text`, `C1/tampered`, `C1/fabricated_citation` (a passage of the 伤寒论) | passage citations (`shanghanlun:34`) are not an identifier scheme the output gate recognises, so their records are never looked up |
-
-The first five need better scope parsing. The last four need a passage-citation scheme, and a
-support check for non-clinical sentences that does not refuse ordinary methods citations.
+On this construction, nothing. Read that with the next section: it means the gaps this
+benchmark can express are closed, not that the gates catch every error.
 
 ## What this is not
 
 - **Construction, not field rates.** The base cases and the operators were written by the
-  people who wrote the gates. An error class nobody thought to generate is not measured, and
-  the class balance is set by how many operators apply to how many cases, not by how often each
-  error occurs in real output. These are regression numbers with a stated construction, like
+  people who wrote the gates, and the round-2 fixes were written knowing which mutants
+  passed. An error class nobody thought to generate is not measured, and the class balance is
+  set by how many operators apply to how many cases, not by how often each error occurs in
+  real output. These are regression numbers with a stated construction, like
   `PSH-Harness/benchmarks/bench_claims.py`, and CI refuses a regression against them
   (`--check`).
+- **A benchmark with no survivors has stopped discriminating.** From here it guards against
+  regressions. Measuring what the gates miss needs outputs nobody here wrote: real drafts,
+  labelled by a reviewer (below), and new operators from the errors those drafts contain.
 - **Same outputs, not the same model.** Every configuration judges identical outputs. The
   question "does a model under this governance write better science" also involves what the
-  model writes when it knows it will be checked, which this does not measure.
+  model writes when it knows it will be checked, which this does not measure; that is what
+  the four-arm comparison in [comparison.md](comparison.md) is designed for.
 - **Ten base cases.** The intervals are wide on purpose; read them.
 
 ## Your own outputs
@@ -143,49 +157,48 @@ python scripts/run_governance_ablation.py --drafts drafts.jsonl --out RUN/ablati
 ```
 
 Tests: `BioScience-Harness/tests/test_governance_ablation.py`, `tests/test_near_names.py`,
-`PSH-Harness/tests/test_output_gate_citations.py`.
+`tests/test_tcm_domain_checks.py`, `PSH-Harness/tests/test_output_gate_citations.py`,
+`PSH-Harness/tests/test_scope_round2.py`.
 
 ## 中文摘要
 
-**要回答的问题：** 治理架构是否真能减少科学错误？哪一部分起作用？关键是：在相同输出、相同工具、相同任务下，逐一开关治理组件。
+**要回答的问题：** 治理架构是否真能减少科学错误？哪一部分起作用？做法是在相同输出、相同工具、相同任务下，逐一开关治理组件。
 
 **方法（科学变异测试）：**
 - **基础案例：** 10 个审稿人会放行的输出，6 个中文、4 个英文。覆盖随机对照试验、队列研究、病例报告、体外实验、分子对接，以及《伤寒论》条文。
-- **变异体：** 每个变异算子注入一种已知科学错误，共 21 类、111 个变异体。错误包括：
+- **变异体：** 每个变异算子注入一种已知科学错误，共 25 类、117 个变异体。错误包括：
   - 人群、终点、对象外推，方向反转，确定性夸大；
   - 证据类型越级，例如对接、动物实验或经典条文被当作临床证据；
   - 用计划从句掩护疗效断言；
   - 近名药（制白附子冒充制附子、白首乌冒充何首乌），剂量错读 10 倍；
   - 路径上没有记录的作用方向；
-  - 已撤稿、签名后被篡改、张冠李戴或凭空捏造的引用。
+  - 已撤稿、签名后被篡改、张冠李戴或凭空捏造的引用；
+  - 中医药特有的四类：单一成分的证据推到整方（或反之）、一种炮制品的证据用于另一种（制附子→生附子）、把体外结果说成人体暴露下成立、同一研究经两个数据库被算作两项独立研究。
+- **闸门：** 均为运行时真实调用的检查。内核三个：证据摄入（标识绑定、签名复核）、输出闸门、许可类型检查。领域层两个：主张契约、快照路径发布检查。
 
-  其中 5 类另有"仅改正文、不改结构化字段"的版本，模拟摘要与结构化主张不一致。
-- **闸门：** 均为运行时真实调用的检查。内核有三个：证据摄入（标识绑定、签名复核）、输出闸门、许可类型检查。领域层有两个：主张契约（含近名药检查）、快照路径发布检查。
-
-**结果（全部在 10 个正确输出 0 误拒的前提下）：**
+**结果（10 个正确输出均无误拒）：**
 
 | 配置 | 放行的错误 |
 | --- | ---: |
-| 无治理 | 111/111（100%） |
-| 仅内核 | 14/111（13%） |
-| 仅领域层 | 69/111（62%） |
-| 完整治理 | 10/111（9%，95% 置信区间 5–16%） |
+| 无治理 | 117/117（100%） |
+| 仅内核 | 5/117（4%） |
+| 仅领域层 | 57/117（49%） |
+| 完整治理 | 0/117（0%，95% 置信区间 0–3%） |
 
-留一法显示各层互不冗余：
-- 输出闸门独自拦下 38 个错误；
-- 证据摄入独自拦下 10 个，均为签名后被篡改的记录；
-- 许可检查与主张契约各独自拦下 3 个；
-- 快照路径检查独自拦下 1 个。
+留一法：输出闸门独自拦下 42 个，证据摄入 10 个（均为被篡改的记录），主张契约 4 个，路径检查 1 个；许可检查不再有独有的拦截。
 
-**本次改动（均由该基准发现）：** 改动前（2a0753e），同一基准下完整治理放行 19/111（17%），现在为 10/111（9%）。
-- **非临床句中的引用也须指向可用记录：** 必须提供记录，标识一致，且未撤稿、未被篡改。
-- **补全中文临床词汇：** 增加"有关"和不良事件类词语。
-- **主张正文中的近名药判为不同药物：** 新增 CLM014。「减小附子」这类日常词、「小柴胡汤」这类方剂名不算近名药。
+**两轮修补（均由该基准发现，改的都是运行时检查，而不是基准）：**
+- 第一轮（19→10）：非临床句中的引用也要核查；补全中文临床词汇；主张正文中的近名药（CLM014）。
+- 第二轮（10→0）：
+  - 心血管死亡不等于全因死亡；
+  - 「65岁及以上」等年龄表述能被解析；
+  - 「长期服用X与…相关/有关」中的暴露因素 X 能被识别为主语；
+  - 机制句必须得到所引记录的支持，所述对象也要与记录一致；
+  - 「总是」「必然」等绝对化措辞被拒绝；
+  - 《伤寒论》条文按记录编号（passage.shl_34）引用，可以查核，引文须与原文一致。
+- 新增四项中医药领域检查：CLM015（成分与整方互推）、CLM016（炮制品互推）、CLM017（无人体暴露证据却声称在人体浓度下成立）、CLM018（同一来源被计为多项独立研究）。
 
-**仍放行的 10 个错误都已列明原因：**
-- 部分人群、终点表述未被解析；
-- "全因死亡"与"心血管死亡"未区分；
-- 非临床句只查引用、不查支持；
-- 《伤寒论》条文引用尚无可机读的标识方案。
-
-**局限：** 本基准是有明确构造的回归基准，不是对真实错误率的估计。CI 会拒绝任何回退。
+**局限：**
+- 这是有明确构造的回归基准，不是真实错误率；第二轮修补是在已知哪些变异体漏网之后写的。
+- 没有漏网者，意味着这个基准已不再有区分力，此后只用于防止回退；要发现新的漏洞，需要用真实模型输出（由审稿人标注）和由此提炼的新算子。
+- CI 会拒绝任何回退。

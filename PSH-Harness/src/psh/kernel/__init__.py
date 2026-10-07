@@ -187,7 +187,8 @@ class TrustedKernel:
         self.output_gate = OutputGate(verifier=self.verifier,
                                       require_support=self.policy.require_claim_support,
                                       require_citation=self.policy.require_citation,
-                                      audit=sink)
+                                      audit=sink,
+                                      citation_patterns=self.config.citation_patterns)
 
     # ------------------------------------------------------------ classification
     @property

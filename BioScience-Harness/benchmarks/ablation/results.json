@@ -1,7 +1,7 @@
 {
  "construction": "mutation testing: base cases a reviewer would release, each mutated by one named scientific error; base cases and operators were written by the authors of the gates, so this is a regression benchmark with a stated construction, not an estimate of field error rates",
  "base_cases": 10,
- "mutants": 111,
+ "mutants": 117,
  "gates": {
   "provenance": "kernel",
   "output": "kernel",
@@ -13,11 +13,11 @@
   {
    "configuration": "ungoverned",
    "gates": [],
-   "errors_released": 111,
-   "mutants": 111,
+   "errors_released": 117,
+   "mutants": 117,
    "error_release_rate": 1.0,
    "error_release_ci95": [
-    0.9665,
+    0.9682,
     1.0
    ],
    "false_refusals": 0,
@@ -31,12 +31,12 @@
     "output",
     "licensing"
    ],
-   "errors_released": 14,
-   "mutants": 111,
-   "error_release_rate": 0.1261,
+   "errors_released": 5,
+   "mutants": 117,
+   "error_release_rate": 0.0427,
    "error_release_ci95": [
-    0.0766,
-    0.2006
+    0.0184,
+    0.0962
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -48,12 +48,12 @@
     "claim_contract",
     "release_path"
    ],
-   "errors_released": 69,
-   "mutants": 111,
-   "error_release_rate": 0.6216,
+   "errors_released": 57,
+   "mutants": 117,
+   "error_release_rate": 0.4872,
    "error_release_ci95": [
-    0.5288,
-    0.7063
+    0.3985,
+    0.5767
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -68,12 +68,12 @@
     "claim_contract",
     "release_path"
    ],
-   "errors_released": 10,
-   "mutants": 111,
-   "error_release_rate": 0.0901,
+   "errors_released": 0,
+   "mutants": 117,
+   "error_release_rate": 0.0,
    "error_release_ci95": [
-    0.0497,
-    0.1579
+    0.0,
+    0.0318
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -87,12 +87,12 @@
     "claim_contract",
     "release_path"
    ],
-   "errors_released": 20,
-   "mutants": 111,
-   "error_release_rate": 0.1802,
+   "errors_released": 10,
+   "mutants": 117,
+   "error_release_rate": 0.0855,
    "error_release_ci95": [
-    0.1198,
-    0.262
+    0.0471,
+    0.1502
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -106,12 +106,12 @@
     "claim_contract",
     "release_path"
    ],
-   "errors_released": 48,
-   "mutants": 111,
-   "error_release_rate": 0.4324,
+   "errors_released": 42,
+   "mutants": 117,
+   "error_release_rate": 0.359,
    "error_release_ci95": [
-    0.3441,
-    0.5253
+    0.2778,
+    0.4491
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -125,12 +125,12 @@
     "claim_contract",
     "release_path"
    ],
-   "errors_released": 13,
-   "mutants": 111,
-   "error_release_rate": 0.1171,
+   "errors_released": 0,
+   "mutants": 117,
+   "error_release_rate": 0.0,
    "error_release_ci95": [
-    0.0697,
-    0.1901
+    0.0,
+    0.0318
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -144,12 +144,12 @@
     "licensing",
     "release_path"
    ],
-   "errors_released": 13,
-   "mutants": 111,
-   "error_release_rate": 0.1171,
+   "errors_released": 4,
+   "mutants": 117,
+   "error_release_rate": 0.0342,
    "error_release_ci95": [
-    0.0697,
-    0.1901
+    0.0134,
+    0.0846
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -163,12 +163,12 @@
     "licensing",
     "claim_contract"
    ],
-   "errors_released": 11,
-   "mutants": 111,
-   "error_release_rate": 0.0991,
+   "errors_released": 1,
+   "mutants": 117,
+   "error_release_rate": 0.0085,
    "error_release_ci95": [
-    0.0562,
-    0.1688
+    0.0015,
+    0.0468
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -179,12 +179,12 @@
    "gates": [
     "provenance"
    ],
-   "errors_released": 101,
-   "mutants": 111,
-   "error_release_rate": 0.9099,
+   "errors_released": 107,
+   "mutants": 117,
+   "error_release_rate": 0.9145,
    "error_release_ci95": [
-    0.8421,
-    0.9503
+    0.8498,
+    0.9529
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -195,12 +195,12 @@
    "gates": [
     "output"
    ],
-   "errors_released": 39,
-   "mutants": 111,
-   "error_release_rate": 0.3514,
+   "errors_released": 20,
+   "mutants": 117,
+   "error_release_rate": 0.1709,
    "error_release_ci95": [
-    0.2689,
-    0.4438
+    0.1135,
+    0.2493
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -211,12 +211,12 @@
    "gates": [
     "licensing"
    ],
-   "errors_released": 63,
-   "mutants": 111,
-   "error_release_rate": 0.5676,
+   "errors_released": 66,
+   "mutants": 117,
+   "error_release_rate": 0.5641,
    "error_release_ci95": [
-    0.4747,
-    0.6559
+    0.4736,
+    0.6505
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -227,12 +227,12 @@
    "gates": [
     "claim_contract"
    ],
-   "errors_released": 70,
-   "mutants": 111,
-   "error_release_rate": 0.6306,
+   "errors_released": 58,
+   "mutants": 117,
+   "error_release_rate": 0.4957,
    "error_release_ci95": [
-    0.5379,
-    0.7146
+    0.4067,
+    0.585
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -243,12 +243,12 @@
    "gates": [
     "release_path"
    ],
-   "errors_released": 109,
-   "mutants": 111,
-   "error_release_rate": 0.982,
+   "errors_released": 113,
+   "mutants": 117,
+   "error_release_rate": 0.9658,
    "error_release_ci95": [
-    0.9367,
-    0.995
+    0.9154,
+    0.9866
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -259,7 +259,7 @@
   "population": {
    "n": 7,
    "provenance": 0.0,
-   "output": 0.5714,
+   "output": 1.0,
    "licensing": 1.0,
    "claim_contract": 1.0,
    "release_path": 0.0,
@@ -270,7 +270,7 @@
   "outcome": {
    "n": 5,
    "provenance": 0.0,
-   "output": 0.6,
+   "output": 1.0,
    "licensing": 1.0,
    "claim_contract": 1.0,
    "release_path": 0.0,
@@ -281,7 +281,7 @@
   "subject": {
    "n": 5,
    "provenance": 0.0,
-   "output": 0.6,
+   "output": 1.0,
    "licensing": 1.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
@@ -303,12 +303,12 @@
   "certainty": {
    "n": 8,
    "provenance": 0.0,
-   "output": 0.75,
+   "output": 1.0,
    "licensing": 1.0,
-   "claim_contract": 0.25,
-   "release_path": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.125,
    "kernel": 1.0,
-   "domain": 0.25,
+   "domain": 1.0,
    "full": 1.0
   },
   "animal": {
@@ -347,51 +347,51 @@
   "population_text": {
    "n": 7,
    "provenance": 0.0,
-   "output": 0.5714,
+   "output": 1.0,
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
-   "kernel": 0.5714,
+   "kernel": 1.0,
    "domain": 0.0,
-   "full": 0.5714
+   "full": 1.0
   },
   "outcome_text": {
    "n": 5,
    "provenance": 0.0,
-   "output": 0.6,
+   "output": 1.0,
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
-   "kernel": 0.6,
+   "kernel": 1.0,
    "domain": 0.0,
-   "full": 0.6
+   "full": 1.0
   },
   "subject_text": {
    "n": 5,
    "provenance": 0.0,
-   "output": 0.6,
+   "output": 1.0,
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
-   "kernel": 0.6,
+   "kernel": 1.0,
    "domain": 0.0,
-   "full": 0.6
+   "full": 1.0
   },
   "certainty_text": {
    "n": 8,
    "provenance": 0.0,
-   "output": 0.75,
+   "output": 1.0,
    "licensing": 0.0,
-   "claim_contract": 0.25,
-   "release_path": 0.0,
-   "kernel": 0.75,
-   "domain": 0.25,
-   "full": 0.875
+   "claim_contract": 1.0,
+   "release_path": 0.125,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
   },
   "retracted": {
    "n": 10,
    "provenance": 0.0,
-   "output": 0.9,
+   "output": 1.0,
    "licensing": 1.0,
    "claim_contract": 1.0,
    "release_path": 0.0,
@@ -406,14 +406,14 @@
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
-   "kernel": 0.9,
+   "kernel": 1.0,
    "domain": 0.0,
-   "full": 0.9
+   "full": 1.0
   },
   "citation_mismatch": {
    "n": 10,
    "provenance": 1.0,
-   "output": 0.9,
+   "output": 1.0,
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
@@ -424,18 +424,40 @@
   "fabricated_citation": {
    "n": 10,
    "provenance": 0.0,
-   "output": 0.9,
+   "output": 1.0,
    "licensing": 0.0,
    "claim_contract": 0.0,
    "release_path": 0.0,
-   "kernel": 0.9,
+   "kernel": 1.0,
    "domain": 0.0,
-   "full": 0.9
+   "full": 1.0
+  },
+  "constituent_formula": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 1.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "duplicate_source": {
+   "n": 2,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.0,
+   "domain": 1.0,
+   "full": 1.0
   },
   "near_name": {
    "n": 2,
    "provenance": 0.0,
-   "output": 0.0,
+   "output": 0.5,
    "licensing": 1.0,
    "claim_contract": 1.0,
    "release_path": 0.0,
@@ -457,11 +479,22 @@
   "near_name_text": {
    "n": 2,
    "provenance": 0.0,
-   "output": 0.0,
+   "output": 0.5,
    "licensing": 0.0,
    "claim_contract": 1.0,
    "release_path": 0.0,
-   "kernel": 0.0,
+   "kernel": 0.5,
+   "domain": 1.0,
+   "full": 1.0
+  },
+  "processing_transfer": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 1.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 1.0,
    "domain": 1.0,
    "full": 1.0
   },
@@ -486,6 +519,17 @@
    "kernel": 0.0,
    "domain": 1.0,
    "full": 1.0
+  },
+  "exposure_text": {
+   "n": 1,
+   "provenance": 0.0,
+   "output": 0.0,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.0,
+   "domain": 1.0,
+   "full": 1.0
   }
  },
  "adds": {
@@ -499,27 +543,25 @@
    "S1/tampered",
    "M1/tampered",
    "H1/tampered",
-   "C1/citation_mismatch"
+   "C1/tampered"
   ],
   "output": [
    "E1/direction",
    "E1/population_text",
    "E1/outcome_text",
    "E1/subject_text",
-   "E1/certainty_text",
    "E1/tampered",
    "E1/fabricated_citation",
    "E2/direction",
    "E2/population_text",
+   "E2/outcome_text",
    "E2/subject_text",
-   "E2/certainty_text",
    "E2/tampered",
    "E2/fabricated_citation",
    "E3/direction",
    "E3/population_text",
    "E3/outcome_text",
    "E3/subject_text",
-   "E3/certainty_text",
    "E3/tampered",
    "E3/fabricated_citation",
    "E4/dose",
@@ -527,98 +569,50 @@
    "E4/population_text",
    "E4/tampered",
    "E4/fabricated_citation",
+   "A1/population_text",
    "A1/outcome_text",
-   "A1/certainty_text",
    "A1/tampered",
    "A1/fabricated_citation",
+   "A2/population_text",
+   "A2/outcome_text",
    "A2/tampered",
    "A2/fabricated_citation",
-   "S1/certainty_text",
+   "S1/population_text",
    "S1/tampered",
    "S1/fabricated_citation",
    "M1/tampered",
    "M1/fabricated_citation",
+   "H1/subject_text",
    "H1/tampered",
-   "H1/fabricated_citation"
+   "H1/fabricated_citation",
+   "C1/subject_text",
+   "C1/tampered",
+   "C1/fabricated_citation"
   ],
-  "licensing": [
-   "M1/certainty",
-   "H1/subject",
-   "C1/subject"
-  ],
+  "licensing": [],
   "claim_contract": [
+   "E1/duplicate_source",
+   "E2/duplicate_source",
    "E4/near_name_text",
-   "S1/near_name_text",
-   "H1/certainty_text"
+   "M1/exposure_text"
   ],
   "release_path": [
    "M1/borrowed_direction"
   ]
  },
- "survivors": [
-  {
-   "id": "E2/outcome_text",
-   "error_class": "outcome_text",
-   "statement": "Empagliflozin reduced the combined risk of all-cause mortality in patients with heart failure and a preserved ejection fraction (PMID: 34449189)."
-  },
-  {
-   "id": "A1/population_text",
-   "error_class": "population_text",
-   "statement": "Higher serum C-telopeptide was associated with all-cause mortality in children (doi:10.5555/tcm-ablation.05)."
-  },
-  {
-   "id": "A2/population_text",
-   "error_class": "population_text",
-   "statement": "长期服用含马兜铃酸的中药与儿童慢性肾脏病患者终末期肾病风险升高相关（doi:10.5555/tcm-ablation.06）。"
-  },
-  {
-   "id": "A2/outcome_text",
-   "error_class": "outcome_text",
-   "statement": "长期服用含马兜铃酸的中药与成人慢性肾脏病患者全因死亡率升高相关（doi:10.5555/tcm-ablation.06）。"
-  },
-  {
-   "id": "S1/population_text",
-   "error_class": "population_text",
-   "statement": "服用含何首乌的制剂可能与儿童药物性肝损伤有关（doi:10.5555/tcm-ablation.07）。"
-  },
-  {
-   "id": "M1/certainty_text",
-   "error_class": "certainty_text",
-   "statement": "In vitro, compound A always completely inhibits target T1 (doi:10.5555/tcm-ablation.08)."
-  },
-  {
-   "id": "H1/subject_text",
-   "error_class": "subject_text",
-   "statement": "Docking suggests that berberine may bind PTP1B, a mechanism hypothesis for experimental testing (doi:10.5555/tcm-ablation.09)."
-  },
-  {
-   "id": "C1/subject_text",
-   "error_class": "subject_text",
-   "statement": "《伤寒论》第34条记载：喘而汗出者，桂枝汤主之（shanghanlun:34）。"
-  },
-  {
-   "id": "C1/tampered",
-   "error_class": "tampered",
-   "statement": "《伤寒论》第34条记载：喘而汗出者，葛根黄芩黄连汤主之（shanghanlun:34）。"
-  },
-  {
-   "id": "C1/fabricated_citation",
-   "error_class": "fabricated_citation",
-   "statement": "《伤寒论》第34条记载：喘而汗出者，葛根黄芩黄连汤主之（shanghanlun:99）。"
-  }
- ],
+ "survivors": [],
  "false_refusals": [],
  "by_language": {
   "en": {
-   "mutants": 44,
+   "mutants": 47,
    "base_cases": 4,
-   "released_by_full": 4,
+   "released_by_full": 0,
    "refused_by_full": 0
   },
   "zh": {
-   "mutants": 67,
+   "mutants": 70,
    "base_cases": 6,
-   "released_by_full": 6,
+   "released_by_full": 0,
    "refused_by_full": 0
   }
  },
@@ -763,6 +757,9 @@
     ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -864,6 +861,9 @@
     ],
     "output|ingested": [
      "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -925,6 +925,35 @@
     ]
    }
   },
+  "E1/constituent_formula": {
+   "error_class": "constituent_formula",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM015"
+    ]
+   }
+  },
+  "E1/duplicate_source": {
+   "error_class": "duplicate_source",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM018"
+    ]
+   }
+  },
   "E2/population": {
    "error_class": "population",
    "gold": "refuse",
@@ -949,6 +978,12 @@
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ],
@@ -999,6 +1034,9 @@
     ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1074,7 +1112,14 @@
    "error_class": "outcome_text",
    "gold": "refuse",
    "language": "en",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "E2/subject_text": {
    "error_class": "subject_text",
@@ -1099,6 +1144,9 @@
     ],
     "output|ingested": [
      "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1157,6 +1205,16 @@
     ],
     "output|ingested": [
      "unsupported"
+    ]
+   }
+  },
+  "E2/duplicate_source": {
+   "error_class": "duplicate_source",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "claim_contract": [
+     "CLM018"
     ]
    }
   },
@@ -1240,6 +1298,9 @@
     ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1311,6 +1372,9 @@
     ],
     "output|ingested": [
      "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1511,11 +1575,30 @@
     ]
    }
   },
+  "E4/processing_transfer": {
+   "error_class": "processing_transfer",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM016"
+    ]
+   }
+  },
   "A1/population": {
    "error_class": "population",
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP103"
     ],
@@ -1556,6 +1639,9 @@
     ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1582,7 +1668,14 @@
    "error_class": "population_text",
    "gold": "refuse",
    "language": "en",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "A1/outcome_text": {
    "error_class": "outcome_text",
@@ -1607,6 +1700,9 @@
     ],
     "output|ingested": [
      "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1673,6 +1769,12 @@
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP103"
     ],
@@ -1686,6 +1788,12 @@
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ],
@@ -1709,6 +1817,7 @@
      "TYP102"
     ],
     "claim_contract": [
+     "CLM011",
      "CLM011"
     ]
    }
@@ -1717,13 +1826,27 @@
    "error_class": "population_text",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "A2/outcome_text": {
    "error_class": "outcome_text",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "A2/certainty_text": {
    "error_class": "certainty_text",
@@ -1737,6 +1860,7 @@
      "unsupported"
     ],
     "claim_contract": [
+     "CLM011",
      "CLM011"
     ]
    }
@@ -1804,6 +1928,12 @@
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP103"
     ],
@@ -1817,6 +1947,12 @@
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ],
@@ -1838,6 +1974,9 @@
     ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1845,13 +1984,26 @@
    "error_class": "population_text",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "S1/near_name_text": {
    "error_class": "near_name_text",
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "claim_contract": [
      "CLM014"
     ]
@@ -1867,6 +2019,9 @@
     ],
     "output|ingested": [
      "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
     ]
    }
   },
@@ -1933,8 +2088,20 @@
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ],
+    "release_path": [
+     "release_refused"
     ]
    }
   },
@@ -1977,7 +2144,20 @@
    "error_class": "certainty_text",
    "gold": "refuse",
    "language": "en",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM011"
+    ],
+    "release_path": [
+     "release_refused"
+    ]
+   }
   },
   "M1/retracted": {
    "error_class": "retracted",
@@ -2037,11 +2217,46 @@
     ]
    }
   },
+  "M1/constituent_formula": {
+   "error_class": "constituent_formula",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "licensing": [
+     "TYP102"
+    ],
+    "claim_contract": [
+     "CLM015"
+    ]
+   }
+  },
+  "M1/exposure_text": {
+   "error_class": "exposure_text",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "claim_contract": [
+     "CLM017"
+    ]
+   }
+  },
   "H1/subject": {
    "error_class": "subject",
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ]
@@ -2052,6 +2267,12 @@
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ],
@@ -2086,13 +2307,26 @@
    "error_class": "subject_text",
    "gold": "refuse",
    "language": "en",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "H1/certainty_text": {
    "error_class": "certainty_text",
    "gold": "refuse",
    "language": "en",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "claim_contract": [
      "CLM011"
     ]
@@ -2161,6 +2395,12 @@
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ]
@@ -2172,10 +2412,10 @@
    "language": "zh",
    "refused_by": {
     "output": [
-     "uncited"
+     "unsupported"
     ],
     "output|ingested": [
-     "uncited"
+     "unsupported"
     ],
     "licensing": [
      "TYP102"
@@ -2191,13 +2431,26 @@
    "error_class": "subject_text",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "C1/retracted": {
    "error_class": "retracted",
    "gold": "refuse",
    "language": "zh",
    "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
     "licensing": [
      "TYP102"
     ],
@@ -2210,7 +2463,11 @@
    "error_class": "tampered",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   },
   "C1/citation_mismatch": {
    "error_class": "citation_mismatch",
@@ -2219,6 +2476,9 @@
    "refused_by": {
     "provenance": [
      "identifier_binding"
+    ],
+    "output": [
+     "unsupported"
     ],
     "output|ingested": [
      "identifier_binding"
@@ -2229,7 +2489,14 @@
    "error_class": "fabricated_citation",
    "gold": "refuse",
    "language": "zh",
-   "refused_by": {}
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ]
+   }
   }
  }
 }

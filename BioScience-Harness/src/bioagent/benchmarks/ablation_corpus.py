@@ -47,6 +47,8 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
             "subject": ["葛根芩连汤", "黄连解毒汤"],
             "direction": ["降低", "升高"],
             "certainty": ["葛根芩连汤可降低", "已证实葛根芩连汤必然降低"],
+            "constituent_formula": ["葛根芩连汤", "黄连"],
+            "duplicate_source": ["葛根芩连汤可降低", "两项研究显示葛根芩连汤可降低"],
             "animal": {
                 "population": "2型糖尿病大鼠",
                 "text": "目的：评价葛根芩连汤对2型糖尿病大鼠血糖的影响。方法：高脂饮食联合链脲佐菌素诱导的"
@@ -82,6 +84,8 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
             "outcome": ["cardiovascular death or hospitalization for heart failure",
                         "all-cause mortality"],
             "subject": ["Empagliflozin", "Dapagliflozin"],
+            "duplicate_source": ["Empagliflozin reduced",
+                                 "In two independent trials, empagliflozin reduced"],
             "direction": ["reduced", "increased"],
             "certainty": ["Empagliflozin reduced", "Empagliflozin always eliminates"],
             "animal": {
@@ -141,6 +145,7 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
                     "步行距离较对照组增加35米。结论：制附子1.5g/日可增加成人慢性心力衰竭患者的6分钟步行距离。"},
         "material": {
             "near_name": ["制附子", "制白附子"],
+            "processing_transfer": ["制附子", "生附子"],
             "dose": ["1.5g", "15g"],
             "population": ["成人", "儿童"],
             "direction": ["增加", "减少"],
@@ -229,6 +234,9 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
         "material": {
             "borrowed_direction": ["bind", "antag_B_T2"],
             "certainty": ["may inhibit", "always completely inhibits"],
+            "constituent_formula": ["compound A", "Gegen Qinlian decoction"],
+            "exposure_text": ["may inhibit target T1",
+                              "may inhibit target T1 at concentrations reached in patients"],
             "upgrade": {"statement": "Compound A reduces disease activity in adults with "
                                      "rheumatoid arthritis (doi:10.5555/tcm-ablation.08).",
                         "claim_kind": "efficacy", "certainty": "strong",
@@ -263,19 +271,19 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
     # ---------------------------------------------------------------- classical attribution
     {
         "id": "C1", "language": "zh", "claim_kind": "attribution",
-        "statement": "《伤寒论》第34条记载：喘而汗出者，葛根黄芩黄连汤主之（shanghanlun:34）。",
-        "citation": "shanghanlun:34",
+        "statement": "《伤寒论》第34条记载：喘而汗出者，葛根黄芩黄连汤主之（passage.shl_34）。",
+        "citation": "passage.shl_34",
         "subject": "葛根黄芩黄连汤", "population": "", "outcome": "",
         "certainty": "strong", "direction": "",
         "source": {
-            "identifier": "shanghanlun:34", "design": "classical_text",
+            "identifier": "passage.shl_34", "design": "classical_text",
             "subject": "葛根黄芩黄连汤", "population": "", "outcome": "",
             "text": "《伤寒论》第34条：太阳病，桂枝证，医反下之，利遂不止，脉促者，表未解也；"
                     "喘而汗出者，葛根黄芩黄连汤主之。"},
         "material": {
             "subject": ["葛根黄芩黄连汤", "桂枝汤"],
             "upgrade": {"statement": "葛根黄芩黄连汤可降低成人急性腹泻患者的腹泻持续时间"
-                                     "（shanghanlun:34）。",
+                                     "（passage.shl_34）。",
                         "claim_kind": "efficacy", "certainty": "strong",
                         "population": "成人急性腹泻患者", "outcome": "腹泻持续时间",
                         "direction": "decrease"},

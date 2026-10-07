@@ -30,7 +30,7 @@ from typing import Any, Mapping
 
 __all__ = ["EvidenceTier", "CLAIM_KINDS", "CLAIM_SUPPORT", "licenses", "Herb", "ProcessedHerb", "Ingredient", "Formula",
            "Syndrome", "ClassicalPassage", "StudyEvidence", "ActionRelation", "SafetyRecord",
-           "ROLES", "PREDICATES", "SAFETY_KINDS"]
+           "ROLES", "PREDICATES", "SAFETY_KINDS", "PASSAGE_CITATION"]
 
 
 class EvidenceTier(IntEnum):
@@ -287,6 +287,12 @@ class Syndrome:
                 "manifestations": list(self.manifestations), "tongue": self.tongue,
                 "pulse": self.pulse, "treatment_principle": self.treatment_principle,
                 "aliases": list(self.aliases)}
+
+
+#: How prose cites a classical passage: by its record id, ``passage.shl_12``. Given to the
+#: kernel's output gate (``PSHConfig.citation_patterns``) so a passage citation is looked
+#: up like a DOI; one the gate cannot recognise is one it never checks.
+PASSAGE_CITATION = r"\b(passage\.[a-z0-9_]+)\b"
 
 
 @dataclass(frozen=True, slots=True)

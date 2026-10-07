@@ -38,8 +38,9 @@ from typing import Mapping
 from ..config import registry_dir
 
 __all__ = ["CATEGORIES", "IDENTITY_PREFIXES", "MATERIA", "MateriaEntry", "NameMention",
-           "TAXA_FILE", "all_drugs", "crude_drugs", "names_in", "normalise_name",
-           "resolve_name", "shared_name", "to_simplified", "unverified"]
+           "PROCESSING_WORDS", "TAXA_FILE", "all_drugs", "crude_drugs", "names_in",
+           "normalise_name", "processing_of", "resolve_name", "shared_name", "to_simplified",
+           "unverified"]
 
 CATEGORIES = ("plant", "fungus", "animal", "mineral", "other")
 #: ``registry/materia_taxa.json`` of the checkout, or the copy an installed package carries.
@@ -1081,6 +1082,51 @@ def shared_name(a: str, b: str) -> str | None:
             if a.startswith(name, i) and name in b and (best is None or len(name) > len(best)):
                 best = name
     return best
+
+
+#: Processing that changes what a drug does, written before its name: 生附子 is the raw root,
+#: far more toxic than 制附子, and 炙甘草 is not 生甘草. ``resolve_name`` strips these to find
+#: the drug, which is right for identity; a claim must still not carry one state's evidence
+#: to another. Words of quality (真, 好, 陈, 鲜 …) are not processing and are not listed.
+PROCESSING_WORDS: tuple[str, ...] = ("麸炒", "土炒", "酒炒", "醋炒", "盐炒", "姜炒", "蜜炙",
+                                     "酒洗", "酒浸", "醋炙", "炙", "炒", "焙", "煨", "煅",
+                                     "酒", "醋", "盐", "蜜", "制", "生", "焦", "熟", "炮")
+
+#: Processed forms listed under their own names, whose processing no prefix shows: 姜半夏,
+#: 法半夏 and 清半夏 are 半夏 processed with ginger, with lime and liquorice, and with alum;
+#: 生半夏 is the raw tuber, toxic as it is.
+_PROCESSED_FORMS: Mapping[str, str] = {"姜半夏": "姜制", "法半夏": "法制", "清半夏": "清制"}
+
+#: Everyday words that end in a processing word: in 未发生附子相关不良反应 the 生 belongs to
+#: 发生, and in 抑制黄芪 the 制 to 抑制, not to the drug after them.
+_ENDS_IN_PROCESSING = frozenset({
+    "发生", "产生", "出生", "卫生", "学生", "医生", "先生", "再生", "新生", "衍生", "派生",
+    "共生", "寄生", "野生", "养生", "人生", "终生", "一生", "伴生", "滋生",
+    "抑制", "机制", "控制", "限制", "体制", "研制", "编制", "配制", "节制", "压制"})
+
+
+def processing_of(mention: NameMention, text: str = "") -> str:
+    """The processing state a drug name is written in, or "" when none is written.
+
+    Read from the listed name itself (制附子 is a name of 附子 with 制 before it) or from
+    the word immediately before the name in ``text`` (生 in 生附子, when only 附子 is
+    listed). A processing word that ends an everyday word (发生, 抑制) is not read.
+    """
+    name = mention.name
+    before = to_simplified(text or "")[:mention.start]
+    if name in _PROCESSED_FORMS:
+        return _PROCESSED_FORMS[name]
+    for word in PROCESSING_WORDS:
+        if (name.startswith(word) and len(name) > len(word)
+                and resolve_name(name[len(word):]) == mention.drug_id):
+            # 未发生附子…: the listed name 生附子 was read across the end of 发生.
+            return "" if (before[-1:] + word) in _ENDS_IN_PROCESSING else word
+    for word in PROCESSING_WORDS:
+        if before.endswith(word):
+            if before[-len(word) - 1:] in _ENDS_IN_PROCESSING:
+                return ""
+            return word
+    return ""
 
 
 @lru_cache(maxsize=4)

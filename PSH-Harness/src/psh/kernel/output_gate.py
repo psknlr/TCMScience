@@ -25,6 +25,7 @@ from typing import Any, Callable, Mapping, Sequence
 from ..contracts import (
     ContextProjection, EgressDenied, RunEnvelope, VerificationFailed,
 )
+from ..evidence.claims import MECHANISM, mechanism_subject
 from ..evidence.clauses import asserted
 from ..evidence.record import cited_source
 from ..evidence.support import Claim, ClaimSupport, ClaimSupportVerifier, Relationship
@@ -75,6 +76,20 @@ _STATISTICAL = re.compile(
 # one, and that it exempts only its own clause, is defined once in ``evidence.clauses``:
 # "黄芪能治愈肺癌，未来研究将优化剂量" still claims a cure.
 
+#: A quotation: words a sentence attributes to its source verbatim, inside quotation marks or
+#: after a verb of recording and a colon (《伤寒论》第34条记载：……). A quotation that is not in
+#: the record it cites is a misquotation however well the rest of the sentence matches: the
+#: overlap of "喘而汗出者，桂枝汤主之" with the passage that names 葛根黄芩黄连汤 is high.
+_QUOTED = re.compile(r"[「“\"]([^」”\"]{4,})[」”\"]")
+_RECORDED = re.compile(r"(?:记载|记述|原文|写道|云|曰|\bstates|\breads)\s*[:：]\s*(.+)$", re.I)
+_NOT_TEXT = re.compile(r"[\s\W_]+", re.UNICODE)
+
+
+def _bare(text: str) -> str:
+    """Letters and digits only, lower-cased: quotations compare without punctuation."""
+    return _NOT_TEXT.sub("", text or "").lower()
+
+
 #: Hedge cues. Retained for certainty grading, no longer used to skip verification.
 _HEDGE = re.compile(
     r"\b(?:may|might|could|suggest\w*|appear\w*|possibl\w+|unclear|uncertain|hypothes\w+"
@@ -114,13 +129,28 @@ class OutputGate:
         default: an unhedged sentence in a draft is a normal intermediate state, and the
         review places strict citation policy in the literature and writing profiles rather
         than in the kernel.
+    citation_patterns:
+        Identifier shapes beyond PMID, NCT and DOI that this deployment's records answer to,
+        each a regular expression with one group for the identifier: a TCM deployment cites
+        classical passages by their record ids (``passage.shl_34``). A citation the gate
+        cannot recognise is a citation it never looks up, so a fabricated or tampered
+        passage went out unexamined (governance ablation, 2026-10).
     """
 
     name = "final_output_gate"
 
     def __init__(self, *, verifier: ClaimSupportVerifier | None = None,
                  require_support: bool = True, require_citation: bool = False,
-                 audit: Callable[..., Any] | None = None) -> None:
+                 audit: Callable[..., Any] | None = None,
+                 citation_patterns: Sequence[str] = ()) -> None:
+        extra = []
+        for pattern in citation_patterns:
+            compiled = re.compile(pattern)
+            if compiled.groups != 1:
+                raise ValueError(f"citation pattern {pattern!r} must capture the identifier "
+                                 "in exactly one group")
+            extra.append(compiled)
+        self._ids = _IDS + tuple(extra)
         self.verifier = verifier or ClaimSupportVerifier()
         self.require_support = require_support
         self.require_citation = require_citation
@@ -205,6 +235,10 @@ class OutputGate:
                 # behind its citation went out unexamined (governance ablation, 2026-10).
                 for identifier in self._identifiers(sentence):
                     problem = self._citation_problem(sources, identifier)
+                    if not problem:
+                        source, _ = cited_source(sources, identifier)
+                        problem = (self._quotation_problem(sentence, source)
+                                   or self._mechanism_problem(sentence, source, supports))
                     if problem:
                         unsupported.append(f"{identifier}: {problem}")
                 continue
@@ -218,6 +252,10 @@ class OutputGate:
                     unsupported.append(f"{identifier}: {mismatch}")
                     continue
                 statement = self._strip_citations(sentence)
+                misquoted = self._quotation_problem(sentence, source)
+                if misquoted:
+                    unsupported.append(f"{identifier}: {misquoted}")
+                    continue
                 if source is not None and hasattr(source, "content_hash"):
                     support = self.verifier.verify_record(statement=statement,
                                                           record=source)
@@ -302,17 +340,61 @@ class OutputGate:
             return str(usable[1])
         return ""
 
-    @staticmethod
-    def _identifiers(text: str) -> list[str]:
+    def _quotation_problem(self, sentence: str, source: Any) -> str:
+        """Why the words a sentence quotes from its source cannot stand; "" if they can."""
+        text = source if isinstance(source, str) else getattr(source, "content", None)
+        if not text:
+            return ""
+        body = self._strip_citations(sentence)
+        quotes = [m.group(1) for m in _QUOTED.finditer(body)]
+        recorded = _RECORDED.search(body)
+        if recorded:
+            quotes.append(recorded.group(1))
+        held = _bare(text)
+        for quote in quotes:
+            words = _bare(quote)
+            if len(words) >= 4 and words not in held:
+                return f"the words it quotes are not in the cited record: {quote[:60]!r}"
+        return ""
+
+    def _mechanism_problem(self, sentence: str, source: Any,
+                           supports: list[ClaimSupport]) -> str:
+        """Why a mechanistic sentence's record does not back it; "" if it does.
+
+        A mechanism, a docking result or a target relation is not a claim about patients,
+        but a sentence asserting one and citing a record tells the reader the record says
+        so. Two things are checked: the agent it names is one the record reports on (a
+        docking sentence about berberine citing a baicalin run passed on overlap), and the
+        record supports the sentence at the strength it is written ("always completely
+        inhibits" over "may inhibit"). A methods sentence names no mechanism and is left
+        alone.
+        """
+        if not MECHANISM.search(asserted(sentence)) or not hasattr(source, "content_hash"):
+            return ""
+        statement = self._strip_citations(sentence)
+        claimed = mechanism_subject(statement)
+        if claimed:
+            reported = {mechanism_subject(part) for part in
+                        re.split(r"(?<=[.;。；！？])\s*", source.content or "")} - {""}
+            key = _bare(claimed)
+            if reported and not any(key in _bare(r) or _bare(r) in key for r in reported):
+                return (f"the sentence is about {claimed!r}; the record reports on "
+                        f"{', '.join(sorted(reported))}")
+        support = self.verifier.verify_record(statement=statement, record=source)
+        supports.append(support)
+        if support.supports or support.provenance_capped:
+            return ""
+        return f"the record does not support it as written: {support.rationale[:160]}"
+
+    def _identifiers(self, text: str) -> list[str]:
         out: list[str] = []
-        for pattern in _IDS:
+        for pattern in self._ids:
             out.extend(m.group(1) for m in pattern.finditer(text))
         return list(dict.fromkeys(out))
 
-    @staticmethod
-    def _strip_citations(sentence: str) -> str:
+    def _strip_citations(self, sentence: str) -> str:
         """Remove citation parentheticals so they do not inflate token overlap."""
         cleaned = sentence
-        for pattern in _IDS:
+        for pattern in self._ids:
             cleaned = pattern.sub(" ", cleaned)
-        return re.sub(r"\(\s*[;,]?\s*\)", " ", cleaned).strip()
+        return re.sub(r"\(\s*[;,]?\s*\)|（\s*[;,；，]?\s*）", " ", cleaned).strip()

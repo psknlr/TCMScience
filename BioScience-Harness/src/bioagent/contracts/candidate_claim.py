@@ -27,6 +27,7 @@ in with ordinary mistakes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, NamedTuple, Sequence
 
@@ -100,6 +101,11 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM012": "an extrapolation is marked validated by evidence that is not present",
     "CLM013": "the claim's stated evidence scope is not what its cited evidence covers",
     "CLM014": "the claim names a drug by a near name of the one its evidence studied",
+    "CLM015": "the claim is about a formula and its evidence about a constituent, or the "
+              "reverse",
+    "CLM016": "the claim names a processing state other than the one its evidence studied",
+    "CLM017": "the claim asserts relevance at human exposure that no cited evidence measured",
+    "CLM018": "the claim counts more independent sources than its evidence holds",
 }
 
 
@@ -386,6 +392,158 @@ def _near_names(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
     return out
 
 
+#: A formula or a finished preparation, by how it is named: 葛根芩连汤, 六味地黄丸, 黄芪注射液,
+#: "Gegen Qinlian decoction". The endings are the ones a formula name takes in this domain.
+_FORMULA_NAME = re.compile(
+    "(?:汤|散|丸|饮|膏|丹|颗粒|胶囊|注射液|口服液|合剂|片)$"
+    r"|\b(?:decoction|powder|pills?|granules?|capsules?|injection|formula)\b", re.I)
+
+#: Kinds whose subject is the thing that acts. A mechanism hypothesis may be generated from
+#: a constituent (that is what network pharmacology does, and the kind says so), and an
+#: attribution or a traditional use quotes what a text says about whatever it names.
+_ACTING_KINDS = frozenset({"efficacy", "association", "safety_signal", "mechanism",
+                           "recommendation"})
+
+
+def _key(text: str) -> str:
+    return re.sub(r"[\s\W_]+", "", str(text or "")).lower()
+
+
+def _is_formula(subject: str) -> bool:
+    return bool(_FORMULA_NAME.search(str(subject or "").strip()))
+
+
+def _constituent_formula(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM015: one constituent's evidence carried to the whole formula, or the reverse.
+
+    A formula is not the sum of what one of its herbs or compounds does in a dish: the dose
+    each reaches, the processing and the other ingredients all differ, so a bench study of
+    baicalin does not show what 葛根芩连汤 does, and a trial of 葛根芩连汤 does not show what
+    黄连 alone does. Compared on the structured subjects; an item whose subject is the
+    claim's own is evidence about it.
+    """
+    if claim.claim_kind not in _ACTING_KINDS or not claim.subject.strip():
+        return []
+    claimed = _key(claim.subject)
+    subjects = [str(getattr(i, "subject", "") or "").strip() for i in usable]
+    if any(_key(s) == claimed for s in subjects if s):
+        return []
+    others = [s for s in subjects if s]
+    if not others:
+        return []
+    if _is_formula(claim.subject) and not any(_is_formula(s) for s in others):
+        return [Reason("CLM015", (
+            f"the claim is about the formula {claim.subject!r}; its evidence studied "
+            f"{', '.join(sorted(set(others)))}, not the formula"))]
+    if not _is_formula(claim.subject) and all(_is_formula(s) for s in others):
+        return [Reason("CLM015", (
+            f"the claim credits {claim.subject!r} with what its evidence found for the "
+            f"formula {', '.join(sorted(set(others)))}"))]
+    return []
+
+
+def _processing_transfers(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM016: a drug named in one processing state on evidence about another.
+
+    Processing changes what a drug does — 生附子 is the raw root and far more toxic than 制附子,
+    炙甘草 is not 生甘草 — but the resolver strips it to find the drug, so 生附子 and 制附子 are
+    the same id and the near-name check (CLM014) cannot see the substitution. Only states
+    written on both sides are compared: an unstated state is not a different one.
+    """
+    from ..sources.materia import names_in, processing_of
+    studied: dict[str, set[str]] = {}
+    for item in usable:
+        for text in (str(getattr(item, "subject", "") or ""),
+                     str(getattr(item, "quote", "") or "")):
+            for mention in names_in(text):
+                if mention.identified:
+                    studied.setdefault(mention.drug_id, set()).add(processing_of(mention, text))
+    out: list[Reason] = []
+    seen: set[tuple[str, str]] = set()
+    for text in (claim.subject, claim.text):
+        for mention in names_in(text):
+            if not mention.identified or mention.drug_id not in studied:
+                continue
+            state = processing_of(mention, text)
+            states = studied[mention.drug_id] - {""}
+            if state and states and state not in states and (mention.drug_id, state) not in seen:
+                seen.add((mention.drug_id, state))
+                out.append(Reason("CLM016", (
+                    f"the claim names {mention.drug_id} processed as {state!r}; its evidence "
+                    f"studied it as {', '.join(sorted(states))}, and one processing state's "
+                    "evidence does not carry to another")))
+    return out
+
+
+#: Wording that places an effect at the exposure people actually reach.
+_HUMAN_EXPOSURE = re.compile(
+    r"\b(?:at\s+)?(?:clinically\s+(?:relevant|achievable|attainable)|therapeutic)"
+    r"\s+(?:concentrations?|doses?|levels?|exposures?)\b"
+    r"|\bconcentrations?\s+(?:reached|achieved|attained|found|seen)\s+in\s+"
+    r"(?:patients|humans|people|plasma)\b"
+    r"|\bat\s+(?:the\s+)?(?:clinical|therapeutic|usual)\s+doses?\b"
+    "|临床(?:相关|可达到?的?)?(?:血药)?(?:浓度|剂量)|人体(?:可达到?的?)?(?:血药)?浓度"
+    "|治疗剂量下|常规剂量下", re.I)
+
+#: Designs that observe people at the doses they take.
+_HUMAN_DESIGNS = frozenset({"randomized_trial", "observational", "case_report",
+                            "systematic_review"})
+
+
+def _exposure(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM017: relevance at human exposure asserted on evidence that measured none.
+
+    A cell assay at 100 µM says what 100 µM does; whether patients reach it is a
+    pharmacokinetic question the assay does not answer. "At concentrations reached in
+    patients" written over in-vitro or animal evidence alone asserts the answer.
+    """
+    hit = _HUMAN_EXPOSURE.search(claim.text)
+    if not hit or any(getattr(i, "design", "") in _HUMAN_DESIGNS for i in usable):
+        return []
+    designs = sorted({str(getattr(i, "design", "")) for i in usable})
+    return [Reason("CLM017", (
+        f"the claim places the effect at human exposure ({hit.group(0)!r}); its evidence is "
+        f"{', '.join(designs)}, which measured no exposure in people"))]
+
+
+_WORD_COUNTS = {"two": 2, "three": 3, "four": 4, "five": 5, "several": 2, "multiple": 2,
+                "两": 2, "二": 2, "三": 3, "四": 4, "五": 5, "多": 2, "数": 2}
+_SOURCE_COUNT = re.compile(
+    r"\b(\d+|two|three|four|five|several|multiple)\s+(?:independent\s+)?"
+    r"(?:trials|studies|cohorts|reports|sources|replications)\b"
+    r"|([两二三四五多数\d]+)项(?:独立)?(?:研究|试验|队列)", re.I)
+
+
+def _source_identity(item: Any) -> str:
+    from psh.evidence.record import canonical_identifier
+    scheme, value = canonical_identifier(str(getattr(item, "identifier", "") or ""))
+    return f"{scheme}:{value}" if value else str(getattr(item, "id", ""))
+
+
+def _duplicates(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM018: one source counted as several.
+
+    The same trial reaches a run through PubMed, Europe PMC, a database that abstracts it
+    and a review that quotes it; each arrives as its own evidence item. Cited together,
+    they are one study, and "two independent trials" written over them counts a reprint as
+    a replication. Sources are compared by canonical identifier (``PMID: 1`` and
+    ``pmid:1`` are one).
+    """
+    stated = 0
+    for text in (claim.text, claim.confidence_basis):
+        for match in _SOURCE_COUNT.finditer(text or ""):
+            word = (match.group(1) or match.group(2) or "").lower()
+            stated = max(stated, int(word) if word.isdigit() else _WORD_COUNTS.get(word, 0))
+    if stated < 2:
+        return []
+    identities = {_source_identity(i) for i in usable}
+    if len(identities) >= stated:
+        return []
+    return [Reason("CLM018", (
+        f"the claim counts {stated} independent sources; its {len(usable)} evidence item(s) "
+        f"are {len(identities)} source(s): {', '.join(sorted(identities))}"))]
+
+
 def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerdict:
     """Whether ``claim`` may be made, given an id → :class:`EvidenceItem` index.
 
@@ -496,6 +654,13 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
     # other, and nothing compared the two. Only names that contain one another are
     # compared, so a claim that also mentions some other drug is not refused for it.
     reasons.extend(_near_names(claim, usable))
+    # The level, the processing state, the exposure and the count of what was studied are
+    # each part of what a finding is about, and each was carried silently from evidence to
+    # claim before these checks (TCM domain checks, 2026-10).
+    reasons.extend(_constituent_formula(claim, usable))
+    reasons.extend(_processing_transfers(claim, usable))
+    reasons.extend(_exposure(claim, usable))
+    reasons.extend(_duplicates(claim, usable))
 
     # The kind is what licensing reads, so the words must not outrun it. An
     # "attribution" whose text says a drug is proven effective for all patients

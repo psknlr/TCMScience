@@ -85,13 +85,45 @@ def test_a_direction_no_edge_records_is_caught_only_by_the_release_check(report)
     assert report.adds()["release_path"] == ["M1/borrowed_direction"]
 
 
-def test_the_remaining_gaps_are_listed_not_hidden(report):
+#: The ten errors the full stack released before the scope, mechanism, quotation and
+#: passage-citation checks (2026-10), and the gate that refuses each now.
+FORMERLY_RELEASED = {
+    "E2/outcome_text": "output",        # cardiovascular death is not all-cause mortality
+    "A1/population_text": "output",     # "adults aged 65 or older" is read as a population
+    "A2/population_text": "output",     # the exposure in 「…与…相关」 is read as the subject
+    "A2/outcome_text": "output",
+    "S1/population_text": "output",     # 有关, and liver injury as an outcome
+    "M1/certainty_text": "output",      # a mechanism sentence is held to its record
+    "H1/subject_text": "output",        # and to the agent its record reports on
+    "C1/subject_text": "output",        # quoted words must be in the passage cited
+    "C1/tampered": "output|ingested",   # passage ids are citations the gate looks up
+    "C1/fabricated_citation": "output",
+}
+
+
+def test_the_errors_the_stack_used_to_release_are_refused_by_the_check_that_owns_them(
+        report):
+    for case_id, gate in FORMERLY_RELEASED.items():
+        assert report.results[case_id][gate].refused, case_id
+
+
+def test_whatever_survives_is_listed_with_its_error_class(report):
+    """None survive this construction; if a new operator finds a gap it must be listed."""
     survivors = {c.id for c in report.survivors()}
-    # Passage citations are not machine-checked, so a tampered or invented passage id
-    # and a misattribution in the text pass the stack: listed in the results and docs.
-    assert {"C1/fabricated_citation", "C1/tampered", "C1/subject_text"} <= survivors
-    assert all(report.mutated[[c.id for c in report.mutated].index(s)].error_class
-               for s in survivors)
+    by_id = {c.id: c for c in report.mutated}
+    assert all(by_id[s].error_class for s in survivors)
+
+
+@pytest.mark.parametrize("case_id, code", [
+    ("E1/constituent_formula", "CLM015"),   # 黄连 credited with 葛根芩连汤's trial
+    ("M1/constituent_formula", "CLM015"),   # a formula claimed from one compound's assay
+    ("E4/processing_transfer", "CLM016"),   # 生附子 on evidence about 制附子
+    ("M1/exposure_text", "CLM017"),         # a bench result placed at patients' exposure
+    ("E1/duplicate_source", "CLM018"),      # one trial, counted as two
+    ("E2/duplicate_source", "CLM018"),
+])
+def test_tcm_domain_errors_are_refused_by_the_claim_contract(report, case_id, code):
+    assert code in report.results[case_id]["claim_contract"].codes
 
 
 def test_the_committed_results_are_the_ones_the_code_produces(report):
@@ -146,7 +178,7 @@ def test_fixture_sources_cannot_be_mistaken_for_publications():
     for case in base_cases():
         identifier = case.source.identifier
         assert (identifier.startswith("doi:10.5555/") or identifier == "PMID: 34449189"
-                or identifier.startswith("shanghanlun:")), identifier
+                or identifier.startswith("passage.")), identifier
 
 
 def test_a_case_round_trips():

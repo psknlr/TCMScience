@@ -29,6 +29,12 @@ families are:
     "all patients", "every patient", 所有患者, 所有癌症 — no evidence in this
     system covers every patient; a universal population is always an
     extrapolation.
+``absolute``
+    "always", "invariably", "without exception", 总是, 必然, 无一例外 — an
+    effect stated as holding in every instance. No single study licenses that,
+    and it is how a bench finding ("compound A may inhibit T1") was rewritten as
+    "compound A always completely inhibits T1" and released (governance
+    ablation, 2026-10).
 
 A phrase preceded closely by a negation ("not proven", 未证实, 尚无证据表明 …
 有效) is not counted: stating that something is *not* established is the
@@ -85,6 +91,11 @@ _FAMILIES: tuple[tuple[str, frozenset[str], tuple[str, ...]], ...] = (
         r"individuals|humans|adults|children)\b",
         r"所有(?:\S{0,6})?(?:患者|病人|人群|病例|人)", r"一切(?:\S{0,6})?(?:患者|病人)",
         r"任何(?:\S{0,6})?(?:患者|病人)",
+    )),
+    ("absolute", frozenset(), (
+        r"\b(?:always|invariably|without\s+exception|in\s+(?:all|every)\s+cases?"
+        r"|never\s+fails?)\b",
+        r"总是", r"必然", r"必定", r"一律", r"无一例外", r"任何情况下",
     )),
 )
 

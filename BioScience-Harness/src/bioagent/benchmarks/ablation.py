@@ -105,6 +105,7 @@ class Case:
     path_object: str = ""
     cited_as: str = ""             # the key the record is supplied under ("" = citation)
     supplied: bool = True          # whether any record is supplied for the citation
+    duplicates: int = 1            # how many evidence items carry the one cited study
     error_class: str = ""          # "" for a base case
     base: str = ""
     gold: str = "release"          # release | refuse
@@ -131,6 +132,7 @@ class Case:
                    path_object=str(data.get("path_object") or ""),
                    cited_as=str(data.get("cited_as") or ""),
                    supplied=bool(data.get("supplied", True)),
+                   duplicates=int(data.get("duplicates") or 1),
                    error_class=str(data.get("error_class") or ""),
                    base=str(data.get("base") or ""),
                    gold=str(data.get("gold") or "release"),
@@ -261,6 +263,20 @@ MUTATIONS: tuple[Mutation, ...] = (
              "identifier", lambda c: _citation(c, "citation_mismatch", True)),
     Mutation("fabricated_citation", "a citation with no record behind it",
              lambda c: _citation(c, "fabricated_citation", False)),
+    # What a finding is about, beyond its named subject (the TCM domain checks, CLM015 to
+    # CLM018): the level studied, the processing state, the exposure reached, and how many
+    # studies there are.
+    Mutation("constituent_formula", "one constituent's evidence carried to the whole formula, "
+             "or the formula's credited to one constituent",
+             lambda c: _swap(c, "constituent_formula", ("subject",))),
+    Mutation("processing_transfer", "evidence for one processing state carried to another "
+             "(制附子 to 生附子)",
+             lambda c: _swap(c, "processing_transfer", ("subject", "entities"))),
+    Mutation("exposure_text", "a bench finding placed at the concentrations patients reach",
+             lambda c: _swap(c, "exposure_text", name="exposure_text")),
+    Mutation("duplicate_source", "one study, reached through two databases, counted as two "
+             "independent ones",
+             lambda c: _swap(c, "duplicate_source", name="duplicate_source", duplicates=2)),
 )
 
 
@@ -309,8 +325,13 @@ class _Context:
     def kernel(self) -> Any:
         if self._kernel is None:
             from psh import PSHConfig, TrustedKernel
-            self._kernel = TrustedKernel(
-                PSHConfig(state_dir=self.workdir / "psh").ensure_dirs())
+
+            from ..tcm.model import PASSAGE_CITATION
+            # The deployment's citation shapes, as a TCM deployment configures them: a
+            # passage is cited by its record id and looked up like a DOI.
+            self._kernel = TrustedKernel(PSHConfig(
+                state_dir=self.workdir / "psh",
+                citation_patterns=(PASSAGE_CITATION,)).ensure_dirs())
         return self._kernel
 
 
@@ -474,17 +495,22 @@ def _gate_claim_contract(case: Case, ctx: _Context) -> GateResult:
         # record as it reads; only the kernel's signature check sees the edit.
         retracted="retracted" if case.source.retracted
         else "not_retracted").located_in(case.source.text)
+    # The one study, as each database that holds it hands it over: the same identifier on
+    # every item. A claim citing them all cites one study, however many items it lists.
+    items = {item.id: item}
+    for n in range(2, case.duplicates + 1):
+        items[f"e{n}"] = replace(item, id=f"e{n}")
     claim = CandidateClaim(
         id="c1", text=case.statement, claim_kind=case.claim_kind, subject=case.subject,
         predicate=case.direction or "is related to", object=case.outcome or case.subject,
-        supports=("e1",), asserted_population=case.population,
+        supports=tuple(items), asserted_population=case.population,
         supported_population=case.source.population, asserted_outcome=case.outcome,
         supported_outcome=case.source.outcome,
         direction=case.direction or "unclear",
         confidence=0.5, confidence_basis="one cited source",
         hedged=case.certainty in ("tentative", "uncertain"),
         falsified_by="a study of the same design that finds no effect")
-    verdict = check_claim(claim, {"e1": item})
+    verdict = check_claim(claim, items)
     if not verdict.allowed:
         return GateResult("claim_contract", True, codes=verdict.codes,
                           detail="; ".join(verdict.reason_text))
