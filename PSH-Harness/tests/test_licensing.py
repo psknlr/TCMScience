@@ -252,3 +252,49 @@ def test_the_coding_profile_does_not_permit_vendoring():
                                  license_spdx="MIT", integration_mode="vendor")
     ok, why = vendored.compatible_with(policy.envelope())
     assert not ok and "vendor" in why
+
+
+# ============================================================ a commercial purpose
+
+@pytest.mark.parametrize("spdx,mode,expected", [
+    ("MIT", "vendor", LicenseDecision.ALLOW),
+    ("Apache-2.0", "federated", LicenseDecision.ALLOW),
+    ("GPL-3.0", "vendor", LicenseDecision.PREFER_ALTERNATIVE),
+    ("GPL-3.0", "federated", LicenseDecision.ALLOW),
+    ("NONE", "vendor", LicenseDecision.DENY),
+    ("NONE", "federated", LicenseDecision.DENY),
+    ("", "adapter-only", LicenseDecision.DENY),
+    ("NOASSERTION", "native", LicenseDecision.ALLOW),
+    ("Weird-Lab-Licence-1.0", "federated", LicenseDecision.DENY),
+])
+def test_a_commercial_purpose_needs_a_grant_to_run_upstream_code(spdx, mode, expected):
+    """``NONE + federated`` passes the research table — invoking is not redistributing —
+    and was being read as permission to use the code in a product. It is not one."""
+    assert license_ruling(spdx, mode, commercial=True).decision is expected
+
+
+def test_the_research_answers_are_unchanged_by_the_commercial_axis():
+    for cls_spdx in ("MIT", "GPL-3.0", "NONE", "", "Weird-Lab-Licence-1.0"):
+        for mode in (*INTEGRATION_MODES, "adapter-only", "sneak-it-in"):
+            assert license_ruling(cls_spdx, mode) == license_ruling(cls_spdx, mode,
+                                                                    commercial=False)
+
+
+def test_the_commercial_table_is_never_more_permissive_than_the_research_one():
+    """Cell for cell: a purpose can only narrow what the code licence allows."""
+    from psh.licensing import COMMERCIAL_LICENSE_TABLE, LICENSE_TABLE
+
+    rank = {LicenseDecision.DENY: 0, LicenseDecision.PREFER_ALTERNATIVE: 1,
+            LicenseDecision.ALLOW: 2}
+    assert set(COMMERCIAL_LICENSE_TABLE) == set(LICENSE_TABLE)
+    for license_class, row in LICENSE_TABLE.items():
+        assert set(COMMERCIAL_LICENSE_TABLE[license_class]) == set(row)
+        for mode, decision in row.items():
+            assert rank[COMMERCIAL_LICENSE_TABLE[license_class][mode]] <= rank[decision]
+
+
+def test_a_commercial_refusal_says_which_table_decided_and_why():
+    ruling = license_ruling("NONE", "federated", commercial=True)
+    assert ruling.rule == "license.none.federated.commercial"
+    assert "no permission to use it commercially" in ruling.reason
+    assert license_ruling("NONE", "federated").rule == "license.none.federated"

@@ -24,6 +24,15 @@ permissible in principle, plus a per-policy narrowing of what this profile allow
 the existing pattern for destinations, and reusing it means the two dimensions behave the
 same way under ``restrict``, ``meet`` and delegation without anyone having to remember to
 make them.
+
+A commercial purpose asks a narrower question, and has its own table. ``federated`` use
+of unlicensed code is allowed above because invoking it is not redistributing it — which
+says nothing about whether its owner lets anyone use it in a product, and the answer was
+being read as that permission. With ``commercial=True`` running upstream code needs a
+grant: an unlicensed component is refused federated as well as vendored, and a native
+equivalent, which runs none of its code, is still allowed. The commercial table is never
+more permissive than the research one, cell for cell, and the research answers are
+unchanged.
 """
 
 from __future__ import annotations
@@ -33,7 +42,8 @@ from enum import Enum
 from typing import Mapping
 
 __all__ = ["LicenseClass", "LicenseDecision", "LicenseRuling", "INTEGRATION_MODES",
-           "LICENSE_CLASSES", "classify_license", "license_ruling", "normalise_mode"]
+           "LICENSE_CLASSES", "COMMERCIAL_LICENSE_TABLE", "classify_license",
+           "license_ruling", "normalise_mode"]
 
 
 class LicenseClass(str, Enum):
@@ -101,6 +111,21 @@ LICENSE_TABLE: Mapping[str, Mapping[str, LicenseDecision]] = {
     },
 }
 
+#: The rule for a commercial purpose. The same as ``LICENSE_TABLE`` except where silence
+#: was standing in for a grant: running unlicensed code in a product needs its owner's
+#: permission whichever process it runs in. Permissive and copyleft licences grant use for
+#: any purpose, so their rows do not change.
+COMMERCIAL_LICENSE_TABLE: Mapping[str, Mapping[str, LicenseDecision]] = {
+    **LICENSE_TABLE,
+    LicenseClass.NONE.value: {
+        "vendor": LicenseDecision.DENY,
+        # No upstream code runs, so the upstream's silence does not bind it.
+        "native": LicenseDecision.ALLOW,
+        # Invoking is use, and commercial use of code nobody licensed is not granted.
+        "federated": LicenseDecision.DENY,
+    },
+}
+
 
 @dataclass(frozen=True, slots=True)
 class LicenseRuling:
@@ -140,12 +165,19 @@ def normalise_mode(mode: str | None) -> str:
     return value.replace("-", "_") if value not in INTEGRATION_MODES else value
 
 
-def license_ruling(spdx: str | None, mode: str | None) -> LicenseRuling:
-    """Rule on one (licence, integration mode) pair. Unknown combinations are refused."""
+def license_ruling(spdx: str | None, mode: str | None, *,
+                   commercial: bool = False) -> LicenseRuling:
+    """Rule on one (licence, integration mode) pair. Unknown combinations are refused.
+
+    ``commercial=True`` rules for a commercial purpose (``COMMERCIAL_LICENSE_TABLE``), and
+    its rule names end in ``.commercial`` so an audit record says which table decided.
+    """
     license_class = classify_license(spdx)
     normalised = normalise_mode(mode)
-    decision = LICENSE_TABLE.get(license_class, {}).get(normalised)
+    table = COMMERCIAL_LICENSE_TABLE if commercial else LICENSE_TABLE
+    decision = table.get(license_class, {}).get(normalised)
     named = spdx or "no licence"
+    rule = f"license.{license_class}.{normalised}" + (".commercial" if commercial else "")
 
     if decision is None:
         return LicenseRuling(
@@ -153,17 +185,26 @@ def license_ruling(spdx: str | None, mode: str | None) -> LicenseRuling:
             f"no rule covers licence class {license_class!r} integrated as {normalised!r}; "
             f"integration mode must be one of {list(INTEGRATION_MODES)}",
             rule="license.default_deny")
+    if decision is LicenseDecision.DENY and commercial:
+        # Not the research advice to invoke it federated instead: that is refused too.
+        return LicenseRuling(
+            decision, license_class, normalised,
+            f"{named} grants no licence, and running code nobody licensed, copied in or "
+            "invoked in its own process, is no permission to use it commercially; a "
+            "commercial run needs a licence that grants the use, or a native equivalent",
+            rule=rule)
     if decision is LicenseDecision.DENY:
         return LicenseRuling(
             decision, license_class, normalised,
             f"{named} does not permit {normalised} use; invoke the upstream in its own "
             "process (federated) or use a native equivalent",
-            rule=f"license.{license_class}.{normalised}")
+            rule=rule)
     if decision is LicenseDecision.PREFER_ALTERNATIVE:
         return LicenseRuling(
             decision, license_class, normalised,
             f"{named} is copyleft; prefer a native equivalent before vendoring",
-            rule=f"license.{license_class}.{normalised}")
+            rule=rule)
     return LicenseRuling(decision, license_class, normalised,
-                         f"{named} permits {normalised} use",
-                         rule=f"license.{license_class}.{normalised}")
+                         f"{named} permits {normalised} use"
+                         + (" for a commercial purpose" if commercial else ""),
+                         rule=rule)
