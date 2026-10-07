@@ -284,7 +284,8 @@ class KmerIndex:
             at = self._lookup(canon.ravel()).reshape(canon.shape)
             found = at >= 0
             first = np.argmax(found, axis=1)
-            cls = np.where(found, self.values[np.where(found, at, 0)], -1)
+            # int64 throughout: the sentinel below does not fit the index's int32
+            cls = np.where(found, self.values[np.where(found, at, 0)].astype(np.int64), -1)
             top = cls.max(axis=1)
             bottom = np.where(found, cls, np.iinfo(np.int64).max).min(axis=1)
             for r, i in enumerate(rows):
