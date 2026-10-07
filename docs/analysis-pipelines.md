@@ -341,8 +341,16 @@ bioagent admet --verify admet/
 The archive is about 1.5 MB, fetched once from Harvard Dataverse and held to its pinned
 SHA-256. The models are built where they run, and nothing trained is shipped. Each model
 card records the data, the archive's digest, the train and test sizes, the TDC metric on
-the test set, the features, the library versions, and the model file's SHA-256, which is
-checked before the file is loaded.
+the test set, the features, the library versions, the seed and iteration cap, and the
+SHA-256 of the model file and of its applicability-domain file, both checked before they
+are loaded.
+
+A full build takes from minutes to most of an hour, depending on the machine. Each card is
+written as soon as its model is saved, so an interrupted build keeps what it finished, and
+running `--build-models` again trains only the endpoints that are missing or no longer
+stand: a model is kept only when both files match its card and the card was built from
+the same archive, seed, iteration cap, scikit-learn and RDKit. `--rebuild` trains every
+endpoint asked for again.
 
 ### How it is checked
 
@@ -507,7 +515,7 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 结构警示：PAINS、Brenk、NIH；
 - 22 个 ADMET 终点（需先运行一次 `bioagent admet --build-models`）：吸收、分布、代谢、排泄、毒性各项，每项都给出模型卡记录的留出成绩，以及该分子是否落在模型适用域内（与训练集的最大 Tanimoto 相似度低于 0.3 即判为域外）。
 
-模型训练数据为 Therapeutics Data Commons 的 ADMET 基准集，采用其官方骨架划分，因此留出成绩可与 TDC 排行榜对照。数据包约 1.5 MB，只下载一次并按固定 SHA-256 校验；模型在本机训练，不随代码分发。模型文件本身也带摘要，加载前校验。
+模型训练数据为 Therapeutics Data Commons 的 ADMET 基准集，采用其官方骨架划分，因此留出成绩可与 TDC 排行榜对照。数据包约 1.5 MB，只下载一次并按固定 SHA-256 校验；模型在本机训练，不随代码分发。模型文件与适用域文件都带摘要，加载前校验。每个终点训练完即写入模型卡，构建中断后已完成的部分保留，再次运行只训练缺失或不再匹配的终点（归档、种子、迭代上限、scikit-learn 与 RDKit 版本任一不同即重训）；`--rebuild` 全部重训。
 
 **适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
 
