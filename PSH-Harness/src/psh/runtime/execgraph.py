@@ -34,6 +34,10 @@ class TaskState(str, Enum):
     RETRYABLE = "retryable"        # failed, but another attempt is permitted
     BLOCKED = "blocked"            # an upstream task failed terminally
     CANCELLED = "cancelled"
+    #: The call started work that has not finished (a long job). Not terminal, because the
+    #: work may still succeed; not ready, because calling again is collection, which the
+    #: loop does on its own schedule; never succeeded, so nothing downstream reads it.
+    WAITING = "waiting"
 
 
 _TERMINAL = frozenset({TaskState.SUCCEEDED, TaskState.FAILED, TaskState.BLOCKED,
@@ -58,6 +62,9 @@ class TaskNode:
     #: What the component said it fell short on. A degraded result is still a result;
     #: the caveat travels to the loop's result and to the release as a limitation.
     caveats: tuple[str, ...] = ()
+    #: While WAITING, the kernel's record of the outstanding work (a ``PendingOutcome``):
+    #: its reference and the digest the next call for it names. Never a result.
+    pending: Any = None
 
     @property
     def id(self) -> str:
@@ -89,7 +96,7 @@ class ExecutionGraph:
         with self._lock:
             out: list[TaskNode] = []
             for node in self.nodes.values():
-                if node.state in (TaskState.RUNNING, *_TERMINAL):
+                if node.state in (TaskState.RUNNING, TaskState.WAITING, *_TERMINAL):
                     continue
                 if all(self.nodes[d].state is TaskState.SUCCEEDED
                        for d in node.task.dependencies if d in self.nodes):
@@ -107,6 +114,12 @@ class ExecutionGraph:
     @property
     def failed(self) -> list[TaskNode]:
         return [n for n in self.nodes.values() if n.state is TaskState.FAILED]
+
+    @property
+    def waiting(self) -> list[TaskNode]:
+        """Tasks whose call started work that has not finished."""
+        with self._lock:
+            return [n for n in self.nodes.values() if n.state is TaskState.WAITING]
 
     def results(self) -> dict[str, Any]:
         return {n.id: n.result for n in self.succeeded}
@@ -127,12 +140,33 @@ class ExecutionGraph:
                     for n in self.succeeded}
 
     # ---------------------------------------------------------------- mutation
-    def mark_running(self, task_id: str, *, at: float) -> None:
+    def mark_running(self, task_id: str, *, at: float, collecting: bool = False) -> None:
+        """A call for this task is in flight. ``collecting``: it collects work an earlier
+        call started, so it is a poll and not another attempt — ``attempts`` counts starts
+        and drives the retry policy, and polling a job is not retrying it."""
         with self._lock:
             node = self.nodes[task_id]
             node.state = TaskState.RUNNING
-            node.attempts += 1
+            if not collecting:
+                node.attempts += 1
             node.started_at = at
+
+    def mark_waiting(self, task_id: str, pending: Any, *, at: float) -> None:
+        """The call started work that has not finished: keep its record, and no result.
+
+        The node takes the pending outcome's label, which is the join of what the call was
+        given, so a loop's label still covers everything it handed to a component.
+        """
+        with self._lock:
+            node = self.nodes[task_id]
+            node.state = TaskState.WAITING
+            node.pending = pending
+            node.result = None
+            node.error = ""
+            node.finished_at = at
+            label = getattr(pending, "label", None)
+            if label is not None:
+                node.label = label
 
     def mark_succeeded(self, task_id: str, result: Any, *, at: float,
                        label: Any = None, caveats: Sequence[str] = ()) -> None:
@@ -149,6 +183,7 @@ class ExecutionGraph:
             node.error = ""
             node.finished_at = at
             node.caveats = tuple(caveats)
+            node.pending = None
             if label is not None:
                 node.label = label
 
@@ -159,6 +194,7 @@ class ExecutionGraph:
             node.state = TaskState.RETRYABLE if retryable else TaskState.FAILED
             node.error = error
             node.finished_at = at
+            node.pending = None
             if not retryable:
                 self.block_descendants(task_id)
 
@@ -176,7 +212,7 @@ class ExecutionGraph:
             while changed:
                 changed = False
                 for node in self.nodes.values():
-                    if node.done or node.state is TaskState.RUNNING:
+                    if node.done or node.state in (TaskState.RUNNING, TaskState.WAITING):
                         continue
                     upstream = [self.nodes[d] for d in node.task.dependencies
                                 if d in self.nodes]
@@ -189,10 +225,16 @@ class ExecutionGraph:
             return blocked
 
     def cancel_all(self, reason: str) -> int:
+        """Cancel every unfinished task, except one waiting on outstanding work.
+
+        A loop that ends does not stop a job running on an executor; only a recorded grant
+        does. Calling such a task cancelled would say the work stopped when it did not, so
+        it stays WAITING and the loop's result lists it as pending.
+        """
         with self._lock:
             cancelled = 0
             for node in self.nodes.values():
-                if not node.done:
+                if not node.done and node.state is not TaskState.WAITING:
                     node.state = TaskState.CANCELLED
                     node.error = reason
                     cancelled += 1

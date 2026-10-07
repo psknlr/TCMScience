@@ -41,6 +41,10 @@ And one rule about contents, because a checkpoint is a durable write:
   them, joined with a fresh classification, so a resumed graph starts from what the
   original knew and never from PUBLIC. A record without a hash is refused outright — "it
   was never hashed" is not a weaker form of "it verifies".
+* **A task waiting on outstanding work stays waiting.** The work (a long job) runs
+  elsewhere and outlives the process; the record keeps the digest naming it, and the
+  reference itself under the same rule as a result. A resumed loop collects it before
+  anything else runs, and never starts it again.
 """
 
 from __future__ import annotations
@@ -346,6 +350,9 @@ def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None
             error = error.split(":", 1)[0].strip() or "error"      # the class, not the text
         task_states[node.id] = {"state": node.state.value, "attempts": node.attempts,
                                 "error": error}
+        if node.state is TaskState.WAITING and node.pending is not None:
+            task_states[node.id]["pending"] = _pending_record(node.pending, ceiling,
+                                                              allow_results)
 
     usage: dict[str, Any] = {}
     governor = getattr(kernel, "budget", None) if kernel is not None else None
@@ -369,6 +376,39 @@ def capture(state: LoopState, *, policy: Any = None, ceiling: Sensitivity | None
         digests=tuple(state.digests), redacted=redacted, usage=usage,
         policy=policy.as_dict() if policy is not None and hasattr(policy, "as_dict")
         else {})
+
+
+def _pending_record(pending: Any, ceiling: Sensitivity | None,
+                    allow_results: bool) -> dict[str, Any]:
+    """What a checkpoint keeps of a waiting task's outstanding work.
+
+    The digest always: it names the work without saying anything about it, and it is what
+    the next call for the work must carry. The reference itself only where a result with
+    the same label could be written (``withholding_reason``), because it was derived from
+    the task's inputs; withheld, the component's own records still hold it.
+    """
+    label = getattr(pending, "label", None)
+    reference = getattr(pending, "reference", None) or {}
+    stored = withholding_reason(label, ceiling, allow_results) is None and bool(reference)
+    return {"reference_sha256": str(pending.reference_digest),
+            "component_id": str(getattr(pending, "component_id", "") or ""),
+            "label": _label_to_dict(label),
+            "reference": dict(reference) if stored else None}
+
+
+def _pending_from_record(record: Mapping[str, Any], *, run_id: str, kernel: Any) -> Any:
+    """A waiting task's outstanding work, restored from its checkpoint record."""
+    from ..kernel.results import PendingOutcome
+    from .loop import classify_with
+
+    reference = dict(record.get("reference") or {})
+    label = classify_with(kernel, reference, origin="resume:pending")
+    stored = _label_from_dict(record.get("label"))
+    return PendingOutcome(reference=reference,
+                          reference_digest=str(record["reference_sha256"]),
+                          label=label if stored is None else label.merged_with(stored),
+                          component_id=str(record.get("component_id") or ""), run_id=run_id,
+                          reason="restored from a checkpoint")
 
 
 def _redact_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
@@ -487,6 +527,19 @@ def resume(checkpoint: Checkpoint, kernel: Any, *, policy: Any = None,
             # succeeded: the process died mid-call and what it did is not known.
             node.state = TaskState.RETRYABLE
             node.error = node.error or "the process ended while this task was running"
+        elif node.state is TaskState.WAITING:
+            # The work it waits on runs elsewhere and survived the restart; the loop
+            # collects it first thing. Without the digest naming that work there is
+            # nothing to collect by, so the task is retryable and the operation ledger
+            # decides whether a new call may be made.
+            pending = record.get("pending")
+            if isinstance(pending, Mapping) and pending.get("reference_sha256"):
+                node.pending = _pending_from_record(pending, run_id=resumed.run_id,
+                                                    kernel=kernel)
+                node.label = node.pending.label
+            else:
+                node.state = TaskState.RETRYABLE
+                node.error = "the checkpoint does not name the work this task waited on"
 
     # Re-authorise only what has not run. Completed tasks are history; a task that has yet
     # to execute needs authority it may no longer have. The envelopes are kept rather than

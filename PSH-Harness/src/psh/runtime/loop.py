@@ -28,7 +28,7 @@ reason is reported rather than inferred:
 
     goal_satisfied      max_iterations     budget_exhausted    deadline
     no_progress         max_replans        plan_rejected       policy_denied
-    escalated           unrecoverable_error
+    escalated           unrecoverable_error cancelled          awaiting
 
 A loop that can only end by succeeding is not bounded, so the default limits are finite and
 the terminal state always names which one it hit.
@@ -43,8 +43,8 @@ from enum import Enum
 from typing import Any, Callable, Mapping, Sequence
 
 from ..contracts import (
-    ApprovalRequired, BudgetExhausted, ContractViolation, EgressDenied, OperationUnresolved,
-    PolicyDenied, RunEnvelope, ToolTimeout, new_id,
+    ApprovalRequired, BudgetExhausted, CapabilityUnavailable, ContractViolation, EgressDenied,
+    OperationUnresolved, PolicyDenied, ResultPending, RunEnvelope, ToolTimeout, new_id,
 )
 from ..labels import DataLabel, Destination, Labeled, combine, label_of, unwrap
 from .bindings import resolve_bindings
@@ -76,13 +76,16 @@ class TaskEvent:
     """
 
     task_id: str
-    state: str                         # started | succeeded | failed | refused
+    state: str                         # started | succeeded | failed | refused | waiting
     attempt: int = 1
     kind: str = ""
     result: Any = None
     label: Any = None
     caveats: tuple[str, ...] = ()
     error_type: str = ""
+    #: For ``waiting``: the digest of the reference the outstanding work is collected by.
+    #: The reference itself stays with the kernel; an observer records that work exists.
+    reference_digest: str = ""
 
 
 class Termination(str, Enum):
@@ -102,6 +105,10 @@ class Termination(str, Enum):
     #: parent's cancellation, or an operator. Cooperative: checked between iterations,
     #: never mid-call, so a task that has started finishes or times out on its own terms.
     CANCELLED = "cancelled"
+    #: Every task that can still move waits on work an earlier call started and that has
+    #: not finished (a long job). Not a failure and not a result: the loop is paused with
+    #: its state intact, and resuming it collects the work.
+    AWAITING = "awaiting"
     RUNNING = "running"
 
 
@@ -229,6 +236,10 @@ class LoopResult:
     #: Per task, what its component said it fell short on (a degraded result). Carried
     #: to the release as limitations; a value with a caveat is not a value without one.
     caveats: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Per task still waiting, the kernel's record of the outstanding work (a
+    #: ``PendingOutcome``: a labelled reference, no value). Never part of ``results``,
+    #: whatever the termination: work that has not finished is not a result.
+    pending: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -390,6 +401,18 @@ class AgentLoopController:
                 if stop is not None:
                     return self._finish(state, stop, state.detail)
 
+                # Work that earlier calls left pending is collected before anything new
+                # runs, so a job that has finished unblocks its dependents now. A
+                # collection after which nothing can move pauses the loop without spending
+                # an iteration: polling is bounded by the checks just made (the deadline,
+                # cancellation, and the budget, which charges each poll as a tool call) and
+                # by whoever decides when to resume, never by a loop spinning on a job.
+                if state.graph is not None and state.graph.waiting:
+                    self._execute_ready(state, state.graph.waiting)
+                    if self._paused(state):
+                        self._checkpoint(state)
+                        return self._finish(state, Termination.AWAITING, self._awaiting(state))
+
                 state.iteration += 1
 
                 if state.graph is None or state.graph.complete and feedback is not None \
@@ -403,11 +426,14 @@ class AgentLoopController:
                 if ready:
                     self._execute_ready(state, ready)
                 elif not state.graph.complete:
-                    # Nothing ready and nothing finished: every remaining task is blocked.
+                    # Nothing ready and nothing finished: every remaining task is blocked
+                    # (or waits on outstanding work, which blocking leaves alone).
                     state.graph.block_descendants("")
 
                 self._record_progress(state)
                 self._checkpoint(state)
+                if self._paused(state):
+                    return self._finish(state, Termination.AWAITING, self._awaiting(state))
 
                 verdict = self.evaluator.evaluate(
                     state.plan, state.graph, supports=supports,
@@ -477,6 +503,18 @@ class AgentLoopController:
             state.no_progress = 0
         state.digests.append(digest)
 
+    @staticmethod
+    def _paused(state: LoopState) -> bool:
+        """Whether everything that could still move waits on outstanding work."""
+        graph = state.graph
+        return graph is not None and bool(graph.waiting) and not graph.ready()
+
+    @staticmethod
+    def _awaiting(state: LoopState) -> str:
+        waiting = sorted(n.id for n in state.graph.waiting)
+        return (f"{len(waiting)} task(s) wait on work that has not finished "
+                f"({', '.join(waiting[:6])}); resume the loop to collect it")
+
     # --------------------------------------------------------------------- plan
     def _replan(self, state: LoopState, feedback: Verdict | None) -> bool:
         """Produce and validate a plan. Returns False when no replan remains."""
@@ -529,22 +567,35 @@ class AgentLoopController:
             raise first_error
 
     def _execute_task(self, state: LoopState, task: PlanTask) -> None:
-        """Run one task through the broker, with its own envelope and retry policy."""
+        """Run one task through the broker, with its own envelope and retry policy.
+
+        A task whose earlier call left work pending is *collected*: the same call is made
+        again with ``_psh_pending`` naming that work, which the component must only
+        collect. A collection is not another attempt. It does not count against the retry
+        policy, and the guard against repeating a side effect does not apply because it
+        repeats none. It is recognised from the operation ledger as well as from the
+        graph, so a restart that lost the graph's state collects the work instead of
+        starting it a second time.
+        """
         graph = state.graph
         envelope = state.envelope_for(task.task_id)
-        attempt = graph.nodes[task.task_id].attempts + 1
-        delay = task.retry.delay_for(attempt)
-        if delay:
-            self._sleep(delay)
-
-        graph.mark_running(task.task_id, at=time.time())
-        self._observe(TaskEvent(task_id=task.task_id, state="started", attempt=attempt,
-                                kind=task.kind))
-        self._beat()
+        node = graph.nodes[task.task_id]
         identity = (f"{self.operation_namespace}:{task.task_id}"
                     if self.operation_namespace else task.task_id)
         key = f"{state.envelope.run_id}:{identity}"
         ledger = self.operations if task.kind == TaskKind.TOOL else None
+        collecting = self._collecting(state, task, ledger, key)
+        attempt = node.attempts if collecting else node.attempts + 1
+        delay = 0.0 if collecting else task.retry.delay_for(attempt)
+        if delay:
+            self._sleep(delay)
+
+        outstanding = node.pending                # put back if a run-level bound stops a poll
+        graph.mark_running(task.task_id, at=time.time(), collecting=bool(collecting))
+        if not collecting:
+            self._observe(TaskEvent(task_id=task.task_id, state="started", attempt=attempt,
+                                    kind=task.kind))
+        self._beat()
         repeat_safe = True
         if task.kind == TaskKind.TOOL:
             try:
@@ -552,26 +603,35 @@ class AgentLoopController:
             except ContractViolation:
                 manifest = None  # Dispatch reports unavailable components normally.
             repeat_safe = getattr(manifest, "idempotent", None) is True
-            with self._operation_lock:
-                refused = (key in self._nonrepeatable_operations
-                           or (attempt > 1 and not repeat_safe)
-                           or (self.require_idempotent_tools and not repeat_safe))
-                if not repeat_safe:
-                    self._nonrepeatable_operations.add(key)
-            if refused:
-                graph.mark_failed(task.task_id, "OperationUnresolved: unsafe repeated tool operation",
-                                  at=time.time(), retryable=False)
-                # The observer has already been told this attempt started. Telling it the
-                # attempt was refused is what stops a journal reading "started and never
-                # reported" for a call the loop declined to make — the one state a replay
-                # is not allowed to guess about.
-                self._observe(TaskEvent(task_id=task.task_id, state="refused",
-                                        attempt=attempt, kind=task.kind,
-                                        error_type="OperationUnresolved"))
-                self._audit("loop_task_unresolved", state, task_id=task.task_id,
-                            component_id=task.component_id, operation=key)
-                return
-        if ledger is not None:
+            if not collecting:
+                with self._operation_lock:
+                    refused = (key in self._nonrepeatable_operations
+                               or (attempt > 1 and not repeat_safe)
+                               or (self.require_idempotent_tools and not repeat_safe))
+                    if not repeat_safe:
+                        self._nonrepeatable_operations.add(key)
+                if refused:
+                    graph.mark_failed(task.task_id,
+                                      "OperationUnresolved: unsafe repeated tool operation",
+                                      at=time.time(), retryable=False)
+                    # The observer has already been told this attempt started. Telling it
+                    # the attempt was refused is what stops a journal reading "started and
+                    # never reported" for a call the loop declined to make — the one state
+                    # a replay is not allowed to guess about.
+                    self._observe(TaskEvent(task_id=task.task_id, state="refused",
+                                            attempt=attempt, kind=task.kind,
+                                            error_type="OperationUnresolved"))
+                    self._audit("loop_task_unresolved", state, task_id=task.task_id,
+                                component_id=task.component_id, operation=key)
+                    return
+            elif ledger is not None and ledger.get(key) is None:
+                # Work this run left pending before a ledger was attached: record it now,
+                # so the durable view holds it from here on, as pending and not in doubt.
+                ledger.begin(key, component_id=task.component_id,
+                             run_id=state.envelope.run_id, task_id=task.task_id,
+                             idempotent=repeat_safe)
+                ledger.pend(key, collecting)
+        if ledger is not None and not collecting:
             try:
                 self._guard_operation(state, task, key)
             except OperationUnresolved as exc:
@@ -585,15 +645,25 @@ class AgentLoopController:
                 return
         try:
             result = self._dispatch(task, envelope, graph.labeled_results(),
-                                    idempotency_key=key, plan_label=state.plan_label)
+                                    idempotency_key=key, plan_label=state.plan_label,
+                                    collecting=collecting)
         except (BudgetExhausted, ApprovalRequired):
-            if ledger is not None:
+            if collecting:
+                # The bound stopped the poll, not the work: it is still outstanding.
+                graph.mark_waiting(task.task_id, outstanding, at=time.time())
+            elif ledger is not None:
                 ledger.fail(key, "not_started")    # raised before the component ran
             raise                                  # bounds, not task failures
+        except ResultPending as exc:
+            self._record_waiting(state, task, key, exc.pending, collecting=collecting,
+                                 attempt=attempt)
+            return
         except (EgressDenied, PolicyDenied) as exc:
             # A refusal is a fact about authority, not a transient fault. Retrying it would
-            # re-ask a question already answered and burn budget doing it.
-            if ledger is not None:
+            # re-ask a question already answered and burn budget doing it. A refused
+            # collection leaves the ledger's record pending: the poll was refused, and the
+            # work it would have collected is still outstanding.
+            if ledger is not None and not collecting:
                 ledger.fail(key, type(exc).__name__)
             graph.mark_failed(task.task_id, f"{type(exc).__name__}: {exc}",
                               at=time.time(), retryable=False)
@@ -603,6 +673,14 @@ class AgentLoopController:
                         error_type=type(exc).__name__)
             return
         except Exception as exc:  # noqa: BLE001 - one task's fault is not the loop's end
+            if collecting and isinstance(exc, CapabilityUnavailable):
+                # The component could not answer for the work now (its executor is out of
+                # reach). That says nothing about the work, which stays pending: failing
+                # the task would claim an outcome nobody observed.
+                graph.mark_waiting(task.task_id, outstanding, at=time.time())
+                self._audit("loop_task_collection_unavailable", state, task_id=task.task_id,
+                            component_id=task.component_id, reference_sha256=collecting)
+                return
             retryable = repeat_safe and (attempt < task.retry.max_attempts) and task.retry.permits(exc)
             if ledger is not None:
                 if isinstance(exc, ToolTimeout) or not ledger.get(key).idempotent:
@@ -639,6 +717,71 @@ class AgentLoopController:
             self._audit("loop_task_degraded", state, task_id=task.task_id,
                         caveats=len(caveats))
         state.observe(task_id=task.task_id, kind=task.kind, attempt=attempt)
+
+    def _collecting(self, state: LoopState, task: PlanTask, ledger: Any, key: str) -> str:
+        """The digest of the outstanding work this call collects, or "" for a fresh call.
+
+        The graph says so for a task this run saw go pending. The ledger says so after a
+        restart or a replan rebuilt the graph without that state: its record is the durable
+        one, and a fresh call for work it holds as pending would start that work again. A
+        task recognised from the ledger alone gets a record rebuilt from what the ledger
+        keeps (the digest; the reference itself is the component's to hold), so a bound
+        that stops the poll still finds it outstanding.
+        """
+        if task.kind != TaskKind.TOOL:
+            return ""
+        node = state.graph.nodes[task.task_id]
+        if node.state is TaskState.WAITING and node.pending is not None:
+            return str(node.pending.reference_digest)
+        prior = ledger.get(key) if ledger is not None else None
+        if prior is None or prior.state is not OperationState.PENDING \
+                or not prior.result_digest:
+            return ""
+        from ..kernel.results import PendingOutcome
+
+        label = classify_with(self.kernel, dict(task.payload), origin=f"task:{task.task_id}")
+        if task.input_sensitivity:
+            label = label.merged_with(DataLabel(task.input_sensitivity))
+        node.pending = PendingOutcome(
+            reference={}, reference_digest=prior.result_digest, label=label,
+            component_id=task.component_id, run_id=state.envelope.run_id,
+            reason="pending according to the operation ledger")
+        return prior.result_digest
+
+    def _record_waiting(self, state: LoopState, task: PlanTask, key: str, pending: Any, *,
+                        collecting: str, attempt: int) -> None:
+        """Record that a task's call left work pending: WAITING, never succeeded."""
+        graph = state.graph
+        ledger = self.operations if task.kind == TaskKind.TOOL else None
+        digest = str(getattr(pending, "reference_digest", "") or "")
+        why = ""
+        if task.kind != TaskKind.TOOL:
+            why = (f"only a tool call can leave work to collect later, and task "
+                   f"{task.task_id!r} is a {task.kind} task")
+        elif collecting and digest != collecting:
+            why = (f"a collection never starts the work again, and {task.component_id!r} "
+                   f"answered the collection of work {collecting[:16]} with other work "
+                   f"({digest[:16]})")
+        if why:
+            if ledger is not None:
+                ledger.mark_unknown(key, "ContractViolation")
+            self._record_outcome(task, ok=False)
+            graph.mark_failed(task.task_id, f"ContractViolation: {why}", at=time.time(),
+                              retryable=False)
+            self._observe(TaskEvent(task_id=task.task_id, state="failed", attempt=attempt,
+                                    kind=task.kind, error_type="ContractViolation"))
+            self._audit("loop_task_failed", state, task_id=task.task_id,
+                        error_type="ContractViolation", attempt=attempt, retryable=False)
+            return
+        if ledger is not None:
+            ledger.pend(key, digest)
+        graph.mark_waiting(task.task_id, pending, at=time.time())
+        self._observe(TaskEvent(task_id=task.task_id, state="waiting", attempt=attempt,
+                                kind=task.kind, label=getattr(pending, "label", None),
+                                reference_digest=digest))
+        self._audit("loop_task_waiting", state, task_id=task.task_id,
+                    component_id=task.component_id, reference_sha256=digest,
+                    collecting=bool(collecting))
 
     def _guard_operation(self, state: LoopState, task: PlanTask, key: str) -> None:
         """Consult the operation ledger before a tool runs; refuse an unsafe replay.
@@ -686,7 +829,8 @@ class AgentLoopController:
 
     def _dispatch(self, task: PlanTask, envelope: RunEnvelope,
                   upstream: Mapping[str, Any], *, idempotency_key: str = "",
-                  plan_label: Any = None) -> tuple[Any, Any, tuple[str, ...]]:
+                  plan_label: Any = None,
+                  collecting: str = "") -> tuple[Any, Any, tuple[str, ...]]:
         """The only three ways this loop can cause anything to happen.
 
         Returns ``(value, label)``. The label used to be discarded here — the broker hands
@@ -747,6 +891,10 @@ class AgentLoopController:
                 payload["upstream"] = {d: upstream.get(d) for d in task.dependencies}
             if idempotency_key:
                 payload["_psh_idempotency_key"] = idempotency_key
+            if collecting:
+                # The digest of the work this call collects, under the same reserved
+                # prefix: the component must collect that work and never start it again.
+                payload["_psh_pending"] = collecting
             labeled_payload = (Labeled(payload, DataLabel(task.input_sensitivity))
                                if task.input_sensitivity else payload)
             result = broker.call_tool(component, labeled_payload, envelope)
@@ -853,7 +1001,11 @@ class AgentLoopController:
     def _finish(self, state: LoopState, termination: Termination, reason: str,
                 verdict: Verdict | None = None) -> LoopResult:
         state.termination = termination
-        if state.graph is not None and termination is not Termination.GOAL_SATISFIED:
+        # A paused loop keeps its unfinished tasks as they are, to run once the work they
+        # wait on is collected. Any other ending cancels them — but not a waiting task,
+        # whose work goes on wherever it runs (``ExecutionGraph.cancel_all``).
+        if state.graph is not None and termination not in (Termination.GOAL_SATISFIED,
+                                                           Termination.AWAITING):
             state.graph.cancel_all(f"loop terminated: {termination.value}")
         result = LoopResult(
             loop_id=state.loop_id, run_id=state.envelope.run_id, termination=termination,
@@ -867,9 +1019,11 @@ class AgentLoopController:
             label=_result_label(state),
             goal_status=getattr(verdict, "goal_status", "unverified") if verdict else "unverified",
             caveats=({n.id: n.caveats for n in state.graph.nodes.values() if n.caveats}
-                     if state.graph else {}))
+                     if state.graph else {}),
+            pending=({n.id: n.pending for n in state.graph.waiting} if state.graph else {}))
         self._audit("loop_finished", state, termination=termination.value,
-                    iterations=state.iteration, replans=state.replans)
+                    iterations=state.iteration, replans=state.replans,
+                    pending=sorted(result.pending))
         return result
 
     def _observe(self, event: "TaskEvent") -> None:

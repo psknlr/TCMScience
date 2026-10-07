@@ -39,6 +39,16 @@ def test_forbidden_imports_are_caught(source):
     assert checker.check_source("psh.scientist.models", source)
 
 
+@pytest.mark.parametrize("source", [
+    "from .egress import ExecutionBroker", "from ..runtime.loop import AgentLoopController",
+    "import sqlite3", "def f():\n    from .events import EventStore",
+])
+def test_a_result_kind_may_not_import_what_executes(source):
+    assert checker.check_source("psh.kernel.results", source)
+    assert checker.check_source("psh.kernel.results",
+                                "from ..contracts import PendingResult") == []
+
+
 def test_allowed_absolute_relative_and_type_imports():
     assert checker.check_source("psh.scientist.ports", "from .models import Protocol") == []
     assert checker.check_source("psh.workflow.statistics", "from ..scientist.models import Protocol") == []

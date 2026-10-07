@@ -719,6 +719,33 @@ class ExecutionBroker:
             raise EgressDenied(f"hook {exc.hook} withheld the result of {manifest.id}: {exc}",
                                label=payload.label, destination=Destination.LOCAL_COMPUTE) from exc
 
+        from ..contracts import PendingResult, ResultPending
+
+        if isinstance(raw, PendingResult):
+            # The work this call started has not finished. There is no value, so no
+            # ExecutionResult is built: the chain records the reference the work is
+            # collected by (``tool_call_pending``, a type of its own so nothing counting
+            # ``tool_call`` events reads it as a completed call), labelled like the
+            # inputs that started it, and the caller is told by an exception it cannot
+            # mistake for a value.
+            from .results import PendingOutcome
+
+            pending = PendingOutcome.from_component(
+                raw, inputs=[payload], component_id=manifest.id, run_id=envelope.run_id,
+                classifier=getattr(self.ingress, "classifier", None))
+            if self._audit is not None:
+                self._audit("tool_call_pending", run_id=envelope.run_id,
+                            component_id=manifest.id, status="pending",
+                            latency_s=round(time.time() - started, 4), execution=execution,
+                            sensitivity=pending.label.sensitivity.name,
+                            reference=dict(pending.reference),
+                            reference_sha256=pending.reference_digest,
+                            reason=pending.reason[:200])
+            raise ResultPending(
+                f"{manifest.id} started work that has not finished (reference "
+                f"{pending.reference_digest[:16]}): {pending.reason or 'no detail'}",
+                pending=pending)
+
         # The output inherits the input's label. Without this a component launders taint
         # simply by returning a plain dict, which is the ordinary case rather than an
         # adversarial one.

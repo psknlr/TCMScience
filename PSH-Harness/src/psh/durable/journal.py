@@ -50,6 +50,9 @@ class RecordKind(str, Enum):
     NODE_STARTED = "node_started"
     NODE_SUCCEEDED = "node_succeeded"
     NODE_FAILED = "node_failed"
+    #: The node's call started work that had not finished (a long job): neither a result
+    #: nor a failure. ``detail`` holds the digest of the reference it is collected by.
+    NODE_WAITING = "node_waiting"
     #: The node was not run because a recorded result for the same signature was reused.
     NODE_REUSED = "node_reused"
     #: A prior result stopped being valid: its signature changed, or an upstream changed.
@@ -63,6 +66,7 @@ class NodeOutcome(str, Enum):
     UNKNOWN = "unknown"          # started, never reported: the process died inside it
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    WAITING = "waiting"          # its work was started and not yet collected
     REUSED = "reused"
     INVALIDATED = "invalidated"
 
@@ -180,6 +184,11 @@ class ReplayState:
     def succeeded(self) -> tuple[str, ...]:
         return tuple(sorted(nid for nid, s in self._nodes.items()
                             if s.outcome is NodeOutcome.SUCCEEDED))
+
+    def waiting(self) -> tuple[str, ...]:
+        """Nodes whose work was started and not collected: it may still be running."""
+        return tuple(sorted(nid for nid, s in self._nodes.items()
+                            if s.outcome is NodeOutcome.WAITING))
 
     def summary(self) -> str:
         counts: dict[str, int] = {}
@@ -324,6 +333,10 @@ class WorkflowJournal:
                                          row["withheld"], row["sensitivity"], attempts)
             elif kind is RecordKind.NODE_FAILED:
                 nodes[node_id] = _Stored(NodeOutcome.FAILED, row["signature"], "", False,
+                                         "", "", attempts)
+                values.pop(node_id, None)
+            elif kind is RecordKind.NODE_WAITING:
+                nodes[node_id] = _Stored(NodeOutcome.WAITING, row["signature"], "", False,
                                          "", "", attempts)
                 values.pop(node_id, None)
             elif kind is RecordKind.NODE_REUSED:

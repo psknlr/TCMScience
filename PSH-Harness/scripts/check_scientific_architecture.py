@@ -19,6 +19,12 @@ RULES = {
     "psh.scientist.inquiry": {"__future__", "dataclasses", "enum", "hashlib", "json",
                               "math", "typing", "psh.contracts", "psh.evidence.support",
                               "psh.sir.values"},
+    # What the broker hands back for a call: a labelled value (ExecutionResult) or, for work
+    # that outlives the call, a labelled reference with no value (PendingOutcome). A result
+    # kind is a record, so it may read the contracts and the labels and nothing that
+    # executes, persists or reaches a model: a new kind cannot bring an execution path in.
+    "psh.kernel.results": {"__future__", "dataclasses", "time", "typing", "psh.contracts",
+                           "psh.labels"},
 }
 
 

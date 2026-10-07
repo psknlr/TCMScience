@@ -12,6 +12,11 @@ the ordinary act of returning something.
 The default is deliberately conservative: **output inherits input sensitivity.** A tool that
 genuinely de-identifies its input must say so through an explicit declassification, which is
 attributable, rather than by returning a value the system optimistically treats as clean.
+
+A call whose work outlives it — a long job — produces no ``ExecutionResult`` at all. The
+broker records a ``PendingOutcome`` (a labelled reference to the work, never a value) and
+raises ``ResultPending`` with it, so the one type that carries values is never built for
+work that has not finished.
 """
 
 from __future__ import annotations
@@ -20,10 +25,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Generic, Mapping, Sequence, TypeVar
 
-from ..contracts import ArtifactRef, new_id
+from ..contracts import ArtifactRef, PendingResult, new_id, reference_digest
 from ..labels import DataLabel, Labeled, Sensitivity, combine, deep_label_of
 
-__all__ = ["ExecutionResult", "ModelUsage", "ModelCallResult"]
+__all__ = ["ExecutionResult", "ModelUsage", "ModelCallResult", "PendingOutcome"]
 
 T = TypeVar("T")
 
@@ -147,3 +152,42 @@ class ExecutionResult(Generic[T]):
         return cls(value=value, label=input_label.merged_with(own_label),
                    component_id=component_id, run_id=run_id, status=status,
                    warnings=warnings, **kw)
+
+
+@dataclass(frozen=True, slots=True)
+class PendingOutcome:
+    """The kernel's record of a tool call whose work has not finished. It has no value.
+
+    ``ResultPending`` carries it. ``reference`` is how the component will find the work
+    again; ``reference_digest`` is what the audit chain, the operation ledger and every
+    later call for the work name it by; ``label`` is the join of the call's inputs and
+    the reference's own classification, so a job started from PHI is PHI however plain
+    its id looks — the rule ``ExecutionResult`` applies to values, applied to the one
+    thing a pending call hands back. There is deliberately no ``value``: an attribute of
+    that name holding the reference is how a submission would come to be read as the
+    work it submitted.
+    """
+
+    reference: Mapping[str, Any]
+    reference_digest: str
+    label: DataLabel
+    component_id: str = ""
+    run_id: str = ""
+    reason: str = ""
+    id: str = field(default_factory=lambda: new_id("pend"))
+    at: float = field(default_factory=time.time)
+
+    @classmethod
+    def from_component(cls, pending: PendingResult, *, inputs: Sequence[Any],
+                       component_id: str, run_id: str = "",
+                       classifier: Any = None) -> "PendingOutcome":
+        """The record of a component's ``PendingResult``, labelled at least as its inputs."""
+        reference = dict(pending.reference)
+        input_label = combine(*[deep_label_of(item) for item in inputs]) if inputs \
+            else DataLabel()
+        own_label = deep_label_of(reference)
+        if classifier is not None:
+            own_label = own_label.merged_with(classifier.classify(reference).label)
+        return cls(reference=reference, reference_digest=reference_digest(reference),
+                   label=input_label.merged_with(own_label), component_id=component_id,
+                   run_id=run_id, reason=str(pending.reason or "")[:300])
