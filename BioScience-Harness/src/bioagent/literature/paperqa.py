@@ -32,7 +32,10 @@ What is used from paper-qa (2026.8, read from its installed source), and what is
   text from it, so its "evidence" is neither ranked nor verbatim. ``Docs.retrieve_texts``
   drops the scores.
 * **Synthesis.** ``Docs.aquery`` over the retrieved passages, behind :func:`permit_model`.
-  Its output is a :class:`CandidateAnswer`, which is never an EvidenceItem.
+  Its output is a :class:`CandidateAnswer`, which is never an EvidenceItem. The model is a
+  LiteLLM model name, or a model served on this machine behind an OpenAI-compatible
+  endpoint (``api_base``, such as llama.cpp's ``llama-server``); a profile that declares
+  the model local must point at this machine.
 
 Importing paper-qa imports litellm, which fetches a cost map from GitHub unless
 ``LITELLM_LOCAL_MODEL_COST_MAP`` is true. :func:`_paperqa` sets it before the import, so
@@ -44,10 +47,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 import re
 import sys
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -697,9 +702,20 @@ class CandidateAnswer:
                 "cost": self.cost}
 
 
+def _loopback(url: str) -> bool:
+    """Whether ``url`` names this machine: localhost or a loopback address."""
+    host = (urllib.parse.urlsplit(url).hostname or "").lower()
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 def synthesise(retrieval: RetrievalResult, *, model: ModelProfile | None = None,
                envelope: RunEnvelope | None = None, llm: Any = None,
-               max_answer_tokens: int = 1024) -> CandidateAnswer:
+               max_answer_tokens: int = 1024, api_base: str = "") -> CandidateAnswer:
     """A candidate explanation of ``retrieval``'s passages, or the reason there is none.
 
     Refused without a configured ``model``, without passages (an answer over nothing would
@@ -707,6 +723,13 @@ def synthesise(retrieval: RetrievalResult, *, model: ModelProfile | None = None,
     call. ``llm`` is the object paper-qa calls (its ``call_single``, as on an lmi
     ``LLMModel``); by default it is built from ``model.id`` as a LiteLLM model name, with
     ``max_answer_tokens`` as its output limit. ``model`` is what the gate judges either way.
+
+    ``api_base`` is an OpenAI-compatible endpoint on this machine that serves the model
+    (``model.id`` is then ``openai/<served name>``, and the profile's destination is
+    normally ``LOCAL_MODEL``). Any other host is refused: the gate judges the profile, and
+    LiteLLM would send the environment's provider key to an endpoint that is not that
+    provider. A model on another host is reached through ``llm``, built with its own
+    credentials, under a ``TRUSTED_REMOTE`` or ``PUBLIC_REMOTE`` profile.
     """
     question = retrieval.question
     ids = tuple(p.passage_id for p in retrieval.passages)
@@ -716,6 +739,12 @@ def synthesise(retrieval: RetrievalResult, *, model: ModelProfile | None = None,
             "answer is not produced without one"))
     common = {"passages": ids, "model": model.id,
               "destination": model.destination.name.lower()}
+    if api_base and not _loopback(api_base):
+        return CandidateAnswer(question, ExecutionStatus.DENIED, **common, reason=(
+            f"api_base is for a model served on this machine, and "
+            f"{urllib.parse.urlsplit(api_base).hostname or api_base!r} is not; a model on "
+            "another host is reached through llm, built with its own credentials, under a "
+            "TRUSTED_REMOTE or PUBLIC_REMOTE profile"))
     if not retrieval.passages:
         return CandidateAnswer(question, ExecutionStatus.DENIED, **common, reason=(
             "no passage was retrieved; an answer over nothing would be the model's recall, "
@@ -731,7 +760,8 @@ def synthesise(retrieval: RetrievalResult, *, model: ModelProfile | None = None,
     keys = {f"pqac-{_sha256(p.passage_id.encode('utf-8'))[:8]}": p
             for p in retrieval.passages}
     try:
-        session = asyncio.run(_answer(retrieval, keys, model, llm, max_answer_tokens))
+        session = asyncio.run(_answer(retrieval, keys, model, llm, max_answer_tokens,
+                                      api_base))
     except LiteratureRefused as exc:
         return CandidateAnswer(question, exc.status, reason=exc.reason, **common)
     except Exception as exc:                                  # noqa: BLE001
@@ -753,7 +783,8 @@ def synthesise(retrieval: RetrievalResult, *, model: ModelProfile | None = None,
 
 
 async def _answer(retrieval: RetrievalResult, keys: Mapping[str, Passage],
-                  model: ModelProfile, llm: Any, max_answer_tokens: int) -> Any:
+                  model: ModelProfile, llm: Any, max_answer_tokens: int,
+                  api_base: str = "") -> Any:
     """paper-qa's answer step over the given passages, with no retrieval of its own."""
     pq = _paperqa()
     from paperqa.prompts import default_system_prompt
@@ -765,7 +796,12 @@ async def _answer(retrieval: RetrievalResult, keys: Mapping[str, Passage],
         from lmi import LiteLLMModel
 
         config = make_default_litellm_model_list_settings(model.id, 0.0)
-        config["model_list"][0]["litellm_params"]["max_tokens"] = max_answer_tokens
+        params = config["model_list"][0]["litellm_params"]
+        params["max_tokens"] = max_answer_tokens
+        if api_base:
+            # The server on this machine takes no key, and LiteLLM's OpenAI client wants
+            # one; without this it would send the environment's OpenAI key.
+            params.update(api_base=api_base, api_key="no-key-for-a-local-server")
         llm = LiteLLMModel(name=model.id, config=config)
     contexts = [Context(
         id=key, context=p.text, question=retrieval.question,

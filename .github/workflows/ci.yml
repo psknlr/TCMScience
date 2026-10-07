@@ -280,6 +280,44 @@ jobs:
           PYTHONPATH: ../PSH-Harness/src
         run: python scripts/run_end_to_end_cases.py --out "$RUNNER_TEMP/cases" --de-backend pydeseq2
 
+  local-model:
+    # PaperQA2's synthesis with a real model, served on the runner by llama.cpp's
+    # llama-server (MIT) at a pinned commit: Qwen2.5-1.5B-Instruct (Apache-2.0), held to
+    # its digest. The passages go to a model on this machine (LOCAL_MODEL) and the answer
+    # comes back a candidate, never evidence (docs/literature-evidence.md). Manual: it
+    # builds llama.cpp and downloads a 1.1 GB model.
+    name: PaperQA2 synthesis with a local model (manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: llama.cpp's server and the model
+        run: |
+          git init -q "$RUNNER_TEMP/llama.cpp"
+          git -C "$RUNNER_TEMP/llama.cpp" fetch -q --depth 1 https://github.com/ggml-org/llama.cpp 448147d42a71d0147c6dc844f99f9ffe7419183a
+          git -C "$RUNNER_TEMP/llama.cpp" checkout -q FETCH_HEAD
+          cmake -S "$RUNNER_TEMP/llama.cpp" -B "$RUNNER_TEMP/build" -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+          cmake --build "$RUNNER_TEMP/build" --target llama-server -j4
+          curl -sSL -o "$RUNNER_TEMP/model.gguf" https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf
+          echo "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e  $RUNNER_TEMP/model.gguf" | sha256sum -c -
+          nohup "$RUNNER_TEMP/build/bin/llama-server" -m "$RUNNER_TEMP/model.gguf" --host 127.0.0.1 --port 8080 -c 8192 --alias qwen2.5-1.5b-instruct > "$RUNNER_TEMP/llama.log" 2>&1 &
+          for i in $(seq 120); do curl -sf http://127.0.0.1:8080/health > /dev/null && break; sleep 2; done
+      - run: python -m pip install --upgrade pip && pip install -e "BioScience-Harness[dev,literature]"
+      - name: Synthesis through paper-qa with the local model
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+          BIOAGENT_LOCAL_LLM_URL: http://127.0.0.1:8080/v1
+          BIOAGENT_LOCAL_LLM_MODEL: qwen2.5-1.5b-instruct
+        run: python -m pytest -q tests/test_literature_evidence.py -k "local_model or endpoint"
+      - name: The server's log
+        if: failure()
+        run: cat "$RUNNER_TEMP/llama.log"
+
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
     # record in data/connector_live_verification.csv says when.

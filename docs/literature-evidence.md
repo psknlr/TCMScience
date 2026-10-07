@@ -158,6 +158,29 @@ passages. The system prompt also asks for a final `Conflicts:` paragraph. The re
 A provider error is `FAILED` with its cause. A claim cites the passages' items, not this
 text.
 
+### A model on this machine
+
+`synthesise(..., api_base="http://127.0.0.1:8080/v1")` reaches a model served behind an
+OpenAI-compatible endpoint on this machine, such as llama.cpp's `llama-server`; the
+profile's `id` is `openai/<served name>` and its destination `LOCAL_MODEL`. Any other host
+is refused before anything is sent: the gate judges the profile's destination, and
+LiteLLM would hand the environment's provider key to an endpoint that is not that
+provider. A model elsewhere is reached through `llm`, built with its own credentials,
+under a `TRUSTED_REMOTE` or `PUBLIC_REMOTE` profile.
+
+On 2026-10-07 the answer step ran this way against Qwen2.5-1.5B-Instruct (Apache-2.0, the
+Q4_K_M GGUF with SHA-256 `6a1a2eb6…407e`), served by `llama-server` built from llama.cpp
+commit `448147d`. Over the two retrieved passages (the EMPEROR-Preserved result sentence and
+the C-telopeptide cohort) it returned SUCCEEDED in 26 seconds, from 665 prompt tokens to
+the 256-token cap. The text restated the trial's numbers correctly. It cited none of the
+passage keys it was given, wrote no `Conflicts:` section, and linked the cohort's finding to
+empagliflozin, which neither passage does. As a `CandidateAnswer` none of that becomes
+evidence: with no citation it supports nothing, and a claim cites the passages' items. This
+tests the path with a real model; a model this small says nothing about the quality of a
+synthesis. `tests/test_literature_evidence.py` repeats the call against the endpoint named
+by `BIOAGENT_LOCAL_LLM_URL` and `BIOAGENT_LOCAL_LLM_MODEL`, and the manual `local-model` CI
+job builds the server, checks the model's digest and runs it.
+
 An embedding other than `"sparse"` is gated the same way, with a `ModelProfile` whose `id`
 is the embedding's name. Without a profile it is refused before anything is read. The
 profile is recorded in the manifest, so the question's embedding at search time passes the
@@ -237,11 +260,11 @@ run = run_governed("retrieve-literature-evidence",
   resolution, no quality assessment. The artifact says so in its limitations.
 - **This is not a systematic search.** Only the documents the caller supplies are
   searched.
-- **Synthesis was run only against a stand-in model.** There is no API key here, so the
-  call to a real provider through LiteLLM is untested. The refusals and the stand-in's
-  answer are tested.
+- **No provider model has synthesised.** There is no API key here. The answer step has run
+  against a stand-in and against a small model on this machine (above); a provider's model
+  through LiteLLM is untested.
 
-Tests: `BioScience-Harness/tests/test_literature_evidence.py` (42 tests). 24 need paper-qa
+Tests: `BioScience-Harness/tests/test_literature_evidence.py` (44 tests). 24 need paper-qa
 and use `need_module("paperqa")`: they skip in the unit tier and fail under
 `BIOAGENT_REQUIRE_TOOLS=1`. The typing rules, the model gate, the corpus manifest and the
 skill manifest are tested without it. The rules' accuracy on real abstracts is tested
@@ -268,6 +291,6 @@ offline by `tests/test_evidence_typing_benchmark.py`.
 - **读不出研究设计的段落不成为证据条目：** `EvidenceItem` 要求必须写明设计并拒绝未知设计，因此本次没有修改 `evidence_item.py`。这类段落连同位置和读取结果一并报告，等待有人确认设计。
 - **其他字段：** 未读出的字段留空并注明"未评估"；质量四个维度均为未评估，因而在有人评估偏倚风险之前，疗效和推荐类结论会被拒绝（`CLM006`）；撤稿状态始终为"未核实"。
 
-**合成：** 只有在配置了模型、运行信封允许其去向、数据标签不超过各项上限、且预算足够时才执行。未分级的语料按运行上限处理，不视为公开。输出是候选解释（`CandidateAnswer`），从不作为证据：它列出所引段落、模型编造的引用键和它陈述的冲突。没有配置模型时拒绝并说明原因。本环境没有 API 密钥，所以真实模型调用未经测试，只用替身模型验证了流程。
+**合成：** 只有在配置了模型、运行信封允许其去向、数据标签不超过各项上限、且预算足够时才执行。未分级的语料按运行上限处理，不视为公开。输出是候选解释（`CandidateAnswer`），从不作为证据：它列出所引段落、模型编造的引用键和它陈述的冲突。没有配置模型时拒绝并说明原因。`api_base` 可接入本机以 OpenAI 兼容接口提供服务的模型（如 llama.cpp 的 `llama-server`），去向为 `LOCAL_MODEL`；指向其他主机一律拒绝，以免把环境中的服务商密钥发给第三方端点。2026-10-07 用本机的 Qwen2.5-1.5B-Instruct（Apache-2.0，摘要已核对）实测：返回 SUCCEEDED，复述了试验数据，但没有引用任何段落键、没有写冲突段，还把队列研究的发现牵强地联系到恩格列净；作为候选回答，这些都不成为证据。这只验证了真实模型的调用路径，不代表合成质量。本环境没有 API 密钥，服务商模型的调用仍未测试。
 
 **Skill：** 候选 Skill `retrieve-literature-evidence` 不调用模型、不联网，也不作任何结论。它输出带凭据的证据条目、每篇文档一张固定了摘要的来源卡，以及列出全部段落（含未标注原因）的 `literature_evidence.json`。

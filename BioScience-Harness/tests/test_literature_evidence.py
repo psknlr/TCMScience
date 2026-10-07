@@ -464,6 +464,57 @@ def test_a_failed_model_call_is_reported_as_failed(index):
     assert "provider unavailable" in answer.reason
 
 
+def test_an_endpoint_is_for_a_model_on_this_machine(index):
+    """LiteLLM would send the environment's provider key to any endpoint it is given, and
+    a profile is judged by the destination it declares; so ``api_base`` is this machine or
+    nothing, and nothing is sent when it is not."""
+    from bioagent.literature.paperqa import _loopback
+
+    local = ModelProfile(id="openai/local-model", provider="llama.cpp",
+                         destination=Destination.LOCAL_MODEL, max_label=Sensitivity.SENSITIVE)
+    result = retrieve(EMPEROR_Q, index, k=1)
+    model = _Model()
+    for elsewhere in ("http://10.0.0.7:8080/v1", "https://models.example.org/v1"):
+        refused = synthesise(result, model=local, envelope=OPEN_RUN, api_base=elsewhere,
+                             llm=model)
+        assert refused.status is ExecutionStatus.DENIED and "this machine" in refused.reason
+    assert model.messages == []
+    assert all(_loopback(u) for u in ("http://127.0.0.1:8080/v1", "http://localhost:1/v1",
+                                      "http://[::1]:8080/v1"))
+    assert not any(_loopback(u) for u in ("http://127.0.0.1.example.org/v1", "http://h/v1"))
+
+
+def _local_model() -> tuple[str, str]:
+    url = os.environ.get("BIOAGENT_LOCAL_LLM_URL", "")
+    name = os.environ.get("BIOAGENT_LOCAL_LLM_MODEL", "")
+    if not (url and name):
+        why = ("no local model: set BIOAGENT_LOCAL_LLM_URL (an OpenAI-compatible endpoint on "
+               "this machine) and BIOAGENT_LOCAL_LLM_MODEL (the name it serves)")
+        if os.environ.get("BIOAGENT_REQUIRE_TOOLS"):
+            pytest.fail(why)
+        pytest.skip(why)
+    return url, name
+
+
+def test_a_local_model_writes_a_candidate_answer_through_paperqa(index):
+    """A real model through paper-qa's answer step: the passages go in, a candidate answer
+    comes out, and its citations are read against the passages it was given."""
+    url, name = _local_model()
+    local = ModelProfile(id=f"openai/{name}", provider="local",
+                         destination=Destination.LOCAL_MODEL, max_label=Sensitivity.SENSITIVE)
+    run = RunEnvelope(allowed_destinations=frozenset({Destination.LOCAL_MODEL}))
+    result = retrieve(EMPEROR_Q, index, k=2)
+    answer = synthesise(result, model=local, envelope=run, api_base=url,
+                        max_answer_tokens=256)
+    assert answer.status is ExecutionStatus.SUCCEEDED, answer.reason
+    assert answer.text.strip() and answer.destination == "local_model"
+    assert set(answer.citations) <= {p.passage_id for p in result.passages}
+    assert answer.tokens and answer.as_dict()["is_evidence"] is False
+    remote = dataclasses.replace(local, destination=Destination.PUBLIC_REMOTE)
+    assert synthesise(result, model=remote, envelope=run, api_base=url).status is \
+        ExecutionStatus.DENIED, "the run permits the local model only"
+
+
 def test_the_model_gate_reports_every_reason():
     tight = RunEnvelope(budget=Budget(max_model_calls=0, tokens_hard=10, usd_hard=0.0))
     refused = permit_model(REMOTE, tight, "sensitive", tokens=1000, out_tokens=100)
