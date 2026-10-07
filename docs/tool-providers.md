@@ -91,10 +91,21 @@ package holds for each allowlisted tool (file and entry digests, type, configure
 keys) and why it would be quarantined. Read the changed entries, then update the
 allowlist; nothing updates it automatically.
 
-**Not wired by default.** `psh.assembly.default_runtime` does not include these components;
-pass `extra_manifests=ToolUniverseProvider().discover()`. Adding them to every default
-registry changes what its term search ranks first for "UniProt" or "ChEMBL", which planners
-and tests rely on; that is the integrator's decision.
+**An explicit opt-in, off by default.** `bioagent.psh.assembly.default_runtime` leaves
+these components out unless asked: `default_runtime(tooluniverse=True)` adds them, and
+`tooluniverse=None` (the default) defers to the environment variable
+`BIOAGENT_TOOLUNIVERSE` — `1`, `true` or `yes` adds them; `0`, `false`, `no` or unset
+leaves them out; any other value is refused with a `ValueError` naming the variable,
+because a mistyped opt-in that silently did nothing, or silently admitted eight remote
+tools, would both be wrong. The keyword decides over the variable either way. Off by
+default because adding them to every registry changes what its term search ranks first for
+"UniProt" or "ChEMBL", which planners and tests rely on; a test checks that a default
+runtime offers none of them for "UniProt" and an opted-in one does. Each tool is checked
+against the installed package exactly as `ToolUniverseProvider().discover()` checks it, so
+a drifted tool is still QUARANTINED, and without the package installed the tools are
+registered and resolve as UNAVAILABLE. An isolated child starts from a cleared
+environment and is handed its one component's manifest, so the variable does not reach it.
+Passing `extra_manifests=ToolUniverseProvider().discover()` still works.
 
 ## BioMCP: a draft server configuration and a result adapter
 
@@ -296,6 +307,7 @@ passed, and all eight ToolUniverse smoke examples succeeded through the runtime.
 - **映射规则：** `parameter` 成为输入，`test_examples` 成为冒烟测试，`return_schema` 成为输出，主机成为网络权限；数据许可以配置声明为准，均未声明，故记为 `unknown`。
 - **隔离：** 版本、摘要、实现类、未声明主机或新增 API 密钥任何一项不符，工具即被隔离（QUARANTINED），不会运行。
 - **执行：** 每个工具独立引擎；关闭结果缓存、日志改到标准错误、禁止扫描工作目录（实测 1.5.6 在 `load_workspace=False` 时仍会导入 `./.tooluniverse` 下的代码）。以值返回的错误映射为 TIMEOUT、UNAVAILABLE 或 FAILED；`PythonBackend` 现在记录入口点声明的失败状态。
+- **显式启用（默认关闭）：** `default_runtime(tooluniverse=True)` 或环境变量 `BIOAGENT_TOOLUNIVERSE=1`（`true`/`yes`）把审查过的工具加入运行时；未设置或 `0`/`false`/`no` 时不加入，其他取值直接报错；关键字参数优先于环境变量。默认关闭是为了不改变 "UniProt"、"ChEMBL" 等检索的排序。
 
 **BioMCP：**
 - **配置草案：** `registry/biomcp_server.yaml` 记录启动命令、环境变量、5 个准入工具及其输入 schema 摘要、固定参数与被忽略参数，以及不准入的原因（如 `trial_getter` 含联系人电话和邮箱）。

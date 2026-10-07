@@ -15,9 +15,16 @@ from typing import Any, Iterable, Mapping
 
 from ..config import REPO_ROOT, catalogue_path, data_lake_dir
 
-__all__ = ["default_runtime", "load_catalogue_rows", "load_verification", "mcp_dispatcher"]
+__all__ = ["ENV_TOOLUNIVERSE", "default_runtime", "load_catalogue_rows", "load_verification",
+           "mcp_dispatcher", "tooluniverse_opted_in"]
 
 VERIFICATION_CSV = REPO_ROOT / "data" / "connector_live_verification.csv"
+
+#: Set to 1/true/yes to put the reviewed ToolUniverse tools in every ``default_runtime``
+#: that is not told otherwise; 0/false/no, or unset, leaves them out.
+ENV_TOOLUNIVERSE = "BIOAGENT_TOOLUNIVERSE"
+_YES = ("1", "true", "yes")
+_NO = ("", "0", "false", "no")
 
 #: ``default_runtime``'s default credential source for MCP servers: this process's
 #: environment. A sentinel, so ``mcp_credentials=None`` can mean "none at all".
@@ -98,6 +105,27 @@ def mcp_dispatcher(servers: Any = None, credentials: Any = FROM_ENVIRONMENT) -> 
     return MCPDispatcher(registry, credentials=credentials)
 
 
+def tooluniverse_opted_in(requested: bool | None = None) -> bool:
+    """Whether a runtime holds the reviewed ToolUniverse tools: ``requested`` when it is
+    given, else what ``$BIOAGENT_TOOLUNIVERSE`` says. Off unless asked for.
+
+    Off by default because adding the tools to every registry changes what its term search
+    ranks first for "UniProt" or "ChEMBL", which planners and tests rely on. A value the
+    variable does not define is refused, not read as either answer: a mistyped opt-in that
+    silently did nothing, or silently admitted eight remote tools, would both be wrong.
+    """
+    if requested is not None:
+        return bool(requested)
+    value = os.environ.get(ENV_TOOLUNIVERSE, "").strip().lower()
+    if value in _YES:
+        return True
+    if value in _NO:
+        return False
+    raise ValueError(f"${ENV_TOOLUNIVERSE} is {value!r}; set it to one of "
+                     f"{', '.join(_YES)} to add the reviewed ToolUniverse tools, or to one "
+                     f"of {', '.join(v for v in _NO if v)} (or unset it) to leave them out")
+
+
 def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
                     native_tools: bool = True, skills: bool = True,
                     skills_root: str | Path | None = None,
@@ -105,7 +133,8 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
                     extra_manifests: Iterable[Any] = (), cache_dir: str | Path | None = None,
                     data_lake: str | Path | None = None, kernel: Any = None,
                     http_timeout_s: float = 30.0, mcp_servers: Any = None,
-                    mcp_credentials: Any = FROM_ENVIRONMENT) -> Any:
+                    mcp_credentials: Any = FROM_ENVIRONMENT,
+                    tooluniverse: bool | None = None) -> Any:
     """A runtime over the packaged catalogue, the public sources, the native tools and the
     project's reviewed skills (``config.skills_dir``, when present), with every backend.
 
@@ -113,7 +142,11 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
     ``mcp_dispatcher``; by default the shipped registry). ``mcp_credentials`` resolves the
     credential names an entry gives — by default from this process's environment; ``None``
     holds none, and a server that needs one is UNAVAILABLE, which is how the isolated child
-    runs."""
+    runs.
+
+    ``tooluniverse`` adds the reviewed ToolUniverse tools
+    (``registry/tooluniverse_allowlist.yaml``), each as checked against the installed
+    package; ``None`` defers to ``$BIOAGENT_TOOLUNIVERSE`` (``tooluniverse_opted_in``)."""
     from ..backends.base import BackendRegistry
     from ..backends.concrete import (ContainerBackend, DatasetBackend, MCPBackend, NoneBackend,
                                      PythonBackend, SubprocessBackend)
@@ -137,6 +170,9 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
         from ..config import skills_dir
         from ..providers.skills import SkillDirectoryProvider
         manifests.extend(SkillDirectoryProvider("tcmscience", skills_dir(skills_root)).discover())
+    if tooluniverse_opted_in(tooluniverse):
+        from ..providers.tooluniverse import ToolUniverseProvider
+        manifests.extend(ToolUniverseProvider().discover())
     manifests.extend(extra_manifests)
     registry = ComponentRegistry(manifests)
 

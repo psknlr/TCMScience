@@ -476,8 +476,9 @@ class OperationBroker:
             from .runtime.agentspec import AgentSpec
             from .runtime.events import EventLog
 
+            # Exactly the operations, whatever $BIOAGENT_TOOLUNIVERSE asks of other runtimes.
             runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
-                                      skills=False,
+                                      skills=False, tooluniverse=False,
                                       extra_manifests=tuple(self.components.values()))
             events = EventLog(run_id=self.run_id)
             bridge = BioScienceBridge(

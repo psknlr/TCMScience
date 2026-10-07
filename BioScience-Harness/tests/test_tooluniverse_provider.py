@@ -146,6 +146,58 @@ def test_a_manifest_forged_for_an_unlisted_tool_cannot_load():
     assert result.status is ExecutionStatus.UNAVAILABLE and not result.executed
 
 
+# ------------------------------------------------------------------ the opt-in
+def _reviewed_in(**kw) -> set[str]:
+    from bioagent.psh.assembly import default_runtime
+
+    runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
+                              skills=False, **kw)
+    return {m.id for m in runtime.registry if m.id.startswith(tu.NAMESPACE)}
+
+
+REVIEWED = {t.component_id for t in load_allowlist().tools}
+
+
+def test_a_default_runtime_leaves_the_reviewed_tools_out(monkeypatch):
+    from bioagent.psh.assembly import ENV_TOOLUNIVERSE, default_runtime
+
+    monkeypatch.delenv(ENV_TOOLUNIVERSE, raising=False)
+    assert _reviewed_in() == set() and len(REVIEWED) == 8
+    # what a planner searching for UniProt is offered does not change unless asked
+    plain = default_runtime(catalogue=False, skills=False)
+    opted = default_runtime(catalogue=False, skills=False, tooluniverse=True)
+    assert not any(m.id in REVIEWED for m in plain.registry.search("UniProt"))
+    assert any(m.id in REVIEWED for m in opted.registry.search("UniProt"))
+
+
+@pytest.mark.parametrize("value,opted", [("1", True), ("true", True), (" YES ", True),
+                                         ("0", False), ("no", False), ("", False)])
+def test_the_environment_opts_in_or_out(monkeypatch, value, opted):
+    from bioagent.psh.assembly import ENV_TOOLUNIVERSE
+
+    monkeypatch.setenv(ENV_TOOLUNIVERSE, value)
+    assert _reviewed_in() == (REVIEWED if opted else set())
+
+
+def test_the_keyword_decides_over_the_environment(monkeypatch):
+    from bioagent.psh.assembly import ENV_TOOLUNIVERSE
+
+    monkeypatch.setenv(ENV_TOOLUNIVERSE, "1")
+    assert _reviewed_in(tooluniverse=False) == set()
+    monkeypatch.setenv(ENV_TOOLUNIVERSE, "0")
+    assert _reviewed_in(tooluniverse=True) == REVIEWED
+
+
+def test_an_opt_in_the_variable_does_not_define_is_refused(monkeypatch):
+    """A mistyped opt-in neither silently does nothing nor silently admits the tools."""
+    from bioagent.psh.assembly import ENV_TOOLUNIVERSE
+
+    monkeypatch.setenv(ENV_TOOLUNIVERSE, "maybe")
+    with pytest.raises(ValueError, match="BIOAGENT_TOOLUNIVERSE is 'maybe'"):
+        _reviewed_in()
+    assert _reviewed_in(tooluniverse=False) == set()       # an explicit answer still holds
+
+
 _RETYPED = {**ENTRY, "type": "OtherTool"}
 _ELSEWHERE = {**ENTRY, "fields": {"endpoint": "https://elsewhere.example.org/x"}}
 _KEYED = {**ENTRY, "required_api_keys": ["UNIPROT_KEY"]}
