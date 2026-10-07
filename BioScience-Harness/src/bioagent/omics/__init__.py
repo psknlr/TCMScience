@@ -6,6 +6,9 @@
 ``backends``   the standard command-line tools (fastp, salmon, kallisto, HISAT2,
                featureCounts) when they are installed
 ``rnaseq``     the RNA-seq pipeline from a sample sheet to a report
+``sc``         single-cell building blocks (QC, doublets, Harmony, Leiden, UMAP,
+               markers, annotation, trajectories, pseudobulk)
+``scrna``      the single-cell pipeline from count matrices to annotated clusters
 ``svgplot``    dependency-free SVG figures for the reports
 ``commands``   the ``bioagent`` subcommands
 

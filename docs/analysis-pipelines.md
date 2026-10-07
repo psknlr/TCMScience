@@ -8,7 +8,8 @@ runs, which are recorded but never released, until a person reviews and promotes
 
 | Pipeline | Command | Status |
 |---|---|---|
-| RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | this document |
+| RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | below |
+| Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -102,6 +103,82 @@ it in the table.
   standard tools.
 - The design is additive only: no interaction terms or LRT.
 
+## Single-cell: count matrices to an annotated atlas
+
+```bash
+bioagent scrna samples.csv --out atlas/ --root "NK cell"      # or one matrix instead of a sheet
+bioagent scrna --verify atlas/
+```
+
+The sample sheet lists `sample,path` and any sample variables (`condition`, `batch`, ...).
+`path` may be:
+- a Cell Ranger directory or HDF5 file;
+- an `.h5ad`;
+- a genes x cells CSV/TSV.
+
+Every input must be raw counts; normalised values are refused.
+
+### Steps
+
+| Step | Method (defaults as in Scanpy or single-cell best practice) |
+|---|---|
+| QC | genes, counts, mitochondrial and ribosomal shares; outliers beyond 5 MADs per sample (3 for mitochondria, above 8%), ≥ 200 genes per cell, ≥ 3 cells per gene |
+| Doublets | Scrublet: simulated doublets, kNN score with Scrublet's Bayesian form, threshold at the histogram minimum (no call when it is not bimodal); removed, or kept and flagged |
+| Normalisation | 10,000 counts per cell, log1p; 2,000 HVGs by the Seurat method (batch-aware); scaling clipped at ±10; PCA |
+| Integration | Harmony on the PCA embedding over `batch` (else the samples); mixing reported before and after |
+| Graph and clusters | exact 15-NN, UMAP's fuzzy connectivities, Leiden (modularity, resolution 1) |
+| Layout | UMAP: spectral start, a/b fitted to min_dist 0.5; edges due in an epoch updated together |
+| Markers | Wilcoxon rank-sum per cluster against the rest, tie-corrected, BH |
+| Annotation | Scanpy's `score_genes` against a marker panel (30 human types shipped with their sources, or your own); `unassigned` when no type leads |
+| Trajectory | PAGA connectivity and tree; diffusion pseudotime from a named root, over the clusters PAGA joins to it |
+| Conditions | pseudobulk per sample and cell type, DESeq2 method; the samples are the replicates |
+
+### How it is checked
+
+- **Against the reference implementations.** In CI's tools job:
+  - Scanpy's Seurat-method HVGs: 200 of 200 identical;
+  - Scanpy's tie-corrected Wilcoxon scores: identical;
+  - leidenalg's modularity: identical on three graphs;
+  - umap-learn's fuzzy connectivities on the same neighbours: within 5×10⁻⁶.
+
+  The Wilcoxon p-value of one gene also equals SciPy's Mann–Whitney.
+- **Against a simulated experiment with a known answer** (`tests/sc_world.py`). It has
+  four samples in two batches, four cell types marked by real marker genes, a path of
+  cells between two types, 5% low-quality cells, 6% doublets, and a condition effect in
+  one type.
+  - Every low-quality cell is removed.
+  - More than 70% of doublets are found, while fewer than 6% of cells of the discrete
+    types are called doublets.
+  - Batch mixing rises from below 0.3 to above 0.8.
+  - Clusters match the types with an ARI above 0.9, and each cluster is named its true
+    type.
+  - Pseudotime follows the planted path (Spearman above 0.85), and cells off the path
+    get none.
+  - Pseudobulk finds the planted condition effect in B cells, and at most one gene in
+    each of the other types (none in the recorded run).
+  - A re-run gives identical tables.
+
+### What a result is
+
+- **Clusters** are groups of transcriptionally similar cells in this data set.
+- **A cell-type label** is an inference from marker expression against a panel.
+- **Pseudotime** orders cells by similarity from a root you choose, and is not time.
+- **A pseudobulk difference** is an association between conditions in these samples.
+
+The governed skill `scrna-cell-atlas` (a candidate) reports clusters, labels and
+pseudotime as outputs. Its only claims are pseudobulk comparisons, of the kind the
+declared design allows.
+
+### Limits
+
+- Scrublet also scores cells in a continuous transition between two types as doublets.
+  When over twice the expected rate is called, the report says so; rerun with
+  `--doublets flag` to keep them.
+- Neighbours are found exactly and the scaled matrix is dense. Both suit tens of
+  thousands of cells, not millions.
+- The UMAP coordinates are not umap-learn's. The layout is a picture of the graph, not
+  a measurement.
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
@@ -123,3 +200,20 @@ it in the table.
 - 与独立实现 PyDESeq2 对比：倍数变化相关 0.99999，p 值相关 0.9995，显著基因几乎完全重合，实测 FDR 为 0.048。
 
 结果只是本次实验内的统计关联，不证明机制、因果或任何临床效果。人体样本只能支持 `association`（相关性），细胞或动物实验只能支持 `mechanism_hypothesis`（机制假说）。
+
+**单细胞**（`bioagent scrna`）：输入为 10x 目录、HDF5、h5ad 或计数表，依次完成：
+- 质控：按样本做 MAD 离群剔除；
+- 双细胞检测：Scrublet；
+- 预处理：Seurat 方法选取高变基因，并做 PCA；
+- 批次整合：Harmony；
+- 聚类与可视化：Leiden 聚类，UMAP 布局；
+- 标记基因：Wilcoxon 检验；
+- 细胞类型注释：基于标记基因面板，无明确领先者时标为 unassigned；
+- 轨迹分析：PAGA，以及从指定起点出发的扩散伪时间；
+- 条件间比较：按细胞类型做伪批量 DESeq2。
+
+验证有两类：
+- 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
+- 用已知答案的模拟数据检验：低质量细胞全部剔除，聚类 ARI 大于 0.9，注释正确，伪时间沿预设路径（Spearman 大于 0.85），伪批量只在预设的细胞类型中找到差异。
+
+聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。
