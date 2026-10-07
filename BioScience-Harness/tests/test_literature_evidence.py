@@ -351,11 +351,24 @@ def test_unknown_fields_stay_unknown(index):
 @pytest.mark.parametrize("text,design", [
     ("In this non-randomized study of adults with asthma, inhaler use fell.", ""),
     ("这是一项未随机分组的观察。", ""),
-    ("A systematic review and meta-analysis of randomized trials in adults.", ""),
+    # two designs, each the text's own: no answer rather than either
+    ("We report a randomized trial and a meta-analysis of earlier trials in adults.", ""),
     ("采用随机抽样的方法调查了社区居民。", ""),
+    # a protocol reports no results, whatever design it plans
+    ("Study protocol for a randomized controlled trial of acupuncture in adults.", ""),
+    ("Participants will be randomized to acupuncture or sham acupuncture.", ""),
+    # a random split of data is not a trial's allocation
+    ("将患者按照7∶3随机分为训练集和验证集，建立预后模型。", ""),
     ("We performed a cross-sectional survey of 300 nurses.", "observational"),
     ("葛根芩连汤灌胃给药2型糖尿病大鼠12周。", "animal"),
     ("We report a case of hepatotoxicity after a herbal product.", "case_report"),
+    # the trials a review pools, or an introduction cites, are not the study's own design
+    ("A systematic review and meta-analysis of randomized trials in adults.",
+     "systematic_review"),
+    ("Randomized trials are few; this prospective cohort study followed 900 adults.",
+     "observational"),
+    ("Women undergoing in vitro fertilization were followed in a prospective cohort.",
+     "observational"),
 ])
 def test_the_design_rules_prefer_no_answer_to_a_wrong_one(text, design):
     reading = read_fields(text)["design"]
