@@ -505,7 +505,8 @@ def test_the_bridge_admits_an_mcp_component_as_a_remote_mutating_tool():
     assert unknown.provenance["mcp_config"].startswith("no reviewed entry")
 
 
-def test_the_broker_calls_the_server_in_process_and_types_each_failure(reviewed, tmp_path):
+def test_the_broker_calls_the_server_in_process_and_types_each_failure(reviewed, drifted,
+                                                                      tmp_path):
     from psh.contracts import (CapabilityUnavailable, ContractViolation, EgressDenied,
                                PolicyDenied, ToolTimeout)
 
@@ -516,8 +517,9 @@ def test_the_broker_calls_the_server_in_process_and_types_each_failure(reviewed,
     runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
                               skills=False, data_lake=tmp_path / "no-lake",
                               extra_manifests=[component(t) for t in tools]
-                              + [component("echo", "ghost")],
-                              mcp_servers=MCPServerRegistry([reviewed]))
+                              + [component("echo", "ghost"),
+                                 component("echo", "fixture-drifted")],
+                              mcp_servers=MCPServerRegistry([reviewed, drifted]))
     try:
         bridge = BioScienceBridge(kernel, runtime, isolate=False)
         for manifest in runtime.registry:
@@ -534,6 +536,8 @@ def test_the_broker_calls_the_server_in_process_and_types_each_failure(reviewed,
             call(bridge.component("mcp.fixture.unreviewed"), {}, envelope)
         with pytest.raises(CapabilityUnavailable, match="not in the reviewed MCP registry"):
             call(bridge.component("mcp.ghost.echo"), {"text": "hi"}, envelope)
+        with pytest.raises(PolicyDenied, match="drifted from the reviewed snapshot"):
+            call(bridge.component("mcp.fixture-drifted.echo"), {"text": "hi"}, envelope)
         echo = bridge.component("mcp.fixture.echo")
         before = echo.calls
         with pytest.raises(EgressDenied):           # PHI never reaches a public server
@@ -550,7 +554,7 @@ def test_the_broker_calls_the_server_in_process_and_types_each_failure(reviewed,
 
 def test_mcp_tool_adapter_admits_only_verified_tools_over_the_same_connection(
         reviewed, drifted, tmp_path):
-    from psh.contracts import ContractViolation, ToolTimeout
+    from psh.contracts import CapabilityUnavailable, ContractViolation, ToolTimeout
 
     from bioagent.psh import admit_mcp_server
 
@@ -571,6 +575,9 @@ def test_mcp_tool_adapter_admits_only_verified_tools_over_the_same_connection(
             changed = admit_mcp_server(kernel, other)
             assert "mcp.fixture-drifted.echo" not in changed.admitted
             assert "mcp.fixture-drifted.add" in changed.admitted
+        absent = dataclasses.replace(reviewed, command="/nonexistent/mcp-server", args=())
+        with pytest.raises(CapabilityUnavailable, match="could not be started"):
+            admit_mcp_server(kernel, MCPConnection(absent))
     finally:
         connection.close()
         kernel.close()

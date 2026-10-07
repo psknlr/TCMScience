@@ -61,7 +61,8 @@ A malformed entry is refused on its own, with every reason, and the rest of the 
 usable. A server whose entry was refused answers with that reason instead of "not
 configured". An id declared twice admits neither copy. The **config digest**, SHA-256 over
 the canonical entry, identifies exactly what was admitted. It is recorded on every result
-and in the bridge's admission audit event, and it is handed to the isolated child.
+and in the bridge's admission audit event. The isolated child is handed the digest of the
+one-server registry it receives, and refuses a file that does not match it.
 
 The shipped registry configures no server, so nothing changes for existing users. With no
 reviewed server, `default_runtime()` binds no dispatcher, and MCP components stay
@@ -97,7 +98,8 @@ the parts. A tool therefore returns the same value whichever path admitted it.
 Through PSH, the statuses become the exceptions the loop reasons in: `DENIED` becomes
 `PolicyDenied`, `UNAVAILABLE` becomes `CapabilityUnavailable`, `TIMEOUT` becomes
 `ToolTimeout`, and anything else becomes `ContractViolation`. The bridge admits an MCP
-component as PSH's adapter admits an MCP tool:
+component by the rules PSH's adapter applies to an MCP tool, and gives an isolated run room
+for the entry's deadlines:
 
 - its destination is the server's reviewed destination, or `PUBLIC_REMOTE` when no entry
   names the server;

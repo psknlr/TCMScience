@@ -105,7 +105,8 @@ class MCPBackend(Backend):
     status the call earned. A reply in the protocol's ``tools/call`` shape is read as one:
     ``isError`` is FAILED with the server's own text, because an error reply returned as a
     value would record the server's failure as this component's output — whichever
-    dispatcher delivered it.
+    dispatcher delivered it — and a successful one becomes its structured content, its
+    single text part, or its parts.
     """
 
     backend = "mcp"
