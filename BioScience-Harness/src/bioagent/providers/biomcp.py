@@ -77,6 +77,11 @@ class ToolPolicy:
     ignored_arguments: tuple[str, ...] = ()
     assembly: str = ""
     notes: str = ""
+    #: The transport's pins beyond the input schema (``bioagent.mcp``): the output schema,
+    #: the annotations and the description as listed, "" where the tool declares none.
+    output_schema_sha256: str = ""
+    annotations_sha256: str = ""
+    description_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -126,15 +131,22 @@ def load_server_config(path: str | Path | None = None) -> ServerConfig:
         if raw["record_kind"] not in _CARD_KIND:
             raise ValueError(f"{target}: tool {name!r} has record_kind "
                              f"{raw['record_kind']!r}, not one of {sorted(_CARD_KIND)}")
-        if not re.fullmatch(r"[0-9a-f]{64}", str(raw["input_schema_sha256"])):
-            raise ValueError(f"{target}: tool {name!r}: input_schema_sha256 is not a sha256")
+        for key in ("input_schema_sha256", "output_schema_sha256", "annotations_sha256",
+                    "description_sha256"):
+            value = str(raw.get(key) or "")
+            if (value or key == "input_schema_sha256") and \
+                    not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"{target}: tool {name!r}: {key} is not a sha256")
         tools[str(name)] = ToolPolicy(
             name=str(name), input_schema_sha256=str(raw["input_schema_sha256"]),
             record_kind=str(raw["record_kind"]), hosts=tuple(raw["hosts"]),
             fixed_arguments=dict(raw.get("fixed_arguments") or {}),
             ignored_arguments=tuple(raw.get("ignored_arguments") or ()),
             assembly=str(raw.get("assembly") or ""),
-            notes=" ".join(str(raw.get("notes") or "").split()))
+            notes=" ".join(str(raw.get("notes") or "").split()),
+            output_schema_sha256=str(raw.get("output_schema_sha256") or ""),
+            annotations_sha256=str(raw.get("annotations_sha256") or ""),
+            description_sha256=str(raw.get("description_sha256") or ""))
     env = server.get("env") or {}
     return ServerConfig(
         id=str(server["id"]), package=str(server["package"]), version=str(server["version"]),

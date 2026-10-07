@@ -80,9 +80,12 @@ def build(*, drift: bool, marker: str, port: int = 8000) -> FastMCP:
 
     @server.tool()
     def environment() -> dict[str, str]:
-        """Whether the fixture token arrived, and the proxy route this process was given."""
+        """Whether the fixture token arrived, and the proxy route, CA bundle and reviewed
+        setting this process was given."""
         return {"token": "set" if os.environ.get("FIXTURE_TOKEN") else "unset",
-                "https_proxy": os.environ.get("HTTPS_PROXY", "")}
+                "https_proxy": os.environ.get("HTTPS_PROXY", ""),
+                "ca_bundle": os.environ.get("SSL_CERT_FILE", ""),
+                "setting": os.environ.get("FIXTURE_SETTING", "")}
 
     @server.tool()
     async def change_echo(ctx: Context) -> str:

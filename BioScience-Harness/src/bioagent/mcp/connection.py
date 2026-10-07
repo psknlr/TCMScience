@@ -46,9 +46,11 @@ __all__ = ["MCPConnection", "PROXY_VARIABLES"]
 #: Variables a stdio server inherits from the process that starts it. The SDK starts a
 #: server with a minimal environment (HOME, PATH, ...) that drops them; in PSH's isolated
 #: child they are the kernel's egress proxy, so dropping them would let a proxy-honouring
-#: server reach hosts its component never declared.
+#: server reach hosts its component never declared. The CA variables go with them: behind
+#: a proxy that presents its own certificate, a server without them reaches nothing.
 PROXY_VARIABLES = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-                   "http_proxy", "https_proxy", "all_proxy", "no_proxy")
+                   "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+                   "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
 
 #: Characters of a server's stderr quoted in a reason.
 _STDERR_TAIL_CHARS = 400
@@ -307,6 +309,7 @@ class MCPConnection:
             from mcp.client.stdio import stdio_client
 
             env = {key: os.environ[key] for key in PROXY_VARIABLES if key in os.environ}
+            env.update(self.config.settings)
             env.update(self._env)
             return stdio_client(StdioServerParameters(
                 command=self.config.command, args=list(self.config.args), env=env,

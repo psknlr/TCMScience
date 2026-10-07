@@ -11,7 +11,7 @@ or variant are counted once, whichever provider returned them.
 | part | where | state |
 |---|---|---|
 | ToolUniverse provider | `bioagent.providers.tooluniverse`, `registry/tooluniverse_allowlist.yaml` | 8 tools, each run live through the runtime on 2026-10-07 |
-| BioMCP server config and result adapter | `bioagent.providers.biomcp`, `registry/biomcp_server.yaml` | draft config, 5 tools; no transport (built separately) |
+| BioMCP server config, result adapter and client | `bioagent.providers.biomcp`, `bioagent.providers.biomcp_client`, `registry/biomcp_server.yaml` | draft config, 5 tools; wired through the reviewed MCP transport |
 | Open Targets datatypes | `providers.public_apis`, `analysis.network_pharmacology` | the live connector and the analysis carry them |
 | Source identity | `bioagent.sources.identity` | used by the P0 retrieve skill, `tcmdb.consensus`, network pharmacology, the BioMCP adapter |
 
@@ -150,23 +150,35 @@ or read in its source:
   SHELL, TERM and USER only; behind an egress proxy nothing is reachable unless the proxy
   and CA variables are passed (`env.pass`).
 
-**What the integrator must wire** (the transport and dispatcher are another workstream):
+**Wired: `bioagent.providers.biomcp_client`.** `BioMCPClient(run_dir)` joins this
+configuration to the reviewed MCP transport (`bioagent.mcp`, [mcp-transport.md](mcp-transport.md))
+in the order the review requires:
 
-1. In the environment that has `biomcp-python==0.7.3` (the `biomcp` extra), check
-   `check_installed()` returns "" — records name the configured version, so another
-   release must not answer — then start the server from `server.command`, with `{python}`
-   that environment's interpreter, `cwd` an empty run-owned directory, the variables in
-   `env.pass` copied from the caller and those in `env.set` with `{run_dir}` filled in.
-2. After `initialize`, call `tools/list` and `check_listing`; refuse to serve the server when
-   `ok` is false, and admit only `admitted`, e.g. through `psh.protocols.mcp.MCPToolAdapter`
-   with `destination=PUBLIC_REMOTE`. That adapter takes one host list per server: give it
-   the union of the admitted tools' `hosts`, or one adapter per tool to keep them apart.
-3. For every call, send `arguments_for(tool, arguments)` and record the UTC time.
-4. Pass the reply, the arguments sent and the time to `adapt`; use its `status` as the
-   call's `ExecutionStatus` (the MCP `isError` flag alone misses the errors above) and its
-   records, not the raw text, as candidate evidence.
-5. Run `tests/test_biomcp_adapter.py -m integration` once the transport exists; it checks the
-   listed schemas against the configuration and adapts a live reply.
+1. `check_installed` first, in the interpreter that will run the server: its `initialize`
+   answer reports the MCP SDK's version, so a different BioMCP would otherwise be recorded
+   as the reviewed one.
+2. The server starts from `server.command` with `{python}` filled in, in `run_dir`, with
+   `env.set` as the entry's `settings` (the run's own HTTP cache). The transport hands on
+   the proxy and CA variables `env.pass` names, and the client refuses a configuration
+   that asks it to pass anything else.
+3. `tools/list` is checked twice. The transport checks its snapshot: the allowlist, and for
+   each admitted tool the digests of its input schema, output schema and description. The
+   configuration now pins all three, taken with `python -m bioagent.mcp review` against
+   0.7.3. The provider runs `check_listing`. A refusal from either stops the server.
+4. Every call sends `arguments_for` and returns `adapt`'s reading with the transport's
+   provenance. An ignored argument is DENIED before anything is sent. `adapt` decides the
+   status, because `isError` alone misses the errors above.
+
+The configuration's `status` is still `draft`: the review was done while building this, not
+by a person. Until someone sets `status: reviewed`, the client serves only a development
+run that passes `allow_draft=True`, and records `configuration: draft` on every result.
+To put the tools behind PSH's gates instead of calling them directly, admit the open
+connection with `bioagent.psh.admit_mcp_server(kernel, client.connection)`.
+
+Tests: `tests/test_biomcp_client.py`. The offline tests drive the call path with the
+recorded replies. Two start the real server, which lists its tools without the network:
+one passes both checks, and one refuses a rewritten description. The live lookup of
+PMID 34956436 is marked `integration`; it passed on 2026-10-07.
 
 ## Open Targets: the datatype travels with the association
 
@@ -289,7 +301,7 @@ passed, and all eight ToolUniverse smoke examples succeeded through the runtime.
 - **配置草案：** `registry/biomcp_server.yaml` 记录启动命令、环境变量、5 个准入工具及其输入 schema 摘要、固定参数与被忽略参数，以及不准入的原因（如 `trial_getter` 含联系人电话和邮箱）。
 - **结果适配：** `adapt()` 把回复转为带规范标识、查询、检索时间、服务器版本与原文的来源记录。
 - **0.7.3 的实测问题：** 部分参数被接受却被忽略；错误作为成功返回；`serverInfo.version` 实为 MCP SDK 版本；变异坐标为 GRCh37 却未声明。
-- **集成：** 传输层由另一组实现，本文列出其需接入的五个步骤。
+- **已接入：** `bioagent.providers.biomcp_client` 经审查过的 MCP 传输层（`bioagent.mcp`）启动 BioMCP：先核对安装版本；在本次运行专属目录中启动，缓存不与其他运行共享；`tools/list` 经两道核验（传输层核对输入、输出 schema 与描述的摘要，适配器再核对一次）；每次调用先整形参数，被忽略的参数在发出前即拒绝，回复由 `adapt()` 判定状态。配置仍是草案，只有显式 `allow_draft=True` 的开发运行可用，并在每个结果上注明。2026-10-07 的在线查询（PMID 34956436）通过。
 
 **Open Targets：**
 - **已有能力：** 快照路径早已逐类型保存分数。

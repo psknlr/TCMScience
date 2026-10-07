@@ -19,8 +19,11 @@ here is the operator's statement of what a server cannot be trusted to say about
 No secret is ever written here. ``env`` maps a variable the server process receives to
 the *name* of a credential the process starting the server resolves, and a value that is
 not a plain upper-case name is refused, so a pasted token fails validation instead of
-being committed. Unknown keys are refused for the same reason: a misspelt ``tools`` would
-otherwise drop the allowlist it was meant to carry, silently.
+being committed. ``settings`` are the server's non-secret variables a review fixes (a
+cache directory owned by the run, a telemetry switch): values are paths, flags and
+numbers, and one shaped like a token is refused for the same reason. Unknown keys are
+refused too: a misspelt ``tools`` would otherwise drop the allowlist it was meant to carry,
+silently.
 
 ``MCPServerConfig.digest`` — SHA-256 over the canonical entry — identifies exactly what was
 admitted. It is recorded on every result, and the isolated child refuses a configuration
@@ -64,17 +67,33 @@ _MAX_TIMEOUT_S = 3600.0
 
 #: Variables a reviewed entry may not set for a server process. The proxy variables are
 #: the egress route the starting process hands on (in PSH's isolated child, the kernel's
-#: proxy); the loader and interpreter variables decide which code the server runs. PSH's
+#: proxy), and the CA variables are which certificates that route is trusted with: an entry
+#: that set either could send a server's traffic somewhere else, or let it be read on the
+#: way. The loader and interpreter variables decide which code the server runs. PSH's
 #: isolated runner reserves the same families for its own children.
 _RESERVED_ENV = frozenset({
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "FTP_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
     "PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "IFS", "BASH_ENV", "ENV",
     "SHELLOPTS", "GLIBC_TUNABLES", "NODE_OPTIONS", "PERL5OPT", "RUBYOPT"})
 _RESERVED_PREFIXES = ("LD_", "DYLD_")
 
 _SERVER_KEYS = frozenset({"id", "transport", "command", "args", "cwd", "url", "env",
-                          "destination", "call_timeout_s", "connect_timeout_s", "package",
-                          "version", "tools", "note"})
+                          "settings", "destination", "call_timeout_s", "connect_timeout_s",
+                          "package", "version", "tools", "note"})
+#: A setting's value: a path, a flag or a number, on one line.
+_SETTING_VALUE = re.compile(r"[^\x00-\x1f\x7f]{0,512}")
+#: What a credential looks like when it is pasted where a setting belongs: a provider's
+#: token prefix at the start, or, in a value that is not an absolute path (whose
+#: components may be digests), a long unbroken run of token characters.
+_TOKEN_PREFIX = re.compile(
+    r"(?:ghp_|gho_|ghu_|ghs_|github_pat_|glpat-|sk-|xox[abpr]-|AKIA|AIza|Bearer\s)")
+_TOKEN_RUN = re.compile(r"[A-Za-z0-9_+/=-]{32,}")
+
+
+def _token_shaped(value: str) -> bool:
+    return bool(_TOKEN_PREFIX.match(value)) or (
+        not value.startswith("/") and bool(_TOKEN_RUN.search(value)))
 _SNAPSHOT_PARTS = (("input_schema", "inputSchema"), ("output_schema", "outputSchema"),
                    ("annotations", "annotations"), ("description", "description"))
 
@@ -167,6 +186,7 @@ class MCPServerConfig:
     cwd: str = ""
     url: str = ""
     env: Mapping[str, str] = field(default_factory=dict)
+    settings: Mapping[str, str] = field(default_factory=dict)
     call_timeout_s: float = 30.0
     connect_timeout_s: float = 15.0
     note: str = ""
@@ -175,6 +195,8 @@ class MCPServerConfig:
         object.__setattr__(self, "args", tuple(str(a) for a in self.args))
         object.__setattr__(self, "tools", MappingProxyType(dict(sorted(self.tools.items()))))
         object.__setattr__(self, "env", MappingProxyType(dict(sorted(self.env.items()))))
+        object.__setattr__(self, "settings",
+                           MappingProxyType(dict(sorted(self.settings.items()))))
         for key in ("call_timeout_s", "connect_timeout_s"):
             value = getattr(self, key)
             if isinstance(value, int) and not isinstance(value, bool):
@@ -204,6 +226,18 @@ class MCPServerConfig:
             if not _CREDENTIAL.fullmatch(credential):
                 out.append(f"env {var!r} must name a credential (UPPER_SNAKE_CASE), never "
                            "hold a value; the starting process resolves the name")
+        for var, value in self.settings.items():
+            if not _ENV_NAME.fullmatch(var) or var.upper() in _RESERVED_ENV \
+                    or var.upper().startswith(_RESERVED_PREFIXES):
+                out.append(f"setting {var!r} is not a name a reviewed entry may set")
+            elif var in self.env:
+                out.append(f"setting {var!r} is also a credential variable; it is one or "
+                           "the other")
+            if not isinstance(value, str) or not _SETTING_VALUE.fullmatch(value):
+                out.append(f"setting {var!r} must be one line of text")
+            elif _token_shaped(value):
+                out.append(f"setting {var!r} looks like a credential; a credential is "
+                           "named under env and resolved when the server starts")
         for label, value in (("call_timeout_s", self.call_timeout_s),
                              ("connect_timeout_s", self.connect_timeout_s)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) \
@@ -240,9 +274,9 @@ class MCPServerConfig:
         out = []
         if self.command or self.args or self.cwd:
             out.append("a streamable_http server takes a url, not a command, args or cwd")
-        if self.env:
-            out.append("env sets a server process's variables, and a streamable_http server "
-                       "is not a process this harness starts")
+        if self.env or self.settings:
+            out.append("env and settings set a server process's variables, and a "
+                       "streamable_http server is not a process this harness starts")
         parts = urllib.parse.urlsplit(self.url)
         host = (parts.hostname or "").lower()
         if parts.scheme not in ("https", "http") or not host:
@@ -286,6 +320,8 @@ class MCPServerConfig:
             out["url"] = self.url
         if self.env:
             out["env"] = dict(self.env)
+        if self.settings:
+            out["settings"] = dict(self.settings)
         out.update(destination=self.destination, call_timeout_s=self.call_timeout_s,
                    connect_timeout_s=self.connect_timeout_s, package=self.package,
                    version=self.version,
@@ -323,6 +359,11 @@ class MCPServerConfig:
                 isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
             problems.append("env must map variable names to credential names (strings)")
             env = {}
+        settings = raw.get("settings") or {}
+        if not isinstance(settings, Mapping) or not all(
+                isinstance(k, str) and isinstance(v, str) for k, v in settings.items()):
+            problems.append("settings must map variable names to values (strings)")
+            settings = {}
         tools: dict[str, ToolSnapshot] = {}
         tools_raw = raw.get("tools")
         if not isinstance(tools_raw, Mapping):
@@ -341,8 +382,8 @@ class MCPServerConfig:
         destination = text("destination") or "public_remote"
         if problems:
             raise MCPConfigError(subject, problems)
-        return cls(tools=tools, args=tuple(args), env=dict(env), destination=destination,
-                   **timeouts, **fields)
+        return cls(tools=tools, args=tuple(args), env=dict(env), settings=dict(settings),
+                   destination=destination, **timeouts, **fields)
 
 
 class MCPServerRegistry:

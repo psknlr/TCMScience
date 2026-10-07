@@ -383,6 +383,33 @@ def test_a_streamable_http_server_is_checked_against_the_same_snapshot(reviewed,
     assert "cannot connect" in caught.value.reason
 
 
+def test_a_reviewed_setting_and_the_ca_bundle_reach_the_server(reviewed, monkeypatch):
+    monkeypatch.setenv("SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+    configured = dataclasses.replace(reviewed, settings={"FIXTURE_SETTING": "/run/cache"})
+    with MCPConnection(configured) as connection:
+        seen = connection.call_tool("environment")["structuredContent"]
+    assert seen["setting"] == "/run/cache"
+    assert seen["ca_bundle"] == "/etc/ssl/certs/ca-certificates.crt"
+    assert configured.digest != reviewed.digest                  # the setting is admitted
+
+
+@pytest.mark.parametrize("settings, why", [
+    ({"SSL_CERT_FILE": "/tmp/mine.pem"}, "not a name a reviewed entry may set"),
+    ({"HTTPS_PROXY": "http://elsewhere:3128"}, "not a name a reviewed entry may set"),
+    ({"API_TOKEN": "ghp_" + "x" * 36}, "looks like a credential"),
+    ({"API_TOKEN": "Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0"}, "looks like a credential"),
+    ({"CACHE": "a\nb"}, "one line"),
+])
+def test_a_setting_is_never_a_route_a_trust_root_or_a_secret(settings, why):
+    with pytest.raises(MCPConfigError, match=why):
+        MCPServerConfig.from_dict(snapshotted(settings=settings))
+
+
+def test_a_path_setting_may_carry_a_digest():
+    config = MCPServerConfig.from_dict(snapshotted(settings={"CACHE": "/runs/" + SHA}))
+    assert MCPServerConfig.from_dict(config.to_dict()) == config
+
+
 def test_credentials_are_resolved_by_name_and_never_echoed(reviewed):
     credentialed = dataclasses.replace(reviewed, env={"FIXTURE_TOKEN": "FIXTURE_TOKEN_NAME"})
     granted = MCPDispatcher(MCPServerRegistry([credentialed]),

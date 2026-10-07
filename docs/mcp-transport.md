@@ -49,13 +49,22 @@ to the *name* of a credential, for example `{GITHUB_TOKEN: GITHUB_PAT}`. The pro
 starts the server resolves the name, by default from its own environment. A value that is
 not a plain upper-case name is refused, so a pasted token fails validation instead of
 being committed. Unknown keys are refused for the same reason: a misspelt `tools` would
-otherwise drop the allowlist it was meant to carry. Other refusals:
+otherwise drop the allowlist it was meant to carry.
+
+`settings` holds the server's non-secret variables a review fixes, for example a cache
+directory the run owns (`{XDG_CACHE_HOME: /runs/r1/cache}`). Values are paths, flags and
+numbers on one line. A value that starts like a provider's token (`ghp_`, `sk-`, `AKIA`,
+`Bearer `) or, outside an absolute path, holds a long unbroken run of token characters is
+refused, and so is a name that is also a credential variable. Settings are part of the
+entry, so the config digest covers them. Other refusals:
 
 - a relative `command` or `cwd`;
 - plain `http` to anything but loopback;
 - credentials inside a URL;
 - variables that choose the code a server runs (`LD_*`, `PYTHONPATH`, ...);
-- the proxy variables.
+- the proxy variables and the CA variables (`SSL_CERT_FILE`, `SSL_CERT_DIR`,
+  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`): an entry that set either could send a server's
+  traffic elsewhere, or let it be read on the way.
 
 A malformed entry is refused on its own, with every reason, and the rest of the file stays
 usable. A server whose entry was refused answers with that reason instead of "not
@@ -179,8 +188,9 @@ child, `exec.py` works as follows:
 The child's environment is the one PSH builds: cleared, `HOME` and `TMPDIR` set to the
 sandbox directory, and the proxy variables pointing at the kernel's egress proxy. The SDK
 starts a stdio server with a minimal environment that would drop the proxy variables, so
-they are handed on explicitly. A proxy-honouring server in the child can therefore reach
-only the hosts its component declared.
+they are handed on explicitly, with the CA variables (behind a proxy that presents its own
+certificate, a server without them reaches nothing). A proxy-honouring server in the child
+can therefore reach only the hosts its component declared.
 
 **Credentials do not reach the child.** PSH's `IsolatedExecutor` does have a secret hook:
 the kernel's `secret_resolver` resolves a manifest's `requires_secrets` into the child's
@@ -269,7 +279,7 @@ need the SDK skip without it (`need_module("mcp")`) and fail under
   - 同名工具重复出现为 DENIED。
   - 服务器发出 `list_changed` 后，下一次调用前重新核验。
 - **去向由运维决定。** `trusted_remote` 或 `public_remote` 进入 PSH 的去向闸门，PHI 不会被送到公共服务器。
-- **文件中不写密钥。** `env` 只写凭据名称，由启动进程解析，原因说明里也从不出现取值。
+- **文件中不写密钥。** `env` 只写凭据名称，由启动进程解析，原因说明里也从不出现取值。`settings` 只放评审确定的非机密变量（如本次运行专属的缓存目录）；形似令牌的值、代理变量和 CA 证书变量一律拒绝，设置也计入配置摘要。
 - **配置摘要。** 每个结果、准入审计事件和隔离子进程都带有配置摘要，用来确认准入的正是这份配置。
 
 **状态映射：**
