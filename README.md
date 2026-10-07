@@ -267,12 +267,13 @@ Established tools now run inside the governance, not beside it. Each one is reac
 
 | Implementation | What it refuses to do |
 |---|---|
-| MCP servers through the kernel: `bioagent.mcp`, with BioMCP ([docs](docs/mcp-transport.md)) | Call a tool nobody reviewed, or one whose schema or description has changed since the review. Each tool is pinned by digest, and the isolated child receives only the server its component calls. |
-| Operation broker ([docs](docs/operation-governance.md)) | Let a governed skill reach a host it did not declare. Each external call is checked, run through the kernel and recorded, and a run with a refused or unrecorded call is not released (ART118). |
+| MCP servers through the kernel, over stdio or HTTPS, on SDK 1.x and 2.x: `bioagent.mcp`, with BioMCP and the public DeepWiki server ([docs](docs/mcp-transport.md)) | Call a tool nobody reviewed, or one whose schema or description has changed since the review, or follow a redirect off the server's origin. Each tool is pinned by digest, and the isolated child receives only the server its component calls. |
+| Operation broker ([docs](docs/operation-governance.md)) | Let a governed skill reach a host it did not declare. Each external call is checked, run through the kernel and recorded, and a run with a refused or unrecorded call is not released (ART118). A protein sequence in a field its component declares, sent or returned, is research data; anything else in that field is refused. |
 | Implementation bindings and licences ([docs](docs/provider-bindings-and-licences.md)) | Run a function because a description names it, or read an unknown licence as permission. Upstream code runs only through a verified binding, and a commercial run needs a recorded licence for every code, model, data and service asset it uses. |
-| PyDESeq2, Scanpy, harmonypy, GSEApy ([docs](docs/omics-backends.md)) | Fall back silently. A selected backend that is missing is refused, and every result names the implementation and version that ran. |
-| PaperQA2 ([docs](docs/literature-evidence.md)) | Treat a model's summary as evidence, or guess a study design. Passages are located and typed by rule, a passage with no readable design is withheld, and synthesis is a candidate answer behind the model gate. |
-| ToolUniverse, BioMCP, Open Targets ([docs](docs/tool-providers.md)) | Expose an unreviewed tool, count one paper reached twice as two sources, or let literature co-mention pass as genetic evidence. |
+| PyDESeq2, Scanpy, harmonypy, GSEApy and scVI, with R's DESeq2 as the reference ([docs](docs/omics-backends.md)) | Fall back silently. A selected backend that is missing is refused, and every result names the implementation and version that ran. scVI trains on one thread and its weights are digested, so a rerun can be checked against the first. |
+| PaperQA2 ([docs](docs/literature-evidence.md)), with the typing rules measured on 478 open-access abstracts ([accuracy](docs/evidence-typing-accuracy.md)) | Treat a model's summary as evidence, or guess a study design. Passages are located and typed by rule, a passage with no readable design is withheld, and synthesis is a candidate answer behind the model gate, from a provider or a model on this machine. |
+| ToolUniverse (opt-in, `BIOAGENT_TOOLUNIVERSE=1`), BioMCP, Open Targets ([docs](docs/tool-providers.md)) | Expose an unreviewed tool, count one paper reached twice as two sources, or let literature co-mention pass as genetic evidence. |
+| SciToolAgent's ToolsAgent, deployed from its repository ([docs](docs/compute-tasks.md#deployed)) | Read an error the service returns with HTTP 200 as a result, run a function nobody reviewed, or send a salt's SMILES split at its dot as two molecules. |
 | Boltz, Chai-1, ProteinMPNN, OpenMM, and long jobs ([docs](docs/compute-tasks.md)) | Approximate an engine that is not installed. Tasks are typed contracts whose adapters refuse with the reason. Long jobs are submitted, polled, collected and cancelled, and each step is recorded. |
 
 ### Clinical decision support
@@ -359,8 +360,8 @@ Real isolation needs a container runtime or an OS sandbox. Every analytic result
 
 Some connected implementations have not been run:
 - The Boltz, Chai-1, ProteinMPNN, OpenMM and scVI paths were never run against those tools, which are not installed where this was built.
-- Synthesis by a real model through PaperQA2 is untested.
-- The MCP transport was tested against a fixture server and BioMCP, not against a remote HTTPS server.
+- PaperQA2's synthesis has run with a small model on this machine (Qwen2.5-1.5B through llama.cpp), not with a provider's model: there is no API key here.
+- The MCP transport has reached a remote server over HTTPS (DeepWiki) in process, but not from PSH's isolated child through the kernel's egress proxy.
 
 ## Citation
 

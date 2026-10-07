@@ -286,12 +286,13 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 
 | 实现 | 它拒绝做什么 |
 |---|---|
-| 经内核调用的 MCP 服务器：`bioagent.mcp`，含 BioMCP（[文档](docs/mcp-transport.md)） | 调用没人审查过的工具，或调用审查后 schema、描述已改变的工具。每个工具都按摘要固定；隔离子进程只拿到其组件要调用的那一个服务器。 |
-| 操作代理（[文档](docs/operation-governance.md)） | 让受治理的 Skill 访问它没有声明的主机。每次外部调用都经过检查、经内核执行并记录；有被拒绝或未记录调用的运行不予发布（ART118）。 |
+| 经内核调用的 MCP 服务器，经 stdio 或 HTTPS，支持 SDK 1.x 与 2.x：`bioagent.mcp`，含 BioMCP 与公共 DeepWiki 服务器（[文档](docs/mcp-transport.md)） | 调用没人审查过的工具，或调用审查后 schema、描述已改变的工具，或跟随重定向离开服务器的源。每个工具都按摘要固定；隔离子进程只拿到其组件要调用的那一个服务器。 |
+| 操作代理（[文档](docs/operation-governance.md)） | 让受治理的 Skill 访问它没有声明的主机。每次外部调用都经过检查、经内核执行并记录；有被拒绝或未记录调用的运行不予发布（ART118）。组件声明的字段中的蛋白序列（发送或返回）标为研究数据；该字段中的其他内容一律拒绝。 |
 | 实现绑定与许可证（[文档](docs/provider-bindings-and-licences.md)） | 只因描述文件提到某个函数就运行它，或把未知许可证当作许可。上游代码只经验证过的绑定运行；商业用途的运行，必须为所用的每项代码、模型、数据和服务资产记录许可证。 |
-| PyDESeq2、Scanpy、harmonypy、GSEApy（[文档](docs/omics-backends.md)） | 静默回退。所选后端缺失时即拒绝；每个结果都写明实际运行的实现及版本。 |
-| PaperQA2（[文档](docs/literature-evidence.md)） | 把模型的总结当作证据，或猜测研究设计。段落经定位并按规则标注；读不出研究设计的段落被搁置；合成结果只是模型闸门之后的候选回答。 |
-| ToolUniverse、BioMCP、Open Targets（[文档](docs/tool-providers.md)） | 暴露未经审查的工具，把经两条途径到达的同一篇论文算作两个来源，或把文献共现当作遗传证据。 |
+| PyDESeq2、Scanpy、harmonypy、GSEApy 与 scVI，以 R 的 DESeq2 为参照（[文档](docs/omics-backends.md)） | 静默回退。所选后端缺失时即拒绝；每个结果都写明实际运行的实现及版本。scVI 单线程训练并对权重取摘要，重跑可与首次结果核对。 |
+| PaperQA2（[文档](docs/literature-evidence.md)），标注规则已在 478 篇开放获取摘要上测量（[准确度](docs/evidence-typing-accuracy.md)） | 把模型的总结当作证据，或猜测研究设计。段落经定位并按规则标注；读不出研究设计的段落被搁置；合成结果只是模型闸门之后的候选回答，可来自服务商或本机模型。 |
+| ToolUniverse（需显式开启：`BIOAGENT_TOOLUNIVERSE=1`）、BioMCP、Open Targets（[文档](docs/tool-providers.md)） | 暴露未经审查的工具，把经两条途径到达的同一篇论文算作两个来源，或把文献共现当作遗传证据。 |
+| SciToolAgent 的 ToolsAgent，从其仓库实际部署（[文档](docs/compute-tasks.md#deployed)） | 把服务以 HTTP 200 返回的错误当作结果，运行没人审查过的函数，或把盐的 SMILES 在点号处拆成两个分子发送。 |
 | Boltz、Chai-1、ProteinMPNN、OpenMM 与长任务（[文档](docs/compute-tasks.md)） | 在引擎未安装时用近似结果顶替。任务是带类型的契约，适配器会说明原因并拒绝。长任务分为提交、查询、收取、取消四步，每一步都有记录。 |
 
 ### 临床决策支持
@@ -378,8 +379,8 @@ TCMScience **不**声称对提示注入有通用免疫力，**不**声称认证�
 
 部分已接入的实现尚未运行过：
 - Boltz、Chai-1、ProteinMPNN、OpenMM 和 scVI 的路径从未用这些工具实际运行过，构建环境中没有安装它们。
-- 通过 PaperQA2 由真实模型完成的合成未经测试。
-- MCP 传输层只用测试夹具服务器和 BioMCP 测试过，没有用远程 HTTPS 服务器测试。
+- PaperQA2 的合成只用本机小模型（经 llama.cpp 运行的 Qwen2.5-1.5B）跑过，没有用服务商的模型跑过：这里没有 API 密钥。
+- MCP 传输层已在进程内经 HTTPS 连上远程服务器（DeepWiki），但还没有从 PSH 的隔离子进程经内核出口代理连接过。
 
 ## 引用
 
