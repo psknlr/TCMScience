@@ -10,6 +10,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 |---|---|---|
 | RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | below |
 | Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
+| Protein structure: sequences to checked models | `bioagent fold` | below |
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -179,6 +180,68 @@ declared design allows.
 - The UMAP coordinates are not umap-learn's. The layout is a picture of the graph, not
   a measurement.
 
+## Protein structure: sequences to checked models
+
+```bash
+bioagent fold proteins.fasta --out models/ --allow-remote --reference ubq=PDB:1UBQ:A
+bioagent fold proteins.fasta --out models/ --method esmfold      # locally, no network
+bioagent fold --verify models/
+```
+
+Three predictors are available:
+
+| `--method` | What runs | Where the sequence goes |
+|---|---|---|
+| `esmatlas` (default) | ESMFold (Lin et al. 2023) through Meta's ESM Atlas service; up to 400 residues | to `api.esmatlas.com`, so it needs `--allow-remote` |
+| `esmfold` | ESMFold locally through Hugging Face `transformers` (`pip install 'bioagent[fold]'`; a GPU helps) | nowhere |
+| `colabfold` | AlphaFold2 through `colabfold_batch`, when it is installed | to ColabFold's MSA server unless it is configured otherwise, so it also needs `--allow-remote` |
+
+A sequence that must stay confidential should be folded with `esmfold`. A reference
+(`--reference NAME=REF`) may be an experimental entry (`PDB:<id>[:chain]`), an AlphaFold DB
+model (`UniProt:<accession>`) or a local file; fetching one also needs `--allow-remote`.
+
+### Steps
+
+| Step | What is computed |
+|---|---|
+| Model | the predicted chain, written as PDB with pLDDT (0–100) in the B-factor column |
+| Confidence | mean pLDDT; the shares at ≥ 90, ≥ 70 and < 50; the segments below 70 and below 50; PAE when the method gives it |
+| Secondary structure | DSSP from backbone hydrogen bonds (Kabsch & Sander 1983) |
+| Geometry | radius of gyration; consecutive CA–CA distances off 3.8 Å; heavy-atom clashes; backbone dihedrals outside the allowed regions |
+| Agreement | against the reference: sequence alignment (BLOSUM62, affine gaps, free end gaps), TM-score normalised by each length, RMSD and GDT-TS, and the per-residue distance after superposition |
+| Report | the pLDDT, contact-map, PAE and distance figures; `report.md` / `report.html`; `run.json` with the request and response digests of every prediction |
+
+### How it is checked
+
+- **TM-score against TM-align.** In CI's tools job, the TM-score of a model against the
+  crystal structure equals TM-align's (`tmtools`) to within 0.005.
+- **DSSP against a known assignment.** Ubiquitin's (1UBQ) α-helix 23–34 and its four
+  long β-strands (2–7, 12–16, 41–45, 66–71) are recovered.
+- **Superposition** recovers a rigid motion exactly: RMSD 0, TM-score and GDT-TS 1.
+- **A stored prediction against the crystal structure.** The ESMFold model of ubiquitin
+  (from the service, 2026-10-07) scores TM-score 0.958 and RMSD 0.83 Å against 1UBQ
+  offline. The same holds live (`tests/test_structure_live.py`, marked `integration`).
+- **The run records itself.** `verify_run` finds a changed model file.
+
+### What a result is
+
+A computational prediction. pLDDT is the method's confidence in each residue's local
+structure, not a measurement, and says nothing about how domains sit relative to each
+other (PAE does). Regions below 70 should not be interpreted. A model is one chain,
+without ligands, cofactors, modifications or partners.
+
+The governed skill `predict-protein-structure` (a candidate) records the models and
+their checks as outputs and makes no claim. It declares the three hosts it may reach,
+and it reaches them only when the call passes `allow_remote`.
+
+### Limits
+
+- The service folds at most 400 residues; longer chains need `esmfold` or `colabfold`.
+- DSSP here leaves out beta bulges and bends, so a strand broken by a bulge is reported
+  as two strands.
+- Only single chains are predicted: complexes, and models with ligands, are outside
+  this pipeline.
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
@@ -217,3 +280,21 @@ declared design allows.
 - 用已知答案的模拟数据检验：低质量细胞全部剔除，聚类 ARI 大于 0.9，注释正确，伪时间沿预设路径（Spearman 大于 0.85），伪批量只在预设的细胞类型中找到差异。
 
 聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。
+
+**蛋白结构预测**（`bioagent fold`）：输入 FASTA 或单条序列，可选三种预测器：
+- `esmatlas`（默认）：通过 Meta 的 ESM Atlas 服务运行 ESMFold，最长 400 个残基。序列会发往第三方，须显式加 `--allow-remote`；
+- `esmfold`：用 `transformers` 在本地运行 ESMFold，序列不出本机，适合保密序列；
+- `colabfold`：本机装有 `colabfold_batch` 时运行 AlphaFold2。
+
+每个模型都报告：
+- 置信度：pLDDT 均值、各区间占比、低置信片段，以及方法给出时的 PAE；
+- DSSP 二级结构；
+- 几何检查：回转半径、CA–CA 距离异常、原子碰撞、二面角；
+- 与参考结构的一致性（可选）：参考可以是 PDB 实验结构、AlphaFold DB 模型或本地文件，比较 TM-score、RMSD、GDT-TS 和逐残基偏差。
+
+验证：
+- TM-score 与 TM-align 一致；
+- DSSP 复现泛素 1UBQ 已知的二级结构；
+- 泛素的 ESMFold 预测与晶体结构相比，TM-score 0.958，RMSD 0.83 Å（离线测试与实时服务均通过）。
+
+预测结构只是计算结果，不是实验结构。pLDDT 低于 70 的区域不宜解读；模型为单链，不含配体、辅因子和相互作用伙伴。对应的候选 Skill `predict-protein-structure` 只记录模型和检查结果，不提出任何结论。

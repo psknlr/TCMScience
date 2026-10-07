@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# Protein structure prediction — a CANDIDATE skill, not in the stable lockfile.
+#
+# It may reach the ESM Atlas service (to fold), RCSB and AlphaFold DB (to fetch a
+# reference), and only when the call passes allow_remote: sending a sequence to a third
+# party is a disclosure. A predicted structure is computational: the skill makes no
+# claim, and the most its evidence could ever carry is a mechanism hypothesis.
+
+api_version: "1"
+id: predict-protein-structure
+name: Protein structure prediction
+version: "0.1.0"
+summary: >-
+  Predict protein structures (ESMFold via the ESM Atlas service, ESMFold locally, or
+  ColabFold), then report per-residue confidence, DSSP secondary structure, geometry
+  checks and TM-score / RMSD / GDT-TS against a reference structure.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.molecular.structure:predict_protein_structure"
+  timeout_s: 3600
+  memory_mb: 8192
+  deterministic: false
+  idempotent: true
+
+permissions:
+  network:
+    - api.esmatlas.com
+    - files.rcsb.org
+    - alphafold.ebi.ac.uk
+  filesystem_read:
+    - "${sequences}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: true
+  secrets: []
+
+evidence:
+  max_tier: preclinical
+  claim_kinds:
+    - mechanism_hypothesis
+  forbidden_claims:
+    - mechanism
+    - efficacy
+    - association
+    - recommendation
+  require_pinned_sources: true
+  require_quote_verified: true
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 60.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [sequences]
+  properties:
+    sequences:
+      type: string
+      description: a FASTA file or one amino-acid sequence
+    method:
+      type: string
+      enum: [esmatlas, esmfold, colabfold]
+    allow_remote:
+      type: boolean
+    reference:
+      type: string
+      description: "NAME=PDB:<id>[:chain] | NAME=UniProt:<acc> | NAME=<file>, comma-separated"
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    summary:
+      type: array
+
+risk: r2_consequential
+min_autonomy: act_with_approval
