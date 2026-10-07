@@ -76,6 +76,7 @@ REQUIRED_PACKAGES = (
     "bioagent.contracts",
     "bioagent.core",
     "bioagent.data",
+    "bioagent.docking",
     "bioagent.evolution",
     "bioagent.omics",
     "bioagent.omics.sc",

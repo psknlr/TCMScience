@@ -108,6 +108,26 @@ jobs:
           BIOAGENT_REQUIRE_TOOLS: "1"
         run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py tests/test_structure.py
 
+  molecular-tools:
+    # Docking runs real software: AutoDock Vina, meeko and RDKit. The unit tier has none
+    # of them, so these tests skip there; here they are installed and the tests run,
+    # including the redocking check that validates a setup against a crystal pose.
+    name: Molecular modelling with the standard tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,docking]"
+      - name: Docking tests, every tool present
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: python -m pytest -q tests/test_docking.py
+
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
     # record in data/connector_live_verification.csv says when.

@@ -33,6 +33,9 @@ analysis = ["pydeseq2>=0.4", "scanpy>=1.9", "leidenalg>=0.10", "igraph>=0.10",
 # Local structure prediction with ESMFold (large: torch and the model weights). The
 # default predictor is the ESM Atlas service, which needs neither.
 fold = ["torch>=2.0", "transformers>=4.30"]
+# Docking: RDKit for ligands, meeko for receptor and ligand preparation (it reads mmCIF
+# templates with gemmi), AutoDock Vina for the search.
+docking = ["rdkit>=2023.9", "meeko>=0.6", "vina>=1.2.5", "gemmi>=0.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

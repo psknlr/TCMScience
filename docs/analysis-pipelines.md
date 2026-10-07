@@ -11,6 +11,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 | RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | below |
 | Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
 | Protein structure: sequences to checked models | `bioagent fold` | below |
+| Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -242,6 +243,66 @@ and it reaches them only when the call passes `allow_remote`.
 - Only single chains are predicted: complexes, and models with ligands, are outside
   this pipeline.
 
+## Docking: a receptor and ligands to validated poses
+
+```bash
+bioagent dock 3PTB.pdb ligands.csv --site-ligand BEN --out dock/            # a local file
+bioagent dock PDB:3PTB:A ligands.csv --site-ligand BEN --allow-remote --out dock/
+bioagent dock receptor.pdb ligands.sdf --center 10,12,8 --size 22,22,22 --out dock/
+bioagent dock --verify dock/
+```
+
+The receptor can be a PDB file, an RCSB entry (`PDB:<id>[:chains]`) or an AlphaFold DB
+model (`UniProt:<accession>`); fetching either of the last two needs `--allow-remote`.
+The ligands can be a CSV (`name,smiles`), an SDF, a `.smi` file or one SMILES. The site
+can be a co-crystal ligand (`--site-ligand`), residues (`--site-residue A:189`) or an
+explicit box (`--center`, `--size`).
+
+### Steps
+
+| Step | What is done |
+|---|---|
+| Receptor | waters and unnamed hetero groups removed, the first alternate location kept; meeko's residue templates add polar hydrogens, Gasteiger charges and AutoDock types; residues that match no template are reported |
+| Ligands | the largest fragment; RDKit ETKDG v3 conformer (seeded) and MMFF94 relaxation; meeko's PDBQT and torsion tree; protonation as given |
+| Site | a box around the co-crystal ligand (8 Å of padding, at least 18 Å a side), around residues, or as given |
+| Validation | the co-crystal ligand, re-embedded from its SMILES (the RCSB Chemical Component Dictionary's when none is given), is docked back; the setup is validated when the top pose is within 2 Å heavy-atom RMSD (symmetry-aware) of the crystal pose |
+| Docking | AutoDock Vina 1.2 (Vina or Vinardo scoring), exhaustiveness 8, nine poses, a fixed seed |
+| Contacts | hydrogen bonds (3.5 Å), salt bridges (4.0 Å) and hydrophobic contacts (4.0 Å) of each best pose, by residue |
+| Report | scores with ligand efficiency, the validation, contacts, 2D depictions, every pose as SDF, `run.json` with the receptor's digest, the box, the seed and every output's digest |
+
+### How it is checked
+
+**Redocking known complexes** (full receptors, defaults):
+
+| Complex | Top pose, heavy-atom RMSD to the crystal pose | Score |
+|---|---|---|
+| trypsin–benzamidine (3PTB) | 0.37 Å | −6.0 kcal/mol |
+| streptavidin–biotin (1STP) | 0.61 Å | −7.5 kcal/mol |
+
+The test fixture, the 12 Å pocket of 3PTB, gives 0.38 Å. In it, benzamidine's amidine
+hydrogen-bonds Asp189 at the bottom of the S1 pocket, as in the crystal, and
+benzamidine outscores octane.
+
+Also checked: an unreadable ligand is recorded as a failure and the run goes on; a site
+without a co-crystal ligand is reported as not validated; `verify_run` finds a changed
+output. The CI tools job installs Vina, meeko and RDKit and runs these tests.
+
+### What a result is
+
+A docking score is the scoring function's estimate, not a measured affinity. Across
+benchmark sets it tracks measured binding with a correlation near 0.5 and errors of
+about 2 kcal/mol. A pose is a hypothesis about how a molecule could sit in the site.
+
+The governed skill `dock-ligands` (a candidate) claims a `mechanism_hypothesis` per
+ligand only when the setup was validated by redocking; otherwise it claims nothing.
+
+### Limits
+
+- The receptor is rigid: induced fit, waters and metal coordination are not modelled.
+- Protonation states and tautomers are as given; no pKa model is applied.
+- One conformer is embedded per ligand. Vina searches its torsions, but ring
+  conformations stay as embedded.
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
@@ -298,3 +359,23 @@ and it reaches them only when the call passes `allow_remote`.
 - 泛素的 ESMFold 预测与晶体结构相比，TM-score 0.958，RMSD 0.83 Å（离线测试与实时服务均通过）。
 
 预测结构只是计算结果，不是实验结构。pLDDT 低于 70 的区域不宜解读；模型为单链，不含配体、辅因子和相互作用伙伴。对应的候选 Skill `predict-protein-structure` 只记录模型和检查结果，不提出任何结论。
+
+**分子对接**（`bioagent dock`）：
+
+输入：
+- 受体：PDB 文件、RCSB 条目或 AlphaFold DB 模型；
+- 配体：CSV、SDF、`.smi` 或单个 SMILES。
+
+流程：
+- 受体处理：用 meeko 模板加极性氢、Gasteiger 电荷和原子类型；
+- 配体处理：RDKit 生成构象并做 MMFF94 优化；
+- 对接盒：围绕共晶配体、指定残基，或按给定中心与尺寸设定；
+- 重对接验证：若位点来自共晶配体，先把它重新对接回去，最优构象与晶体构象的 RMSD 不超过 2 Å 才算验证通过；
+- 对接：AutoDock Vina 1.2，固定随机种子；
+- 输出：打分、配体效率、氢键/盐桥/疏水接触、全部构象（SDF）和带摘要的 `run.json`。
+
+验证：
+- 胰蛋白酶–苯甲脒（3PTB）重对接 0.37 Å，链霉亲和素–生物素（1STP）0.61 Å；
+- 苯甲脒的脒基与 S1 口袋底部的 Asp189 形成氢键，与晶体结构一致。
+
+对接打分只是打分函数的估计，不是实测亲和力（与实测值的相关系数约 0.5，误差约 2 kcal/mol）。受体为刚性，质子化状态按输入处理。候选 Skill `dock-ligands` 只有在重对接验证通过时，才对每个配体给出 `mechanism_hypothesis`（机制假说）。
