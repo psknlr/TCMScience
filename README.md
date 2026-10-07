@@ -274,7 +274,7 @@ Established tools now run inside the governance, not beside it. Each one is reac
 | PaperQA2 ([docs](docs/literature-evidence.md)), with the typing rules measured on 478 open-access abstracts ([accuracy](docs/evidence-typing-accuracy.md)) | Treat a model's summary as evidence, or guess a study design. Passages are located and typed by rule, a passage with no readable design is withheld, and synthesis is a candidate answer behind the model gate, from a provider or a model on this machine. |
 | ToolUniverse (opt-in, `BIOAGENT_TOOLUNIVERSE=1`), BioMCP, Open Targets ([docs](docs/tool-providers.md)) | Expose an unreviewed tool, count one paper reached twice as two sources, or let literature co-mention pass as genetic evidence. |
 | SciToolAgent's ToolsAgent, deployed from its repository ([docs](docs/compute-tasks.md#deployed)) | Read an error the service returns with HTTP 200 as a result, run a function nobody reviewed, or send a salt's SMILES split at its dot as two molecules. |
-| Boltz, Chai-1, ProteinMPNN, OpenMM, and long jobs ([docs](docs/compute-tasks.md)) | Approximate an engine that is not installed. Tasks are typed contracts whose adapters refuse with the reason. Long jobs are submitted, polled, collected and cancelled, and each step is recorded. |
+| Boltz-2, Chai-1, ProteinMPNN, OpenMM, and long jobs ([docs](docs/compute-tasks.md)) | Approximate an engine that is not installed. Tasks are typed contracts whose adapters refuse with the reason; each engine has run here through its adapter, on a CPU, in an environment of its own. Long jobs are submitted, polled, collected and cancelled, each step recorded, and inside PSH's loop unfinished work is pending, never a result, and collected after a restart. |
 
 ### Clinical decision support
 
@@ -359,7 +359,7 @@ It does **not** claim general immunity to prompt injection, certification-grade 
 Real isolation needs a container runtime or an OS sandbox. Every analytic result above comes with its stated limitations, and a result that is not significant is not evidence of irrelevance.
 
 Some connected implementations have not been run:
-- The Boltz, Chai-1, ProteinMPNN, OpenMM and scVI paths were never run against those tools, which are not installed where this was built.
+- Boltz-2, Chai-1, ProteinMPNN and OpenMM have run on a CPU with one small complex or protein each, which shows the adapters read what these versions write; it validates none of the models. Local ESMFold has not run (its 8.4 GB of weights exceeded the memory here), nor has anything on a GPU or in a container.
 - PaperQA2's synthesis has run with a small model on this machine (Qwen2.5-1.5B through llama.cpp), not with a provider's model: there is no API key here.
 - The MCP transport has reached a remote server over HTTPS (DeepWiki) in process, but not from PSH's isolated child through the kernel's egress proxy.
 

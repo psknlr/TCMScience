@@ -293,7 +293,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | PaperQA2（[文档](docs/literature-evidence.md)），标注规则已在 478 篇开放获取摘要上测量（[准确度](docs/evidence-typing-accuracy.md)） | 把模型的总结当作证据，或猜测研究设计。段落经定位并按规则标注；读不出研究设计的段落被搁置；合成结果只是模型闸门之后的候选回答，可来自服务商或本机模型。 |
 | ToolUniverse（需显式开启：`BIOAGENT_TOOLUNIVERSE=1`）、BioMCP、Open Targets（[文档](docs/tool-providers.md)） | 暴露未经审查的工具，把经两条途径到达的同一篇论文算作两个来源，或把文献共现当作遗传证据。 |
 | SciToolAgent 的 ToolsAgent，从其仓库实际部署（[文档](docs/compute-tasks.md#deployed)） | 把服务以 HTTP 200 返回的错误当作结果，运行没人审查过的函数，或把盐的 SMILES 在点号处拆成两个分子发送。 |
-| Boltz、Chai-1、ProteinMPNN、OpenMM 与长任务（[文档](docs/compute-tasks.md)） | 在引擎未安装时用近似结果顶替。任务是带类型的契约，适配器会说明原因并拒绝。长任务分为提交、查询、收取、取消四步，每一步都有记录。 |
+| Boltz-2、Chai-1、ProteinMPNN、OpenMM 与长任务（[文档](docs/compute-tasks.md)） | 在引擎未安装时用近似结果顶替。任务是带类型的契约，适配器会说明原因并拒绝；每个引擎都已在本机 CPU 上、在各自独立的环境中经适配器实际运行过。长任务分为提交、查询、收取、取消四步，每一步都有记录；在 PSH 循环中，未完成的作业记为待定，绝不当作结果，重启后可继续收取。 |
 
 ### 临床决策支持
 
@@ -378,7 +378,7 @@ TCMScience **不**声称对提示注入有通用免疫力，**不**声称认证�
 真正的隔离需要容器运行时或操作系统级沙箱。上面每个分析结果都附有局限说明；「不显著」不等于「无关」。
 
 部分已接入的实现尚未运行过：
-- Boltz、Chai-1、ProteinMPNN、OpenMM 和 scVI 的路径从未用这些工具实际运行过，构建环境中没有安装它们。
+- Boltz-2、Chai-1、ProteinMPNN 和 OpenMM 各只在 CPU 上用一个小复合物或小蛋白运行过，这只说明适配器能读懂这些版本的输出，不验证任何模型。本地 ESMFold 没有运行（8.4 GB 权重超出本机内存），GPU 与容器上也都没有运行过。
 - PaperQA2 的合成只用本机小模型（经 llama.cpp 运行的 Qwen2.5-1.5B）跑过，没有用服务商的模型跑过：这里没有 API 密钥。
 - MCP 传输层已在进程内经 HTTPS 连上远程服务器（DeepWiki），但还没有从 PSH 的隔离子进程经内核出口代理连接过。
 

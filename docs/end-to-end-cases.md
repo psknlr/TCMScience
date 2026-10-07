@@ -113,9 +113,11 @@ prediction, and the four verdicts are the ones above.
 - **Not an agent's writing.** No model wrote the drafted claims; each case states them.
   How a model writes under these checks is the
   [four-arm comparison](comparison.md), which has not been run.
-- **Not every implementation.** Boltz, Chai-1, ProteinMPNN and OpenMM are not installed
-  here, and neither is scVI. The cases record those steps as UNAVAILABLE and do not
-  replace them.
+- **Not every implementation.** The cases ran where Boltz is not installed, so case 3's
+  complex prediction is UNAVAILABLE there and nothing replaces it. Boltz-2, Chai-1,
+  ProteinMPNN and OpenMM have since run through their adapters in environments of their
+  own ([compute tasks](compute-tasks.md)), and scVI in its own
+  ([omics backends](omics-backends.md)); no case runs them yet.
 
 Tests: `BioScience-Harness/tests/test_end_to_end_cases.py`. Without the optional
 implementations they skip, and under `BIOAGENT_REQUIRE_TOOLS=1` they fail.

@@ -172,6 +172,51 @@ jobs:
           BIOAGENT_REQUIRE_TOOLS: "1"
         run: python -m pytest -q tests/test_docking.py tests/test_admet.py tests/test_compute_contracts.py
 
+  structure-engines:
+    # OpenMM and ProteinMPNN run for real through their adapters, each in an environment of
+    # its own that a reviewed environments file names (docs/compute-tasks.md): ubiquitin in
+    # vacuum, minimised and run for 1 ps, and four ProteinMPNN designs with fixed positions.
+    # Boltz-2 and Chai-1 need gigabytes of weights and are run by hand
+    # (tests/test_structure_complex_real.py).
+    name: Structure engines, run for real
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OpenMM and ProteinMPNN in environments of their own
+        run: |
+          python -m venv "$RUNNER_TEMP/openmm"
+          "$RUNNER_TEMP/openmm/bin/pip" install -q openmm==8.6.1
+          python -m venv "$RUNNER_TEMP/mpnn"
+          "$RUNNER_TEMP/mpnn/bin/pip" install -q torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+          "$RUNNER_TEMP/mpnn/bin/pip" install -q numpy==2.3.4
+          git init -q "$RUNNER_TEMP/ProteinMPNN"
+          git -C "$RUNNER_TEMP/ProteinMPNN" fetch -q --depth 1 https://github.com/dauparas/ProteinMPNN 8907e6671bfbfc92303b5f79c4b5e6ce47cdef57
+          git -C "$RUNNER_TEMP/ProteinMPNN" checkout -q FETCH_HEAD
+      - run: python -m pip install --upgrade pip && pip install -e "BioScience-Harness[dev]"
+      - name: The reviewed environments file
+        env:
+          PYTHONPATH: PSH-Harness/src
+        run: |
+          python - <<'EOF'
+          import json, os
+          from bioagent.backends.environments import reviewed
+          t = os.environ["RUNNER_TEMP"]
+          body = {"interpreters": {"openmm": {"prefix": f"{t}/openmm"},
+                                   "ProteinMPNN": {"prefix": f"{t}/mpnn",
+                                                   "root": f"{t}/ProteinMPNN"}}}
+          with open(f"{t}/environments.json", "w") as fh:
+              json.dump(reviewed(body, by="ci", on="2026-10-07"), fh)
+          EOF
+      - name: The engines' real-run tests, every engine required
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: BIOAGENT_ENVIRONMENTS="$RUNNER_TEMP/environments.json" python -m pytest -q tests/test_structure_engines_real.py
+
   integrations:
     # The MCP transport against a real server, BioMCP started through it, the reviewed
     # ToolUniverse tools and PaperQA2's offline index and retrieval. The unit tier runs

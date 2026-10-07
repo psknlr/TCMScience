@@ -674,7 +674,8 @@ ProteinMPNN: four designs for ubiquitin with fixed positions) is cheap enough fo
 `test_structure_complex_real.py` (Boltz-2, and Chai-1 where it can run, on ubiquitin and
 aspirin) also needs `$BIOAGENT_BOLTZ_CACHE` or `$BIOAGENT_CHAI_DOWNLOADS` and is not.
 Here the first took 50 to 84 s with one thread per tool, depending on the machine's
-load. A CI job for it (Python 3.12, as the modelling job sets up), as verified here:
+load. The `structure-engines` CI job runs it on Python 3.12, as below (the job's own steps
+put the environments under `$RUNNER_TEMP`, and were checked here the same way):
 
 ```bash
 python -m venv /tmp/openmm && /tmp/openmm/bin/pip install openmm==8.6.1
