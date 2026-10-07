@@ -85,10 +85,10 @@ def retrieve_tcm_evidence(subject: str, *, claim_kind: str = "efficacy",
     for safety in (kb.safety_for(subject_id) if subject_id else []):
         studies.extend(e for e in kb.evidence(safety.evidence_ids)
                        if isinstance(e, StudyEvidence))
-    # Deduplicate by id, preserving order: a study cited by two relations is one
-    # study, and counting it twice would inflate the apparent evidence base.
-    seen: set[str] = set()
-    unique_studies = [s for s in studies if not (s.id in seen or seen.add(s.id))]
+    # Deduplicate, preserving order: a study cited by two relations is one study, and
+    # so is a study recorded twice under two ids that name one PMID, DOI or trial
+    # registration. Counting either twice would inflate the apparent evidence base.
+    unique_studies, merged = _one_per_source(studies)
 
     truncated = len(unique_studies) > max_results
     for study in unique_studies[:max_results]:
@@ -160,6 +160,9 @@ def retrieve_tcm_evidence(subject: str, *, claim_kind: str = "efficacy",
     if truncated:
         limitations.append(
             f"the result set was truncated at {max_results}; this is a partial view")
+    for key, ids in merged:
+        limitations.append(
+            f"records {', '.join(ids)} name the same source ({key}) and are counted once")
     if not evidence:
         limitations.append(
             "no evidence was found. This is an empty result set, NOT evidence that "
@@ -236,6 +239,27 @@ def _item_from_study(study: StudyEvidence, *, run_id: str, index: int) -> Eviden
         retracted=retracted,
         retrieved_by="retrieve-tcm-evidence", retrieval_run=run_id,
         notes=f"corpus tier {study.tier.name.lower()}; design inferred as {design}")
+
+
+def _one_per_source(studies: Sequence[StudyEvidence]
+                    ) -> tuple[list[StudyEvidence], list[tuple[str, list[str]]]]:
+    """The studies, one per source, in order; and each merged group's key and ids.
+
+    One source is one record id, or records whose PMID, DOI or registry id are the same
+    once canonicalised (``sources.identity``). The first record of a source stands for it.
+    """
+    from ...sources.identity import canonical, group_sources
+
+    seen: set[str] = set()
+    ordered = [s for s in studies if not (s.id in seen or seen.add(s.id))]
+    grouped = group_sources({i: (canonical(s.pmid, "pmid") if s.pmid else None,
+                                 canonical(s.doi, "doi") if s.doi else None,
+                                 canonical(s.registry_id) if s.registry_id else None)
+                             for i, s in enumerate(ordered)})
+    keep = sorted([min(g.members) for g in grouped.groups] + list(grouped.unidentified))
+    merged = [(str(g.key), [ordered[i].id for i in g.members])
+              for g in grouped.groups if len(g.members) > 1]
+    return [ordered[i] for i in keep], merged
 
 
 def _identifier_of(study: StudyEvidence) -> tuple[str, str]:

@@ -80,6 +80,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Any, Iterable, Mapping, Sequence
 
+from ..sources.identity import canonical
+
 __all__ = ["Crosswalk", "Assertion", "EVIDENCE_RANK", "SUPPORT_CLASSES", "consensus",
            "compare", "redundancy", "survey", "lineage_of", "independent_count"]
 
@@ -104,6 +106,8 @@ MIN_OBJECTS = 20
 _PROCESSED = ("炙", "炒", "麸炒", "焦", "炭", "煅", "制", "酒", "醋", "盐", "姜", "蜜", "熟",
               "法", "清", "胆", "炮", "煨")
 _CJK = re.compile(r"[一-鿿]")
+#: Identifier schemes a reference may cite as its lineage: a paper or a trial.
+_CITABLE = frozenset({"pmid", "pmcid", "doi", "nct"})
 #: Entity types the crosswalk maps (compounds to InChIKeys, genes to symbols).
 _MAPPED = ("ingredient", "compound", "drug", "ligand", "target", "gene", "protein")
 _VIA = re.compile(r"via\s+(.+)$")
@@ -121,12 +125,30 @@ DECLARED_LINEAGE: Mapping[tuple[str, str], tuple[str, ...]] = {
 }
 
 
+def _cited(ref: Any) -> str:
+    """A reference that names a paper or a trial, in canonical form; "" otherwise.
+
+    Databases write one paper several ways — ``doi:10.1016/J.JEP…``, a bare
+    ``10.1016/j.jep…``, ``https://doi.org/…`` — so a reference is canonicalised
+    (``sources.identity``) before it is a lineage. Read as written, one paper cited by two
+    databases was two independent lineages, and a DOI without its ``doi:`` prefix was not
+    recognised as a paper at all and counted as the database.
+    """
+    if not ref:
+        return ""
+    if str(ref).startswith("prospero:"):
+        return str(ref)
+    cited = canonical(ref)
+    return str(cited) if cited is not None and cited.scheme in _CITABLE else ""
+
+
 def lineage_of(row: Mapping[str, Any]) -> frozenset[str]:
     """The primary resources a relation row rests on."""
     ref = row.get("reference") or ""
     evidence, source = row.get("evidence"), row.get("source")
-    if evidence in OBSERVED and str(ref).startswith(("pmid:", "doi:", "nct:", "prospero:")):
-        return frozenset({str(ref)})
+    cited = _cited(ref) if evidence in OBSERVED else ""
+    if cited:
+        return frozenset({cited})
     note = row.get("note") or ""
     m = _VIA.search(note) if "via " in note else None
     if m:
@@ -410,9 +432,8 @@ class Assertion:
         return best                       # associated | mentioned | predicted | signal
 
     def as_dict(self, redundant: Mapping[str, str] | None = None) -> dict[str, Any]:
-        refs = sorted({r["reference"] for r in self.rows
-                       if r.get("reference") and str(r["reference"]).startswith(("pmid:",
-                                                                                 "doi:"))})
+        refs = sorted({c for c in (_cited(r.get("reference")) for r in self.rows)
+                       if c.startswith(("pmid:", "pmcid:", "doi:"))})
         return {
             "kind": self.kind, "subject": self.subject, "object": self.object,
             "subject_names": sorted(self.subject_names)[:5],
