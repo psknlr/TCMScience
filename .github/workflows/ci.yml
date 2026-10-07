@@ -98,7 +98,8 @@ jobs:
     # need them skip there; here they are installed, and BIOAGENT_REQUIRE_TOOLS turns a
     # missing tool into a failure, so this job cannot pass by skipping. PyDESeq2, Scanpy,
     # leidenalg, umap-learn and tmtools (TM-align) are installed for the comparisons with
-    # independent implementations of the methods.
+    # independent implementations of the methods, and as selectable backends, with
+    # harmonypy and GSEApy (docs/omics-backends.md).
     name: Analysis pipelines with the standard tools
     runs-on: ubuntu-latest
     steps:
@@ -117,7 +118,7 @@ jobs:
         env:
           PYTHONPATH: ../PSH-Harness/src
           BIOAGENT_REQUIRE_TOOLS: "1"
-        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py tests/test_structure.py
+        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py tests/test_structure.py tests/test_omics_de_backends.py tests/test_omics_sc_backends.py tests/test_omics_gsea.py
 
   molecular-tools:
     # Docking and ADMET run real software: AutoDock Vina, meeko, RDKit and scikit-learn.
@@ -138,7 +139,55 @@ jobs:
         env:
           PYTHONPATH: ../PSH-Harness/src
           BIOAGENT_REQUIRE_TOOLS: "1"
-        run: python -m pytest -q tests/test_docking.py tests/test_admet.py
+        run: python -m pytest -q tests/test_docking.py tests/test_admet.py tests/test_compute_contracts.py
+
+  integrations:
+    # The MCP transport against a real server, BioMCP started through it, the reviewed
+    # ToolUniverse tools and PaperQA2's offline index and retrieval. The unit tier runs
+    # what needs none of them; here every package is installed and BIOAGENT_REQUIRE_TOOLS
+    # turns a skip into a failure. Calls to remote services are marked integration and stay
+    # out of CI (docs/mcp-transport.md, docs/tool-providers.md, docs/literature-evidence.md).
+    name: MCP, tool providers and literature, with their packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,mcp,tooluniverse,biomcp,literature]"
+      - name: Integration tests, every package present, no network
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: python -m pytest -q -m "not integration" tests/test_mcp_transport.py tests/test_biomcp_client.py tests/test_biomcp_adapter.py tests/test_tooluniverse_provider.py tests/test_literature_evidence.py
+
+  end-to-end:
+    # The three end-to-end cases (docs/end-to-end-cases.md): counts to pathway claims,
+    # literature to claims, a compound to a hypothesis. Each runs real implementations, so
+    # every one is installed and a missing one fails the job; the script exits non-zero if
+    # any drafted claim gets a verdict other than the one its case expects.
+    name: End-to-end cases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,analysis,literature,docking,admet]"
+      - name: The cases' tests
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: python -m pytest -q tests/test_end_to_end_cases.py
+      - name: The cases, with PyDESeq2
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+        run: python scripts/run_end_to_end_cases.py --out "$RUNNER_TEMP/cases" --de-backend pydeseq2
 
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
@@ -153,3 +202,12 @@ jobs:
           python-version: "3.11"
       - working-directory: BioScience-Harness
         run: PYTHONPATH=src python scripts/verify_connectors.py --no-write
+      # The providers' live tests: a Biomni clone at the pinned commit, governed RCSB and
+      # ESM Atlas calls through the operation broker, ToolUniverse's UniProt tool, and
+      # BioMCP's listing and a live lookup through the MCP transport.
+      - run: python -m pip install --upgrade pip && pip install -e "BioScience-Harness[dev,mcp,tooluniverse,biomcp]"
+      - name: Live provider tests (network)
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+        run: python -m pytest -q -m integration tests/test_bindings_licences.py tests/test_operation_broker.py tests/test_tooluniverse_provider.py tests/test_biomcp_adapter.py tests/test_biomcp_client.py

@@ -231,6 +231,10 @@ python scripts/run_inquiry.py --planted all --out RUN/inquiry              # doc
 # 四组比较：离线自检；真正的运行必须用 --model 指定模型（docs/comparison.md）
 python scripts/run_comparison.py selftest --out RUN/comparison-selftest
 
+# 三个端到端案例；接入 MCP 服务器前先审查它
+python scripts/run_end_to_end_cases.py --out RUN/cases                    # docs/end-to-end-cases.md
+python -m bioagent.mcp review DRAFT.yaml                                  # docs/mcp-transport.md
+
 # 从 FASTQ 到差异表达报告的 RNA-seq 流程（docs/analysis-pipelines.md）
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
@@ -275,6 +279,20 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | `bioagent fold` — 序列 → ESMFold／AlphaFold2 → pLDDT、DSSP、几何检查 → 与参考结构比 TM-score | 把预测当作实测结构，或未经允许把序列发往任何地方：模型是带置信度的输出，远程预测需要 `--allow-remote`。 |
 | `bioagent dock` — 受体 + 配体 → 准备好的 PDBQT → 再对接检验 → Vina 构象、打分、接触 | 把打分当作亲和力，或用没通过再对接检验的设置给构象排序：先验证；没有验证，就不下结论。 |
 | `bioagent admet` — 结构 → 描述符、规则、警示结构 → 22 个按 TDC 训练的终点 | 把预测说成测量，或在模型没见过的化学空间里预测：每个终点都带留出集误差和适用域标记。 |
+
+### 接入的成熟实现
+
+成熟工具现在在治理之内运行，而不是游离于治理之外。每个工具都通过一个经过审查的绑定接入，绑定固定了它的版本、许可证以及各种失败的含义。某个工具缺失时，不会用另一个顶替。[三个端到端案例](docs/end-to-end-cases.md)把它们串成链条运行：从计数到通路主张，从文献到主张，从化合物到假说。
+
+| 实现 | 它拒绝做什么 |
+|---|---|
+| 经内核调用的 MCP 服务器：`bioagent.mcp`，含 BioMCP（[文档](docs/mcp-transport.md)） | 调用没人审查过的工具，或调用审查后 schema、描述已改变的工具。每个工具都按摘要固定；隔离子进程只拿到其组件要调用的那一个服务器。 |
+| 操作代理（[文档](docs/operation-governance.md)） | 让受治理的 Skill 访问它没有声明的主机。每次外部调用都经过检查、经内核执行并记录；有被拒绝或未记录调用的运行不予发布（ART118）。 |
+| 实现绑定与许可证（[文档](docs/provider-bindings-and-licences.md)） | 只因描述文件提到某个函数就运行它，或把未知许可证当作许可。上游代码只经验证过的绑定运行；商业用途的运行，必须为所用的每项代码、模型、数据和服务资产记录许可证。 |
+| PyDESeq2、Scanpy、harmonypy、GSEApy（[文档](docs/omics-backends.md)） | 静默回退。所选后端缺失时即拒绝；每个结果都写明实际运行的实现及版本。 |
+| PaperQA2（[文档](docs/literature-evidence.md)） | 把模型的总结当作证据，或猜测研究设计。段落经定位并按规则标注；读不出研究设计的段落被搁置；合成结果只是模型闸门之后的候选回答。 |
+| ToolUniverse、BioMCP、Open Targets（[文档](docs/tool-providers.md)） | 暴露未经审查的工具，把经两条途径到达的同一篇论文算作两个来源，或把文献共现当作遗传证据。 |
+| Boltz、Chai-1、ProteinMPNN、OpenMM 与长任务（[文档](docs/compute-tasks.md)） | 在引擎未安装时用近似结果顶替。任务是带类型的契约，适配器会说明原因并拒绝。长任务分为提交、查询、收取、取消四步，每一步都有记录。 |
 
 ### 临床决策支持
 
@@ -357,6 +375,11 @@ TCMScience **不**声称对提示注入有通用免疫力，**不**声称认证�
 - 审计链能*察觉*篡改，不能防止篡改。
 
 真正的隔离需要容器运行时或操作系统级沙箱。上面每个分析结果都附有局限说明；「不显著」不等于「无关」。
+
+部分已接入的实现尚未运行过：
+- Boltz、Chai-1、ProteinMPNN、OpenMM 和 scVI 的路径从未用这些工具实际运行过，构建环境中没有安装它们。
+- 通过 PaperQA2 由真实模型完成的合成未经测试。
+- MCP 传输层只用测试夹具服务器和 BioMCP 测试过，没有用远程 HTTPS 服务器测试。
 
 ## 引用
 
