@@ -443,6 +443,8 @@ class LocalSubprocessJobs(JobExecutor):
 
 _STATES = {s.value: s for s in (JobState.QUEUED, JobState.RUNNING, JobState.COMPLETED,
                                 JobState.FAILED, JobState.CANCELLED)}
+#: Every state a JobObserved event may record, for a controller read back from a trace.
+_STATE_VALUES = frozenset(s.value for s in JobState)
 
 
 class HTTPJobService(JobExecutor):
@@ -593,6 +595,9 @@ class JobController:
     ``events`` is the run's ``EventLog``; without one the controller keeps its own, so a
     job is never submitted unrecorded. With ``trace_path`` the log is written to disk after
     every job event, which is what lets a restarted process find a job (``open_jobs``).
+    A log read back from a trace (``EventLog.read``) carries on where it stopped: the jobs
+    it holds are found again, their events stay linked to their submissions, and a state
+    already observed is not recorded a second time on every poll.
     """
 
     def __init__(self, executor: JobExecutor, *, events: EventLog | None = None,
@@ -605,6 +610,11 @@ class JobController:
         self.collect_dir = Path(collect_dir) if collect_dir else None
         self._seen: dict[str, JobState] = {}
         self._parents: dict[str, str] = {}
+        for ev in self.events.events:
+            if ev.event_type == EventType.JOB_SUBMITTED and ev.detail.get("job"):
+                self._parents[str(ev.detail["job"].get("job_id"))] = ev.event_id
+            elif ev.event_type == EventType.JOB_OBSERVED and ev.status in _STATE_VALUES:
+                self._seen[str(ev.detail.get("job_id"))] = JobState(ev.status)
 
     # ----------------------------------------------------------------- records
     def _emit(self, kind: str, **kw: Any) -> str:
@@ -621,6 +631,84 @@ class JobController:
             if (ev.event_type == EventType.JOB_SUBMITTED and ev.detail.get("job")
                     and ev.detail.get("idempotency_key") == idempotency_key):
                 return JobRef.from_dict(ev.detail["job"])
+        return None
+
+    # ---------------------------------------------------------------- lookups
+    def job(self, job_id: str) -> JobRef | None:
+        """The reference this log recorded for a job id; None for a job it never submitted.
+
+        What a later call is allowed to name: a job id or a reference handed in from outside
+        is only ever looked up here, so nothing can be collected or cancelled that this
+        log's executor did not submit.
+        """
+        for ev in reversed(self.events.events):
+            job = ev.detail.get("job") if ev.event_type == EventType.JOB_SUBMITTED else None
+            if job and str(job.get("job_id")) == str(job_id):
+                return JobRef.from_dict(job)
+        return None
+
+    def jobs(self) -> tuple[JobRef, ...]:
+        """Every job this log recorded as submitted, oldest first."""
+        return tuple(JobRef.from_dict(ev.detail["job"]) for ev in self.events.events
+                     if ev.event_type == EventType.JOB_SUBMITTED and ev.detail.get("job"))
+
+    def job_for(self, idempotency_key: str) -> JobRef | None:
+        """The job submitted under a key, if any: a key names one job."""
+        return self._existing(idempotency_key) if idempotency_key else None
+
+    def key_of(self, job_id: str) -> str:
+        """The idempotency key a job was submitted under ("" when none was given)."""
+        for ev in reversed(self.events.events):
+            job = ev.detail.get("job") if ev.event_type == EventType.JOB_SUBMITTED else None
+            if job and str(job.get("job_id")) == str(job_id):
+                return str(ev.detail.get("idempotency_key") or "")
+        return ""
+
+    def unconfirmed_for(self, idempotency_key: str) -> str:
+        """The submission id of a request under this key that no answer confirmed, or "".
+
+        Submitting again with that id lets the executor answer with the job the request
+        started, if it started one, instead of starting a second (``submit``).
+        """
+        if not idempotency_key:
+            return ""
+        found = open_jobs(self.events)
+        for request in found.unconfirmed:
+            if request.get("idempotency_key") == idempotency_key:
+                return str(request["submission_id"])
+        return ""
+
+    # ----------------------------------------------------------------- grants
+    def record_grant(self, ref: JobRef, grant: CancelGrant, *, grant_id: str = "") -> str:
+        """Record permission to cancel one job; the id a cancellation must cite.
+
+        Recorded before it can be used, so a governed cancellation can be held to a grant
+        someone gave rather than one its caller wrote: a planner can name a grant id in a
+        payload, and only a recorded one names anything. ``grant_id`` lets a caller that
+        records the grant elsewhere first (PSH's audit chain) use the same id here.
+        """
+        if grant.job_id != ref.job_id:
+            raise ValueError(f"the grant names job {grant.job_id}, not {ref.job_id}")
+        if not grant.granted_by.strip() or not grant.reason.strip():
+            raise ValueError("a grant names who gave it and why")
+        if self.recorded_grant(grant_id) is not None:
+            raise ValueError(f"grant {grant_id} is already recorded")
+        grant_id = grant_id or f"grant-{uuid.uuid4().hex[:16]}"
+        self._emit(EventType.JOB_CANCEL_GRANTED, parent=self._parent(ref),
+                   component_id=ref.component_id, status="GRANTED",
+                   policy_ruling=f"granted by {grant.granted_by}: {grant.reason}"[:300],
+                   detail={"grant_id": grant_id, "job_id": ref.job_id,
+                           "granted_by": grant.granted_by[:200], "reason": grant.reason[:300]})
+        return grant_id
+
+    def recorded_grant(self, grant_id: str) -> CancelGrant | None:
+        """The grant this log recorded under an id, or None."""
+        for ev in reversed(self.events.events):
+            if (ev.event_type == EventType.JOB_CANCEL_GRANTED
+                    and ev.detail.get("grant_id") == grant_id):
+                return CancelGrant(str(ev.detail.get("job_id")),
+                                   str(ev.detail.get("granted_by") or ""),
+                                   str(ev.detail.get("reason") or ""))
         return None
 
     # -------------------------------------------------------------------- calls
@@ -834,6 +922,9 @@ class OpenJobs:
     jobs: tuple[JobRef, ...]
     #: requested with no reference recorded: submit again with the same submission id
     unconfirmed: tuple[Mapping[str, str], ...]
+    #: job id -> the idempotency key it was submitted under (a governing loop's
+    #: "<run id>:<task id>"), which is how a restart matches a job to the call that started it
+    keys: Mapping[str, str] = field(default_factory=dict)
 
 
 def open_jobs(trace: EventLog | Mapping[str, Any] | str | Path) -> OpenJobs:
@@ -846,6 +937,7 @@ def open_jobs(trace: EventLog | Mapping[str, Any] | str | Path) -> OpenJobs:
         events = list(EventLog.load(trace).get("events") or ())
     requested: dict[str, dict[str, str]] = {}
     submitted: dict[str, JobRef] = {}
+    keys: dict[str, str] = {}
     confirmed: set[str] = set()
     finished: set[str] = set()
     for ev in events:
@@ -856,11 +948,13 @@ def open_jobs(trace: EventLog | Mapping[str, Any] | str | Path) -> OpenJobs:
                 "submission_id": str(inputs.get("submission_id")),
                 "component_id": str(ev.get("component_id") or ""),
                 "spec_digest": str(inputs.get("spec_digest") or ""),
-                "executor": str(inputs.get("executor") or "")}
+                "executor": str(inputs.get("executor") or ""),
+                "idempotency_key": str(inputs.get("idempotency_key") or "")}
         elif kind == EventType.JOB_SUBMITTED:
             if detail.get("job"):
                 ref = JobRef.from_dict(detail["job"])
                 submitted[ref.job_id] = ref
+                keys[ref.job_id] = str(detail.get("idempotency_key") or "")
                 confirmed.add(ref.submission_id)
             elif detail.get("submission_id"):
                 # the executor refused: that request will not start anything
@@ -872,6 +966,8 @@ def open_jobs(trace: EventLog | Mapping[str, Any] | str | Path) -> OpenJobs:
                 detail.get("job_state") == JobState.CANCELLED.value:
             finished.add(str(detail.get("job_id")))
         # A JobObserved "completed" closes nothing: the job still has to be collected.
+    still_open = {jid: ref for jid, ref in submitted.items() if jid not in finished}
     return OpenJobs(
-        jobs=tuple(ref for jid, ref in submitted.items() if jid not in finished),
-        unconfirmed=tuple(r for sid, r in requested.items() if sid not in confirmed))
+        jobs=tuple(still_open.values()),
+        unconfirmed=tuple(r for sid, r in requested.items() if sid not in confirmed),
+        keys={jid: keys[jid] for jid in still_open})

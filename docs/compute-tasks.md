@@ -11,13 +11,14 @@ timeout reports TIMEOUT for a job that is still running. A tool call that return
 id reports the *submission* as the result. That is the v1 false-success defect in a new
 form: **an accepted request is not executed work.**
 
-This page covers five pieces that fix this:
+This page covers six pieces that fix this:
 
 | Piece | Where | What it guarantees |
 | --- | --- | --- |
 | Task contracts | `bioagent.structure.{complex,design,dynamics,tasks}` | A task names everything that changes the answer (the model's version and weights included) and is refused, with every reason, before anything runs |
 | Engine adapters | `bioagent.structure.engines` | Boltz, Chai-1, ProteinMPNN and OpenMM are detected in their own environments and refused with the reason when absent. No engine stands in for another |
 | Long jobs | `bioagent.backends.jobs` | `submit` / `status` / `collect` / `cancel`. A step is SUCCEEDED only after its artefacts are collected and validated. A cancellation needs a grant naming the job |
+| Governed long jobs | `bioagent.backends.jobtool`, `bioagent.psh.jobs`, PSH's pending result kind | A job is a tool call through PSH's broker, in process or in the isolated child. Work that has not finished is *pending*: recorded in the audit chain with its job reference, never a result, never released. The loop waits, resumes and collects; a restart finds the open jobs; a cancellation needs a grant recorded beforehand |
 | Reviewed environments | `bioagent.backends.environments` | A provider runs in its own interpreter. A container gets a GPU, read-only data and one writable directory only when a reviewed, digest-bound configuration says so |
 | ToolsAgent adapter | `bioagent.backends.toolsagent` | SciToolAgent's tool service, one fixed function per component, typed arguments, honest statuses, and long calls run as jobs |
 
@@ -151,6 +152,138 @@ an HTML page is not taken as data, and sizes are capped. Each call is made once.
 POST is a second submission unless the service deduplicates on `submission_id`, and a
 status poll is repeated by its caller anyway. Artefacts are streamed to `collect_dir`,
 capped, and digested.
+
+## Long jobs under PSH
+
+A governed run reaches a component one tool call at a time, through PSH's broker, and the
+bridge used to turn a RUNNING answer into a `ContractViolation`. That kept a submission
+from counting as success, and it also meant a governed run could not use a job that
+outlives one call. A job is now a *job tool*: a BioScience component admitted through the
+bridge with a `JobTool`, whose calls submit, collect or cancel a job, and whose unfinished
+work PSH records as pending.
+
+```
+submit   call_tool ─ gates ─ job tool ─ JobRequested, JobSubmitted ─ PendingResult(job ref)
+              broker: tool_call_pending {reference, reference_sha256} ─ raises ResultPending
+              loop:   task WAITING, ledger PENDING(digest) ─ AWAITING when nothing else can run
+collect  call_tool + _psh_pending=digest ─ job tool collects that job, never submits
+              still running ─ pending again (same digest)
+              done ─ artefacts fetched, SHA-256, declared digest, validators ─ the call's value
+cancel   grant_cancellation ─ job_cancel_granted (chain, read back) ─ JobCancelGranted (trace)
+              call_tool {operation: cancel, job, grant} ─ the recorded grant, or DENIED
+restart  reconcile ─ open_jobs(trace) ─ in-doubt ledger keys → PENDING ─ resume ─ collect
+```
+
+**PSH's pending result kind.** PSH gained a third outcome beside a value and a failure.
+A component that started work which has not finished returns `PendingResult(reference,
+reason)`: the reference names the work and never holds its output (keys that would carry
+content are refused, and it must be plain JSON so its digest is the same in every
+process). The broker builds no `ExecutionResult` for it. It records `tool_call_pending` in
+the audit chain (the reference, its SHA-256 `reference_sha256`, the reason, which execution
+ran it) and raises `ResultPending`, whose `pending` is a `PendingOutcome`: the reference,
+labelled as the join of the call's inputs and the reference's own classification, with no
+`value` attribute. `ResultPending` is not a `ContractViolation` and no retry policy names
+it. A caller that does not know it fails rather than reading a submission as the work. The
+isolated child says the same thing with `{"$psh": {"status": "pending", "reference": ...,
+"reason": ...}}`; a pending envelope without a usable reference is a `ContractViolation`,
+because passed through as a value it would be a successful result holding a submission.
+The module holding the result kinds (`psh.kernel.results`) is now under the architecture
+ratchet (`scripts/check_scientific_architecture.py`): it may import the contracts and the
+labels and nothing that executes.
+
+**The loop.** A tool task whose call is pending becomes `WAITING`: not terminal (the work
+may still succeed), not ready, never succeeded, so nothing downstream reads it and the goal
+cannot be satisfied while it waits. The operation ledger records the key as `PENDING` with
+the reference digest: not in doubt (the work is named), not finished
+(`OperationLedger.pending(run_id)` lists them for whoever resumes). When every task that
+could still run waits, the loop stops with `Termination.AWAITING`, checkpoints, and the
+result lists the outstanding work in `LoopResult.pending`. Resuming (`checkpoint.resume`,
+`ResearchRunService.resume`) first *collects*: the same call again, with `_psh_pending`
+naming the digest. A collection is not another attempt (no retry delay, no attempt count,
+no repeat-safety refusal, since it repeats no side effect), and a collection that changes
+nothing ends the call with AWAITING again without spending an iteration. Polling is bounded
+by the deadline, cancellation and the budget (each poll is a tool call), and by whoever
+decides when to resume, never by a loop spinning on a job. The ledger is the durable
+record: a task whose graph state was lost but whose key is PENDING is collected, not
+submitted again. A component that answers a collection with other work fails the task
+(a collection never starts the work again). A collection the component cannot make now
+(its executor out of reach) leaves the work pending. A loop that ends for another reason
+(budget, deadline, cancellation) cancels its unstarted tasks but never calls a waiting task
+cancelled, because its job goes on, and lists it as pending. The `Finalizer` releases
+nothing from a result that lists pending work, whatever its termination says. The
+checkpoint keeps a waiting task's digest always, and its reference under the rule for a
+result (`withholding_reason`). The workflow journal records `node_waiting`, and an amended
+program treats a waiting node like one in doubt: a non-replayable node is UNSAFE, not
+recomputed.
+
+**A job tool** (`bioagent.backends.jobtool`). `JobDefinition` says how a call's arguments
+become a `JobSpec`: a local executor's `argv` with `{output}` and `{name}` placeholders, or
+the task a service receives; the artefacts; validators named `module:function`. Arguments
+are exactly the declared names, each a string or a number. `JobTool(executor, definition,
+trace, collect_dir)` binds it to an executor and to the trace that records its jobs. Every
+call takes an exclusive `flock` on the trace and reads it back first, so the in-process
+component, isolated children and a restarted process append to one record; a trace that
+cannot be read is refused, never started afresh over the record of a running job. A call is
+`submit` (the default), `collect` (`job`: a job id this tool recorded) or `cancel` (`job`
+and `grant`). A key (the loop's `"<run id>:<task id>"`) names one job: a submission under a
+key that already has a job reports on that job, and one whose request was never confirmed
+is submitted again with the same submission id, so the executor answers with the job that
+request started. A continuation collects the job whose reference has the digest it names,
+and refuses a digest it does not hold or a job submitted for another key. What it answers:
+
+| The tool answers | Bridge (PSH) | Why |
+| --- | --- | --- |
+| RUNNING, naming its job | `PendingResult` → `ResultPending` | submitted, or still running |
+| UNAVAILABLE, naming its job | `PendingResult` (the reason says why) | the executor could not be asked, or an artefact could not be fetched, for now |
+| SUCCEEDED | the value: the job, `state: completed`, each artefact's path, SHA-256 and size | only after every required artefact validated |
+| FAILED / TIMEOUT / CANCELLED | `ContractViolation` / `ToolTimeout` / `ContractViolation` | the job ended without its artefacts |
+| DENIED | `PolicyDenied` | a cancellation without a recorded grant, or the BioScience policy kernel |
+| cancel attempted | the value `{job_id, grant, cancelled, state, detail}` | `cancelled` only when the executor confirmed it |
+
+The bridge admits a job tool with `BioScienceBridge.admit(manifest, jobs=tool)`. The
+manifest must say what the tool really does (`JobTool.check`, a `BridgeRefused`
+otherwise): a local executor is a `subprocess` component with `subprocess: true`, a service
+an `http` component declaring the service's host, and `filesystem_write` covers the job
+root, the trace and the collect directory. The PSH manifest is derived as for any component
+and then marked: it mutates, is never idempotent, is at least `R2` and needs at least
+`act_with_approval` autonomy, because starting a job is a side effect. The tool runs in a
+runtime of its own (`JobTool.runtime`) where its declared mechanism is served by the job
+backend, so resolution, the BioScience policy kernel and the event log rule on every call,
+and the BioScience event log records RUNNING for a submission, never SUCCEEDED.
+
+**In the isolated child.** The bridge writes the tool's configuration (executor, definition,
+trace) beside the manifest, owner-only, and passes `--jobs <file> --jobs-digest <sha256>`;
+the child refuses a file whose digest differs. The child submits or collects and exits; the
+job's supervisor runs in its own session and outlives it. The child rules under the
+bridge's permission profile, which the bridge now passes with `--profile`: every isolated
+component used to be ruled on under the child's default, `biomedical-research`, whatever
+the bridge was given. A profile only the parent defines is ruled on in the child as
+`offline-analysis`: no network, no subprocess. The child evaluates the policy
+against its own roots: its temporary directory is its sandbox directory, so an isolated job
+tool's job root, trace and collect directory must lie under the workspace or data lake the
+bridge hands it (`roots=`).
+
+**Cancellation needs the recorded grant.** `bioagent.psh.jobs.grant_cancellation(kernel,
+component, job_id, granted_by=, reason=)` checks that the tool recorded the job, writes
+`job_cancel_granted` to PSH's audit chain, reads it back, and only then records
+`JobCancelGranted` in the trace; it returns the grant id. A cancel call names that id, and
+the tool builds the `CancelGrant` from its own record, not from the payload. Without a
+recorded grant, with an id nobody recorded, or with a grant for another job, the call is
+DENIED (`PolicyDenied` in process) and never reaches the executor. A grant the chain does
+not hold is never written to the trace.
+
+**A restart.** After a crash, `bioagent.psh.jobs.reconcile(ledger, component, run_id=)`
+reads `open_jobs(trace)` (which now also gives each job's idempotency key) and moves every
+ledger key of the run that is in doubt (RUNNING or UNKNOWN: the call died between the
+executor accepting the job and the loop recording it as pending) to PENDING with the job's
+reference digest, recording `job_reconciled`. The resumed loop then collects that job
+rather than refusing the task as in doubt, and never submits it again. A ledger record that
+disagrees with the trace is reported, never overwritten. A request the trace never saw
+confirmed stays in doubt and is reported (`unconfirmed`): the trace does not hold the job's
+arguments, so only the call that made the request can submit it again with its submission
+id. A process that died after the tool collected a job and before the loop recorded the
+value leaves the ledger PENDING: `open_jobs` no longer lists the job, and the resumed loop
+goes by the ledger, collecting and validating the same job again.
 
 ## Reviewed environments
 
@@ -314,6 +447,32 @@ jobs.cancel(ref, CancelGrant(ref.job_id, "j.doe", "superseded by run 12"))
 ```
 
 ```python
+from psh.contracts import ResultPending
+from bioagent.backends.jobs import ArtefactSpec, LocalSubprocessJobs
+from bioagent.backends.jobtool import JobDefinition, JobTool
+from bioagent.psh import BioScienceBridge, grant_cancellation, reconcile
+
+tool = JobTool(LocalSubprocessJobs("ws/jobs"),
+               JobDefinition(arguments=("sequence",), argv=("fold", "{sequence}", "{output}"),
+                             artefacts=(ArtefactSpec("model", "model.cif"),)),
+               trace="ws/trace/fold.json")
+component = bridge.component(bridge.admit(fold_manifest, jobs=tool).id)
+try:
+    kernel.broker.call_tool(component, {"sequence": "MQIF..."}, envelope)
+except ResultPending as pending:              # recorded as tool_call_pending, not a result
+    digest = pending.pending.reference_digest
+kernel.broker.call_tool(component, {"sequence": "MQIF...", "_psh_pending": digest}, envelope)
+grant = grant_cancellation(kernel, component, job_id, granted_by="j.doe", reason="superseded")
+kernel.broker.call_tool(component, {"operation": "cancel", "job": job_id, "grant": grant},
+                        envelope)
+reconcile(ledger, component, run_id=run_id)   # after a restart, before resuming the loop
+```
+
+In a governed loop the plan names the tool like any other; the loop adds `_psh_pending` on
+its own when it collects, and `ResearchRunService.resume(checkpoint)` collects what an
+`awaiting` run left outstanding.
+
+```python
 from bioagent.backends.toolsagent import ToolsAgentClient, MOL_SIMILARITY
 ToolsAgentClient("http://127.0.0.1:60002").call(MOL_SIMILARITY, smiles1="CCO", smiles2="CCN")
 ```
@@ -322,10 +481,29 @@ ToolsAgentClient("http://127.0.0.1:60002").call(MOL_SIMILARITY, smiles1="CCO", s
 
 - **None of these tools has been run.** The formats are the documented ones. A tool
   version that changes them fails validation; it does not produce a wrong result.
-- **A long job is not yet a PSH loop tool.** Through the bridge, a RUNNING result becomes a
-  `ContractViolation`, so the loop never counts a submission as success. A component that
-  submits jobs should be declared non-idempotent, so the operation ledger refuses a blind
-  resubmission. Resuming a loop task from a recorded job reference is not wired.
+- **A governed long job is collected when someone resumes the loop.** An `awaiting` run
+  holds its state in its checkpoint and ledger; nothing in this repository schedules the
+  resume. Within one call the loop never sleeps on a job.
+- **The isolated child's protocol has no refusal code.** In the child, a DENIED call (a
+  cancellation without its grant, the BioScience policy) exits non-zero and PSH records a
+  `ContractViolation` naming DENIED, where the in-process path raises `PolicyDenied`. Both
+  refuse; only the exception class differs.
+- **A local job is not inside the child's boundary.** A job a child starts inherits the
+  child's resource limits (its address space is capped at the manifest's `memory_mb`, 2048
+  MB by default), but not the egress proxy: a local job's environment holds only the
+  variables `INHERITED_ENV` names (no proxy settings) and those its definition sets, so its
+  network reach is the machine's unless an OS sandbox confines it (with `NoSandbox`,
+  nothing does). A job started in process has the same reach and no limit from PSH.
+- **The isolated HTTP path is not verified here.** From a child, a service job is ruled on
+  under the bridge's profile, and its requests go through the kernel's egress proxy, which
+  refuses loopback and private addresses. The shipped profiles do not allow `127.0.0.1`, so
+  the loopback fixture is reached in process only; the isolated test checks only that the
+  child's refusal starts no job.
+- **One call at a time per job tool.** A call holds the trace's lock for its duration,
+  including an artefact download, so calls on one tool queue behind each other.
+- **A reconcile cannot resubmit an unconfirmed request.** The trace does not hold the job's
+  arguments; the call that made the request can submit it again with its key, and the
+  executor then answers with the job that request started.
 - **Not exposed:** Boltz's affinity head and templates, Chai-1's MSA files and covalent
   bonds, ProteinMPNN's tied positions, biases and CA-only models, OpenMM's
   hydrogen-mass repartitioning, barostat and restraints. Each is refused or absent. None
@@ -344,9 +522,19 @@ lying digests, missing artefacts, unknown states, cancellation with and without 
 crash reconciliation), `test_backend_environments.py` (the review, container argv,
 interpreters, the default runtime), `test_toolsagent.py` (the stub, the governed path, long
 calls, the file-call guard, FastAPI with ToolsAgent's signature when FastAPI and uvicorn
-are installed, and the deployed service when `TOOLSAGENT_URL` names one). All of them run
-in the unit tier, where the deployment tests skip; the `toolsagent` CI job deploys the
-service and runs them. The SMILES check runs where RDKit is installed.
+are installed, and the deployed service when `TOOLSAGENT_URL` names one),
+`test_psh_jobs.py` (governed long jobs: in process and in the isolated child on the local
+executor, in process on the HTTP fixture; pending submissions and collections in the
+chain, validated artefacts and their digests, continuations, a key per job, grants
+recorded in the chain and the trace, the loop waiting and resuming, a restart reconciled
+from `open_jobs`, a restart after a collection the loop never recorded, an unconfirmed
+request, concurrent calls, an unreadable trace, a changed child configuration). All of
+them run in the unit tier, where the ToolsAgent deployment tests skip; the `toolsagent`
+CI job deploys the service and runs them. The SMILES check runs where RDKit is installed.
+PSH's side is `PSH-Harness/tests/test_pending_results.py` (the contract, the broker's
+record and label, the child's envelope, the loop's WAITING and AWAITING, the ledger,
+checkpoints, the journal, and properties over random job schedules: pending work is never
+a result, never released, never submitted twice, and the chain stays intact).
 
 ## 中文摘要
 
@@ -360,4 +548,4 @@ service and runs them. The SMILES check runs where RDKit is installed.
 - **ToolsAgent 适配器** 每个函数一个组件，固定 `func_name` 并声明数据去向（含服务端再转发的主机）。参数按各工具自己的分隔规则渲染，含分隔符的值发送前即拒绝。HTTP 200 只有符合工具结果形态才算成功。文件只是服务端路径引用。长调用走作业协议，但 ToolsAgent 无法取消，也不保留作业记录，这两点如实说明。
 - **ToolsAgent 真实部署** `scripts/deploy_toolsagent.sh` 按审阅过的提交（ac1cf19）部署化学类工具，只监听 127.0.0.1。上游依赖清单本身无法安装（numpy 2.1.3 与 langchain 0.3.8 冲突），脚本给出可共存的版本。2026-10-07 实测：分子量、相似度、InChI 均按适配器的读法返回 SUCCEEDED，数值与本地 RDKit 一致；服务以 HTTP 200 返回的错误文本判为 FAILED；未安装的生物类模块判为 UNAVAILABLE；未知函数（HTTP 500）判为 FAILED；经受治理的 Runtime 调用被记录，默认权限下被拒。CI 的 `toolsagent` 任务每次部署并重跑这些测试。
 
-**未做与未验证：** 这里没有安装任何上述工具，也没有 GPU 与容器运行时，**没有运行任何模型**；读写格式按各项目 2026-10-07 的文档与源码实现，用手写的同格式样例测试。Boltz 的端到端测试使用替身解释器，只证明管线，不证明 Boltz。长作业尚未接入 PSH 循环；Boltz 亲和力、Chai-1 的 MSA 文件与共价键、ProteinMPNN 的绑定位置、OpenMM 的氢质量重分配等均未提供，也没有近似替代。
+**未做与未验证：** 这里没有安装任何上述工具，也没有 GPU 与容器运行时，**没有运行任何模型**；读写格式按各项目 2026-10-07 的文档与源码实现，用手写的同格式样例测试。Boltz 的端到端测试使用替身解释器，只证明管线，不证明 Boltz。长作业已可作为受 PSH 治理的工具调用（进程内与隔离子进程均可）：未完成的作业记为待定（pending），不作为结果、不发布，循环暂停后恢复时收集；但恢复须由调用方发起；Boltz 亲和力、Chai-1 的 MSA 文件与共价键、ProteinMPNN 的绑定位置、OpenMM 的氢质量重分配等均未提供，也没有近似替代。

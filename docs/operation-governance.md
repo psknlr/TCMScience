@@ -117,6 +117,27 @@ release. DENIED, FAILED, UNAVAILABLE and TIMEOUT do. The offline P0 skills perfo
 operation, have an empty ledger and are released as before. `test_operation_broker.py` checks
 this against a lockfile pinning them as they are on disk.
 
+## Long jobs
+
+A long job is governed at the level of the call, not of the skill. Through the bridge it is
+a *job tool* (`docs/compute-tasks.md`, "Long jobs under PSH"): a submission is a tool call
+whose answer is pending work, which PSH's broker records in the audit chain as
+`tool_call_pending` with the job reference and its digest and hands back as `ResultPending`,
+never as a value; a collection is pending again until the job's artefacts validate; a
+cancellation needs a grant recorded in the chain beforehand; the agent loop waits
+(`awaiting`), resumes and collects, and a restart finds the open jobs. Those are the PSH
+loop's and the broker's rules, and they apply to every caller of `call_tool`.
+
+A governed skill run is one call that returns an artifact, so it cannot wait for a job:
+none of the operations above is a job tool, and a skill that needs a long job is a plan of
+the loop, not an operation. Should an operation ever answer with pending work, the broker
+here records the status the component reported (RUNNING for a job that has not finished,
+UNAVAILABLE for one that could not be collected now), with the reference digest in its
+reason and no output digest, and raises `OperationError` in the skill. Neither is SUCCEEDED
+nor DEGRADED, so the run is not attested and ART118 holds the artifact back: a skill cannot
+release a submission as its result. `test_psh_jobs.py` checks the RUNNING case through
+PSH's broker.
+
 ## Programs with real destinations
 
 `skill_program(contract, scope, components=..., envelope=...)` now reads each tool step from
@@ -214,6 +235,8 @@ field.
   like the pipelines that call it.
 - **PSH's default budget applies** to a run's operations: 200 tool calls, and 90 minutes
   from the first one.
+- **No operation is a long job.** A skill run cannot wait for one; pending work from an
+  operation is recorded as unfinished and blocks release (see "Long jobs" above).
 
 ## Use
 

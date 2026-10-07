@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from psh.contracts import ComponentKind, ComponentManifest as PSHManifest, RiskTier
+from psh.contracts import Autonomy, ComponentKind, ComponentManifest as PSHManifest, RiskTier
 from psh.labels import Destination, Sensitivity
 
 from ..runtime.agentspec import AgentSpec
@@ -121,10 +122,22 @@ class BioScienceBridge:
         self.refusals: list[tuple[str, str]] = []
 
     # ------------------------------------------------------------------ admit
-    def admit(self, bio: BioManifest) -> PSHManifest:
-        """One BioScience manifest in, one PSH manifest out, one audit event."""
+    def admit(self, bio: BioManifest, *, jobs: Any = None) -> PSHManifest:
+        """One BioScience manifest in, one PSH manifest out, one audit event.
+
+        ``jobs`` (a ``bioagent.backends.jobtool.JobTool``) admits the component as a long-job
+        tool: its calls submit, collect or cancel a job on the tool's executor, and a call
+        whose job has not finished is pending in PSH, never a result (``bioagent.psh.jobs``).
+        The manifest must declare what the tool really does (``JobTool.check``), and the
+        PSH manifest says the rest: starting a job is a side effect, so the tool mutates, is
+        never idempotent, and needs the autonomy and risk a mutating component needs.
+        """
         if bio.id in self._by_bio_id:
             return self._components[self._by_bio_id[bio.id]].manifest
+        if jobs is not None:
+            problems = jobs.check(bio)
+            if problems:
+                raise BridgeRefused(f"{bio.id}: as a job tool: " + "; ".join(problems))
         if bio.runtime.backend == "none" and bio.kind != "skill":
             raise BridgeRefused(f"{bio.id}: declares no execution backend (catalogue metadata "
                                 "only); nothing to invoke")
@@ -160,18 +173,33 @@ class BioScienceBridge:
         backend = "python"
         if self.isolate:
             backend = "subprocess"
-            entrypoint = self._isolated_entrypoint(bio)
+            entrypoint = self._isolated_entrypoint(bio, jobs=jobs)
         manifest = bridge_manifest(
             bio, host_policy=self.host_policy, local_ceiling=self.local_ceiling,
             backend=backend, entrypoint=entrypoint, operations=operations,
             verification=self.verification.get(source.key) if source is not None else None,
             description_sensitivity=labelled.label.sensitivity.name, mcp_server=mcp_server)
+        if jobs is not None:
+            manifest = dataclasses.replace(
+                manifest, idempotent=False, mutates=True,
+                min_autonomy=Autonomy.ACT_WITH_APPROVAL,
+                risk_tier=max(manifest.risk_tier, RiskTier.R2_CONSEQUENTIAL),
+                provenance={**manifest.provenance, "job_tool": True,
+                            "job_executor": jobs.executor.name,
+                            "job_trace": str(jobs.trace)})
         if self.profile is not None:
             why = self.profile.admits(manifest.destinations)
             if why:
                 raise BridgeRefused(f"{bio.id}: {why}")
-        component = BridgedComponent(bio, manifest, self.runtime, spec=self.spec,
-                                     source=source, events=self.events)
+        if jobs is not None:
+            from .jobs import BridgedJobComponent
+
+            component: BridgedComponent = BridgedJobComponent(
+                bio, manifest, jobs.runtime(bio, kernel=self.runtime.kernel), spec=self.spec,
+                tool=jobs, events=self.events)
+        else:
+            component = BridgedComponent(bio, manifest, self.runtime, spec=self.spec,
+                                         source=source, events=self.events)
         self._components[manifest.id] = component
         self._by_bio_id[bio.id] = manifest.id
         detail = {"bio_id": bio.id, "backend": bio.runtime.backend,
@@ -187,6 +215,10 @@ class BioScienceBridge:
             # against, so "what could this call reach" has an answer after the fact.
             detail.update(mcp_server=mcp_server_name(bio),
                           mcp_config_digest=mcp_server.digest if mcp_server else "")
+        if jobs is not None:
+            # Which executor and which record of its jobs, so a pending reference in the
+            # chain can be traced to where its job runs and where it is collected from.
+            detail.update(job_executor=jobs.executor.name, job_trace=str(jobs.trace))
         self._audit("bioscience_component_admitted", component_id=manifest.id, detail=detail)
         return manifest
 
@@ -289,14 +321,15 @@ class BioScienceBridge:
         registry = getattr(dispatcher, "registry", None)
         return registry if isinstance(registry, MCPServerRegistry) else MCPServerRegistry()
 
-    def _isolated_entrypoint(self, bio: BioManifest) -> str:
+    def _isolated_entrypoint(self, bio: BioManifest, *, jobs: Any = None) -> str:
         """``python exec.py --manifest <file> ...``: the child runs exactly the admitted manifest.
 
         Written under the kernel's state directory, owner-only, so the child needs no
         catalogue and no environment variable to find its component. An MCP component's
         servers travel the same way: a registry holding only the server it calls, written
         beside the manifest, with the digest it was admitted under on the command line —
-        the child refuses the file if the two disagree.
+        the child refuses the file if the two disagree. A job tool's configuration
+        (executor, definition, trace) travels the same way too.
         """
         if self.manifest_dir is None:
             raise BridgeRefused(f"{bio.id}: isolated execution needs a manifest directory "
@@ -309,14 +342,26 @@ class BioScienceBridge:
             os.chmod(target, 0o600)
         except OSError:                                  # pragma: no cover - platform
             pass
+        # The permission profile the BioScience kernel rules under in the child: this
+        # bridge's, not the child's default. A name the child's kernel does not know is
+        # ruled on as ``offline-analysis`` (``PolicyKernel.profile``): no network, no
+        # subprocess.
         argv: list[Any] = [
             sys.executable, EXEC_PATH, "--manifest", target,
+            "--profile", self.spec.permission_profile,
             "--workspace", self.roots["workspace"], "--data-lake", self.roots["data_lake"],
             "--tcmdb", self.roots["tcmdb"]]
         if bio.runtime.backend == "mcp":
             child = self._mcp_registry().subset([mcp_server_name(bio)])
             written = child.write(self.manifest_dir / f"{psh_id_for(bio.id)}.mcp.json")
             argv += ["--mcp-config", written, "--mcp-config-digest", child.digest]
+        if jobs is not None:
+            try:
+                written = jobs.write(self.manifest_dir / f"{psh_id_for(bio.id)}.jobs.json")
+            except ValueError as exc:
+                raise BridgeRefused(f"{bio.id}: this job tool cannot run in an isolated "
+                                    f"child: {exc}") from None
+            argv += ["--jobs", written, "--jobs-digest", jobs.digest]
         import shlex
         return " ".join(shlex.quote(str(a)) for a in argv)
 

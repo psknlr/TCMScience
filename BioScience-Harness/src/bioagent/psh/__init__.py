@@ -47,7 +47,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from .arguments import ArgumentError, arguments_for
+from .arguments import ArgumentError, arguments_for, job_arguments
 from .assembly import default_runtime, load_catalogue_rows, load_verification
 from .guard import BoundaryViolation, KernelBoundary
 
@@ -58,6 +58,9 @@ from .guard import BoundaryViolation, KernelBoundary
 _NEEDS_PSH: dict[str, str] = {
     "BioScienceBridge": ".bridge", "BridgeRefused": ".bridge", "EXEC_PATH": ".bridge",
     "BridgedComponent": ".component",
+    # long jobs as governed tool calls: pending work, grants, restarts (docs/compute-tasks.md)
+    "BridgedJobComponent": ".jobs", "Reconciliation": ".jobs",
+    "grant_cancellation": ".jobs", "reconcile": ".jobs",
     "HostPolicy": ".manifest", "bridge_manifest": ".manifest", "ceiling_for": ".manifest",
     "destinations_for": ".manifest", "normalise_spdx": ".manifest", "psh_id_for": ".manifest",
     "admit_mcp_server": ".mcp_tools", "mcp_transport": ".mcp_tools",
@@ -72,6 +75,8 @@ _NEEDS_PSH: dict[str, str] = {
 
 __all__ = [
     "ArgumentError", "BioScienceBridge", "BridgeRefused", "BridgedComponent",
+    "BridgedJobComponent", "Reconciliation", "grant_cancellation", "job_arguments",
+    "reconcile",
     "DeploymentProfile", "PROFILES", "profile_named",
     "BoundaryViolation", "EXEC_PATH", "HostPolicy", "KernelBoundary", "arguments_for",
     "bridge_manifest", "ceiling_for", "default_runtime", "destinations_for",
