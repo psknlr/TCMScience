@@ -18,11 +18,17 @@ Love, Huber & Anders (2014), *Genome Biology* 15:550. The steps are DESeq2's:
    replicates in a group), independent filtering on the mean count and
    Benjamini-Hochberg adjustment.
 
-Two simplifications, each stated in the result: the dispersion line search is a grid
-refined by golden-section search rather than DESeq2's backtracking search, and fold
-changes are maximum-likelihood estimates (no apeglm/ashr shrinkage). The test suite
-compares the output with PyDESeq2, an independent implementation of the same method,
-which the pipelines can also run in this one's place (``de_backends``).
+Where it departs from R's DESeq2, the result's notes say so. The gene-wise search is a
+grid over the whole range refined by golden-section search, not DESeq2's backtracking
+line search from the rough estimate; where that estimate is at the floor, DESeq2 stays
+there, and this search can find a higher adjusted profile likelihood inside the range.
+With one to three residual degrees of freedom DESeq2 sets the prior variance by
+simulation, matching the residuals' distribution, and this implementation keeps the
+MAD estimate. Fold changes are maximum-likelihood estimates (no apeglm/ashr shrinkage).
+Against R's DESeq2 1.42 with two samples per condition, the two dispersion departures
+change which genes are called; given R's gene-wise dispersions and prior variance, the
+later steps give R's answer (docs/omics-backends.md). The tests also compare the output
+with PyDESeq2, which the pipelines can run in this one's place (``de_backends``).
 
 Everything is vectorised over genes with numpy and scipy.
 """
@@ -558,6 +564,11 @@ def run_deseq(counts: np.ndarray, genes: Sequence[str], samples: Sequence[Mappin
     notes = ["fold changes are maximum-likelihood estimates (no apeglm/ashr shrinkage)",
              "dispersions maximise the Cox-Reid adjusted profile likelihood by grid and "
              "golden-section search"]
+    if 0 < m - p <= 3:
+        notes.append(f"{m - p} residual degrees of freedom: R's DESeq2 would set the "
+                     "dispersion prior's variance by simulation here, and this "
+                     "implementation uses the MAD estimate, so its shrinkage and calls "
+                     "can differ from R's")
 
     sf, sf_method = size_factors(y_all)
     norm_all = y_all / sf

@@ -25,7 +25,7 @@ from bioagent.omics import rnaseq as R
 from bioagent.omics.deseq import DESeqError
 from bioagent.omics.optional import BackendUnavailable
 from bioagent.status import ExecutionStatus
-from omics_world import DOWN, UP, make_world, need_module
+from omics_world import DOWN, UP, make_world, need_module, simulate_counts
 
 pytestmark = pytest.mark.unit
 
@@ -37,26 +37,6 @@ def hide(monkeypatch, package):
     for name in [n for n in sys.modules if n == package or n.startswith(package + ".")]:
         monkeypatch.setitem(sys.modules, name, None)
     monkeypatch.setitem(sys.modules, package, None)
-
-
-def simulate(n_genes=300, *, seed=0, numeric=False):
-    """Counts with a batch factor and an age covariate; 10% of genes respond to treatment."""
-    rng = np.random.default_rng(seed)
-    base = rng.lognormal(4.0, 1.2, n_genes)
-    lfc = np.where(rng.random(n_genes) < 0.1, rng.choice([-1.5, 1.5], n_genes), 0.0)
-    ids, meta, cols = [], {}, []
-    for k in range(8):
-        condition = "treated" if k % 2 else "control"
-        batch = "b2" if k >= 4 else "b1"
-        age = 40.0 + 3 * k
-        mu = base * 2 ** (lfc * (condition == "treated")) * (1.4 if batch == "b2" else 1.0)
-        if numeric:
-            mu = mu * np.exp(0.01 * (age - 50))
-        size = 1 / 0.05
-        cols.append(rng.negative_binomial(size, size / (size + mu)))
-        ids.append(f"s{k}")
-        meta[f"s{k}"] = {"condition": condition, "batch": batch, "age": str(age)}
-    return np.column_stack(cols), [f"g{i}" for i in range(n_genes)], ids, meta
 
 
 @pytest.fixture(scope="module")
@@ -153,7 +133,7 @@ def test_the_order_of_the_samples_does_not_change_the_answer(experiment, backend
 
 
 def test_metadata_meet_the_counts_by_sample_id_not_by_position():
-    counts, genes, ids, meta = simulate(60)
+    counts, genes, ids, meta = simulate_counts(60)
     aligned = B.run_de(counts, genes, ids, meta, design="~ condition", contrast=CONTRAST)
     # every position now holds another sample's row: matched by position this would
     # flip half the conditions, and the test would answer a different question
@@ -172,7 +152,7 @@ def test_metadata_meet_the_counts_by_sample_id_not_by_position():
     ("transpose the counts", "transpose it"),
 ])
 def test_samples_that_do_not_line_up_are_refused(change, phrase):
-    counts, genes, ids, meta = simulate(12)
+    counts, genes, ids, meta = simulate_counts(12)
     pairs = list(meta.items())
     if change == "repeat a count column":
         ids = ids[:-1] + ids[:1]
@@ -189,7 +169,7 @@ def test_samples_that_do_not_line_up_are_refused(change, phrase):
 
 
 def test_the_result_contract_is_the_same_record_for_every_backend():
-    counts, genes, ids, meta = simulate(60)
+    counts, genes, ids, meta = simulate_counts(60)
     res = B.run_de(counts, genes, ids, meta, design="~ condition", contrast=CONTRAST)
     row = res.table()[0]
     assert set(row) == {"gene"} | {attr for _, attr, _ in B.CONTRACT}
@@ -204,7 +184,7 @@ def test_the_result_contract_is_the_same_record_for_every_backend():
 
 def test_factors_covariates_and_reference_levels_are_one_design_for_both():
     need_module("pydeseq2")
-    counts, genes, ids, meta = simulate(150, numeric=True)
+    counts, genes, ids, meta = simulate_counts(150, numeric=True)
     res = {b: B.run_de(counts, genes, ids, meta, design="~ batch + age + condition",
                        contrast=CONTRAST, covariates=("age",), backend=b)
            for b in B.BACKENDS}
@@ -226,7 +206,7 @@ def test_pydeseq2_given_the_matrix_answers_as_with_its_own_formula():
     from pydeseq2.dds import DeseqDataSet
     from pydeseq2.default_inference import DefaultInference
     from pydeseq2.ds import DeseqStats
-    counts, genes, ids, meta = simulate(150)
+    counts, genes, ids, meta = simulate_counts(150)
     ours = B.run_de(counts, genes, ids, meta, design="~ batch + condition",
                     contrast=CONTRAST, backend="pydeseq2")
     frame = pd.DataFrame(counts.T, index=ids, columns=genes)
@@ -270,7 +250,7 @@ def test_an_unavailable_backend_is_refused_not_replaced(monkeypatch, world, tmp_
     status = B.backend_status("pydeseq2")
     assert status["status"] == "UNAVAILABLE" and "pydeseq2" in status["reason"]
     assert B.backend_status("builtin")["status"] == "READY"
-    counts, genes, ids, meta = simulate(12)
+    counts, genes, ids, meta = simulate_counts(12)
     with pytest.raises(BackendUnavailable) as caught:
         B.run_de(counts, genes, ids, meta, design="~ condition", contrast=CONTRAST,
                  backend="pydeseq2")
