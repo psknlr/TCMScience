@@ -89,6 +89,8 @@ class ScConfig:
     batch_key: str = "auto"                  # auto | none | a sample-sheet column
     analysis_backend: str = "builtin"        # builtin | scanpy (steps 3 to 6)
     integration_method: str = "harmony"      # none | harmony | scvi
+    scvi_epochs: int = 400                   # scVI's training epochs
+    scvi_threads: int = 1                    # torch threads while scVI trains
     de_backend: str = "builtin"              # builtin | pydeseq2 (pseudobulk)
     n_neighbors: int = 15
     resolution: float = 1.0
@@ -179,6 +181,8 @@ def _check_choices(config: ScConfig) -> None:
             ("de_backend", config.de_backend, de_backends.BACKENDS)):
         if value not in allowed:
             raise ScError(f"{name} is one of {', '.join(allowed)}, not {value!r}")
+    if config.scvi_epochs < 1 or config.scvi_threads < 1:
+        raise ScError("scvi_epochs and scvi_threads are at least 1")
     sc_analysis.check(config.analysis_backend, config.integration_method)
     de_backends.check_backend(config.de_backend)
 
@@ -261,7 +265,8 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                          settings=sc_analysis.StageSettings(
                              n_top_genes=config.n_top_genes, n_pcs=config.n_pcs,
                              n_neighbors=config.n_neighbors, resolution=config.resolution,
-                             seed=config.seed), out_dir=out)
+                             seed=config.seed, scvi_epochs=config.scvi_epochs,
+                             scvi_threads=config.scvi_threads), out_dir=out)
     integration = dict(an.integration)
     if integration.get("converged") is False:
         warnings.append(f"Harmony did not converge in {integration['rounds']} rounds")

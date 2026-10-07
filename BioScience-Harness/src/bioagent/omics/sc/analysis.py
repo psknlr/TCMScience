@@ -31,11 +31,13 @@ Two choices are made independently, and each run records what it used:
   4 clustering iterations), so its effective parameters are recorded, read from its
   own signature;
 * ``scvi``: the latent space of scVI (Lopez et al. 2018, *Nature Methods* 15:1053),
-  trained on the raw counts of the highly variable genes with the batch as covariate.
-  scvi-tools is optional and heavy. When it cannot be imported, the run is refused
-  with the reason. When it is present, the model settings, seed, training settings
-  and the digests of the saved model are recorded. **This path is unverified:** it has
-  not been run against scvi-tools itself.
+  trained on the raw counts of the highly variable genes with the batch as covariate,
+  on the CPU from a fixed seed and a fixed number of threads. scvi-tools is optional
+  and heavy. When it cannot be imported, the run is refused with the reason. When it
+  is present, the effective model and training settings, the seed, the threads, the
+  torch version, the training history's last values, a digest of the trained weights
+  and the digests of the saved model are recorded. Run against scvi-tools 1.5.1 on the
+  simulated atlas (docs/omics-backends.md); the tests run it when it is installed.
 
 With a single batch there is nothing to integrate, so no method is applied; the record
 says which was requested and why it did not run.
@@ -85,6 +87,7 @@ class StageSettings:
     min_dist: float = 0.5              # UMAP
     scvi_latent: int = 10
     scvi_epochs: int = 400
+    scvi_threads: int = 1              # torch threads while scVI trains; see _scvi
 
 
 @dataclass
@@ -120,7 +123,8 @@ def _needs(backend: str, integration: str) -> list[tuple[str, str, str, str]]:
                           "integration_method 'harmony' under the scanpy backend"))
     if integration == "scvi":
         why = "integration_method 'scvi'"
-        needs += [("scvi", "scvi-tools", "scvi", why), ("anndata", "anndata", "analysis", why)]
+        needs += [("scvi", "scvi-tools", "scvi", why), ("torch", "torch", "scvi", why),
+                  ("anndata", "anndata", "analysis", why)]
     return needs
 
 
@@ -142,6 +146,14 @@ def check(backend: str, integration: str) -> dict[str, str]:
 
 def _stage(stage: str, call: str, **params: Any) -> dict[str, Any]:
     return {"stage": stage, "call": call, "params": params}
+
+
+def _defaults(fn: Any, skip: tuple[str, ...] = ()) -> dict[str, Any]:
+    """The defaults ``fn`` declares, read from the installed version: with the values
+    passed laid over them, the parameters a call actually ran with. A package's defaults
+    change between releases, and a record of only what was passed would hide that."""
+    return {name: p.default for name, p in inspect.signature(fn).parameters.items()
+            if p.default is not inspect.Parameter.empty and name not in skip}
 
 
 # ============================================================== integration
@@ -175,7 +187,8 @@ def _harmonypy(pcs: np.ndarray, batches: np.ndarray, batch_key: str,
     passed = {"random_state": s.seed, "verbose": False}
     h = harmonypy.run_harmony(x, meta, batch_key, **passed)
     corrected, original = np.asarray(h.Z_corr, dtype=float), np.asarray(h.Z_orig, dtype=float)
-    # harmonypy 0.x returns PCs x cells and 2.x cells x PCs; its copy of the input says which
+    # harmonypy 0.0.10 returns PCs x cells, 0.1.0 on cells x PCs; its copy of the input
+    # says which
     if original.shape == x.shape and np.allclose(original, x):
         embedding = corrected
     elif original.shape == x.T.shape and np.allclose(original, x.T):
@@ -183,10 +196,7 @@ def _harmonypy(pcs: np.ndarray, batches: np.ndarray, batch_key: str,
     else:
         raise RuntimeError("harmonypy's copy of the input matches the PCA embedding in "
                            "neither orientation; its result cannot be placed")
-    params = {name: p.default for name, p in
-              inspect.signature(harmonypy.run_harmony).parameters.items()
-              if p.default is not inspect.Parameter.empty}
-    params.update(passed)
+    params = {**_defaults(harmonypy.run_harmony), **passed}
     iterations = len(h.objective_harmony) - 1
     return embedding, {"method": "harmony", "implementation": "harmonypy",
                        "version": version("harmonypy"), "batch_key": batch_key,
@@ -195,12 +205,36 @@ def _harmonypy(pcs: np.ndarray, batches: np.ndarray, batch_key: str,
                        "clusters": int(h.K), "batches": sorted({str(b) for b in batches})}
 
 
+def _weights_digest(state: Any) -> str:
+    """SHA-256 of trained weights alone: each tensor's name, dtype, shape and bytes, in
+    name order. Unlike the saved file's digest, it is equal for equal weights."""
+    h = hashlib.sha256()
+    for name in sorted(state):
+        a = np.ascontiguousarray(state[name].detach().cpu().numpy())
+        h.update(f"{name}\0{a.dtype.str}\0{a.shape}\0".encode())
+        h.update(a.tobytes())
+    return h.hexdigest()
+
+
 def _scvi(m: sc_io.CellMatrix, hv: np.ndarray, batches: np.ndarray, batch_key: str,
           s: StageSettings, out_dir: Path) -> tuple[np.ndarray, dict[str, Any]]:
-    """scVI's latent space; recorded in full, and marked unverified (see the module)."""
+    """scVI's latent space, trained on the CPU from a fixed seed and thread count.
+
+    Running it showed that the thread count is part of the computation: with two
+    threads instead of one, the latent space moved by 2e-6 after 20 epochs. It also
+    decides the speed, because torch's threads spin while they wait: on a busy
+    four-core machine, four threads trained this model about 75 times slower than one.
+    It is set for the training, recorded, and restored afterwards.
+
+    The saved model's digest changes with every save, even of identical weights: torch
+    writes a random serialization id into the file, and scvi-tools a fresh UUID and the
+    time of the run. A rerun cannot be checked by that digest, so the weights are also
+    digested on their own (:func:`_weights_digest`).
+    """
     import pandas as pd
     why = "integration_method 'scvi'"
     scvi = require("scvi", backend=why, distribution="scvi-tools", extra="scvi")
+    torch = require("torch", backend=why, extra="scvi")
     anndata = require("anndata", backend=why)
     counts = sparse.csr_matrix(m.counts[:, hv])
     obs = pd.DataFrame({batch_key: pd.Categorical([str(b) for b in batches])},
@@ -208,15 +242,21 @@ def _scvi(m: sc_io.CellMatrix, hv: np.ndarray, batches: np.ndarray, batch_key: s
     var = pd.DataFrame(index=pd.Index([str(g) for g in m.gene_names[hv]]))
     ad = anndata.AnnData(X=counts.copy(), obs=obs, var=var)
     ad.layers["counts"] = counts
-    model_settings = {"n_latent": s.scvi_latent, "n_layers": 1, "n_hidden": 128,
-                      "gene_likelihood": "nb"}
-    # on the CPU, so that the seed reproduces the model
-    training = {"max_epochs": s.scvi_epochs, "accelerator": "cpu"}
-    scvi.settings.seed = s.seed
-    scvi.model.SCVI.setup_anndata(ad, layer="counts", batch_key=batch_key)
-    model = scvi.model.SCVI(ad, **model_settings)
-    model.train(**training)
-    latent = np.asarray(model.get_latent_representation(), dtype=float)
+    passed = {"n_latent": s.scvi_latent, "n_layers": 1, "n_hidden": 128,
+              "gene_likelihood": "nb"}
+    # on the CPU, so that the seed reproduces the model; a pipeline draws no progress bar
+    training = {"max_epochs": s.scvi_epochs, "accelerator": "cpu", "devices": 1,
+                "enable_progress_bar": False}
+    threads = torch.get_num_threads()
+    torch.set_num_threads(s.scvi_threads)
+    try:
+        scvi.settings.seed = s.seed
+        scvi.model.SCVI.setup_anndata(ad, layer="counts", batch_key=batch_key)
+        model = scvi.model.SCVI(ad, **passed)
+        model.train(**training)
+        latent = np.asarray(model.get_latent_representation(give_mean=True), dtype=float)
+    finally:
+        torch.set_num_threads(threads)
     if latent.shape != (m.shape[0], s.scvi_latent):
         raise RuntimeError(f"scVI returned a {latent.shape} latent space for {m.shape[0]} "
                            f"cells and {s.scvi_latent} dimensions")
@@ -224,10 +264,22 @@ def _scvi(m: sc_io.CellMatrix, hv: np.ndarray, batches: np.ndarray, batch_key: s
     model.save(str(path), overwrite=True, save_anndata=False)
     artefact = {str(p.relative_to(out_dir)): hashlib.sha256(p.read_bytes()).hexdigest()
                 for p in sorted(path.rglob("*")) if p.is_file()}
-    return latent, {"method": "scvi", "implementation": "scvi-tools",
-                    "version": version("scvi-tools"), "batch_key": batch_key,
-                    "seed": s.seed, "model": model_settings, "training": training,
-                    "genes": int(hv.sum()), "artefact": artefact, "verified": False}
+    history = {name: float(np.asarray(values)[-1, 0]) for name, values in
+               sorted(model.history.items()) if len(values)}
+    return latent, {
+        "method": "scvi", "implementation": "scvi-tools", "version": version("scvi-tools"),
+        "torch": version("torch"), "batch_key": batch_key, "seed": s.seed,
+        "threads": s.scvi_threads, "genes": int(hv.sum()),
+        "model": {**_defaults(scvi.model.SCVI.__init__, skip=("adata", "registry")),
+                  **passed},
+        "training": {**_defaults(model.train), **training},
+        "epochs_trained": len(model.history["elbo_train"]),
+        "split": {"train": len(model.train_indices),
+                  "validation": len(model.validation_indices),
+                  "test": len(model.test_indices)},
+        "history_last": history, "latent": "posterior mean",
+        "weights_sha256": _weights_digest(model.module.state_dict()),
+        "artefact": artefact}
 
 
 # ============================================================== the backends

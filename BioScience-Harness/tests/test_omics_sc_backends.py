@@ -3,9 +3,9 @@
 On the simulated atlas of sc_world: the AnnData conversion, Scanpy against the built-in
 stages, the two Harmony implementations, scVI's refusal and its record, and the
 pseudobulk test by PyDESeq2. Tests that need an optional package skip without it and
-fail instead in CI's analysis job. scvi-tools is not installed in CI. Its refusal is
-tested by hiding it, and its record against a stand-in, which tests what this package
-writes down, not scVI itself.
+fail instead in CI's analysis job. That job does not install scvi-tools, so here its
+refusal is tested by hiding it, and its record against stand-ins, which tests what this
+package writes down. test_omics_scvi.py runs scVI itself.
 """
 
 from __future__ import annotations
@@ -200,10 +200,25 @@ def test_scvi_without_scvi_tools_is_refused_before_any_work(monkeypatch, world, 
 
 
 def test_scvi_records_its_settings_seed_and_model(monkeypatch, matrix, tmp_path):
-    """Against a stand-in for scvi-tools: this checks what is recorded and how the
-    latent space is used, not scVI."""
+    """Against stand-ins for scvi-tools and torch: this checks what is recorded and how
+    the latent space is used, not scVI (test_omics_scvi.py runs scVI itself)."""
     need_module("anndata")
+    import pandas as pd
     calls: dict = {}
+    threads = {"n": 4}
+
+    class Tensor:                       # what the weights digest reads of a tensor
+        def __init__(self, values):
+            self.values = np.asarray(values, dtype=np.float32)
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self.values
 
     class StandInSCVI:
         @classmethod
@@ -213,12 +228,18 @@ def test_scvi_records_its_settings_seed_and_model(monkeypatch, matrix, tmp_path)
 
         def __init__(self, adata, **settings):
             self.n = adata.n_obs
+            self.module = types.SimpleNamespace(state_dict=lambda: {"w": Tensor([1, 2])})
             calls["model"] = settings
 
         def train(self, **settings):
             calls["train"] = settings
+            calls["threads while training"] = threads["n"]
+            self.history = {"elbo_train": pd.DataFrame({"elbo_train": [3.0, 2.5]})}
+            self.train_indices, self.validation_indices = range(self.n - 2), range(2)
+            self.test_indices = range(0)
 
-        def get_latent_representation(self):
+        def get_latent_representation(self, give_mean):
+            calls["give_mean"] = give_mean
             rng = np.random.default_rng(scvi.settings.seed)
             return rng.normal(size=(self.n, calls["model"]["n_latent"]))
 
@@ -228,17 +249,29 @@ def test_scvi_records_its_settings_seed_and_model(monkeypatch, matrix, tmp_path)
 
     scvi = types.SimpleNamespace(settings=types.SimpleNamespace(seed=None),
                                  model=types.SimpleNamespace(SCVI=StandInSCVI))
+    torch = types.SimpleNamespace(get_num_threads=lambda: threads["n"],
+                                  set_num_threads=lambda n: threads.update(n=n))
     monkeypatch.setitem(sys.modules, "scvi", scvi)
+    monkeypatch.setitem(sys.modules, "torch", torch)
     m = qc.filter_cells(matrix).matrix
     m = m.subset(cells=np.arange(0, m.shape[0], 3))
     settings = A.StageSettings(n_top_genes=300, n_pcs=20, seed=5, scvi_latent=8)
     an = A.run(m, m.obs["batch"], "batch", backend="builtin", integration="scvi",
                settings=settings, out_dir=tmp_path)
     record = an.integration
-    assert record["implementation"] == "scvi-tools" and record["verified"] is False
+    assert record["implementation"] == "scvi-tools"
     assert record["seed"] == 5 == scvi.settings.seed
+    # trained on one thread, and the caller's thread count is restored afterwards
+    assert record["threads"] == 1 == calls["threads while training"] and threads["n"] == 4
+    # the stand-in declares no defaults, so the record holds what was passed
     assert record["model"] == calls["model"] and record["model"]["n_latent"] == 8
-    assert record["training"] == calls["train"]
+    assert record["training"] == calls["train"] and calls["train"]["accelerator"] == "cpu"
+    assert calls["give_mean"] is True and record["latent"] == "posterior mean"
+    assert record["epochs_trained"] == 2 and record["history_last"] == {"elbo_train": 2.5}
+    assert record["split"] == {"train": m.shape[0] - 2, "validation": 2, "test": 0}
+    weights = np.asarray([1, 2], dtype=np.float32)
+    assert record["weights_sha256"] == hashlib.sha256(
+        f"w\0{weights.dtype.str}\0{weights.shape}\0".encode() + weights.tobytes()).hexdigest()
     assert record["artefact"] == {
         "scvi_model/model.pt": hashlib.sha256(b"stand-in weights").hexdigest()}
     # scVI is given the raw counts of the highly variable genes, with the batch
@@ -255,6 +288,9 @@ def test_unknown_or_unavailable_choices_are_refused(monkeypatch, world, tmp_path
                          ("de_backend", "edger")):
         with pytest.raises(S.ScError, match=f"{field} is one of"):
             S.run_scrna(world.sheet, S.ScConfig(**{field: value}), tmp_path / field)
+    for field in ("scvi_epochs", "scvi_threads"):
+        with pytest.raises(S.ScError, match="at least 1"):
+            S.run_scrna(world.sheet, S.ScConfig(**{field: 0}), tmp_path / field)
     hide(monkeypatch, "scanpy")
     with pytest.raises(BackendUnavailable, match="scanpy"):
         S.run_scrna(world.sheet, S.ScConfig(analysis_backend="scanpy"), tmp_path / "a")

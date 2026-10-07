@@ -67,9 +67,12 @@ def register(sub: argparse._SubParsersAction) -> None:
     c.add_argument("--analysis-backend", default="builtin", choices=("builtin", "scanpy"),
                    help="who runs normalisation to markers")
     c.add_argument("--integration", default="harmony", choices=("none", "harmony", "scvi"),
-                   help="batch integration (scvi needs scvi-tools and is unverified)")
+                   help="batch integration (scvi needs scvi-tools)")
     c.add_argument("--no-integration", dest="integration", action="store_const",
                    const="none", help="the same as --integration none")
+    c.add_argument("--scvi-epochs", type=int, default=400, help="scVI's training epochs")
+    c.add_argument("--scvi-threads", type=int, default=1,
+                   help="torch threads for scVI; the trained model depends on the number")
     c.add_argument("--de-backend", default="builtin", choices=("builtin", "pydeseq2"),
                    help="the DESeq2 implementation for the pseudobulk test")
     c.add_argument("--resolution", type=float, default=1.0, help="Leiden resolution")
@@ -115,6 +118,7 @@ def _scrna(a: argparse.Namespace) -> int:
                       expected_doublet_rate=a.expected_doublet_rate,
                       n_top_genes=a.n_top_genes, n_pcs=a.n_pcs, batch_key=a.batch_key,
                       analysis_backend=a.analysis_backend, integration_method=a.integration,
+                      scvi_epochs=a.scvi_epochs, scvi_threads=a.scvi_threads,
                       de_backend=a.de_backend, resolution=a.resolution,
                       markers=a.markers or None, root=a.root or None, contrast=contrast,
                       seed=a.seed)

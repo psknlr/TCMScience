@@ -37,8 +37,8 @@ annotated atlas:
 
 Three independent choices, each defaulting to what ran before:
 - `analysis_backend`: `builtin` or `scanpy` runs normalisation to markers;
-- `integration_method`: `none`, `harmony` or `scvi` (scVI needs scvi-tools and is
-  unverified);
+- `integration_method`: `none`, `harmony` or `scvi` (scVI needs scvi-tools; it was
+  run with scvi-tools 1.5.1 on the CPU);
 - `de_backend`: `builtin` or `pydeseq2` runs the pseudobulk test.
 
 A choice that is not installed is refused before any count is read, never replaced.
@@ -48,7 +48,7 @@ and seeds (`docs/omics-backends.md`).
 <!-- zh -->
 三个相互独立的选项，默认值均与原来一致：
 - `analysis_backend`：`builtin` 或 `scanpy`，决定从归一化到标记基因的各步由谁执行；
-- `integration_method`：`none`、`harmony` 或 `scvi`（scVI 需要 scvi-tools，尚未验证）；
+- `integration_method`：`none`、`harmony` 或 `scvi`（scVI 需要 scvi-tools，已用 scvi-tools 1.5.1 在 CPU 上实际运行）；
 - `de_backend`：`builtin` 或 `pydeseq2`，决定伪批量检验由谁执行。
 
 未安装的选项会在读取任何计数之前被拒绝，绝不会被替换。`run.json` 记录每一步实际运行的实现及其版本、参数和随机种子（见 `docs/omics-backends.md`）。

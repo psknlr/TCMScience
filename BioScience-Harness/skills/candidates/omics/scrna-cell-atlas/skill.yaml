@@ -88,7 +88,7 @@ inputs:
     integration_method:
       type: string
       enum: [none, harmony, scvi]
-      description: "batch integration; scvi needs scvi-tools and is unverified"
+      description: "batch integration; scvi needs scvi-tools"
     de_backend:
       type: string
       enum: [builtin, pydeseq2]
