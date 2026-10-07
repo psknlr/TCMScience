@@ -273,28 +273,67 @@ class DatasetBackend(Backend):
 
 
 class SubprocessBackend(Backend):
-    """Runs an upstream project in its own interpreter — never imports its code."""
+    """Runs an upstream project in its own interpreter — never imports its code.
+
+    "Its own interpreter" used to mean ``sys.executable``: the harness's. An upstream
+    project installed in its own virtualenv or conda environment could not be selected,
+    so its imports failed and the call was recorded as the component failing. A reviewed
+    environment configuration (``backends.environments``) now names the interpreter, and
+    the checkout, per provider project. A project it names runs there or not at all: a
+    missing or broken interpreter is UNAVAILABLE with the reason, never a quiet run in the
+    harness's interpreter. A project it does not name runs in the harness's interpreter,
+    as before, and every result records which interpreter ran and its Python version.
+    ``-I`` stays: no ``PYTHON*`` variables, no user site, no working directory on the path.
+    """
 
     backend = "subprocess"
 
     def __init__(self, project_roots: dict[str, Path] | None = None,
-                 timeout_s: float = 120.0) -> None:
+                 timeout_s: float = 120.0,
+                 environments: "ExecutionEnvironments | None" = None) -> None:
         self.project_roots = {k: Path(v) for k, v in (project_roots or {}).items()}
         self.timeout_s = timeout_s
+        self.environments = environments
 
     @staticmethod
     def _code_for(manifest: ComponentManifest, arguments: dict) -> str:
         return _SubprocessCodeBuilder.build(manifest, arguments)
 
+    def _reviewed(self, manifest: ComponentManifest) -> Any:
+        if self.environments is None:
+            return None
+        return self.environments.interpreter(manifest.provider.project)
+
+    def interpreter_for(self, manifest: ComponentManifest) -> tuple[str, dict[str, str], str]:
+        """(interpreter, provenance, problem) for the manifest's provider project."""
+        chosen = self._reviewed(manifest)
+        if chosen is None:
+            return sys.executable, {
+                "interpreter": sys.executable, "python": sys.version.split()[0],
+                "interpreter_source": ("the harness's own interpreter: no reviewed "
+                                       "environment names this project")}, ""
+        provenance = {"interpreter": str(chosen.python),
+                      "interpreter_source": self.environments.describe()}
+        version, problem = chosen.version()
+        if problem:
+            return "", provenance, problem
+        return str(chosen.python), {**provenance, "python": version}, ""
+
     def invoke(self, manifest: ComponentManifest, *, code: str | None = None,
                **kwargs: Any) -> Any:
         t0 = time.perf_counter()
-        root = self.project_roots.get(manifest.provider.project)
+        chosen = self._reviewed(manifest)
+        root = self.project_roots.get(manifest.provider.project) or (
+            chosen.root if chosen is not None else None)
         if root is None or not root.is_dir():
             return self._result(
                 manifest, ExecutionStatus.UNAVAILABLE, t0,
                 error=(f"upstream project {manifest.provider.project!r} is not installed; "
                        "this backend invokes upstream code in place and never copies it"))
+        interpreter, provenance, problem = self.interpreter_for(manifest)
+        if problem:
+            return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
+                                error=problem, metadata=provenance)
         if not code:
             # A planner never supplies `code=`, so requiring it made every
             # subprocess capability permanently unexecutable through the normal
@@ -309,20 +348,27 @@ class SubprocessBackend(Backend):
             kwargs = {}
         try:
             proc = subprocess.run(  # noqa: S603
-                [sys.executable, "-I", "-c", code], cwd=str(root),
+                [interpreter, "-I", "-c", code], cwd=str(root),
                 capture_output=True, text=True, timeout=self.timeout_s, check=False)
         except subprocess.TimeoutExpired:
             return self._result(manifest, ExecutionStatus.TIMEOUT, t0,
-                                error=f"timed out after {self.timeout_s}s")
+                                error=f"timed out after {self.timeout_s}s",
+                                metadata=provenance)
+        except OSError as exc:
+            # The interpreter went away between the check and the call: nothing ran.
+            return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
+                                error=f"{interpreter} could not be started: {exc}",
+                                metadata=provenance)
         if proc.returncode != 0:
             return self._result(manifest, ExecutionStatus.FAILED, t0,
-                                error=proc.stderr.strip()[:1500])
+                                error=proc.stderr.strip()[:1500], metadata=provenance)
         out = proc.stdout.strip()
         try:
             value = json.loads(out) if out else None
         except json.JSONDecodeError:
             value = {"stdout": out[:4000]}
-        return self._result(manifest, ExecutionStatus.SUCCEEDED, t0, value=value)
+        return self._result(manifest, ExecutionStatus.SUCCEEDED, t0, value=value,
+                            metadata=provenance)
 
 
 class _SubprocessCodeBuilder:
@@ -350,17 +396,70 @@ class _SubprocessCodeBuilder:
 
 
 class ContainerBackend(Backend):
-    """Container execution — unavailable here, and says so rather than pretending."""
+    """Container execution — unavailable here, and says so rather than pretending.
+
+    Every container runs ``--rm --network none`` with no GPU and no host path. A GPU tool
+    or one that reads a reference database cannot run that way, so a reviewed environment
+    configuration (``backends.environments``) may give a named component GPUs (a count or
+    device ids), host data roots mounted read-only, and one writable output directory —
+    and, only if the review says so, the ``bridge`` network. A component the reviewed
+    configuration does not name gets none of these. ``command()`` returns the exact argv,
+    so what a profile grants can be read before anything is run.
+    """
 
     backend = "container"
     RUNTIMES = CONTAINER_RUNTIMES
 
-    def __init__(self) -> None:
+    def __init__(self, environments: "ExecutionEnvironments | None" = None) -> None:
         # Deliberately not probed here. Construction happens at import time in several
         # places and spawning a process per construction would be paid by every caller,
         # including those that never touch a container. The probe is memoised, so asking
         # for it on demand costs one process for the lifetime of the interpreter.
-        pass
+        self.environments = environments
+
+    def profile_for(self, manifest: ComponentManifest) -> Any:
+        """The reviewed container profile naming this component, or None."""
+        if self.environments is None:
+            return None
+        return self.environments.container(manifest.id)
+
+    def command(self, manifest: ComponentManifest, runtime_bin: str,
+                arguments: dict[str, Any]) -> list[str]:
+        """The argv ``invoke`` runs for ``arguments``; needs no container runtime to build.
+
+        Raises ``EnvironmentConfigError`` when the reviewed profile cannot be expressed
+        for ``runtime_bin`` (a GPU count under podman).
+        """
+        entrypoint = (manifest.runtime.entrypoint or "").strip()
+        payload = json.dumps({"entrypoint": entrypoint, "arguments": arguments}, default=str)
+        profile = self.profile_for(manifest)
+        cmd = [runtime_bin, "run", "--rm", "--network",
+               profile.network if profile is not None else "none"]
+        if profile is not None:
+            if profile.gpus is not None:
+                cmd += profile.gpus.argv(runtime_bin)
+            cmd += profile.mount_argv()
+            if profile.output is not None:
+                cmd += ["--env", "BIOAGENT_OUTPUT_DIR=/out"]
+        return [*cmd, "--env", f"BIOAGENT_INVOCATION={payload}", manifest.runtime.image,
+                *self._argv(entrypoint, arguments)]
+
+    def _grants(self, manifest: ComponentManifest) -> dict[str, Any]:
+        """What the profile gave this run, for the result's metadata."""
+        profile = self.profile_for(manifest)
+        if profile is None:
+            return {"network": "none", "gpus": None, "mounts": [],
+                    "environment": "no reviewed profile names this component"}
+        gpus = profile.gpus
+        return {"network": profile.network,
+                "gpus": (None if gpus is None else
+                         {"count": gpus.count} if not gpus.devices
+                         else {"devices": list(gpus.devices)}),
+                "mounts": ([{"source": str(p), "target": f"/data/{n}", "read_only": True}
+                            for n, p in sorted(profile.data.items())]
+                           + ([{"source": str(profile.output), "target": "/out",
+                                "read_only": False}] if profile.output else [])),
+                "environment": self.environments.describe()}
 
     @property
     def runtime_bin(self) -> str | None:
@@ -419,18 +518,30 @@ class ContainerBackend(Backend):
             return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
                                 error=self.unavailable_reason())
         timeout_s = kwargs.pop("timeout_s", 300)
-        payload = json.dumps({"entrypoint": entrypoint, "arguments": kwargs}, default=str)
         runtime_bin = self.runtime_bin
         if runtime_bin is None:                  # raced with a daemon going away
             return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
                                 error=self.unavailable_reason())
-        cmd = [runtime_bin, "run", "--rm", "--network", "none",
-               "--env", f"BIOAGENT_INVOCATION={payload}", image, *self._argv(entrypoint, kwargs)]
+        grants = self._grants(manifest)
+        profile = self.profile_for(manifest)
+        problems = profile.problems() if profile is not None else []
+        if problems:
+            # The reviewed profile names host paths this machine does not have. Running
+            # without them would hand the component an empty /data or nowhere to write.
+            return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0,
+                                error="; ".join(problems), metadata=grants)
+        from .environments import EnvironmentConfigError
+        try:
+            cmd = self.command(manifest, runtime_bin, kwargs)
+        except EnvironmentConfigError as exc:
+            return self._result(manifest, ExecutionStatus.UNAVAILABLE, t0, error=str(exc),
+                                metadata=grants)
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True,  # noqa: S603
                                   timeout=timeout_s, check=False)
         except subprocess.TimeoutExpired:
-            return self._result(manifest, ExecutionStatus.TIMEOUT, t0, error="container timed out")
+            return self._result(manifest, ExecutionStatus.TIMEOUT, t0,
+                                error="container timed out", metadata=grants)
         if proc.returncode != 0 and _runtime_did_not_start(proc.stderr):
             # The runtime never started the container, so the component did not run and
             # FAILED would be a claim about code that was never reached. The probe is
@@ -440,7 +551,7 @@ class ContainerBackend(Backend):
             return self._result(
                 manifest, ExecutionStatus.UNAVAILABLE, t0,
                 error=(f"{runtime_bin} could not start the container, so this component "
-                       f"did not run: {proc.stderr.strip()[:200]}"))
+                       f"did not run: {proc.stderr.strip()[:200]}"), metadata=grants)
         status = ExecutionStatus.SUCCEEDED if proc.returncode == 0 else ExecutionStatus.FAILED
         out = proc.stdout.strip()
         try:
@@ -448,7 +559,8 @@ class ContainerBackend(Backend):
         except json.JSONDecodeError:
             value = {"stdout": out[:4000]}
         return self._result(manifest, status, t0, value=value,
-                            error=(None if proc.returncode == 0 else proc.stderr[:1500]))
+                            error=(None if proc.returncode == 0 else proc.stderr[:1500]),
+                            metadata=grants)
 
     @staticmethod
     def _argv(entrypoint: str, kwargs: dict) -> list[str]:
@@ -492,6 +604,10 @@ _RUNTIME_STARTUP_FAILURES = (
     "cannot connect to podman",
     "connection refused",
     "failed to connect to containerd",
+    # a GPU profile on a host without the NVIDIA container toolkit (docker) or without
+    # CDI specifications (podman): the runtime refused the devices, the image never ran
+    "could not select device driver",
+    "unresolvable cdi devices",
 )
 
 

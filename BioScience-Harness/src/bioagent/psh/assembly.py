@@ -149,9 +149,16 @@ def default_runtime(*, catalogue: bool = True, public_apis: bool = True,
     resolver = Resolver(registry, dataset_probe=lambda cid: cid in present,
                         backend_probe=lambda backend: probe["fn"](backend))
     loader = Loader(registry, resolver)
+    # The reviewed environment configuration $BIOAGENT_ENVIRONMENTS names, if any: the only
+    # way a provider runs in its own interpreter or a container sees a GPU or a data root.
+    # A named file that fails its review stops the assembly here rather than being skipped.
+    from ..backends.environments import ExecutionEnvironments
+
+    environments = ExecutionEnvironments.from_env()
     backends = BackendRegistry([
         PythonBackend(loader), MCPBackend(mcp_dispatcher(mcp_servers, mcp_credentials)),
-        DatasetBackend(lake), SubprocessBackend(), ContainerBackend(), NoneBackend(),
+        DatasetBackend(lake), SubprocessBackend(environments=environments),
+        ContainerBackend(environments), NoneBackend(),
         HTTPBackend(cache_dir=cache_dir, timeout_s=http_timeout_s),
     ])
     runtime = Runtime(registry, backends, kernel=kernel or PolicyKernel(), resolver=resolver,
