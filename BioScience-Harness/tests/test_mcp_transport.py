@@ -1,8 +1,9 @@
 """MCP for real: a reviewed server, connected through the SDK, called on every path.
 
-Every call here runs the official SDK against a real server (``mcp_fixture_server.py``,
-FastMCP over stdio). Nothing in the protocol is mocked, because what is being proved is
-that the protocol's own answers become the right statuses. Four paths reach the server:
+Every call here runs the official SDK, 1.x or 2.x, against a real server
+(``mcp_fixture_server.py``, built with that SDK's own server class, over stdio, HTTP or
+HTTPS). Nothing in the protocol is mocked, because what is being proved is that the
+protocol's own answers become the right statuses. Four paths reach the server:
 
 * the connection itself, which checks ``tools/list`` against the reviewed entry;
 * ``Runtime.invoke`` through ``MCPBackend`` and the dispatcher;
@@ -12,11 +13,14 @@ that the protocol's own answers become the right statuses. Four paths reach the 
   wrote, verifies its digest, and calls the server from a cleared environment.
 
 On each path: success, ``isError``, a JSON-RPC error, timeout, no server, schema drift,
-and a tool outside the allowlist. The configuration tests need no SDK and run anywhere.
+and a tool outside the allowlist. Over HTTPS: a certificate that does not verify, and a
+redirect off the reviewed origin. The configuration tests need no SDK and run anywhere;
+the one test that reaches a public server over the internet is marked ``integration``.
 """
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import os
@@ -25,11 +29,12 @@ import stat
 import subprocess
 import sys
 import time
+from importlib import metadata
 from pathlib import Path
 
 import pytest
 
-from omics_world import need_mcp_sdk
+from omics_world import need_mcp_sdk, need_module
 
 from bioagent.backends.concrete import MCPBackend, MCPCallError, MCPReply
 from bioagent.mcp import (MCPConfigError, MCPConnection, MCPDispatcher, MCPServerConfig,
@@ -334,15 +339,15 @@ def test_a_server_that_cannot_start_is_unavailable_in_its_own_words(reviewed):
     assert "no module named fixture_dep" in caught.value.reason
 
 
-@pytest.fixture
-def http_fixture(reviewed):
+@contextlib.contextmanager
+def served_over_http(*args):
     """The fixture served over streamable HTTP on loopback; yields its port."""
     import socket
 
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    server = subprocess.Popen([sys.executable, str(FIXTURE), "--http", str(port)],
+    server = subprocess.Popen([sys.executable, str(FIXTURE), "--http", str(port), *args],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + 60
@@ -360,11 +365,84 @@ def http_fixture(reviewed):
         server.wait(10)
 
 
+@pytest.fixture
+def http_fixture(reviewed):
+    with served_over_http() as port:
+        yield port
+
+
+def reached_at(reviewed, url):
+    """The reviewed entry, for the same server reached at ``url`` instead of started."""
+    raw = {k: v for k, v in reviewed.to_dict().items() if k not in ("command", "args")}
+    return MCPServerConfig.from_dict({**raw, "id": "remote", "transport": "streamable_http",
+                                      "url": url})
+
+
+@pytest.fixture(scope="module")
+def tls(tmp_path_factory):
+    """Loopback certificates: one from a CA the client is given, one from that CA for
+    another name, one from a CA it is not given. Each is a (certificate, key) pair of
+    files; ``ca`` is the trusted CA's certificate file."""
+    need_module("cryptography")
+    import datetime
+    import ipaddress
+    from types import SimpleNamespace
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    root = tmp_path_factory.mktemp("tls")
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    def issue(subject, ca=None, names=()):
+        """A key and certificate: a self-signed CA without ``ca``, else a server's."""
+        key = ec.generate_private_key(ec.SECP256R1())
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, subject)])
+        signer, issuer = ca or (key, None)
+        usage = dict.fromkeys(("content_commitment", "key_encipherment", "data_encipherment",
+                               "key_agreement", "encipher_only", "decipher_only"), False)
+        built = (x509.CertificateBuilder().subject_name(name)
+                 .issuer_name(issuer.subject if issuer else name)
+                 .public_key(key.public_key()).serial_number(x509.random_serial_number())
+                 .not_valid_before(now - datetime.timedelta(minutes=5))
+                 .not_valid_after(now + datetime.timedelta(days=1))
+                 .add_extension(x509.BasicConstraints(ca=ca is None, path_length=None), True)
+                 .add_extension(x509.KeyUsage(digital_signature=True, key_cert_sign=ca is None,
+                                              crl_sign=ca is None, **usage), True)
+                 .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()),
+                                False))
+        if ca:
+            built = (built.add_extension(x509.SubjectAlternativeName(list(names)), False)
+                     .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+                                    False)
+                     .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                         signer.public_key()), False))
+        return key, built.sign(signer, hashes.SHA256())
+
+    def files(stem, key, cert):
+        pem = root / f"{stem}.pem"
+        pem.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+        private = root / f"{stem}.key"
+        private.write_bytes(key.private_bytes(serialization.Encoding.PEM,
+                                              serialization.PrivateFormat.PKCS8,
+                                              serialization.NoEncryption()))
+        return str(pem), str(private)
+
+    loopback = (x509.IPAddress(ipaddress.ip_address("127.0.0.1")), x509.DNSName("localhost"))
+    trusted, stranger = issue("bioagent test CA"), issue("a CA nobody gave the client")
+    return SimpleNamespace(
+        ca=files("ca", *trusted)[0],
+        good=files("good", *issue("fixture", trusted, loopback)),
+        other_name=files("other", *issue("fixture", trusted,
+                                         (x509.DNSName("elsewhere.invalid"),))),
+        untrusted=files("untrusted", *issue("fixture", stranger, loopback)))
+
+
 def test_a_streamable_http_server_is_checked_against_the_same_snapshot(reviewed,
                                                                       http_fixture):
-    raw = {k: v for k, v in reviewed.to_dict().items() if k not in ("command", "args")}
-    remote = MCPServerConfig.from_dict({**raw, "id": "remote", "transport": "streamable_http",
-                                        "url": f"http://127.0.0.1:{http_fixture}/mcp"})
+    remote = reached_at(reviewed, f"http://127.0.0.1:{http_fixture}/mcp")
     with MCPConnection(remote) as connection:
         # reviewed over stdio, verified over HTTP: the snapshot pins the tools, not the pipe
         assert connection.tools == ALLOWED and connection.hidden == ("unreviewed",)
@@ -383,15 +461,84 @@ def test_a_streamable_http_server_is_checked_against_the_same_snapshot(reviewed,
     assert "cannot connect" in caught.value.reason
 
 
-def test_an_sdk_other_than_1x_is_refused_before_anything_starts(monkeypatch):
+def test_a_server_over_https_is_verified_and_one_that_does_not_verify_is_refused(
+        reviewed, tls, monkeypatch):
+    # The client is given the CA the way a deployment gives it one: SSL_CERT_FILE, one of
+    # the CA variables the transport also hands to the servers it starts.
+    monkeypatch.setenv("SSL_CERT_FILE", tls.ca)
+    monkeypatch.delenv("SSL_CERT_DIR", raising=False)
+    with served_over_http("--tls", *tls.good) as port:
+        for host in ("127.0.0.1", "localhost"):
+            with MCPConnection(reached_at(reviewed, f"https://{host}:{port}/mcp")) as remote:
+                assert remote.tools == ALLOWED and remote.hidden == ("unreviewed",)
+                assert remote.call_tool("add", {"a": 2, "b": 3})["structuredContent"] == {
+                    "sum": 5}
+    # Never accepted instead: a certificate for another name, and one from a CA the client
+    # was not given. Each is refused before anything is sent, in OpenSSL's words.
+    for certificate, why in ((tls.other_name, "IP address mismatch"),
+                             (tls.untrusted, "unable to get local issuer certificate")):
+        with served_over_http("--tls", *certificate) as port:
+            with pytest.raises(MCPCallError) as caught:
+                MCPConnection(reached_at(reviewed, f"https://127.0.0.1:{port}/mcp")).open()
+        assert caught.value.status is ExecutionStatus.UNAVAILABLE
+        assert "CERTIFICATE_VERIFY_FAILED" in caught.value.reason, caught.value.reason
+        assert why in caught.value.reason
+    # and no entry can ask for the check to be skipped
+    https = reached_at(reviewed, "https://127.0.0.1/mcp").to_dict()
+    with pytest.raises(MCPConfigError, match=r"unknown keys \['verify'\]"):
+        MCPServerConfig.from_dict({**https, "verify": False})
+
+
+@contextlib.contextmanager
+def redirecting_to(location):
+    """A loopback HTTP server that answers every request with a 307 to ``location``."""
+    import http.server
+    import threading
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def answer(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            self.send_response(307)
+            self.send_header("Location", location)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_GET = do_POST = do_DELETE = answer
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        yield server.server_address[1]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_redirect_off_the_reviewed_origin_is_never_followed(reviewed, http_fixture):
+    # The redirect leads to a working server: had the client followed it (as the 1.29 SDK
+    # would, to plain http on any host), the connection would have opened there.
+    with redirecting_to(f"http://127.0.0.1:{http_fixture}/mcp") as port:
+        with pytest.raises(MCPCallError) as caught:
+            MCPConnection(reached_at(reviewed, f"http://127.0.0.1:{port}/mcp")).open()
+    assert caught.value.status is ExecutionStatus.UNAVAILABLE
+    assert "Redirect" in caught.value.reason, caught.value.reason
+
+
+def test_an_sdk_major_the_transport_does_not_know_is_refused_before_anything_starts(
+        monkeypatch):
     from bioagent.mcp import connection as connection_module
 
-    monkeypatch.setattr(connection_module, "_sdk_version", lambda: "2.2.0")
-    config = MCPServerConfig.from_dict(snapshotted())
+    monkeypatch.setattr(connection_module, "_sdk_version", lambda: "3.0.0")
+    # a command that cannot start: had the check let it through, the reason would say so
+    config = MCPServerConfig.from_dict(snapshotted(command="/nonexistent/mcp-server",
+                                                   args=[]))
     with pytest.raises(MCPCallError) as caught:
         MCPConnection(config).open()
     assert caught.value.status is ExecutionStatus.UNAVAILABLE
-    assert "2.2.0" in caught.value.reason and "mcp>=1.29,<2" in caught.value.reason
+    assert "3.0.0" in caught.value.reason and "mcp>=1.29,<3" in caught.value.reason
 
 
 def test_a_reviewed_setting_and_the_ca_bundle_reach_the_server(reviewed, monkeypatch):
@@ -407,6 +554,8 @@ def test_a_reviewed_setting_and_the_ca_bundle_reach_the_server(reviewed, monkeyp
 @pytest.mark.parametrize("settings, why", [
     ({"SSL_CERT_FILE": "/tmp/mine.pem"}, "not a name a reviewed entry may set"),
     ({"HTTPS_PROXY": "http://elsewhere:3128"}, "not a name a reviewed entry may set"),
+    ({"NODE_TLS_REJECT_UNAUTHORIZED": "0"}, "not a name a reviewed entry may set"),
+    ({"SSLKEYLOGFILE": "/tmp/keys.log"}, "not a name a reviewed entry may set"),
     ({"API_TOKEN": "ghp_" + "x" * 36}, "looks like a credential"),
     ({"API_TOKEN": "Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0"}, "looks like a credential"),
     ({"CACHE": "a\nb"}, "one line"),
@@ -481,6 +630,8 @@ def test_runtime_invoke_reaches_the_server_and_reports_each_outcome(reviewed, dr
         assert echo.metadata["config_digest"] == reviewed.digest
         assert (echo.metadata["server"], echo.metadata["tool"]) == ("fixture", "echo")
         assert echo.metadata["server_version"] == "1.0"
+        # which SDK ran the session: the two majors keep different parts of a reply
+        assert echo.metadata["client_sdk_version"] == metadata.version("mcp")
         assert runtime.registry.get("mcp.fixture.echo").state is LifecycleState.READY
         assert runtime.invoke("mcp.fixture.add", spec=SPEC, a=2, b=3).value == {"sum": 5}
 
@@ -736,3 +887,64 @@ def test_a_credentialed_server_runs_in_process_and_never_in_the_child(reviewed, 
     err = capsys.readouterr().err
     assert code == 1 and "UNAVAILABLE" in err and "holds no credential source" in err
     assert "s3cret" not in err
+
+
+# ============================================ a public server, over the internet
+
+#: DeepWiki's public MCP server: HTTPS, no credentials. Only its read-only listing tool is
+#: allowlisted; the other two stay hidden (one of them puts a question to a model).
+DEEPWIKI = {"id": "deepwiki", "transport": "streamable_http",
+            "url": "https://mcp.deepwiki.com/mcp", "destination": "public_remote",
+            "package": "deepwiki-mcp", "version": "2.14.3", "connect_timeout_s": 60,
+            "call_timeout_s": 120, "tools": ["read_wiki_structure"]}
+REPO = "modelcontextprotocol/python-sdk"
+
+
+@pytest.mark.integration
+def test_a_public_server_is_reviewed_checked_and_called_over_https(tmp_path, capsys):
+    import yaml
+
+    from bioagent.mcp.__main__ import main
+
+    need_mcp_sdk()
+    draft = tmp_path / "deepwiki.yaml"
+    draft.write_text(yaml.safe_dump(DEEPWIKI))
+    assert main(["review", str(draft)]) == 0, capsys.readouterr().err
+    registry_file = tmp_path / "mcp_servers.yaml"
+    registry_file.write_text(yaml.safe_dump({"api_version": "1", "servers": yaml.safe_load(
+        capsys.readouterr().out)}))
+    assert main(["check", str(registry_file)]) == 0
+    registry = load_registry(registry_file)
+    config = registry.get("deepwiki")
+
+    with MCPConnection(config) as connection:
+        assert connection.tools == ("read_wiki_structure",)
+        assert "ask_wiki_question" in connection.hidden
+        reply = connection.call_tool("read_wiki_structure", {"repoName": REPO})
+        assert reply["isError"] is False and REPO in reply["structuredContent"]["result"]
+        with pytest.raises(MCPCallError) as caught:            # hidden: never sent
+            connection.call_tool("ask_wiki_question", {"repoName": REPO, "question": "?"})
+        assert caught.value.status is ExecutionStatus.DENIED
+
+    runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
+                              skills=False, data_lake=tmp_path / "no-lake",
+                              extra_manifests=[component("read_wiki_structure", "deepwiki")],
+                              mcp_servers=registry)
+    try:
+        result = runtime.invoke("mcp.deepwiki.read_wiki_structure", spec=SPEC, repoName=REPO)
+    finally:
+        runtime.backends.get("mcp").close()
+    assert result.status is ExecutionStatus.SUCCEEDED, result.error
+    assert REPO in result.value["result"]
+    assert result.metadata["config_digest"] == config.digest
+    assert result.metadata["server_reported"]["name"] == "DeepWiki"
+
+    # The same live server against a snapshot it no longer matches: refused, part named.
+    snapshot = config.tools["read_wiki_structure"]
+    stale = dataclasses.replace(config, tools={"read_wiki_structure": dataclasses.replace(
+        snapshot, description="0" * 64)})
+    with MCPConnection(stale) as connection:
+        with pytest.raises(MCPCallError) as caught:
+            connection.call_tool("read_wiki_structure", {"repoName": REPO})
+    assert caught.value.status is ExecutionStatus.DENIED
+    assert "description sha256 reviewed 000000000000" in caught.value.reason

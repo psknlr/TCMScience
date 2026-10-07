@@ -1,4 +1,4 @@
-"""A synchronous connection to one reviewed MCP server, over the official SDK.
+"""A synchronous connection to one reviewed MCP server, over the official SDK (1.x or 2.x).
 
 The SDK is asynchronous and the runtime that calls it is not, and the two obvious bridges
 are both wrong. ``asyncio.run`` per call starts and stops a server for every call, and
@@ -24,6 +24,12 @@ Closing runs the SDK's shutdown in the session's own task: the server's stdin is
 it is given time to exit, and its process group is terminated if it does not. Any
 connection still open at interpreter exit is closed then, so a caller that forgets does
 not leave a server process behind.
+
+The two SDK majors differ in names (an exception, the models' fields, the envelope a
+message arrives in), and each difference is detected where it is used rather than looked
+up by version, so the code that runs is the same code under both. A major this module was
+not written for is refused before any server starts: it imports, and would otherwise fail
+in ways that read as the server's fault.
 """
 
 from __future__ import annotations
@@ -31,11 +37,12 @@ from __future__ import annotations
 import asyncio
 import atexit
 import concurrent.futures
+import contextlib
 import os
 import tempfile
 import threading
 import weakref
-from typing import Any, Mapping, NamedTuple
+from typing import Any, AsyncIterator, Mapping, NamedTuple
 
 from ..backends.concrete import MCPCallError
 from ..status import ExecutionStatus
@@ -59,6 +66,10 @@ _STDERR_TAIL_CHARS = 400
 _GRACE_S = 5.0
 #: A server that keeps returning a next cursor is not listing tools.
 _MAX_LIST_PAGES = 64
+#: The SDK majors this transport is written and tested for. A later one is refused, not
+#: tried: 2.x renamed APIs that code written for 1.x used, and a 3.x may do the same.
+_SDK_MAJORS = ("1", "2")
+_TOOLS_CHANGED = "notifications/tools/list_changed"
 
 _LIVE: "weakref.WeakSet[MCPConnection]" = weakref.WeakSet()
 
@@ -79,6 +90,49 @@ def _sdk_version() -> str:
         return metadata.version("mcp")
     except metadata.PackageNotFoundError:
         return ""
+
+
+def _wire(model: Any) -> dict[str, Any]:
+    """A protocol object as it travels. 1.x names its fields in the protocol's camelCase and
+    2.x in snake_case; both dump the protocol's names as aliases. ``exclude_unset`` keeps
+    what the server sent rather than the client model's defaults, so an SDK upgrade that
+    adds a default field cannot read as a server-side change."""
+    return model.model_dump(mode="json", by_alias=True, exclude_unset=True)
+
+
+def _protocol_error() -> type[Exception]:
+    """The SDK's exception for a JSON-RPC error: ``McpError`` in 1.x, ``MCPError`` in 2.x."""
+    from mcp.shared import exceptions
+
+    return getattr(exceptions, "MCPError", None) or exceptions.McpError
+
+
+def _method(item: Any) -> str:
+    """The method of an inbound JSON-RPC message; "" for a reply or a transport error.
+    1.x wraps the message in a root model (``.root``) and 2.x hands it over bare."""
+    message = getattr(item, "message", None)
+    return str(getattr(getattr(message, "root", message), "method", "") or "")
+
+
+@contextlib.asynccontextmanager
+async def _streamable_http(url: str) -> AsyncIterator[Any]:
+    """The SDK's streamable HTTP transport, on the HTTP client the SDK makes, redirects off.
+
+    The client checks the server's certificate and name against the SDK's default CAs
+    (certifi's in 1.x, the system's in 2.x) or the ones SSL_CERT_FILE / SSL_CERT_DIR name,
+    and nothing in a reviewed entry reaches it, so no entry can turn the check off. Its
+    redirects are switched off because 1.29 follows any redirect, from https to plain http
+    on another host included, carrying the tool's arguments. Later SDKs ignore the switch
+    and follow a redirect only within the origin, so an https endpoint is never left for
+    plain http either way.
+    """
+    from mcp.client.streamable_http import streamable_http_client
+    from mcp.shared._httpx_utils import create_mcp_http_client
+
+    async with create_mcp_http_client() as client:
+        client.follow_redirects = False
+        async with streamable_http_client(url, http_client=client) as streams:
+            yield streams
 
 
 def _root_cause(exc: BaseException) -> BaseException:
@@ -130,6 +184,9 @@ class MCPConnection:
         self._stderr_path = ""
         self.server_info: dict[str, str] = {}
         self.protocol_version = ""
+        #: The client SDK that ran the session: the two majors differ in what they keep of
+        #: a reply and in what they tell a server about a call they abandon.
+        self.sdk_version = ""
         #: Everything ``tools/list`` returned, kept only by a reviewing connection.
         self.offered: dict[str, list[dict[str, Any]]] = {}
         #: Offered tools that are not on the allowlist: named here, never exposed.
@@ -163,7 +220,8 @@ class MCPConnection:
         return {**self._meta(tool), "schema_digest": snapshot.input_schema if snapshot else "",
                 "server_package": self.config.package, "server_version": self.config.version,
                 "server_reported": dict(self.server_info),
-                "protocol_version": self.protocol_version}
+                "protocol_version": self.protocol_version,
+                "client_sdk_version": self.sdk_version}
 
     def _meta(self, tool: str = "") -> dict[str, Any]:
         out = {"server": self.config.id, "transport": self.config.transport,
@@ -201,12 +259,14 @@ class MCPConnection:
                                    metadata=self._meta())
             self._used = True
             sdk = _sdk_version()
-            if sdk and not sdk.startswith("1."):
+            if sdk and sdk.split(".", 1)[0] not in _SDK_MAJORS:
                 raise MCPCallError(
                     f"the MCP Python SDK installed here is {sdk}; this transport is written "
-                    "and tested for 1.x (mcp>=1.29,<2), and 2.x changed the APIs it uses. "
-                    "Install the 'mcp' extra (pip install 'bioagent[mcp]') in this "
-                    "environment", status=_UNAVAILABLE, metadata=self._meta())
+                    "and tested for the 1.x and 2.x SDKs (mcp>=1.29,<3), and a later major "
+                    "may change the APIs it uses. Install the 'mcp' extra (pip install "
+                    "'bioagent[mcp]') in this environment", status=_UNAVAILABLE,
+                    metadata=self._meta())
+            self.sdk_version = sdk
             try:
                 from mcp import ClientSession  # noqa: F401 - the SDK, where it is needed
             except ImportError as exc:
@@ -272,14 +332,13 @@ class MCPConnection:
                 feed, session_reads = anyio.create_memory_object_stream(0)
                 async with anyio.create_task_group() as forwarding:
                     forwarding.start_soon(self._forward, streams[0], feed)
-                    async with ClientSession(session_reads, streams[1],
-                                             message_handler=self._on_message) as session:
+                    async with ClientSession(session_reads, streams[1]) as session:
                         with anyio.fail_after(self.config.connect_timeout_s):
-                            init = await session.initialize()
+                            init = _wire(await session.initialize())
                             await self._check_tools(session)
-                        self.server_info = {"name": str(init.serverInfo.name),
-                                            "version": str(init.serverInfo.version)}
-                        self.protocol_version = str(init.protocolVersion)
+                        self.server_info = {"name": str(init["serverInfo"]["name"]),
+                                            "version": str(init["serverInfo"]["version"])}
+                        self.protocol_version = str(init["protocolVersion"])
                         self._session = session
                         ready.set_result(None)
                         await self._closing.wait()
@@ -305,12 +364,19 @@ class MCPConnection:
         waited out its whole deadline and was reported as a TIMEOUT; left alone, the reader
         fails that call with "connection closed" (FAILED: it was running), and the mark
         refuses the next one at once.
+
+        A changed tool list is noticed here too, in the order the server sent it. The 2.x
+        SDK runs each notification callback as a task of its own, which can run after the
+        reply that followed the notification; a call sent in that gap would reach a tool
+        that changed, unchecked. Here the mark is set before that reply is even read.
         """
         import anyio
 
         async with sink:
             try:
                 async for message in source:
+                    if _method(message) == _TOOLS_CHANGED:
+                        self._stale = True
                     await sink.send(message)
             except (anyio.BrokenResourceError, anyio.ClosedResourceError):
                 return               # the session stopped reading: it is closing, not gone
@@ -331,38 +397,26 @@ class MCPConnection:
             return stdio_client(StdioServerParameters(
                 command=self.config.command, args=list(self.config.args), env=env,
                 cwd=self.config.cwd or None), errlog=self._stderr)
-        from mcp.client.streamable_http import streamable_http_client
-
-        return streamable_http_client(self.config.url)
-
-    async def _on_message(self, message: Any) -> None:
-        from mcp import types
-
-        if isinstance(message, types.ServerNotification) and isinstance(
-                message.root, types.ToolListChangedNotification):
-            self._stale = True
+        return _streamable_http(self.config.url)
 
     # ---------------------------------------------------------- the check
     async def _check_tools(self, session: Any) -> None:
         from mcp import types
 
-        listed: list[Any] = []
+        listed: list[dict[str, Any]] = []
         cursor = None
         for _ in range(_MAX_LIST_PAGES):
-            page = await session.list_tools(
-                params=types.PaginatedRequestParams(cursor=cursor) if cursor else None)
-            listed.extend(page.tools)
-            cursor = page.nextCursor
+            page = _wire(await session.list_tools(
+                params=types.PaginatedRequestParams(cursor=cursor) if cursor else None))
+            listed.extend(page["tools"])
+            cursor = page.get("nextCursor")
             if not cursor:
                 break
         else:
             raise RuntimeError(f"tools/list did not end within {_MAX_LIST_PAGES} pages")
         offered: dict[str, list[dict[str, Any]]] = {}
         for tool in listed:
-            # exclude_unset: what the server sent, not the client model's defaults, so an
-            # SDK upgrade that adds a default field cannot read as a server-side change.
-            offered.setdefault(tool.name, []).append(
-                tool.model_dump(mode="json", by_alias=True, exclude_unset=True))
+            offered.setdefault(tool["name"], []).append(tool)
         self._judge(offered)
 
     def _judge(self, offered: dict[str, list[dict[str, Any]]]) -> None:
@@ -454,9 +508,9 @@ class MCPConnection:
 
     async def _call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         import anyio
-        from mcp.shared.exceptions import McpError
         from mcp.types import CONNECTION_CLOSED
 
+        protocol_error = _protocol_error()
         session, sid, meta = self._session, self.config.id, self._meta(name)
         if session is None:
             raise MCPCallError(self._closed_reason(), status=_UNAVAILABLE, metadata=meta)
@@ -473,7 +527,7 @@ class MCPConnection:
                 f"MCP tool {name!r} on server {sid!r} did not answer within "
                 f"{self.config.call_timeout_s:g}s; it may still have done its work",
                 status=ExecutionStatus.TIMEOUT, metadata=meta) from None
-        except McpError as exc:
+        except protocol_error as exc:
             if exc.error.code == CONNECTION_CLOSED:
                 tail = self.stderr_tail()
                 raise MCPCallError(

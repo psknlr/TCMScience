@@ -51,14 +51,15 @@ def need_module(name: str):
 
 
 def need_mcp_sdk():
-    """The MCP SDK, if it is the 1.x the transport and its fixture server are written for;
-    else a skip (a failure under BIOAGENT_REQUIRE_TOOLS). A 2.x SDK imports, so
-    ``need_module("mcp")`` would let these tests run against APIs that 2.x renamed."""
+    """The MCP SDK, if it is a major the transport and its fixture server are written for
+    (1.x or 2.x); else a skip (a failure under BIOAGENT_REQUIRE_TOOLS). A later major
+    imports too, so ``need_module("mcp")`` would let these tests run against APIs it may
+    have renamed, as 2.x renamed 1.x's."""
     from importlib import metadata
     module = need_module("mcp")
     version = metadata.version("mcp")
-    if not version.startswith("1."):
-        why = f"mcp {version} is installed; these tests need the 1.x SDK (mcp>=1.29,<2)"
+    if version.split(".", 1)[0] not in ("1", "2"):
+        why = f"mcp {version} is installed; these tests need the 1.x or 2.x SDK (mcp<3)"
         if os.environ.get("BIOAGENT_REQUIRE_TOOLS"):
             pytest.fail(why)
         pytest.skip(why)

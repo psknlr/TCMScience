@@ -4,13 +4,18 @@
     python mcp_fixture_server.py --drift                    # echo changed since review
     python mcp_fixture_server.py --linger SECONDS           # outlives its stdin closing
     python mcp_fixture_server.py --http PORT                # streamable HTTP, loopback
+    python mcp_fixture_server.py --http PORT --tls CERT KEY # the same, over HTTPS
 
-Built with the SDK's own FastMCP, so every reply the tests judge is one a real server
+Built with the SDK's own server class (``FastMCP`` in the 1.x SDK, ``MCPServer`` in 2.x,
+the same decorators under two names), so every reply the tests judge is one a real server
 sends: a structured result, an ``isError`` result from a tool that raises, a JSON-RPC
 error, a tool slow enough to time out. ``unreviewed`` is never put on an allowlist and
 writes ``--marker`` if it ever runs, which is how a test proves it did not. ``--linger``
 makes a server that ignores the end of its input, as a badly behaved one would: only a
 client that terminates it stops it, so a test of shutdown cannot pass by politeness.
+
+The HTTP app is served by uvicorn directly rather than by the server's own ``run``: the
+two majors take the port in different places, and neither ``run`` takes a certificate.
 """
 
 from __future__ import annotations
@@ -22,7 +27,12 @@ import time
 from pathlib import Path
 from typing import TypedDict
 
-from mcp.server.fastmcp import Context, FastMCP
+try:
+    from mcp.server.mcpserver import Context, MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
+except ImportError:                                     # the 1.x SDK's names for them
+    from mcp.server.fastmcp import Context, FastMCP as MCPServer
+    from mcp.server.fastmcp.exceptions import ToolError
 from mcp.shared.exceptions import UrlElicitationRequiredError
 from mcp.types import ElicitRequestURLParams
 
@@ -31,8 +41,8 @@ class Sum(TypedDict):
     sum: int
 
 
-def build(*, drift: bool, marker: str, port: int = 8000) -> FastMCP:
-    server = FastMCP("bioagent-test-fixture", log_level="WARNING", port=port)
+def build(*, drift: bool, marker: str) -> MCPServer:
+    server = MCPServer("bioagent-test-fixture", log_level="WARNING")
 
     if drift:
         @server.tool()
@@ -53,7 +63,8 @@ def build(*, drift: bool, marker: str, port: int = 8000) -> FastMCP:
     @server.tool()
     def fail() -> str:
         """Always raise, so the server answers with isError."""
-        raise ValueError("the fixture failed on purpose")
+        # A ToolError: 2.x sends the text only of a failure a tool raises deliberately.
+        raise ToolError("the fixture failed on purpose")
 
     @server.tool()
     async def slow(seconds: float) -> str:
@@ -114,10 +125,18 @@ def main() -> None:
     parser.add_argument("--drift", action="store_true")
     parser.add_argument("--marker", default="")
     parser.add_argument("--http", type=int, default=0, metavar="PORT")
+    parser.add_argument("--tls", nargs=2, metavar=("CERT", "KEY"))
     parser.add_argument("--linger", type=float, default=0.0, metavar="SECONDS")
     args = parser.parse_args()
-    server = build(drift=args.drift, marker=args.marker, port=args.http or 8000)
-    server.run(transport="streamable-http" if args.http else "stdio")
+    server = build(drift=args.drift, marker=args.marker)
+    if args.http:
+        import uvicorn
+
+        cert, key = args.tls or (None, None)
+        uvicorn.run(server.streamable_http_app(), host="127.0.0.1", port=args.http,
+                    log_level="warning", ssl_certfile=cert, ssl_keyfile=key)
+    else:
+        server.run(transport="stdio")
     time.sleep(args.linger)
 
 

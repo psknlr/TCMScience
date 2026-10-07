@@ -69,11 +69,15 @@ _MAX_TIMEOUT_S = 3600.0
 #: the egress route the starting process hands on (in PSH's isolated child, the kernel's
 #: proxy), and the CA variables are which certificates that route is trusted with: an entry
 #: that set either could send a server's traffic somewhere else, or let it be read on the
-#: way. The loader and interpreter variables decide which code the server runs. PSH's
-#: isolated runner reserves the same families for its own children.
+#: way. So could one that turns certificate checks off or writes out the session keys, in
+#: the runtimes MCP servers are usually written in (Node, Python, anything on OpenSSL).
+#: The loader and interpreter variables decide which code the server runs. PSH's isolated
+#: runner reserves the proxy and loader families for its own children.
 _RESERVED_ENV = frozenset({
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "FTP_PROXY",
     "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    "NODE_TLS_REJECT_UNAUTHORIZED", "NODE_EXTRA_CA_CERTS", "PYTHONHTTPSVERIFY",
+    "SSLKEYLOGFILE",
     "PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "IFS", "BASH_ENV", "ENV",
     "SHELLOPTS", "GLIBC_TUNABLES", "NODE_OPTIONS", "PERL5OPT", "RUBYOPT"})
 _RESERVED_PREFIXES = ("LD_", "DYLD_")
