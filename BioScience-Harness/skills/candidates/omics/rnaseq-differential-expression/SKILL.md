@@ -33,6 +33,18 @@ From a sample sheet of FASTQ files to a differential-expression report, in one c
 5. DESeq2 方法：大小因子、收缩离散度、负二项 GLM、Wald 检验、Cook 距离、独立过滤、Benjamini–Hochberg 校正；
 6. VST、PCA 和样本间距离；生成带 SVG 图的 Markdown 和 HTML 报告，以及记录全部参数、工具版本和文件摘要的 `run.json`。
 
+## Implementations · 实现
+
+`de_backend` chooses who runs step 5: `builtin` (the default) or `pydeseq2`. Both
+receive the same design matrix and contrast vector and fill the same result columns.
+A backend that is not installed is refused, not replaced. The one that ran, with its
+version, is named in `run.json`, the report, the provenance and the claim's basis
+(`docs/omics-backends.md`). Preranked GSEA is a separate function
+(`bioagent.omics.gsea`), not a step of this skill.
+
+<!-- zh -->
+`de_backend` 决定第 5 步由谁执行：`builtin`（默认）或 `pydeseq2`。两者使用同一设计矩阵和对比向量，并填写相同的结果列。未安装的后端会被拒绝，不会被替换。实际运行的实现及其版本记录在 `run.json`、报告、来源信息和结论依据中（见 `docs/omics-backends.md`）。预排序 GSEA 是单独的函数（`bioagent.omics.gsea`），不是本 Skill 的步骤。
+
 ## What it may claim · 可以声称什么
 
 One claim, made only when some gene differs: in these samples, these genes differ

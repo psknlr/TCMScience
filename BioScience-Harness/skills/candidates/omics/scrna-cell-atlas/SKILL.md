@@ -33,6 +33,26 @@ annotated atlas:
 - PAGA 轨迹，以及从指定起点出发的扩散伪时间；
 - 按细胞类型做条件间的伪批量 DESeq2 比较。
 
+## Implementations · 实现
+
+Three independent choices, each defaulting to what ran before:
+- `analysis_backend`: `builtin` or `scanpy` runs normalisation to markers;
+- `integration_method`: `none`, `harmony` or `scvi` (scVI needs scvi-tools and is
+  unverified);
+- `de_backend`: `builtin` or `pydeseq2` runs the pseudobulk test.
+
+A choice that is not installed is refused before any count is read, never replaced.
+`run.json` records which implementation ran each stage, with versions, parameters
+and seeds (`docs/omics-backends.md`).
+
+<!-- zh -->
+三个相互独立的选项，默认值均与原来一致：
+- `analysis_backend`：`builtin` 或 `scanpy`，决定从归一化到标记基因的各步由谁执行；
+- `integration_method`：`none`、`harmony` 或 `scvi`（scVI 需要 scvi-tools，尚未验证）；
+- `de_backend`：`builtin` 或 `pydeseq2`，决定伪批量检验由谁执行。
+
+未安装的选项会在读取任何计数之前被拒绝，绝不会被替换。`run.json` 记录每一步实际运行的实现及其版本、参数和随机种子（见 `docs/omics-backends.md`）。
+
 ## What it may claim · 可以声称什么
 
 Clusters, labels and pseudotime are outputs, not claims. A cell-type label is an

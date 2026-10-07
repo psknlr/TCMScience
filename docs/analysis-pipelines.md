@@ -50,6 +50,12 @@ trt1,trt1_R1.fastq.gz,trt1_R2.fastq.gz,treated,1
 `--engine auto` uses salmon, then kallisto, then the built-in quantifier, whichever is
 installed first. `--trimmer auto` uses fastp, then the built-in trimmer.
 
+`--de-backend pydeseq2` runs the test with PyDESeq2 instead, on the same design matrix
+and contrast, into the same result columns. If PyDESeq2 is not installed the run is
+refused, not switched to the built-in test.
+[omics-backends.md](omics-backends.md) says how the two are kept equivalent and where
+they differ.
+
 One built-in step goes further than kallisto. By k-mers alone, a read pair whose mates
 both lie in shared exons is also compatible with an isoform that has an extra exon
 between them, where the fragment would be longer by that exon. The quantifier
@@ -135,6 +141,14 @@ Every input must be raw counts; normalised values are refused.
 | Annotation | Scanpy's `score_genes` against a marker panel (30 human types shipped with their sources, or your own); `unassigned` when no type leads |
 | Trajectory | PAGA connectivity and tree; diffusion pseudotime from a named root, over the clusters PAGA joins to it |
 | Conditions | pseudobulk per sample and cell type, DESeq2 method; the samples are the replicates |
+
+Three choices are independent of one another:
+- `--analysis-backend scanpy` runs normalisation to markers with Scanpy;
+- `--integration none|harmony|scvi` sets the batch integration;
+- `--de-backend pydeseq2` runs the pseudobulk test with PyDESeq2.
+
+`run.json` records which implementation ran each stage. See
+[omics-backends.md](omics-backends.md).
 
 ### How it is checked
 
@@ -417,7 +431,7 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 修剪：fastp，或内置的 cutadapt 式修剪；
 - 定量：salmon、kallisto 或内置的 k-mer 伪比对与 EM；也可用 HISAT2 + featureCounts；
 - 基因汇总：tximport 的规则；
-- 差异表达：DESeq2 方法；
+- 差异表达：DESeq2 方法，内置实现或 PyDESeq2（`--de-backend`，见 omics-backends.md）；
 - 探索分析：VST、PCA 和样本间距离；
 - 报告：带 SVG 图的 Markdown/HTML 报告，以及记录全部摘要的 `run.json`，可用 `--verify` 复核。
 
@@ -440,6 +454,8 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - 细胞类型注释：基于标记基因面板，无明确领先者时标为 unassigned；
 - 轨迹分析：PAGA，以及从指定起点出发的扩散伪时间；
 - 条件间比较：按细胞类型做伪批量 DESeq2。
+
+分析后端（内置或 Scanpy）、批次整合方法（none、harmony 或 scvi）和伪批量检验实现（内置或 PyDESeq2）三者可独立选择，见 omics-backends.md。
 
 验证有两类：
 - 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
