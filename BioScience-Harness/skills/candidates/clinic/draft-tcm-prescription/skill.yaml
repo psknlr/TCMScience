@@ -1,0 +1,86 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# TCM differentiation and draft prescription — a CANDIDATE skill, not in the stable
+# lockfile: refused by a governed run until a person promotes it.
+#
+# Clinical risk: it drafts, a licensed practitioner decides. The draft is never signed by
+# the skill, it acts only with approval, and the one claim it can make is the textbooks'
+# own (a traditional use on expert-tier evidence). Nothing leaves the machine.
+
+api_version: "1"
+id: draft-tcm-prescription
+name: TCM differentiation and draft prescription
+version: "0.1.0"
+summary: >-
+  From a 四诊 intake: red-flag screening, syndrome differentiation against textbook
+  criteria with the questions that would decide it, and a draft prescription from the
+  base formula fitted to age, pregnancy, medications, conditions and allergies and checked
+  against 十八反/十九畏 and the Pharmacopoeia's limits, for a practitioner to sign.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.clinic.draft:draft_tcm_prescription"
+  timeout_s: 120
+  memory_mb: 1024
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network: []
+  filesystem_read:
+    - "${intake}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: false
+  secrets: []
+
+evidence:
+  max_tier: expert_experience
+  claim_kinds:
+    - traditional_use
+  forbidden_claims:
+    - efficacy
+    - recommendation
+    - association
+    - mechanism
+  require_pinned_sources: true
+  require_quote_verified: true
+  required_quality_dimensions:
+    - directness
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 2.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [intake]
+  properties:
+    intake:
+      type: string
+      description: the 四诊 intake JSON (bioagent clinic template)
+    modifications:
+      type: string
+      description: "JSON list of changes: {add, dose?} | {remove} | {replace, with, dose?} | {dose, g}"
+    apply_textbook:
+      type: boolean
+    days:
+      type: integer
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    summary:
+      type: object
+
+risk: r3_clinical
+min_autonomy: act_with_approval
