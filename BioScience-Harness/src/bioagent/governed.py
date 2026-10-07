@@ -100,6 +100,7 @@ def candidate_callables() -> dict[str, Callable[..., ResearchArtifact]]:
     (``allow_unpinned``), until a person promotes it.
     """
     from .skills.clinic import draft_tcm_prescription
+    from .skills.literature import retrieve_literature_evidence
     from .skills.molecular import (dock_ligands, predict_admet,
                                    predict_protein_structure)
     from .skills.omics import rnaseq_differential_expression, scrna_cell_atlas
@@ -111,6 +112,7 @@ def candidate_callables() -> dict[str, Callable[..., ResearchArtifact]]:
         "dock-ligands": dock_ligands,
         "predict-admet": predict_admet,
         "draft-tcm-prescription": draft_tcm_prescription,
+        "retrieve-literature-evidence": retrieve_literature_evidence,
     }
 
 
