@@ -647,12 +647,14 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("args", nargs="*", help="name=value (values may be JSON)")
 
     # -- analysis pipelines ---------------------------------------------------
+    from .admet import commands as admet_commands
     from .docking import commands as docking_commands
     from .omics import commands as omics_commands
     from .structure import commands as structure_commands
     omics_commands.register(sub)
     structure_commands.register(sub)
     docking_commands.register(sub)
+    admet_commands.register(sub)
 
     a = ap.parse_args(argv)
     if a.cmd in omics_commands.COMMANDS:
@@ -661,6 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         return structure_commands.dispatch(a)
     if a.cmd in docking_commands.COMMANDS:
         return docking_commands.dispatch(a)
+    if a.cmd in admet_commands.COMMANDS:
+        return admet_commands.dispatch(a)
     if a.cmd == "research":
         return _cmd_research(a)
     if a.cmd == "tcmdb":

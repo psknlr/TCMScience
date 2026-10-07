@@ -12,6 +12,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 | Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
 | Protein structure: sequences to checked models | `bioagent fold` | below |
 | Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
+| ADMET: structures to properties, alerts and predicted endpoints | `bioagent admet` | below |
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -303,6 +304,110 @@ ligand only when the setup was validated by redocking; otherwise it claims nothi
 - One conformer is embedded per ligand. Vina searches its torsions, but ring
   conformations stay as embedded.
 
+## ADMET: structures to properties, alerts and predicted endpoints
+
+```bash
+bioagent admet --build-models                  # once: fetch the TDC archive, train the models
+bioagent admet molecules.csv --out admet/
+bioagent admet --verify admet/
+```
+
+### Steps
+
+| Step | What is done |
+|---|---|
+| Standardisation | RDKit MolStandardize: clean-up, the largest organic fragment (salts and solvents dropped), neutralisation of charges that can be neutralised |
+| Properties | 24 RDKit descriptors (MW, Crippen logP, TPSA, H-bond donors and acceptors, rotatable bonds, rings, QED and others) |
+| Rules | Lipinski (one violation allowed), Veber, Egan and Ghose, on those descriptors |
+| Alerts | RDKit's filter catalogues: PAINS A/B/C (Baell & Holloway 2010), Brenk (2008), NIH (Jadhav 2010) |
+| Endpoints | one model per endpoint of the Therapeutics Data Commons ADMET benchmark group (Huang et al. 2021): a gradient-boosted tree over a 2048-bit Morgan count fingerprint and the descriptors, trained on TDC's `train_val` split with early stopping. Targets spanning orders of magnitude are modelled as log10 |
+| Domain | the largest Tanimoto similarity of the query to the model's training molecules; below 0.3 the prediction is flagged as outside the model's applicability domain |
+| Report | per molecule: properties, rules, alerts and predictions; the model cards; `run.json` with each model's digest |
+
+The archive is about 1.5 MB, fetched once from Harvard Dataverse and held to its pinned
+SHA-256. The models are built where they run, and nothing trained is shipped. Each model
+card records the data, the archive's digest, the train and test sizes, the TDC metric on
+the test set, the features, the library versions, and the model file's SHA-256, which is
+checked before the file is loaded.
+
+### How it is checked
+
+**Held-out scores on TDC's scaffold-split test sets** — molecules whose scaffolds the
+model never saw — from one build (seed 0) on this machine. The splits and metrics are
+TDC's own, so these can be read against its leaderboard.
+
+| group | endpoint | what it is | metric | held-out score | train | test |
+|---|---|---|---|---|---|---|
+| absorption | `caco2_wang` | Caco-2 cell permeability | MAE | 0.2818 | 728 | 182 |
+| absorption | `hia_hou` | human intestinal absorption (absorbed) | AUROC | 0.9239 | 461 | 117 |
+| absorption | `pgp_broccatelli` | P-glycoprotein inhibition | AUROC | 0.8984 | 973 | 245 |
+| absorption | `bioavailability_ma` | oral bioavailability above 20% | AUROC | 0.7509 | 512 | 128 |
+| absorption | `lipophilicity_astrazeneca` | lipophilicity | MAE | 0.5491 | 3360 | 840 |
+| absorption | `solubility_aqsoldb` | aqueous solubility | MAE | 0.7961 | 7985 | 1995 |
+| distribution | `bbb_martins` | blood-brain barrier penetration | AUROC | 0.8948 | 1624 | 406 |
+| distribution | `ppbr_az` | plasma protein binding | MAE | 8.2276 | 2231 | 559 |
+| distribution | `vdss_lombardo` | volume of distribution at steady state | SPEARMAN | 0.652 | 904 | 226 |
+| metabolism | `cyp2c9_veith` | CYP2C9 inhibition | AUPRC | 0.7736 | 9673 | 2419 |
+| metabolism | `cyp2d6_veith` | CYP2D6 inhibition | AUPRC | 0.6808 | 10504 | 2626 |
+| metabolism | `cyp3a4_veith` | CYP3A4 inhibition | AUPRC | 0.8758 | 9861 | 2467 |
+| metabolism | `cyp2c9_substrate_carbonmangels` | CYP2C9 substrate | AUPRC | 0.3824 | 534 | 135 |
+| metabolism | `cyp2d6_substrate_carbonmangels` | CYP2D6 substrate | AUPRC | 0.6799 | 532 | 135 |
+| metabolism | `cyp3a4_substrate_carbonmangels` | CYP3A4 substrate | AUROC | 0.6552 | 535 | 135 |
+| excretion | `half_life_obach` | half-life | SPEARMAN | 0.452 | 532 | 135 |
+| excretion | `clearance_hepatocyte_az` | hepatocyte clearance | SPEARMAN | 0.3335 | 970 | 243 |
+| excretion | `clearance_microsome_az` | microsomal clearance | SPEARMAN | 0.5299 | 881 | 221 |
+| toxicity | `ld50_zhu` | acute oral toxicity (rat LD50) | MAE | 0.6271 | 5907 | 1478 |
+| toxicity | `herg` | hERG channel blockade | AUROC | 0.8445 | 523 | 132 |
+| toxicity | `ames` | Ames mutagenicity | AUROC | 0.8574 | 5821 | 1457 |
+| toxicity | `dili` | drug-induced liver injury | AUROC | 0.88 | 379 | 96 |
+
+The metric is TDC's for that endpoint: MAE for a regression endpoint (lower is better),
+AUROC or AUPRC for a classification endpoint (higher is better), Spearman for the
+endpoints TDC ranks by correlation.
+
+The tests also check, on a small synthetic archive with known answers, that the
+standardisation strips salts and keeps charges that cannot be neutralised; that the
+rules and the alert catalogues fire where they should and stay quiet where they should;
+that a model file altered after it was carded is refused; that an archive whose digest
+does not match the pin is refused and not written; that a prediction for a molecule
+unlike anything in the training set is flagged as outside the domain; and that
+`verify_run` finds a changed output.
+
+**Why the domain flag matters here.** TDC's training sets are drug-like synthetic
+compounds, and much of what this repository studies is not. Largest Tanimoto similarity
+to each model's training set, for four molecules, two of them constituents of medicinal plants:
+
+| Molecule | hERG | Ames | Caco-2 |
+|---|---|---|---|
+| aspirin | 0.31 | 1.00 | 0.36 |
+| quercetin | 0.67 | 1.00 | 0.52 |
+| berberine | 0.24 — **outside** | 0.43 | 0.79 |
+| a protopanaxadiol-like triterpene | 0.16 — **outside** | 0.33 | 0.50 |
+
+The two flagged predictions are reported with "(outside domain)" and should not be read
+as predictions at all. A model that has seen nothing like a saponin has nothing to say
+about one.
+
+### What a result is
+
+Every number is a model's prediction, with the error its model card states on unseen
+scaffolds, or a published rule applied to computed descriptors. None is a measurement.
+Outside a model's applicability domain a prediction is unreliable. A structural alert
+marks a substructure often behind assay interference or reactivity — a reason to look
+closer, not a verdict; many natural products, flavonoids and catechols especially, carry
+PAINS motifs.
+
+The governed skill `predict-admet` (a candidate) therefore makes no claim: properties,
+rules, alerts and predictions are outputs. They rank compounds for testing.
+
+### Limits
+
+- The models see a 2D structure. Stereochemistry beyond what the fingerprint encodes,
+  conformation and formulation are not modelled.
+- The training sets are small for some endpoints, and their held-out scores say so.
+- A prediction is for the standardised parent structure, not for a salt or a prodrug as
+  administered.
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
@@ -379,3 +484,15 @@ ligand only when the setup was validated by redocking; otherwise it claims nothi
 - 苯甲脒的脒基与 S1 口袋底部的 Asp189 形成氢键，与晶体结构一致。
 
 对接打分只是打分函数的估计，不是实测亲和力（与实测值的相关系数约 0.5，误差约 2 kcal/mol）。受体为刚性，质子化状态按输入处理。候选 Skill `dock-ligands` 只有在重对接验证通过时，才对每个配体给出 `mechanism_hypothesis`（机制假说）。
+
+**ADMET 预测**（`bioagent admet`）：输入 CSV、SDF、`.smi` 或单个 SMILES，对每个分子给出：
+- 标准化结构：去盐、取最大有机片段、可中和的电荷予以中和；
+- 理化描述符与成药性规则：Lipinski、Veber、Egan、Ghose；
+- 结构警示：PAINS、Brenk、NIH；
+- 22 个 ADMET 终点（需先运行一次 `bioagent admet --build-models`）：吸收、分布、代谢、排泄、毒性各项，每项都给出模型卡记录的留出成绩，以及该分子是否落在模型适用域内（与训练集的最大 Tanimoto 相似度低于 0.3 即判为域外）。
+
+模型训练数据为 Therapeutics Data Commons 的 ADMET 基准集，采用其官方骨架划分，因此留出成绩可与 TDC 排行榜对照。数据包约 1.5 MB，只下载一次并按固定 SHA-256 校验；模型在本机训练，不随代码分发。模型文件本身也带摘要，加载前校验。
+
+**适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
+
+所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。

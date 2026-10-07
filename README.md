@@ -182,6 +182,7 @@ One call takes your own data through a complete analysis, with every parameter, 
 | `bioagent scrna` — counts → QC → doublets → Harmony → Leiden → markers → annotation → PAGA / pseudotime → pseudobulk | Treat a marker-based label as a measurement or cells as replicates: labels and pseudotime are outputs, and conditions are compared on samples. |
 | `bioagent fold` — sequences → ESMFold / AlphaFold2 → pLDDT, DSSP, geometry → TM-score against a reference | Treat a prediction as a structure or send a sequence anywhere unasked: the model is an output with its confidence, and remote prediction needs `--allow-remote`. |
 | `bioagent dock` — receptor + ligands → prepared PDBQT → redocking check → Vina poses, scores, contacts | Report a score as an affinity, or rank poses from a setup that failed its redocking check: validation comes first, and without it no claim is made. |
+| `bioagent admet` — structures → descriptors, rules, alerts → 22 TDC-trained endpoints | Present a prediction as a measurement, or predict outside what a model has seen: every endpoint carries its held-out error and an applicability-domain flag. |
 
 ### Data sources
 
