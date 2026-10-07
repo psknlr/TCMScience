@@ -2,9 +2,9 @@
 
 # TCMScience
 
-### 面向中医药与生物医学的受治理自主科研运行时
+### 全球首个面向中医药与生物医学科学发现的受治理自主科研智能体
 
-*A governed scientific runtime for autonomous research in Traditional Chinese Medicine*
+*The first governed autonomous research agent for Traditional Chinese Medicine*
 
 **让语言模型推理，但不让它定义实验室的法则。**
 
@@ -223,6 +223,9 @@ python scripts/run_network_pharmacology.py ... --hits screening          # PubCh
 python scripts/run_governance_ablation.py --out RUN/ablation              # docs/governance-ablation.md
 python scripts/run_inquiry.py --planted all --out RUN/inquiry              # docs/inquiry.md
 
+# 从 FASTQ 到差异表达报告的 RNA-seq 流程（docs/analysis-pipelines.md）
+python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
+
 # 测试：PSH 1248 · BioScience 1990（单元层）
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
@@ -252,6 +255,27 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | `analyze-tcm-network-pharmacology` | 混淆预测与实测：预测靶点和实测靶点分开存放，只提出机制*假说*。 |
 | `assess-tcm-safety` | 回答「安全」：没有记录不等于安全；十八反按药对组合检查。 |
 | `tcm.network-pharmacology` | 不带对照地报告富集：在账本校验过的快照上运行上面的案例，并写出完整溯源。 |
+
+### 分析流程
+
+一次调用就能把你自己的数据走完一条完整分析，每个参数、工具版本和文件摘要都会被记录（[docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。封装这些流程的 Skill 目前是候选：运行会被记录，但在有人晋级之前不会发布。
+
+| 流程 | 它拒绝做什么 |
+|---|---|
+| `bioagent rnaseq` — FASTQ → 质控 → 修剪 → 定量 → DESeq2 → 报告 | 把表达差异说成机制或效应：人体样本只支持关联，细胞和动物样本只支持机制假说。 |
+| `bioagent scrna` — 计数矩阵 → 质控 → 双细胞 → Harmony → Leiden → 标志基因 → 注释 → PAGA／拟时序 → 伪 bulk | 把按标志基因给出的标签当作测量，或把细胞当作重复：标签和拟时序是输出，不同条件按样本比较。 |
+| `bioagent fold` — 序列 → ESMFold／AlphaFold2 → pLDDT、DSSP、几何检查 → 与参考结构比 TM-score | 把预测当作实测结构，或未经允许把序列发往任何地方：模型是带置信度的输出，远程预测需要 `--allow-remote`。 |
+| `bioagent dock` — 受体 + 配体 → 准备好的 PDBQT → 再对接检验 → Vina 构象、打分、接触 | 把打分当作亲和力，或用没通过再对接检验的设置给构象排序：先验证；没有验证，就不下结论。 |
+| `bioagent admet` — 结构 → 描述符、规则、警示结构 → 22 个按 TDC 训练的终点 | 把预测说成测量，或在模型没见过的化学空间里预测：每个终点都带留出集误差和适用域标记。 |
+
+### 临床决策支持
+
+`bioagent clinic` 把结构化的四诊记录转成辨证结果和一份处方草案，交由执业中医师接受、修改或拒绝（[docs/tcm-clinic.md](docs/tcm-clinic.md)）。它从不自行开具处方。
+
+| 步骤 | 它拒绝做什么 |
+|---|---|
+| `bioagent clinic assess` — 四诊 → 危险信号 → 辨证 → 处方草案 | 越过危险信号继续、为急症证候拟方，或在辨证标准未满足时替人决定：它会建议转诊，或列出能够作出判断还需要的信息。 |
+| `bioagent clinic sign` — 医师的决定 | 自己签字、在存在「停止」级问题时接受草案，或在「阻断」级问题没有医师记录理由时放行。 |
 
 ### 数据源
 

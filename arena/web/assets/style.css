@@ -99,6 +99,9 @@ code {
   color: hsl(var(--foreground));
   white-space: nowrap;
 }
+/* A path such as docs/adr/0004-arena-read-only-static-first.md is wider than a phone:
+   below that width inline code may break, rather than push the page sideways. */
+@media (max-width: 640px) { code { white-space: normal; overflow-wrap: anywhere; } }
 
 pre {
   background: hsl(var(--muted));
