@@ -126,10 +126,14 @@ def test_the_archive_is_held_to_its_pinned_digest(tmp_path, monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr(M.urllib.request, "urlopen", lambda *a, **k: Reply(b"PK\x03\x04fake"))
+    sent = []
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda request, **k: sent.append(request) or Reply(b"PK\x03\x04fake"))
     with pytest.raises(M.ChemError, match="not the pinned"):
         M.fetch_archive(tmp_path)
     assert not (tmp_path / "tdc_admet_group.zip").exists()
+    # Harvard Dataverse refuses Python's default User-Agent with 403.
+    assert sent[0].get_header("User-agent").startswith("bioagent-harness/")
 
 
 def test_the_pipeline_without_models_reports_rules_only(tmp_path):

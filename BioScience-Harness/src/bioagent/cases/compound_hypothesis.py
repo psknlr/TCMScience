@@ -11,8 +11,10 @@ whose gain-of-function variants cause hereditary pancreatitis? The case runs:
 2. **Docking** (``bioagent.docking``) into the 3PTB pocket, after redocking its co-crystal
    ligand benzamidine validates the setup. 3PTB is bovine trypsin. The case docks into a
    model of the human target, and the report says so.
-3. **ADMET** rules and alerts (``bioagent.admet``). Without built models, no endpoint is
-   predicted, and the report says that too.
+3. **ADMET** rules and alerts (``bioagent.admet``), and the TDC endpoint models when a
+   directory of built models is given (``admet_models``), each prediction with its
+   applicability domain. By default the case uses an empty directory of its own, so no
+   endpoint is predicted, and the report says that too.
 4. **Complex prediction** with Boltz (``bioagent.structure.engines``). Boltz is not
    installed here, so the step is UNAVAILABLE. Nothing is approximated in its place.
 5. **The hypothesis report**: drafted claims through the claim contract. Docking licenses
@@ -50,7 +52,8 @@ def open_targets_rows(answer: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def run_case(work_dir: str | Path, *, open_targets: str | Path = OPEN_TARGETS,
-             pocket: str | Path = POCKET) -> CaseReport:
+             pocket: str | Path = POCKET, admet_models: str | Path | None = None
+             ) -> CaseReport:
     from ..contracts import CandidateClaim, EvidenceItem
     from ..omics.optional import BackendUnavailable
 
@@ -113,17 +116,25 @@ def run_case(work_dir: str | Path, *, open_targets: str | Path = OPEN_TARGETS,
     # 3. ADMET: rules and alerts, and no endpoint unless models were built.
     try:
         from ..admet.pipeline import AdmetConfig, run_admet
-        admet = run_admet([COMPOUND], AdmetConfig(cache_dir=str(work / "admet-models")),
-                          work / "admet")
+        cache = Path(admet_models) if admet_models else work / "admet-models"
+        admet = run_admet([COMPOUND], AdmetConfig(cache_dir=str(cache)), work / "admet")
         molecule = admet.molecules[0] if admet.molecules else {}
+        predicted = molecule.get("predictions") or {}
+        outside = sorted(e for e, p in predicted.items() if not p["in_domain"])
         report.steps.append(CaseStep(
             "ADMET", ExecutionStatus.SUCCEEDED, " ".join(
                 f"{k} {v}" for k, v in _versions("rdkit", "scikit-learn").items()),
             "rules and alerts only: " + "; ".join(admet.warnings)
-            if not admet.models_built else f"{len(admet.cards)} endpoints predicted",
+            if not admet.models_built else
+            f"{len(admet.cards)} endpoints predicted from TDC models; outside the "
+            f"applicability domain: {', '.join(outside) or 'none'}",
             {"molecule": {k: molecule.get(k) for k in ("name", "smiles", "properties",
-                                                         "rules", "alerts") if k in molecule},
-             "models_built": admet.models_built}))
+                                                         "rules", "alerts", "predictions")
+                          if k in molecule},
+             "models_built": admet.models_built,
+             "model_cards": {e: {k: c.get(k) for k in ("metric", "test_score", "train",
+                                                       "model_sha256", "archive_is_pinned")}
+                             for e, c in admet.cards.items()}}))
     except (BackendUnavailable, ImportError, RuntimeError) as exc:
         report.steps.append(CaseStep("ADMET", ExecutionStatus.UNAVAILABLE, "",
                                      f"{type(exc).__name__}: {exc}"[:300]))

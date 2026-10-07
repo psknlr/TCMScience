@@ -29,6 +29,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--only", choices=CASES, action="append",
                     help="run only this case (repeatable)")
     ap.add_argument("--de-backend", default="builtin", choices=("builtin", "pydeseq2"))
+    ap.add_argument("--admet-models", metavar="DIR",
+                    help="ADMET models built by `bioagent admet --build-models` (the "
+                         "directory holding models/); without it the compound case "
+                         "reports rules and alerts only")
     args = ap.parse_args(argv)
     out = Path(args.out)
     unexpected = 0
@@ -42,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             report = run_case(work)
         else:
             from bioagent.cases.compound_hypothesis import run_case
-            report = run_case(work)
+            report = run_case(work, admet_models=args.admet_models)
         work.mkdir(parents=True, exist_ok=True)
         (work / "report.md").write_text(report.markdown(), encoding="utf-8")
         (work / "report.json").write_text(report.to_json() + "\n", encoding="utf-8")

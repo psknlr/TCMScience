@@ -13,6 +13,8 @@ cd BioScience-Harness
 pip install -e '.[analysis,literature,docking,admet]'
 python scripts/run_end_to_end_cases.py --out RUN/cases                      # all three
 python scripts/run_end_to_end_cases.py --out RUN/cases --de-backend pydeseq2
+python scripts/run_end_to_end_cases.py --out RUN/cases --only compound \
+    --admet-models ~/.cache/bioagent/admet        # after `bioagent admet --build-models`
 ```
 
 The script writes `report.md` and `report.json` for each case. It exits non-zero if any
@@ -76,7 +78,7 @@ result sentence.
 | --- | --- | --- |
 | Open Targets evidence by datatype | a recorded answer (API 26.9.0, data 26.09, recorded 2026-10-07) | the disease is chosen by its *genetic* score: hereditary chronic pancreatitis, genetic association 0.917, literature 0.244. "pancreatitis" is flagged as led by literature co-mention rather than genetics |
 | docking | Vina 1.2.7, Meeko 0.8.0, RDKit 2026.3.6, gemmi 0.7.5 | redocking benzamidine into 3PTB reproduces the crystal pose at 0.38 Å, so the setup is validated. 4-aminobenzamidine's top score is −6.41 kcal/mol (Vina's estimate) |
-| ADMET | RDKit, scikit-learn | rules and alerts only. No models are built here, and the report says so |
+| ADMET | RDKit, scikit-learn | rules and alerts only. No models are built here, and the report says so. With `--admet-models`, the TDC endpoint models built there also predict, each prediction with its applicability domain and its model card's held-out score; no drafted claim cites a prediction, and the verdicts do not change |
 | complex prediction | Boltz (boltz-2) | **UNAVAILABLE**: Boltz is not installed, so no model was run and none was approximated |
 
 The question is whether 4-aminobenzamidine is worth testing against trypsin-1 (PRSS1),
@@ -137,7 +139,7 @@ implementations they skip, and under `BIOAGENT_REQUIRE_TOOLS=1` they fail.
 **3. 化合物与靶点：Open Targets → 对接与 ADMET → 假说报告。**
 - **Open Targets：** 按遗传证据选择疾病，即遗传性慢性胰腺炎（遗传 0.917，文献 0.244），并标出以文献共现为主的关联。
 - **对接：** 先以苯甲脒重对接验证（RMSD 0.38 Å），再对接 4-氨基苯甲脒（−6.41 kcal/mol）。所用结构 3PTB 是牛胰蛋白酶，作为人源靶点的模型，假说中写明。
-- **ADMET：** 只给出规则与警示。
+- **ADMET：** 默认只给出规则与警示；指定 `--admet-models` 时，已构建的 TDC 终点模型同时给出预测，每项附适用域判断与模型卡上的留出集成绩。预测不支撑任何主张，裁决不变。
 - **复合物预测：** Boltz 未安装，状态为 UNAVAILABLE，没有任何替代。
 - **主张裁决：**
   - 允许：对接假说。

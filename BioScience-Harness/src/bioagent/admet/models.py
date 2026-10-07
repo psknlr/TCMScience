@@ -130,10 +130,15 @@ def fetch_archive(cache: Path, *, url: str = TDC_ADMET_URL, sha256: str = TDC_AD
             raise ChemError(f"{target} does not match the pinned SHA-256 {sha256}; delete it "
                             "and build again")
         return target
+    from ..backends.http import user_agent
+
+    # Harvard Dataverse answers Python's default User-Agent with 403 Forbidden, so the
+    # download names the harness the way every other request it makes does.
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
     data, last = None, None
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as r:
+            with urllib.request.urlopen(request, timeout=timeout) as r:
                 data = r.read()
             break
         except Exception as exc:                              # noqa: BLE001

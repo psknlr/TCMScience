@@ -133,6 +133,31 @@ def test_docking_runs_only_on_a_validated_setup(compound):
     assert dock.record["validation"]["top_pose_rmsd"] < 2.0
 
 
+def test_without_built_models_admet_reports_rules_and_alerts_only(compound):
+    step = compound.step("ADMET")
+    assert step.status is OK and step.detail.startswith("rules and alerts only")
+    assert step.record["models_built"] is False and not step.record["model_cards"]
+
+
+def test_built_admet_models_predict_with_their_domain_and_license_nothing(tmp_path):
+    for module in ("rdkit", "sklearn", "meeko", "vina", "gemmi"):
+        need_module(module)
+    from admet_world import make_archive
+    from bioagent.admet.models import build_models
+    from bioagent.cases.compound_hypothesis import run_case
+
+    cache = tmp_path / "admet"
+    build_models(cache, archive=make_archive(tmp_path / "tdc.zip"),
+                 endpoints=["caco2_wang", "hia_hou"], max_iter=50, log=lambda *_: None)
+    report = run_case(tmp_path / "case", admet_models=cache)
+    step = report.step("ADMET")
+    assert step.status is OK and step.detail.startswith("2 endpoints predicted")
+    predictions = step.record["molecule"]["predictions"]
+    assert set(predictions) == {"caco2_wang", "hia_hou"} == set(step.record["model_cards"])
+    assert all(isinstance(p["in_domain"], bool) for p in predictions.values())
+    assert report.claims_as_expected, "a model's prediction licenses no claim of its own"
+
+
 def test_a_missing_engine_is_reported_not_approximated(compound):
     step = compound.step("complex prediction")
     if step.status is not OK:
