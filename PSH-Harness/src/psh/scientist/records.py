@@ -103,13 +103,22 @@ class ScientificLedger:
         return self._write(hypothesis, NodeKind.HYPOTHESIS, envelope, label=label)
 
     def preregister(self, hypothesis_id: str, protocol: Protocol, envelope: RunEnvelope,
-                    *, label: DataLabel | None = None) -> Node:
+                    *, label: DataLabel | None = None, also: tuple[str, ...] = ()) -> Node:
+        """Freeze a protocol against the hypothesis it tests.
+
+        ``also`` names further hypotheses the same protocol was registered to tell apart
+        (a discriminating experiment tests every competitor at once), so each gets its own
+        provenance edge rather than the protocol being filed under one of them.
+        """
         if not isinstance(protocol, Protocol):
             raise ValueError("expected Protocol")
         effective = self._authority(envelope)
-        source = self._node(hypothesis_id, NodeKind.HYPOTHESIS, effective)
-        self.read(source.id, effective)
-        return self._write(protocol, NodeKind.PROTOCOL, effective, (source,),
+        sources = []
+        for node_id in (hypothesis_id, *dict.fromkeys(h for h in also if h != hypothesis_id)):
+            source = self._node(node_id, NodeKind.HYPOTHESIS, effective)
+            self.read(source.id, effective)
+            sources.append(source)
+        return self._write(protocol, NodeKind.PROTOCOL, effective, tuple(sources),
                            {"protocol_hash": protocol.fingerprint}, label)
 
     def observe(self, protocol_id: str, observation: Observation, actual_protocol: Protocol,

@@ -12,6 +12,13 @@ RULES = {
     "psh.scientist.models": {"__future__", "dataclasses", "hashlib", "json"},
     "psh.scientist.ports": {"typing", "psh.contracts", "psh.labels", "psh.scientist.models"},
     "psh.workflow.statistics": {"dataclasses", "typing", "psh.scientist.models"},
+    # The inquiry engine decides what belief an outcome licenses. It may read the
+    # licensing table and nothing that persists, executes or reaches a model: those enter
+    # through its recorder and executor ports, so the engine cannot be handed a kernel and
+    # start acting on its own conclusions.
+    "psh.scientist.inquiry": {"__future__", "dataclasses", "enum", "hashlib", "json",
+                              "math", "typing", "psh.contracts", "psh.evidence.support",
+                              "psh.sir.values"},
 }
 
 
