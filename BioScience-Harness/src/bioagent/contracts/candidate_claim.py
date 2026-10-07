@@ -99,6 +99,7 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM011": "the claim's wording asserts more than its declared claim_kind",
     "CLM012": "an extrapolation is marked validated by evidence that is not present",
     "CLM013": "the claim's stated evidence scope is not what its cited evidence covers",
+    "CLM014": "the claim names a drug by a near name of the one its evidence studied",
 }
 
 
@@ -356,6 +357,35 @@ def require_declared(claim: CandidateClaim) -> None:
             "not declare it; add each to declared_extrapolations with a reason")
 
 
+def _near_names(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM014: a drug named in the claim's text that is a near name of the one studied."""
+    from ..sources.materia import names_in, shared_name
+    studied = [m for item in usable
+               for m in names_in(f"{getattr(item, 'subject', '')} {getattr(item, 'quote', '')}")
+               if m.identified]
+    if not studied:
+        return []
+    ids = {m.drug_id for m in studied}
+    out: list[Reason] = []
+    for mention in names_in(claim.text):
+        if mention.identified and mention.drug_id in ids:
+            continue
+        if not mention.identified and mention.contains in ids:
+            known = next(m for m in studied if m.drug_id == mention.contains)
+            out.append(Reason("CLM014", (
+                f"the claim names {mention.name}, which identifies no recorded drug; its "
+                f"evidence studied {known.name} ({known.drug_id}), and nothing records the "
+                f"two as the same drug")))
+            continue
+        near = [m for m in studied if m.drug_id != mention.drug_id
+                and shared_name(m.name, mention.name)]
+        if mention.identified and near:
+            out.append(Reason("CLM014", (
+                f"the claim names {mention.name} ({mention.drug_id}); its evidence studied "
+                f"{near[0].name} ({near[0].drug_id}), a different drug with a near name")))
+    return out
+
+
 def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerdict:
     """Whether ``claim`` may be made, given an id → :class:`EvidenceItem` index.
 
@@ -460,6 +490,12 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
         undeclared = claim.undeclared_extrapolations()
     for gap in undeclared:
         reasons.append(Reason("CLM009", f"undeclared extrapolation {gap!r}"))
+
+    # A near name is not the same drug. The resolver stopped folding 白附子 into 附子
+    # (audit AUD-02); a claim could still be written about one and rest on a study of the
+    # other, and nothing compared the two. Only names that contain one another are
+    # compared, so a claim that also mentions some other drug is not refused for it.
+    reasons.extend(_near_names(claim, usable))
 
     # The kind is what licensing reads, so the words must not outrun it. An
     # "attribution" whose text says a drug is proven effective for all patients

@@ -53,7 +53,8 @@ _CLINICAL = re.compile(
 _CLINICAL_ZH = re.compile(
     "(?:降低|升高|增高|增加|减少|改善|提高|缓解|预防|治疗|治愈|导致|引起|诱发|加重"
     "|死亡率|病死率|生存率|生存期|发病率|患病率|复发率|有效率|疗效|不良反应|副作用"
-    "|安全性|禁忌|适应症|适应证|剂量|显著|明显|优于|劣于|相关|危险因素|保护因素"
+    "|不良事件|毒性|肝损伤|肾损伤"
+    "|安全性|禁忌|适应症|适应证|剂量|显著|明显|优于|劣于|相关|有关|危险因素|保护因素"
     "|独立预测|预后|敏感性|特异性|准确率|阳性率)")
 
 #: A reported statistic is a claim about the world even when no clinical verb appears.
@@ -197,6 +198,15 @@ class OutputGate:
 
         for sentence in self._sentences(text):
             if not self.is_clinical(sentence):
+                # Not a claim about patients, so its support is not checked here. Its
+                # citations are: a mechanism, a hypothesis or a passage that cites a record
+                # still tells the reader that record says so. Before, a non-clinical
+                # sentence was skipped whole, and a retracted, mismatched or absent record
+                # behind its citation went out unexamined (governance ablation, 2026-10).
+                for identifier in self._identifiers(sentence):
+                    problem = self._citation_problem(sources, identifier)
+                    if problem:
+                        unsupported.append(f"{identifier}: {problem}")
                 continue
             identifiers = self._identifiers(sentence)
             if not identifiers:
@@ -230,8 +240,9 @@ class OutputGate:
             verdict = OutputVerdict(
                 False, supports=tuple(supports), unsupported=tuple(unsupported),
                 uncited=tuple(uncited), label=label,
-                reason=(f"{len(unsupported)} cited clinical claim(s) are not supported by "
-                        f"the source cited: " + "; ".join(unsupported[:3])))
+                reason=(f"{len(unsupported)} cited claim(s) are not supported by the "
+                        f"source cited, or cite no usable record: "
+                        + "; ".join(unsupported[:3])))
             self._record(verdict)
             raise VerificationFailed(verdict.reason)
 
@@ -273,6 +284,23 @@ class OutputGate:
     @classmethod
     def _sentences(cls, text: str) -> list[str]:
         return [s.strip() for s in cls._SENTENCE_SPLIT.split(text) if s and s.strip()]
+
+    @staticmethod
+    def _citation_problem(sources: Mapping[str, Any], identifier: str) -> str:
+        """Why a citation cannot stand, whatever the sentence around it claims; "" if it can.
+
+        The record must be supplied, be the record of the identifier cited, and be usable:
+        not retracted, not under an expression of concern, not changed after signing.
+        """
+        source, mismatch = cited_source(sources, identifier)
+        if mismatch:
+            return mismatch
+        if source is None:
+            return "no record was supplied for this citation"
+        usable = getattr(source, "usable", None)
+        if isinstance(usable, tuple) and usable and not usable[0]:
+            return str(usable[1])
+        return ""
 
     @staticmethod
     def _identifiers(text: str) -> list[str]:
