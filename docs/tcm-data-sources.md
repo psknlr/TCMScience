@@ -423,8 +423,9 @@ python -m bioagent.cli tcmdb compare formula_herb 补中益气汤
 ## Licences
 
 Most of these databases state **no data licence**: HERB, SymMap, ITCM, TM-MC, TCMIO,
-DDID, TTD, nSIDES and TCMBank. Some state "free for academic use" (BATMAN-TCM,
-NPASS/CMAUP). Clear licences:
+DDID, TTD, nSIDES and TCMBank, and NPASS and CMAUP (whose sites were re-read on
+2026-10-07). Some state "free for academic use" (BATMAN-TCM).
+Clear licences:
 
 | Licence | Sources |
 | --- | --- |

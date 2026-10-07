@@ -40,8 +40,10 @@ def test_the_catalogue_has_every_source_of_the_architecture_document_once():
     assert {c.origin for c in cards if c.no > 133} == {"integration-2026-10-04"}
     assert all(c.commercial_use in ("allowed", "forbidden", "unknown") for c in cards)
     assert all(c.access in ACCESS_MODES for c in cards)
+    # 2026-10-07: NPASS's and CMAUP's terms re-read; their sites state no licence.
     for c in cards:
-        assert c.assessment and c.checked in ("2026-10-01", "2026-10-02", "2026-10-04"), c.name
+        assert c.assessment and c.checked in ("2026-10-01", "2026-10-02", "2026-10-04",
+                                              "2026-10-07"), c.name
         if c.access in ("restricted", "unreachable"):
             assert c.barriers or c.assessment, f"{c.name}: say why it cannot be reached"
 

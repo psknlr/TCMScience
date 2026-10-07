@@ -189,14 +189,17 @@ use stays refused as unknown:
   govern only opensource.fb.com; nothing covers what the fold service returns for a
   submitted sequence.
 
-What the reading found against what the repository already said, reported here and not
-changed (each is in the P0 lockfile's closure or a connector's manifest):
+What the reading found against what the repository said, corrected on 2026-10-07 (the
+cards and parsers are in the P0 lockfile's closure, which was re-pinned):
 
-- the `bindingdb` source card and its parser give BindingDB's own records CC-BY-4.0; its
-  page says CC BY 3.0, and states no licence for the PubChem assays it includes;
-- the `npass` and `cmaup` cards say "Free for academic use"; the pages read do not;
-- the Reactome connector declares CC-BY-4.0, which is the licence of Reactome's
-  illustrations; its data is CC0.
+- the `bindingdb` source card and its parser gave BindingDB's own records CC-BY-4.0; its
+  page says CC BY 3.0, and states no licence for the PubChem assays it includes. They now
+  say CC-BY-3.0, with ChEMBL-derived records CC-BY-SA-3.0 as before;
+- the `npass` and `cmaup` cards said "Free for academic use", which none of the pages read
+  says. They now say "Not stated", with commercial use unknown, so a commercial run is
+  still refused, now for the reason that is true;
+- the Reactome connector declared CC-BY-4.0, the licence of Reactome's illustrations; its
+  data is CC0, which it now declares.
 
 ## The usage gate
 

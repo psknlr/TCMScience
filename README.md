@@ -290,9 +290,9 @@ Every source has a card stating its licence and access path. Web access is off u
 
 | Source | Provides | Licence |
 |---|---|---|
-| NPASS 2.0 · CMAUP 2.0 | composition, measured activity | free for academic use |
+| NPASS 2.0 · CMAUP 2.0 | composition, measured activity | not stated: their sites publish no terms, so commercial use is refused |
 | LOTUS (frozen export) | composition | CC BY 4.0 |
-| BindingDB | measured binding | CC BY 4.0 |
+| BindingDB | measured binding | CC BY 3.0 (records from ChEMBL: CC BY-SA 3.0) |
 | PubChem BioAssay | screening results, inactives included | NCBI data policy |
 | STRING v12 | protein associations | CC BY 4.0 |
 | UniProt (reviewed human) | Swiss-Prot primary accessions, for mapping PubChem's gene ids | CC BY 4.0 |

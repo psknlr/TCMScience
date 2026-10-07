@@ -218,7 +218,10 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
         commercial_use="allowed", qc={"min_inchikey_coverage": 0.95}),
     SourceCard(
         key="npass", name="NPASS 2.0", citation="doi:10.1093/nar/gkac1069",
-        license="Free for academic use", terms_url="https://bidd.group/NPASS/",
+        # bidd.group/NPASS states no licence and no terms of use: not on the home, about,
+        # help or download page (read 2026-10-07). This card used to say "Free for academic
+        # use", which none of them says. Unknown terms grant no commercial use.
+        license="Not stated", terms_url="https://bidd.group/NPASS/",
         access=(Access("bulk", "https://bidd.group/NPASS/downloadFiles/", cadence="2.0"),),
         provides=(
             EdgeDefault("contains", "organism", "ingredient", "knowledge_assertion",
@@ -226,12 +229,11 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
             EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
                         "manual_agent", "in_vitro"),
         ),
-        # "Free for academic use" grants no commercial use; that is not the same as not
-        # knowing. Anything else needs BIDD's own permission.
-        commercial_use="forbidden", qc={"min_inchikey_coverage": 0.8}),
+        commercial_use="unknown", qc={"min_inchikey_coverage": 0.8}),
     SourceCard(
         key="cmaup", name="CMAUP 2.0", citation="doi:10.1093/nar/gkad921",
-        license="Free for academic use", terms_url="https://bidd.group/CMAUP/",
+        # As NPASS: no licence or terms on bidd.group/CMAUP (read 2026-10-07).
+        license="Not stated", terms_url="https://bidd.group/CMAUP/",
         access=(Access("bulk", "https://bidd.group/CMAUP/downloadFiles/", cadence="2.0"),),
         provides=(
             EdgeDefault("contains", "organism", "ingredient", "knowledge_assertion",
@@ -239,10 +241,12 @@ SOURCE_CARDS: tuple[SourceCard, ...] = (
             EdgeDefault("targets", "ingredient", "target", "knowledge_assertion",
                         "manual_agent", "in_vitro"),
         ),
-        commercial_use="forbidden", qc={"min_inchikey_coverage": 0.8}),   # as NPASS
+        commercial_use="unknown", qc={"min_inchikey_coverage": 0.8}),
     SourceCard(
         key="bindingdb", name="BindingDB", citation="doi:10.1093/nar/gkae1075",
-        license="CC-BY-4.0", terms_url="https://www.bindingdb.org/rwd/bind/info.jsp",
+        # The terms page (read 2026-10-07): data BindingDB's staff curated are CC BY 3.0,
+        # data it imported from ChEMBL keep ChEMBL's CC BY-SA 3.0. This card said 4.0.
+        license="CC-BY-3.0", terms_url="https://www.bindingdb.org/rwd/bind/info.jsp",
         # The monthly TSV is downloaded by a person (the page has an interactive step) and
         # imported; the REST service answers single lookups.
         access=(Access("api", "https://bindingdb.org/rest", rps=1.0),
@@ -360,7 +364,7 @@ def effective_sources(requested: Iterable[str], *,
     did not name, so a skill cannot widen access by what it leaves out either.
 
     ``commercial_use`` was recorded on every card and read by nothing, so a commercial
-    run could draw on NPASS and CMAUP, whose terms are "free for academic use".
+    run could draw on NPASS and CMAUP, whose sites state no terms at all.
     """
     if purpose not in PURPOSES:
         raise ValueError(f"purpose {purpose!r} is not one of {PURPOSES}")

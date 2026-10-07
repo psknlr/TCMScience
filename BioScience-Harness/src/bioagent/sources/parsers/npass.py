@@ -33,7 +33,7 @@ from .common import (NodeBook, ParseReport, ParseResult, TaxonFilter, compound_i
 __all__ = ["FILES", "parse_npass"]
 
 KEY = "npass"
-LICENSE = "Free for academic use"
+LICENSE = "Not stated"          # the card's: no licence on the site
 
 #: role -> file name in the NPASS 2.0 download.
 FILES: Mapping[str, str] = {

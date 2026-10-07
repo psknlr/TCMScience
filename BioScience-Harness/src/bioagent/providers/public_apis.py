@@ -261,8 +261,10 @@ SOURCES: tuple[PublicSource, ...] = (
         ), smoke="get", docs="https://www.kegg.jp/kegg/rest/keggapi.html"),
 
     PublicSource(
+        # Reactome's data are CC0; CC BY 4.0 is the licence of its illustrations, icons and
+        # art (reactome.org/license, read 2026-10-07), which these operations do not return.
         "reactome", "Reactome ContentService", "https://reactome.org/ContentService", "reactome.org",
-        "CC-BY-4.0", "Curated pathways and reactions.", "pathways", (
+        "CC0-1.0", "Curated pathways and reactions.", "pathways", (
             Operation("query", "Entity by stable id", "data/query/{id}", args=("id",),
                       example={"id": "R-HSA-69488"}),
             Operation("pathways_for_entity", "Pathways containing an entity",

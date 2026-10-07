@@ -9,7 +9,7 @@ The full file is several gigabytes, so the parser keeps only ligands whose InChI
 ``inchikeys`` — the compounds a study actually needs. The download page requires an
 interactive step, so the file is obtained by a person and imported (``manual`` access).
 
-Licences are per record: data curated by BindingDB are CC-BY-4.0, data BindingDB took
+Licences are per record: data curated by BindingDB are CC-BY-3.0, data BindingDB took
 from ChEMBL are CC-BY-SA-3.0 (``Curation/DataSource`` says which). The rule lives on the
 source card (``cards.card("bindingdb").record_license``), so the card and the parser
 cannot disagree about it. Each measured value (Ki, IC50, Kd, EC50) is one ``targets``
@@ -40,7 +40,7 @@ KEY = "bindingdb"
 #: Kept for callers that read it; the parser asks the card (``_licence``), which is the
 #: one place the rule is maintained.
 LICENSES = {"chembl": "CC-BY-SA-3.0"}
-DEFAULT_LICENSE = "CC-BY-4.0"
+DEFAULT_LICENSE = "CC-BY-3.0"
 
 
 def _licence(curation: str) -> str:

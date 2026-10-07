@@ -27,9 +27,6 @@ kegg,KEGG REST,get,True,SUCCEEDED,200,1,1372,sha256:4d5d65f09838,,rest.kegg.jp,A
 kegg,KEGG REST,find,False,SUCCEEDED,200,1,4748,sha256:075bd84d005d,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:31Z
 kegg,KEGG REST,link,False,SUCCEEDED,200,1,1238,sha256:bde7b443b161,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:33Z
 kegg,KEGG REST,info,False,SUCCEEDED,200,1,1450,sha256:981d7b1e7282,,rest.kegg.jp,Academic use free; commercial requires license,2026-09-17T07:31:34Z
-reactome,Reactome ContentService,query,True,SUCCEEDED,200,1,328,sha256:b719a7c8206e,,reactome.org,CC-BY-4.0,2026-09-17T07:31:34Z
-reactome,Reactome ContentService,pathways_for_entity,False,SUCCEEDED,200,1,360,sha256:6cbc12283fc3,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
-reactome,Reactome ContentService,version,False,SUCCEEDED,200,1,297,sha256:eea13a3c19d1,,reactome.org,CC-BY-4.0,2026-09-17T07:31:35Z
 rcsb,RCSB PDB Data API,entry,True,SUCCEEDED,200,1,283,sha256:61a8f2681862,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 rcsb,RCSB PDB Data API,polymer_entity,False,SUCCEEDED,200,1,219,sha256:b4764fcc2e97,,data.rcsb.org,CC0-1.0,2026-09-17T07:31:36Z
 europepmc,Europe PMC,search,True,SUCCEEDED,200,1,705,sha256:658e98040610,,www.ebi.ac.uk,CC-BY / mixed per article,2026-09-17T07:31:37Z
@@ -443,3 +440,6 @@ opentargets,Open Targets Platform,associated_diseases,False,SUCCEEDED,200,1,849,
 gwas_catalog,GWAS Catalog,snp,True,SUCCEEDED,200,1,558,sha256:3ebc85c1899e,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:12Z
 gwas_catalog,GWAS Catalog,associations_by_rsid,False,SUCCEEDED,200,1,3747,sha256:ffcb3c88fc65,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:16Z
 gwas_catalog,GWAS Catalog,snps_by_gene,False,SUCCEEDED,200,1,6116,sha256:83bc0f070c1e,,www.ebi.ac.uk,EMBL-EBI terms of use (open),2026-10-07T13:28:22Z
+reactome,Reactome ContentService,query,True,SUCCEEDED,200,1,681,sha256:b719a7c8206e,,reactome.org,CC0-1.0,2026-10-07T14:29:42Z
+reactome,Reactome ContentService,pathways_for_entity,False,SUCCEEDED,200,1,452,sha256:6cbc12283fc3,,reactome.org,CC0-1.0,2026-10-07T14:29:42Z
+reactome,Reactome ContentService,version,False,SUCCEEDED,200,1,427,sha256:eea13a3c19d1,,reactome.org,CC0-1.0,2026-10-07T14:29:43Z

@@ -309,9 +309,9 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 
 | 数据源 | 提供 | 许可 |
 |---|---|---|
-| NPASS 2.0 · CMAUP 2.0 | 组成、实测活性 | 学术免费使用 |
+| NPASS 2.0 · CMAUP 2.0 | 组成、实测活性 | 未声明：网站未发布任何条款，因此拒绝商业用途 |
 | LOTUS（冻结导出） | 组成 | CC BY 4.0 |
-| BindingDB | 实测结合 | CC BY 4.0 |
+| BindingDB | 实测结合 | CC BY 3.0（来自 ChEMBL 的记录：CC BY-SA 3.0） |
 | PubChem BioAssay | 筛选结果，含阴性 | NCBI 数据政策 |
 | STRING v12 | 蛋白关联 | CC BY 4.0 |
 | UniProt（人类，已审阅） | Swiss-Prot 主号，用于映射 PubChem 的基因号 | CC BY 4.0 |

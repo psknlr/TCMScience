@@ -680,7 +680,7 @@ def test_a_source_card_is_ruled_by_effective_sources_itself(purpose):
             assert refused[card.key] in decision.reason
     npass = usage_decision([Asset("data", "source:npass@2.0", "source")],
                            purpose="commercial", records=LicenceRecords())
-    assert not npass.allowed and "Free for academic use" in npass.reason
+    assert not npass.allowed and "Not stated" in npass.reason
 
 
 def test_data_model_and_service_records_name_what_they_permit():

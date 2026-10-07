@@ -640,12 +640,35 @@ def test_a_declared_chinese_charset_is_honoured():
 
 def test_an_academic_only_licence_grants_no_commercial_use():
     """"Free for academic use" is a restriction, not an absence of information."""
-    from bioagent.sources.cards import SOURCE_CARDS
+    from bioagent.sources.cards import SOURCE_CARDS, effective_sources
 
     academic = [c for c in SOURCE_CARDS if "academic" in c.license.lower()]
-    assert {c.key for c in academic} >= {"npass", "cmaup"}
     assert all(c.commercial_use == "forbidden" for c in academic), [
         (c.key, c.commercial_use) for c in academic]
+    restricted = _card(key="restricted", license="Free for academic use",
+                       commercial_use="forbidden")
+    granted, refused = effective_sources(["restricted"], cards=[restricted],
+                                         purpose="commercial")
+    assert not granted and "say forbidden" in refused["restricted"]
+
+
+def test_terms_a_site_does_not_state_are_recorded_as_not_stated():
+    """NPASS's and CMAUP's sites state no licence or terms (home, about, help and download
+    pages, read 2026-10-07). Their cards said "Free for academic use", which none of those
+    pages says: a restriction recorded that nobody published. Not stated is unknown, and
+    unknown terms grant no commercial use."""
+    from bioagent.acquisition.sources import ACQUIRABLE
+    from bioagent.sources.cards import card, effective_sources
+    from bioagent.sources.parsers import cmaup, npass
+
+    for key, parser in (("npass", npass), ("cmaup", cmaup)):
+        assert card(key).license == parser.LICENSE == "Not stated"
+        assert card(key).commercial_use == "unknown"
+        _, refused = effective_sources([key], purpose="commercial")
+        assert "(Not stated) say unknown" in refused[key]
+    for spec in ACQUIRABLE:
+        if spec.source_project in ("NPASS", "CMAUP"):
+            assert spec.license.startswith("Not stated"), spec.filename
 
 
 def test_a_commercial_run_gets_only_sources_whose_terms_allow_it():
@@ -658,7 +681,7 @@ def test_a_commercial_run_gets_only_sources_whose_terms_allow_it():
     commercial, refused = effective_sources(wanted, purpose="commercial")
     assert {"npass", "cmaup"} & set(refused), "academic-only terms are refused"
     assert "pubchem_bioassay" in refused, "unknown terms fail closed"
-    assert "academic" in refused["npass"] or "Free for academic use" in refused["npass"]
+    assert "Not stated" in refused["npass"] and "say unknown" in refused["npass"]
     assert set(commercial) == {c.key for c in SOURCE_CARDS if c.commercial_use == "allowed"}
     with pytest.raises(ValueError, match="purpose"):
         effective_sources(wanted, purpose="internal")
