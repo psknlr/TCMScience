@@ -59,7 +59,14 @@ __all__ = [
 #: ``OBSERVATIONAL`` cover several designs each, so ``design_for`` refines them from the
 #: study's own ``design`` text and falls back to the weakest member of the group — the
 #: conservative direction, since a weaker design licenses no more than a stronger one.
+#:
+#: Total over ``EvidenceTier``. ``COMPUTATIONAL_PREDICTION`` was split out of
+#: ``PRECLINICAL`` so a prediction could not license a mechanism claim, and this table was
+#: never given the new tier: ``design_for`` indexed it and raised ``KeyError`` for exactly
+#: the records the split exists to hold down. It maps to ``IN_SILICO``, the one design
+#: ``LICENSING`` admits for a mechanism hypothesis and for nothing stronger.
 DESIGN_FOR_TIER: Mapping[EvidenceTier, StudyDesign] = {
+    EvidenceTier.COMPUTATIONAL_PREDICTION: StudyDesign.IN_SILICO,
     EvidenceTier.CLASSICAL_TEXT: StudyDesign.CLASSICAL_TEXT,
     EvidenceTier.EXPERT_EXPERIENCE: StudyDesign.EXPERT_CONSENSUS,
     EvidenceTier.PRECLINICAL: StudyDesign.IN_VITRO,
@@ -86,6 +93,12 @@ CLAIM_KIND_FOR: Mapping[str, ClaimKind] = {
 #: What a design was collected on. A classical passage is about a text; a docking study is
 #: about a computation; neither is about a patient, which is the distinction that stops an
 #: in-silico result licensing a clinical claim.
+#:
+#: Total over ``StudyDesign`` and read by index. It used to cover six designs and default
+#: the rest to ``HUMAN``, which is right for the clinical designs and wrong for ``UNKNOWN``:
+#: a design nobody recorded is not evidence about people, so it is ``UNSPECIFIED`` here, and
+#: a design added to the enum later fails the totality test instead of quietly becoming
+#: human evidence.
 SUBJECT_FOR_DESIGN: Mapping[StudyDesign, Subject] = {
     StudyDesign.CLASSICAL_TEXT: Subject.TEXT,
     StudyDesign.COMMENTARY: Subject.TEXT,
@@ -93,6 +106,16 @@ SUBJECT_FOR_DESIGN: Mapping[StudyDesign, Subject] = {
     StudyDesign.IN_SILICO: Subject.COMPUTATIONAL,
     StudyDesign.IN_VITRO: Subject.CELL,
     StudyDesign.ANIMAL: Subject.ANIMAL,
+    StudyDesign.CASE_REPORT: Subject.HUMAN,
+    StudyDesign.CASE_SERIES: Subject.HUMAN,
+    StudyDesign.CROSS_SECTIONAL: Subject.HUMAN,
+    StudyDesign.CASE_CONTROL: Subject.HUMAN,
+    StudyDesign.COHORT: Subject.HUMAN,
+    StudyDesign.NON_RANDOMISED_TRIAL: Subject.HUMAN,
+    StudyDesign.RANDOMISED_TRIAL: Subject.HUMAN,
+    StudyDesign.SYSTEMATIC_REVIEW: Subject.HUMAN,
+    StudyDesign.GUIDELINE: Subject.HUMAN,
+    StudyDesign.UNKNOWN: Subject.UNSPECIFIED,
 }
 
 #: Design vocabulary in the ``design`` free-text field, Chinese and English. Ordered:
@@ -121,8 +144,10 @@ _DESIGN_CUES: tuple[tuple[str, StudyDesign], ...] = (
 #: Which refinements a tier will accept. A relation declaring tier ``PRECLINICAL`` and a
 #: design text reading "randomised" is a contradiction, and honouring the text would let a
 #: mislabelled record license a claim its tier does not. The text may only choose **within**
-#: the tier's own group.
+#: the tier's own group, so a computational prediction whose text reads "in vitro" or
+#: "randomised" stays ``IN_SILICO``: the tier decides, and the note says why.
 _TIER_GROUP: Mapping[EvidenceTier, frozenset[StudyDesign]] = {
+    EvidenceTier.COMPUTATIONAL_PREDICTION: frozenset({StudyDesign.IN_SILICO}),
     EvidenceTier.CLASSICAL_TEXT: frozenset({StudyDesign.CLASSICAL_TEXT,
                                             StudyDesign.COMMENTARY}),
     EvidenceTier.EXPERT_EXPERIENCE: frozenset({StudyDesign.EXPERT_CONSENSUS,
@@ -151,24 +176,27 @@ class TierMapping:
 
 
 def design_for(tier: EvidenceTier, design_text: str = "") -> TierMapping:
-    """Resolve a tier plus its free-text design into a ``StudyDesign`` and a subject."""
+    """Resolve a tier plus its free-text design into a ``StudyDesign`` and a subject.
+
+    Defined for every ``EvidenceTier`` and every text: the three tables it reads are total
+    (``tests/test_tcm_epistemics.py`` checks them against the enums), so no tier can reach
+    a ``KeyError`` here and no text can move a record out of its tier's group.
+    """
     tier = EvidenceTier(tier)
-    default = DESIGN_FOR_TIER[tier]
-    resolved, refined, note = default, False, ""
+    resolved, refined, note = DESIGN_FOR_TIER[tier], False, ""
     text = (design_text or "").strip()
     if text:
         for pattern, candidate in _DESIGN_CUES:
             if re.search(pattern, text, re.I):
-                if candidate in _TIER_GROUP.get(tier, frozenset()):
+                if candidate in _TIER_GROUP[tier]:
                     resolved, refined = candidate, True
                 else:
                     note = (f"the design text reads {text!r}, which is "
                             f"{candidate.value}, and the record declares tier "
                             f"{tier.name}; the tier decides")
                 break
-    subject = SUBJECT_FOR_DESIGN.get(resolved, Subject.HUMAN)
-    return TierMapping(tier=tier, design=resolved, subject=subject, refined=refined,
-                       note=note)
+    return TierMapping(tier=tier, design=resolved, subject=SUBJECT_FOR_DESIGN[resolved],
+                       refined=refined, note=note)
 
 
 def _provenance(evidence: Any) -> Provenance:
