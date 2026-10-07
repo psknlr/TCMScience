@@ -244,6 +244,9 @@ WRITE = ("import json, os, sys\n"
 def test_a_local_job_is_supervised_collected_and_kept_from_the_harness_secrets(
         tmp_path, monkeypatch):
     monkeypatch.setenv("SECRET_TOKEN", "do-not-pass")
+    # The host's thread limit reaches the job, as CUDA_VISIBLE_DEVICES does: torch started
+    # one thread per core regardless, and an oversubscribed host ran 40 times slower.
+    monkeypatch.setenv("OMP_NUM_THREADS", "1")
     ctl = JobController(LocalSubprocessJobs(tmp_path / "jobs"),
                         trace_path=tmp_path / "trace.json")
     outcome = ctl.run(local_spec(WRITE, artefacts=(ArtefactSpec("env", "env.json"),)),
@@ -251,6 +254,7 @@ def test_a_local_job_is_supervised_collected_and_kept_from_the_harness_secrets(
     assert outcome.status is ExecutionStatus.SUCCEEDED, outcome.error
     seen = json.loads(outcome.artefacts["env"].path.read_text())
     assert "BIOAGENT_JOB_OUTPUT" in seen and "SECRET_TOKEN" not in seen
+    assert "OMP_NUM_THREADS" in seen
     trace = json.loads((tmp_path / "trace.json").read_text())
     assert [e["event_type"] for e in trace["events"]][-2:] == ["JobCollected",
                                                                "ArtifactCreated"]

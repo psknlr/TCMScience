@@ -188,6 +188,24 @@ def test_dynamics_refuses_runs_that_would_not_repeat_or_not_be_what_they_say():
     assert any("divides the run" in p for p in uneven.validate())
 
 
+def test_crystal_waters_without_a_water_model_are_refused_before_anything_runs(tmp_path):
+    # OpenMM 8.6.1 ran this task and stopped in createSystem: "No template found for
+    # residue 76 (HOH)". 1UBQ holds 58 crystallographic waters.
+    implicit = DynamicsTask("md", str(BACKBONE), solvent="implicit", ionic_strength_molar=0,
+                            force_field=("amber14-all.xml", "implicit/gbn2.xml"))
+    assert any("holds 58 water molecules and no water model" in p
+               for p in implicit.validate())
+    vacuum = DynamicsTask("md", str(BACKBONE), solvent="vacuum", ionic_strength_molar=0,
+                          force_field=("amber14-all.xml",))
+    assert any("in a vacuum system; remove them" in p for p in vacuum.validate())
+    dry = tmp_path / "1ubq_protein.pdb"
+    dry.write_text("".join(ln for ln in BACKBONE.read_text().splitlines(keepends=True)
+                           if ln.startswith(("ATOM", "TER", "END"))))
+    assert DynamicsTask("md", str(dry), solvent="implicit", ionic_strength_molar=0,
+                        force_field=implicit.force_field).validate() == []
+    assert DynamicsTask("md", str(BACKBONE)).validate() == [], "explicit solvent keeps them"
+
+
 def test_a_dynamics_task_counts_its_steps():
     task = DynamicsTask("md", str(BACKBONE), duration_ps=10.0).require_valid()
     assert (task.steps, task.report_steps) == (5000, 500)
@@ -209,3 +227,14 @@ def test_the_mmcif_reader_keeps_the_first_model_and_author_chains():
     assert len(parse_mmcif(twice).atoms) == len(model.atoms), "model 2 is not read"
     with pytest.raises(ValueError, match="no _atom_site loop"):
         parse_mmcif("data_x\n_cell.length_a 10\n")
+
+
+def test_the_mmcif_reader_reads_a_model_boltz_wrote():
+    # boltz 2.2.1 through python-ihm: the ligand is HETATM LIG1 with no label_seq_id
+    model = read_mmcif(FIX / "compute" / "boltz_ubq_aspirin_model_0.cif.gz")
+    assert model.chains() == ["A", "L"] and model.sequence("A") == UBQ
+    ligand = [a for a in model.atoms if a.chain == "L"]
+    assert len(ligand) == 13 and {(a.resname, a.resseq) for a in ligand} == {("LIG1", 1)}
+    assert all(a.hetero for a in ligand) and not any(a.hetero for a in model.atoms[:-13])
+    plddt = [a.bfactor for a in model.atoms]
+    assert 0 < min(plddt) and max(plddt) <= 100, "pLDDT x 100"

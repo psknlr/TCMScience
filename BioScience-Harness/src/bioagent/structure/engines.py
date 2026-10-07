@@ -23,12 +23,11 @@ three separable things, so the two that do not need the tool can be checked with
 its artefacts are collected and validated, and a job that outlives ``timeout_s`` is
 TIMEOUT, still running, collectable later with ``resume``.
 
-Formats were read from each project's documentation and source on 2026-10-07: Boltz
-``docs/prediction.md`` and ``src/boltz/main.py``; chai-lab ``README.md``,
-``examples/restraints/README.md`` and ``chai_lab/chai1.py``; ProteinMPNN ``README.md``,
-``protein_mpnn_run.py`` and ``helper_scripts``. None of the tools is installed where this
-was written, so none was run: the renderers and readers are tested against files in the
-documented formats, not against the tools.
+Formats were read from each project's documentation and source, then checked by running
+the tools on a CPU (2026-10-07, docs/compute-tasks.md): OpenMM 8.6.1, ProteinMPNN at
+commit 8907e66, boltz 2.2.1 and chai_lab 0.6.1, each in its own environment through
+``run`` (Chai-1 outlived its time limit and was collected with ``resume``). The readers
+are tested on those runs' outputs.
 """
 
 from __future__ import annotations
@@ -41,7 +40,7 @@ import math
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -53,7 +52,7 @@ from ..status import ExecutionStatus
 from .complex import (BondConstraint, ChainConfidence, ComplexPredictionResult,
                       ComplexPredictionTask, ContactConstraint, PocketConstraint, Token)
 from .design import DesignedSequence, SequenceDesignResult, SequenceDesignTask
-from .dynamics import DynamicsResult, DynamicsTask, EnergyRecord
+from .dynamics import DynamicsResult, DynamicsTask, EnergyRecord, count_waters
 from .mmcif import read_mmcif
 from .pdbio import THREE_TO_ONE, Structure, read_pdb
 from .tasks import EngineRun, TaskInvalid, sha256_file
@@ -190,7 +189,7 @@ class Engine(abc.ABC):
         try:
             self._check_version(task, probe)
             work.mkdir(parents=True, exist_ok=True)
-            prepared = self.prepare(task, work, probe)
+            prepared = self._prepare(task, work, probe)
         except EngineRefusal as exc:
             return self.result(task, exc.status, f"{exc}; no model was run",
                                self._unrun(probe, "refused before running"))
@@ -202,16 +201,39 @@ class Engine(abc.ABC):
 
     def resume(self, task: Any, ref: JobRef, workdir: str | Path,
                controller: JobController) -> Any:
-        """Collect a job ``run`` left running (TIMEOUT), from its recorded reference."""
+        """Collect a job ``run`` left running (TIMEOUT), from its recorded reference.
+
+        Only as the task it was submitted for. The task is rendered again to get its
+        checks and the command it records, so a task or an adapter changed since the
+        submission would read the outputs with other checks and record a command that did
+        not run; the job's spec digest, which binds the task's digest, must match.
+        """
         self.check(task)
         probe = self.probe()
         work = Path(workdir).resolve() / task.name
         try:
-            prepared = self.prepare(task, work, probe)
+            prepared = self._prepare(task, work, probe)
         except EngineRefusal as exc:
             return self.result(task, exc.status, str(exc), self._unrun(probe, str(exc)))
+        if prepared.spec.digest() != ref.spec_digest:
+            return self.result(task, ExecutionStatus.FAILED, (
+                f"job {ref.job_id} was submitted as another spec ({ref.spec_digest}) than "
+                f"this task renders now ({prepared.spec.digest()}): the task or the adapter "
+                "has changed since, so nothing was collected"),
+                EngineRun(engine=self.name, ran=True, version=probe.version,
+                          interpreter=probe.interpreter, environment=probe.environment,
+                          job=ref.to_dict(), note="not collected: another spec"))
         outcome = controller.collect(ref, validators=prepared.validators)
         return self.finish(task, outcome, probe, prepared)
+
+    def _prepare(self, task: Any, work: Path, probe: EngineProbe) -> Prepared:
+        """``prepare``, with the task's digest bound into the job's spec: two tasks that
+        render the same command line (another ligand in a same-named input file) are
+        then two specs."""
+        prepared = self.prepare(task, work, probe)
+        prepared.spec = replace(prepared.spec, payload={**prepared.spec.payload,
+                                                        "task_digest": task.digest()})
+        return prepared
 
     @staticmethod
     def controller(work: Path) -> JobController:
@@ -360,6 +382,10 @@ class BoltzEngine(_ComplexEngine):
     ``model.options``: ``cache`` (required; the directory holding the checkpoints and CCD
     data, which Boltz otherwise downloads at start-up), ``accelerator`` (``gpu`` or
     ``cpu``; default ``gpu``) and ``use_potentials`` (inference-time steering potentials).
+
+    Boltz numbers the chains by entity, not in input order, and indexes its per-chain
+    scores by that number; the adapter reads the numbering from Boltz's record of the input
+    (``processed/records/<name>.json``) rather than infer it.
     """
 
     name = "boltz"
@@ -368,9 +394,11 @@ class BoltzEngine(_ComplexEngine):
     modules = ("boltz", "torch")
     models = ("boltz-1", "boltz-2")
     options = frozenset({"cache", "accelerator", "use_potentials"})
-    #: What ``download_boltz1`` / ``download_boltz2`` fetch when missing from the cache.
+    #: What ``download_boltz1`` / ``download_boltz2`` fetch when missing from the cache
+    #: (boltz 2.2.1). Boltz-2 tests for ``mols.tar`` before ``mols/``: a cache whose tar
+    #: was deleted after extraction downloads 1.86 GB again at start-up.
     CACHE = {"boltz1": ("boltz1_conf.ckpt", "ccd.pkl"),
-             "boltz2": ("boltz2_conf.ckpt", "boltz2_aff.ckpt", "mols")}
+             "boltz2": ("boltz2_conf.ckpt", "boltz2_aff.ckpt", "mols.tar", "mols")}
 
     def prepare(self, task: ComplexPredictionTask, work: Path,
                 probe: EngineProbe) -> Prepared:
@@ -417,13 +445,16 @@ class BoltzEngine(_ComplexEngine):
                             "MSA), which lowers Boltz's accuracy")
         artefacts = (ArtefactSpec("model", f"{base}/{task.name}_model_0.cif"),
                      ArtefactSpec("confidence", f"{base}/confidence_{task.name}_model_0.json"),
+                     ArtefactSpec("record", f"boltz_results_{task.name}/processed/records/"
+                                            f"{task.name}.json"),
                      ArtefactSpec("pae", f"{base}/pae_{task.name}_model_0.npz",
                                   required=False))
         return Prepared(
             spec=JobSpec(component_id="structure.engine.boltz", argv=tuple(argv),
                          artefacts=artefacts),
             validators={"model": _structure_check(task, identity),
-                        "confidence": _boltz_confidence_check},
+                        "confidence": _boltz_confidence_check,
+                        "record": _boltz_record_check(task)},
             weights={checkpoint.name: digest}, warnings=warnings,
             context={"mapping": identity})
 
@@ -483,14 +514,13 @@ class BoltzEngine(_ComplexEngine):
              run: EngineRun, prepared: Prepared) -> ComplexPredictionResult:
         model = read_mmcif(artefacts["model"].path)
         conf = json.loads(artefacts["confidence"].path.read_text(encoding="utf-8"))
-        # Boltz indexes chains by asym id, which is the order the model file lists them.
-        order = list(dict.fromkeys(a.chain for a in model.atoms))
+        names = _boltz_asym_names(artefacts["record"].path)
 
         def chain(index: str) -> str:
-            if not str(index).isdigit() or int(index) >= len(order):
-                raise ValueError(f"the confidence file names chain index {index}; the model "
-                                 f"has {len(order)} chains")
-            return order[int(index)]
+            if not str(index).isdigit() or int(index) not in names:
+                raise ValueError(f"the confidence file names chain index {index}; Boltz's "
+                                 f"record numbers {sorted(names)}")
+            return names[int(index)]
 
         chain_ptm = {chain(k): float(v) for k, v in (conf.get("chains_ptm") or {}).items()}
         pair = {chain(a): {chain(b): float(v) for b, v in row.items()}
@@ -521,6 +551,35 @@ def _boltz_confidence_check(path: Path) -> str | None:
     return f"no numeric {', '.join(missing)}" if missing else None
 
 
+def _boltz_asym_names(path: Path) -> dict[int, str]:
+    """Boltz's asym id -> chain name, from its record (``processed/records/<name>.json``).
+
+    The per-chain scores are indexed by asym id, and Boltz numbers the chains grouped by
+    entity, in the order each sequence first appears, not in input order: chains A=X, B=Y,
+    C=X ran as A, C, B (boltz 2.2.1). Mapping them by input order would swap B's and C's
+    scores without any check noticing; the record states the numbering.
+    """
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    names = {int(c["chain_id"]): str(c["chain_name"]) for c in doc["chains"]}
+    if len(names) != len(doc["chains"]) or len(set(names.values())) != len(names):
+        raise ValueError("Boltz's record lists a chain id or name twice")
+    return names
+
+
+def _boltz_record_check(task: ComplexPredictionTask) -> Callable[[Path], "str | None"]:
+    """A validator: Boltz's record numbers exactly the task's chains."""
+    def check(path: Path) -> str | None:
+        try:
+            names = _boltz_asym_names(path)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            return f"not a Boltz record: {exc}"
+        if sorted(names.values()) != sorted(task.chain_kinds()):
+            return (f"Boltz's record numbers chains {sorted(names.values())}; the task asked "
+                    f"for {sorted(task.chain_kinds())}")
+        return None
+    return check
+
+
 class ChaiEngine(_ComplexEngine):
     """Chai-1 (``chai-lab fold``), with its exported weights pinned in a local directory.
 
@@ -532,7 +591,9 @@ class ChaiEngine(_ComplexEngine):
     Chai-1 names chains A, B, C ... in input order whatever they are called, takes
     ligands as SMILES only, and writes its samples in sampling order, not ranked; the
     adapter maps chain ids both ways, refuses CCD-coded ligands rather than converting
-    them, and reports the sample with the highest aggregate score.
+    them, and reports the sample with the highest aggregate score. Without an MSA it
+    still gives its trunk a masked MSA of 16,384 rows (``MAX_MSA_DEPTH``); on a CPU a
+    complex padded to 256 tokens then took up to 11.3 GB (docs/compute-tasks.md).
     """
 
     name = "chai-1"
@@ -567,10 +628,14 @@ class ChaiEngine(_ComplexEngine):
         mapping = self.mapping(task)
         fasta = work / f"{task.name}.fasta"
         fasta.write_text(self.render_fasta(task), encoding="utf-8")
+        # The task counts recycles after the first trunk pass, as Boltz does
+        # (range(recycling_steps + 1)); chai_lab 0.6.1 counts every pass
+        # (range(num_trunk_recycles)), and with 0 it skips the trunk altogether and
+        # diffuses from the input embeddings.
         argv = [probe.interpreter, "-I", "-m", "chai_lab.main", "fold", str(fasta),
                 OUTPUT_TOKEN, "--seed", str(task.seed),
                 "--num-diffn-samples", str(task.samples),
-                "--num-trunk-recycles", str(task.recycling_steps),
+                "--num-trunk-recycles", str(task.recycling_steps + 1),
                 "--num-diffn-timesteps", str(task.sampling_steps),
                 "--device", str(opts.get("device", "cuda:0")),
                 "--use-esm-embeddings" if opts.get("use_esm_embeddings")
@@ -930,21 +995,28 @@ if cfg["minimise"]:
     simulation.minimizeEnergy()
 minimised = energy()
 write("relaxed.pdb")
+# A system without periodic boundaries has no box; OpenMM would still report the volume
+# of its default 2 nm cube, a number that describes nothing.
+periodic = system.usesPeriodicBoundaryConditions()
 if cfg["steps"]:
     simulation.context.setVelocitiesToTemperature(cfg["temperature_k"] * unit.kelvin,
                                                   cfg["seed"])
     simulation.reporters.append(app.DCDReporter(out + "/trajectory.dcd", cfg["report_steps"]))
     simulation.reporters.append(app.StateDataReporter(
         out + "/energies.csv", cfg["report_steps"], step=True, time=True,
-        potentialEnergy=True, kineticEnergy=True, temperature=True, volume=True))
+        potentialEnergy=True, kineticEnergy=True, temperature=True, volume=periodic))
     simulation.step(cfg["steps"])
     write("final.pdb")
 platform = simulation.context.getPlatform()
-precision = (platform.getPropertyValue(simulation.context, "Precision")
-             if "Precision" in platform.getPropertyNames() else "")
+names = platform.getPropertyNames()
 with open(out + "/run.json", "w", encoding="utf-8") as fh:
     json.dump({"openmm": getattr(openmm, "__version__", "") or openmm.version.version,
-               "platform": platform.getName(), "precision": precision,
+               "platform": platform.getName(),
+               "precision": (platform.getPropertyValue(simulation.context, "Precision")
+                             if "Precision" in names else None),
+               "threads": (platform.getPropertyValue(simulation.context, "Threads")
+                           if "Threads" in names else None),
+               "periodic": periodic,
                "initial_energy_kj_mol": initial, "minimised_energy_kj_mol": minimised,
                "n_atoms": system.getNumParticles(), "steps": cfg["steps"]}, fh)
 '''
@@ -1051,6 +1123,10 @@ class OpenMMEngine(Engine):
         if task.add_hydrogens_ph is not None:
             warnings.append(f"protonation from OpenMM's residue templates at pH "
                             f"{task.add_hydrogens_ph:g}; no pKa model was applied")
+        waters = count_waters(task.structure)
+        if waters and task.solvent == "explicit":
+            warnings.append(f"the structure's {waters} water molecules are kept: the "
+                            "solvent box is filled around them")
         return Prepared(
             spec=JobSpec(component_id="structure.engine.openmm",
                          argv=(probe.interpreter, "-I", str(script), str(config_path),
@@ -1069,7 +1145,8 @@ class OpenMMEngine(Engine):
             trajectory=artefacts.get("trajectory"), energy_table=artefacts.get("energies"),
             energies=energies,
             model_metrics={"openmm": doc["openmm"], "platform": doc["platform"],
-                           "precision": doc.get("precision", ""), "n_atoms": doc["n_atoms"],
+                           "precision": doc.get("precision"), "threads": doc.get("threads"),
+                           "periodic": doc.get("periodic"), "n_atoms": doc["n_atoms"],
                            "steps": doc["steps"]},
             provenance=run, warnings=list(prepared.warnings))
 

@@ -15,6 +15,9 @@ unreadable:
 * **explicit solvent without a water model** among the force-field files, and implicit
   solvent without an implicit-solvent file: the system would be built in vacuum, or not
   at all, under a label that says otherwise;
+* **water molecules in the structure with no water model to describe them** (a crystal
+  structure's waters in an implicit-solvent or vacuum run): OpenMM has no template for
+  them, and the run would fail only after it had started;
 * **a time step above 2 fs**: that needs hydrogen-mass repartitioning, which this task
   does not set up;
 * **a duration or report interval that is not a whole number of steps**: the run would
@@ -40,7 +43,7 @@ from ..status import ExecutionStatus
 from .tasks import EngineRun, ModelSpec, TaskInvalid, sha256_file
 
 __all__ = ["DynamicsTask", "EnergyRecord", "DynamicsResult", "SOLVENTS",
-           "POSITIVE_IONS", "NEGATIVE_IONS", "PLATFORMS"]
+           "POSITIVE_IONS", "NEGATIVE_IONS", "PLATFORMS", "count_waters"]
 
 SOLVENTS = ("explicit", "implicit", "vacuum")
 #: The ions OpenMM's Modeller.addSolvent can place.
@@ -48,6 +51,26 @@ POSITIVE_IONS = ("Na+", "K+", "Li+", "Rb+", "Cs+")
 NEGATIVE_IONS = ("Cl-", "Br-", "F-", "I-")
 PLATFORMS = ("", "Reference", "CPU", "CUDA", "OpenCL", "HIP")
 _WATER = re.compile(r"tip3p|tip4p|tip5p|spce|opc", re.IGNORECASE)
+#: Residue names OpenMM reads as water (its pdbNames.xml), as a PDB's three residue-name
+#: columns hold them ("TIP3" reads as "TIP").
+_WATER_NAMES = frozenset({"HOH", "H2O", "WAT", "SOL", "TIP", "TP3", "T4P", "SPC"})
+
+
+def count_waters(path: str | Path) -> int:
+    """The water molecules in a PDB or mmCIF structure; 0 when it cannot be read here.
+
+    A file this reader cannot parse is left to OpenMM, which reads it and says why not.
+    """
+    from .mmcif import read_mmcif
+    from .pdbio import read_pdb
+
+    p = Path(path)
+    try:
+        model = read_mmcif(p) if p.suffix.lower() in (".cif", ".mmcif") else read_pdb(p)
+    except (OSError, ValueError):
+        return 0
+    return len({(a.chain, a.resseq, a.icode) for a in model.atoms
+                if a.resname in _WATER_NAMES})
 
 
 @dataclass(frozen=True)
@@ -126,6 +149,12 @@ class DynamicsTask:
             if self.ionic_strength_molar:
                 problems.append(f"ions are added only with explicit solvent; set "
                                 f"ionic_strength_molar to 0 for {self.solvent}")
+            waters = count_waters(path) if path.is_file() else 0
+            if waters and not any(_WATER.search(f) for f in self.force_field):
+                problems.append(
+                    f"the structure holds {waters} water molecules and no water model is "
+                    f"among the force-field files, so OpenMM has no template for them in a "
+                    f"{self.solvent} system; remove them, or use explicit solvent")
         if self.add_hydrogens_ph is not None and not (
                 isinstance(self.add_hydrogens_ph, (int, float))
                 and 0 <= self.add_hydrogens_ph <= 14):

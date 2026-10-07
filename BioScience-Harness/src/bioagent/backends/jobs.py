@@ -292,9 +292,13 @@ write(os.path.join(job, "exit.json"),
 '''
 
 #: Variables a local job inherits from the harness. Everything else (API keys, tokens,
-#: PYTHONPATH) stays behind; a job that needs more declares it in ``JobSpec.env``.
+#: PYTHONPATH) stays behind; a job that needs more declares it in ``JobSpec.env``. The
+#: thread limits are the CPU counterpart of CUDA_VISIBLE_DEVICES: without them torch,
+#: BLAS and OpenMM start one thread per core whatever else the host runs, and on a shared
+#: four-core host ProteinMPNN took 393 s where one thread took 10 s.
 INHERITED_ENV = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "CUDA_VISIBLE_DEVICES",
-                 "LD_LIBRARY_PATH")
+                 "LD_LIBRARY_PATH", "OMP_NUM_THREADS", "MKL_NUM_THREADS",
+                 "OPENBLAS_NUM_THREADS", "OPENMM_CPU_THREADS")
 
 
 class LocalSubprocessJobs(JobExecutor):

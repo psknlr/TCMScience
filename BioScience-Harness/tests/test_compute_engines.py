@@ -1,22 +1,24 @@
-"""Adapters for Boltz, Chai-1, ProteinMPNN and OpenMM, none of which is installed here.
+"""Adapters for Boltz, Chai-1, ProteinMPNN and OpenMM, without running the tools.
 
 What is tested: that each adapter refuses with its reason when its tool is absent, and its
 result then says no model ran; how each renders a task in its tool's input format; and how
-each reads its tool's output format. The outputs are hand-made files in
-``tests/fixtures/compute`` that follow each tool's documentation and source as read on
-2026-10-07 (``complex_model.cif``: a python-ihm-style mmCIF of two MKTAY chains and an
-ethanol, pLDDT x 100 as B-factors; ``boltz_confidence.json``; ``mpnn_1ubq.fa``: random
-substitutions in ProteinMPNN's FASTA layout, not designs; ``openmm_*``: StateDataReporter
-and run records). No file there was produced by the tool it imitates.
+each reads its tool's output. The outputs in ``tests/fixtures/compute`` come from the first
+real runs (docs/compute-tasks.md; 2026-10-07, CPU): ``boltz_ubq_aspirin_*`` (boltz 2.2.1,
+ubiquitin and aspirin: the model gzipped, the confidence summary, Boltz's record of its
+chain numbering, the PAE) and ``boltz_reorder_*`` (three chains Boltz numbers in another
+order than they were given). ``complex_model.cif`` (two MKTAY chains and an ethanol in
+python-ihm's layout) is still hand-made, for the Chai-1 reader and the mmCIF reader.
 
-One test drives ``BoltzEngine.run`` end to end through the reviewed environment, the job
-protocol and validation, against a *stand-in interpreter* that answers the probe and
-writes those fixture files. Its assertions about provenance name the stand-in: what it
-proves is the plumbing, not Boltz.
+``test_structure_engines_real.py`` runs the tools themselves. Here, one test drives
+``BoltzEngine.run`` end to end through the reviewed environment, the job protocol and
+validation, against a *stand-in interpreter* that answers the probe and writes the real
+run's files. Its assertions about provenance name the stand-in: what it proves is the
+plumbing, not Boltz.
 """
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -27,7 +29,8 @@ import numpy as np
 import pytest
 
 from bioagent.backends.environments import ExecutionEnvironments, reviewed
-from bioagent.backends.jobs import Artefact, open_jobs
+from bioagent.backends.jobs import (Artefact, JobController, JobRef, LocalSubprocessJobs,
+                                    open_jobs)
 from bioagent.status import ExecutionStatus
 from bioagent.structure.complex import (BondConstraint, Chain, ComplexPredictionTask,
                                         ContactConstraint, Ligand, Modification,
@@ -43,20 +46,41 @@ FIX = Path(__file__).parent / "fixtures"
 COMPUTE = FIX / "compute"
 BACKBONE = FIX / "structure" / "1ubq.pdb"
 UBQ = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
-PROBE = EngineProbe(True, "/env/bin/python", "a reviewed environment", "2.2.0")
+ASPIRIN = "CC(=O)OC1=CC=CC=C1C(=O)O"
+PROBE = EngineProbe(True, "/env/bin/python", "a reviewed environment", "2.2.1")
 
 
 def mini(**kw) -> ComplexPredictionTask:
-    """The complex the fixture model holds: MKTAY twice, and ethanol."""
+    """The complex the hand-made model holds: MKTAY twice, and ethanol."""
     base = dict(name="mini", chains=(Chain(("A", "B"), "MKTAY"),),
                 ligands=(Ligand("L", smiles="CCO"),))
     base.update(kw)
     return ComplexPredictionTask(**base)
 
 
+def ubq_aspirin(**kw) -> ComplexPredictionTask:
+    """The complex Boltz-2 predicted for the real fixtures: ubiquitin and aspirin."""
+    base = dict(name="ubq_aspirin", chains=(Chain("A", UBQ),),
+                ligands=(Ligand("L", smiles=ASPIRIN),), recycling_steps=1, sampling_steps=50)
+    base.update(kw)
+    return ComplexPredictionTask(**base)
+
+
+def boltz_files(prefix: str, tmp_path: Path) -> dict[str, Path]:
+    """A real Boltz run's outputs from the fixtures, the model unzipped as Boltz wrote it."""
+    model = tmp_path / f"{prefix}_model_0.cif"
+    model.write_bytes(gzip.decompress((COMPUTE / f"{prefix}_model_0.cif.gz").read_bytes()))
+    files = {"model": model, "confidence": COMPUTE / f"{prefix}_confidence.json",
+             "record": COMPUTE / f"{prefix}_record.json"}
+    if (COMPUTE / f"{prefix}_pae.npz").is_file():
+        files["pae"] = COMPUTE / f"{prefix}_pae.npz"
+    return files
+
+
 def boltz_cache(tmp_path: Path) -> Path:
     cache = tmp_path / "boltz-cache"
     (cache / "mols").mkdir(parents=True)
+    (cache / "mols.tar").write_bytes(b"not really the CCD molecules")
     (cache / "boltz2_conf.ckpt").write_bytes(b"not really weights")
     (cache / "boltz2_aff.ckpt").write_bytes(b"not really affinity weights")
     return cache
@@ -71,10 +95,11 @@ def arts(**paths: Path) -> dict[str, Artefact]:
 
 
 def stand_in(tmp_path: Path, *, found: bool = True, mode: str = "ok",
-             version: str = "2.2.0") -> Path:
-    """An executable that answers like a Python with Boltz installed, and is not one."""
+             version: str = "2.2.1") -> Path:
+    """An executable that answers like a Python with Boltz installed, and is not one: it
+    writes the outputs of the real ubiquitin-aspirin run where Boltz would write them."""
     script = tmp_path / "stand_in.py"
-    script.write_text(f'''import json, shutil, sys
+    script.write_text(f'''import gzip, json, shutil, sys, time
 from pathlib import Path
 FIX, FOUND, MODE, VERSION = Path({str(COMPUTE)!r}), {found!r}, {mode!r}, {version!r}
 args = sys.argv[1:]
@@ -92,12 +117,19 @@ if args[:3] == ["-m", "boltz.main", "predict"]:
     if MODE == "crash":
         sys.stderr.write("RuntimeError: CUDA out of memory\\n")
         sys.exit(1)
+    if MODE == "slow":
+        time.sleep(1.5)
     stem = Path(args[3]).stem
     out = Path(args[args.index("--out_dir") + 1]) / f"boltz_results_{{stem}}"
     pred = out / "predictions" / stem
     pred.mkdir(parents=True)
-    shutil.copy(FIX / "complex_model.cif", pred / f"{{stem}}_model_0.cif")
-    shutil.copy(FIX / "boltz_confidence.json", pred / f"confidence_{{stem}}_model_0.json")
+    (out / "processed" / "records").mkdir(parents=True)
+    (pred / f"{{stem}}_model_0.cif").write_bytes(
+        gzip.decompress((FIX / "boltz_ubq_aspirin_model_0.cif.gz").read_bytes()))
+    shutil.copy(FIX / "boltz_ubq_aspirin_confidence.json",
+                pred / f"confidence_{{stem}}_model_0.json")
+    shutil.copy(FIX / "boltz_ubq_aspirin_record.json",
+                out / "processed" / "records" / f"{{stem}}.json")
     sys.exit(0)
 sys.exit("stand-in: unexpected arguments %r" % (args,))
 ''')
@@ -203,6 +235,12 @@ def test_boltz_runs_only_from_weights_already_on_disk(tmp_path):
     with pytest.raises(EngineRefusal, match="lacks boltz2_aff.ckpt; Boltz would download"):
         engine.prepare(task, tmp_path, PROBE)
     (cache / "boltz2_aff.ckpt").write_bytes(b"x")
+    # boltz 2.2.1 tests for mols.tar before mols/: without the tar it downloads 1.86 GB
+    # at start-up even though the extracted molecules are there.
+    (cache / "mols.tar").unlink()
+    with pytest.raises(EngineRefusal, match="lacks mols.tar; Boltz would download"):
+        engine.prepare(task, tmp_path, PROBE)
+    (cache / "mols.tar").write_bytes(b"x")
     prepared = engine.prepare(task, tmp_path, PROBE)
     digest = hashlib.sha256(b"not really weights").hexdigest()
     assert prepared.weights == {"boltz2_conf.ckpt": digest}
@@ -221,71 +259,139 @@ def test_boltz_runs_only_from_weights_already_on_disk(tmp_path):
         engine.prepare(pinned, tmp_path, PROBE)
 
 
-def test_boltz_reads_its_documented_outputs(tmp_path):
-    task = mini(model=ModelSpec("boltz-2", options={"cache": str(boltz_cache(tmp_path))}))
+#: SHA-256 of the model the real ubiquitin-aspirin run wrote (docs/compute-tasks.md).
+UBQ_ASPIRIN_MODEL = "d6768a18df4db118ce4dfb405767043cf251a6c9373947cfc678eac7d06b3480"
+
+
+def test_boltz_reads_a_real_run(tmp_path):
+    """boltz 2.2.1 on a CPU: ubiquitin and aspirin, no MSA, one recycle, 50 steps."""
+    cache = {"cache": str(boltz_cache(tmp_path))}
+    task = ubq_aspirin(model=ModelSpec("boltz-2", options=cache))
     engine = BoltzEngine()
     prepared = engine.prepare(task, tmp_path, PROBE)
-    model, confidence = COMPUTE / "complex_model.cif", COMPUTE / "boltz_confidence.json"
-    assert prepared.validators["model"](model) is None
-    assert prepared.validators["confidence"](confidence) is None
-    result = engine.read(task, arts(model=model, confidence=confidence),
-                         engine._unrun(PROBE, "fixture"), prepared)
+    files = boltz_files("boltz_ubq_aspirin", tmp_path)
+    for name, path in files.items():
+        check = prepared.validators.get(name)
+        assert check is None or check(path) is None, name
+    found = arts(**files)
+    assert found["model"].sha256 == UBQ_ASPIRIN_MODEL
+    result = engine.read(task, found, engine._unrun(PROBE, "fixture"), prepared)
     assert result.status is ExecutionStatus.SUCCEEDED
-    assert {c: v.plddt for c, v in result.chains.items()} == {"A": 80.0, "B": 64.0,
-                                                               "L": 52.0}
-    assert (result.chains["A"].units, result.chains["L"].units) == (5, 3)
-    assert (result.ptm, result.iptm) == (0.7034, 0.6215)
-    assert result.chains["L"].ptm == 0.3514
-    assert result.pair_iptm["A"]["B"] == 0.6611 and result.pair_iptm["B"]["A"] == 0.6502
-    assert result.model_metrics["confidence_score"] == 0.7512
-    assert "complex_pde" in result.model_metrics, "model-specific numbers keep their names"
+    # pLDDT x 100 in B_iso_or_equiv: one value per residue for the protein, per atom for
+    # the ligand (aspirin's 13 heavy atoms, residue LIG1)
+    assert {c: (v.units, v.plddt) for c, v in result.chains.items()} == {
+        "A": (76, 93.43), "L": (13, 32.1)}
+    # ... which is what Boltz's own token mean (complex_plddt, 0-1) says
+    assert result.model_metrics["complex_plddt"] * 100 == pytest.approx(
+        (76 * 93.43 + 13 * 32.1) / 89, abs=0.01)
+    assert (round(result.ptm, 4), round(result.iptm, 4)) == (0.8792, 0.5324)
+    assert round(result.chains["A"].ptm, 4) == 0.9388
+    assert round(result.pair_iptm["L"]["A"], 4) == 0.5324
+    assert round(result.pair_iptm["A"]["L"], 4) == 0.1826, "Boltz's pair ipTM is asymmetric"
+    metrics = result.model_metrics
+    assert metrics["protein_iptm"] == 0.0, "one protein chain has no protein interface"
+    assert metrics["mean_pae"] == 4.547 and round(metrics["confidence_score"], 4) == 0.7823
     record = json.loads(json.dumps(result.to_dict()))
-    assert record["chains"]["A"]["plddt"] == 80.0 and record["structure"]["sha256"]
+    assert record["chains"]["A"]["plddt"] == 93.43 and record["structure"]["sha256"]
+
+
+def test_boltz_numbers_chains_by_entity_and_its_record_says_how(tmp_path):
+    """Chains A=X, B=Y, C=X: boltz 2.2.1 ran them as A, C, B and indexed its scores so."""
+    x, y = UBQ[:20], "GSHMKELLKKAEELLKRLG"
+    task = ComplexPredictionTask(
+        "reorder", chains=(Chain("A", x), Chain("B", y), Chain("C", x)),
+        model=ModelSpec("boltz-2", options={"cache": str(boltz_cache(tmp_path))}),
+        recycling_steps=1, sampling_steps=50)
+    engine = BoltzEngine()
+    prepared = engine.prepare(task, tmp_path, PROBE)
+    files = boltz_files("boltz_reorder", tmp_path)
+    assert all(prepared.validators[n](p) is None for n, p in files.items())
+    record = json.loads(files["record"].read_text())
+    assert [c["chain_name"] for c in record["chains"]] == ["A", "C", "B"]
+    conf = json.loads(files["confidence"].read_text())
+    result = engine.read(task, arts(**files), engine._unrun(PROBE, "fixture"), prepared)
+    assert result.status is ExecutionStatus.SUCCEEDED
+    # Index 1 is C and 2 is B; by input order they would have been swapped, silently.
+    assert result.chains["C"].ptm == conf["chains_ptm"]["1"]
+    assert result.chains["B"].ptm == conf["chains_ptm"]["2"]
+    assert result.pair_iptm["B"]["C"] == conf["pair_chains_iptm"]["2"]["1"]
+    assert {c: v.units for c, v in result.chains.items()} == {"A": 20, "B": 19, "C": 20}
+    partial = tmp_path / "partial.json"
+    partial.write_text(json.dumps({**record, "chains": record["chains"][:2]}))
+    assert ("Boltz's record numbers chains ['A', 'C']; the task asked for ['A', 'B', 'C']"
+            in prepared.validators["record"](partial))
+    twice = tmp_path / "twice.json"
+    twice.write_text(json.dumps({**record, "chains": record["chains"] + record["chains"][:1]}))
+    assert "lists a chain id or name twice" in prepared.validators["record"](twice)
 
 
 def test_a_model_of_something_else_does_not_validate(tmp_path):
-    model = COMPUTE / "complex_model.cif"
-    other = mini(chains=(Chain(("A", "B"), "MKTAW"),),
-                 model=ModelSpec("boltz-2", options={"cache": str(boltz_cache(tmp_path))}))
-    check = BoltzEngine().prepare(other, tmp_path, PROBE).validators["model"]
-    assert "residue 5 is TYR in the model and W in the task" in check(model)
-    fewer = mini(ligands=(), model=other.model)
-    check = BoltzEngine().prepare(fewer, tmp_path, PROBE).validators["model"]
-    assert "the model holds chains ['A', 'B', 'L']; the task asked for ['A', 'B']" in check(
-        model)
+    model = boltz_files("boltz_ubq_aspirin", tmp_path)["model"]
+    cache = {"cache": str(boltz_cache(tmp_path))}
+    mutant = ubq_aspirin(chains=(Chain("A", UBQ[:4] + "W" + UBQ[5:]),),
+                         model=ModelSpec("boltz-2", options=cache))
+    check = BoltzEngine().prepare(mutant, tmp_path, PROBE).validators["model"]
+    assert "residue 5 is VAL in the model and W in the task" in check(model)
+    apo = ubq_aspirin(ligands=(), model=ModelSpec("boltz-2", options=cache))
+    check = BoltzEngine().prepare(apo, tmp_path, PROBE).validators["model"]
+    assert "the model holds chains ['A', 'L']; the task asked for ['A']" in check(model)
 
 
 def test_boltz_end_to_end_through_the_job_protocol_with_a_stand_in(tmp_path):
     python = stand_in(tmp_path)
     cache = boltz_cache(tmp_path)
     engine = BoltzEngine(environments("boltz", python))
-    task = mini(model=ModelSpec("boltz-2", version="2.2.0", options={"cache": str(cache)}))
+    task = ubq_aspirin(model=ModelSpec("boltz-2", version="2.2.1",
+                                       options={"cache": str(cache)}))
     result = engine.run(task, tmp_path / "work", timeout_s=60, poll_s=0.05)
     assert result.status is ExecutionStatus.SUCCEEDED, result.reason
-    assert result.chains["A"].plddt == 80.0 and result.iptm == 0.6215
+    assert result.chains["A"].plddt == 93.43 and round(result.iptm, 4) == 0.5324
     run = result.provenance
     assert run.ran and run.interpreter == str(python), "the stand-in is what ran"
-    assert run.version == "2.2.0" and "reviewed environment" in run.environment
+    assert run.version == "2.2.1" and "reviewed environment" in run.environment
     assert run.job["executor"] == "local-subprocess"
-    assert result.structure.sha256 == hashlib.sha256(
-        (COMPUTE / "complex_model.cif").read_bytes()).hexdigest()
-    trace = json.loads((tmp_path / "work" / "mini" / "trace.json").read_text())
+    assert result.structure.sha256 == UBQ_ASPIRIN_MODEL
+    trace = json.loads((tmp_path / "work" / "ubq_aspirin" / "trace.json").read_text())
     kinds = [e["event_type"] for e in trace["events"]]
     assert kinds[:2] == ["JobRequested", "JobSubmitted"] and "JobCollected" in kinds
     assert open_jobs(trace).jobs == (), "collected: nothing left to reconcile"
 
-    pinned = mini(name="pinned", model=ModelSpec("boltz-2", version="2.1.0",
-                                                 options={"cache": str(cache)}))
+    pinned = ubq_aspirin(name="pinned", model=ModelSpec("boltz-2", version="2.1.0",
+                                                        options={"cache": str(cache)}))
     refused = engine.run(pinned, tmp_path / "work")
     assert refused.status is ExecutionStatus.UNAVAILABLE
-    assert "boltz 2.2.0 is installed; the task requires 2.1.0" in refused.reason
+    assert "boltz 2.2.1 is installed; the task requires 2.1.0" in refused.reason
     assert not refused.provenance.ran
 
-    other = mini(name="other", chains=(Chain(("A", "B"), "MKTAW"),), model=task.model)
+    other = ubq_aspirin(name="other", chains=(Chain("A", UBQ[:4] + "W" + UBQ[5:]),),
+                        model=task.model)
     wrong = engine.run(other, tmp_path / "work", timeout_s=60, poll_s=0.05)
     assert wrong.status is ExecutionStatus.FAILED and wrong.provenance.ran
     assert "a model of another sequence" in wrong.reason
     assert wrong.structure is None and wrong.chains == {}, "no number from a bad model"
+
+
+def test_a_job_left_running_is_collected_only_as_the_task_it_ran(tmp_path):
+    # Chai-1 overran its budget here and was collected with resume after the adapter had
+    # changed: rendered again, the task would have recorded a command that did not run.
+    engine = BoltzEngine(environments("boltz", stand_in(tmp_path, mode="slow")))
+    task = ubq_aspirin(model=ModelSpec("boltz-2",
+                                       options={"cache": str(boltz_cache(tmp_path))}))
+    left = engine.run(task, tmp_path / "work", timeout_s=0.2, poll_s=0.05)
+    assert left.status is ExecutionStatus.TIMEOUT and left.provenance.ran
+    ref = JobRef.from_dict(left.provenance.job)
+    jobs = JobController(LocalSubprocessJobs(Path(ref.location).parent))
+    assert jobs.wait(ref, timeout_s=60, poll_s=0.05).state.finished
+    # Another ligand under the same name renders the same command line; the task's digest
+    # bound into the spec tells the two apart.
+    other = ubq_aspirin(ligands=(Ligand("L", smiles="CCO"),), model=task.model)
+    refused = engine.resume(other, ref, tmp_path / "work", jobs)
+    assert refused.status is ExecutionStatus.FAILED
+    assert "submitted as another spec" in refused.reason and refused.chains == {}
+    done = engine.resume(task, ref, tmp_path / "work", jobs)
+    assert done.status is ExecutionStatus.SUCCEEDED, done.reason
+    assert done.structure.sha256 == UBQ_ASPIRIN_MODEL
+    assert done.provenance.command == left.provenance.command, "the command that ran"
 
 
 def test_a_tool_that_fails_is_failed_with_its_own_words(tmp_path):
@@ -331,6 +437,40 @@ def test_chai_letters_chains_and_refuses_what_it_cannot_take(tmp_path):
         ChaiEngine().prepare(task, tmp_path, PROBE)
 
 
+def test_chai_reads_a_real_run(tmp_path):
+    """chai_lab 0.6.1 on a CPU: ubiquitin and aspirin, no MSA, no ESM embeddings, one
+    trunk pass, 50 diffusion steps, one sample, seed 42 (46 minutes)."""
+    downloads = chai_downloads(tmp_path)
+    task = ubq_aspirin(recycling_steps=0, model=ModelSpec(
+        "chai-1", options={"downloads": str(downloads), "device": "cpu"}))
+    engine = ChaiEngine()
+    prepared = engine.prepare(task, tmp_path, PROBE)
+    argv = list(prepared.spec.argv)
+    assert argv[argv.index("--num-trunk-recycles") + 1] == "1", "the one pass that ran"
+    model = tmp_path / "pred.model_idx_0.cif"
+    model.write_bytes(gzip.decompress(
+        (COMPUTE / "chai_ubq_aspirin_model_0.cif.gz").read_bytes()))
+    scores = COMPUTE / "chai_ubq_aspirin_scores_0.npz"
+    assert prepared.validators["model_0"](model) is None
+    assert prepared.validators["scores_0"](scores) is None
+    found = arts(model_0=model, scores_0=scores)
+    assert found["model_0"].sha256 == (
+        "ef5bab2f05487e428585bdd1ab501b08e7a8e79860cd65698f8d8669512a5265")
+    result = engine.read(task, found, engine._unrun(PROBE, "fixture"), prepared)
+    assert result.status is ExecutionStatus.SUCCEEDED
+    # Chai-1 letters the ligand B in its model; the result names it L, as the task does.
+    assert ChaiEngine.mapping(task) == {"A": "A", "L": "B"}
+    assert {c: (v.units, v.plddt) for c, v in result.chains.items()} == {
+        "A": (76, 57.77), "L": (13, 35.79)}
+    assert (round(result.ptm, 4), round(result.iptm, 4)) == (0.5063, 0.1027)
+    assert round(result.chains["L"].ptm, 4) == 0.2545
+    assert round(result.pair_iptm["L"]["A"], 4) == 0.1027
+    assert round(result.pair_iptm["A"]["L"], 4) == 0.0049
+    metrics = result.model_metrics
+    assert (round(metrics["aggregate_score"], 4), metrics["chosen_sample"]) == (0.1834, 0)
+    assert metrics["has_inter_chain_clashes"] is False
+
+
 def test_chai_reports_its_best_sample_not_its_first(tmp_path):
     downloads = chai_downloads(tmp_path)
     task = mini(chains=(Chain(("H", "K"), "MKTAY"),), ligands=(Ligand("Q", smiles="CCO"),),
@@ -343,6 +483,14 @@ def test_chai_reports_its_best_sample_not_its_first(tmp_path):
     assert "--no-use-esm-embeddings" in argv and "--constraint-path" not in argv
     assert set(prepared.weights) == {*(f"models_v2/{c}" for c in ChaiEngine.COMPONENTS),
                                      "combined"}
+    # chai_lab counts trunk passes, Boltz (and the task) recycles after the first: the
+    # run printed "Trunk recycles: 0/1" for --num-trunk-recycles 1, and 0 would skip the
+    # trunk. Three recycles are four passes in both.
+    assert argv[argv.index("--num-trunk-recycles") + 1] == "4"
+    once = engine.prepare(mini(chains=task.chains, ligands=task.ligands, recycling_steps=0,
+                               model=task.model), tmp_path, PROBE)
+    passes = list(once.spec.argv)
+    assert passes[passes.index("--num-trunk-recycles") + 1] == "1"
     # Chai-1 letters the chains A, B, C: the ethanol is chain C in its model file.
     text = (COMPUTE / "complex_model.cif").read_text().replace(" L ", " C ")
     for i in (0, 1):
@@ -408,30 +556,39 @@ def test_proteinmpnn_designs_are_read_and_checked_against_the_request(tmp_path):
     root = mpnn_checkout(tmp_path)
     engine = ProteinMPNNEngine()
     probe = EngineProbe(True, "/env/bin/python", "env", "8907e667", root=str(root))
+    # The real run: 1UBQ chain A, positions 1, 2, 3, 44 and 68 fixed, 8 designs in
+    # batches of 2, T = 0.1, seed 37, v_48_020, on a CPU.
     fasta = COMPUTE / "mpnn_1ubq.fa"
+    fixed = (1, 2, 3, 44, 68)
 
     def read(**kw):
-        task = SequenceDesignTask("ubq", str(BACKBONE), "A", num_sequences=2, **kw)
+        task = SequenceDesignTask("ubq", str(BACKBONE), "A", num_sequences=8, batch_size=2,
+                                  **kw)
         prepared = engine.prepare(task, tmp_path, probe)
         assert prepared.validators["sequences"](fasta) is None
         return engine.read(task, arts(sequences=fasta), engine._unrun(probe, "fixture"),
                            prepared)
 
-    result = read(fixed_positions={"A": (1, 2, 3)})
+    result = read(fixed_positions={"A": fixed})
     assert result.status is ExecutionStatus.SUCCEEDED
-    assert result.native == {"A": UBQ[:76]} and result.native_score == 1.4351
-    assert [d.sample for d in result.designs] == [1, 2]
-    assert result.designs[0].recovery == 0.5068 and result.designs[0].temperature == 0.1
-    assert result.designs[1].sequences["A"].startswith("MQIF")
-    assert result.model_metrics["git_hash"].startswith("8907e667")
+    assert result.native == {"A": UBQ} and result.native_score == 1.332
+    assert result.native_global_score == 1.3366
+    assert [d.sample for d in result.designs] == list(range(1, 9))
+    first = result.designs[0]
+    assert (first.score, first.global_score, first.recovery) == (0.8667, 0.9023, 0.5915)
+    assert first.temperature == 0.1
+    assert all(d.sequences["A"][p - 1] == UBQ[p - 1] for d in result.designs for p in fixed)
+    assert result.model_metrics["git_hash"] == "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
+    assert result.model_metrics["fixed_chains"] == []
     assert json.loads(json.dumps(result.to_dict()))["designs"][0]["sequences"]["A"]
     with pytest.raises(ValueError, match="ran with seed 37, not 38"):
         read(seed=38)
-    with pytest.raises(ValueError, match="changed fixed position A5"):
-        read(fixed_positions={"A": (5,)})
-    three = SequenceDesignTask("ubq", str(BACKBONE), "A", num_sequences=3)
-    check = engine.prepare(three, tmp_path, probe).validators["sequences"]
-    assert "expected the native and 3 designs" in check(fasta)
+    # position 7 is T in ubiquitin and F in the first design
+    with pytest.raises(ValueError, match="design 1 changed fixed position A7"):
+        read(fixed_positions={"A": (7,)})
+    six = SequenceDesignTask("ubq", str(BACKBONE), "A", num_sequences=6, batch_size=2)
+    check = engine.prepare(six, tmp_path, probe).validators["sequences"]
+    assert "9 records; expected the native and 6 designs" in check(fasta)
 
 
 # -------------------------------------------------------------------- OpenMM
@@ -478,3 +635,30 @@ def test_openmm_outputs_that_are_not_what_was_asked_do_not_validate(tmp_path):
     relax = OpenMMEngine().prepare(DynamicsTask("relax", str(BACKBONE), duration_ps=0),
                                    tmp_path, PROBE)
     assert [a.name for a in relax.spec.artefacts] == ["relaxed", "run"]
+
+
+def test_openmm_reports_no_volume_for_a_system_without_a_box(tmp_path):
+    """OpenMM 8.6.1: 1UBQ without waters, vacuum, 1 ps, CPU platform with one thread."""
+    dry = tmp_path / "1ubq_protein.pdb"
+    dry.write_text("".join(ln for ln in BACKBONE.read_text().splitlines(keepends=True)
+                           if ln.startswith(("ATOM", "TER", "END"))))
+    task = DynamicsTask("vacuum", str(dry), force_field=("amber14-all.xml",),
+                        solvent="vacuum", ionic_strength_molar=0.0, duration_ps=1.0,
+                        report_interval_ps=0.5, seed=11, platform="CPU")
+    engine = OpenMMEngine()
+    prepared = engine.prepare(task, tmp_path, PROBE)
+    dcd = tmp_path / "trajectory.dcd"
+    dcd.write_bytes(b"\x54\x00\x00\x00CORD" + bytes(80))
+    files = dict(relaxed=dry, final=dry, run=COMPUTE / "openmm_vacuum_run.json",
+                 energies=COMPUTE / "openmm_vacuum_energies.csv", trajectory=dcd)
+    assert all(prepared.validators[n](p) is None for n, p in files.items())
+    # Before the fix every row said 8.0 nm^3: the volume of OpenMM's default 2 nm box.
+    assert "Box Volume" not in files["energies"].read_text()
+    result = engine.read(task, arts(**files), engine._unrun(PROBE, "fixture"), prepared)
+    assert [(e.step, e.volume_nm3) for e in result.energies] == [(250, None), (500, None)]
+    metrics = result.model_metrics
+    assert (metrics["periodic"], metrics["precision"]) == (False, None)
+    assert metrics["threads"] == "1", "OPENMM_CPU_THREADS reached the job"
+    assert (metrics["n_atoms"], metrics["steps"]) == (1231, 500)
+    assert result.minimised_energy_kj_mol < result.initial_energy_kj_mol
+    assert not any("water molecules" in w for w in result.warnings)

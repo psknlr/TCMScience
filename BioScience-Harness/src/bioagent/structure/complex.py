@@ -147,6 +147,9 @@ class ComplexPredictionTask:
     ``use_msa_server`` sends every protein sequence to a third-party MSA server (ColabFold's
     MMseqs2 by default) and so needs ``allow_remote``; a confidential sequence must not be
     sent. ``seed`` is always set: Boltz without ``--seed`` does not repeat itself.
+    ``recycling_steps`` counts the trunk passes after the first, as Boltz's
+    ``--recycling_steps`` does; Chai-1's ``--num-trunk-recycles`` counts every pass, so
+    the same task runs the same number of passes in both.
     """
 
     name: str
