@@ -34,7 +34,8 @@ what GSEApy would otherwise do without saying so:
   values with a log line, replaces infinities by their neighbours, and sorts with an
   unstable sort that orders ties arbitrarily. Here duplicates and infinities are
   refused, missing values are dropped and reported, and the order is passed as is
-  (``ascending=None``).
+  (``ascending=None``). GSEApy keeps a given order only from 1.1.6; an earlier
+  release, which would sort anyway, is refused with that reason.
 
 A set is tested when between ``min_size`` and ``max_size`` of its genes are in the
 ranked list, and fewer than all of them; the other sets are reported with the reason. A
@@ -49,6 +50,7 @@ name is a label, not a finding.
 from __future__ import annotations
 
 import hashlib
+import re
 import warnings
 from collections import Counter
 from dataclasses import dataclass, field, replace
@@ -59,10 +61,14 @@ import numpy as np
 
 from ..status import ExecutionStatus
 from .de_backends import DEResult
-from .optional import require, version
+from .optional import BackendUnavailable, require, version
 
 __all__ = ["RANKING_METHODS", "GSEAError", "RankedGenes", "GeneSetLibrary", "GSEAResult",
            "rank_genes", "ranked_from_de", "read_gmt", "run_prerank"]
+
+#: The first GSEApy release whose prerank keeps the order it is given (ascending=None).
+#: Before it, prerank always sorts the ranking itself; 1.1.0 and 1.1.5 stop on None.
+GSEAPY_FLOOR = (1, 1, 6)
 
 RANKING_METHODS = {
     "stat": "the Wald statistic",
@@ -289,6 +295,13 @@ def run_prerank(ranked: RankedGenes, library: GeneSetLibrary, *, min_size: int =
                         f"set genes were found. Check that both use {ranked.id_type} "
                         f"identifiers of {ranked.species}")
     gseapy = require("gseapy", backend="GSEA")
+    installed = version("gseapy")
+    release = re.match(r"\d+(?:\.\d+)*", installed)
+    if release is None or tuple(map(int, release.group(0).split("."))) < GSEAPY_FLOOR:
+        floor = ".".join(map(str, GSEAPY_FLOOR))
+        raise BackendUnavailable("GSEA", f"gseapy {installed} cannot keep the ranking's order "
+                                         f"(ascending=None needs {floor} or later); install "
+                                         "it with pip install 'bioagent[analysis]'")
     import pandas as pd
     # neutral codes: GSEApy sees no gene name, so no case heuristic can match genes
     codes = [f"G{i:08d}" for i in range(n)]
@@ -334,4 +347,4 @@ def run_prerank(ranked: RankedGenes, library: GeneSetLibrary, *, min_size: int =
                     "permutations": permutations, "seed": seed, "weight": weight,
                     "threads": threads, "null": "gene-set permutation",
                     "p_value_resolution": 1.0 / permutations},
-        backend={"name": "gseapy", "version": version("gseapy")}, notes=notes)
+        backend={"name": "gseapy", "version": installed}, notes=notes)

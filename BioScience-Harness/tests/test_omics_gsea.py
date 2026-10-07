@@ -14,6 +14,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import sys
+import types
 from importlib import metadata
 
 import numpy as np
@@ -209,4 +210,14 @@ def test_identifiers_are_never_mapped_silently(tmp_path):
 def test_gsea_without_gseapy_is_refused(monkeypatch, library):
     monkeypatch.setitem(sys.modules, "gseapy", None)
     with pytest.raises(BackendUnavailable, match="gseapy"):
+        gsea.run_prerank(_ranked(), library, permutations=10)
+
+
+@pytest.mark.parametrize("found", ["1.1.5", "unknown"])
+def test_a_gseapy_that_would_reorder_the_ranking_is_refused(monkeypatch, library, found):
+    """Before 1.1.6 GSEApy's prerank sorts the ranking itself (1.1.0 and 1.1.5 then stop
+    on ascending=None); a release that cannot be read is not assumed to be newer."""
+    monkeypatch.setitem(sys.modules, "gseapy", types.SimpleNamespace())
+    monkeypatch.setattr(gsea, "version", lambda distribution: found)
+    with pytest.raises(BackendUnavailable, match="needs 1.1.6 or later"):
         gsea.run_prerank(_ranked(), library, permutations=10)

@@ -31,14 +31,16 @@ formulas = ["openpyxl>=3.1"]
 # and fails, rather than skips, a test whose package is missing. The pipelines
 # themselves need only the core dependencies; the command-line tools they use when
 # present (fastp, salmon, kallisto, HISAT2, featureCounts) are installed by the system's
-# package manager.
+# package manager. GSEApy 1.1.6 is the first release whose prerank keeps the order it is
+# given (1.1.5 fails the tests); harmonypy passes from 0.0.10, which returns its result
+# transposed, to 2.1 (docs/omics-backends.md).
 analysis = ["pydeseq2>=0.4", "scanpy>=1.9", "leidenalg>=0.10", "igraph>=0.10",
             "umap-learn>=0.5", "anndata>=0.9", "h5py>=3.8", "tmtools>=0.2",
-            "gseapy>=1.1", "harmonypy>=2.0"]
+            "gseapy>=1.1.6", "harmonypy>=0.0.10"]
 # scVI integration (integration_method "scvi"): scvi-tools brings PyTorch and Lightning,
-# too heavy for the analysis extra. It is not installed in CI, and that path is
-# unverified (docs/omics-backends.md).
-scvi = ["scvi-tools>=1.1"]
+# too heavy for the analysis extra. The floor is the release it was run with
+# (tests/test_omics_scvi.py); install PyTorch's CPU wheel first to keep it small.
+scvi = ["scvi-tools>=1.5.1"]
 # Local structure prediction with ESMFold (large: torch and the model weights). The
 # default predictor is the ESM Atlas service, which needs neither.
 fold = ["torch>=2.0", "transformers>=4.30"]
