@@ -1,0 +1,478 @@
+{"pmid": "20673485", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "20673500", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "20673520", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "20840818", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "21081042", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "21762628", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "22104216", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "22237121", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "22510505", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "22510506", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "23075681", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "23327869", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "23676982", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "24949682", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "25676405", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "26182870", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "27335300", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "27760601", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "28532537", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "28738961", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "29587904", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "31109438", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "31650949", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "31874677", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "32429634", "split": "test", "kind": "in_vitro", "basis": "MeSH 'A549 Cells' without 'Animals' or an age group"}
+{"pmid": "34227307", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "34227758", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "34423840", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "34468557", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "34505434", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "34586238", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "34614271", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "34779392", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "34980198", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "34983504", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "34992099", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "34996924", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'HEK293 Cells' without 'Animals' or an age group"}
+{"pmid": "35011100", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35016616", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35024838", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35026992", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35029876", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35030161", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35043245", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35048536", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35055745", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35056668", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "35057490", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35057755", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35057843", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35059430", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35061818", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35071257", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35075804", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35085300", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35090391", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35093032", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35100495", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35101083", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35106632", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35112281", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35115631", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35119006", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35119223", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35127193", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35127736", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35127937", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35130838", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35138259", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35139822", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35140276", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35151270", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35152841", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35157188", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35162786", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35163542", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35164043", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35164142", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "35164705", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35167700", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35168103", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35168679", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35170388", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35177024", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35177087", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35179295", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "35184719", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "35184740", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35186994", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35189925", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35190561", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35190612", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35191746", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35197974", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "35202005", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35208593", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35209026", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35209892", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35216000", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line' without 'Animals' or an age group"}
+{"pmid": "35216560", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35217833", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35221352", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35222391", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35223310", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35226081", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35236289", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35248120", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35264163", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35268024", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35268803", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line' without 'Animals' or an age group"}
+{"pmid": "35272686", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35274577", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35276780", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35284908", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35291519", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35296254", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35296287", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35300697", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35303876", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35305653", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35308715", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35311410", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35312726", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35313957", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35318394", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35325124", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35326155", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35327696", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35331138", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "35333186", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35334516", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35337312", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35350100", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35351147", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35357350", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35365180", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35371855", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35378542", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35392896", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35392925", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35405934", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35410326", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35428629", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35433056", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35433065", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35433120", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35435123", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35436944", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35440020", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35441839", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35451418", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35457366", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35461314", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35465372", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35469123", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35472058", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35478000", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35478070", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35478210", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "35482803", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35486674", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35487745", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35488203", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35507596", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35508470", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "35510023", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35524336", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35534546", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35543836", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35547621", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35551176", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35551516", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35558083", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35562679", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35568711", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35568879", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35568916", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35580089", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35581940", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35585092", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Caco-2 Cells' without 'Animals' or an age group"}
+{"pmid": "35585558", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35608736", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35610557", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35615013", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35624449", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35625299", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35627138", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35627203", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35628183", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35630522", "split": "test", "kind": "in_vitro", "basis": "MeSH 'MCF-7 Cells' without 'Animals' or an age group"}
+{"pmid": "35636146", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35637324", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35639720", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35643520", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35646975", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35647509", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35653037", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35657308", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35659297", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35663653", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35669976", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35676984", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35681960", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35682696", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35684113", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35685133", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35685340", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35687293", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35688956", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35692259", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35692550", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35698162", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35702409", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35707389", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35710500", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35711777", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35712893", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35714138", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35715740", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35718834", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35721645", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35721709", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35725486", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35729357", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35730146", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35730175", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35730882", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35731198", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35742506", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35742541", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35742944", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35743894", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35746693", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35746917", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35749503", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35749522", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35752787", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35757099", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35762773", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35765090", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35768453", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35769675", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35771740", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35773648", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35774103", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35782655", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35783012", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35785965", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35789042", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35791604", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35794338", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35805058", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35807232", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35813933", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35815056", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35820811", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line' without 'Animals' or an age group"}
+{"pmid": "35821131", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35846374", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35846783", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35851309", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35853465", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35854245", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35865440", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35866200", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35869497", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35877408", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35879366", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35885654", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35886279", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35886296", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35888373", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35889890", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35897887", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35903373", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35903835", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35906356", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35906531", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35906874", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35911367", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35912017", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35915694", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35930629", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35933351", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35933400", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35945749", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "35945767", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35945910", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35956320", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "35960121", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35962837", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35968595", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "35974811", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35981008", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35984207", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "35986400", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35987848", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HEK293 Cells' without 'Animals' or an age group"}
+{"pmid": "35990059", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "35990619", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "35990663", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "35991835", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "35992827", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36011693", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36011932", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36014078", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36015207", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36028279", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36028847", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36033397", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36035299", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36035839", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36037813", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36038860", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "36051593", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36051702", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36051716", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36052497", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36053364", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36053444", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36060938", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36064325", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36077158", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36078070", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36078407", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36080487", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Hep G2 Cells' without 'Animals' or an age group"}
+{"pmid": "36092037", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36100943", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36105084", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36111557", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36117234", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36120450", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36123649", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36125007", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36127349", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "36131504", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36138270", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36139390", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36140841", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36142300", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36142621", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36143211", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36146743", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36146758", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36147172", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36156182", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36159029", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36159344", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36168121", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Caco-2 Cells' without 'Animals' or an age group"}
+{"pmid": "36172533", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36172728", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36175532", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36176813", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36181321", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36189317", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36191030", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36194175", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36195439", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36202604", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36203215", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36204035", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36211291", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36212669", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36222832", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36225291", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36226977", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36231450", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36231985", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36232177", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36235039", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36237900", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36240174", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36242723", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36248621", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36249067", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36254034", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36258939", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36259051", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36262462", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36273180", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36278483", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36287507", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36291080", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36291178", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HEK293 Cells' without 'Animals' or an age group"}
+{"pmid": "36293173", "split": "test", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "36293394", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36299459", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36301246", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36303865", "split": "test", "kind": "systematic_review", "basis": "publication type 'Meta-Analysis'"}
+{"pmid": "36318586", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36324044", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36333741", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36339111", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36339158", "split": "test", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36339195", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36342777", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36344653", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36344923", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36348862", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36349481", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cells, Cultured' without 'Animals' or an age group"}
+{"pmid": "36350193", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36351808", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36351943", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36352470", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36355754", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36358573", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36360956", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36361014", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36361570", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36361921", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36362083", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36366946", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36368940", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36369039", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36369494", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36371180", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36371986", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36376968", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "36381235", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36385210", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36387181", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36388272", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36398052", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36419397", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36429386", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36443789", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36457244", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36459628", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36466039", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36471444", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36475248", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36480569", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36481875", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36485027", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36495891", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36498393", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36510288", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36513985", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36514034", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36514063", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36514570", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36522630", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36527067", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36527073", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36528564", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36540475", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36541952", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36543869", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36555409", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}
+{"pmid": "36556978", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36559522", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "36564754", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "36566235", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36570452", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36575438", "split": "test", "kind": "in_vitro", "basis": "MeSH 'Cell Line' without 'Animals' or an age group"}
+{"pmid": "36581937", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "36595871", "split": "test", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "36595999", "split": "test", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "36614034", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36654615", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36662189", "split": "test", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "36705184", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36792084", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "36942134", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "37492181", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "37555183", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "37803837", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "38045648", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "38163982", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "38624814", "split": "test", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "38845514", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "38966980", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'HeLa Cells' without 'Animals' or an age group"}
+{"pmid": "39134495", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "39307728", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "39765356", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "39765357", "split": "test", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "39988438", "split": "test", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "40331605", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "42705852", "split": "test", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "42706173", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'Cell Line, Tumor' without 'Animals' or an age group"}

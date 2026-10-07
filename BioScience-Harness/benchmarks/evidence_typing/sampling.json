@@ -1,0 +1,273 @@
+{
+ "frozen_on": "2026-10-07",
+ "sample_seed": "evidence-typing/sample/v1",
+ "split_seed": "evidence-typing/split/v1",
+ "sources": {
+  "frames_and_abstracts": "https://www.ebi.ac.uk/europepmc/webservices/rest/search",
+  "licence_and_chinese_abstracts": "https://www.ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML",
+  "publication_types_and_mesh": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi (db=pubmed)"
+ },
+ "records": 478,
+ "licences": {
+  "CC-BY-4.0": 386,
+  "CC-BY": 46,
+  "CC-BY-3.0": 45,
+  "CC0-1.0": 1
+ },
+ "strata": [
+  {
+   "name": "randomized_trial",
+   "language": "en",
+   "kind": "randomized_trial",
+   "quota": 60,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Randomized Controlled Trial\"",
+   "frame_hits": 6945,
+   "frame_listed": 6945,
+   "examined": 64,
+   "drawn": 60,
+   "excluded": {
+    "retracted, or under an expression of concern": 3,
+    "licence statements: none readable": 1
+   }
+  },
+  {
+   "name": "systematic_review",
+   "language": "en",
+   "kind": "systematic_review",
+   "quota": 60,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND (PUB_TYPE:\"Systematic Review\" OR PUB_TYPE:\"Meta-Analysis\")",
+   "frame_hits": 12423,
+   "frame_listed": 12423,
+   "examined": 66,
+   "drawn": 60,
+   "excluded": {
+    "no reference (publication type 'Scoping Review' is outside the reference)": 3,
+    "retracted, or under an expression of concern": 2,
+    "no reference (no publication type or MeSH heading gives a design)": 1
+   }
+  },
+  {
+   "name": "cohort",
+   "language": "en",
+   "kind": "observational",
+   "quota": 20,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Observational Study\" AND KW:\"Cohort Studies\"",
+   "frame_hits": 340,
+   "frame_listed": 340,
+   "examined": 20,
+   "drawn": 20,
+   "excluded": {}
+  },
+  {
+   "name": "case_control",
+   "language": "en",
+   "kind": "observational",
+   "quota": 20,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Observational Study\" AND KW:\"Case-Control Studies\"",
+   "frame_hits": 76,
+   "frame_listed": 76,
+   "examined": 21,
+   "drawn": 20,
+   "excluded": {
+    "retracted, or under an expression of concern": 1
+   }
+  },
+  {
+   "name": "cross_sectional",
+   "language": "en",
+   "kind": "observational",
+   "quota": 20,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Observational Study\" AND KW:\"Cross-Sectional Studies\"",
+   "frame_hits": 568,
+   "frame_listed": 568,
+   "examined": 20,
+   "drawn": 20,
+   "excluded": {}
+  },
+  {
+   "name": "observational",
+   "language": "en",
+   "kind": "observational",
+   "quota": 15,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Observational Study\"",
+   "frame_hits": 4188,
+   "frame_listed": 4188,
+   "examined": 15,
+   "drawn": 15,
+   "excluded": {}
+  },
+  {
+   "name": "case_report",
+   "language": "en",
+   "kind": "case_report",
+   "quota": 50,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Case Reports\"",
+   "frame_hits": 20764,
+   "frame_listed": 20764,
+   "examined": 54,
+   "drawn": 50,
+   "excluded": {
+    "abstract under 400 characters": 2,
+    "retracted, or under an expression of concern": 1,
+    "no reference (publication types name two designs: ['Case Reports', 'Systematic Review'])": 1
+   }
+  },
+  {
+   "name": "animal",
+   "language": "en",
+   "kind": "animal",
+   "quota": 50,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND KW:\"Animals\" AND NOT KW:\"Humans\"",
+   "frame_hits": 35698,
+   "frame_listed": 35698,
+   "examined": 53,
+   "drawn": 50,
+   "excluded": {
+    "reference 'narrative_review'": 3
+   }
+  },
+  {
+   "name": "in_vitro",
+   "language": "en",
+   "kind": "in_vitro",
+   "quota": 50,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND (KW:\"Cells, Cultured\" OR KW:\"Cell Line\" OR KW:\"In Vitro Techniques\" OR KW:\"HEK293 Cells\" OR KW:\"HeLa Cells\" OR KW:\"Hep G2 Cells\" OR KW:\"MCF-7 Cells\" OR KW:\"A549 Cells\") AND NOT KW:\"Animals\"",
+   "frame_hits": 6124,
+   "frame_listed": 6124,
+   "examined": 58,
+   "drawn": 50,
+   "excluded": {
+    "no reference (no publication type or MeSH heading gives a design)": 5,
+    "reference 'narrative_review'": 2,
+    "retracted, or under an expression of concern": 1
+   }
+  },
+  {
+   "name": "narrative_review",
+   "language": "en",
+   "kind": "narrative_review",
+   "quota": 30,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Review\" AND NOT PUB_TYPE:\"Systematic Review\" AND NOT PUB_TYPE:\"Meta-Analysis\"",
+   "frame_hits": 64716,
+   "frame_listed": 64716,
+   "examined": 32,
+   "drawn": 30,
+   "excluded": {
+    "no reference (publication type 'Scoping Review' is outside the reference)": 2
+   }
+  },
+  {
+   "name": "editorial",
+   "language": "en",
+   "kind": "editorial",
+   "quota": 25,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Editorial\"",
+   "frame_hits": 3072,
+   "frame_listed": 3072,
+   "examined": 114,
+   "drawn": 25,
+   "excluded": {
+    "abstract under 400 characters": 84,
+    "no reference (no publication type or MeSH heading gives a design)": 4,
+    "reference 'narrative_review'": 1
+   }
+  },
+  {
+   "name": "protocol",
+   "language": "en",
+   "kind": "protocol",
+   "quota": 30,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"eng\" AND FIRST_PDATE:[2022-01-01 TO 2022-12-31] AND PUB_TYPE:\"Clinical Trial Protocol\"",
+   "frame_hits": 1622,
+   "frame_listed": 1622,
+   "examined": 30,
+   "drawn": 30,
+   "excluded": {}
+  },
+  {
+   "name": "zh_randomized_trial",
+   "language": "zh",
+   "kind": "randomized_trial",
+   "quota": 12,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND PUB_TYPE:\"Randomized Controlled Trial\"",
+   "frame_hits": 36,
+   "frame_listed": 36,
+   "examined": 12,
+   "drawn": 12,
+   "excluded": {}
+  },
+  {
+   "name": "zh_systematic_review",
+   "language": "zh",
+   "kind": "systematic_review",
+   "quota": 8,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND (PUB_TYPE:\"Systematic Review\" OR PUB_TYPE:\"Meta-Analysis\")",
+   "frame_hits": 503,
+   "frame_listed": 503,
+   "examined": 49,
+   "drawn": 8,
+   "excluded": {
+    "reference 'narrative_review'": 40,
+    "no reference (no publication type or MeSH heading gives a design)": 1
+   }
+  },
+  {
+   "name": "zh_case_report",
+   "language": "zh",
+   "kind": "case_report",
+   "quota": 8,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND PUB_TYPE:\"Case Reports\"",
+   "frame_hits": 197,
+   "frame_listed": 197,
+   "examined": 9,
+   "drawn": 8,
+   "excluded": {
+    "no reference (publication types name two designs: ['Case Reports', 'Systematic Review'])": 1
+   }
+  },
+  {
+   "name": "zh_animal",
+   "language": "zh",
+   "kind": "animal",
+   "quota": 6,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND KW:\"Animals\" AND NOT KW:\"Humans\"",
+   "frame_hits": 100,
+   "frame_listed": 100,
+   "examined": 7,
+   "drawn": 6,
+   "excluded": {
+    "reference 'narrative_review'": 1
+   }
+  },
+  {
+   "name": "zh_in_vitro",
+   "language": "zh",
+   "kind": "in_vitro",
+   "quota": 6,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND (KW:\"Cells, Cultured\" OR KW:\"Cell Line\" OR KW:\"In Vitro Techniques\" OR KW:\"HEK293 Cells\" OR KW:\"HeLa Cells\" OR KW:\"Hep G2 Cells\" OR KW:\"MCF-7 Cells\" OR KW:\"A549 Cells\") AND NOT KW:\"Animals\"",
+   "frame_hits": 216,
+   "frame_listed": 216,
+   "examined": 8,
+   "drawn": 6,
+   "excluded": {
+    "reference 'case_report'": 1,
+    "no reference (no publication type or MeSH heading gives a design)": 1
+   }
+  },
+  {
+   "name": "zh_narrative_review",
+   "language": "zh",
+   "kind": "narrative_review",
+   "quota": 8,
+   "query": "SRC:MED AND OPEN_ACCESS:y AND (LICENSE:\"cc by\" OR LICENSE:\"cc0\") AND HAS_ABSTRACT:y AND LANG:\"chi\" AND PUB_TYPE:\"Review\" AND NOT PUB_TYPE:\"Systematic Review\" AND NOT PUB_TYPE:\"Meta-Analysis\"",
+   "frame_hits": 568,
+   "frame_listed": 568,
+   "examined": 12,
+   "drawn": 8,
+   "excluded": {
+    "no reference (no publication type or MeSH heading gives a design)": 3,
+    "reference 'case_report'": 1
+   }
+  }
+ ]
+}
