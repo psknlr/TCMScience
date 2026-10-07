@@ -106,6 +106,8 @@ CLAIM_REASONS: Mapping[str, str] = {
     "CLM016": "the claim names a processing state other than the one its evidence studied",
     "CLM017": "the claim asserts relevance at human exposure that no cited evidence measured",
     "CLM018": "the claim counts more independent sources than its evidence holds",
+    "CLM019": "the claim states an absence (no effect, no harm, no relation) that no cited "
+              "evidence tested",
 }
 
 
@@ -544,6 +546,51 @@ def _duplicates(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
         f"are {len(identities)} source(s): {', '.join(sorted(identities))}"))]
 
 
+#: An absence stated as a finding: no effect, no difference, no association, no harm. In
+#: English the verb list is closed, so "does not only lower" or "no more than" is not read as
+#: one; in Chinese 不 and 未 count only before a verb of effect, so 不良反应 is not one either.
+_ABSENCE = re.compile(
+    r"\bno\s+(?:significant\s+|meaningful\s+|detectable\s+|measurable\s+|obvious\s+)?"
+    r"(?:effects?|difference|change|association|benefit|harm|toxicity|adverse\s+"
+    r"(?:effects?|events?|reactions?)|side\s+effects?|interaction|binding|activity)\b"
+    r"|\b(?:did|does|do|was|were|is|are)\s+not\s+(?:significantly\s+)?"
+    r"(?:affect|alter|change|differ|reduce|lower|increase|raise|improve|worsen|bind|"
+    r"inhibit|activate|cause|associated)\w*"
+    r"|\b(?:is|are|was|were)\s+(?:non-?toxic|inactive|safe)\b"
+    "|无(?:显著|明显)?(?:作用|效果|疗效|差异|关联|影响|毒性?|不良反应|副作用|活性)"
+    "|(?:不|未)(?:显著|明显)?(?:影响|改变|降低|升高|增加|减少|改善|加重|结合|抑制|激活|引起|导致)"
+    "|与.{1,24}?无关"
+    "|未见(?:明显|显著)?(?:作用|效果|影响|差异|毒性|不良反应|副作用|肝损伤|肾损伤|改善)"
+    "|安全无毒|是安全的", re.I)
+
+
+def _unknown_as_negative(claim: CandidateClaim, usable: Sequence[Any]) -> list[Reason]:
+    """CLM019: an absence stated where nothing was tested. Unknown stays unknown.
+
+    "No adverse reactions", "non-toxic", "not associated with mortality" are findings: a
+    study measured the outcome and found nothing. Written over a trial that recorded only
+    HbA1c, or a cohort that followed only kidney failure, they turn an outcome nobody
+    measured into a negative, the commonest way a herb comes to be called 无毒. Only an
+    item that states an absence itself licenses one (its quote or its recorded effect),
+    and a prediction never does: a docking run that finds no pose has not shown the
+    compound does not bind.
+    """
+    hit = _ABSENCE.search(claim.text or "")
+    if not hit and claim.direction != "no_difference":
+        return []
+    said = hit.group(0) if hit else "direction no_difference"
+    measured = [i for i in usable
+                if str(getattr(i, "design", "")) not in _PREDICTIVE and any(
+                    _ABSENCE.search(str(getattr(i, attr, "") or ""))
+                    for attr in ("quote", "effect"))]
+    if measured:
+        return []
+    designs = sorted({str(getattr(i, "design", "")) for i in usable})
+    return [Reason("CLM019", (
+        f"the claim states an absence ({said!r}) that its evidence ({', '.join(designs)}) "
+        "does not report testing; an outcome nobody measured is unknown, not negative"))]
+
+
 def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerdict:
     """Whether ``claim`` may be made, given an id → :class:`EvidenceItem` index.
 
@@ -661,6 +708,7 @@ def check_claim(claim: CandidateClaim, evidence: Mapping[str, Any]) -> ClaimVerd
     reasons.extend(_processing_transfers(claim, usable))
     reasons.extend(_exposure(claim, usable))
     reasons.extend(_duplicates(claim, usable))
+    reasons.extend(_unknown_as_negative(claim, usable))
 
     # The kind is what licensing reads, so the words must not outrun it. An
     # "attribution" whose text says a drug is proven effective for all patients

@@ -312,6 +312,7 @@ class Transcript:
 
 _KINDS = ("efficacy", "association", "safety_signal", "mechanism", "mechanism_hypothesis",
           "traditional_use", "attribution", "recommendation")
+_CERTAINTIES = ("strong", "moderate", "tentative")
 
 
 def _sources_block(task: ComparisonTask) -> str:
@@ -338,8 +339,8 @@ def _system_prompt(task: ComparisonTask, arm: Arm) -> str:
             '{"claims": [{"text": ..., "citation": ..., "claim_kind": ..., "subject": ..., '
             '"population": ..., "outcome": ..., "direction": ..., "certainty": ...}], '
             '"next_steps": [...]}. claim_kind is one of ' + ", ".join(_KINDS) + "; direction "
-            "is increase, decrease, no_difference or unclear; certainty is strong, moderate "
-            "or tentative.")
+            "is increase, decrease, no_difference or unclear; certainty is "
+            + ", ".join(_CERTAINTIES[:-1]) + " or " + _CERTAINTIES[-1] + ".")
     else:
         parts.append("Answer in prose under two headings. Under 'Findings:', the findings "
                      "the sources support, each with its citation. Under 'Next steps:', the "
@@ -424,23 +425,32 @@ def _source_for(task: ComparisonTask, citation: str) -> Source | None:
 def _gate(claim: ReleasedClaim, task: ComparisonTask, ctx: Any, n: int) -> ReleasedClaim:
     """The runtime's gates on one structured claim, as the ablation's full stack runs them.
 
-    A claim whose citation names none of the task's sources is withheld before the gates
-    that read a source's design: there is no design to read, and none is invented for it.
+    What the gates read must be stated, not guessed: a claim whose citation names none of
+    the task's sources, or whose kind or certainty is not one of the declared values, is
+    withheld with that reason before any gate runs. Filling in "mechanism hypothesis" or
+    "moderate" would check a claim the model did not make. An unstated direction is the
+    contract's own unknown ("unclear").
     """
     from .ablation import _evaluate
     source = _source_for(task, claim.citation) if claim.citation else None
+    missing = []
     if source is None:
-        why = ("the claim cites no source" if not claim.citation else
-               f"the citation {claim.citation!r} names none of the sources given")
-        return replace(claim, released=False, reasons=(why,))
-    kind = claim.claim_kind if claim.claim_kind in _KINDS else "mechanism_hypothesis"
+        missing.append("the claim cites no source" if not claim.citation else
+                       f"the citation {claim.citation!r} names none of the sources given")
+    if claim.claim_kind not in _KINDS:
+        missing.append(f"claim_kind {claim.claim_kind!r} is not one of {', '.join(_KINDS)}")
+    if claim.certainty not in _CERTAINTIES:
+        missing.append(f"certainty {claim.certainty!r} is not one of "
+                       f"{', '.join(_CERTAINTIES)}")
+    if missing:
+        return replace(claim, released=False, reasons=tuple(missing))
     statement = claim.text if claim.citation in claim.text \
         else f"{claim.text.rstrip('。.')} ({claim.citation})"
     case = Case(
         id=f"{task.id}/{n}", language="zh" if re.search("[一-鿿]", claim.text)
-        else "en", claim_kind=kind, statement=statement, citation=claim.citation,
-        subject=claim.subject, population=claim.population, outcome=claim.outcome,
-        certainty=claim.certainty or "moderate",
+        else "en", claim_kind=claim.claim_kind, statement=statement,
+        citation=claim.citation, subject=claim.subject, population=claim.population,
+        outcome=claim.outcome, certainty=claim.certainty,
         direction=claim.direction if claim.direction in ("increase", "decrease") else "",
         source=source)
     results = _evaluate(case, ctx)

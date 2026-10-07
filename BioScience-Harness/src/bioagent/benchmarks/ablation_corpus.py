@@ -49,6 +49,7 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
             "certainty": ["葛根芩连汤可降低", "已证实葛根芩连汤必然降低"],
             "constituent_formula": ["葛根芩连汤", "黄连"],
             "duplicate_source": ["葛根芩连汤可降低", "两项研究显示葛根芩连汤可降低"],
+            "unknown_as_negative": ["糖化血红蛋白（", "糖化血红蛋白，且未见明显不良反应（"],
             "animal": {
                 "population": "2型糖尿病大鼠",
                 "text": "目的：评价葛根芩连汤对2型糖尿病大鼠血糖的影响。方法：高脂饮食联合链脲佐菌素诱导的"
@@ -146,6 +147,7 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
         "material": {
             "near_name": ["制附子", "制白附子"],
             "processing_transfer": ["制附子", "生附子"],
+            "unknown_as_negative": ["6分钟步行距离（", "6分钟步行距离，且无毒性（"],
             "dose": ["1.5g", "15g"],
             "population": ["成人", "儿童"],
             "direction": ["增加", "减少"],
@@ -195,6 +197,7 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
             "outcome": ["终末期肾病风险", "全因死亡率"],
             "certainty": ["与成人慢性肾脏病患者终末期肾病风险升高相关",
                           "已被证实必然导致成人慢性肾脏病患者终末期肾病风险升高"],
+            "unknown_as_negative": ["风险升高相关（", "风险升高相关，而与全因死亡无关（"],
         },
     },
     # ---------------------------------------------------------------- safety signal
@@ -237,6 +240,8 @@ BASE_CASES: tuple[dict[str, Any], ...] = (
             "constituent_formula": ["compound A", "Gegen Qinlian decoction"],
             "exposure_text": ["may inhibit target T1",
                               "may inhibit target T1 at concentrations reached in patients"],
+            "unknown_as_negative": ["may inhibit target T1",
+                                    "may inhibit target T1 and does not inhibit target T2"],
             "upgrade": {"statement": "Compound A reduces disease activity in adults with "
                                      "rheumatoid arthritis (doi:10.5555/tcm-ablation.08).",
                         "claim_kind": "efficacy", "certainty": "strong",

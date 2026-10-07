@@ -1,7 +1,7 @@
 {
  "construction": "mutation testing: base cases a reviewer would release, each mutated by one named scientific error; base cases and operators were written by the authors of the gates, so this is a regression benchmark with a stated construction, not an estimate of field error rates",
  "base_cases": 10,
- "mutants": 117,
+ "mutants": 121,
  "gates": {
   "provenance": "kernel",
   "output": "kernel",
@@ -13,11 +13,11 @@
   {
    "configuration": "ungoverned",
    "gates": [],
-   "errors_released": 117,
-   "mutants": 117,
+   "errors_released": 121,
+   "mutants": 121,
    "error_release_rate": 1.0,
    "error_release_ci95": [
-    0.9682,
+    0.9692,
     1.0
    ],
    "false_refusals": 0,
@@ -31,12 +31,12 @@
     "output",
     "licensing"
    ],
-   "errors_released": 5,
-   "mutants": 117,
-   "error_release_rate": 0.0427,
+   "errors_released": 7,
+   "mutants": 121,
+   "error_release_rate": 0.0579,
    "error_release_ci95": [
-    0.0184,
-    0.0962
+    0.0283,
+    0.1146
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -49,11 +49,11 @@
     "release_path"
    ],
    "errors_released": 57,
-   "mutants": 117,
-   "error_release_rate": 0.4872,
+   "mutants": 121,
+   "error_release_rate": 0.4711,
    "error_release_ci95": [
-    0.3985,
-    0.5767
+    0.3844,
+    0.5595
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -69,11 +69,11 @@
     "release_path"
    ],
    "errors_released": 0,
-   "mutants": 117,
+   "mutants": 121,
    "error_release_rate": 0.0,
    "error_release_ci95": [
     0.0,
-    0.0318
+    0.0308
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -88,11 +88,11 @@
     "release_path"
    ],
    "errors_released": 10,
-   "mutants": 117,
-   "error_release_rate": 0.0855,
+   "mutants": 121,
+   "error_release_rate": 0.0826,
    "error_release_ci95": [
-    0.0471,
-    0.1502
+    0.0455,
+    0.1455
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -107,11 +107,11 @@
     "release_path"
    ],
    "errors_released": 42,
-   "mutants": 117,
-   "error_release_rate": 0.359,
+   "mutants": 121,
+   "error_release_rate": 0.3471,
    "error_release_ci95": [
-    0.2778,
-    0.4491
+    0.2682,
+    0.4355
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -126,11 +126,11 @@
     "release_path"
    ],
    "errors_released": 0,
-   "mutants": 117,
+   "mutants": 121,
    "error_release_rate": 0.0,
    "error_release_ci95": [
     0.0,
-    0.0318
+    0.0308
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -144,12 +144,12 @@
     "licensing",
     "release_path"
    ],
-   "errors_released": 4,
-   "mutants": 117,
-   "error_release_rate": 0.0342,
+   "errors_released": 6,
+   "mutants": 121,
+   "error_release_rate": 0.0496,
    "error_release_ci95": [
-    0.0134,
-    0.0846
+    0.0229,
+    0.104
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -164,11 +164,11 @@
     "claim_contract"
    ],
    "errors_released": 1,
-   "mutants": 117,
-   "error_release_rate": 0.0085,
+   "mutants": 121,
+   "error_release_rate": 0.0083,
    "error_release_ci95": [
     0.0015,
-    0.0468
+    0.0453
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -179,12 +179,12 @@
    "gates": [
     "provenance"
    ],
-   "errors_released": 107,
-   "mutants": 117,
-   "error_release_rate": 0.9145,
+   "errors_released": 111,
+   "mutants": 121,
+   "error_release_rate": 0.9174,
    "error_release_ci95": [
-    0.8498,
-    0.9529
+    0.8545,
+    0.9545
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -195,12 +195,12 @@
    "gates": [
     "output"
    ],
-   "errors_released": 20,
-   "mutants": 117,
-   "error_release_rate": 0.1709,
+   "errors_released": 22,
+   "mutants": 121,
+   "error_release_rate": 0.1818,
    "error_release_ci95": [
-    0.1135,
-    0.2493
+    0.1232,
+    0.26
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -211,12 +211,12 @@
    "gates": [
     "licensing"
    ],
-   "errors_released": 66,
-   "mutants": 117,
-   "error_release_rate": 0.5641,
+   "errors_released": 70,
+   "mutants": 121,
+   "error_release_rate": 0.5785,
    "error_release_ci95": [
-    0.4736,
-    0.6505
+    0.4894,
+    0.6628
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -228,11 +228,11 @@
     "claim_contract"
    ],
    "errors_released": 58,
-   "mutants": 117,
-   "error_release_rate": 0.4957,
+   "mutants": 121,
+   "error_release_rate": 0.4793,
    "error_release_ci95": [
-    0.4067,
-    0.585
+    0.3923,
+    0.5676
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -243,12 +243,12 @@
    "gates": [
     "release_path"
    ],
-   "errors_released": 113,
-   "mutants": 117,
-   "error_release_rate": 0.9658,
+   "errors_released": 117,
+   "mutants": 121,
+   "error_release_rate": 0.9669,
    "error_release_ci95": [
-    0.9154,
-    0.9866
+    0.9181,
+    0.9871
    ],
    "false_refusals": 0,
    "base_cases": 10,
@@ -454,6 +454,17 @@
    "domain": 1.0,
    "full": 1.0
   },
+  "unknown_as_negative": {
+   "n": 4,
+   "provenance": 0.0,
+   "output": 0.5,
+   "licensing": 0.0,
+   "claim_contract": 1.0,
+   "release_path": 0.0,
+   "kernel": 0.5,
+   "domain": 1.0,
+   "full": 1.0
+  },
   "near_name": {
    "n": 2,
    "provenance": 0.0,
@@ -592,8 +603,10 @@
   "licensing": [],
   "claim_contract": [
    "E1/duplicate_source",
+   "E1/unknown_as_negative",
    "E2/duplicate_source",
    "E4/near_name_text",
+   "E4/unknown_as_negative",
    "M1/exposure_text"
   ],
   "release_path": [
@@ -604,13 +617,13 @@
  "false_refusals": [],
  "by_language": {
   "en": {
-   "mutants": 47,
+   "mutants": 48,
    "base_cases": 4,
    "released_by_full": 0,
    "refused_by_full": 0
   },
   "zh": {
-   "mutants": 70,
+   "mutants": 73,
    "base_cases": 6,
    "released_by_full": 0,
    "refused_by_full": 0
@@ -951,6 +964,16 @@
    "refused_by": {
     "claim_contract": [
      "CLM018"
+    ]
+   }
+  },
+  "E1/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM019"
     ]
    }
   },
@@ -1588,6 +1611,16 @@
     ]
    }
   },
+  "E4/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
   "A1/population": {
    "error_class": "population",
    "gold": "refuse",
@@ -1923,6 +1956,22 @@
     ]
    }
   },
+  "A2/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "zh",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM019"
+    ]
+   }
+  },
   "S1/population": {
    "error_class": "population",
    "gold": "refuse",
@@ -2243,6 +2292,22 @@
    "refused_by": {
     "claim_contract": [
      "CLM017"
+    ]
+   }
+  },
+  "M1/unknown_as_negative": {
+   "error_class": "unknown_as_negative",
+   "gold": "refuse",
+   "language": "en",
+   "refused_by": {
+    "output": [
+     "unsupported"
+    ],
+    "output|ingested": [
+     "unsupported"
+    ],
+    "claim_contract": [
+     "CLM019"
     ]
    }
   },

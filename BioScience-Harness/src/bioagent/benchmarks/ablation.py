@@ -277,6 +277,11 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation("duplicate_source", "one study, reached through two databases, counted as two "
              "independent ones",
              lambda c: _swap(c, "duplicate_source", name="duplicate_source", duplicates=2)),
+    # Unknown kept unknown (CLM019): an outcome or a target the study never measured,
+    # stated as absent ("no adverse reactions", "non-toxic", "does not inhibit T2").
+    Mutation("unknown_as_negative", "an outcome nobody measured stated as absent (no adverse "
+             "reactions, non-toxic, not associated)",
+             lambda c: _swap(c, "unknown_as_negative", name="unknown_as_negative")),
 )
 
 

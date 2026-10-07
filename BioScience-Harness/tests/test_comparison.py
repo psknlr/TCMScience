@@ -152,6 +152,15 @@ def test_a_claim_citing_no_given_source_is_withheld_before_the_gates(tasks):
     assert out.claims[1].reasons == ("the claim cites no source",)
 
 
+def test_an_undeclared_kind_or_certainty_is_withheld_not_filled_in(tasks):
+    vague = dict(GOOD_TRIAL, claim_kind="finding", certainty="")
+    client = ScriptedClient({(MECH, "C", 0): json.dumps({"claims": [vague]})})
+    (out,) = run_arm(tasks[0], ARMS["C"], client).claims
+    assert not out.released
+    assert any("claim_kind 'finding'" in r for r in out.reasons)
+    assert any("certainty ''" in r for r in out.reasons)
+
+
 def test_an_unreadable_structured_reply_is_recorded_not_guessed(tasks):
     client = ScriptedClient({(MECH, "B", 0): "I cannot answer in JSON."})
     out = run_arm(tasks[0], ARMS["B"], client)

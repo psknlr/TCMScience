@@ -82,6 +82,7 @@ _CLAIM_TO_ARTIFACT: Mapping[str, str] = {
     "CLM016": "ART105",
     "CLM017": "ART105",
     "CLM018": "ART105",
+    "CLM019": "ART105",
 }
 
 

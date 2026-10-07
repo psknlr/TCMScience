@@ -3,11 +3,14 @@
 A claim can name the drug its evidence studied and still not be about what was studied. A
 trial of 葛根芩连汤 says nothing of 黄连 alone; a study of 制附子 says nothing of the raw root
 生附子, which the resolver rightly folds into the same drug; a cell assay at 100 µM says nothing
-of what patients reach; and the same trial reached through two databases is one trial.
-CLM015 to CLM018 refuse each, and the governance ablation carries an operator for each.
+of what patients reach; the same trial reached through two databases is one trial; and an
+outcome the trial never measured is unknown, not absent. CLM015 to CLM019 refuse each, and
+the governance ablation carries an operator for each.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import pytest
 
@@ -45,7 +48,7 @@ def codes(c, items) -> tuple[str, ...]:
 
 def test_the_faithful_claim_raises_none_of_the_domain_codes():
     found = codes(claim("葛根芩连汤可降低成人2型糖尿病患者的糖化血红蛋白。"), [item()])
-    assert not {"CLM015", "CLM016", "CLM017", "CLM018"} & set(found)
+    assert not {"CLM015", "CLM016", "CLM017", "CLM018", "CLM019"} & set(found)
 
 
 # --------------------------------------------------------------------- CLM015
@@ -154,6 +157,58 @@ def test_the_count_is_read_from_the_confidence_basis_too():
     c = claim("葛根芩连汤可降低成人2型糖尿病患者的糖化血红蛋白。", supports=("e1", "e2"),
               basis="replicated in 2 studies")
     assert "CLM018" in codes(c, twice)
+
+
+# --------------------------------------------------------------------- CLM019
+
+#: The result first, so that the fixture's quote (its first 40 characters) is the result.
+NULL_TRIAL = ("结果：葛根芩连汤组与安慰剂组不良事件发生率无显著差异。方法：一项纳入200名成人2型糖尿病"
+              "患者的随机双盲安慰剂对照试验，记录全部不良事件。")
+
+
+@pytest.mark.parametrize("text", [
+    "葛根芩连汤可降低成人2型糖尿病患者的糖化血红蛋白，且未见明显不良反应。",
+    "葛根芩连汤对成人2型糖尿病患者无毒性。",
+    "葛根芩连汤与成人2型糖尿病患者的全因死亡无关。",
+    "Gegen Qinlian decoction had no adverse effects in adults with type 2 diabetes.",
+    "Gegen Qinlian decoction did not increase hypoglycaemia in adults with type 2 diabetes.",
+])
+def test_an_outcome_nobody_measured_is_not_stated_as_absent(text):
+    verdict = check_claim(claim(text), {"e1": item()})
+    assert "CLM019" in verdict.codes
+    assert any("unknown, not negative" in r for r in verdict.reason_text)
+
+
+def test_a_tested_absence_may_be_reported():
+    tested = item(text=NULL_TRIAL, outcome="不良事件发生率")
+    c = claim("葛根芩连汤组与安慰剂组的不良事件发生率无显著差异。", outcome="不良事件发生率",
+              kind="safety_signal")
+    assert "CLM019" not in codes(c, [tested])
+
+
+def test_a_prediction_that_finds_nothing_is_not_a_tested_negative():
+    docking = item(design="docking", subject="baicalin", population="", outcome="",
+                   text="Molecular docking found no binding pose of baicalin in PTP1B; no "
+                        "binding was predicted.")
+    c = claim("Baicalin does not bind PTP1B.", kind="mechanism_hypothesis",
+              subject="baicalin", population="", outcome="")
+    assert "CLM019" in codes(c, [docking])
+
+
+def test_a_no_difference_direction_is_an_absence_too():
+    c = replace(claim("葛根芩连汤对成人2型糖尿病患者体重的作用与安慰剂相当。"),
+                direction="no_difference")
+    assert "CLM019" in codes(c, [item()])
+
+
+@pytest.mark.parametrize("text", [
+    "葛根芩连汤可减少成人2型糖尿病患者的不良心血管事件。",   # 不良 is not 不 + a verb
+    "Gegen Qinlian decoction lowered HbA1c in no more than 12 weeks.",
+    "葛根芩连汤不仅降低糖化血红蛋白。",
+])
+def test_words_that_only_look_like_an_absence_are_not_one(text):
+    from bioagent.contracts.candidate_claim import _ABSENCE
+    assert not _ABSENCE.search(text)
 
 
 # ------------------------------------------------------------ absolute wording

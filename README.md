@@ -48,7 +48,7 @@
 
 ## Abstract
 
-Chinese medicine rests on evidence of very different kinds: a *Shanghan Lun* passage, a pharmacopoeia entry, a docking score, a cell assay, a randomized trial. A language-model agent that treats them all as "evidence text" will, sooner or later, present a classical record as a clinical finding or a network prediction as a mechanism. **TCMScience** makes that failure impossible to express rather than merely discouraged. The model plans and reasons; a separate **trusted kernel** decides what it may run, labels every datum at entry, and releases a scientific claim only when the evidence behind it *licenses* that kind of claim. Every dataset the agent reads is a **content-hashed snapshot** recorded in a hash-chained ledger, so each result names the exact data it came from. Applied to the classical formula 葛根芩连汤, the system reproduces the standard network-pharmacology result and then shows it to be an artefact of which proteins had been assayed. What survives is a cytochrome P450 inhibition signal that bears on herb–drug interactions rather than on efficacy. An architecture is an advantage only if it changes what gets released, so that is measured too: the same 117 erroneous outputs go through every configuration of the real gates: the kernel alone releases 5 of them and the domain layer alone 57, the full stack none, and no configuration refuses a correct one. Which analysis to run next, and when to stop, is decided the same way the release is: the model proposes explanations and what each predicts, and the kernel decides what was learned.
+Chinese medicine rests on evidence of very different kinds: a *Shanghan Lun* passage, a pharmacopoeia entry, a docking score, a cell assay, a randomized trial. A language-model agent that treats them all as "evidence text" will, sooner or later, present a classical record as a clinical finding or a network prediction as a mechanism. **TCMScience** makes that failure impossible to express rather than merely discouraged. The model plans and reasons; a separate **trusted kernel** decides what it may run, labels every datum at entry, and releases a scientific claim only when the evidence behind it *licenses* that kind of claim. Every dataset the agent reads is a **content-hashed snapshot** recorded in a hash-chained ledger, so each result names the exact data it came from. Applied to the classical formula 葛根芩连汤, the system reproduces the standard network-pharmacology result and then shows it to be an artefact of which proteins had been assayed. What survives is a cytochrome P450 inhibition signal that bears on herb–drug interactions rather than on efficacy. An architecture is an advantage only if it changes what gets released, so that is measured too: the same 121 erroneous outputs go through every configuration of the real gates: the kernel alone releases 7 of them and the domain layer alone 57, the full stack none, and no configuration refuses a correct one. Which analysis to run next, and when to stop, is decided the same way the release is: the model proposes explanations and what each predicts, and the kernel decides what was learned.
 
 ## What TCMScience is, and is not
 
@@ -66,7 +66,7 @@ Agent systems for biomedical research put their weight on different layers. TCMS
 
 **Where others are stronger.** Breadth of tools, databases and software (ToolUniverse, Biomni); wet-laboratory protocols and multi-omics workflows; closed-loop experimental design run against real screens (BioDiscoveryAgent); and, above all, validation on public task benchmarks under peer review (Biomni, BioMedAgent, DeepEvidence). TCMScience's six-track Arena is an evaluation design with demonstration runs, not yet a completed validation.
 
-**What is measured instead, for now.** Whether the governance changes what an agent releases ([governance ablation](#is-the-governance-worth-it)), and whether the inquiry finds the true explanation where the answer is known ([planted worlds](#deciding-what-to-find-out-next)). [BiomniBench](https://doi.org/10.64898/2026.05.12.724604) reports that the agent harness can shift scores by more than a model generation does, which is the reason to study the harness itself. The comparison this architecture still owes is the same model, tools and tasks, with and without it, on a public task benchmark.
+**What is measured instead, for now.** Whether the governance changes what an agent releases ([governance ablation](#is-the-governance-worth-it)), and whether the inquiry finds the true explanation where the answer is known ([planted worlds](#deciding-what-to-find-out-next)). [BiomniBench](https://doi.org/10.64898/2026.05.12.724604) reports that the agent harness can shift scores by more than a model generation does, which is the reason to study the harness itself. The comparison this architecture still owes is the same model, tools and tasks, with and without it, on a public task benchmark. Its protocol and harness now exist ([four-arm comparison](docs/comparison.md): prose, prose with one ordinary self-review, structured claims, checked claims, and checked claims with rival explanations and one revision round, at the same budget; blinded review; statistics by independent unit). No model has been run with it yet, so it has no results.
 
 ## Highlights
 
@@ -77,18 +77,18 @@ Agent systems for biomedical research put their weight on different layers. TCMS
 | **3** | **Data enter as audited snapshots.** Parse → normalize → quality gate → content hash → ledger, each source under a card stating its licence and access terms. | Results that cannot say which release of which database produced them. |
 | **4** | **Skills, sources and benchmarks are versioned independently**, and a monthly update can discover skills but never promote them. | This month's score being incomparable with last month's, or an unreviewed skill going live. |
 | **5** | **Belief moves only by predictions sealed in advance.** The model proposes rival explanations and what each predicts; the kernel picks the next analysis by information gain, updates belief, and stops only after severe tests and replication. | Confirmatory analyses run until the story is good; a docking run moving belief in clinical efficacy; a posterior quoted as a licence. |
-| **6** | **The governance is measured, not asserted.** 117 erroneous outputs through every configuration of the real gates: all released with no governance, none with the full stack, no correct output refused; every gap the benchmark found was closed in a runtime check. | An architecture judged by its diagrams. |
+| **6** | **The governance is measured, not asserted.** 121 erroneous outputs through every configuration of the real gates: all released with no governance, none with the full stack, no correct output refused; every gap the benchmark found was closed in a runtime check. | An architecture judged by its diagrams. |
 
 ## Is the governance worth it?
 
-An architecture is only an advantage if the same outputs come out of it with fewer scientific errors. The governance ablation ([method and full results](docs/governance-ablation.md)) takes ten outputs a reviewer would release and injects one known error at a time: a population the study did not enrol, a docking score cited for efficacy, 白附子 for 附子, a dose read ten times too high, a tampered or invented citation, a plan clause hiding a claim of cure, and four errors specific to TCM: one constituent's evidence carried to the whole formula, 制附子's carried to 生附子, a bench result placed at the concentrations patients reach, and one trial counted twice. That gives 117 mutants in 25 classes. They run through the runtime's own gates with each part switched on or off.
+An architecture is only an advantage if the same outputs come out of it with fewer scientific errors. The governance ablation ([method and full results](docs/governance-ablation.md)) takes ten outputs a reviewer would release and injects one known error at a time: a population the study did not enrol, a docking score cited for efficacy, 白附子 for 附子, a dose read ten times too high, a tampered or invented citation, a plan clause hiding a claim of cure, and five errors specific to TCM: one constituent's evidence carried to the whole formula, 制附子's carried to 生附子, a bench result placed at the concentrations patients reach, one trial counted twice, and an outcome nobody measured stated as absent ("no adverse reactions", 无毒). That gives 121 mutants in 26 classes. They run through the runtime's own gates with each part switched on or off.
 
 | Configuration | Errors released (95 % CI) | Correct outputs refused |
 |---|---:|---:|
-| no governance | 117/117 · 100 % (97–100 %) | 0/10 |
-| domain layer only | 57/117 · 49 % (40–58 %) | 0/10 |
-| kernel only | 5/117 · 4 % (2–10 %) | 0/10 |
-| **full stack** | **0/117 · 0 % (0–3 %)** | **0/10** |
+| no governance | 121/121 · 100 % (97–100 %) | 0/10 |
+| domain layer only | 57/121 · 47 % (38–56 %) | 0/10 |
+| kernel only | 7/121 · 6 % (3–11 %) | 0/10 |
+| **full stack** | **0/121 · 0 % (0–3 %)** | **0/10** |
 
 The layers are not redundant. Switching off one gate releases more errors:
 
@@ -96,11 +96,11 @@ The layers are not redundant. Switching off one gate releases more errors:
 |---|---:|---|
 | output gate | 42 | inverted directions, drift in the text from the structured claim, the ×10 dose, invented citations, misquoted passages |
 | ingest signature check | 10 | the ten tampered records, a 伤寒论 passage among them |
-| claim contract | 4 | one trial counted as two (twice), a near-name herb in the text, a bench result placed at human exposure |
+| claim contract | 6 | one trial counted as two (twice), a near-name herb in the text, a bench result placed at human exposure, "no adverse reactions" and 无毒 over trials that measured neither |
 | release check | 1 | a borrowed direction |
 | licensing | 0 | nothing the others do not also catch |
 
-The benchmark found every gap it now refuses, in two rounds (19 → 10 → 0), and each was closed in a runtime check rather than in the benchmark: citations checked in every sentence, cardiovascular death kept apart from all-cause mortality, the subject of a Chinese association sentence read, mechanism sentences held to their records, 伤寒论 passages cited by record id and looked up, quotations located in the passage cited, and four TCM domain checks (CLM015–CLM018). With no survivors left, this construction has stopped discriminating: it now guards against regression, and finding what the gates miss needs real drafts labelled by a reviewer.
+The benchmark found every gap it now refuses, in two rounds (19 → 10 → 0), and each was closed in a runtime check rather than in the benchmark: citations checked in every sentence, cardiovascular death kept apart from all-cause mortality, the subject of a Chinese association sentence read, mechanism sentences held to their records, 伤寒论 passages cited by record id and looked up, quotations located in the passage cited, and five TCM domain checks (CLM015–CLM019; the fifth keeps an unmeasured outcome unknown rather than negative). With no survivors left, this construction has stopped discriminating: it now guards against regression, and finding what the gates miss needs real drafts labelled by a reviewer.
 
 These numbers are for regression testing, with a stated construction; they are not field error rates. The authors of the gates also wrote the cases and the operators. CI refuses any regression against these numbers.
 
@@ -210,6 +210,9 @@ python scripts/run_network_pharmacology.py ... --hits screening          # PubCh
 # the governance ablation, and the inquiry on worlds with a known answer
 python scripts/run_governance_ablation.py --out RUN/ablation              # docs/governance-ablation.md
 python scripts/run_inquiry.py --planted all --out RUN/inquiry              # docs/inquiry.md
+
+# the four-arm comparison: an offline self-test; a real run needs --model (docs/comparison.md)
+python scripts/run_comparison.py selftest --out RUN/comparison-selftest
 
 # RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/

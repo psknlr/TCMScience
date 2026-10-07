@@ -13,7 +13,7 @@ runtime's own checks.
   and a passage of the 伤寒论. Each case has a statement, a structured claim and the source it
   cites (`bioagent.benchmarks.ablation_corpus`).
 - **Mutants.** Each mutation operator turns a base case into an output with one known
-  scientific error (`ablation.MUTATIONS`), giving 117 mutants in 25 classes:
+  scientific error (`ablation.MUTATIONS`), giving 121 mutants in 26 classes:
   - a finding carried to a population, outcome or intervention the study did not have;
   - its direction inverted, or stated as proven, always or curative;
   - a claim kind the evidence cannot reach: an association stated as efficacy, a docking score
@@ -27,7 +27,10 @@ runtime's own checks.
     to the whole formula or the formula's credited to one herb, one processing state's
     evidence carried to another (制附子 to 生附子), a bench result placed at the
     concentrations patients reach, and one study reached through two databases counted as
-    two independent ones.
+    two independent ones;
+  - an outcome nobody measured stated as absent: "no adverse reactions" or 无毒 over a trial
+    that recorded only its efficacy outcome, "not associated with mortality" over a cohort
+    that followed only kidney failure, "does not inhibit T2" over an assay of T1.
 
   Five of the classes appear twice. The `*_text` variants change only the sentence a reader
   sees and leave the structured claim naming what was studied: an agent's summary drifting
@@ -56,15 +59,15 @@ committed as `BioScience-Harness/benchmarks/ablation/results.json` and `results.
 
 | Configuration | Errors released | 95% CI | Correct outputs refused |
 | --- | ---: | --- | ---: |
-| no governance | 117/117 (100%) | 97–100% | 0/10 |
-| kernel only | 5/117 (4%) | 2–10% | 0/10 |
-| domain layer only | 57/117 (49%) | 40–58% | 0/10 |
-| **full stack** | **0/117 (0%)** | **0–3%** | **0/10** |
-| full stack without ingest | 10/117 (9%) | 5–15% | 0/10 |
-| full stack without the output gate | 42/117 (36%) | 28–45% | 0/10 |
-| full stack without licensing | 0/117 (0%) | 0–3% | 0/10 |
-| full stack without the claim contract | 4/117 (3%) | 1–8% | 0/10 |
-| full stack without the release check | 1/117 (1%) | 0–5% | 0/10 |
+| no governance | 121/121 (100%) | 97–100% | 0/10 |
+| kernel only | 7/121 (6%) | 3–11% | 0/10 |
+| domain layer only | 57/121 (47%) | 38–56% | 0/10 |
+| **full stack** | **0/121 (0%)** | **0–3%** | **0/10** |
+| full stack without ingest | 10/121 (8%) | 5–15% | 0/10 |
+| full stack without the output gate | 42/121 (35%) | 27–44% | 0/10 |
+| full stack without licensing | 0/121 (0%) | 0–3% | 0/10 |
+| full stack without the claim contract | 6/121 (5%) | 2–10% | 0/10 |
+| full stack without the release check | 1/121 (1%) | 0–5% | 0/10 |
 
 **What each gate adds** (leave-one-out: errors the full stack refuses and releases once that
 gate is off):
@@ -73,14 +76,14 @@ gate is off):
 | --- | ---: | --- |
 | output gate | 42 | inverted directions, every text-only drift, the ×10 dose, invented citations, and (with ingest) the tampered records |
 | ingest | 10 | the ten tampered records, the passage of the 伤寒论 included |
-| claim contract | 4 | both duplicate sources, a near-name herb in the text, the exposure claim |
+| claim contract | 6 | both duplicate sources, a near-name herb in the text, the exposure claim, "no adverse reactions" and 无毒 over trials that measured neither |
 | release check | 1 | the borrowed direction |
 | licensing | 0 | nothing the others do not also catch: every licensing refusal is now also a claim-contract or output-gate refusal |
 
 The layers are still not redundant. The kernel's text gate does most of the work. The domain
 layer alone catches what needs domain knowledge or structure the text does not show: a
 near-name herb written in the text, one study counted twice, a bench result placed at human
-exposure, a direction no snapshot edge records. Only the kernel knows a record was edited
+exposure, an unmeasured outcome stated as absent, a direction no snapshot edge records. Only the kernel knows a record was edited
 after signing.
 
 ### What was closed, in two rounds
@@ -113,7 +116,8 @@ then 111 mutants:
 | `H1/subject_text` (berberine, from a baicalin docking run) | the same | the agent a mechanism sentence names must be one its record reports on |
 | `C1/subject_text`, `C1/tampered`, `C1/fabricated_citation` | a passage citation was no identifier the gate recognised, so its record was never looked up | a deployment gives the kernel its citation shapes (`PSHConfig.citation_patterns`; the TCM layer cites passages as `passage.shl_34`), and quoted words must be in the record they cite |
 
-The same round added the four TCM domain checks, with an operator each:
+The same round added four TCM domain checks, and the next change a fifth (CLM019), each with
+an operator:
 
 | Code | The error it refuses |
 | --- | --- |
@@ -121,6 +125,7 @@ The same round added the four TCM domain checks, with an operator each:
 | CLM016 | a processing state other than the one studied (生附子 on evidence about 制附子); the resolver strips processing to find the drug, so the near-name check cannot see it |
 | CLM017 | relevance at human exposure ("at concentrations reached in patients") on evidence that measured no exposure in people |
 | CLM018 | more independent sources counted than the evidence holds: the same trial through PubMed and a database is one study |
+| CLM019 | an absence stated where nothing was tested: "no adverse reactions", 无毒, "not associated with mortality" or "does not inhibit T2" over evidence that never measured it. Unknown stays unknown: only an item that itself reports a tested absence licenses one, and a prediction never does (a docking run that finds no pose has not shown the compound does not bind) |
 
 ### What the full stack still releases
 
@@ -166,26 +171,26 @@ Tests: `BioScience-Harness/tests/test_governance_ablation.py`, `tests/test_near_
 
 **方法（科学变异测试）：**
 - **基础案例：** 10 个审稿人会放行的输出，6 个中文、4 个英文。覆盖随机对照试验、队列研究、病例报告、体外实验、分子对接，以及《伤寒论》条文。
-- **变异体：** 每个变异算子注入一种已知科学错误，共 25 类、117 个变异体。错误包括：
+- **变异体：** 每个变异算子注入一种已知科学错误，共 26 类、121 个变异体。错误包括：
   - 人群、终点、对象外推，方向反转，确定性夸大；
   - 证据类型越级，例如对接、动物实验或经典条文被当作临床证据；
   - 用计划从句掩护疗效断言；
   - 近名药（制白附子冒充制附子、白首乌冒充何首乌），剂量错读 10 倍；
   - 路径上没有记录的作用方向；
   - 已撤稿、签名后被篡改、张冠李戴或凭空捏造的引用；
-  - 中医药特有的四类：单一成分的证据推到整方（或反之）、一种炮制品的证据用于另一种（制附子→生附子）、把体外结果说成人体暴露下成立、同一研究经两个数据库被算作两项独立研究。
+  - 中医药特有的五类：单一成分的证据推到整方（或反之）、一种炮制品的证据用于另一种（制附子→生附子）、把体外结果说成人体暴露下成立、同一研究经两个数据库被算作两项独立研究、把无人测量的结局说成“未见不良反应”“无毒”“与死亡无关”（未知当作阴性）。
 - **闸门：** 均为运行时真实调用的检查。内核三个：证据摄入（标识绑定、签名复核）、输出闸门、许可类型检查。领域层两个：主张契约、快照路径发布检查。
 
 **结果（10 个正确输出均无误拒）：**
 
 | 配置 | 放行的错误 |
 | --- | ---: |
-| 无治理 | 117/117（100%） |
-| 仅内核 | 5/117（4%） |
-| 仅领域层 | 57/117（49%） |
-| 完整治理 | 0/117（0%，95% 置信区间 0–3%） |
+| 无治理 | 121/121（100%） |
+| 仅内核 | 7/121（6%） |
+| 仅领域层 | 57/121（47%） |
+| 完整治理 | 0/121（0%，95% 置信区间 0–3%） |
 
-留一法：输出闸门独自拦下 42 个，证据摄入 10 个（均为被篡改的记录），主张契约 4 个，路径检查 1 个；许可检查不再有独有的拦截。
+留一法：输出闸门独自拦下 42 个，证据摄入 10 个（均为被篡改的记录），主张契约 6 个，路径检查 1 个；许可检查不再有独有的拦截。
 
 **两轮修补（均由该基准发现，改的都是运行时检查，而不是基准）：**
 - 第一轮（19→10）：非临床句中的引用也要核查；补全中文临床词汇；主张正文中的近名药（CLM014）。
@@ -196,7 +201,7 @@ Tests: `BioScience-Harness/tests/test_governance_ablation.py`, `tests/test_near_
   - 机制句必须得到所引记录的支持，所述对象也要与记录一致；
   - 「总是」「必然」等绝对化措辞被拒绝；
   - 《伤寒论》条文按记录编号（passage.shl_34）引用，可以查核，引文须与原文一致。
-- 新增四项中医药领域检查：CLM015（成分与整方互推）、CLM016（炮制品互推）、CLM017（无人体暴露证据却声称在人体浓度下成立）、CLM018（同一来源被计为多项独立研究）。
+- 新增五项中医药领域检查：CLM015（成分与整方互推）、CLM016（炮制品互推）、CLM017（无人体暴露证据却声称在人体浓度下成立）、CLM018（同一来源被计为多项独立研究）、CLM019（未测量的结局被说成阴性：未知仍须是未知；预测找不到结合，不等于证明不结合）。
 
 **局限：**
 - 这是有明确构造的回归基准，不是真实错误率；第二轮修补是在已知哪些变异体漏网之后写的。

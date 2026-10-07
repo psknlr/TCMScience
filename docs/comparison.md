@@ -38,7 +38,9 @@ them:
 - the claim contract, the CLM codes;
 - the release check over snapshot paths.
 
-A claim whose citation names none of the task's sources is withheld before these gates run.
+A claim is withheld before these gates run if its citation names none of the task's
+sources, or if its kind or certainty is not one of the declared values. Nothing is filled
+in for it: checking a default the model never wrote would check a different claim.
 
 **A+ exists because of D.** D gets a second call and A, B and C do not. Without A+, any
 advantage D shows could simply come from that extra call. A+ spends the same second call on
