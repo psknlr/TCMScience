@@ -38,6 +38,15 @@ class EventType(str):
     COMPONENT_PROMOTED = "ComponentPromoted"
     COMPONENT_QUARANTINED = "ComponentQuarantined"
     RUN_COMPLETED = "RunCompleted"
+    # Long jobs (backends.jobs). A submission is recorded before the executor is asked
+    # (JobRequested) and again with the executor's job reference (JobSubmitted), so a
+    # crash at any point leaves a trace a restart can reconcile; only JobCollected can
+    # carry SUCCEEDED, because only collection validates what the job wrote.
+    JOB_REQUESTED = "JobRequested"
+    JOB_SUBMITTED = "JobSubmitted"
+    JOB_OBSERVED = "JobObserved"
+    JOB_COLLECTED = "JobCollected"
+    JOB_CANCELLED = "JobCancelled"
 
 
 def content_hash(value: Any) -> str:
@@ -182,9 +191,19 @@ class EventLog:
         }
 
     def save(self, path: str | Path) -> Path:
+        """Write the log, replacing the previous file in one step.
+
+        A long job's reference lives here, and the log is rewritten after every job event;
+        writing in place meant a crash mid-write left a truncated file and lost the one
+        record that says which job is still running on a GPU somewhere.
+        """
+        import os
+
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex[:8]}.tmp")
+        tmp.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
+        os.replace(tmp, p)
         return p
 
     @classmethod
