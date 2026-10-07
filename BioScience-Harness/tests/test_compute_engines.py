@@ -5,9 +5,13 @@ result then says no model ran; how each renders a task in its tool's input forma
 each reads its tool's output. The outputs in ``tests/fixtures/compute`` come from the first
 real runs (docs/compute-tasks.md; 2026-10-07, CPU): ``boltz_ubq_aspirin_*`` (boltz 2.2.1,
 ubiquitin and aspirin: the model gzipped, the confidence summary, Boltz's record of its
-chain numbering, the PAE) and ``boltz_reorder_*`` (three chains Boltz numbers in another
-order than they were given). ``complex_model.cif`` (two MKTAY chains and an ethanol in
-python-ihm's layout) is still hand-made, for the Chai-1 reader and the mmCIF reader.
+chain numbering, the PAE), ``boltz_reorder_*`` (three chains Boltz numbers in another
+order than they were given), ``chai_ubq_aspirin_*`` (chai_lab 0.6.1, the same complex),
+``mpnn_1ubq.fa`` (ProteinMPNN at 8907e66, eight designs for ubiquitin) and
+``openmm_explicit_*`` / ``openmm_vacuum_*`` (OpenMM 8.6.1: the run record and the energy
+table, with and without a periodic box). ``complex_model.cif`` (two MKTAY chains and an
+ethanol in python-ihm's layout) is still hand-made: the best-of-two-samples Chai-1 test and
+the mmCIF reader use it.
 
 ``test_structure_engines_real.py`` runs the tools themselves. Here, one test drives
 ``BoltzEngine.run`` end to end through the reviewed environment, the job protocol and
@@ -593,30 +597,36 @@ def test_proteinmpnn_designs_are_read_and_checked_against_the_request(tmp_path):
 
 # -------------------------------------------------------------------- OpenMM
 def test_openmm_runs_a_script_from_the_task_and_reads_its_records(tmp_path):
-    task = DynamicsTask("md", str(BACKBONE), duration_ps=10.0, seed=11)
+    """OpenMM 8.6.1: 1UBQ with its crystal waters, TIP3P-FB, 0.15 M NaCl, 2 ps, one thread."""
+    task = DynamicsTask("md", str(BACKBONE), duration_ps=2.0, report_interval_ps=0.2,
+                        seed=11, platform="CPU")
     engine = OpenMMEngine()
     prepared = engine.prepare(task, tmp_path, PROBE)
     assert list(prepared.spec.argv) == ["/env/bin/python", "-I",
                                         str(tmp_path / "openmm_run.py"),
                                         str(tmp_path / "openmm_config.json"), "{output}"]
     config = json.loads((tmp_path / "openmm_config.json").read_text())
-    assert (config["steps"], config["report_steps"], config["seed"]) == (5000, 500, 11)
+    assert (config["steps"], config["report_steps"], config["seed"]) == (1000, 100, 11)
     assert config["force_field"] == ["amber14-all.xml", "amber14/tip3pfb.xml"]
     compile((tmp_path / "openmm_run.py").read_text(), "openmm_run.py", "exec")
     assert (tmp_path / "openmm_run.py").read_text() == _OPENMM_SCRIPT
     dcd = tmp_path / "trajectory.dcd"
     dcd.write_bytes(b"\x54\x00\x00\x00CORD" + bytes(80))
-    files = dict(relaxed=BACKBONE, final=BACKBONE, run=COMPUTE / "openmm_run.json",
-                 energies=COMPUTE / "openmm_energies.csv", trajectory=dcd)
+    files = dict(relaxed=BACKBONE, final=BACKBONE, run=COMPUTE / "openmm_explicit_run.json",
+                 energies=COMPUTE / "openmm_explicit_energies.csv", trajectory=dcd)
     for name, path in files.items():
         assert prepared.validators[name](path) is None, name
     result = engine.read(task, arts(**files), engine._unrun(PROBE, "fixture"), prepared)
     assert result.status is ExecutionStatus.SUCCEEDED
-    assert len(result.energies) == 10 and result.energies[-1].step == 5000
-    assert result.energies[0].temperature_k == 299.14
+    assert [e.step for e in result.energies] == list(range(100, 1001, 100))
+    first = result.energies[0]
+    assert (round(first.temperature_k, 2), round(first.volume_nm3, 2)) == (170.40, 184.88)
     assert result.minimised_energy_kj_mol < result.initial_energy_kj_mol
-    assert result.model_metrics["platform"] == "CPU"
+    metrics = result.model_metrics
+    assert (metrics["platform"], metrics["periodic"], metrics["threads"]) == ("CPU", True, "1")
+    assert metrics["n_atoms"] == 17303, "another run of this task built 17,189: see the doc"
     assert any("no pKa model" in w for w in result.warnings)
+    assert any("58 water molecules are kept" in w for w in result.warnings)
     assert len(json.loads(json.dumps(result.to_dict()))["energies"]) == 10
 
 
@@ -624,9 +634,9 @@ def test_openmm_outputs_that_are_not_what_was_asked_do_not_validate(tmp_path):
     prepared = OpenMMEngine().prepare(DynamicsTask("md", str(BACKBONE), duration_ps=20.0),
                                       tmp_path, PROBE)
     assert "10 energy rows; expected 20" in prepared.validators["energies"](
-        COMPUTE / "openmm_energies.csv")
+        COMPUTE / "openmm_explicit_energies.csv")
     blown = tmp_path / "run.json"
-    record = json.loads((COMPUTE / "openmm_run.json").read_text())
+    record = json.loads((COMPUTE / "openmm_explicit_run.json").read_text())
     blown.write_text(json.dumps({**record, "minimised_energy_kj_mol": float("nan")}))
     assert "the system blew up" in prepared.validators["run"](blown)
     not_dcd = tmp_path / "t.dcd"

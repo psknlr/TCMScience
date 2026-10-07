@@ -1,0 +1,1 @@
+{"openmm": "8.6.1", "platform": "CPU", "precision": null, "threads": "1", "periodic": true, "initial_energy_kj_mol": -89556.29326422767, "minimised_energy_kj_mol": -330393.7653039698, "n_atoms": 17303, "steps": 1000}

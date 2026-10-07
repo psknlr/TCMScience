@@ -22,19 +22,139 @@ This page covers six pieces that fix this:
 | Reviewed environments | `bioagent.backends.environments` | A provider runs in its own interpreter. A container gets a GPU, read-only data and one writable directory only when a reviewed, digest-bound configuration says so |
 | ToolsAgent adapter | `bioagent.backends.toolsagent` | SciToolAgent's tool service, one fixed function per component, typed arguments, honest statuses, and long calls run as jobs |
 
-## What ran while this was built, and what did not
+## What ran, and what did not
 
-None of Boltz, Chai-1, ProteinMPNN or OpenMM is installed where this was written, and
-there is no GPU and no container runtime. **No model was run.** The input renderers and
-output readers follow each project's documentation and source as read on 2026-10-07
-(Boltz `docs/prediction.md` and `main.py`; chai-lab `README.md`, `examples/restraints`
-and `chai1.py`; ProteinMPNN `README.md`, `protein_mpnn_run.py` and `helper_scripts`).
-They are tested against hand-made files in those formats
-(`BioScience-Harness/tests/fixtures/compute`), not against the tools. One test runs
-`BoltzEngine` end to end against a *stand-in interpreter* that answers the probe and writes
-those files. It proves the plumbing (detection through the reviewed environment, the job,
-validation, reading). It does not prove anything about Boltz. The first run against each
-real tool should be checked by hand, and its outputs added as fixtures.
+The engines were first run through their adapters on 2026-10-07, on a CPU: four vCPUs of
+an Intel Xeon at 2.8 GHz (AVX-512, no AVX512-BF16), 15.7 GB of RAM, no GPU, no container
+runtime, shared with five other agents (load average 6 to 14 during the runs, so each time
+below is an upper bound for this machine idle). Each tool ran in its own virtualenv
+(Python 3.12.3) named by a reviewed environments file, through `Engine.run`: probe,
+prepare, a supervised local job, collection with validation, reading. Nothing was
+downloaded during a run. A job carries no proxy settings, and the weights were fetched
+beforehand and checked against their publisher's digests.
+
+| Engine | Environment | Weights (SHA-256) |
+| --- | --- | --- |
+| OpenMM | openmm 8.6.1 (PyPI wheel: Reference and CPU platforms), numpy 2.5.3 | the force fields OpenMM ships |
+| ProteinMPNN | checkout `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57`, torch 2.6.0+cpu, numpy 2.3.4 | `vanilla_model_weights/v_48_020.pt` `c9cb4a671d79…` |
+| Boltz-2 | boltz 2.2.1, torch 2.6.0+cpu, numpy 1.26.4, pytorch-lightning 2.5.0, rdkit 2026.3.6 | `boltz2_conf.ckpt` `090e82ac8c92…` (2.29 GB), `boltz2_aff.ckpt` `dcc5cd3722b1…` (2.06 GB), `mols.tar` `39e076d96dbe…` (1.86 GB; 1.8 GB extracted): each the SHA-256 Hugging Face publishes for `boltz-community/boltz-2` |
+| Chai-1 | chai_lab 0.6.1, torch 2.6.0+cpu, numpy 1.26.4, rdkit 2024.9.6 | the six `models_v2/*.pt` from chaiassets.com (1.18 GB; each MD5 equal to the server's ETag; `trunk.pt` `b7a08e104455…`), `conformers_v1.apkl` `f2161256b565…` |
+
+| Run | Input and settings | Status | Wall time | Peak memory | Outputs (SHA-256) |
+| --- | --- | --- | --- | --- | --- |
+| OpenMM | 1UBQ with its 58 crystal waters; amber14 and TIP3P-FB, 1 nm padding, 0.15 M NaCl, pH 7: 17,189 atoms; minimisation, then 10 ps (5,000 steps of 2 fs) at 300 K, CPU platform | SUCCEEDED | 1,198 s: set-up and minimisation 575 s, the 10 ps 621 s | 0.15 GB | relaxed `b08ea8391775…`, DCD `e546ba451826…`, energies `771e6dac8a86…` |
+| OpenMM | the same task for 2 ps (a report every 0.2 ps) with the script as it is now, one thread: 17,303 atoms | SUCCEEDED | 710 s: set-up and minimisation 601 s, the 2 ps 109 s | 0.14 GB | energies `e9271ea74ccb…`, run record `8ef600ec2b3e…` |
+| OpenMM | the same structure with amber14 and GBn2 implicit solvent | FAILED in `createSystem`: "No template found for residue 76 (HOH)" | 2 s | — | now refused before it runs (below) |
+| OpenMM | 1UBQ without its waters (1,231 atoms), GBn2; minimisation, then 2 ps | SUCCEEDED | 1,377 s: set-up and minimisation 1,023 s, the 2 ps 353 s (GBn2 is a `CustomGBForce`, slow on the CPU platform) | 0.07 GB | relaxed `4e1ff92165d5…`, energies `fc275b5ce0dc…` |
+| OpenMM | 1UBQ without its waters, vacuum (amber14 alone); minimisation, then 1 ps; one thread (`OPENMM_CPU_THREADS=1`, which the job now inherits) | SUCCEEDED | 75 s | 0.07 GB | energies `94265e311189…`, run record `388f2e7fb538…` |
+| ProteinMPNN | 1UBQ chain A, positions 1, 2, 3, 44 and 68 fixed, 8 designs in batches of 2, T = 0.1, seed 37, `v_48_020` | SUCCEEDED | 414 s, of which sampling 393 s, with torch's default of four threads; the same design run directly took 10.5 s in all with one thread (16 s on a repeat) and 47 s with two | 0.39 GB | `seqs/1ubq.fa` `1e3b06941a56…` |
+| Boltz-2 | ubiquitin (76 residues, `msa: empty`) and aspirin by SMILES; 1 recycle (2 trunk passes), 50 sampling steps, 1 sample, seed 42, `--accelerator cpu`, 2 threads | SUCCEEDED | 378 s, of which prediction 289 s | 4.7 GB (the process's peak RSS; its two data-loader workers share most of it) | model `d6768a18df4d…`, PAE `1f652d6c3ee3…` |
+| Boltz-2 | three chains: A = ubiquitin 1–20, B = a 19-residue peptide, C = A's sequence; the same settings | SUCCEEDED | 380 s | 4.6 GB (PSS, all its processes) | model `bc279ab01038…` |
+| Chai-1 | ubiquitin and aspirin by SMILES, no MSA, no ESM embeddings; one trunk pass (`--num-trunk-recycles 1`), 50 diffusion steps, 1 sample, seed 42, `--device cpu`, 2 threads | TIMEOUT at the run's 45-minute limit, the job left running; it finished and was collected with `Engine.resume`: SUCCEEDED | 2,777 s: the trunk pass 1,946 s, 49 diffusion steps 659 s | 11.3 GB (PSS); the host's free memory fell to 1.3 GB | model `ef5bab2f0548…`, scores `cf114c55d772…` |
+
+What the numbers are: Boltz-2 gave ubiquitin a mean pLDDT of 93.4 and the aspirin 32.1,
+pTM 0.88 and ipTM 0.53, from a single sequence, one recycle and 50 sampling steps on a CPU;
+Chai-1, with one trunk pass and no embeddings, 57.8 and 35.8, pTM 0.51, ipTM 0.10 and an
+aggregate score of 0.18. Those are runs of the plumbing on real models, not poses anyone
+should use. The designs recover 49 to 59 % of the native residues at the designed
+positions; ProteinMPNN's own scores for them (0.83 to 0.88) are lower than the native's
+(1.33).
+
+The two explicit-solvent runs of 1UBQ built different systems: 17,189 atoms, then 17,303
+(a cubic box of 5.685 nm, then 5.697 nm, and 5,252 added waters, then 5,290; the protein,
+its 58 crystal waters and the 14 Na⁺ and 14 Cl⁻ were the same). OpenMM 8.6.1's
+`addHydrogens` ends with a 50-step minimisation on the platform, and `addSolvent` sizes the
+box from the result; the two runs used four threads and one. So the task alone does not
+fix the system: the run record carries the atom count and, now, the thread count.
+
+**What the first runs changed.** Each change is pinned by a test, most of them on the
+runs' own outputs, trimmed and committed as fixtures (`tests/fixtures/compute`):
+
+- **Boltz downloads 1.86 GB at start-up when `mols.tar` is missing**, even when the
+  extracted `mols/` is there: `download_boltz2` (boltz 2.2.1) tests for the tar first. The
+  cache must hold `mols.tar` as well; one without it is refused before anything runs.
+- **Boltz numbers the chains by entity, not in input order.** Chains A = X, B = Y, C = X
+  ran as A, C, B: its record (`processed/records/<name>.json`), the per-chain scores in the
+  confidence file and the atoms in the mmCIF all follow that order. Mapping the scores by
+  input order would have swapped B's and C's without any check noticing. The order of the
+  chains in the mmCIF did match the numbering, as the adapter assumed, but the adapter now
+  reads the numbering from Boltz's record, a required artefact checked to name exactly the
+  task's chains, rather than infer it.
+- **The same task ran one trunk pass fewer in Chai-1 than in Boltz.** Boltz runs
+  `recycling_steps + 1` passes; chai_lab counts every pass (`--num-trunk-recycles 1`
+  gave one, "Trunk recycles: 0/1"), and with `recycling_steps = 0`, which the task
+  allows, it would skip the trunk and diffuse from the input embeddings. The adapter now
+  passes `recycling_steps + 1`.
+- **`resume` recorded the command the task would run now, not the one that ran.** The
+  Chai-1 job outlived its run's limit and finished after the recycle mapping above had
+  changed. Collected as the same task, `resume` would have rendered it again, recorded
+  `--num-trunk-recycles 2` for a job that ran with `1`, and read its outputs with the new
+  task's checks. An engine job's spec now binds the task's digest, and `resume` collects
+  only a job whose spec is the one the task renders (otherwise FAILED, nothing read). The
+  Chai-1 job was collected as `recycling_steps = 0`, which renders exactly the spec it was
+  submitted with.
+- **A structure with crystal waters in an implicit-solvent or vacuum task** reached
+  OpenMM and failed there. `DynamicsTask` now refuses it before anything runs when no
+  water model is among the force-field files; an explicit-solvent task keeps the waters
+  and says so in a warning.
+- **OpenMM reports a box volume for a system without a box**: 8.0 nm³, its default 2 nm
+  cube, in every row of the implicit-solvent run. The script now asks for the volume only
+  for a periodic system, records `periodic` and the CPU platform's thread count, and records
+  a platform without a precision property as `null` rather than `""`.
+- **A job could not be told how many CPU threads to use.** The local executor passed no
+  thread variable, so torch, BLAS and OpenMM started one thread per core whatever else ran,
+  and on this shared machine ProteinMPNN sampled for 393 s where a one-thread run took
+  10.5 s. A job now inherits `OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
+  `OPENBLAS_NUM_THREADS` and `OPENMM_CPU_THREADS`, as it inherits `CUDA_VISIBLE_DEVICES`;
+  the vacuum run's record shows OpenMM using the one thread it was given.
+
+**Confirmed, unchanged.** The Boltz flags, YAML (`msa: empty` runs single-sequence),
+output paths and confidence keys; pLDDT × 100 in `B_iso_or_equiv` (per residue for a
+polymer, per atom for a ligand: the chain means reproduce Boltz's own `complex_plddt`);
+the PAE file; the ligand as HETATM `LIG1`. ProteinMPNN's command line, the `seqs/<name>.fa`
+layout, the header fields (seed, `model_name`, `git_hash`), 1-based fixed positions, and
+`backbone_chains`, which gave the same sequences as ProteinMPNN's own `parse_PDB` on a
+PDB with renumbering, a gap, an insertion code, an MSE as HETATM, an alternate location
+of another residue and a second chain. ProteinMPNN's checkpoints load under torch 2.6's
+`weights_only` default, and a fixed seed gave byte-identical designs with one thread,
+with two, and on a repeat. OpenMM's StateDataReporter columns and units and the DCD
+header.
+
+**What did not run, and why.**
+
+- **Chai-1 within its budget, and anything past one sample.** The run above took 46
+  minutes, 77 s over the 45-minute budget: without an MSA, chai_lab still gives its trunk
+  a masked MSA of 16,384 rows (`MAX_MSA_DEPTH`) and pads the complex to 256 tokens, which
+  on this CPU cost 32 minutes for one pass and up to 11.3 GB. It is exported for a CUDA
+  device; on a CPU it runs, slowly. `test_structure_complex_real.py` has a Chai-1 test for
+  the same task, not run here as a test. Not exercised: restraints (the file's columns were
+  checked against chai_lab's schema in its source), ESM embeddings (a 5.7 GB fp16 ESM-2
+  3B), MSAs and templates, more than one sample, so the best-sample choice is tested only
+  on synthetic scores.
+- **ESMFold, local and governed** (`bioagent fold --method esmfold`, the
+  `predict-protein-structure` skill). *Governed:* in a harness interpreter with torch
+  2.6.0+cpu and transformers 4.57.1, a governed run of the skill with method `esmfold` was
+  refused by the operation broker before any weight was fetched
+  (`structure.esmfold.weights` reaches huggingface.co, which the skill's manifest does not
+  declare: DENIED, recorded; the Hugging Face cache stayed empty), as
+  [operation-governance.md](operation-governance.md) says it should. *Local:* the fold did
+  not run. `facebook/esmfold_v1` has one fp32 `pytorch_model.bin` (8.44 GB; the file
+  fetched hashed to the Hub's `2ee07356b125…`), and transformers 4.57.1 also fetched, on
+  its own, an 8.44 GB `model.safetensors` from the Hub's unmerged pull requests
+  (`refs/pr/4`, `refs/pr/6`; `9a865162cdca…`). Still loading, the process passed 11.7 GB,
+  and the guard stopped it at the 11.5 GB this work was allowed on a shared 15.7 GB
+  machine; the 16 GB of downloads were deleted. It needs a machine with more free memory,
+  or a GPU. Found, not changed: `load_esmfold` pins no revision and records none, so the
+  weights a local fold uses can come from an unmerged pull request.
+- **No GPU, no container.** Nothing here ran on CUDA: Boltz's cuequivariance kernels
+  (switched off on a CPU by Boltz itself), OpenMM's CUDA and OpenCL platforms, Chai-1 on
+  the device it was exported for. `ContainerBackend` and its GPU profiles are still tested
+  only through the argv they build.
+- **Not exercised:** MSAs (files or a server) for any model, Boltz-1, Boltz's affinity
+  head and potentials, more than one sample, constraints, ProteinMPNN's soluble weights,
+  OpenMM on a structure with ligands. Boltz-2 and Chai-1 are minutes to an hour per complex
+  on this CPU, so their real-run tests (`test_structure_complex_real.py`) are for a
+  machine with the weights, not for CI.
 
 The ToolsAgent adapter was checked in three ways. A local stub reproduces the endpoint's
 behaviour. A FastAPI app with ToolsAgent's exact `run_func` signature, served by uvicorn,
@@ -48,7 +168,7 @@ answered every call the way the adapter reads it ([below](#deployed)).
 | --- | --- | --- | --- |
 | `ComplexPredictionTask` | chains (`ids` per copy, so `("A","B")` is a dimer; sequence; kind protein/dna/rna; modifications by 1-based position and CCD code; an MSA file), ligands (SMILES *or* CCD code), constraints (pocket, contact, covalent bond), `ModelSpec`, seed, samples, recycling and sampling steps | `ComplexPredictionResult`: the mmCIF model with its SHA-256, pLDDT per chain, pTM, ipTM, ipTM per pair of chains, PAE when written. Numbers only one model reports stay in `model_metrics` under their own names | duplicate chain ids, an entity with no copy, residues outside the alphabet, positions outside their chain, a ligand with both or neither of SMILES and CCD, a SMILES RDKit cannot parse (recorded as *unchecked* when RDKit is absent), a constraint naming a missing chain, an MSA server without `allow_remote` |
 | `SequenceDesignTask` | backbone (PDB), chains to design, fixed positions per designed chain, temperature, number of sequences, batch size, seed | `SequenceDesignResult`: the native sequence and score, and each design's sequences per chain, score, global score and recovery | fixed positions outside the chain *as ProteinMPNN reads it* (residue numbers first to last, a gap for each missing number), fixed positions on a chain that is not designed, every position fixed, seed 0 (ProteinMPNN's "pick a random seed"), a number of sequences that is not a multiple of the batch size (ProteinMPNN would quietly make fewer), a multi-model PDB |
-| `DynamicsTask` | structure, force-field files, explicit/implicit/no solvent, padding, ionic strength and ions, protonation pH, minimisation, duration, time step, temperature, friction, report interval, seed, platform | `DynamicsResult`: initial and minimised energies, the relaxed and final structures, the DCD trajectory, the StateDataReporter energies | seed 0 (OpenMM's "choose a seed"), explicit solvent without a water model, implicit solvent without an implicit-solvent file, ions without explicit solvent, a time step above 2 fs (needs hydrogen-mass repartitioning, not set up here), a duration or report interval that is not a whole number of steps |
+| `DynamicsTask` | structure, force-field files, explicit/implicit/no solvent, padding, ionic strength and ions, protonation pH, minimisation, duration, time step, temperature, friction, report interval, seed, platform | `DynamicsResult`: initial and minimised energies, the relaxed and final structures, the DCD trajectory, the StateDataReporter energies | seed 0 (OpenMM's "choose a seed"), explicit solvent without a water model, implicit solvent without an implicit-solvent file, waters in the structure with no water model among the force-field files (a crystal structure in an implicit-solvent or vacuum run), ions without explicit solvent, a time step above 2 fs (needs hydrogen-mass repartitioning, not set up here), a duration or report interval that is not a whole number of steps |
 
 Positions are always 1-based indices into the chain's sequence as given. That is the
 convention of Boltz, Chai-1 and ProteinMPNN, and PDB residue numbers do not follow it.
@@ -61,8 +181,8 @@ to make them requirements. An installation that does not match is a refusal, not
 
 | Engine | Models | Runs as | Must already be on disk | Refuses |
 | --- | --- | --- | --- | --- |
-| `BoltzEngine` | `boltz-1`, `boltz-2` | `python -I -m boltz.main predict <name>.yaml --out_dir … --cache … --seed … --write_full_pae` | the cache (`model.options["cache"]`): `boltz2_conf.ckpt`, `boltz2_aff.ckpt`, `mols/` (Boltz-1: `boltz1_conf.ckpt`, `ccd.pkl`), because Boltz otherwise downloads them when it starts | a ligand contact without an atom name, `max_distance` outside 4–20 Å, contact constraints on Boltz-1 |
-| `ChaiEngine` | `chai-1` | `python -I -m chai_lab.main fold <name>.fasta … --seed … --no-use-esm-embeddings [--constraint-path …]` | `CHAI_DOWNLOADS_DIR` (`model.options["downloads"]`): the six `models_v2/*.pt` and `conformers_v1.apkl` | a ligand given by CCD code (Chai-1 takes SMILES; converting would choose protonation and stereochemistry), MSA files, covalent bonds, a contact within one chain, more than 26 chains |
+| `BoltzEngine` | `boltz-1`, `boltz-2` | `python -I -m boltz.main predict <name>.yaml --out_dir … --cache … --seed … --write_full_pae` | the cache (`model.options["cache"]`): `boltz2_conf.ckpt`, `boltz2_aff.ckpt`, `mols.tar` and `mols/` (Boltz-1: `boltz1_conf.ckpt`, `ccd.pkl`), because Boltz otherwise downloads them when it starts | a ligand contact without an atom name, `max_distance` outside 4–20 Å, contact constraints on Boltz-1 |
+| `ChaiEngine` | `chai-1` | `python -I -m chai_lab.main fold <name>.fasta … --seed … --num-trunk-recycles <recycling_steps + 1> --no-use-esm-embeddings [--constraint-path …]` | `CHAI_DOWNLOADS_DIR` (`model.options["downloads"]`): the six `models_v2/*.pt` and `conformers_v1.apkl` | a ligand given by CCD code (Chai-1 takes SMILES; converting would choose protonation and stereochemistry), MSA files, covalent bonds, a contact within one chain, more than 26 chains |
 | `ProteinMPNNEngine` | `proteinmpnn` | `python -I -c <runpy shim> <checkout> --pdb_path … --pdb_path_chains … --seed … --path_to_model_weights …` | the checkout (`interpreters["ProteinMPNN"].root`) with `vanilla_model_weights/` or `soluble_model_weights/` | model names the weights folder does not have |
 | `OpenMMEngine` | `openmm` | `python -I openmm_run.py openmm_config.json <output>`, a script written from the task | — | (the task's own refusals) |
 
@@ -80,8 +200,10 @@ Each engine also refuses what it would otherwise do silently:
   `ModelSpec.weights_sha256` pins.
 - **Chain ids are mapped, not assumed.** Chai-1 letters chains A, B, C in input order
   whatever they are called. The adapter maps in both directions. Boltz indexes per-chain
-  scores by asym id. The adapter takes that order from the order of chains in the model
-  file, which is how Boltz's mmCIF writer emits them; a real run should confirm it.
+  scores by asym id and numbers the chains grouped by entity, not in input order (chains
+  A = X, B = Y, C = X ran as A, C, B). The adapter reads the numbering from Boltz's record
+  of the input (`processed/records/<name>.json`, a required artefact that must name
+  exactly the task's chains).
 - **The best model is the one reported.** Boltz's `model_0` is its top sample by
   `confidence_score`. Chai-1 writes samples in sampling order, so the adapter reports the
   sample with the highest aggregate score and records which one it was.
@@ -128,7 +250,10 @@ already submitted under it.
 
 `run(spec, timeout_s=…)` submits, waits and collects. A job still running at the deadline
 is TIMEOUT. It is **not** cancelled, and it can be collected later from its reference
-(`Engine.resume` for the engines). `cancel` without a grant, or with a grant naming
+(`Engine.resume` for the engines, only as the task it was submitted for: an engine job's
+spec binds the task's digest, and a task that renders another spec is refused). Build the
+collecting controller without the run's `trace_path`, or its new log replaces the saved
+one; append its events instead. `cancel` without a grant, or with a grant naming
 another job, is DENIED and never reaches the executor. A cancellation the executor does
 not confirm is reported as RUNNING ("requested, not confirmed"), not as done.
 
@@ -136,9 +261,12 @@ not confirm is reported as RUNNING ("requested, not confirmed"), not as done.
 session. The job's directory holds `job.json`, `out/` (substituted for `{output}` in the
 argv), the logs and `exit.json`. The supervisor holds a file lock for its whole life, so
 "running" is a lock held, not a PID that may since belong to another process. A job
-inherits only `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `CUDA_VISIBLE_DEVICES` and
-`LD_LIBRARY_PATH`, plus what its spec declares, so the harness's API keys stay behind. It
-needs POSIX. `HTTPJobService(base_url)` speaks this protocol:
+inherits only `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR`, `CUDA_VISIBLE_DEVICES`,
+`LD_LIBRARY_PATH` and the thread limits `OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
+`OPENBLAS_NUM_THREADS` and `OPENMM_CPU_THREADS`, plus what its spec declares, so the
+harness's API keys stay behind. On a shared CPU host, set the thread limits: torch's
+default of one thread per core made a ProteinMPNN run about 40 times slower here. It needs
+POSIX. `HTTPJobService(base_url)` speaks this protocol:
 
 | Call | Request | Answer |
 | --- | --- | --- |
@@ -429,7 +557,7 @@ ubq = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRL
 task = ComplexPredictionTask(
     "ubq_dimer", chains=(Chain(("A", "B"), ubq),), ligands=(Ligand("L", ccd="HEM"),),
     constraints=(PocketConstraint("L", (Token("A", 8), Token("A", 44))),),
-    model=ModelSpec("boltz-2", version="2.2.0", options={"cache": "/srv/boltz-cache"}))
+    model=ModelSpec("boltz-2", version="2.2.1", options={"cache": "/srv/boltz-cache"}))
 result = BoltzEngine(ExecutionEnvironments.from_env()).run(task, "runs/", timeout_s=4 * 3600)
 result.status, result.reason, result.provenance.ran       # UNAVAILABLE, "... no model was run", False
 ```
@@ -479,8 +607,10 @@ ToolsAgentClient("http://127.0.0.1:60002").call(MOL_SIMILARITY, smiles1="CCO", s
 
 ## What this is not
 
-- **None of these tools has been run.** The formats are the documented ones. A tool
-  version that changes them fails validation; it does not produce a wrong result.
+- **Not a validation of the models.** OpenMM, ProteinMPNN, Boltz-2 and Chai-1 ran here,
+  on a CPU, with the settings above; what that shows is that the adapters read what these
+  versions write. A version that changes its formats fails validation; it does not produce
+  a wrong result.
 - **A governed long job is collected when someone resumes the loop.** An `awaiting` run
   holds its state in its checkpoint and ledger; nothing in this repository schedules the
   resume. Within one call the loop never sleeps on a job.
@@ -516,16 +646,17 @@ ToolsAgentClient("http://127.0.0.1:60002").call(MOL_SIMILARITY, smiles1="CCO", s
   shares one `Config()` between requests.
 
 Tests: `BioScience-Harness/tests/test_compute_contracts.py` (the three tasks, the mmCIF
-reader), `test_compute_engines.py` (refusals, renderers, readers, the stand-in end to end),
+reader on a hand-made file and on Boltz's), `test_compute_engines.py` (refusals,
+renderers, readers on the real runs' outputs, the stand-in end to end),
 `test_compute_jobs.py` (local executor and the HTTP job-service fixture: success, failure,
 lying digests, missing artefacts, unknown states, cancellation with and without grants,
-crash reconciliation), `test_backend_environments.py` (the review, container argv,
-interpreters, the default runtime), `test_toolsagent.py` (the stub, the governed path, long
-calls, the file-call guard, FastAPI with ToolsAgent's signature when FastAPI and uvicorn
-are installed, and the deployed service when `TOOLSAGENT_URL` names one),
-`test_psh_jobs.py` (governed long jobs: in process and in the isolated child on the local
-executor, in process on the HTTP fixture; pending submissions and collections in the
-chain, validated artefacts and their digests, continuations, a key per job, grants
+crash reconciliation, the inherited environment), `test_backend_environments.py` (the
+review, container argv, interpreters, the default runtime), `test_toolsagent.py` (the stub,
+the governed path, long calls, the file-call guard, FastAPI with ToolsAgent's signature
+when FastAPI and uvicorn are installed, and the deployed service when `TOOLSAGENT_URL`
+names one), `test_psh_jobs.py` (governed long jobs: in process and in the isolated child
+on the local executor, in process on the HTTP fixture; pending submissions and collections
+in the chain, validated artefacts and their digests, continuations, a key per job, grants
 recorded in the chain and the trace, the loop waiting and resuming, a restart reconciled
 from `open_jobs`, a restart after a collection the loop never recorded, an unconfirmed
 request, concurrent calls, an unreadable trace, a changed child configuration). All of
@@ -535,6 +666,35 @@ PSH's side is `PSH-Harness/tests/test_pending_results.py` (the contract, the bro
 record and label, the child's envelope, the loop's WAITING and AWAITING, the ledger,
 checkpoints, the journal, and properties over random job schedules: pending work is never
 a result, never released, never submitted twice, and the chain stays intact).
+
+Two files run the tools themselves, each in the interpreter `$BIOAGENT_ENVIRONMENTS` names
+for it, and skip when it names none (fail under `BIOAGENT_REQUIRE_TOOLS=1`):
+`test_structure_engines_real.py` (OpenMM: ubiquitin in vacuum, minimisation and 1 ps;
+ProteinMPNN: four designs for ubiquitin with fixed positions) is cheap enough for CI;
+`test_structure_complex_real.py` (Boltz-2, and Chai-1 where it can run, on ubiquitin and
+aspirin) also needs `$BIOAGENT_BOLTZ_CACHE` or `$BIOAGENT_CHAI_DOWNLOADS` and is not.
+Here the first took 50 to 84 s with one thread per tool, depending on the machine's
+load. A CI job for it (Python 3.12, as the modelling job sets up), as verified here:
+
+```bash
+python -m venv /tmp/openmm && /tmp/openmm/bin/pip install openmm==8.6.1
+python -m venv /tmp/mpnn
+/tmp/mpnn/bin/pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+/tmp/mpnn/bin/pip install numpy==2.3.4
+git clone https://github.com/dauparas/ProteinMPNN /tmp/ProteinMPNN
+git -C /tmp/ProteinMPNN checkout 8907e6671bfbfc92303b5f79c4b5e6ce47cdef57
+pip install -e "BioScience-Harness[dev]"
+python - <<'EOF'
+import json
+from bioagent.backends.environments import reviewed
+body = {"interpreters": {"openmm": {"prefix": "/tmp/openmm"},
+                         "ProteinMPNN": {"prefix": "/tmp/mpnn", "root": "/tmp/ProteinMPNN"}}}
+json.dump(reviewed(body, by="ci", on="2026-10-07"), open("/tmp/environments.json", "w"))
+EOF
+cd BioScience-Harness
+BIOAGENT_ENVIRONMENTS=/tmp/environments.json BIOAGENT_REQUIRE_TOOLS=1 \
+    python -m pytest -q tests/test_structure_engines_real.py
+```
 
 ## 中文摘要
 
@@ -548,4 +708,8 @@ a result, never released, never submitted twice, and the chain stays intact).
 - **ToolsAgent 适配器** 每个函数一个组件，固定 `func_name` 并声明数据去向（含服务端再转发的主机）。参数按各工具自己的分隔规则渲染，含分隔符的值发送前即拒绝。HTTP 200 只有符合工具结果形态才算成功。文件只是服务端路径引用。长调用走作业协议，但 ToolsAgent 无法取消，也不保留作业记录，这两点如实说明。
 - **ToolsAgent 真实部署** `scripts/deploy_toolsagent.sh` 按审阅过的提交（ac1cf19）部署化学类工具，只监听 127.0.0.1。上游依赖清单本身无法安装（numpy 2.1.3 与 langchain 0.3.8 冲突），脚本给出可共存的版本。2026-10-07 实测：分子量、相似度、InChI 均按适配器的读法返回 SUCCEEDED，数值与本地 RDKit 一致；服务以 HTTP 200 返回的错误文本判为 FAILED；未安装的生物类模块判为 UNAVAILABLE；未知函数（HTTP 500）判为 FAILED；经受治理的 Runtime 调用被记录，默认权限下被拒。CI 的 `toolsagent` 任务每次部署并重跑这些测试。
 
-**未做与未验证：** 这里没有安装任何上述工具，也没有 GPU 与容器运行时，**没有运行任何模型**；读写格式按各项目 2026-10-07 的文档与源码实现，用手写的同格式样例测试。Boltz 的端到端测试使用替身解释器，只证明管线，不证明 Boltz。长作业已可作为受 PSH 治理的工具调用（进程内与隔离子进程均可）：未完成的作业记为待定（pending），不作为结果、不发布，循环暂停后恢复时收集；但恢复须由调用方发起；Boltz 亲和力、Chai-1 的 MSA 文件与共价键、ProteinMPNN 的绑定位置、OpenMM 的氢质量重分配等均未提供，也没有近似替代。
+**实际运行（2026-10-07，4 核 CPU、15.7 GB 内存、无 GPU，与另外五个代理共用）：** 四个引擎各装在独立虚拟环境中，由评审过的环境配置指定解释器，经适配器与长作业协议运行；运行中不下载任何东西，权重事先下载并与发布方摘要核对。OpenMM 8.6.1：1UBQ 显式溶剂（17,189 原子）最小化加 10 ps，成功，1,198 秒。ProteinMPNN（提交 8907e66）：泛素 8 条设计，成功，固定位置保持原残基。Boltz-2（boltz 2.2.1）：泛素加阿司匹林（SMILES，无 MSA，1 次循环，50 步采样），成功，378 秒，约 4.7 GB；三条链的换序实验表明 Boltz 按实体给链编号（输入 A、B、C，运行顺序为 A、C、B）。Chai-1（chai_lab 0.6.1）：同一复合物（主干一遍、50 步扩散、不用 ESM 嵌入）用时 46 分钟（主干一遍 32 分钟）、内存峰值 11.3 GB，超出 45 分钟预算；适配器按设计报告 TIMEOUT 并让作业继续运行，作业结束后用 `Engine.resume` 收集，结果 SUCCEEDED。同一显式溶剂任务的两次运行构建出不同的体系（17,189 与 17,303 个原子）：OpenMM 加氢后会在计算平台上做 50 步能量最小化，盒子大小随之而定，两次运行分别用了 4 个与 1 个线程；运行记录现同时记下原子数与线程数。
+
+**真实运行发现并已修复的问题（均有测试，测试样例取自这些运行的真实输出）：** Boltz 缓存缺 `mols.tar` 时会在启动时重新下载 1.86 GB，现要求其存在；Boltz 的逐链分数改按其记录文件中的编号映射，不再推断；Chai-1 的 `--num-trunk-recycles` 计的是主干总遍数而 Boltz 计的是首遍之后的循环次数，适配器现给 Chai-1 传 `recycling_steps + 1`（否则 0 次循环会让 Chai-1 完全跳过主干）；`resume` 原先会按当前适配器重新渲染任务，记录一条并未运行的命令，现在作业规格绑定任务摘要，规格不一致即拒绝收集；含晶体水的结构用于隐式溶剂或真空任务时会在 OpenMM 内部失败，现在运行前即拒绝；非周期体系不再报告 OpenMM 默认盒子的 8 nm³ 体积；作业现可继承线程数变量（`OMP_NUM_THREADS` 等），在共享 CPU 上 ProteinMPNN 采样由 393 秒降到 10.5 秒。
+
+**未做与未验证：** 本地 ESMFold 折叠没有完成：`facebook/esmfold_v1` 只有一个 8.44 GB 的 fp32 `pytorch_model.bin`，transformers 4.57.1 还自行从 Hub 未合并的拉取请求下载了 8.44 GB 的 `model.safetensors`，加载过程中内存超过 11.7 GB，被为共享机器设置的 11.5 GB 守护进程终止，下载的 16 GB 已删除；另发现 `load_esmfold` 不固定也不记录权重版本，尚未修改。受治理的 ESMFold 运行在下载任何权重之前即被操作代理拒绝（清单未声明 huggingface.co），与设计一致。没有 GPU 与容器运行时；MSA、Boltz-1、Boltz 亲和力、多样本、约束、ProteinMPNN 可溶性权重、含配体的 OpenMM 体系均未运行。长作业已可作为受 PSH 治理的工具调用（进程内与隔离子进程均可）：未完成的作业记为待定（pending），不作为结果、不发布，循环暂停后恢复时收集，但恢复须由调用方发起；Boltz 亲和力、Chai-1 的 MSA 文件与共价键、ProteinMPNN 的绑定位置、OpenMM 的氢质量重分配等均未提供，也没有近似替代。OpenMM 与 ProteinMPNN 的真实运行测试足够便宜，可放入 CI；Boltz-2 与 Chai-1 的不行。
