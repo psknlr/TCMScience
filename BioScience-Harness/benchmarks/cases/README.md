@@ -34,3 +34,15 @@ This directory is ignored by `.gitignore` except for this file. See
 
 <!-- zh -->
 除本文件外，本目录被 `.gitignore` 忽略。关于一个基准赛季（benchmark Season）为何一经切出便不可修改，见 `docs/adr/0001`。
+
+## Running a candidate · 运行候选
+
+`scripts/benchmark_candidate.py` freezes a Season into a manifest
+(`benchmarks/registry/<season>.yaml`), runs a candidate's cases through the governed path,
+scores the bundle independently and verifies a published score. The public conformance
+Season (`benchmarks/conformance/`, `benchmarks/registry/conformance-1.yaml`) runs in CI and
+shows that the machinery works; it is not a benchmark result. Run a withheld Season the
+same way, and keep its bundles private: they contain the cases' inputs and outputs.
+
+<!-- zh -->
+`scripts/benchmark_candidate.py` 可将一个赛季冻结为清单（`benchmarks/registry/<season>.yaml`），经受治理路径运行候选的全部案例，独立评分运行包，并核验已公布的分数。公开的一致性赛季（`benchmarks/conformance/`、`benchmarks/registry/conformance-1.yaml`）在 CI 中运行，用来证明这套机制可用；它不是基准结果。不公开的赛季也用同样方式运行，其运行包包含案例的输入和输出，须同样保密。

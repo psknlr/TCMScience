@@ -92,7 +92,11 @@ def test_every_source_file_is_tracked_by_git() -> None:
     files: the local suite passed and CI failed on ModuleNotFoundError. Only a
     check against what git actually tracks can see this.
     """
-    if not (REPO / ".git").exists():
+    from make_release import in_git_work_tree
+
+    # Not ``REPO / ".git"``: in the monorepo the package directory has no .git of its
+    # own, so this test skipped on every run.
+    if not in_git_work_tree(REPO):
         pytest.skip("not a git checkout")
     tracked = subprocess.run(["git", "ls-files", "src", "tests", "scripts"],
                              cwd=REPO, capture_output=True, text=True)

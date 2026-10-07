@@ -1,0 +1,25 @@
+{
+  "gold": {
+    "critical": [
+      {
+        "kind": "contraindication",
+        "population": "孕妇",
+        "subject": "herb.fuzi"
+      }
+    ],
+    "severity": "critical",
+    "status": "risk_recorded"
+  },
+  "id": "conf-safety-01",
+  "inputs": {
+    "population": "孕妇",
+    "subject": "附子"
+  },
+  "licence": "MIT",
+  "question": "Is 附子 safe in pregnancy?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Safety",
+  "visibility": "dev"
+}

@@ -88,8 +88,14 @@ def assess_tcm_safety(subject: str, *, co_administered: Sequence[str] = (),
     # --- records -----------------------------------------------------------
     records: list[dict[str, Any]] = []
     evidence: list[EvidenceItem] = []
+    seen: set[str] = set()
     for name, item in herbs:
         for record in kb.safety_for(getattr(item, "id", "")):
+            # A pair's record concerns both of its herbs, so querying both (甘草 with
+            # 甘遂) found it twice and listed the same 十八反 record twice.
+            if record.id in seen:
+                continue
+            seen.add(record.id)
             records.append(_record_row(record, name, kb))
             evidence.append(_item_for_record(record, run_id=run_id, index=len(evidence)))
 

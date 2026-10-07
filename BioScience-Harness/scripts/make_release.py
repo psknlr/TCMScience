@@ -209,6 +209,18 @@ def find_unimportable(root: Path) -> list[tuple[str, str]]:
     return defects
 
 
+def in_git_work_tree(root: Path) -> bool:
+    """Whether ``root`` is inside a git work tree (it need not be the tree's top)."""
+    import subprocess as _sp
+
+    try:
+        probe = _sp.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=str(root),
+                        capture_output=True, text=True, timeout=60)
+    except (OSError, _sp.SubprocessError):
+        return False
+    return probe.returncode == 0 and probe.stdout.strip() == "true"
+
+
 def find_untracked_sources(root: Path) -> list[str]:
     """Source files present on disk but absent from git.
 
@@ -218,7 +230,10 @@ def find_untracked_sources(root: Path) -> list[str]:
     """
     import subprocess as _sp
 
-    if not (root / ".git").exists():
+    # ``root/.git`` was the test for "is this a checkout", and in the monorepo the
+    # package directory has no .git of its own: the check returned [] on every run and
+    # printed that every source file was tracked. Ask git instead.
+    if not in_git_work_tree(root):
         return []
     try:
         tracked = _sp.run(["git", "ls-files", "src", "tests", "scripts"], cwd=str(root),
@@ -406,8 +421,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[git]      {len(untracked)} source file(s) exist but are not tracked:")
         for rel in untracked[:8]:
             print(f"           {rel}")
-    else:
+    elif in_git_work_tree(REPO):
         print("[git]      every source file is tracked")
+    else:
+        print("[git]      not a git work tree; tracking not checked")
 
     unimportable = find_unimportable(REPO)
     if unimportable:

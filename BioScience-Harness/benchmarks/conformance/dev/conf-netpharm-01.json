@@ -1,0 +1,25 @@
+{
+  "gold": {
+    "formula_id": "formula.guizhitang",
+    "ingredients": [
+      "herb.guizhi",
+      "herb.baishao",
+      "herb.shengjiang",
+      "herb.dazao",
+      "herb.gancao"
+    ],
+    "measured_targets": []
+  },
+  "id": "conf-netpharm-01",
+  "inputs": {
+    "formula_name": "桂枝汤"
+  },
+  "licence": "MIT",
+  "notes": "The seed corpus records no assay, so no target is measured.",
+  "question": "Which herbs make up 桂枝汤, and which targets are measured?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-NetPharm",
+  "visibility": "dev"
+}

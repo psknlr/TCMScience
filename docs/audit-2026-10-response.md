@@ -11,7 +11,8 @@ lands as its own pull request. All five batches have landed.
 | 2. Evidence scope, direction, signatures, citations, final text | AUD-07 to AUD-12 | fixed ([#33](https://github.com/psknlr/TCMScience/pull/33)) |
 | 3. Statistics and execution provenance | AUD-06, AUD-13, AUD-14 | fixed ([#34](https://github.com/psknlr/TCMScience/pull/34)) |
 | 4. Chinese retrieval and the model-to-tool link | AUD-15 to AUD-17 | fixed ([#35](https://github.com/psknlr/TCMScience/pull/35)) |
-| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | fixed ([#36](https://github.com/psknlr/TCMScience/pull/36)); for AUD-26 the workflow now states its scope, and the benchmark runner is still to be built |
+| 5. Evaluation, promotion, permissions, packaging | AUD-18 to AUD-26 | fixed ([#36](https://github.com/psknlr/TCMScience/pull/36)); the AUD-26 benchmark runner was built in the follow-up below |
+| Follow-up: the open items | AUD-26 runner, §12 validation, unpinned runs, the git check | fixed (this change) |
 
 ## Batch 1: identity
 
@@ -395,6 +396,119 @@ wheel and runs the same acceptance. The `score_run` and promotion tests in
 `test_benchmarks.py` and `test_updates.py` now pass the run-level evidence and the
 candidate digest explicitly.
 
+## Follow-up: the open items
+
+Batch 5 closed with four items open. This change closes them.
+
+**Unpinned governed runs are refused.** `run_governed` used to skip the pin check when
+no lockfile was given and none was found above the skill directory. A skill copied
+anywhere outside the registry therefore ran, was attested and was released with nothing
+checking its code against the reviewed code. Every way of lacking a pin is now the same
+refusal: no lockfile, a lockfile with no entry for the skill, a different content hash,
+or a different version. The last check is new: the pin's version was never compared
+with the manifest's. `allow_unpinned` (CLI `--allow-unpinned`) turns each of these into
+a development run. Such a run is recorded in the audit chain as unpinned, declares no
+governed release (no policy id, no audit head) and is never attested, so its verdict
+reports the checks that did run and refuses release.
+
+**The git-tracking check runs.** `make_release.py` and its test asked whether
+`BioScience-Harness/.git` exists. In the monorepo it does not, so on every run the check
+returned nothing and printed that every source file was tracked. They now ask git
+whether the directory is inside a work tree. A planted untracked file is caught.
+
+**The candidate benchmark runs cases (AUD-26).** The parts the audit listed now exist:
+- **Frozen data and scoring rules.** A Season is a manifest
+  (`benchmarks/registry/<season>.yaml`). It records the cases' split digests, the skill
+  each track evaluates and the version of the scoring rules. For a public case set it
+  also lists each case's digest; a withheld case set is listed only by digest and count,
+  because its ids would disclose it. Loading refuses a case directory that differs from
+  the manifest.
+- **A case runner bound to the candidate.** `benchmarks.runner` resolves `skill@version`
+  in the skill trees and refuses a version the tree does not hold. It records the
+  candidate's content hash and whether a lockfile pins it. Each case on the candidate's
+  tracks then runs through the governed path twice, and the bundle records every
+  artifact, verdict, output and latency with its sha256.
+- **Independent scoring.** `benchmarks.independent` reads only the bundle and the cases.
+  It refuses a bundle whose files or artifacts do not hash to what it records, or one
+  run against another manifest. It measures all eight dimensions (`benchmarks.metrics`):
+  task success against each track's gold, and the rest from the artifacts. It then
+  scores the run with every run-level gate evaluated.
+- **Verifiable results.** `verify` re-scores a bundle and compares the result with the
+  published score, digest for digest. An edit to an output, an artifact, the bundle or
+  the score is caught.
+
+Reproducibility is measured on content: an artifact minus its creation time and the
+stamps governance puts on each run. Comparing whole digests, as the demonstration
+season did, counted two identical runs that crossed a second boundary as
+irreproducible.
+
+The scientific Season's cases stay withheld, so CI cannot run them. CI runs a public
+conformance Season instead (`benchmarks/conformance/`, ten cases over the four tracks the
+P0 skills serve). It shows that the runner, the scorers and the verification work end to
+end, and its scores are labelled "not a benchmark result". Whoever holds the withheld
+cases runs the same command against them and keeps the bundles private.
+`candidate-benchmark.yml` now runs, scores and verifies. On a pull request it covers
+every track's skill; on demand it covers one candidate. It keeps the bundles as a
+workflow artifact. All four P0 skills pass the conformance Season with no gate failed.
+A safety skill that assesses the wrong substance fails GATE001.
+
+**Writing the conformance gold found defects in two P0 skills.**
+- `analyze-tcm-network-pharmacology` read `relation.subject`, which does not exist, and
+  crashed on any formula whose herbs carry relations (四君子汤). It reported 人参 treats
+  气虚证 as a predicted *target*. It filled `measured_targets` from the studies behind
+  safety records, which name no target at all. It also marked its own evidence
+  extrapolated, which blocked the hypothesis claim that evidence exists to support. Syndrome
+  relations are now reported as `recorded_indications`. Only `targets` relations enter
+  the target lists, and the measured list stays empty because the corpus stores no
+  assay. The seed corpus records no molecular target, so no seed formula yields a target
+  network or a claim, and the limitations say so.
+- `assess-tcm-safety` listed a 十八反 pair's record twice when both herbs were queried.
+
+Both skills are re-pinned with their versions and approvals unchanged, as in the earlier
+batches. The diff is the review.
+
+**The network-pharmacology result is validated (§12).** `studies.validation` re-runs
+the unchanged analysis on changed inputs. `scripts/run_np_validation.py` runs every check
+on a locked run and writes a report:
+- **Formula variants** (拆方, 加减, 炮制, 剂量), each its own formula version in a derived
+  herb layer, each checked against what it should change. A removed herb takes its own
+  compounds and the targets only they reach. An added herb brings its own in and removes
+  none. Dose and processing are recorded but not modelled, so they must change nothing,
+  and a change there is reported as a defect.
+- **The two backgrounds.** In the test world, a signal made only of what was assayed is
+  caught.
+- **A threshold scan** (1–30 µM; pathways of at least 3, 5 or 10 proteins). A pathway is
+  counted only in the settings that tested it, and a signal that holds only below some
+  cut-off is flagged.
+- **Hub removal.**
+- **Random herb combinations** of the formula's size, drawn from herbs whose compounds
+  the snapshots record.
+- **Degree-preserving rewiring** of the compound-target network.
+- **A scope statement**: model designs, no population, no tissue, exposure not modelled,
+  pathway membership rather than a clinical endpoint.
+- **A reproducibility bundle**, which `--verify` re-runs from the snapshots to the same
+  result digest.
+
+Each significant pathway gets a verdict listing every check it failed. Derived inputs
+carry their own ids (`+derived:…`), and a bundle refuses them.
+
+To make the scans comparable, the analysis's permutation null now draws from a random
+stream per pathway, seeded by the run's seed and the pathway. Before, one stream was
+shared in pathway order, so a threshold or background change moved every later
+pathway's empirical p, and a scan could not tell the change's effect from a reshuffled
+null. The existing tests are unchanged and pass.
+
+Also fixed:
+- `run_network_pharmacology.py --formula` returned the method `record.version` instead
+  of calling it.
+- The homepage still showed the showcase's pre-correction figures (0.95 vs 5.34; 116
+  proteins and 12,579 tests). It now shows the corrected figures the README carries:
+  0.97 vs 5.26, Open Targets 26.09, and 472 proteins with 51,304 tests and nine pathways.
+
+Tests: `test_governed_pins.py` (5), `test_benchmark_runner.py` (13),
+`test_np_validation.py` (12) and `test_p0_skill_fixes.py` (9). The tracking test in
+`test_packaging.py` now runs instead of skipping.
+
 ## 中文摘要
 
 第一批（药材身份）已修复：
@@ -433,4 +547,21 @@ candidate digest explicitly.
 - **AUD-22 Hook 改写**：Hook 改写后的参数重新经过入口检查和全部闸门检查，审批在最后、针对实际执行的参数进行，审批人看到的是实际要执行的命令。
 - **AUD-24 降密记录**：内核登记每条降密记录及其对应内容；只有记录未被修改、且用于原内容时才生效，挪用或篡改的记录按伪造处理，数据按内容重新定级。
 - **AUD-25 独立安装包**：wheel 和 sdist 现在携带技能清单、锁文件和注册表，配置在源码树和安装包中都能找到它们，CLI 默认目录不再依赖当前工作目录。同时修复两处静默差异：安装包原先只识别 4 味药材（源码中为 344 味），技能哈希曾随目录位置变化。发布验收会从 sdist 构建 wheel，在看不到源码树的全新解释器中运行受治理技能，CI 每次推送都执行。
-- **AUD-26 候选基准**：如实说明候选基准工作流目前只做锁文件、编译和单元测试检查，不运行冻结赛季的科学案例，通过不代表得分。完整案例执行器、冻结数据与评分规则、候选版本绑定和独立评分尚待建设。
+- **AUD-26 候选基准**：如实说明候选基准工作流目前只做锁文件、编译和单元测试检查，不运行冻结赛季的科学案例，通过不代表得分。（执行器已在后续补齐，见下。）
+
+后续：遗留事项已完成：
+- **未锁定运行**：没有锁文件、锁文件中没有该技能、哈希不符或版本不符，一律拒绝运行。显式允许的开发运行会记入审计链，但不声明受治理发布，也不会被认证或授权发布。
+- **git 跟踪检查**：单仓结构下该检查原先永远“通过”；现在改为询问 git，能够发现未纳入版本控制的源文件。
+- **候选基准（AUD-26）**：
+  - 赛季由清单冻结，案例或评分规则一改即拒绝。
+  - 执行器按版本和内容哈希绑定候选，每个案例经受治理路径运行两次，产物、结果和摘要全部记录。
+  - 独立评分只读取运行包和案例，评出八个维度并执行运行级闸门；任何人都可以重新评分，核验已公布的分数。
+  - 工作流在公开的一致性赛季上运行、评分并核验。科学赛季的案例仍不公开，由持有者用同一命令离线运行。
+- **P0 技能缺陷**：网络药理技能对四君子汤会崩溃，并把“人参治气虚证”当作预测靶点、把安全性研究当作实测靶点，现已改正；安全评估中重复列出的十八反记录也已去重。
+- **网络药理稳健性验证（§12）**：
+  - 拆方、加减、炮制、剂量变体逐一核对身份：去掉的药材必须带走其独有成分和靶点；剂量与炮制未建模，结果必须不变。
+  - 双背景比较、阈值扫描、枢纽靶点移除、随机药材组合和度保持随机重连两类负对照。
+  - 适用范围声明，以及可复算包（重新加载快照并复算到同一结果摘要）。
+  - 每条显著通路给出逐项结论。
+  - 置换零分布改为按通路独立取随机数，扫描结果不再互相干扰。
+- **首页数字**：已改为更正后的展示案例数字（0.97 对 5.26，472 个蛋白、51,304 次检测、9 条通路）。

@@ -1,0 +1,31 @@
+{
+  "gold": {
+    "queries": [
+      {
+        "entity_id": "herb.huangqi",
+        "query": "黄芪",
+        "status": "resolved"
+      },
+      {
+        "entity_id": "processed.zhi_gancao",
+        "query": "炙甘草",
+        "status": "resolved"
+      }
+    ]
+  },
+  "id": "conf-entity-02",
+  "inputs": {
+    "names": [
+      "黄芪",
+      "炙甘草"
+    ]
+  },
+  "licence": "MIT",
+  "notes": "炙甘草 is the processed form, not the crude herb.",
+  "question": "Resolve 黄芪 and 炙甘草.",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Entity",
+  "visibility": "dev"
+}

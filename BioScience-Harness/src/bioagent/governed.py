@@ -15,8 +15,11 @@ released", and every step is a refusal point:
 2. **Entrypoint.** The manifest's ``runtime.entrypoint`` must be the callable that
    will run. A manifest that names one function while another executes is the
    drift a pin exists to prevent.
-3. **Lock.** When a lockfile is given (or found beside the tree), the skill's
-   content hash — manifest plus its code's import closure — must match the pin.
+3. **Lock.** The skill's content hash — manifest plus its code's import closure —
+   must match its pin in the lockfile given, or in ``registry/skills.lock.yaml``
+   found above the skill directory. A skill no lockfile pins is refused. A run
+   allowed without a pin (``allow_unpinned``, for developing a skill) is recorded
+   as unpinned and never attested, so it is never authorised for release.
 4. **Audit.** The run executes under a PSH ``TrustedKernel``: a start and a
    validation event are appended to its hash-chained event store, and the
    artifact is stamped with the policy id and the chain head. A kernel that cannot
@@ -197,6 +200,7 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
                  lockfile: str | Path | None = None,
                  content_store: ContentStore | None = None,
                  callables: Mapping[str, Callable[..., ResearchArtifact]] | None = None,
+                 allow_unpinned: bool = False,
                  ) -> GovernedRun:
     """Run ``skill_id`` through manifest, lock, audit and verification.
 
@@ -230,17 +234,37 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
     content_hash = skill_content_hash(skill.directory, entrypoint=entrypoint)
 
     lock = Path(lockfile) if lockfile else _find_lockfile(skill_dir)
-    if lock is not None:
+    if lock is not None and not lock.is_file():
+        raise GovernedRunRefused(f"lockfile {lock} does not exist")
+    # Running without a pin used to be silent: no lockfile meant no check, and the run
+    # was released with nothing confirming its code was the code reviewed. Every way of
+    # lacking a pin is now the same refusal, and allow_unpinned turns each into a
+    # development run that is recorded but never attested.
+    if lock is None:
+        unpinned = (f"no lockfile pins skill {skill_id!r}: none was given and there is "
+                    f"no registry/skills.lock.yaml above {skill_dir}")
+    else:
         from .updates import load_lockfile
         pins = {v.skill_id: v for v in load_lockfile(lock.read_text(encoding="utf-8"))}
         pin = pins.get(skill_id)
         if pin is None:
-            raise GovernedRunRefused(f"skill {skill_id!r} is not pinned in {lock}")
-        if pin.content_hash != content_hash:
+            unpinned = f"no lockfile pins skill {skill_id!r}: {lock} has no entry for it"
+        elif pin.content_hash != content_hash:
+            unpinned = (f"skill {skill_id!r} hashes {content_hash[:12]} but {lock.name} "
+                        f"pins {pin.content_hash[:12]}; the code that would run is not "
+                        "the code that was reviewed")
+        elif pin.version != skill.spec.version:
+            unpinned = (f"skill {skill_id!r} declares version {skill.spec.version} but "
+                        f"{lock.name} pins version {pin.version}")
+        else:
+            unpinned = ""
+    if unpinned:
+        if not allow_unpinned:
             raise GovernedRunRefused(
-                f"skill {skill_id!r} hashes {content_hash[:12]} but {lock.name} pins "
-                f"{pin.content_hash[:12]}; the code that would run is not the code that "
-                "was reviewed")
+                f"{unpinned}. A governed run checks the code against its reviewed pin; "
+                "pass a lockfile that pins it, or allow_unpinned for a development run, "
+                "which is recorded but never released")
+        lock = None
 
     store = content_store if content_store is not None else default_store
     state = Path(state_dir) if state_dir else Path(tempfile.mkdtemp(prefix="bioagent-psh-"))
@@ -259,7 +283,8 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
                                  "content_hash": content_hash,
                                  "environment_digest": environment["digest"],
                                  "arguments_sha256": args_digest,
-                                 "lockfile": str(lock) if lock else ""})
+                                 "lockfile": str(lock) if lock else "",
+                                 "pinned": lock is not None})
         except Exception as exc:                             # noqa: BLE001
             raise GovernedRunRefused(f"the audit chain refused the run: {exc}") from exc
 
@@ -283,20 +308,34 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
             raise GovernedRunRefused("the audit chain does not verify after the run")
         head = kernel.events.head_hash
         policy_id = kernel.policy.profile_id or "default"
-        attested = replace(artifact, policy_id=policy_id, audit_head=head,
-                           provenance={**dict(artifact.provenance),
-                                       "environment": environment,
-                                       "governed": {"skill_content_hash": content_hash,
-                                                    "arguments_sha256": args_digest,
-                                                    "pre_attestation_digest": artifact.digest,
-                                                    "state_dir": str(state)}})
-        # The release is recorded after the head the artifact names, with the digest of
-        # the artifact as released: that record is what attests it (contracts.attestation).
-        kernel.audit("bioscience_artifact_attested", run_id=skill_id,
-                     detail={"artifact_digest": attested.digest, "audit_head": head,
-                             "policy_id": policy_id})
-        verdict = validate_artifact(attested, output_root=out, content_store=store,
-                                    attestor=AuditChainAttestor(kernel.events))
+        governed = {"skill_content_hash": content_hash,
+                    "pinned_by": str(lock) if lock else "",
+                    "arguments_sha256": args_digest,
+                    "pre_attestation_digest": artifact.digest,
+                    "state_dir": str(state)}
+        if lock is not None:
+            attested = replace(artifact, policy_id=policy_id, audit_head=head,
+                               provenance={**dict(artifact.provenance),
+                                           "environment": environment, "governed": governed})
+            # The release is recorded after the head the artifact names, with the digest
+            # of the artifact as released: that record is what attests it
+            # (contracts.attestation).
+            kernel.audit("bioscience_artifact_attested", run_id=skill_id,
+                         detail={"artifact_digest": attested.digest, "audit_head": head,
+                                 "policy_id": policy_id})
+            verdict = validate_artifact(attested, output_root=out, content_store=store,
+                                        attestor=AuditChainAttestor(kernel.events))
+        else:
+            # An unpinned development run is recorded in the chain but declares no governed
+            # release: it names no policy and no head, so nothing can attest it, and its
+            # verdict reports the checks that did run with release refused.
+            attested = replace(artifact, provenance={
+                **dict(artifact.provenance), "environment": environment,
+                "governed": {**governed, "development_run": True, "audit_head": head}})
+            kernel.audit("bioscience_artifact_not_attested", run_id=skill_id,
+                         detail={"artifact_digest": attested.digest, "audit_head": head,
+                                 "reason": f"unpinned: {unpinned}"})
+            verdict = validate_artifact(attested, output_root=out, content_store=store)
     finally:
         kernel.close()
     return GovernedRun(artifact=attested, verdict=verdict, skill_id=skill_id,

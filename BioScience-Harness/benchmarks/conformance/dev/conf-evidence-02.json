@@ -1,0 +1,19 @@
+{
+  "gold": {
+    "entity_id": "herb.huangqi",
+    "must_include": [
+      "passage.passage.bj_huangqi"
+    ]
+  },
+  "id": "conf-evidence-02",
+  "inputs": {
+    "subject": "黄芪"
+  },
+  "licence": "MIT",
+  "question": "What evidence does the corpus hold about 黄芪?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Evidence",
+  "visibility": "dev"
+}

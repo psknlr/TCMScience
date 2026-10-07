@@ -277,6 +277,17 @@ def _components(adjacency: Mapping[str, set[str]]) -> list[list[str]]:
     return sorted(out, key=lambda c: (-len(c), c))
 
 
+def _pathway_rng(params: Parameters, pathway: str) -> random.Random:
+    """The permutation null's random stream for one pathway.
+
+    Seeded by the run's seed and the pathway, so a pathway's null draws do not depend on
+    which other pathways were tested before it. One stream shared in pathway order made
+    a threshold or a background change move every later pathway's empirical p, and a
+    sensitivity scan could not tell the change's effect from a reshuffled null.
+    """
+    return random.Random(f"{params.seed}:{pathway}")
+
+
 def _pooled_rate(proteins: Sequence[str], tests: Mapping[str, int],
                  actives: Mapping[str, int]) -> float:
     n = sum(tests[p] for p in proteins)
@@ -307,7 +318,7 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
                           tested_pairs: Mapping[str, set[str]],
                           active_pairs: Mapping[str, set[str]],
                           target_paths: Mapping[str, list], names: Mapping[str, str],
-                          params: Parameters, rng: random.Random,
+                          params: Parameters,
                           excluded: dict[str, int]) -> tuple[set[str], list[str], list[dict]]:
     """Pathway test on screening results, inactive ones included.
 
@@ -333,7 +344,8 @@ def _screening_enrichment(members: Mapping[str, set[str]], annotated: set[str],
         inside = members[pathway] & background
         if len(inside) < params.screening_min_members:
             continue
-        test = _rate_test(inside, eligible, tests, actives, rng, params.permutations)
+        test = _rate_test(inside, eligible, tests, actives, _pathway_rng(params, pathway),
+                          params.permutations)
         rows.append({"pathway": pathway, "name": names.get(pathway, pathway),
                      "size": len(members[pathway]), "in_background": len(inside),
                      "overlap": sum(1 for p in inside if actives[p]),
@@ -380,7 +392,6 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         if needed not in by_key:
             raise ValueError(f"the analysis needs a {needed} snapshot")
     excluded: dict[str, int] = defaultdict(int)
-    rng = random.Random(params.seed)
 
     # 1. composition: formula -> herb -> species -> compound -------------------------------
     herbs_snap = by_key["tcm_herbs"]
@@ -471,7 +482,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
     if screening:
         background, query, rows = _screening_enrichment(
             members, annotated, tested_pairs, active_pairs, target_paths, names, params,
-            rng, excluded)
+            excluded)
         wanted, pool, tested = {}, {}, {r["pathway"]: r for r in rows}
     else:
         background = annotated & assayed if params.background == "assayed" else annotated
@@ -521,9 +532,10 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             if row["q_value"] > params.fdr:
                 continue
             pathway_members = tested[row["pathway"]]
+            prng = _pathway_rng(params, row["pathway"])
             at_least = 0
             for _ in range(params.permutations):
-                draw = [x for b, k in sorted(wanted.items()) for x in rng.sample(pool[b], k)]
+                draw = [x for b, k in sorted(wanted.items()) for x in prng.sample(pool[b], k)]
                 if len(pathway_members.intersection(draw)) >= row["overlap"]:
                     at_least += 1
             # exact, not rounded: rounding can put the value below its own 1/(n+1) floor

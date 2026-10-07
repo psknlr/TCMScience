@@ -1,0 +1,29 @@
+{
+  "gold": {
+    "queries": [
+      {
+        "query": "白附子",
+        "status": "ambiguous"
+      },
+      {
+        "query": "不存在的药",
+        "status": "unresolved"
+      }
+    ]
+  },
+  "id": "conf-entity-03",
+  "inputs": {
+    "names": [
+      "白附子",
+      "不存在的药"
+    ]
+  },
+  "licence": "MIT",
+  "notes": "白附子 is not 附子 (audit AUD-02): a near name may be offered as a candidate, never resolved.",
+  "question": "Resolve 白附子 and a name the corpus does not hold.",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Entity",
+  "visibility": "dev"
+}

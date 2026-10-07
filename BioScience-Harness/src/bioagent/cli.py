@@ -138,7 +138,8 @@ def _cmd_skill(a) -> int:
         run = run_governed(a.skill_id, kwargs, skill_dir=_skill_root(a),
                            state_dir=a.state_dir or None,
                            output_dir=a.out_dir or None,
-                           lockfile=a.lockfile or None)
+                           lockfile=a.lockfile or None,
+                           allow_unpinned=a.allow_unpinned)
     except GovernedRunRefused as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
@@ -521,7 +522,10 @@ def main(argv: list[str] | None = None) -> int:
                          "(default: the reviewed TCM skills this installation ships)")
     sr.add_argument("--lockfile", default="",
                     help="pin to check against (default: registry/skills.lock.yaml "
-                         "found above --dir)")
+                         "found above --dir); a skill no lockfile pins is refused")
+    sr.add_argument("--allow-unpinned", action="store_true",
+                    help="run a skill no lockfile pins, for developing it: the run is "
+                         "recorded but never attested, so never released")
     sr.add_argument("--state-dir", default="",
                     help="PSH state directory holding the audit chain (default: temporary)")
     sr.add_argument("--out-dir", default="",
