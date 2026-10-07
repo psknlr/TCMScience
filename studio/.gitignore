@@ -1,0 +1,5 @@
+# tool caches and test output (the build output studio/_site and node_modules are ignored at the root)
+.ruff_cache/
+.pytest_cache/
+e2e/test-results/
+e2e/playwright-report/

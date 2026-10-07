@@ -1,0 +1,95 @@
+{
+ "running": {
+  "id": "j_01HF8T",
+  "kind": "pipeline.dock",
+  "state": "running",
+  "params": {
+   "ligand": "puerarin",
+   "receptor": "upload:u_7f3a"
+  },
+  "project_id": "p_demo",
+  "created_at": "2026-10-07T09:44:02Z",
+  "started_at": "2026-10-07T09:44:05Z",
+  "finished_at": null,
+  "progress": {
+   "fraction": 0.42,
+   "message": "Vina: exhaustiveness 8 · pose 4/10"
+  },
+  "device": "cuda:0",
+  "outcome": null,
+  "artefacts": [],
+  "files_url": "/api/jobs/j_01HF8T/files"
+ },
+ "succeeded": {
+  "id": "j_01HF7Q",
+  "kind": "pipeline.admet",
+  "state": "succeeded",
+  "params": {
+   "smiles": [
+    "OC1=CC=C(C=C1)C1=COC2=C(C1=O)C=CC(O)=C2"
+   ]
+  },
+  "project_id": "p_demo",
+  "created_at": "2026-10-07T09:20:11Z",
+  "started_at": "2026-10-07T09:20:12Z",
+  "finished_at": "2026-10-07T09:21:40Z",
+  "progress": null,
+  "device": "cpu",
+  "outcome": {
+   "status": "succeeded"
+  },
+  "artefacts": [
+   {
+    "name": "admet.json",
+    "sha256": "b1aa2c883f22d9aebabc3123171ed399195e489c79fd657e6c989240bf0cf7c1",
+    "bytes": 4210
+   },
+   {
+    "name": "report.html",
+    "sha256": "8336413defb254fb7a2da1e37bcdc172cac5e787c43f9be42d85402c14ff9424",
+    "bytes": 18234
+   }
+  ],
+  "files_url": "/api/jobs/j_01HF7Q/files"
+ },
+ "failed": {
+  "id": "j_01HF6M",
+  "kind": "pipeline.fold",
+  "state": "failed",
+  "params": {
+   "sequence": "MKTAYIAKQR…"
+  },
+  "project_id": "p_demo",
+  "created_at": "2026-10-07T08:02:00Z",
+  "started_at": "2026-10-07T08:02:01Z",
+  "finished_at": "2026-10-07T08:02:09Z",
+  "progress": null,
+  "device": "cpu",
+  "outcome": {
+   "status": "failed",
+   "error": "Boltz-2 is not installed on this runner; nothing approximate was substituted.",
+   "problems": [
+    "missing engine: boltz"
+   ]
+  },
+  "artefacts": [],
+  "files_url": "/api/jobs/j_01HF6M/files"
+ },
+ "queued": {
+  "id": "j_01HF9A",
+  "kind": "research.run",
+  "state": "queued",
+  "params": {
+   "formula": "葛根芩连汤"
+  },
+  "project_id": "p_demo",
+  "created_at": "2026-10-07T09:50:00Z",
+  "started_at": null,
+  "finished_at": null,
+  "progress": null,
+  "device": "cpu",
+  "outcome": null,
+  "artefacts": [],
+  "files_url": "/api/jobs/j_01HF9A/files"
+ }
+}

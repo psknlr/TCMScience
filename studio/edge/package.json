@@ -1,0 +1,16 @@
+{
+  "name": "tcmscience-studio-edge",
+  "private": true,
+  "type": "module",
+  "description": "TCMScience Studio: the Cloudflare Worker for science.impf.ai (the app's files and the Tao-S1 relay). See README.md.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "mock": "node scripts/mock-upstream.mjs 8790",
+    "dev": "npx --yes wrangler@4.148.0 dev --local-protocol https",
+    "dry-run": "npx --yes wrangler@4.148.0 deploy --dry-run --outdir .wrangler/dry-run",
+    "check": "node scripts/check.mjs"
+  }
+}

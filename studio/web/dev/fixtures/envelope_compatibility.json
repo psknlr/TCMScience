@@ -1,0 +1,74 @@
+{
+ "ok": true,
+ "tool": "tcm_compatibility",
+ "via": "native.tcm_compatibility",
+ "status": "succeeded",
+ "duration_ms": 38,
+ "summary": "甘草 + 甘遂：1 条配伍冲突（十八反，记载）",
+ "text": "{\"resolved\": [{\"id\": \"herb.gancao\", \"kind\": \"herb\", \"chinese\": \"甘草\", \"pinyin\": \"gan cao\"}, {\"id\": \"herb.gansui\", \"kind\": \"herb\", \"chinese\": \"甘遂\", \"pinyin\": \"gan sui\"}], \"unresolved\": [], \"conflicts\": [{\"first_id\": \"herb.gancao\", \"second_id\": \"herb.gansui\", \"kind\": \"incompatibility\", \"severity\": \"high\", \"description\": \"十八反：藻戟遂芫俱战草——甘遂反甘草\", \"tier\": \"CLASSICAL_TEXT\", \"management\": \"不宜同用\"}], \"compatible\": false, \"note\": \"see conflicts and unresolved names\"}",
+ "result": {
+  "resolved": [
+   {
+    "id": "herb.gancao",
+    "kind": "herb",
+    "chinese": "甘草",
+    "pinyin": "gan cao"
+   },
+   {
+    "id": "herb.gansui",
+    "kind": "herb",
+    "chinese": "甘遂",
+    "pinyin": "gan sui"
+   }
+  ],
+  "unresolved": [],
+  "conflicts": [
+   {
+    "first_id": "herb.gancao",
+    "second_id": "herb.gansui",
+    "kind": "incompatibility",
+    "severity": "high",
+    "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+    "tier": "CLASSICAL_TEXT",
+    "management": "不宜同用"
+   }
+  ],
+  "compatible": false,
+  "note": "see conflicts and unresolved names"
+ },
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [
+   "recorded relations from the seed corpus; no record is not evidence of compatibility"
+  ],
+  "outputs": [],
+  "kind": "native"
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "pyodide-314.0.7 / CPython 3.14",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "68d89d710727578c86620bd6bf6694d9adb3eb9c9780b9275e7c583a601baa48",
+  "output_sha256": "7b76307b787aaf46c9b04a64c928518c6c917dbc7ad9a518cd7cb3f2fb1a6f25",
+  "started_at": "2026-10-07T09:41:12Z"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

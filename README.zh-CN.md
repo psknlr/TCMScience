@@ -29,6 +29,7 @@
 
 [**项目主页**](https://psknlr.github.io/TCMScience/) &nbsp;|&nbsp;
 [**评测平台 Arena**](https://psknlr.github.io/TCMScience/arena/) &nbsp;|&nbsp;
+[**研究工作台 Studio**](studio/README.md) &nbsp;|&nbsp;
 **论文** *（撰写中）* &nbsp;|&nbsp;
 [**设计规范**](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md) &nbsp;|&nbsp;
 [**引用**](#引用) &nbsp;|&nbsp;

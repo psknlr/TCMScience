@@ -1,0 +1,26 @@
+{
+ "_note": "Sample /api/info and /api/devices answers of a workstation with two GPUs, for the gallery's compute panel. Not a measurement of any machine.",
+ "info": {
+  "name": "tcmstudio", "version": "0.1.0",
+  "versions": {"tcmstudio": "0.1.0", "bioagent": "0.2.7", "psh": "0.6.0", "python": "3.12.7"},
+  "home": "~/.tcmscience/studio", "platform": "Linux 6.8 · x86_64",
+  "cpu": {"cores": 16, "model": "AMD Ryzen 9 7950X"}, "memory_gb": 62.6,
+  "engines": [
+   {"id": "vina", "name": "AutoDock Vina", "installed": true, "version": "1.2.5"},
+   {"id": "openmm", "name": "OpenMM", "installed": true, "version": "8.2.0", "gpu": true},
+   {"id": "pydeseq2", "name": "PyDESeq2", "installed": true, "version": "0.5.0"},
+   {"id": "boltz", "name": "Boltz-2", "installed": false, "missing": ["boltz"], "install": "pip install 'boltz[cuda]'", "gpu": true},
+   {"id": "scvi", "name": "scvi-tools", "installed": false, "missing": ["scvi-tools"], "install": "pip install scvi-tools", "gpu": true}
+  ],
+  "network": {"enabled": true, "profile": "biomedical-research"}, "purpose": "academic", "counts": {"core": 25, "entries": 642}
+ },
+ "devices": {
+  "devices": [
+   {"id": "cpu", "kind": "cpu", "name": "AMD Ryzen 9 7950X · 16 cores", "available": true},
+   {"id": "cuda:0", "kind": "cuda", "name": "NVIDIA GeForce RTX 4090", "memory_gb": 24.0, "driver": "560.35", "available": true},
+   {"id": "cuda:1", "kind": "cuda", "name": "NVIDIA RTX A4000", "memory_gb": 16.0, "driver": "560.35", "available": false, "note": "in use by another process"}
+  ],
+  "selected": "cuda:0"
+ },
+ "settings": {"device": "cuda:0", "threads": 8, "max_jobs": 2, "network": {"enabled": true, "profile": "biomedical-research"}, "purpose": "academic", "allow_remote": false}
+}

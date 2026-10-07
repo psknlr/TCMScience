@@ -1,0 +1,156 @@
+/* TCMScience Studio — tokens. Theme: <html data-theme="light|dark"> or absent = follow system. */
+:root {
+  color-scheme: light;
+  /* surfaces */
+  --bg:            #fbfaf7;   /* paper (site --paper) */
+  --bg-sidebar:    #f4f2ed;
+  --surface:       #ffffff;   /* cards, composer, inspector (site --panel) */
+  --surface-2:     #f7f5f0;   /* hover rows, selected list item base */
+  --sunken:        #f3f1ec;   /* code, wells, table header (site --code-bg) */
+  --scrim:         rgba(20, 26, 36, .40);
+  /* text */
+  --ink:           #1a2230;
+  --ink-2:         #3d4757;   /* secondary (site --soft) */
+  --ink-3:         #596273;   /* captions, metadata — darker than site --muted for AA */
+  --ink-4:         #8a93a3;   /* disabled, decorative only — never body text */
+  /* lines */
+  --rule:          #e4e1da;
+  --rule-2:        #efece6;
+  --control-border:#848b98;   /* inputs, checkboxes: ≥3:1 */
+  /* brand / accent (navy = trusted kernel) */
+  --accent:        #2d4a7a;
+  --accent-hover:  #243d66;
+  --accent-ink:    #ffffff;
+  --accent-soft:   #eaf0f8;
+  --focus:         #2d4a7a;
+  --selection:     rgba(45, 74, 122, .16);
+  /* brand hues (figure semantics: jade = capability, ochre = governance, vermilion = constraint/seal) */
+  --jade:          #2c7560;  --jade-ink:  #25664f;  --jade-soft:  #e7f3ee;
+  --ochre:         #9a6428;  --ochre-ink: #8a5822;  --ochre-soft: #f8f0e4;
+  --vermilion:     #b3402d;  --vermilion-ink: #b3402d; --vermilion-soft: #fbece8;
+  --slate:         #5b6474;  --slate-soft: #f1f2f5;
+  /* semantic status */
+  --ok:            var(--jade-ink);   --ok-soft:     var(--jade-soft);
+  --warn:          var(--ochre-ink);  --warn-soft:   var(--ochre-soft);
+  --danger:        var(--vermilion);  --danger-soft: var(--vermilion-soft);
+  --info:          var(--accent);     --info-soft:   var(--accent-soft);
+  /* evidence families (licensing figure groups) */
+  --ev-tradition:  var(--ochre-ink);  --ev-tradition-soft:  var(--ochre-soft);  /* 经典文献 / 名医经验·专家共识 */
+  --ev-bench:      var(--jade-ink);   --ev-bench-soft:      var(--jade-soft);   /* 体外 / 动物 */
+  --ev-clinical:   var(--accent);     --ev-clinical-soft:   var(--accent-soft); /* 病例 / 观察 / RCT / 系统评价 */
+  --ev-predicted:  var(--slate);      --ev-predicted-soft:  var(--slate-soft);  /* 计算预测 — always dashed */
+  /* release verdicts */
+  --verdict-released:   var(--jade-ink);   /* release_authorized */
+  --verdict-consistent: var(--accent);     /* publishable, not yet attested */
+  --verdict-caveat:     var(--ochre-ink);  /* allowed with caveats / warnings */
+  --verdict-refused:    var(--vermilion);  /* refused, with codes */
+  --verdict-draft:      var(--slate);      /* draft / experimental */
+
+  /* type */
+  --font-sans:  "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+                "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Source Serif 4", "Noto Serif SC", "Songti SC", "STSong", "Source Han Serif SC", Georgia, serif;
+  --font-mono:  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 12px;  --text-sm: 13px;  --text-base: 14px;  --text-md: 15px;  --text-lg: 16px;
+  --text-xl: 18px;  --text-2xl: 22px; --text-3xl: 28px;   --text-display: 36px;
+  --leading-tight: 1.3; --leading-ui: 1.5; --leading-prose-en: 1.65; --leading-prose-zh: 1.8;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;   /* no 700 for CJK */
+  --prose-size: 16px;                       /* message body (en) */
+  --tracking-kicker: .12em;
+
+  /* space (4px grid) */
+  --space-0-5: 2px; --space-1: 4px; --space-1-5: 6px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px;  --space-6: 24px; --space-8: 32px;  --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  /* radii */
+  --radius-xs: 4px;   /* chips, inline code, hash badges */
+  --radius-sm: 6px;   /* inputs, small buttons */
+  --radius-md: 8px;   /* buttons, tool cards, popovers */
+  --radius-lg: 12px;  /* composer, claim/artifact cards, inspector sections */
+  --radius-xl: 16px;  /* dialogs, bottom sheet top corners */
+  --radius-pill: 999px;
+
+  /* elevation (site --shadow is level 2) */
+  --shadow-1: 0 1px 2px rgba(20, 30, 50, .05);
+  --shadow-2: 0 1px 2px rgba(20, 30, 50, .05), 0 8px 24px rgba(20, 30, 50, .06);
+  --shadow-3: 0 2px 6px rgba(20, 30, 50, .06), 0 18px 48px rgba(20, 30, 50, .14);
+
+  /* motion */
+  --dur-1: 100ms;  /* hover, press */
+  --dur-2: 160ms;  /* disclosure, tooltip, chip select */
+  --dur-3: 220ms;  /* drawer, inspector, popover */
+  --dur-4: 320ms;  /* bottom sheet, dialog */
+  --ease-out: cubic-bezier(.2, .7, .2, 1);   /* TaoChronos --ease */
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+
+  /* layout */
+  --topbar-h: 48px; --sidebar-w: 264px; --rail-w: 56px; --thread-max: 760px;
+  --inspector-w: 400px; --inspector-min: 320px; --inspector-max: 720px; --drawer-w: 420px;
+  --z-sticky: 10; --z-sidebar: 20; --z-drawer: 30; --z-popover: 40; --z-dialog: 50; --z-toast: 60;
+}
+
+/* dark: follow the system unless the user forced light, and always when the user forced dark. CSS cannot share one
+   declaration block between the two selectors, so the dark block is written twice (as TaoChronos does). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1318; --bg-sidebar: #0c1014; --surface: #151a21; --surface-2: #1b212a; --sunken: #1a2029;
+    --scrim: rgba(0, 0, 0, .55);
+    --ink: #e7ecf2; --ink-2: #c4ccd6; --ink-3: #98a3b3; --ink-4: #6f7a8a;
+    --rule: #262e39; --rule-2: #1c232c; --control-border: #677284;
+    --accent: #8fb2ec; --accent-hover: #a9c4f2; --accent-ink: #0f1318; --accent-soft: #16233a;
+    --focus: #8fb2ec; --selection: rgba(143, 178, 236, .22);
+    --jade: #79c9ad; --jade-ink: #79c9ad; --jade-soft: #132a23;
+    --ochre: #e0ab6a; --ochre-ink: #e0ab6a; --ochre-soft: #2b2114;
+    --vermilion: #f08a76; --vermilion-ink: #f08a76; --vermilion-soft: #2e1a16;
+    --slate: #a9b1bf; --slate-soft: #1d222b;
+    --shadow-1: none; --shadow-2: none;                    /* site dark uses no shadow: borders carry depth */
+    --shadow-3: 0 2px 6px rgba(0, 0, 0, .35), 0 20px 56px rgba(0, 0, 0, .5);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1318; --bg-sidebar: #0c1014; --surface: #151a21; --surface-2: #1b212a; --sunken: #1a2029;
+  --scrim: rgba(0, 0, 0, .55);
+  --ink: #e7ecf2; --ink-2: #c4ccd6; --ink-3: #98a3b3; --ink-4: #6f7a8a;
+  --rule: #262e39; --rule-2: #1c232c; --control-border: #677284;
+  --accent: #8fb2ec; --accent-hover: #a9c4f2; --accent-ink: #0f1318; --accent-soft: #16233a;
+  --focus: #8fb2ec; --selection: rgba(143, 178, 236, .22);
+  --jade: #79c9ad; --jade-ink: #79c9ad; --jade-soft: #132a23;
+  --ochre: #e0ab6a; --ochre-ink: #e0ab6a; --ochre-soft: #2b2114;
+  --vermilion: #f08a76; --vermilion-ink: #f08a76; --vermilion-soft: #2e1a16;
+  --slate: #a9b1bf; --slate-soft: #1d222b;
+  --shadow-1: none; --shadow-2: none;                    /* site dark uses no shadow: borders carry depth */
+  --shadow-3: 0 2px 6px rgba(0, 0, 0, .35), 0 20px 56px rgba(0, 0, 0, .5);
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   Studio additions: values derived from the tokens above (never new hues), used by components. */
+:root {
+  --hover: color-mix(in srgb, var(--ink) 5%, transparent);
+  --press: color-mix(in srgb, var(--ink) 9%, transparent);
+  --selected: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  --highlight: color-mix(in srgb, var(--ochre) 18%, transparent);
+  --user-bubble: var(--sunken);
+  --kbd-bg: var(--surface);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--focus) 22%, transparent);
+  --control-h: 32px;
+  --control-h-sm: 28px;
+  --touch: 32px;
+  --prose-size-zh: 15.5px;
+}
+
+@media (pointer: coarse) {
+  :root { --touch: 44px; --control-h: 40px; --control-h-sm: 36px; }
+}
+
+/* more contrast when the user asks for it (WCAG 1.4.11; DESIGN §8.2) */
+@media (prefers-contrast: more) {
+  :root {
+    --ink-3: var(--ink-2);
+    --rule: var(--control-border);
+    --rule-2: color-mix(in srgb, var(--control-border) 60%, var(--surface));
+    --hover: color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+}

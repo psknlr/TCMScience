@@ -1,0 +1,1345 @@
+{
+ "ok": true,
+ "tool": "tcm_safety_report",
+ "via": "skill.assess-tcm-safety",
+ "status": "succeeded",
+ "duration_ms": 1240,
+ "summary": "甘草 + 甘遂：记载为十八反配伍禁忌；4 条安全性记录（记载，非临床安全性结论）",
+ "text": "Recorded safety information for 甘草 with 甘遂 (seed corpus; absence of a record is not evidence of safety). [E1] [E2]",
+ "result": {
+  "artifact": {
+   "id": "assess-tcm-safety",
+   "run_id": "",
+   "skill_id": "assess-tcm-safety",
+   "skill_version": "1.0.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "assess-tcm-safety@1.0.0",
+    "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=assess-tcm-safety@1.0.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+   "question": "what safety information is recorded for 甘草?",
+   "created_at": "2026-10-07T18:49:39+00:00",
+   "sources": [
+    {
+     "id": "tcmscience.tcm.seed",
+     "name": "TCMScience TCM seed corpus",
+     "kind": "pharmacopoeia",
+     "maintainer": "TCMScience",
+     "version": "0.2.6",
+     "home_url": "https://github.com/psknlr/TCMScience",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "b376a9d132244dd90ee1ac16b0e5dda8fc6a02c862b82b64f34467ab9c901ceb",
+     "snapshot_at": "2026-09-25T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "seed corpus only: 23 herbs, 5 processed forms, 6 formulas, 8 syndromes, 9 passages, 2 study records, 14 relations, 14 safety records",
+      "no clinical study data is included; every study record is at EXPERT_EXPERIENCE or below",
+      "coverage is illustrative, not exhaustive; absence from this corpus is not evidence of absence"
+     ],
+     "offline_capable": true,
+     "notes": "Compiled into the package. Declared as a source so a resolution can be traced to the corpus that produced it.",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience TCM seed corpus 0.2.6 · https://github.com/psknlr/TCMScience · snapshot b376a9d13224 at 2026-09-25T00:00:00Z"
+    }
+   ],
+   "sources_hash": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+   "evidence": [
+    {
+     "id": "safety.safety.shibafan_gancao_gansui",
+     "design": "classical_text",
+     "tier": "classical_text",
+     "tier_rank": 1,
+     "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+     "title": "",
+     "identifier": "safety.shibafan_gancao_gansui",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "safety.safety.gancao_pseudoaldosteronism",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "kind=adverse_event; severity=moderate; description=长期大剂量服用可致假性醛固酮增多症：水肿、血压升高、低血钾; management=不宜长期大量使用；高血压、水肿、低钾者慎用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.gancao_pseudoaldosteronism",
+     "title": "",
+     "identifier": "safety.gancao_pseudoaldosteronism",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "06db1d6657476837ba270882dab00df9721cd2a9459dc8233738c4bde2cd18f7",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "safety.safety.gansui_toxicity",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "kind=toxicity; severity=high; description=有毒，泻下峻猛，可致剧烈腹痛腹泻; management=醋制后用；孕妇禁用；虚弱者慎用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.gansui_toxicity",
+     "title": "",
+     "identifier": "safety.gansui_toxicity",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "91a0de30692f92881203611a16a4c9c65a5fc5b010a13e83b8dba52ebcf65d31",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gansui",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "conflict.herb.gancao.herb.gansui",
+     "design": "classical_text",
+     "tier": "classical_text",
+     "tier_rank": 1,
+     "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+     "title": "",
+     "identifier": "safety.shibafan_gancao_gansui",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    }
+   ],
+   "claims": [
+    {
+     "id": "safety.signals",
+     "text": "4 safety record(s) concern 甘草, 3 of them at high or critical severity; the records are expert_experience-level evidence",
+     "claim_kind": "traditional_use",
+     "subject": "甘草",
+     "predicate": "recorded_in",
+     "object": "adverse_event; incompatibility; toxicity",
+     "supports": [
+      "safety.safety.gancao_pseudoaldosteronism"
+     ],
+     "asserted_population": "seed corpus",
+     "asserted_outcome": "recorded safety information",
+     "supported_population": "seed corpus",
+     "supported_outcome": "recorded safety information",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {
+      "outcome:recorded safety information": "these are corpus records at expert_experience level, not clinical safety data"
+     },
+     "validated_extrapolations": {},
+     "confidence": 1.0,
+     "confidence_basis": "counted from the corpus records listed above",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "a corpus record that contradicts the table above",
+     "produced_by": "assess-tcm-safety",
+     "tier_floor": "classical_text",
+     "clinical": false
+    }
+   ],
+   "outputs": [
+    {
+     "path": "safety.json",
+     "sha256": "715a3fe61a722b44ef01152858c0e7a33e4af69638381755c47c900cdc128780",
+     "media_type": "application/json",
+     "bytes": 3782,
+     "description": "recorded safety information, or the absence of it"
+    }
+   ],
+   "limitations": [
+    "ABSENCE OF A RECORD IS NOT EVIDENCE OF SAFETY. This report says what the seed corpus records, not what is true about the substance",
+    "the seed corpus holds 14 safety records and is illustrative; it is not a pharmacovigilance database and no such database (openFDA, DailyMed, TCMToxDB) was queried",
+    "no herb–drug interaction check against conventional medicines was performed; the corpus carries no interaction data",
+    "no dose–response or organ-toxicity assessment was performed",
+    "this is not clinical advice and must not be used to decide whether a prescription is safe for a patient",
+    "no population was specified; pregnancy, paediatric, hepatic and renal considerations are NOT assessed",
+    "3 record(s) at high or critical severity were found; review them before any use"
+   ],
+   "assumptions": [
+    "the seed corpus is an adequate stand-in for a safety database in this configuration; it is not"
+   ],
+   "policy_id": "default",
+   "audit_head": "43c45a75850f347b67213284fc31ee678ff0152624e8a271df377eee3b1d103d",
+   "provenance": {
+    "status": "risk_recorded",
+    "records": 4,
+    "critical": 3,
+    "conflicts": 1,
+    "unresolved": [],
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+     "pinned_by": "<repo>/BioScience-Harness/registry/skills.lock.yaml",
+     "arguments_sha256": "58a7fbfa9024de6de7078611ac1bbbb363f63acf7d431fd9b359f0e3f698cabf",
+     "pre_attestation_digest": "4e3b275c2b1241164e1c1c9121039dca433c2a51764f0e0dc9c4b08d962f6c87",
+     "state_dir": "<tmp>/state",
+     "run_anchor": "bf4fd8fb3191aa1cbbff98e3595cb890fb06d4fef4f71b57d8dfc552fd663206",
+     "operations": []
+    }
+   },
+   "status": "draft",
+   "produced_by": "assess-tcm-safety",
+   "notes": "",
+   "digest": "0530f8966663395de2562d09a4aef58af73b4fa25e045a45a774ae2efbbe1511"
+  },
+  "verdict": {
+   "artifact_id": "assess-tcm-safety",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": true,
+    "execution_attested": true,
+    "release_authorized": true
+   },
+   "unverified": [],
+   "codes": [],
+   "violations": [],
+   "warnings": [
+    {
+     "code": "ART116",
+     "detail": "claim 'safety.signals' extrapolates to ['outcome:recorded safety information'] on a declaration alone; no evidence item validates the bridge",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [
+    {
+     "claim_id": "safety.signals",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "expert_experience",
+     "caveats": [
+      "extrapolation outcome:recorded safety information is declared, not validated by evidence",
+      "safety.safety.gancao_pseudoaldosteronism: retraction status has not been checked",
+      "safety.safety.gancao_pseudoaldosteronism: no lookupable identifier; the citation cannot be checked",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension risk_of_bias was not assessed",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension precision was not assessed",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension consistency was not assessed"
+     ],
+     "unvalidated_extrapolations": [
+      "outcome:recorded safety information"
+     ]
+    }
+   ],
+   "fixable_by_declaration": false
+  }
+ },
+ "citations": [
+  {
+   "id": "E1",
+   "kind": "source",
+   "label": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+   "url": "",
+   "evidence_ref": "safety.safety.shibafan_gancao_gansui"
+  },
+  {
+   "id": "E2",
+   "kind": "source",
+   "label": "TCMScience TCM seed corpus, safety record safety.gancao_pseudoaldosteronism",
+   "url": "",
+   "evidence_ref": "safety.safety.gancao_pseudoaldosteronism"
+  },
+  {
+   "id": "E3",
+   "kind": "source",
+   "label": "TCMScience TCM seed corpus, safety record safety.gansui_toxicity",
+   "url": "",
+   "evidence_ref": "safety.safety.gansui_toxicity"
+  },
+  {
+   "id": "E4",
+   "kind": "source",
+   "label": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+   "url": "",
+   "evidence_ref": "conflict.herb.gancao.herb.gansui"
+  }
+ ],
+ "governance": {
+  "kind": "skill",
+  "released": true,
+  "artifact": {
+   "id": "assess-tcm-safety",
+   "run_id": "",
+   "skill_id": "assess-tcm-safety",
+   "skill_version": "1.0.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "assess-tcm-safety@1.0.0",
+    "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=assess-tcm-safety@1.0.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+   "question": "what safety information is recorded for 甘草?",
+   "created_at": "2026-10-07T18:49:39+00:00",
+   "sources": [
+    {
+     "id": "tcmscience.tcm.seed",
+     "name": "TCMScience TCM seed corpus",
+     "kind": "pharmacopoeia",
+     "maintainer": "TCMScience",
+     "version": "0.2.6",
+     "home_url": "https://github.com/psknlr/TCMScience",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "b376a9d132244dd90ee1ac16b0e5dda8fc6a02c862b82b64f34467ab9c901ceb",
+     "snapshot_at": "2026-09-25T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "seed corpus only: 23 herbs, 5 processed forms, 6 formulas, 8 syndromes, 9 passages, 2 study records, 14 relations, 14 safety records",
+      "no clinical study data is included; every study record is at EXPERT_EXPERIENCE or below",
+      "coverage is illustrative, not exhaustive; absence from this corpus is not evidence of absence"
+     ],
+     "offline_capable": true,
+     "notes": "Compiled into the package. Declared as a source so a resolution can be traced to the corpus that produced it.",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience TCM seed corpus 0.2.6 · https://github.com/psknlr/TCMScience · snapshot b376a9d13224 at 2026-09-25T00:00:00Z"
+    }
+   ],
+   "sources_hash": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+   "evidence": [
+    {
+     "id": "safety.safety.shibafan_gancao_gansui",
+     "design": "classical_text",
+     "tier": "classical_text",
+     "tier_rank": 1,
+     "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+     "title": "",
+     "identifier": "safety.shibafan_gancao_gansui",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "safety.safety.gancao_pseudoaldosteronism",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "kind=adverse_event; severity=moderate; description=长期大剂量服用可致假性醛固酮增多症：水肿、血压升高、低血钾; management=不宜长期大量使用；高血压、水肿、低钾者慎用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.gancao_pseudoaldosteronism",
+     "title": "",
+     "identifier": "safety.gancao_pseudoaldosteronism",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "06db1d6657476837ba270882dab00df9721cd2a9459dc8233738c4bde2cd18f7",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "safety.safety.gansui_toxicity",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "kind=toxicity; severity=high; description=有毒，泻下峻猛，可致剧烈腹痛腹泻; management=醋制后用；孕妇禁用；虚弱者慎用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.gansui_toxicity",
+     "title": "",
+     "identifier": "safety.gansui_toxicity",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "91a0de30692f92881203611a16a4c9c65a5fc5b010a13e83b8dba52ebcf65d31",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gansui",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "conflict.herb.gancao.herb.gansui",
+     "design": "classical_text",
+     "tier": "classical_text",
+     "tier_rank": 1,
+     "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+     "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+     "title": "",
+     "identifier": "safety.shibafan_gancao_gansui",
+     "identifier_type": "pharmacopoeia",
+     "source_card_id": "tcmscience.tcm.seed",
+     "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+     "quote_verified": true,
+     "quote_offset": 0,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+      },
+      "assessed_by": "assess-tcm-safety",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "herb.gancao",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "adverse event or contraindication",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "assess-tcm-safety",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": ""
+    }
+   ],
+   "claims": [
+    {
+     "id": "safety.signals",
+     "text": "4 safety record(s) concern 甘草, 3 of them at high or critical severity; the records are expert_experience-level evidence",
+     "claim_kind": "traditional_use",
+     "subject": "甘草",
+     "predicate": "recorded_in",
+     "object": "adverse_event; incompatibility; toxicity",
+     "supports": [
+      "safety.safety.gancao_pseudoaldosteronism"
+     ],
+     "asserted_population": "seed corpus",
+     "asserted_outcome": "recorded safety information",
+     "supported_population": "seed corpus",
+     "supported_outcome": "recorded safety information",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {
+      "outcome:recorded safety information": "these are corpus records at expert_experience level, not clinical safety data"
+     },
+     "validated_extrapolations": {},
+     "confidence": 1.0,
+     "confidence_basis": "counted from the corpus records listed above",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "a corpus record that contradicts the table above",
+     "produced_by": "assess-tcm-safety",
+     "tier_floor": "classical_text",
+     "clinical": false
+    }
+   ],
+   "outputs": [
+    {
+     "path": "safety.json",
+     "sha256": "715a3fe61a722b44ef01152858c0e7a33e4af69638381755c47c900cdc128780",
+     "media_type": "application/json",
+     "bytes": 3782,
+     "description": "recorded safety information, or the absence of it"
+    }
+   ],
+   "limitations": [
+    "ABSENCE OF A RECORD IS NOT EVIDENCE OF SAFETY. This report says what the seed corpus records, not what is true about the substance",
+    "the seed corpus holds 14 safety records and is illustrative; it is not a pharmacovigilance database and no such database (openFDA, DailyMed, TCMToxDB) was queried",
+    "no herb–drug interaction check against conventional medicines was performed; the corpus carries no interaction data",
+    "no dose–response or organ-toxicity assessment was performed",
+    "this is not clinical advice and must not be used to decide whether a prescription is safe for a patient",
+    "no population was specified; pregnancy, paediatric, hepatic and renal considerations are NOT assessed",
+    "3 record(s) at high or critical severity were found; review them before any use"
+   ],
+   "assumptions": [
+    "the seed corpus is an adequate stand-in for a safety database in this configuration; it is not"
+   ],
+   "policy_id": "default",
+   "audit_head": "43c45a75850f347b67213284fc31ee678ff0152624e8a271df377eee3b1d103d",
+   "provenance": {
+    "status": "risk_recorded",
+    "records": 4,
+    "critical": 3,
+    "conflicts": 1,
+    "unresolved": [],
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+     "pinned_by": "<repo>/BioScience-Harness/registry/skills.lock.yaml",
+     "arguments_sha256": "58a7fbfa9024de6de7078611ac1bbbb363f63acf7d431fd9b359f0e3f698cabf",
+     "pre_attestation_digest": "4e3b275c2b1241164e1c1c9121039dca433c2a51764f0e0dc9c4b08d962f6c87",
+     "state_dir": "<tmp>/state",
+     "run_anchor": "bf4fd8fb3191aa1cbbff98e3595cb890fb06d4fef4f71b57d8dfc552fd663206",
+     "operations": []
+    }
+   },
+   "status": "draft",
+   "produced_by": "assess-tcm-safety",
+   "notes": "",
+   "digest": "0530f8966663395de2562d09a4aef58af73b4fa25e045a45a774ae2efbbe1511"
+  },
+  "verdict": {
+   "artifact_id": "assess-tcm-safety",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": true,
+    "execution_attested": true,
+    "release_authorized": true
+   },
+   "unverified": [],
+   "codes": [],
+   "violations": [],
+   "warnings": [
+    {
+     "code": "ART116",
+     "detail": "claim 'safety.signals' extrapolates to ['outcome:recorded safety information'] on a declaration alone; no evidence item validates the bridge",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [
+    {
+     "claim_id": "safety.signals",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "expert_experience",
+     "caveats": [
+      "extrapolation outcome:recorded safety information is declared, not validated by evidence",
+      "safety.safety.gancao_pseudoaldosteronism: retraction status has not been checked",
+      "safety.safety.gancao_pseudoaldosteronism: no lookupable identifier; the citation cannot be checked",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension risk_of_bias was not assessed",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension precision was not assessed",
+      "safety.safety.gancao_pseudoaldosteronism: quality dimension consistency was not assessed"
+     ],
+     "unvalidated_extrapolations": [
+      "outcome:recorded safety information"
+     ]
+    }
+   ],
+   "fixable_by_declaration": false
+  },
+  "claims": [
+   {
+    "id": "safety.signals",
+    "text": "4 safety record(s) concern 甘草, 3 of them at high or critical severity; the records are expert_experience-level evidence",
+    "claim_kind": "traditional_use",
+    "subject": "甘草",
+    "predicate": "recorded_in",
+    "object": "adverse_event; incompatibility; toxicity",
+    "supports": [
+     "safety.safety.gancao_pseudoaldosteronism"
+    ],
+    "asserted_population": "seed corpus",
+    "asserted_outcome": "recorded safety information",
+    "supported_population": "seed corpus",
+    "supported_outcome": "recorded safety information",
+    "direction": "unclear",
+    "magnitude": "",
+    "declared_extrapolations": {
+     "outcome:recorded safety information": "these are corpus records at expert_experience level, not clinical safety data"
+    },
+    "validated_extrapolations": {},
+    "confidence": 1.0,
+    "confidence_basis": "counted from the corpus records listed above",
+    "hedged": false,
+    "normative": false,
+    "rationale": "",
+    "falsified_by": "a corpus record that contradicts the table above",
+    "produced_by": "assess-tcm-safety",
+    "tier_floor": "classical_text",
+    "clinical": false
+   }
+  ],
+  "evidence": [
+   {
+    "id": "safety.safety.shibafan_gancao_gansui",
+    "design": "classical_text",
+    "tier": "classical_text",
+    "tier_rank": 1,
+    "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+    "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+    "title": "",
+    "identifier": "safety.shibafan_gancao_gansui",
+    "identifier_type": "pharmacopoeia",
+    "source_card_id": "tcmscience.tcm.seed",
+    "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+    "quote_verified": true,
+    "quote_offset": 0,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+     },
+     "assessed_by": "assess-tcm-safety",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "herb.gancao",
+    "population": "",
+    "condition": "",
+    "comparator": "",
+    "outcome": "adverse event or contraindication",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "assess-tcm-safety",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": ""
+   },
+   {
+    "id": "safety.safety.gancao_pseudoaldosteronism",
+    "design": "expert_consensus",
+    "tier": "expert_experience",
+    "tier_rank": 2,
+    "quote": "kind=adverse_event; severity=moderate; description=长期大剂量服用可致假性醛固酮增多症：水肿、血压升高、低血钾; management=不宜长期大量使用；高血压、水肿、低钾者慎用",
+    "citation": "TCMScience TCM seed corpus, safety record safety.gancao_pseudoaldosteronism",
+    "title": "",
+    "identifier": "safety.gancao_pseudoaldosteronism",
+    "identifier_type": "pharmacopoeia",
+    "source_card_id": "tcmscience.tcm.seed",
+    "content_hash": "06db1d6657476837ba270882dab00df9721cd2a9459dc8233738c4bde2cd18f7",
+    "quote_verified": true,
+    "quote_offset": 0,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+     },
+     "assessed_by": "assess-tcm-safety",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "herb.gancao",
+    "population": "",
+    "condition": "",
+    "comparator": "",
+    "outcome": "adverse event or contraindication",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "assess-tcm-safety",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": ""
+   },
+   {
+    "id": "safety.safety.gansui_toxicity",
+    "design": "expert_consensus",
+    "tier": "expert_experience",
+    "tier_rank": 2,
+    "quote": "kind=toxicity; severity=high; description=有毒，泻下峻猛，可致剧烈腹痛腹泻; management=醋制后用；孕妇禁用；虚弱者慎用",
+    "citation": "TCMScience TCM seed corpus, safety record safety.gansui_toxicity",
+    "title": "",
+    "identifier": "safety.gansui_toxicity",
+    "identifier_type": "pharmacopoeia",
+    "source_card_id": "tcmscience.tcm.seed",
+    "content_hash": "91a0de30692f92881203611a16a4c9c65a5fc5b010a13e83b8dba52ebcf65d31",
+    "quote_verified": true,
+    "quote_offset": 0,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+     },
+     "assessed_by": "assess-tcm-safety",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "herb.gansui",
+    "population": "",
+    "condition": "",
+    "comparator": "",
+    "outcome": "adverse event or contraindication",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "assess-tcm-safety",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": ""
+   },
+   {
+    "id": "conflict.herb.gancao.herb.gansui",
+    "design": "classical_text",
+    "tier": "classical_text",
+    "tier_rank": 1,
+    "quote": "kind=incompatibility; severity=high; description=十八反：藻戟遂芫俱战草——甘遂反甘草; management=不宜同用",
+    "citation": "TCMScience TCM seed corpus, safety record safety.shibafan_gancao_gansui",
+    "title": "",
+    "identifier": "safety.shibafan_gancao_gansui",
+    "identifier_type": "pharmacopoeia",
+    "source_card_id": "tcmscience.tcm.seed",
+    "content_hash": "e407266feac3dabd06f62bc2a3b9e710a72a6a3d5f4ede64373bb331fd926196",
+    "quote_verified": true,
+    "quote_offset": 0,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "direct for attribution and traditional-use claims; not evidence about clinical outcomes"
+     },
+     "assessed_by": "assess-tcm-safety",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "herb.gancao",
+    "population": "",
+    "condition": "",
+    "comparator": "",
+    "outcome": "adverse event or contraindication",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "assess-tcm-safety",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": ""
+   }
+  ],
+  "refusals": [],
+  "labels": [
+   "INTERNAL"
+  ],
+  "licences": [
+   {
+    "asset": "tcmscience.tcm.seed",
+    "licence": "MIT",
+    "commercial": true,
+    "note": ""
+   }
+  ],
+  "limitations": [
+   "ABSENCE OF A RECORD IS NOT EVIDENCE OF SAFETY. This report says what the seed corpus records, not what is true about the substance",
+   "the seed corpus holds 14 safety records and is illustrative; it is not a pharmacovigilance database and no such database (openFDA, DailyMed, TCMToxDB) was queried",
+   "no herb–drug interaction check against conventional medicines was performed; the corpus carries no interaction data",
+   "no dose–response or organ-toxicity assessment was performed",
+   "this is not clinical advice and must not be used to decide whether a prescription is safe for a patient",
+   "no population was specified; pregnancy, paediatric, hepatic and renal considerations are NOT assessed",
+   "3 record(s) at high or critical severity were found; review them before any use"
+  ],
+  "outputs": [
+   {
+    "path": "safety.json",
+    "sha256": "715a3fe61a722b44ef01152858c0e7a33e4af69638381755c47c900cdc128780",
+    "media_type": "application/json",
+    "bytes": 3782,
+    "description": "recorded safety information, or the absence of it",
+    "content": {
+     "combination_conflicts": [
+      {
+       "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+       "first": "herb.gancao",
+       "second": "herb.gansui"
+      }
+     ],
+     "critical_records": [
+      {
+       "combination": false,
+       "counterpart": "herb.gansui",
+       "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+       "evidence": [
+        "passage.shibafan"
+       ],
+       "kind": "incompatibility",
+       "management": "不宜同用",
+       "population": "",
+       "severity": "high",
+       "subject": "herb.gancao",
+       "subject_chinese": "甘草",
+       "tier": "classical_text"
+      },
+      {
+       "combination": false,
+       "counterpart": "",
+       "description": "有毒，泻下峻猛，可致剧烈腹痛腹泻",
+       "evidence": [
+        "study.pharmacopoeia_2020"
+       ],
+       "kind": "toxicity",
+       "management": "醋制后用；孕妇禁用；虚弱者慎用",
+       "population": "",
+       "severity": "high",
+       "subject": "herb.gansui",
+       "subject_chinese": "甘遂",
+       "tier": "expert_experience"
+      },
+      {
+       "combination": true,
+       "counterpart": "herb.gansui",
+       "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+       "evidence": [
+        "passage.shibafan"
+       ],
+       "kind": "incompatibility",
+       "management": "不宜同用",
+       "severity": "critical",
+       "subject": "herb.gancao"
+      }
+     ],
+     "processing": [
+      {
+       "chinese": "甘草",
+       "effect_change": "补脾和胃、益气复脉之力增强；清热解毒之力减弱",
+       "herb": "herb.gancao",
+       "method": "蜜炙",
+       "processed_form": "processed.zhi_gancao",
+       "toxicity_change": ""
+      }
+     ],
+     "query": {
+      "co_administered": [
+       "甘遂"
+      ],
+      "population": "",
+      "subject": "甘草"
+     },
+     "records": [
+      {
+       "combination": false,
+       "counterpart": "herb.gansui",
+       "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+       "evidence": [
+        "passage.shibafan"
+       ],
+       "kind": "incompatibility",
+       "management": "不宜同用",
+       "population": "",
+       "severity": "high",
+       "subject": "herb.gancao",
+       "subject_chinese": "甘草",
+       "tier": "classical_text"
+      },
+      {
+       "combination": false,
+       "counterpart": "",
+       "description": "长期大剂量服用可致假性醛固酮增多症：水肿、血压升高、低血钾",
+       "evidence": [
+        "study.pharmacopoeia_2020"
+       ],
+       "kind": "adverse_event",
+       "management": "不宜长期大量使用；高血压、水肿、低钾者慎用",
+       "population": "",
+       "severity": "moderate",
+       "subject": "herb.gancao",
+       "subject_chinese": "甘草",
+       "tier": "expert_experience"
+      },
+      {
+       "combination": false,
+       "counterpart": "",
+       "description": "有毒，泻下峻猛，可致剧烈腹痛腹泻",
+       "evidence": [
+        "study.pharmacopoeia_2020"
+       ],
+       "kind": "toxicity",
+       "management": "醋制后用；孕妇禁用；虚弱者慎用",
+       "population": "",
+       "severity": "high",
+       "subject": "herb.gansui",
+       "subject_chinese": "甘遂",
+       "tier": "expert_experience"
+      },
+      {
+       "combination": true,
+       "counterpart": "herb.gansui",
+       "description": "十八反：藻戟遂芫俱战草——甘遂反甘草",
+       "evidence": [
+        "passage.shibafan"
+       ],
+       "kind": "incompatibility",
+       "management": "不宜同用",
+       "severity": "critical",
+       "subject": "herb.gancao"
+      }
+     ],
+     "resolved": [
+      {
+       "id": "herb.gancao",
+       "query": "甘草"
+      },
+      {
+       "id": "herb.gansui",
+       "query": "甘遂"
+      }
+     ],
+     "status": "risk_recorded",
+     "unresolved": []
+    }
+   }
+  ]
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "CPython 3.13",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=assess-tcm-safety@1.0.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+  "content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+  "audit_head": "43c45a75850f347b67213284fc31ee678ff0152624e8a271df377eee3b1d103d",
+  "input_sha256": "098281a34f1e60900a501ed9e3a9711830add4512fe63895b55dbf437c98016f",
+  "output_sha256": "0b66f854734f4d057cedb5d32ad0da80652b548fda222268a752ba9231eb4bb5",
+  "started_at": "2026-10-07T12:00:00Z"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

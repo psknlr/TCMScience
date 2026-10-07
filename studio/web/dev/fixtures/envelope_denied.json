@@ -1,0 +1,49 @@
+{
+ "ok": false,
+ "tool": "network_pharmacology_run",
+ "via": "job.research.run",
+ "status": "refused",
+ "duration_ms": 0,
+ "summary": "未获批准：network_pharmacology_run 没有运行。",
+ "text": "Not run: the user declined this call (job, first_runner_call).",
+ "result": null,
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "job"
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "studio-router",
+  "device": "cpu",
+  "versions": {},
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "24434ed586efe06ee1468189a4f023da1573a59c6dd5b982f99cea87f62dd800",
+  "output_sha256": null,
+  "started_at": "2026-10-07T09:41:12Z",
+  "decided_by": "router"
+ },
+ "job": null,
+ "approval": {
+  "reason": "job",
+  "what": "网络药理学研究闭环 (job.research.run)",
+  "hosts": [],
+  "decision": "deny"
+ },
+ "error": {
+  "type": "refused",
+  "message": "未获批准：network_pharmacology_run 没有运行。",
+  "hint": "the user declined"
+ }
+}

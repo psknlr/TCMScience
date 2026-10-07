@@ -1,0 +1,44 @@
+{
+ "ok": false,
+ "tool": "connector_call",
+ "via": "connector.chembl.molecule",
+ "status": "failed",
+ "duration_ms": 0,
+ "summary": "本项目未开启联网，connector_call 需要访问网络。可在项目设置中开启联网后重试。",
+ "text": "Not run: web access is off for this project and this tool reaches the network.",
+ "result": null,
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "connector"
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "studio-router",
+  "device": "cpu",
+  "versions": {},
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "f90a31ff89ca4df722ea9bdb4dc5d3755892d16b0f8e968587ef7be4348cc66f",
+  "output_sha256": null,
+  "started_at": "2026-10-07T09:41:12Z",
+  "decided_by": "router"
+ },
+ "job": null,
+ "approval": null,
+ "error": {
+  "type": "network_off",
+  "message": "本项目未开启联网，connector_call 需要访问网络。",
+  "hint": "turn on web access for this project"
+ }
+}

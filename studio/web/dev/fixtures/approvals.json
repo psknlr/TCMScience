@@ -1,0 +1,56 @@
+[
+ {
+  "callId": "c1",
+  "tool": "literature_search",
+  "entry": "connector.europepmc.search",
+  "reason": "network",
+  "reasons": [
+   "network",
+   "first_runner_call"
+  ],
+  "what": "文献检索 (connector.europepmc.search)",
+  "hosts": [
+   "www.ebi.ac.uk"
+  ],
+  "args": {
+   "query": "葛根素 炎症",
+   "limit": 10
+  }
+ },
+ {
+  "callId": "c2",
+  "tool": "network_pharmacology_run",
+  "entry": "job.research.run",
+  "reason": "job",
+  "reasons": [
+   "job"
+  ],
+  "what": "网络药理学研究闭环 (job.research.run)",
+  "hosts": [],
+  "args": {
+   "formula": "葛根芩连汤",
+   "disease": "2 型糖尿病"
+  }
+ },
+ {
+  "callId": "c3",
+  "tool": "call_tool",
+  "entry": "connector.colabfold.msa",
+  "reason": "remote_upload",
+  "reasons": [
+   "network",
+   "remote_upload"
+  ],
+  "what": "ColabFold MSA (connector.colabfold.msa)",
+  "hosts": [
+   "api.colabfold.com"
+  ],
+  "args": {
+   "tool": "connector.colabfold.msa",
+   "arguments": {
+    "sequence": "MKTAYIAKQRQISFVKSHFSRQ",
+    "allow_remote": true
+   }
+  }
+ }
+]

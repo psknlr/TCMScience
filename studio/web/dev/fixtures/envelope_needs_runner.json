@@ -1,0 +1,44 @@
+{
+ "ok": false,
+ "tool": "literature_search",
+ "via": "connector.europepmc.search",
+ "status": "failed",
+ "duration_ms": 0,
+ "summary": "literature_search 需要本机 Runner，当前未连接。浏览器内计算仍可用；连接 Runner 后可运行。",
+ "text": "Not run: literature_search needs the local runner, which is not connected. Say what it would need; do not substitute an approximation.",
+ "result": null,
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "connector"
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "studio-router",
+  "device": "cpu",
+  "versions": {},
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "0fc7a96d9d1427bd6106eac6ff99e0fc837e63dac7637752cadceb3e44321856",
+  "output_sha256": null,
+  "started_at": "2026-10-07T09:41:12Z",
+  "decided_by": "router"
+ },
+ "job": null,
+ "approval": null,
+ "error": {
+  "type": "unavailable",
+  "message": "literature_search 需要本机 Runner，当前未连接。",
+  "hint": "needs_runner"
+ }
+}

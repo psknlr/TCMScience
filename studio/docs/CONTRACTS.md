@@ -20,9 +20,13 @@ Same origin as the app. OpenAI-compatible. The browser never sends a key.
 | POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer. |
 
 Errors are always `{error:{message, type}}`, with a Chinese `message` that tells the visitor what to do. Types: `forbidden_origin`, `not_configured`, `bad_request`,
-`too_large`, `model_not_allowed`, `rate_limited`, `daily_limit`, `total_limit`, `blocked`,
+`too_large`, `model_not_allowed`, `rate_limited`, `daily_limit`, `total_limit`, `blocked` (reserved; not emitted in v1),
 `unavailable`, `upstream_auth`, `upstream_rate`, `upstream_quota`, `upstream_error`,
-`upstream_rejected`, `upstream_unreachable`, `relay_error`. A `429` carries `Retry-After`.
+`upstream_rejected`, `upstream_unreachable`, `relay_error`, `https_required`, `not_found`, `method_not_allowed`. A `429`
+carries `Retry-After` (exposed to other allowed origins). An error the upstream reports inside a stream arrives as one
+event `data: {"error":{message, type}}`; the client treats it as a model error. The upstream's own model names are
+refused like any other (`model_not_allowed`). `RELAY = "off"` (a var) stops Tao-S1: `health.ok:false`, chat `503
+not_configured`. `/v1/health` answers `200` in every state, with `ok` saying whether Tao-S1 can be used.
 
 Allowed origins (env `ALLOWED_ORIGINS`): `https://science.impf.ai`, `http://127.0.0.1:8765`,
 `http://localhost:8765` (the app as served by the local runner). Output tokens are capped at
@@ -60,7 +64,7 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "description": "...",                        // English, for the model; ≤ 1000 chars; states limits ("no record ≠ safe")
   "parameters": { JSON Schema object },        // arrays have items, objects have properties
   "category": "tcm_safety",
-  "exec": ["browser", "runner"],               // where it can run; order = preference when both are available
+  "exec": ["browser", "runner"],               // where it can run. compute "auto": a connected runner first, else the browser
   "network": false,                            // true: reaches the internet (needs the project's web access)
   "confirm": false,                            // true: the user must approve each call (or for the project)
   "job": false,                                // true: starts a runner job; result carries job {id,state}
@@ -168,12 +172,20 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
     "started_at": "2026-10-07T12:00:00Z"
   },
   "job": null | {"id":"j_…","kind":"pipeline.rnaseq","state":"queued"},
-  "approval": null | {"reason":"network|job|remote_upload|first_runner_call","what":"…","hosts":["…"]},  // when status=needs_approval
+  "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call","what":"…","hosts":["…"],"decision"?:"deny"},
   "error": null | {"type":"bad_arguments|unavailable|not_found|refused|runtime_error|timeout|network_off","message":"…","hint":"…"}
 }
 ```
 
 Rules:
+- `text` starts with the line `<tool> → <via>: <status>` in every envelope, then `Error (<type>)…` when there is an
+  error, including envelopes decided in the page (the router's `needs_approval`/`refused`/`unavailable`/`network_off`,
+  which carry `receipt.decided_by: "router"` and no output hash).
+- Citations are numbered `E1…` per envelope by the dispatcher; the agent renumbers them across one turn in call order
+  (the second result's `E1` becomes the next free id, in `citations[].id` and in the `[E#]` marks of `text`), so an id
+  is unique within a turn for the model and the reader. The UI resolves `[E#]` against the envelopes of the same turn.
+- `receipt.output_sha256` hashes the whole result, which includes the run id, the time and the audit-chain position: it
+  differs on every run. What is reproducible is `input_sha256`, `content_hash` and each `governance.outputs[].sha256`.
 - `text` is what the model reads. It must restate the limits (`absence of a record is not evidence
   of safety`, `predicted ≠ measured`, `draft for a licensed practitioner`) when the result has them.
 - Wrong arguments produce `status:"failed"`, `error.type:"bad_arguments"`, and a hint such as "Did you mean 'names'?".
@@ -200,6 +212,12 @@ Standard library HTTP server (`ThreadingHTTPServer`). JSON in and out, UTF-8.
   and opens `https://science.impf.ai/#pair=<base64url(JSON{url,token})>`. The page stores the token
   and removes the fragment from the URL.
 - Request bodies are capped (JSON 8 MB; uploads 4 GB, streamed to disk). Nothing logs request bodies.
+- The banner also prints `http://127.0.0.1:<port>/#pair=…` (token or not) for the app it serves: opened through it, the
+  page pairs with that runner and connects without a prompt beyond the first-call approval.
+- `X-Filename` on `POST /api/uploads` is percent-encoded UTF-8 (`encodeURIComponent`), since headers cannot carry
+  Chinese file names. The `/api/llm` proxy forwards `content-type, accept, authorization, x-api-key, api-key,
+  anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access, http-referer, x-title,
+  openai-organization, openai-project`, never cookies, `Origin` or the runner's token.
 
 **Home and workspace:** `--home` (default `~/.tcmscience/studio`). It holds `runner.json` (settings and token), `jobs/`,
 `uploads/`, `projects/<project_id>/psh/` (one durable PSH state directory per project for
@@ -226,6 +244,7 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/llm/local` | probes local model servers → `{servers:[{id:"ollama"|"lmstudio"|"vllm"|"llamacpp", base_url, ok, models:[…]}]}` |
 | POST | `/api/llm` | model proxy: header `X-TCM-Target: <full URL>`, body forwarded, response streamed back. The target must be loopback, or a host in the provider allowlist (OpenAI, Anthropic, DeepSeek, DashScope, Moonshot, Zhipu, SiliconFlow, OpenRouter, and `--allow-host`). The key travels in the request's own `Authorization`/`x-api-key` and is never stored or logged. |
 | GET | `/` and static paths | the web app (bundled `web/` or `--web DIR`), so `http://127.0.0.1:8765/` works offline |
+| GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", message}}`: the runner never relays Tao-S1. A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay`. |
 
 `Job = {id, kind, state:"queued"|"running"|"succeeded"|"failed"|"cancelled", params, project_id,
 created_at, started_at, finished_at, progress:{fraction?, message?}|null, device, outcome:{status, error?, problems?}|null,
@@ -326,6 +345,9 @@ export async function runTurn({provider, system, history, router, catalog, setti
   // TurnResult = {assistant: Message, toolMessages: [...], usage, status}
   // max steps (model calls) default 16; tool results truncated to 2 500 chars in replayed history;
   // <think> stripped from replayed history; transient errors retried twice (1.5 s, 4 s).
+  // Also (CONTRACT_NOTES "web-core"): onApproval(request) → decision; events "tool.pending" {index, name, step},
+  // "model.retry" {step, …} (drop that step's partial text), "tool.update" {callId, envelope} (citations renumbered);
+  // the last allowed model call is made with toolChoice "none".
 
 // core/prompt.js
 export function buildSystemPrompt({lang, provider, project, knowledge, env}) → string   // §9
@@ -416,14 +438,18 @@ Identity questions (`你是谁`, `what model are you`, …) to the relay are sen
 | `studio/edge/**` (incl. `_headers`), `.github/workflows/studio.yml` | edge |
 | `studio/runner/pyproject.toml`, `runner/src/tcmstudio/{__init__,__main__,cli,catalog,core_tools,dispatch,envelope,governance}.py`, `runner/tests/test_{catalog,dispatch,envelope,governance}*.py` | runner-core |
 | `runner/src/tcmstudio/{server,jobs,kinds,devices,llmproxy,security,settings}.py`, `runner/tests/test_{server,jobs,devices,llmproxy,security}*.py` | runner-service |
-| `runner/src/tcmstudio/webbuild.py`, `studio/scripts/build_web.py`, `studio/web/js/runtime/{browser.js,pyodide.worker.js}`, `studio/web/test/runtime/**` | browser-runtime |
-| `studio/web/js/core/**`, `studio/web/js/runtime/{index,runner}.js`, `studio/web/test/*.test.mjs`, `studio/package.json` | web-core |
-| `studio/web/index.html`, `studio/web/css/**`, `studio/web/js/ui/**`, `studio/web/js/main.js`, `studio/web/js/boot.js`, `studio/web/assets/**`, `studio/web/dev/**` | web-ui |
-| `studio/e2e/**`, `studio/README.md`, root README links, cross-part fixes | integration |
+| `runner/src/tcmstudio/webbuild.py`, `studio/scripts/build_web.py`, `studio/web/js/runtime/{browser.js,pyodide.worker.js}`, `studio/web/test/runtime/**`, `runner/tests/test_webbuild.py` | browser-runtime |
+| `studio/web/js/core/**`, `studio/web/js/runtime/{index,runner}.js`, `studio/web/test/*.test.mjs`, `studio/web/test/fixtures/**`, `studio/package.json` (dependencies) | web-core |
+| `studio/web/index.html`, `studio/web/css/**`, `studio/web/js/ui/**`, `studio/web/js/main.js`, `studio/web/js/boot.js`, `studio/web/assets/**`, `studio/web/dev/**` (incl. `dev/test`) | web-ui |
+| `studio/e2e/**`, `studio/README.md`, `studio/package.json` (`test` / `test:e2e` scripts), root README links, cross-part fixes | integration |
 
 CLI wiring: `tcmstudio.cli` (runner-core) defines the subcommands `catalog`, `call`, `serve`, and `webbuild`.
 `serve` delegates lazily to `tcmstudio.server.add_arguments(parser)` / `tcmstudio.server.run(args)`, and
 `webbuild` delegates to `tcmstudio.webbuild.add_arguments(parser)` / `tcmstudio.webbuild.run(args)`.
+
+Tests: `node --test studio/edge/test/*.test.js` (edge) · `python3 -m pytest -q studio/runner/tests` (runner) ·
+`cd studio && npm test` (web core, UI, browser runtime with a scripted worker) · `cd studio && npm run test:e2e`
+(Playwright end to end: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker; see `studio/README.md`).
 
 Build output: `python3 studio/scripts/build_web.py --out studio/_site` (git-ignored), served by the Worker
 (`[assets] directory = "../_site"` from `studio/edge`). The repository's own `_site/` belongs to the GitHub

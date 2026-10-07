@@ -1,0 +1,190 @@
+/* Base: reset, type, focus, prose (the Markdown renderer's output), motion preferences and print.
+   Every colour comes from tokens.css. */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  hanging-punctuation: allow-end;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-ui);
+  font-feature-settings: "cv11", "ss01";   /* Inter: single-storey a off, open digits */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+}
+
+/* CJK reads looser; Latin tracking never applies to CJK (DESIGN §5.1) */
+:lang(zh) { line-break: strict; word-break: normal; }
+
+img, svg, video, canvas { display: block; max-width: 100%; }
+svg.icon { display: inline-block; flex: none; vertical-align: middle; }
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; margin: 0; text-align: inherit; }
+button:disabled { cursor: default; }
+a { color: var(--accent); text-decoration: none; text-underline-offset: 2px; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd { margin: 0; }
+ul[role="list"], ol[role="list"] { list-style: none; margin: 0; padding: 0; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: var(--space-4) 0; }
+table { border-collapse: collapse; }
+[hidden] { display: none !important; }
+::selection { background: var(--selection); }
+
+code, kbd, samp, pre, .mono { font-family: var(--font-mono); font-variant-ligatures: none; }
+.mono { font-size: var(--text-xs); letter-spacing: 0; }
+.num, time, .tabular { font-variant-numeric: tabular-nums; }
+
+/* focus: one ring everywhere (DESIGN §8.2) */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-xs); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline-offset: 0; }
+
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+.skip-link {
+  position: fixed; left: var(--space-3); top: var(--space-2); z-index: var(--z-toast);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  background: var(--accent); color: var(--accent-ink); font-weight: var(--weight-medium);
+  transform: translateY(-200%); transition: transform var(--dur-2) var(--ease-out);
+}
+.skip-link:focus-visible { transform: none; outline-color: var(--accent-ink); }
+
+/* scrollbars: quiet, thin, themed */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 18%, transparent) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--ink) 16%, transparent); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ink) 28%, transparent); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ------------------------------------------------------------------------------------------------ type helpers */
+
+.serif { font-family: var(--font-serif); }
+.kicker {
+  font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--ink-3);
+  letter-spacing: var(--tracking-kicker); text-transform: uppercase;
+}
+:lang(zh) .kicker, .kicker:lang(zh) { letter-spacing: .04em; text-transform: none; }
+.muted { color: var(--ink-3); }
+.soft { color: var(--ink-2); }
+.small { font-size: var(--text-sm); }
+.xsmall { font-size: var(--text-xs); }
+.nowrap { white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.latin { font-style: italic; color: var(--ink-3); }
+
+/* ------------------------------------------------------------------------------------------------ prose */
+
+/* Message prose: en 16/1.65; zh 15.5/1.8, never justified in chat (DESIGN §5.1). */
+.prose {
+  font-size: var(--prose-size);
+  line-height: var(--leading-prose-en);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.prose:lang(zh), :lang(zh) > .prose, [lang^="zh"] .prose { font-size: var(--prose-size-zh); line-height: var(--leading-prose-zh); }
+.prose > * + * { margin-top: .75em; }
+.prose p { margin: 0; }
+.prose p + p { margin-top: .75em; }
+.prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  font-family: var(--font-sans); font-weight: var(--weight-semibold); line-height: var(--leading-tight); color: var(--ink);
+  margin-top: 1.4em;
+}
+.prose h2 { font-size: 20px; }
+.prose h3 { font-size: 18px; }
+.prose h4, .prose h5, .prose h6 { font-size: 16px; }
+.prose > :first-child { margin-top: 0; }
+.prose ul, .prose ol { padding-left: 1.4em; margin: .5em 0; }
+.prose li + li { margin-top: .3em; }
+.prose li > ul, .prose li > ol { margin: .3em 0; }
+.prose li::marker { color: var(--ink-3); }
+.prose .md-task { list-style: none; margin-left: -1.2em; }
+.prose .md-task-box { color: var(--ink-3); }
+.prose blockquote {
+  margin: .75em 0; padding: .1em 0 .1em 1em; border-left: 3px solid var(--rule); color: var(--ink-2);
+}
+.prose strong { font-weight: var(--weight-semibold); }
+.prose a { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.prose a:hover { text-decoration-color: currentColor; }
+.prose :not(pre) > code {
+  font-size: .86em; padding: .12em .36em; border-radius: var(--radius-xs); background: var(--sunken);
+  border: 1px solid var(--rule-2); overflow-wrap: anywhere;
+}
+.prose hr { margin: 1.25em 0; }
+
+.md-code { margin: .9em 0; border: 1px solid var(--rule); border-radius: var(--radius-md); background: var(--sunken); overflow: hidden; }
+.md-code-head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--rule-2); font-size: var(--text-xs); color: var(--ink-3);
+}
+.md-code-lang { font-family: var(--font-mono); }
+.md-code-copy {
+  font-size: var(--text-xs); color: var(--ink-3); padding: 2px 8px; border-radius: var(--radius-xs); min-height: 24px;
+}
+.md-code-copy:hover { background: var(--hover); color: var(--ink); }
+.md-code-copy[aria-pressed="true"] { color: var(--accent); }
+.md-code-head { gap: 2px; }
+.md-code-head .md-code-lang { margin-right: auto; }
+.prose .md-image-link { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: var(--radius-xs); background: var(--sunken); border: 1px dashed var(--rule); font-size: .9em; text-decoration: none; }
+.md-code pre { margin: 0; padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.6; tab-size: 2; }
+.md-code.is-wrapped pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.md-table { margin: .9em 0; overflow-x: auto; border: 1px solid var(--rule); border-radius: var(--radius-md); }
+.md-table table { width: 100%; font-size: var(--text-sm); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.md-table th, .md-table td { padding: 7px 12px; border-bottom: 1px solid var(--rule-2); text-align: left; vertical-align: top; }
+.md-table th { background: var(--sunken); font-weight: var(--weight-semibold); color: var(--ink-2); position: sticky; top: 0; white-space: nowrap; }
+.md-table tr:last-child td { border-bottom: 0; }
+.md-table th[align="right"], .md-table td[align="right"] { text-align: right; }
+.md-table th[align="center"], .md-table td[align="center"] { text-align: center; }
+
+/* TeX is kept as source (no third-party typesetter is loaded): shown as quiet monospace */
+.md-math { font-family: var(--font-mono); font-size: .9em; color: var(--ink-2); background: var(--sunken); padding: 0 .3em; border-radius: var(--radius-xs); }
+.md-math-block { display: block; padding: 10px 14px; margin: .9em 0; overflow-x: auto; white-space: pre; border-radius: var(--radius-md); }
+
+/* streaming caret: a block that breathes; no blink with reduced motion */
+.md-caret {
+  display: inline-block; width: .5em; height: 1.05em; margin-left: 2px; vertical-align: -0.16em;
+  background: var(--ink-2); border-radius: 1px; animation: caret 1s steps(2, start) infinite;
+}
+@keyframes caret { to { visibility: hidden; } }
+
+/* ------------------------------------------------------------------------------------------------ motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important; scroll-behavior: auto !important;
+  }
+  .md-caret { animation: none; }
+}
+
+/* ------------------------------------------------------------------------------------------------ print */
+
+/* Printing a conversation prints the answers: no chrome, ink on white, citations and hashes kept. */
+@media print {
+  :root { --bg: #fff; --surface: #fff; --sunken: #f6f6f6; --ink: #000; --ink-2: #222; --ink-3: #444; --rule: #ccc; }
+  html, body { background: #fff !important; height: auto !important; overflow: visible !important; }
+  .no-print, .topbar, .sidebar, .composer-dock, .inspector, .msg-actions, .branch, .toast-region, .skip-link,
+  .tool-card__body:not(.is-open), .thread-jump { display: none !important; }
+  .app, .main, .thread-scroll { display: block !important; height: auto !important; overflow: visible !important; position: static !important; }
+  .thread { max-width: none !important; padding: 0 !important; }
+  .msg { break-inside: avoid-page; }
+  .prose { font-size: 11pt; line-height: 1.6; }
+  .prose a::after { content: " (" attr(href) ")"; font-size: 9pt; color: #444; word-break: break-all; }
+  .md-code, .md-table { break-inside: avoid; }
+  .md-caret { display: none; }
+}

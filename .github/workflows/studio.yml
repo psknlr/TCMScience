@@ -1,0 +1,193 @@
+name: studio
+
+# TCMScience Studio (studio/): test every part, build the app, and deploy it with the Tao-S1 relay as the Cloudflare
+# Worker "tcmscience-studio" at https://science.impf.ai (studio/edge/README.md, studio/edge/SETUP.md).
+# Deploys only from main, and only when the repository has the Cloudflare secrets: CLOUDFLARE_API_TOKEN,
+# CLOUDFLARE_ACCOUNT_ID; with MINIMAX_API_KEY Tao-S1 is on (without it the site is deployed and Tao-S1 stays off);
+# optional VISITOR_SALT. The secrets become the Worker's own; none is printed or written into the repository or the site.
+on:
+  push:
+    paths:
+      - "studio/**"
+      - ".github/workflows/studio.yml"
+  pull_request:
+    paths:
+      - "studio/**"
+      - ".github/workflows/studio.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WRANGLER: wrangler@4.148.0
+  WRANGLER_SEND_METRICS: "false"
+  SITE_URL: ${{ vars.STUDIO_URL || 'https://science.impf.ai' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Edge (the Worker)
+        run: node --test studio/edge/test/*.test.js
+      # Each suite below runs when its part is in the tree; a part that is there and fails, fails the job.
+      - name: Runner (tcmstudio)
+        run: |
+          if [ ! -f studio/runner/pyproject.toml ]; then
+            echo "::notice::studio/runner is not in this tree: no runner tests"
+            exit 0
+          fi
+          python -m pip install --upgrade pip
+          pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest
+          if [ -d studio/runner/tests ]; then
+            python -m pytest -q studio/runner/tests
+          else
+            echo "::notice::studio/runner has no tests directory"
+          fi
+      - name: Web (core modules and UI)
+        run: |
+          if [ ! -f studio/package.json ]; then
+            echo "::notice::studio/package.json is not in this tree: no web tests"
+            exit 0
+          fi
+          cd studio
+          npm ci || npm install
+          npm test
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install what the build reads (the catalog is generated from the code)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
+      - name: Build the app (studio/_site) with its headers
+        run: |
+          python3 studio/scripts/build_web.py --out studio/_site
+          cp studio/edge/_headers studio/_site/_headers
+          test -f studio/_site/index.html || { echo "::error::the build wrote no index.html"; exit 1; }
+          # Workers Static Assets: at most 25 MiB a file and 20 000 files (Free plan)
+          big="$(find studio/_site -type f -size +25M)"
+          if [ -n "$big" ]; then echo "::error::files over 25 MiB cannot be served as Workers assets: $big"; exit 1; fi
+          count="$(find studio/_site -type f | wc -l)"
+          if [ "$count" -gt 20000 ]; then echo "::error::$count files: Workers Static Assets serves at most 20 000"; exit 1; fi
+          echo "studio/_site: $count files, $(du -sh studio/_site | cut -f1)"
+      - name: The Worker builds with this site (dry run, no account needed)
+        working-directory: studio/edge
+        run: npx --yes "$WRANGLER" deploy --dry-run --outdir "$RUNNER_TEMP/worker"
+      - name: End-to-end (when the suite is in the tree)
+        env:
+          STUDIO_SITE: ${{ github.workspace }}/studio/_site
+        run: |
+          if [ ! -f studio/package.json ] || ! node -e "process.exit(require('./studio/package.json').scripts?.['test:e2e'] ? 0 : 1)"; then
+            echo "::notice::no test:e2e script in studio/package.json: no end-to-end tests"
+            exit 0
+          fi
+          cd studio
+          npm ci || npm install
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-site
+          path: studio/_site
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    # one deployment at a time, none cancelled halfway (here rather than on the whole workflow, where a queued run of
+    # any branch would displace another branch's pending tests)
+    concurrency:
+      group: studio
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: studio-site
+          path: studio/_site
+      - name: Are the secrets set?
+        id: secrets
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          missing=""
+          [ -n "$CF_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CF_ACCOUNT" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::warning::science.impf.ai is not deployed until these repository secrets are set:$missing (studio/edge/SETUP.md)"
+            echo "ready=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ready=1" >> "$GITHUB_OUTPUT"
+          if [ -n "$(printf '%s' "$KEY" | tr -d '[:space:]')" ]; then
+            echo "model=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no MINIMAX_API_KEY secret: the site is deployed, Tao-S1 keeps whatever key the Worker already has (none on a first deployment: off) (studio/edge/SETUP.md)"
+            echo "model=0" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy the Worker with the app, then give it its secrets
+        if: steps.secrets.outputs.ready == '1'
+        working-directory: studio/edge
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          VISITOR_SALT: ${{ secrets.VISITOR_SALT }}
+          MODEL: ${{ steps.secrets.outputs.model }}
+        # a space or line break pasted with a secret is not part of it; secrets go in on stdin, never as arguments
+        run: |
+          set -o pipefail
+          test -f ../_site/index.html && test -f ../_site/_headers || { echo "::error::the built site or its _headers is missing"; exit 1; }
+          if ! npx --yes "$WRANGLER" deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"; then
+            if grep -qi "externally managed DNS record" "$RUNNER_TEMP/deploy.log"; then
+              echo "::error::science.impf.ai already has a DNS record of its own: delete it in Cloudflare → impf.ai → DNS → Records, then run this workflow again (studio/edge/SETUP.md)"
+            elif grep -qi "No access to the specified resource" "$RUNNER_TEMP/deploy.log"; then
+              echo "::error::the API token cannot reach the zone impf.ai: add it under Zone Resources of the token (studio/edge/SETUP.md, step 2)"
+            elif grep -qi "Authentication error" "$RUNNER_TEMP/deploy.log"; then
+              echo "::error::Cloudflare refused the API token or the account id (studio/edge/SETUP.md, steps 2-3)"
+            fi
+            exit 1
+          fi
+          if [ "$MODEL" = "1" ]; then
+            printf '%s' "$MINIMAX_API_KEY" | tr -d '[:space:]' | npx --yes "$WRANGLER" secret put MINIMAX_API_KEY
+          fi
+          salt="$(printf '%s' "$VISITOR_SALT" | tr -d '[:space:]')"
+          if [ -n "$salt" ]; then
+            printf '%s' "$salt" | npx --yes "$WRANGLER" secret put VISITOR_SALT
+          fi
+      - name: Check the site, its headers, and one tiny Tao-S1 call
+        if: steps.secrets.outputs.ready == '1'
+        env:
+          MODEL: ${{ steps.secrets.outputs.model }}
+        # a new custom domain and its certificate can take minutes on the first deployment
+        run: |
+          if [ "$MODEL" = "1" ]; then
+            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model
+          else
+            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600
+          fi

@@ -1,0 +1,7 @@
+# Copy to .dev.vars (git-ignored) for `npm run dev`; wrangler reads it in place of the Worker's secrets and variables.
+# Never put the production key here.
+MINIMAX_API_KEY=local-test-key
+# the mock model service (`npm run mock` in another terminal); remove the line to call the real one with a real key
+UPSTREAM_BASE=http://127.0.0.1:8790/v1
+# `npm run dev` serves the app at https://localhost:8787 (a self-signed certificate). wrangler dev presents the page's
+# own origin to the Worker as https://science.impf.ai, so ALLOWED_ORIGINS needs nothing added for it.

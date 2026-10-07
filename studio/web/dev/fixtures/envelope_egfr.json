@@ -1,0 +1,47 @@
+{
+ "ok": true,
+ "tool": "call_tool",
+ "via": "native.egfr_ckd_epi_2021",
+ "status": "succeeded",
+ "duration_ms": 2,
+ "summary": "eGFR 68.6 mL/min/1.73m² · G2",
+ "text": "{\"egfr_ml_min_1_73m2\": 68.6, \"kdigo_stage\": \"G2\", \"equation\": \"CKD-EPI 2021 creatinine\"}",
+ "result": {
+  "egfr_ml_min_1_73m2": 68.6,
+  "kdigo_stage": "G2",
+  "equation": "CKD-EPI 2021 creatinine"
+ },
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "native"
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "pyodide-314.0.7 / CPython 3.14",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "b8a85663561a8d4f5b6fac04ef83650b9cc0f1156dddfb6c3c659c5124d947c7",
+  "output_sha256": "fb2b3e3b017e3c73655cf93f75915e170959ff6327686525006a0cfc50725219",
+  "started_at": "2026-10-07T09:41:12Z"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

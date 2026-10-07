@@ -29,6 +29,7 @@
 
 [**Project page**](https://psknlr.github.io/TCMScience/) &nbsp;|&nbsp;
 [**Arena**](https://psknlr.github.io/TCMScience/arena/) &nbsp;|&nbsp;
+[**Studio**](studio/README.md) &nbsp;|&nbsp;
 **Paper** *(in preparation)* &nbsp;|&nbsp;
 [**Design spec**](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md) &nbsp;|&nbsp;
 [**Citation**](#citation) &nbsp;|&nbsp;

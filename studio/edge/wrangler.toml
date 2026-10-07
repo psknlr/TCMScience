@@ -1,0 +1,80 @@
+# TCMScience Studio — one Worker for https://science.impf.ai: the app's files and the Tao-S1 relay under /v1/*.
+# Deployed by .github/workflows/studio.yml (SETUP.md). Its secrets are never written here or anywhere in the repository:
+# MINIMAX_API_KEY (required for Tao-S1) and VISITOR_SALT (optional) are set from the repository's Actions secrets.
+name = "tcmscience-studio"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+# request.signal: a visitor who stops an answer, or leaves, cancels the model call, which then costs nothing further
+compatibility_flags = ["enable_request_signal"]
+# no second public hostname: only science.impf.ai
+workers_dev = false
+preview_urls = false
+
+# Cloudflare creates the DNS record and the certificate on the first deployment: the name must have no DNS record before
+[[routes]]
+pattern = "science.impf.ai"
+custom_domain = true
+
+# the app, as built by `python3 studio/scripts/build_web.py --out studio/_site` (the workflow copies _headers into it)
+[assets]
+directory = "../_site"
+binding = "ASSETS"
+# only the relay runs the Worker first; every file is served directly by Cloudflare (free, not counted)
+run_worker_first = ["/v1/*"]
+# a path that matches no file goes to the Worker, which answers a browser's navigation with index.html (the app's own
+# routes) and anything else with 404. "single-page-application" would answer index.html, with 200, to every miss,
+# including a missing script or JSON file the app asked for.
+not_found_handling = "none"
+
+[vars]
+# "off" stops Tao-S1 without touching the key: health says ok:false, a model call is refused (not_configured)
+RELAY = "on"
+# MiniMax's mainland platform; a key from the international platform (platform.minimax.io) needs https://api.minimax.io/v1
+UPSTREAM_BASE = "https://api.minimax.cn/v1"
+# the upstream model (the first is used); never shown to a visitor
+MODELS = "MiniMax-M3"
+# the only model name a visitor ever sees
+PUBLIC_MODEL = "Tao-S1"
+# merged into each upstream request for the keys the page did not send: reasoning in its own field, not in the text
+UPSTREAM_FIELDS = '{"reasoning_split":true}'
+# the upstream's reasoning formats (MiniMax-…) are shown as Tao-… and restored when the page sends them back
+FORMAT_PREFIX = "MiniMax-"
+MAX_OUTPUT_TOKENS = "8192"
+# bytes, not characters (a CJK character is 3 bytes)
+MAX_BODY_BYTES = "2000000"
+# model calls. The agent makes one per round of tool use (up to 16 for a question), so these are higher than a chat
+# page needs: per visitor per minute, per visitor per UTC day, all visitors per UTC day (0: no limit)
+PER_MINUTE = "40"
+PER_DAY = "1200"
+TOTAL_PER_DAY = "20000"
+# tokens (input + output, as the model service reports them) per visitor per UTC day, and for all visitors (0: no
+# limit). Each round sends the conversation so far again, so a long question can cost several hundred thousand.
+TOKENS_PER_DAY = "10000000"
+TOTAL_TOKENS_PER_DAY = "200000000"
+# exact origins of the pages that may call the relay: the site, and the app as the local runner serves it
+ALLOWED_ORIGINS = "https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765"
+HSTS_MAX_AGE = "15552000"
+
+# per visitor (IPv6 by /64) and Cloudflare location over ten seconds: checked before the body is read and before the
+# Durable Object is asked. namespace_id is unique in the account (TaoChronos uses 7311, 7312, 7313).
+[[ratelimits]]
+name = "BURST"
+namespace_id = "7321"
+simple = { limit = 40, period = 10 }
+
+[[durable_objects.bindings]]
+name = "LIMITER"
+class_name = "Limiter"
+
+# SQLite-backed (the Durable Object storage of the Workers Free plan). Renaming or deleting the class needs a new
+# migration entry; never edit this one.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Limiter"]
+
+# metrics and the Worker's own one-line errors; not the per-request logs, which would keep visitors' addresses
+[observability]
+enabled = true
+
+[observability.logs]
+invocation_logs = false

@@ -1,0 +1,46 @@
+{
+ "ok": true,
+ "tool": "call_tool",
+ "via": "native.reverse_complement",
+ "status": "succeeded",
+ "duration_ms": 3,
+ "summary": "反向互补：",
+ "text": "{\"sequence\": \"GCTAACGTACGCAT\", \"length\": 14}",
+ "result": {
+  "sequence": "GCTAACGTACGCAT",
+  "length": 14
+ },
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "native"
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "pyodide-314.0.7 / CPython 3.14",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "73f7393f275e9bf81e8bea20c0a506db4bba5b3d1af1ce85e85b69e6dc728180",
+  "output_sha256": "cec1c748c7ccb5062a03156601747a210c76296664fb0a467551f7697e40f6f3",
+  "started_at": "2026-10-07T09:41:12Z"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}
