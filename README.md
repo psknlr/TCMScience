@@ -37,7 +37,7 @@
 [![CI](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml/badge.svg)](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2d4a7a.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2d4a7a.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-3%2C238%20passing-2c7560.svg)
+![Tests](https://img.shields.io/badge/tests-3%2C680%20passing-2c7560.svg)
 ![Kernel](https://img.shields.io/badge/kernel-PSH%200.5.3-9a6428.svg)
 
 </div>
@@ -221,7 +221,7 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 # RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
-# tests: PSH 1248 · BioScience 1990 (unit tier)
+# tests: PSH 1284 · BioScience 2396 (unit tier)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
