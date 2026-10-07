@@ -74,6 +74,12 @@ jobs:
       - name: Governance ablation (no regression against the committed results)
         working-directory: BioScience-Harness
         run: python scripts/run_governance_ablation.py --check benchmarks/ablation/results.json
+      # The evidence-typing rules on 302 real open-access abstracts against PubMed's own
+      # publication types (docs/evidence-typing-accuracy.md): fewer correct readings, or
+      # more wrong ones, than the committed results is a regression.
+      - name: Evidence typing (no regression against the committed results)
+        working-directory: BioScience-Harness
+        run: python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typing/results.json
       # The inquiry must recover the explanation each planted world makes true, and release
       # a mechanism claim only where the mechanism is that explanation (docs/inquiry.md).
       - name: Inquiry recovers the planted explanations
