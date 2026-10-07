@@ -41,6 +41,13 @@ admet = ["rdkit>=2023.9", "scikit-learn>=1.3"]
 # MCP servers (bioagent.mcp): the official Python SDK. Below 2, because BioMCP and
 # ToolUniverse, which an installation may sit beside, require mcp<2.
 mcp = ["mcp>=1.29,<2"]
+# The reviewed ToolUniverse tools (bioagent.providers.tooluniverse). Pinned to the release
+# registry/tooluniverse_allowlist.yaml was reviewed against: any other release quarantines
+# every tool until a person re-reviews it, so a looser pin would install nothing usable.
+tooluniverse = ["tooluniverse==1.5.6"]
+# The BioMCP server whose replies bioagent.providers.biomcp adapts
+# (registry/biomcp_server.yaml), pinned for the same reason; it brings the MCP SDK.
+biomcp = ["biomcp-python==0.7.3"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
