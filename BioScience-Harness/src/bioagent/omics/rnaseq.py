@@ -782,7 +782,16 @@ def _html(md: str, plots: Mapping[str, str]) -> str:
         table.clear()
 
     in_list = False
+    in_code = False
     for line in md.splitlines():
+        if line.startswith("```"):
+            flush()
+            body.append("</pre>" if in_code else "<pre>")
+            in_code = not in_code
+            continue
+        if in_code:
+            body.append(html.escape(line))
+            continue
         if line.startswith("|"):
             table.append(line)
             continue
@@ -808,12 +817,15 @@ def _html(md: str, plots: Mapping[str, str]) -> str:
     flush()
     if in_list:
         body.append("</ul>")
+    if in_code:
+        body.append("</pre>")
     style = ("body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:980px;"
              "margin:2em auto;padding:0 16px;color:#222;background:#fff}"
              "table{border-collapse:collapse;margin:1em 0;font-size:13px}"
              "td,th{border:1px solid #ccc;padding:4px 8px;text-align:left}"
              "th{background:#f3f3f3}figure{margin:1em 0}svg{max-width:100%;height:auto}"
-             "code{background:#f3f3f3;padding:0 3px}")
+             "code{background:#f3f3f3;padding:0 3px}"
+             "pre{background:#f6f6f6;padding:8px;overflow-x:auto;font-size:12px}")
     title = md.splitlines()[0].lstrip("# ")
     return ("<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"

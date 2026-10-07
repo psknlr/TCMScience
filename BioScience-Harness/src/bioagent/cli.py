@@ -648,11 +648,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # -- analysis pipelines ---------------------------------------------------
     from .omics import commands as omics_commands
+    from .structure import commands as structure_commands
     omics_commands.register(sub)
+    structure_commands.register(sub)
 
     a = ap.parse_args(argv)
     if a.cmd in omics_commands.COMMANDS:
         return omics_commands.dispatch(a)
+    if a.cmd in structure_commands.COMMANDS:
+        return structure_commands.dispatch(a)
     if a.cmd == "research":
         return _cmd_research(a)
     if a.cmd == "tcmdb":
