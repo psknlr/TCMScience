@@ -68,6 +68,12 @@ jobs:
       - name: Connector table is self-consistent and its verification record is complete
         working-directory: BioScience-Harness
         run: python -m pytest -q tests/test_public_sources.py
+      # The governance ablation: base cases and their mutants through every configuration
+      # of the real gates. A regression is the full stack releasing a mutant, or refusing a
+      # base case, that the committed results show otherwise (docs/governance-ablation.md).
+      - name: Governance ablation (no regression against the committed results)
+        working-directory: BioScience-Harness
+        run: python scripts/run_governance_ablation.py --check benchmarks/ablation/results.json
       # The inquiry must recover the explanation each planted world makes true, and release
       # a mechanism claim only where the mechanism is that explanation (docs/inquiry.md).
       - name: Inquiry recovers the planted explanations
