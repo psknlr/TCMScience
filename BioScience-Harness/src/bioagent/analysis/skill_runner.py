@@ -4,9 +4,11 @@
 2. load every snapshot through the ledger, and keep only the sources the contract is
    granted (request ∩ enabled source cards ∩ run allowance);
 3. compile the skill into a PSH ``ScientificProgram`` — the compiler checks the steps'
-   study designs against the claim kind. PSH is required: a run without it is refused
-   unless the caller passes ``require_psh=False``, and the provenance record then says
-   ``governed: false`` (an earlier version skipped the compile silently on ImportError);
+   study designs against the claim kind, and each step's reach against the run's
+   envelope (every step runs inside the analysis, in this process, on snapshots it reads
+   from disk). PSH is required: a run without it is refused unless the caller passes
+   ``require_psh=False``, and the provenance record then says ``governed: false`` (an
+   earlier version skipped the compile silently on ImportError);
 4. run the analysis and the release check;
 5. write the outputs and a provenance record.
 
@@ -59,6 +61,30 @@ LOCK_FILE = "snapshot_lock.json"
 
 class SkillRunRefused(RuntimeError):
     """The run cannot proceed under the skill's contract, or its claims were refused."""
+
+
+def _analysis_components(contract: SkillContract, snapshot_root: str | Path,
+                         ledger_path: str | Path) -> dict[str, Any]:
+    """The component each step's tool names: the analysis itself, as the bridge admits it.
+
+    The contract's tools (``np.composition``, ``np.pathway_enrichment`` …) are stages of
+    :func:`run_network_pharmacology`, which this run calls in process on snapshots it reads
+    from disk. So every step reaches what that function reaches — local compute, reading
+    the snapshot store and the ledger — and that, not an assumption, is what the program
+    declares.
+    """
+    from ..psh.manifest import bridge_manifest
+    from ..runtime.component import ComponentManifest, LicenseSpec, Permissions, RuntimeSpec
+
+    analysis = bridge_manifest(ComponentManifest(
+        id="analysis.network_pharmacology", kind="tool", name="network pharmacology analysis",
+        runtime=RuntimeSpec(backend="python", deterministic=True,
+                            entrypoint="bioagent.analysis.network_pharmacology:"
+                                       "run_network_pharmacology"),
+        license=LicenseSpec(spdx="MIT", integration_mode="native"),
+        permissions=Permissions(filesystem_read=(str(Path(snapshot_root).resolve()),
+                                                 str(Path(ledger_path).resolve())))))
+    return {tool: analysis for tool in contract.tools}
 
 
 def _fits(version: str, pin: str) -> bool:
@@ -214,9 +240,13 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
                            outcome="Reactome pathway over-representation")
         policy = PolicySnapshot(profile_id="tcm-network-pharmacology",
                                 require_claim_support=False)
+        envelope = policy.envelope()
         program = skill_program(contract, scope,
+                                components=_analysis_components(contract, snapshot_root,
+                                                                ledger_path),
+                                envelope=envelope,
                                 provenance=tuple(s.snapshot_id for s in snapshots))
-        compiled = ScientificCompiler().compile(program, policy.envelope(), policy=policy)
+        compiled = ScientificCompiler().compile(program, envelope, policy=policy)
 
     result: NetworkPharmacologyResult = run_network_pharmacology(
         snapshots, formula=formula, params=params, contract=contract)

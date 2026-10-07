@@ -215,17 +215,21 @@ def test_the_shipped_skill_compiles_in_psh_and_is_refused_as_a_mechanism():
 
     from bioagent.psh.skill_program import ClaimScope, skill_program
 
+    from bioagent.analysis.skill_runner import _analysis_components
+
     contract = SkillContract.load(SKILL_DIR / "skill.yaml")
     scope = ClaimScope("human proteins (in silico)", GEGEN_QINLIAN.chinese, "pathways")
     policy = PolicySnapshot(profile_id="np-test", require_claim_support=False)
-    compiled = ScientificCompiler().compile(skill_program(contract, scope), policy.envelope(),
-                                            policy=policy)
+    run = dict(components=_analysis_components(contract, SKILL_DIR, SKILL_DIR),
+               envelope=policy.envelope())
+    compiled = ScientificCompiler().compile(skill_program(contract, scope, **run),
+                                            policy.envelope(), policy=policy)
     assert compiled.validated.order[-1] == "claim"
     # Raised to "mechanism", the in-vitro targets step alone could license it; the in-silico
     # enrichment and network steps cannot, and PSH refuses the program.
     raised = replace(contract, max_claim_kind="mechanism")
     with pytest.raises(PlanRejected, match="EVIDENCE103"):
-        ScientificCompiler().compile(skill_program(raised, scope), policy.envelope(),
+        ScientificCompiler().compile(skill_program(raised, scope, **run), policy.envelope(),
                                      policy=policy)
 
 
