@@ -1,0 +1,17 @@
+{
+  "gold": {
+    "status": "unknown"
+  },
+  "id": "conf-safety-03",
+  "inputs": {
+    "subject": "不存在的药"
+  },
+  "licence": "MIT",
+  "notes": "Absence from the corpus is not evidence of safety.",
+  "question": "What is recorded about a substance the corpus does not hold?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Safety",
+  "visibility": "dev"
+}

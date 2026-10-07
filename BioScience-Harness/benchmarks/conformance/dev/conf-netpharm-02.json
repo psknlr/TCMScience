@@ -1,0 +1,24 @@
+{
+  "gold": {
+    "formula_id": "formula.sijunzitang",
+    "ingredients": [
+      "herb.renshen",
+      "herb.baizhu",
+      "herb.fuling",
+      "herb.gancao"
+    ],
+    "measured_targets": []
+  },
+  "id": "conf-netpharm-02",
+  "inputs": {
+    "formula_name": "四君子汤"
+  },
+  "licence": "MIT",
+  "notes": "Its herbs carry treats relations to syndromes; those are indications, not targets.",
+  "question": "Which herbs make up 四君子汤, and which targets are measured?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-NetPharm",
+  "visibility": "dev"
+}

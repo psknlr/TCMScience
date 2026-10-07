@@ -1,0 +1,27 @@
+{
+  "gold": {
+    "conflicts": [
+      [
+        "herb.gancao",
+        "herb.gansui"
+      ]
+    ],
+    "severity": "critical",
+    "status": "risk_recorded"
+  },
+  "id": "conf-safety-02",
+  "inputs": {
+    "co_administered": [
+      "甘遂"
+    ],
+    "subject": "甘草"
+  },
+  "licence": "MIT",
+  "notes": "十八反: 甘遂反甘草.",
+  "question": "May 甘草 be given with 甘遂?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Safety",
+  "visibility": "dev"
+}

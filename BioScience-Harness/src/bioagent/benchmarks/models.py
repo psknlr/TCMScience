@@ -101,6 +101,9 @@ class BenchmarkCase:
     #: Ids of other cases this one must not be confused with — near-duplicates
     #: that would leak between splits.
     siblings: tuple[str, ...] = ()
+    #: The arguments a skill receives for this case (``{"names": ["姜"]}``). Part of
+    #: the task, so part of the digest; sent to the system, unlike ``gold``.
+    inputs: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -121,14 +124,18 @@ class BenchmarkCase:
 
     @property
     def digest(self) -> str:
-        return canonical_hash({"id": self.id, "track": self.track,
-                               "question": self.question, "gold": self.gold})
+        body = {"id": self.id, "track": self.track, "question": self.question,
+                "gold": self.gold}
+        if self.inputs:
+            body["inputs"] = self.inputs
+        return canonical_hash(body)
 
     def as_public_dict(self) -> dict[str, Any]:
         """The case with its gold answer removed. What may be logged or shown."""
         return {"id": self.id, "track": self.track, "visibility": self.visibility,
-                "question": self.question, "sources": list(self.sources),
-                "licence": self.licence, "notes": self.notes}
+                "question": self.question, "inputs": dict(self.inputs),
+                "sources": list(self.sources), "licence": self.licence,
+                "notes": self.notes}
 
     def as_dict(self) -> dict[str, Any]:
         return {**self.as_public_dict(), "gold": dict(self.gold),

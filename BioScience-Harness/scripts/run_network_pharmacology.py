@@ -63,7 +63,7 @@ def _formula(formula_id: str | None, hkbu_formulas: str | None = None):
     if not record.resolved:
         raise SkillRunRefused(f"{formula_id} has unresolved ingredients "
                               f"{list(record.unresolved)}; it cannot be studied")
-    return record.version
+    return record.version()
 
 
 def main(argv: list[str] | None = None) -> int:

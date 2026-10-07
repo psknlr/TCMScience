@@ -1,0 +1,28 @@
+{
+  "gold": {
+    "queries": [
+      {
+        "candidates": [
+          "herb.shengjiang",
+          "herb.ganjiang"
+        ],
+        "query": "姜",
+        "status": "ambiguous"
+      }
+    ]
+  },
+  "id": "conf-entity-01",
+  "inputs": {
+    "names": [
+      "姜"
+    ]
+  },
+  "licence": "MIT",
+  "notes": "生姜 and 干姜 are different drugs from one plant; the name must not be resolved to either.",
+  "question": "Resolve 姜 to a corpus entity.",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Entity",
+  "visibility": "dev"
+}

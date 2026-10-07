@@ -1,20 +1,25 @@
 name: candidate-benchmark
 
-# The checks a candidate must pass before it can be benchmarked, run on demand and
-# on the scout's branch: the lockfile and the tree agree, every skill compiles and
-# the kernel accepts it, and the unit tier passes.
+# Benchmark a candidate skill before a human is asked to decide on it: run on
+# demand for one candidate, and on a pull request for every track's skill as the
+# tree holds it.
 #
-# It does not benchmark the candidate. No case of a frozen Season is executed
-# here, and a pass is not a score. The six tracks of twenty cases are an
-# evaluation design with demonstration runs, not a completed validation of
-# scientific capability (audit AUD-26). Running them needs a case runner, frozen
-# data and scoring rules, the run bound to the candidate's version, and
-# independent scoring with results others can check
-# (docs/audit-2026-10-response.md).
+# What runs: the public conformance Season (benchmarks/registry/conformance-1.yaml,
+# cases under benchmarks/conformance/). Each case goes through the governed path
+# twice, the bundle records every artifact, output and digest, an independent
+# scorer measures the eight dimensions from the bundle and the cases alone, and
+# verification re-scores the bundle to the published document (audit AUD-26).
 #
-# A candidate that cannot be pinned to an immutable commit will not be
-# benchmarked at all: a score against a moving target measures nothing and would
-# be quoted anyway.
+# What a pass means: the candidate runs, is reproducible and answers the
+# conformance cases correctly, and the machinery that scores it works end to end.
+# It is not a benchmark result. The scientific Season's cases are withheld so
+# that a clone cannot be tuned to them, so they cannot run here. Whoever holds
+# them runs the same command against them and keeps the bundles private:
+#   python scripts/benchmark_candidate.py run --candidate <id@ver> \
+#     --manifest benchmarks/registry/<season>.yaml --cases <withheld cases> --out ...
+#
+# A candidate that no lockfile pins runs as an unpinned development run: recorded
+# in its audit chain, never attested, never released; the score says so.
 
 on:
   workflow_dispatch:
@@ -26,16 +31,19 @@ on:
     paths:
       - "BioScience-Harness/skills/**"
       - "BioScience-Harness/registry/**"
+      - "BioScience-Harness/benchmarks/**"
+      - "BioScience-Harness/src/bioagent/benchmarks/**"
+      - "BioScience-Harness/src/bioagent/skills/**"
 
 permissions:
   contents: read
 
 jobs:
   benchmark:
-    name: Candidate checks (no benchmark case is run)
+    name: Candidate benchmark (public conformance Season)
     runs-on: ubuntu-latest
     steps:
-      - name: Say what this run checks, and what it does not
+      - name: Check the candidate's form
         env:
           CANDIDATE: ${{ inputs.candidate }}
         run: |
@@ -43,7 +51,6 @@ jobs:
             echo "::error::candidate must be <skill-id>@<major>.<minor>.<patch>"
             exit 1
           fi
-          echo "::notice::${CANDIDATE:-this change}: lockfile, compile and unit checks only; no frozen benchmark case is executed, so nothing here is a benchmark score"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -62,8 +69,33 @@ jobs:
           PYTHONPATH: src:../PSH-Harness/src
         run: python -m pytest -q tests/test_p0_skills.py tests/test_skill_compiler.py
 
-      - name: Unit tier
+      - name: Run, score independently and verify
         working-directory: BioScience-Harness
         env:
           PYTHONPATH: src:../PSH-Harness/src
-        run: python -m pytest -q -m unit
+          CANDIDATE: ${{ inputs.candidate }}
+          SEASON: benchmarks/registry/conformance-1.yaml
+          CASES: benchmarks/conformance
+          OUT: ${{ runner.temp }}/bench
+        run: |
+          if [ -n "$CANDIDATE" ]; then
+            python scripts/benchmark_candidate.py run --candidate "$CANDIDATE" \
+              --manifest "$SEASON" --cases "$CASES" --out "$OUT/candidate"
+            python scripts/benchmark_candidate.py score --bundle "$OUT/candidate" \
+              --manifest "$SEASON" --cases "$CASES" --out "$OUT/candidate/scores.json" \
+              | tee "$OUT/summary.txt"
+            python scripts/benchmark_candidate.py verify --bundle "$OUT/candidate" \
+              --scores "$OUT/candidate/scores.json" --manifest "$SEASON" --cases "$CASES"
+          else
+            python scripts/benchmark_candidate.py season --manifest "$SEASON" \
+              --cases "$CASES" --out "$OUT"
+          fi
+          { echo '```'; cat "$OUT/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the bundles and scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-bundles
+          path: ${{ runner.temp }}/bench
+          if-no-files-found: ignore

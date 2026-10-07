@@ -84,52 +84,47 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
         })
 
     # ---- recorded relations, split by what they actually are -------------
-    # `relations_of` returns corpus assertions. They are separated by predicate
-    # because `contains` is a composition fact while `treats`/`targets` are
-    # claims about the world, and mixing them in one list would let a composition
-    # edge read as a therapeutic one.
+    # The corpus records three kinds of relation about a formula and its herbs, and
+    # only one belongs in a target network. `contains` is composition. `treats` and
+    # `indicated_for` record a traditional use: their object is a syndrome, not a
+    # molecule. `targets` is a molecular target relation. An earlier version put
+    # every non-composition relation under `predicted_targets`, so 人参 treats 气虚证
+    # was reported as a predicted target; it also read `relation.subject`, which does
+    # not exist, and crashed on any formula whose herbs carry relations (四君子汤).
     composition_edges: list[dict[str, Any]] = []
+    recorded_indications: list[dict[str, Any]] = []
     recorded_target_edges: list[dict[str, Any]] = []
-    for herb in formula.ingredients:
-        for relation in kb.relations_of(herb.herb_id):
-            edge = {"subject": relation.subject, "predicate": relation.predicate,
-                    "object": relation.object, "tier": relation.tier.name.lower(),
+    for subject in [formula.id, *(i.herb_id for i in formula.ingredients)]:
+        for relation in kb.relations_of(subject):
+            edge = {"subject": relation.subject_id, "predicate": relation.predicate,
+                    "object": relation.object_id, "tier": relation.tier.name.lower(),
                     "evidence": list(relation.evidence_ids)}
-            (composition_edges if relation.predicate == "contains"
-             else recorded_target_edges).append(edge)
+            if relation.predicate == "contains":
+                composition_edges.append(edge)
+            elif relation.predicate == "targets":
+                recorded_target_edges.append(edge)
+            elif relation.predicate in ("treats", "indicated_for"):
+                recorded_indications.append(edge)
 
     # ---- measured vs predicted -------------------------------------------
+    # A target edge is measured only when an assay or a binding method stands behind
+    # it. The corpus stores relations, not assays, so every target edge it records is
+    # a hypothesis, and the measured side is empty. Measured targets come from the
+    # snapshot pipeline (`analysis.network_pharmacology`), not from this corpus. The
+    # earlier version filled `measured_targets` from the studies behind safety records,
+    # which name no target at all.
     measured_targets: list[dict[str, Any]] = []
     predicted_targets: list[dict[str, Any]] = []
     evidence: list[EvidenceItem] = []
-    prediction_backed: list[str] = []
 
     for edge in recorded_target_edges:
-        # A method string is what would make an edge measured. The corpus has
-        # none — it records relations, not assays — so every edge here is
-        # recorded-only, which is reported as such rather than upgraded.
-        record = {
+        predicted_targets.append({
             "herb": edge["subject"], "target": edge["object"],
             "predicate": edge["predicate"], "provenance": "corpus_relation",
             "evidence": edge["evidence"], "tier": edge["tier"],
             "measured": False,
             "note": "recorded in the corpus; no assay or binding method is stored",
-        }
-        predicted_targets.append(record)
-        prediction_backed.append(f"{edge['subject']}->{edge['object']}")
-
-    # Any study evidence the corpus holds for the formula's herbs is *measured*
-    # in the sense that it reports an observation, and it goes in its own list.
-    for herb in formula.ingredients:
-        for safety in kb.safety_for(herb.herb_id):
-            for study in kb.evidence(safety.evidence_ids):
-                if not hasattr(study, "tier"):
-                    continue
-                measured_targets.append({
-                    "herb": herb.herb_id, "signal": getattr(study, "outcome", ""),
-                    "study": study.id, "tier": study.tier.name.lower(),
-                    "effect": getattr(study, "effect", ""), "measured": True,
-                })
+        })
 
     for index, record in enumerate(predicted_targets):
         evidence.append(seed_evidence(
@@ -139,20 +134,21 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
             citation=f"TCMScience TCM seed corpus, relation {record['herb']}->"
                      f"{record['target']}",
             identifier=f"relation.{record['herb']}.{record['target']}",
-            identifier_type="pharmacopoeia",
-            subject=record["herb"], object=record["target"],
-            # `EXTRAPOLATED` is the load-bearing judgement here. A network
-            # inference about a target is not an observation of binding, so this
-            # dimension blocks *any* claim about the target — which is what keeps
-            # a predicted edge from being restated as a measured one downstream.
+            identifier_type="pharmacopoeia", subject=record["herb"],
+            # Direct for what the claim says, that the corpus records the relation as
+            # a hypothesis. The predictive design is what keeps the edge from being
+            # restated as a measurement: it licenses a mechanism hypothesis and
+            # nothing stronger. Marking it extrapolated, as before, blocked the
+            # hypothesis claim it exists to support.
             quality=EvidenceQuality(
-                directness=Directness.EXTRAPOLATED,
+                directness=Directness.DIRECT,
                 rationale={"directness":
-                           "a network inference about a target is not an observation "
-                           "of binding; the edge is a hypothesis, not a measurement"},
+                           "direct evidence that the corpus records this relation; a "
+                           "predictive design licenses a mechanism hypothesis only"},
                 assessed_by="analyze-tcm-network-pharmacology",
                 assessment_tool="provenance-separation"),
-            source_card_id=SEED_SOURCE_ID, retrieved_by="analyze-tcm-network-pharmacology", retrieval_run=run_id))
+            source_card_id=SEED_SOURCE_ID, retrieved_by="analyze-tcm-network-pharmacology",
+            retrieval_run=run_id))
 
     # ---- enrichment, marked as the prediction it is ----------------------
     pathway_enrichment = sorted({f"{e['predicate']}:{e['object']}"
@@ -163,6 +159,7 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
                     "source": formula.source, "actions": list(formula.actions)},
         "ingredients": ingredients,
         "composition_edges": composition_edges,
+        "recorded_indications": recorded_indications,
         "predicted_targets": predicted_targets,
         "measured_targets": measured_targets,
         "pathway_enrichment": pathway_enrichment,
@@ -195,7 +192,16 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
     if not measured_targets:
         limitations.append(
             "no measured target data exists for this formula in the corpus, so the "
-            "measured side of the split is empty. The network is prediction-only")
+            "measured side of the split is empty; measured targets come from the "
+            "snapshot pipeline (analysis.network_pharmacology), not this corpus")
+    if not predicted_targets:
+        limitations.append(
+            "the corpus records no molecular target relation for this formula or its "
+            "herbs, so no target network was built and no claim is made")
+    if recorded_indications:
+        limitations.append(
+            "recorded indications (treats / indicated_for) are traditional-use records "
+            "whose object is a syndrome; they are reported apart and are not targets")
 
     # A claim is made only if there is a network to make it about. The first
     # version emitted the claim unconditionally and produced an artifact with a
@@ -246,6 +252,7 @@ def analyze_tcm_network_pharmacology(formula_name: str, *, run_id: str = "") -> 
         created_at=_now(),
         provenance={"formula": formula.id, "predicted": len(predicted_targets),
                     "measured": len(measured_targets),
+                    "recorded_indications": len(recorded_indications),
                     "prediction_only": not measured_targets})
 
 

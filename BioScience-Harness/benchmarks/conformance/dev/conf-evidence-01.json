@@ -1,0 +1,20 @@
+{
+  "gold": {
+    "entity_id": "herb.fuzi",
+    "must_include": [
+      "study.study.pharmacopoeia_2020",
+      "passage.passage.shibafan"
+    ]
+  },
+  "id": "conf-evidence-01",
+  "inputs": {
+    "subject": "附子"
+  },
+  "licence": "MIT",
+  "question": "What evidence does the corpus hold about 附子?",
+  "sources": [
+    "tcmscience.tcm.seed"
+  ],
+  "track": "TCM-Evidence",
+  "visibility": "dev"
+}
