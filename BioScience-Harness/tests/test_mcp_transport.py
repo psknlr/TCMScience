@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from omics_world import need_module
+from omics_world import need_mcp_sdk
 
 from bioagent.backends.concrete import MCPBackend, MCPCallError, MCPReply
 from bioagent.mcp import (MCPConfigError, MCPConnection, MCPDispatcher, MCPServerConfig,
@@ -91,7 +91,7 @@ def marker(tmp_path_factory):
 @pytest.fixture(scope="module")
 def reviewed(marker):
     """The fixture server's entry, reviewed against the live server once per module."""
-    need_module("mcp")
+    need_mcp_sdk()
     config, listing = review(entry(args=[str(FIXTURE), "--marker", str(marker)]))
     assert set(listing) == set(ALLOWED)
     return config
@@ -381,6 +381,17 @@ def test_a_streamable_http_server_is_checked_against_the_same_snapshot(reviewed,
         MCPConnection(unreachable).open()
     assert caught.value.status is ExecutionStatus.UNAVAILABLE
     assert "cannot connect" in caught.value.reason
+
+
+def test_an_sdk_other_than_1x_is_refused_before_anything_starts(monkeypatch):
+    from bioagent.mcp import connection as connection_module
+
+    monkeypatch.setattr(connection_module, "_sdk_version", lambda: "2.2.0")
+    config = MCPServerConfig.from_dict(snapshotted())
+    with pytest.raises(MCPCallError) as caught:
+        MCPConnection(config).open()
+    assert caught.value.status is ExecutionStatus.UNAVAILABLE
+    assert "2.2.0" in caught.value.reason and "mcp>=1.29,<2" in caught.value.reason
 
 
 def test_a_reviewed_setting_and_the_ca_bundle_reach_the_server(reviewed, monkeypatch):

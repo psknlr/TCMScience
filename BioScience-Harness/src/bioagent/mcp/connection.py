@@ -71,6 +71,16 @@ class _Refusal(NamedTuple):
     reason: str
 
 
+def _sdk_version() -> str:
+    """The installed MCP SDK's version, or "" when none is installed."""
+    from importlib import metadata
+
+    try:
+        return metadata.version("mcp")
+    except metadata.PackageNotFoundError:
+        return ""
+
+
 def _root_cause(exc: BaseException) -> BaseException:
     """The first concrete exception inside anyio's exception groups."""
     while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
@@ -190,6 +200,13 @@ class MCPConnection:
                 raise MCPCallError(self._closed_reason(), status=_UNAVAILABLE,
                                    metadata=self._meta())
             self._used = True
+            sdk = _sdk_version()
+            if sdk and not sdk.startswith("1."):
+                raise MCPCallError(
+                    f"the MCP Python SDK installed here is {sdk}; this transport is written "
+                    "and tested for 1.x (mcp>=1.29,<2), and 2.x changed the APIs it uses. "
+                    "Install the 'mcp' extra (pip install 'bioagent[mcp]') in this "
+                    "environment", status=_UNAVAILABLE, metadata=self._meta())
             try:
                 from mcp import ClientSession  # noqa: F401 - the SDK, where it is needed
             except ImportError as exc:

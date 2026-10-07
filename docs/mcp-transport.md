@@ -220,6 +220,11 @@ Through the kernel, the child's statuses travel as exit codes:
 
 ## Limits
 
+- **Only the 1.x SDK.** The transport is written and tested for `mcp>=1.29,<2`. With a 2.x
+  SDK installed (2.x renamed APIs this code uses, and nothing here was run against it), a
+  connection is refused UNAVAILABLE with the installed version and how to fix it, before
+  any server starts. The SDK tests skip on 2.x and fail on it under
+  `BIOAGENT_REQUIRE_TOOLS=1`.
 - **The snapshot pins what the server says, not what it does.** A server can change its
   behaviour without changing its listing. Review is evidence about the interface, and
   which server code to trust remains the operator's decision.
@@ -295,6 +300,7 @@ need the SDK skip without it (`need_module("mcp")`) and fail under
 - 因此需要凭据的服务器在隔离准入时被拒绝，在子进程中为 UNAVAILABLE，只能在进程内运行。
 
 **局限：**
+- 只支持 1.x SDK（`mcp>=1.29,<2`）；装的是 2.x 时连接直接拒绝（UNAVAILABLE），并说明版本和解决办法。
 - 快照约束的是服务器的自我描述，而不是其行为。
 - streamable HTTP 暂不支持凭据。
 - 本地 HTTP 服务器在子进程中会被出口代理拒绝。

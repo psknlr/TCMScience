@@ -94,7 +94,12 @@ def test_a_draft_configuration_serves_only_a_run_that_asks_for_it(tmp_path):
     assert "allow_draft" in refused.value.reason
 
 
-def test_a_release_other_than_the_reviewed_one_is_not_started(tmp_path):
+def test_a_release_other_than_the_reviewed_one_is_not_started(tmp_path, monkeypatch):
+    import importlib.metadata
+
+    real = importlib.metadata.version
+    monkeypatch.setattr(importlib.metadata, "version",
+                        lambda name: "0.7.3" if name == "biomcp-python" else real(name))
     config = dataclasses.replace(CONFIG, version="0.0.1")
     with pytest.raises(MCPCallError) as refused:
         BioMCPClient(tmp_path, config=config, allow_draft=True).open()
@@ -155,9 +160,9 @@ def test_a_transport_failure_keeps_its_status(tmp_path):
 # ---------------------------------------------------------------- the real server
 
 def test_the_installed_server_passes_both_checks_and_closes(tmp_path):
-    from omics_world import need_module
+    from omics_world import need_mcp_sdk, need_module
     need_module("biomcp")
-    need_module("mcp")
+    need_mcp_sdk()
     with BioMCPClient(tmp_path / "run", allow_draft=True) as client:
         assert set(client.admitted) == set(CONFIG.tools)
         connection = client.connection
@@ -167,9 +172,9 @@ def test_the_installed_server_passes_both_checks_and_closes(tmp_path):
 
 
 def test_a_description_rewritten_after_review_is_refused(tmp_path):
-    from omics_world import need_module
+    from omics_world import need_mcp_sdk, need_module
     need_module("biomcp")
-    need_module("mcp")
+    need_mcp_sdk()
     tools = dict(CONFIG.tools)
     tools["article_getter"] = dataclasses.replace(tools["article_getter"],
                                                   description_sha256="0" * 64)
@@ -182,9 +187,9 @@ def test_a_description_rewritten_after_review_is_refused(tmp_path):
 
 @pytest.mark.integration
 def test_a_live_article_lookup_is_read_into_canonical_records(tmp_path):
-    from omics_world import need_module
+    from omics_world import need_mcp_sdk, need_module
     need_module("biomcp")
-    need_module("mcp")
+    need_mcp_sdk()
     with BioMCPClient(tmp_path / "run", allow_draft=True) as client:
         call = client.call("article_getter", {"pmid": "34956436"})
     assert call.status is ExecutionStatus.SUCCEEDED, call.reply.reason

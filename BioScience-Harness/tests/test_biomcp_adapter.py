@@ -259,9 +259,9 @@ def test_the_installed_server_lists_the_reviewed_schemas_and_answers():
     import sys
     import tempfile
 
-    from omics_world import need_module
+    from omics_world import need_mcp_sdk, need_module
     need_module("biomcp")
-    need_module("mcp")
+    need_mcp_sdk()
     assert check_installed(CONFIG) == ""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
