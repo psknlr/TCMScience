@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# Molecular docking — a CANDIDATE skill, not in the stable lockfile: refused by a
+# governed run until a person promotes it.
+#
+# A docked pose is a computational prediction. The skill claims a binding hypothesis per
+# ligand only when redocking the co-crystal ligand reproduced its crystal pose within
+# 2 Å; otherwise it reports scores and claims nothing. It reaches RCSB or AlphaFold DB
+# only when the call passes allow_remote.
+
+api_version: "1"
+id: dock-ligands
+name: Molecular docking
+version: "0.1.0"
+summary: >-
+  Prepare a receptor (meeko templates, polar hydrogens, Gasteiger charges) and ligands
+  (RDKit conformers, meeko PDBQT), validate the site by redocking its co-crystal ligand,
+  dock with AutoDock Vina and report scores, ligand efficiency, contacts and poses.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.molecular.docking:dock_ligands"
+  timeout_s: 7200
+  memory_mb: 4096
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network:
+    - files.rcsb.org
+    - data.rcsb.org
+    - alphafold.ebi.ac.uk
+  filesystem_read:
+    - "${receptor}"
+    - "${ligands}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: false
+  secrets: []
+
+evidence:
+  max_tier: preclinical
+  claim_kinds:
+    - mechanism_hypothesis
+  forbidden_claims:
+    - mechanism
+    - efficacy
+    - association
+    - recommendation
+  require_pinned_sources: true
+  require_quote_verified: true
+  required_quality_dimensions:
+    - directness
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 120.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [receptor, ligands]
+  properties:
+    receptor:
+      type: string
+      description: "a PDB file, PDB:<id>[:chains] or UniProt:<acc>"
+    ligands:
+      type: string
+      description: a CSV (name,smiles), an SDF, a .smi file or one SMILES
+    site_ligand:
+      type: string
+      description: residue name of the co-crystal ligand that defines and validates the site
+    site_ligand_smiles:
+      type: string
+    chains:
+      type: string
+    allow_remote:
+      type: boolean
+    exhaustiveness:
+      type: integer
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    scores:
+      type: array
+
+risk: r2_consequential
+min_autonomy: act_with_approval
