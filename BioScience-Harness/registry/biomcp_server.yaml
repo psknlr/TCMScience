@@ -16,6 +16,8 @@ reviewed_on: "2026-10-07"
 server:
   id: biomcp
   package: biomcp-python
+  # Records name this version as the server that answered, so the transport checks it is
+  # the installed release (check_installed) before starting the server.
   version: "0.7.3"
   licence: MIT
   repo: https://github.com/genomoncology/biomcp

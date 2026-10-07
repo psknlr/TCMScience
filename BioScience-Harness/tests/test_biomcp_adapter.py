@@ -14,8 +14,8 @@ import pytest
 
 from bioagent.contracts.receipts import ContentStore
 from bioagent.policy import PROFILES
-from bioagent.providers.biomcp import (adapt, arguments_for, check_listing, group_records,
-                                       load_server_config, schema_digest)
+from bioagent.providers.biomcp import (adapt, arguments_for, check_installed, check_listing,
+                                       group_records, load_server_config, schema_digest)
 from bioagent.sources.identity import SourceId, group_sources
 from bioagent.status import ExecutionStatus
 
@@ -76,6 +76,25 @@ def test_a_changed_missing_or_duplicated_tool_is_not_admitted():
     twice = check_listing(listing + [t for t in listing if t["name"] == "variant_searcher"],
                           CONFIG)
     assert ("variant_searcher", "listed 2 times") in twice.refused
+
+
+def test_only_the_reviewed_release_may_be_started(monkeypatch):
+    """Records name the configured version, so another release must not answer."""
+    import importlib.metadata
+
+    installed: dict[str, str] = {}
+
+    def version(name):
+        if name not in installed:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed[name]
+
+    monkeypatch.setattr(importlib.metadata, "version", version)
+    assert check_installed(CONFIG) == "biomcp-python is not installed"
+    installed["biomcp-python"] = "0.8.0"
+    assert "biomcp-python 0.8.0 is installed" in check_installed(CONFIG)
+    installed["biomcp-python"] = "0.7.3"
+    assert check_installed(CONFIG) == ""
 
 
 def test_the_schema_digest_is_over_canonical_json():
@@ -243,6 +262,7 @@ def test_the_installed_server_lists_the_reviewed_schemas_and_answers():
     from omics_world import need_module
     need_module("biomcp")
     need_module("mcp")
+    assert check_installed(CONFIG) == ""
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 

@@ -50,8 +50,8 @@ from ..sources.identity import (SCHEMES, SourceCount, SourceId, canonical, canon
 from ..status import ExecutionStatus
 
 __all__ = ["ToolPolicy", "ServerConfig", "ListingCheck", "SourceRecord", "AdaptedReply",
-           "load_server_config", "schema_digest", "check_listing", "arguments_for", "adapt",
-           "group_records"]
+           "load_server_config", "check_installed", "schema_digest", "check_listing",
+           "arguments_for", "adapt", "group_records"]
 
 #: The kind of source each record kind's card describes (``contracts.source_card``).
 _CARD_KIND = {"article": "literature_index", "trial": "trial_registry",
@@ -147,6 +147,28 @@ def load_server_config(path: str | Path | None = None) -> ServerConfig:
                       for k, v in (doc.get("not_admitted") or {}).items()},
         status=str(doc.get("status") or ""), reviewed_on=str(doc.get("reviewed_on") or ""),
         path=str(target))
+
+
+def check_installed(config: ServerConfig | None = None) -> str:
+    """Why the BioMCP installed with this interpreter may not be started under the
+    configuration; "" when it may.
+
+    A record names the server that answered from the configuration, because the server's
+    own ``initialize`` answer reports the MCP SDK's version. A server of another release
+    would therefore be recorded as the reviewed one; the transport calls this in the
+    environment it starts the server from, before starting it.
+    """
+    import importlib.metadata
+
+    config = config or load_server_config()
+    try:
+        version = importlib.metadata.version(config.package)
+    except importlib.metadata.PackageNotFoundError:
+        return f"{config.package} is not installed"
+    if version != config.version:
+        return (f"{config.package} {version} is installed; the configuration was reviewed "
+                f"against {config.version}")
+    return ""
 
 
 def schema_digest(schema: Mapping[str, Any]) -> str:

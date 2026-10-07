@@ -152,10 +152,11 @@ or read in its source:
 
 **What the integrator must wire** (the transport and dispatcher are another workstream):
 
-1. Start the server from `server.command`, with `{python}` the interpreter of the
-   environment that has `biomcp-python==0.7.3` (the `biomcp` extra), `cwd` an empty
-   run-owned directory, the variables in `env.pass` copied from the caller and those in
-   `env.set` with `{run_dir}` filled in.
+1. In the environment that has `biomcp-python==0.7.3` (the `biomcp` extra), check
+   `check_installed()` returns "" — records name the configured version, so another
+   release must not answer — then start the server from `server.command`, with `{python}`
+   that environment's interpreter, `cwd` an empty run-owned directory, the variables in
+   `env.pass` copied from the caller and those in `env.set` with `{run_dir}` filled in.
 2. After `initialize`, call `tools/list` and `check_listing`; refuse to serve the server when
    `ok` is false, and admit only `admitted`, e.g. through `psh.protocols.mcp.MCPToolAdapter`
    with `destination=PUBLIC_REMOTE`. That adapter takes one host list per server: give it
