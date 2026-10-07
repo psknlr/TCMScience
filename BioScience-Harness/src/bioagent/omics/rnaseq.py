@@ -18,9 +18,12 @@ and wrote:
    is installed first (``engine="auto"``); or HISAT2 alignment to a genome with
    featureCounts (``engine="hisat2"``).
 4. **Gene totals** with tximport's rules (transcript engines).
-5. **Differential expression** with the DESeq2 method (``deseq.run_deseq``).
-6. **Exploration**: the variance-stabilised matrix, PCA of the 500 most variable genes and
-   sample-to-sample distances, as DESeq2's vignette does.
+5. **Differential expression** with the DESeq2 method, by the built-in implementation
+   or by PyDESeq2 (``de_backend``; ``de_backends.run_de``). A backend that is not
+   installed stops the run before step 1.
+6. **Exploration**: the variance-stabilised matrix (computed by the same implementation
+   as step 5), PCA of the 500 most variable genes and sample-to-sample distances, as
+   DESeq2's vignette does.
 7. **Report**: ``report.md`` and ``report.html`` with tables and SVG figures, and
    ``run.json`` holding every parameter, version and digest; ``verify_run`` re-checks the
    digests.
@@ -47,7 +50,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from . import backends, deseq, fastq, quant, svgplot
+from . import backends, de_backends, fastq, quant, svgplot
 
 __all__ = ["RNASeqConfig", "RNASeqError", "RNASeqRun", "Sample", "read_sample_sheet",
            "run_rnaseq", "verify_run", "ENGINES"]
@@ -138,6 +141,7 @@ class RNASeqConfig:
     contrast: tuple[str, str, str] | None = None
     engine: str = "auto"
     trimmer: str = "auto"
+    de_backend: str = "builtin"               # builtin | pydeseq2
     alpha: float = 0.05
     k: int = 31
     fragment_mean: float = 200.0              # single-end reads only
@@ -203,6 +207,15 @@ def _choose_trimmer(config: RNASeqConfig) -> str:
     return config.trimmer
 
 
+def _check_de_backend(config: RNASeqConfig) -> None:
+    """Checked before any read is touched: a missing PyDESeq2 stops the run here, not
+    after the quantification, and is never replaced by the built-in test
+    (``optional.BackendUnavailable``)."""
+    if config.de_backend not in de_backends.BACKENDS:
+        raise RNASeqError(f"de_backend is one of {', '.join(de_backends.BACKENDS)}")
+    de_backends.check_backend(config.de_backend)
+
+
 def _infer_contrast(samples: Sequence[Sample], config: RNASeqConfig) -> tuple[str, str, str]:
     if config.contrast is not None:
         factor, num, den = config.contrast
@@ -239,7 +252,7 @@ class RNASeqRun:
     trimming: dict[str, dict[str, Any]]
     quantification: dict[str, dict[str, Any]]
     genes: quant.GeneTable
-    result: deseq.DESeqResult
+    result: de_backends.DEResult
     vst: np.ndarray
     pca: dict[str, Any]
     warnings: list[str]
@@ -281,6 +294,7 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
     out.mkdir(parents=True, exist_ok=True)
     engine = _choose_engine(config)
     trimmer = _choose_trimmer(config)
+    _check_de_backend(config)
     contrast = _infer_contrast(samples, config)
     warnings: list[str] = []
     steps: list[dict[str, Any]] = []
@@ -424,13 +438,13 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
             warnings.append(f"{s.name}: only {rate:.1%} of reads mapped; check the "
                             "reference and the organism")
 
-    # 5: differential expression
-    counts = np.round(genes.counts)
-    design_rows = [dict(s.attributes) for s in samples]
-    result = deseq.run_deseq(counts, list(genes.genes), design_rows, design=config.design,
-                             contrast=contrast, alpha=config.alpha,
-                             sample_names=[s.name for s in samples],
-                             covariates=config.covariates)
+    # 5: differential expression; the count columns and the sheet's rows meet by name
+    result = de_backends.run_de(np.round(genes.counts), list(genes.genes), genes.samples,
+                                {s.name: dict(s.attributes) for s in samples},
+                                design=config.design, contrast=contrast,
+                                backend=config.de_backend, alpha=config.alpha,
+                                covariates=config.covariates, vst=True,
+                                threads=config.threads)
     factor = contrast[0]
     per_level: dict[str, int] = {}
     for s in samples:
@@ -439,9 +453,9 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
         warnings.append("fewer than three replicates in a group: Cook's distance outlier "
                         "filtering is not applied there, and estimates are less stable")
 
-    # 6: exploration
-    vst = deseq.vst(result.normalized, result.trend)
-    pca = _pca(vst, [s.name for s in samples])
+    # 6: exploration, on the variance-stabilised matrix of the implementation that ran
+    vst = result.vst
+    pca = _pca(vst, list(result.samples))
     dist = _distances(vst)
 
     run = RNASeqRun(out_dir=out, samples=samples, engine=engine, trimmer=trimmer,
@@ -513,6 +527,13 @@ def _fmt(v: Any, digits: int = 3) -> str:
     return str(v)
 
 
+def _value(v: Any) -> Any:
+    """A diagnostic cell: a flag stays a flag, a missing estimate becomes NA."""
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    return float(v) if math.isfinite(float(v)) else None
+
+
 def _write_tsv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]]) -> Path:
     with path.open("w", encoding="utf-8", newline="") as fh:
         fh.write("\t".join(header) + "\n")
@@ -530,16 +551,18 @@ def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
     names = dict(zip(genes.genes, genes.names))
     run.genes.write(out / "counts.tsv", what="counts")
     run.genes.write(out / "tpm.tsv", what="tpm")
-    table = res.table()
-    _write_tsv(out / "deseq2_results.tsv",
-               ["gene_id", "gene_name", "base_mean", "log2_fold_change", "lfc_se", "stat",
-                "p_value", "p_adjusted", "dispersion", "cooks_outlier"],
-               [[r["gene"], names.get(r["gene"], r["gene"]), r["base_mean"],
-                 r["log2_fold_change"], r["lfc_se"], r["stat"], r["p_value"],
-                 r["p_adjusted"], r["dispersion"], r["cooks_outlier"]] for r in table])
-    samples = [s.name for s in run.samples]
-    _write_tsv(out / "vst.tsv", ["gene_id", *samples],
-               [[g, *map(float, run.vst[i])] for i, g in enumerate(genes.genes)])
+    # the shared result columns, the same whichever implementation ran ...
+    contract = [attr for _, attr, _ in de_backends.CONTRACT]
+    _write_tsv(out / "deseq2_results.tsv", ["gene_id", "gene_name", *contract],
+               [[r["gene"], names.get(r["gene"], r["gene"]), *(r[c] for c in contract)]
+                for r in res.table()])
+    # ... and, apart from them, that implementation's own estimates
+    diagnostics = de_backends.GENE_DIAGNOSTICS
+    _write_tsv(out / "de_diagnostics.tsv", ["gene_id", *diagnostics],
+               [[g, *(_value(res.gene_diagnostics[k][i]) for k in diagnostics)]
+                for i, g in enumerate(res.genes)])
+    _write_tsv(out / "vst.tsv", ["gene_id", *res.samples],
+               [[g, *map(float, run.vst[i])] for i, g in enumerate(res.genes)])
     plots = _plots(run, dist)
     pdir = out / "plots"
     pdir.mkdir(exist_ok=True)
@@ -567,6 +590,7 @@ def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
         "python": platform.python_version(), "numpy": np.__version__,
         "config": config.as_dict(), "engine": run.engine, "trimmer": run.trimmer,
         "tools": backends.available_tools(),
+        "differential_expression": res.record(),
         "contrast": list(run.contrast), "samples": [
             {"name": s.name, "fastq_1": [str(p) for p in s.fastq_1],
              "fastq_2": [str(p) for p in s.fastq_2], "attributes": dict(s.attributes)}
@@ -612,18 +636,21 @@ def _plots(run: RNASeqRun, dist: np.ndarray) -> dict[str, str]:
     rates = [float(run.quantification[n].get("mapping_rate") or 0.0) for n in names]
     plots["mapping"] = svgplot.bars(names, rates, title="Fraction of reads assigned",
                                     ylabel="fraction", hline=MIN_MAPPING)
+    # the VST's columns, and so the PCA and the distances, follow the result's sample IDs
     factor = run.contrast[0]
-    groups = [s.attributes[factor] for s in run.samples]
+    attributes = {s.name: s.attributes for s in run.samples}
+    columns = list(res.samples)
+    groups = [attributes[n][factor] for n in run.pca["samples"]]
     ev = run.pca["explained"] + [0.0, 0.0]
     plots["pca"] = svgplot.scatter(
-        run.pca["pc1"], run.pca["pc2"], groups=groups, labels=names, radius=5,
+        run.pca["pc1"], run.pca["pc2"], groups=groups, labels=run.pca["samples"], radius=5,
         title=f"PCA of the {run.pca['genes']} most variable genes (VST)",
         xlabel=f"PC1 ({ev[0]:.0%} of variance)", ylabel=f"PC2 ({ev[1]:.0%} of variance)")
     order = _order(dist)
     plots["sample_distances"] = svgplot.heatmap(
-        dist[np.ix_(order, order)], [names[i] for i in order], [names[i] for i in order],
-        title="Sample-to-sample distances (Euclidean, VST)", scale_label="distance",
-        reverse=True)
+        dist[np.ix_(order, order)], [columns[i] for i in order],
+        [columns[i] for i in order], title="Sample-to-sample distances (Euclidean, VST)",
+        scale_label="distance", reverse=True)
     ok = np.isfinite(res.base_mean) & (res.base_mean > 0)
     sig = np.isfinite(res.p_adjusted) & (res.p_adjusted < res.alpha)
     status = np.where(sig & (res.log2_fold_change > 0), "up",
@@ -643,21 +670,28 @@ def _plots(run: RNASeqRun, dist: np.ndarray) -> dict[str, str]:
     plots["p_values"] = svgplot.histogram(res.p_value[tested], bins=40, lo=0.0, hi=1.0,
                                           title="Distribution of p-values",
                                           xlabel="p-value")
-    disp = np.isfinite(res.dispersion_gene) & ok
+    est = res.gene_diagnostics
+    disp = np.isfinite(est["dispersion_gene_wise"]) & ok
     x = np.log10(res.base_mean[disp])
-    final = np.log10(res.dispersion[disp])
-    trend = np.log10(res.dispersion_trend[disp])
+    final = np.log10(est["dispersion"][disp])
+    trend = np.log10(est["dispersion_trend"][disp])
     # gene-wise estimates far below the rest (at the floor) are drawn at the axis foot
     floor = (min(final.min(), trend.min()) - 1.0) if len(final) else -8.0
-    gene = np.maximum(np.log10(res.dispersion_gene[disp]), floor)
+    gene = np.maximum(np.log10(est["dispersion_gene_wise"][disp]), floor)
     plots["dispersion"] = svgplot.scatter(
         np.concatenate([x, x, x]), np.concatenate([gene, final, trend]),
         groups=(["gene-wise"] * len(x) + ["final"] * len(x) + ["trend"] * len(x)),
         colours={"gene-wise": svgplot.GREY, "final": svgplot.PALETTE[0],
                  "trend": svgplot.PALETTE[1]}, radius=1.6,
-        title="Dispersion estimates (gene-wise below the axis drawn at its foot)",
+        title=f"Dispersion estimates by {_de_name(res)} (gene-wise below the axis drawn "
+              "at its foot)",
         xlabel="log10 mean of normalised counts", ylabel="log10 dispersion")
     return plots
+
+
+def _de_name(res: de_backends.DEResult) -> str:
+    return ("the built-in implementation" if res.backend == "builtin"
+            else f"PyDESeq2 {res.version}")
 
 
 def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]]) -> str:
@@ -671,11 +705,14 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
               f"(log2 fold change > 0 means higher in {num}).",
               f"- {summ['tested']} genes tested; **{summ['significant']}** differ at FDR "
               f"< {res.alpha:g} ({summ['up']} higher, {summ['down']} lower in {num}).",
-              f"- Low-count filter: {summ['filtered_low_count']} genes below mean count "
-              f"{_fmt(summ['filter_threshold'])} were not adjusted (DESeq2 independent "
-              f"filtering); {summ['cooks_outliers']} genes flagged by Cook's distance; "
+              f"- Low-count filter: {summ['filtered_low_count']} genes "
+              + (f"below mean count {_fmt(summ['filter_threshold'])} "
+                 if summ["filter_threshold"] is not None else "with low mean counts ")
+              + f"were not adjusted (DESeq2 independent filtering); "
+              f"{summ['cooks_outliers']} genes flagged by Cook's distance; "
               f"{summ['all_zero']} genes had no reads.",
-              f"- Quantification: **{run.engine}**; trimming: **{run.trimmer}**.", ""]
+              f"- Quantification: **{run.engine}**; trimming: **{run.trimmer}**; "
+              f"differential expression: **{_de_name(res)}**.", ""]
     if run.warnings:
         lines += ["## Warnings", ""] + [f"- {w}" for w in run.warnings] + [""]
     unit = "read pairs" if run.samples[0].paired else "reads"
@@ -716,7 +753,9 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
     if not order:
         lines.append("| (none) | | | | | | |")
     lines += ["", "The full table is `deseq2_results.tsv`; counts and TPM are `counts.tsv` "
-              "and `tpm.tsv`; the variance-stabilised matrix is `vst.tsv`.", ""]
+              "and `tpm.tsv`; the variance-stabilised matrix is `vst.tsv`. The test's own "
+              "estimates (dispersions, Cook's flags, convergence) are in "
+              "`de_diagnostics.tsv`.", ""]
     lines += ["## Figures", ""]
     for name in ("pca", "sample_distances", "ma", "volcano", "p_values", "dispersion",
                  "mapping"):
@@ -744,11 +783,19 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
         (f"- **Gene totals**: tximport's rules ({run.genes.counts_from_abundance}), "
          "rounded for the count model." if run.engine != "hisat2" else
          "- **Gene totals**: featureCounts' gene counts."),
-        "- **Differential expression**: the DESeq2 method (Love et al. 2014): median-of-"
-        "ratios size factors, Cox-Reid dispersions shrunk to a parametric trend, NB GLM, "
-        "Wald test, Cook's distances, independent filtering, Benjamini-Hochberg.",
-        "- **Exploration**: VST with the fitted trend; PCA of the "
-        f"{run.pca['genes']} most variable genes; Euclidean sample distances.", ""]
+        f"- **Differential expression**: the DESeq2 method (Love et al. 2014) by "
+        f"{_de_name(res)} (`{res.version}`): median-of-ratios size factors "
+        f"({res.diagnostics['size_factor_method']}), Cox-Reid dispersions shrunk to a "
+        f"{res.diagnostics['dispersion_trend']['kind']} trend, NB GLM, Wald test, Cook's "
+        "distances (an outlier loses its p-value; no count is replaced), independent "
+        "filtering, Benjamini-Hochberg.",
+        "- **Design matrix**: columns "
+        + ", ".join(f"`{c}`" for c in res.design_columns) + "; reference levels "
+        + ", ".join(f"{f} = {lv}" for f, lv in res.reference_levels.items())
+        + "; the same matrix whichever implementation runs.",
+        f"- **Exploration**: VST with the dispersion trend {_de_name(res)} fitted with the "
+        f"design; PCA of the {run.pca['genes']} most variable genes; Euclidean sample "
+        "distances.", ""]
     lines += [f"- {n}" for n in summ["notes"] + list(run.genes.notes)]
     lines += ["", "## What this result is", "",
               "A statistical association within this experiment: these genes differ between "

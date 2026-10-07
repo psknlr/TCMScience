@@ -3,6 +3,9 @@
 ``fastq``      reading, quality control and trimming of sequencing files
 ``quant``      transcript quantification (k-mer pseudoalignment and EM) and gene totals
 ``deseq``      differential expression with a negative binomial GLM (the DESeq2 method)
+``de_backends`` one entry for differential expression by the built-in implementation
+               or PyDESeq2: one design, one contrast, one result contract
+``optional``   importing a selected optional package, or refusing with the reason
 ``backends``   the standard command-line tools (fastp, salmon, kallisto, HISAT2,
                featureCounts) when they are installed
 ``rnaseq``     the RNA-seq pipeline from a sample sheet to a report

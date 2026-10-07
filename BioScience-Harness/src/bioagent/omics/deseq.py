@@ -21,7 +21,8 @@ Love, Huber & Anders (2014), *Genome Biology* 15:550. The steps are DESeq2's:
 Two simplifications, each stated in the result: the dispersion line search is a grid
 refined by golden-section search rather than DESeq2's backtracking search, and fold
 changes are maximum-likelihood estimates (no apeglm/ashr shrinkage). The test suite
-compares the output with PyDESeq2, an independent implementation of the same method.
+compares the output with PyDESeq2, an independent implementation of the same method,
+which the pipelines can also run in this one's place (``de_backends``).
 
 Everything is vectorised over genes with numpy and scipy.
 """
@@ -471,6 +472,7 @@ class DESeqResult:
     dispersion: np.ndarray
     dispersion_outlier: np.ndarray
     trend: dict[str, Any]
+    prior_variance: float                      # of log dispersions around the trend
     cooks_outlier: np.ndarray
     filter_threshold: float
     converged: np.ndarray
@@ -514,14 +516,16 @@ class DESeqResult:
 
 
 def run_deseq(counts: np.ndarray, genes: Sequence[str], samples: Sequence[Mapping[str, Any]],
-              *, design: str, contrast: tuple[str, str, str], alpha: float = 0.05,
-              sample_names: Sequence[str] | None = None, cooks_cutoff: bool = True,
-              independent_filtering: bool = True,
+              *, design: str | DesignMatrix, contrast: tuple[str, str, str],
+              alpha: float = 0.05, sample_names: Sequence[str] | None = None,
+              cooks_cutoff: bool = True, independent_filtering: bool = True,
               covariates: Sequence[str] | None = None) -> DESeqResult:
     """Test ``contrast = (factor, numerator, denominator)`` gene by gene.
 
     ``counts`` is genes x samples of non-negative integers; ``samples`` holds one
-    mapping of design variables per column.
+    mapping of design variables per column. ``design`` is a formula, or a
+    :class:`DesignMatrix` already built over those samples: ``de_backends`` builds one
+    and hands the same matrix to every implementation, so none re-reads the formula.
     """
     y_all = np.asarray(counts)
     if y_all.ndim != 2:
@@ -537,8 +541,14 @@ def run_deseq(counts: np.ndarray, genes: Sequence[str], samples: Sequence[Mappin
         raise DESeqError("gene identifiers must be unique")
     y_all = np.round(y_all).astype(float)
     factor, numerator, denominator = contrast
-    dm = design_matrix(samples, design, references={factor: denominator},
-                       covariates=covariates)
+    if isinstance(design, DesignMatrix):
+        dm = design
+        if dm.matrix.shape[0] != y_all.shape[1]:
+            raise DESeqError(f"the design matrix has {dm.matrix.shape[0]} rows for "
+                             f"{y_all.shape[1]} samples")
+    else:
+        dm = design_matrix(samples, design, references={factor: denominator},
+                           covariates=covariates)
     X = dm.matrix
     m, p = X.shape
     names = tuple(sample_names) if sample_names else tuple(f"sample{i + 1}" for i in range(m))
@@ -666,6 +676,7 @@ def run_deseq(counts: np.ndarray, genes: Sequence[str], samples: Sequence[Mappin
         log2_fold_change=spread(lfc), lfc_se=spread(se), stat=spread(wald),
         p_value=p_full, p_adjusted=padj, dispersion_gene=spread(disp_gene),
         dispersion_trend=spread(trend_vals), dispersion=spread(disp_final),
-        dispersion_outlier=out_flag, trend=trend, cooks_outlier=flags,
+        dispersion_outlier=out_flag, trend=trend, prior_variance=prior_var,
+        cooks_outlier=flags,
         filter_threshold=threshold, converged=conv, normalized=norm_all, alpha=alpha,
         notes=notes)

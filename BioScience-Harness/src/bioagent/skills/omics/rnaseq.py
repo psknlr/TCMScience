@@ -47,9 +47,13 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
                                    design: str = "~ condition", contrast: str = "",
                                    experiment_design: str = "in_vitro",
                                    engine: str = "auto", trimmer: str = "auto",
-                                   alpha: float = 0.05, out_dir: str = "",
-                                   run_id: str = "") -> Any:
-    """Differential expression from FASTQ files, with the full report on disk."""
+                                   de_backend: str = "builtin", alpha: float = 0.05,
+                                   out_dir: str = "", run_id: str = "") -> Any:
+    """Differential expression from FASTQ files, with the full report on disk.
+
+    ``de_backend`` picks the DESeq2 implementation (``builtin`` or ``pydeseq2``); the
+    one that ran, with its version, is in the provenance and the claim's basis.
+    """
     from ...omics.rnaseq import RNASeqConfig, run_rnaseq
 
     if experiment_design not in EXPERIMENT_DESIGNS:
@@ -66,7 +70,7 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
     run = run_rnaseq(sample_sheet, RNASeqConfig(
         transcripts=transcripts or None, annotation=annotation or None,
         genome=genome or None, design=design, contrast=parsed, engine=engine,
-        trimmer=trimmer, alpha=float(alpha)), out)
+        trimmer=trimmer, de_backend=de_backend, alpha=float(alpha)), out)
     manifest = run.manifest
     factor, num, den = run.contrast
     res = run.result
@@ -161,8 +165,9 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
             magnitude=f"{len(significant)} genes at FDR < {res.alpha:g}",
             confidence=0.5,
             confidence_basis=("a negative binomial GLM with shrunken dispersions on "
-                              f"{len(run.samples)} libraries; one experiment, not replicated "
-                              "independently"),
+                              f"{len(run.samples)} libraries (the DESeq2 method, "
+                              f"{res.backend} implementation); one experiment, not "
+                              "replicated independently"),
             hedged=True,
             falsified_by=("an independent replicate experiment, or qPCR of the listed "
                           "genes, that does not show the same differences"),
@@ -200,6 +205,7 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
         created_at=_now(),
         provenance={"pipeline": "bioagent.omics.rnaseq", "engine": run.engine,
                     "trimmer": run.trimmer, "contrast": list(run.contrast),
+                    "de_backend": {"name": res.backend, "version": res.version},
                     "code_digest": manifest["code_digest"], "run_dir": str(out),
                     "tools": manifest["tools"], "experiment_design": experiment_design})
 

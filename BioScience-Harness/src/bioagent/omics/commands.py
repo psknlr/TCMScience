@@ -34,6 +34,9 @@ def register(sub: argparse._SubParsersAction) -> None:
     r.add_argument("--engine", default="auto",
                    choices=("auto", "builtin", "salmon", "kallisto", "hisat2"))
     r.add_argument("--trimmer", default="auto", choices=("auto", "builtin", "fastp", "none"))
+    r.add_argument("--de-backend", default="builtin", choices=("builtin", "pydeseq2"),
+                   help="the DESeq2 implementation; one that is not installed is refused, "
+                        "not replaced")
     r.add_argument("--alpha", type=float, default=0.05, help="FDR level")
     r.add_argument("--fragment-mean", type=float, default=200.0,
                    help="single-end reads: assumed fragment length")
@@ -146,7 +149,8 @@ def _rnaseq(a: argparse.Namespace) -> int:
     config = RNASeqConfig(
         transcripts=a.transcripts or None, annotation=a.annotation or None,
         genome=a.genome or None, design=a.design, contrast=contrast, engine=a.engine,
-        trimmer=a.trimmer, alpha=a.alpha, fragment_mean=a.fragment_mean,
+        trimmer=a.trimmer, de_backend=a.de_backend, alpha=a.alpha,
+        fragment_mean=a.fragment_mean,
         fragment_sd=a.fragment_sd, covariates=tuple(a.covariate), strand=a.strand,
         threads=a.threads)
     try:
@@ -159,7 +163,8 @@ def _rnaseq(a: argparse.Namespace) -> int:
         print(json.dumps(summary, indent=1, ensure_ascii=False, default=str))
         return 0
     de = summary["differential_expression"]
-    print(f"{len(run.samples)} samples, engine {run.engine}, trimming {run.trimmer}")
+    print(f"{len(run.samples)} samples, engine {run.engine}, trimming {run.trimmer}, "
+          f"test {de['backend']} ({de['version']})")
     print(f"{de['tested']} genes tested: {de['significant']} differ at FDR < {de['alpha']:g} "
           f"({de['up']} up, {de['down']} down in {run.contrast[1]} vs {run.contrast[2]})")
     for w in run.warnings:
