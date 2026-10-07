@@ -1,0 +1,31 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "tool": "article_searcher",
+ "arguments": {
+  "chemicals": [
+   "berberine"
+  ],
+  "diseases": [
+   "type 2 diabetes"
+  ],
+  "include_preprints": false,
+  "include_cbioportal": false,
+  "page_size": 3
+ },
+ "called_at": "2026-10-07T10:36:13+00:00",
+ "trimmed": "records 1, 2 and 8 of the 10 returned are kept (8 is the one article_getter fetched); each record's Abstract block removed (publishers' text). Everything else is as returned.",
+ "reply": {
+  "content": [
+   {
+    "type": "text",
+    "text": "# Record 1\nPmid: 42509753\nTitle:\n  The Beneficial Effects of Berberine on Vascular Dysfunction in Type 2\n  Diabetes Are Enhanced by HSP70 Inhibition.\nJournal: Biomolecules\nDate: 2026-06-29T00:00:00Z\nDoi: 10.3390/biom16070959\nPublication State: peer_reviewed\nSource: PubMed\nPubmed Url: https://pubmed.ncbi.nlm.nih.gov/42509753/\nDoi Url: https://doi.org/10.3390/biom16070959\nAuthors: Ochoa Mendoza V, ..., Nunes KP\n\n# Record 2\nPmid: 42334690\nTitle:\n  Berberine attenuates hyperglycemia induced neurodegeneration in mice by\n  modulation of Nrf2 expression.\nJournal: Mol Biol Rep\nDate: 2026-06-23T00:00:00Z\nDoi: 10.1007/s11033-026-12211-0\nPublication State: peer_reviewed\nSource: PubMed\nPubmed Url: https://pubmed.ncbi.nlm.nih.gov/42334690/\nDoi Url: https://doi.org/10.1007/s11033-026-12211-0\nAuthors: Gupta M, ..., Pandey S\n\n# Record 8\nPmid: 34956436\nPmcid: PMC8696197\nTitle:\n  The Effect of Berberine on Metabolic Profiles in Type 2 Diabetic\n  Patients: A Systematic Review and Meta-Analysis of Randomized Controlled\n  Trials\nJournal: Oxid Med Cell Longev\nDate: 2021-12-15T00:00:00Z\nDoi: 10.1155/2021/2074610\nPublication State: peer_reviewed\nSource: PubMed\nPubmed Url: https://pubmed.ncbi.nlm.nih.gov/34956436/\nPmc Url: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8696197/\nDoi Url: https://doi.org/10.1155/2021/2074610\nAuthors: Guo J, ..., Liu WJ\n"
+   }
+  ],
+  "isError": false
+ }
+}

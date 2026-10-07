@@ -1,0 +1,29 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "tool": "trial_searcher",
+ "arguments": {
+  "conditions": [
+   "type 2 diabetes"
+  ],
+  "interventions": [
+   "berberine"
+  ],
+  "page_size": 3
+ },
+ "called_at": "2026-10-07T10:36:18+00:00",
+ "trimmed": "",
+ "reply": {
+  "content": [
+   {
+    "type": "text",
+    "text": "# Record 1\nNct Number: NCT06911983\nStudy Title:\n  Comparative Efficacy of Metformin and Berberine Among TCF7L2 (rs7903146)\n  TT vs. CC Genotype Carriers With Type 2 Diabetes\nStudy Url: https://clinicaltrials.gov/study/NCT06911983\nStudy Status: NOT_YET_RECRUITING\nBrief Summary:\n  This pilot 12-week randomized open-label study compares metformin and\n  berberine in newly diagnosed type 2 diabetes patients stratified by the\n  TCF7L2 (rs7903146) genotype (TT vs. CC). The primary goal is to assess\n  changes in HbA1c between metformin and berberine treated groups within\n  each genotype. Secondary outcomes include fasting and postprandial\n  glucose, insulin levels, HOMA-IR, body weight/BMI, lipid profile and\n  adverse events.\n\n  The central hypothesis is that berberine, through its additional effect\n  on TCF7L2-linked pathways, will provide superior glycemic control in\n  high-risk TT carriers compared to metformin, whereas both treatments\n  will yield comparable results in CC carriers. By enrolling only TT and\n  CC genotypes, this study aims to estimate effect sizes and feasibility,\n  guiding a future, larger-scale trial on genotype-tailored diabetes\n  therapies.\nStudy Results: NO\nConditions: Diabetes Mellitis\nInterventions: DRUG: Metformin|DIETARY_SUPPLEMENT: Berberine\nSponsor: S.LAB (SOLOWAYS)\nPhases: NA\nEnrollment: 60\nStudy Type: INTERVENTIONAL\nStudy Design:\n  Allocation: RANDOMIZED | Intervention Model: PARALLEL | Masking: TRIPLE\n  (PARTICIPANT, CARE_PROVIDER, OUTCOMES_ASSESSOR) | Primary Purpose:\n  TREATMENT\nStart Date: 2025-07-01\nCompletion Date: 2026-03-01\n\n# Record 2\nNct Number: NCT07195994\nStudy Title:\n  A Clinical Trial to Examine the Efficacy and Safety of an\n  Investigational Product With and Without Use of Semaglutide on Glycemic\n  Response in Adults With Prediabetes or Type 2 Diabetes\nStudy Url: https://clinicaltrials.gov/study/NCT07195994\nStudy Status: RECRUITING\nBrief Summary:\n  This is a randomized, single-blind, controlled, parallel clinical trial\n  to examine the efficacy and safety of AMPK Charge+® with and without use\n  of semaglutide on glycemic response in adults with prediabetes or Type 2\n  Diabetes. The main question it aims to answer is:\n\n  What is the difference in change in fasting blood glucose and insulin,\n  and hemoglobin A1c (HbA1c) from baseline at Day 84 between AMPK Charge+®\n  and AMPK Charge+® with semaglutide?\n\n  Participants will consume AMPK Charge+® with or without semaglutide\n  injections and will be evaluated for glycemic response parameters.\nStudy Results: NO\nConditions: Prediabetes / Type 2 Diabetes\nInterventions:\n  DIETARY_SUPPLEMENT: AMPK Charge+®|DIETARY_SUPPLEMENT: AMPK Charge+® with\n  semaglutide\nSponsor: QuickSilver Scientific\nPhases: NA\nEnrollment: 90\nStudy Type: INTERVENTIONAL\nStudy Design:\n  Allocation: RANDOMIZED | Intervention Model: PARALLEL | Masking: SINGLE\n  (OUTCOMES_ASSESSOR) | Primary Purpose: TREATMENT\nStart Date: 2026-02-05\nCompletion Date: 2026-09\n\n# Record 3\nNct Number: NCT07606872\nStudy Title:\n  Validation of the Snouda Metabolic Score for Phenotyping and Guiding\n  Reversal in Type 2 Diabetes\nStudy Url: https://clinicaltrials.gov/study/NCT07606872\nStudy Status: ENROLLING_BY_INVITATION\nBrief Summary:\n  This study tests a new tool called the Snouda Metabolic Score (SMS) that\n  helps doctors identify the specific metabolic problems driving Type 2\n  Diabetes in each individual patient. Instead of treating all diabetic\n  patients the same way, the SMS classifies patients into one of several\n  metabolic phenotypes - patterns of dysfunction across five body systems:\n  insulin resistance, chronic inflammation, hormonal disruption, gut\n  microbiome imbalance, and mitochondrial dysfunction.\n\n  Once classified, each participant follows a personalized 24-week\n  lifestyle and nutritional protocol targeting their specific phenotype.\n  The protocol includes dietary changes, structured exercise, targeted\n  nutritional supplements, and optional intermittent fasting. Participants\n  track their blood glucose daily and complete biomarker blood tests at\n  the start and end of the study.\n\n  The main goal is to determine whether the SMS tool accurately identifies\n  metabolic phenotypes and whether phenotype-matched protocols produce\n  better outcomes than standard approaches. The study measures changes in\n  HbA1c, fasting insulin, C-peptide, inflammation markers, and whether\n  participants achieve Type 2 Diabetes remission - defined as HbA1c below\n  6.5% without glucose-lowering medication.\n\n  The study is conducted entirely online through the diabetesreversal.io\n  platform. There are no clinic visits required. Participants must be\n  adults aged 18 or older with a confirmed Type 2 Diabetes diagnosis and\n  must not be pregnant or breastfeeding.\nStudy Results: NO\nConditions: Type 2 Diabetes Mellitus (T2DM)|Insulin Resistance|Metabolic Syndrome\nInterventions:\n  BEHAVIORAL: Phenotype-Matched Dietary Protocol|BEHAVIORAL: Structured\n  Progressive Exercise Protocol|DIETARY_SUPPLEMENT: Targeted Nutritional\n  Supplementation|BEHAVIORAL: Structured Intermittent Fasting Protocol\nSponsor: Salah Snouda\nPhases: NA\nEnrollment: 150\nStudy Type: INTERVENTIONAL\nStudy Design:\n  Allocation: NA | Intervention Model: SINGLE_GROUP | Masking: NONE |\n  Primary Purpose: TREATMENT\nStart Date: 2026-08\nCompletion Date: 2027-03\n"
+   }
+  ],
+  "isError": false
+ }
+}

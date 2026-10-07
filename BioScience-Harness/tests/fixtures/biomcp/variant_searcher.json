@@ -1,0 +1,26 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "tool": "variant_searcher",
+ "arguments": {
+  "rsid": "rs7903146",
+  "include_cbioportal": false,
+  "include_oncokb": false,
+  "page_size": 2
+ },
+ "called_at": "2026-10-07T10:36:20+00:00",
+ "trimmed": "the '## Cadd' sections removed (CADD scores are licensed for non-commercial use only). Everything else is as returned.",
+ "reply": {
+  "content": [
+   {
+    "type": "text",
+    "text": "# Record 1\nId: chr10:g.114758349C>T\nScore: 19.439093\nChrom: 10\n\n## Clinvar\nLicense: http://bit.ly/2SQdcI0\nVariant Id: 7413\nUrl: https://www.ncbi.nlm.nih.gov/clinvar/variation/7413/\n\n### Rcv\nClinical Significance: risk factor\n\n## Dbsnp\nLicense: http://bit.ly/2AqoLOc\nRsid: rs7903146\nUrl: https://www.ncbi.nlm.nih.gov/snp/rs7903146\n\n## Vcf\nAlt: T\nPosition: 114758349\nRef: C\n\n## Url\nEnsembl: https://ensembl.org/Homo_sapiens/Variation/Explore?v=rs7903146\nUcsc Genome Browser:\n  https://genome.ucsc.edu/cgi-\n  bin/hgTracks?db=hg19&position=chr10:114758349-114758350\n\n# Record 2\nId: chr10:g.114758349C>G\nScore: 18.703915\nChrom: 10\n\n## Clinvar\nLicense: http://bit.ly/2SQdcI0\nVariant Id: 1692994\nUrl: https://www.ncbi.nlm.nih.gov/clinvar/variation/1692994/\n\n### Rcv\nClinical Significance: Likely risk allele\n\n## Dbsnp\nLicense: http://bit.ly/2AqoLOc\nRsid: rs7903146\nUrl: https://www.ncbi.nlm.nih.gov/snp/rs7903146\n\n## Vcf\nAlt: G\nPosition: 114758349\nRef: C\n\n## Url\nEnsembl: https://ensembl.org/Homo_sapiens/Variation/Explore?v=rs7903146\nUcsc Genome Browser:\n  https://genome.ucsc.edu/cgi-\n  bin/hgTracks?db=hg19&position=chr10:114758349-114758350\n"
+   }
+  ],
+  "isError": false
+ }
+}

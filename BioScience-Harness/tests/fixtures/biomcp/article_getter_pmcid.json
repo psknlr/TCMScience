@@ -1,0 +1,23 @@
+{
+ "server": {
+  "package": "biomcp-python",
+  "version": "0.7.3",
+  "mcp_sdk": "1.30.0",
+  "protocol_version": "2025-11-25"
+ },
+ "tool": "article_getter",
+ "arguments": {
+  "pmid": "PMC8696197"
+ },
+ "called_at": "2026-10-07T10:37:16+00:00",
+ "trimmed": "",
+ "reply": {
+  "content": [
+   {
+    "type": "text",
+    "text": "[\n  {\n    \"error\": \"Invalid identifier format: PMC8696197. Expected either a PMID (numeric) or DOI (10.xxxx/xxxx format).\"\n  }\n]"
+   }
+  ],
+  "isError": false
+ }
+}
