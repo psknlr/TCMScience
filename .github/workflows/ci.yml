@@ -163,6 +163,36 @@ jobs:
           BIOAGENT_REQUIRE_TOOLS: "1"
         run: python -m pytest -q -m "not integration" tests/test_mcp_transport.py tests/test_biomcp_client.py tests/test_biomcp_adapter.py tests/test_tooluniverse_provider.py tests/test_literature_evidence.py
 
+  mcp-sdk:
+    # The transport runs on both majors of the MCP Python SDK (docs/mcp-transport.md). The
+    # integrations job resolves to 1.x, because BioMCP and ToolUniverse pin mcp<2; this job
+    # runs the transport's tests on the 1.x floor and on 2.x. BioMCP cannot be installed
+    # beside 2.x, so its client tests run here without requiring it.
+    name: MCP transport on SDK mcp${{ matrix.mcp }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mcp: ["==1.29.0", ">=2.2,<3"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,mcp]" "mcp${{ matrix.mcp }}"
+      - name: Transport tests, the SDK required
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: python -m pytest -q -m "not integration" tests/test_mcp_transport.py
+      - name: BioMCP client tests, BioMCP not required
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+        run: python -m pytest -q -m "not integration" tests/test_biomcp_client.py
+
   toolsagent:
     # SciToolAgent's ToolsAgent service, deployed from its repository at the reviewed
     # commit with the Chemical category, and called through the adapter: answers read as
@@ -233,11 +263,12 @@ jobs:
       - working-directory: BioScience-Harness
         run: PYTHONPATH=src python scripts/verify_connectors.py --no-write
       # The providers' live tests: a Biomni clone at the pinned commit, governed RCSB and
-      # ESM Atlas calls through the operation broker, ToolUniverse's UniProt tool, and
-      # BioMCP's listing and a live lookup through the MCP transport.
+      # ESM Atlas calls through the operation broker, ToolUniverse's UniProt tool, BioMCP's
+      # listing and a live lookup through the MCP transport, and DeepWiki's public MCP
+      # server reviewed and called over HTTPS.
       - run: python -m pip install --upgrade pip && pip install -e "BioScience-Harness[dev,mcp,tooluniverse,biomcp]"
       - name: Live provider tests (network)
         working-directory: BioScience-Harness
         env:
           PYTHONPATH: ../PSH-Harness/src
-        run: python -m pytest -q -m integration tests/test_bindings_licences.py tests/test_operation_broker.py tests/test_tooluniverse_provider.py tests/test_biomcp_adapter.py tests/test_biomcp_client.py
+        run: python -m pytest -q -m integration tests/test_bindings_licences.py tests/test_operation_broker.py tests/test_tooluniverse_provider.py tests/test_biomcp_adapter.py tests/test_biomcp_client.py tests/test_mcp_transport.py
