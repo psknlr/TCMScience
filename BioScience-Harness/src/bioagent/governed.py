@@ -99,7 +99,8 @@ def candidate_callables() -> dict[str, Callable[..., ResearchArtifact]]:
     lockfile, so :func:`run_governed` refuses each unless the run is a development run
     (``allow_unpinned``), until a person promotes it.
     """
-    from .skills.molecular import dock_ligands, predict_protein_structure
+    from .skills.molecular import (dock_ligands, predict_admet,
+                                   predict_protein_structure)
     from .skills.omics import rnaseq_differential_expression, scrna_cell_atlas
 
     return {
@@ -107,6 +108,7 @@ def candidate_callables() -> dict[str, Callable[..., ResearchArtifact]]:
         "scrna-cell-atlas": scrna_cell_atlas,
         "predict-protein-structure": predict_protein_structure,
         "dock-ligands": dock_ligands,
+        "predict-admet": predict_admet,
     }
 
 

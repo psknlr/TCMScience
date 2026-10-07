@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# ADMET prediction — a CANDIDATE skill, not in the stable lockfile: refused by a governed
+# run until a person promotes it.
+#
+# Every number it reports is a model's prediction (with the held-out error of its model
+# card and an applicability-domain flag) or a rule applied to computed descriptors, so
+# it makes no claim. The models are built locally from the TDC archive; nothing leaves
+# the machine when it runs.
+
+api_version: "1"
+id: predict-admet
+name: ADMET prediction
+version: "0.1.0"
+summary: >-
+  From molecular structures: standardisation, physicochemical descriptors, drug-likeness
+  rules (Lipinski, Veber, Egan, Ghose), structural alerts (PAINS, Brenk, NIH) and 22
+  endpoints from models trained on the Therapeutics Data Commons ADMET benchmark group.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.molecular.admet:predict_admet"
+  timeout_s: 1800
+  memory_mb: 4096
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network: []
+  filesystem_read:
+    - "${molecules}"
+    - "${cache_dir}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: false
+  secrets: []
+
+evidence:
+  max_tier: preclinical
+  claim_kinds:
+    - mechanism_hypothesis
+  forbidden_claims:
+    - mechanism
+    - efficacy
+    - association
+    - recommendation
+  require_pinned_sources: true
+  require_quote_verified: true
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 30.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [molecules]
+  properties:
+    molecules:
+      type: string
+      description: a CSV (name,smiles), an SDF, a .smi file or one SMILES
+    cache_dir:
+      type: string
+      description: where the built models live (default the data lake's admet directory)
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    molecules:
+      type: array
+
+risk: r2_consequential
+min_autonomy: act_with_approval

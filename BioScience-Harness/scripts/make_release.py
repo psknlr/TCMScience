@@ -70,6 +70,7 @@ REQUIRED_PACKAGES = (
     "bioagent",
     "bioagent.acquisition",
     "bioagent.adapters",
+    "bioagent.admet",
     "bioagent.analysis",
     "bioagent.backends",
     "bioagent.benchmarks",
