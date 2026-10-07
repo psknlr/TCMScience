@@ -12,6 +12,8 @@
     python -m bioagent.cli tcmdb fetch itcm [--all] && python -m bioagent.cli tcmdb build itcm
     python -m bioagent.cli tcmdb relations herb_ingredient --subject 黄芪
     python -m bioagent.cli tcmdb live dcabm_tcm herb_blood names='["SANG YE"]'
+    python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa \
+        --annotation genes.gtf --design "~ condition" --out results/
 """
 
 from __future__ import annotations
@@ -644,7 +646,13 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("operation")
     t.add_argument("args", nargs="*", help="name=value (values may be JSON)")
 
+    # -- analysis pipelines ---------------------------------------------------
+    from .omics import commands as omics_commands
+    omics_commands.register(sub)
+
     a = ap.parse_args(argv)
+    if a.cmd in omics_commands.COMMANDS:
+        return omics_commands.dispatch(a)
     if a.cmd == "research":
         return _cmd_research(a)
     if a.cmd == "tcmdb":

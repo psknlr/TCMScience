@@ -1,0 +1,111 @@
+# yaml-language-server: $schema=../../../../src/bioagent/skills/schema/skill.schema.json
+
+# RNA-seq differential expression — a CANDIDATE skill. It is not in the stable lockfile:
+# a governed run refuses it unless it is a development run (allow_unpinned), recorded
+# but never released, until a person reviews and promotes it (updates.registry).
+#
+# It reads the caller's reads and reference, runs installed tools (fastp, salmon,
+# kallisto, HISAT2, featureCounts) as subprocesses when they are present, and writes
+# the run directory; hence subprocess, reads and writes, and act_with_approval.
+#
+# `evidence.claim_kinds`: an observational study of human samples supports an
+# association; cells or animals support a mechanism hypothesis. Nothing stronger.
+
+api_version: "1"
+id: rnaseq-differential-expression
+name: RNA-seq differential expression
+version: "0.1.0"
+summary: >-
+  From FASTQ files and a sample sheet to a DESeq2-method differential-expression report:
+  QC, trimming, quantification, gene totals, the test, figures and a digest manifest.
+maintainer: TCMScience
+license_spdx: MIT
+integration_mode: native
+documentation: SKILL.md
+
+runtime:
+  backend: python
+  entrypoint: "bioagent.skills.omics.rnaseq:rnaseq_differential_expression"
+  timeout_s: 21600
+  memory_mb: 8192
+  deterministic: true
+  idempotent: true
+
+permissions:
+  network: []
+  filesystem_read:
+    - "${sample_sheet}"
+    - "${transcripts}"
+    - "${annotation}"
+    - "${genome}"
+  filesystem_write:
+    - "${out_dir}"
+  subprocess: true
+  secrets: []
+
+evidence:
+  max_tier: observational
+  claim_kinds:
+    - association
+    - mechanism_hypothesis
+  forbidden_claims:
+    - efficacy
+    - recommendation
+    - mechanism
+  require_pinned_sources: true
+  require_quote_verified: true
+  required_quality_dimensions:
+    - directness
+
+resources:
+  expected_tokens: 0
+  expected_usd: 0.0
+  expected_latency_s: 600.0
+
+sources: []
+
+inputs:
+  type: object
+  required: [sample_sheet]
+  properties:
+    sample_sheet:
+      type: string
+      description: "nf-core-style sheet: sample,fastq_1,fastq_2 and the design columns"
+    transcripts:
+      type: string
+      description: transcriptome FASTA (transcript engines)
+    annotation:
+      type: string
+      description: GTF or transcript-to-gene table
+    genome:
+      type: string
+      description: genome FASTA (engine hisat2)
+    design:
+      type: string
+    contrast:
+      type: string
+      description: "factor,numerator,denominator"
+    experiment_design:
+      type: string
+      enum: [in_vitro, animal, observational]
+    engine:
+      type: string
+      enum: [auto, builtin, salmon, kallisto, hisat2]
+    trimmer:
+      type: string
+      enum: [auto, builtin, fastp, none]
+    alpha:
+      type: number
+    out_dir:
+      type: string
+
+outputs:
+  type: object
+  properties:
+    summary:
+      type: object
+    significant:
+      type: array
+
+risk: r2_consequential
+min_autonomy: act_with_approval

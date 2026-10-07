@@ -49,7 +49,7 @@ from .contracts.artifact import ArtifactVerdict
 from .contracts.receipts import ContentStore, default_store
 
 __all__ = ["GovernedRun", "GovernedRunRefused", "coerce_arguments", "run_governed",
-           "skill_callables"]
+           "skill_callables", "candidate_callables"]
 
 
 class GovernedRunRefused(RuntimeError):
@@ -89,6 +89,20 @@ def skill_callables() -> dict[str, Callable[..., ResearchArtifact]]:
         "retrieve-tcm-evidence": retrieve_tcm_evidence,
         "analyze-tcm-network-pharmacology": analyze_tcm_network_pharmacology,
         "assess-tcm-safety": assess_tcm_safety,
+    }
+
+
+def candidate_callables() -> dict[str, Callable[..., ResearchArtifact]]:
+    """The candidate skills (``skills/candidates/``), by id.
+
+    Joined to their manifests the same way as the P0 skills. None is in the stable
+    lockfile, so :func:`run_governed` refuses each unless the run is a development run
+    (``allow_unpinned``), until a person promotes it.
+    """
+    from .skills.omics import rnaseq_differential_expression
+
+    return {
+        "rnaseq-differential-expression": rnaseq_differential_expression,
     }
 
 
@@ -218,7 +232,8 @@ def run_governed(skill_id: str, arguments: Mapping[str, Any], *,
     from .skills.base import write_outputs
     from .skills.loader import skill_content_hash
 
-    table = dict(callables) if callables is not None else skill_callables()
+    table = (dict(callables) if callables is not None
+             else {**skill_callables(), **candidate_callables()})
     fn = table.get(skill_id)
     if fn is None:
         raise GovernedRunRefused(

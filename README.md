@@ -142,6 +142,9 @@ python scripts/build_source_snapshots.py pubchem --file RAW/pubchem_bioassay.jso
 python scripts/run_network_pharmacology.py --snapshots SNAP --ledger SNAP/audit/snapshots.jsonl --out RUN
 python scripts/run_network_pharmacology.py ... --hits screening          # PubChem, inactives included
 
+# RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
+python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
+
 # tests: PSH 1086 · BioScience 1127 (unit tier)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
@@ -168,6 +171,14 @@ An LLM should not be its own planner, executor, security policy, evidence judge 
 | `analyze-tcm-network-pharmacology` | Conflate prediction with measurement: predicted and measured targets are separate keys, and it claims a mechanism *hypothesis* only. |
 | `assess-tcm-safety` | Answer "safe": no record is not safety, and 十八反 is checked as a property of the pair. |
 | `tcm.network-pharmacology` | Report enrichment without its controls: it runs the case study above on ledger-verified snapshots and writes full provenance. |
+
+### Analysis pipelines
+
+One call takes your own data through a complete analysis, with every parameter, tool version and file digest recorded ([docs/analysis-pipelines.md](docs/analysis-pipelines.md)). The skills that wrap them are candidates: recorded but never released until a person promotes them.
+
+| Pipeline | What it refuses to do |
+|---|---|
+| `bioagent rnaseq` — FASTQ → QC → trimming → quantification → DESeq2 → report | Report expression differences as a mechanism or an effect: human samples support an association, cells and animals a mechanism hypothesis. |
 
 ### Data sources
 
