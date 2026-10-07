@@ -1,0 +1,141 @@
+# tooluniverse_allowlist.yaml — the ToolUniverse tools TCMScience admits, as reviewed.
+#
+# An entry here is a review, not a preference. For each tool a reviewer read its
+# configuration entry in the installed package and the class that runs it, and recorded
+# what they read: the entry's digest (canonical JSON, sorted keys), the implementation
+# class, and every host the class can contact for this tool. `bioagent.providers.
+# tooluniverse` checks the installed package against this file on every discovery and on
+# the first call of each tool, and quarantines a tool whose version, entry digest,
+# implementation or endpoint hosts differ (docs/tool-providers.md).
+#
+# `data_terms` points at where the source states its terms. It is a pointer for the
+# reader, not a licence: the configuration states none, so each component records its
+# data licence as "unknown". `live_check` is when the tool's smoke example (its
+# test_examples entry number `example`) last ran live through the runtime (registry,
+# policy, python backend), and how it ended.
+#
+# Re-review after an upgrade: `python -m bioagent.providers.tooluniverse` prints what the
+# installed package holds for each entry; read the changed entries, then update the
+# digests here. Nothing updates this file automatically.
+
+api_version: "1"
+package: tooluniverse
+reviewed_version: "1.5.6"
+reviewed_on: "2026-10-07"
+package_licence: Apache-2.0
+repo: https://github.com/mims-harvard/ToolUniverse
+
+# sha256 of each configuration file at review. Information only: other tools in a file
+# can change without affecting these, so the pins are the per-entry digests below.
+config_files:
+  uniprot_tools.json: 120f482e08674ea3f8680e861037fc400e4970649dd6fc7267f22a7c8e9f2a74
+  pubchem_tools.json: a50afc67963a49b3d6bb81fbb24ee41adbfc6e0d096a22d82bfbd4910a919570
+  chembl_tools.json: 70708581374323f4bb9dd46b4e1d6236d063b3493c776be496218caea23bab8f
+  reactome_tools.json: 14d4416d0a17a858bc3383cd700d2c7002996566b74ae285dd6bf76740bbd0df
+  europe_pmc_tools.json: ac10c72b2f8cbafecb4d5ed182b230c3702391905f6c774889227ad02e3d3d98
+  clinicaltrials_gov_tools.json: 4da512fd0a4f26682f0dc734070c514bad68ad8c2ff43fcca0d4946c013ef370
+  string_network_tools.json: 8aea49b038d45fc60baab44996dae5621a8c0704bdf36e041d8791c51704d0f5
+
+tools:
+  - name: UniProt_get_entry_by_accession
+    config_file: uniprot_tools.json
+    entry_sha256: 63540ffc641a9de2d8c27e1c027b1186de8bb2e9ea444d62995fc217709828d9
+    implementation: tooluniverse.uniprot_tool.UniProtRESTTool
+    hosts: [rest.uniprot.org]
+    domain: proteomics
+    purpose: >-
+      The UniProtKB entry for an accession (a bounded summary unless compact=false): the
+      protein, gene, organism and function a target id in a network-pharmacology result
+      names. The snapshot parsers key targets by these accessions.
+    data_terms: https://www.uniprot.org/help/license
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: PubChem_get_CID_by_compound_name
+    config_file: pubchem_tools.json
+    entry_sha256: 5a37bbf2c31ad478663818037ea205b57095f65d112dc92b9c6cb3ceccb6c60b
+    implementation: tooluniverse.pubchem_tool.PubChemRESTTool
+    hosts: [pubchem.ncbi.nlm.nih.gov]
+    domain: chemistry
+    purpose: >-
+      PubChem CIDs for a constituent's name: the step from a herb's compound list to an
+      identity the activity sources share. PubChem matches names loosely, so a CID found
+      this way is a candidate identity, to be checked against its structure.
+    data_terms: https://www.ncbi.nlm.nih.gov/home/about/policies/
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: PubChem_get_compound_properties_by_CID
+    config_file: pubchem_tools.json
+    entry_sha256: bb2347fa1adaf6be7bd6a1f1225d6945aabefff05bf93ab2d81008d29af7cbba
+    implementation: tooluniverse.pubchem_tool.PubChemRESTTool
+    hosts: [pubchem.ncbi.nlm.nih.gov]
+    domain: chemistry
+    purpose: >-
+      Formula, weight, InChIKey and SMILES for a CID: the structure that confirms or
+      refutes the compound a name resolved to.
+    data_terms: https://www.ncbi.nlm.nih.gov/home/about/policies/
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: ChEMBL_search_activities
+    config_file: chembl_tools.json
+    entry_sha256: c630945e4826af9a4267eb22e5a0c826af40faf92c0d65ddc5926b94195df325
+    implementation: tooluniverse.chem_tool.ChEMBLRESTTool
+    hosts: [www.ebi.ac.uk]
+    domain: chemistry
+    purpose: >-
+      Measured activities (IC50, Ki, EC50, ...) for a molecule or a target from ChEMBL:
+      the kind of measurement the network-pharmacology targets rest on.
+    data_terms: https://chembl.gitbook.io/chembl-interface-documentation/about
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: Reactome_map_uniprot_to_pathways
+    config_file: reactome_tools.json
+    entry_sha256: f8f94631dfc70549e402515f2edf924c61d7d56b327e2d5a63750136f4931916
+    implementation: tooluniverse.reactome_tool.ReactomeRESTTool
+    hosts: [reactome.org]
+    domain: pathways
+    purpose: >-
+      The Reactome pathways a UniProt accession takes part in: the annotation the pathway
+      enrichment is tested against, for checking one target by hand.
+    data_terms: https://reactome.org/license
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: EuropePMC_search_articles
+    config_file: europe_pmc_tools.json
+    entry_sha256: e4251f063fe419f54344effa12b09511f1d5c59f36ce3afdea163603f219a82b
+    implementation: tooluniverse.europe_pmc_tool.EuropePMCTool
+    # www.ebi.ac.uk answers the search. The three NCBI hosts are contacted only when a
+    # call asks for missing abstracts or full-text terms (enrich_missing_abstract,
+    # extract_terms_from_fulltext, fulltext_terms): PMC OAI, E-utilities efetch, PMC HTML.
+    hosts: [www.ebi.ac.uk, www.ncbi.nlm.nih.gov, eutils.ncbi.nlm.nih.gov,
+            pmc.ncbi.nlm.nih.gov]
+    domain: literature
+    purpose: >-
+      Literature search whose hits carry PMIDs, PMCIDs and DOIs, which
+      bioagent.sources.identity uses to count each paper once however it was reached.
+    data_terms: https://europepmc.org/Copyright
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+    timeout_s: 120
+
+  - name: ClinicalTrials_search_studies
+    config_file: clinicaltrials_gov_tools.json
+    entry_sha256: 1f11cfb9e1e23f26716f6e5281b939429abc91db5aa21bcceeb1ed081717c43f
+    implementation: tooluniverse.ctg_tool.ClinicalTrialsTool
+    hosts: [clinicaltrials.gov]
+    domain: clinical
+    purpose: >-
+      Registered studies of a condition and an intervention (berberine in type 2
+      diabetes, say), keyed by NCT number: the trial side of evidence retrieval.
+    data_terms: https://clinicaltrials.gov/about-site/terms-conditions
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}
+
+  - name: STRING_get_interaction_partners
+    config_file: string_network_tools.json
+    entry_sha256: d8d280dc98150e38b6f19c3b65fa3a3801309a83a3737d46fbc2068368df314e
+    implementation: tooluniverse.base_rest_tool.BaseRESTTool
+    hosts: [string-db.org]
+    domain: proteomics
+    purpose: >-
+      Interaction partners of a protein in STRING above a stated score, for the network
+      topology step of a network-pharmacology analysis.
+    data_terms: https://string-db.org/cgi/access
+    live_check: {on: "2026-10-07", status: SUCCEEDED, example: 0}

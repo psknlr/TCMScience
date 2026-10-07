@@ -48,8 +48,27 @@ class PythonBackend(Backend):
             return self._result(manifest, ExecutionStatus.FAILED, t0,
                                 error=f"signature mismatch: {exc}")
         except Exception as exc:  # noqa: BLE001
-            return self._result(manifest, ExecutionStatus.FAILED, t0,
+            return self._result(manifest, self._declared_failure(exc), t0,
                                 error=f"{type(exc).__name__}: {exc}")
+
+    #: The failures an entrypoint may name for itself, by raising an exception whose
+    #: ``execution_status`` is one of them.
+    _DECLARABLE = frozenset({ExecutionStatus.FAILED, ExecutionStatus.UNAVAILABLE,
+                             ExecutionStatus.TIMEOUT, ExecutionStatus.DENIED})
+
+    @classmethod
+    def _declared_failure(cls, exc: Exception) -> ExecutionStatus:
+        """FAILED, unless the entrypoint said which failure it was.
+
+        Every exception used to be FAILED, which ``ExecutionStatus.executed`` counts as
+        work done. A wrapper around another tool system (``providers.tooluniverse``) knows
+        better: its upstream timed out (TIMEOUT, which PSH records as "may have done its
+        work"), could not reach its host (UNAVAILABLE), or was refused by its review
+        (DENIED). Success cannot be declared this way; it is returning a value.
+        """
+        status = getattr(exc, "execution_status", None)
+        return status if isinstance(status, ExecutionStatus) and status in cls._DECLARABLE \
+            else ExecutionStatus.FAILED
 
 
 #: The statuses a dispatcher may report for a call that produced no result. SUCCEEDED is
