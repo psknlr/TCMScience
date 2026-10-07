@@ -54,21 +54,24 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
         ), smoke="gene_by_symbol", docs="https://www.ncbi.nlm.nih.gov/datasets/docs/v2/api/",
         rate_note="5 req/s without API key"),
 
+    # The legacy REST API (/gwas/rest/api/singleNucleotidePolymorphisms/...) answered on
+    # 2026-10-07 at 11:07 and was retired the same day: it now answers 410 Gone. These are
+    # its v2 equivalents; the filters were checked to filter (rs7412 has 1,183 of the
+    # catalogue's 1,198,394 associations, TP53 maps 44 of its 565,121 SNPs).
     PublicSource(
-        "gwas_catalog", "GWAS Catalog", "https://www.ebi.ac.uk/gwas/rest/api", "www.ebi.ac.uk",
-        "EMBL-EBI terms of use (open)", "Published genome-wide association studies and hits.",
-        "genomics", (
-            Operation("snp", "SNP record", "singleNucleotidePolymorphisms/{rs_id}",
+        "gwas_catalog", "GWAS Catalog", "https://www.ebi.ac.uk/gwas/rest/api/v2",
+        "www.ebi.ac.uk", "EMBL-EBI terms of use (open)",
+        "Published genome-wide association studies and hits.", "genomics", (
+            Operation("snp", "SNP record", "single-nucleotide-polymorphisms/{rs_id}",
                       args=("rs_id",), example={"rs_id": "rs7412"}),
-            Operation("associations_by_rsid", "Associations for a SNP",
-                      "singleNucleotidePolymorphisms/{rs_id}/associations",
-                      params={"projection": "associationBySnp"}, args=("rs_id",),
-                      example={"rs_id": "rs7412"}),
+            Operation("associations_by_rsid", "Associations for a SNP", "associations",
+                      params={"rs_id": "{rs_id}", "size": "{size}"}, args=("rs_id",),
+                      example={"rs_id": "rs7412", "size": 20}),
             Operation("snps_by_gene", "SNPs with associations in a gene",
-                      "singleNucleotidePolymorphisms/search/findByGene",
-                      params={"geneName": "{gene}", "size": "{size}"}, args=("gene",),
+                      "single-nucleotide-polymorphisms",
+                      params={"mapped_gene": "{gene}", "size": "{size}"}, args=("gene",),
                       example={"gene": "TP53", "size": 3}),
-        ), smoke="snp", docs="https://www.ebi.ac.uk/gwas/rest/docs/api"),
+        ), smoke="snp", docs="https://www.ebi.ac.uk/gwas/rest/api/v2/docs"),
 
     PublicSource(
         "ucsc", "UCSC Genome Browser API", "https://api.genome.ucsc.edu", "api.genome.ucsc.edu",
