@@ -74,6 +74,7 @@ REQUIRED_PACKAGES = (
     "bioagent.analysis",
     "bioagent.backends",
     "bioagent.benchmarks",
+    "bioagent.cases",
     "bioagent.clinic",
     "bioagent.contracts",
     "bioagent.core",
