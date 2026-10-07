@@ -13,6 +13,12 @@ genes, sparse integers):
 
 Several samples are combined with :func:`concatenate`, cell barcodes prefixed by the
 sample name so they stay unique.
+
+:func:`to_anndata` and :func:`from_anndata` convert to and from Scanpy's container. The
+raw counts travel in ``layers['counts']`` as well as ``X``, because Scanpy normalises
+``X`` in place: whoever reads the object back after an analysis still finds the counts
+the pipeline started from. Cell barcodes, gene IDs, gene names and every per-cell
+annotation (sample, donor, batch, condition) are carried by name.
 """
 
 from __future__ import annotations
@@ -20,6 +26,7 @@ from __future__ import annotations
 import csv
 import gzip
 import io
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -29,7 +36,7 @@ from scipy import io as spio
 from scipy import sparse
 
 __all__ = ["CellMatrix", "ScIOError", "read_counts", "read_10x_mtx", "read_10x_h5",
-           "read_h5ad", "read_table", "concatenate"]
+           "read_h5ad", "read_table", "concatenate", "to_anndata", "from_anndata"]
 
 
 class ScIOError(ValueError):
@@ -155,20 +162,59 @@ def read_10x_h5(path: str | Path) -> CellMatrix:
                       gene_names=_dedupe(names[keep]), source=str(path))
 
 
-def read_h5ad(path: str | Path) -> CellMatrix:
+def _anndata(purpose: str) -> Any:
     try:
         import anndata
     except ImportError as exc:                              # pragma: no cover
-        raise ScIOError("reading .h5ad needs anndata (pip install anndata)") from exc
-    ad = anndata.read_h5ad(path)
+        raise ScIOError(f"{purpose} needs anndata (pip install anndata)") from exc
+    return anndata
+
+
+def read_h5ad(path: str | Path) -> CellMatrix:
+    ad = _anndata("reading .h5ad").read_h5ad(path)
+    return from_anndata(ad, source=str(path))
+
+
+def from_anndata(ad: Any, *, source: str = "") -> CellMatrix:
+    """The raw counts of an AnnData: ``layers['counts']`` when present, else ``X``.
+
+    Either must hold raw counts; normalised values are refused rather than rounded.
+    """
     x = ad.layers["counts"] if "counts" in ad.layers else ad.X
-    m = _check_integer(sparse.csr_matrix(x), f"{path} (X or layers['counts'])")
+    where = source or "the AnnData"
+    m = _check_integer(sparse.csr_matrix(x), f"{where} (X or layers['counts'])")
     names = np.array(ad.var_names, dtype=object)
     ids = (np.array(ad.var["gene_ids"], dtype=object) if "gene_ids" in ad.var
            else names.copy())
     obs = {str(c): np.array(ad.obs[c].astype(str), dtype=object) for c in ad.obs.columns}
     return CellMatrix(counts=m, cells=np.array(ad.obs_names, dtype=object), gene_ids=ids,
-                      gene_names=_dedupe(names), obs=obs, source=str(path))
+                      gene_names=_dedupe(names), obs=obs,
+                      source=source or str(ad.uns.get("bioagent_source", "")))
+
+
+def to_anndata(m: CellMatrix) -> Any:
+    """An AnnData of ``m``: cells x genes, the raw counts in ``X`` and ``layers['counts']``.
+
+    ``obs_names`` are the barcodes and ``var_names`` the gene names, with the IDs in
+    ``var['gene_ids']``; each annotation becomes a categorical ``obs`` column. Repeated
+    barcodes or gene names are refused: AnnData would accept them, and a later lookup by
+    name would then pick one of the duplicates without saying so.
+    """
+    import pandas as pd
+    anndata = _anndata("converting to AnnData")
+    for what, labels in (("cell barcode", m.cells), ("gene name", m.gene_names)):
+        repeated = sorted(k for k, n in Counter(map(str, labels)).items() if n > 1)
+        if repeated:
+            raise ScIOError(f"{len(repeated)} {what}s repeat (e.g. {repeated[0]!r}); "
+                            "AnnData needs unique names")
+    obs = pd.DataFrame({k: pd.Categorical([str(x) for x in v]) for k, v in m.obs.items()},
+                       index=pd.Index([str(c) for c in m.cells]))
+    var = pd.DataFrame({"gene_ids": [str(g) for g in m.gene_ids]},
+                       index=pd.Index([str(g) for g in m.gene_names]))
+    ad = anndata.AnnData(X=m.counts.copy(), obs=obs, var=var)
+    ad.layers["counts"] = m.counts.copy()
+    ad.uns["bioagent_source"] = m.source
+    return ad
 
 
 def read_table(path: str | Path) -> CellMatrix:

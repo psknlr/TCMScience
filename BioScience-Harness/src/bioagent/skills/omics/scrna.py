@@ -38,8 +38,14 @@ def _now() -> str:
 
 def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
                      root: str = "", doublets: str = "remove", resolution: float = 1.0,
-                     markers: str = "", contrast: str = "", out_dir: str = "",
+                     markers: str = "", contrast: str = "",
+                     analysis_backend: str = "builtin", integration_method: str = "harmony",
+                     de_backend: str = "builtin", out_dir: str = "",
                      run_id: str = "") -> Any:
+    """The atlas as an artifact. ``analysis_backend`` (``builtin`` or ``scanpy``),
+    ``integration_method`` (``none``, ``harmony`` or ``scvi``) and ``de_backend``
+    (``builtin`` or ``pydeseq2``, for the pseudobulk test) are independent; what ran,
+    with versions, is in the provenance."""
     from ...omics.scrna import ScConfig, run_scrna
 
     if experiment_design not in EXPERIMENT_DESIGNS:
@@ -54,7 +60,9 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     started = _now()
     run = run_scrna(source, ScConfig(root=root or None, doublets=doublets,
                                      resolution=float(resolution), markers=markers or None,
-                                     contrast=parsed), out)
+                                     contrast=parsed, analysis_backend=analysis_backend,
+                                     integration_method=integration_method,
+                                     de_backend=de_backend), out)
     manifest = run.manifest
     digest = hashlib.sha256(Path(source).read_bytes() if Path(source).is_file()
                             else str(source).encode()).hexdigest()
@@ -122,8 +130,9 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
             supported_population=population, asserted_outcome=OUTCOME,
             supported_outcome=OUTCOME, direction="mixed", hedged=True,
             magnitude=f"{n_sig} genes at FDR < {res.alpha:g}", confidence=0.5,
-            confidence_basis=(f"pseudobulk over {len(res.samples)} samples; one experiment; "
-                              "the cell-type assignment is itself inferred from markers"),
+            confidence_basis=(f"pseudobulk over {len(res.samples)} samples, tested by the "
+                              f"{res.backend} DESeq2 implementation; one experiment; the "
+                              "cell-type assignment is itself inferred from markers"),
             falsified_by=("an independent replicate, or a sorted-population assay of these "
                           "genes, that does not show the same differences"),
             rationale="which genes respond within a cell type, as candidates for follow-up",
@@ -174,4 +183,10 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
                      "the counts are raw UMI counts"),
         created_at=_now(),
         provenance={"pipeline": "bioagent.omics.scrna", "code_digest": manifest["code_digest"],
-                    "run_dir": str(out), "experiment_design": experiment_design})
+                    "run_dir": str(out), "experiment_design": experiment_design,
+                    "analysis": {"backend": run.analysis.get("backend"),
+                                 "versions": run.analysis.get("versions", {})},
+                    "integration": {k: run.integration.get(k)
+                                    for k in ("method", "implementation", "version")},
+                    "de_backend": ({"name": pb.backend, "version": pb.version}
+                                   if pb is not None else None)})
