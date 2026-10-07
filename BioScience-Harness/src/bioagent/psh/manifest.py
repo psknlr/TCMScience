@@ -230,6 +230,10 @@ def bridge_manifest(bio: BioManifest, *, host_policy: HostPolicy | None = None,
         "bridge": "bioscience", "bio_id": bio.id, "bio_kind": bio.kind,
         "bio_backend": bio.runtime.backend, "project": bio.provider.project,
         "commit": bio.provider.commit, "source_path": bio.provider.source_path,
+        # where the component is described, and what its entrypoint rests on (a reviewed
+        # binding, a static check against the tree, or a derivation the resolver refuses)
+        "description_path": bio.provider.description_path,
+        "entrypoint_basis": bio.runtime.entrypoint_basis,
         # a component whose data is licensed apart from its code says so; the code's
         # licence is then not reported as the data's
         "data_license": bio.license.data or bio.license.spdx,
@@ -243,6 +247,11 @@ def bridge_manifest(bio: BioManifest, *, host_policy: HostPolicy | None = None,
     }
     if bio.license.data:
         provenance["code_license"] = bio.license.spdx
+    if bio.license.catalogue or bio.license.record:
+        # the catalogue row's licence is provenance of the row; the record is the reviewed
+        # source of ``license_spdx`` when there is one
+        provenance["license_catalogue"] = bio.license.catalogue
+        provenance["license_record"] = bio.license.record
     if description_sensitivity:
         provenance["description_sensitivity"] = description_sensitivity
     if bio.runtime.backend == "mcp":

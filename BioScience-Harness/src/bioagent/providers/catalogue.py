@@ -5,17 +5,37 @@ status: it no longer implies executability. This provider maps each row to a
 manifest, infers the execution backend from the row's integration mode and kind,
 and attaches the real python-import requirements read from the upstream source
 so the resolver can decide READY vs UNAVAILABLE honestly.
+
+Two facts on a row are about the row, not about the code that would run, and the
+manifest keeps them apart:
+
+* **the source path** is where the component was found. For Biomni that is the tool's
+  description file, so a python entrypoint derived from it names a module with no
+  function in it. A reviewed binding (``registry/implementation_bindings.yaml``) supplies
+  the entrypoint and the implementation path instead, and the description path is kept
+  as its own field. Without one the derived entrypoint stays on the manifest, marked
+  ``entrypoint_basis="derived"``: the component is still indexed and searchable, and the
+  resolver reports why it will not run rather than the registry silently losing it.
+* **the licence column** is, for an aggregator's rows, the aggregator's licence: Biomni
+  lists other projects' packages and the catalogue gave each one Biomni's Apache-2.0.
+  It stays on the manifest as ``license.catalogue``; ``license.spdx`` comes from the
+  binding or a reviewed licence record (``registry/licence_records.yaml``) when there is
+  one, and ``license.record`` names it.
 """
 
 from __future__ import annotations
 
 import ast
 import re
-from pathlib import Path
-from typing import Iterable, Iterator, Mapping
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Iterable, Iterator, Mapping
 
 from ..runtime.component import (ComponentManifest, LicenseSpec, Permissions,
                                  Provider, Requirements, RuntimeSpec, Validation)
+from .bindings import ImplementationBinding, load_bindings
+
+if TYPE_CHECKING:
+    from ..licences import LicenceRecords
 
 _SLUG = re.compile(r"[^a-z0-9_.-]+")
 
@@ -143,16 +163,41 @@ def _scan_uncached(p: Path) -> tuple[str, ...]:
     return tuple(sorted(m for m in found if m not in std and not m.startswith("_")))
 
 
+def _in_repo_dir(catalogue_path: str, project: str, repo_path: str) -> str:
+    """``repo_path`` under the repository directory the catalogue's paths start with.
+
+    Catalogue paths are relative to the directory holding every upstream checkout
+    (``Biomni/biomni/...``) and a binding's are relative to its repository, so a bound
+    manifest takes the same prefix — and ``scan_module_imports`` reads the implementation
+    rather than the description it read before.
+    """
+    head = PurePosixPath(catalogue_path).parts[:1]
+    if not repo_path or not head or head[0].lower() != project.lower():
+        return repo_path
+    return str(PurePosixPath(head[0], repo_path))
+
+
 class CatalogueProvider:
-    """Discovers components from the unified capability catalogue."""
+    """Discovers components from the unified capability catalogue.
+
+    ``bindings`` and ``licences`` default to the reviewed files the package ships; pass
+    ``{}`` and ``LicenceRecords()`` to see the catalogue alone.
+    """
 
     name = "catalogue"
 
     def __init__(self, rows: Iterable[Mapping], repos_root: Path | None = None,
-                 commits: Mapping[str, str] | None = None) -> None:
+                 commits: Mapping[str, str] | None = None,
+                 bindings: Mapping[str, ImplementationBinding] | None = None,
+                 licences: LicenceRecords | None = None) -> None:
         self.rows = list(rows)
         self.repos_root = Path(repos_root) if repos_root else None
         self.commits = dict(commits or {})
+        self.bindings = dict(load_bindings() if bindings is None else bindings)
+        if licences is None:
+            from ..licences import LicenceRecords
+            licences = LicenceRecords.load()
+        self.licences = licences
 
     def discover(self) -> Iterator[ComponentManifest]:
         for row in self.rows:
@@ -185,37 +230,61 @@ class CatalogueProvider:
         rel = source_paths[0] if source_paths else ""
 
         backend = infer_backend(kind, mode, ncs, primary)
+        cid = f"{slug(primary) or 'unknown'}.{kind}.{slug(name)}"
         entrypoint = ""
         server = ""
-        if backend == "python":
-            entrypoint = f"{module_for_source(primary, rel)}:{name}"
+        basis = ""
+        provider = Provider(project=primary, commit=self.commits.get(primary, ""),
+                            source_path=rel)
+        binding = self.bindings.get(cid) if backend == "python" else None
+        if binding is not None:
+            entrypoint, basis = binding.entrypoint, "bound"
+            provider = Provider(
+                project=primary, commit=binding.commit, repo=binding.repo,
+                source_path=_in_repo_dir(rel, primary, binding.implementation_path),
+                description_path=_in_repo_dir(rel, primary, binding.description_path))
+        elif backend == "python":
+            entrypoint, basis = f"{module_for_source(primary, rel)}:{name}", "derived"
         elif backend == "mcp":
             server = ncs[0] if ncs else ""
             entrypoint = name
 
         py_reqs: tuple[str, ...] = ()
-        if backend == "python" and self.repos_root and rel:
-            py_reqs = scan_module_imports(self.repos_root, rel)
+        if backend == "python" and self.repos_root and provider.source_path:
+            py_reqs = scan_module_imports(self.repos_root, provider.source_path)
 
         deps = lst("external_deps")
         hosts = tuple(d.lower() for d in deps if "." in d and " " not in d)
 
-        cid = f"{slug(primary) or 'unknown'}.{kind}.{slug(name)}"
         return ComponentManifest(
             id=cid, kind=kind, name=name,
             description=s("description")[:400], domain=s("domain"),
             omics_type=s("omics_type", "general"),
-            provider=Provider(project=primary, commit=self.commits.get(primary, ""),
-                              source_path=rel),
-            runtime=RuntimeSpec(backend=backend, entrypoint=entrypoint, server=server),
+            provider=provider,
+            runtime=RuntimeSpec(backend=backend, entrypoint=entrypoint, server=server,
+                                entrypoint_basis=basis),
             requires=Requirements(python=py_reqs,
                                   datasets=(name,) if kind == "dataset" else ()),
             permissions=Permissions(network=hosts,
                                     subprocess=(backend == "subprocess")),
-            license=LicenseSpec(spdx=(licenses[0] if licenses else "NONE"),
-                                integration_mode=mode),
+            license=self._licence(cid, licenses, s("licenses"), mode, binding),
             validation=Validation(),
             offline_capable=(kind == "dataset"),
             native_connectors=ncs,
             signature=s("signature"),
         )
+
+    def _licence(self, cid: str, licenses: tuple[str, ...], raw: str, mode: str,
+                 binding: ImplementationBinding | None) -> LicenseSpec:
+        """The implementation's licence when a reviewed source states it; the row's own
+        otherwise. The row's value is kept either way, as provenance of the row."""
+        catalogue = raw.strip() if raw and raw.strip().lower() != "nan" else ""
+        record = self.licences.code_for_component(cid)
+        if binding is not None:
+            spdx, record_id = binding.licence.spdx, f"binding:{cid}"
+        elif record is not None:
+            spdx, record_id = record.spdx, record.id
+        else:
+            spdx, record_id = (licenses[0] if licenses else "NONE"), ""
+        return LicenseSpec(spdx=spdx, integration_mode=mode, catalogue=catalogue,
+                           record=record_id)

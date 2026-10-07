@@ -1,0 +1,209 @@
+# licence_records.yaml — the reviewed terms of what a run uses (bioagent.licences).
+#
+# A commercial run may use an asset only if a record here (or a source card, for data)
+# explicitly permits commercial use; an asset without one is refused, never assumed.
+# Research use is not gated by this file. Adding or editing a record is a governance
+# action, made by a pull request that cites where the terms were read.
+#
+# code     licence read from the upstream repository's own licence file at a pinned
+#          commit, with the sha256 of that text (the file's address is
+#          <repo>/blob/<commit>/<licence_path>, recorded as licence_url in a decision);
+#          `components` are the catalogue rows whose implementation it is, `modules` the
+#          import names it covers.
+# model    weights version and digest, licence, permitted purposes, output terms.
+# data     version, licence (per record where it differs), commercial use, retention and
+#          redistribution. The eight source cards (bioagent/sources/cards.py) are data
+#          records already and are not repeated here.
+# service  terms reference and version, the account used (a reference, never a secret),
+#          permitted purposes, rate limit.
+#
+# The catalogue rows corrected below all came from Biomni/biomni/env_desc.py, Biomni's
+# list of other projects' packages ("[Python Package] ...", "[CLI Tool] ..."), and carried
+# Biomni's own Apache-2.0. Each licence was read from the package's own repository; the
+# catalogue's value stays on the manifest as LicenseSpec.catalogue, provenance of the row.
+
+api_version: "1"
+
+code:
+  - id: code.bioagent
+    name: bioagent (BioScience-Harness, this repository)
+    spdx: MIT
+    first_party: true
+    licence_path: LICENSE
+    licence_sha256: 9663d6283f1fc509133890d5347800a8c0b655ddec1f68a89d0d8254c096b94c
+    integration_mode: native
+    modules: [bioagent]
+    checked:
+      source: BioScience-Harness/LICENSE in this repository (MIT License text)
+      date: "2026-10-07"
+
+  - id: code.biomni
+    name: Biomni
+    spdx: Apache-2.0
+    repo: https://github.com/snap-stanford/Biomni
+    commit: 400c1f366b96a35ca253e13c9b06c5076af41d65
+    licence_path: LICENSE
+    licence_sha256: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+    integration_mode: vendor
+    modules: [biomni]
+    checked:
+      source: its licence file at the commit data/repos_manifest.csv pins
+      date: "2026-10-07"
+    note: >-
+      The Apache License 2.0 text (the canonical text with one leading blank line);
+      pyproject.toml declares license = "Apache-2.0". Covers Biomni's own code only:
+      license_info.md in the same tree says much of the data Biomni ships needs a
+      separate licence for commercial use.
+
+  - id: code.gseapy
+    name: GSEApy
+    spdx: BSD-3-Clause
+    repo: https://github.com/zqfang/GSEApy
+    commit: 08cb2b689def365f7dee1f5da50c49d3a149cf5a
+    licence_path: LICENSE
+    licence_sha256: ec6ef3ceb5d66ce0fcf2a7aa42d1473f0bc79103bf31162763613a318370109d
+    integration_mode: vendor
+    components: [biomni.software.gseapy]
+    modules: [gseapy]
+    checked:
+      source: its licence file at the pinned commit, release tag v1.3.1
+      date: "2026-10-07"
+    note: >-
+      The catalogue row recorded Biomni's Apache-2.0; Biomni's env_desc.py lists gseapy
+      as "[Python Package] A Python wrapper for Gene Set Enrichment Analysis".
+
+  - id: code.scanpy
+    name: Scanpy
+    spdx: BSD-3-Clause
+    repo: https://github.com/scverse/scanpy
+    commit: ff2133115f639fccce9633aa7f5309c36a0972e7
+    licence_path: LICENSE
+    licence_sha256: fb02749e4f251401f2c4023b7a30e71f40a21e138b87025036f74c980cfa63b2
+    integration_mode: vendor
+    components: [biomni.software.scanpy]
+    modules: [scanpy]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.12.4
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.anndata
+    name: anndata
+    spdx: BSD-3-Clause
+    repo: https://github.com/scverse/anndata
+    commit: a487b81d38d4bfe7c7d76f01eed72a8622665c65
+    licence_path: LICENSE
+    licence_sha256: 55cad7a0454c86d36ebccbca6063fe23994c4fca99ffa7457f6d9fb0bd7cd2a0
+    integration_mode: vendor
+    components: [biomni.software.anndata]
+    modules: [anndata]
+    checked:
+      source: its licence file at the pinned commit, release tag 0.13.4
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.rdkit
+    name: RDKit
+    spdx: BSD-3-Clause
+    repo: https://github.com/rdkit/rdkit
+    commit: 0e0d85f4ca34aeae15dfc0f7cf5503bdb0a8e985
+    licence_path: license.txt
+    licence_sha256: daeb8d194502cbcf34c05c39541a0d02be65bc9bada5b891c1974cd24e9fca30
+    integration_mode: vendor
+    components: [biomni.software.rdkit]
+    modules: [rdkit]
+    checked:
+      source: its licence file at the pinned commit, release tag Release_2026_03_6
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.scikit-learn
+    name: scikit-learn
+    spdx: BSD-3-Clause
+    repo: https://github.com/scikit-learn/scikit-learn
+    commit: 866c0f51e7560ef0303cbcc5f159df5382ea9e3f
+    licence_path: COPYING
+    licence_sha256: 50d6a9d340f19ab355609917993114daf5f47e3161067bcf34955bbd05cd9cb0
+    integration_mode: vendor
+    components: [biomni.software.scikit-learn]
+    modules: [sklearn]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.9.1
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.umap-learn
+    name: UMAP (umap-learn)
+    spdx: BSD-3-Clause
+    repo: https://github.com/lmcinnes/umap
+    commit: cdb0eeb236f5d6759e0c3dd1fe132aef4db9e7b1
+    licence_path: LICENSE.txt
+    licence_sha256: 46fc974145ef85e0992ac3173d03ffe6cdf2611292950e323c5a69b9ca35ff1e
+    integration_mode: vendor
+    components: [biomni.software.umap-learn]
+    modules: [umap]
+    checked:
+      source: its licence file at the pinned commit, release tag release-0.5.12
+      date: "2026-10-07"
+    note: The catalogue row recorded Biomni's Apache-2.0.
+
+  - id: code.python-igraph
+    name: python-igraph
+    spdx: GPL-2.0-or-later
+    repo: https://github.com/igraph/python-igraph
+    commit: b16f27618674dd1913007a52855b76075802cbf9
+    licence_path: LICENSE
+    licence_sha256: ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6
+    integration_mode: vendor
+    components: [biomni.software.igraph]
+    modules: [igraph]
+    checked:
+      source: its licence file at the pinned commit, release tag 1.0.0
+      date: "2026-10-07"
+    note: >-
+      LICENSE is the GNU GPL version 2 text; the package's notice
+      (src/igraph/__init__.py, __license__) grants "either version 2 of the License, or
+      (at your option) any later version". The catalogue row recorded Biomni's
+      Apache-2.0, a permissive licence for copyleft code. Neither licence table in this
+      repository lists GPL-2.0-or-later yet, so it is classified unlicensed (fail closed).
+
+  - id: code.harmony-pytorch
+    name: harmony-pytorch
+    spdx: BSD-3-Clause
+    repo: https://github.com/lilab-bcb/harmony-pytorch
+    commit: 87a5ae3647c473d04924eaa0d9e5f5956b743516
+    licence_path: LICENSE
+    licence_sha256: 1d252e765995054a2a442e0165a749f2ea02064a64440a14950d576b563653d8
+    integration_mode: vendor
+    components: [biomni.software.harmony-pytorch]
+    modules: [harmony]
+    checked:
+      source: its licence file at the pinned commit, release tag 0.1.8
+      date: "2026-10-07"
+    note: >-
+      The import name is harmony. The catalogue's separate `harmony` row is the R package
+      (immunogenomics/harmony), which ships no LICENSE file (its DESCRIPTION says GPL-3)
+      and has no record here.
+
+  - id: code.autodock-vina
+    name: AutoDock Vina
+    spdx: Apache-2.0
+    repo: https://github.com/ccsb-scripps/AutoDock-Vina
+    commit: 8eb40404f4f45608acb3b01427587ac049f27c1f
+    licence_path: LICENSE
+    licence_sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+    integration_mode: vendor
+    components: [biomni.software.vina]
+    modules: [vina]
+    checked:
+      source: its licence file at the pinned commit, release tag v1.2.7
+      date: "2026-10-07"
+    note: >-
+      Apache-2.0, as the catalogue row said — the copied value happened to be right. The
+      row now rests on Vina's own licence file rather than on Biomni's.
+
+# No model weights, dataset or API service has a reviewed record yet, so a commercial run
+# that uses one is refused with the reason "no reviewed licence record".
+model: []
+data: []
+service: []

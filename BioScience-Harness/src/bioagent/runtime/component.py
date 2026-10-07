@@ -62,6 +62,15 @@ class ManifestError(ValueError):
     """Raised when a manifest is structurally invalid."""
 
 
+#: What a component's ``runtime.entrypoint`` rests on. ``""``: the provider stated it for
+#: code it ships itself (a native tool, a skill) or did not say. ``derived``: computed from
+#: a catalogue source path — a candidate, which the resolver will not run. ``bound``: taken
+#: from a reviewed implementation binding (``registry/implementation_bindings.yaml``).
+#: ``verified``: a binding checked statically against the upstream tree at its pinned
+#: commit (``providers.biomni``).
+ENTRYPOINT_BASES = ("", "derived", "bound", "verified")
+
+
 @dataclass
 class Provider:
     """Where the component came from, pinned for reproducibility."""
@@ -69,7 +78,13 @@ class Provider:
     project: str = ""
     commit: str = ""
     repo: str = ""
+    #: The file the implementation lives in.
     source_path: str = ""
+    #: The file that *describes* the component, when that is a different file. Biomni
+    #: describes each tool in ``biomni/tool/tool_description/<area>.py`` and implements it
+    #: in ``biomni/tool/<area>.py``; a description is where a component is discovered,
+    #: never where it is run from, so the two are kept apart.
+    description_path: str = ""
 
 
 @dataclass
@@ -84,9 +99,14 @@ class RuntimeSpec:
     timeout_s: float = 0     # an isolated run's wall-clock limit; 0 = the kernel default
     memory_mb: int = 0       # an isolated run's address-space limit; 0 = the kernel default
     max_output_chars: int = 0  # an isolated run's stdout limit; 0 = the kernel default
+    #: What ``entrypoint`` rests on; one of ``ENTRYPOINT_BASES``.
+    entrypoint_basis: str = ""
 
     def validate(self) -> list[str]:
         errs = []
+        if self.entrypoint_basis not in ENTRYPOINT_BASES:
+            errs.append(f"runtime.entrypoint_basis {self.entrypoint_basis!r} not in "
+                        f"{ENTRYPOINT_BASES}")
         try:
             if min(float(self.timeout_s), int(self.memory_mb), int(self.max_output_chars)) < 0:
                 errs.append("runtime.timeout_s, memory_mb and max_output_chars must not be "
@@ -134,6 +154,15 @@ class LicenseSpec:
     #: a tool's code can be MIT while the records it hands back are under terms nobody has
     #: stated. Empty when ``spdx`` covers both (a connector's or dataset's own licence).
     data: str = ""
+    #: The licence the capability catalogue recorded for this row, kept as provenance of
+    #: the row and not as the licence of what runs. An aggregating project lists other
+    #: projects' software and data, and the catalogue copied the aggregator's own licence
+    #: onto them: the ``gseapy`` row carried Biomni's Apache-2.0, and GSEApy is BSD-3-Clause.
+    catalogue: str = ""
+    #: The reviewed licence record ``spdx`` was taken from (``registry/licence_records.yaml``
+    #: or an implementation binding). Empty means ``spdx`` is unreviewed — a catalogue row's
+    #: or a provider's own statement — which a commercial run does not accept as permission.
+    record: str = ""
 
 
 @dataclass

@@ -41,6 +41,10 @@ class AgentSpec:
     #: allow Runtime.invoke to download a FETCHABLE dataset on first use
     auto_fetch: bool = False
     auto_fetch_max_bytes: int = 256 * 1024 * 1024
+    #: What the run is for (``sources.cards.PURPOSES``). A ``commercial`` run may invoke a
+    #: component only when every asset the call uses carries a reviewed record permitting
+    #: that use (``bioagent.licences``); an ``academic`` run is ruled on as it always was.
+    purpose: str = "academic"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -141,8 +145,11 @@ class Runtime:
     def __init__(self, registry: ComponentRegistry, backends: BackendRegistry,
                  kernel: PolicyKernel | None = None, resolver: Resolver | None = None,
                  loader: Loader | None = None, catalogue_version: str = "unknown",
-                 git_commit: str = "", downloader: Any = None) -> None:
+                 git_commit: str = "", downloader: Any = None, licences: Any = None) -> None:
         self.downloader = downloader
+        #: ``licences.LicenceRecords`` for the usage gate; read from the registry the first
+        #: time a commercial run needs it.
+        self.licences = licences
         self.registry = registry
         self.backends = backends
         self.kernel = kernel or PolicyKernel()
@@ -198,6 +205,45 @@ class Runtime:
             subprocess=bool(m.permissions.subprocess),
             dependencies=self.resolver.dependency_contexts(m.id))
 
+    def _authorize(self, m: ComponentManifest, spec: AgentSpec) -> tuple[Any, Any]:
+        """The kernel's ruling, and for a commercial run the usage gate's folded into it.
+
+        The kernel rules on licence class and integration mode, which lets an unlicensed
+        component run ``federated`` — use, not redistribution — and that is no answer to
+        whether its owner permits commercial use. So a commercial run also asks the gate:
+        every asset the call uses (what runs, the code it imports, the data it returns,
+        everything in its dependency closure) must carry a reviewed record that permits it.
+        A research run is ruled on by the kernel alone, exactly as before.
+
+        Returns ``(authorization, usage decision or None)``.
+        """
+        return self._with_usage(m, spec, self.kernel.authorize(
+            self._authorization_request(m, spec)))
+
+    def _with_usage(self, m: ComponentManifest, spec: AgentSpec, auth: Any
+                    ) -> tuple[Any, Any]:
+        """``auth`` with the usage gate's rulings folded in, unless the run is research."""
+        from ..licences import LicenceRecords, assets_for, usage_decision
+        from ..policy import Authorization, PolicyDecision, Ruling
+        from ..sources.cards import PURPOSES
+
+        if spec.purpose == "academic":
+            return auth, None
+        if spec.purpose not in PURPOSES:
+            refusal = Ruling(PolicyDecision.DENY,
+                             f"purpose {spec.purpose!r} is not one of {PURPOSES}",
+                             "usage.purpose.unknown")
+            return Authorization(auth.component_id, False, (*auth.rulings, refusal)), None
+        if self.licences is None:
+            self.licences = LicenceRecords.load()
+        dependencies = [d for d in (self.registry.get(c.component_id)
+                                    for c in self.resolver.dependency_contexts(m.id))
+                        if d is not None]
+        usage = usage_decision(assets_for(m, dependencies=dependencies,
+                                          records=self.licences),
+                               purpose=spec.purpose, records=self.licences)
+        return usage.authorization(auth), usage
+
     # ------------------------------------------------------------------ invoke
     def invoke(self, component_id: str, *, spec: AgentSpec, events: EventLog | None = None,
                parent_event: str | None = None, attempt: int = 1, idempotency_key: str = "",
@@ -238,7 +284,7 @@ class Runtime:
             # bytes were already on disk, so the profile had been bypassed.
             fetched = self.fetch(m, max_bytes=spec.auto_fetch_max_bytes, events=events,
                                  parent_event=ev_retrieved,
-                                 profile=spec.permission_profile)
+                                 profile=spec.permission_profile, spec=spec)
             if fetched.ok:
                 resolution = self.resolver.resolve(m.id)
             else:
@@ -259,17 +305,21 @@ class Runtime:
             return res
 
         # ---- POLICY GATE
-        auth = self.kernel.authorize(self._authorization_request(m, spec))
+        auth, usage = self._authorize(m, spec)
+        # A commercial run's usage decision — every asset, the terms relied on, each
+        # verdict — goes where the call's provenance is read: the policy event and the
+        # result. A research run records nothing new.
+        recorded = {"usage": usage.as_dict()} if usage is not None else {}
         ev_policy = None
         if events:
             ev_policy = events.emit(EventType.POLICY_CHECKED, parent=ev_retrieved,
                                     component_id=m.id, component_version=m.version,
                                     status=("ALLOW" if auth.allowed else "DENY"),
-                                    policy_ruling=auth.reason).event_id
+                                    policy_ruling=auth.reason, detail=recorded).event_id
         if not auth.allowed:
             res = CallResult(capability=m.id, adapter="policy-kernel",
                              status=ExecutionStatus.DENIED, error=auth.reason,
-                             authorization=auth)
+                             authorization=auth, metadata=recorded or None)
             if events:
                 events.emit(EventType.TOOL_CALLED, parent=ev_policy, component_id=m.id,
                             component_version=m.version, status=res.status.value,
@@ -287,6 +337,8 @@ class Runtime:
             res.authorization = auth
             if idempotency_key:
                 res.metadata = {**dict(res.metadata or {}), "idempotency_key": idempotency_key}
+            if recorded:
+                res.metadata = {**dict(res.metadata or {}), **recorded}
             # A successful invocation is the only proof of READY. Advance the
             # lifecycle from evidence rather than from optimism.
             if res.status is ExecutionStatus.SUCCEEDED:
@@ -341,7 +393,8 @@ class Runtime:
         scratch = Runtime(scratch_registry, scratch_backends, kernel=self.kernel,
                           resolver=scratch_resolver, loader=scratch_loader,
                           catalogue_version=self.catalogue_version,
-                          git_commit=self.git_commit, downloader=self.downloader)
+                          git_commit=self.git_commit, downloader=self.downloader,
+                          licences=self.licences)
         return scratch.invoke(manifest.id, spec=spec, events=events,
                               parent_event=parent_event, **kwargs)
 
@@ -412,6 +465,10 @@ class Runtime:
             component_id=m.id, license_spdx=m.license.spdx, integration_mode="native",
             backend="http", network_hosts=(spec_.host,), profile=effective_profile,
             dependencies=self.resolver.dependency_contexts(m.id)))
+        if spec is not None:
+            # A commercial run does not download what it may not use: fetched first and
+            # refused at invoke, the bytes would already be on disk.
+            auth, _ = self._with_usage(m, spec, auth)
         if not auth.allowed:
             res = CallResult(capability=m.id, adapter="acquisition", status=ExecutionStatus.DENIED,
                              error=auth.reason, authorization=auth)
@@ -439,8 +496,8 @@ class Runtime:
         return res
 
     def lazy_set(self, spec: AgentSpec) -> LazyComponentSet:
-        """A per-task component set honouring this spec's policy profile."""
+        """A per-task component set honouring this spec's policy profile and purpose."""
         def allowed(m: ComponentManifest) -> bool:
-            return self.kernel.authorize(self._authorization_request(m, spec)).allowed
+            return self._authorize(m, spec)[0].allowed
         return LazyComponentSet(self.registry, self.loader, policy_filter=allowed,
                                 backends=self.backends)
