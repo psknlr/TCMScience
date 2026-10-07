@@ -81,6 +81,32 @@ jobs:
           PYTHONPATH: ../PSH-Harness/src
         run: python scripts/make_release.py --outdir "$RUNNER_TEMP/dist"
 
+  analysis-tools:
+    # The pipelines run the standard tools when they are installed (fastp, salmon,
+    # kallisto, HISAT2, featureCounts). The unit tier above has none, so the tests that
+    # need them skip there; here they are installed, and BIOAGENT_REQUIRE_TOOLS turns a
+    # missing tool into a failure, so this job cannot pass by skipping. PyDESeq2 is
+    # installed for the comparison with an independent implementation of the method.
+    name: Analysis pipelines with the standard tools
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Command-line tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fastp salmon kallisto hisat2 subread samtools
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e "BioScience-Harness[dev,analysis]"
+      - name: Pipeline tests, every tool present
+        working-directory: BioScience-Harness
+        env:
+          PYTHONPATH: ../PSH-Harness/src
+          BIOAGENT_REQUIRE_TOOLS: "1"
+        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py
+
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
     # record in data/connector_live_verification.csv says when.

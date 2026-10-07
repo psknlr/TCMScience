@@ -53,12 +53,29 @@ def main() -> int:
     if unlocked:
         problems.append(f"present but not locked: {unlocked}")
 
+    # Candidate skills are not locked: that is what makes them candidates. They must
+    # still load and compile-check, and none may share an id with a stable skill.
+    candidates = []
+    root = ROOT / "skills" / "candidates"
+    for group in sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []:
+        found, failed = load_skills(group)
+        for directory, why in failed:
+            problems.append(f"candidate {group.name}/{directory.name} refused to load: {why}")
+        candidates += [s.spec.id for s in found]
+    clash = sorted(set(candidates) & set(by_id))
+    if clash:
+        problems.append(f"candidates share an id with a stable skill: {clash}")
+    locked_candidates = sorted(set(candidates) & {v.skill_id for v in versions})
+    if locked_candidates:
+        problems.append(f"locked skills that live under candidates/: {locked_candidates}")
+
     if problems:
         print("LOCKFILE CHECK FAILED:", file=sys.stderr)
         for p in problems:
             print(f"  - {p}", file=sys.stderr)
         return 1
-    print(f"ok: {len(versions)} skill(s) pinned and matched")
+    print(f"ok: {len(versions)} skill(s) pinned and matched; {len(candidates)} candidate(s) "
+          "load, unlocked until promoted")
     return 0
 
 if __name__ == "__main__":
