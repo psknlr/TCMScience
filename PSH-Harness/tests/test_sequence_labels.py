@@ -238,6 +238,89 @@ def test_an_mcp_server_cannot_declare_its_own_sequence_fields(kernel):
     assert calls == [{"sequence": LYSOZYME}]
 
 
+
+# ============================================================= what comes back
+#
+# A lookup that returns a protein record (as UniProt's entry does) hands back the same
+# kind of run the fold is handed. Undeclared, the classifier floors it as uninspectable,
+# and a remote model may not then be shown the sequence it asked for. The component's
+# output schema types it the way its input schema types what it is sent.
+
+RECORD = {"type": "object", "properties": {
+    "accession": {"type": "string"},
+    "sequence": {"type": "object", "properties": {
+        "value": {"type": "string", "format": PROTEIN_SEQUENCE}}}}}
+
+
+class Lookup:
+    """A public lookup service: an accession in, a protein record out."""
+
+    def __init__(self, output_schema=RECORD, sequence=LYSOZYME, **kw):
+        params = dict(id="lookup", name="lookup", kind=ComponentKind.TOOL,
+                      input_schema={"type": "object",
+                                    "properties": {"accession": {"type": "string"}}},
+                      output_schema=output_schema,
+                      destinations=(Destination.LOCAL_COMPUTE, Destination.PUBLIC_REMOTE),
+                      max_label=Sensitivity.RESEARCH_DEIDENTIFIED, requires_network=True)
+        params.update(kw)
+        self.manifest = ComponentManifest(**params)
+        self.sequence = sequence
+
+    def invoke(self, payload, envelope):
+        return {"accession": payload["accession"],
+                "sequence": {"value": self.sequence, "length": len(self.sequence)}}
+
+
+def test_a_sequence_a_tool_declares_it_returns_is_research_data(kernel):
+    result = kernel.broker.call_tool(Lookup(), {"accession": "P00698"}, kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.RESEARCH_DEIDENTIFIED
+    assert "biological_sequence:protein" in result.label.categories
+
+
+def test_an_undeclared_returned_sequence_is_still_floored(kernel):
+    result = kernel.broker.call_tool(Lookup(output_schema={}), {"accession": "P00698"},
+                                     kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.SENSITIVE
+
+
+def test_a_declared_output_that_is_not_a_sequence_keeps_its_own_label(kernel):
+    """A key returned where the record says a sequence goes is labelled as the key it is."""
+    result = kernel.broker.call_tool(Lookup(sequence=API_KEY), {"accession": "P00698"},
+                                     kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.SECRET
+
+
+def test_a_returned_sequence_keeps_the_label_of_what_it_was_derived_from(kernel):
+    """The output is typed; the join with the inputs is not lifted. A record looked up for
+    a confidential accession stays as confidential as the accession."""
+    local = Lookup(destinations=(Destination.LOCAL_COMPUTE,), max_label=Sensitivity.SENSITIVE,
+                   requires_network=False)
+    private = Labeled("P00698", DataLabel(Sensitivity.SENSITIVE))
+    result = kernel.broker.call_tool(local, {"accession": private}, kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.SENSITIVE
+
+
+def test_an_mcp_server_cannot_declare_what_it_returns_either(kernel):
+    """A server's ``outputSchema`` never reaches the manifest, so nothing a server says
+    about its replies lowers their label; an operator who reviewed it supplies it."""
+    reply = {"accession": "P00698", "sequence": {"value": LYSOZYME}}
+    adapter = MCPToolAdapter(kernel, server="lookups", destination=Destination.PUBLIC_REMOTE,
+                             call_tool=lambda name, args: reply)
+    tool = adapter.admit({"name": "lookup", "description": "look up a protein",
+                          "inputSchema": {"type": "object"}, "outputSchema": RECORD})
+    assert tool.manifest.output_schema == {}
+    result = kernel.broker.call_tool(tool, {"accession": "P00698"}, kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.SENSITIVE
+
+    reviewed = MCPToolAdapter(kernel, server="reviewed", destination=Destination.PUBLIC_REMOTE,
+                              call_tool=lambda name, args: reply,
+                              overrides={"lookup": {"output_schema": RECORD}})
+    honoured = reviewed.admit({"name": "lookup", "description": "look up a protein",
+                               "inputSchema": {"type": "object"}})
+    result = kernel.broker.call_tool(honoured, {"accession": "P00698"}, kernel.envelope())
+    assert result.label.sensitivity is Sensitivity.RESEARCH_DEIDENTIFIED
+
+
 # ================================================================ properties
 
 hypothesis = pytest.importorskip("hypothesis")

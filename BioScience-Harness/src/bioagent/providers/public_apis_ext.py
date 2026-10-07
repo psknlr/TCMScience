@@ -20,7 +20,7 @@ many that publish files).
 
 from __future__ import annotations
 
-from .public_apis import Operation, PublicSource
+from .public_apis import PROTEIN_SEQUENCE, Operation, PublicSource
 
 J = {"content-type": "application/json"}
 
@@ -104,7 +104,12 @@ EXTENDED_SOURCES: tuple[PublicSource, ...] = (
             Operation("uniprot_summary", "Summary of models available for an accession",
                       "uniprot/summary/{accession}.json", args=("accession",),
                       example={"accession": "P04637"}),
-        ), smoke="prediction", docs="https://alphafold.ebi.ac.uk/api-docs"),
+        ), smoke="prediction", docs="https://alphafold.ebi.ac.uk/api-docs",
+        # A prediction is a list of models, each with the modelled and the UniProt
+        # sequence (read in P00698's reply, 2026-10-07).
+        output_schema={"type": "array", "items": {"type": "object", "properties": {
+            "sequence": {"type": "string", "format": PROTEIN_SEQUENCE},
+            "uniprotSequence": {"type": "string", "format": PROTEIN_SEQUENCE}}}}),
 
     PublicSource(
         "pdbe", "PDBe API", "https://www.ebi.ac.uk/pdbe/api", "www.ebi.ac.uk", "CC-BY-4.0",

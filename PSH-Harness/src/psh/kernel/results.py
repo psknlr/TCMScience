@@ -125,6 +125,7 @@ class ExecutionResult(Generic[T]):
     @classmethod
     def from_component(cls, value: Any, *, inputs: Sequence[Any], component_id: str,
                        classifier: Any = None, run_id: str = "",
+                       schema: Mapping[str, Any] | None = None,
                        **kw: Any) -> "ExecutionResult":
         """Build a result whose label is the join of its inputs and its own content.
 
@@ -132,6 +133,12 @@ class ExecutionResult(Generic[T]):
         produces a PHI-labelled result even when the summary contains no identifier — the
         same rule that governs ``Labeled.derive``, now applied across the execution
         boundary where it was previously lost.
+
+        ``schema`` is the output schema of the component's admitted manifest. The value's
+        own content is classified with it, so a field it declares a biological sequence,
+        holding one, is labelled as one (``Classifier.classify``). The join with the
+        inputs is not lifted: a record looked up for something confidential stays as
+        confidential as what it was looked up for.
         """
         from ..contracts import DegradedResult
 
@@ -148,7 +155,7 @@ class ExecutionResult(Generic[T]):
             else DataLabel()
         own_label = deep_label_of(value)
         if classifier is not None:
-            own_label = own_label.merged_with(classifier.classify(value).label)
+            own_label = own_label.merged_with(classifier.classify(value, schema=schema).label)
         return cls(value=value, label=input_label.merged_with(own_label),
                    component_id=component_id, run_id=run_id, status=status,
                    warnings=warnings, **kw)

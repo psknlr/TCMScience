@@ -416,15 +416,17 @@ def unwrap_deep(value: Any) -> Any:
 # hundred residues is such a run, so a governed fold of a real protein was refused at the
 # public-remote gate as though it were an encrypted blob. Relaxing the floor for anything
 # that merely looks like a sequence would let every letter run through it, so the path is
-# typed instead. A component declares, with the JSON Schema ``format`` of a string input,
-# that the field holds a protein, DNA or RNA sequence:
+# typed instead. A component declares, with the JSON Schema ``format`` of a string in its
+# input schema (what it is sent) or its output schema (what it returns), that the field
+# holds a protein, DNA or RNA sequence:
 #
 # * declared, and the value validates against its alphabet: the content has been
 #   inspected, it is a sequence, and the classifier labels it research data. Every other
 #   detector still reads it, so a finding can only raise that label;
 # * declared, and the value does not validate: the tool gate refuses the call. A key, a
 #   note or an encoded blob put in a sequence field gets neither the sequence's label nor
-#   the treatment an undeclared string would get;
+#   the treatment an undeclared string would get. (A reply that does not validate is
+#   labelled as an undeclared one would be: there is no call left to refuse.);
 # * not declared: exactly the treatment it had before.
 #
 # The declaration is the component manifest's, which the kernel admits like the rest of

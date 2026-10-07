@@ -748,12 +748,14 @@ class ExecutionBroker:
 
         # The output inherits the input's label. Without this a component launders taint
         # simply by returning a plain dict, which is the ordinary case rather than an
-        # adversarial one.
+        # adversarial one. Its own content is classified against the admitted manifest's
+        # output schema, which says which fields hold biological sequences.
         from .results import ExecutionResult
 
         result = ExecutionResult.from_component(
             raw, inputs=[payload], component_id=manifest.id, run_id=envelope.run_id,
-            classifier=getattr(self.ingress, "classifier", None))
+            classifier=getattr(self.ingress, "classifier", None),
+            schema=manifest.output_schema)
         if self._audit is not None:
             self._audit("tool_call", run_id=envelope.run_id, component_id=manifest.id,
                         latency_s=round(time.time() - started, 4),

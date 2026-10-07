@@ -210,6 +210,19 @@ recorded, a 129-residue model back (`test_operation_broker.py`, integration). A 
 encoded clinical note or a lower-case sequence in that field is refused before anything is
 sent (unit tests there, and `PSH-Harness/tests/test_sequence_labels.py`).
 
+What comes back is typed the same way. A component's output schema declares where its
+replies hold a sequence, and `ExecutionResult.from_component` classifies the reply against
+the admitted manifest's output schema: a declared field holding a valid sequence is
+research data, anything else is labelled as before, and the join with the call's inputs
+is not lifted, so a record looked up for something confidential stays as confidential as
+what it was looked up for. Undeclared, a UniProt entry's sequence was floored at
+SENSITIVE, and a remote model could not be shown the sequence it had asked for. The
+UniProt connector declares its entry's `sequence.value` and the AlphaFold DB connector its
+models' `sequence` and `uniprotSequence` (`PublicSource.output_schema`, read in each
+service's reply); the bridge hands them on. PSH's MCP adapter builds a server's tools
+with no output schema, so a server cannot lower the label of its own replies either; an
+operator who reviewed one passes it as an override.
+
 What an alphabet cannot tell is whose a sequence is. A human genomic sequence can identify
 its donor, and a sequence under a confidentiality agreement is restricted: its holder labels
 it (`Labeled(sequence, DataLabel(Sensitivity.SENSITIVE))`), and ingress keeps a caller's
@@ -220,9 +233,9 @@ field.
 
 ## What this is not
 
-- **Only inputs are typed.** A sequence a tool *returns* (a UniProt entry's) is still
-  classified as text, and a long one is floored at SENSITIVE; declaring output schemas the
-  same way is not done.
+- **Only declared fields are typed.** A sequence in a reply no reviewer declared (FASTA
+  text, a field of a connector that declares nothing) is still classified as text, and a
+  long one is floored at SENSITIVE.
 - **The guard is in-process.** It cannot see a subprocess's sockets, which is why ColabFold
   is an operation of its own. A context variable does not follow threads the skill starts.
   Inside an operation, behind a proxy, a raw socket's address is the proxy's, so only
@@ -276,6 +289,6 @@ and `test_network_pharmacology.py` now pass a component registry.
 
 **程序目的地：** `skill_program` 从每个步骤所用的已准入组件推导目的地、效果、风险和标签上限，并与运行信封取交集。HTTP 组件编译为 `PUBLIC_REMOTE`；运行未授权的目的地被拒绝，报错同时点明两者。没有组件表或信封时直接拒绝，不再假定本地计算。
 
-**生物序列：** PSH 分类器原先把约 100 个残基以上的蛋白序列视为无法检查的高熵内容（SENSITIVE），不允许发往公共服务，溶菌酶（129 个残基）的受治理 ESM Atlas 预测因此被拒。现在采用类型化通道：组件在输入 schema 中用 `format`（`protein-sequence`、`dna-sequence`、`rna-sequence`）声明序列字段，值通过字母表校验的标为研究数据（RESEARCH_DEIDENTIFIED），其他检测器照常运行、只能调高标签；声明了但校验不通过的值（密钥、编码文本、小写蛋白序列等）在任何目的地都被拒绝，理由只写字段名和不符类型，不写值本身；未声明的字段处理不变。MCP 服务器自带的序列声明会被剥除。`structure.esmatlas.fold` 已声明其 `sequence` 字段，2026-10-07 溶菌酶的受治理折叠实测成功。机密序列或可识别个人的基因组序列仍需持有者自行标高标签。
+**生物序列：** PSH 分类器原先把约 100 个残基以上的蛋白序列视为无法检查的高熵内容（SENSITIVE），不允许发往公共服务，溶菌酶（129 个残基）的受治理 ESM Atlas 预测因此被拒。现在采用类型化通道：组件在输入 schema 中用 `format`（`protein-sequence`、`dna-sequence`、`rna-sequence`）声明序列字段，值通过字母表校验的标为研究数据（RESEARCH_DEIDENTIFIED），其他检测器照常运行、只能调高标签；声明了但校验不通过的值（密钥、编码文本、小写蛋白序列等）在任何目的地都被拒绝，理由只写字段名和不符类型，不写值本身；未声明的字段处理不变。MCP 服务器自带的序列声明会被剥除。`structure.esmatlas.fold` 已声明其 `sequence` 字段，2026-10-07 溶菌酶的受治理折叠实测成功。工具返回值同样按组件的输出 schema 类型化：UniProt 条目的 `sequence.value`、AlphaFold DB 模型的 `sequence` 与 `uniprotSequence` 已声明，返回的序列标为研究数据，可交给远程模型；与输入标签的合并不变，MCP 服务器不能为自己的返回值声明序列字段。机密序列或可识别个人的基因组序列仍需持有者自行标高标签。
 
-**已知局限：** 只对输入做了类型声明，工具返回的长序列仍被视为不可检查内容。守卫只在本进程内有效，看不到子进程的套接字和技能自建线程。可信白名单新增 `api.esmatlas.com`（2026-10-07 实测可用）。
+**已知局限：** 只有经审阅声明的字段才做类型化，未声明的返回（如 FASTA 文本）中的长序列仍被视为不可检查内容。守卫只在本进程内有效，看不到子进程的套接字和技能自建线程。可信白名单新增 `api.esmatlas.com`（2026-10-07 实测可用）。

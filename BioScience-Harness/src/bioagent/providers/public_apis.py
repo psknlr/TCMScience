@@ -105,6 +105,11 @@ def _path(template: str, kwargs: Mapping[str, Any]) -> str:
     return re.sub(r"\{(\w+)\}", fill, template)
 
 
+#: PSH's name for a protein-sequence string (``psh.labels.PROTEIN_SEQUENCE``), spelled
+#: here because this module does not import PSH; a test holds the two equal.
+PROTEIN_SEQUENCE = "protein-sequence"
+
+
 @dataclass(frozen=True)
 class PublicSource:
     key: str
@@ -118,6 +123,12 @@ class PublicSource:
     smoke: str                              # operation name used as the smoke test
     docs: str = ""
     rate_note: str = ""
+    #: Where the source's replies hold a biological sequence, as a JSON Schema whose
+    #: string fields carry PSH's sequence ``format`` (``psh.labels``). The bridge hands it
+    #: to PSH as the component's output schema, so a reply's sequence is labelled research
+    #: data instead of being floored as uninspectable text, which would keep it from a
+    #: remote model. Only fields a reviewer read in the source's replies are declared.
+    output_schema: Mapping[str, Any] = field(default_factory=dict)
 
     def op(self, name: str) -> Operation:
         for o in self.operations:
@@ -160,7 +171,12 @@ SOURCES: tuple[PublicSource, ...] = (
                       args=("query",), example={"query": "gene:TP53 AND organism_id:9606", "size": 5}),
             Operation("fasta", "FASTA sequence", "uniprotkb/{accession}.fasta", accept="text/plain",
                       args=("accession",), example={"accession": "P04637"}),
-        ), smoke="entry", docs="https://www.uniprot.org/help/api"),
+        ), smoke="entry", docs="https://www.uniprot.org/help/api",
+        # The entry's sequence (read in P00698's reply, 2026-10-07). FASTA text is not a
+        # sequence field: its header and line breaks would not validate.
+        output_schema={"type": "object", "properties": {"sequence": {
+            "type": "object", "properties": {
+                "value": {"type": "string", "format": PROTEIN_SEQUENCE}}}}}),
 
     PublicSource(
         "ncbi_eutils", "NCBI E-utilities", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils",
@@ -392,6 +408,7 @@ class PublicAPIProvider(ProviderBase):
                 provider=Provider(project="public-apis", repo=s.docs),
                 runtime=RuntimeSpec(backend="http", server=s.base_url, deterministic=False),
                 inputs={"operations": [o.name for o in s.operations]},
+                outputs=dict(s.output_schema),
                 permissions=Permissions(network=(s.host,)),
                 license=LicenseSpec(spdx=s.license, integration_mode="native",
                                     note=s.rate_note),

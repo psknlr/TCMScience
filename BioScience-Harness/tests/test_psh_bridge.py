@@ -226,6 +226,40 @@ def test_a_clean_call_crosses_both_kernels_in_order(kernel, runtime, transport):
     assert "_psh_idempotency_key" not in transport.requests[0].full_url
 
 
+LYSOZYME = ("KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLC"
+            "NIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL")
+
+
+def test_a_protein_sequence_a_connector_returns_is_research_data(kernel, runtime, transport):
+    """UniProt's entry carries the protein's sequence. Undeclared, PSH floors a run of a
+    hundred residues as uninspectable, so a remote model could not be shown the sequence
+    it asked for; the connector declares where its replies hold one, and the bridge hands
+    that on as the component's output schema."""
+    from psh.labels import PROTEIN_SEQUENCE
+
+    from bioagent.providers.public_apis import PROTEIN_SEQUENCE as SPELLED
+
+    assert SPELLED == PROTEIN_SEQUENCE
+    bridge = BioScienceBridge(kernel, runtime, isolate=False)
+    bridge.admit(CONNECTORS["uniprot"])
+    uniprot = bridge.component("public.connector.uniprot")
+    declared = uniprot.manifest.output_schema["properties"]["sequence"]["properties"]
+    assert declared["value"]["format"] == PROTEIN_SEQUENCE
+    transport.body = {"primaryAccession": "P00698", "sequence": {"value": LYSOZYME}}
+    result = kernel.broker.call_tool(uniprot, {"operation": "entry", "accession": "P00698"},
+                                     kernel.policy.envelope())
+    assert result.label.sensitivity is Sensitivity.RESEARCH_DEIDENTIFIED
+    assert "biological_sequence:protein" in result.label.categories
+
+    bridge.admit(CONNECTORS["ensembl"])                         # declares nothing
+    ensembl = bridge.component("public.connector.ensembl")
+    assert ensembl.manifest.output_schema == {}
+    transport.body = {"id": "ENSP00000000001", "seq": LYSOZYME}
+    result = kernel.broker.call_tool(ensembl, {"operation": "gene_lookup", "symbol": "LYZ"},
+                                     kernel.policy.envelope())
+    assert result.label.sensitivity is Sensitivity.SENSITIVE
+
+
 def test_a_bioscience_denial_is_a_psh_policy_refusal(kernel, runtime, transport):
     offline = AgentSpec(name="offline", permission_profile="offline-analysis")
     bridge = BioScienceBridge(kernel, runtime, spec=offline, isolate=False)
