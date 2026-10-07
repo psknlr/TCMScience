@@ -44,8 +44,9 @@ from .kernel import (
     PersistenceGateway, Quarantine, TrustedKernel, ValidationStatus,
 )
 from .labels import (
-    DataLabel, Declassification, Destination, Labeled, Sensitivity, combine,
-    deep_label_of, unwrap_deep,
+    DNA_SEQUENCE, PROTEIN_SEQUENCE, RNA_SEQUENCE, SEQUENCE_FORMATS, DataLabel,
+    Declassification, Destination, Labeled, Sensitivity, combine, declared_sequence_problems,
+    deep_label_of, sequence_problem, unwrap_deep,
 )
 from .licensing import (
     INTEGRATION_MODES, LICENSE_CLASSES, LicenseClass, LicenseDecision, LicenseRuling,
@@ -92,6 +93,9 @@ __all__ = [
     "Quarantine", "ExecutionResult", "ModelCallResult", "ModelUsage", "ValidationStatus",
     "EvidenceRecord", "VerifiedSpan", "SourceType", "RetractionStatus",
     "deep_label_of", "unwrap_deep",
+    # typed inputs: a component declares which of its fields hold biological sequences
+    "PROTEIN_SEQUENCE", "DNA_SEQUENCE", "RNA_SEQUENCE", "SEQUENCE_FORMATS",
+    "sequence_problem", "declared_sequence_problems",
     "LicenseClass", "LicenseDecision", "LicenseRuling", "classify_license",
     "license_ruling", "INTEGRATION_MODES", "LICENSE_CLASSES",
     # v0.6 — the scientific compiler and the scientist plane

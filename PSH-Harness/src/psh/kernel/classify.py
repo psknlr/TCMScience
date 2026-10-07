@@ -25,10 +25,10 @@ import codecs
 import binascii
 import base64
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Mapping
 
 from ..labels import (
-    DataLabel, Labeled, Sensitivity, combine,
+    DataLabel, Labeled, Sensitivity, combine, declared_sequences, sequence_problem,
 )
 
 __all__ = ["Classifier", "ClassificationResult", "SABLE_AVAILABLE"]
@@ -189,7 +189,6 @@ def _try_decode(token: str) -> list[str]:
     """Return plausible plaintext decodings of a token, or [] if none decode to text."""
     out: list[str] = []
     candidates: list[bytes] = []
-    stripped = token.strip("=")
     # hex
     if re.fullmatch(r"[0-9a-fA-F]+", token) and len(token) % 2 == 0:
         try:
@@ -373,19 +372,51 @@ class Classifier:
                       and sensitivity is not Sensitivity.INTERNAL)
         return ClassificationResult(label, self.detector_name, tuple(categories))
 
-    def classify(self, value: Any, *, origin: str = "") -> Labeled:
+    def classify(self, value: Any, *, origin: str = "",
+                 schema: Mapping[str, Any] | None = None) -> Labeled:
         """Return ``value`` wrapped with its label, recursing into containers.
 
         Already-labelled input is returned unchanged: classification is idempotent, so a
         value cannot be laundered by being re-classified after derivation.
+
+        ``schema`` is the input schema of the component the value is for. A part of the
+        value it declares a biological sequence, whose content validates against that
+        alphabet, is labelled as a sequence (``psh.labels``, "declared biological
+        sequences"); every other part, and a declared part that does not validate, is
+        labelled as it would be without a schema. Refusing the second kind is the tool
+        gate's business, not the classifier's.
         """
         if isinstance(value, Labeled):
             return value
-        label = self._label_any(value, origin=origin)
+        typed = {path: fmt for path, fmt, item in declared_sequences(schema, value)
+                 if not sequence_problem(item, fmt)} if schema else {}
+        label = self._label_any(value, origin=origin, typed=typed)
         return Labeled(value=value, label=label, origin=origin)
 
-    def _label_text_with_decoding(self, text: str, *, origin: str = "") -> DataLabel:
-        """Classify text, then classify anything it decodes to, and take the join."""
+    def _label_sequence(self, text: str, fmt: str, *, origin: str = "") -> DataLabel:
+        """A declared sequence that validated: research data, read by every detector.
+
+        The one rule not applied is the uninspectable floor, because the content has been
+        inspected: it is a string over a residue alphabet the component declared. The
+        secret and identifier rules, the rot13 rescan and the decoding attempts all still
+        run, so anything they find raises the label above research data.
+        """
+        kind = fmt.removesuffix("-sequence")
+        declared = DataLabel(
+            Sensitivity.RESEARCH_DEIDENTIFIED, categories=(f"biological_sequence:{kind}",),
+            rationale=(f"a {kind} sequence: the component declares the field and the value "
+                       "validates against its alphabet, so it was inspected, not opaque"),
+            classifier=self.detector_name, shareable=True)
+        return self._label_text_with_decoding(text, origin=origin,
+                                              inspected=True).merged_with(declared)
+
+    def _label_text_with_decoding(self, text: str, *, origin: str = "",
+                                  inspected: bool = False) -> DataLabel:
+        """Classify text, then classify anything it decodes to, and take the join.
+
+        ``inspected`` is set only for a declared sequence that validated: a run that does
+        not decode to text is then known to be the sequence, not unknown content.
+        """
         label = self.classify_text(text, origin=origin).label
         # rot13 is its own inverse; scanning the rotated text catches rot13-encoded PHI
         # without needing to detect that rot13 was applied.
@@ -399,7 +430,7 @@ class Classifier:
             if decoded:
                 for plain in decoded:
                     label = label.merged_with(self.classify_text(plain, origin=origin).label)
-            elif len(token) >= 40 and _shannon_entropy(token) > 4.0:
+            elif not inspected and len(token) >= 40 and _shannon_entropy(token) > 4.0:
                 # Looks encoded or encrypted, does not decode to text: uninspectable.
                 label = label.merged_with(DataLabel(
                     Sensitivity.SENSITIVE,
@@ -407,12 +438,20 @@ class Classifier:
                     classifier=self.detector_name))
         return label
 
-    def _label_any(self, value: Any, *, origin: str = "") -> DataLabel:
+    def _label_any(self, value: Any, *, origin: str = "",
+                   typed: Mapping[tuple[Any, ...], str] | None = None,
+                   path: tuple[Any, ...] = ()) -> DataLabel:
+        """``typed`` maps the path of each declared sequence that validated to its format;
+        only a string found at one of those paths is labelled as a sequence."""
+        typed = typed or {}
         if isinstance(value, str):
+            if path in typed:
+                return self._label_sequence(value, typed[path], origin=origin)
             return self._label_text_with_decoding(value, origin=origin)
         if isinstance(value, Mapping):
             labels = [self._label_any(k, origin=origin) for k in value.keys()]
-            labels += [self._label_any(v, origin=origin) for v in value.values()]
+            labels += [self._label_any(v, origin=origin, typed=typed, path=(*path, k))
+                       for k, v in value.items()]
             # Fields that are clean alone may identify together: {"first": "Alice",
             # "last": "Cheng", "mrn_prefix": "0485", "mrn_suffix": "1923"}. Classify the
             # JOINED text of the payload as well, so co-located fragments recombine. This
@@ -421,7 +460,13 @@ class Classifier:
             labels.append(self.classify_text(_recombine_fields(value), origin=origin).label)
             return combine(*labels) if labels else DataLabel(Sensitivity.PUBLIC,
                                                              shareable=True)
-        if isinstance(value, (list, tuple, set, frozenset)):
+        if isinstance(value, (list, tuple)):
+            labels = [self._label_any(v, origin=origin, typed=typed, path=(*path, i))
+                      for i, v in enumerate(value)]
+            return combine(*labels) if labels else DataLabel(Sensitivity.PUBLIC,
+                                                             shareable=True)
+        if isinstance(value, (set, frozenset)):
+            # Unordered, so no element has a path a schema could declare.
             labels = [self._label_any(v, origin=origin) for v in value]
             return combine(*labels) if labels else DataLabel(Sensitivity.PUBLIC,
                                                              shareable=True)
@@ -444,8 +489,10 @@ class Classifier:
                 "INTERNAL label means no configured detector matched — it is not a "
                 "certification of de-identification. Reversible encodings (base64, hex, "
                 "rot13) are decoded and rescanned; uninspectable high-entropy content floors "
-                "at SENSITIVE. Identifier fragments split across fields of ONE payload are "
-                "recombined; fragments split across SEPARATE calls are not.")
+                "at SENSITIVE, except a biological sequence in a field its component "
+                "declares one, which must validate against the residue alphabet and is "
+                "labelled research data. Identifier fragments split across fields of ONE "
+                "payload are recombined; fragments split across SEPARATE calls are not.")
         return (
             "sable is not installed, so classification uses psh's built-in fallback: 5 "
             "PHI patterns and 3 credential shapes, with NO semantic validators and NO "

@@ -10,17 +10,20 @@ the component did. These tests hold both to what the code now does:
 * a declared remote operation is executed through PSH's broker and BioScience's runtime and
   recorded with its real destination, its status and the digest of its output;
 * a failed, refused or unbrokered operation blocks release even when the skill carries on;
+* a protein sequence in the fold's declared ``sequence`` field reaches the public service
+  whatever its length, and anything else put in that field is refused;
 * the offline P0 skills, which perform no operation, are still released;
 * ``skill_program`` derives a remote destination from an HTTP component and refuses one
   the run does not authorise.
 
-No test here touches the network except the two marked ``integration``: downloads are
+No test here touches the network except the three marked ``integration``: downloads are
 answered by a canned ``urllib`` opener that still raises the ``urllib.Request`` audit
 event, so the egress guard sees every request exactly as it would a real one.
 """
 
 from __future__ import annotations
 
+import base64
 import dataclasses as dc
 import email.message
 import hashlib
@@ -58,7 +61,8 @@ CHEMCOMP_URL = "https://data.rcsb.org/rest/v1/core/chemcomp/BEN"
 REDIRECT_URL = "https://files.rcsb.org/download/MOVED.pdb"
 ENTRY = b"HEADER    CANNED ENTRY\nEND\n"
 UBQ = "MQIFVKTLTGKTITLEVEPSDTIENVKAKIQDKEGIPPDQQRLIFAGKQLEDGRTLSDYNIQKESTLHLVLRLRGG"
-#: hen egg-white lysozyme, 129 residues: long enough that PSH cannot inspect it
+#: hen egg-white lysozyme, 129 residues: long enough that PSH would floor it as
+#: uninspectable content if the fold did not declare its field a protein sequence
 LYSOZYME = ("KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLC"
             "NIPCSALLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL")
 
@@ -372,23 +376,47 @@ def test_the_structure_pipelines_calls_go_through_the_broker(broker_for, canned)
     assert all(e.recorded for e in broker.entries)
 
 
-def test_psh_refuses_to_send_a_sequence_it_cannot_inspect_to_a_public_service(
-        broker_for, canned):
-    """A finding, not a choice made here: PSH's classifier floors a long protein sequence
-    at SENSITIVE ("uninspectable high-entropy content"), and its egress gate does not let
-    SENSITIVE data reach a public remote service. A governed fold of such a sequence is
-    refused and recorded until a declassification path exists."""
+def test_a_declared_protein_sequence_reaches_the_public_fold_service(broker_for, canned):
+    """Before, PSH's classifier floored a sequence of about a hundred residues at
+    SENSITIVE ("uninspectable high-entropy content") and its egress gate refused it at a
+    public service, so a governed fold of lysozyme was refused. The fold component now
+    declares its ``sequence`` a protein sequence, and PSH labels a value that validates
+    against the residue alphabet as research data."""
     from bioagent.structure import predict as P
 
-    network = canned({P.ESM_ATLAS: b""})
+    model = (FIX / "ubq_esmfold.pdb").read_bytes()
+    network = canned({P.ESM_ATLAS: model})
+    broker = broker_for(MOLECULAR / "predict-protein-structure")
+    with broker.governing():
+        raw = operation(ESMATLAS_FOLD, P.esmatlas_fold, sequence=LYSOZYME, timeout=5)
+    assert raw == model and network.opened == [P.ESM_ATLAS]
+    (entry,) = broker.entries
+    assert (entry.status, entry.declared, entry.recorded) == ("SUCCEEDED", True, True)
+    assert entry.checks == ("skill_manifest:passed", "psh_broker:passed",
+                            "bioscience_resolver:passed", "bioscience_policy:passed")
+
+
+@pytest.mark.parametrize("value", [
+    "sk-live-Zq3vT9wXk2LmP8rB5nD7cF4h",                       # a key
+    base64.b64encode(b"Patient Alice Smith MRN 04851923").decode(),  # an encoded note
+    LYSOZYME.lower(),                                          # not the declared alphabet
+])
+def test_what_is_not_a_sequence_is_refused_in_the_sequence_field(broker_for, canned, value):
+    """The declaration is not an exemption: a value that does not validate against the
+    alphabet is refused by PSH's gate before anything is sent, and the record names the
+    field, not the value."""
+    from bioagent.structure import predict as P
+
+    network = canned({P.ESM_ATLAS: b"never sent"})
     broker = broker_for(MOLECULAR / "predict-protein-structure")
     with broker.governing(), pytest.raises(OperationRefused) as refused:
-        P.predict("lysozyme", LYSOZYME, method="esmatlas", allow_remote=True)
+        operation(ESMATLAS_FOLD, P.esmatlas_fold, sequence=value, timeout=5)
     assert network.opened == []
     entry = refused.value.evidence
-    assert entry.status == "DENIED" and entry.declared
+    assert entry.status == "DENIED" and entry.declared and entry.recorded
     assert entry.checks == ("skill_manifest:passed", "psh_broker:refused")
-    assert "SENSITIVE" in entry.reason
+    assert "sequence is declared protein-sequence" in entry.reason
+    assert value not in entry.reason and value[8:20] not in entry.reason
 
 
 def test_the_docking_pipelines_calls_go_through_the_broker(broker_for, canned):
@@ -590,3 +618,20 @@ def test_a_live_esm_atlas_fold_is_brokered(tmp_path):
     assert "PUBLIC_REMOTE" in entry["destinations"]
     assert run.verdict.publishable and not run.released             # a development run
     assert run.artifact.provenance["governed"]["release_refused"][0].startswith("unpinned")
+
+
+@pytest.mark.integration
+def test_a_live_esm_atlas_fold_of_lysozyme_is_brokered(tmp_path):
+    """129 residues: refused as uninspectable content until the fold declared its field a
+    protein sequence; now sent, folded and recorded like ubiquitin."""
+    run = run_governed("predict-protein-structure",
+                       {"sequences": LYSOZYME, "method": "esmatlas", "allow_remote": True,
+                        "out_dir": str(tmp_path / "run")},
+                       skill_dir=MOLECULAR, state_dir=tmp_path / "psh",
+                       output_dir=tmp_path / "out", allow_unpinned=True)
+    (entry,) = run.operations
+    assert entry["operation"] == ESMATLAS_FOLD and entry["status"] == "SUCCEEDED", entry
+    assert entry["checks"] == ["skill_manifest:passed", "psh_broker:passed",
+                               "bioscience_resolver:passed", "bioscience_policy:passed"]
+    assert entry["recorded"] and entry["output_sha256"]
+    assert run.verdict.publishable and not run.released             # a development run

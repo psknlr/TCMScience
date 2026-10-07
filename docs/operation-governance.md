@@ -152,16 +152,56 @@ the trusted profile's allowlist. `api.esmatlas.com` was added to that allowlist
 (`biomedical-research`) after a fold request from the harness succeeded on 2026-10-07.
 Without it, the BioScience kernel refused every governed ESM Atlas fold.
 
+## Biological sequences at the egress gate
+
+PSH's classifier floors a long, high-entropy token run at SENSITIVE ("uninspectable
+high-entropy content"): what it cannot inspect has unknown sensitivity, and unknown is not
+clean. A protein sequence of roughly a hundred residues or more is such a run (the
+threshold depends on its composition), and the egress gate allows at most
+RESEARCH_DEIDENTIFIED at `PUBLIC_REMOTE`. So a governed ESM Atlas fold of ubiquitin (76
+residues) passed and one of lysozyme (129) was refused as if the sequence were an encrypted
+blob. Loosening the floor for anything that looks like a sequence would let every letter
+run through it; the path is typed instead (`psh.labels`, "declared biological sequences").
+
+A component declares, in its input schema, that a string field holds a sequence: the JSON
+Schema `format` `protein-sequence`, `dna-sequence` or `rna-sequence` (`PROTEIN_SEQUENCE`,
+`DNA_SEQUENCE`, `RNA_SEQUENCE` in `psh`), read through nested `properties` and array
+`items`. `ExecutionBroker.call_tool` hands the admitted manifest's schema to ingress, and:
+
+| the field | its value | label | the call |
+| --- | --- | --- | --- |
+| declared | validates against the alphabet | RESEARCH_DEIDENTIFIED, category `biological_sequence:<kind>`; every other detector still reads it and may raise it | gated on that label |
+| declared | anything else (a key, a note, an encoded blob, lower-case protein, spaces) | as if undeclared | refused by `ToolGateway`, at every destination; the reason names the field and the kind of mismatch, never the value |
+| not declared | anything | exactly as before | as before |
+
+The alphabets are narrow on purpose: the 20 standard amino acids and X, in upper case;
+ACGT or ACGU and N, either case. With the ambiguity and rare-residue codes the protein
+alphabet would be all 26 letters, so any word would validate. The declaration belongs to the
+admitted manifest, like its destinations and ceiling. A schema the kernel did not review is
+not trusted to make it: PSH's MCP adapter strips sequence formats from a server's
+`inputSchema` (recording which in `provenance.sequence_formats_ignored`), because a server
+must not lower the label of what is sent to it; an operator who reviewed the schema passes
+it as an override.
+
+`structure.esmatlas.fold` declares its `sequence` a protein sequence. On 2026-10-07 a
+governed fold of lysozyme went through the broker live: `psh_broker:passed`, SUCCEEDED,
+recorded, a 129-residue model back (`test_operation_broker.py`, integration). A key, an
+encoded clinical note or a lower-case sequence in that field is refused before anything is
+sent (unit tests there, and `PSH-Harness/tests/test_sequence_labels.py`).
+
+What an alphabet cannot tell is whose a sequence is. A human genomic sequence can identify
+its donor, and a sequence under a confidentiality agreement is restricted: its holder labels
+it (`Labeled(sequence, DataLabel(Sensitivity.SENSITIVE))`), and ingress keeps a caller's
+higher label, so it stays off a public service. Nor does a validated sequence carry no
+other information: twenty letters can encode anything. The path is for honest data whose
+only fault was looking random; the alphabet check is what keeps everything else out of the
+field.
+
 ## What this is not
 
-- **PSH refuses to send a long protein sequence to a public service.** Its classifier
-  floors a sequence of roughly a hundred residues or more (the threshold depends on its
-  composition) at SENSITIVE ("uninspectable high-entropy content"), and the egress gate
-  allows at most RESEARCH_DEIDENTIFIED at `PUBLIC_REMOTE`.
-  A governed ESM Atlas fold of such a sequence is refused and recorded. Ubiquitin (76) passes
-  and lysozyme (129) does not. This is the kernel's ruling, not a choice made here. Sending
-  long sequences under governance needs a declassification path (a principal named in the
-  policy), which does not exist yet. The command line, which is ungoverned, is unchanged.
+- **Only inputs are typed.** A sequence a tool *returns* (a UniProt entry's) is still
+  classified as text, and a long one is floored at SENSITIVE; declaring output schemas the
+  same way is not done.
 - **The guard is in-process.** It cannot see a subprocess's sockets, which is why ColabFold
   is an operation of its own. A context variable does not follow threads the skill starts.
   Inside an operation, behind a proxy, a raw socket's address is the proxy's, so only
@@ -213,4 +253,6 @@ and `test_network_pharmacology.py` now pass a component registry.
 
 **程序目的地：** `skill_program` 从每个步骤所用的已准入组件推导目的地、效果、风险和标签上限，并与运行信封取交集。HTTP 组件编译为 `PUBLIC_REMOTE`；运行未授权的目的地被拒绝，报错同时点明两者。没有组件表或信封时直接拒绝，不再假定本地计算。
 
-**已知局限：** PSH 分类器把约 100 个残基以上的蛋白序列视为无法检查的高熵内容（SENSITIVE），不允许发往公共服务，因此长序列的受治理 ESM Atlas 预测会被拒绝，需要将来提供降密（declassification）通道。守卫只在本进程内有效，看不到子进程的套接字和技能自建线程。可信白名单新增 `api.esmatlas.com`（2026-10-07 实测可用）。
+**生物序列：** PSH 分类器原先把约 100 个残基以上的蛋白序列视为无法检查的高熵内容（SENSITIVE），不允许发往公共服务，溶菌酶（129 个残基）的受治理 ESM Atlas 预测因此被拒。现在采用类型化通道：组件在输入 schema 中用 `format`（`protein-sequence`、`dna-sequence`、`rna-sequence`）声明序列字段，值通过字母表校验的标为研究数据（RESEARCH_DEIDENTIFIED），其他检测器照常运行、只能调高标签；声明了但校验不通过的值（密钥、编码文本、小写蛋白序列等）在任何目的地都被拒绝，理由只写字段名和不符类型，不写值本身；未声明的字段处理不变。MCP 服务器自带的序列声明会被剥除。`structure.esmatlas.fold` 已声明其 `sequence` 字段，2026-10-07 溶菌酶的受治理折叠实测成功。机密序列或可识别个人的基因组序列仍需持有者自行标高标签。
+
+**已知局限：** 只对输入做了类型声明，工具返回的长序列仍被视为不可检查内容。守卫只在本进程内有效，看不到子进程的套接字和技能自建线程。可信白名单新增 `api.esmatlas.com`（2026-10-07 实测可用）。

@@ -109,12 +109,21 @@ def operation_components() -> dict[str, Any]:
     advances, and one run's state must not leak into the next. Each declares the hosts it
     reaches and the licence of what comes back, which is what the declaration check, the
     BioScience policy kernel and the PSH bridge rule on.
+
+    The fold declares its ``sequence`` a protein sequence (PSH's ``PROTEIN_SEQUENCE``
+    format). PSH's classifier otherwise floors a sequence of about a hundred residues as
+    uninspectable content, which its egress gate will not send to a public service; with
+    the declaration it labels a value that validates against the residue alphabet as
+    research data, and refuses the call when the value is anything else.
     """
+    from psh.labels import PROTEIN_SEQUENCE
+
     from .runtime.component import (ComponentManifest, LicenseSpec, Permissions, Provider,
                                     RuntimeSpec)
 
     def component(cid: str, name: str, entrypoint: str, host: str, spdx: str,
-                  description: str, *, subprocess: bool = False) -> Any:
+                  description: str, *, subprocess: bool = False,
+                  inputs: Mapping[str, Any] | None = None) -> Any:
         module = entrypoint.split(":", 1)[0]
         return ComponentManifest(
             id=cid, kind="tool", name=name, version="1.0.0", description=description,
@@ -122,14 +131,20 @@ def operation_components() -> dict[str, Any]:
             provider=Provider(project="bioagent",
                               source_path=f"src/{module.replace('.', '/')}.py"),
             runtime=RuntimeSpec(backend="python", entrypoint=entrypoint),
+            inputs=dict(inputs or {}),
             permissions=Permissions(network=(host,), subprocess=subprocess),
             license=LicenseSpec(spdx=spdx, integration_mode="federated"))
 
     fetch = "bioagent.operations:fetch_bytes"
+    fold_inputs = {"type": "object", "required": ["sequence", "timeout"],
+                   "properties": {"sequence": {"type": "string", "format": PROTEIN_SEQUENCE,
+                                               "description": "the sequence to fold"},
+                                  "timeout": {"type": "number"}}}
     built = (
         component(ESMATLAS_FOLD, "ESM Atlas: fold one sequence",
                   "bioagent.structure.predict:esmatlas_fold", "api.esmatlas.com", "MIT",
-                  "ESMFold through Meta's ESM Atlas service; the sequence is sent to it"),
+                  "ESMFold through Meta's ESM Atlas service; the sequence is sent to it",
+                  inputs=fold_inputs),
         component(RCSB_ENTRY, "RCSB PDB: one entry as PDB text", fetch, "files.rcsb.org",
                   "CC0-1.0", "an experimental structure from the Protein Data Bank"),
         component(ALPHAFOLD_MODEL, "AlphaFold DB: one predicted model", fetch,

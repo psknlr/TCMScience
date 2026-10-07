@@ -32,12 +32,16 @@ import time
 import uuid
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import Enum, IntEnum
-from typing import Any, Iterable, Mapping, Sequence
+from types import MappingProxyType
+from typing import Any, Iterable, Iterator, Mapping
 
 __all__ = [
     "Sensitivity", "Destination", "DataLabel", "Labeled", "Declassification",
     "PUBLIC", "INTERNAL", "RESEARCH_DEIDENTIFIED", "SENSITIVE", "PHI", "SECRET",
     "combine", "label_of", "deep_label_of", "unwrap", "unwrap_deep", "walk_values",
+    "PROTEIN_SEQUENCE", "DNA_SEQUENCE", "RNA_SEQUENCE", "SEQUENCE_ALPHABETS",
+    "SEQUENCE_FORMATS", "sequence_format", "sequence_problem", "declared_sequences",
+    "declared_sequence_problems", "without_sequence_formats",
 ]
 
 
@@ -403,3 +407,168 @@ def unwrap_deep(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         return type(value)(unwrap_deep(v) for v in value)
     return value
+
+
+# ------------------------------------------------- declared biological sequences
+#
+# The classifier floors a long, high-entropy token run at SENSITIVE: content it cannot
+# inspect has unknown sensitivity, and unknown is not clean. A protein sequence of about a
+# hundred residues is such a run, so a governed fold of a real protein was refused at the
+# public-remote gate as though it were an encrypted blob. Relaxing the floor for anything
+# that merely looks like a sequence would let every letter run through it, so the path is
+# typed instead. A component declares, with the JSON Schema ``format`` of a string input,
+# that the field holds a protein, DNA or RNA sequence:
+#
+# * declared, and the value validates against its alphabet: the content has been
+#   inspected, it is a sequence, and the classifier labels it research data. Every other
+#   detector still reads it, so a finding can only raise that label;
+# * declared, and the value does not validate: the tool gate refuses the call. A key, a
+#   note or an encoded blob put in a sequence field gets neither the sequence's label nor
+#   the treatment an undeclared string would get;
+# * not declared: exactly the treatment it had before.
+#
+# The declaration is the component manifest's, which the kernel admits like the rest of
+# the manifest; a schema written by someone the kernel does not trust (an MCP server's)
+# is stripped of it first (``without_sequence_formats``). What an alphabet cannot tell is
+# whose the sequence is: a human genomic sequence can identify its donor, and a sequence
+# under a confidentiality agreement is restricted, so a caller holding one labels it, and
+# ingress keeps a caller's higher label.
+
+PROTEIN_SEQUENCE = "protein-sequence"
+DNA_SEQUENCE = "dna-sequence"
+RNA_SEQUENCE = "rna-sequence"
+
+#: What each format admits: the IUPAC one-letter codes of the standard residues and the
+#: code for an unknown one. Deliberately narrow: with the ambiguity and rare-residue codes
+#: (B, J, O, U, Z) the protein alphabet would be all 26 letters, so any word would be a
+#: "sequence"; with lower case as well it would admit mixed-case text and keys made only
+#: of letters. Nucleotides may be lower case, which is how a genome assembly writes
+#: soft-masked repeats, and their alphabet stays ten letters. Gaps, stops, spaces, line
+#: breaks and digits do not validate; a field that takes FASTA text is not a sequence
+#: field.
+SEQUENCE_ALPHABETS: Mapping[str, frozenset[str]] = MappingProxyType({
+    PROTEIN_SEQUENCE: frozenset("ACDEFGHIKLMNPQRSTVWYX"),
+    DNA_SEQUENCE: frozenset("ACGTNacgtn"),
+    RNA_SEQUENCE: frozenset("ACGUNacgun"),
+})
+SEQUENCE_FORMATS: tuple[str, ...] = tuple(SEQUENCE_ALPHABETS)
+
+#: How far a schema is followed. It is data a component supplies, and a schema that
+#: contains itself must end the walk rather than the process.
+_SCHEMA_DEPTH = 16
+
+
+def sequence_format(schema: Any) -> str:
+    """The sequence format a JSON Schema node declares with its ``format``, or ""."""
+    fmt = schema.get("format") if isinstance(schema, Mapping) else None
+    return fmt if isinstance(fmt, str) and fmt in SEQUENCE_ALPHABETS else ""
+
+
+def sequence_problem(value: Any, fmt: str) -> str:
+    """Why ``value`` is not a sequence of format ``fmt``; "" when it is one.
+
+    The reason counts and classifies the characters that do not belong and never quotes
+    them: it reaches the audit chain, and the value may be exactly what must not be copied
+    there.
+    """
+    alphabet = SEQUENCE_ALPHABETS[fmt]
+    if not isinstance(value, str):
+        return f"is a {type(value).__name__}, not a string"
+    if not value:
+        return "is empty"
+    outside = [ch for ch in value if ch not in alphabet]
+    if not outside:
+        return ""
+    kinds = sorted({_character_kind(ch) for ch in outside})
+    return (f"holds {len(outside)} character(s) outside the {fmt} alphabet "
+            f"({', '.join(kinds)})")
+
+
+def _character_kind(ch: str) -> str:
+    if ch.isspace():
+        return "whitespace"
+    if ch.isdigit():
+        return "digits"
+    if ch.isalpha():
+        return "other letters"
+    return "punctuation or symbols"
+
+
+def declared_sequences(schema: Any, value: Any
+                       ) -> Iterator[tuple[tuple[Any, ...], str, Any]]:
+    """``(path, format, value)`` for each part of ``value`` that ``schema`` declares a
+    biological sequence.
+
+    Read from the ``format`` of a node, through nested ``properties`` and array ``items``
+    and nothing else: a format inside ``anyOf``, ``oneOf`` or a ``$ref`` declares nothing
+    here, so the field keeps an undeclared string's treatment. A declared field the value
+    does not have yields nothing; a path is the keys and list indices that lead to it.
+    """
+    yield from _declared(schema, value, (), 0)
+
+
+def _declared(schema: Any, value: Any, path: tuple[Any, ...], depth: int
+              ) -> Iterator[tuple[tuple[Any, ...], str, Any]]:
+    if depth > _SCHEMA_DEPTH or not isinstance(schema, Mapping):
+        return
+    fmt = sequence_format(schema)
+    if fmt:
+        yield path, fmt, value
+        return
+    properties = schema.get("properties")
+    if isinstance(properties, Mapping) and isinstance(value, Mapping):
+        for key, sub in properties.items():
+            if key in value:
+                yield from _declared(sub, value[key], (*path, key), depth + 1)
+    items = schema.get("items")
+    if isinstance(items, Mapping) and isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            yield from _declared(items, item, (*path, index), depth + 1)
+
+
+def declared_sequence_problems(schema: Any, value: Any) -> list[str]:
+    """``"<field> is declared <format> and <why not>"`` for each declared sequence in
+    ``value`` that is not one; empty when every one validates (or none is declared)."""
+    return [f"{_field_name(path)} is declared {fmt} and {problem}"
+            for path, fmt, item in declared_sequences(schema, value)
+            if (problem := sequence_problem(item, fmt))]
+
+
+def without_sequence_formats(schema: Any) -> tuple[Any, tuple[str, ...]]:
+    """``schema`` without the sequence formats ``declared_sequences`` would honour, and the
+    fields they were removed from.
+
+    For a schema the kernel did not review, such as an MCP server's ``inputSchema``: a
+    declaration lowers the label of what is sent, and a server does not get to lower the
+    label of what is sent to it. The rest of the schema is unchanged.
+    """
+    removed: list[str] = []
+    return _strip(schema, (), 0, removed), tuple(removed)
+
+
+def _strip(schema: Any, path: tuple[Any, ...], depth: int, removed: list[str]) -> Any:
+    if depth > _SCHEMA_DEPTH or not isinstance(schema, Mapping):
+        return schema
+    out = dict(schema)
+    if sequence_format(out):
+        del out["format"]
+        removed.append(_field_name(path))
+    if isinstance(out.get("properties"), Mapping):
+        out["properties"] = {key: _strip(sub, (*path, key), depth + 1, removed)
+                             for key, sub in out["properties"].items()}
+    if isinstance(out.get("items"), Mapping):
+        out["items"] = _strip(out["items"], (*path, None), depth + 1, removed)
+    return out
+
+
+def _field_name(path: tuple[Any, ...]) -> str:
+    """``sequences[2]``, ``target.sequence``, ``items[*]``: a path as a reader names it."""
+    out = ""
+    for part in path:
+        if part is None:
+            out += "[*]"
+        elif isinstance(part, int):
+            out += f"[{part}]"
+        else:
+            out += f".{part}" if out else str(part)
+    return out or "the payload"
