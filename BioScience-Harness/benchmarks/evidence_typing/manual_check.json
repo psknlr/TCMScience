@@ -1,0 +1,246 @@
+{
+ "method": "30 filled population, comparator and outcome readings of the test split, drawn by `run_evidence_typing_benchmark.py --draw-manual-check 30` (a seeded hash of PMID and field, fixed before reading). Each value was read in its abstract, with the span marked, by the agent that wrote the rules: one reader, not blind to the rules, not a domain expert. The verdicts were decided against criteria written before reading: correct if the value names this study's population (the people it enrolled or reviews), comparator (the group, treatment or condition it compares against) or outcome (something it measured); partly if it names that but is cut short or padded with other words; wrong if it names something else, such as a population from a background sentence.",
+ "rules_sha256": "9f78756177f8c96dcdd67191c9784c24c1a346e4b6fdf46fea51e95ceaa88a74",
+ "fields": [
+  {
+   "pmid": "35637324",
+   "field": "population",
+   "value": "patients with erosive osteoarthritis of the hand",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population the objective names"
+  },
+  {
+   "pmid": "35085300",
+   "field": "comparator",
+   "value": "non-FVs",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "frequent visitors are compared with non-frequent visitors throughout"
+  },
+  {
+   "pmid": "36475248",
+   "field": "comparator",
+   "value": "a healthy control",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "the healthy controls of this case-control study"
+  },
+  {
+   "pmid": "35990059",
+   "field": "population",
+   "value": "children with schizophrenia and its mechanism",
+   "rule": "population.in.en",
+   "verdict": "partly",
+   "reason": "the review's population, padded with 'and its mechanism'"
+  },
+  {
+   "pmid": "35698162",
+   "field": "population",
+   "value": "patients with Alzheimer's disease",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population the planned trial names"
+  },
+  {
+   "pmid": "22104216",
+   "field": "comparator",
+   "value": "NL9980",
+   "rule": "comparator.compared.zh",
+   "verdict": "correct",
+   "reason": "the low-metastatic cell line the high-metastatic one is compared with"
+  },
+  {
+   "pmid": "36475248",
+   "field": "population",
+   "value": "Individuals with Parkinson's Disease",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the cases of this case-control study, as the title names them"
+  },
+  {
+   "pmid": "35410326",
+   "field": "outcome",
+   "value": "CAI",
+   "rule": "outcome.associated.en",
+   "verdict": "correct",
+   "reason": "condomless anal intercourse is the study's outcome"
+  },
+  {
+   "pmid": "35885654",
+   "field": "population",
+   "value": "patients with aortic coarctation",
+   "rule": "population.in.en",
+   "verdict": "wrong",
+   "reason": "a background prevalence figure; the review is of children with a bicuspid aortic valve"
+  },
+  {
+   "pmid": "35189925",
+   "field": "population",
+   "value": "patients with SARS-CoV-2-induced ARDS",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the trial's population, from its aim"
+  },
+  {
+   "pmid": "35190612",
+   "field": "comparator",
+   "value": "fixed ones",
+   "rule": "comparator.compared.en",
+   "verdict": "partly",
+   "reason": "the fixed-duration condition compared with, but only as 'fixed ones'"
+  },
+  {
+   "pmid": "36138270",
+   "field": "population",
+   "value": "patients with keratoconus than in healthy patients in each of the following measured locations",
+   "rule": "population.in.en",
+   "verdict": "partly",
+   "reason": "the keratoconus patients, padded with the rest of the results sentence"
+  },
+  {
+   "pmid": "35189925",
+   "field": "comparator",
+   "value": "placebo",
+   "rule": "comparator.placebo.en",
+   "verdict": "correct",
+   "reason": "the placebo arm"
+  },
+  {
+   "pmid": "23327869",
+   "field": "comparator",
+   "value": "EP组",
+   "rule": "comparator.compared.zh",
+   "verdict": "correct",
+   "reason": "the EP (etoposide and cisplatin) arm"
+  },
+  {
+   "pmid": "35333186",
+   "field": "comparator",
+   "value": "a random model",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "the baseline the prediction model's performance is compared with; a benchmark rather than a group, so a stricter reader might say partly"
+  },
+  {
+   "pmid": "21081042",
+   "field": "comparator",
+   "value": "单纯TP化疗方案",
+   "rule": "comparator.compared.zh",
+   "verdict": "correct",
+   "reason": "TP chemotherapy alone, the comparison the meta-analysis pools"
+  },
+  {
+   "pmid": "36064325",
+   "field": "population",
+   "value": "patients receiving the 1 L polyethylene glycol-based preparation NER1006",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population of this pooled analysis"
+  },
+  {
+   "pmid": "35712893",
+   "field": "comparator",
+   "value": "nonleukoreduced bags",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "the non-leukoreduced units compared with"
+  },
+  {
+   "pmid": "36254034",
+   "field": "comparator",
+   "value": "ACEis and ARBs",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "the comparator the meta-analysis pools"
+  },
+  {
+   "pmid": "36303865",
+   "field": "population",
+   "value": "patients with COVID-19",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population studied, from the conclusion"
+  },
+  {
+   "pmid": "36212669",
+   "field": "population",
+   "value": "patients with ischemic stroke",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population the review pools"
+  },
+  {
+   "pmid": "35684113",
+   "field": "comparator",
+   "value": "subjects",
+   "rule": "comparator.compared.en",
+   "verdict": "partly",
+   "reason": "'subjects' cut from 'subjects in control group'"
+  },
+  {
+   "pmid": "35313957",
+   "field": "outcome",
+   "value": "memory for faces",
+   "rule": "outcome.associated.en",
+   "verdict": "correct",
+   "reason": "a clinical measure the study relates to the biomarker"
+  },
+  {
+   "pmid": "36385210",
+   "field": "outcome",
+   "value": "overall survival",
+   "rule": "outcome.primary.en",
+   "verdict": "partly",
+   "reason": "overall survival, cut before 'and progression-free survival', which was also primary"
+  },
+  {
+   "pmid": "35968595",
+   "field": "comparator",
+   "value": "A20细胞组",
+   "rule": "comparator.compared.zh",
+   "verdict": "correct",
+   "reason": "the A20-cell (untreated) group of the mouse experiment"
+  },
+  {
+   "pmid": "36376968",
+   "field": "population",
+   "value": "people with musculoskeletal pain",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the patients the commentary is about"
+  },
+  {
+   "pmid": "35410326",
+   "field": "population",
+   "value": "men who have sex with men in India",
+   "rule": "population.in.en",
+   "verdict": "correct",
+   "reason": "the population, from the title"
+  },
+  {
+   "pmid": "35991835",
+   "field": "comparator",
+   "value": "normal tissue",
+   "rule": "comparator.compared.en",
+   "verdict": "correct",
+   "reason": "normal tissue, against which the tumour expression is compared"
+  },
+  {
+   "pmid": "36381235",
+   "field": "population",
+   "value": "women with wild-type PIK3CA/PTEN wild-type TNBC at high risk",
+   "rule": "population.in.en",
+   "verdict": "wrong",
+   "reason": "the population of trials the authors propose; this study used cell lines and xenografts"
+  },
+  {
+   "pmid": "35350100",
+   "field": "comparator",
+   "value": "placebo",
+   "rule": "comparator.placebo.en",
+   "verdict": "correct",
+   "reason": "the placebo arm"
+  }
+ ]
+}

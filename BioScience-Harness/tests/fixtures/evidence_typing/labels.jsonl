@@ -1,0 +1,11 @@
+{"pmid": "20673485", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "31650949", "split": "dev", "kind": "narrative_review", "basis": "publication type 'Review' and no design type"}
+{"pmid": "34227758", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}
+{"pmid": "34586238", "split": "dev", "kind": "case_report", "basis": "publication type 'Case Reports'"}
+{"pmid": "34980198", "split": "dev", "kind": "randomized_trial", "basis": "publication type 'Randomized Controlled Trial'"}
+{"pmid": "34983504", "split": "dev", "kind": "observational", "basis": "publication type 'Observational Study'"}
+{"pmid": "34996924", "split": "dev", "kind": "in_vitro", "basis": "MeSH 'HEK293 Cells' without 'Animals' or an age group"}
+{"pmid": "35011100", "split": "dev", "kind": "systematic_review", "basis": "publication type 'Systematic Review'"}
+{"pmid": "35057755", "split": "dev", "kind": "protocol", "basis": "publication type 'Clinical Trial Protocol'"}
+{"pmid": "35272686", "split": "dev", "kind": "editorial", "basis": "publication type 'Editorial' and no design type"}
+{"pmid": "35300697", "split": "dev", "kind": "animal", "basis": "MeSH 'Animals' without 'Humans' or a cell-culture heading"}

@@ -32,6 +32,17 @@ Data derived from third-party tables:
       OpenCC's TSCharacters and HKVariantsRev dictionaries, cut to the simplified
       characters that occur in the materia table's names.
 
+Third-party text (the evidence-typing benchmark):
+  benchmarks/evidence_typing/sample.jsonl holds the titles and abstracts of 478
+  open-access articles, retrieved from Europe PMC, each under the licence its own
+  article states: CC BY 4.0 (386), CC BY 3.0 (45), CC BY with no version stated (46)
+  or CC0 1.0 (1). Each record names its authors, journal, year, DOI, PMID, PMCID,
+  licence, licence URL or statement, and copyright line. Abstract markup was removed
+  (section headings kept, followed by a colon); the text is otherwise unchanged.
+  tests/fixtures/evidence_typing holds 11 of the same records. Their publication
+  types and MeSH headings are from PubMed (U.S. National Library of Medicine), used
+  as metadata; NLM does not endorse this use.
+
 Data: the Biomni data lake is redistributed by Stanford under the terms of
 its own upstream sources; individual datasets (BindingDB, DepMap, genebass,
 Broad Repurposing Hub, ...) carry their own licenses and are NOT redistributed

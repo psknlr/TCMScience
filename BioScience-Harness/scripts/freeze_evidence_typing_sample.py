@@ -7,10 +7,10 @@
 This reaches the network and is not run in CI. The benchmark reads what it wrote, offline
 (``scripts/run_evidence_typing_benchmark.py``). For each stratum it takes:
 
-1. **the frame**: every MEDLINE record in Europe PMC that matches the stratum's query, is
-   open access under a licence Europe PMC reports as CC BY or CC0, and has an abstract.
-   English strata are limited to records first published in 2022, which keeps each frame
-   small enough to list in full. The Chinese stratum takes every year;
+1. **the frame**: every PubMed record in Europe PMC (source ``MED``) that matches the
+   stratum's query, is open access under a licence Europe PMC reports as CC BY or CC0, and
+   has an abstract. English strata are limited to records first published in 2022, which
+   keeps each frame small enough to list in full. The Chinese strata take every year;
 2. **an order**: a seeded hash of each PMID (``evidence_typing.draw_key``), not the
    search's ranking, which follows its own relevance and date rules;
 3. **records in that order** until the quota is met. A record is kept only when

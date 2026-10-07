@@ -63,17 +63,23 @@ only when the document's text gives exactly one reading:
 
 | Field | Rules (ids in `bioagent.literature.evidence`) | Left unassessed when |
 | --- | --- | --- |
-| design | statements of a design, English and Chinese: `randomized`, `randomly assigned`, `随机对照/双盲/分组`; `prospective cohort`, `case-control`, `队列研究`; `systematic review`, `meta-analysis`, `系统评价`; `case report`, `病例报告`; `mice`, `rats`, `大鼠`; `in vitro`, `细胞系` | no rule matches, the text states two designs, or the mention is negated (`non-randomized`, `未随机`) |
+| design | statements of a design, English and Chinese: `randomized`, `randomly assigned`, `随机对照/双盲/分组`, `随机、双盲`; `prospective cohort`, `case-control`, `observational study`, `队列研究`, `观察性研究`; `systematic review`, `meta-analysis`, `系统评价`; `case report`, `a 45-year-old man`, `病例报告`, `1例…并文献复习`; `mice`, `rats`, `121 dogs`, `大鼠`; `in vitro`, `cell lines`, cell assays, named cell lines, `细胞系`. A review that names itself one (`this meta-analysis`, `本meta分析`) reads as a review whatever else it names | no rule matches; the text states two designs as its own; it is a protocol (`study protocol for a … trial`, `will be randomized`). A mention is set aside when negated (`non-randomized`, `未随机`), plural (`randomized controlled trials` are the ones a review pools or an introduction cites) or a split of data (`随机分为训练集`) |
 | population | `in/among <patients…> with/aged/who …`, `cohort/trial of <adults…> …`, `纳入N名<…患者>` | no rule matches, or two different phrases |
-| comparator | `placebo`, `安慰剂`, `compared with …`, `与…相比` | as above |
-| outcome | `primary outcome was …`, `reduced the risk of …`, `was associated with …`, `降低了…` | as above |
+| comparator | `placebo`, `安慰剂`, `compared with …` (not baseline), `与…相比` | as above |
+| outcome | `primary outcome was …`, `reduced the risk of …`, `was associated with <higher/lower …> …` or `… (hazard ratio …)`, `降低了…` | as above |
 
 Bare words that also occur in other designs' abstracts are not design rules: `placebo` (an
 observational study can compare with one), `cohort` alone (a trial reports its "overall
-cohort"), `随机` alone (随机抽样 is random sampling). Every reading records its rule, the
+cohort"), `随机` alone (随机抽样 is random sampling), a species without a count ("in
+zebrafish, transgenesis is efficient" opens a review). Every reading records its rule, the
 matched span and its offset in the same text as the quote, so a reading can be checked the
-way a receipt is. The rules prefer no answer to a wrong one. Most systematic reviews, which
-name the designs they pool, are left unassessed.
+way a receipt is. The rules prefer no answer to a wrong one.
+
+**How well they read real abstracts** is measured in
+[evidence-typing-accuracy.md](evidence-typing-accuracy.md), on 478 abstracts against
+PubMed's publication types. On the held-out test split, 97% (94–99%) of the designs they
+read are PubMed's, and they read one for 78% of the studies. A protocol is read as a trial
+1 time in 17, and the population, comparator and outcome are filled for 7–14% of abstracts.
 
 **A passage with no readable design is withheld, not typed.** `EvidenceItem` requires a
 design and refuses an unknown one on purpose ("a default here would be the precise failure
@@ -221,9 +227,12 @@ run = run_governed("retrieve-literature-evidence",
   and no term weighting. A passage that says the same thing in other words can be missed.
   The cosine score ranks passages for one question, and nothing downstream reads it as
   support.
-- **The rules are narrow.** They are tested on the fixtures in the test file and were
-  tried on six abstracts of the ablation corpus. They have not been measured on a sample
-  of real literature. Most fields of most real abstracts will stay unassessed, by design.
+- **The rules are narrow.** On 302 held-out real abstracts
+  ([evidence-typing-accuracy.md](evidence-typing-accuracy.md)), they leave the design of 22%
+  of studies unassessed. That figure is 61% for the MeSH-defined animal studies. They fill a
+  population, comparator or outcome for at most 14% of abstracts, and 23 of 30 filled values
+  checked by hand were correct. Abstracts are not full texts: a whole paper names more
+  designs, and is ambiguous more often.
 - **Nothing is checked against the outside world.** No retraction status, no identifier
   resolution, no quality assessment. The artifact says so in its limitations.
 - **This is not a systematic search.** Only the documents the caller supplies are
@@ -232,10 +241,11 @@ run = run_governed("retrieve-literature-evidence",
   call to a real provider through LiteLLM is untested. The refusals and the stand-in's
   answer are tested.
 
-Tests: `BioScience-Harness/tests/test_literature_evidence.py` (36 tests). 24 need paper-qa
+Tests: `BioScience-Harness/tests/test_literature_evidence.py` (42 tests). 24 need paper-qa
 and use `need_module("paperqa")`: they skip in the unit tier and fail under
 `BIOAGENT_REQUIRE_TOOLS=1`. The typing rules, the model gate, the corpus manifest and the
-skill manifest are tested without it.
+skill manifest are tested without it. The rules' accuracy on real abstracts is tested
+offline by `tests/test_evidence_typing_benchmark.py`.
 
 ## 中文摘要
 
@@ -249,7 +259,12 @@ skill manifest are tested without it.
 
 **定位与标注：**
 - **定位：** 每个段落都带偏移量，每个证据条目都带引文凭据（内容哈希加偏移量），`validate_artifact` 会重新核对，偏移量差一个字符即报 `ART115`。
-- **标注：** 研究设计、人群、对照、结局只由固定的文本规则填写，且只在原文只给出一种读法时填写。有两种读法、或提及被否定（"非随机""未随机"）时，保持未评估。每次读取都记录规则、匹配片段及其偏移量。
+- **标注：** 研究设计、人群、对照、结局只由固定的文本规则填写，且只在原文只给出一种读法时填写。
+  - 原文陈述两种自身设计时，保持未评估。试验方案（"study protocol""will be randomized"）也不读设计，因为它没有结果。
+  - 以下提及会被跳过：被否定的（"非随机""未随机"）、复数的（"randomized controlled trials"，指被汇总或被引用的其他研究）、数据划分（"随机分为训练集"）。
+  - 自称系统评价/荟萃分析的文本读作系统评价。
+  - 每次读取都记录规则、匹配片段及其偏移量。
+  - 在 478 篇真实摘要上的测量见 [evidence-typing-accuracy.md](evidence-typing-accuracy.md)。在留出的测试集上，读出的设计 97% 与 PubMed 一致，78% 的研究被读出设计。
 - **读不出研究设计的段落不成为证据条目：** `EvidenceItem` 要求必须写明设计并拒绝未知设计，因此本次没有修改 `evidence_item.py`。这类段落连同位置和读取结果一并报告，等待有人确认设计。
 - **其他字段：** 未读出的字段留空并注明"未评估"；质量四个维度均为未评估，因而在有人评估偏倚风险之前，疗效和推荐类结论会被拒绝（`CLM006`）；撤稿状态始终为"未核实"。
 

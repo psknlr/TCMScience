@@ -40,12 +40,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+# The ablation's interval, so the two benchmarks report the same computation.
 from .ablation import _wilson
 
-__all__ = ["DESIGNS", "LICENCES", "NEGATIVES", "SAMPLE_SEED", "SPLIT_SEED", "VALUE_FIELDS",
-           "Label", "Outcome", "Record", "compare", "draw_key", "draw_manual_check",
-           "load_rules", "load_sample", "reference_for", "render_markdown", "results",
-           "run", "split_of"]
+__all__ = ["DESIGNS", "LICENCES", "MANUAL_SEED", "NEGATIVES", "SAMPLE_SEED", "SPLIT_SEED",
+           "VALUE_FIELDS", "Label", "Outcome", "Record", "compare", "draw_key",
+           "draw_manual_check", "load_rules", "load_sample", "manual_check_summary",
+           "reference_for", "render_markdown", "results", "rules_digest", "run",
+           "sample_digest", "split_of", "summarise"]
 
 #: The designs the rules can read, in the order they are reported.
 DESIGNS = ("systematic_review", "randomized_trial", "observational", "case_report",
@@ -536,17 +538,19 @@ def _pct(rate: Mapping[str, Any]) -> str:
 
 
 def _design_table(split: Mapping[str, Any], before: Mapping[str, Any] | None) -> list[str]:
-    head = "| Design | n | Precision (95% CI) | Recall (95% CI) | Abstained | Wrong |"
-    rows = [head, "| --- | ---: | --- | --- | ---: | ---: |"]
+    """Per design: precision, recall, abstention and wrong readings, each with its count and
+    Wilson interval, and the earlier rules' figure before an arrow when there are some."""
+    metrics = ("precision", "recall", "abstention", "wrong")
+    then = " (before → after)" if before is not None else ""
+    rows = [f"| Design | n | Precision{then} | Recall{then} | Abstained{then} | Wrong{then} |",
+            "| --- | ---: | --- | --- | --- | --- |"]
     for d in DESIGNS:
         m = split["designs"][d]
-        cells = [_pct(m["precision"]), _pct(m["recall"])]
+        cells = [_pct(m[k]) for k in metrics]
         if before is not None:
-            b = before["designs"][d]
-            cells = [f"{_pct(b['precision'])} → {cells[0]}",
-                     f"{_pct(b['recall'])} → {cells[1]}"]
-        rows.append(f"| {_NAMES[d]} | {m['recall']['n']} | {cells[0]} | {cells[1]} | "
-                    f"{m['abstention']['k']} | {m['wrong']['k']} |")
+            cells = [f"{_pct(before['designs'][d][k])} → {cell}"
+                     for k, cell in zip(metrics, cells)]
+        rows.append(f"| {_NAMES[d]} | {m['recall']['n']} | " + " | ".join(cells) + " |")
     return rows
 
 
@@ -569,8 +573,12 @@ def render_markdown(data: Mapping[str, Any], *, sampling: Mapping[str, Any] | No
                 "| --- | --- | --- | ---: | ---: | ---: |"]
         out += [f"| {s['name']} | {s['language']} | {_NAMES[s['kind']]} | {s['drawn']} | "
                 f"{s['frame_hits']} | {s['examined']} |" for s in sampling["strata"]]
-        out += ["", "Licences: " + ", ".join(f"{k} {v}" for k, v in
-                                             sampling["licences"].items()) + "."]
+        licences = ", ".join(f"{k} {v}" for k, v in sampling["licences"].items())
+        out += ["", f"Licences: {licences} (`CC-BY`: the article names the licence but no "
+                "version). Each record in `sample.jsonl` carries its attribution: authors, "
+                "journal, year, DOI, PMID, PMCID, licence, licence URL or statement, and "
+                "copyright line. Abstract markup was removed; the text is otherwise as "
+                "published."]
     out += ["", "## Test split", "", "### Design", ""]
     out += _design_table(test, baseline["splits"]["test"] if baseline else None)
     out += ["", f"Of {test['labelled']} studies, {_pct(test['coverage'])} were typed; of "
@@ -626,9 +634,10 @@ def render_markdown(data: Mapping[str, Any], *, sampling: Mapping[str, Any] | No
     if baseline:
         out += ["", "## Before and after the rule changes", "",
                 f"Before: rules `{baseline['rules_sha256'][:12]}`; after: rules "
-                f"`{data['rules_sha256'][:12]}` (SHA-256 of `evidence.py`). The rules were "
-                "changed looking only at dev; test was run once, after.", "",
-                "| Split | Typed | Correct | Wrong | Negatives typed |",
+                f"`{data['rules_sha256'][:12]}` (SHA-256 of the `evidence.py` each was read "
+                "from). How and why they changed: `docs/evidence-typing-accuracy.md`.", "",
+                "| Split | Studies typed | Readings right (negatives included) | Wrong "
+                "readings | Negatives typed |",
                 "| --- | --- | --- | ---: | --- |"]
         for name in ("dev", "test"):
             b, a = baseline["splits"][name], data["splits"][name]

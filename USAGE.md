@@ -425,6 +425,23 @@ python scripts/run_governance_ablation.py --check benchmarks/ablation/results.js
 python scripts/run_governance_ablation.py --drafts drafts.jsonl --out WORK/ablation # your outputs
 ```
 
+### Measuring the evidence typing · 测量证据标注
+
+A type check is only as good as the design label it checks. The rules that type a passage's
+study design are measured on 478 real abstracts (Europe PMC, CC BY or CC0) against PubMed's
+publication types, with a dev/test split fixed by a hash of the PMID
+([docs/evidence-typing-accuracy.md](docs/evidence-typing-accuracy.md)). CI refuses a record
+read worse than the committed results show.
+
+<!-- zh -->
+类型检查的结论取决于它所检查的设计标签。标注研究设计的规则在 478 篇真实摘要（Europe PMC，CC BY 或 CC0）上，以 PubMed 出版类型为参照进行测量。开发集/测试集按 PMID 哈希固定划分（[docs/evidence-typing-accuracy.md](docs/evidence-typing-accuracy.md)）。若某条记录读得比已提交结果差，CI 会拒绝。
+
+```bash
+cd BioScience-Harness
+python scripts/run_evidence_typing_benchmark.py --out benchmarks/evidence_typing    # regenerate
+python scripts/run_evidence_typing_benchmark.py --check benchmarks/evidence_typing/results.json
+```
+
 ---
 
 ## Troubleshooting · 故障排查
