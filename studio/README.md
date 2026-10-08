@@ -91,6 +91,20 @@ tcmstudio serve
 你自己的云端 API（OpenAI、Anthropic、DeepSeek、通义千问、Kimi、智谱、SiliconFlow、OpenRouter）同样在这里填写密钥；密钥只保存
 在这个浏览器中，调用直接发往该服务，不经过 science.impf.ai。
 
+## 在手机上使用
+
+手机浏览器打开 <https://science.impf.ai> 即可，界面按手机布局显示（侧栏、检查器都改为从边缘滑出的面板）。
+
+- **用手机自己的算力。** 没有本机 Runner 时，工具在手机浏览器里运行：Pyodide（WebAssembly）用手机的 CPU 执行真实的
+  TCMScience Python 代码。150 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，结果哈希与电脑上相同。
+  第一次运行要下载约 11 MB（之后从缓存读取）。在模拟中端手机（CPU 降速 4 倍）的测试里，冷启动后第一次受治理调用约 10 秒完成
+  （`e2e/mobile.spec.mjs`）。
+- **只用 CPU，单线程。** Python 工具不使用手机 GPU。手机浏览器是否提供 WebGPU 会在「设置 → 计算」里如实报告，但 Studio 还没有用它计算。
+- **手机上没有本机 Runner。** 需要联网数据源、中医药数据枢纽、大文件、长任务或 GPU 的工具会说明「需要本机 Runner」，不会用
+  近似结果顶替。模型照常可用：Tao-S1，或你自己的云端 API。
+- **测试范围。** 自动测试用的是 Chromium 的手机模拟（Android 视口、触控、降速 CPU），还没有在真机上测过 iOS Safari；
+  iPhone 上的 Safari 也支持 WebAssembly，内存较小的机型首次加载可能较慢。
+
 ## 隐私：什么不会到达服务器
 
 - **不会到达 science.impf.ai 的**：项目、会话、上传的文件（下一条所说的小文本文件除外）、工具的参数和结果、审计链、你的
@@ -144,6 +158,7 @@ cd studio && npm install && npm run test:e2e
 | `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时跳过并说明） |
 | `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「本项目允许」写入项目并在刷新后仍然有效；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
 | `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
+| `mobile.spec.mjs` | 手机（390×844、触控、CPU 降速 4 倍）、无 Runner：受治理 Skill 在手机浏览器的 Pyodide 中运行，内容哈希与本机 Python 相同，页面无横向滚动 |
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
 | `a11y.spec.mjs` | 键盘与读屏：跳转链接按下后焦点到目标、路由不变；输入法组字时的 Enter 不发送、Esc 不停止回答；首次发送、停止、批准之后以及菜单、抽屉按 Esc 之后焦点的去向；实时区域的播报；axe-core 检查主要页面（浅色/深色、桌面/手机）与受治理的回答，严重（serious/critical）问题即失败 |
 | `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败不会被当作跳过 |

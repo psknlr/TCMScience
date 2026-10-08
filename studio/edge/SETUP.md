@@ -62,7 +62,9 @@ MiniMax 控制台 → 复制密钥 → GitHub 仓库 Secrets → studio 工作�
 6. 点 **Continue to summary**，核对账户和 `impf.ai` 都在列表里，再点 **Create Token**。
 7. 复制显示的令牌。**它只显示这一次**，丢了就删掉重建。
 
-可以用 TaoChronos 已有的那把令牌吗？可以（权限相同），但分开更好：哪一边泄露都只需换那一把。
+可以用 TaoChronos 已有的那把令牌吗？可以：同一个 Cloudflare 账户、同一个 `impf.ai`，权限也相同（TaoChronos 的令牌若另加了
+Containers 权限，只是多余，不碍事）。但 GitHub 的 Secret 存进去后谁也读不出来，所以只有你手里还留着那串令牌原值时才能复用；
+找不到原值就按上面新建一把，**不要**为此对 TaoChronos 的令牌点 Roll（会让 TaoChronos 的部署立刻失效）。分开两把也更好：哪一边泄露都只需换那一把。
 
 ## 第 3 步　复制 Cloudflare Account ID
 
