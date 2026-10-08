@@ -21,6 +21,8 @@ export class Catalog {
     for (const c of this.core) this.coreByName[c.name] = c;
     this.categories = categoriesWithCounts(doc.categories, this.entries);
     this.sources = doc.sources || [];
+    // acts reserved for a person ({name: message}), refused by name (router.js HUMAN_ONLY)
+    this.neverOffered = isPlainObject(doc.never_offered) ? { ...doc.never_offered } : {};
     this._index = null;
   }
 
@@ -66,7 +68,10 @@ export class Catalog {
   }
 
   toJSON() {
-    return { schema: this.schema, versions: this.versions, categories: this.categories, core: this.core, entries: this.entries };
+    return {
+      schema: this.schema, versions: this.versions, categories: this.categories, core: this.core, entries: this.entries,
+      ...(Object.keys(this.neverOffered).length ? { never_offered: this.neverOffered } : {}),
+    };
   }
 }
 
@@ -129,6 +134,7 @@ export function mergeCatalogs(built, runner) {
     categories: runner.categories?.length ? runner.categories : built.categories,
     core: [...byName.values()],
     entries: [...byId.values()],
+    ...(built.never_offered || runner.never_offered ? { never_offered: { ...(built.never_offered || {}), ...(runner.never_offered || {}) } } : {}),
     sources: ["built", "runner"],
   };
 }

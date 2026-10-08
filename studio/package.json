@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",
+    "axe-core": "4.14.0",
     "fake-indexeddb": "^6.2.5",
     "linkedom": "^0.18.13"
   }

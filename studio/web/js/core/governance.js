@@ -208,25 +208,66 @@ export function claimsOf(envelope) {
   });
 }
 
+/** Kernel codes that refuse a claim because cited evidence cannot license its kind (by set: CLM005; a clinical claim
+ * on predictions only: CLM004). */
+export const LICENSING_REFUSALS = new Set(["CLM004", "CLM005"]);
+
 /**
- * The licensing ladder for one claim kind (DESIGN §6.4): eight cells, tiers 0–7, which license the kind, and where
- * the claim's weakest evidence sits; plus the caption.
+ * The licensing ladder for one claim kind (DESIGN §6.4): eight cells, tiers 0–7, which license the kind, which the claim
+ * cites, and where its weakest evidence sits; whether its evidence licenses the kind; the caption.
+ *
+ * The kernel licenses by set: every cited (usable) item must license the kind, so the weakest tier alone does not
+ * decide (a classical text licenses traditional use, an observational study cited beside it does not). Pass what is
+ * known: `codes` (the claim's verdict codes: CLM005/CLM004 mean not licensed, whatever the weakest tier), `cited` (the
+ * tiers of the cited usable evidence), or `evidence` (evidenceOf views) with a claim view as the first argument:
+ * licensingLadder(claim, null, lang, {evidence}). With only a kind and a weakest tier, the weakest tier decides.
  */
-export function licensingLadder(claimKind, weakestTier, l = currentLang()) {
-  const info = claimKindInfo(claimKind);
+export function licensingLadder(claimKind, weakestTier, l = currentLang(), { codes, cited, evidence } = {}) {
+  let kind = claimKind;
+  let weakestIn = weakestTier;
+  let codeList = codes;
+  let citedIn = cited;
+  if (claimKind && typeof claimKind === "object") {
+    const c = claimKind;
+    kind = c.kind;
+    weakestIn = weakestTier ?? c.weakest_tier;
+    codeList = codes ?? c.codes;
+    if (!citedIn && Array.isArray(evidence) && Array.isArray(c.supports)) {
+      const byId = new Map(evidence.map((e) => [e.id, e]));
+      citedIn = c.supports.map((id) => byId.get(id)).filter((e) => e && e.usable !== false).map((e) => e.tier_rank ?? e.tier ?? e.design);
+    }
+  }
+  const info = claimKindInfo(kind);
   const licensed = new Set(info ? CLAIM_SUPPORT[info.canonical] || [] : []);
-  const weakest = tierOf(weakestTier);
+  const citedTiers = (Array.isArray(citedIn) ? citedIn : []).map((x) => tierOf(x)).filter(Boolean);
+  const citedRanks = new Set(citedTiers.map((r) => r.rank));
+  const weakest = tierOf(weakestIn) || (citedTiers.length ? TIERS[Math.min(...citedRanks)] : null);
+  const unlicensed = TIERS.filter((tier) => citedRanks.has(tier.rank) && !licensed.has(tier.rank));
+  const refused = (Array.isArray(codeList) ? codeList : []).some((c) => LICENSING_REFUSALS.has(String(c).trim().toUpperCase()));
   const cells = TIERS.map((tier) => ({
     rank: tier.rank, id: tier.id, label: tier[l] ?? tier.en, family: tier.family, licenses: licensed.has(tier.rank),
-    weakest: weakest ? weakest.rank === tier.rank : false,
+    weakest: weakest ? weakest.rank === tier.rank : false, cited: citedRanks.has(tier.rank),
   }));
-  const supports = weakest ? licensed.has(weakest.rank) : null;
+  let supports = null;
+  if (refused) supports = false;
+  else if (citedTiers.length) supports = unlicensed.length === 0;
+  else if (weakest) supports = licensed.has(weakest.rank);
   const needs = TIERS.filter((tier) => licensed.has(tier.rank)).map((tier) => tier[l] ?? tier.en).join(t("core.ladder.or", null, l));
-  const caption = info && weakest ? t("core.ladder.caption", {
-    kind: info[l] ?? info.en, needs, weakest: weakest[l] ?? weakest.en,
-    result: supports ? t("core.ladder.supports", null, l) : t("core.ladder.does_not", null, l),
-  }, l) : "";
-  return { kind: info?.canonical || claimKind, cells, supports, caption };
+  let caption = "";
+  if (info && weakest) {
+    const vars = { kind: info[l] ?? info.en, needs, weakest: weakest[l] ?? weakest.en };
+    const weakestLicensed = licensed.has(weakest.rank);
+    if (supports === false && unlicensed.length && !(unlicensed.length === 1 && unlicensed[0].rank === weakest.rank)) {
+      // the weakest link is not what fails: name the cited tiers that do not license the kind
+      caption = t("core.ladder.caption_unlicensed", { ...vars, unlicensed: unlicensed.map((tier) => tier[l] ?? tier.en).join(t("core.ladder.and", null, l)) }, l);
+    } else if (supports === false && weakestLicensed) {
+      // the kernel refused on licensing, and which cited item failed is not known here
+      caption = t("core.ladder.caption_refused", vars, l);
+    } else {
+      caption = t("core.ladder.caption", { ...vars, result: supports ? t("core.ladder.supports", null, l) : t("core.ladder.does_not", null, l) }, l);
+    }
+  }
+  return { kind: info?.canonical || kind, cells, supports, caption, unlicensed: unlicensed.map((tier) => tier.id) };
 }
 
 // ------------------------------------------------------------------------------------------------- release
@@ -251,10 +292,13 @@ export function releaseOf(envelope) {
   const list = RELEASE_STATES.map((id) => {
     const ok = Boolean(states[id]);
     let reasons = ok ? [] : reasonsFor(id);
+    let unmet;
     if (!ok && id === "release_authorized") {
-      reasons = RELEASE_STATES.filter((s) => s !== "release_authorized" && s !== "execution_declared" && !states[s]).map((s) => L(STATES.release[s]));
+      // what keeps release back, in unmet wording (「输出未核验」), never the states' positive labels; ids in `unmet`
+      unmet = RELEASE_STATES.filter((s) => s !== "release_authorized" && s !== "execution_declared" && !states[s]);
+      reasons = unmet.map((s) => t(`core.release.unmet.${s}`));
     }
-    return { id, ok, label: L(STATES.release[id]), reason: reasons.join("; "), reasons };
+    return { id, ok, label: L(STATES.release[id]), reason: reasons.join("; "), reasons, ...(unmet ? { unmet } : {}) };
   });
   const authorized = Boolean(states.release_authorized);
   const passed = list.filter((s) => s.ok).length;
@@ -281,7 +325,9 @@ export function releaseOf(envelope) {
     limitations: art?.limitations || gov(envelope).limitations || [],
     assumptions: art?.assumptions || [],
     policy_id: art?.policy_id || "",
-    audit_head: art?.audit_head || envelope?.receipt?.audit_head || "",
+    // the artifact's own attestation only; the runner's chain head (the receipt's) is not this artifact's proof
+    audit_head: art?.audit_head || "",
+    chain_head: envelope?.receipt?.audit_head || "",
     digest: art?.digest || "",
   };
 }

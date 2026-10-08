@@ -3,7 +3,8 @@
 // Browser calls carry `anthropic-dangerous-direct-browser-access: true`; the key is the user's own and is sent only to
 // the provider (or through the local runner's proxy). Current models take adaptive thinking with a summarized display
 // (shown as reasoning, never as evidence); older ones a token budget. The assistant content is returned verbatim
-// (`wire`), so thinking blocks and their signatures round-trip on the same model. Tool inputs are parsed strictly; a
+// (`wire`), so thinking blocks and their signatures round-trip within the turn that produced them (the agent does not
+// replay them in later turns: see agent.js). Tool inputs are parsed strictly; a
 // turn that stops on max_tokens or a refusal never runs its tools. On the first-party API the newest models are asked
 // for server-side refusal fallbacks (`fallbacks: "default"`): a declined request is re-run on the model Anthropic
 // recommends for that category, inside the same call, and the reply says which model answered.
@@ -15,6 +16,12 @@ import { parseArguments, unreachable } from "./openai.js";
 export const ANTHROPIC_VERSION = "2023-06-01";
 const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
+// Preserved thinking: on these models a thinking block is valid only in the conversation that produced it. The agent
+// replays blocks only within their own turn (agent.js), so none should fail the check; should one still fail (a block
+// after a mid-output fallback, whose earlier blocks are not replayed), the first-party API is asked to drop it rather
+// than refuse the whole request. The field needs this beta header, and is a 400 without it.
+export const BINDING_BETA = "thinking-binding-controls-2026-08-01";
+const BINDING_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"]);
 const RETRYABLE_TYPES = new Set(["overloaded_error", "api_error", "rate_limit_error", "timeout_error"]);
 
 const isFirstParty = (url) => { try { return new URL(url).hostname === "api.anthropic.com"; } catch { return false; } };
@@ -60,7 +67,8 @@ export function buildRequest({ provider, system, messages, tools, thinking = tru
     body.tool_choice = { type: toolChoice === "none" ? "none" : "auto" };
   }
   const th = thinkingParam(provider.model, thinking, maxTokens, firstParty);
-  if (th) body.thinking = th;
+  const bind = Boolean(firstParty && th?.type === "adaptive" && BINDING_MODELS.has(provider.model));
+  if (th) body.thinking = bind ? { ...th, block_binding: { prefix_mismatch_behavior: "drop_block" } } : th;
   if (!th && provider.temperature !== null && provider.temperature !== undefined && provider.temperature !== "" && !NO_SAMPLING.test(provider.model)) {
     body.temperature = Number(provider.temperature);
   }
@@ -72,11 +80,20 @@ export function buildRequest({ provider, system, messages, tools, thinking = tru
     "anthropic-dangerous-direct-browser-access": "true",
   };
   if (provider.apiKey) headers["x-api-key"] = provider.apiKey;
+  const betas = [];
   if (firstParty && FALLBACK_MODELS.has(provider.model) && body.fallbacks === undefined) {
     body.fallbacks = "default";
-    headers["anthropic-beta"] = FALLBACK_BETA;
+    betas.push(FALLBACK_BETA);
   }
-  for (const [k, v] of Object.entries(provider.headers || {})) headers[k] = v;
+  if (body.thinking?.block_binding) betas.push(BINDING_BETA);
+  if (betas.length) headers["anthropic-beta"] = betas.join(",");
+  for (const [k, v] of Object.entries(provider.headers || {})) {
+    // a user's own anthropic-beta adds to ours: block_binding without its header is a 400
+    if (k.toLowerCase() === "anthropic-beta" && betas.length) {
+      delete headers["anthropic-beta"];
+      headers[k] = [...new Set([...String(v).split(",").map((s) => s.trim()).filter(Boolean), ...betas])].join(",");
+    } else headers[k] = v;
+  }
   let url = target;
   if (provider.route === "runner" && provider.runner?.url) {
     url = `${provider.runner.url.replace(/\/+$/, "")}/api/llm`;

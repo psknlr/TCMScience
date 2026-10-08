@@ -6,8 +6,12 @@
 // `cors` records whether a browser page on https://science.impf.ai can call the provider directly. The cloud
 // providers below answered a CORS preflight from that origin (checked 2026-10-07). Local servers need their own CORS
 // setting (`help` names it), or the local runner forwards the calls (POST {runner}/api/llm, X-TCM-Target).
+//
+// `stream` says how a service streams its text (llm/openai.js streamModes): "delta" for the services known to send
+// increments, so nothing is guessed; Tao-S1's reasoning comes as the whole text so far; custom endpoints are guessed.
 
-import { t } from "./i18n.js";
+import { lang, t } from "./i18n.js";
+import { relayError } from "./llm/openai.js";
 import { fetchWithTimeout, isLoopbackUrl, trimSlash } from "./util.js";
 
 export const RELAY_ORIGIN = "https://science.impf.ai";
@@ -19,6 +23,8 @@ export const PRESETS = [
     id: "tao", label: "Tao-S1", format: "openai", base_url: "/v1", models: ["Tao-S1"], default_model: "Tao-S1",
     key_required: false, relay: true, cors: "ok", max_tokens_param: "max_completion_tokens", reasoning: "reasoning_details",
     stream_usage: true, thinking_off: { thinking: { type: "disabled" } }, max_output: 8192, tools: true,
+    // the relay's upstream sends reasoning_details as the whole text so far; its content may come either way
+    stream: { content: "auto", reasoning: "cumulative" },
     help: {
       zh: "Tao-S1 · 默认模型。无需密钥；请求经 science.impf.ai 中继转发至模型服务，有调用频率限制。",
       en: "Tao-S1 · the default model. No key needed; requests pass through the science.impf.ai relay to the model service, with rate limits.",
@@ -27,7 +33,7 @@ export const PRESETS = [
   {
     id: "openai", label: "OpenAI", format: "openai", base_url: "https://api.openai.com/v1",
     models: ["gpt-5", "gpt-5-mini", "gpt-4.1"], default_model: "gpt-5", key_required: true, cors: "ok",
-    max_tokens_param: "max_completion_tokens", reasoning: null, stream_usage: true, tools: true,
+    max_tokens_param: "max_completion_tokens", reasoning: null, stream_usage: true, tools: true, stream: "delta",
     docs: "https://platform.openai.com/api-keys",
   },
   {
@@ -43,44 +49,44 @@ export const PRESETS = [
   {
     id: "deepseek", label: "DeepSeek", format: "openai", base_url: "https://api.deepseek.com/v1",
     models: ["deepseek-chat", "deepseek-reasoner"], default_model: "deepseek-chat", key_required: true, cors: "ok",
-    max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true,
+    max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
     docs: "https://platform.deepseek.com/api_keys",
   },
   {
     id: "qwen", label: "通义千问 Qwen", format: "openai", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     models: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen3-max"], default_model: "qwen-plus", key_required: true, cors: "ok",
-    max_tokens_param: "max_tokens", reasoning: null, stream_usage: true, tools: true,
+    max_tokens_param: "max_tokens", reasoning: null, stream_usage: true, tools: true, stream: "delta",
     docs: "https://bailian.console.aliyun.com/",
   },
   {
     id: "moonshot", label: "Kimi (Moonshot)", format: "openai", base_url: "https://api.moonshot.cn/v1",
     models: ["kimi-k2-turbo-preview", "kimi-k2-0905-preview", "moonshot-v1-32k"], default_model: "kimi-k2-turbo-preview",
-    key_required: true, cors: "ok", max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true,
+    key_required: true, cors: "ok", max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
     docs: "https://platform.moonshot.cn/console/api-keys",
   },
   {
     id: "zhipu", label: "智谱 GLM", format: "openai", base_url: "https://open.bigmodel.cn/api/paas/v4",
     models: ["glm-4.6", "glm-4.5", "glm-4.5-air"], default_model: "glm-4.6", key_required: true, cors: "ok",
-    max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true,
+    max_tokens_param: "max_tokens", reasoning: "reasoning_content", stream_usage: true, tools: true, stream: "delta",
     docs: "https://open.bigmodel.cn/usercenter/apikeys",
   },
   {
     id: "siliconflow", label: "SiliconFlow 硅基流动", format: "openai", base_url: "https://api.siliconflow.cn/v1",
     models: ["deepseek-ai/DeepSeek-V3.2", "Qwen/Qwen3-235B-A22B-Instruct-2507", "moonshotai/Kimi-K2-Instruct-0905"],
     default_model: "deepseek-ai/DeepSeek-V3.2", key_required: true, cors: "ok", max_tokens_param: "max_tokens",
-    reasoning: null, stream_usage: true, tools: true, docs: "https://cloud.siliconflow.cn/account/ak",
+    reasoning: null, stream_usage: true, tools: true, stream: "delta", docs: "https://cloud.siliconflow.cn/account/ak",
   },
   {
     id: "openrouter", label: "OpenRouter", format: "openai", base_url: "https://openrouter.ai/api/v1",
     models: ["openai/gpt-5", "anthropic/claude-opus-5-5", "deepseek/deepseek-chat-v3.1", "qwen/qwen3-235b-a22b"],
     default_model: "openai/gpt-5", key_required: true, cors: "ok", max_tokens_param: "max_tokens",
-    reasoning: "reasoning_details", stream_usage: true, tools: true, docs: "https://openrouter.ai/keys",
+    reasoning: "reasoning_details", stream_usage: true, tools: true, stream: "delta", docs: "https://openrouter.ai/keys",
   },
   {
     id: "ollama", label: "Ollama", format: "openai", base_url: "http://127.0.0.1:11434/v1",
     models: ["qwen3:8b", "qwen3:32b", "llama3.1:8b", "deepseek-r1:8b"], default_model: "qwen3:8b",
     key_required: false, local: true, cors: "needs-config", max_tokens_param: "max_tokens", reasoning: null,
-    stream_usage: true, tools: true, fix: "core.local_model.cors.ollama",
+    stream_usage: true, tools: true, stream: "delta", fix: "core.local_model.cors.ollama",
     help: {
       zh: "本机 Ollama。浏览器直连需要设置 OLLAMA_ORIGINS=https://science.impf.ai 后重启；也可以经本机 Runner 转发。",
       en: "Ollama on this computer. Direct browser calls need OLLAMA_ORIGINS=https://science.impf.ai and a restart; or route through the local runner.",
@@ -89,7 +95,7 @@ export const PRESETS = [
   {
     id: "lmstudio", label: "LM Studio", format: "openai", base_url: "http://127.0.0.1:1234/v1",
     models: [], default_model: "", key_required: false, local: true, cors: "needs-config", max_tokens_param: "max_tokens",
-    reasoning: null, stream_usage: false, tools: true, fix: "core.local_model.cors.lmstudio",
+    reasoning: null, stream_usage: false, tools: true, stream: "delta", fix: "core.local_model.cors.lmstudio",
     help: {
       zh: "本机 LM Studio。浏览器直连需在 Developer → Server Settings 中打开「Enable CORS」；也可以经本机 Runner 转发。",
       en: "LM Studio on this computer. Direct browser calls need \"Enable CORS\" under Developer → Server Settings; or route through the local runner.",
@@ -98,7 +104,7 @@ export const PRESETS = [
   {
     id: "vllm", label: "vLLM", format: "openai", base_url: "http://127.0.0.1:8000/v1",
     models: [], default_model: "", key_required: false, local: true, cors: "needs-config", max_tokens_param: "max_tokens",
-    reasoning: null, stream_usage: true, tools: true, fix: "core.local_model.cors.vllm",
+    reasoning: null, stream_usage: true, tools: true, stream: "delta", fix: "core.local_model.cors.vllm",
     help: {
       zh: "本机 vLLM（OpenAI 兼容服务）。浏览器直连需 --allowed-origins；工具调用需 --enable-auto-tool-choice 与对应的 --tool-call-parser。",
       en: "vLLM's OpenAI-compatible server. Direct browser calls need --allowed-origins; tool calls need --enable-auto-tool-choice and a matching --tool-call-parser.",
@@ -107,7 +113,7 @@ export const PRESETS = [
   {
     id: "llamacpp", label: "llama.cpp", format: "openai", base_url: "http://127.0.0.1:8080/v1",
     models: [], default_model: "", key_required: false, local: true, cors: "needs-config", max_tokens_param: "max_tokens",
-    reasoning: null, stream_usage: false, tools: true, fix: "core.local_model.cors.llamacpp",
+    reasoning: null, stream_usage: false, tools: true, stream: "delta", fix: "core.local_model.cors.llamacpp",
     help: {
       zh: "本机 llama-server。工具调用需以 --jinja 启动。",
       en: "llama-server on this computer. Tool calls need --jinja.",
@@ -217,16 +223,29 @@ export function localFix(provider, origin = pageOrigin() || RELAY_ORIGIN) {
   return t(provider.fix || "core.local_model.cors.generic", { origin });
 }
 
-/** GET {relay}/health → {ok, model, limits, max_output_tokens}; never throws. */
+/**
+ * GET {relay}/health → {ok, model, limits, max_output_tokens, error?, error_type?, error_lang?}; never throws. An error
+ * of a known type is told in the page's language (relayError); `error_lang` is "zh" when the relay's own Chinese
+ * message is shown on a page in another language.
+ */
 export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl = relayBaseUrl(), timeoutMs = 10000 } = {}) {
   try {
     const r = await fetchWithTimeout(fetchImpl, `${trimSlash(baseUrl)}/health`, { headers: { Accept: "application/json" } }, timeoutMs);
     const j = await r.json().catch(() => ({}));
+    const type = typeof j.error?.type === "string" ? j.error.type : "";
+    // the runner's not_relay error carries message_en beside its Chinese message: the page's language picks
+    const said = (lang() !== "zh" && typeof j.error?.message_en === "string" && j.error.message_en.trim())
+      || (typeof j.error?.message === "string" ? j.error.message : "");
+    const told = (fallback) => {
+      if (!type && !said) return { error: fallback };
+      const shown = relayError(type, said || "");
+      return { error: shown.text, ...(type ? { error_type: type } : {}), ...(shown.lang ? { error_lang: shown.lang } : {}) };
+    };
     return {
       ok: Boolean(r.ok && j.ok), model: j.model || "Tao-S1", models: j.models || ["Tao-S1"], limits: j.limits || null,
       max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null,
-      ...(r.ok ? {} : { status: r.status, error: j.error?.message || `HTTP ${r.status}` }),
-      ...(r.ok && !j.ok ? { error: j.error?.message || t("core.relay.off") } : {}),
+      ...(r.ok ? {} : { status: r.status, ...told(`HTTP ${r.status}`) }),
+      ...(r.ok && !j.ok ? told(t("core.relay.off")) : {}),
     };
   } catch (err) {
     return { ok: false, model: "Tao-S1", limits: null, max_output_tokens: null, error: err?.message || String(err) };

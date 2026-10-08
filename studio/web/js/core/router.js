@@ -17,6 +17,26 @@ import { canonicalJson, clip, isAbort, isPlainObject, nowIso, sha256Hex } from "
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
 
+const SIGN = "Signing a clinic draft is the licensed practitioner's own act; it is never done by a tool call.";
+const REGISTRY = "Registry releases and skill promotion are reviewed acts of the maintainers, not tool calls.";
+const SHELL = "Studio offers no raw shell: jobs run only the fixed command of a registered job kind.";
+/**
+ * Acts reserved for a person (tcmstudio.catalog.NEVER_OFFERED). They are never catalog entries; called by name, here
+ * or through call_tool, they are refused with HUMAN_ONLY, as the runner's dispatcher refuses them, instead of being
+ * reported as an unknown tool the model might go and search for. A catalog's `never_offered` adds to these.
+ */
+export const HUMAN_ONLY = {
+  "clinic.sign": SIGN,
+  clinic_sign: SIGN,
+  "clinic.agreement": "Agreement studies against practitioners' labels are run by a person, not by the model.",
+  "registry.release": REGISTRY,
+  "registry.promote": REGISTRY,
+  "system.shell": SHELL,
+  shell: SHELL,
+  "tcmdb.fetch_confirm": "A download above the data hub's size gate needs the user's own confirmation; it is not a tool call.",
+};
+const HUMAN_ONLY_REMEDY = "A person does this, not the model: a licensed practitioner signs a clinic draft; the maintainers review a release.";
+
 /** Approvals kept in the project records of a Store (Store.projects.get / update). */
 export function storeApprovals(store) {
   return {
@@ -106,9 +126,18 @@ export class ToolRouter {
   /** What a call resolves to: the core tool, the entry it reaches (call_tool → arguments.tool), and its flags. */
   resolve(name, args = {}) {
     const cat = this.catalog;
+    const humanOnly = (id) => {
+      const extra = cat?.neverOffered;
+      const msg = (extra && Object.hasOwn(extra, id) ? extra[id] : null) || (Object.hasOwn(HUMAN_ONLY, id) ? HUMAN_ONLY[id] : null);
+      return msg ? { error: "human_only", name: id, message: String(msg), suggestions: [] } : null;
+    };
+    const refusedByName = humanOnly(name);
+    if (refusedByName) return refusedByName;
     const core = cat?.coreTool?.(name) || null;
     if (name === "call_tool") {
       const id = String(args?.tool || "");
+      const refused = humanOnly(id);
+      if (refused) return refused;
       const entry = cat?.byId?.[id] || cat?.coreTool?.(id) || null;
       if (!entry) return { error: "not_found", name: id || "(missing tool)", suggestions: cat?.suggest?.(id) || [] };
       return { core, entry, target: entry, key: entry.id || entry.name, label: labelOf(entry) };
@@ -133,6 +162,16 @@ export class ToolRouter {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
     const input = isPlainObject(args) ? args : {};
     const r = this.resolve(name, input);
+    if (r.error === "human_only") {
+      // a refusal, shown as one with its code: nothing here or anywhere else can do it for the model
+      return synthEnvelope({
+        tool: name, via: r.name, args: input, status: "refused", kind: r.name.startsWith("clinic") ? "clinic" : "system",
+        summary: t("core.router.human_only", { name: r.name }),
+        text: `Refused (HUMAN_ONLY): ${r.message} It is not offered as a tool and no tool can do it; tell the user it is a person's act, and do not look for another tool to do it.`,
+        error: { type: "refused", message: r.message, hint: HUMAN_ONLY_REMEDY },
+        refusals: [{ code: "HUMAN_ONLY", message: r.message, remedy: HUMAN_ONLY_REMEDY }],
+      });
+    }
     if (r.error) {
       const hint = r.suggestions.length ? `Did you mean: ${r.suggestions.join(", ")}? ` : "";
       return synthEnvelope({
@@ -231,7 +270,8 @@ export class ToolRouter {
             tool: name, via: r.entry?.id, args: input, status: "refused", kind: r.entry?.kind,
             summary: t("core.router.denied", { name: r.label }),
             text: `Not run: the user declined this call (${request.reasons.join(", ")}). Do not call it again unless the user asks; answer with what you have, and say what this call would have added.`,
-            error: { type: "refused", message: t("core.router.denied", { name: r.label }), hint: "the user declined" },
+            // the person's "no", not the kernel's refusal: status stays "refused" (not run), the type says who decided
+            error: { type: "declined", message: t("core.router.denied", { name: r.label }), hint: "the user declined" },
             approval: { reason: request.reason, what, hosts, decision: "deny" },
           }),
         };
@@ -367,7 +407,7 @@ function abort() {
  * An envelope for an outcome decided in the page (CONTRACTS §3): nothing ran, so there is no result, no governance
  * verdict and no output hash; the receipt says where it was decided.
  */
-export async function synthEnvelope({ tool, via = null, args = {}, status, summary = "", text = "", error = null, approval = null, kind, where = "browser", result = null }) {
+export async function synthEnvelope({ tool, via = null, args = {}, status, summary = "", text = "", error = null, approval = null, kind, where = "browser", result = null, refusals = [] }) {
   // the same first line as the Python envelopes ("tool → via: status"), so the model reads every outcome alike
   // and the error's type (its message is in the UI's language; the model gets the English hint)
   const head = `${tool} → ${via || tool}: ${status}${error?.type ? `\nError (${error.type})${error.hint ? `. Hint: ${error.hint}` : ""}` : ""}`;
@@ -376,7 +416,7 @@ export async function synthEnvelope({ tool, via = null, args = {}, status, summa
     ok: status === "succeeded",
     tool, via: via || tool, status, duration_ms: 0, summary, text: clip(body.startsWith(head) ? body : `${head}\n${body}`.trim(), TEXT_LIMIT), result,
     citations: [],
-    governance: { kind: kind || "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: [], outputs: [] },
+    governance: { kind: kind || "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: Array.isArray(refusals) ? refusals : [], labels: [], licences: [], limitations: [], outputs: [] },
     receipt: {
       where, runtime: "studio-router", device: "cpu", versions: {}, composite_version: null, content_hash: null,
       audit_head: null, input_sha256: await inputSha256(args), output_sha256: null, started_at: nowIso(), decided_by: "router",

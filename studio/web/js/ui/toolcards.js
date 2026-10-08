@@ -4,10 +4,21 @@
 
 import { refusalsOf, releaseOf, claimsOf } from "../core/governance.js";
 import { glossary, lang, t } from "../core/i18n.js";
-import { fill, formatBytes, formatDateTime, formatDuration, h, uid } from "./dom.js";
-import { hashBadge, reasonList, verdictPill } from "./governance.js";
+import { fill, formatBytes, formatDateTime, formatDuration, guessLang, h, uid } from "./dom.js";
+import { candidateChip, hashBadge, reasonList, verdictPill } from "./governance.js";
 import { icon } from "./icons.js";
 import { button, chip, disclosure, progressBar, spinner } from "./primitives.js";
+
+/**
+ * An envelope's one-line summary in the interface language: `summary_en` on an English page when the runner or Pyodide
+ * wrote one, else `summary` (Chinese). `lang` is the language of the string actually shown ("en" or "zh-Hans", by its
+ * script), so a screen reader voices it right; null when there is nothing to show.
+ */
+export function envelopeSummary(envelope) {
+  const en = typeof envelope?.summary_en === "string" ? envelope.summary_en.trim() : "";
+  const text = lang() === "en" && en ? en : String(envelope?.summary || "");
+  return { text, lang: text ? guessLang(text) || null : null };
+}
 
 // ------------------------------------------------------------------------------------------------- thinking
 
@@ -19,7 +30,8 @@ export function thinkingBlock({ text = "", durationMs = null, streaming = false,
       const s = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0;
       label.textContent = t("ui.think.live", { s });
     } else {
-      label.textContent = durationMs !== null && durationMs !== undefined ? t("ui.think.done", { d: formatDuration(durationMs) }) : t("ui.think.title");
+      // under a second is not worth a number (a reasoning block that arrived in one burst reads 「思考 · 0 毫秒」)
+      label.textContent = durationMs !== null && durationMs !== undefined && durationMs >= 1000 ? t("ui.think.done", { d: formatDuration(durationMs) }) : t("ui.think.title");
     }
   };
   setLabel();
@@ -86,7 +98,26 @@ const STATUS = {
   refused: { icon: "ban", tone: "refused" },
   cancelled: { icon: "circleStop", tone: "cancelled" },
   job_submitted: { icon: "clock", tone: "job" },
+  // the person did not approve the call: their decision, never shown as a kernel refusal (DESIGN §7.1 #4)
+  declined: { icon: "user", tone: "declined" },
+  // the page closed while the call ran: whether it finished is not known here
+  interrupted: { icon: "circleDashed", tone: "cancelled" },
+  // a clinic result is a draft for a licensed practitioner, not a finished ✓
+  clinic_draft: { icon: "edit", tone: "draft" },
 };
+
+/** A call the person declined at the approval card (the router's synthesized envelope records their decision). */
+export function isDeclined(envelope) {
+  return envelope?.approval?.decision === "deny";
+}
+
+/** How a call's state is shown: {key, label} — a declined call and a clinic draft get their own words. */
+export function callStateView(status, envelope) {
+  if (isDeclined(envelope)) return { key: "declined", label: t("ui.tool.declined") };
+  if (status === "succeeded" && envelope?.governance?.kind === "clinic") return { key: "clinic_draft", label: t("ui.tool.clinic_draft") };
+  if (status === "interrupted") return { key: "interrupted", label: t("ui.tool.interrupted") };
+  return { key: status, label: glossary.verdictState(status === "pending" ? "running" : status, undefined, "call") };
+}
 
 /** A tool's human title in the current language, from the catalog. */
 export function toolTitle(name, catalog, args) {
@@ -133,13 +164,15 @@ export function resultPreview(envelope, lines = 10) {
  * call: {id, name, args, where, status, startedAt, endedAt}; envelope: the result (once there). opts: {catalog,
  * runnerUrl, onOpen(callId), open (expanded)}. Returns an element with .update(call, envelope).
  */
-export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen, open = false, compact = false } = {}) {
+export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen, open = false, compact = false, artifactFollows = false } = {}) {
   const root = h("div", { class: "tool-card", "data-call": call.id });
   let expanded = open;
   const bodyId = uid("tc");
   const render = () => {
     const status = envelope?.status || call.status || "running";
-    const st = STATUS[status] || STATUS.running;
+    const view = callStateView(status, envelope);
+    const declined = view.key === "declined";
+    const st = STATUS[view.key] || STATUS[status] || STATUS.running;
     const { title, id } = toolTitle(call.name, catalog, call.args);
     const via = envelope?.via && envelope.via !== id ? envelope.via : null;
     const receipt = envelope?.receipt || null;
@@ -149,7 +182,7 @@ export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen
     const rel = envelope ? releaseOf(envelope) : null;
     const claims = envelope ? claimsOf(envelope) : [];
     const refusedClaims = claims.filter((c) => c.allowed === false).length;
-    const statusLabel = glossary.verdictState(status === "pending" ? "running" : status, undefined, "call");
+    const statusLabel = view.label;
 
     const line = (() => {
       if (status === "running" || status === "pending") {
@@ -157,28 +190,36 @@ export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen
         return placeLabel ? t("ui.tool.running_at", { place: placeLabel, name: id, device: deviceLabel(receipt?.device) || "CPU" }) : t("ui.tool.preparing", { name: id });
       }
       if (status === "needs_approval") return t("ui.tool.waiting_approval");
-      return envelope?.summary || envelope?.error?.message || statusLabel;
+      if (status === "interrupted") return t("ui.tool.interrupted_line");
+      return envelopeSummary(envelope).text || envelope?.error?.message || statusLabel;
     })();
+    const lineLang = (status === "running" || status === "pending" || status === "needs_approval" || status === "interrupted") ? null
+      : envelopeSummary(envelope).lang;
 
-    const head = h("button", { type: "button", class: "tool-card__head", "aria-expanded": String(expanded), "aria-controls": bodyId, onClick: () => { expanded = !expanded; render(); } },
+    const head = h("button", { type: "button", class: "tool-card__head", "aria-expanded": String(expanded), "aria-controls": bodyId, "data-focus-key": `call:${call.id}`, onClick: () => { expanded = !expanded; render(); } },
       h("span", { class: ["tool-card__status", `is-${st.tone}`], role: "img", "aria-label": statusLabel }, icon(st.icon, { size: 14, className: st.spin ? "spin" : "" })),
       h("span.tool-card__title",
         h("span", { class: ["tool-card__name", title === id && "mono"] }, title),
         title !== id || via ? h("span.tool-card__id.mono", title === id ? `→ ${via}` : via ? `${id} → ${via}` : id) : null),
       h("span.tool-card__meta",
-        rel && !compact ? verdictPill(rel.badge, { size: "sm" }) : null,
+        // the artifact card that follows in the thread carries the release verdict: it is said there once
+        rel && !compact && !(artifactFollows && status === "succeeded") ? verdictPill(rel.badge, { size: "sm" }) : null,
         refusedClaims ? chip({ label: t("ui.tool.claims_refused", { n: refusedClaims }), tone: "vermilion", icon: "ban" }) : null,
-        status === "refused" ? h("span.tool-card__refused", statusLabel) : null,
+        status === "refused" && !declined ? h("span.tool-card__refused", statusLabel) : null,
+        declined ? h("span.tool-card__declined", statusLabel) : null,
+        view.key === "clinic_draft" ? chip({ label: statusLabel, tone: "ochre", icon: "edit", className: "tool-card__draft" }) : null,
+        // a candidate (unpinned) Skill runs but is never released: said on the card, not only in the inspector
+        !compact ? candidateChip(envelope) : null,
         decidedInPage ? h("span.where.where--none", { "data-tip": t("ui.where.decided_in_page") }, icon("circleDashed", { size: 12 }), h("span", t("ui.where.not_run"))) : whereBadge(receipt, { where, runnerUrl }),
         !decidedInPage && duration !== null && duration !== undefined && status !== "running" && status !== "pending" ? h("span.tool-card__dur.num", formatDuration(duration)) : null),
       icon("chevronDown", { size: 14, className: "tool-card__chev" }));
 
-    const summary = h("p", { class: ["tool-card__line", (status === "refused" || status === "failed") && "is-attention"] }, line);
+    const summary = h("p", { class: ["tool-card__line", ((status === "refused" && !declined) || status === "failed") && "is-attention"], lang: lineLang }, line);
 
     const body = h("div.tool-card__body", { id: bodyId, hidden: !expanded, class: expanded ? "is-open" : "" });
-    if (expanded) body.append(...cardBody(call, envelope, { onOpen, status }));
+    if (expanded) body.append(...cardBody(call, envelope, { onOpen, status, declined }));
 
-    root.className = ["tool-card", `is-${st.tone}`, expanded && "is-open", status === "refused" && "tool-card--refused"].filter(Boolean).join(" ");
+    root.className = ["tool-card", `is-${st.tone}`, expanded && "is-open", status === "refused" && !declined && "tool-card--refused", declined && "tool-card--declined"].filter(Boolean).join(" ");
     fill(root, head, summary, body);
   };
   render();
@@ -191,19 +232,25 @@ export function toolCallCard(call, envelope = null, { catalog, runnerUrl, onOpen
   return root;
 }
 
-function cardBody(call, envelope, { onOpen, status }) {
+function cardBody(call, envelope, { onOpen, status, declined = false }) {
   const out = [];
   const summary = argsSummary(call.args);
   if (summary) out.push(h("div.tool-card__row", h("span.tool-card__k", t("ui.tool.args")), h("span.tool-card__v", summary)));
   out.push(disclosure({ summary: t("ui.tool.args_json"), content: () => h("pre.code-block", prettyJson(call.args || {})), className: "tool-card__json" }));
   if (envelope) {
+    // the kernel's refusals are results whatever the call's status: a succeeded run can still be refused release
+    // (an unpinned candidate Skill: UNPINNED), and that reason must be readable here
+    const refusals = refusalsOf(envelope);
+    if (refusals.length) {
+      out.push(h("div.tool-card__refusals",
+        status === "succeeded" ? h("p.tool-card__k", t("ui.tool.kernel_refusals", { n: refusals.length })) : null,
+        reasonList(refusals)));
+    }
     if (status === "refused" || status === "failed" || status === "cancelled") {
-      const refusals = refusalsOf(envelope);
-      if (refusals.length) out.push(reasonList(refusals));
       // error.hint is written for the model (English, terse); the person reads the localized message, once
       const msg = envelope.error?.message || "";
       if (msg && msg !== envelope.summary) {
-        out.push(h("div", { class: ["tool-card__error", status === "refused" ? "is-refusal" : ""] }, h("p", msg)));
+        out.push(h("div", { class: ["tool-card__error", status === "refused" && !declined ? "is-refusal" : ""] }, h("p", msg)));
       }
     }
     if (envelope.text && (status === "succeeded" || status === "job_submitted")) {
@@ -241,7 +288,7 @@ function cardBody(call, envelope, { onOpen, status }) {
  * decided: the answer when it was already given.
  */
 export function permissionCard(request, { onDecide, decided = null, catalog } = {}) {
-  const root = h("div.permission", { role: "group", "aria-label": t("ui.perm.title") });
+  const root = h("div.permission", { role: "group", "aria-label": t("ui.perm.title"), "data-perm": request.callId || null, tabindex: "-1" });
   const render = () => {
     const reasons = request.reasons?.length ? request.reasons : [request.reason];
     const { title } = toolTitle(request.tool, catalog, request.args);
@@ -257,12 +304,14 @@ export function permissionCard(request, { onDecide, decided = null, catalog } = 
       const ic = { network: "globe", job: "clock", confirm: "shieldAlert", remote_upload: "upload", first_runner_call: "laptop" }[r] || "shield";
       return h("li.permission__reason", icon(ic, { size: 16 }), h("div", text));
     });
+    const key = `perm:${request.callId || request.tool}`;
+    // a decline is the person's decision, said in neutral words (not the kernel's vermilion 已拒绝)
     const actions = decided
-      ? h("p", { class: ["permission__decided", `is-${decided}`] }, icon(decided === "deny" ? "ban" : "check", { size: 14 }), t(`ui.perm.decided.${decided}`))
+      ? h("p", { class: ["permission__decided", `is-${decided}`], tabindex: "-1", "data-focus-key": key }, icon(decided === "deny" ? "user" : "check", { size: 14 }), t(`ui.perm.decided.${decided}`))
       : h("div.permission__actions",
-        button({ label: t("ui.perm.once"), variant: "primary", size: "sm", onClick: () => decide("once") }),
-        button({ label: t("ui.perm.project"), variant: "secondary", size: "sm", onClick: () => decide("project") }),
-        button({ label: t("ui.perm.deny"), variant: "ghost", size: "sm", onClick: () => decide("deny") }));
+        button({ label: t("ui.perm.once"), variant: "primary", size: "sm", onClick: () => decide("once"), attrs: { "data-focus-key": `${key}:once` } }),
+        button({ label: t("ui.perm.project"), variant: "secondary", size: "sm", onClick: () => decide("project"), attrs: { "data-focus-key": `${key}:project` } }),
+        button({ label: t("ui.perm.deny"), variant: "ghost", size: "sm", onClick: () => decide("deny"), attrs: { "data-focus-key": `${key}:deny` } }));
     root.className = ["permission", decided && "is-decided", decided === "deny" && "is-denied"].filter(Boolean).join(" ");
     fill(root, 
       h("header.permission__head", icon("shieldCheck", { size: 16 }), h("p.permission__title", decided ? t("ui.perm.title_decided") : t("ui.perm.title")), h("span.permission__tool", h("span", title), h("code.mono", request.entry || request.tool))),
@@ -271,12 +320,15 @@ export function permissionCard(request, { onDecide, decided = null, catalog } = 
       actions);
   };
   const decide = (d) => {
+    // the button that had focus is replaced by the decision: focus moves to that line, not to <body>
+    const hadFocus = root.contains(document.activeElement);
     decided = d;
     render();
+    if (hadFocus) root.querySelector(".permission__decided")?.focus({ preventScroll: true });
     onDecide?.(d);
   };
   render();
-  root.setDecided = (d) => { decided = d; render(); };
+  root.setDecided = (d) => { if (d === decided) return; decided = d; render(); };
   return root;
 }
 
@@ -329,7 +381,8 @@ export function jobCard(job, { files = null, onCancel, onOpenFile, logs = [] } =
     h("header.job__head",
       icon("workflow", { size: 16 }),
       h("div.job__title", h("p.job__kind", t(`ui.job.kind.${job.kind}`) !== `ui.job.kind.${job.kind}` ? t(`ui.job.kind.${job.kind}`) : job.kind), h("p.job__id.mono.muted", job.id + (job.device ? ` · ${deviceLabel(job.device)}` : ""))),
-      verdictPill({ tone: { queued: "slate", running: "navy", succeeded: "jade", failed: "warning", cancelled: "slate" }[state], icon: { queued: "◷", running: "…", succeeded: "✓", failed: "!", cancelled: "■" }[state], label: glossary.verdictState(state, undefined, "job") }),
+      // finished is not released: a neutral ✓ (as a finished call), never the release verdict's jade
+      verdictPill({ tone: { queued: "slate", running: "navy", succeeded: "neutral", failed: "warning", cancelled: "slate" }[state], icon: { queued: "◷", running: "…", succeeded: "✓", failed: "!", cancelled: "■" }[state], label: glossary.verdictState(state, undefined, "job") }),
       !ended && onCancel ? button({ label: t("ui.job.cancel"), size: "sm", variant: "ghost", icon: "circleStop", onClick: () => onCancel(job) }) : null),
     timeline, progress, err, pendingNote, fileList,
     logs.length ? disclosure({ summary: t("ui.job.logs", { n: logs.length }), content: () => h("pre.code-block", logs.slice(-200).join("\n")) }) : null);

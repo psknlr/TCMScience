@@ -17,7 +17,7 @@ Same origin as the app. OpenAI-compatible. The browser never sends a key.
 |---|---|---|
 | GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`. `ok:false` when `MINIMAX_API_KEY` is not set. |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
-| POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer. |
+| POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer; the relay sets it itself when the last user message asks about the assistant's identity or model (the page's own detector, run again as defence in depth). |
 
 Errors are always `{error:{message, type}}`, with a Chinese `message` that tells the visitor what to do. Types: `forbidden_origin`, `not_configured`, `bad_request`,
 `too_large`, `model_not_allowed`, `rate_limited`, `daily_limit`, `total_limit`, `blocked` (reserved; not emitted in v1),
@@ -45,7 +45,8 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "versions": {"tcmstudio": "0.1.0", "bioagent": "0.2.7", "psh": "0.6.0"},
   "categories": [ {"id": "tcm_knowledge", "zh": "中医知识", "en": "TCM Knowledge", "count": 9}, ... ],   // 13 ids, see below
   "core": [ CoreTool, ... ],        // offered to the model directly every turn
-  "entries": [ Entry, ... ]          // everything reachable through call_tool; searched by catalog_search
+  "entries": [ Entry, ... ],         // everything reachable through call_tool; searched by catalog_search
+  "never_offered": {"clinic.sign": "…", ...}   // acts reserved for a person {name: message}: never entries; refused by name
 }
 ```
 
@@ -142,7 +143,9 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
   "via": "skill.assess-tcm-safety",     // the Entry actually executed
   "status": "succeeded",                // succeeded | failed | refused | needs_approval | job_submitted | cancelled
   "duration_ms": 1240,
-  "summary": "甘草 + 甘遂：记载为十八反配伍禁忌；4 条安全性记录（记载，非临床安全性结论）",
+  "summary": "甘草 + 甘遂：记载 1 处配伍禁忌（十八反等）；4 条安全性记录，3 条为高或严重级别（记载，非临床安全性结论） · 已准予发布",
+  "summary_en": "甘草 + 甘遂: 1 recorded incompatibility (the eighteen antagonisms and others); 4 safety record(s), 3 at high or critical severity (records, not a clinical safety conclusion) · release authorized",
+                                        // optional: the summary in English (corpus names stay as written); an English page shows it
   "text": "...",                        // compact text for the model, ≤ 16 000 chars (JSON or prose), states limits
   "result": { ... },                    // full JSON for the UI (may be large; the UI paginates)
   "citations": [ {"id":"E1","kind":"pmid|doi|nct|classical|source","label":"...","url":"https://...","evidence_ref":"..."} ],
@@ -173,7 +176,7 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
   },
   "job": null | {"id":"j_…","kind":"pipeline.rnaseq","state":"queued"},
   "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call","what":"…","hosts":["…"],"decision"?:"deny"},
-  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|runtime_error|timeout|network_off","message":"…","hint":"…"}
+  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off","message":"…","hint":"…"}
 }
 ```
 
@@ -183,12 +186,25 @@ Rules:
   which carry `receipt.decided_by: "router"` and no output hash).
 - Citations are numbered `E1…` per envelope by the dispatcher; the agent renumbers them across one turn in call order
   (the second result's `E1` becomes the next free id, in `citations[].id` and in the `[E#]` marks of `text`), so an id
-  is unique within a turn for the model and the reader. The UI resolves `[E#]` against the envelopes of the same turn.
+  is unique within a turn for the model and the reader. Numbering also runs on across the conversation path: a turn
+  starts after the highest `E#` of the turns before (the assistant record keeps it as `citeTop`). The UI resolves `[E#]`
+  against the envelopes of the same turn first, then the earlier turns on the path; an id found nowhere stays unresolved.
 - `receipt.output_sha256` hashes the whole result, which includes the run id, the time and the audit-chain position: it
   differs on every run. What is reproducible is `input_sha256`, `content_hash` and each `governance.outputs[].sha256`.
 - `text` is what the model reads. It must restate the limits (`absence of a record is not evidence
   of safety`, `predicted ≠ measured`, `draft for a licensed practitioner`) when the result has them.
 - Wrong arguments produce `status:"failed"`, `error.type:"bad_arguments"`, and a hint such as "Did you mean 'names'?".
+  A name the seed corpus does not hold ("names nothing in this knowledge base") is not a wrong argument: it is
+  `error.type:"not_found"`, and the summary says that not found there is not absence.
+- A person declining an approval gives `status:"refused"` with `error.type:"declined"` (decided in the page,
+  `approval.decision:"deny"`): not run, and not the kernel's refusal.
+- A succeeded `job_status` for a `skill.run` job carries the governed run's governance (`kind:"skill"`: claims,
+  evidence, artifact, verdict, refusals, limitations, outputs with content), copied from the job's `out/envelope.json`
+  and read only at the digest recorded when the job was collected; when it cannot be read, `released:false` with a
+  limitation saying why. Its receipt also carries `content_hash`, `audit_head`, `composite_version`, `skill_pinned`,
+  `run_id` and `run_anchor` of that run. The dispatcher's `context.jobs` may expose `envelope(job_id)` besides
+  `submit`/`get` for this. The model may poll `job_status` again after success; the UI shows a job's governance once,
+  under the last succeeded poll.
 - A tool that can't run here (missing dep, needs runner, network off) returns `status:"failed"`
   with `error.type:"unavailable" | "network_off"` and a remedy. It never substitutes an approximation.
 - `needs_approval` is returned by the *web client's router* (not by Python) when a `confirm` /
@@ -236,7 +252,7 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/jobs` | `?project_id=&state=` → `{jobs:[Job]}` |
 | GET | `/api/jobs/{id}` | `Job` |
 | DELETE | `/api/jobs/{id}` | cancel → `Job` (409 if already finished) |
-| GET | `/api/jobs/{id}/events` | SSE: `event: state|log|progress|artefact|done`, `data: JSON`; keep-alive comment every 15 s; `?token=` |
+| GET | `/api/jobs/{id}/events` | SSE: `event: state|log|progress|artefact|done`, `data: JSON`, each written as it happens; keep-alive comment every 15 s; `?token=`. A (re)connection starts with `state` and up to 80 recent `log` lines. |
 | GET | `/api/jobs/{id}/files` | `{files:[{path, bytes, sha256, media_type}]}` |
 | GET | `/api/jobs/{id}/files/{path}` | bytes; HTML is served with `Content-Security-Policy: sandbox` |
 | POST | `/api/uploads` | raw body; headers `X-Filename`, `Content-Type` → `{id, name, bytes, sha256, media_type}` |
@@ -244,7 +260,7 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/llm/local` | probes local model servers → `{servers:[{id:"ollama"|"lmstudio"|"vllm"|"llamacpp", base_url, ok, models:[…]}]}` |
 | POST | `/api/llm` | model proxy: header `X-TCM-Target: <full URL>`, body forwarded, response streamed back. The target must be loopback, or a host in the provider allowlist (OpenAI, Anthropic, DeepSeek, DashScope, Moonshot, Zhipu, SiliconFlow, OpenRouter, and `--allow-host`). The key travels in the request's own `Authorization`/`x-api-key` and is never stored or logged. |
 | GET | `/` and static paths | the web app (bundled `web/` or `--web DIR`), so `http://127.0.0.1:8765/` works offline |
-| GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", message}}`: the runner never relays Tao-S1. A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay`. |
+| GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", code:"runner_no_relay", port:8765, message, message_en}}`: the runner never relays Tao-S1 (`message` is Chinese, `message_en` English; the page localises by `type`). A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay` with the same `code`, `port` and `message_en`. |
 
 `Job = {id, kind, state:"queued"|"running"|"succeeded"|"failed"|"cancelled", params, project_id,
 created_at, started_at, finished_at, progress:{fraction?, message?}|null, device, outcome:{status, error?, problems?}|null,

@@ -1,8 +1,12 @@
 // The deploy check (scripts/check.mjs) against the real relay handler, through an injected fetch.
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-import { check } from "../scripts/check.mjs";
+import { check, relayIn } from "../scripts/check.mjs";
 import { CSP_REPORT_ONLY, secure } from "../src/site.js";
 import { jsonReply, relay } from "./helpers.js";
 
@@ -60,7 +64,65 @@ test("what goes wrong is named: no _headers, no key, a refused key, a wrong orig
   const off = await check({}, io(site({ env: { MINIMAX_API_KEY: "" } })));
   assert.equal(off.call, "skipped (Tao-S1 off)");
   await assert.rejects(check({ requireModel: true }, io(site({ env: { MINIMAX_API_KEY: "" } }))), /Tao-S1 is off/);
+  // RELAY on in wrangler.toml: the missing key is the only reason left
+  await assert.rejects(check({ requireModel: true, relay: "on" }, io(site({ env: { MINIMAX_API_KEY: "" } }))),
+    (err) => /Tao-S1 is off: no MINIMAX_API_KEY secret on the Worker$/.test(err.message));
   await assert.rejects(check({}, io(site({ upstream: async () => jsonReply({ error: { message: "bad key" } }, 401) }))),
     /503 upstream_auth.*api\.minimax\.io/);
   await assert.rejects(check({ origin: "https://elsewhere.example" }, io(site())), /forbidden_origin.*ALLOWED_ORIGINS/);
+});
+
+test("a pause committed in wrangler.toml (RELAY = \"off\") is the owner's choice: the check passes without a call", async () => {
+  const logs = [];
+  const s = site({ env: { RELAY: "off" } }); // the key is there: only the pause turns Tao-S1 off
+  const out = await check({ requireModel: true, relay: "off" }, io(s, logs));
+  assert.equal(out.call, "skipped (RELAY off)");
+  assert.deepEqual(s.seen.map(([m, p]) => `${m} ${p}`), ["GET /v1/health", "GET /"]);
+  assert.match(logs.join("\n"), /paused \(RELAY = "off" in wrangler\.toml\)/);
+  // its headers are still checked
+  await assert.rejects(check({ requireModel: true, relay: "off" }, io(site({ env: { RELAY: "off" }, pageHeaders: false }))), /_headers/);
+  // RELAY on, but the Worker answers ok:false: a failure (no key), not a pause
+  await assert.rejects(check({ requireModel: true, relay: "on" }, io(site({ env: { RELAY: "off" } }))), /Tao-S1 is off/);
+});
+
+test("RELAY is read from the repository's wrangler.toml, from its [vars] line and not a comment", () => {
+  const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const line = /^RELAY = .*$/m;
+  assert.match(text, line);
+  assert.equal(relayIn(text.replace(line, 'RELAY = "off"')), "off");
+  assert.equal(relayIn(text.replace(line, 'RELAY = "on"  # back on')), "on");
+  assert.equal(relayIn(text.replace(line, "RELAY = 'off'")), "off");
+  assert.equal(relayIn(text.replace(line, "RELAY = false")), "false");
+  assert.equal(relayIn(text.replace(line, "")), "on"); // unset: the relay's default
+  assert.equal(relayIn(null), null);
+});
+
+test("the command line: the pause in wrangler.toml, or --relay, decides whether ok:false fails the check", async (t) => {
+  const page = secure(new Response("", { headers: { "Content-Type": "text/html; charset=utf-8" } }));
+  const server = createServer((req, res) => {
+    if (req.url === "/v1/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, service: "tcmscience-studio", version: "1", model: "Tao-S1", models: ["Tao-S1"] }));
+      return;
+    }
+    res.writeHead(200, Object.fromEntries(page.headers));
+    res.end(HTML);
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => server.close());
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const script = fileURLToPath(new URL("../scripts/check.mjs", import.meta.url));
+  const run = (...args) => new Promise((resolve) => {
+    execFile(process.execPath, [script, "--url", url, "--wait", "0", "--require-model", ...args], (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
+  });
+  const paused = await run("--relay", "off");
+  assert.equal(paused.code, 0, paused.stderr);
+  assert.equal(JSON.parse(paused.stdout).call, "skipped (RELAY off)");
+  const on = await run("--relay", "on");
+  assert.equal(on.code, 1);
+  assert.match(on.stderr, /check failed: the relay answers but Tao-S1 is off: no MINIMAX_API_KEY secret on the Worker/);
+  // without --relay, the repository's wrangler.toml decides
+  const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const fromToml = await run();
+  assert.equal(fromToml.code, /^(off|0|false|no)$/i.test(relayIn(text)) ? 0 : 1, fromToml.stderr);
 });

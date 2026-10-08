@@ -40,12 +40,17 @@ GPU。每个项目第一次在 Runner 上运行工具、每个任务、每次联
 
 ## 安装和运行本机 Runner
 
-需要 Python 3.11 或更新版本。在 TCMScience 仓库的根目录：
+需要 Python 3.11 或更新版本。先建一个虚拟环境，再在 TCMScience 仓库的根目录安装（Ubuntu 23.04+、Debian 12 和 Homebrew
+的 Python 不允许直接 `pip install` 到系统里，会报 `externally-managed-environment`）：
 
 ```bash
-pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
+python3 -m venv ~/.tcmscience/venv        # Debian/Ubuntu 报 ensurepip 不可用时，先 sudo apt install python3-venv
+. ~/.tcmscience/venv/bin/activate         # Windows（PowerShell）：~\.tcmscience\venv\Scripts\Activate.ps1
+python -m pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
 tcmstudio serve
 ```
+
+`tcmstudio` 命令装在这个虚拟环境里：在新的终端里先再执行一次上面的 `activate` 那一行，再运行 `tcmstudio serve`。
 
 它打印本机地址、配对链接和配对令牌，并在浏览器中打开配对链接 `https://science.impf.ai/#pair=…`；点「连接」即可。网页记住
 地址和令牌，并立即把令牌从地址栏删掉。Runner 提供的网页另有一条本机链接 `http://127.0.0.1:<端口>/#pair=…`。
@@ -88,9 +93,12 @@ tcmstudio serve
 
 ## 隐私：什么不会到达服务器
 
-- **不会到达 science.impf.ai 的**：项目、会话、上传的文件、工具的参数和结果、审计链、你的 API 密钥。它们保存在浏览器的
-  IndexedDB / localStorage 里，或在你电脑上的 Runner 主目录里。清除网站数据会删除浏览器里的部分；需要保留时请在
-  「设置 → 通用」中导出项目。
+- **不会到达 science.impf.ai 的**：项目、会话、上传的文件（下一条所说的小文本文件除外）、工具的参数和结果、审计链、你的
+  API 密钥。它们保存在浏览器的 IndexedDB / localStorage 里，或在你电脑上的 Runner 主目录里。清除网站数据会删除浏览器里的
+  部分；需要保留时请在「设置 → 通用」中导出项目。
+- **项目里的小文本文件会发给模型**：项目中 8 KB 以下的文本文件（合计最多 64 KB）附在系统提示里，随本项目的每条消息发给
+  所选的模型；其余文件只把名称、大小和哈希告诉模型。使用 Tao-S1 时，这些文本和消息一样经 science.impf.ai 的中继转给模型
+  服务（中继不保存）。文件列表里标着「发送给模型」的就是这些文件；不想发送的，请不要放进项目。
 - **使用 Tao-S1 时**：发给模型的内容（你的消息、系统提示、模型读到的工具结果文本）经中继转发给上游模型服务。中继不保存这些
   内容，Worker 的调用日志关闭；限额按访客 IP 的加盐哈希计数，IP 本身不存。
 - **使用你自己的 API 时**：模型调用直接从浏览器（或经本机 Runner）发往该服务，受该服务的条款约束。
@@ -135,8 +143,10 @@ cd studio && npm install && npm run test:e2e
 | `runner.spec.mjs` | 真实 Runner 提供网页并配对；自定义模型（脚本化的模拟模型 `e2e/mock-llm.mjs`）调用 `tcm_safety_report`，Runner 执行受治理 Skill；工具卡片（本机 Runner）、主张与产物卡片、发布状态、引用、检查器五页、英文界面；刷新后对话仍在；编辑问题产生分支；中途停止；中文文件名的文件发送到 Runner，名称与哈希不变 |
 | `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时跳过并说明） |
 | `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「本项目允许」写入项目并在刷新后仍然有效；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
-| `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行 |
+| `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
+| `a11y.spec.mjs` | 键盘与读屏：跳转链接按下后焦点到目标、路由不变；输入法组字时的 Enter 不发送、Esc 不停止回答；首次发送、停止、批准之后以及菜单、抽屉按 Esc 之后焦点的去向；实时区域的播报；axe-core 检查主要页面（浅色/深色、桌面/手机）与受治理的回答，严重（serious/critical）问题即失败 |
+| `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败不会被当作跳过 |
 
 Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw-browsers`）中的 `chromium-1194`、Playwright 自带的
 （`npx playwright install chromium`）。`$STUDIO_SITE` 指向已构建的网页时直接使用，否则先构建一次。截图保存在
@@ -146,7 +156,9 @@ Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw
 ## 部署
 
 science.impf.ai 是一个 Cloudflare Worker（`studio/edge`）：网页作为静态资源，`/v1/*` 是 Tao-S1 中继。部署由
-`.github/workflows/studio.yml` 在 `main` 分支上完成（测试 → 构建 → 部署，仓库有 Cloudflare 机密时才部署）。一次性的配置步骤见
+`.github/workflows/studio.yml` 在 `main` 分支上完成（测试 → 构建 → 部署，仓库有 Cloudflare 机密时才部署）。`studio/`、
+工作流本身，或网页打包进去的 Harness 代码（`PSH-Harness/src`、`BioScience-Harness` 的 `src`/`skills`/`registry` 及两者的安装
+文件）有改动时，它都会运行。一次性的配置步骤见
 [edge/SETUP.md](edge/SETUP.md)，Worker 的行为见 [edge/README.md](edge/README.md)。
 
 ---
@@ -162,9 +174,14 @@ browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). Conver
 your browser.
 
 - **Just open** science.impf.ai: Tao-S1, Python tools in the browser, nothing to install.
-- **Add the local runner**: `pip install -e PSH-Harness -e BioScience-Harness -e studio/runner && tcmstudio serve`, then
-  open the pairing link it prints. While connected, tools run on the runner (native Python, durable per-project audit
-  chains, network sources after approval, jobs, GPU with `--device cuda:0` etc.).
+- **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
+  system-wide `pip install` with `externally-managed-environment`; on Debian/Ubuntu `python3 -m venv` first needs
+  `sudo apt install python3-venv`): `python3 -m venv ~/.tcmscience/venv && . ~/.tcmscience/venv/bin/activate`
+  (Windows PowerShell: `~\.tcmscience\venv\Scripts\Activate.ps1`), then, from the repository root,
+  `python -m pip install -e PSH-Harness -e BioScience-Harness -e studio/runner && tcmstudio serve`, and open the pairing
+  link it prints. `tcmstudio` lives in that environment: activate it again in a new terminal. While connected, tools
+  run on the runner (native Python, durable per-project audit chains, network sources after approval, jobs, GPU with
+  `--device cuda:0` etc.).
 - **Fully local**: open the runner's own page `http://127.0.0.1:8765/` and pick a local model (Ollama, LM Studio, vLLM,
   llama.cpp); model calls go through the runner, so no CORS setup is needed.
 

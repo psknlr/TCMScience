@@ -3,6 +3,7 @@ cancellation, re-attachment after a restart, and the refusals."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import subprocess
 import sys
@@ -140,6 +141,10 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert env["status"] == "job_submitted", env
         job_id = env["job"]["id"]
         assert env["job"]["kind"] == "skill.run"
+        # a safety-record lookup run as a job is pending work, not a prediction
+        assert env["governance"]["limitations"] == [
+            "A job that has not succeeded is pending work, not a result."]
+        assert "Job" in env["summary_en"] and "已提交任务" in env["summary"]
         deadline = time.monotonic() + 120
         while True:
             st = c.call("job_status", {"job_id": job_id, "wait_s": 10})
@@ -159,6 +164,26 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert (out / "outputs" / "safety.json").is_file()
         # the run extended the project's own audit chain
         assert (srv.home / "projects" / "p-skill" / "psh" / "events.db").is_file()
+        # the job's status carries the governed run's own governance: its release verdict,
+        # claims, evidence and limitations, as a run in the thread shows them
+        g = st["governance"]
+        assert g["kind"] == "skill" and g["released"] is True
+        assert g["verdict"]["states"] and all(g["verdict"]["states"].values())
+        assert g["claims"] and g["evidence"] and g["artifact"]["skill_id"] == "assess-tcm-safety"
+        assert g["limitations"] == envelope["governance"]["limitations"]
+        assert any("not evidence of safety" in x for x in g["limitations"])
+        assert st["receipt"]["content_hash"] == envelope["receipt"]["content_hash"]
+        assert st["receipt"]["skill_pinned"] is True
+        assert "输出哈希已核验" in st["summary"] and "已准予发布" in st["summary"]
+        assert "已完成并核验" not in st["summary"]
+        assert "release authorized" in st["summary_en"]
+        assert "Release: released" in st["text"] and "Claims" in st["text"]
+        # read back only at the digest recorded when the job was collected
+        (out / "envelope.json").write_text(json.dumps({**envelope, "summary": "edited"}))
+        st = c.call("job_status", {"job_id": job_id})
+        assert st["governance"]["released"] is False and not st["governance"]["claims"]
+        assert "digest" in st["governance"]["limitations"][0]
+        assert "未准予发布" in st["summary"]
         # bad arguments are caught before anything runs
         env = c.call("run_pipeline", {"pipeline": "rnaseq", "arguments": {}})
         assert env["status"] == "failed" and env["error"]["type"] == "bad_arguments"
@@ -166,6 +191,31 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
             "skill_id": "dock-ligands", "arguments": {"receptor": "x", "ligands": "CCO"},
             "allow_unpinned": False}})
         assert env["status"] == "failed"
+
+
+def test_an_unpinned_skill_job_shows_that_it_was_not_released(tmp_path):
+    from conftest import INTAKE
+    with running_server(tmp_path / "home") as (srv, c):
+        env = c.call("call_tool", {"tool": "job.skill.run", "arguments": {
+            "skill_id": "draft-tcm-prescription", "allow_unpinned": True,
+            "arguments": {"intake": INTAKE}}}, project_id="p-unpinned")
+        assert env["status"] == "job_submitted", env
+        job_id = env["job"]["id"]
+        st = c.call("job_status", {"job_id": job_id, "wait_s": 30})
+        deadline = time.monotonic() + 120
+        while st["result"]["state"] not in ("succeeded", "failed", "cancelled"):
+            assert time.monotonic() < deadline
+            st = c.call("job_status", {"job_id": job_id, "wait_s": 10})
+        assert st["result"]["state"] == "succeeded", st["result"]["outcome"]
+        g = st["governance"]
+        # a development run: recorded, never released, and the job says so
+        assert g["kind"] == "skill" and g["released"] is False
+        assert "UNPINNED" in [r["code"] for r in g["refusals"]]
+        assert not all(g["verdict"]["states"].values())
+        assert "未准予发布" in st["summary"] and "not released" in st["summary_en"]
+        assert "Release: NOT released" in st["text"]
+        assert st["receipt"]["skill_pinned"] is False
+        assert any("draft for a licensed TCM practitioner" in x for x in g["limitations"])
 
 
 def test_skill_run_refuses_unpinned_without_consent(tmp_path):
@@ -278,6 +328,33 @@ def test_events_stream_progress_and_logs(tmp_path):
         assert status == 404
 
 
+def test_events_are_written_live_not_at_the_end(tmp_path):
+    """The SSE stream writes each event as it happens: the job's state arrives while it still runs."""
+    with running_server(tmp_path / "home", kinds=test_kinds()) as (_, c):
+        job = c.post("/api/jobs", {"kind": "test.sleep",
+                                   "params": {"seconds": 6, "lines": 3}})[1]
+        _wait_state(c, job["id"], ("running",))
+        conn = http.client.HTTPConnection("127.0.0.1", c.port, timeout=30)
+        conn.request("GET", f"/api/jobs/{job['id']}/events?token={c.token}",
+                     headers={"Accept": "text/event-stream"})
+        res = conn.getresponse()
+        assert res.status == 200
+        started = time.monotonic()
+        first_event = None
+        while first_event is None:
+            line = res.fp.readline().decode("utf-8")
+            assert line, "the stream ended before any event"
+            if line.startswith("event:"):
+                first_event = line[6:].strip()
+        waited = time.monotonic() - started
+        assert first_event == "state"
+        # before the fix the whole stream was buffered until the job finished (about 6 s)
+        assert waited < 3, f"the first event took {waited:.1f} s"
+        assert c.get(f"/api/jobs/{job['id']}")[1]["state"] == "running"
+        conn.close()
+        c.wait_job(job["id"])
+
+
 def test_gpu_jobs_run_one_at_a_time(tmp_path):
     nvidia = "0, NVIDIA RTX A4000, 16376, 550.54.14\n"
 
@@ -365,6 +442,7 @@ def test_a_refused_job_reaches_the_model_as_a_refusal(tmp_path):
         assert "build_source_snapshots" in env["error"]["hint"]
         assert any("snapshots" in m for m in env["error"]["missing"])
         assert "此处不可运行" in env["summary"] and "运行出错" not in env["summary"]
+        assert "cannot run here" in env["summary_en"] and "runtime error" not in env["summary_en"]
         assert "Error (unavailable): Research loop" in env["text"]
         assert "Remedy: Build the data snapshots" in env["text"]
         assert "runtime_error" not in env["text"]

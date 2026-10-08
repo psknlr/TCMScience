@@ -53,15 +53,20 @@ CATEGORIES: tuple[tuple[str, str, str], ...] = (
 )
 assert tuple(c[0] for c in CATEGORIES) == CATEGORY_IDS
 
+# Studio has no clinic view and no signing flow: say where the act really happens.
+_SIGN = ("Signing a clinic draft is the licensed practitioner's act, never a tool call; Studio "
+         "does not sign. The practitioner reviews the draft and signs it outside Studio: "
+         "`bioagent clinic sign <session directory> --practitioner … --licence … --decision "
+         "accept|modify|reject` on the runner machine (the session directory is under the "
+         "runner's projects/<project>/clinic/), or in their own clinic system.")
+
 #: Acts reserved for a person. They are never catalog entries and the dispatcher refuses
 #: them by name, so no prompt can reach them through call_tool.
 NEVER_OFFERED: dict[str, str] = {
-    "clinic.sign": "Signing a clinic draft is the licensed practitioner's act; it is done by "
-                   "the practitioner in the clinic view, never by a tool call.",
-    "clinic_sign": "Signing a clinic draft is the licensed practitioner's act; it is done by "
-                   "the practitioner in the clinic view, never by a tool call.",
+    "clinic.sign": _SIGN,
+    "clinic_sign": _SIGN,
     "clinic.agreement": "Agreement studies against practitioners' labels are run by a person "
-                        "from the clinic view, not by the model.",
+                        "outside Studio (bioagent clinic agreement <cases>), not by the model.",
     "registry.release": "Registry releases and skill promotion are reviewed acts of the "
                         "maintainers, not tool calls.",
     "registry.promote": "Registry releases and skill promotion are reviewed acts of the "
@@ -71,7 +76,8 @@ NEVER_OFFERED: dict[str, str] = {
     "shell": "Studio offers no raw shell: jobs run only the fixed command of a registered "
              "job kind.",
     "tcmdb.fetch_confirm": "A download above the hub's size gate needs the user's own "
-                           "confirmation in the data view.",
+                           "confirmation, which Studio never gives for them: the user runs "
+                           "`bioagent tcmdb fetch <dataset> --confirm` on the runner machine.",
 }
 
 # --------------------------------------------------------------------- native tools
@@ -1005,8 +1011,8 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
     "tcmdb.fetch": {
         "title": ("下载数据集", "Fetch a dataset"), "category": "tcm_data",
         "summary": "Download a dataset's files into the runner's data hub (checksums recorded). "
-                   "A dataset above the 512 MB gate needs the user's own confirmation in the "
-                   "data view.",
+                   "A file above the 512 MB size gate is not downloaded: Studio never confirms "
+                   "it; the user runs `bioagent tcmdb fetch <dataset> --confirm` on the runner.",
         "parameters": obj({"dataset": S(), "include_optional": B(default=False)},
                           required=("dataset",)),
         "network": True, "duration": "minutes", "tags": ("下载", "数据集")},
@@ -1075,8 +1081,9 @@ def _system_entries() -> list[dict[str, Any]]:
                tags=(*tags, "Skill", "受治理", "锁定")),
         _entry("system.classify", "system", "敏感信息分级", "Classify text", "system",
                "PSH's local label for a text (PUBLIC … PHI, SECRET) and which destinations it "
-               "may reach (local compute, local model, trusted or public remote). Advisory; "
-               "nothing leaves the machine.",
+               "may reach (local compute, local model, trusted or public remote). Advisory. "
+               "The classifier runs locally, but a text the model passes to it is already in "
+               "the conversation the selected model service sees.",
                obj({"text": S(maxLength=200000)}, required=("text",)),
                example={"text": "患者张三，住院号 123456"}, tags=(*tags, "隐私", "PHI", "脱敏", "分级")),
         _entry("system.audit_verify", "system", "审计链核验", "Verify the audit chain", "system",
@@ -1193,7 +1200,9 @@ def build_catalog(where: str = "runner", probe: bool = True) -> dict[str, Any]:
                        for cid, zh, en in CATEGORIES],
         "core": copy.deepcopy(list(CORE_TOOLS)), "entries": items,
         "counts": {"core": len(CORE_TOOLS), "entries": len(items),
-                   "by_kind": {k: sum(1 for e in items if e["kind"] == k) for k in ENTRY_KINDS}}}
+                   "by_kind": {k: sum(1 for e in items if e["kind"] == k) for k in ENTRY_KINDS}},
+        # acts reserved for a person ({name: message}): never entries; the page refuses them by name
+        "never_offered": dict(NEVER_OFFERED)}
     if _FAILED:
         doc["problems"] = [{"section": k, "error": v} for k, v in sorted(_FAILED.items())]
     return doc

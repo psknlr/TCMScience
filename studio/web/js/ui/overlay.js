@@ -19,7 +19,13 @@ export function announce(text, { assertive = false } = {}) {
 
 // ------------------------------------------------------------------------------------------------- toasts
 
-/** A short notice at the bottom. tone: neutral | ok | warn. action: {label, onClick}. */
+/** Toasts with an action (Undo, Stop) stay at least this long, and never close while pointed at or focused. */
+export const ACTION_TOAST_MS = 10000;
+
+/**
+ * A short notice. tone: neutral | ok | warn. action: {label, onClick}. A toast with an action stays at least
+ * ACTION_TOAST_MS, pauses while the pointer or focus is on it (WCAG 2.2.1), and has its own dismiss button.
+ */
 export function toast(message, { tone = "neutral", action, timeout = 3200 } = {}) {
   let region = document.getElementById("toasts");
   if (!region) {
@@ -27,17 +33,34 @@ export function toast(message, { tone = "neutral", action, timeout = 3200 } = {}
     document.body.appendChild(region);
   }
   const icons = { ok: "circleCheck", warn: "alert", neutral: "info" };
+  if (action && timeout) timeout = Math.max(timeout, ACTION_TOAST_MS);
+  let timer = 0;
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
+    clearTimeout(timer);
     el.classList.add("is-leaving");
     setTimeout(() => el.remove(), 200);
   };
-  const el = h("div", { class: ["toast", `toast--${tone}`], role: "status" },
+  const el = h("div", { class: ["toast", `toast--${tone}`, action && "toast--action"], role: "status" },
     icon(icons[tone] || "info", { size: 16, className: "toast__icon" }),
     h("span.toast__text", message),
-    action ? h("button.toast__action", { type: "button", onClick: () => { action.onClick?.(); close(); } }, action.label) : null);
+    action ? h("button.toast__action", { type: "button", onClick: () => { action.onClick?.(); close(); } }, action.label) : null,
+    action ? h("button.toast__close", { type: "button", "aria-label": t("ui.action.close"), onClick: close }, icon("x", { size: 14 })) : null);
   region.appendChild(el);
   while (region.children.length > 3) region.firstChild.remove();
-  if (timeout) setTimeout(close, timeout);
+  if (timeout) {
+    let held = 0;
+    const arm = () => { clearTimeout(timer); if (!held && !closed) timer = setTimeout(close, timeout); };
+    const hold = () => { held++; clearTimeout(timer); };
+    const release = () => { held = Math.max(0, held - 1); arm(); };
+    el.addEventListener("pointerenter", hold);
+    el.addEventListener("pointerleave", release);
+    el.addEventListener("focusin", hold);
+    el.addEventListener("focusout", (e) => { if (!el.contains(e.relatedTarget)) release(); });
+    arm();
+  }
   return close;
 }
 
@@ -67,12 +90,20 @@ export const hasOverlay = () => stack.length > 0;
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
 
+/**
+ * The elements Tab stops on, in order. A roving-tabindex item (an inactive tab, tabindex=-1) is not one of them: it
+ * would make the trap's first/last wrong and let Shift+Tab out of a modal drawer.
+ */
 export function focusables(root) {
-  return [...root.querySelectorAll(FOCUSABLE)].filter((el) => !el.hidden && el.offsetParent !== null || el === document.activeElement);
+  const tabIndex = (el) => (typeof el.tabIndex === "number" ? el.tabIndex : Number(el.getAttribute("tabindex") ?? 0));
+  return [...root.querySelectorAll(FOCUSABLE)].filter((el) => tabIndex(el) >= 0 && ((!el.hidden && el.offsetParent !== null) || el === document.activeElement));
 }
 
-/** Keep Tab inside `root` until the returned function is called; focus returns to what had it. */
-export function trapFocus(root, { initial } = {}) {
+/**
+ * Keep Tab inside `root` until the returned function is called; focus returns to what had it, or — when that is gone
+ * (re-rendered) or was <body> — to `returnTo` (an element or a function that finds one).
+ */
+export function trapFocus(root, { initial, returnTo } = {}) {
   const previous = document.activeElement;
   const onKey = (e) => {
     if (e.key !== "Tab") return;
@@ -91,7 +122,9 @@ export function trapFocus(root, { initial } = {}) {
   });
   return () => {
     root.removeEventListener("keydown", onKey);
-    if (previous && previous.isConnected && typeof previous.focus === "function") previous.focus({ preventScroll: true });
+    const back = previous && previous !== document.body && previous.isConnected && typeof previous.focus === "function"
+      ? previous : (typeof returnTo === "function" ? returnTo() : returnTo);
+    back?.focus?.({ preventScroll: true });
   };
 }
 
@@ -188,11 +221,15 @@ function overlayLayer() {
 
 /**
  * A popover next to `anchor`. content: Node or (close) => Node. placement: "bottom-start" | "bottom-end" | "top-start"
- * | "top-end". Light dismiss (outside click, Esc, focus leaving), focus moves in, and back to the anchor on close.
+ * | "top-end". Light dismiss (outside click, Esc, focus leaving). focus: move focus in on open; restoreFocus: put it
+ * back on the anchor when the popover closes by keyboard (Esc, an item chosen, Tab out) — a menu does not take focus
+ * itself (it focuses its first item) but still returns it. An anchor that is missing or detached opens nothing.
  */
-export function openPopover(anchor, content, { placement = "bottom-start", className = "", onClose, width, label, focus = true, role = "dialog" } = {}) {
+export function openPopover(anchor, content, { placement = "bottom-start", className = "", onClose, width, label, focus = true, restoreFocus = focus, role = "dialog", returnTo } = {}) {
+  if (!anchor || !anchor.isConnected) return { el: null, close() {}, place() {} };
   const pop = h("div", { class: ["popover", className], role, "aria-label": label || null, tabindex: "-1", style: width ? { width: typeof width === "number" ? `${width}px` : width } : null });
   let closed = false;
+  let releaseStack = () => {};
   const close = (opts = {}) => {
     if (closed) return;
     closed = true;
@@ -203,13 +240,14 @@ export function openPopover(anchor, content, { placement = "bottom-start", class
     anchor.setAttribute?.("aria-expanded", "false");
     pop.classList.add("is-leaving");
     setTimeout(() => pop.remove(), 120);
-    if (opts.restoreFocus !== false && focus && anchor.isConnected) anchor.focus({ preventScroll: true });
+    const inside = pop.contains(document.activeElement) || !document.activeElement || document.activeElement === document.body;
+    // the anchor may have been re-rendered while the popover was open (a status change redraws the top bar)
+    const back = anchor.isConnected ? anchor : returnTo?.();
+    if (opts.restoreFocus !== false && restoreFocus && inside && back?.isConnected) back.focus({ preventScroll: true });
     onClose?.();
   };
   const node = typeof content === "function" ? content(close) : content;
   if (node) pop.append(node);
-  overlayLayer().appendChild(pop);
-  anchor.setAttribute?.("aria-expanded", "true");
   function place() {
     // an anchor re-rendered underneath an open popover: keep the popover where it is
     if (!anchor.isConnected) return;
@@ -229,14 +267,13 @@ export function openPopover(anchor, content, { placement = "bottom-start", class
     pop.style.top = `${Math.round(top)}px`;
     pop.dataset.side = side;
   }
-  place();
-  requestAnimationFrame(place);
   const onDown = (e) => {
     if (pop.contains(e.target) || anchor.contains(e.target)) return;
     // a click inside a modal dialog opened from this popover must not close it
     if (e.target.closest?.("dialog[open]") && !pop.closest("dialog")) return;
     close({ restoreFocus: false });
   };
+  // listeners and the Esc stack first, then into the page: nothing can leave a popover on screen without them
   document.addEventListener("pointerdown", onDown, true);
   window.addEventListener("resize", place);
   window.addEventListener("scroll", place, true);
@@ -244,9 +281,20 @@ export function openPopover(anchor, content, { placement = "bottom-start", class
     if (e.key === "Escape") { e.stopPropagation(); close(); }
   });
   pop.addEventListener("focusout", (e) => {
-    if (e.relatedTarget && !pop.contains(e.relatedTarget) && !anchor.contains(e.relatedTarget) && !e.relatedTarget.closest?.(".popover, dialog")) close({ restoreFocus: false });
+    const to = e.relatedTarget;
+    if (to && (pop.contains(to) || anchor.contains(to) || to.closest?.(".popover, dialog"))) return;
+    if (to) { close({ restoreFocus: false }); return; }
+    // Tab past the last item lands on nothing (the popover is at the end of the page): close and go back to the anchor
+    requestAnimationFrame(() => {
+      const a = document.activeElement;
+      if (!closed && (!a || a === document.body) && role !== "tooltip") close();
+    });
   });
-  const releaseStack = pushOverlay({ el: pop, close });
+  releaseStack = pushOverlay({ el: pop, close });
+  overlayLayer().appendChild(pop);
+  anchor.setAttribute?.("aria-expanded", "true");
+  place();
+  requestAnimationFrame(place);
   if (focus) requestAnimationFrame(() => (focusables(pop)[0] || pop).focus({ preventScroll: true }));
   return { el: pop, close, place };
 }
@@ -268,7 +316,8 @@ export function openMenu(anchor, items, { placement = "bottom-end", label } = {}
     buttons.push(b);
     list.append(b);
   }
-  ctl = openPopover(anchor, list, { placement, className: "popover--menu", label, role: "menu", focus: false });
+  ctl = openPopover(anchor, list, { placement, className: "popover--menu", label, role: "menu", focus: false, restoreFocus: true });
+  if (!ctl.el) return ctl;
   const focusAt = (i) => { const b = buttons[(i + buttons.length) % buttons.length]; b?.focus(); };
   requestAnimationFrame(() => focusAt(0));
   ctl.el.addEventListener("keydown", (e) => {
@@ -277,7 +326,7 @@ export function openMenu(anchor, items, { placement = "bottom-end", label } = {}
     else if (e.key === "ArrowUp") { e.preventDefault(); focusAt(i - 1); }
     else if (e.key === "Home") { e.preventDefault(); focusAt(0); }
     else if (e.key === "End") { e.preventDefault(); focusAt(buttons.length - 1); }
-    else if (e.key === "Tab") { ctl.close({ restoreFocus: false }); }
+    else if (e.key === "Tab") { e.preventDefault(); ctl.close(); }
     else if (e.key.length === 1 && /\S/.test(e.key)) {
       const k = e.key.toLowerCase();
       const j = buttons.findIndex((b, n) => n > i && b.textContent.trim().toLowerCase().startsWith(k));
@@ -348,11 +397,16 @@ export function installTooltips(root = document) {
 export function attachHoverCard(target, build, { placement = "top-start", width = 360 } = {}) {
   let ctl = null;
   let timer = 0;
+  let via = "pointer";
   const open = (delay) => {
     clearTimeout(timer);
     timer = setTimeout(() => {
       if (ctl || !target.isConnected) return;
-      ctl = openPopover(target, build(), { placement, className: "popover--hovercard", width, focus: false, role: "tooltip", onClose: () => { ctl = null; } });
+      // from the pointer the card may hold links (role=dialog, non-modal); from keyboard focus it is a tooltip: text
+      // only, since focus cannot move into it (its facts are in the inspector, one key away)
+      const interactive = via === "pointer";
+      ctl = openPopover(target, build({ interactive }), { placement, className: "popover--hovercard", width, focus: false, restoreFocus: false, role: interactive ? "dialog" : "tooltip", label: interactive ? target.getAttribute("aria-label") : null, onClose: () => { ctl = null; } });
+      if (!ctl.el) { ctl = null; return; }
       target.setAttribute("aria-describedby", ctl.el.id || (ctl.el.id = uid("hc")));
       ctl.el.addEventListener("pointerenter", () => clearTimeout(timer));
       ctl.el.addEventListener("pointerleave", () => leave());
@@ -362,8 +416,8 @@ export function attachHoverCard(target, build, { placement = "top-start", width 
     clearTimeout(timer);
     timer = setTimeout(() => { ctl?.close({ restoreFocus: false }); target.removeAttribute("aria-describedby"); }, 160);
   };
-  const onEnter = (e) => { if (e.pointerType !== "touch") open(260); };
-  const onFocus = () => { if (target.matches(":focus-visible")) open(0); };
+  const onEnter = (e) => { if (e.pointerType !== "touch") { via = "pointer"; open(260); } };
+  const onFocus = () => { if (target.matches(":focus-visible")) { via = "focus"; open(0); } };
   target.addEventListener("pointerenter", onEnter);
   target.addEventListener("pointerleave", leave);
   target.addEventListener("focus", onFocus);

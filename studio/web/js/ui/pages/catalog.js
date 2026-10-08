@@ -3,7 +3,7 @@
 // governed skill its version, pin, claim kinds and content hash. Read from core/catalog.js.
 
 import { glossary, lang, t } from "../../core/i18n.js";
-import { clear, debounce, fill, h } from "../dom.js";
+import { clear, debounce, fill, guessLang, h } from "../dom.js";
 import { hashBadge } from "../governance.js";
 import { icon } from "../icons.js";
 import { button, chip, copyButton, emptyState, keyValue } from "../primitives.js";
@@ -72,7 +72,7 @@ export function mountCatalog(app, main) {
         h("span.entry-row__title", titleOf(e)),
         h("span.entry-row__kind", t(`ui.catalog.kind.${e.kind}`) !== `ui.catalog.kind.${e.kind}` ? t(`ui.catalog.kind.${e.kind}`) : e.kind)),
       h("code.entry-row__id", e.id),
-      e.summary ? h("p.entry-row__summary", e.summary) : null,
+      e.summary ? h("p.entry-row__summary", { lang: guessLang(e.summary) || null }, inlineLiterals(e.summary)) : null,
       h("div.entry-row__badges", badges(e, runnable(e)))));
   }
 
@@ -94,7 +94,7 @@ export function mountCatalog(app, main) {
       h("h2.entry__title", titleOf(e)),
       h("code.entry__id", e.id),
       h("div.entry__badges", badges(e, runnable(e))),
-      e.summary ? h("p.entry__summary", e.summary) : null,
+      e.summary ? h("p.entry__summary", { lang: guessLang(e.summary) || null }, inlineLiterals(e.summary)) : null,
       e.available === false && e.missing?.length ? h("p.entry__missing", icon("alert", { size: 14 }), t("ui.catalog.missing", { deps: e.missing.join(", ") })) : null,
       core.length ? h("p.entry__core", icon("sparkles", { size: 14 }), t("ui.catalog.core", { names: core.map((c) => c.name).join(", ") })) : null,
       h("section.entry__sec", h("h3", t("ui.catalog.params")),
@@ -103,8 +103,9 @@ export function mountCatalog(app, main) {
           h("tbody", rows.map(([name, sch]) => h("tr",
             h("td", h("code", name), req.has(name) ? h("span.params__req", { "aria-label": t("ui.catalog.required") }, " *") : null),
             h("td.params__type", typeOf(sch)),
-            h("td", sch.description || "", sch.default !== undefined ? h("span.muted", ` (${t("ui.catalog.default")} ${JSON.stringify(sch.default)})`) : null, sch.enum ? h("span.muted", ` · ${sch.enum.join(" / ")}`) : null)))))) : h("p.muted.small", t("ui.catalog.no_params"))),
-      example ? h("section.entry__sec", h("div.entry__sec-head", h("h3", t("ui.catalog.example")), copyButton(example)), h("pre.code-block", example)) : null,
+            h("td", { lang: guessLang(sch.description) || null }, inlineLiterals(sch.description || ""), sch.default !== undefined ? h("span.muted", ` (${t("ui.catalog.default")} ${JSON.stringify(sch.default)})`) : null, sch.enum ? h("span.muted", ` · ${sch.enum.join(" / ")}`) : null)))))) : h("p.muted.small", t("ui.catalog.no_params"))),
+      // a scrolling <pre> is reachable by keyboard (tabindex=0) and named (WCAG 2.1.1)
+      example ? h("section.entry__sec", h("div.entry__sec-head", h("h3", t("ui.catalog.example")), copyButton(example)), h("pre.code-block", { tabindex: "0", role: "region", "aria-label": t("ui.catalog.example") }, example)) : null,
       e.skill ? h("section.entry__sec", h("h3", t("ui.catalog.skill")), keyValue([
         [t("ui.catalog.version"), e.skill.version || "—"],
         [t("ui.catalog.pinned"), e.skill.pinned ? t("ui.common.yes") : t("ui.common.no")],
@@ -138,6 +139,23 @@ export function mountCatalog(app, main) {
     },
     destroy: () => offs.forEach((off) => off()),
   };
+}
+
+/**
+ * Docstring text with its reStructuredText inline literals (``X``) as <code>: built as nodes (never innerHTML), the
+ * text itself unchanged.
+ */
+export function inlineLiterals(text) {
+  const s = String(text || "");
+  const out = [];
+  let last = 0;
+  for (const m of s.matchAll(/``([^`]+)``/g)) {
+    if (m.index > last) out.push(s.slice(last, m.index));
+    out.push(h("code", m[1]));
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push(s.slice(last));
+  return out;
 }
 
 function titleOf(e) {

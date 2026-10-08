@@ -36,7 +36,7 @@ export function computeChipLabel(app) {
   return ready ? t("ui.compute.chip.runner", { device: selectedDeviceKind(app) }) : t("ui.compute.chip.browser");
 }
 
-export function openComputePopover(app, anchor) {
+export function openComputePopover(app, anchor, { returnTo } = {}) {
   let off = null;
   const ctl = openPopover(anchor, () => {
     const host = h("div.panel-pop");
@@ -44,7 +44,7 @@ export function openComputePopover(app, anchor) {
     render();
     off = app.on("runtime", render);
     return host;
-  }, { placement: "bottom-end", width: 400, label: t("ui.compute.title"), onClose: () => off?.() });
+  }, { placement: "bottom-end", width: 400, label: t("ui.compute.title"), returnTo, onClose: () => off?.() });
   return ctl;
 }
 
@@ -248,11 +248,14 @@ export function openPairingDialog(app, pairing) {
       else fill(status, notice({ tone: "warn", body: res.message }));
     },
   });
+  // the browser asks about local-network access only for an https page reaching loopback (runner.js lnaNotice)
+  const lna = app.runnerMod?.lnaNotice ? app.runnerMod.lnaNotice(pairing.url) : (location.protocol === "https:" ? t("core.runner.lna_prompt") : "");
   d = openDialog({
     title: t("ui.pair.title"), size: "sm",
     body: h("div.stack",
       h("p.dialog__text", t("ui.pair.body", { host: hostOf(pairing.url) })),
-      notice({ tone: "info", icon: "shieldCheck", body: t("core.runner.lna_prompt") }),
+      lna ? notice({ tone: "info", icon: "shieldCheck", body: lna }) : null,
+      app.state.runner.status === "error" || app.state.runner.status === "offline" ? notice({ tone: "warn", body: app.state.runner.error?.message || t(`ui.runner.status.${app.state.runner.status}`) }) : null,
       status),
     actions: [button({ label: t("ui.action.later"), variant: "ghost", onClick: () => d.close() }), go],
     initialFocus: go,
@@ -260,6 +263,30 @@ export function openPairingDialog(app, pairing) {
 }
 
 // ------------------------------------------------------------------------------------------------- model chip & panel
+
+/**
+ * The relay's health error as a line (`tag` is an h() selector): in the page's language when its type is known
+ * (core relayHealth), the relay's own Chinese text marked lang="zh-Hans" on a page in another language. On the
+ * Settings → Models page itself (`here`), without the pointer to that same page.
+ */
+export function relayErrorLine(relay, { tag = "p", here = false } = {}) {
+  const message = here ? withoutModelsPointer(relay?.error) : String(relay?.error || "");
+  const [before, after = ""] = t("ui.models.relay_error", { message: "\u0001" }).split("\u0001");
+  return h(tag, before, h("span", { lang: relay?.error_lang === "zh" ? "zh-Hans" : null }, message), after);
+}
+
+/** A relay error without 「或在「设置 → 模型」里改用自己的模型」 / "or use your own model in Settings → Model". */
+export function withoutModelsPointer(text) {
+  const s = String(text || "");
+  const out = s
+    .replace(/[，,]\s*或在「设置 → 模型」(?:里|中)(?:改用|接入|使用)[^。]*。/g, "。")
+    .replace(/可以在「设置 → 模型」(?:里|中)(?:改用|接入|使用)[^。]*。/g, "")
+    .replace(/,\s*or use your own model[^.()]*?\(Settings → Models?\)\./g, ".")
+    .replace(/,\s*or use your own model[^.]*? in Settings → Models?\./g, ".")
+    .replace(/\s*You can (?:use|connect) your own model[^.]*? in Settings → Models?\./g, "")
+    .trim();
+  return out || s;
+}
 
 export function modelChipLabel(app) {
   const p = app.provider();
@@ -300,7 +327,7 @@ export function modelPanel(app, { onPick, onNavigate } = {}) {
   const row = (p, model, sub) => {
     const on = p.id === active.id && (model || "") === (active.relay ? model : active.model);
     return h("button", {
-      type: "button", role: "menuitemradio", "aria-checked": String(on), class: ["model-row", on && "is-on"],
+      type: "button", role: "radio", "aria-checked": String(on), class: ["model-row", on && "is-on"],
       onClick: () => { app.chooseModel({ provider: p.id, model }); onPick?.(); },
     },
     h("span.model-row__check", on ? icon("check", { size: 14 }) : null),
@@ -309,7 +336,8 @@ export function modelPanel(app, { onPick, onNavigate } = {}) {
   const groups = [];
   const tao = list.find((p) => p.relay);
   if (tao) {
-    const health = relay ? (relay.checking ? spinner({ size: 10 }) : statusDot(relay.ok ? "ok" : "busy", relay.ok ? t("ui.model.relay_ok") : t("ui.model.relay_down"))) : null;
+    // the relay's health in words beside the dot (colour is never the only signal)
+    const health = relay ? (relay.checking ? spinner({ size: 10, label: t("ui.model.relay_checking") }) : h("span.model-row__health-text", statusDot(relay.ok ? "ok" : "busy"), h("span", relay.ok ? t("ui.model.relay_ok") : t("ui.model.relay_down")))) : null;
     groups.push(h("div.model-group",
       h("p.panel__k", t("ui.model.default")),
       h("div.model-row-wrap", row(tao, "Tao-S1", t("ui.model.tao_sub")), health ? h("span.model-row__health", health) : null)));
@@ -345,7 +373,8 @@ export function modelPanel(app, { onPick, onNavigate } = {}) {
   }) : null;
   return h("div.panel.panel--compact.model-panel",
     h("div.model-panel__head", h("p.model-panel__title", t("ui.model.title")), choice.provider !== s.provider || app.state.conversation?.provider ? chip({ label: app.state.conversation ? t("ui.model.this_conv") : t("ui.model.this_new"), tone: "navy" }) : null),
-    groups,
+    // one choice among all the rows: a radiogroup (the rows are radios; a menuitemradio needs a menu around it)
+    h("div.model-panel__groups", { role: "radiogroup", "aria-label": t("ui.model.title") }, groups),
     h("div.panel__foot", detectBtn, h("a.panel__link", { href: "#/settings/models", onClick: () => onNavigate?.() }, t("ui.model.manage"), icon("chevronRight", { size: 14 }))));
 }
 

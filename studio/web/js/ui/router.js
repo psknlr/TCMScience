@@ -11,6 +11,8 @@ export const SETTINGS_TABS = ["models", "compute", "general", "shortcuts"];
 /** Parse a location hash into a route object. Unknown paths are {name: "notfound"}. */
 export function parseRoute(hash) {
   const raw = String(hash || "").replace(/^#/, "");
+  // "#composer-input", "#thread": an in-page anchor (a skip link, a fragment), not a route — {anchor} marks it
+  if (raw && !raw.startsWith("/") && !raw.startsWith("?")) return { name: "home", anchor: raw, params: {} };
   const [pathPart, query = ""] = raw.split("?");
   const parts = pathPart.split("/").filter(Boolean).map((p) => {
     try { return decodeURIComponent(p); } catch { return p; }
@@ -50,9 +52,17 @@ export class HashRouter {
   constructor(onChange) {
     this.onChange = onChange;
     this.current = parseRoute(location.hash);
+    this.hash = this.current.anchor !== undefined ? "#/" : location.hash;
     this._onHash = () => {
+      const next = parseRoute(location.hash);
+      if (next.anchor !== undefined) {
+        // an anchor is not a place: put the address back and stay where we are
+        try { history.replaceState(history.state, "", `${location.pathname}${location.search}${this.hash || "#/"}`); } catch { /* keep going */ }
+        return;
+      }
       const prev = this.current;
-      this.current = parseRoute(location.hash);
+      this.current = next;
+      this.hash = location.hash;
       this.onChange?.(this.current, prev);
     };
     window.addEventListener("hashchange", this._onHash);

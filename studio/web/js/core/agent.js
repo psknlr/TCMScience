@@ -3,10 +3,15 @@
 //
 // History discipline. Each assistant message keeps the exact provider messages of its turn (`wire`) and is replayed
 // verbatim to a provider of the same format: reasoning a provider needs back stays for that provider only
-// (reasoning_details for the same provider; Anthropic thinking blocks for the same provider), other reasoning fields
-// are dropped, an inline <think> is stripped, results of earlier turns are cut to 2 500 characters, and a tool call
-// that never got its result (a stopped turn) is answered with a placeholder so the history stays valid. A turn made in
-// the other format is replayed as its text.
+// (reasoning_details for the same provider), other reasoning fields are dropped, an inline <think> is stripped,
+// results of earlier turns are cut to 2 500 characters, and a tool call that never got its result (a stopped turn) is
+// answered with a placeholder so the history stays valid. A turn made in the other format is replayed as its text.
+// Anthropic thinking blocks are replayed only inside the turn that produced them: their signatures bind the exact
+// system prompt and earlier messages, which change between turns here (the environment in the system prompt, earlier
+// results cut short), and a replayed block after such an edit is a 400 on the current models. Dropping every earlier
+// turn's blocks removes a leading run, which the API allows; within a turn, system, tools and history are fixed.
+// Two user messages never follow each other (a turn that failed before it said anything leaves nothing to replay):
+// they are joined, since several local chat templates reject a conversation whose roles do not alternate.
 
 import * as anthropicLib from "./llm/anthropic.js";
 import * as openaiLib from "./llm/openai.js";
@@ -21,6 +26,8 @@ export const MAX_STEPS = 16;
 export const OLD_RESULT_CHARS = 2500;
 export const RESULT_CHARS = 16000;
 export const RETRY_DELAYS = [1500, 4000];
+/** A Retry-After longer than this is not waited out inside a turn: the error, which says when to retry, is shown. */
+export const MAX_RETRY_AFTER_S = 20;
 export const DANGLING_TEXT = "(this call was stopped before it finished; there is no result)";
 export const LIMIT_TEXT = "Not run: the limit of model calls for this turn was reached. Answer from the results you have.";
 
@@ -66,7 +73,9 @@ export async function runTurn({
 
   let status = "ok";
   let step = 0;
-  let citeNext = 1; // citations are numbered across the turn (renumberCitations)
+  // citations are numbered across the conversation (renumberCitations): this turn continues after the earlier turns'
+  // ids, so an [E1] the model read in an earlier result never names a different source in this one
+  let citeNext = citationsUsed(history) + 1;
   let lastFinish = null;
   // the current step's stream, kept here so a stop or an error keeps what was already said
   let stepText = "";
@@ -119,7 +128,10 @@ export async function runTurn({
         } catch (err) {
           if (isAbort(err) || signal?.aborted) throw err;
           if (!err?.retryable || attempt >= retryDelays.length) throw err;
-          const delay = retryDelays[attempt];
+          // a service that says how long to wait is believed: a retry inside its window only fails again
+          const after = retryAfterMs(err);
+          if (after !== null && after > MAX_RETRY_AFTER_S * 1000) throw err;
+          const delay = Math.max(retryDelays[attempt], after ?? 0);
           emit({ type: "model.retry", step, attempt: attempt + 1, delay_ms: delay, message: err.message || String(err), notice: t("core.agent.retry", { n: attempt + 1 }) });
           stepText = ""; stepReasoning = ""; // the UI drops the failed attempt's words; so does the record
           await sleep(delay, signal);
@@ -184,7 +196,11 @@ export async function runTurn({
     } else {
       status = "error";
       const kind = err?.kind === "network" ? "network" : err?.name === "ProviderError" || err?.status ? "model" : "runtime";
-      assistant.error = { message: err?.message || String(err), kind, ...(err?.status ? { status: err.status } : {}), ...(err?.type ? { type: err.type } : {}) };
+      assistant.error = {
+        message: err?.message || String(err), kind, ...(err?.status ? { status: err.status } : {}), ...(err?.type ? { type: err.type } : {}),
+        // an error that retrying cannot fix (a daily quota, a conversation too long for the service): no Retry
+        ...(err?.permanent ? { permanent: true } : {}), ...(err?.lang ? { lang: err.lang } : {}),
+      };
       emit({ type: "error", message: assistant.error.message, kind });
     }
   }
@@ -203,6 +219,7 @@ export async function runTurn({
     assistant.notice = t("core.agent.max_steps", { n: maxSteps });
   }
   assistant.finishReason = lastFinish;
+  assistant.citeTop = citeNext - 1;
   emit({ type: "done", status });
   return { assistant, toolMessages, usage: { ...usage }, status, steps: step };
 
@@ -256,11 +273,42 @@ export async function runTurn({
   }
 }
 
+/** How long a failed call says to wait (Retry-After), in ms; null when it does not say. */
+function retryAfterMs(err) {
+  const v = err?.retryAfter;
+  if (v === null || v === undefined || v === "") return null;
+  const s = Number(v);
+  return Number.isFinite(s) && s >= 0 ? Math.round(s * 1000) : null;
+}
+
 /**
- * Number one envelope's citations after those already used in this turn. Every envelope numbers its own from E1, so a
- * second tool's E1 would be ambiguous to the model and to the reader; the ids are shifted (E1 → E5 when E1–E4 are
- * taken) in `citations` and in the `[E#]` marks of the text the model reads. Mutates the envelope; returns the next
- * free number. The first envelope of a turn is left as it is.
+ * The highest citation number the earlier turns of `history` used: their recorded `citeTop`, or the [E#] marks of the
+ * tool results they replay (records made before citeTop was kept).
+ */
+export function citationsUsed(history) {
+  let top = 0;
+  const scan = (text) => {
+    if (typeof text !== "string") return;
+    for (const m of text.matchAll(/\[E(\d+)\]/g)) top = Math.max(top, Number(m[1]));
+  };
+  for (const m of history || []) {
+    if (m?.role !== "assistant") continue;
+    if (Number.isFinite(m.citeTop)) top = Math.max(top, m.citeTop);
+    for (const msg of Array.isArray(m.wire) ? m.wire : []) {
+      if (msg?.role === "tool") scan(msg.content);
+      else if (msg?.role === "user" && Array.isArray(msg.content)) {
+        for (const b of msg.content) if (b?.type === "tool_result") scan(typeof b.content === "string" ? b.content : "");
+      }
+    }
+  }
+  return top;
+}
+
+/**
+ * Number one envelope's citations after those already used in this conversation. Every envelope numbers its own from
+ * E1, so a second tool's E1 would be ambiguous to the model and to the reader; the ids are shifted (E1 → E5 when E1–E4
+ * are taken) in `citations` and in the `[E#]` marks of the text the model reads. Mutates the envelope; returns the
+ * next free number. The first envelope of a conversation is left as it is.
  */
 export function renumberCitations(envelope, next = 1) {
   const cits = Array.isArray(envelope?.citations) ? envelope.citations : [];
@@ -312,7 +360,12 @@ export function buildWireHistory(history, provider) {
   const out = [];
   for (const m of history || []) {
     if (m.role === "user") {
-      out.push({ role: "user", content: userText(m) });
+      const text = userText(m);
+      const last = out[out.length - 1];
+      // the turn in between left nothing to replay (it failed or was stopped before it said anything): one user
+      // message with both questions, so the roles still alternate (results of tools, in user messages, are left alone)
+      if (last?.role === "user" && typeof last.content === "string") last.content = `${last.content}\n\n${text}`;
+      else out.push({ role: "user", content: text });
       continue;
     }
     if (m.role !== "assistant") continue;
@@ -359,7 +412,9 @@ export function prepareWire(wire, format, { sameProvider = false, provider = {},
     } else {
       if (msg.role === "assistant" && Array.isArray(msg.content)) {
         msg.content = msg.content.filter((b) => {
-          if (b.type === "thinking" || b.type === "redacted_thinking") return sameProvider && !hideReasoning;
+          // an earlier turn's thinking is never replayed, for any provider: its signature binds the system prompt and
+          // the messages before it exactly as they were, and this history has changed since (see the top of this file)
+          if (b.type === "thinking" || b.type === "redacted_thinking") return false;
           if (b.type === "text") return Boolean(b.text);
           return true;
         });

@@ -66,12 +66,15 @@ export function switchControl({ checked = false, label, description, onChange, d
     sw);
 }
 
-/** A radiogroup of segments with roving tabindex and arrow keys. options: [{value, label, icon?, title?}] */
-export function segmented({ options, value, onChange, label, size = "md", className = "" } = {}) {
+/**
+ * A radiogroup of segments with roving tabindex and arrow keys. options: [{value, label, icon?, title?, lang?}].
+ * manual: arrows only move focus and Enter/Space applies (for choices that change the whole page: language, theme).
+ */
+export function segmented({ options, value, onChange, label, size = "md", className = "", manual = false } = {}) {
   const group = h("div", { class: ["segmented", `segmented--${size}`, className], role: "radiogroup", "aria-label": label || null });
   const buttons = options.map((o) => h("button", {
     type: "button", role: "radio", class: "segmented__item", "aria-checked": String(o.value === value), tabindex: o.value === value ? "0" : "-1",
-    "data-value": o.value, "data-tip": o.title || null, "aria-label": o.ariaLabel || null,
+    "data-value": o.value, "data-tip": o.title || null, "aria-label": o.ariaLabel || null, lang: o.lang || null,
     onClick: () => select(o.value, true),
   }, o.icon ? icon(o.icon, { size: 14 }) : null, o.label ? h("span", o.label) : null));
   if (!options.some((o) => o.value === value) && buttons[0]) buttons[0].tabIndex = 0;
@@ -95,6 +98,7 @@ export function segmented({ options, value, onChange, label, size = "md", classN
     if (j < 0) return;
     e.preventDefault();
     buttons[j].focus();
+    if (manual) { for (const b of buttons) b.tabIndex = b === buttons[j] ? 0 : -1; return; }
     select(buttons[j].dataset.value, true);
   });
   group.setValue = (v) => select(v, false);
@@ -278,7 +282,7 @@ export function emptyState({ icon: ic, title, body, actions = [], className = ""
 }
 
 /** A section with a small heading row: title, optional count and trailing actions. */
-export function section({ title, count, actions = [], children = [], className = "", id, level = 3 } = {}) {
+export function section({ title, count, actions = [], children = [], className = "", id, level = 2 } = {}) {
   return h("section", { class: ["section", className], id: id || null },
     h("div.section__head",
       h(`h${level}.section__title`, title, count === undefined || count === null ? null : h("span.section__count.num", String(count))),

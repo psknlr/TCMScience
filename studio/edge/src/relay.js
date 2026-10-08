@@ -7,13 +7,16 @@
 // are told in this service's words. Errors are OpenAI-style {error: {message, type}}; the message is Chinese and says
 // what to do, the page may localize by `type`.
 
+import { asksIdentity } from "./identity.js";
 import { day } from "./limiter.js";
 
 export const VERSION = "1";
 export const SERVICE = "tcmscience-studio";
 const LOCAL = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-/** The Worker's variables when unset or empty; wrangler.toml sets the same (test/config.test.js checks they agree). */
+/** The Worker's variables when unset, empty or mistyped. wrangler.toml's [vars] are what is deployed, and the owner may
+ * change them (the upstream address, the pause, the limits, the origins) without touching these: test/config.test.js
+ * checks that the toml sets every one of them, well formed, not that it keeps these values. */
 export const DEFAULTS = {
   RELAY: "on",
   UPSTREAM_BASE: "https://api.minimax.cn/v1",
@@ -286,6 +289,12 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   }
   if ("n" in body) { // one answer per call
     delete body.n;
+    rewrite = true;
+  }
+  // defence in depth (CONTRACTS §9): a question about who answers is answered without reasoning, whatever the client
+  // sent; the page does the same (web/js/core/prompt.js), so for the page this changes nothing
+  if (body.thinking?.type !== "disabled" && asksIdentity(body.messages)) {
+    body.thinking = { type: "disabled" };
     rewrite = true;
   }
   let payload = rewrite ? null : upstreamText(raw, cfg.model, fields, cfg);

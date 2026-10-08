@@ -1,0 +1,1151 @@
+{
+ "ok": true,
+ "tool": "call_tool",
+ "via": "skill.draft-tcm-prescription",
+ "status": "succeeded",
+ "duration_ms": 2403,
+ "summary": "处方草案（受治理）：受治理运行完成 · 未准予发布（3/6）",
+ "text": "call_tool → skill.draft-tcm-prescription: succeeded\nSummary: 处方草案（受治理）：受治理运行完成 · 未准予发布（3/6）\nLimits (state these when you use this result):\n- This is a draft for a licensed TCM practitioner to review and sign; until signed it is not a prescription, and no tool can sign it.\n- No issue found by the knowledge pack's rules is not a safety guarantee; the pack is a draft, not reviewed by a licensed practitioner.\n- a draft for a licensed practitioner to review and sign; it is not a prescription\n- the knowledge pack is draft — not reviewed by a licensed TCM practitioner\n- the differentiation is only as good as the intake: findings not recorded are not scored\n- agreement with practitioners and clinical benefit are both unvalidated\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\nRelease: NOT released; states 3/6 (unmet: execution_declared, execution_attested, release_authorized)\n- unverified: no policy_id/audit_head: the run is not attested by the kernel's audit chain\nClaims (the kernel's verdict on each):\n- [traditional_use] The recorded findings meet the textbook criteria for 脾胃气虚证 (治法 益气健脾), for which 《方剂学》 gives 四君子汤 — allowed\nRefused (a refusal is a result; report it and its reason):\n- UNPINNED: unpinned: no lockfile pins skill 'draft-tcm-prescription': BioScience-Harness/registry/skills.lock.yaml has no entry for it Remedy: A development run is recorded but never released: the skill must be reviewed and pinned in registry/skills.lock.yaml first.\nCitations (cite as [E1] …; do not invent others):\n[E1] 《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\n[E2] 《方剂学》（全国中医药行业高等教育规划教材）\nResult: {\"skill\":\"draft-tcm-prescription\",\"released\":false,\"question\":\"which syndrome do these findings meet, and what does the textbook give for it?\",\"status\":\"draft\",\"outputs\":{\"clinic_summary.json\":{\"leading\":\"脾胃气虚证\",\"out_dir\":\"<tmp>\",\"pack\":{\"review_status\":\"draft — not reviewed by a licensed TCM practitioner\",\"version\":\"2026-10-draft\"},\"prescription\":{\"applied\":[],\"days\":7,\"formula\":\"四君子汤\",\"formula_note\":\"\",\"fraction\":1.0,\"fraction_note\":\"成人量\",\"instructions\":[\"每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\",\"先开7剂，复诊后再定\",\"人参：另煎兑服\"],\"issues\":[{\"code\":\"dose_below_range\",\"herbs\":[\"茯苓\"],\"id\":\"dose_below_range:茯苓\",\"message\":\"茯苓 9 g 低于《药典》常用量下限 10 g\",\"severity\":\"info\",\"source\":\"中华人民共和国药典 2020年版\"}],\"lines\":[{\"basis\":\"textbook\",\"dose_g\":9.0,\"herb\":\"人参\",\"notes\":[\"另煎兑服\"],\"range_g\":[3.0,9.0],\"textbook_g\":9.0,\"toxicity\":\"\"},{\"basis\":\"textbook\",\"dose_g\":9.0,\"herb\":\"白术\",\"notes\":[],\"range_g\":[6.0,12.0],\"textbook_g\":9.0,\"toxicity\":\"\"},{\"basis\":\"textbook\",\"dose_g\":9.0,\"herb\":\"茯苓\",\"notes\":[],\"range_g\":[10.0,15.0],\"textbook_g\":9.0,\"toxicity\":\"\"},{\"basis\":\"textbook\",\"dose_g\":6.0,\"herb\":\"炙甘草\",\"notes\":[],\"range_g\":[2.0,10.0],\"textbook_g\":6.0,\"toxicity\":\"\"}],\"principle\":\"益气健脾\",\"source\":\"太平惠民和剂局方\",\"status\":\"draft\",\"suggested\":[],\"syndrome\":\"脾胃气虚证\",\"total_g\":33.0},\"red_flags\":[],\"signed\":false,\"status\":\"draft\"},\"report.md\":\"# 中医辨证与处方草案\\n\\n**本文件是供执业中医师审核的草案，未经医师签署不是处方。**\\n\\n状态：**草案：待执业中医师审核签署**\\n\\n## 提醒\\n\\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\\n\\n## 患者与四诊\\n\\n- 患者：p1，45 岁，女，未妊娠\\n- 主诉：神疲乏力，食少便溏（3个月）\\n- 望诊：面色萎黄\\n- 问诊：神疲乏力、食少、便溏、气短；无：发热\\n- 舌象：舌淡、苔白；脉象：脉缓弱\\n- 目前用药：无\\n- 过敏史：无\\n- 既往病史：无\\n\\n## 辨证\\n\\n诊断标准：主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖。\\n\\n| 证候 | 判断 | 评分 | 主症 | 次症 | 舌 | 脉 | 治法 | 基础方 |\\n|---|---|---|---|---|---|---|---|---|\\n| 脾胃气虚证 | 符合 | 0.64 | 3 | 1 | 1 | 1 | 益气健脾 | 四君子汤 |\\n| 心脾两虚证 | 符合 | 0.54 | 2 | 2 | 0.5 | 1 | 补益心脾 | — |\\n| 气虚证 | 倾向 | 0.42 | 1 | 1 | 1 | 1 | 补气 | 四君子汤 |\\n| 肺气虚证 | 倾向 | 0.33 | 1 | 0 | 1 | 1 | 补益肺气 | — |\\n| 血虚证 | 倾向 | 0.29 | 1 | 0 | 1 | 1 | 补血 | 四物汤 |\\n| 脾虚气陷证 | 证据不足 | 0.36 | 0 | 3 | 1 | 1 | 补中益气，升阳举陷 | 补中益气汤 |\\n\\n**脾胃气虚证** 的依据：\\n- 主症：食少 ← 记录“食少”\\n- 主症：便溏 ← 记录“便溏”\\n- 主症：神疲乏力 ← 记录“神疲乏力”\\n- 次症：面色萎黄 ← 记录“面色萎黄”\\n- 舌：舌淡 ← 记录“舌淡、苔白”\\n- 脉：脉缓弱 ← 记录“脉缓弱”\\n\\n## 建议补充询问\\n\\n| 项目 | 类别 | 目的 |\\n|---|---|---|\\n| 少气懒言 | 闻诊（声音气息） | 鉴别脾胃气虚证与心脾两虚证 |\\n| 食后腹胀加重 | 胸胁脘腹 | 鉴别脾胃气虚证与心脾两虚证 |\\n| 消瘦 | 望诊（神色形态） | 鉴别脾胃气虚证与心脾两虚证 |\\n| 心悸 | 胸胁脘腹 | 鉴别心脾两虚证与脾胃气虚证 |\\n| 失眠多梦 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\\n| 头晕健忘 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\\n| 腹胀 | 胸胁脘腹 | 脾胃气虚证的主症 |\\n| 咳喘无力 | 咳喘痰 | 肺气虚证的主症 |\\n| 自汗 | 汗 | 肺气虚证的主症 |\\n| 声低懒言 | 闻诊（声音气息） | 肺气虚证的次症 |\\n\\n## 处方草案\\n\\n脾胃气虚证 · 治法：益气健脾 · 基础方：**四君子汤**（太平惠民和剂局方）\\n\\n| 药味 | 剂量 (g) | 依据 | 《方剂学》剂量 | 《药典》范围 | 备注 |\\n|---|---|---|---|---|---|\\n| 人参 | 9 | 教材剂量 | 9 | 3–9 | 另煎兑服 |\\n| 白术 | 9 | 教材剂量 | 9 | 6–12 |  |\\n| 茯苓 | 9 | 教材剂量 | 9 | 10–15 |  |\\n| 炙甘草 | 6 | 教材剂量 | 6 | 2–10 |  |\\n\\n每剂合计 33 g。\\n\\n- 每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\\n- 先开7剂，复诊后再定\\n- 人参：另煎兑服\\n\\n## 安全核查\\n\\n| 级别 | 编号 | 内容 | 来源 |\\n|---|---|---|---|\\n| 提示 | `dose_below_range:茯苓` | 茯苓 9 g 低于《药典》常用量下限 10 g | 中华人民共和国药典 2020年版 |\\n\\n## 签署\\n\\n由执业中医师审核后签署：接受（accept）、修改（modify，修改内容会重新核查）或拒绝（reject）。\\n\\n```\\nbioagent clinic sign <本目录> --practitioner 姓名 --licence 执业证号 --decision accept|modify|reject [--reason 编号=理由 ...]\\n```\\n\\n## 这是什么\\n\\n按教材诊断标准对本次记录的四诊信息计分得到的辨证建议，以及据《方剂学》基础方、《药典》剂量范围和安全规则生成的处方草案。它依赖记录是否完整准确，不能替代医师的四诊合参与临证判断；任何处方都须由执业中医师审核签署后方可使用。辨证一致性和疗效均未经临床验证。\\n\\n## 依据\\n\\n- criteria：《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\\n- formulas：《方剂学》（全国中医药行业高等教育规划教材）\\n- herbs：《中华人民共和国药典》2020年版一部\\n- response：《中药新药临床研究指导原则》(2002): 证候疗效 = (治疗前积分 - 治疗后积分) / 治疗前积分\\n- 知识包：2026-10-draft，draft — not reviewed by a licensed TCM practitioner\\n\\n## 复现\\n\\n`session.json` 记录了 intake、各步结果、知识包摘要与代码摘要；`bioagent clinic verify <本目录>` 可复核。\\n\"},\"evidence\":[{\"id\":\"criteria.脾胃气虚证\",\"design\":\"expert_consensus\",\"tier\":\"expert_experience\",\"citation\":\"《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\",\"quote\":\"\\\"脾胃气虚证\\\": {\\\"main\\\": [\\\"食少\\\", \\\"腹胀\\\", \\\"便溏\\\", \\\"神疲乏力\\\"], \\\"secondary\\\": [\\\"面色萎黄\\\", \\\"少气懒言\\\", \\\"食后腹胀加重\\\", \\\"消瘦\\\"], \\\"tongue\\\": [\\\"舌淡\\\", \\\"苔白\\\"], \\\"pulse\\\": [\\\"脉缓弱\\\", \\\"脉弱\\\"], \\\"principle\\\": \\\"益气健脾\\\", \\\"formula\\\": \\\"四君子汤\\\", \\\"parent\\\": \\\"气虚证\\\"}\",\"quote_verified\":true},{\"id\":\"formula.四君子汤\",\"design\":\"expert_consensus\",\"tier\":\"expert_experience\",\"citation\":\"《方剂学》（全国中医药行业高等教育规划教材）\",\"quote\":\"\\\"四君子汤\\\": {\\\"source\\\": \\\"太平惠民和剂局方\\\", \\\"herbs\\\": [[\\\"人参\\\", 9], [\\\"白术\\\", 9], [\\\"茯苓\\\", 9], [\\\"炙甘草\\\", 6]], \\\"modifications\\\": [{\\\"when_any\\\": [\\\"呕吐\\\", \\\"恶心\\\"], \\\"add\\\": [\\\"法半夏\\\"], \\\"why\\\": \\\"降逆止呕\\\"}, {\\\"when_any\\\": [\\\"胸膈痞满\\\", \\\"胸脘痞闷\\\"], \\\"add\\\": [\\\"枳壳\\\", \\\"陈皮\\\"], \\\"why\\\": \\\"行气宽胸\\\"}, {\\\"when_any\\\": [\\\"心悸\\\", \\\"失眠多梦\\\"], \\\"add\\\": [\\\"酸枣仁\\\"], \\\"why\\\": \\\"宁心安神\\\"}, {\\\"when_any\\\": [\\\"畏寒\\\", \\\"肢冷\\\"], \\\"add\\\": [\\\"干姜\\\", \\\"附子\\\"], \\\"why\\\": \\\"温中祛寒\\\"}]}\",\"quote_verified\":true}]}",
+ "result": {
+  "skill_id": "draft-tcm-prescription",
+  "run_id": "r_85f076aeb0c7",
+  "released": false,
+  "content_hash": "6cdad2435bcdbc2856d6ba54c10458f350eec2c80b4ce8afef915466e99f92ac",
+  "audit_head": "0c16c309507c0f75ea32ba8f44070e8cdf99f1ba14b38357aab3b660978942cb",
+  "pinned": false,
+  "outputs": {
+   "clinic_summary.json": {
+    "leading": "脾胃气虚证",
+    "out_dir": "<tmp>",
+    "pack": {
+     "review_status": "draft — not reviewed by a licensed TCM practitioner",
+     "version": "2026-10-draft"
+    },
+    "prescription": {
+     "applied": [],
+     "days": 7,
+     "formula": "四君子汤",
+     "formula_note": "",
+     "fraction": 1.0,
+     "fraction_note": "成人量",
+     "instructions": [
+      "每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）",
+      "先开7剂，复诊后再定",
+      "人参：另煎兑服"
+     ],
+     "issues": [
+      {
+       "code": "dose_below_range",
+       "herbs": [
+        "茯苓"
+       ],
+       "id": "dose_below_range:茯苓",
+       "message": "茯苓 9 g 低于《药典》常用量下限 10 g",
+       "severity": "info",
+       "source": "中华人民共和国药典 2020年版"
+      }
+     ],
+     "lines": [
+      {
+       "basis": "textbook",
+       "dose_g": 9.0,
+       "herb": "人参",
+       "notes": [
+        "另煎兑服"
+       ],
+       "range_g": [
+        3.0,
+        9.0
+       ],
+       "textbook_g": 9.0,
+       "toxicity": ""
+      },
+      {
+       "basis": "textbook",
+       "dose_g": 9.0,
+       "herb": "白术",
+       "notes": [],
+       "range_g": [
+        6.0,
+        12.0
+       ],
+       "textbook_g": 9.0,
+       "toxicity": ""
+      },
+      {
+       "basis": "textbook",
+       "dose_g": 9.0,
+       "herb": "茯苓",
+       "notes": [],
+       "range_g": [
+        10.0,
+        15.0
+       ],
+       "textbook_g": 9.0,
+       "toxicity": ""
+      },
+      {
+       "basis": "textbook",
+       "dose_g": 6.0,
+       "herb": "炙甘草",
+       "notes": [],
+       "range_g": [
+        2.0,
+        10.0
+       ],
+       "textbook_g": 6.0,
+       "toxicity": ""
+      }
+     ],
+     "principle": "益气健脾",
+     "source": "太平惠民和剂局方",
+     "status": "draft",
+     "suggested": [],
+     "syndrome": "脾胃气虚证",
+     "total_g": 33.0
+    },
+    "red_flags": [],
+    "signed": false,
+    "status": "draft"
+   },
+   "report.md": "# 中医辨证与处方草案\n\n**本文件是供执业中医师审核的草案，未经医师签署不是处方。**\n\n状态：**草案：待执业中医师审核签署**\n\n## 提醒\n\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\n\n## 患者与四诊\n\n- 患者：p1，45 岁，女，未妊娠\n- 主诉：神疲乏力，食少便溏（3个月）\n- 望诊：面色萎黄\n- 问诊：神疲乏力、食少、便溏、气短；无：发热\n- 舌象：舌淡、苔白；脉象：脉缓弱\n- 目前用药：无\n- 过敏史：无\n- 既往病史：无\n\n## 辨证\n\n诊断标准：主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖。\n\n| 证候 | 判断 | 评分 | 主症 | 次症 | 舌 | 脉 | 治法 | 基础方 |\n|---|---|---|---|---|---|---|---|---|\n| 脾胃气虚证 | 符合 | 0.64 | 3 | 1 | 1 | 1 | 益气健脾 | 四君子汤 |\n| 心脾两虚证 | 符合 | 0.54 | 2 | 2 | 0.5 | 1 | 补益心脾 | — |\n| 气虚证 | 倾向 | 0.42 | 1 | 1 | 1 | 1 | 补气 | 四君子汤 |\n| 肺气虚证 | 倾向 | 0.33 | 1 | 0 | 1 | 1 | 补益肺气 | — |\n| 血虚证 | 倾向 | 0.29 | 1 | 0 | 1 | 1 | 补血 | 四物汤 |\n| 脾虚气陷证 | 证据不足 | 0.36 | 0 | 3 | 1 | 1 | 补中益气，升阳举陷 | 补中益气汤 |\n\n**脾胃气虚证** 的依据：\n- 主症：食少 ← 记录“食少”\n- 主症：便溏 ← 记录“便溏”\n- 主症：神疲乏力 ← 记录“神疲乏力”\n- 次症：面色萎黄 ← 记录“面色萎黄”\n- 舌：舌淡 ← 记录“舌淡、苔白”\n- 脉：脉缓弱 ← 记录“脉缓弱”\n\n## 建议补充询问\n\n| 项目 | 类别 | 目的 |\n|---|---|---|\n| 少气懒言 | 闻诊（声音气息） | 鉴别脾胃气虚证与心脾两虚证 |\n| 食后腹胀加重 | 胸胁脘腹 | 鉴别脾胃气虚证与心脾两虚证 |\n| 消瘦 | 望诊（神色形态） | 鉴别脾胃气虚证与心脾两虚证 |\n| 心悸 | 胸胁脘腹 | 鉴别心脾两虚证与脾胃气虚证 |\n| 失眠多梦 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 头晕健忘 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 腹胀 | 胸胁脘腹 | 脾胃气虚证的主症 |\n| 咳喘无力 | 咳喘痰 | 肺气虚证的主症 |\n| 自汗 | 汗 | 肺气虚证的主症 |\n| 声低懒言 | 闻诊（声音气息） | 肺气虚证的次症 |\n\n## 处方草案\n\n脾胃气虚证 · 治法：益气健脾 · 基础方：**四君子汤**（太平惠民和剂局方）\n\n| 药味 | 剂量 (g) | 依据 | 《方剂学》剂量 | 《药典》范围 | 备注 |\n|---|---|---|---|---|---|\n| 人参 | 9 | 教材剂量 | 9 | 3–9 | 另煎兑服 |\n| 白术 | 9 | 教材剂量 | 9 | 6–12 |  |\n| 茯苓 | 9 | 教材剂量 | 9 | 10–15 |  |\n| 炙甘草 | 6 | 教材剂量 | 6 | 2–10 |  |\n\n每剂合计 33 g。\n\n- 每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\n- 先开7剂，复诊后再定\n- 人参：另煎兑服\n\n## 安全核查\n\n| 级别 | 编号 | 内容 | 来源 |\n|---|---|---|---|\n| 提示 | `dose_below_range:茯苓` | 茯苓 9 g 低于《药典》常用量下限 10 g | 中华人民共和国药典 2020年版 |\n\n## 签署\n\n由执业中医师审核后签署：接受（accept）、修改（modify，修改内容会重新核查）或拒绝（reject）。\n\n```\nbioagent clinic sign <本目录> --practitioner 姓名 --licence 执业证号 --decision accept|modify|reject [--reason 编号=理由 ...]\n```\n\n## 这是什么\n\n按教材诊断标准对本次记录的四诊信息计分得到的辨证建议，以及据《方剂学》基础方、《药典》剂量范围和安全规则生成的处方草案。它依赖记录是否完整准确，不能替代医师的四诊合参与临证判断；任何处方都须由执业中医师审核签署后方可使用。辨证一致性和疗效均未经临床验证。\n\n## 依据\n\n- criteria：《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\n- formulas：《方剂学》（全国中医药行业高等教育规划教材）\n- herbs：《中华人民共和国药典》2020年版一部\n- response：《中药新药临床研究指导原则》(2002): 证候疗效 = (治疗前积分 - 治疗后积分) / 治疗前积分\n- 知识包：2026-10-draft，draft — not reviewed by a licensed TCM practitioner\n\n## 复现\n\n`session.json` 记录了 intake、各步结果、知识包摘要与代码摘要；`bioagent clinic verify <本目录>` 可复核。\n"
+  },
+  "artifact": {
+   "id": "draft-tcm-prescription",
+   "run_id": "",
+   "skill_id": "draft-tcm-prescription",
+   "skill_version": "0.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "draft-tcm-prescription@0.1.0",
+    "source": "0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=draft-tcm-prescription@0.1.0|source=0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5|benchmark=unversioned",
+   "question": "which syndrome do these findings meet, and what does the textbook give for it?",
+   "created_at": "2026-10-07T21:59:33+00:00",
+   "sources": [
+    {
+     "id": "user.intake.02ffddd9be01",
+     "name": "四诊 intake",
+     "kind": "dataset",
+     "maintainer": "the practitioner",
+     "version": "",
+     "home_url": "",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "LicenseRef-user-supplied",
+     "license_note": "a clinical record; it stays with the practitioner",
+     "integration_mode": "native",
+     "snapshot_hash": "02ffddd9be01fa54a0d2ef650772efda0cc1fd33d3d16068bc91b572ba76359f",
+     "snapshot_at": "2026-10-07T21:59:32+00:00",
+     "operation_hashes": {},
+     "known_limits": [
+      "as complete and accurate as the person who collected it"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "the practitioner · 四诊 intake · snapshot 02ffddd9be01 at 2026-10-07T21:59:32+00:00"
+    },
+    {
+     "id": "bioagent.clinic.pack",
+     "name": "TCMScience clinical knowledge pack",
+     "kind": "guideline",
+     "maintainer": "TCMScience",
+     "version": "2026-10-draft",
+     "home_url": "",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "a transcription of the textbooks and the Pharmacopoeia it names",
+     "integration_mode": "native",
+     "snapshot_hash": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+     "snapshot_at": "2026-10-07T21:59:32+00:00",
+     "operation_hashes": {},
+     "known_limits": [
+      "draft — not reviewed by a licensed TCM practitioner",
+      "23 syndromes, 13 formulas, 93 herbs"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience clinical knowledge pack 2026-10-draft · snapshot dc30a871f5c7 at 2026-10-07T21:59:32+00:00"
+    }
+   ],
+   "sources_hash": "0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5",
+   "evidence": [
+    {
+     "id": "criteria.脾胃气虚证",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "\"脾胃气虚证\": {\"main\": [\"食少\", \"腹胀\", \"便溏\", \"神疲乏力\"], \"secondary\": [\"面色萎黄\", \"少气懒言\", \"食后腹胀加重\", \"消瘦\"], \"tongue\": [\"舌淡\", \"苔白\"], \"pulse\": [\"脉缓弱\", \"脉弱\"], \"principle\": \"益气健脾\", \"formula\": \"四君子汤\", \"parent\": \"气虚证\"}",
+     "citation": "《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021",
+     "title": "",
+     "identifier": "clinic_pack.json#criteria.脾胃气虚证",
+     "identifier_type": "local_artifact",
+     "source_card_id": "bioagent.clinic.pack",
+     "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+     "quote_verified": true,
+     "quote_offset": 802,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+      },
+      "assessed_by": "draft-tcm-prescription",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "脾胃气虚证",
+     "population": "the person whose findings are recorded in the intake",
+     "condition": "",
+     "comparator": "",
+     "outcome": "syndrome criteria met and the textbook base formula",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "draft-tcm-prescription",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+    },
+    {
+     "id": "formula.四君子汤",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "\"四君子汤\": {\"source\": \"太平惠民和剂局方\", \"herbs\": [[\"人参\", 9], [\"白术\", 9], [\"茯苓\", 9], [\"炙甘草\", 6]], \"modifications\": [{\"when_any\": [\"呕吐\", \"恶心\"], \"add\": [\"法半夏\"], \"why\": \"降逆止呕\"}, {\"when_any\": [\"胸膈痞满\", \"胸脘痞闷\"], \"add\": [\"枳壳\", \"陈皮\"], \"why\": \"行气宽胸\"}, {\"when_any\": [\"心悸\", \"失眠多梦\"], \"add\": [\"酸枣仁\"], \"why\": \"宁心安神\"}, {\"when_any\": [\"畏寒\", \"肢冷\"], \"add\": [\"干姜\", \"附子\"], \"why\": \"温中祛寒\"}]}",
+     "citation": "《方剂学》（全国中医药行业高等教育规划教材）",
+     "title": "",
+     "identifier": "clinic_pack.json#formula.四君子汤",
+     "identifier_type": "local_artifact",
+     "source_card_id": "bioagent.clinic.pack",
+     "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+     "quote_verified": true,
+     "quote_offset": 4706,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+      },
+      "assessed_by": "draft-tcm-prescription",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "脾胃气虚证",
+     "population": "the person whose findings are recorded in the intake",
+     "condition": "",
+     "comparator": "",
+     "outcome": "syndrome criteria met and the textbook base formula",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "draft-tcm-prescription",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+    }
+   ],
+   "claims": [
+    {
+     "id": "clinic.textbook_formula",
+     "text": "The recorded findings meet the textbook criteria for 脾胃气虚证 (治法 益气健脾), for which 《方剂学》 gives 四君子汤",
+     "claim_kind": "traditional_use",
+     "subject": "脾胃气虚证",
+     "predicate": "indicated_for",
+     "object": "四君子汤",
+     "supports": [
+      "criteria.脾胃气虚证",
+      "formula.四君子汤"
+     ],
+     "asserted_population": "the person whose findings are recorded in the intake",
+     "asserted_outcome": "syndrome criteria met and the textbook base formula",
+     "supported_population": "the person whose findings are recorded in the intake",
+     "supported_outcome": "syndrome criteria met and the textbook base formula",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.5,
+     "confidence_basis": "criteria scored on one intake; the pack is draft — not reviewed by a licensed TCM practitioner",
+     "hedged": true,
+     "normative": false,
+     "rationale": "a starting point for the practitioner, who decides",
+     "falsified_by": "a practitioner's examination that finds the criteria are not met, or a better-fitting syndrome",
+     "produced_by": "draft-tcm-prescription",
+     "tier_floor": "classical_text",
+     "clinical": false
+    }
+   ],
+   "outputs": [
+    {
+     "path": "clinic_summary.json",
+     "sha256": "e3f7f91d4ab378e79b18923d69ba1940cd9e9278f9dc1fe7666fcf93b7c05ba1",
+     "media_type": "application/json",
+     "bytes": 2122,
+     "description": "the session's status, findings and draft"
+    },
+    {
+     "path": "report.md",
+     "sha256": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+     "media_type": "text/markdown",
+     "bytes": 4507,
+     "description": "the draft for the practitioner to review"
+    }
+   ],
+   "limitations": [
+    "a draft for a licensed practitioner to review and sign; it is not a prescription",
+    "the knowledge pack is draft — not reviewed by a licensed TCM practitioner",
+    "the differentiation is only as good as the intake: findings not recorded are not scored",
+    "agreement with practitioners and clinical benefit are both unvalidated",
+    "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+   ],
+   "assumptions": [
+    "the intake records what was examined, and only that"
+   ],
+   "policy_id": "",
+   "audit_head": "",
+   "provenance": {
+    "pipeline": "bioagent.clinic",
+    "status": "draft",
+    "pack_sha256": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+    "session_dir": "<tmp>",
+    "intake_sha256": "7b82a5db475a6e231422c41fc61922c5c3fd1670f80a55750fc98fb275b56290",
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "6cdad2435bcdbc2856d6ba54c10458f350eec2c80b4ce8afef915466e99f92ac",
+     "pinned_by": "",
+     "arguments_sha256": "7b982c70eb9841de2dddf4ba78a4a7f5a96657c1e6667291b8c562a70a99ae21",
+     "pre_attestation_digest": "63ff2c383a70f92cb21d8bf6ab12f712cd7e5533fc4a28012c82cdbed2580cb2",
+     "state_dir": "<tmp>",
+     "run_anchor": "8e405fe8f7d992d2f52e8f9fce5790e103599c417759305a8ab38434af3a38ad",
+     "operations": [],
+     "development_run": true,
+     "audit_head": "0c16c309507c0f75ea32ba8f44070e8cdf99f1ba14b38357aab3b660978942cb",
+     "release_refused": [
+      "unpinned: no lockfile pins skill 'draft-tcm-prescription': BioScience-Harness/registry/skills.lock.yaml has no entry for it"
+     ]
+    }
+   },
+   "status": "draft",
+   "produced_by": "draft-tcm-prescription",
+   "notes": "",
+   "digest": "33bad4df4813378c4dde5d3d3454eadc8c039988e023e34c4d79aaf7dc96b482"
+  },
+  "verdict": {
+   "artifact_id": "draft-tcm-prescription",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": false,
+    "execution_attested": false,
+    "release_authorized": false
+   },
+   "unverified": [
+    "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+   ],
+   "codes": [],
+   "violations": [],
+   "warnings": [],
+   "claim_verdicts": [
+    {
+     "claim_id": "clinic.textbook_formula",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "expert_experience",
+     "caveats": [
+      "criteria.脾胃气虚证: retraction status has not been checked",
+      "criteria.脾胃气虚证: no lookupable identifier; the citation cannot be checked",
+      "criteria.脾胃气虚证: quality dimension risk_of_bias was not assessed",
+      "criteria.脾胃气虚证: quality dimension precision was not assessed",
+      "criteria.脾胃气虚证: quality dimension consistency was not assessed",
+      "formula.四君子汤: retraction status has not been checked",
+      "formula.四君子汤: no lookupable identifier; the citation cannot be checked",
+      "formula.四君子汤: quality dimension risk_of_bias was not assessed",
+      "formula.四君子汤: quality dimension precision was not assessed",
+      "formula.四君子汤: quality dimension consistency was not assessed"
+     ],
+     "unvalidated_extrapolations": []
+    }
+   ],
+   "fixable_by_declaration": false
+  },
+  "governed": {
+   "state_dir": "<tmp>",
+   "output_dir": "<tmp>",
+   "lockfile": "",
+   "operations": [],
+   "durable": false
+  }
+ },
+ "citations": [
+  {
+   "id": "E1",
+   "kind": "source",
+   "label": "《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021",
+   "url": "",
+   "evidence_ref": "criteria.脾胃气虚证"
+  },
+  {
+   "id": "E2",
+   "kind": "source",
+   "label": "《方剂学》（全国中医药行业高等教育规划教材）",
+   "url": "",
+   "evidence_ref": "formula.四君子汤"
+  }
+ ],
+ "governance": {
+  "kind": "skill",
+  "released": false,
+  "artifact": {
+   "id": "draft-tcm-prescription",
+   "run_id": "",
+   "skill_id": "draft-tcm-prescription",
+   "skill_version": "0.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "draft-tcm-prescription@0.1.0",
+    "source": "0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=draft-tcm-prescription@0.1.0|source=0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5|benchmark=unversioned",
+   "question": "which syndrome do these findings meet, and what does the textbook give for it?",
+   "created_at": "2026-10-07T21:59:33+00:00",
+   "sources": [
+    {
+     "id": "user.intake.02ffddd9be01",
+     "name": "四诊 intake",
+     "kind": "dataset",
+     "maintainer": "the practitioner",
+     "version": "",
+     "home_url": "",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "LicenseRef-user-supplied",
+     "license_note": "a clinical record; it stays with the practitioner",
+     "integration_mode": "native",
+     "snapshot_hash": "02ffddd9be01fa54a0d2ef650772efda0cc1fd33d3d16068bc91b572ba76359f",
+     "snapshot_at": "2026-10-07T21:59:32+00:00",
+     "operation_hashes": {},
+     "known_limits": [
+      "as complete and accurate as the person who collected it"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "the practitioner · 四诊 intake · snapshot 02ffddd9be01 at 2026-10-07T21:59:32+00:00"
+    },
+    {
+     "id": "bioagent.clinic.pack",
+     "name": "TCMScience clinical knowledge pack",
+     "kind": "guideline",
+     "maintainer": "TCMScience",
+     "version": "2026-10-draft",
+     "home_url": "",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "a transcription of the textbooks and the Pharmacopoeia it names",
+     "integration_mode": "native",
+     "snapshot_hash": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+     "snapshot_at": "2026-10-07T21:59:32+00:00",
+     "operation_hashes": {},
+     "known_limits": [
+      "draft — not reviewed by a licensed TCM practitioner",
+      "23 syndromes, 13 formulas, 93 herbs"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience clinical knowledge pack 2026-10-draft · snapshot dc30a871f5c7 at 2026-10-07T21:59:32+00:00"
+    }
+   ],
+   "sources_hash": "0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5",
+   "evidence": [
+    {
+     "id": "criteria.脾胃气虚证",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "\"脾胃气虚证\": {\"main\": [\"食少\", \"腹胀\", \"便溏\", \"神疲乏力\"], \"secondary\": [\"面色萎黄\", \"少气懒言\", \"食后腹胀加重\", \"消瘦\"], \"tongue\": [\"舌淡\", \"苔白\"], \"pulse\": [\"脉缓弱\", \"脉弱\"], \"principle\": \"益气健脾\", \"formula\": \"四君子汤\", \"parent\": \"气虚证\"}",
+     "citation": "《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021",
+     "title": "",
+     "identifier": "clinic_pack.json#criteria.脾胃气虚证",
+     "identifier_type": "local_artifact",
+     "source_card_id": "bioagent.clinic.pack",
+     "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+     "quote_verified": true,
+     "quote_offset": 802,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+      },
+      "assessed_by": "draft-tcm-prescription",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "脾胃气虚证",
+     "population": "the person whose findings are recorded in the intake",
+     "condition": "",
+     "comparator": "",
+     "outcome": "syndrome criteria met and the textbook base formula",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "draft-tcm-prescription",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+    },
+    {
+     "id": "formula.四君子汤",
+     "design": "expert_consensus",
+     "tier": "expert_experience",
+     "tier_rank": 2,
+     "quote": "\"四君子汤\": {\"source\": \"太平惠民和剂局方\", \"herbs\": [[\"人参\", 9], [\"白术\", 9], [\"茯苓\", 9], [\"炙甘草\", 6]], \"modifications\": [{\"when_any\": [\"呕吐\", \"恶心\"], \"add\": [\"法半夏\"], \"why\": \"降逆止呕\"}, {\"when_any\": [\"胸膈痞满\", \"胸脘痞闷\"], \"add\": [\"枳壳\", \"陈皮\"], \"why\": \"行气宽胸\"}, {\"when_any\": [\"心悸\", \"失眠多梦\"], \"add\": [\"酸枣仁\"], \"why\": \"宁心安神\"}, {\"when_any\": [\"畏寒\", \"肢冷\"], \"add\": [\"干姜\", \"附子\"], \"why\": \"温中祛寒\"}]}",
+     "citation": "《方剂学》（全国中医药行业高等教育规划教材）",
+     "title": "",
+     "identifier": "clinic_pack.json#formula.四君子汤",
+     "identifier_type": "local_artifact",
+     "source_card_id": "bioagent.clinic.pack",
+     "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+     "quote_verified": true,
+     "quote_offset": 4706,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "direct",
+      "precision": "not_assessed",
+      "consistency": "not_assessed",
+      "assessed": [
+       "directness"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision",
+       "consistency"
+      ],
+      "rationale": {
+       "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+      },
+      "assessed_by": "draft-tcm-prescription",
+      "assessment_tool": "corpus-tier-heuristic",
+      "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+     },
+     "subject": "脾胃气虚证",
+     "population": "the person whose findings are recorded in the intake",
+     "condition": "",
+     "comparator": "",
+     "outcome": "syndrome criteria met and the textbook base formula",
+     "effect": "",
+     "sample_size": 0,
+     "year": 0,
+     "retracted": "unverified",
+     "retrieved_by": "draft-tcm-prescription",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked",
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "quality dimension consistency was not assessed"
+     ],
+     "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+    }
+   ],
+   "claims": [
+    {
+     "id": "clinic.textbook_formula",
+     "text": "The recorded findings meet the textbook criteria for 脾胃气虚证 (治法 益气健脾), for which 《方剂学》 gives 四君子汤",
+     "claim_kind": "traditional_use",
+     "subject": "脾胃气虚证",
+     "predicate": "indicated_for",
+     "object": "四君子汤",
+     "supports": [
+      "criteria.脾胃气虚证",
+      "formula.四君子汤"
+     ],
+     "asserted_population": "the person whose findings are recorded in the intake",
+     "asserted_outcome": "syndrome criteria met and the textbook base formula",
+     "supported_population": "the person whose findings are recorded in the intake",
+     "supported_outcome": "syndrome criteria met and the textbook base formula",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.5,
+     "confidence_basis": "criteria scored on one intake; the pack is draft — not reviewed by a licensed TCM practitioner",
+     "hedged": true,
+     "normative": false,
+     "rationale": "a starting point for the practitioner, who decides",
+     "falsified_by": "a practitioner's examination that finds the criteria are not met, or a better-fitting syndrome",
+     "produced_by": "draft-tcm-prescription",
+     "tier_floor": "classical_text",
+     "clinical": false
+    }
+   ],
+   "outputs": [
+    {
+     "path": "clinic_summary.json",
+     "sha256": "e3f7f91d4ab378e79b18923d69ba1940cd9e9278f9dc1fe7666fcf93b7c05ba1",
+     "media_type": "application/json",
+     "bytes": 2122,
+     "description": "the session's status, findings and draft"
+    },
+    {
+     "path": "report.md",
+     "sha256": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+     "media_type": "text/markdown",
+     "bytes": 4507,
+     "description": "the draft for the practitioner to review"
+    }
+   ],
+   "limitations": [
+    "a draft for a licensed practitioner to review and sign; it is not a prescription",
+    "the knowledge pack is draft — not reviewed by a licensed TCM practitioner",
+    "the differentiation is only as good as the intake: findings not recorded are not scored",
+    "agreement with practitioners and clinical benefit are both unvalidated",
+    "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+   ],
+   "assumptions": [
+    "the intake records what was examined, and only that"
+   ],
+   "policy_id": "",
+   "audit_head": "",
+   "provenance": {
+    "pipeline": "bioagent.clinic",
+    "status": "draft",
+    "pack_sha256": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+    "session_dir": "<tmp>",
+    "intake_sha256": "7b82a5db475a6e231422c41fc61922c5c3fd1670f80a55750fc98fb275b56290",
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "6cdad2435bcdbc2856d6ba54c10458f350eec2c80b4ce8afef915466e99f92ac",
+     "pinned_by": "",
+     "arguments_sha256": "7b982c70eb9841de2dddf4ba78a4a7f5a96657c1e6667291b8c562a70a99ae21",
+     "pre_attestation_digest": "63ff2c383a70f92cb21d8bf6ab12f712cd7e5533fc4a28012c82cdbed2580cb2",
+     "state_dir": "<tmp>",
+     "run_anchor": "8e405fe8f7d992d2f52e8f9fce5790e103599c417759305a8ab38434af3a38ad",
+     "operations": [],
+     "development_run": true,
+     "audit_head": "0c16c309507c0f75ea32ba8f44070e8cdf99f1ba14b38357aab3b660978942cb",
+     "release_refused": [
+      "unpinned: no lockfile pins skill 'draft-tcm-prescription': BioScience-Harness/registry/skills.lock.yaml has no entry for it"
+     ]
+    }
+   },
+   "status": "draft",
+   "produced_by": "draft-tcm-prescription",
+   "notes": "",
+   "digest": "33bad4df4813378c4dde5d3d3454eadc8c039988e023e34c4d79aaf7dc96b482"
+  },
+  "verdict": {
+   "artifact_id": "draft-tcm-prescription",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": false,
+    "execution_attested": false,
+    "release_authorized": false
+   },
+   "unverified": [
+    "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+   ],
+   "codes": [],
+   "violations": [],
+   "warnings": [],
+   "claim_verdicts": [
+    {
+     "claim_id": "clinic.textbook_formula",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "expert_experience",
+     "caveats": [
+      "criteria.脾胃气虚证: retraction status has not been checked",
+      "criteria.脾胃气虚证: no lookupable identifier; the citation cannot be checked",
+      "criteria.脾胃气虚证: quality dimension risk_of_bias was not assessed",
+      "criteria.脾胃气虚证: quality dimension precision was not assessed",
+      "criteria.脾胃气虚证: quality dimension consistency was not assessed",
+      "formula.四君子汤: retraction status has not been checked",
+      "formula.四君子汤: no lookupable identifier; the citation cannot be checked",
+      "formula.四君子汤: quality dimension risk_of_bias was not assessed",
+      "formula.四君子汤: quality dimension precision was not assessed",
+      "formula.四君子汤: quality dimension consistency was not assessed"
+     ],
+     "unvalidated_extrapolations": []
+    }
+   ],
+   "fixable_by_declaration": false
+  },
+  "claims": [
+   {
+    "id": "clinic.textbook_formula",
+    "text": "The recorded findings meet the textbook criteria for 脾胃气虚证 (治法 益气健脾), for which 《方剂学》 gives 四君子汤",
+    "claim_kind": "traditional_use",
+    "subject": "脾胃气虚证",
+    "predicate": "indicated_for",
+    "object": "四君子汤",
+    "supports": [
+     "criteria.脾胃气虚证",
+     "formula.四君子汤"
+    ],
+    "asserted_population": "the person whose findings are recorded in the intake",
+    "asserted_outcome": "syndrome criteria met and the textbook base formula",
+    "supported_population": "the person whose findings are recorded in the intake",
+    "supported_outcome": "syndrome criteria met and the textbook base formula",
+    "direction": "unclear",
+    "magnitude": "",
+    "declared_extrapolations": {},
+    "validated_extrapolations": {},
+    "confidence": 0.5,
+    "confidence_basis": "criteria scored on one intake; the pack is draft — not reviewed by a licensed TCM practitioner",
+    "hedged": true,
+    "normative": false,
+    "rationale": "a starting point for the practitioner, who decides",
+    "falsified_by": "a practitioner's examination that finds the criteria are not met, or a better-fitting syndrome",
+    "produced_by": "draft-tcm-prescription",
+    "tier_floor": "classical_text",
+    "clinical": false
+   }
+  ],
+  "evidence": [
+   {
+    "id": "criteria.脾胃气虚证",
+    "design": "expert_consensus",
+    "tier": "expert_experience",
+    "tier_rank": 2,
+    "quote": "\"脾胃气虚证\": {\"main\": [\"食少\", \"腹胀\", \"便溏\", \"神疲乏力\"], \"secondary\": [\"面色萎黄\", \"少气懒言\", \"食后腹胀加重\", \"消瘦\"], \"tongue\": [\"舌淡\", \"苔白\"], \"pulse\": [\"脉缓弱\", \"脉弱\"], \"principle\": \"益气健脾\", \"formula\": \"四君子汤\", \"parent\": \"气虚证\"}",
+    "citation": "《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021",
+    "title": "",
+    "identifier": "clinic_pack.json#criteria.脾胃气虚证",
+    "identifier_type": "local_artifact",
+    "source_card_id": "bioagent.clinic.pack",
+    "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+    "quote_verified": true,
+    "quote_offset": 802,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+     },
+     "assessed_by": "draft-tcm-prescription",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "脾胃气虚证",
+    "population": "the person whose findings are recorded in the intake",
+    "condition": "",
+    "comparator": "",
+    "outcome": "syndrome criteria met and the textbook base formula",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "draft-tcm-prescription",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+   },
+   {
+    "id": "formula.四君子汤",
+    "design": "expert_consensus",
+    "tier": "expert_experience",
+    "tier_rank": 2,
+    "quote": "\"四君子汤\": {\"source\": \"太平惠民和剂局方\", \"herbs\": [[\"人参\", 9], [\"白术\", 9], [\"茯苓\", 9], [\"炙甘草\", 6]], \"modifications\": [{\"when_any\": [\"呕吐\", \"恶心\"], \"add\": [\"法半夏\"], \"why\": \"降逆止呕\"}, {\"when_any\": [\"胸膈痞满\", \"胸脘痞闷\"], \"add\": [\"枳壳\", \"陈皮\"], \"why\": \"行气宽胸\"}, {\"when_any\": [\"心悸\", \"失眠多梦\"], \"add\": [\"酸枣仁\"], \"why\": \"宁心安神\"}, {\"when_any\": [\"畏寒\", \"肢冷\"], \"add\": [\"干姜\", \"附子\"], \"why\": \"温中祛寒\"}]}",
+    "citation": "《方剂学》（全国中医药行业高等教育规划教材）",
+    "title": "",
+    "identifier": "clinic_pack.json#formula.四君子汤",
+    "identifier_type": "local_artifact",
+    "source_card_id": "bioagent.clinic.pack",
+    "content_hash": "0a107020b6f977b582e250d98204beae2dbc8e872e20995e1de3c1f497364e8c",
+    "quote_verified": true,
+    "quote_offset": 4706,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "direct",
+     "precision": "not_assessed",
+     "consistency": "not_assessed",
+     "assessed": [
+      "directness"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision",
+      "consistency"
+     ],
+     "rationale": {
+      "directness": "the textbook entry itself: direct for what the textbook says, not evidence about outcomes"
+     },
+     "assessed_by": "draft-tcm-prescription",
+     "assessment_tool": "corpus-tier-heuristic",
+     "describe": "directness=direct; unassessed=risk_of_bias,precision,consistency"
+    },
+    "subject": "脾胃气虚证",
+    "population": "the person whose findings are recorded in the intake",
+    "condition": "",
+    "comparator": "",
+    "outcome": "syndrome criteria met and the textbook base formula",
+    "effect": "",
+    "sample_size": 0,
+    "year": 0,
+    "retracted": "unverified",
+    "retrieved_by": "draft-tcm-prescription",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked",
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "quality dimension consistency was not assessed"
+    ],
+    "notes": "knowledge pack 2026-10-draft: draft — not reviewed by a licensed TCM practitioner"
+   }
+  ],
+  "refusals": [
+   {
+    "code": "UNPINNED",
+    "message": "unpinned: no lockfile pins skill 'draft-tcm-prescription': BioScience-Harness/registry/skills.lock.yaml has no entry for it",
+    "remedy": "A development run is recorded but never released: the skill must be reviewed and pinned in registry/skills.lock.yaml first."
+   }
+  ],
+  "labels": [
+   "INTERNAL"
+  ],
+  "licences": [
+   {
+    "asset": "user.intake.02ffddd9be01",
+    "licence": "LicenseRef-user-supplied",
+    "class": "unknown",
+    "commercial": false,
+    "note": "a clinical record; it stays with the practitioner"
+   },
+   {
+    "asset": "bioagent.clinic.pack",
+    "licence": "MIT",
+    "class": "open",
+    "commercial": true,
+    "note": "a transcription of the textbooks and the Pharmacopoeia it names"
+   }
+  ],
+  "limitations": [
+   "This is a draft for a licensed TCM practitioner to review and sign; until signed it is not a prescription, and no tool can sign it.",
+   "No issue found by the knowledge pack's rules is not a safety guarantee; the pack is a draft, not reviewed by a licensed practitioner.",
+   "a draft for a licensed practitioner to review and sign; it is not a prescription",
+   "the knowledge pack is draft — not reviewed by a licensed TCM practitioner",
+   "the differentiation is only as good as the intake: findings not recorded are not scored",
+   "agreement with practitioners and clinical benefit are both unvalidated",
+   "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+  ],
+  "outputs": [
+   {
+    "path": "clinic_summary.json",
+    "media_type": "application/json",
+    "description": "the session's status, findings and draft",
+    "sha256": "e3f7f91d4ab378e79b18923d69ba1940cd9e9278f9dc1fe7666fcf93b7c05ba1",
+    "bytes": 2122,
+    "content": {
+     "leading": "脾胃气虚证",
+     "out_dir": "<tmp>",
+     "pack": {
+      "review_status": "draft — not reviewed by a licensed TCM practitioner",
+      "version": "2026-10-draft"
+     },
+     "prescription": {
+      "applied": [],
+      "days": 7,
+      "formula": "四君子汤",
+      "formula_note": "",
+      "fraction": 1.0,
+      "fraction_note": "成人量",
+      "instructions": [
+       "每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）",
+       "先开7剂，复诊后再定",
+       "人参：另煎兑服"
+      ],
+      "issues": [
+       {
+        "code": "dose_below_range",
+        "herbs": [
+         "茯苓"
+        ],
+        "id": "dose_below_range:茯苓",
+        "message": "茯苓 9 g 低于《药典》常用量下限 10 g",
+        "severity": "info",
+        "source": "中华人民共和国药典 2020年版"
+       }
+      ],
+      "lines": [
+       {
+        "basis": "textbook",
+        "dose_g": 9.0,
+        "herb": "人参",
+        "notes": [
+         "另煎兑服"
+        ],
+        "range_g": [
+         3.0,
+         9.0
+        ],
+        "textbook_g": 9.0,
+        "toxicity": ""
+       },
+       {
+        "basis": "textbook",
+        "dose_g": 9.0,
+        "herb": "白术",
+        "notes": [],
+        "range_g": [
+         6.0,
+         12.0
+        ],
+        "textbook_g": 9.0,
+        "toxicity": ""
+       },
+       {
+        "basis": "textbook",
+        "dose_g": 9.0,
+        "herb": "茯苓",
+        "notes": [],
+        "range_g": [
+         10.0,
+         15.0
+        ],
+        "textbook_g": 9.0,
+        "toxicity": ""
+       },
+       {
+        "basis": "textbook",
+        "dose_g": 6.0,
+        "herb": "炙甘草",
+        "notes": [],
+        "range_g": [
+         2.0,
+         10.0
+        ],
+        "textbook_g": 6.0,
+        "toxicity": ""
+       }
+      ],
+      "principle": "益气健脾",
+      "source": "太平惠民和剂局方",
+      "status": "draft",
+      "suggested": [],
+      "syndrome": "脾胃气虚证",
+      "total_g": 33.0
+     },
+     "red_flags": [],
+     "signed": false,
+     "status": "draft"
+    }
+   },
+   {
+    "path": "report.md",
+    "media_type": "text/markdown",
+    "description": "the draft for the practitioner to review",
+    "sha256": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+    "bytes": 4507,
+    "content": "# 中医辨证与处方草案\n\n**本文件是供执业中医师审核的草案，未经医师签署不是处方。**\n\n状态：**草案：待执业中医师审核签署**\n\n## 提醒\n\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\n\n## 患者与四诊\n\n- 患者：p1，45 岁，女，未妊娠\n- 主诉：神疲乏力，食少便溏（3个月）\n- 望诊：面色萎黄\n- 问诊：神疲乏力、食少、便溏、气短；无：发热\n- 舌象：舌淡、苔白；脉象：脉缓弱\n- 目前用药：无\n- 过敏史：无\n- 既往病史：无\n\n## 辨证\n\n诊断标准：主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖。\n\n| 证候 | 判断 | 评分 | 主症 | 次症 | 舌 | 脉 | 治法 | 基础方 |\n|---|---|---|---|---|---|---|---|---|\n| 脾胃气虚证 | 符合 | 0.64 | 3 | 1 | 1 | 1 | 益气健脾 | 四君子汤 |\n| 心脾两虚证 | 符合 | 0.54 | 2 | 2 | 0.5 | 1 | 补益心脾 | — |\n| 气虚证 | 倾向 | 0.42 | 1 | 1 | 1 | 1 | 补气 | 四君子汤 |\n| 肺气虚证 | 倾向 | 0.33 | 1 | 0 | 1 | 1 | 补益肺气 | — |\n| 血虚证 | 倾向 | 0.29 | 1 | 0 | 1 | 1 | 补血 | 四物汤 |\n| 脾虚气陷证 | 证据不足 | 0.36 | 0 | 3 | 1 | 1 | 补中益气，升阳举陷 | 补中益气汤 |\n\n**脾胃气虚证** 的依据：\n- 主症：食少 ← 记录“食少”\n- 主症：便溏 ← 记录“便溏”\n- 主症：神疲乏力 ← 记录“神疲乏力”\n- 次症：面色萎黄 ← 记录“面色萎黄”\n- 舌：舌淡 ← 记录“舌淡、苔白”\n- 脉：脉缓弱 ← 记录“脉缓弱”\n\n## 建议补充询问\n\n| 项目 | 类别 | 目的 |\n|---|---|---|\n| 少气懒言 | 闻诊（声音气息） | 鉴别脾胃气虚证与心脾两虚证 |\n| 食后腹胀加重 | 胸胁脘腹 | 鉴别脾胃气虚证与心脾两虚证 |\n| 消瘦 | 望诊（神色形态） | 鉴别脾胃气虚证与心脾两虚证 |\n| 心悸 | 胸胁脘腹 | 鉴别心脾两虚证与脾胃气虚证 |\n| 失眠多梦 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 头晕健忘 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 腹胀 | 胸胁脘腹 | 脾胃气虚证的主症 |\n| 咳喘无力 | 咳喘痰 | 肺气虚证的主症 |\n| 自汗 | 汗 | 肺气虚证的主症 |\n| 声低懒言 | 闻诊（声音气息） | 肺气虚证的次症 |\n\n## 处方草案\n\n脾胃气虚证 · 治法：益气健脾 · 基础方：**四君子汤**（太平惠民和剂局方）\n\n| 药味 | 剂量 (g) | 依据 | 《方剂学》剂量 | 《药典》范围 | 备注 |\n|---|---|---|---|---|---|\n| 人参 | 9 | 教材剂量 | 9 | 3–9 | 另煎兑服 |\n| 白术 | 9 | 教材剂量 | 9 | 6–12 |  |\n| 茯苓 | 9 | 教材剂量 | 9 | 10–15 |  |\n| 炙甘草 | 6 | 教材剂量 | 6 | 2–10 |  |\n\n每剂合计 33 g。\n\n- 每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\n- 先开7剂，复诊后再定\n- 人参：另煎兑服\n\n## 安全核查\n\n| 级别 | 编号 | 内容 | 来源 |\n|---|---|---|---|\n| 提示 | `dose_below_range:茯苓` | 茯苓 9 g 低于《药典》常用量下限 10 g | 中华人民共和国药典 2020年版 |\n\n## 签署\n\n由执业中医师审核后签署：接受（accept）、修改（modify，修改内容会重新核查）或拒绝（reject）。\n\n```\nbioagent clinic sign <本目录> --practitioner 姓名 --licence 执业证号 --decision accept|modify|reject [--reason 编号=理由 ...]\n```\n\n## 这是什么\n\n按教材诊断标准对本次记录的四诊信息计分得到的辨证建议，以及据《方剂学》基础方、《药典》剂量范围和安全规则生成的处方草案。它依赖记录是否完整准确，不能替代医师的四诊合参与临证判断；任何处方都须由执业中医师审核签署后方可使用。辨证一致性和疗效均未经临床验证。\n\n## 依据\n\n- criteria：《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\n- formulas：《方剂学》（全国中医药行业高等教育规划教材）\n- herbs：《中华人民共和国药典》2020年版一部\n- response：《中药新药临床研究指导原则》(2002): 证候疗效 = (治疗前积分 - 治疗后积分) / 治疗前积分\n- 知识包：2026-10-draft，draft — not reviewed by a licensed TCM practitioner\n\n## 复现\n\n`session.json` 记录了 intake、各步结果、知识包摘要与代码摘要；`bioagent clinic verify <本目录>` 可复核。\n"
+   }
+  ],
+  "label": {
+   "sensitivity": "INTERNAL",
+   "categories": [],
+   "classifier": "psh.fallback",
+   "shareable": false,
+   "permits": {
+    "LOCAL_COMPUTE": true,
+    "LOCAL_MODEL": true,
+    "TRUSTED_REMOTE": true,
+    "PUBLIC_REMOTE": true,
+    "USER_OUTPUT": true,
+    "PERSISTENT": true
+   },
+   "advisory": true
+  }
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "CPython 3.13.16 / linux-x86_64",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0",
+   "python": "3.13.16"
+  },
+  "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=draft-tcm-prescription@0.1.0|source=0daf19f0e09b180747977aef0565a4267e4cce5833cc32b321a82cee0b6f59a5|benchmark=unversioned",
+  "content_hash": "6cdad2435bcdbc2856d6ba54c10458f350eec2c80b4ce8afef915466e99f92ac",
+  "audit_head": "0c16c309507c0f75ea32ba8f44070e8cdf99f1ba14b38357aab3b660978942cb",
+  "input_sha256": "6b4c8d70a31d51fe8792defae11c64ab995b8104f969e0a649257eeec9341356",
+  "output_sha256": "723f6150b3eda30d5cda2e1161c531f137cdaece1b1b1107510c86ae97fb9cb1",
+  "started_at": "2026-10-07T21:59:31Z",
+  "profile": "offline-analysis",
+  "purpose": "academic",
+  "durable": false,
+  "run_id": "r_85f076aeb0c7",
+  "run_anchor": "8e405fe8f7d992d2f52e8f9fce5790e103599c417759305a8ab38434af3a38ad",
+  "skill_pinned": false
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

@@ -107,6 +107,66 @@ export function debounce(fn, ms) {
   return d;
 }
 
+/**
+ * Run fn at most once per `ms`, with the latest arguments: at once on the first call, then once at the end of every
+ * window in which more calls came. Unlike a debounce it still runs while calls keep arriving (a streaming answer).
+ * .flush() runs a pending call now; .cancel() drops it.
+ */
+export function throttle(fn, ms) {
+  let last = 0;
+  let timer = 0;
+  let args = [];
+  const run = () => { timer = 0; last = Date.now(); fn(...args); };
+  const th = (...a) => {
+    args = a;
+    if (timer) return;
+    const wait = ms - (Date.now() - last);
+    if (wait <= 0) run();
+    else timer = setTimeout(run, wait);
+  };
+  th.cancel = () => { clearTimeout(timer); timer = 0; };
+  th.flush = () => { if (timer) { clearTimeout(timer); run(); } };
+  th.pending = () => Boolean(timer);
+  return th;
+}
+
+/**
+ * The language of a text for its lang attribute: zh-Hans when Chinese carries it, else en. Chinese characters are
+ * weighed against Latin words (not characters), so "Can 甘草 be used with 甘遂?" is English and a Chinese sentence with a
+ * few gene names stays Chinese. Empty text → "" (inherit).
+ */
+export function guessLang(text) {
+  const s = String(text || "");
+  const cjk = (s.match(/[㐀-鿿豈-﫿]/g) || []).length;
+  const words = (s.match(/[A-Za-z][A-Za-z'-]*/g) || []).length;
+  if (!cjk && !words) return "";
+  return cjk >= words * 2 ? "zh-Hans" : "en";
+}
+
+/** The lang code of the interface language (for comparing with guessLang). */
+export function uiLangCode() {
+  return lang() === "zh" ? "zh-Hans" : "en";
+}
+
+/** True when kernel text is in another language than the interface (the block gets a 「英文原文」 tag). */
+export function isForeign(texts) {
+  const ui = uiLangCode();
+  return (Array.isArray(texts) ? texts : [texts]).some((x) => {
+    const l = guessLang(x);
+    return l && l !== ui;
+  });
+}
+
+/**
+ * Kernel free text (claims, limitations, caveats, reasons): the kernel writes English, and the string is the record, so
+ * it is shown as written, in an element with its own lang (screen readers switch voice; DESIGN §8.2, WCAG 3.1.2).
+ */
+export function kernelText(tag, text, attrs = {}) {
+  const s = String(text ?? "");
+  const l = guessLang(s);
+  return h(tag, { ...attrs, lang: l || attrs.lang || null }, s);
+}
+
 let idSeq = 0;
 /** A page-unique id for aria-controls / aria-labelledby. */
 export function uid(prefix = "ui") {
@@ -253,6 +313,11 @@ export function shortcutLabel(spec) {
     : { mod: "Ctrl", shift: "Shift", alt: "Alt", ctrl: "Ctrl", enter: "Enter", esc: "Esc", up: "↑", down: "↓", slash: "/", backslash: "\\", semicolon: ";" };
   const keys = parts.map((p) => map[p] || (p.length === 1 ? p.toUpperCase() : p));
   return isMac ? keys.join("") : keys.join("+");
+}
+
+/** CSS.escape where the platform has it (an attribute selector built from an id). */
+export function cssEscape(v) {
+  return globalThis.CSS?.escape ? globalThis.CSS.escape(String(v)) : String(v).replace(/["\\\]\[]/g, "\\$&");
 }
 
 /** Clamp a number. */

@@ -77,7 +77,8 @@ export async function* readSSE(body, { signal } = {}) {
 
 /**
  * A model call that failed. `retryable`: a network failure, 429 or 5xx (the agent retries twice). `kind`: "network"
- * (never reached the service) or "model" (the service answered with an error).
+ * (never reached the service) or "model" (the service answered with an error). `permanent`: its type is one a retry
+ * cannot fix. `retryAfter`: seconds, from the Retry-After header.
  */
 export class ProviderError extends Error {
   constructor(message, { status = 0, type = "", retryable = false, kind = "model", retryAfter = null, body = "" } = {}) {
@@ -89,17 +90,25 @@ export class ProviderError extends Error {
     this.kind = kind;
     this.retryAfter = retryAfter;
     this.body = body;
+    // retrying cannot help (a daily quota, a request the service will never take): the page offers no Retry
+    this.permanent = isPermanentType(type);
   }
 }
 
 /** Relay error types that are not transient: retrying them only spends the visitor's quota. */
 const PERMANENT_TYPES = new Set([
   "forbidden_origin", "not_configured", "bad_request", "too_large", "model_not_allowed", "daily_limit", "total_limit",
-  "blocked", "upstream_auth", "upstream_quota", "upstream_rejected", "https_required", "not_found",
+  "blocked", "upstream_auth", "upstream_quota", "upstream_rejected", "https_required", "not_found", "not_relay",
+  "method_not_allowed",
 ]);
 
+/** Is this error type one that a retry cannot fix? */
+export function isPermanentType(type) {
+  return PERMANENT_TYPES.has(String(type || ""));
+}
+
 export function isRetryableStatus(status, type = "") {
-  if (PERMANENT_TYPES.has(type)) return false;
+  if (isPermanentType(type)) return false;
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 

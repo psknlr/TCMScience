@@ -1,7 +1,8 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Accum, buildRequest, parseArguments, splitThink, streamChat, stripThink } from "../js/core/llm/openai.js";
+import { setLang } from "../js/core/i18n.js";
+import { Accum, buildRequest, parseArguments, relayError, splitThink, streamChat, streamModes, stripThink } from "../js/core/llm/openai.js";
 import { activeProvider } from "../js/core/providers.js";
 import { bytePieces, fakeFetch, sse, streamResponse } from "./fixtures/fakes.mjs";
 
@@ -242,4 +243,116 @@ test("abort mid-stream ends with an AbortError and cancels the body", async () =
 
 test("an invalid endpoint is refused before fetch", () => {
   assert.throws(() => buildRequest({ provider: { ...provider(), baseUrl: "" }, messages: [] }), /无效|valid/);
+});
+
+// ------------------------------------------------------------------------------------------------- review fixes
+
+test("Accum: a declared mode is followed, nothing guessed; 'auto' no longer doubles a whole reply that is repeated", () => {
+  // cumulative: the whole text, then the same again (the closing chunk), then more
+  const c = new Accum("cumulative");
+  assert.equal(c.push("好的，已完成。"), "好的，已完成。");
+  assert.equal(c.push("好的，已完成。"), "");
+  assert.equal(c.push("好的"), "", "less of the text so far adds nothing");
+  assert.equal(c.push("好的，已完成。还有"), "还有");
+  assert.equal(c.text, "好的，已完成。还有");
+  // delta: an increment that happens to start with the text so far is still an increment
+  const d = new Accum("delta");
+  for (const piece of ["1", "1.", " 桂枝"]) d.push(piece);
+  assert.equal(d.text, "11. 桂枝");
+  const bold = new Accum("delta");
+  for (const piece of ["**", "**注意**"]) bold.push(piece);
+  assert.equal(bold.text, "****注意**");
+  // auto: a whole short reply repeated before it ever grew, and a cumulative stream that stalls once
+  const a = new Accum();
+  a.push("好的，已完成。");
+  assert.equal(a.push("好的，已完成。"), "");
+  assert.equal(a.text, "好的，已完成。");
+  const stall = new Accum();
+  for (const piece of ["我先检索", "我先检索", "我先检索原文。"]) stall.push(piece);
+  assert.equal(stall.text, "我先检索原文。");
+  assert.deepEqual(streamModes({ stream: "delta" }), { content: "delta", reasoning: "delta" });
+  assert.deepEqual(streamModes({ stream: { content: "auto", reasoning: "cumulative" } }), { content: "auto", reasoning: "cumulative" });
+  assert.deepEqual(streamModes({ stream: "nonsense" }), { content: "auto", reasoning: "auto" });
+  assert.deepEqual(streamModes({}), { content: "auto", reasoning: "auto" });
+});
+
+test("the relay: reasoning_details sent whole and then repeated are shown, and replayed, once", async () => {
+  const p = { ...activeProvider({ provider: "tao" }), baseUrl: "https://science.impf.ai/v1" };
+  const det = (text) => [{ type: "reasoning.text", id: "r1", format: "Tao-v1", index: 0, text }];
+  const r = await run(p, [sse([chunk({ reasoning_details: det("想一想"), content: "" }), chunk({ reasoning_details: det("想一想"), content: "好" }), chunk({ content: "的" }), finish("stop")])]);
+  assert.equal(r.reasoning, "想一想");
+  assert.equal(r.text, "好的");
+  assert.equal(r.done.wire.reasoning_details[0].text, "想一想");
+  assert.equal(r.done.wire.reasoning_details[0].format, "Tao-v1");
+});
+
+test("a provider known to stream increments: '1' then '1.' is '11.', not a cumulative '1.'", async () => {
+  const p = { ...activeProvider({ provider: "deepseek", keys: { deepseek: "sk" } }) };
+  assert.equal(p.stream, "delta");
+  const r = await run(p, [sse([chunk({ content: "1" }), chunk({ content: "1." }), chunk({ content: " 桂枝" }), finish("stop")])]);
+  assert.equal(r.text, "11. 桂枝");
+  const z = await run(p, [sse([chunk({ reasoning_content: "先" }), chunk({ reasoning_content: "先查" }), chunk({ content: "答" }), finish("stop")])]);
+  assert.equal(z.reasoning, "先先查");
+});
+
+test("parallel tool calls streamed whole without an index stay separate calls", async () => {
+  const tc = (fields) => chunk({ tool_calls: [fields] });
+  const r = await run(provider(), [sse([
+    tc({ id: "a", type: "function", function: { name: "tcm_herb", arguments: "{\"name\":\"甘草\"}" } }),
+    tc({ id: "b", type: "function", function: { name: "tcm_formula", arguments: "{\"name\":\"桂枝汤\"}" } }),
+    finish("tool_calls")])]);
+  const calls = r.events.filter((e) => e.type === "tool_call");
+  assert.deepEqual(calls.map((c) => [c.id, c.name, c.arguments, c.error]), [["a", "tcm_herb", { name: "甘草" }, undefined], ["b", "tcm_formula", { name: "桂枝汤" }, undefined]]);
+  assert.deepEqual(r.done.wire.tool_calls.map((c) => c.id), ["a", "b"]);
+  // the same id on every delta is one call; a delta with neither index nor id continues the call being streamed
+  const r2 = await run(provider(), [sse([
+    tc({ id: "x", function: { name: "tcm_herb", arguments: "{\"name\":" } }),
+    tc({ id: "x", function: { arguments: "\"葛根\"" } }),
+    tc({ function: { arguments: "}" } }),
+    finish("tool_calls")])]);
+  const c2 = r2.events.filter((e) => e.type === "tool_call");
+  assert.deepEqual(c2.map((c) => [c.id, c.name, c.arguments]), [["x", "tcm_herb", { name: "葛根" }]]);
+  // services that send an index keep working as before
+  const r3 = await run(provider(), [sse([
+    chunk({ tool_calls: [{ index: 0, id: "p", function: { name: "tcm_herb", arguments: "" } }, { index: 1, id: "q", function: { name: "tcm_formula", arguments: "" } }] }),
+    chunk({ tool_calls: [{ index: 1, function: { arguments: "{}" } }, { index: 0, function: { arguments: "{}" } }] }),
+    finish("tool_calls")])]);
+  assert.deepEqual(r3.events.filter((e) => e.type === "tool_call").map((c) => [c.id, c.name]), [["p", "tcm_herb"], ["q", "tcm_formula"]]);
+});
+
+test("relay errors are told in the page's language, by type; the Chinese page keeps the relay's own words", async () => {
+  const daily = { error: { message: "今天的 Tao-S1 免费额度已用完（每人每天 1200 次模型调用）", type: "daily_limit" } };
+  const relay = { ...provider(), id: "tao", relay: true, apiKey: "", key_required: false };
+  const fail = (body, status, headers = {}) => ({ ...relay, fetch: fakeFetch(() => new Response(JSON.stringify(body), { status, headers })) });
+  const errOf = async (p) => { try { for await (const _ of streamChat({ provider: p, messages: [] })); } catch (err) { return err; } return null; };
+  setLang("en");
+  try {
+    const e1 = await errOf(fail(daily, 429, { "retry-after": "3600" }));
+    assert.match(e1.message, /^Your free Tao-S1 quota for today is used up\. It resets every day at 00:00 UTC/);
+    assert.doesNotMatch(e1.message, /[\u3400-\u9fff]/);
+    assert.equal(e1.permanent, true, "no Retry for a daily quota");
+    assert.equal(e1.retryable, false);
+    const e2 = await errOf(fail({ error: { message: "请求太频繁，请 10 秒后再试", type: "rate_limited" } }, 429, { "retry-after": "10" }));
+    assert.equal(e2.message, "Too many requests to Tao-S1. Try again in 10 s.");
+    assert.equal(e2.retryAfter, 10);
+    assert.equal(e2.permanent, false);
+    const e3 = await errOf(fail({ error: { message: "新的中继错误", type: "something_new" } }, 500));
+    assert.equal(e3.message, "新的中继错误", "an unknown type keeps the relay's words");
+    assert.equal(e3.lang, "zh", "marked as Chinese on an English page");
+    const e4 = await errOf({ ...relay, fetch: fakeFetch(() => streamResponse([sse([{ error: { message: "Tao-S1 出错了", type: "upstream_error" } }])])) });
+    assert.match(e4.message, /^Tao-S1's model service reported a problem/);
+    assert.equal(e4.retryable, true);
+    for (const type of ["https_required", "forbidden_origin", "not_configured", "bad_request", "too_large", "model_not_allowed", "total_limit", "unavailable", "upstream_unreachable", "upstream_auth", "upstream_rate", "upstream_quota", "upstream_rejected", "relay_error", "not_relay", "not_found", "method_not_allowed"]) {
+      const shown = relayError(type, "中文", {}, "en");
+      assert.doesNotMatch(shown.text, /[\u3400-\u9fff]|core\.relay/, type);
+      assert.doesNotMatch(shown.text, /minimax|abab|hailuo/i, type);
+    }
+    assert.equal(relayError("rate_limited", "", {}, "en").text, "Too many requests to Tao-S1. Try again in a moment.");
+  } finally {
+    setLang("zh");
+  }
+  const z = await errOf(fail(daily, 429));
+  assert.equal(z.message, daily.error.message, "the relay's Chinese, with its numbers, on a Chinese page");
+  assert.equal(z.lang, undefined);
+  assert.equal(relayError("daily_limit", "", {}, "zh").text.startsWith("今天的 Tao-S1 免费额度已用完"), true, "without a message: the page's own sentence");
 });

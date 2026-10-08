@@ -126,14 +126,17 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
   然后提交到 main。可以直接在 GitHub 网页上编辑这个文件。
 - 拿不准时先照常部署。第 8 步的检查若报 `the model service refused the key`，多半就是站点不对，也可能是密钥有误。
 
-## 第 7 步　确认 science.impf.ai 还没有 DNS 记录
+## 第 7 步　确认 science.impf.ai 没有别的用途
 
-第一次部署时，Cloudflare 会自动为 `science.impf.ai` 创建 DNS 记录并签发证书。**这个名字事先不能有任何 DNS 记录**，否则部署失败
-（`already has externally managed DNS records`）。
+第一次部署时，Cloudflare 会自动为 `science.impf.ai` 创建 DNS 记录并签发证书。GitHub 上的部署**不会询问也不会失败**：如果这个
+名字已有 DNS 记录，或已是另一个 Worker 的自定义域名，部署会直接替换它，原来的用途随即失效。所以第一次部署前请自己检查一次——
+这是唯一的保护。
 
 1. Cloudflare → **Domains → impf.ai → DNS → Records**，在搜索框输入 `science`。
-2. 应该没有任何结果。有的话，确认它没有别的用途后删除（**Edit → Delete**）。
-3. **不要**手动添加这条记录。
+2. 应该没有任何结果。有的话，先确认它没有别的用途：不再需要就删除（**Edit → Delete**）；仍在使用就不要部署，改用别的子域名
+   （`studio/edge/wrangler.toml` 里 `[[routes]]` 的 `pattern`）。
+3. 再看 **Workers & Pages**：其他 Worker 的 **Settings → Domains & Routes** 里不应有 `science.impf.ai`。
+4. **不要**手动添加这条记录。
 
 ## 第 8 步　部署
 
@@ -183,7 +186,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 更换 Cloudflare 令牌 | 按第 2 步新建令牌 → 更新 `CLOUDFLARE_API_TOKEN` → 重跑 studio → 在 Cloudflare 删除旧令牌 |
 | 调整限额、模型、允许的网页来源 | 改 `studio/edge/wrangler.toml` 的 `[vars]`，合入 main 后自动重新部署。`PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY` 是每人每分钟、每人每天、全体每天的模型调用次数；`TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` 是每人每天、全体每天的 token。一个问题通常调用模型好几次。在控制台里直接改的变量会被下次部署覆盖 |
 | **暂停 Tao-S1（立即）** | Cloudflare → tcmscience-studio → **Settings → Variables and Secrets**，删除 `MINIMAX_API_KEY`。网页检测到中继没有密钥后，改请访客用自己的模型；网站照常。**同时**删除仓库 Secret `MINIMAX_API_KEY`，否则下次部署会把它写回去 |
-| 暂停 Tao-S1（持久） | 把 `wrangler.toml` 的 `RELAY` 改为 `"off"`，合入 main。恢复时改回 `"on"` |
+| 暂停 Tao-S1（持久） | 把 `wrangler.toml` 的 `RELAY` 改为 `"off"`，合入 main。部署后的检查会显示 `skipped (RELAY off)`，照常通过。恢复时改回 `"on"` |
 | 看用量 | MiniMax 控制台的用量或账单页；Cloudflare 里 Worker 的 **Metrics** |
 | 网页的内容安全策略 | 目前是“只报告”（`Content-Security-Policy-Report-Only`，见 `_headers`）。在浏览器 Console 里确认长期没有违规报告后，可以把这一行的名字改为 `Content-Security-Policy` 使其生效，同时改 `src/site.js` |
 
@@ -193,14 +196,14 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 |---|---|---|
 | studio 运行成功，但有黄色警告 `science.impf.ai is not deployed until these repository secrets are set: …` | 列出的 Secret 没设，或名称拼错 | 按第 5 步补上（名称全大写、一字不差），重跑 studio |
 | 黄色警告 `no MINIMAX_API_KEY secret` | 没设 MiniMax 密钥 | 网站已上线，Tao-S1 关闭。要开放 Tao-S1 就按第 1、5 步补上后重跑 |
-| test 或 build 作业失败 | 代码的测试没过，或构建出错 | 打开失败的步骤看日志；部署不会在测试失败时进行，线上仍是上一个版本 |
+| test 或 build 作业失败 | 代码的测试没过，或构建出错 | 打开失败的步骤看日志；部署不会在测试失败时进行，线上仍是上一个版本。改了 `wrangler.toml` 的 `[vars]` 之后 Edge 步骤失败：日志里 `test/config.test.js` 列出了写错的变量（如 `RELAY` 只能是 `"on"`/`"off"`，数字要写整数，调用次数限额是 `0` 或至少 16），改正后再提交 |
 | 部署步骤报 `Authentication error [code: 10000]` | 令牌的权限或账户不对，或 `CLOUDFLARE_ACCOUNT_ID` 填错 | 核对 Account ID；按第 2 步重建令牌（模板 Edit Cloudflare Workers，账户选对） |
 | 部署步骤报 `No access to the specified resource`（地址里有 `workers/routes` 或 `domains`） | 令牌的 Zone Resources 里没有 impf.ai | Cloudflare → API Tokens → 该令牌的 **Edit** → Zone Resources 加上 impf.ai，然后重跑。令牌的值不变，GitHub 里不用改 |
-| 部署步骤说 `science.impf.ai` 已有 DNS 记录（`already has externally managed DNS records`） | 事先有人建了这条记录 | 按第 7 步删除这条记录，然后重跑 |
+| `science.impf.ai` 原来指向别处，部署后变成了这个网站 | GitHub 上的部署不询问就替换已有的 DNS 记录或另一个 Worker 的自定义域名（第 7 步） | 原来的用途需要恢复时，在 Cloudflare 里给它换一个子域名重新设置；或把本站改到别的子域名（`wrangler.toml` 的 `pattern`）后重跑 studio |
 | 部署步骤报 `files over 25 MiB` 或文件数超过 20 000 | 构建产物超出 Workers 静态资源的限制 | 大文件改从 CDN 加载，或拆分 |
 | 检查步骤报 `… does not answer … after 600 s` | 新域名或证书还没生效 | 等几分钟后重跑 studio；也可以在 Cloudflare 确认 Worker 的 **Domains & Routes** 里有这个域名 |
 | 检查步骤报 `lacks Cross-Origin-Opener-Policy … _headers` | 部署的网页里没有 `_headers` | 确认 build 作业的 “Build the app” 步骤复制了 `studio/edge/_headers`，重跑 |
-| 检查步骤报 `Tao-S1 is off` | 写入机密那一步没有成功，或 `RELAY = "off"` | 重跑 studio；或把 `RELAY` 改回 `"on"` |
+| 检查步骤报 `Tao-S1 is off` | 写入机密那一步没有成功，或 Worker 上没有 `MINIMAX_API_KEY`（`RELAY = "off"` 不会报这个：那是暂停，检查照常通过） | 确认仓库 Secret `MINIMAX_API_KEY` 已设，重跑 studio |
 | 检查步骤报 `the model service refused the key` | 国际站密钥配了国内地址（或反之），或者密钥已删除、填错 | 按第 6 步改 `UPSTREAM_BASE`；或更新 `MINIMAX_API_KEY` 后重跑 |
 | 检查步骤或网页提示“额度暂时用完了”“暂时繁忙” | MiniMax 余额不足，或 Token Plan 当前窗口的额度用完、调用过于频繁 | 充值，或等下一个窗口。公开网站建议用按量付费的密钥 |
 | 网页提示“Tao-S1 只供 TCMScience Studio 网页使用” | 网页的地址不在 `ALLOWED_ORIGINS` 里，或浏览器扩展去掉了 `Origin` | 换了网址时，把新地址加进 `ALLOWED_ORIGINS` 并重新部署 |

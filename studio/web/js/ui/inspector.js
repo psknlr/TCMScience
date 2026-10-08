@@ -3,18 +3,19 @@
 // drawer below that, a bottom sheet on phones. Selecting in the thread selects here, scrolls and highlights for 1.2 s;
 // clicking a row here scrolls the thread to the message that produced it.
 
-import { claimsOf, evidenceOf, releaseOf, sourceView } from "../core/governance.js";
+import { claimsOf, evidenceOf, refusalsOf, releaseOf, sourceView } from "../core/governance.js";
 import { glossary, lang, t } from "../core/i18n.js";
 import { canonicalJson } from "../core/util.js";
 import { clamp, debounce, fill, formatBytes, formatDateTime, formatDuration, h, rafThrottle } from "./dom.js";
-import { messageContext, viewOfStored } from "./conversation.js";
+import { viewOfStored } from "./conversation.js";
 import { filePreview, jsonTree } from "./files.js";
 import {
-  artifactCard, claimCard, compositeVersionView, evidenceGroups, evidenceTable, hashBadge, releaseChecklist, sourceCard, verdictPill,
+  artifactCard, auditHeadView, candidateChip, claimCard, compositeVersionView, evidenceGroups, evidenceTable, hashBadge, limitationsBlock, reasonList,
+  releaseChecklist, sourceCard, verdictPill,
 } from "./governance.js";
 import { icon } from "./icons.js";
 import { button, chip, copyButton, emptyState, iconButton, keyValue, segmented, tabList } from "./primitives.js";
-import { argsSummary, deviceLabel, toolTitle, whereBadge } from "./toolcards.js";
+import { argsSummary, callStateView, deviceLabel, envelopeSummary, isDeclined, toolTitle, whereBadge } from "./toolcards.js";
 
 export const TABS = ["run", "evidence", "claims", "files", "provenance"];
 const TAB_ICONS = { run: "activity", evidence: "bookText", claims: "scale", files: "files", provenance: "fingerprint" };
@@ -31,6 +32,19 @@ export function mountInspector(app, host) {
     tabs: TABS.map((id) => ({ id, label: t(`ui.inspector.tab.${id}`), icon: TAB_ICONS[id], tip: `${t(`ui.inspector.tab.${id}`)}  Alt+${TABS.indexOf(id) + 1}` })),
     onChange: (id) => app.select({ tab: id }),
   });
+  // the tab strip scrolls when the five labels do not fit: an edge fade says so, and the selected tab is kept in view
+  const syncTabsOverflow = () => {
+    tabs.classList.toggle("is-overflowing", tabs.scrollWidth > tabs.clientWidth + 1);
+    // keep the selected tab in view by scrolling the strip itself (scrollIntoView could scroll the page too)
+    const sel = tabs.querySelector('[aria-selected="true"]');
+    if (sel && tabs.scrollWidth > tabs.clientWidth) {
+      const a = tabs.getBoundingClientRect();
+      const b = sel.getBoundingClientRect();
+      if (b.left < a.left) tabs.scrollLeft -= a.left - b.left + 4;
+      else if (b.right > a.right) tabs.scrollLeft += b.right - a.right + 24;
+    }
+  };
+  if (typeof ResizeObserver === "function") new ResizeObserver(() => syncTabsOverflow()).observe(tabs);
   const scope = h("div.inspector__scope");
   const panel = h("div.inspector__panel", { role: "tabpanel", tabindex: "0" });
   const handle = h("div.inspector__resize", { role: "separator", "aria-orientation": "vertical", "aria-label": t("ui.inspector.resize"), tabindex: "0", "aria-valuemin": "320", "aria-valuemax": "720" });
@@ -116,6 +130,7 @@ export function mountInspector(app, host) {
     tabs.setCount("evidence", done.reduce((n, e) => n + evidenceOf(e.env).length, 0));
     tabs.setCount("claims", done.reduce((n, e) => n + claimsOf(e.env).length, 0));
     tabs.setCount("files", done.reduce((n, e) => n + (e.env.governance?.outputs?.length || 0), 0));
+    requestAnimationFrame(syncTabsOverflow);
     fill(scope, 
       segmented({
         label: t("ui.inspector.scope"), size: "sm", value: insp.scope,
@@ -132,10 +147,32 @@ export function mountInspector(app, host) {
       case "provenance": content = provenanceTab(done); break;
       default: content = runTab(tr);
     }
+    // 「此回答」 is empty but the conversation is not: say so, one click from the whole conversation
+    if (content?.classList?.contains("empty") && insp.scope === "turn" && insp.tab !== "files") {
+      const n = countInConversation(insp.tab);
+      if (n > 0) content = emptyState({
+        icon: TAB_ICONS[insp.tab], title: t(`ui.inspector.empty_turn.${insp.tab}`, { n }),
+        actions: [button({ label: t("ui.inspector.show_all"), size: "sm", onClick: () => { app.state.inspector = { ...app.state.inspector, scope: "all" }; render(); } })],
+      });
+    }
     const keep = panel.scrollTop;
     fill(panel, content);
     panel.scrollTop = keep;
     highlightSelection();
+  }
+
+  /** How many items of a tab the whole conversation holds (for the empty 「此回答」 view). */
+  function countInConversation(tab) {
+    const saved = app.state.inspector.scope;
+    app.state.inspector.scope = "all";
+    const all = turns();
+    app.state.inspector.scope = saved;
+    const envs = all.flatMap((x) => x.envelopes).filter((e) => e.env);
+    if (tab === "evidence") return envs.reduce((n, e) => n + evidenceOf(e.env).length, 0);
+    if (tab === "claims") return envs.reduce((n, e) => n + claimsOf(e.env).length, 0);
+    if (tab === "provenance") return envs.length;
+    if (tab === "run") return all.reduce((n, x) => n + x.vm.segments.length, 0);
+    return 0;
   }
 
   function highlightSelection() {
@@ -165,7 +202,8 @@ export function mountInspector(app, host) {
         if (seg.type === "reasoning" && !x.vm.hideReasoning) {
           n++;
           const ms = x.vm.thinkingMs?.[seg.step];
-          rows.push(runRow({ n, icon: "brain", name: t("ui.run.thinking"), kind: t("ui.run.kind.model"), duration: ms, status: null, note: t("ui.run.thinking_note") }));
+          // under a second is not shown as a number (a reasoning block that arrived at once is not 「0 毫秒」 of thought)
+          rows.push(runRow({ n, icon: "brain", name: t("ui.run.thinking"), kind: t("ui.run.kind.model"), duration: ms >= 1000 ? ms : null, status: null, note: t("ui.run.thinking_note") }));
         } else if (seg.type === "tools") {
           for (const id of seg.callIds || []) {
             const e = x.envelopes.find((y) => y.callId === id);
@@ -173,7 +211,8 @@ export function mountInspector(app, host) {
             if (e.approval?.decided || e.approval?.request) {
               n++;
               const d = e.approval.decided;
-              rows.push(runRow({ n, icon: "shieldCheck", name: t("ui.run.approval"), kind: t("ui.run.kind.person"), status: d ? { tone: d === "deny" ? "refused" : "jade", icon: d === "deny" ? "✕" : "✓", label: t(`ui.perm.decided.${d}`) } : { tone: "ochre", icon: "?", label: t("ui.perm.title") } }));
+              // the person's decline is theirs: slate, not the kernel's vermilion ✕ (DESIGN §7.1 #4)
+              rows.push(runRow({ n, icon: "shieldCheck", name: t("ui.run.approval"), kind: t("ui.run.kind.person"), status: d ? { tone: d === "deny" ? "slate" : "jade", icon: d === "deny" ? "○" : "✓", label: t(`ui.perm.decided.${d}`) } : { tone: "ochre", icon: "?", label: t("ui.perm.title") } }));
             }
             n++;
             rows.push(toolRow(n, e, x.vm));
@@ -199,13 +238,17 @@ export function mountInspector(app, host) {
     }));
   }
 
-  function runRow({ n, icon: ic, name, kind, duration, status, note, where, hashes, onClick, key, mono }) {
-    return h("li", { class: ["run__row", onClick && "is-clickable"], "data-call-row": key || null, tabindex: onClick ? "0" : null, onClick, onKeydown: onClick ? (e) => { if (e.key === "Enter") onClick(); } : null },
+  function runRow({ n, icon: ic, name, kind, duration, status, note, noteLang = null, where, hashes, onClick, key, mono }) {
+    // a clickable row's action is a real button (its name); a click anywhere else on the row is a pointer shortcut
+    const nameNode = onClick
+      ? h("button.run__link", { type: "button", "data-tip": t("ui.inspector.goto_turn"), onClick: (e) => { e.stopPropagation(); onClick(); } }, h("span", { class: mono ? "mono" : null }, name))
+      : h("span", { class: mono ? "mono" : null }, name);
+    return h("li", { class: ["run__row", onClick && "is-clickable"], "data-call-row": key || null, onClick: onClick ? (e) => { if (!e.target.closest?.("button, a")) onClick(); } : null },
       h("span.run__n.num", String(n)),
       h("span.run__icon", icon(ic, { size: 14 })),
       h("div.run__main",
-        h("p.run__name", h("span", { class: mono ? "mono" : null }, name), kind ? h("span.run__kind", kind) : null),
-        note ? h("p.run__note", note) : null,
+        h("p.run__name", nameNode, kind ? h("span.run__kind", kind) : null),
+        note ? h("p.run__note", { lang: noteLang }, note) : null,
         where || hashes ? h("div.run__meta", where, hashes) : null),
       h("div.run__side",
         status ? verdictPill(status, { size: "sm" }) : null,
@@ -217,11 +260,15 @@ export function mountInspector(app, host) {
     const { title, id } = toolTitle(e.call.name, app.catalog, e.call.args);
     const status = env?.status || e.call.status;
     const r = env?.receipt || {};
+    const declined = isDeclined(env);
     return runRow({
       n, icon: "wrench", name: title === id ? id : title, mono: title === id, key: e.callId,
-      kind: env?.governance?.kind ? t(`ui.run.gov.${env.governance.kind}`) : t("ui.run.kind.tool"),
-      note: env?.summary || argsSummary(e.call.args, 90),
-      status: glossaryCall(status),
+      // a declined call never ran: it is the person's row (你), not the system's
+      kind: declined ? t("ui.run.kind.person")
+        : env?.governance?.kind ? `${t(`ui.run.gov.${env.governance.kind}`)}${r.skill_pinned === false ? ` · ${t("ui.artifact.candidate_short")}` : ""}` : t("ui.run.kind.tool"),
+      note: envelopeSummary(env).text || argsSummary(e.call.args, 90),
+      noteLang: envelopeSummary(env).text ? envelopeSummary(env).lang : null,
+      status: glossaryCall(status, env),
       duration: env ? env.duration_ms : null,
       where: r.decided_by === "router" ? h("span.where.where--none", t("ui.where.not_run")) : whereBadge(r, { where: e.call.where, runnerUrl: app.state.settings.runner.url }),
       hashes: [r.input_sha256 ? hashBadge(r.input_sha256, { compact: true, label: t("ui.tool.input") }) : null, r.output_sha256 ? hashBadge(r.output_sha256, { compact: true, label: t("ui.tool.output") }) : null],
@@ -229,10 +276,14 @@ export function mountInspector(app, host) {
     });
   }
 
-  function glossaryCall(status) {
-    const map = { succeeded: ["neutral", "✓"], failed: ["warning", "!"], refused: ["refused", "✕"], needs_approval: ["ochre", "?"], job_submitted: ["navy", "◷"], cancelled: ["slate", "■"], running: ["navy", "…"], pending: ["navy", "…"] };
-    const [tone, ic] = map[status] || ["neutral", "○"];
-    return { tone, icon: ic, label: glossary.verdictState(status === "pending" ? "running" : status, undefined, "call") };
+  function glossaryCall(status, env) {
+    const map = {
+      succeeded: ["neutral", "✓"], failed: ["warning", "!"], refused: ["refused", "✕"], needs_approval: ["ochre", "?"], job_submitted: ["navy", "◷"],
+      cancelled: ["slate", "■"], running: ["navy", "…"], pending: ["navy", "…"], declined: ["slate", "○"], interrupted: ["slate", "○"], clinic_draft: ["caveat", "✎"],
+    };
+    const view = callStateView(status, env);
+    const [tone, ic] = map[view.key] || map[status] || ["neutral", "○"];
+    return { tone, icon: ic, label: view.label };
   }
 
   // ----------------------------------------------------------------------------------------------- 证据 Evidence
@@ -270,7 +321,14 @@ export function mountInspector(app, host) {
 
   function claimsTab(envs) {
     const all = [];
-    for (const e of envs) for (const c of claimsOf(e.env)) all.push({ c, e, ev: evidenceOf(e.env) });
+    // a job's governed result is in every job_status poll after success: its claims are listed once, from the last
+    const lastOfJob = new Map();
+    for (const e of envs) if (e.env?.status === "succeeded" && e.env.job?.id) lastOfJob.set(e.env.job.id, e.callId);
+    for (const e of envs) {
+      const jobId = e.env?.job?.id;
+      if (jobId && lastOfJob.has(jobId) && lastOfJob.get(jobId) !== e.callId) continue;
+      for (const c of claimsOf(e.env)) all.push({ c, e, ev: evidenceOf(e.env) });
+    }
     if (!all.length) return emptyState({ icon: "scale", title: t("ui.inspector.empty.claims_title"), body: t("ui.inspector.empty.claims") });
     const tests = {
       all: () => true,
@@ -347,7 +405,8 @@ export function mountInspector(app, host) {
       if (job.state !== "succeeded") { box.append(h("p.muted.small", t("ui.job.pending_note"))); return; }
       const files = (await runner.jobs.files(jobId))?.files || [];
       box.append(h("ul.file-list", { role: "list" }, files.map((f) => fileRow({
-        name: f.path, type: f.media_type, bytes: f.bytes, sha256: f.sha256, verified: true, location: t("ui.files.loc_runner"), key: `${jobId}/${f.path}`,
+        // the runner checked the digest recorded at collection: the file is unchanged, which is not a release
+        name: f.path, type: f.media_type, bytes: f.bytes, sha256: f.sha256, digest: true, location: t("ui.files.loc_runner"), key: `${jobId}/${f.path}`,
         onPreview: () => { filePick = { key: `${jobId}/${f.path}`, source: { url: runner.fileUrl(jobId, f.path) }, meta: { name: f.path, media_type: f.media_type } }; render(); },
         onDownload: () => { const a = h("a", { href: runner.fileUrl(jobId, f.path), download: f.path.split("/").pop() }); document.body.append(a); a.click(); a.remove(); },
       }))));
@@ -355,14 +414,16 @@ export function mountInspector(app, host) {
     return box;
   }
 
-  function fileRow({ name, type, bytes, sha256, location, verified, key, onPreview, onDownload }) {
+  function fileRow({ name, type, bytes, sha256, location, verified, digest = false, key, onPreview, onDownload }) {
     const picked = filePick?.key === key;
     return h("li", { class: ["file-row", picked && "is-picked"], "data-file": key },
       icon(/json/.test(type || name) ? "fileJson" : /image/.test(type || "") ? "image" : /csv|tsv|sheet/.test((type || "") + name) ? "fileTable" : /html/.test(type || name) ? "fileCode" : "file", { size: 16, className: "file-row__icon" }),
       h("div.file-row__main",
         h("p.file-row__name", name),
         h("p.file-row__meta", [type || "", bytes !== undefined && bytes !== null ? formatBytes(bytes) : "", location].filter(Boolean).join(" · ")),
-        h("div.file-row__badges", sha256 ? hashBadge(sha256, { compact: true }) : null, verified ? chip({ label: t("ui.artifact.output_verified"), tone: "jade", icon: "check" }) : null)),
+        h("div.file-row__badges", sha256 ? hashBadge(sha256, { compact: true }) : null,
+          verified ? chip({ label: t("ui.artifact.output_verified"), tone: "jade", icon: "check" })
+            : digest ? chip({ label: t("ui.files.digest_checked"), tone: "slate", icon: "check", title: t("ui.files.digest_checked_tip") }) : null)),
       h("div.file-row__actions",
         onPreview ? iconButton({ icon: "eye", label: t("ui.files.preview"), size: "sm", onClick: onPreview }) : null,
         onDownload ? iconButton({ icon: "download", label: t("ui.files.download"), size: "sm", onClick: onDownload }) : null));
@@ -407,14 +468,21 @@ export function mountInspector(app, host) {
           r.content_hash ? ["Skill", hashBadge(r.content_hash)] : null,
         ])),
     ];
+    // the kernel's refusals of this call, whatever its status (a succeeded candidate run is still refused release)
+    const refusals = refusalsOf(env);
+    if (refusals.length) parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.prov.refusals", { n: refusals.length })), reasonList(refusals)));
     if (rel) {
       parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.cv.title")), compositeVersionView(env) || h("p.muted.small", "—")));
       parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.prov.attestation")), keyValue([
         ["policy_id", rel.policy_id ? h("code.kv__code", rel.policy_id) : h("span.muted", t("ui.artifact.none"))],
-        ["audit_head", rel.audit_head ? hashBadge(rel.audit_head, { prefix: "" }) : h("span.muted", t("ui.artifact.not_attested"))],
+        ["audit_head", auditHeadView(env, rel)],
         [t("ui.prov.durable"), r.durable === false ? t("ui.prov.memory_only") : r.durable ? t("ui.prov.durable_yes") : "—"],
+        r.skill_pinned === false ? [t("ui.prov.pinned"), candidateChip(env)] : null,
       ], { className: "kv--mono-keys" })));
       parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.prov.release")), releaseChecklist(rel)));
+    } else if (env.governance?.limitations?.length) {
+      // a result without an artifact card: its limits, all of them
+      parts.push(h("section.prov-sec", limitationsBlock(env.governance.limitations, { compact: false })));
     }
     if (sources.length) {
       parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.prov.sources", { n: sources.length })),

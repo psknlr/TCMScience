@@ -40,7 +40,8 @@ export const CLAIM_SUPPORT = {
 export const CLINICAL_CLAIM_KINDS = ["efficacy", "association", "safety_signal", "recommendation"];
 
 export const FAMILIES = {
-  tradition: { zh: "经典与经验", en: "Tradition", short: { zh: "经典", en: "Tradition" } },
+  // short: 传统, not 经典 — the family holds expert consensus (tier 2) as well as classical texts (tier 1)
+  tradition: { zh: "经典与经验", en: "Tradition", short: { zh: "传统", en: "Tradition" } },
   bench: { zh: "临床前", en: "Bench", short: { zh: "临床前", en: "Bench" } },
   clinical: { zh: "临床", en: "Clinical", short: { zh: "临床", en: "Clinical" } },
   predicted: { zh: "计算预测", en: "Predicted", short: { zh: "预测", en: "Predicted" } },
@@ -144,7 +145,8 @@ export const STATES = {
   job: {
     queued: { zh: "排队中", en: "Queued" },
     running: { zh: "运行中", en: "Running" },
-    succeeded: { zh: "已完成并核验", en: "Succeeded" },
+    // the runner checked each output's hash at collection; that is not a release (the kernel's verdict says that)
+    succeeded: { zh: "已完成（输出哈希已核验）", en: "Finished (output hashes verified)" },
     failed: { zh: "未完成", en: "Failed" },
     cancelled: { zh: "已取消", en: "Cancelled" },
   },
@@ -372,6 +374,18 @@ export const CODES = {
   INQ150: {
     en: "the inquiry does not verify", zh: "探究无法核验",
     remedy: { en: "the trail was altered, or a recorded belief does not follow from the sealed predictions and outcomes; reload from an unaltered trail", zh: "记录被改动，或某个记录的信念不能由密封预测与结果推出；请从未改动的记录重新载入" },
+  },
+
+  // Studio — a Skill no lockfile pins (the runner's receipt says skill_pinned: false): it runs as a candidate
+  UNPINNED: {
+    en: "Candidate Skill: no lockfile pins it, so the run is recorded but its result is not released", zh: "候选 Skill：未被锁定文件固定，运行会记录但结果不会发布",
+    remedy: { en: "the maintainers pin a reviewed version in the registry lockfile; until then its results stay unreleased candidates", zh: "由维护者在注册表锁定文件中固定经审核的版本；在此之前，其结果只是未发布的候选结果" },
+  },
+
+  // Studio — the acts reserved for a person (tcmstudio.catalog.NEVER_OFFERED), refused by name in the page and the runner
+  HUMAN_ONLY: {
+    en: "an act reserved for a person, never a tool call", zh: "只能由人完成的操作，不是工具调用",
+    remedy: { en: "a person does this, not the model: a licensed practitioner signs a clinic draft; the maintainers review a release", zh: "此操作由人完成，不由模型调用：临床草案由执业医师本人签署，发布由维护者审核" },
   },
 };
 

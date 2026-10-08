@@ -7,6 +7,7 @@ import { icon } from "./icons.js";
 import { openDialog, toast } from "./overlay.js";
 import { computeChipLabel, computePanel, modelChipLabel, modelPanel, openComputePopover, openModelPopover, runnerTone } from "./panels.js";
 import { iconButton, progressBar, statusDot, switchControl } from "./primitives.js";
+import { inlinedInPrompt } from "./files.js";
 
 const BROWSER_SIZE_GUARD = 200 * 1024 * 1024;
 
@@ -14,7 +15,7 @@ const BROWSER_SIZE_GUARD = 200 * 1024 * 1024;
  * mountComposer(app, {variant: "dock"|"hero", placeholder, autofocus}) → {el, setText, focus, destroy}.
  * The composer sends through app.send; while a turn runs in this conversation the send button is a stop button.
  */
-export function mountComposer(app, { variant = "dock", autofocus = false, initialText = "" } = {}) {
+export function mountComposer(app, { variant = "dock", autofocus = false, keepFocus = false, initialText = "" } = {}) {
   const attachments = []; // {id, file, status: "hashing"|"ready"|"error", progress, sha256}
   const ta = h("textarea#composer-input.composer__input", {
     rows: "1", "aria-label": t("ui.composer.label"), placeholder: t("ui.composer.placeholder"), spellcheck: "true",
@@ -72,21 +73,46 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
     }
   });
 
+  /** The turn runs in the conversation this composer belongs to (on a project page there is none yet). */
   function streamingHere() {
     const turn = app.state.turn;
-    return Boolean(turn && (!app.state.conversation || turn.conversationId === app.state.conversation.id));
+    return Boolean(turn && app.state.conversation && turn.conversationId === app.state.conversation.id);
+  }
+
+  /** A turn runs in another conversation: one answer at a time, so sending here waits for it (or for its stop). */
+  function busyElsewhere() {
+    const turn = app.state.turn;
+    return Boolean(turn && !streamingHere());
+  }
+
+  function busyTitle() {
+    const id = app.state.turn?.conversationId;
+    const c = [...(app.state.conversations || []), ...(app.state.recent || [])].find((x) => x.id === id);
+    return c?.title || t("ui.conv.untitled");
   }
 
   async function submit() {
     if (streamingHere()) return;
     const text = ta.value.trim();
     if (!text) return;
+    if (busyElsewhere()) {
+      // say why nothing happens, and offer the way out (the text stays in the box)
+      toast(t("ui.composer.busy_elsewhere", { title: busyTitle() }), { action: { label: t("ui.composer.stop_other"), onClick: () => app.stop() }, timeout: 8000 });
+      return;
+    }
     if (attachments.some((a) => a.status === "hashing")) {
       toast(t("ui.composer.wait_hash"));
       return;
     }
-    const files = attachments.filter((a) => a.status === "ready").map((a) => a.file);
-    const ok = await app.send(text, { files });
+    // the composer's hash goes along, so the file is not read a second time to hash it again
+    const files = attachments.filter((a) => a.status === "ready").map((a) => ({ file: a.file, sha256: a.sha256 }));
+    let ok = false;
+    try {
+      ok = await app.send(text, { files });
+    } catch (err) {
+      toast(t("ui.composer.send_failed", { message: err?.message || String(err) }), { tone: "warn", timeout: 8000 });
+      return;
+    }
     if (ok !== false) {
       ta.value = "";
       attachments.length = 0;
@@ -98,11 +124,14 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
   function renderSend() {
     const streaming = streamingHere();
     const empty = !ta.value.trim();
-    sendBtn.className = ["composer__send", streaming ? "is-stop" : "", empty && !streaming ? "is-empty" : ""].filter(Boolean).join(" ");
+    sendBtn.className = ["composer__send", streaming ? "is-stop" : "", empty && !streaming ? "is-empty" : "", busyElsewhere() ? "is-busy" : ""].filter(Boolean).join(" ");
     fill(sendBtn, icon(streaming ? "stop" : "arrowUp", { size: 16, stroke: streaming ? 2.5 : 2 }));
     sendBtn.setAttribute("aria-label", streaming ? t("ui.composer.stop") : t("ui.composer.send"));
-    sendBtn.dataset.tip = streaming ? t("ui.composer.stop_tip") : `${t("ui.composer.send")}  ${shortcutLabel("enter")}`;
-    sendBtn.disabled = !streaming && empty;
+    sendBtn.dataset.tip = streaming ? t("ui.composer.stop_tip") : busyElsewhere() ? t("ui.composer.busy_tip") : `${t("ui.composer.send")}  ${shortcutLabel("enter")}`;
+    const disable = !streaming && empty;
+    // a focused Stop button that turns into a disabled Send would drop focus to <body>: hand it to the text box
+    if (disable && document.activeElement === sendBtn) ta.focus({ preventScroll: true });
+    sendBtn.disabled = disable;
     ta.placeholder = streaming ? t("ui.composer.placeholder_streaming") : variant === "hero" ? t("ui.composer.placeholder_hero") : t("ui.composer.placeholder");
   }
   sendBtn.addEventListener("click", () => (streamingHere() ? app.stop() : submit()));
@@ -119,11 +148,12 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
       chipMode = mode;
       if (mobile) {
         const label = h("span.composer-chip__label");
-        chipEls = { mobileLabel: label };
-        fill(chips, h("button.composer-chip", {
-          type: "button", "aria-label": t("ui.composer.options"), "data-tip": t("ui.composer.options"),
+        const button = h("button.composer-chip", {
+          type: "button", "data-tip": t("ui.composer.options"),
           onClick: () => openOptionsSheet(app),
-        }, icon("sliders", { size: 14 }), label));
+        }, icon("sliders", { size: 14 }), label);
+        chipEls = { mobileLabel: label, mobileButton: button };
+        fill(chips, button);
       } else {
         const modelLabel = h("span.composer-chip__label");
         const computeLabel = h("span.composer-chip__label");
@@ -140,13 +170,16 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
       }
     }
     if (mobile) {
-      chipEls.mobileLabel.textContent = `${modelChipLabel(app)} · ${computeChipLabel(app)}`;
+      const shown = `${modelChipLabel(app)} · ${computeChipLabel(app)}`;
+      chipEls.mobileLabel.textContent = shown;
+      // the name holds the words shown (WCAG 2.5.3), and says what the button opens
+      chipEls.mobileButton.setAttribute("aria-label", `${t("ui.composer.options")}${lang() === "zh" ? "：" : ": "}${shown}`);
       return;
     }
     const on = app.webOn();
     chipEls.modelLabel.textContent = modelChipLabel(app);
     chipEls.computeLabel.textContent = computeChipLabel(app);
-    chipEls.compute.setAttribute("aria-label", `${t("ui.compute.title")}：${computeChipLabel(app)}`);
+    chipEls.compute.setAttribute("aria-label", `${t("ui.compute.title")}${lang() === "zh" ? "：" : ": "}${computeChipLabel(app)}`);
     fill(chipEls.dotSlot, statusDot(runnerTone(app)));
     chipEls.web.classList.toggle("is-on", on);
     chipEls.web.setAttribute("aria-pressed", String(on));
@@ -193,6 +226,7 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
           h("span.num", formatBytes(a.file.size)),
           a.status === "hashing" ? [h("span.dot-sep", "·"), h("span", t("ui.composer.hashing", { p: Math.round(a.progress * 100) }))] : null,
           a.status === "ready" ? [h("span.dot-sep", "·"), h("span.mono", `sha256:${a.sha256.slice(0, 8)}…`)] : null,
+          a.status === "ready" && inlinedInPrompt(a.file) ? [h("span.dot-sep", "·"), h("span.att__model", { "data-tip": t("ui.knowledge.to_model_tip") }, t("ui.knowledge.to_model"))] : null,
           a.status === "error" ? [h("span.dot-sep", "·"), h("span", t("ui.composer.hash_failed"))] : null),
         a.status === "hashing" ? progressBar({ value: a.progress || null, className: "att__progress" }) : null,
         big ? h("p.att__warn", t("ui.composer.big_file")) : null),
@@ -231,6 +265,7 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
 
   const offs = [
     app.on("turn", (e) => { if (e.type === "start" || e.type === "end") renderSend(); }),
+    app.on("route", renderSend),
     app.on("model", renderChips), app.on("runtime", renderChips), app.on("settings", renderChips), app.on("web", renderChips),
     app.on("project", renderChips), app.on("layout", renderChips), app.on("conversation", renderChips),
     app.on("attach", () => fileInput.click()),
@@ -238,7 +273,7 @@ export function mountComposer(app, { variant = "dock", autofocus = false, initia
   renderChips();
   renderSend();
   requestAnimationFrame(grow);
-  if (autofocus && app.state.layout !== "mobile") requestAnimationFrame(() => ta.focus({ preventScroll: true }));
+  if (autofocus && (keepFocus || app.state.layout !== "mobile")) requestAnimationFrame(() => ta.focus({ preventScroll: true }));
 
   return {
     el,

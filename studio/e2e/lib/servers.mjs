@@ -10,6 +10,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { UPSTREAM_MODEL, UPSTREAM_VENDOR } from "../mock-llm.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const E2E = path.resolve(HERE, "..");
@@ -168,6 +169,21 @@ export function startStatic(site) {
 // ------------------------------------------------------------------------------------------------ the Worker
 
 /**
+ * Why a failed `startWorker` may be a skip rather than a failure: wrangler is fetched from npm at its pinned version, so
+ * without the registry there is no Worker to test. Null (fail) for anything else, and always in CI, where the build
+ * job's dry run has already fetched the same wrangler: there a Worker that cannot start (an unknown compatibility flag,
+ * a top-level error, a Node built-in without nodejs_compat) is the change's fault and must not pass as a skip.
+ */
+export function workerSkipReason(err, env = process.env) {
+  if (env.CI && !/^(0|false)$/i.test(String(env.CI).trim())) return null;
+  const text = String(err?.message ?? err ?? "");
+  // npm's own error lines: no network, or a proxy or registry that refuses (E403/E405/E407, 5xx)
+  const registry = /npm (?:ERR!|error) (?:code |errno )?(?:ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNREFUSED|ECONNRESET|E4\d\d|E5\d\d)\b|npm (?:ERR!|error) (?:FetchError: |network )?request to \S+ failed|npm (?:ERR!|error) network\b/i;
+  if (!registry.test(text)) return null;
+  return `wrangler could not be fetched from npm (no registry here): ${text.split("\n")[0]}`;
+}
+
+/**
  * `wrangler dev` of studio/edge (its own src/index.js and wrangler.toml settings) with the assets from `site` and the
  * relay's upstream at `upstream` (a mock). The config is a copy in a temporary directory with absolute paths, so
  * nothing is written into the repository. It listens with https (a self-signed certificate) because wrangler dev
@@ -181,7 +197,13 @@ export async function startWorker({ site, upstream, key = "e2e-upstream-key", va
   toml = toml.replace(/^main = .*$/m, `main = ${JSON.stringify(path.join(edge, "src", "index.js"))}`);
   toml = toml.replace(/^directory = .*$/m, `directory = ${JSON.stringify(site)}`);
   writeFileSync(path.join(dir, "wrangler.toml"), toml);
-  const devVars = { MINIMAX_API_KEY: key, UPSTREAM_BASE: `${upstream}/v1`, ...vars };
+  // .dev.vars overrides wrangler.toml's [vars]: pin what the specs depend on (the relay on, the mock's model and
+  // reasoning format, the output cap, no limits), so the owner's committed pause or limit change does not fail them
+  const devVars = {
+    RELAY: "on", MODELS: UPSTREAM_MODEL, FORMAT_PREFIX: `${UPSTREAM_VENDOR}-`, MAX_OUTPUT_TOKENS: "8192",
+    PER_MINUTE: "0", PER_DAY: "0", TOTAL_PER_DAY: "0", TOKENS_PER_DAY: "0", TOTAL_TOKENS_PER_DAY: "0",
+    MINIMAX_API_KEY: key, UPSTREAM_BASE: `${upstream}/v1`, ...vars,
+  };
   writeFileSync(path.join(dir, ".dev.vars"), Object.entries(devVars).map(([k, v]) => `${k}=${v}`).join("\n") + "\n");
   const port = await freePort();
   const argv = ["--yes", WRANGLER, "dev", "-c", path.join(dir, "wrangler.toml"), "--ip", "127.0.0.1", "--port", String(port),

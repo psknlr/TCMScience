@@ -6,7 +6,7 @@
 import { expect, test } from "@playwright/test";
 import { UPSTREAM_MODEL, UPSTREAM_VENDOR, startMockLLM } from "./mock-llm.mjs";
 import { readDb, seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
-import { startWorker } from "./lib/servers.mjs";
+import { startWorker, workerSkipReason } from "./lib/servers.mjs";
 
 test.use({ ignoreHTTPSErrors: true });
 
@@ -20,8 +20,9 @@ test.beforeAll(async () => {
   try {
     worker = await startWorker({ site: process.env.STUDIO_SITE, upstream: upstream.url });
   } catch (err) {
-    // wrangler comes from npm at the pinned version; without the registry there is no Worker to test
-    skipReason = `wrangler dev could not start: ${String(err.message).split("\n")[0]}`;
+    // only an unreachable npm registry (never in CI) is a skip; a Worker that cannot boot fails here, with wrangler's log
+    skipReason = workerSkipReason(err);
+    if (!skipReason) throw err;
   }
 });
 

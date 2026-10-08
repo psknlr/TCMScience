@@ -14,8 +14,8 @@ from tcmstudio import envelope as env
 from tcmstudio.envelope import (canonical_json, extract_citations, fit_json, jsonable, shape,
                                 sha256_json)
 
-KEYS = {"ok", "tool", "via", "status", "duration_ms", "summary", "text", "result", "citations",
-        "governance", "receipt", "job", "approval", "error"}
+KEYS = {"ok", "tool", "via", "status", "duration_ms", "summary", "summary_en", "text", "result",
+        "citations", "governance", "receipt", "job", "approval", "error"}
 
 
 class Unrenderable:

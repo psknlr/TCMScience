@@ -64,12 +64,18 @@ def core_cases(intake, visits):
 
 
 def check_envelope(e):
-    assert set(e) == {"ok", "tool", "via", "status", "duration_ms", "summary", "text", "result",
-                      "citations", "governance", "receipt", "job", "approval", "error"}
+    assert set(e) == {"ok", "tool", "via", "status", "duration_ms", "summary", "summary_en",
+                      "text", "result", "citations", "governance", "receipt", "job", "approval",
+                      "error"}
     assert e["status"] in ("succeeded", "failed", "refused", "needs_approval", "job_submitted",
                            "cancelled")
     assert e["ok"] is (e["status"] in ("succeeded", "job_submitted"))
     assert isinstance(e["summary"], str) and e["summary"]
+    # the same line in English for an English page: never the Chinese one copied
+    assert isinstance(e["summary_en"], str) and e["summary_en"] and e["summary_en"] != e["summary"]
+    for word in ("完成", "已拒绝", "未找到", "参数有误", "运行出错", "已准予发布", "未准予发布",
+                 "任务", "记载", "不等于"):
+        assert word not in e["summary_en"], (word, e["summary_en"])
     assert isinstance(e["text"], str) and 0 < len(e["text"]) <= 16_000
     assert set(e["governance"]) >= {"kind", "released", "artifact", "verdict", "claims",
                                     "evidence", "refusals", "labels", "licences", "limitations",
@@ -455,3 +461,165 @@ def test_call_json_for_the_browser_worker(browser_ctx):
     assert e["status"] == "succeeded" and e["receipt"]["where"] == "browser"
     bad = json.loads(call_json("tcm_herb", "{oops", "{also oops"))
     assert bad["error"]["type"] == "bad_arguments" and "context ignored" in bad["text"]
+
+
+# ------------------------------------------------------- what the summaries may say (§7)
+
+def test_no_record_is_never_shown_as_a_clean_bill(runner_ctx):
+    e = call("tcm_safety_report", {"subject": "黄芪"}, runner_ctx)
+    assert e["result"]["outputs"]["safety.json"]["status"] == "no_record"
+    assert "无记录（不等于安全）" in e["summary"] and "未见配伍禁忌记录" not in e["summary"]
+    assert "which is not safety" in e["summary_en"]
+    # the case's own limitation leads, so the compact card's first two show it
+    assert "`no_record`" in e["governance"]["limitations"][0]
+    e = call("tcm_herb", {"name": "黄芪"}, runner_ctx)
+    assert "安全性：无记录（不等于安全）" in e["summary"] and "0 条" not in e["summary"]
+    e = call("tcm_evidence", {"subject": "葛根芩连汤"}, runner_ctx)
+    assert "无记录（不等于无证据）" in e["summary"] and "0 条" not in e["summary"]
+    assert "not absence of evidence" in e["summary_en"]
+
+
+def test_an_unresolved_formula_is_an_empty_result_not_a_null_network(runner_ctx):
+    e = call("tcm_network_hypothesis", {"formula_name": "葛根芩连汤"}, runner_ctx)
+    assert e["result"]["outputs"]["network.json"]["formula"] is None
+    assert "组成 0 味" not in e["summary"] and "空结果，不是阴性发现" in e["summary"]
+    assert "6 首方剂" in e["summary"] and "not a null finding" in e["summary_en"]
+    assert "did not resolve" in e["governance"]["limitations"][0]
+    e = call("tcm_network_hypothesis", {"formula_name": "桂枝汤"}, runner_ctx)
+    assert "组成 5 味" in e["summary"] and "未构建靶点网络，无主张" in e["summary"]
+    assert "实测边" not in e["summary"]
+    assert "no target network was built" in e["governance"]["limitations"][0]
+
+
+def test_applicability_names_the_licensing_set_and_says_when_nothing_is_recorded(runner_ctx):
+    e = call("tcm_applicability", {"subject": "桂枝汤", "object": "太阳中风证",
+                                   "claim_kind": "mechanism_hypothesis"}, runner_ctx)
+    assert "需要计算预测或临床前研究证据" in e["summary"]
+    assert "computational prediction or preclinical" in e["summary_en"]
+    e = call("tcm_applicability", {"subject": "黄芪", "object": "太阳中风证",
+                                   "claim_kind": "efficacy"}, runner_ctx)
+    assert e["result"]["relations"] == []
+    assert "无 黄芪→太阳中风证 的记载（不等于无证据）" in e["summary"]
+    assert "现有记载" not in e["summary"]
+    assert "随机对照试验或系统评价" in e["summary"]
+
+
+def test_significance_wording_follows_the_p_value(runner_ctx):
+    e = call("call_tool", {"tool": "native.fisher_exact",
+                           "arguments": {"a": 20, "b": 1, "c": 1, "d": 20}}, runner_ctx)
+    assert "显著 ≠ 有效或因果" in e["summary"] and "不显著" not in e["summary"]
+    assert "significant ≠ effective or causal" in e["summary_en"]
+    assert e["governance"]["limitations"][0].startswith("Significant ≠ effective or causal")
+    e = call("call_tool", {"tool": "native.fisher_exact",
+                           "arguments": {"a": 3, "b": 2, "c": 2, "d": 3}}, runner_ctx)
+    assert "不显著 ≠ 无关" in e["summary"]
+    assert e["governance"]["limitations"][0].startswith("Not significant ≠ irrelevant")
+
+
+def test_a_name_missing_from_the_seed_corpus_is_not_found_not_a_bad_argument(runner_ctx):
+    for tool, args in (("tcm_formula", {"name": "葛根芩连汤"}),
+                       ("tcm_applicability", {"subject": "黄芪", "object": "不存在证",
+                                              "claim_kind": "traditional_use"})):
+        e = call(tool, args, runner_ctx)
+        assert e["status"] == "failed" and e["error"]["type"] == "not_found", e["error"]
+        assert "参数有误" not in e["summary"] and "不等于不存在" in e["summary"]
+        assert "种子语料" in e["summary"] and "Seed corpus" in e["summary_en"]
+        assert "Absence here is not absence" in e["error"]["hint"]
+
+
+def test_summaries_name_the_knowledge_base_a_composition_comes_from(runner_ctx, intake):
+    seed = call("tcm_formula", {"name": "四君子汤"}, runner_ctx)
+    assert seed["summary"].startswith("种子语料（6 首方剂）· 四君子汤")
+    assert seed["summary_en"].startswith("Seed corpus (6 formulas) · ")
+    clinic = call("clinic_assess", {"intake": intake}, runner_ctx)
+    assert "临床知识包 " in clinic["summary"] and "13 首方剂" in clinic["summary"]
+    assert "未经审核" in clinic["summary"] and "clinic pack" in clinic["summary_en"]
+    check = call("clinic_check_prescription", {"intake": intake, "herbs": [
+        {"herb": "甘草", "grams": 6}]}, runner_ctx)
+    assert "临床知识包 " in check["summary"]
+
+
+def test_no_tool_text_promises_what_studio_does_not_do():
+    from tcmstudio import governance as gvn
+    from tcmstudio.catalog import NEVER_OFFERED, build_catalog
+    from tcmstudio.core_tools import CORE_BY_NAME
+    texts = [*NEVER_OFFERED.values(), gvn.remedy_for("HUMAN_ONLY"),
+             *(t["description"] for t in CORE_BY_NAME.values()),
+             *(e["summary"] for e in build_catalog("runner", probe=False)["entries"])]
+    for text in texts:
+        # there is no clinic or data view in Studio, and what the model writes has left the
+        # machine for the model service the user selected
+        assert "clinic view" not in text and "data view" not in text, text
+        assert "stays on this machine" not in text and "nothing leaves" not in text, text
+    assert "bioagent clinic sign" in NEVER_OFFERED["clinic.sign"]
+    assert "--confirm" in NEVER_OFFERED["tcmdb.fetch_confirm"]
+    assert "model service the user selected" in CORE_BY_NAME["clinic_assess"]["description"]
+
+
+def test_english_summaries_cover_failures_and_refusals(runner_ctx, browser_ctx):
+    e = call("clinic.sign", {}, runner_ctx)
+    assert e["summary_en"].startswith("Refused: only a person")
+    e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "x"}}, browser_ctx)
+    assert e["status"] == "failed" and "needs the local runner" in e["summary_en"]
+    e = call("tcm_herb", {}, runner_ctx)
+    assert e["error"]["type"] == "bad_arguments" and "bad arguments" in e["summary_en"]
+    env = json.loads(call_json("tcm_compatibility", '{"herbs": ["甘草", "甘遂"]}',
+                               json.dumps({"where": "browser"})))
+    assert env["summary_en"].startswith("Seed corpus · 甘草 + 甘遂: 1 recorded incompatibility")
+
+
+def test_job_submissions_say_predicted_only_for_predictions(runner_ctx, jobs):
+    e = call("tcm_safety_report", {"subject": "甘草"}, runner_ctx)     # not a job
+    assert e["status"] == "succeeded"
+    pending = "A job that has not succeeded is pending work, not a result."
+    for args, predicted in (({"skill_id": "assess-tcm-safety", "arguments": {"subject": "甘草"}},
+                             False),
+                            ({"skill_id": "analyze-tcm-network-pharmacology",
+                              "arguments": {"formula_name": "桂枝汤"}}, True)):
+        e = call("call_tool", {"tool": "job.skill.run", "arguments": args}, runner_ctx)
+        assert e["status"] == "job_submitted"
+        lim = e["governance"]["limitations"]
+        assert lim[0] == pending and (any("Predicted ≠ measured" in x for x in lim) is predicted)
+    from tcmstudio.dispatch import _predictive_job
+    assert _predictive_job("pipeline.dock", {}) and _predictive_job("pipeline.fold", {})
+    assert not _predictive_job("pipeline.rnaseq", {}) and not _predictive_job("tcmdb.fetch", {})
+
+
+def test_a_skill_job_whose_envelope_cannot_be_read_is_not_shown_as_released(runner_ctx, jobs):
+    e = call("call_tool", {"tool": "job.skill.run", "arguments": {
+        "skill_id": "assess-tcm-safety", "arguments": {"subject": "甘草"}}}, runner_ctx)
+    job_id = e["job"]["id"]
+    jobs.jobs[job_id].update(state="succeeded", artefacts=[{"name": "envelope"}],
+                             result={"released": True})
+    st = call("job_status", {"job_id": job_id}, runner_ctx)     # FakeJobs has no envelope()
+    g = st["governance"]
+    assert g["kind"] == "skill" and g["released"] is False
+    assert "could not be read back" in g["limitations"][0]
+    assert any("not evidence of safety" in x for x in g["limitations"])
+    assert "按未准予发布处理" in st["summary"] and "已完成并核验" not in st["summary"]
+    assert "not released" in st["summary_en"]
+    # a job that is not a governed skill: no release verdict, and its state is not 'release'
+    jobs.jobs["j_dock"] = {"id": "j_dock", "kind": "pipeline.dock", "state": "succeeded",
+                           "params": {}, "artefacts": [{"name": "scores"}]}
+    st = call("job_status", {"job_id": "j_dock"}, runner_ctx)
+    assert st["governance"]["released"] is None
+    assert "输出哈希已核验" in st["summary"] and "output hashes verified" in st["summary_en"]
+    assert any("Predicted ≠ measured" in x for x in st["governance"]["limitations"])
+
+
+def test_a_process_leaves_no_temporary_directory_behind(tmp_path):
+    """The skill view and the non-durable project state live in temporary directories that
+    go when the process ends (each runner start and CLI call used to leave both behind)."""
+    import os
+    import subprocess
+    import sys
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    env = {**os.environ, "TMPDIR": str(tmp), "TEMP": str(tmp), "TMP": str(tmp)}
+    proc = subprocess.run([sys.executable, "-m", "tcmstudio", "call", "tcm_safety_report",
+                           "--where", "runner", "--args",
+                           json.dumps({"subject": "甘草", "co_administered": ["甘遂"]})],
+                          capture_output=True, text=True, env=env, timeout=300)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["status"] == "succeeded"
+    assert [p.name for p in tmp.iterdir() if p.name.startswith("tcmstudio-")] == []

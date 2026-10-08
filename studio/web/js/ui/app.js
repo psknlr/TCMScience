@@ -14,13 +14,12 @@ import { ToolRouter } from "../core/router.js";
 import { loadSettings, onSettingsChange, updateSettings } from "../core/settings.js";
 import { latestLeaf, openStore, siblingsOf, threadPath } from "../core/store.js";
 import { uuid } from "../core/util.js";
-import { copyText, debounce, h } from "./dom.js";
+import { copyText, debounce, h, throttle } from "./dom.js";
 import { announce, closeTopOverlay, hasOverlay, installTooltips, toast } from "./overlay.js";
+import { inlinedInPrompt } from "./files.js";
 import { HashRouter, routeHref } from "./router.js";
 import { registerUiStrings } from "./strings.js";
 
-const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|csv|x-fasta)|image\/svg)/;
-const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|fa|fasta|fq|fastq|vcf|bed|gff3?|sam|pdb|sdf|mol|smi|tex|xml|html?)$/i;
 const DRAFT_SAVE_MS = 1500;
 
 export class App {
@@ -112,6 +111,13 @@ export class App {
       }
     }, 80));
     window.addEventListener("keydown", (e) => this.#onKey(e));
+    // skip links move focus; they never change the hash (a hash is a route here: #composer-input is not a page)
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest?.("a.skip-link");
+      if (!link) return;
+      e.preventDefault();
+      skipTo(link.getAttribute("href"));
+    });
     // code blocks from core/markdown.js: copy and wrap, by delegation (the renderer builds no handlers)
     document.addEventListener("click", async (e) => {
       const copy = e.target.closest?.("[data-copy-code]");
@@ -138,7 +144,7 @@ export class App {
     this.router = new HashRouter((route, prev) => this.#onRoute(route, prev));
     await this.#onRoute(this.router.current, null);
 
-    if (pairing) this.openPairing(pairing);
+    if (pairing) this.#afterPairing(pairing);
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
     this.checkRelay();
   }
@@ -278,6 +284,28 @@ export class App {
     import("./panels.js").then((m) => m.openPairingDialog(this, pairing));
   }
 
+  /**
+   * A pairing link was opened. The pairing is already saved and the runner connects by itself: when it does, say so;
+   * only when it does not (within a few seconds) open the dialog, whose Connect button retries.
+   */
+  async #afterPairing(pairing) {
+    const status = await this.runnerSettled(5000);
+    if (status === "ready") toast(t("ui.runner.paired", { host: hostOf(pairing.url) }), { tone: "ok" });
+    else this.openPairing(pairing);
+  }
+
+  /** The runner's status once it is no longer connecting (or after `ms`). */
+  runnerSettled(ms = 5000) {
+    const pending = () => ["connecting", "idle"].includes(this.state.runner.status);
+    if (!this.runtimes.runner || !pending()) return Promise.resolve(this.state.runner.status);
+    return new Promise((resolve) => {
+      let off = null;
+      const done = () => { clearTimeout(timer); off?.(); resolve(this.state.runner.status); };
+      const timer = setTimeout(done, ms);
+      off = this.on("runtime", () => { if (!pending()) done(); });
+    });
+  }
+
   // ----------------------------------------------------------------------------------------------- data
 
   async refreshProjects() {
@@ -381,6 +409,8 @@ export class App {
   }
 
   async deleteProject(id) {
+    const turn = this.state.turn;
+    if (turn && turn.projectId === id) await this.#discardTurn(turn);
     await this.store.projects.remove(id);
     if (this.state.project?.id === id) {
       this.state.project = null;
@@ -399,9 +429,22 @@ export class App {
 
   async deleteConversation(id) {
     const conv = await this.store.conversations.get(id);
+    const turn = this.state.turn;
+    if (turn && turn.conversationId === id) await this.#discardTurn(turn);
     await this.store.conversations.remove(id);
     await this.refreshConversations();
     if (this.state.conversation?.id === id) this.navigate({ name: "project", projectId: conv?.projectId || this.state.project?.id });
+  }
+
+  /**
+   * The conversation of a running turn is being deleted: stop the turn and make sure nothing of it is written back
+   * (its draft saves, its final answer and tool records). Waits for a save already under way, so the delete that
+   * follows removes it too.
+   */
+  async #discardTurn(turn) {
+    turn.discarded = true;
+    turn.abort.abort();
+    await turn.saving?.().catch?.(() => {});
   }
 
   /** A new conversation: the project page with its composer (the conversation is created on the first message). */
@@ -477,11 +520,25 @@ export class App {
   async send(text, { files = [], editOf = null } = {}) {
     const content = String(text || "").trim();
     if (!content || this.state.turn) return false;
+    // typed in a composer that is about to be replaced (the project page → the conversation): its successor takes focus
+    const typing = document.activeElement?.id === "composer-input";
     let project = this.state.project;
     if (!project) {
       project = this.state.projects[0] || await this.store.projects.create({ name: t("ui.project.default_name"), web: this.state.settings.web });
       this.state.project = project;
       await this.refreshProjects();
+    }
+    // the attachments are stored first: when that fails (quota, memory) nothing is sent and no empty conversation is left
+    const records = [];
+    try {
+      for (const f of files) {
+        if (f?.id && f.sha256 && f.blob) { records.push(f); continue; }
+        const file = f?.file || f;
+        records.push(await this.store.files.add(project.id, file, { name: file.name, source: "upload", sha256: f?.sha256 || undefined }));
+      }
+    } catch (err) {
+      toast(t("ui.composer.store_failed", { message: err?.message || String(err) }), { tone: "warn", timeout: 8000 });
+      return false;
     }
     let conv = this.state.conversation;
     if (!conv) {
@@ -491,8 +548,6 @@ export class App {
       this.state.messages = [];
       this.state.draftOverride = null;
     }
-    const records = [];
-    for (const f of files) records.push(f.sha256 ? f : await this.store.files.add(project.id, f, { name: f.name, source: "upload" }));
     let parentId;
     if (editOf) parentId = editOf.parentId ?? null;
     else {
@@ -509,6 +564,7 @@ export class App {
     await this.refreshConversations();
     const route = this.state.route;
     if (route.name !== "conversation" || route.convId !== conv.id) {
+      if (typing) this.state.focusComposerOnMount = true;
       this.navigate({ name: "conversation", projectId: project.id, convId: conv.id }, { replace: route.name === "project" || route.name === "home" });
     }
     this.#runAssistant(conv, user);
@@ -553,7 +609,7 @@ export class App {
     const out = [];
     for (const f of files) {
       const rec = { name: f.name, bytes: f.bytes, sha256: f.sha256, type: f.type };
-      if (f.bytes <= 8 * 1024 && f.blob && (TEXT_TYPES.test(f.type || "") || TEXT_EXT.test(f.name))) {
+      if (f.blob && inlinedInPrompt(f)) {
         try { rec.text = await f.blob.text(); } catch { /* binary after all */ }
       }
       out.push(rec);
@@ -581,35 +637,57 @@ export class App {
     const draftId = uuid();
     const live = newLive(draftId, user.id, provider);
     const abort = new AbortController();
-    this.state.turn = { conversationId: conv.id, userId: user.id, live, abort };
+    let saving = Promise.resolve();
+    const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving };
+    this.state.turn = turn;
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
 
     if (provider.needsKey) {
       live.error = { message: t("core.provider.no_key", { label: provider.label }), kind: "model", needsKey: true };
       live.status = "error";
-      return this.#finishTurn(conv, user, live, null);
+      return this.#finishTurn(conv, user, live, null, turn);
     }
 
-    let saving = Promise.resolve();
+    // The draft: the answer so far and every tool result with its envelope, saved at least every DRAFT_SAVE_MS while
+    // the turn runs (a throttle, not a debounce: a stream never pauses long enough for a debounce to fire), and once
+    // more when the page is hidden or closed. Tool records get ids from the call (${draftId}:${callId}), so the final
+    // save replaces them instead of adding a second copy.
     let finalized = false;
-    const saveDraft = debounce(() => {
-      if (finalized) return;
+    let leafSaved = false;
+    const savedTools = new Map(); // callId → the envelope object last written
+    turn.draftToolIds = new Set();
+    const saveDraft = throttle(() => {
+      if (finalized || turn.discarded) return;
       saving = saving.then(async () => {
-        if (finalized) return;
+        if (finalized || turn.discarded) return;
+        // the conversation was deleted (here or in another tab): write nothing back
+        if (!(await this.store.conversations.get(conv.id))) { turn.discarded = true; return; }
         await this.store.messages.put(liveToRecord(live, conv.id, { draft: true }));
-        if (this.state.conversation?.id === conv.id && this.state.conversation.leafId !== draftId) {
-          this.state.conversation = await this.store.conversations.update(conv.id, { leafId: draftId });
+        for (const m of liveToolMessages(live, conv.id)) {
+          if (savedTools.get(m.toolCallId) === m.envelope) continue;
+          await this.store.messages.put(m);
+          savedTools.set(m.toolCallId, m.envelope);
+          turn.draftToolIds.add(m.id);
+        }
+        if (!leafSaved) {
+          leafSaved = true;
+          const saved = await this.store.conversations.update(conv.id, { leafId: draftId });
+          if (this.state.conversation?.id === conv.id) this.state.conversation = saved;
         }
       }).catch(() => {});
     }, DRAFT_SAVE_MS);
+    const onHide = () => { if (document.visibilityState === "hidden") { saveDraft(); saveDraft.flush(); } };
+    const onPageHide = () => { saveDraft(); saveDraft.flush(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
 
     const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge: await this.#knowledge(project.id), env: this.#env() });
     const history = threadPath(await this.store.messages.list(conv.id), user.id);
     let result = null;
     try {
       result = await runTurn({
-        provider, system, history, router: this.toolRouter, catalog: this.catalog, settings: this.state.settings, signal: abort.signal,
+        provider, system, history, router: this.toolRouter, catalog: this.catalog, settings: this.state.settings, signal: abort.signal, llm: this.llm,
         projectId: project.id, conversationId: conv.id,
         onApproval: (request) => new Promise((resolve) => {
           const tool = live.tools.get(request.callId);
@@ -639,40 +717,51 @@ export class App {
     }
     finalized = true;
     saveDraft.cancel();
+    document.removeEventListener("visibilitychange", onHide);
+    window.removeEventListener("pagehide", onPageHide);
     await saving;
-    return this.#finishTurn(conv, user, live, result);
+    return this.#finishTurn(conv, user, live, result, turn);
   }
 
-  async #finishTurn(conv, user, live, result) {
+  async #finishTurn(conv, user, live, result, turn = null) {
     const store = this.store;
     let assistant;
     let toolMessages = [];
     if (result) {
       assistant = { ...result.assistant, id: live.id, parentId: user.id, conversationId: conv.id };
-      toolMessages = result.toolMessages.map((m) => ({ ...m, parentId: live.id, conversationId: conv.id }));
+      toolMessages = result.toolMessages.map((m) => ({ ...m, id: toolMessageId(live.id, m.toolCallId), parentId: live.id, conversationId: conv.id }));
       if (result.status === "stopped") assistant.status = "stopped";
     } else {
       assistant = liveToRecord(live, conv.id, {});
       assistant.status = live.status === "error" ? "error" : "stopped";
       if (live.error) assistant.error = live.error;
+      toolMessages = liveToolMessages(live, conv.id).map(({ draft, ...m }) => m);
     }
     assistant.ui = { thinkingMs: live.thinkingMs, approvals: live.approvals, startedAt: live.startedAt, endedAt: Date.now() };
     delete assistant.draft;
-    try {
-      await store.messages.put(assistant);
-      for (const m of toolMessages) await store.messages.put(m);
-      // the person may have moved on while the turn ran: update the record, and the view only if it shows it
-      const saved = await store.conversations.update(conv.id, { leafId: assistant.id });
-      if (this.state.conversation?.id === conv.id) this.state.conversation = saved;
-    } catch (err) {
-      toast(t("ui.turn.save_failed", { message: err?.message || String(err) }), { tone: "warn" });
+    // a turn whose conversation was deleted while it ran writes nothing back (the person deleted that data)
+    const discarded = Boolean(turn?.discarded) || !(await store.conversations.get(conv.id).catch(() => null));
+    if (!discarded) {
+      try {
+        await store.messages.put(assistant);
+        for (const m of toolMessages) await store.messages.put(m);
+        // draft tool records the final answer does not carry (none, normally) do not outlive the draft
+        const kept = new Set(toolMessages.map((m) => m.id));
+        for (const id of turn?.draftToolIds || []) if (!kept.has(id)) await store.messages.remove(id);
+        // the person may have moved on while the turn ran: update the record, and the view only if it shows it
+        const saved = await store.conversations.update(conv.id, { leafId: assistant.id });
+        if (this.state.conversation?.id === conv.id) this.state.conversation = saved;
+      } catch (err) {
+        toast(t("ui.turn.save_failed", { message: err?.message || String(err) }), { tone: "warn" });
+      }
     }
     this.state.turn = null;
     if (this.state.conversation?.id === conv.id) await this.loadMessages();
     await this.refreshConversations();
     this.emit("turn", { type: "end", live });
     const n = toolMessages.length;
-    if (assistant.status === "error") announce(t("ui.turn.failed_announce"), { assertive: true });
+    if (discarded) announce(t("core.agent.stopped"));
+    else if (assistant.status === "error") announce(t("ui.turn.failed_announce"), { assertive: true });
     else if (assistant.status === "stopped") announce(t("core.agent.stopped"));
     else announce(n ? t("ui.turn.done_tools", { n }) : t("ui.turn.done"));
   }
@@ -738,7 +827,12 @@ export class App {
 
   // ----------------------------------------------------------------------------------------------- keyboard
 
+  /** The window's keydown handler (also callable directly, for tests). */
+  handleKey(e) { this.#onKey(e); }
+
   #onKey(e) {
+    // a key that confirms or cancels an IME candidate (Esc while composing pinyin) is the IME's, never a shortcut
+    if (e.isComposing || e.keyCode === 229) return;
     const mod = e.metaKey || e.ctrlKey;
     const typing = isTyping(e.target);
     if (e.key === "Escape") {
@@ -786,7 +880,7 @@ export class App {
 function newLive(id, userId, provider) {
   return {
     id, userId, provider: provider.id, model: provider.model, providerLabel: provider.label, relay: Boolean(provider.relay),
-    startedAt: Date.now(), segments: [], tools: new Map(), pending: new Map(), thinkingMs: {}, thinkingStart: {},
+    startedAt: Date.now(), segments: [], tools: new Map(), pending: new Map(), thinkingMs: {}, thinkingStart: {}, stepStart: {},
     approvals: {}, status: "streaming", error: null, usage: null, notice: "", retry: null, step: 0,
   };
 }
@@ -801,13 +895,15 @@ export function applyEvent(live, ev) {
     case "model.start":
       live.step = ev.step;
       live.retry = null;
+      (live.stepStart ||= {})[ev.step] = Date.now();
       break;
     case "reasoning": {
       const seg = lastSeg();
       if (seg && seg.type === "reasoning" && seg.step === ev.step) seg.text += ev.delta;
       else {
         live.segments.push({ type: "reasoning", step: ev.step, text: ev.delta });
-        live.thinkingStart[ev.step] = Date.now();
+        // from the start of the step: a provider that sends its reasoning in one burst still made the person wait
+        if (live.thinkingStart[ev.step] === undefined) live.thinkingStart[ev.step] = live.stepStart?.[ev.step] ?? Date.now();
       }
       break;
     }
@@ -879,7 +975,35 @@ function liveToRecord(live, conversationId, { draft = false } = {}) {
   };
 }
 
+/** The stored id of a turn's tool record: fixed by the call, so the draft's copy and the final one are the same row. */
+export function toolMessageId(assistantId, callId) {
+  return `${assistantId}:${callId}`;
+}
+
+/** The tool records of the live turn so far: every call that has a result (its envelope, receipt, job id). */
+export function liveToolMessages(live, conversationId) {
+  const out = [];
+  for (const seg of live.segments) {
+    if (seg.type !== "tools") continue;
+    for (const callId of seg.callIds || []) {
+      const tool = live.tools.get(callId);
+      if (!tool?.envelope) continue;
+      const env = tool.envelope;
+      out.push({
+        id: toolMessageId(live.id, callId), conversationId, parentId: live.id, role: "tool", createdAt: tool.call.endedAt || tool.call.startedAt || Date.now(),
+        toolCallId: callId, name: tool.call.name, args: tool.call.args, content: env.text || "", envelope: env, step: seg.step,
+        where: env.receipt?.where || null, status: env.status, draft: true,
+      });
+    }
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------------------------------------- helpers
+
+function hostOf(url) {
+  try { return new URL(url).host; } catch { return String(url || ""); }
+}
 
 export function autoTitle(text) {
   const first = String(text || "").split("\n").map((s) => s.trim()).find(Boolean) || "";
@@ -904,6 +1028,20 @@ export function applyTheme(theme) {
     if (theme === "system") m.setAttribute("content", m.media.includes("dark") ? "#0f1318" : "#fbfaf7");
     else m.setAttribute("content", dark ? "#0f1318" : "#fbfaf7");
   }
+}
+
+/**
+ * Focus a skip link's target: the element itself when this page has it (#composer-input, #thread), else the main
+ * region. Focus moves; the address does not.
+ */
+export function skipTo(href) {
+  const id = String(href || "").replace(/^#/, "");
+  const target = (id && document.getElementById(id)) || document.getElementById("main");
+  if (!target) return null;
+  if (!target.matches("a[href], button, input, textarea, select, [tabindex]")) target.setAttribute("tabindex", "-1");
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: "nearest" });
+  return target;
 }
 
 /** The few strings in index.html itself (skip links, live regions). */

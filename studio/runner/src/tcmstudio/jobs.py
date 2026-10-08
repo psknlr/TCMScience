@@ -551,6 +551,36 @@ class JobService:
     def out_dir(self, job_id: str) -> Path:
         return self._job(job_id).dir / "out"
 
+    def envelope(self, job_id: str) -> dict[str, Any]:
+        """The §3 envelope a succeeded ``skill.run`` job's governed run wrote
+        (``out/envelope.json``): its release verdict, claims, evidence, refusals and
+        limitations. It is read back only while it has the digest recorded when the job was
+        collected. Raises UnknownJob for no such job, and LookupError (with the reason) when
+        there is no such envelope to show."""
+        job = self._job(job_id)
+        with self._lock:
+            state, kind, artefacts = job.state, job.kind, [dict(a) for a in job.artefacts]
+        if kind != "skill.run" or state != "succeeded":
+            raise LookupError(f"job {job_id} is not a succeeded governed-skill job")
+        record = next((a for a in artefacts if a.get("name") == "envelope"), None)
+        if not record or not record.get("sha256"):
+            raise LookupError("no digest was recorded for envelope.json when the job was "
+                              "collected")
+        try:
+            data = (job.dir / "out" / "envelope.json").read_bytes()
+        except OSError as exc:
+            raise LookupError(f"envelope.json cannot be read: {exc}") from None
+        if hashlib.sha256(data).hexdigest() != str(record["sha256"]).removeprefix("sha256:"):
+            raise LookupError("envelope.json no longer has the digest recorded when the job "
+                              "was collected")
+        try:
+            doc = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise LookupError(f"envelope.json is not JSON: {exc}") from None
+        if not isinstance(doc, dict):
+            raise LookupError("envelope.json is not an envelope")
+        return doc
+
     def files(self, job_id: str) -> list[dict[str, Any]]:
         job = self._job(job_id)
         out = job.dir / "out"
@@ -1139,6 +1169,10 @@ class JobsHook:
 
     def get(self, job_id: str, wait_s: int = 0) -> dict[str, Any]:
         return self.service.get(job_id, wait_s)
+
+    def envelope(self, job_id: str) -> dict[str, Any]:
+        """A succeeded skill.run job's governed-run envelope (JobService.envelope)."""
+        return self.service.envelope(job_id)
 
 
 def iter_events(service: JobService, job_id: str, *, keepalive_s: float = 15.0,

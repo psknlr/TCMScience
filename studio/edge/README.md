@@ -38,7 +38,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
   `base_resp`、流中的错误事件）都换成中继自己的一句话，上游原文只以状态码记进 Worker 日志。请求里写上游自己的模型名也会被拒绝，
   免得有人借此确认上游是谁。
 - **不思考**：请求带 `thinking: {type: "disabled"}`（网页问身份时这样做）时，回复里的思考字段和 `<think>…</think>` 一律去掉，
-  无论流怎样切分。
+  无论流怎样切分。最后一条用户消息在问助手的身份或模型时，中继自己也会加上它（与网页同一个判断，`src/identity.js`），
+  不依赖客户端。
 - **上限**：输出 token 不超过 `MAX_OUTPUT_TOKENS`（`max_tokens` / `max_completion_tokens` 被截到上限，没写就补上）；去掉 `n`；
   请求体不超过 `MAX_BODY_BYTES` 字节（按字节算，汉字 3 字节；超过时边读边停，不先读完）。
 - **限额**（`LIMITER` Durable Object，全站一个，SQLite）：每位访客每分钟 `PER_MINUTE`、每天 `PER_DAY` 次模型调用，全体每天
@@ -87,20 +88,29 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 数字写错（例如 `"lots"`）时回到默认值，而不是变成不限。机密：`MINIMAX_API_KEY`（必需），`VISITOR_SALT`（可选，16 位以上随机串）。
 在 Cloudflare 控制台里改的变量会在下次部署时被 `wrangler.toml` 覆盖：长期的改动请改文件。
 
-「访客看不到上游」指网页与中继的回答；这个仓库是公开的，`wrangler.toml` 里的 `UPSTREAM_BASE`、`MODELS`、`FORMAT_PREFIX`
-读仓库的人看得到。若连仓库也不想写明，把这三项从 `[vars]` 删去，改为 Worker 的机密（`wrangler secret put UPSTREAM_BASE` 等，
-代码读取方式不变；同名的变量与机密不能并存），并同步删掉 `test/config.test.js` 里对应的检查。
+改 `[vars]` 只需改这个文件：`src/relay.js` 的 `DEFAULTS` 是变量缺失或写错时的后备，不必跟着改。`test/config.test.js`
+检查每个变量都在、写法正确（`RELAY` 是 `on`/`off`，`UPSTREAM_BASE` 是 https 地址，数字是整数，`ALLOWED_ORIGINS`
+含 `https://science.impf.ai` 且每项都是完整的来源），并且调用次数限额要么是 `0`（不限）、要么至少 16（一个问题最多调用模型
+16 次）；只固定 `PUBLIC_MODEL = "Tao-S1"` 和 `UPSTREAM_FIELDS` 里的 `"reasoning_split":true`。写错时 test 作业失败，日志列出
+是哪个变量、错在哪里。
+
+「访客看不到上游」指网页与中继的回答：模型名、思考格式和错误都换成本服务自己的说法。这个仓库是公开的，它本身写明了上游服务：
+`wrangler.toml`、`src/relay.js` 的 `DEFAULTS`、机密名 `MINIMAX_API_KEY`、部署检查与工作流、文档；公开的 Actions 日志里，
+`wrangler deploy` 也会列出 `[vars]` 的值。这是有意的取舍，不必为此改动。
 
 ## 停用开关
 
 - **立即**：Cloudflare → Workers & Pages → `tcmscience-studio` → Settings → Variables and Secrets，删除 `MINIMAX_API_KEY`。
   几秒内 health 变成 `ok:false`，网页改请访客用自己的模型；网站本身照常。同时删除仓库 Secret `MINIMAX_API_KEY`，否则下次部署会把它写回去。
-- **持久**：把 `wrangler.toml` 的 `RELAY` 改为 `"off"` 并合入 main。恢复时改回 `"on"`（或重新放回密钥后重跑工作流）。
+- **持久**：把 `wrangler.toml` 的 `RELAY` 改为 `"off"` 并合入 main。部署后的检查读到这个设置，把 health 的 `ok:false`
+  当作暂停而不是失败。恢复时改回 `"on"`（或重新放回密钥后重跑工作流）。
 - 真正的费用上限是上游账户的余额：建议为这个网站单独建一把按量付费的密钥。
 
 ## 部署
 
-`.github/workflows/studio.yml`：每次推送（studio/** 有改动）和 PR 都跑全部测试并构建网页；只在 main 上（推送或手动运行）部署：
+`.github/workflows/studio.yml`：每次推送和 PR，只要改动了 `studio/**`、这个工作流本身，或网站打包、tcmstudio 导入的那部分
+（`PSH-Harness/src/**`、`PSH-Harness/pyproject.toml`、`BioScience-Harness/{src,skills,registry}/**`、
+`BioScience-Harness/pyproject.toml`、`BioScience-Harness/setup.py`），都跑全部测试并构建网页；只在 main 上（推送或手动运行）部署：
 `wrangler deploy` → 写入机密 → `scripts/check.mjs` 检查 health、首页的响应头，并用 Tao-S1 做一次极小的调用。
 一次性的配置步骤见 **[SETUP.md](SETUP.md)**。
 
@@ -131,4 +141,4 @@ Durable Object 的本地数据在 `.wrangler/state`；改了表结构后删掉�
 | `_headers` | 静态文件的响应头 |
 | `scripts/check.mjs` | 部署后的检查 |
 | `scripts/mock-upstream.mjs` | 本地用的模拟上游 |
-| `test/*.test.js` | `node --test`：中继、限额、响应头、Worker 入口、配置与 `wrangler.toml` 一致、部署检查 |
+| `test/*.test.js` | `node --test`：中继、限额、响应头、Worker 入口、`wrangler.toml` 的配置齐全且写法正确、部署检查 |

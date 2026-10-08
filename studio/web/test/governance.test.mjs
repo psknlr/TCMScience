@@ -5,6 +5,7 @@ import {
   citationsOf, claimsOf, compositeVersionOf, evidenceOf, familyOfTier, identifierUrl, isPredicted, licensingLadder, refusalsOf,
   releaseOf, shortHash, stateOfUnverified, verdictBadge,
 } from "../js/core/governance.js";
+import { glossary as glossaryOf } from "../js/core/i18n.js";
 import { loadFixture } from "./fixtures/fakes.mjs";
 
 // envelopes around real kernel output (see fixtures/make_governance_fixtures.py)
@@ -54,7 +55,11 @@ test("release: an ungoverned run is consistent but not verified, and each unmet 
   assert.match(byId.outputs_verified.reason, /network\.json/);
   assert.match(byId.execution_attested.reason, /policy_id\/audit_head/);
   assert.equal(byId.execution_declared.ok, false);
-  assert.match(byId.release_authorized.reason, /输出已核验/);
+  assert.match(byId.release_authorized.reason, /输出未核验/);
+  assert.doesNotMatch(byId.release_authorized.reason, /已核验|已证明/);
+  assert.ok(byId.release_authorized.unmet.includes("outputs_verified"));
+  // no attestation of its own: the receipt's chain head is not this artifact's audit head
+  assert.equal(rel.audit_head, "");
   assert.deepEqual(verdictBadge(rel), { tone: "consistent", icon: "◐", label: "内部一致 · 未核验" });
 });
 
@@ -177,4 +182,42 @@ test("hashes are shown as sha256:first8…last4", () => {
   assert.equal(shortHash("0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d"), "sha256:0da551c0…626d");
   assert.equal(shortHash(""), "");
   assert.equal(stateOfUnverified("evidence 'x': receipt not re-checked"), "evidence_verified");
+});
+
+test("the ladder licenses by set: a refusal on licensing (CLM005) is never shown as licensed, whatever the weakest tier", () => {
+  // the real kernel: traditional_use citing a classical text and an observational study → CLM005, weakest classical_text
+  const env = { governance: {
+    claims: [{ id: "c1", text: "桂枝汤 traditionally used for X", claim_kind: "traditional_use", supports: ["e1", "e2"] }],
+    evidence: [{ id: "e1", tier: "classical_text", design: "classical_text" }, { id: "e2", tier: "observational", design: "observational" }],
+    verdict: { claim_verdicts: [{ claim_id: "c1", allowed: false, codes: ["CLM005", "CLM010"], reasons: [{ code: "CLM005", detail: "traditional_use is not licensed by observational evidence" }], weakest_tier: "classical_text" }] },
+  } };
+  const [claim] = claimsOf(env);
+  assert.equal(claim.allowed, false);
+  const byCodes = licensingLadder(claim.kind, claim.weakest_tier, "zh", { codes: claim.codes });
+  assert.equal(byCodes.supports, false);
+  assert.match(byCodes.caption, /不支撑$/);
+  assert.doesNotMatch(byCodes.caption, /→ 支撑/);
+  const byEvidence = licensingLadder(claim, null, "zh", { evidence: evidenceOf(env) });
+  assert.equal(byEvidence.supports, false);
+  assert.deepEqual(byEvidence.unlicensed, ["observational"]);
+  assert.deepEqual(byEvidence.cells.filter((c) => c.cited).map((c) => c.rank), [1, 5]);
+  assert.equal(byEvidence.cells.find((c) => c.weakest).rank, 1);
+  assert.match(byEvidence.caption, /观察性研究/);
+  assert.match(byEvidence.caption, /→ 不支撑$/);
+  const en = licensingLadder(claim, null, "en", { evidence: evidenceOf(env) });
+  assert.match(en.caption, /cites Observational study.*→ not licensed$/);
+  // every cited tier licenses the kind: licensed; a retracted (unusable) item does not count
+  const ok = licensingLadder("traditional_use", "classical_text", "en", { cited: ["classical_text", "expert_experience"], codes: ["CLM010"] });
+  assert.equal(ok.supports, true);
+  const unusable = licensingLadder({ kind: "traditional_use", weakest_tier: "classical_text", codes: [], supports: ["e1", "e2"] }, null, "en", { evidence: [{ id: "e1", tier: "classical_text" }, { id: "e2", tier: "observational", usable: false }] });
+  assert.equal(unusable.supports, true);
+  // with only a kind and a weakest tier, the weakest tier decides, as before
+  assert.equal(licensingLadder("efficacy", "preclinical", "zh").supports, false);
+  assert.equal(licensingLadder("mechanism_hypothesis", "computational_prediction", "en", { codes: ["CLM004"] }).supports, false);
+});
+
+test("the tradition family's short name is 传统: expert consensus is not labelled classical", () => {
+  assert.equal(glossaryOf.familyShort("tradition"), "传统");
+  assert.equal(glossaryOf.familyShort("tradition", "en"), "Tradition");
+  assert.equal(glossaryOf.family("tradition"), "经典与经验");
 });

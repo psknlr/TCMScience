@@ -5,15 +5,31 @@ name: studio
 # Deploys only from main, and only when the repository has the Cloudflare secrets: CLOUDFLARE_API_TOKEN,
 # CLOUDFLARE_ACCOUNT_ID; with MINIMAX_API_KEY Tao-S1 is on (without it the site is deployed and Tao-S1 stays off);
 # optional VISITOR_SALT. The secrets become the Worker's own; none is printed or written into the repository or the site.
+# The site bundles PSH-Harness and BioScience-Harness (src, skills, registry) into its Python runtime, and tcmstudio
+# imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data).
 on:
   push:
     paths:
       - "studio/**"
       - ".github/workflows/studio.yml"
+      - "PSH-Harness/src/**"
+      - "PSH-Harness/pyproject.toml"
+      - "BioScience-Harness/src/**"
+      - "BioScience-Harness/skills/**"
+      - "BioScience-Harness/registry/**"
+      - "BioScience-Harness/pyproject.toml"
+      - "BioScience-Harness/setup.py"
   pull_request:
-    paths:
+    paths: # the same list
       - "studio/**"
       - ".github/workflows/studio.yml"
+      - "PSH-Harness/src/**"
+      - "PSH-Harness/pyproject.toml"
+      - "BioScience-Harness/src/**"
+      - "BioScience-Harness/skills/**"
+      - "BioScience-Harness/registry/**"
+      - "BioScience-Harness/pyproject.toml"
+      - "BioScience-Harness/setup.py"
   workflow_dispatch:
 
 permissions:
@@ -149,6 +165,15 @@ jobs:
             echo "::warning::no MINIMAX_API_KEY secret: the site is deployed, Tao-S1 keeps whatever key the Worker already has (none on a first deployment: off) (studio/edge/SETUP.md)"
             echo "model=0" >> "$GITHUB_OUTPUT"
           fi
+          # RELAY = "off" in wrangler.toml is the owner's persistent pause (SETUP.md), read as the relay reads it: the
+          # key is still put (unpausing is RELAY back to "on"), and the check does not require Tao-S1 to answer
+          q="[\"']?[[:space:]]*"
+          if grep -Eiq "^[[:space:]]*RELAY[[:space:]]*=[[:space:]]*${q}(off|0|false|no)[[:space:]]*${q}(#.*)?\$" studio/edge/wrangler.toml; then
+            echo "::notice::RELAY is off in studio/edge/wrangler.toml: Tao-S1 is paused, the check after the deployment does not require it"
+            echo "relay_off=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "relay_off=0" >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy the Worker with the app, then give it its secrets
         if: steps.secrets.outputs.ready == '1'
         working-directory: studio/edge
@@ -163,10 +188,11 @@ jobs:
         run: |
           set -o pipefail
           test -f ../_site/index.html && test -f ../_site/_headers || { echo "::error::the built site or its _headers is missing"; exit 1; }
+          # No safeguard for science.impf.ai's DNS here: with stdout not a terminal (CI, and the pipe to tee) wrangler
+          # replaces an existing DNS record of that name, or another Worker's custom domain on it, without asking.
+          # Checking that the name is free before the first deployment is the owner's (studio/edge/SETUP.md, step 7).
           if ! npx --yes "$WRANGLER" deploy 2>&1 | tee "$RUNNER_TEMP/deploy.log"; then
-            if grep -qi "externally managed DNS record" "$RUNNER_TEMP/deploy.log"; then
-              echo "::error::science.impf.ai already has a DNS record of its own: delete it in Cloudflare → impf.ai → DNS → Records, then run this workflow again (studio/edge/SETUP.md)"
-            elif grep -qi "No access to the specified resource" "$RUNNER_TEMP/deploy.log"; then
+            if grep -qi "No access to the specified resource" "$RUNNER_TEMP/deploy.log"; then
               echo "::error::the API token cannot reach the zone impf.ai: add it under Zone Resources of the token (studio/edge/SETUP.md, step 2)"
             elif grep -qi "Authentication error" "$RUNNER_TEMP/deploy.log"; then
               echo "::error::Cloudflare refused the API token or the account id (studio/edge/SETUP.md, steps 2-3)"
@@ -184,9 +210,11 @@ jobs:
         if: steps.secrets.outputs.ready == '1'
         env:
           MODEL: ${{ steps.secrets.outputs.model }}
-        # a new custom domain and its certificate can take minutes on the first deployment
+          RELAY_OFF: ${{ steps.secrets.outputs.relay_off }}
+        # a new custom domain and its certificate can take minutes on the first deployment; Tao-S1 is required to
+        # answer only when its key was put and it is not paused (RELAY = "off": health ok:false is then expected)
         run: |
-          if [ "$MODEL" = "1" ]; then
+          if [ "$MODEL" = "1" ] && [ "$RELAY_OFF" != "1" ]; then
             node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model
           else
             node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600

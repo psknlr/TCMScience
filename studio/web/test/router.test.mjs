@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { indexedDB } from "fake-indexeddb";
 import { Catalog } from "../js/core/catalog.js";
-import { ToolRouter, normalizeEnvelope, storeApprovals } from "../js/core/router.js";
+import { HUMAN_ONLY, ToolRouter, normalizeEnvelope, storeApprovals } from "../js/core/router.js";
 import { openStore } from "../js/core/store.js";
+import { refusalsOf } from "../js/core/governance.js";
 import { envelopeFor, fakeRuntime, memoryApprovals, testCatalogDoc } from "./fixtures/fakes.mjs";
 
 const catalog = () => new Catalog(testCatalogDoc());
@@ -110,7 +111,7 @@ test("deny: the call does not run and the model is told plainly", async () => {
   const { r, runtimes } = router({ runner: "ready" });
   const env = await r.call("run_pipeline", { pipeline: "fold", arguments: {} }, { projectId: "p1", onApproval: async () => "deny" });
   assert.equal(env.status, "refused");
-  assert.equal(env.error.type, "refused");
+  assert.equal(env.error.type, "declined");
   assert.match(env.text, /declined/);
   assert.equal(env.approval.decision, "deny");
   assert.equal(runtimes.runner.calls.length, 0);
@@ -220,4 +221,31 @@ test("normalizeEnvelope fills the shape and caps text", async () => {
   assert.equal(bad.status, "failed");
   const kept = await normalizeEnvelope(envelopeFor("tcm_herb", "runner", { extra_field: 1 }), { tool: "tcm_herb", where: "runner" });
   assert.equal(kept.extra_field, 1);
+});
+
+test("acts reserved for a person are refused with HUMAN_ONLY, by name or through call_tool — never 'unknown tool'", async () => {
+  const { r, runtimes } = router({ runner: "ready", browser: "ready" });
+  for (const [name, args] of [["clinic.sign", {}], ["call_tool", { tool: "clinic.sign", arguments: { draft_id: "d1" } }], ["call_tool", { tool: "clinic_sign" }], ["shell", { cmd: "ls" }], ["call_tool", { tool: "registry.release" }]]) {
+    const env = await r.call(name, args, { projectId: "p" });
+    assert.equal(env.status, "refused", name);
+    assert.equal(env.ok, false);
+    assert.deepEqual(env.governance.refusals.map((x) => x.code), ["HUMAN_ONLY"]);
+    assert.ok(env.governance.refusals[0].message && env.governance.refusals[0].remedy);
+    assert.match(env.text, /HUMAN_ONLY/);
+    assert.doesNotMatch(env.text, /catalog_search|There is no tool/, "the model is not sent looking for a way to do it");
+    assert.notEqual(env.error?.type, "not_found");
+  }
+  const sign = await r.call("call_tool", { tool: "clinic.sign" }, {});
+  assert.equal(sign.governance.kind, "clinic");
+  assert.equal(sign.via, "clinic.sign");
+  assert.match(sign.summary, /只能由人完成/);
+  assert.equal(refusalsOf(sign)[0].explanation, "只能由人完成的操作，不是工具调用");
+  assert.equal(runtimes.runner.calls.length + runtimes.browser.calls.length, 0, "nothing runs, and no approval is asked");
+  assert.equal(r.whereCall("call_tool", { tool: "clinic.sign" }), null);
+  assert.ok(Object.keys(HUMAN_ONLY).includes("clinic.sign"));
+  // a catalog that ships never_offered adds to the page's own list
+  const withList = new ToolRouter({ catalog: new Catalog({ ...testCatalogDoc(), never_offered: { "lab.order": "Ordering a lab test is a clinician's act." } }), runtimes, settings: {}, approvals: memoryApprovals() });
+  const order = await withList.call("call_tool", { tool: "lab.order" }, {});
+  assert.equal(order.status, "refused");
+  assert.match(order.governance.refusals[0].message, /clinician's act/);
 });

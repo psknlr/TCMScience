@@ -73,11 +73,11 @@ test("request: headers for a browser call, tools with input_schema, adaptive thi
   assert.equal(headers["x-api-key"], "sk-ant-test");
   assert.equal(headers["anthropic-version"], "2023-06-01");
   assert.equal(headers["anthropic-dangerous-direct-browser-access"], "true");
-  assert.equal(headers["anthropic-beta"], "server-side-fallback-2026-07-01");
+  assert.equal(headers["anthropic-beta"], "server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01");
   assert.equal(body.fallbacks, "default");
   assert.equal(body.system, "SYS");
   assert.equal(body.stream, true);
-  assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized" });
+  assert.deepEqual(body.thinking, { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } });
   assert.deepEqual(body.tools[0], { name: "tcm_herb", description: "d", input_schema: { type: "object", properties: { name: { type: "string" } } }, eager_input_streaming: true });
   assert.deepEqual(body.tool_choice, { type: "auto" });
   assert.equal(body.temperature, undefined);
@@ -172,4 +172,24 @@ test("tool results go back in one user message; only failures are errors", () =>
       { type: "tool_result", tool_use_id: "c", content: "Failed", is_error: true },
     ],
   }]);
+});
+
+test("preserved thinking: drop_block with its beta header on the first-party API only, and never without the header", () => {
+  const req = (over, headers) => buildRequest({ provider: provider({ ...over, ...(headers ? { headers } : {}) }), system: "", messages: [], tools: [] });
+  const sonnet = req({ model: "claude-sonnet-5-5" });
+  assert.deepEqual(sonnet.body.thinking.block_binding, { prefix_mismatch_behavior: "drop_block" });
+  assert.match(sonnet.headers["anthropic-beta"], /(^|,)thinking-binding-controls-2026-08-01(,|$)/);
+  assert.match(sonnet.headers["anthropic-beta"], /server-side-fallback-2026-07-01/, "joined to the fallback beta, not in its place");
+  const gateway = req({ baseUrl: "https://gateway.example/anthropic/v1" });
+  assert.equal(gateway.body.thinking?.block_binding, undefined, "not for an Anthropic-compatible endpoint of another service");
+  assert.equal(gateway.headers["anthropic-beta"], undefined);
+  const haiku = req({ model: "claude-haiku-4-5" });
+  assert.equal(haiku.body.thinking.block_binding, undefined, "older models keep their budget thinking as it was");
+  assert.equal(haiku.headers["anthropic-beta"], undefined);
+  const off = buildRequest({ provider: provider(), system: "", messages: [], thinking: false });
+  assert.equal(off.body.thinking, undefined);
+  assert.equal(off.headers["anthropic-beta"], "server-side-fallback-2026-07-01", "no binding field, no binding header");
+  const own = req({}, { "Anthropic-Beta": "some-beta-2026-01-01" });
+  assert.equal(own.headers["anthropic-beta"], undefined);
+  assert.equal(own.headers["Anthropic-Beta"], "some-beta-2026-01-01,server-side-fallback-2026-07-01,thinking-binding-controls-2026-08-01", "a user's own beta header is kept and ours are added");
 });

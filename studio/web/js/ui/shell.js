@@ -2,7 +2,7 @@
 // the inspector (docked, drawer or bottom sheet). Views are mounted per route; each returns {el, destroy?}.
 
 import { lang, setLang, t } from "../core/i18n.js";
-import { dateGroup, fill, formatDateTime, formatRelative, h, shortcutLabel } from "./dom.js";
+import { cssEscape, dateGroup, fill, formatDateTime, formatRelative, h, shortcutLabel } from "./dom.js";
 import { icon } from "./icons.js";
 import { openMenu, promptDialog, confirmDialog, trapFocus, toast } from "./overlay.js";
 import { iconButton, statusDot } from "./primitives.js";
@@ -45,9 +45,16 @@ export function mountShell(app, root) {
     root.classList.toggle("inspector-open", insOpen);
     scrim.hidden = !(sidebarModal || insModal);
     scrim.classList.toggle("is-sheet", insModal && mode === "mobile");
-    if (sidebarModal && !releaseSidebarTrap) releaseSidebarTrap = trapFocus(sidebar);
+    // what is behind a modal sheet is inert, as <dialog>.showModal() makes it (Tab and the screen reader stay inside)
+    const inert = (el, on) => { if (on) el.setAttribute("inert", ""); else el.removeAttribute("inert"); };
+    inert(topbar, sidebarModal || insModal);
+    inert(main, sidebarModal || insModal);
+    inert(sidebar, insModal && !sidebarModal);
+    inert(inspectorHost, sidebarModal && !insModal);
+    // focus goes back to the button that opened the sheet (found anew: the top bar may have been re-rendered)
+    if (sidebarModal && !releaseSidebarTrap) releaseSidebarTrap = trapFocus(sidebar, { returnTo: () => topbar.querySelector(".topbar__menu") });
     if (!sidebarModal && releaseSidebarTrap) { releaseSidebarTrap(); releaseSidebarTrap = null; }
-    if (insModal && !releaseInspectorTrap) releaseInspectorTrap = trapFocus(inspectorHost);
+    if (insModal && !releaseInspectorTrap) releaseInspectorTrap = trapFocus(inspectorHost, { returnTo: () => topbar.querySelector(".topbar__inspector") || document.getElementById("composer-input") });
     if (!insModal && releaseInspectorTrap) { releaseInspectorTrap(); releaseInspectorTrap = null; }
     inspectorHost.hidden = !insOpen;
     if (insModal) inspectorHost.setAttribute("aria-modal", "true");
@@ -79,21 +86,24 @@ export function mountShell(app, root) {
     const runner = s.runner.status;
     const chip = h("button.compute-chip.compute-chip--top", {
       type: "button", "aria-haspopup": "dialog", "data-tip": t("ui.compute.chip_tip"),
-      onClick: (e) => import("./panels.js").then((m) => m.openComputePopover(app, e.currentTarget)),
+      // the anchor is read now: after the import resolves, the event's currentTarget is null
+      onClick: (e) => { const anchor = e.currentTarget; import("./panels.js").then((m) => m.openComputePopover(app, anchor, { returnTo: () => topbar.querySelector(".compute-chip--top") })); },
     }, statusDot(runnerTone(app), t(`ui.runner.status.${runner}`)), h("span.compute-chip__label", computeChipLabel(app)), icon("chevronDown", { size: 12 }));
 
     fill(topbar, 
       h("div.topbar__left",
         iconButton({ icon: s.layout === "mobile" ? "menu" : "sidebar", label: t("ui.sidebar.toggle"), kbd: "mod+shift+s", onClick: () => { app.toggleSidebar(); syncOverlays(); }, className: "topbar__menu" }),
-        h("a.topbar__brand", { href: "#/", "aria-label": "TCMScience Studio" },
-          h("span.wordmark", h("span.wordmark__tcm", "TCM", h("span.wordmark__dot", "·"), "Science"), h("span.wordmark__studio", "Studio"))),
+        // no aria-label: the name is the visible wordmark (the space inside 「 Studio」 is collapsed on screen, kept in the name)
+        h("a.topbar__brand", { href: "#/" },
+          h("span.wordmark", h("span.wordmark__tcm", "TCM", h("span.wordmark__dot", "·"), "Science"), h("span.wordmark__studio", " Studio"))),
         crumbs.length ? h("nav.crumbs", { "aria-label": t("ui.topbar.breadcrumb") }, crumbs.flatMap((c, i) => (i ? [h("span.crumbs__sep", { "aria-hidden": "true" }, "/"), c] : [c]))) : null),
       h("div.topbar__right",
         chip,
+        // the accessible name starts with the visible 「中 EN」 (voice control: WCAG 2.5.3)
         h("button.lang-switch", {
-          type: "button", "aria-label": t("ui.lang.switch"), "data-tip": t("ui.lang.switch"),
+          type: "button", "aria-label": `中 EN, ${t("ui.lang.switch")}`, "data-tip": t("ui.lang.switch"),
           onClick: () => setLang(lang() === "zh" ? "en" : "zh"),
-        }, h("span", { class: lang() === "zh" ? "is-on" : "" }, "中"), h("span", { class: lang() === "en" ? "is-on" : "" }, "EN")),
+        }, h("span", { class: lang() === "zh" ? "is-on" : "", lang: "zh-Hans" }, "中"), h("span", { class: lang() === "en" ? "is-on" : "", lang: "en" }, "EN")),
         themeButton(app),
         s.route.name === "conversation" ? iconButton({
           icon: "inspector", label: t("ui.inspector.toggle"), kbd: "alt+backslash", pressed: s.inspector.open, controls: "inspector",
@@ -253,12 +263,34 @@ export function mountShell(app, root) {
     const title = { conversation: app.state.conversation?.title, project: app.state.project?.name, settings: t("ui.nav.settings"), about: t("ui.nav.about"), catalog: t("ui.nav.catalog") }[route.name];
     document.title = title ? `${title} · TCMScience Studio` : "TCMScience Studio";
     setLayout();
+    syncSkipLinks();
+  }
+
+  /**
+   * The skip links point at what this page has: the message box and the conversation where they exist; elsewhere the
+   * first one goes to the main region and the second is hidden (a skip link never points at nothing).
+   */
+  function syncSkipLinks() {
+    const [toComposer, toThread] = document.querySelectorAll(".skip-link");
+    if (toComposer) {
+      const has = Boolean(document.getElementById("composer-input"));
+      toComposer.setAttribute("href", has ? "#composer-input" : "#main");
+      toComposer.setAttribute("data-i18n", has ? "ui.skip.composer" : "ui.skip.main");
+      toComposer.textContent = t(has ? "ui.skip.composer" : "ui.skip.main");
+    }
+    if (toThread) toThread.hidden = !document.getElementById("thread");
   }
 
   app.on("route", () => { mountView(); });
   app.on("layout", setLayout);
   app.on("sidebar", () => { renderSidebar(); syncOverlays(); });
-  app.on("inspector", () => { renderTopbar(); syncOverlays(); });
+  // the inspector toggle is updated in place (re-rendering the top bar would take the focus off the button just pressed)
+  app.on("inspector", () => {
+    const toggle = topbar.querySelector(".topbar__inspector");
+    if (toggle) toggle.setAttribute("aria-pressed", String(Boolean(app.state.inspector.open)));
+    else renderTopbar();
+    syncOverlays();
+  });
   app.on("projects", () => { renderSidebar(); renderTopbar(); });
   app.on("conversations", renderSidebar);
   app.on("conversation", renderTopbar);
@@ -266,13 +298,18 @@ export function mountShell(app, root) {
   app.on("runtime", renderTopbar);
   app.on("settings", ({ changed }) => { if (changed.some((k) => ["compute", "theme", "*"].includes(k))) renderTopbar(); });
   app.on("turn", (e) => { if (e.type === "start" || e.type === "end") renderSidebar(); });
-  app.on("lang", () => {
+  app.on("lang", async () => {
+    // the page is rebuilt in the new language: the control that changed it keeps the focus
+    const a = document.activeElement;
+    const refocus = a?.matches?.(".lang-switch") ? ".lang-switch"
+      : a?.matches?.("[role=radio][data-value]") ? `[role=radio][data-value="${cssEscape(a.dataset.value)}"]` : null;
     sidebar.setAttribute("aria-label", t("ui.sidebar.label"));
     inspectorHost.setAttribute("aria-label", t("ui.inspector.label"));
     view?.destroy?.();
     view = null;
-    mountView();
+    await mountView();
     inspector?.refresh();
+    if (refocus) (root.querySelector(refocus) || main).focus?.({ preventScroll: true });
   });
 
   // swipe the off-canvas sidebar closed on phones

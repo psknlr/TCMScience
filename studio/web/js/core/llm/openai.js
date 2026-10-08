@@ -2,22 +2,65 @@
 // OpenRouter, and local servers (Ollama, LM Studio, vLLM, llama.cpp).
 //
 // Services stream differently. Most send increments; some (the relay's upstream among them) send cumulative text, in
-// the content or in reasoning_details. Every field goes through `Accum`, which accepts either. Reasoning arrives as
-// reasoning_details[], reasoning_content, reasoning, or inline <think>…</think> at the start of the content; all of
-// it is reported as "reasoning" and none of it as answer text. Tool calls are assembled per index and their
-// arguments parsed strictly: arguments that are not a JSON object come back to the agent as an error for the model.
-// The assistant message is returned whole (`wire`) because some services need their reasoning back verbatim.
+// the content or in reasoning_details. Every field goes through `Accum`, which follows the mode the provider's preset
+// declares (`stream`) and guesses only for a service of unknown habits. Reasoning arrives as reasoning_details[],
+// reasoning_content, reasoning, or inline <think>…</think> at the start of the content; all of it is reported as
+// "reasoning" and none of it as answer text. Tool calls are assembled per index (or per id, for services that send
+// none) and their arguments parsed strictly: arguments that are not a JSON object come back to the agent as an error
+// for the model. The assistant message is returned whole (`wire`) because some services need their reasoning back
+// verbatim. The relay's errors are told in the page's language, by their type (relayError).
 
-import { t } from "../i18n.js";
+import { lang, t } from "../i18n.js";
 import { isLoopbackUrl } from "../util.js";
 import { ProviderError, isRetryableStatus, parseErrorBody, readSSE, retryAfterSeconds } from "./sse.js";
 
-/** Accumulates a field that may stream as increments or as the whole text so far. push() returns what is new. */
+const STREAM_MODES = new Set(["cumulative", "delta", "auto"]);
+
+/**
+ * How a provider streams its text fields: {content, reasoning}, each "delta" (increments: always appended),
+ * "cumulative" (the whole text so far each time) or "auto" (decided from the stream). A preset's `stream` is one mode
+ * for both or {content, reasoning}; without it, "auto".
+ */
+export function streamModes(provider) {
+  const s = provider?.stream;
+  const pick = (v) => (STREAM_MODES.has(v) ? v : "auto");
+  if (typeof s === "string") return { content: pick(s), reasoning: pick(s) };
+  if (s && typeof s === "object") return { content: pick(s.content), reasoning: pick(s.reasoning ?? s.content) };
+  return { content: "auto", reasoning: "auto" };
+}
+
+/**
+ * Accumulates a field that streams as increments ("delta"), as the whole text so far ("cumulative"), or either
+ * ("auto": guessed from the stream; a provider whose mode is known says so, so nothing is guessed). push() returns
+ * what is new.
+ */
 export class Accum {
-  constructor() { this.text = ""; this.mode = null; this.extended = false; }
+  constructor(mode = "auto") {
+    this.text = "";
+    this.declared = STREAM_MODES.has(mode) ? mode : "auto";
+    this.mode = this.declared === "auto" ? null : this.declared;
+    this.extended = false;
+  }
+
   push(piece) {
     if (piece === undefined || piece === null || piece === "") return "";
     const s = String(piece);
+    if (this.declared === "delta") {
+      this.text += s;
+      return s;
+    }
+    if (this.declared === "cumulative") {
+      // the text so far and more: the rest is new; the text so far again (or less of it): nothing is
+      if (s.startsWith(this.text)) {
+        const add = s.slice(this.text.length);
+        this.text = s;
+        return add;
+      }
+      if (this.text.startsWith(s)) return "";
+      // neither: the service restarted the field or sent an increment after all; keep it
+      this.text += s;
+      return s;
+    }
     if (this.mode !== "delta" && this.text && s.length > this.text.length && s.startsWith(this.text)) {
       // the whole text so far, and more: cumulative (decided once it is long enough not to be a coincidence)
       const add = s.slice(this.text.length);
@@ -28,6 +71,14 @@ export class Accum {
     }
     // a repeat of what we have, in a stream that has already shown itself cumulative
     if ((this.mode === "cumulative" || (this.extended && !this.mode)) && this.text.startsWith(s)) return "";
+    // the whole text so far again before it ever grew (a short reply sent in one piece, then repeated by the closing
+    // chunk): a cumulative stream; an incremental one does not repeat its whole text as its next piece
+    if (!this.mode && s === this.text && [...s].length >= 2) {
+      this.extended = true;
+      return "";
+    }
+    // a closing chunk that repeats the whole of a long incremental reply is not more of it
+    if (this.mode === "delta" && s === this.text && [...s].length >= 8) return "";
     if (this.text && !this.mode) this.mode = "delta";
     this.text += s;
     return s;
@@ -129,11 +180,18 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
     const text = await resp.text().catch(() => "");
     const { message, type } = parseErrorBody(text);
     const status = resp.status;
-    const shown = provider.relay && message ? message : t("core.provider.http", { status, hint: httpHint(status), message: message || resp.statusText || "" });
-    throw new ProviderError(shown, { status, type, retryable: isRetryableStatus(status, type), retryAfter: retryAfterSeconds(resp.headers), kind: "model", body: provider.relay ? "" : text.slice(0, 2000) });
+    const retryAfter = retryAfterSeconds(resp.headers);
+    if (provider.relay) {
+      const shown = relayError(type, message, { retryAfter });
+      const e = new ProviderError(shown.text, { status, type, retryable: isRetryableStatus(status, type), retryAfter, kind: "model" });
+      if (shown.lang) e.lang = shown.lang;
+      throw e;
+    }
+    const shown = t("core.provider.http", { status, hint: httpHint(status), message: message || resp.statusText || "" });
+    throw new ProviderError(shown, { status, type, retryable: isRetryableStatus(status, type), retryAfter, kind: "model", body: text.slice(0, 2000) });
   }
 
-  const st = newState();
+  const st = newState(provider);
   const ctype = resp.headers?.get?.("content-type") || "";
   if (!ctype.includes("event-stream")) {
     // a service that ignored stream:true, or an error delivered with status 200
@@ -159,11 +217,26 @@ export async function* streamChat({ provider, system, messages, tools, signal, t
   yield* finish(st, provider);
 }
 
-function newState() {
+function newState(provider) {
+  const modes = streamModes(provider);
   return {
-    content: new Accum(), reasoning: new Accum(), details: new Map(), calls: new Map(), reasoningSource: null,
-    shownThinking: 0, shownAnswer: 0, finishReason: null, usage: null, final: null, model: null,
+    modes, content: new Accum(modes.content), reasoning: new Accum(modes.reasoning), details: new Map(), calls: new Map(),
+    lastCall: null, reasoningSource: null, shownThinking: 0, shownAnswer: 0, finishReason: null, usage: null, final: null, model: null,
   };
+}
+
+/**
+ * The slot a streamed tool-call delta belongs to: its `index`; without one (some services and proxies send each call
+ * whole, with an id and no index), the slot of its id, or a new slot for a new id; with neither, the call being
+ * streamed; the delta's position only when there is no call yet.
+ */
+function callSlot(st, tc, k) {
+  if (tc.index !== undefined && tc.index !== null && tc.index !== "" && Number.isFinite(Number(tc.index))) return Number(tc.index);
+  if (tc.id) {
+    for (const [key, slot] of st.calls) if (slot.id === tc.id) return key;
+    return st.calls.size ? Math.max(...st.calls.keys()) + 1 : 0;
+  }
+  return st.lastCall ?? k;
 }
 
 function* handleChunk(j, st, whole, relay = false) {
@@ -171,11 +244,14 @@ function* handleChunk(j, st, whole, relay = false) {
     const e = j.error || {};
     const message = (typeof e === "string" ? e : e.message || e.msg) || j.base_resp?.status_msg || "unknown error";
     const type = (typeof e === "object" && (e.type || e.code)) || "";
-    // the relay's errors are already in its own words, written for the visitor
-    throw new ProviderError(relay ? message : t("core.provider.stream_error", { message }), {
+    // the relay's errors are told in the page's language, by their type
+    const shown = relay ? relayError(String(type), message === "unknown error" ? "" : message) : { text: t("core.provider.stream_error", { message }) };
+    const err = new ProviderError(shown.text, {
       type: String(type), status: Number(e.status || j.base_resp?.status_code || 0) || 0,
       retryable: ["upstream_error", "upstream_unreachable", "unavailable", "rate_limited", "upstream_rate", "overloaded_error", "server_error", "api_error"].includes(String(type)),
     });
+    if (shown.lang) err.lang = shown.lang;
+    throw err;
   }
   if (j.model) st.model = j.model;
   if (j.usage) st.usage = j.usage;
@@ -193,7 +269,7 @@ function* handleChunk(j, st, whole, relay = false) {
       if (!det || typeof det !== "object") continue;
       const idx = det.index ?? k;
       let slot = st.details.get(idx);
-      if (!slot) st.details.set(idx, (slot = { meta: {}, acc: new Accum() }));
+      if (!slot) st.details.set(idx, (slot = { meta: {}, acc: new Accum(st.modes.reasoning) }));
       for (const [key, v] of Object.entries(det)) if (key !== "text" && v !== undefined && v !== null) slot.meta[key] = v;
       const piece = slot.acc.push(typeof det.text === "string" ? det.text : typeof det.summary === "string" ? det.summary : "");
       if (st.reasoningSource === "details") reasoningDelta += piece;
@@ -226,10 +302,11 @@ function* handleChunk(j, st, whole, relay = false) {
   if (Array.isArray(d.tool_calls)) {
     for (const [k, tc] of d.tool_calls.entries()) {
       if (!tc || typeof tc !== "object") continue;
-      const idx = tc.index ?? k;
+      const idx = callSlot(st, tc, k);
       let slot = st.calls.get(idx);
       const fresh = !slot;
-      if (!slot) st.calls.set(idx, (slot = { id: "", name: "", args: new Accum() }));
+      if (!slot) st.calls.set(idx, (slot = { id: "", name: "", args: new Accum(st.modes.content) }));
+      st.lastCall = idx;
       if (tc.id) slot.id = tc.id;
       const fn = tc.function || {};
       const before = slot.name;
@@ -326,6 +403,32 @@ export function normalizeUsage(u) {
   const output = Number(u.completion_tokens ?? u.output_tokens ?? 0) || 0;
   if (!input && !output) return null;
   return { input, output };
+}
+
+/** Error types of the Tao-S1 relay (studio/edge/src/relay.js) and of a runner that has no relay, each with its own sentence. */
+export const RELAY_ERROR_TYPES = new Set([
+  "https_required", "not_found", "method_not_allowed", "forbidden_origin", "not_configured", "bad_request", "too_large",
+  "model_not_allowed", "rate_limited", "daily_limit", "total_limit", "unavailable", "upstream_unreachable",
+  "upstream_auth", "upstream_rate", "upstream_quota", "upstream_error", "upstream_rejected", "relay_error", "not_relay",
+]);
+const RELAY_KEY = { method_not_allowed: "not_found" };
+const CJK = /[\u3400-\u9fff]/;
+
+/**
+ * What to tell the visitor about a relay error, in the page's language: {text, lang?}. The relay writes its messages
+ * in Chinese, with its own numbers (the daily limit, the size), so a Chinese page shows them as they are; any other
+ * page gets the sentence for the error's type, with the wait from Retry-After. A type this page does not know keeps
+ * the relay's message (`lang` "zh" when that is Chinese on a page that is not).
+ */
+export function relayError(type, message = "", { retryAfter = null } = {}, l = lang()) {
+  const known = RELAY_ERROR_TYPES.has(type);
+  const msg = typeof message === "string" ? message.trim() : "";
+  if (known && !(l === "zh" && msg && CJK.test(msg))) {
+    const retry = Number.isFinite(Number(retryAfter)) && retryAfter !== null && Number(retryAfter) > 0 ? Math.ceil(Number(retryAfter)) : null;
+    return { text: t(`core.relay.error.${RELAY_KEY[type] || type}`, { retry }, l) };
+  }
+  if (msg) return CJK.test(msg) && l !== "zh" ? { text: msg, lang: "zh" } : { text: msg };
+  return { text: t("core.relay.error.relay_error", null, l) };
 }
 
 function httpHint(status) {

@@ -4,10 +4,10 @@
 import { lang, setLang, t } from "../../core/i18n.js";
 import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
 import { clearKeys } from "../../core/settings.js";
-import { debounce, fill, formatDuration, formatNumber, h } from "../dom.js";
+import { cssEscape, debounce, fill, formatDuration, formatNumber, h } from "../dom.js";
 import { icon } from "../icons.js";
 import { confirmDialog, toast } from "../overlay.js";
-import { computePanel, detectLocalModels } from "../panels.js";
+import { computePanel, detectLocalModels, relayErrorLine } from "../panels.js";
 import { button, chip, disclosure, iconButton, keyValue, notice, section, segmented, selectField, spinner, statusDot, switchControl, textArea, textField } from "../primitives.js";
 import { SETTINGS_TABS } from "../router.js";
 import { shortcutTable } from "../palette.js";
@@ -21,7 +21,17 @@ export function mountSettings(app, main) {
   fill(main, page);
   let offs = [];
 
-  function render() {
+  // A re-render (set default, add an endpoint, a relay check landing) rebuilds the tab: what was typed is saved first,
+  // and focus, the caret and the open provider cards come back to where they were.
+  function render({ focusKey } = {}) {
+    flushSavers();
+    const keep = captureUi(page);
+    if (focusKey) keep.focus = { key: `k:${focusKey}`, n: 0 };
+    build();
+    restoreUi(page, keep);
+  }
+
+  function build() {
     const tab = app.state.route.tab || "models";
     const nav = h("nav.settings-nav", { "aria-label": t("ui.nav.settings") }, SETTINGS_TABS.map((id) => h("a", {
       href: `#/settings/${id}`, class: ["settings-nav__item", id === tab && "is-on"], "aria-current": id === tab ? "page" : null,
@@ -35,8 +45,52 @@ export function mountSettings(app, main) {
     app.on("relay", () => { if (app.state.route.tab === "models") render(); }),
     app.on("runtime", () => { if (app.state.route.tab === "compute") render(); }),
   ];
-  render();
-  return { el: page, update: () => { render(); page.scrollTop = 0; }, destroy: () => offs.forEach((off) => off()) };
+  build();
+  return { el: page, update: () => { build(); page.scrollTop = 0; }, destroy: () => offs.forEach((off) => off()) };
+}
+
+/** A key for a control that survives a re-render: data-key, else its kind, name and words (and which of equals). */
+function uiKey(el) {
+  if (el.dataset?.key) return `k:${el.dataset.key}`;
+  const label = el.id ? el.ownerDocument.querySelector(`label[for="${cssEscape(el.id)}"]`)?.textContent || "" : "";
+  return [el.tagName, el.getAttribute("role") || "", el.getAttribute("aria-label") || "", label, el.getAttribute("data-value") || "", el.getAttribute("placeholder") || "", el.matches("input, textarea") ? "" : el.textContent.trim().slice(0, 60)].join("|");
+}
+
+function captureUi(page) {
+  const out = { focus: null, open: [] };
+  const a = document.activeElement;
+  if (a && a !== document.body && page.contains(a)) {
+    const key = uiKey(a);
+    const same = [...page.querySelectorAll(a.tagName)].filter((x) => uiKey(x) === key);
+    out.focus = { key, n: Math.max(0, same.indexOf(a)), container: a.closest("[data-key]")?.dataset.key || null };
+    if (typeof a.selectionStart === "number") out.focus.sel = [a.selectionStart, a.selectionEnd];
+  }
+  for (const b of page.querySelectorAll('.disclosure__summary[aria-expanded="true"]')) out.open.push(b.closest("[data-key]")?.dataset.key || b.textContent.trim());
+  return out;
+}
+
+function restoreUi(page, keep) {
+  for (const d of page.querySelectorAll(".disclosure")) {
+    const b = d.querySelector(":scope > .disclosure__summary, :scope > * > .disclosure__summary");
+    const key = d.closest("[data-key]")?.dataset.key || b?.textContent.trim();
+    if (b && keep.open.includes(key) && b.getAttribute("aria-expanded") !== "true") d.setOpen?.(true);
+  }
+  const f = keep.focus;
+  if (!f) return;
+  let el = null;
+  if (f.key.startsWith("k:")) el = page.querySelector(`[data-key="${cssEscape(f.key.slice(2))}"]`);
+  else {
+    const tag = f.key.split("|")[0];
+    el = [...page.querySelectorAll(tag)].filter((x) => uiKey(x) === f.key)[f.n] || null;
+  }
+  // the control is gone (设为默认 became 「默认」): the first control of the same card, else the page's heading
+  if (!el && f.container) {
+    const box = page.querySelector(`[data-key="${cssEscape(f.container)}"]`);
+    el = box?.querySelector("button:not([disabled]), input, a[href], [tabindex='0']") || null;
+  }
+  if (!el) { el = page.querySelector(".settings__title"); el?.setAttribute("tabindex", "-1"); }
+  el?.focus({ preventScroll: true });
+  if (f.sel && typeof el?.setSelectionRange === "function") { try { el.setSelectionRange(f.sel[0], f.sel[1]); } catch { /* not a text input */ } }
 }
 
 // ------------------------------------------------------------------------------------------------- models
@@ -49,7 +103,7 @@ function modelsTab(app, rerender) {
   const setDefault = (id) => { app.setSetting({ provider: id }); toast(t("ui.models.default_set"), { tone: "ok" }); rerender(); };
   const limits = relay?.limits || null;
 
-  const taoCard = h("section.provider-card.provider-card--tao",
+  const taoCard = h("section.provider-card.provider-card--tao", { "data-key": "provider:tao" },
     h("header.provider-card__head",
       h("span.provider-card__mark", h("span.wordmark__dot", "·"), "S1"),
       h("div.provider-card__title", h("p.provider-card__name", "Tao-S1"), h("p.provider-card__sub", t("ui.models.tao_sub"))),
@@ -57,7 +111,7 @@ function modelsTab(app, rerender) {
         isDefault("tao") ? chip({ label: t("ui.models.is_default"), tone: "navy", icon: "check" }) : null,
         relay ? (relay.checking ? spinner({ size: 12 }) : h("span.provider-card__health", statusDot(relay.ok ? "ok" : "busy"), relay.ok ? t("ui.model.relay_ok") : t("ui.model.relay_down"))) : null)),
     h("p.provider-card__disclosure", tao.help[lang()] || tao.help.zh),
-    relay && !relay.ok && relay.error ? notice({ tone: "warn", body: t("ui.models.relay_error", { message: relay.error }) }) : null,
+    relay && !relay.ok && relay.error ? notice({ tone: "warn", body: relayErrorLine(relay, { tag: "p.notice__body", here: true }) }) : null,
     keyValue([
       [t("ui.models.limits"), limits ? [limits.per_minute ? t("ui.models.per_minute", { n: limits.per_minute }) : null, limits.per_day ? t("ui.models.per_day", { n: limits.per_day }) : null, limits.tokens_per_day ? t("ui.models.tokens_per_day", { n: formatNumber(limits.tokens_per_day) }) : null].filter(Boolean).join(" · ") : h("span.muted", t("ui.models.limits_unknown"))],
       [t("ui.models.max_output"), relay?.max_output_tokens ? t("ui.models.tokens", { n: formatNumber(relay.max_output_tokens) }) : "—"],
@@ -65,7 +119,7 @@ function modelsTab(app, rerender) {
     ]),
     h("div.provider-card__actions",
       isDefault("tao") ? null : button({ label: t("ui.models.set_default"), size: "sm", onClick: () => setDefault("tao") }),
-      button({ label: t("ui.models.check_relay"), size: "sm", variant: "ghost", icon: "refresh", onClick: () => app.checkRelay() })));
+      button({ label: t("ui.models.check_relay"), size: "sm", variant: "ghost", icon: "refresh", attrs: { "data-key": "check-relay" }, onClick: () => app.checkRelay() })));
 
   const cloud = PRESETS.filter((p) => !p.relay && !p.local && !p.custom);
   const keysBlock = h("div.keys-note",
@@ -79,8 +133,12 @@ function modelsTab(app, rerender) {
   const customBlock = h("div.stack",
     customs.length ? customs.map((c, i) => customCard(app, c, i, rerender)) : h("p.muted.small", t("ui.models.no_custom")),
     h("div.row",
-      button({ label: t("ui.models.add_openai"), size: "sm", icon: "plus", onClick: () => { app.setSetting({ customProviders: [...customs, newCustomProvider("openai", customs.length + 1)] }); rerender(); } }),
-      button({ label: t("ui.models.add_anthropic"), size: "sm", icon: "plus", onClick: () => { app.setSetting({ customProviders: [...customs, newCustomProvider("anthropic", customs.length + 1)] }); rerender(); } })));
+      // the new endpoint's card opens with its first field focused (its name)
+      ...["openai", "anthropic"].map((fmt) => button({ label: t(`ui.models.add_${fmt}`), size: "sm", icon: "plus", onClick: () => {
+        const c = newCustomProvider(fmt, customs.length + 1);
+        app.setSetting({ customProviders: [...customs, c] });
+        rerender({ focusKey: `field:${c.id}:label` });
+      } }))));
 
   const locals = PRESETS.filter((p) => p.local);
   const detected = app.state.localDetected || [];
@@ -123,7 +181,7 @@ function providerCard(app, p, { local = false, detected = null, rerender }) {
       isDefault ? chip({ label: t("ui.models.is_default"), tone: "navy", icon: "check" }) : button({ label: t("ui.models.set_default"), size: "sm", variant: "ghost", onClick: () => { flushSavers(); app.setSetting({ provider: p.id }); toast(t("ui.models.default_set"), { tone: "ok" }); rerender(); } }),
       p.docs ? h("a.panel__link", { href: p.docs, target: "_blank", rel: "noopener noreferrer" }, t("ui.models.get_key"), icon("external", { size: 12 })) : null),
     result);
-  return h("section", { class: ["provider-card", configured && "is-configured"] },
+  return h("section", { class: ["provider-card", configured && "is-configured"], "data-key": `provider:${p.id}` },
     disclosure({
       summary: h("span.provider-card__summary",
         h("span.provider-card__name", p.label),
@@ -209,13 +267,13 @@ function customCard(app, c, i, rerender) {
     label, value: Object.keys(c[key] || {}).length ? JSON.stringify(c[key], null, 2) : "", rows: 2, mono: true, placeholder: "{}",
     onInput: (v) => { try { update({ [key]: v.trim() ? JSON.parse(v) : {} }); } catch { /* keep typing */ } },
   });
-  return h("section.provider-card.is-configured",
+  return h("section.provider-card.is-configured", { "data-key": `provider:${c.id}` },
     disclosure({
       open: !c.base_url,
       summary: h("span.provider-card__summary", h("span.provider-card__name", c.label || c.id), h("span.provider-card__state", c.format === "anthropic" ? t("ui.models.format_anthropic") : t("ui.models.format_openai")), s.provider === c.id ? chip({ label: t("ui.models.is_default"), tone: "navy" }) : null),
       className: "provider-card__disc",
       content: () => h("div.provider-card__body",
-        textField({ label: t("ui.models.label"), value: c.label || "", onInput: (v) => update({ label: v }) }),
+        textField({ label: t("ui.models.label"), value: c.label || "", attrs: { "data-key": `field:${c.id}:label` }, onInput: (v) => update({ label: v }) }),
         textField({ label: t("ui.models.base_url"), value: c.base_url || "", mono: true, placeholder: "https://…/v1", onInput: (v) => update({ base_url: v.trim() }) }),
         textField({ label: t("ui.models.model"), value: c.model || "", mono: true, onInput: (v) => update({ model: v.trim() }) }),
         keyField(app, c.id),
@@ -295,8 +353,10 @@ function generalTab(app, rerender) {
     }
   });
   return h("div.stack.stack--xl",
-    section({ title: t("ui.general.language"), children: segmented({ label: t("ui.general.language"), value: lang(), options: [{ value: "zh", label: "中文" }, { value: "en", label: "English" }], onChange: (v) => setLang(v) }) }),
-    section({ title: t("ui.theme.title"), children: segmented({ label: t("ui.theme.title"), value: s.theme, options: [{ value: "system", label: t("ui.theme.system"), icon: "circleHalf" }, { value: "light", label: t("ui.theme.light"), icon: "sun" }, { value: "dark", label: t("ui.theme.dark"), icon: "moon" }], onChange: (v) => app.setSetting({ theme: v }) }) }),
+    // manual activation: arrows move between the choices, Enter or Space applies one (an arrow must not switch the
+    // whole interface's language or theme on its own: WCAG 3.2.2)
+    section({ title: t("ui.general.language"), children: segmented({ label: t("ui.general.language"), value: lang(), manual: true, options: [{ value: "zh", label: "中文", lang: "zh-Hans" }, { value: "en", label: "English", lang: "en" }], onChange: (v) => setLang(v) }) }),
+    section({ title: t("ui.theme.title"), children: segmented({ label: t("ui.theme.title"), value: s.theme, manual: true, options: [{ value: "system", label: t("ui.theme.system"), icon: "circleHalf" }, { value: "light", label: t("ui.theme.light"), icon: "sun" }, { value: "dark", label: t("ui.theme.dark"), icon: "moon" }], onChange: (v) => app.setSetting({ theme: v }) }) }),
     section({
       title: t("ui.general.data"), children: h("div.stack",
         notice({ tone: store.persistent ? "info" : "warn", icon: "database", title: store.persistent ? t("ui.general.persistent") : t("ui.general.memory"), body: t("ui.general.privacy") }),

@@ -6,6 +6,7 @@ import { lang, setLang, t } from "../core/i18n.js";
 import { fill, h } from "./dom.js";
 import { icon } from "./icons.js";
 import { openDialog } from "./overlay.js";
+import { relayErrorLine } from "./panels.js";
 import { button, copyButton, statusDot } from "./primitives.js";
 
 const STEPS = ["language", "model", "compute"];
@@ -32,7 +33,7 @@ export function openOnboarding(app) {
 
   function content(id) {
     if (id === "language") {
-      const pick = (l) => h("button", { type: "button", class: ["onb__choice", lang() === l && "is-on"], "aria-pressed": String(lang() === l), onClick: () => { setLang(l); render(); } },
+      const pick = (l) => h("button", { type: "button", class: ["onb__choice", lang() === l && "is-on"], "aria-pressed": String(lang() === l), lang: l === "zh" ? "zh-Hans" : "en", onClick: () => { setLang(l); render(); body.querySelector(".onb__choice.is-on")?.focus({ preventScroll: true }); } },
         h("span.onb__choice-title", l === "zh" ? "中文" : "English"),
         h("span.onb__choice-sub", l === "zh" ? "界面与说明使用中文" : "Interface and explanations in English"));
       return h("div.stack",
@@ -43,14 +44,21 @@ export function openOnboarding(app) {
     if (id === "model") {
       const tao = PRESETS.find((p) => p.relay);
       const relay = app.state.relay;
+      // the heading says what is true now: ready only when the relay answered; down → add a model of your own
+      const state = !relay || relay.checking ? "checking" : relay.ok ? "ready" : "down";
+      const manage = state === "down"
+        ? button({ label: t("ui.model.manage"), variant: "secondary", iconAfter: "chevronRight", onClick: () => { finish(); app.navigate({ name: "settings", tab: "models" }); } })
+        : h("a.panel__link", { href: "#/settings/models", onClick: finish }, t("ui.model.manage"), icon("chevronRight", { size: 14 }));
       return h("div.stack",
-        h("h3.onb__title.serif", t("ui.onb.model_title")),
+        h("h3.onb__title.serif", t(`ui.onb.model_title.${state}`)),
         h("div.onb__card",
           h("div.onb__card-head", h("span.provider-card__mark", h("span.wordmark__dot", "·"), "S1"), h("p.onb__card-name", "Tao-S1"),
-            relay ? h("span.onb__card-state", statusDot(relay.ok ? "ok" : "busy"), relay.ok ? t("ui.onb.ready") : t("ui.model.relay_down")) : null),
-          h("p.onb__text", tao.help[lang()] || tao.help.zh)),
-        h("p.onb__text.muted", t("ui.onb.model_more")),
-        h("a.panel__link", { href: "#/settings/models", onClick: finish }, t("ui.model.manage"), icon("chevronRight", { size: 14 })));
+            state === "checking" ? h("span.onb__card-state.muted", t("ui.model.relay_checking"))
+              : h("span.onb__card-state", statusDot(relay.ok ? "ok" : "busy"), relay.ok ? t("ui.onb.ready") : t("ui.model.relay_down"))),
+          h("p.onb__text", tao.help[lang()] || tao.help.zh),
+          state === "down" && relay.error ? relayErrorLine(relay, { tag: "p.onb__text.muted" }) : null),
+        h("p.onb__text.muted", state === "down" ? t("ui.onb.model_down") : t("ui.onb.model_more")),
+        manage);
     }
     return h("div.stack",
       h("h3.onb__title.serif", t("ui.onb.compute_title")),
@@ -72,4 +80,6 @@ export function openOnboarding(app) {
     initialFocus: next,
   });
   render();
+  // the relay check may finish while the dialog is open: the model step follows it
+  const off = app.on("relay", () => { if (d.el?.isConnected && STEPS[step] === "model") render(); else if (!d.el?.isConnected) off(); });
 }

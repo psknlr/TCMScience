@@ -1,0 +1,1374 @@
+{
+ "ok": true,
+ "tool": "clinic_assess",
+ "via": "clinic.assess",
+ "status": "succeeded",
+ "duration_ms": 1027,
+ "summary": "草案：待执业中医师审核签署 · 脾胃气虚证 → 四君子汤（4 味，33 g）",
+ "text": "clinic_assess → clinic.assess: succeeded\nSummary: 草案：待执业中医师审核签署 · 脾胃气虚证 → 四君子汤（4 味，33 g）\nLimits (state these when you use this result):\n- This is a draft for a licensed TCM practitioner to review and sign; until signed it is not a prescription, and no tool can sign it.\n- No issue found by the knowledge pack's rules is not a safety guarantee; the pack is a draft, not reviewed by a licensed practitioner.\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\nResult: {\"session_id\":\"cs_b43fd0bb65f5\",\"status\":\"draft\",\"status_zh\":\"草案：待执业中医师审核签署\",\"warnings\":[\"知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\"],\"red_flags\":[],\"prescription\":{\"status\":\"draft\",\"syndrome\":\"脾胃气虚证\",\"principle\":\"益气健脾\",\"formula\":\"四君子汤\",\"source\":\"太平惠民和剂局方\",\"days\":7,\"fraction\":1.0,\"fraction_note\":\"成人量\",\"lines\":[{\"herb\":\"人参\",\"dose_g\":9.0,\"basis\":\"textbook\",\"textbook_g\":9.0,\"range_g\":[3.0,9.0],\"notes\":[\"另煎兑服\"],\"toxicity\":\"\"},{\"herb\":\"白术\",\"dose_g\":9.0,\"basis\":\"textbook\",\"textbook_g\":9.0,\"range_g\":[6.0,12.0],\"notes\":[],\"toxicity\":\"\"},{\"herb\":\"茯苓\",\"dose_g\":9.0,\"basis\":\"textbook\",\"textbook_g\":9.0,\"range_g\":[10.0,15.0],\"notes\":[],\"toxicity\":\"\"},{\"herb\":\"炙甘草\",\"dose_g\":6.0,\"basis\":\"textbook\",\"textbook_g\":6.0,\"range_g\":[2.0,10.0],\"notes\":[],\"toxicity\":\"\"}],\"total_g\":33.0,\"issues\":[{\"id\":\"dose_below_range:茯苓\",\"severity\":\"info\",\"code\":\"dose_below_range\",\"message\":\"茯苓 9 g 低于《药典》常用量下限 10 g\",\"herbs\":[\"茯苓\"],\"source\":\"中华人民共和国药典 2020年版\"}],\"instructions\":[\"每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\",\"先开7剂，复诊后再定\",\"人参：另煎兑服\"],\"applied\":[],\"suggested\":[],\"formula_note\":\"\"},\"differentiation\":{\"status\":\"meets\",\"rule\":\"主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖\",\"candidates\":[{\"syndrome\":\"脾胃气虚证\",\"status\":\"meets\",\"score\":0.643,\"principle\":\"益气健脾\",\"formula\":\"四君子汤\",\"contradictions\":[]},{\"syndrome\":\"心脾两虚证\",\"status\":\"meets\",\"score\":0.536,\"principle\":\"补益心脾\",\"formula\":null,\"contradictions\":[]},{\"syndrome\":\"气虚证\",\"status\":\"leans\",\"score\":0.417,\"principle\":\"补气\",\"formula\":\"四君子汤\",\"contradictions\":[]},{\"syndrome\":\"肺气虚证\",\"status\":\"leans\",\"score\":0.333,\"principle\":\"补益肺气\",\"formula\":null,\"contradictions\":[]},{\"syndrome\":\"血虚证\",\"status\":\"leans\",\"score\":0.286,\"principle\":\"补血\",\"formula\":\"四物汤\",\"contradictions\":[]}],\"questions\":[{\"finding\":\"少气懒言\",\"group\":\"闻诊（声音气息）\",\"why\":\"鉴别脾胃气虚证与心脾两虚证\"},{\"finding\":\"食后腹胀加重\",\"group\":\"胸胁脘腹\",\"why\":\"鉴别脾胃气虚证与心脾两虚证\"},{\"finding\":\"消瘦\",\"group\":\"望诊（神色形态）\",\"why\":\"鉴别脾胃气虚证与心脾两虚证\"},{\"finding\":\"心悸\",\"group\":\"胸胁脘腹\",\"why\":\"鉴别心脾两虚证与脾胃气虚证\"},{\"finding\":\"失眠多梦\",\"group\":\"睡眠与情志\",\"why\":\"鉴别心脾两虚证与脾胃气虚证\"},{\"finding\":\"头晕健忘\",\"group\":\"睡眠与情志\",\"why\":\"鉴别心脾两虚证与脾胃气虚证\"},{\"finding\":\"腹胀\",\"group\":\"胸胁脘腹\",\"why\":\"脾胃气虚证的主症\"},{\"finding\":\"咳喘无力\",\"group\":\"咳喘痰\",\"why\":\"肺气虚证的主症\"},{\"finding\":\"自汗\",\"group\":\"汗\",\"why\":\"肺气虚证的主症\"},{\"finding\":\"声低懒言\",\"group\":\"闻诊（声音气息）\",\"why\":\"肺气虚证的次症\"}]}}",
+ "result": {
+  "session_id": "cs_b43fd0bb65f5",
+  "status": "draft",
+  "status_zh": "草案：待执业中医师审核签署",
+  "manifest": {
+   "pipeline": "bioagent.clinic",
+   "code_digest": "4e55b48fec8f11e19dfd07d3149c2bb5df2b62f45f22bbb0d2785e342f7d09e8",
+   "started": "2026-10-07T21:59:34+00:00",
+   "finished": "2026-10-07T21:59:34+00:00",
+   "python": "3.13.16",
+   "pack": {
+    "version": "2026-10-draft",
+    "sha256": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+    "review_status": "draft — not reviewed by a licensed TCM practitioner",
+    "reviewed": false
+   },
+   "knowledge_base": {
+    "herbs": 23,
+    "processed": 5,
+    "formulas": 6,
+    "syndromes": 8,
+    "passages": 9,
+    "studies": 2,
+    "relations": 14,
+    "safety": 14
+   },
+   "intake_sha256": "02ffddd9be01fa54a0d2ef650772efda0cc1fd33d3d16068bc91b572ba76359f",
+   "options": {
+    "modifications": [],
+    "apply_textbook": false
+   },
+   "outputs": {
+    "report.md": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+    "report.html": "185f6e1d7525f7d5380f081666951ee8e94912fb0c8bf0491a4c0be4c78608e8"
+   }
+  },
+  "intake": {
+   "schema": "bioagent.clinic.intake/1",
+   "patient": {
+    "id": "p1",
+    "age": 45,
+    "sex": "female",
+    "pregnant": false,
+    "breastfeeding": false
+   },
+   "chief_complaint": "神疲乏力，食少便溏",
+   "duration": "3个月",
+   "inspection": {
+    "present": [
+     "面色萎黄"
+    ],
+    "absent": [],
+    "tongue": [
+     "舌淡",
+     "苔白"
+    ]
+   },
+   "inquiry": {
+    "present": [
+     "神疲乏力",
+     "食少",
+     "便溏",
+     "气短"
+    ],
+    "absent": [
+     "发热"
+    ]
+   },
+   "palpation": {
+    "pulse": [
+     "脉缓弱"
+    ],
+    "present": [],
+    "absent": []
+   },
+   "medications": [],
+   "allergies": [],
+   "conditions": [],
+   "red_flags_cleared": []
+  },
+  "warnings": [
+   "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+  ],
+  "red_flags": [],
+  "differentiation": {
+   "status": "meets",
+   "rule": "主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖",
+   "notes": [],
+   "candidates": [
+    {
+     "syndrome": "脾胃气虚证",
+     "status": "meets",
+     "score": 0.643,
+     "main": 3.0,
+     "secondary": 1.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "益气健脾",
+     "formula": "四君子汤",
+     "parent": "气虚证",
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "main",
+       "term": "食少",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "食少"
+      },
+      {
+       "category": "main",
+       "term": "便溏",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "便溏"
+      },
+      {
+       "category": "main",
+       "term": "神疲乏力",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "神疲乏力"
+      },
+      {
+       "category": "secondary",
+       "term": "面色萎黄",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "面色萎黄"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉缓弱",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "腹胀",
+      "少气懒言",
+      "食后腹胀加重",
+      "消瘦"
+     ]
+    },
+    {
+     "syndrome": "心脾两虚证",
+     "status": "meets",
+     "score": 0.536,
+     "main": 2.0,
+     "secondary": 2.0,
+     "tongue": 0.5,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "补益心脾",
+     "formula": null,
+     "parent": null,
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "main",
+       "term": "食少",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "食少"
+      },
+      {
+       "category": "main",
+       "term": "神疲乏力",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "神疲乏力"
+      },
+      {
+       "category": "secondary",
+       "term": "便溏",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "便溏"
+      },
+      {
+       "category": "secondary",
+       "term": "面色萎黄",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "面色萎黄"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡嫩",
+       "strength": 0.5,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉细弱",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "心悸",
+      "失眠多梦",
+      "头晕健忘",
+      "腹胀"
+     ]
+    },
+    {
+     "syndrome": "气虚证",
+     "status": "leans",
+     "score": 0.417,
+     "main": 1.0,
+     "secondary": 1.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "补气",
+     "formula": "四君子汤",
+     "parent": null,
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "main",
+       "term": "神疲乏力",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "神疲乏力"
+      },
+      {
+       "category": "secondary",
+       "term": "气短",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "气短"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉虚",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "少气懒言",
+      "自汗",
+      "活动后加重",
+      "易感冒",
+      "头晕"
+     ]
+    },
+    {
+     "syndrome": "肺气虚证",
+     "status": "leans",
+     "score": 0.333,
+     "main": 1.0,
+     "secondary": 0.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "补益肺气",
+     "formula": null,
+     "parent": "气虚证",
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "main",
+       "term": "气短",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "气短"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉弱",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "咳喘无力",
+      "自汗",
+      "痰清稀",
+      "声低懒言",
+      "易感冒",
+      "畏风"
+     ]
+    },
+    {
+     "syndrome": "血虚证",
+     "status": "leans",
+     "score": 0.286,
+     "main": 1.0,
+     "secondary": 0.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "补血",
+     "formula": "四物汤",
+     "parent": null,
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "main",
+       "term": "面色萎黄",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "面色萎黄"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉细",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "面色淡白",
+      "唇甲色淡",
+      "头晕眼花",
+      "心悸",
+      "失眠多梦",
+      "手足发麻",
+      "月经量少色淡"
+     ]
+    },
+    {
+     "syndrome": "脾虚气陷证",
+     "status": "weak",
+     "score": 0.357,
+     "main": 0.0,
+     "secondary": 3.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "补中益气，升阳举陷",
+     "formula": "补中益气汤",
+     "parent": "脾胃气虚证",
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "secondary",
+       "term": "神疲乏力",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "神疲乏力"
+      },
+      {
+       "category": "secondary",
+       "term": "气短",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "气短"
+      },
+      {
+       "category": "secondary",
+       "term": "食少",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "食少"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉缓弱",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "脘腹重坠",
+      "久泻",
+      "脱肛",
+      "内脏下垂",
+      "便意频数"
+     ]
+    },
+    {
+     "syndrome": "寒湿困脾证",
+     "status": "weak",
+     "score": 0.182,
+     "main": 0.0,
+     "secondary": 1.0,
+     "tongue": 0.5,
+     "pulse": 0.5,
+     "contradictions": [],
+     "principle": "温中化湿",
+     "formula": null,
+     "parent": null,
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "secondary",
+       "term": "便溏",
+       "strength": 1.0,
+       "via": "exact",
+       "entry": "便溏"
+      },
+      {
+       "category": "tongue",
+       "term": "舌淡胖",
+       "strength": 0.5,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉濡缓",
+       "strength": 0.5,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "脘腹痞闷",
+      "纳呆",
+      "头身困重",
+      "泛恶",
+      "口淡不渴"
+     ]
+    },
+    {
+     "syndrome": "肾阳虚证",
+     "status": "weak",
+     "score": 0.143,
+     "main": 0.0,
+     "secondary": 0.0,
+     "tongue": 1.0,
+     "pulse": 1.0,
+     "contradictions": [],
+     "principle": "温补肾阳",
+     "formula": "金匮肾气丸",
+     "parent": "阳虚证",
+     "covered_by": "",
+     "hits": [
+      {
+       "category": "tongue",
+       "term": "苔白",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "舌淡、苔白"
+      },
+      {
+       "category": "pulse",
+       "term": "脉沉细无力",
+       "strength": 1.0,
+       "via": "features",
+       "entry": "脉缓弱"
+      }
+     ],
+     "unasked": [
+      "腰膝酸冷",
+      "畏寒",
+      "肢冷",
+      "夜尿多",
+      "精神萎靡",
+      "阳痿",
+      "小便清长",
+      "面色㿠白"
+     ]
+    }
+   ],
+   "questions": [
+    {
+     "finding": "少气懒言",
+     "group": "闻诊（声音气息）",
+     "why": "鉴别脾胃气虚证与心脾两虚证"
+    },
+    {
+     "finding": "食后腹胀加重",
+     "group": "胸胁脘腹",
+     "why": "鉴别脾胃气虚证与心脾两虚证"
+    },
+    {
+     "finding": "消瘦",
+     "group": "望诊（神色形态）",
+     "why": "鉴别脾胃气虚证与心脾两虚证"
+    },
+    {
+     "finding": "心悸",
+     "group": "胸胁脘腹",
+     "why": "鉴别心脾两虚证与脾胃气虚证"
+    },
+    {
+     "finding": "失眠多梦",
+     "group": "睡眠与情志",
+     "why": "鉴别心脾两虚证与脾胃气虚证"
+    },
+    {
+     "finding": "头晕健忘",
+     "group": "睡眠与情志",
+     "why": "鉴别心脾两虚证与脾胃气虚证"
+    },
+    {
+     "finding": "腹胀",
+     "group": "胸胁脘腹",
+     "why": "脾胃气虚证的主症"
+    },
+    {
+     "finding": "咳喘无力",
+     "group": "咳喘痰",
+     "why": "肺气虚证的主症"
+    },
+    {
+     "finding": "自汗",
+     "group": "汗",
+     "why": "肺气虚证的主症"
+    },
+    {
+     "finding": "声低懒言",
+     "group": "闻诊（声音气息）",
+     "why": "肺气虚证的次症"
+    }
+   ]
+  },
+  "prescription": {
+   "status": "draft",
+   "syndrome": "脾胃气虚证",
+   "principle": "益气健脾",
+   "formula": "四君子汤",
+   "source": "太平惠民和剂局方",
+   "days": 7,
+   "fraction": 1.0,
+   "fraction_note": "成人量",
+   "lines": [
+    {
+     "herb": "人参",
+     "dose_g": 9.0,
+     "basis": "textbook",
+     "textbook_g": 9.0,
+     "range_g": [
+      3.0,
+      9.0
+     ],
+     "notes": [
+      "另煎兑服"
+     ],
+     "toxicity": ""
+    },
+    {
+     "herb": "白术",
+     "dose_g": 9.0,
+     "basis": "textbook",
+     "textbook_g": 9.0,
+     "range_g": [
+      6.0,
+      12.0
+     ],
+     "notes": [],
+     "toxicity": ""
+    },
+    {
+     "herb": "茯苓",
+     "dose_g": 9.0,
+     "basis": "textbook",
+     "textbook_g": 9.0,
+     "range_g": [
+      10.0,
+      15.0
+     ],
+     "notes": [],
+     "toxicity": ""
+    },
+    {
+     "herb": "炙甘草",
+     "dose_g": 6.0,
+     "basis": "textbook",
+     "textbook_g": 6.0,
+     "range_g": [
+      2.0,
+      10.0
+     ],
+     "notes": [],
+     "toxicity": ""
+    }
+   ],
+   "total_g": 33.0,
+   "issues": [
+    {
+     "id": "dose_below_range:茯苓",
+     "severity": "info",
+     "code": "dose_below_range",
+     "message": "茯苓 9 g 低于《药典》常用量下限 10 g",
+     "herbs": [
+      "茯苓"
+     ],
+     "source": "中华人民共和国药典 2020年版"
+    }
+   ],
+   "instructions": [
+    "每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）",
+    "先开7剂，复诊后再定",
+    "人参：另煎兑服"
+   ],
+   "applied": [],
+   "suggested": [],
+   "formula_note": ""
+  }
+ },
+ "citations": [],
+ "governance": {
+  "kind": "clinic",
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [
+   "INTERNAL"
+  ],
+  "licences": [
+   {
+    "asset": "bioagent.clinic.pack",
+    "licence": "MIT",
+    "class": "open",
+    "commercial": true,
+    "note": "clinical knowledge pack 2026-10-draft: a transcription of the textbooks and the Pharmacopoeia it names; a draft, not reviewed"
+   }
+  ],
+  "limitations": [
+   "This is a draft for a licensed TCM practitioner to review and sign; until signed it is not a prescription, and no tool can sign it.",
+   "No issue found by the knowledge pack's rules is not a safety guarantee; the pack is a draft, not reviewed by a licensed practitioner.",
+   "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+  ],
+  "outputs": [
+   {
+    "path": "session.json",
+    "media_type": "application/json",
+    "sha256": "2a098fff380efa6259bb372ac95a4fc2568b4f601f4deaa993c117ca7237a5e4",
+    "bytes": 15747,
+    "content": {
+     "status": "draft",
+     "status_zh": "草案：待执业中医师审核签署",
+     "manifest": {
+      "pipeline": "bioagent.clinic",
+      "code_digest": "4e55b48fec8f11e19dfd07d3149c2bb5df2b62f45f22bbb0d2785e342f7d09e8",
+      "started": "2026-10-07T21:59:34+00:00",
+      "finished": "2026-10-07T21:59:34+00:00",
+      "python": "3.13.16",
+      "pack": {
+       "version": "2026-10-draft",
+       "sha256": "dc30a871f5c736af58b9f1734151e87d81edbee8242cc3e4c92508aa43b11931",
+       "review_status": "draft — not reviewed by a licensed TCM practitioner",
+       "reviewed": false
+      },
+      "knowledge_base": {
+       "herbs": 23,
+       "processed": 5,
+       "formulas": 6,
+       "syndromes": 8,
+       "passages": 9,
+       "studies": 2,
+       "relations": 14,
+       "safety": 14
+      },
+      "intake_sha256": "02ffddd9be01fa54a0d2ef650772efda0cc1fd33d3d16068bc91b572ba76359f",
+      "options": {
+       "modifications": [],
+       "apply_textbook": false
+      },
+      "outputs": {
+       "report.md": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+       "report.html": "185f6e1d7525f7d5380f081666951ee8e94912fb0c8bf0491a4c0be4c78608e8"
+      }
+     },
+     "intake": {
+      "schema": "bioagent.clinic.intake/1",
+      "patient": {
+       "id": "p1",
+       "age": 45,
+       "sex": "female",
+       "pregnant": false,
+       "breastfeeding": false
+      },
+      "chief_complaint": "神疲乏力，食少便溏",
+      "duration": "3个月",
+      "inspection": {
+       "present": [
+        "面色萎黄"
+       ],
+       "absent": [],
+       "tongue": [
+        "舌淡",
+        "苔白"
+       ]
+      },
+      "inquiry": {
+       "present": [
+        "神疲乏力",
+        "食少",
+        "便溏",
+        "气短"
+       ],
+       "absent": [
+        "发热"
+       ]
+      },
+      "palpation": {
+       "pulse": [
+        "脉缓弱"
+       ],
+       "present": [],
+       "absent": []
+      },
+      "medications": [],
+      "allergies": [],
+      "conditions": [],
+      "red_flags_cleared": []
+     },
+     "warnings": [
+      "知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）"
+     ],
+     "red_flags": [],
+     "differentiation": {
+      "status": "meets",
+      "rule": "主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖",
+      "notes": [],
+      "candidates": [
+       {
+        "syndrome": "脾胃气虚证",
+        "status": "meets",
+        "score": 0.643,
+        "main": 3.0,
+        "secondary": 1.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "益气健脾",
+        "formula": "四君子汤",
+        "parent": "气虚证",
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "main",
+          "term": "食少",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "食少"
+         },
+         {
+          "category": "main",
+          "term": "便溏",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "便溏"
+         },
+         {
+          "category": "main",
+          "term": "神疲乏力",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "神疲乏力"
+         },
+         {
+          "category": "secondary",
+          "term": "面色萎黄",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "面色萎黄"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉缓弱",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "腹胀",
+         "少气懒言",
+         "食后腹胀加重",
+         "消瘦"
+        ]
+       },
+       {
+        "syndrome": "心脾两虚证",
+        "status": "meets",
+        "score": 0.536,
+        "main": 2.0,
+        "secondary": 2.0,
+        "tongue": 0.5,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "补益心脾",
+        "formula": null,
+        "parent": null,
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "main",
+          "term": "食少",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "食少"
+         },
+         {
+          "category": "main",
+          "term": "神疲乏力",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "神疲乏力"
+         },
+         {
+          "category": "secondary",
+          "term": "便溏",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "便溏"
+         },
+         {
+          "category": "secondary",
+          "term": "面色萎黄",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "面色萎黄"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡嫩",
+          "strength": 0.5,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉细弱",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "心悸",
+         "失眠多梦",
+         "头晕健忘",
+         "腹胀"
+        ]
+       },
+       {
+        "syndrome": "气虚证",
+        "status": "leans",
+        "score": 0.417,
+        "main": 1.0,
+        "secondary": 1.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "补气",
+        "formula": "四君子汤",
+        "parent": null,
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "main",
+          "term": "神疲乏力",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "神疲乏力"
+         },
+         {
+          "category": "secondary",
+          "term": "气短",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "气短"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉虚",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "少气懒言",
+         "自汗",
+         "活动后加重",
+         "易感冒",
+         "头晕"
+        ]
+       },
+       {
+        "syndrome": "肺气虚证",
+        "status": "leans",
+        "score": 0.333,
+        "main": 1.0,
+        "secondary": 0.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "补益肺气",
+        "formula": null,
+        "parent": "气虚证",
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "main",
+          "term": "气短",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "气短"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉弱",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "咳喘无力",
+         "自汗",
+         "痰清稀",
+         "声低懒言",
+         "易感冒",
+         "畏风"
+        ]
+       },
+       {
+        "syndrome": "血虚证",
+        "status": "leans",
+        "score": 0.286,
+        "main": 1.0,
+        "secondary": 0.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "补血",
+        "formula": "四物汤",
+        "parent": null,
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "main",
+          "term": "面色萎黄",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "面色萎黄"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉细",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "面色淡白",
+         "唇甲色淡",
+         "头晕眼花",
+         "心悸",
+         "失眠多梦",
+         "手足发麻",
+         "月经量少色淡"
+        ]
+       },
+       {
+        "syndrome": "脾虚气陷证",
+        "status": "weak",
+        "score": 0.357,
+        "main": 0.0,
+        "secondary": 3.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "补中益气，升阳举陷",
+        "formula": "补中益气汤",
+        "parent": "脾胃气虚证",
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "secondary",
+          "term": "神疲乏力",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "神疲乏力"
+         },
+         {
+          "category": "secondary",
+          "term": "气短",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "气短"
+         },
+         {
+          "category": "secondary",
+          "term": "食少",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "食少"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉缓弱",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "脘腹重坠",
+         "久泻",
+         "脱肛",
+         "内脏下垂",
+         "便意频数"
+        ]
+       },
+       {
+        "syndrome": "寒湿困脾证",
+        "status": "weak",
+        "score": 0.182,
+        "main": 0.0,
+        "secondary": 1.0,
+        "tongue": 0.5,
+        "pulse": 0.5,
+        "contradictions": [],
+        "principle": "温中化湿",
+        "formula": null,
+        "parent": null,
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "secondary",
+          "term": "便溏",
+          "strength": 1.0,
+          "via": "exact",
+          "entry": "便溏"
+         },
+         {
+          "category": "tongue",
+          "term": "舌淡胖",
+          "strength": 0.5,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉濡缓",
+          "strength": 0.5,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "脘腹痞闷",
+         "纳呆",
+         "头身困重",
+         "泛恶",
+         "口淡不渴"
+        ]
+       },
+       {
+        "syndrome": "肾阳虚证",
+        "status": "weak",
+        "score": 0.143,
+        "main": 0.0,
+        "secondary": 0.0,
+        "tongue": 1.0,
+        "pulse": 1.0,
+        "contradictions": [],
+        "principle": "温补肾阳",
+        "formula": "金匮肾气丸",
+        "parent": "阳虚证",
+        "covered_by": "",
+        "hits": [
+         {
+          "category": "tongue",
+          "term": "苔白",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "舌淡、苔白"
+         },
+         {
+          "category": "pulse",
+          "term": "脉沉细无力",
+          "strength": 1.0,
+          "via": "features",
+          "entry": "脉缓弱"
+         }
+        ],
+        "unasked": [
+         "腰膝酸冷",
+         "畏寒",
+         "肢冷",
+         "夜尿多",
+         "精神萎靡",
+         "阳痿",
+         "小便清长",
+         "面色㿠白"
+        ]
+       }
+      ],
+      "questions": [
+       {
+        "finding": "少气懒言",
+        "group": "闻诊（声音气息）",
+        "why": "鉴别脾胃气虚证与心脾两虚证"
+       },
+       {
+        "finding": "食后腹胀加重",
+        "group": "胸胁脘腹",
+        "why": "鉴别脾胃气虚证与心脾两虚证"
+       },
+       {
+        "finding": "消瘦",
+        "group": "望诊（神色形态）",
+        "why": "鉴别脾胃气虚证与心脾两虚证"
+       },
+       {
+        "finding": "心悸",
+        "group": "胸胁脘腹",
+        "why": "鉴别心脾两虚证与脾胃气虚证"
+       },
+       {
+        "finding": "失眠多梦",
+        "group": "睡眠与情志",
+        "why": "鉴别心脾两虚证与脾胃气虚证"
+       },
+       {
+        "finding": "头晕健忘",
+        "group": "睡眠与情志",
+        "why": "鉴别心脾两虚证与脾胃气虚证"
+       },
+       {
+        "finding": "腹胀",
+        "group": "胸胁脘腹",
+        "why": "脾胃气虚证的主症"
+       },
+       {
+        "finding": "咳喘无力",
+        "group": "咳喘痰",
+        "why": "肺气虚证的主症"
+       },
+       {
+        "finding": "自汗",
+        "group": "汗",
+        "why": "肺气虚证的主症"
+       },
+       {
+        "finding": "声低懒言",
+        "group": "闻诊（声音气息）",
+        "why": "肺气虚证的次症"
+       }
+      ]
+     },
+     "prescription": {
+      "status": "draft",
+      "syndrome": "脾胃气虚证",
+      "principle": "益气健脾",
+      "formula": "四君子汤",
+      "source": "太平惠民和剂局方",
+      "days": 7,
+      "fraction": 1.0,
+      "fraction_note": "成人量",
+      "lines": [
+       {
+        "herb": "人参",
+        "dose_g": 9.0,
+        "basis": "textbook",
+        "textbook_g": 9.0,
+        "range_g": [
+         3.0,
+         9.0
+        ],
+        "notes": [
+         "另煎兑服"
+        ],
+        "toxicity": ""
+       },
+       {
+        "herb": "白术",
+        "dose_g": 9.0,
+        "basis": "textbook",
+        "textbook_g": 9.0,
+        "range_g": [
+         6.0,
+         12.0
+        ],
+        "notes": [],
+        "toxicity": ""
+       },
+       {
+        "herb": "茯苓",
+        "dose_g": 9.0,
+        "basis": "textbook",
+        "textbook_g": 9.0,
+        "range_g": [
+         10.0,
+         15.0
+        ],
+        "notes": [],
+        "toxicity": ""
+       },
+       {
+        "herb": "炙甘草",
+        "dose_g": 6.0,
+        "basis": "textbook",
+        "textbook_g": 6.0,
+        "range_g": [
+         2.0,
+         10.0
+        ],
+        "notes": [],
+        "toxicity": ""
+       }
+      ],
+      "total_g": 33.0,
+      "issues": [
+       {
+        "id": "dose_below_range:茯苓",
+        "severity": "info",
+        "code": "dose_below_range",
+        "message": "茯苓 9 g 低于《药典》常用量下限 10 g",
+        "herbs": [
+         "茯苓"
+        ],
+        "source": "中华人民共和国药典 2020年版"
+       }
+      ],
+      "instructions": [
+       "每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）",
+       "先开7剂，复诊后再定",
+       "人参：另煎兑服"
+      ],
+      "applied": [],
+      "suggested": [],
+      "formula_note": ""
+     }
+    }
+   },
+   {
+    "path": "report.md",
+    "media_type": "text/markdown",
+    "sha256": "2b8feffacd30774d7e0b25230fe5ee1c52822f4b184eceac4d386d3e2adb565f",
+    "bytes": 4507,
+    "content": "# 中医辨证与处方草案\n\n**本文件是供执业中医师审核的草案，未经医师签署不是处方。**\n\n状态：**草案：待执业中医师审核签署**\n\n## 提醒\n\n- 知识包 2026-10-draft 未经执业中医师审核（draft — not reviewed by a licensed TCM practitioner）\n\n## 患者与四诊\n\n- 患者：p1，45 岁，女，未妊娠\n- 主诉：神疲乏力，食少便溏（3个月）\n- 望诊：面色萎黄\n- 问诊：神疲乏力、食少、便溏、气短；无：发热\n- 舌象：舌淡、苔白；脉象：脉缓弱\n- 目前用药：无\n- 过敏史：无\n- 既往病史：无\n\n## 辨证\n\n诊断标准：主症≥2项，次症≥1项（或主症≥3项），舌、脉至少一项相符，且舌、脉不同时相悖。\n\n| 证候 | 判断 | 评分 | 主症 | 次症 | 舌 | 脉 | 治法 | 基础方 |\n|---|---|---|---|---|---|---|---|---|\n| 脾胃气虚证 | 符合 | 0.64 | 3 | 1 | 1 | 1 | 益气健脾 | 四君子汤 |\n| 心脾两虚证 | 符合 | 0.54 | 2 | 2 | 0.5 | 1 | 补益心脾 | — |\n| 气虚证 | 倾向 | 0.42 | 1 | 1 | 1 | 1 | 补气 | 四君子汤 |\n| 肺气虚证 | 倾向 | 0.33 | 1 | 0 | 1 | 1 | 补益肺气 | — |\n| 血虚证 | 倾向 | 0.29 | 1 | 0 | 1 | 1 | 补血 | 四物汤 |\n| 脾虚气陷证 | 证据不足 | 0.36 | 0 | 3 | 1 | 1 | 补中益气，升阳举陷 | 补中益气汤 |\n\n**脾胃气虚证** 的依据：\n- 主症：食少 ← 记录“食少”\n- 主症：便溏 ← 记录“便溏”\n- 主症：神疲乏力 ← 记录“神疲乏力”\n- 次症：面色萎黄 ← 记录“面色萎黄”\n- 舌：舌淡 ← 记录“舌淡、苔白”\n- 脉：脉缓弱 ← 记录“脉缓弱”\n\n## 建议补充询问\n\n| 项目 | 类别 | 目的 |\n|---|---|---|\n| 少气懒言 | 闻诊（声音气息） | 鉴别脾胃气虚证与心脾两虚证 |\n| 食后腹胀加重 | 胸胁脘腹 | 鉴别脾胃气虚证与心脾两虚证 |\n| 消瘦 | 望诊（神色形态） | 鉴别脾胃气虚证与心脾两虚证 |\n| 心悸 | 胸胁脘腹 | 鉴别心脾两虚证与脾胃气虚证 |\n| 失眠多梦 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 头晕健忘 | 睡眠与情志 | 鉴别心脾两虚证与脾胃气虚证 |\n| 腹胀 | 胸胁脘腹 | 脾胃气虚证的主症 |\n| 咳喘无力 | 咳喘痰 | 肺气虚证的主症 |\n| 自汗 | 汗 | 肺气虚证的主症 |\n| 声低懒言 | 闻诊（声音气息） | 肺气虚证的次症 |\n\n## 处方草案\n\n脾胃气虚证 · 治法：益气健脾 · 基础方：**四君子汤**（太平惠民和剂局方）\n\n| 药味 | 剂量 (g) | 依据 | 《方剂学》剂量 | 《药典》范围 | 备注 |\n|---|---|---|---|---|---|\n| 人参 | 9 | 教材剂量 | 9 | 3–9 | 另煎兑服 |\n| 白术 | 9 | 教材剂量 | 9 | 6–12 |  |\n| 茯苓 | 9 | 教材剂量 | 9 | 10–15 |  |\n| 炙甘草 | 6 | 教材剂量 | 6 | 2–10 |  |\n\n每剂合计 33 g。\n\n- 每日1剂，水煎2次，分早晚温服（常规煎服法，医师可改）\n- 先开7剂，复诊后再定\n- 人参：另煎兑服\n\n## 安全核查\n\n| 级别 | 编号 | 内容 | 来源 |\n|---|---|---|---|\n| 提示 | `dose_below_range:茯苓` | 茯苓 9 g 低于《药典》常用量下限 10 g | 中华人民共和国药典 2020年版 |\n\n## 签署\n\n由执业中医师审核后签署：接受（accept）、修改（modify，修改内容会重新核查）或拒绝（reject）。\n\n```\nbioagent clinic sign <本目录> --practitioner 姓名 --licence 执业证号 --decision accept|modify|reject [--reason 编号=理由 ...]\n```\n\n## 这是什么\n\n按教材诊断标准对本次记录的四诊信息计分得到的辨证建议，以及据《方剂学》基础方、《药典》剂量范围和安全规则生成的处方草案。它依赖记录是否完整准确，不能替代医师的四诊合参与临证判断；任何处方都须由执业中医师审核签署后方可使用。辨证一致性和疗效均未经临床验证。\n\n## 依据\n\n- criteria：《中医诊断学》（全国中医药行业高等教育规划教材）; GB/T 16751.2-2021\n- formulas：《方剂学》（全国中医药行业高等教育规划教材）\n- herbs：《中华人民共和国药典》2020年版一部\n- response：《中药新药临床研究指导原则》(2002): 证候疗效 = (治疗前积分 - 治疗后积分) / 治疗前积分\n- 知识包：2026-10-draft，draft — not reviewed by a licensed TCM practitioner\n\n## 复现\n\n`session.json` 记录了 intake、各步结果、知识包摘要与代码摘要；`bioagent clinic verify <本目录>` 可复核。\n"
+   },
+   {
+    "path": "report.html",
+    "media_type": "text/html",
+    "sha256": "185f6e1d7525f7d5380f081666951ee8e94912fb0c8bf0491a4c0be4c78608e8",
+    "bytes": 6551,
+    "content": null
+   }
+  ],
+  "label": {
+   "sensitivity": "INTERNAL",
+   "categories": [],
+   "classifier": "psh.fallback",
+   "shareable": false,
+   "permits": {
+    "LOCAL_COMPUTE": true,
+    "LOCAL_MODEL": true,
+    "TRUSTED_REMOTE": true,
+    "PUBLIC_REMOTE": true,
+    "USER_OUTPUT": true,
+    "PERSISTENT": true
+   },
+   "advisory": true
+  }
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "CPython 3.13.16 / linux-x86_64",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0",
+   "python": "3.13.16"
+  },
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "09cade1c7c0a5777f15f425f0c86faae6614f26281dbb7ac9df457165e305c7a",
+  "output_sha256": "024bf030bd0039679792cdd7a8db3c9f473d4d32c2ec841a790ffe04feeec8d4",
+  "started_at": "2026-10-07T21:59:33Z",
+  "profile": "offline-analysis",
+  "purpose": "academic",
+  "durable": false,
+  "session_id": "cs_b43fd0bb65f5"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

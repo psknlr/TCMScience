@@ -18,7 +18,8 @@ from .envelope import jsonable, sha256_bytes
 __all__ = ["empty", "refusal", "remedy_for", "from_governed_run", "from_verdict_refusals",
            "from_call_result", "outputs_from", "licence_entry", "advisory_labels",
            "LIMIT_NO_RECORD", "LIMIT_PREDICTED", "LIMIT_DRAFT", "LIMIT_CLASSICAL",
-           "LIMIT_SEED", "LIMIT_NOT_SIGNIFICANT", "LIMIT_PENDING", "LIMIT_LIVE",
+           "LIMIT_SEED", "LIMIT_NOT_SIGNIFICANT", "LIMIT_SIGNIFICANT", "LIMIT_PENDING",
+           "LIMIT_LIVE",
            "LIMIT_HUB", "LIMIT_CALCULATOR", "LIMIT_NOT_EXHAUSTIVE_CHECK"]
 
 # The limits a result carries, in the words the model must repeat when it uses the result.
@@ -34,6 +35,9 @@ LIMIT_SEED = ("Seed corpus only (23 herbs, 5 processed forms, 6 formulas, 8 synd
               "passages): it is illustrative, and absence here is not absence of evidence.")
 LIMIT_NOT_SIGNIFICANT = ("Not significant ≠ irrelevant: a non-significant result is not "
                          "evidence of no effect.")
+LIMIT_SIGNIFICANT = ("Significant ≠ effective or causal: a small p-value says the data would "
+                     "be unusual under the null model, not that the effect is large, clinically "
+                     "relevant or caused by the factor tested.")
 LIMIT_PENDING = "A job that has not succeeded is pending work, not a result."
 LIMIT_LIVE = ("Live third-party data, as the source returned it; TCMScience has not "
               "reviewed it, and the source's licence applies.")
@@ -98,8 +102,10 @@ _REMEDIES: dict[str, str] = {
                           "and re-pinned before it can be released.",
     "UNPINNED": "A development run is recorded but never released: the skill must be "
                 "reviewed and pinned in registry/skills.lock.yaml first.",
-    "HUMAN_ONLY": "This act belongs to a person in the Studio UI (for a clinic draft: the "
-                  "licensed practitioner signs it in the clinic view).",
+    "HUMAN_ONLY": "This act belongs to a person, not to a tool or the model. Studio does not "
+                  "sign: the licensed practitioner reviews a clinic draft and signs it outside "
+                  "Studio (bioagent clinic sign <session directory> on the runner machine, or "
+                  "their own clinic system); the maintainers review a release.",
     "NETWORK_OFF": "Turn on web access for this project; network calls then run under the "
                    "biomedical-research permission profile.",
     "NEEDS_RUNNER": "Start the local runner (tcmstudio serve) and connect it in Settings.",

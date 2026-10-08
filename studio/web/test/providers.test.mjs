@@ -1,6 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setLang } from "../js/core/i18n.js";
 import { PRESETS, activeProvider, allProviders, customPreset, localFix, relayBaseUrl, relayHealth, routeFor, testConnection } from "../js/core/providers.js";
 import { anthropicSse, fakeFetch, sse, streamResponse } from "./fixtures/fakes.mjs";
 
@@ -121,4 +122,36 @@ test("testConnection: a tool-calling round trip, with latency", async () => {
   const r4 = await testConnection({ ...activeProvider({ provider: "anthropic", keys: { anthropic: "k" } }), fetch: anth });
   assert.equal(r4.tools, true);
   assert.equal(anth.calls[0].body.thinking, undefined, "the check runs without thinking");
+});
+
+test("relayHealth tells a relay or runner error in the page's language (the runner on another port has no relay)", async () => {
+  const notRelay = { ok: false, service: "tcmstudio", relay: false, model: "Tao-S1", models: [], error: { type: "not_relay", message: "本机 Runner 不提供 Tao-S1。请在默认端口 8765 启动 Runner。" } };
+  const fetchIt = () => fakeFetch(() => new Response(JSON.stringify(notRelay)));
+  const zh = await relayHealth({ fetch: fetchIt() });
+  assert.equal(zh.error, notRelay.error.message, "a Chinese page shows the runner's own sentence");
+  assert.equal(zh.error_type, "not_relay");
+  setLang("en");
+  try {
+    const en = await relayHealth({ fetch: fetchIt() });
+    assert.match(en.error, /^This local runner does not provide Tao-S1\./);
+    assert.doesNotMatch(en.error, /[\u3400-\u9fff]/);
+    const off = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ ok: false }))) });
+    assert.match(off.error, /^Tao-S1 is not available right now/);
+    const blocked = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ error: { type: "forbidden_origin", message: "Tao-S1 只供 TCMScience Studio 网页使用" } }), { status: 403 })) });
+    assert.equal(blocked.status, 403);
+    assert.match(blocked.error, /^Tao-S1 serves only the TCMScience Studio page/);
+    const odd = await relayHealth({ fetch: fakeFetch(() => new Response(JSON.stringify({ error: { type: "brand_new", message: "新情况" } }), { status: 500 })) });
+    assert.equal(odd.error, "新情况");
+    assert.equal(odd.error_lang, "zh");
+  } finally {
+    setLang("zh");
+  }
+});
+
+test("presets say how they stream: increments for the known services; Tao-S1's reasoning arrives whole each time", () => {
+  const by = Object.fromEntries(PRESETS.map((p) => [p.id, p]));
+  assert.deepEqual(by.tao.stream, { content: "auto", reasoning: "cumulative" });
+  for (const id of ["openai", "deepseek", "qwen", "moonshot", "zhipu", "siliconflow", "openrouter", "ollama", "lmstudio", "vllm", "llamacpp"]) assert.equal(by[id].stream, "delta", id);
+  assert.equal(by.custom_openai.stream, undefined, "a custom endpoint is guessed");
+  assert.equal(activeProvider({ provider: "tao" }).stream.reasoning, "cumulative");
 });

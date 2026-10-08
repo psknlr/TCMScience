@@ -11,7 +11,7 @@ import { confirmDialog, openDialog, openMenu, promptDialog, toast } from "../ove
 import { availableProviders } from "../panels.js";
 import { button, chip, emptyState, iconButton, notice, progressBar, section, selectField, switchControl, textArea } from "../primitives.js";
 import { mountComposer } from "../composer.js";
-import { filePreview } from "../files.js";
+import { filePreview, inlinedInPrompt } from "../files.js";
 
 export const EXAMPLES = [
   { id: "normalize", icon: "languages", skill: "normalize-tcm-entities" },
@@ -210,7 +210,9 @@ function knowledgeRow(app, f, refresh) {
       h("div.file-row__badges",
         hashBadge(f.sha256, { compact: true }),
         chip({ label: f.runnerUploadId ? t("ui.files.loc_both") : t("ui.files.loc_browser"), tone: f.runnerUploadId ? "navy" : "neutral", icon: f.runnerUploadId ? "laptop" : "lock" }),
-        big ? chip({ label: t("ui.knowledge.big"), tone: "ochre", icon: "alert" }) : null),
+        big ? chip({ label: t("ui.knowledge.big"), tone: "ochre", icon: "alert" }) : null,
+        // stored only here, but its text goes to the model with every message of the project: said on the file
+        inlinedInPrompt(f) ? chip({ label: t("ui.knowledge.to_model"), tone: "ochre", icon: "sparkles", title: t("ui.knowledge.to_model_tip") }) : null),
       progress),
     h("div.file-row__actions",
       iconButton({ icon: "eye", label: t("ui.files.preview"), size: "sm", onClick: () => openDialog({ title: f.name, size: "lg", body: filePreview({ blob: f.blob }, { name: f.name, media_type: f.type }) }) }),

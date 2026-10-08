@@ -1,5 +1,6 @@
-// wrangler.toml says what the Worker is in production: these tests read it, so that the defaults the other tests run
-// with are the deployed ones, and the settings the design depends on cannot drift unnoticed.
+// wrangler.toml says what the Worker is in production: these tests read it. Its [vars] are the owner's to change
+// (SETUP.md, README.md: the international key's UPSTREAM_BASE, RELAY = "off", the limits, the origins), so they are
+// checked for form, not against the relay's built-in DEFAULTS; only what holds the design together is pinned.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -44,20 +45,146 @@ function parseToml(text) {
   return root;
 }
 
-const toml = parseToml(readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8"));
+const TEXT = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+const toml = parseToml(TEXT);
 
-test("the relay's defaults are the deployed variables", () => {
-  assert.deepEqual(Object.keys(DEFAULTS).filter((k) => !(k in toml.vars)), []);
-  for (const [k, v] of Object.entries(DEFAULTS)) assert.equal(toml.vars[k], v, k);
-  assert.deepEqual(Object.keys(toml.vars).filter((k) => !(k in DEFAULTS) && k !== "HSTS_MAX_AGE"), []);
-  const c = config(toml.vars);
+/** wrangler.toml with one [vars] line rewritten, as the docs tell the owner to rewrite it. */
+function edited(key, raw) {
+  const line = new RegExp(`^${key} = .*$`, "m");
+  assert.match(TEXT, line, `wrangler.toml has a ${key} line`);
+  return parseToml(TEXT.replace(line, () => `${key} = ${raw}`)).vars;
+}
+
+const SITE = "https://science.impf.ai";
+// whole numbers, with their least value (config() reads a smaller or mistyped one as its default, silently)
+const NUMBERS = {
+  MAX_OUTPUT_TOKENS: 1, MAX_BODY_BYTES: 1, PER_MINUTE: 0, PER_DAY: 0, TOTAL_PER_DAY: 0, TOKENS_PER_DAY: 0,
+  TOTAL_TOKENS_PER_DAY: 0, HSTS_MAX_AGE: 0,
+};
+// a question takes up to 16 model calls (CONTRACTS.md §6 maxSteps): a call limit below that stops the agent halfway
+const AGENT_CALLS = 16;
+
+/** What is wrong with a [vars] table, one line per variable; [] when the Worker can be deployed with it. */
+function problems(vars) {
+  const out = [];
+  const say = (k, why) => out.push(`${k}: ${why}`);
+  const known = [...Object.keys(DEFAULTS), "HSTS_MAX_AGE"];
+  for (const k of known) if (!(k in vars)) say(k, "missing from [vars]");
+  for (const k of Object.keys(vars)) if (!known.includes(k)) say(k, "not a variable the Worker reads (a typo?)");
+  const text = {};
+  for (const k of known.filter((x) => x in vars)) {
+    const v = vars[k];
+    if (!["string", "number", "boolean"].includes(typeof v)) say(k, "must be a string");
+    else if (String(v).trim() === "") say(k, "empty: write the value (an empty one falls back to the built-in default)");
+    else text[k] = String(v).trim();
+  }
+  const has = (k) => k in text;
+  if (has("RELAY") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.RELAY)) say("RELAY", `"${text.RELAY}" is neither "on" nor "off"`);
+  if (has("UPSTREAM_BASE")) {
+    let u = null;
+    try {
+      u = new URL(text.UPSTREAM_BASE);
+    } catch { /* told below */ }
+    if (!u || u.protocol !== "https:" || u.search || u.hash || /\/chat\/completions\/?$/.test(u.pathname)) {
+      say("UPSTREAM_BASE", "must be the model service's https base URL, without /chat/completions (e.g. https://api.minimax.io/v1)");
+    }
+  }
+  if (has("MODELS") && !text.MODELS.split(",").some((m) => m.trim())) say("MODELS", "names no model");
+  if (has("PUBLIC_MODEL") && text.PUBLIC_MODEL !== "Tao-S1") say("PUBLIC_MODEL", "must be Tao-S1, the only model name a visitor sees");
+  if (has("UPSTREAM_FIELDS")) {
+    let f = null;
+    try {
+      f = JSON.parse(text.UPSTREAM_FIELDS);
+    } catch { /* told below */ }
+    if (!f || typeof f !== "object" || Array.isArray(f) || f.reasoning_split !== true) {
+      say("UPSTREAM_FIELDS", 'must be a JSON object with "reasoning_split":true (the page reads the reasoning from its own field)');
+    }
+  }
+  const whole = (k) => has(k) && Number.isInteger(Number(text[k])) && Number(text[k]) >= NUMBERS[k];
+  for (const [k, min] of Object.entries(NUMBERS)) {
+    if (has(k) && !whole(k)) say(k, `"${text[k]}" is not a whole number${min ? ` of at least ${min}` : " (0: no limit)"}`);
+  }
+  for (const k of ["PER_MINUTE", "PER_DAY", "TOTAL_PER_DAY"]) {
+    const n = Number(text[k]);
+    if (whole(k) && n !== 0 && n < AGENT_CALLS) say(k, `${n} model calls cannot finish one question (up to ${AGENT_CALLS}): use at least ${AGENT_CALLS}, or 0 for no limit`);
+  }
+  if (has("ALLOWED_ORIGINS")) {
+    const origins = text.ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
+    const exact = (o) => {
+      try {
+        return new URL(o).origin === o;
+      } catch {
+        return false;
+      }
+    };
+    for (const o of origins.filter((x) => !exact(x))) say("ALLOWED_ORIGINS", `"${o}" is not an origin (scheme://host[:port], no path or trailing slash): no page would match it`);
+    if (!origins.includes(SITE)) say("ALLOWED_ORIGINS", `must include ${SITE}, the site itself`);
+  }
+  return out;
+}
+
+test("wrangler.toml's [vars] are the variables the relay reads, each well formed", () => {
+  assert.deepEqual(problems(toml.vars), []);
+  const c = config(toml.vars); // read as written, not fallen back to a default
   assert.equal(c.publicModel, "Tao-S1");
-  assert.deepEqual(c.upstreamFields, { reasoning_split: true });
-  assert.deepEqual(c.origins, ["https://science.impf.ai", "http://127.0.0.1:8765", "http://localhost:8765"]);
-  assert.equal(c.maxTokens, 8192);
-  assert.equal(c.enabled, true);
-  // sized for the agent: a question takes up to 16 model calls (CONTRACTS.md §6 maxSteps)
-  assert.ok(c.chat.perMinute >= 16 && c.chat.perDay >= 16 * 50 && c.chat.total >= c.chat.perDay);
+  assert.deepEqual(c.upstreamFields, JSON.parse(toml.vars.UPSTREAM_FIELDS));
+  assert.ok(c.origins.includes(SITE));
+  for (const [k, read] of [["PER_MINUTE", c.chat.perMinute], ["PER_DAY", c.chat.perDay], ["TOTAL_PER_DAY", c.chat.total],
+    ["TOKENS_PER_DAY", c.chat.tokensPerDay], ["TOTAL_TOKENS_PER_DAY", c.chat.totalTokens], ["MAX_OUTPUT_TOKENS", c.maxTokens]]) {
+    assert.equal(read, Number(toml.vars[k]), k);
+  }
+});
+
+test("every [vars] change the docs tell the owner to make passes, and takes effect", () => {
+  const changes = [
+    // SETUP.md step 6 and the troubleshooting row: a key from the international platform
+    ["UPSTREAM_BASE", '"https://api.minimax.io/v1"', (c) => assert.equal(c.upstream, "https://api.minimax.io/v1")],
+    // the persistent pause (SETUP.md 日常维护, README 停用开关), and back
+    ["RELAY", '"off"', (c) => assert.equal(c.enabled, false)],
+    ["RELAY", '"on"', (c) => assert.equal(c.enabled, true)],
+    // the limits, up, down to what one question needs, and off (0: no limit), quoted or not
+    ["PER_DAY", '"3000"', (c) => assert.equal(c.chat.perDay, 3000)],
+    ["PER_DAY", "300", (c) => assert.equal(c.chat.perDay, 300)],
+    ["PER_MINUTE", `"${AGENT_CALLS}"`, (c) => assert.equal(c.chat.perMinute, AGENT_CALLS)],
+    ["PER_MINUTE", '"0"', (c) => assert.equal(c.chat.perMinute, 0)],
+    ["TOTAL_PER_DAY", '"0"', (c) => assert.equal(c.chat.total, 0)],
+    ["TOTAL_PER_DAY", '"500"', (c) => assert.equal(c.chat.total, 500)],
+    ["TOKENS_PER_DAY", '"0"', (c) => assert.equal(c.chat.tokensPerDay, 0)],
+    ["TOTAL_TOKENS_PER_DAY", '"50000000"', (c) => assert.equal(c.chat.totalTokens, 50000000)],
+    ["TOKENS_PER_DAY", '"2e6"', (c) => assert.equal(c.chat.tokensPerDay, 2000000)],
+    ["MAX_OUTPUT_TOKENS", '"4096"', (c) => assert.equal(c.maxTokens, 4096)],
+    // the model, and the pages that may call the relay
+    ["MODELS", '"MiniMax-M3-pro,MiniMax-M3"', (c) => assert.equal(c.model, "MiniMax-M3-pro")],
+    ["ALLOWED_ORIGINS", `"${SITE},http://127.0.0.1:9000"`, (c) => assert.deepEqual(c.origins, [SITE, "http://127.0.0.1:9000"])],
+    ["HSTS_MAX_AGE", '"31536000"', () => {}],
+  ];
+  // only what is said of the changed variable: a mistake elsewhere in the file is the first test's to report
+  const about = (key, vars) => problems(vars).filter((p) => p.startsWith(`${key}: `));
+  for (const [key, raw, effect] of changes) {
+    const vars = edited(key, raw);
+    assert.deepEqual(about(key, vars), [], `${key} = ${raw}`);
+    effect(config(vars));
+  }
+});
+
+test("a mistake in [vars] is named, with the variable", () => {
+  const mistakes = [
+    ["RELAY", '"of"'], ["RELAY", '""'],
+    ["UPSTREAM_BASE", '"http://api.minimax.io/v1"'], ["UPSTREAM_BASE", '"api.minimax.io/v1"'],
+    ["UPSTREAM_BASE", '"https://api.minimax.io/v1/chat/completions"'],
+    ["MODELS", '" , "'], ["PUBLIC_MODEL", '"MiniMax-M3"'], ["UPSTREAM_FIELDS", "'{}'"], ["UPSTREAM_FIELDS", "'reasoning_split'"],
+    ["PER_DAY", '"lots"'], ["PER_DAY", '"-1"'], ["PER_DAY", '"1.5"'], ["TOKENS_PER_DAY", '"10M"'],
+    ["PER_MINUTE", '"10"'], ["PER_DAY", '"8"'], ["TOTAL_PER_DAY", '"15"'], ["MAX_OUTPUT_TOKENS", '"0"'], ["HSTS_MAX_AGE", '"half a year"'],
+    ["ALLOWED_ORIGINS", '"http://127.0.0.1:8765"'], ["ALLOWED_ORIGINS", `"${SITE}/,http://localhost:8765"`],
+    ["ALLOWED_ORIGINS", `"${SITE},localhost:8765"`],
+  ];
+  for (const [key, raw] of mistakes) {
+    assert.ok(problems(edited(key, raw)).some((p) => p.startsWith(`${key}: `)), `${key} = ${raw} is not reported`);
+  }
+  const { PER_DAY, ...missing } = toml.vars;
+  assert.ok(problems(missing).includes("PER_DAY: missing from [vars]"));
+  assert.match(problems({ ...toml.vars, PER_DAYS: "3000" }).join("\n"), /^PER_DAYS: not a variable the Worker reads/m);
+  assert.match(problems({ ...toml.vars, ALLOWED_ORIGINS: [SITE] }).join("\n"), /^ALLOWED_ORIGINS: must be a string/m);
 });
 
 test("the Worker: one hostname, the app's files first, the relay under /v1/*, its bindings", () => {
@@ -75,7 +202,6 @@ test("the Worker: one hostname, the app's files first, the relay under /v1/*, it
   assert.deepEqual(toml.migrations, [{ tag: "v1", new_sqlite_classes: ["Limiter"] }]);
   assert.equal(toml.observability.enabled, true);
   assert.equal(toml.observability.logs.invocation_logs, false);
-  assert.equal(String(toml.vars.HSTS_MAX_AGE), "15552000");
 });
 
 test("no secret is written in the configuration", () => {

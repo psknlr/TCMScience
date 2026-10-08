@@ -10,6 +10,20 @@ import { notice, spinner } from "./primitives.js";
 const MAX_TEXT = 512 * 1024;
 const MAX_ROWS = 200;
 
+const TEXT_TYPES = /^(text\/|application\/(json|xml|x-yaml|yaml|csv|x-fasta)|image\/svg)/;
+const TEXT_EXT = /\.(txt|md|markdown|csv|tsv|json|jsonl|ya?ml|fa|fasta|fq|fastq|vcf|bed|gff3?|sam|pdb|sdf|mol|smi|tex|xml|html?)$/i;
+/** Text files up to this size are added, whole, to the system prompt of every turn in the project. */
+export const INLINE_MAX = 8 * 1024;
+
+/**
+ * Is this project file's text sent to the model with every message (core/prompt.js inlines it)? The UI says so next to
+ * the file: it is stored only in this browser, but its text is not only in this browser.
+ */
+export function inlinedInPrompt(file) {
+  const bytes = file?.bytes ?? file?.size ?? Infinity;
+  return bytes <= INLINE_MAX && (TEXT_TYPES.test(file?.type || "") || TEXT_EXT.test(file?.name || ""));
+}
+
 /** source: {blob} | {url (runner file, with token)} | {json: value}; meta: {name, media_type}. */
 export function filePreview(source, meta) {
   const box = h("div.preview", h("p.preview__loading.muted", spinner({ size: 12 }), " ", t("ui.files.loading")));

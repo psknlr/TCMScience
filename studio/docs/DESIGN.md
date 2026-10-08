@@ -896,9 +896,11 @@ site's phrasing ("Refuses to…", "What we do not claim").
   Arena).
 - **Never colour alone:** every evidence family and verdict has an icon + text. "Predicted" is also
   dashed.
-- **Thread:** `role="log"` with `aria-live="polite"`. Do **not** announce every token. Announce
-  "回答完成" (and the tool-call count) on completion; announce tool status changes politely and
-  refusals assertively once.
+- **Thread:** `role="log"` with `aria-live="off"`: tokens are never announced, and `aria-busy` is
+  not relied on (screen readers do not honour it reliably). The app speaks through the
+  `#announcer` regions instead, once per event: an approval request (assertive), a tool's refusal
+  (assertive), and the end of a turn — "回答完成" with the tool-call count (polite), or that it
+  stopped (polite) or failed (assertive).
 - **Disclosures** (thinking, tool cards, claims): `<button aria-expanded aria-controls>`.
 - **Inspector tabs:** `role="tablist"`, roving tabindex, arrow-key navigation.
 - **Resize handle:** `role="separator" aria-orientation="vertical" aria-valuenow/min/max`, adjustable

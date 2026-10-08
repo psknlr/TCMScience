@@ -321,3 +321,7 @@ def test_catalog_cli_writes_the_document(tmp_path):
     doc = json.loads(Path(out).read_text(encoding="utf-8"))
     assert doc["where"] == "browser" and len(doc["core"]) == 25
     assert len(doc["entries"]) == doc["counts"]["entries"]
+    # the acts reserved for a person ship with the catalog, so the page refuses them by name too
+    assert "clinic.sign" in doc["never_offered"] and "system.shell" in doc["never_offered"]
+    ids = {e["id"] for e in doc["entries"]} | {t["name"] for t in doc["core"]}
+    assert not ids & set(doc["never_offered"])

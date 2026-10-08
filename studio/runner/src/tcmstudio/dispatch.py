@@ -19,11 +19,13 @@ starts a thread or a process, or opens a socket except a connector call the kern
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import difflib
 import json
 import re
 import secrets
+import shutil
 import sys
 import tempfile
 import threading
@@ -386,6 +388,7 @@ class Outcome:
     result: Any = None
     model_view: Any = ...
     summary: str = ""
+    summary_en: str = ""
     governance: dict[str, Any] | None = None
     citations: list[Mapping[str, Any]] | None = None
     error: dict[str, Any] | None = None
@@ -398,13 +401,15 @@ class Outcome:
 
 
 def _failure(kind: str, error_type: str, message: str, hint: str = "", *,
-             status: str = "failed", summary: str = "", refusals: list[dict] | None = None,
+             status: str = "failed", summary: str = "", summary_en: str = "",
+             refusals: list[dict] | None = None,
              limitations: list[str] | None = None) -> Outcome:
     g = gv.empty(kind)
     g["refusals"] = list(refusals or [])
     g["limitations"] = list(limitations or [])
     return Outcome(status=status, result=None, model_view=None, summary=summary,
-                   governance=g, error={"type": error_type, "message": message, "hint": hint})
+                   summary_en=summary_en, governance=g,
+                   error={"type": error_type, "message": message, "hint": hint})
 
 
 #: zh labels used in summaries (DESIGN §2.3 / §7.4 vocabulary).
@@ -425,15 +430,50 @@ _EXPOSURE_ZH = {"plausible": "可能达到", "implausible": "难以达到",
 _FAIL_ZH = {"bad_arguments": "参数有误", "unavailable": "此处不可运行", "not_found": "未找到",
             "refused": "已拒绝", "runtime_error": "运行出错", "timeout": "超时",
             "network_off": "未联网"}
+_FAIL_EN = {"bad_arguments": "bad arguments", "unavailable": "cannot run here",
+            "not_found": "not found", "refused": "refused", "runtime_error": "runtime error",
+            "timeout": "timed out", "network_off": "web access is off"}
+
+#: English for the summaries (DESIGN §7.5: the same rules, sentence case).
+_CLAIM_EN = {"attribution": "attribution", "traditional_use": "traditional use",
+             "mechanism_hypothesis": "mechanism hypothesis", "mechanism": "mechanism",
+             "association": "association", "efficacy": "efficacy",
+             "safety_signal": "safety signal", "recommendation": "recommendation"}
+_DESIGN_EN = {k: k.replace("_", " ") for k in _DESIGN_ZH}
+_SEVERITY_EN = {"stop": "cannot be signed", "block": "needs the practitioner's reason",
+                "warn": "warning", "info": "note"}
+_EXPOSURE_EN = {"plausible": "plausibly reached", "implausible": "hardly reached",
+                "depends_on_unknowns": "depends on unknowns", "undeterminable": "undeterminable",
+                "inactive_in_assay": "inactive in the assay"}
+#: Evidence tiers (bioagent.tcm.model.EvidenceTier), by name.
+_TIER_ZH = {"COMPUTATIONAL_PREDICTION": "计算预测", "CLASSICAL_TEXT": "经典文献记载",
+            "EXPERT_EXPERIENCE": "名医经验/专家共识", "PRECLINICAL": "临床前研究",
+            "CASE_REPORT": "病例报告/病例系列", "OBSERVATIONAL": "观察性研究",
+            "RANDOMIZED_TRIAL": "随机对照试验", "SYSTEMATIC_REVIEW": "系统评价/荟萃分析"}
+_TIER_EN = {"COMPUTATIONAL_PREDICTION": "computational prediction",
+            "CLASSICAL_TEXT": "classical text", "EXPERT_EXPERIENCE": "expert experience",
+            "PRECLINICAL": "preclinical study", "CASE_REPORT": "case report",
+            "OBSERVATIONAL": "observational study", "RANDOMIZED_TRIAL": "randomized trial",
+            "SYSTEMATIC_REVIEW": "systematic review"}
+
+
+def _short(message: Any) -> str:
+    msg = " ".join(str(message or "").split())
+    return msg if len(msg) <= 90 else msg[:89] + "…"
 
 
 def _failure_summary(o: Outcome, title_zh: str) -> str:
     err = o.error or {}
     head = _FAIL_ZH.get(err.get("type", ""), "未完成")
-    msg = " ".join(str(err.get("message", "")).split())
-    if len(msg) > 90:
-        msg = msg[:89] + "…"
+    msg = _short(err.get("message", ""))
     return f"{title_zh}：{head}" + (f"（{msg}）" if msg else "")
+
+
+def _failure_summary_en(o: Outcome, title_en: str) -> str:
+    err = o.error or {}
+    head = _FAIL_EN.get(err.get("type", ""), "not completed")
+    msg = _short(err.get("message", ""))
+    return f"{title_en}: {head}" + (f" ({msg})" if msg else "")
 
 
 # ============================================================================== entry
@@ -452,6 +492,7 @@ def call(tool: str, arguments: Any = None, context: Any = None) -> dict[str, Any
         return _call(name, arguments, ctx, ctx_notes, t0, started)
     except KeyboardInterrupt:
         return shape(name, via=name, kind="system", status="cancelled", summary="已取消",
+                     summary_en="Cancelled",
                      arguments=arguments if isinstance(arguments, Mapping) else {},
                      started_at=started, duration_ms=(time.perf_counter() - t0) * 1000,
                      where=ctx.where, device=ctx.device,
@@ -459,6 +500,7 @@ def call(tool: str, arguments: Any = None, context: Any = None) -> dict[str, Any
     except BaseException as exc:                                # noqa: BLE001
         return shape(name, via=name, kind="system", status="failed",
                      summary="运行出错：调用未能完成",
+                     summary_en="Runtime error: the call did not complete",
                      arguments=arguments if isinstance(arguments, Mapping) else {},
                      started_at=started, duration_ms=(time.perf_counter() - t0) * 1000,
                      where=ctx.where, device=ctx.device,
@@ -511,7 +553,7 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
     entry: dict[str, Any] | None = None
     outcome: Outcome | None = None
     kind = "system"
-    title_zh = name
+    title_zh = title_en = name
     if args is None:
         outcome = _failure("system", "bad_arguments", problem,
                            'Pass the arguments as a JSON object, e.g. {"name": "黄芪"}.')
@@ -541,7 +583,7 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
         if outcome is None:
             if target in CORE_BY_NAME:
                 core = CORE_BY_NAME[target]
-                title_zh = core["title"]["zh"]
+                title_zh, title_en = core["title"]["zh"], core["title"]["en"]
                 v = validate(core["parameters"], target_args)
                 notes += v.notes
                 if not v.ok:
@@ -561,7 +603,7 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                         outcome = _not_found_entry(entry_id, target)
                     else:
                         kind = entry["kind"]
-                        title_zh = entry["title"]["zh"]
+                        title_zh, title_en = entry["title"]["zh"], entry["title"]["en"]
                         outcome = _validate_and_run(entry, entry_args, ctx, notes)
             else:
                 entry = get_entry(target)
@@ -570,9 +612,10 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                     outcome = _not_found_entry(target, target)
                 else:
                     kind = entry["kind"]
-                    title_zh = entry["title"]["zh"]
+                    title_zh, title_en = entry["title"]["zh"], entry["title"]["en"]
                     outcome = _validate_and_run(entry, target_args, ctx, notes)
-    return _finish(called, via, kind, title_zh, outcome, args, ctx, notes, t0, started)
+    return _finish(called, via, kind, (title_zh, title_en), outcome, args, ctx, notes, t0,
+                   started)
 
 
 def _refuse_human(name: str) -> Outcome:
@@ -580,6 +623,7 @@ def _refuse_human(name: str) -> Outcome:
     return _failure("clinic" if name.startswith("clinic") else "system", "refused", message,
                     gv.remedy_for("HUMAN_ONLY"), status="refused",
                     summary="已拒绝：此操作只能由人完成，不是工具调用",
+                    summary_en="Refused: only a person can do this; it is not a tool call",
                     refusals=[gv.refusal("HUMAN_ONLY", message)])
 
 
@@ -621,7 +665,10 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
                         f"{title} runs on {where}; it is not available in the {ctx.where}.",
                         gv.remedy_for("NEEDS_RUNNER") if "runner" in exec_ else "",
                         summary=f"{zh}：需要本机 Runner，浏览器中不可运行" if "runner" in exec_
-                        else f"{zh}：仅在浏览器运行时中可用")
+                        else f"{zh}：仅在浏览器运行时中可用",
+                        summary_en=f"{title}: needs the local runner; it cannot run in the "
+                                   "browser" if "runner" in exec_
+                        else f"{title}: available only in the browser runtime")
     if ctx.where == "runner":
         missing = [d for d in entry.get("heavy") or () if not dependency_present(d)]
         if missing:
@@ -629,7 +676,10 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
                             f"{title} needs {', '.join(missing)}, which is not installed on "
                             "this runner.", "Install it (pip install …) on the runner machine; "
                             "Studio never substitutes an approximation.",
-                            summary=f"{zh}：缺少可选依赖 {'、'.join(missing)}（不以近似结果替代）")
+                            summary=f"{zh}：缺少可选依赖 {'、'.join(missing)}（不以近似结果替代）",
+                            summary_en=f"{title}: missing optional dependency "
+                                       f"{', '.join(missing)} (never replaced by an "
+                                       "approximation)")
     else:
         missing = [p for p in entry.get("pyodide_packages") or () if not dependency_present(p)]
         if missing:
@@ -638,7 +688,9 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
                             "is not loaded.", "The browser runtime loads the Pyodide packages an "
                             "entry lists in pyodide_packages before calling it; or run it on "
                             "the local runner.",
-                            summary=f"{zh}：浏览器运行时尚未加载 {'、'.join(missing)}")
+                            summary=f"{zh}：浏览器运行时尚未加载 {'、'.join(missing)}",
+                            summary_en=f"{title}: the browser runtime has not loaded "
+                                       f"{', '.join(missing)}")
     if entry.get("network_if"):
         # Reaches its hosts only when this argument is set (allow_remote: sending a sequence
         # or fetching a structure from a third party).
@@ -650,15 +702,17 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
         return _failure(kind, "network_off",
                         f"Web access is off for this project; {title} would reach "
                         f"{hosts or 'the network'}.", gv.remedy_for("NETWORK_OFF"),
-                        summary="未联网：本项目未开启网络访问")
+                        summary="未联网：本项目未开启网络访问",
+                        summary_en="Web access is off for this project")
     return None
 
 
 # ============================================================================ finish
 
-def _finish(called: str, via: str, kind: str, title_zh: str, o: Outcome,
+def _finish(called: str, via: str, kind: str, titles: tuple[str, str], o: Outcome,
             args: Mapping[str, Any], ctx: Context, notes: list[str], t0: float,
             started: str) -> dict[str, Any]:
+    title_zh, title_en = titles
     gov = o.governance if o.governance is not None else gv.empty(kind)
     view = o.result if o.model_view is ... else o.model_view
     if o.status in ("succeeded", "job_submitted") and view is not None:
@@ -667,6 +721,8 @@ def _finish(called: str, via: str, kind: str, title_zh: str, o: Outcome,
             gov["labels"] = labels
             gov["label"] = detail
     summary = o.summary or (_failure_summary(o, title_zh) if o.error else f"{title_zh}：完成")
+    summary_en = o.summary_en or (_failure_summary_en(o, title_en) if o.error
+                                  else f"{title_en}: done")
     citations = _citations(o.result, gov, o.citations)
     receipt: dict[str, Any] = {"profile": ctx.profile, "purpose": ctx.purpose}
     if ctx.project_id:
@@ -675,7 +731,8 @@ def _finish(called: str, via: str, kind: str, title_zh: str, o: Outcome,
         receipt["approvals"] = list(ctx.approvals)
     receipt.update(o.receipt)
     return shape(called, via=via, kind=gov.get("kind") or kind, status=o.status,
-                 result=o.result, model_view=view, summary=summary, governance=gov,
+                 result=o.result, model_view=view, summary=summary, summary_en=summary_en,
+                 governance=gov,
                  citations=citations, error=o.error, job=o.job, arguments=args,
                  started_at=started, duration_ms=(time.perf_counter() - t0) * 1000,
                  where=ctx.where, device=ctx.device, content_hash=o.content_hash,
@@ -755,12 +812,15 @@ def _call_result(res: Any, entry: Mapping[str, Any], ctx: Context, *, kind: str,
         if network and not ctx.network:
             o = _failure(kind, "network_off", f"Web access is off for this project: {error}",
                          gv.remedy_for("NETWORK_OFF"), summary="未联网：本项目未开启网络访问",
+                         summary_en="Web access is off for this project",
                          refusals=g["refusals"], limitations=limits)
         else:
             code = g["refusals"][0]["code"] if g["refusals"] else "policy"
             o = _failure(kind, "refused", error or "the policy kernel refused the call",
                          gv.remedy_for(code), status="refused",
-                         summary=f"已拒绝（{code}）：内核判定不予执行", refusals=g["refusals"],
+                         summary=f"已拒绝（{code}）：内核判定不予执行",
+                         summary_en=f"Refused ({code}): the kernel ruled against the call",
+                         refusals=g["refusals"],
                          limitations=limits)
         o.governance.update({k: g[k] for k in ("licences", "policy") if k in g})
         o.receipt = receipt
@@ -771,16 +831,25 @@ def _call_result(res: Any, entry: Mapping[str, Any], ctx: Context, *, kind: str,
         etype = "unavailable"
     elif status == "CANCELLED":
         o = _failure(kind, "runtime_error", error or "cancelled", status="cancelled",
-                     summary="已取消")
+                     summary="已取消", summary_en="Cancelled")
         o.receipt = receipt
         return o
+    elif "names nothing in this knowledge base" in error:
+        # A name the seed corpus does not hold is not a wrong argument: it is not found
+        # there, which is not absence (the summary says so).
+        etype = "not_found"
     elif error.startswith("signature mismatch") or error.split(":", 1)[0] in (
             "ValueError", "TypeError", "KeyError", "ArgumentError", "IntakeError"):
         etype = "bad_arguments"
     else:
         etype = "runtime_error"
-    message = error.removeprefix("ValueError: ") if etype == "bad_arguments" else error
+    message = (error.removeprefix("ValueError: ") if etype in ("bad_arguments", "not_found")
+               else error)
     hint = ""
+    if etype == "not_found":
+        hint = ("The seed corpus is small (23 herbs, 6 formulas, 8 syndromes); try tcm_lookup "
+                "for another name, the clinic pack (clinic_assess) or the TCM data hub. "
+                "Absence here is not absence.")
     if etype == "bad_arguments":
         hint = _signature(entry["parameters"])
         m = re.search(r"Did you mean '([^']+)'", error)
@@ -800,7 +869,22 @@ _KB_TOOLS = {"tcm_lookup", "tcm_herb", "tcm_formula", "tcm_syndrome", "tcm_class
              "tcm_compatibility", "tcm_applicability", "tcm_evidence_tiers"}
 
 
-def _native_limits(name: str, domain: str, value: Any) -> list[str]:
+def _alpha(args: Mapping[str, Any]) -> float:
+    a = args.get("alpha")
+    if isinstance(a, (int, float)) and not isinstance(a, bool) and 0 < a < 1:
+        return float(a)
+    return 0.05
+
+
+def _p_value(v: Any) -> float | None:
+    p = v.get("p_value") if isinstance(v, Mapping) else None
+    if isinstance(p, (int, float)) and not isinstance(p, bool) and p == p:     # not NaN
+        return float(p)
+    return None
+
+
+def _native_limits(name: str, domain: str, value: Any,
+                   args: Mapping[str, Any] | None = None) -> list[str]:
     limits: list[str] = []
     if name in _KB_TOOLS and name != "tcm_evidence_tiers":
         if name in ("tcm_compatibility", "tcm_herb"):
@@ -814,7 +898,10 @@ def _native_limits(name: str, domain: str, value: Any) -> list[str]:
         limits.append(gv.LIMIT_CALCULATOR)
     elif domain in ("statistics", "survival-analysis") and _has_key(value, ("p_value", "q_value",
                                                                             "p_values")):
-        limits.append(gv.LIMIT_NOT_SIGNIFICANT)
+        p = _p_value(value)
+        # one p-value below α: the caution is that significant is not effective or causal
+        limits.append(gv.LIMIT_SIGNIFICANT if p is not None and p < _alpha(args or {})
+                      else gv.LIMIT_NOT_SIGNIFICANT)
     return limits
 
 
@@ -827,6 +914,23 @@ def _has_key(value: Any, keys: tuple[str, ...], depth: int = 0) -> bool:
     if isinstance(value, list):
         return any(_has_key(v, keys, depth + 1) for v in value[:20])
     return False
+
+
+def _seed_formula_count() -> int:
+    try:
+        from bioagent.tcm.knowledge import default_knowledge
+        return len(default_knowledge().formulas)
+    except Exception:                                           # noqa: BLE001
+        return 6
+
+
+#: Which knowledge base a composition or a record comes from: the seed corpus and the
+#: clinic pack hold different formulas (and different compositions of the same one).
+def _seed_label(formulas: bool = False) -> tuple[str, str]:
+    if formulas:
+        n = _seed_formula_count()
+        return f"种子语料（{n} 首方剂）· ", f"Seed corpus ({n} formulas) · "
+    return "种子语料 · ", "Seed corpus · "
 
 
 def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
@@ -850,64 +954,136 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
     res = rt.invoke(f"native.tool.{name}", spec=_spec(ctx), **args)
     value = getattr(res, "value", None)
     o = _call_result(res, entry, ctx, kind="native", licences=licences,
-                     limits=_native_limits(name, domain, value))
+                     limits=_native_limits(name, domain, value, args))
     if o.status == "succeeded":
-        o.summary = _native_summary(name, entry["title"]["zh"], args, o.result)
+        o.summary, o.summary_en = _native_summary(name, entry["title"], args, o.result)
+    elif name in _KB_TOOLS and (o.error or {}).get("type") == "not_found":
+        m = re.search(r"'([^']+)' names nothing", str((o.error or {}).get("message", "")))
+        what = m.group(1) if m else ""
+        zh, en = _seed_label(formulas=name in ("tcm_formula", "tcm_syndrome"))
+        o.summary = (f"{zh}{entry['title']['zh']}：未找到" + (f"「{what}」" if what else "")
+                     + "（不等于不存在）")
+        o.summary_en = (f"{en}{entry['title']['en']}: "
+                        + (f"{what} not found" if what else "not found")
+                        + " (which is not absence)")
     return o
 
 
-def _native_summary(name: str, title: str, args: Mapping[str, Any], v: Any) -> str:
+def _native_summary(name: str, titles: Mapping[str, str], args: Mapping[str, Any],
+                    v: Any) -> tuple[str, str]:
+    """The one-line result in Chinese and in English."""
+    title, title_en = titles["zh"], titles["en"]
     if not isinstance(v, Mapping):
-        return f"{title}：完成"
+        return f"{title}：完成", f"{title_en}: done"
+    seed_zh, seed_en = _seed_label()
     try:
         if name == "tcm_compatibility":
             herbs = " + ".join(str(h) for h in args.get("herbs") or ())
             conflicts = v.get("conflicts") or []
             unresolved = v.get("unresolved") or []
             tail = f"；{len(unresolved)} 个名称未解析" if unresolved else ""
+            tail_en = f"; {len(unresolved)} name(s) unresolved" if unresolved else ""
             if conflicts:
                 kinds = "、".join(dict.fromkeys(
                     (str(c.get("description") or "").split("：", 1)[0] or c.get("kind", ""))
                     for c in conflicts))
-                return f"{herbs}：记载 {len(conflicts)} 处配伍禁忌（{kinds}）{tail}"
-            return f"{herbs}：种子语料中未见配伍禁忌记录（无记录不等于安全）{tail}"
+                return (f"{seed_zh}{herbs}：记载 {len(conflicts)} 处配伍禁忌（{kinds}）{tail}",
+                        f"{seed_en}{herbs}: {len(conflicts)} recorded incompatibilit"
+                        f"{'y' if len(conflicts) == 1 else 'ies'} ({kinds}){tail_en}")
+            return (f"{seed_zh}{herbs}：未见配伍禁忌记录（无记录，不等于安全）{tail}",
+                    f"{seed_en}{herbs}: no incompatibility recorded (no record is not "
+                    f"safety){tail_en}")
         if name == "tcm_lookup":
             status = v.get("status")
+            q = v.get("query")
             if status == "resolved" and v.get("entity"):
                 e = v["entity"]
-                return f"{v.get('query')}：解析为 {e.get('chinese', '')}（{e.get('id', '')}）"
+                return (f"{seed_zh}{q}：解析为 {e.get('chinese', '')}（{e.get('id', '')}）",
+                        f"{seed_en}{q}: resolves to {e.get('chinese', '')} ({e.get('id', '')})")
             if status == "ambiguous":
                 names = "、".join(c.get("chinese", "") for c in v.get("candidates") or [])
-                return f"{v.get('query')}：存在歧义，候选 {names}"
-            return f"{v.get('query')}：种子语料中未找到（不等于不存在）"
+                return (f"{seed_zh}{q}：存在歧义，候选 {names}",
+                        f"{seed_en}{q}: ambiguous; candidates {names}")
+            return (f"{seed_zh}{q}：未找到（不等于不存在）",
+                    f"{seed_en}{q}: not found (which is not absence)")
         if name == "tcm_herb" and v.get("herb"):
             h = v["herb"]
-            return (f"{h.get('chinese')}：{h.get('nature', '')}，{'、'.join(h.get('flavours') or [])}；"
-                    f"归{'、'.join(h.get('meridians') or [])}经；{len(v.get('safety') or [])} 条安全性记录（记载）")
+            n = len(v.get("safety") or [])
+            safety = (f"{n} 条安全性记录（记载）" if n
+                      else "安全性：无记录（不等于安全）")
+            safety_en = (f"{n} safety record(s) (recorded)" if n
+                         else "safety: no record (which is not safety)")
+            return (f"{seed_zh}{h.get('chinese')}：{h.get('nature', '')}，"
+                    f"{'、'.join(h.get('flavours') or [])}；归{'、'.join(h.get('meridians') or [])}经；"
+                    f"{safety}",
+                    f"{seed_en}{h.get('chinese')}: {h.get('nature', '')}, "
+                    f"{'/'.join(h.get('flavours') or [])}; meridians "
+                    f"{'/'.join(h.get('meridians') or [])}; {safety_en}")
         if name == "tcm_formula" and v.get("formula"):
             f = v["formula"]
-            return (f"{f.get('chinese')}（{f.get('source', '')}）：{len(v.get('ingredients') or [])} 味，"
-                    "记载的组成与主治（记载，非疗效证据）")
+            fz, fe = _seed_label(formulas=True)
+            n = len(v.get("ingredients") or [])
+            return (f"{fz}{f.get('chinese')}（{f.get('source', '')}）：{n} 味，"
+                    "记载的组成与主治（记载，非疗效证据）",
+                    f"{fe}{f.get('chinese')} ({f.get('source', '')}): {n} herbs, the recorded "
+                    "composition and indications (a record, not evidence of efficacy)")
         if name == "tcm_syndrome" and v.get("syndrome"):
-            s = v["syndrome"]
-            return (f"{s.get('chinese')}：治法 {s.get('treatment_principle', '')}；记载方剂 "
-                    f"{len(v.get('formulas') or [])} 首")
+            sy = v["syndrome"]
+            fz, fe = _seed_label(formulas=True)
+            n = len(v.get("formulas") or [])
+            return (f"{fz}{sy.get('chinese')}：治法 {sy.get('treatment_principle', '')}；记载方剂 "
+                    f"{n} 首",
+                    f"{fe}{sy.get('chinese')}: treatment principle "
+                    f"{sy.get('treatment_principle', '')}; {n} recorded formula(s)")
         if name == "tcm_classical_search":
-            return f"经典条文检索「{v.get('query')}」：{v.get('count', 0)} 条（记载，非疗效证据）"
+            n = v.get("count", 0)
+            if not n:
+                return (f"{seed_zh}经典条文检索「{v.get('query')}」：无记录（不等于典籍未载）",
+                        f"{seed_en}classical passages for “{v.get('query')}”: no record (which "
+                        "is not absence from the classics)")
+            return (f"{seed_zh}经典条文检索「{v.get('query')}」：{n} 条（记载，非疗效证据）",
+                    f"{seed_en}classical passages for “{v.get('query')}”: {n} (records, not "
+                    "evidence of efficacy)")
         if name == "tcm_applicability":
-            verdict = "可支撑" if v.get("licensed") else "不能支撑"
             subj = (v.get("subject") or {}).get("chinese") or args.get("subject")
             obj_ = (v.get("object") or {}).get("chinese") or args.get("object")
-            kind = _CLAIM_ZH.get(str(v.get("claim_kind")), v.get("claim_kind"))
-            return (f"{subj} → {obj_}：现有记载{verdict}「{kind}」主张"
-                    f"（需要 {v.get('required_tier_zh', v.get('required_tier', ''))}）")
+            ck = str(v.get("claim_kind"))
+            kind, kind_en = _CLAIM_ZH.get(ck, ck), _CLAIM_EN.get(ck, ck)
+            # licensing is a set of tiers, not a threshold (bioagent.tcm.model.CLAIM_SUPPORT)
+            tiers = ([str(t) for t in v.get("licensed_by") or ()]
+                     or [str(v.get("required_tier", ""))])
+            need = "或".join(_TIER_ZH.get(t, t) for t in tiers if t)
+            need_en = " or ".join(_TIER_EN.get(t, t.lower()) for t in tiers if t)
+            a_kind = ("an " if kind_en[:1] in "aeiou" else "a ") + kind_en
+            if not v.get("relations"):
+                return (f"{seed_zh}{subj} → {obj_}：无 {subj}→{obj_} 的记载（不等于无证据），"
+                        f"不能支撑「{kind}」主张（需要{need}证据）",
+                        f"{seed_en}{subj} → {obj_}: no {subj} → {obj_} relation is recorded "
+                        f"(which is not absence of evidence), so nothing licenses {a_kind} "
+                        f"claim (that needs {need_en} evidence)")
+            if v.get("licensed"):
+                return (f"{seed_zh}{subj} → {obj_}：现有记载可支撑「{kind}」主张（需要{need}证据）",
+                        f"{seed_en}{subj} → {obj_}: the record licenses {a_kind} claim "
+                        f"(it needs {need_en} evidence)")
+            return (f"{seed_zh}{subj} → {obj_}：现有记载不能支撑「{kind}」主张（需要{need}证据）",
+                    f"{seed_en}{subj} → {obj_}: the record does not license {a_kind} claim "
+                    f"(that needs {need_en} evidence)")
         if name in ("hkbu_formula_lookup", "hkcmms_standard_lookup", "hk_cmm_dna_lookup") \
                 and v.get("status") == "not_loaded":
-            return f"{title}：本地数据未导入（not_loaded）"
+            return (f"{title}：本地数据未导入（not_loaded）",
+                    f"{title_en}: local data not imported (not_loaded)")
     except Exception:                                           # noqa: BLE001
         pass
-    if isinstance(v.get("p_value"), (int, float)):
-        return f"{title}：p = {v['p_value']:.3g}（不显著 ≠ 无关）"
+    p = _p_value(v)
+    if p is not None:
+        alpha = _alpha(args)
+        if p < alpha:
+            return (f"{title}：p = {p:.3g}（α = {alpha:g} 下显著；显著 ≠ 有效或因果）",
+                    f"{title_en}: p = {p:.3g} (significant at α = {alpha:g}; significant ≠ "
+                    "effective or causal)")
+        return (f"{title}：p = {p:.3g}（α = {alpha:g} 下不显著；不显著 ≠ 无关）",
+                f"{title_en}: p = {p:.3g} (not significant at α = {alpha:g}; not significant "
+                "≠ irrelevant)")
     shown = []
     for key, value in v.items():
         if isinstance(value, bool) or not isinstance(value, (int, float, str)):
@@ -917,7 +1093,8 @@ def _native_summary(name: str, title: str, args: Mapping[str, Any], v: Any) -> s
         shown.append(f"{key} = {value:.4g}" if isinstance(value, float) else f"{key} = {value}")
         if len(shown) == 3:
             break
-    return f"{title}：" + ("，".join(shown) if shown else "完成")
+    return (f"{title}：" + ("，".join(shown) if shown else "完成"),
+            f"{title_en}: " + (", ".join(shown) if shown else "done"))
 
 
 # ======================================================================== connectors
@@ -947,6 +1124,9 @@ def _exec_connector(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -
         http = o.receipt.get("request", {}).get("http_status")
         o.summary = (f"{info.get('name')} · {op}：已返回" + (f" {n} 条记录" if n is not None else "")
                      + (f"（HTTP {http}）" if http else ""))
+        o.summary_en = (f"{info.get('name')} · {op}: returned"
+                        + (f" {n} record(s)" if n is not None else "")
+                        + (f" (HTTP {http})" if http else ""))
     return o
 
 
@@ -1031,7 +1211,10 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
     out = Outcome(result=result, governance=g, receipt=o.receipt,
                   summary=f"文献检索（{name}）：返回 {len(hits)} 条"
                           + (f"，共 {total} 条命中" if total not in (None, "") else "")
-                          + "（命中不等于证据）")
+                          + "（命中不等于证据）",
+                  summary_en=f"Literature search ({name}): {len(hits)} returned"
+                             + (f" of {total} hits" if total not in (None, "") else "")
+                             + " (a hit is not evidence)")
     return out, via
 
 
@@ -1049,11 +1232,19 @@ _TEMP_ROOT: Path | None = None
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
+def _temp_dir(prefix: str) -> Path:
+    """A temporary directory that goes when this process ends (every runner start and CLI
+    call made one, and left it behind in the system's temp directory)."""
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
 def _temp_root() -> Path:
     global _TEMP_ROOT
     with _ENV_LOCK:
         if _TEMP_ROOT is None:
-            _TEMP_ROOT = Path(tempfile.mkdtemp(prefix="tcmstudio-state-"))
+            _TEMP_ROOT = _temp_dir("tcmstudio-state-")
         return _TEMP_ROOT
 
 
@@ -1121,7 +1312,7 @@ def _skill_view(spec: Mapping[str, Any]) -> Path:
     global _VIEW_ROOT
     with _ENV_LOCK:
         if _VIEW_ROOT is None:
-            _VIEW_ROOT = Path(tempfile.mkdtemp(prefix="tcmstudio-skills-"))
+            _VIEW_ROOT = _temp_dir("tcmstudio-skills-")
         root = _VIEW_ROOT
     src = Path(spec["directory"])
     dst = root / spec["id"] / spec["id"]
@@ -1190,6 +1381,8 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
     except GovernedRunRefused as exc:
         return _failure("skill", "refused", str(exc), gv.remedy_for("GovernedRunRefused"),
                         status="refused", summary=f"{entry['title']['zh']}：已拒绝（未准入受治理运行）",
+                        summary_en=f"{entry['title']['en']}: refused (not admitted to a governed "
+                                   "run)",
                         refusals=[gv.refusal("GovernedRunRefused", str(exc))],
                         limitations=_SKILL_LIMITS.get(sid, []))
     except (ImportError, ModuleNotFoundError) as exc:
@@ -1201,6 +1394,7 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
     except Exception as exc:                                    # noqa: BLE001
         return _failure("skill", "runtime_error", f"{type(exc).__name__}: {exc}")
     g = gv.from_governed_run(run, limits=_SKILL_LIMITS.get(sid, []))
+    g["limitations"] = _case_first(g["limitations"])
     doc = g["artifact"] or {}
     verdict = g["verdict"] or {}
     outputs = {o["path"]: o.get("content") for o in g["outputs"]}
@@ -1218,11 +1412,12 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                                for e in (doc.get("evidence") or [])[:20]]}
     states = verdict.get("states") or {}
     passed = sum(1 for v in states.values() if v)
-    tail = " · 已准予发布" if run.released else f" · 未准予发布（{passed}/{len(states) or 6}）"
-    summary = _skill_summary(sid, entry["title"]["zh"], args, outputs) + tail
+    tail, tail_en = _release_tail(run.released, passed, len(states) or 6)
+    summary, summary_en = _skill_summary(sid, entry["title"], args, outputs)
+    summary, summary_en = summary + tail, summary_en + tail_en
     governed = (doc.get("provenance") or {}).get("governed") or {}
-    return Outcome(result=result, model_view=view_model, summary=summary, governance=g,
-                   content_hash=run.content_hash, audit_head=run.audit_head or None,
+    return Outcome(result=result, model_view=view_model, summary=summary, summary_en=summary_en,
+                   governance=g, content_hash=run.content_hash, audit_head=run.audit_head or None,
                    composite_version=doc.get("composite_version_string"),
                    # The chain records every run under the skill id; the anchor (the chain
                    # head when this run started) is what tells runs of one project apart.
@@ -1231,41 +1426,100 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                             "skill_pinned": bool(run.lockfile)})
 
 
-def _skill_summary(sid: str, title: str, args: Mapping[str, Any],
-                   outputs: Mapping[str, Any]) -> str:
+def _release_tail(released: Any, passed: int, total: int) -> tuple[str, str]:
+    if released:
+        return " · 已准予发布", " · release authorized"
+    return f" · 未准予发布（{passed}/{total}）", f" · not released ({passed}/{total})"
+
+
+#: Words of a skill's limitation about this very case (a name that did not resolve, an
+#: empty result, no record): it goes first, so a compact card that shows two shows it.
+_CASE_MARKERS = ("did not resolve", "could not be resolved", "empty result", "`no_record`",
+                 "no evidence was found", "no target network was built")
+
+
+def _case_first(limits: list[Any]) -> list[Any]:
+    case = [x for x in limits if any(m in str(x) for m in _CASE_MARKERS)]
+    return case + [x for x in limits if x not in case]
+
+
+def _skill_summary(sid: str, titles: Mapping[str, str], args: Mapping[str, Any],
+                   outputs: Mapping[str, Any]) -> tuple[str, str]:
+    """The one-line result of a governed skill run, in Chinese and in English."""
     try:
         if sid == "assess-tcm-safety":
             c = outputs.get("safety.json") or {}
-            names = " + ".join([str(args.get("subject", ""))] + [str(x) for x in
-                                                                 args.get("co_administered") or ()])
-            if c.get("status") == "unknown" or (not c.get("records") and c.get("unresolved")):
-                return f"{names}：种子语料中未能解析或未见记录（状态 unknown，不等于安全）"
-            conflicts = c.get("combination_conflicts") or []
+            co = [str(x) for x in args.get("co_administered") or ()]
+            names = " + ".join([str(args.get("subject", ""))] + co)
             records = c.get("records") or []
+            conflicts = c.get("combination_conflicts") or []
             critical = c.get("critical_records") or []
-            head = (f"{names}：记载 {len(conflicts)} 处配伍禁忌（十八反等）；" if conflicts
-                    else f"{names}：未见配伍禁忌记录；")
-            return head + f"{len(records)} 条安全性记录，{len(critical)} 条为高或严重级别（记载，非临床安全性结论）"
+            if c.get("status") == "unknown" or (not records and c.get("unresolved")):
+                return (f"{names}：种子语料中未能解析或未见记录（状态 unknown，不等于安全）",
+                        f"{names}: not resolved or not recorded in the seed corpus (status "
+                        "unknown, which is not safety)")
+            if c.get("status") == "no_record" or (not records and not conflicts):
+                return (f"{names}：种子语料中无安全性或配伍禁忌记录；无记录（不等于安全）",
+                        f"{names}: no safety or incompatibility record in the seed corpus; no "
+                        "record (which is not safety)")
+            if conflicts:
+                head = f"{names}：记载 {len(conflicts)} 处配伍禁忌（十八反等）；"
+                head_en = (f"{names}: {len(conflicts)} recorded incompatibilit"
+                           f"{'y' if len(conflicts) == 1 else 'ies'} (the eighteen antagonisms "
+                           "and others); ")
+            elif co:
+                head = f"{names}：未见配伍禁忌记录（不等于可以合用）；"
+                head_en = f"{names}: no incompatibility recorded (which is not safety to combine); "
+            else:
+                head, head_en = f"{names}：", f"{names}: "
+            return (head + f"{len(records)} 条安全性记录，{len(critical)} 条为高或严重级别"
+                           "（记载，非临床安全性结论）",
+                    head_en + f"{len(records)} safety record(s), {len(critical)} at high or "
+                              "critical severity (records, not a clinical safety conclusion)")
         if sid == "normalize-tcm-entities":
             qs = (outputs.get("entities.json") or {}).get("queries") or []
             resolved = sum(1 for q in qs if q.get("status") == "resolved")
             ambiguous = sum(1 for q in qs if q.get("status") == "ambiguous")
-            return f"{len(qs)} 个名称：{resolved} 个解析，{ambiguous} 个存在歧义，{len(qs) - resolved - ambiguous} 个未解析"
+            rest = len(qs) - resolved - ambiguous
+            return (f"{len(qs)} 个名称：{resolved} 个解析，{ambiguous} 个存在歧义，{rest} 个未解析",
+                    f"{len(qs)} name(s): {resolved} resolved, {ambiguous} ambiguous, "
+                    f"{rest} unresolved")
         if sid == "retrieve-tcm-evidence":
             c = outputs.get("evidence.json") or {}
             ev = c.get("evidence") or []
+            subject = args.get("subject")
+            if not ev:
+                return (f"{subject}：种子语料中无证据记录；无记录（不等于无证据）",
+                        f"{subject}: no evidence record in the seed corpus; no record (which is "
+                        "not absence of evidence)")
             designs = "、".join(dict.fromkeys(_DESIGN_ZH.get(str(e.get("design", "")),
-                                                          str(e.get("design", ""))) for e in ev)) or "无"
-            return f"{args.get('subject')}：检索到 {len(ev)} 条记录（设计：{designs}）"
+                                                          str(e.get("design", ""))) for e in ev))
+            designs_en = ", ".join(dict.fromkeys(_DESIGN_EN.get(str(e.get("design", "")),
+                                                             str(e.get("design", ""))) for e in ev))
+            return (f"{subject}：检索到 {len(ev)} 条记录（设计：{designs}）",
+                    f"{subject}: {len(ev)} record(s) retrieved (designs: {designs_en})")
         if sid == "analyze-tcm-network-pharmacology":
             c = outputs.get("network.json") or {}
+            name = args.get("formula_name")
+            if not c.get("formula"):
+                n = _seed_formula_count()
+                return (f"{name}：种子语料（{n} 首方剂）中没有该方剂，未构建网络（空结果，不是阴性发现）",
+                        f"{name}: not among the seed corpus's {n} formulas, so no network was "
+                        "built (an empty result, not a null finding)")
             p = c.get("provenance_summary") or {}
-            return (f"{args.get('formula_name')}：组成 {len(c.get('ingredients') or [])} 味；"
-                    f"实测边 {p.get('edges_measured', 0)}、预测边 {p.get('edges_predicted', 0)}"
-                    "（种子语料；预测 ≠ 实测）")
+            herbs = len(c.get("ingredients") or [])
+            measured, predicted = p.get("edges_measured", 0) or 0, p.get("edges_predicted", 0) or 0
+            if not (p.get("edges_total") or measured + predicted):
+                return (f"{name}：组成 {herbs} 味；种子语料无靶点记录，未构建靶点网络，无主张",
+                        f"{name}: {herbs} herbs; the seed corpus records no targets, so no "
+                        "target network was built and no claim is made")
+            return (f"{name}：组成 {herbs} 味；实测边 {measured}、预测边 {predicted}"
+                    "（种子语料；预测 ≠ 实测）",
+                    f"{name}: {herbs} herbs; {measured} measured and {predicted} predicted "
+                    "edges (seed corpus; predicted ≠ measured)")
     except Exception:                                           # noqa: BLE001
         pass
-    return f"{title}：受治理运行完成"
+    return f"{titles['zh']}：受治理运行完成", f"{titles['en']}: governed run completed"
 
 
 # =========================================================================== clinic
@@ -1281,6 +1535,26 @@ def _pack() -> Any:
             from bioagent.clinic.pack import load_pack
             _PACK = load_pack()
         return _PACK
+
+
+def _pack_label(pack: Any) -> tuple[str, str]:
+    """Which knowledge base a clinic result comes from: the clinic pack, not the seed corpus
+    (they hold different formulas, and different compositions of the same one). It closes
+    the line, so a referral still leads it."""
+    n = len(getattr(pack, "formulas", None) or ())
+    reviewed = bool(getattr(pack, "reviewed", False))
+    return (f"临床知识包 {pack.version}（{n} 首方剂{'' if reviewed else '，未经审核'}）",
+            f"clinic pack {pack.version} ({n} formulas{'' if reviewed else ', not reviewed'})")
+
+
+#: bioagent.clinic.session's status sentences, in English.
+_CLINIC_STATUS_EN = {"refer": "Refer: a red flag or an emergency syndrome is not ruled out",
+                     "needs_information": "Not enough information: no syndrome meets its "
+                                          "criteria yet",
+                     "no_formula": "Differentiated; the pack has no base formula: the "
+                                   "practitioner chooses one",
+                     "blocked": "The draft has issues that block signing",
+                     "draft": "Draft: for a licensed TCM practitioner to review and sign"}
 
 
 def _clinic_governance(pack: Any, limits: list[str]) -> dict[str, Any]:
@@ -1310,7 +1584,11 @@ def _exec_clinic(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
             g = _clinic_governance(pack, [])
             return Outcome(result=doc, governance=g,
                            summary=f"四诊采集模板（知识包 {pack.version}"
-                                   + ("" if pack.reviewed else "，未经执业中医师审核") + "）")
+                                   + ("" if pack.reviewed else "，未经执业中医师审核") + "）",
+                           summary_en=f"Four-examination intake template (knowledge pack "
+                                      f"{pack.version}"
+                                      + ("" if pack.reviewed else ", not reviewed by a licensed "
+                                                                  "practitioner") + ")")
         if op == "assess":
             return _clinic_assess(args, ctx, pack)
         if op == "check":
@@ -1325,9 +1603,14 @@ def _exec_clinic(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                                           gv.LIMIT_DRAFT.split(";")[0] + "."])
             red = d.get("reduction")
             red_s = f"，减分率 {red:.0%}" if isinstance(red, (int, float)) else ""
+            red_en = f", reduction {red:.0%}" if isinstance(red, (int, float)) else ""
             return Outcome(result=d, governance=g,
                            summary=f"复诊：证候积分 {d.get('baseline_total')} → {d.get('current_total')}"
-                                   f"{red_s}（{d.get('category', '')}；描述变化，不归因于治疗）")
+                                   f"{red_s}（{d.get('category', '')}；描述变化，不归因于治疗）",
+                           summary_en=f"Follow-up: syndrome score {d.get('baseline_total')} → "
+                                      f"{d.get('current_total')}{red_en} ({d.get('category', '')}; "
+                                      "describes the change, does not attribute it to the "
+                                      "treatment)")
         if op == "verify":
             sid = str(args["session_id"])
             if not _SESSION_RE.match(sid):
@@ -1342,7 +1625,9 @@ def _exec_clinic(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
             g = _clinic_governance(pack, [])
             return Outcome(result={"session_id": sid, "verified": ok, "problems": problems},
                            governance=g,
-                           summary=f"诊疗记录 {sid}：" + ("核验通过" if ok else f"核验未通过（{len(problems)} 处）"))
+                           summary=f"诊疗记录 {sid}：" + ("核验通过" if ok else f"核验未通过（{len(problems)} 处）"),
+                           summary_en=f"Clinic record {sid}: " + (
+                               "verified" if ok else f"not verified ({len(problems)} problem(s))"))
     except ImportError as exc:
         return _failure("clinic", "unavailable", f"{type(exc).__name__}: {exc}",
                         gv.remedy_for("MISSING_DEPENDENCY"))
@@ -1376,18 +1661,27 @@ def _clinic_assess(args: Mapping[str, Any], ctx: Context, pack: Any) -> Outcome:
     diff = doc.get("differentiation") or {}
     status = doc.get("status", session.status)
     parts = [doc.get("status_zh") or status]
+    parts_en = [_CLINIC_STATUS_EN.get(str(status), str(status))]
     if status == "refer":
         flags = [f.get("id") for f in doc.get("red_flags") or () if not f.get("cleared")]
         if flags:
             parts.append("未排除红旗征：" + "、".join(str(f) for f in flags))
+            parts_en.append("red flags not ruled out: " + ", ".join(str(f) for f in flags))
     elif rx.get("formula"):
-        parts.append(f"{rx.get('syndrome', '')} → {rx.get('formula')}（{len(rx.get('lines') or [])} 味，"
+        n = len(rx.get("lines") or [])
+        parts.append(f"{rx.get('syndrome', '')} → {rx.get('formula')}（{n} 味，"
                      f"{rx.get('total_g', 0):g} g）")
+        parts_en.append(f"{rx.get('syndrome', '')} → {rx.get('formula')} ({n} herbs, "
+                        f"{rx.get('total_g', 0):g} g)")
         stops = [i for i in rx.get("issues") or () if i.get("severity") in ("stop", "block")]
         if stops:
             parts.append(f"{len(stops)} 个须医师处理的问题")
+            parts_en.append(f"{len(stops)} issue(s) the practitioner must resolve")
     elif status == "needs_information":
-        parts.append(f"待补充问诊 {len(diff.get('questions') or [])} 项")
+        n = len(diff.get("questions") or [])
+        parts.append(f"待补充问诊 {n} 项")
+        parts_en.append(f"{n} question(s) still to ask")
+    label, label_en = _pack_label(pack)
     view = {k: result.get(k) for k in ("session_id", "status", "status_zh", "warnings",
                                        "red_flags", "prescription")}
     view["differentiation"] = {"status": diff.get("status"), "rule": diff.get("rule"),
@@ -1395,7 +1689,9 @@ def _clinic_assess(args: Mapping[str, Any], ctx: Context, pack: Any) -> Outcome:
                                    "syndrome", "status", "score", "principle", "formula",
                                    "contradictions")} for c in (diff.get("candidates") or [])[:5]],
                                "questions": (diff.get("questions") or [])[:10]}
-    return Outcome(result=result, model_view=view, governance=g, summary=" · ".join(parts),
+    return Outcome(result=result, model_view=view, governance=g,
+                   summary=" · ".join([*parts, label]),
+                   summary_en=" · ".join([*parts_en, label_en]),
                    receipt={"durable": project.durable, "session_id": session_id})
 
 
@@ -1423,15 +1719,21 @@ def _clinic_check(args: Mapping[str, Any], pack: Any) -> Outcome:
               "note": "no issues found by the pack's rules (this is not a safety guarantee)"
               if not issue_docs else ""}
     g = _clinic_governance(pack, [gv.LIMIT_NOT_EXHAUSTIVE_CHECK])
+    label, label_en = _pack_label(pack)
     if issue_docs:
         order = ("stop", "block", "warn", "info")
         summary = "处方核查：" + "，".join(f"{_SEVERITY_ZH[k]} {counts[k]} 项" for k in order
                                          if counts.get(k))
+        summary_en = "Prescription check: " + ", ".join(
+            f"{_SEVERITY_EN[k]} {counts[k]}" for k in order if counts.get(k))
         if stop:
             summary += "（含不可签署问题）"
+            summary_en += " (includes issues that block signing)"
     else:
         summary = "处方核查：知识包规则未发现问题（不等于安全）"
-    return Outcome(result=result, governance=g, summary=summary)
+        summary_en = "Prescription check: the pack's rules found no issue (which is not safety)"
+    return Outcome(result=result, governance=g, summary=f"{summary} · {label}",
+                   summary_en=f"{summary_en} · {label_en}")
 
 
 # ========================================================================= data hub
@@ -1492,7 +1794,8 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                           note=f"commercial use: {d.get('commercial_use', 'unknown')}")
                          for d in docs[:40]]
         return Outcome(result={"count": len(docs), "cards": docs}, governance=g,
-                       summary=f"中医药数据源目录：{len(docs)} 张数据源卡片")
+                       summary=f"中医药数据源目录：{len(docs)} 张数据源卡片",
+                       summary_en=f"TCM data sources: {len(docs)} source card(s)")
     if op == "datasets":
         from bioagent.tcmdb import DATASETS
         from bioagent.tcmdb.spec import licence_class
@@ -1513,7 +1816,8 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                         "hosts": sorted({f.url.split("/")[2] for f in d.files if "://" in f.url}),
                         "instructions": d.instructions[:400] if d.access == "manual" else ""})
         return Outcome(result={"count": len(out), "datasets": out}, governance=g,
-                       summary=f"数据集说明：{len(out)} 个")
+                       summary=f"数据集说明：{len(out)} 个",
+                       summary_en=f"Dataset specifications: {len(out)}")
     if op == "relation_kinds":
         from bioagent.tcmdb import EVIDENCE, RELATION_KINDS
         from bioagent.tcmdb.rowkit import COLUMNS, EFFECTS, OUTCOMES
@@ -1521,17 +1825,20 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
         return Outcome(result={"relation_kinds": jsonable(kinds), "evidence": sorted(EVIDENCE),
                                "effects": sorted(EFFECTS), "outcomes": sorted(OUTCOMES),
                                "columns": list(COLUMNS)}, governance=g,
-                       summary=f"关系类型 {len(kinds)} 种与证据词表")
+                       summary=f"关系类型 {len(kinds)} 种与证据词表",
+                       summary_en=f"{len(kinds)} relation kinds and the evidence vocabulary")
     hub = _hub(ctx)
     if op == "status":
         rows = hub.status(args.get("dataset") or None)
         built = [r["dataset"] for r in rows if r.get("built")]
         return Outcome(result={"root": str(hub.root), "datasets": rows, "built": built},
-                       governance=g, summary=f"本地数据：{len(built)}/{len(rows)} 个数据集已构建")
+                       governance=g, summary=f"本地数据：{len(built)}/{len(rows)} 个数据集已构建",
+                       summary_en=f"Local data: {len(built)}/{len(rows)} datasets built")
     if op == "tables":
         tables = hub.tables(args["dataset"])
         return Outcome(result={"dataset": args["dataset"], "tables": tables}, governance=g,
-                       summary=f"{args['dataset']}：{len(tables)} 张表")
+                       summary=f"{args['dataset']}：{len(tables)} 张表",
+                       summary_en=f"{args['dataset']}: {len(tables)} table(s)")
     if op == "query":
         rows = hub.query(args["dataset"], args["table"], where=args.get("where"),
                          contains=args.get("contains"), columns=args.get("columns"),
@@ -1539,7 +1846,8 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
         g["licences"] = _dataset_licences([args["dataset"]])
         return Outcome(result={"dataset": args["dataset"], "table": args["table"],
                                "count": len(rows), "rows": rows}, governance=g,
-                       summary=f"{args['dataset']}.{args['table']}：{len(rows)} 行")
+                       summary=f"{args['dataset']}.{args['table']}：{len(rows)} 行",
+                       summary_en=f"{args['dataset']}.{args['table']}: {len(rows)} row(s)")
     if op in ("relations", "evidence_for"):
         if op == "relations":
             rows = hub.relations(args.get("kind"), subject=args.get("subject"),
@@ -1565,12 +1873,17 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
             g["limitations"].insert(0, "No dataset is built on this runner, so nothing could "
                                        "be found: an empty result here says nothing about the "
                                        "relation.")
-        ev = "、".join(f"{k} {v}" for k, v in sorted(by_evidence.items(), key=lambda x: -x[1]))
+        ranked = sorted(by_evidence.items(), key=lambda x: -x[1])
+        ev = "、".join(f"{k} {v}" for k, v in ranked)
+        ev_en = ", ".join(f"{k} {v}" for k, v in ranked)
         return Outcome(result={"count": len(rows), "by_source": by_source,
                                "by_evidence": by_evidence, "rows": rows, "built": built},
                        governance=g,
                        summary=f"关系查询：{len(rows)} 行，来自 {len(by_source)} 个数据源"
-                               + (f"（证据类型：{ev}）" if ev else "（无记录不等于不存在）"))
+                               + (f"（证据类型：{ev}）" if ev else "（无记录不等于不存在）"),
+                       summary_en=f"Relations: {len(rows)} row(s) from {len(by_source)} "
+                                  "source(s)" + (f" (evidence kinds: {ev_en})" if ev_en
+                                                 else " (no record is not absence)"))
     if op == "consensus":
         kw = {k: args[k] for k in ("sources", "contains", "merge_processed", "min_support")
               if k in args}
@@ -1584,22 +1897,28 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
         g["limitations"].insert(0, "Support counts independent sources, not truth; a source "
                                    "that is silent did not test the relation.")
         s = "、".join(f"{k} {v}" for k, v in support.items())
+        s_en = ", ".join(f"{k} {v}" for k, v in support.items())
         return Outcome(result=doc, governance=g,
-                       summary=f"多源一致性：{len(items)} 项" + (f"（{s}）" if s else ""))
+                       summary=f"多源一致性：{len(items)} 项" + (f"（{s}）" if s else ""),
+                       summary_en=f"Cross-source consensus: {len(items)} item(s)"
+                                  + (f" ({s_en})" if s_en else ""))
     if op == "compare":
         kw = {k: args[k] for k in ("sources", "merge_processed") if k in args}
         doc = hub.compare(args["kind"], args["subject"], **kw)
-        return Outcome(result=doc, governance=g, summary=f"来源比较：{args['subject']}")
+        return Outcome(result=doc, governance=g, summary=f"来源比较：{args['subject']}",
+                       summary_en=f"Source comparison: {args['subject']}")
     if op == "licences":
         rows = hub.licences()
         g["licences"] = [gv.licence_entry(f"{r['dataset']}:{r['kind']}", r.get("license"),
                                           commercial=bool(r.get("commercial"))) for r in rows]
         return Outcome(result={"count": len(rows), "licences": rows}, governance=g,
-                       summary=f"数据许可：{len(rows)} 项")
+                       summary=f"数据许可：{len(rows)} 项",
+                       summary_en=f"Data licences: {len(rows)}")
     if op == "unresolved":
         rows = hub.unresolved(args["dataset"], limit=int(args.get("limit", 50)))
         return Outcome(result={"dataset": args["dataset"], "count": len(rows), "rows": rows},
-                       governance=g, summary=f"{args['dataset']}：{len(rows)} 条未解析记录")
+                       governance=g, summary=f"{args['dataset']}：{len(rows)} 条未解析记录",
+                       summary_en=f"{args['dataset']}: {len(rows)} unresolved record(s)")
     return _failure("tcmdb", "not_found", f"no data-hub operation {op!r}")
 
 
@@ -1642,7 +1961,9 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                                          dose_matched=args.get("dose_matched"))
             g["limitations"] += list(r.get("may_not_conclude") or [])
             return Outcome(result=r, governance=g,
-                           summary=f"复方与单体对照：判定 {r.get('verdict')}（仅限此终点、此模型、此剂量）")
+                           summary=f"复方与单体对照：判定 {r.get('verdict')}（仅限此终点、此模型、此剂量）",
+                           summary_en=f"Formula vs monomer: verdict {r.get('verdict')} (for this "
+                                      "endpoint, model and dose only)")
         if op == "combination":
             from bioagent.studies.combination import Cell, analyse_combination
             cells = [Cell(dose_a=float(c["dose_a"]), dose_b=float(c["dose_b"]),
@@ -1658,7 +1979,10 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
             exceeds = sum(1 for c in r.get("cells") or () if c.get("exceeds_primary"))
             return Outcome(result=r, governance=g,
                            summary=f"联合用药分析（{args['primary']}）：{exceeds}/{len(r.get('cells') or [])} "
-                                   "个组合高于参考模型")
+                                   "个组合高于参考模型",
+                           summary_en=f"Combination analysis ({args['primary']}): {exceeds}/"
+                                      f"{len(r.get('cells') or [])} combinations above the "
+                                      "reference model")
         if op == "effect_modification":
             from bioagent.studies.heterogeneity import Feature, effect_modification
             mods = [Feature(name=str(m["name"]), values=tuple(float(x) for x in m["values"]),
@@ -1670,7 +1994,10 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                                     level=float(args.get("level", 0.95)))
             return Outcome(result=r, governance=g,
                            summary=f"效应修饰分析：检验 {r.get('tested', len(mods))} 个基线特征"
-                                   "（交互作用，不是应答者预测）")
+                                   "（交互作用，不是应答者预测）",
+                           summary_en=f"Effect modification: {r.get('tested', len(mods))} "
+                                      "baseline feature(s) tested (interaction, not a responder "
+                                      "prediction)")
         if op == "exposure_screen":
             from bioagent.studies.design import AssayResult, ExposureRecord, Measurement
             from bioagent.studies.exposure import screen_exposure
@@ -1700,7 +2027,10 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                                 "of efficacy."]
             return Outcome(result={"site": args["site"], "pairs": rows, "verdicts": verdicts},
                            governance=g, summary="暴露-活性筛查：" + "、".join(
-                               f"{_EXPOSURE_ZH.get(k, k)} {v} 对" for k, v in verdicts.items()))
+                               f"{_EXPOSURE_ZH.get(k, k)} {v} 对" for k, v in verdicts.items()),
+                           summary_en="Exposure–activity screen: " + ", ".join(
+                               f"{_EXPOSURE_EN.get(k, k)} {v} pair(s)"
+                               for k, v in verdicts.items()))
     except ImportError as exc:
         return _failure("study", "unavailable", f"{type(exc).__name__}: {exc}",
                         gv.remedy_for("MISSING_DEPENDENCY"))
@@ -1712,23 +2042,42 @@ def _exec_study(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
 
 # ============================================================================== jobs
 
-_STATE_ZH = {"queued": "排队中", "running": "运行中", "succeeded": "已完成并核验",
+# 'verified' on a succeeded job is the digest check of its outputs, not a release: a
+# governed run's release verdict is its own (see _skill_job).
+_STATE_ZH = {"queued": "排队中", "running": "运行中", "succeeded": "已完成（输出哈希已核验）",
              "failed": "失败", "cancelled": "已取消"}
+_STATE_EN = {"queued": "queued", "running": "running",
+             "succeeded": "finished (output hashes verified)", "failed": "failed",
+             "cancelled": "cancelled"}
+#: Job kinds whose result is a computational prediction.
+_PREDICTIVE_JOBS = ("pipeline.fold", "pipeline.dock", "pipeline.admet")
 
 
 def _job_view(job: Mapping[str, Any]) -> dict[str, Any]:
     return {"id": job.get("id"), "kind": job.get("kind"), "state": job.get("state")}
 
 
+def _predictive_job(kind: str, params: Mapping[str, Any] | None) -> bool:
+    """Is what this job will produce a prediction? Not every governed skill is one: a
+    safety-record lookup run as a job is a record, not a prediction."""
+    if kind in _PREDICTIVE_JOBS:
+        return True
+    if kind == "skill.run":
+        sid = str((params or {}).get("skill_id") or "")
+        return gv.LIMIT_PREDICTED in _SKILL_LIMITS.get(sid, ())
+    return False
+
+
 def _submit_job(kind: str, params: Mapping[str, Any], ctx: Context,
                 entry: Mapping[str, Any]) -> Outcome:
     submit = _jobs_fn(ctx.jobs, "submit")
-    title = entry["title"]["zh"]
+    title, title_en = entry["title"]["zh"], entry["title"]["en"]
     if submit is None:
         return _failure("job", "unavailable",
                         f"{entry['title']['en']} runs as a job and needs the local runner's job "
                         "service.", gv.remedy_for("NEEDS_RUNNER"),
                         summary=f"{title}：需要本机 Runner 的任务服务",
+                        summary_en=f"{title_en}: needs the local runner's job service",
                         limitations=[gv.LIMIT_PENDING])
     try:
         job = submit(kind, jsonable(dict(params)), ctx.project_id)
@@ -1742,7 +2091,7 @@ def _submit_job(kind: str, params: Mapping[str, Any], ctx: Context,
                                                            "state": "queued"}
     g = gv.empty("job")
     g["limitations"] = [gv.LIMIT_PENDING]
-    if kind in ("pipeline.fold", "pipeline.dock", "pipeline.admet", "skill.run"):
+    if _predictive_job(kind, params):
         g["limitations"].append(gv.LIMIT_PREDICTED)
     state = str(job.get("state") or "queued")
     if state in ("failed", "cancelled"):
@@ -1755,7 +2104,58 @@ def _submit_job(kind: str, params: Mapping[str, Any], ctx: Context,
     return Outcome(status="job_submitted", result=job, model_view=_job_view(job),
                    governance=g, job=_job_view(job),
                    summary=f"已提交任务 {job.get('id')}（{title}）：{_STATE_ZH.get(state, state)}；"
-                           "完成并核验前没有结果")
+                           "完成并核验前没有结果",
+                   summary_en=f"Job {job.get('id')} submitted ({title_en}): "
+                              f"{_STATE_EN.get(state, state)}; no result until it has finished "
+                              "and been verified")
+
+
+def _skill_job(job: Mapping[str, Any], ctx: Context) -> Outcome:
+    """A succeeded skill.run job carries its governed run's governance: the release verdict,
+    claims, evidence, refusals (UNPINNED among them) and limitations of the run's own
+    envelope (out/envelope.json, read back only at the digest recorded when the job was
+    collected), so they show under the job exactly as they do for a run in the thread."""
+    sid = str((job.get("params") or {}).get("skill_id") or "")
+    inner: Any = None
+    problem = ""
+    fetch = _jobs_fn(ctx.jobs, "envelope")
+    if fetch is None:
+        problem = "this job service cannot hand back the governed run's envelope"
+    else:
+        try:
+            inner = fetch(str(job.get("id")))
+        except Exception as exc:                                # noqa: BLE001
+            problem = str(exc) or type(exc).__name__
+    n = len(job.get("artefacts") or [])
+    head = f"任务 {job.get('id')}：{_STATE_ZH['succeeded']}，{n} 个产出文件"
+    head_en = f"Job {job.get('id')}: {_STATE_EN['succeeded']}, {n} output file(s)"
+    if isinstance(inner, Mapping) and isinstance(inner.get("governance"), Mapping):
+        g = jsonable(dict(inner["governance"]))
+        g["kind"] = "skill"
+        if g.get("released") is None:
+            g["released"] = False
+        receipt = inner.get("receipt") if isinstance(inner.get("receipt"), Mapping) else {}
+        extra = {k: receipt[k] for k in ("durable", "run_id", "run_anchor", "skill_pinned")
+                 if k in receipt}
+        inner_zh = str(inner.get("summary") or "")
+        inner_en = str(inner.get("summary_en") or "")
+        return Outcome(result=job, governance=g, job=_job_view(job),
+                       content_hash=receipt.get("content_hash"),
+                       audit_head=receipt.get("audit_head") or None,
+                       composite_version=receipt.get("composite_version"), receipt=extra,
+                       summary=head + (f"；{inner_zh}" if inner_zh else ""),
+                       summary_en=head_en + (f"; {inner_en}" if inner_en else ""))
+    # The governed run's own record cannot be shown: say so, keep the skill's limits, and
+    # do not present the job as released.
+    g = gv.empty("skill")
+    g["released"] = False
+    g["limitations"] = [f"The governed run's envelope could not be read back ({problem}); its "
+                        "release verdict and claims cannot be shown, so treat the result as "
+                        "not released.", *_SKILL_LIMITS.get(sid, [])]
+    return Outcome(result=job, governance=g, job=_job_view(job),
+                   summary=head + "；受治理运行的发布判定无法读取，按未准予发布处理",
+                   summary_en=head_en + "; the governed run's release verdict cannot be read, "
+                                        "so it counts as not released")
 
 
 def _exec_job(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
@@ -1791,16 +2191,21 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         if not r["matched"]:
             view["note"] = ("No entry matched. Try other words (Chinese or English), a "
                             "category, or no filters.")
+        more = r["total"] > len(r["matched"])
         return Outcome(result=r, model_view=view, governance=g,
                        summary=f"能力检索「{r['query']}」：{len(r['matched'])} 项"
-                               + (f"（共 {r['total']} 项相关）" if r["total"] > len(r["matched"]) else ""))
+                               + (f"（共 {r['total']} 项相关）" if more else ""),
+                       summary_en=f"Catalog search “{r['query']}”: {len(r['matched'])} match(es)"
+                                  + (f" ({r['total']} related in all)" if more else ""))
     if op == "capabilities":
         return _capabilities(ctx, g)
     if op == "job_status":
         get = _jobs_fn(ctx.jobs, "get")
         if get is None:
             return _failure("system", "unavailable", "job status needs the local runner's job "
-                                                     "service.", gv.remedy_for("NEEDS_RUNNER"))
+                                                     "service.", gv.remedy_for("NEEDS_RUNNER"),
+                            summary="任务状态：需要本机 Runner 的任务服务",
+                            summary_en="Job status: needs the local runner's job service")
         wait = max(0, min(int(args.get("wait_s") or 0), 60))
         try:
             job = get(str(args["job_id"]), wait)
@@ -1810,30 +2215,47 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
             return _failure("system", "not_found", f"no job {args['job_id']!r}")
         job = jsonable(job)
         state = str(job.get("state"))
-        g["limitations"] = [] if state == "succeeded" else [gv.LIMIT_PENDING]
+        if state == "succeeded" and job.get("kind") == "skill.run":
+            return _skill_job(job, ctx)
+        if state == "succeeded":
+            # a fold, a docking or an ADMET table is still a prediction once it has finished
+            g["limitations"] = ([gv.LIMIT_PREDICTED]
+                                if _predictive_job(str(job.get("kind")), job.get("params"))
+                                else [])
+        else:
+            g["limitations"] = [gv.LIMIT_PENDING]
         progress = job.get("progress") or {}
         frac = progress.get("fraction") if isinstance(progress, Mapping) else None
         tail = f"，进度 {frac:.0%}" if isinstance(frac, (int, float)) else ""
+        tail_en = f", {frac:.0%} done" if isinstance(frac, (int, float)) else ""
         if state == "succeeded":
             tail += f"，{len(job.get('artefacts') or [])} 个产出文件"
+            tail_en += f", {len(job.get('artefacts') or [])} output file(s)"
         elif state == "failed":
             err = (job.get("outcome") or {}).get("error")
             tail += f"：{err}" if err else ""
+            tail_en += f": {err}" if err else ""
         return Outcome(result=job, governance=g, job=_job_view(job),
                        summary=f"任务 {job.get('id')}：{_STATE_ZH.get(state, state)}{tail}"
-                               + ("" if state == "succeeded" else "（尚无结果）"))
+                               + ("" if state == "succeeded" else "（尚无结果）"),
+                       summary_en=f"Job {job.get('id')}: {_STATE_EN.get(state, state)}{tail_en}"
+                                  + ("" if state == "succeeded" else " (no result yet)"))
     if op == "doctor":
         from bioagent.doctor import diagnose
         report = diagnose(smoke=bool(args.get("smoke", False)))
         problems = report.get("problems") or []
         return Outcome(result=report, governance=g,
-                       summary=f"安装诊断：{report.get('verdict', '?')}，{len(problems)} 个问题（附处理建议）")
+                       summary=f"安装诊断：{report.get('verdict', '?')}，{len(problems)} 个问题（附处理建议）",
+                       summary_en=f"Install check: {report.get('verdict', '?')}, "
+                                  f"{len(problems)} problem(s) (with remedies)")
     if op == "skills":
         specs = [{k: v for k, v in s.items() if k not in ("directory", "group", "lockfile")}
                  for s in skill_specs()]
         pinned = sum(1 for s in specs if s["pinned"])
         return Outcome(result={"skills": specs}, governance=g,
-                       summary=f"受治理 Skill：{len(specs)} 个，其中 {pinned} 个已锁定可发布")
+                       summary=f"受治理 Skill：{len(specs)} 个，其中 {pinned} 个已锁定可发布",
+                       summary_en=f"Governed skills: {len(specs)}, {pinned} pinned and "
+                                  "releasable")
     if op == "classify":
         labels, detail = gv.advisory_labels(str(args["text"]))
         if detail is None:
@@ -1844,7 +2266,9 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                             "name cues; Studio shows the label and does not enforce it."]
         allowed = [d for d, ok in (detail.get("permits") or {}).items() if ok]
         return Outcome(result=detail, governance=g,
-                       summary=f"分级：{detail['sensitivity']}；可去向 {'、'.join(allowed) or '无'}")
+                       summary=f"分级：{detail['sensitivity']}；可去向 {'、'.join(allowed) or '无'}",
+                       summary_en=f"Label: {detail['sensitivity']}; may go to "
+                                  f"{', '.join(allowed) or 'nowhere'}")
     if op == "audit_verify":
         return _audit_verify(ctx, g)
     return _failure("system", "not_found", f"no system operation {op!r}")
@@ -1896,9 +2320,13 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     g["limitations"] = ["Missing optional dependencies are refused when needed, never "
                         "approximated."] if missing else []
     where_zh = "浏览器（单线程 WebAssembly CPU）" if ctx.where == "browser" else "本机 Runner"
+    where_en = ("the browser (single-thread WebAssembly CPU)" if ctx.where == "browser"
+                else "the local runner")
     return Outcome(result=result, governance=g,
                    summary=f"运行能力：{where_zh}；{len(runnable)}/{len(items)} 项可运行；"
-                           f"网络{'已开启' if ctx.network else '未开启'}")
+                           f"网络{'已开启' if ctx.network else '未开启'}",
+                   summary_en=f"Capabilities: {where_en}; {len(runnable)}/{len(items)} entries "
+                              f"runnable; web access {'on' if ctx.network else 'off'}")
 
 
 def _audit_verify(ctx: Context, g: dict[str, Any]) -> Outcome:
@@ -1907,7 +2335,8 @@ def _audit_verify(ctx: Context, g: dict[str, Any]) -> Outcome:
     if not path.is_file():
         return Outcome(result={"project_id": ctx.project_id, "records": 0, "intact": True,
                                "durable": project.durable, "location": str(path)},
-                       governance=g, summary="审计链：本项目尚无受治理运行记录")
+                       governance=g, summary="审计链：本项目尚无受治理运行记录",
+                       summary_en="Audit chain: no governed run recorded in this project yet")
     from psh.kernel.events import EventStore
     store = EventStore(path)
     try:
@@ -1926,7 +2355,10 @@ def _audit_verify(ctx: Context, g: dict[str, Any]) -> Outcome:
                                     "unverified; restore the chain from a copy.")]
     return Outcome(result=result, governance=g, audit_head=result["head_hash"],
                    summary=f"审计链：{result['records']} 条记录，"
-                           + ("完整" if result["intact"] else f"在第 {result['first_break']} 条断开"))
+                           + ("完整" if result["intact"] else f"在第 {result['first_break']} 条断开"),
+                   summary_en=f"Audit chain: {result['records']} record(s), "
+                              + ("intact" if result["intact"]
+                                 else f"broken at record {result['first_break']}"))
 
 
 _EXECUTORS: dict[str, Callable[[dict[str, Any], dict[str, Any], Context], Outcome]] = {

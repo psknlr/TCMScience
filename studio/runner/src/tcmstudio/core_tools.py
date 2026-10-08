@@ -245,8 +245,10 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         licensed TCM practitioner to review. Status is draft, blocked, needs_information,
         no_formula or refer; an uncleared red flag means refer, with no draft. The output is
         a draft, never a prescription, and only the practitioner can sign it — no tool can.
-        The intake is patient data and stays on this machine. The knowledge pack is a draft
-        not yet reviewed by a licensed practitioner.""",
+        The intake is patient data. The tool runs locally (browser or runner), but what you
+        write and read in this conversation goes to the model service the user selected; use
+        a pseudonymous id, never a name. The knowledge pack is a draft not yet reviewed by a
+        licensed practitioner.""",
           obj({"intake": INTAKE_SCHEMA,
                "modifications": arr(MODIFICATION_SCHEMA, "changes to the base formula",
                                     default=[]),

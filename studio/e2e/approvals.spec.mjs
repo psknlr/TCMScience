@@ -35,11 +35,12 @@ test("deny is a refusal the model sees; allow for this project persists", async 
   expect(asked).toMatch(/本机 Runner 上启动任务/);
   let answer = await waitForAnswers(page, 1);
   await expect(answer).toContainText("流程调用的结果：refused");
-  await expect(answer.locator(".tool-card").first()).toContainText("已拒绝");
+  // a person's "no" reads as not approved, not as the kernel's refusal of a claim
+  await expect(answer.locator(".tool-card").first()).toContainText("未批准");
   await expect(answer.locator(".tool-card").first()).toContainText("未运行");
   // the decision is part of the run's record
   await page.locator("#insp-run").click();
-  await expect(page.locator("#inspector")).toContainText("已拒绝：工具没有运行");
+  await expect(page.locator("#inspector")).toContainText("未批准 · 未运行");
   const denied = lastToolResult("pipeline");
   expect(denied.role).toBe("tool");
   expect(denied.content).toMatch(/refused/);

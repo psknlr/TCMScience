@@ -229,3 +229,88 @@ test("pair() validates the address and resets the status", () => {
   assert.deepEqual([r.url, r.token, r.status], ["http://127.0.0.1:9999", "new", "idle"]);
   assert.throws(() => r.pair("ftp://x", "t"));
 });
+
+// Chrome opens at most six HTTP/1.1 connections to one host, across its tabs: one event stream per open job card would
+// starve every other request to the runner (tool calls, cancel) once six jobs were open.
+test("job events: open jobs share one poll; only one holds an event stream, and a freed stream goes to a running job", async () => {
+  const sources = [];
+  class FakeES {
+    constructor(url) { this.url = url; this.listeners = {}; this.readyState = 1; this.closed = false; sources.push(this); }
+    addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+    close() { this.closed = true; this.readyState = 2; }
+    fire(type, data) { for (const fn of this.listeners[type] || []) fn({ data: JSON.stringify(data) }); }
+  }
+  const states = { j_1: "running", j_2: "queued", j_3: "queued", j_4: "queued", j_5: "queued", j_6: "queued" };
+  let inflight = 0;
+  let maxInflight = 0;
+  const route = (u) => new Promise((resolve) => {
+    inflight++;
+    maxInflight = Math.max(maxInflight, inflight);
+    setTimeout(() => {
+      inflight--;
+      const id = u.pathname.split("/").pop();
+      resolve(states[id] ? json({ id, kind: "test.sleep", state: states[id], progress: null }) : json({ error: { message: `no job ${id}`, type: "not_found" } }, 404));
+    }, 2);
+  });
+  const routes = Object.fromEntries(["j_1", "j_2", "j_3", "j_4", "j_5", "j_6", "j_x"].map((id) => [`GET /api/jobs/${id}`, route]));
+  const r = new RunnerRuntime({ token: "tok", EventSource: FakeES, fetch: runnerServer({ routes }), jobPollMs: 5 });
+  const got = {};
+  const closes = {};
+  for (const id of Object.keys(states)) {
+    got[id] = [];
+    closes[id] = r.jobs.events(id, (e) => got[id].push(e));
+  }
+  const settle = (ms = 40) => new Promise((res) => setTimeout(res, ms));
+  assert.equal(sources.length, 1, "one stream, not six");
+  assert.match(sources[0].url, /\/api\/jobs\/j_1\/events\?token=tok$/);
+  await settle();
+  assert.equal(sources.length, 1, "queued jobs are polled, not streamed");
+  assert.equal(maxInflight, 1, "the poll asks one job at a time");
+  assert.deepEqual(got.j_2.map((e) => [e.type, e.data.state]), [["state", "queued"]], "a state is reported once, when it changes");
+  assert.deepEqual(got.j_1.map((e) => [e.type, e.data.state]), [["state", "running"]], "the streamed job is polled too: its card moves even when its stream holds events back");
+  // a polled job that ends is reported done and is no longer polled
+  states.j_3 = "succeeded";
+  await settle();
+  assert.deepEqual(got.j_3.map((e) => [e.type, e.data.state]), [["state", "queued"], ["done", "succeeded"]]);
+  // the streamed job ends: its slot goes to the job that is now running
+  states.j_2 = "running";
+  sources[0].fire("done", { state: "succeeded" });
+  assert.equal(sources[0].closed, true);
+  await settle();
+  assert.equal(sources.length, 2);
+  assert.match(sources[1].url, /\/api\/jobs\/j_2\/events/);
+  assert.equal(got.j_2.filter((e) => e.type === "state").at(-1).data.state, "running");
+  sources[1].fire("log", { line: "step 1" });
+  assert.deepEqual(got.j_2.at(-1), { type: "log", data: { line: "step 1" } });
+  // a job the runner does not know is an error, and is dropped
+  const errs = [];
+  r.jobs.events("j_x", (e) => errs.push(e.type));
+  await settle();
+  assert.deepEqual(errs, ["error"]);
+  // closing every follower stops the poll
+  for (const close of Object.values(closes)) close();
+  await settle(20);
+  const before = r._fetch.calls?.length;
+  await settle(30);
+  assert.equal(r._fetch.calls?.length, before, "no polling once nothing is followed");
+  assert.equal(r._pollTimer, null);
+  assert.equal(sources[1].closed, true);
+});
+
+test("job events without EventSource: the poll alone reports state and the end; stop() ends it", async () => {
+  let state = "running";
+  const routes = { "GET /api/jobs/j_9": () => json({ id: "j_9", state, progress: { fraction: state === "running" ? 0.5 : 1 } }) };
+  const r = new RunnerRuntime({ token: "tok", EventSource: null, fetch: runnerServer({ routes }), jobPollMs: 5 });
+  const got = [];
+  r.jobs.events("j_9", (e) => got.push(e));
+  await new Promise((res) => setTimeout(res, 20));
+  assert.deepEqual(got.map((e) => e.type), ["state"]);
+  assert.equal(got[0].data.progress.fraction, 0.5);
+  state = "failed";
+  await new Promise((res) => setTimeout(res, 20));
+  assert.deepEqual(got.map((e) => e.type), ["state", "done"]);
+  const r2 = new RunnerRuntime({ token: "tok", EventSource: null, fetch: runnerServer({ routes }), jobPollMs: 5 });
+  r2.jobs.events("j_9", () => {});
+  r2.stop();
+  assert.equal(r2._pollTimer, null);
+});

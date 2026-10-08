@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DANGLING_TEXT, answerDangling, buildWireHistory, prepareWire, renumberCitations, runTurn } from "../js/core/agent.js";
+import { DANGLING_TEXT, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, prepareWire, renumberCitations, runTurn } from "../js/core/agent.js";
 import { Catalog } from "../js/core/catalog.js";
 import { ProviderError } from "../js/core/llm/sse.js";
 import { activeProvider } from "../js/core/providers.js";
@@ -301,7 +301,7 @@ test("replay: reasoning_details go back to the same relay; a turn in the other f
   const asAnthropic = buildWireHistory([user("q"), turn], anth);
   assert.deepEqual(asAnthropic[1], { role: "assistant", content: [{ type: "text", text: "答" }] });
   const claudeTurn = { id: "a2", role: "assistant", provider: "anthropic", wireFormat: "anthropic", content: "嗯", wire: [{ role: "assistant", content: [{ type: "thinking", thinking: "t", signature: "s" }, { type: "text", text: "嗯" }] }] };
-  assert.equal(buildWireHistory([claudeTurn], anth)[0].content[0].type, "thinking", "same provider keeps its thinking blocks");
+  assert.deepEqual(buildWireHistory([claudeTurn], anth)[0].content, [{ type: "text", text: "嗯" }], "an earlier turn's thinking is not replayed, even to the same provider");
   const other = { ...anth, id: "custom_anthropic" };
   assert.deepEqual(buildWireHistory([claudeTurn], other)[0].content, [{ type: "text", text: "嗯" }]);
   assert.deepEqual(buildWireHistory([claudeTurn], deepseek)[0], { role: "assistant", content: "嗯" });
@@ -344,4 +344,133 @@ test("citations are numbered across a turn: a second result's E1 becomes the nex
   assert.equal(renumberCitations(one, 1), 4);
   assert.deepEqual(one.citations.map((x) => x.id), ["E1", "E2", "E3"]);
   assert.equal(renumberCitations(envelopeFor("tcm_herb"), 7), 7, "no citations: nothing taken");
+});
+
+// ------------------------------------------------------------------------------------------------- review fixes
+
+// Claude Opus 5.5 (preserved thinking): a thinking block's signature binds the system prompt and every earlier message;
+// this page rebuilds the system prompt each turn (the environment) and cuts earlier results, so an earlier turn's
+// blocks replayed in a later turn are a 400 that never goes away. They are replayed only inside their own turn.
+test("Anthropic thinking blocks are replayed within their turn, never in a later one (the system prompt changed)", async () => {
+  const long = "长".repeat(6000);
+  const answer = () => envelopeFor("tcm_herb", "browser", { text: long });
+  let n = 0;
+  const thinkingTurn = (sig, { tool, text }) => [
+    { type: "message_start", message: { model: "claude-opus-5-5", usage: { input_tokens: 10 } } },
+    { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "想" } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: sig } },
+    { type: "content_block_stop", index: 0 },
+    ...(tool ? [
+      { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: tool, name: "tcm_herb", input: {} } },
+      { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: "{\"name\":\"葛根\"}" } },
+      { type: "content_block_stop", index: 1 },
+      { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 5 } },
+    ] : [
+      { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 1, delta: { type: "text_delta", text } },
+      { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } },
+    ]),
+  ];
+  const f = fakeFetch(() => {
+    n++;
+    const evs = n === 1 ? thinkingTurn("SIG0", { tool: "toolu_1" }) : n === 2 ? thinkingTurn("SIG1", { text: "葛根：记载于本草。" })
+      : n === 3 ? thinkingTurn("SIG2", { tool: "toolu_2" }) : thinkingTurn("SIG3", { text: "再答。" });
+    return streamResponse([anthropicSse(evs)]);
+  });
+  const p = { ...activeProvider({ provider: "anthropic", keys: { anthropic: "k" } }), fetch: f };
+  const sigs = (body) => body.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => b.type === "thinking" || b.type === "redacted_thinking").map((b) => b.signature);
+  const u1 = user("葛根？");
+  const t1 = await runTurn({ provider: p, system: "SYS browser runtime idle", history: [u1], router: makeRouter({ answer }).router, catalog, settings: {}, onEvent: () => {} });
+  assert.equal(t1.status, "ok");
+  assert.deepEqual(sigs(f.calls[1].body), ["SIG0"], "within the turn the block goes back with its tool result");
+  assert.equal(f.calls[1].body.messages[2].content[0].content.length, 6000, "and that turn's result is sent whole");
+  const u2 = { ...user("再说说", "u2"), parentId: t1.assistant.id };
+  const t2 = await runTurn({ provider: p, system: "SYS browser runtime ready", history: [u1, t1.assistant, u2], router: makeRouter({ answer }).router, catalog, settings: {}, onEvent: () => {} });
+  assert.equal(t2.status, "ok");
+  assert.notEqual(f.calls[2].body.system, f.calls[0].body.system, "the system prompt changed between the turns");
+  assert.deepEqual(sigs(f.calls[2].body), [], "turn 2 replays none of turn 1's thinking");
+  assert.deepEqual(sigs(f.calls[3].body), ["SIG2"], "turn 2 keeps its own thinking within the turn");
+  assert.deepEqual(f.calls[2].body.messages.map((m) => m.role), ["user", "assistant", "user", "assistant", "user"]);
+  assert.ok(f.calls[2].body.messages[2].content[0].content.length < 3000, "turn 1's result is cut, which is why its blocks cannot go back");
+  assert.deepEqual(f.calls[2].body.thinking, { type: "adaptive", display: "summarized", block_binding: { prefix_mismatch_behavior: "drop_block" } });
+  assert.match(f.calls[2].headers["anthropic-beta"], /thinking-binding-controls-2026-08-01/);
+});
+
+test("a turn that failed before it said anything: the next request's roles still alternate", async () => {
+  const down = scriptedLLM([new ProviderError("无法连接", { retryable: false, kind: "network" })]);
+  const u1 = user("第一个问题");
+  const t1 = await runTurn({ provider: deepseek, system: "", history: [u1], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: down } });
+  assert.equal(t1.status, "error");
+  assert.deepEqual(t1.assistant.wire, []);
+  assert.equal(t1.assistant.content, "");
+  const u2 = { ...user("第二个问题", "u2"), parentId: t1.assistant.id };
+  const llm = scriptedLLM([openaiStep({ text: "好" })]);
+  await runTurn({ provider: deepseek, system: "", history: [u1, t1.assistant, u2], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: llm } });
+  assert.deepEqual(llm.calls[0].messages, [{ role: "user", content: "第一个问题\n\n第二个问题" }]);
+  // in the Anthropic format too; a user message of tool results is never merged into
+  const anth = activeProvider({ provider: "anthropic", keys: { anthropic: "k" } });
+  assert.deepEqual(buildWireHistory([u1, { ...t1.assistant, wireFormat: "anthropic" }, u2], anth).map((m) => m.role), ["user"]);
+  const stopped = { id: "a9", role: "assistant", provider: "anthropic", wireFormat: "anthropic", content: "", wire: [{ role: "assistant", content: [{ type: "tool_use", id: "x", name: "n", input: {} }] }, { role: "user", content: [{ type: "tool_result", tool_use_id: "x", content: "r" }] }] };
+  const h = buildWireHistory([u1, stopped, u2], anth);
+  assert.deepEqual(h.map((m) => m.role), ["user", "assistant", "user", "user"]);
+  assert.equal(h[3].content, "第二个问题");
+});
+
+test("retries wait as long as Retry-After says, up to 20 s; a longer wait is not retried but shown", async () => {
+  const delays = [];
+  const limited = new ProviderError("请求太频繁", { retryable: true, status: 429, type: "rate_limited", retryAfter: 10 });
+  const llm = scriptedLLM([limited, openaiStep({ text: "好" })]);
+  const c = collector();
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, onEvent: c.onEvent, llm: { openai: llm }, sleep: async (ms) => { delays.push(ms); } });
+  assert.equal(res.status, "ok");
+  assert.deepEqual(delays, [10000]);
+  assert.equal(c.events.find((e) => e.type === "model.retry").delay_ms, 10000, "the event reports the real wait");
+  const short = scriptedLLM([new ProviderError("busy", { retryable: true, status: 503, retryAfter: 0 }), openaiStep({ text: "好" })]);
+  const d2 = [];
+  await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: short }, sleep: async (ms) => { d2.push(ms); } });
+  assert.deepEqual(d2, [1500], "never shorter than the agent's own delay");
+  const long = scriptedLLM([new ProviderError("每分钟最多 30 次", { retryable: true, status: 429, type: "rate_limited", retryAfter: MAX_RETRY_AFTER_S + 25 }), openaiStep({ text: "too late" })]);
+  const d3 = [];
+  const r3 = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: long }, sleep: async (ms) => { d3.push(ms); } });
+  assert.equal(r3.status, "error");
+  assert.equal(long.calls.length, 1);
+  assert.deepEqual(d3, []);
+  assert.match(r3.assistant.error.message, /每分钟/);
+});
+
+test("an error a retry cannot fix is marked permanent on the stored turn (the page offers no Retry)", async () => {
+  const llm = scriptedLLM([new ProviderError("quota", { status: 429, type: "daily_limit" })]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: llm }, sleep: async () => {} });
+  assert.equal(llm.calls.length, 1);
+  assert.equal(res.assistant.error.permanent, true);
+  assert.equal(res.assistant.error.type, "daily_limit");
+  const net = scriptedLLM([new ProviderError("offline", { retryable: false, kind: "network" })]);
+  const r2 = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, onEvent: () => {}, llm: { openai: net } });
+  assert.equal(r2.assistant.error.permanent, undefined);
+});
+
+test("citations are numbered across the conversation: a later turn's E1 never reuses an earlier turn's id", async () => {
+  const cited = (tool, n) => envelopeFor(tool, "browser", {
+    citations: Array.from({ length: n }, (_, i) => ({ id: `E${i + 1}`, kind: "source", label: `${tool} ${i + 1}`, url: "", evidence_ref: `${tool}.${i + 1}` })),
+    text: `${tool}: succeeded\n${Array.from({ length: n }, (_, i) => `[E${i + 1}] ${tool} ${i + 1}`).join("\n")}`,
+  });
+  const { router } = makeRouter({ answer: (tool) => cited(tool, 2) });
+  const turn = () => scriptedLLM([openaiStep({ calls: [{ id: "a", name: "tcm_herb", args: { name: "甘草" } }] }), openaiStep({ text: "见 [E1]。" })]);
+  const u1 = user("甘草");
+  const t1 = await runTurn({ provider: deepseek, system: "", history: [u1], router, catalog, settings: {}, onEvent: () => {}, llm: { openai: turn() } });
+  assert.deepEqual(t1.toolMessages[0].envelope.citations.map((x) => x.id), ["E1", "E2"]);
+  assert.equal(t1.assistant.citeTop, 2);
+  const u2 = { ...user("附子", "u2"), parentId: t1.assistant.id };
+  const c = collector();
+  const t2 = await runTurn({ provider: deepseek, system: "", history: [u1, t1.assistant, u2], router, catalog, settings: {}, onEvent: c.onEvent, llm: { openai: turn() } });
+  assert.deepEqual(t2.toolMessages[0].envelope.citations.map((x) => x.id), ["E3", "E4"]);
+  assert.match(t2.toolMessages[0].content, /^\[E3\] tcm_herb 1$/m, "the model reads the new ids");
+  assert.deepEqual(c.events.filter((e) => e.type === "tool.update").map((e) => e.callId), ["a"], "the card is told its ids moved");
+  assert.equal(t2.assistant.citeTop, 4);
+  // a turn stored before citeTop was kept: its replayed results say which ids it used
+  const old = { role: "assistant", wire: [{ role: "tool", tool_call_id: "a", content: "[E1] x\n[E7] y" }] };
+  const oldAnth = { role: "assistant", wire: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "[E3] z" }] }] };
+  assert.equal(citationsUsed([u1, old, oldAnth]), 7);
+  assert.equal(citationsUsed([u1]), 0);
 });

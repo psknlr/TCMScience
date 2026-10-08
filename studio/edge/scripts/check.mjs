@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 // After a deployment: does science.impf.ai answer, with its headers, and does Tao-S1 work? (stdlib only; Node 22)
-//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--require-model]
+//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--require-model] [--relay on|off]
 // 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds);
 // 2. GET / is the app, with the headers from _headers (cross-origin isolation, the content policy);
 // 3. one tiny non-streaming model call (max_tokens 8) with the page's Origin, unless the relay has no key — then a
-//    warning, or a failure with --require-model.
+//    warning, or a failure with --require-model — or is paused: RELAY = "off" in wrangler.toml (read next to this
+//    script unless --relay says otherwise) is the owner's choice, not a failure.
 // Prints one JSON line; exits non-zero with a reason when something is wrong.
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const UA = "tcmscience-deploy-check/1";
+const OFF = /^(off|0|false|no)$/i; // as the relay reads RELAY (src/relay.js config)
+
+/** RELAY as a wrangler.toml sets it ("on" when the file does not say), or null when there is no such file. */
+export function relayIn(text) {
+  if (typeof text !== "string") return null;
+  const m = /^\s*RELAY\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m.exec(text);
+  return m ? (m[1] ?? m[2] ?? m[3]).trim() || "on" : "on";
+}
 
 export async function check(options = {}, io = {}) {
   const url = String(options.url || "https://science.impf.ai").replace(/\/+$/, "");
@@ -57,7 +67,14 @@ export async function check(options = {}, io = {}) {
 
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
   if (!health.ok) {
-    if (options.requireModel) throw new Error("the relay answers but Tao-S1 is off: no MINIMAX_API_KEY secret on the Worker, or RELAY = \"off\" in wrangler.toml");
+    if (OFF.test(String(options.relay ?? "").trim())) {
+      log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
+      return { ...summary, call: "skipped (RELAY off)" };
+    }
+    if (options.requireModel) {
+      const why = options.relay == null ? "no MINIMAX_API_KEY secret on the Worker, or RELAY = \"off\" in wrangler.toml" : "no MINIMAX_API_KEY secret on the Worker";
+      throw new Error(`the relay answers but Tao-S1 is off: ${why}`);
+    }
     log("warning: Tao-S1 is off (health ok:false); the site works with visitors' own models");
     return { ...summary, call: "skipped (Tao-S1 off)" };
   }
@@ -94,6 +111,7 @@ function parse(argv) {
     else if (a === "--origin") options.origin = argv[++i];
     else if (a === "--wait") options.wait = Number(argv[++i]);
     else if (a === "--require-model") options.requireModel = true;
+    else if (a === "--relay") options.relay = argv[++i];
     else if (a === "-h" || a === "--help") options.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
@@ -103,8 +121,15 @@ function parse(argv) {
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   try {
     const options = parse(process.argv.slice(2));
+    if (options.relay === undefined) {
+      let text = null;
+      try {
+        text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+      } catch { /* not beside the repository's wrangler.toml: RELAY unknown */ }
+      options.relay = relayIn(text);
+    }
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--require-model]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--require-model] [--relay on|off]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }

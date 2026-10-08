@@ -5,6 +5,12 @@
 // device"). The first, user-initiated connect waits for that answer (start({interactive:true})); background probes
 // time out quickly and never run before the user has paired once. Failures are described in words the user can act
 // on: the runner is not running, the browser blocked local access, the page origin is not allowed, the token.
+//
+// Following jobs. The runner speaks HTTP/1.1, and a browser opens at most six connections to one host, across all its
+// tabs. A job's event stream holds one of them for as long as the job runs, so one stream per job card would starve
+// every other request (tool calls, cancel, the status probe) once six jobs were open. Here every followed job is
+// followed by one shared poll of GET /api/jobs/{id}, one job at a time, which reports its state changes and its end;
+// at most `maxJobStreams` running jobs (one by default) also hold an event stream, for their live log.
 
 import { Emitter } from "../core/events.js";
 import { t } from "../core/i18n.js";
@@ -12,6 +18,7 @@ import { fetchWithTimeout, fromBase64Url, isLoopbackUrl, trimSlash } from "../co
 
 export const DEFAULT_RUNNER_URL = "http://127.0.0.1:8765";
 const DEFAULT_ORIGINS = ["https://science.impf.ai"];
+const FINISHED = new Set(["succeeded", "failed", "cancelled"]);
 
 export class RunnerError extends Error {
   constructor(message, { code = "error", status = 0, type = "" } = {}) {
@@ -26,7 +33,8 @@ export class RunnerError extends Error {
 export class RunnerRuntime {
   /**
    * opts: {url, token, fetch, EventSource, XMLHttpRequest, probeTimeoutMs, interactiveTimeoutMs, callTimeoutMs,
-   * permissions (navigator.permissions), location}.
+   * maxJobStreams (job event streams held at once, default 1), jobPollMs (default 2500), permissions
+   * (navigator.permissions), location}.
    */
   constructor(opts = {}) {
     this.kind = "runner";
@@ -43,8 +51,14 @@ export class RunnerRuntime {
     this.probeTimeoutMs = opts.probeTimeoutMs ?? 3000;
     this.interactiveTimeoutMs = opts.interactiveTimeoutMs ?? 60000;
     this.callTimeoutMs = opts.callTimeoutMs ?? 0;
+    this.maxJobStreams = Math.max(0, opts.maxJobStreams ?? 1);
+    this.jobPollMs = opts.jobPollMs ?? 2500;
+    this.jobPollTimeoutMs = opts.jobPollTimeoutMs ?? 10000;
     this._bus = new Emitter();
     this._streams = new Set();
+    this._followers = new Set();
+    this._pollTimer = null;
+    this._polling = false;
     const self = this;
 
     this.jobs = {
@@ -60,7 +74,11 @@ export class RunnerRuntime {
       },
       cancel: (id) => self.#json(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }),
       files: (id) => self.#json(`/api/jobs/${encodeURIComponent(id)}/files`),
-      /** Follow a job's events (state|log|progress|artefact|done); onEvent({type, data}). Returns close(). */
+      /**
+       * Follow a job's events (state|log|progress|artefact|done|error); onEvent({type, data}). Returns close(). The
+       * shared poll reports state (the job, when it changed) and done (the finished job); log lines come only to a
+       * job that holds one of the few event streams.
+       */
       events: (id, onEvent) => self.#events(id, onEvent),
     };
 
@@ -133,8 +151,9 @@ export class RunnerRuntime {
   }
 
   stop() {
-    for (const close of this._streams) close();
+    for (const close of [...this._streams]) close();
     this._streams.clear();
+    if (this._pollTimer) { clearTimeout(this._pollTimer); this._pollTimer = null; }
     this.#set("idle");
   }
 
@@ -250,31 +269,115 @@ export class RunnerRuntime {
   }
 
   #events(id, onEvent) {
-    const ES = this._EventSource;
-    if (!ES) throw new RunnerError("job events need EventSource", { code: "unsupported" });
-    const url = `${this.url}/api/jobs/${encodeURIComponent(id)}/events${this.token ? `?token=${encodeURIComponent(this.token)}` : ""}`;
-    const es = new ES(url);
-    let closed = false;
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      try { es.close(); } catch { /* closed */ }
-      this._streams.delete(close);
+    const f = { id: String(id), onEvent, es: null, sig: null, state: null, closed: false };
+    f.close = () => {
+      if (f.closed) return;
+      f.closed = true;
+      if (f.es) { try { f.es.close(); } catch { /* closed */ } f.es = null; }
+      this._followers.delete(f);
+      this._streams.delete(f.close);
+      // a stream slot may have come free for a job the poll follows
+      if (this.#waiting().length) this.#schedulePoll(true);
     };
+    this._followers.add(f);
+    this._streams.add(f.close);
+    if (this._EventSource && this.#streamCount() < this.maxJobStreams) this.#stream(f);
+    this.#schedulePoll(true);
+    return f.close;
+  }
+
+  #deliver(f, type, data) {
+    if (f.closed) return;
+    try { f.onEvent({ type, data }); } catch (err) { (globalThis.reportError || console.error)(err); }
+  }
+
+  #streamCount() {
+    let n = 0;
+    for (const f of this._followers) if (f.es) n++;
+    return n;
+  }
+
+  /** Followed jobs without a stream: the ones a freed stream can go to. */
+  #waiting() {
+    return [...this._followers].filter((f) => !f.closed && !f.es);
+  }
+
+  #open() {
+    return [...this._followers].filter((f) => !f.closed);
+  }
+
+  /** Follow one job by its event stream (its live log). */
+  #stream(f) {
+    const ES = this._EventSource;
+    const url = `${this.url}/api/jobs/${encodeURIComponent(f.id)}/events${this.token ? `?token=${encodeURIComponent(this.token)}` : ""}`;
+    const es = new ES(url);
+    f.es = es;
     const deliver = (type) => (e) => {
+      if (f.es !== es) return;
       let data = null;
       try { data = JSON.parse(e.data); } catch { data = e.data ?? null; }
-      try { onEvent({ type, data }); } catch (err) { (globalThis.reportError || console.error)(err); }
-      if (type === "done") close();
+      this.#deliver(f, type, data);
+      if (type === "done") f.close();
     };
     for (const type of ["state", "log", "progress", "artefact", "done"]) es.addEventListener(type, deliver(type));
     es.onmessage = deliver("message");
     es.onerror = () => {
       // EventSource reconnects by itself; tell the caller only when it gave up
-      if (es.readyState === 2 && !closed) { onEvent({ type: "error", data: { message: t("core.runner.not_running", { url: this.url }) } }); close(); }
+      if (es.readyState === 2 && f.es === es && !f.closed) {
+        this.#deliver(f, "error", { message: t("core.runner.not_running", { url: this.url }) });
+        f.close();
+      }
     };
-    this._streams.add(close);
-    return close;
+  }
+
+  #schedulePoll(soon = false) {
+    if (this._pollTimer || this._polling || !this.#open().length) return;
+    this._pollTimer = setTimeout(() => {
+      this._pollTimer = null;
+      this.#poll();
+    }, soon ? 0 : this.jobPollMs);
+  }
+
+  /**
+   * One round of the shared poll: every followed job, one request at a time. A job on a stream is polled too, so its
+   * card follows its state even when a proxy (or the runner) holds the stream's events back.
+   */
+  async #poll() {
+    this._polling = true;
+    try {
+      for (const f of this.#open()) {
+        if (f.closed) continue;
+        let job;
+        try {
+          job = await this.#json(`/api/jobs/${encodeURIComponent(f.id)}`, { timeout: this.jobPollTimeoutMs, keepStatus: true });
+        } catch (err) {
+          if (err?.status === 404) { this.#deliver(f, "error", { message: err.message }); f.close(); }
+          continue; // not reachable now: the next round tries again, as an event stream would reconnect
+        }
+        if (f.closed || !job || typeof job !== "object") continue;
+        f.state = job.state || f.state;
+        if (FINISHED.has(job.state)) {
+          this.#deliver(f, "done", job);
+          f.close();
+          continue;
+        }
+        const sig = JSON.stringify(job);
+        if (sig !== f.sig) {
+          f.sig = sig;
+          this.#deliver(f, "state", job);
+        }
+      }
+      // a free stream slot goes to a running job, whose log is worth following live
+      if (this._EventSource) {
+        for (const f of this.#waiting()) {
+          if (this.#streamCount() >= this.maxJobStreams) break;
+          if (f.state === "running") this.#stream(f);
+        }
+      }
+    } finally {
+      this._polling = false;
+      this.#schedulePoll();
+    }
   }
 }
 

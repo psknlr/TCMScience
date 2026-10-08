@@ -62,6 +62,9 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
 
 ## edge: what CI runs (.github/workflows/studio.yml)
 
+- **when**: a push or PR that changes `studio/**`, the workflow itself, or what the site bundles and tcmstudio imports
+  from the harnesses (`PSH-Harness/src/**`, `PSH-Harness/pyproject.toml`, `BioScience-Harness/{src,skills,registry}/**`,
+  `BioScience-Harness/{pyproject.toml,setup.py}`; not their docs, tests or data); or a manual run.
 - **test**: `node --test studio/edge/test/*.test.js`; then, when `studio/runner/pyproject.toml` exists,
   `pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest` and
   `python -m pytest -q studio/runner/tests` (runner-core: put any further test-only dependency in a `test` extra);
@@ -70,14 +73,20 @@ Append-only notes where a part assumes something CONTRACTS.md does not say. One 
   `python3 studio/scripts/build_web.py --out studio/_site`, `_headers` copied in, `wrangler deploy --dry-run`; then, if
   `studio/package.json` defines a `test:e2e` script: `npx playwright install --with-deps chromium` and
   `npm run test:e2e` with `STUDIO_SITE` = the absolute path of the built site (integration: define `test:e2e`; the
-  build's output is there to use).
-- **deploy**: main only (push or manual run), after test and build.
+  build's output is there to use). In CI the relay spec fails, never skips, when `wrangler dev` cannot start: the
+  dry run has already fetched the same wrangler, so a failure there is the Worker's (outside CI it skips only when
+  npm's registry cannot be reached).
+- **deploy**: main only (push or manual run), after test and build. `wrangler deploy` in CI replaces an existing DNS
+  record or another Worker's custom domain for science.impf.ai without asking (stdout is not a terminal): there is no
+  safeguard against that, only the owner's check before the first deployment (SETUP.md step 7). The check after it
+  requires a Tao-S1 answer when the `MINIMAX_API_KEY` secret is set, unless `RELAY = "off"` in `wrangler.toml`
+  (the persistent pause: health `ok:false` is then expected; the key is still put, so unpausing is `RELAY = "on"`).
 
 ## web-core: the JS core as built (additions to §6–§9)
 
 **Ownership.** web-core also keeps `studio/web/test/fixtures/**` (test setup, fakes, and governance fixture envelopes
 generated from the real kernel by `fixtures/make_governance_fixtures.py`). `studio/package-lock.json` goes with
-`package.json`. Dev-only dependencies: `fake-indexeddb`, `linkedom`. `web/test/i18n.test.mjs` checks the glossary
+`package.json`. Dev-only dependencies: `fake-indexeddb`, `linkedom` (and, for `e2e/a11y.spec.mjs`, `axe-core`, pinned). `web/test/i18n.test.mjs` checks the glossary
 against the Python tables when `python3 -c "import bioagent, psh"` works (CI's test job installs them), else skips that
 one test.
 
@@ -553,3 +562,52 @@ design); the catalog's `job.pipeline.scrna` says `gpu:true` — runner-core may 
   Worker listens with https and the page ignores the self-signed certificate.
 - **Not changed.** Envelopes decided in the page still carry `receipt.where: "browser"` with `decided_by: "router"` (the
   UI shows "not run" for them). `--dev` publishing of `dev/gallery.html` stays the lead's call.
+
+## integration (review round): what changed across parts after the review fixes
+
+- **Envelopes (runner-core → all).** Every runner and Pyodide envelope carries `summary_en` (the summary in English;
+  corpus names stay as written); an English page shows it on the tool card and the Run tab, with the line's `lang`
+  set to the language of the string shown. Page-made envelopes may lack it and fall back to `summary`. A name the seed
+  corpus does not hold is `error.type:"not_found"` (no longer `bad_arguments`). A person's decline is
+  `status:"refused"`, `error.type:"declined"` (CONTRACTS §3).
+- **Skill jobs (runner-core, runner-service → web).** A succeeded `skill.run` `job_status` carries the governed run's
+  governance (`kind:"skill"`) from the job's `out/envelope.json`, read only at the digest recorded at collection
+  (`released:false` with a limitation when it cannot be read), and the run's receipt fields (`content_hash`,
+  `audit_head`, `composite_version`, `skill_pinned`, `run_id`, `run_anchor`). `context.jobs` may expose
+  `envelope(job_id)`. The thread and the Claims tab show a job's governance once, under its last succeeded poll. A
+  finished job reads 「已完成（输出哈希已核验）」 / "Finished (output hashes verified)" with a neutral ✓, never the
+  release verdict's colour; its files in the Files tab are 「哈希已核验」 (unchanged since collection), not 「已核验」.
+- **Job events (runner-service).** `/api/jobs/{id}/events` writes each event as it happens (it buffered the whole
+  stream until the job ended; `test_jobs.py::test_events_are_written_live_not_at_the_end`). `RunnerRuntime.jobs.events`
+  (web-core) polls every followed job for `state`/`done` and opens an event stream (for logs) for at most
+  `maxJobStreams` (1) running job; a reconnect's replay of up to 80 lines is merged by `conversation.js mergeLogs`.
+  Not done (optional): SSE `id:` sequence numbers and `Last-Event-ID`.
+- **Catalog (runner-core → web-core).** `catalog.json` and `/api/catalog` carry `never_offered: {name: message}` (the
+  acts reserved for a person); the page's `Catalog`/`ToolRouter` merge it over their built-in `HUMAN_ONLY` list.
+- **Assistant records (web-core).** They gain `citeTop` (the highest `E#` the turn used: numbering runs on across the
+  path, and the UI resolves `[E#]` in the turn first, then in earlier turns, never by guessing) and `error.permanent` /
+  `error.lang` (a daily limit, a conversation too long, a relay that is not configured: no Retry button; the relay's
+  own Chinese text on an English page is marked `lang="zh-Hans"`). Provider presets gain `stream` (how a service
+  streams content and reasoning).
+- **Governance views (web-core).** `licensingLadder(kindOrClaim, weakestTier, lang, {codes, cited, evidence})`: with a
+  claim view and its evidence the ladder licenses by the whole cited set and its codes (a CLM005 refusal is never ✓).
+  `releaseOf` gives `release_authorized` its reasons in unmet wording (「输出未核验」) with the state ids in `unmet`;
+  `audit_head` is the artifact's own attestation only, and the runner's chain head (the receipt's) is `chain_head`.
+  The glossary explains `UNPINNED`.
+- **Relay health (edge, runner-service → web).** `relayHealth` localises a known `error.type` (and `not_relay`), prefers
+  the runner's `message_en` on an English page, and returns `error_type`/`error_lang`. On Settings → Models the line
+  drops its own 「设置 → 模型」 pointer. The runner's health error is `{type:"not_relay", code:"runner_no_relay", port:8765,
+  message, message_en}`.
+- **Identity questions (edge).** The relay runs the page's detector (`edge/src/identity.js`, kept equal to
+  `web/js/core/prompt.js isIdentityQuestion` by `edge/test/identity.test.js`) on the last user message and forces
+  `thinking:{type:"disabled"}`, so the answer passes the reasoning filter whatever the client sent.
+- **Files (web-core, web-ui).** `store.files.add(projectId, blob, {sha256})` takes the composer's digest and skips
+  reading the file again. Text files under 8 KB in a project are inlined in the system prompt and sent with every
+  message (README's privacy section says so; the Files list marks them 「发送给模型」). Not done: a per-file
+  "send to model" switch.
+- **e2e Worker.** `startWorker` pins the relay's `[vars]` the specs depend on in `.dev.vars` (`RELAY=on`, the upstream
+  model and format prefix, the output cap, limits off), so a committed pause or limit change in `wrangler.toml` does not
+  fail the build job's relay spec.
+- **Temporary directories (runner-core).** The dispatcher's skill view (`tcmstudio-skills-*`) and the non-durable
+  project state (`tcmstudio-state-*`, used without a state root) are removed when the process ends; every runner start
+  and CLI call used to leave both in the system's temp directory (`test_dispatch.py`).

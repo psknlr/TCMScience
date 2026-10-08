@@ -143,6 +143,25 @@ test("phone viewport (390×844): the thread, the off-canvas sidebar, no horizont
   await context.close();
 });
 
+test("the catalog fits a phone: no horizontal overflow at 390×844 and 320×800", async ({ browser }) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 800 }]) {
+    const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true, locale: "zh-CN" });
+    const page = await context.newPage();
+    const watch = watchConsole(page);
+    await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
+    await page.goto(`${site.url}/#/catalog`);
+    await expect(page.locator("#app")).not.toHaveAttribute("aria-busy", "true", { timeout: 30000 });
+    const catalog = page.locator(".page--catalog");
+    await expect(catalog).toBeVisible();
+    await expect(catalog.locator(".entry-row").first()).toBeVisible();
+    const sizes = await catalog.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+    expect(sizes.scroll, `.page--catalog at ${viewport.width}px`).toBeLessThanOrEqual(sizes.client);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `the page at ${viewport.width}px`).toBeLessThanOrEqual(0);
+    watch.expectClean();
+    await context.close();
+  }
+});
+
 test("dark theme, keyboard focus and landmarks", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", locale: "zh-CN" });
   const page = await context.newPage();

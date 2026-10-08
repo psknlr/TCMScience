@@ -81,6 +81,10 @@ test("dynamic key families are complete", () => {
     ...["system", "light", "dark"].map((x) => `ui.theme.${x}`),
     ...["model", "network", "runtime"].map((x) => `ui.thread.error.${x}`),
     ...["once", "project", "deny"].map((x) => `ui.perm.decided.${x}`),
+    ...["schema_valid", "evidence_verified", "outputs_verified", "execution_declared", "execution_attested", "release_authorized"].map((x) => `ui.release.unmet.${x}`),
+    ...["checking", "ready", "down"].map((x) => `ui.onb.model_title.${x}`),
+    ...["run", "evidence", "claims", "provenance"].map((x) => `ui.inspector.empty_turn.${x}`),
+    "ui.code.UNPINNED",
     ...["submitted", "running", "collected"].map((x) => `ui.job.step.${x}`),
     ...["runtime", "skill", "source", "benchmark"].map((x) => `ui.cv.${x}`),
     ...[1, 2, 3, 4].map((i) => `ui.about.what.${i}`), ...[1, 2, 3, 4].map((i) => `ui.about.where.${i}`), ...[1, 2, 3, 4, 5].map((i) => `ui.about.not.${i}`),
@@ -174,7 +178,7 @@ test("evidence families carry icon and words; predicted is marked", () => {
   assert.ok(p.classList.contains("fam--predicted"));
   assert.match(p.textContent, /预测 · 分子对接/);
   assert.ok(p.querySelector("svg[stroke-dasharray]"));
-  assert.equal(familyChip("tradition", { design: "classical_text" }).textContent, "经典文献");
+  assert.match(familyChip("tradition", { design: "classical_text" }).textContent, /经典文献$/);
   assert.match(familyChip("clinical", { design: "randomized_trial" }).textContent, /临床 · 随机对照试验/);
 });
 
@@ -262,9 +266,12 @@ test("tool card: where it ran, status, refusals as results, page-decided calls m
   const ok = toolCallCard({ id: "1", name: "tcm_safety_report", args: { subject: "甘草" } }, FIX.envelope_safety);
   assert.match(ok.textContent, /本机 Runner/);
   assert.match(ok.textContent, /已准予发布/);
+  // the person declined: their decision, in neutral words — not the kernel's vermilion 已拒绝 (DESIGN §7.1 #4)
   const denied = toolCallCard({ id: "2", name: "network_pharmacology_run", args: {} }, FIX.envelope_denied, { open: true });
-  assert.ok(denied.classList.contains("tool-card--refused"));
-  assert.match(denied.textContent, /未运行/);
+  assert.ok(denied.classList.contains("tool-card--declined"));
+  assert.ok(!denied.classList.contains("tool-card--refused"));
+  assert.ok(!denied.querySelector(".tool-card__refused"));
+  assert.match(denied.textContent, /未批准 · 未运行/);
   assert.ok(!/the user declined/.test(denied.textContent), "model-facing hints are not shown");
   const running = toolCallCard({ id: "3", name: "tcm_evidence", args: {}, where: "runner", status: "running" }, null);
   assert.match(running.textContent, /正在本机运行 tcm_evidence/);
@@ -282,7 +289,9 @@ test("permission card offers once / project / deny and records the answer", () =
   assert.deepEqual(buttons.map((b) => b.textContent), ["允许一次", "本项目允许", "拒绝"]);
   buttons[2].dispatchEvent(new window.Event("click"));
   assert.equal(got, "deny");
-  assert.match(card.textContent, /已拒绝：工具没有运行/);
+  assert.match(card.textContent, /未批准 · 未运行/);
+  assert.ok(!/已拒绝/.test(card.textContent), "a person's decline is not worded as a kernel refusal");
+  assert.equal(card.querySelector(".permission__decided").getAttribute("tabindex"), "-1", "the decision line can take the focus");
 });
 
 test("job card never shows outputs before the job is collected", () => {

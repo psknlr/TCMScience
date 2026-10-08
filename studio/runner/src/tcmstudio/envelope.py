@@ -486,6 +486,9 @@ def compose_text(*, tool: str, via: str, status: str, summary: str,
 
 _STATUS_ZH = {"succeeded": "完成", "failed": "未完成", "refused": "已拒绝",
               "needs_approval": "待批准", "job_submitted": "已提交任务", "cancelled": "已取消"}
+_STATUS_EN = {"succeeded": "Done", "failed": "Not completed", "refused": "Refused",
+              "needs_approval": "Awaiting approval", "job_submitted": "Job submitted",
+              "cancelled": "Cancelled"}
 
 
 def _governance(kind: str, given: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -512,7 +515,7 @@ def _governance(kind: str, given: Mapping[str, Any] | None) -> dict[str, Any]:
 
 def shape(tool: str, *, via: str | None = None, kind: str = "system",
           status: str = "succeeded", result: Any = None, model_view: Any = ...,
-          summary: str = "", text: str | None = None,
+          summary: str = "", summary_en: str = "", text: str | None = None,
           citations: Iterable[Mapping[str, Any]] | None = None,
           governance: Mapping[str, Any] | None = None,
           error: Mapping[str, Any] | None = None, job: Mapping[str, Any] | None = None,
@@ -522,7 +525,10 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
           audit_head: str | None = None, composite_version: str | None = None,
           receipt_extra: Mapping[str, Any] | None = None, notes: Iterable[str] = (),
           text_limit: int = TEXT_LIMIT) -> dict[str, Any]:
-    """The §3 envelope. Never raises."""
+    """The §3 envelope. Never raises.
+
+    ``summary`` is the one-line result in Chinese; ``summary_en`` says the same in English
+    for a page shown in English (names from the corpus stay as they are)."""
     try:
         status = status if status in STATUSES else "failed"
         result_j = jsonable(result)
@@ -540,6 +546,10 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
             summary = _STATUS_ZH.get(status, status)
             if err and err["message"]:
                 summary += "：" + _clip(err["message"], 120)
+        if not summary_en:
+            summary_en = _STATUS_EN.get(status, status)
+            if err and err["message"]:
+                summary_en += ": " + _clip(err["message"], 120)
         view = result_j if model_view is ... else jsonable(model_view)
         if text is None:
             text = compose_text(tool=tool, via=via or tool, status=status, summary=summary,
@@ -557,7 +567,8 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
         return {"ok": status in ("succeeded", "job_submitted"), "tool": str(tool),
                 "via": via or str(tool), "status": status,
                 "duration_ms": int(duration_ms) if duration_ms is not None else 0,
-                "summary": summary, "text": text, "result": result_j, "citations": cites,
+                "summary": summary, "summary_en": str(summary_en), "text": text,
+                "result": result_j, "citations": cites,
                 "governance": gov, "receipt": receipt, "job": job_j,
                 "approval": jsonable(approval) if approval else None, "error": err}
     except BaseException as exc:                                # noqa: BLE001
@@ -570,7 +581,9 @@ def _fallback(tool: Any, via: Any, kind: str, exc: BaseException, started_at: st
               where: str) -> dict[str, Any]:
     message = f"the envelope could not be built: {type(exc).__name__}: {exc}"[:2000]
     return {"ok": False, "tool": str(tool), "via": str(via or tool), "status": "failed",
-            "duration_ms": 0, "summary": "未完成：结果无法封装", "text": f"{tool}: failed. {message}",
+            "duration_ms": 0, "summary": "未完成：结果无法封装",
+            "summary_en": "Not completed: the result could not be packaged",
+            "text": f"{tool}: failed. {message}",
             "result": None, "citations": [],
             "governance": {"kind": kind if kind in KINDS else "system", "released": None,
                            "artifact": None, "verdict": None, "claims": [], "evidence": [],

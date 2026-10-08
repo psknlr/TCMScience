@@ -20,6 +20,7 @@ import argparse
 import base64
 import contextlib
 import gzip
+import itertools
 import json
 import os
 import platform
@@ -65,10 +66,17 @@ STATIC_TYPES = {
 ISOLATION_HEADERS = (("Cross-Origin-Opener-Policy", "same-origin"),
                      ("Cross-Origin-Embedder-Policy", "require-corp"),
                      ("Cross-Origin-Resource-Policy", "cross-origin"))
-# what a page served by this runner reads at /v1/health (Chinese, like the relay's own messages)
+# what a page served by this runner reads at /v1/health (Chinese, like the relay's own messages);
+# the code and the port let the page say it in its own language and place
+NO_RELAY_PORT = 8765
+NO_RELAY_CODE = "runner_no_relay"
 NO_RELAY_MESSAGE = ("本机 Runner 不提供 Tao-S1。Tao-S1 只接受 https://science.impf.ai 与 "
                     "http://127.0.0.1:8765 上的页面：请在默认端口 8765 启动 Runner，"
                     "或在「设置 → 模型」中使用自己的模型 API 或本地模型。")
+NO_RELAY_MESSAGE_EN = ("This local runner does not provide Tao-S1. Tao-S1 accepts only pages on "
+                       "https://science.impf.ai and http://127.0.0.1:8765: start the runner on "
+                       "its default port 8765, or use your own model API or a local model "
+                       "(Settings → Models).")
 
 
 def default_web_root() -> Path | None:
@@ -366,6 +374,7 @@ class RunnerServer(ThreadingHTTPServer):
 
 
 _REFUSED_ZH = {"unavailable": "此处不可运行", "network_off": "未联网"}
+_REFUSED_EN = {"unavailable": "cannot run here", "network_off": "web access is off"}
 
 
 def _restate_refusal(envelope: dict[str, Any], refusal: Any) -> None:
@@ -384,6 +393,9 @@ def _restate_refusal(envelope: dict[str, Any], refusal: Any) -> None:
     short = " ".join(refusal.message.split())
     short = short if len(short) <= 90 else short[:89] + "…"
     envelope["summary"] = f"{title}：{_REFUSED_ZH[kind]}（{short}）"
+    old_en = str(envelope.get("summary_en") or "")
+    title_en = old_en.split(": ", 1)[0] if ": " in old_en else envelope.get("via", "")
+    envelope["summary_en"] = f"{title_en}: {_REFUSED_EN[kind]} ({short})"
     text = str(envelope.get("text") or "")
     text = text.replace(old_summary, envelope["summary"])
     text = text.replace(f"Error (runtime_error): {old_message}",
@@ -763,7 +775,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             self.wfile.write(b"retry: 3000\n\n")
-            for event, data in [first, *_rest(stream)]:
+            # chained, never listed: each event is written as it happens (state, log, progress stream live)
+            for event, data in itertools.chain([first], stream):
                 if event == "keepalive":
                     self.wfile.write(b": keep-alive\n\n")
                 else:
@@ -859,8 +872,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/v1/health" and method in ("GET", "HEAD"):
             return self._json({"ok": False, "service": "tcmstudio", "relay": False, "version": __version__,
                                "model": "Tao-S1", "models": [], "max_output_tokens": None, "limits": None,
-                               "error": {"type": "not_relay", "message": message}})
-        raise _Refused(404, "not_relay", message)
+                               "error": {"type": "not_relay", "code": NO_RELAY_CODE,
+                                         "port": NO_RELAY_PORT, "message": message,
+                                         "message_en": NO_RELAY_MESSAGE_EN}})
+        raise _Refused(404, "not_relay", message, code=NO_RELAY_CODE, port=NO_RELAY_PORT,
+                       message_en=NO_RELAY_MESSAGE_EN)
 
     # ------------------------------------------------------------------ static
     def _static(self, path: str) -> None:
@@ -916,10 +932,6 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             with path.open("rb") as fh:
                 shutil.copyfileobj(fh, self.wfile, 1 << 20)
-
-
-def _rest(gen: Any) -> Any:
-    yield from gen
 
 
 # ============================================================================= the command

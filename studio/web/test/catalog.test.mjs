@@ -117,3 +117,13 @@ test("local catalog_search: an envelope with matches, where each can run now, an
   assert.equal(caps.result.counts.entries, c.entries.length);
   assert.equal(await localCall("tcm_herb", {}, { catalog: c }), null);
 });
+
+test("never_offered (the acts reserved for a person) survives loading and merging", () => {
+  const built = { ...testCatalogDoc(), never_offered: { "clinic.sign": "a person's act" } };
+  const runner = { ...testCatalogDoc(), never_offered: { "lab.order": "a clinician's act" } };
+  const merged = new Catalog(mergeCatalogs(built, runner));
+  assert.deepEqual(merged.neverOffered, { "clinic.sign": "a person's act", "lab.order": "a clinician's act" });
+  assert.deepEqual(new Catalog(mergeCatalogs(built, null)).neverOffered, { "clinic.sign": "a person's act" });
+  assert.deepEqual(new Catalog(testCatalogDoc()).neverOffered, {});
+  assert.deepEqual(new Catalog(merged.toJSON()).neverOffered, merged.neverOffered);
+});

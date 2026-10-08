@@ -290,11 +290,14 @@ export class Store {
         return (await b.byIndex("files", "projectId", projectId)).sort(byCreated);
       },
       get: (id) => b.get("files", id),
-      /** Store a File or Blob; its sha256 is computed here. Returns the record (with the blob). */
-      async add(projectId, blob, { name, source = "upload", runnerUploadId } = {}) {
+      /**
+       * Store a File or Blob; its sha256 is computed here, unless `sha256` (64 hex digits, already computed from this
+       * same blob, as the composer does) is given: a large file is then read once, not twice. Returns the record.
+       */
+      async add(projectId, blob, { name, source = "upload", runnerUploadId, sha256: known } = {}) {
         if (!projectId) throw new Error("a file belongs to a project");
         if (!blob || typeof blob.arrayBuffer !== "function") throw new TypeError("files.add needs a File or Blob");
-        const sha256 = await sha256Hex(blob);
+        const sha256 = typeof known === "string" && /^[0-9a-f]{64}$/i.test(known) ? known.toLowerCase() : await sha256Hex(blob);
         const rec = {
           id: uuid(), projectId, name: String(name || blob.name || "file"), type: blob.type || "application/octet-stream",
           bytes: blob.size, sha256, blob, source: source === "tool" ? "tool" : "upload", createdAt: now(),

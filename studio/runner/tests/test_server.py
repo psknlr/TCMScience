@@ -318,9 +318,13 @@ def test_v1_says_the_runner_is_not_the_relay(server):
     doc = json.loads(body)
     assert doc["ok"] is False and doc["relay"] is False
     assert doc["error"]["type"] == "not_relay" and "8765" in doc["error"]["message"]
+    # a code and the port, so the page can say it in its own language and place
+    assert doc["error"]["code"] == "runner_no_relay" and doc["error"]["port"] == 8765
+    assert doc["error"]["message_en"].startswith("This local runner does not provide Tao-S1")
     status, _, body = c.raw("POST", "/v1/chat/completions", b"{}", token=False,
                             headers={"Content-Type": "application/json"})
-    assert status == 404 and json.loads(body)["error"]["type"] == "not_relay"
+    err = json.loads(body)["error"]
+    assert status == 404 and err["type"] == "not_relay" and err["code"] == "runner_no_relay"
 
 
 def test_api_only_runner_says_where_the_app_is(server):
