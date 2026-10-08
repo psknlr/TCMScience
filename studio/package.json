@@ -1,0 +1,22 @@
+{
+  "name": "tcmscience-studio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TCMScience Studio: the web workbench served at https://science.impf.ai. The web app has no runtime dependencies; these are for tests only.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/dev/test/*.test.mjs",
+    "test:e2e": "playwright test -c e2e/playwright.config.mjs",
+    "test:runtime": "node web/test/runtime/run.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "axe-core": "4.14.0",
+    "fake-indexeddb": "^6.2.5",
+    "linkedom": "^0.18.13"
+  }
+}

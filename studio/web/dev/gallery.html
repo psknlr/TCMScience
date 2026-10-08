@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Component gallery · TCMScience Studio</title>
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/dev/gallery.css">
+  <script src="/js/boot.js"></script>
+  <script type="module" src="/dev/gallery.js"></script>
+</head>
+<body class="gallery-page">
+  <div id="gallery" class="gallery" aria-busy="true"><p class="muted" style="padding:24px">Loading fixtures…</p></div>
+  <div id="toasts" class="toast-region" role="region" aria-label="通知" aria-live="polite"></div>
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="announcer-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+</body>
+</html>

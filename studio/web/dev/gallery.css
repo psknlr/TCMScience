@@ -1,0 +1,41 @@
+/* The design-QA gallery: a quiet page that lays every component out on the app's own tokens. */
+
+.gallery-page { background: var(--bg); }
+.gallery { max-width: 1180px; margin: 0 auto; padding: 0 24px 96px; }
+.g-top {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 0; margin-bottom: 8px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+.g-top h1 { font-family: var(--font-serif); font-size: 20px; font-weight: 600; margin-right: auto; display: flex; gap: 10px; align-items: baseline; }
+.g-top h1 small { font-family: var(--font-sans); font-size: 13px; font-weight: 400; color: var(--ink-3); }
+.g-nav { display: flex; gap: 4px; flex-wrap: wrap; font-size: 13px; }
+.g-nav a { color: var(--ink-3); padding: 2px 8px; border-radius: var(--radius-sm); }
+.g-nav a:hover { background: var(--hover); color: var(--ink); text-decoration: none; }
+.g-section { padding: 36px 0 8px; border-bottom: 1px solid var(--rule-2); }
+.g-section > h2 { font-family: var(--font-serif); font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+.g-section > p.g-lede { color: var(--ink-3); font-size: 13px; margin-bottom: 20px; max-width: 80ch; }
+.g-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.g-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+.g-grid--wide { grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); }
+.g-stack { display: grid; gap: 12px; max-width: 760px; }
+.g-cell { display: grid; gap: 8px; min-width: 0; }
+.g-label { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); font-family: var(--font-mono); }
+.g-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.g-swatch { border: 1px solid var(--rule); border-radius: var(--radius-md); overflow: hidden; background: var(--surface); }
+.g-swatch__chip { height: 44px; }
+.g-swatch__name { padding: 6px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); }
+.g-type > * + * { margin-top: 10px; }
+.g-panel { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-lg); padding: 16px; }
+.g-frame { border: 1px solid var(--rule); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg); }
+@media (max-width: 640px) { .gallery { padding: 0 16px 64px; } .g-grid, .g-grid--wide { grid-template-columns: 1fr; } }
+
+/* composed views inside fixed frames */
+.g-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: 780px; }
+.g-workspace .main, .g-workspace .inspector, .g-inspector .inspector, .g-page .main { grid-area: auto; }
+.g-workspace .main { border-right: 0; }
+.g-inspector { height: 640px; display: flex; }
+.g-inspector .inspector { flex: 1; border-left: 0; }
+.g-page { height: 900px; display: flex; }
+.g-page .main { flex: 1; }
+@media (max-width: 900px) { .g-workspace { grid-template-columns: 1fr; height: auto; } .g-workspace .main { height: 760px; } .g-workspace .inspector { height: 640px; } }

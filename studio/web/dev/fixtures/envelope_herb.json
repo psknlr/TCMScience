@@ -1,0 +1,117 @@
+{
+ "ok": true,
+ "tool": "tcm_herb",
+ "via": "native.tcm_herb",
+ "status": "succeeded",
+ "duration_ms": 22,
+ "summary": "黄芪 Astragali Radix：甘，微温；归脾、肺经",
+ "text": "{\"herb\": {\"id\": \"herb.huangqi\", \"chinese\": \"黄芪\", \"pinyin\": \"huang qi\", \"latin\": \"Astragali Radix\", \"species\": [\"Astragalus membranaceus\", \"Astragalus mongholicus\"], \"part\": \"根\", \"nature\": \"微温\", \"flavours\": [\"甘\"], \"meridians\": [\"脾\", \"肺\"], \"actions\": [\"补气升阳\", \"固表止汗\", \"利水消肿\", \"生津养血\", \"托毒排脓\", \"敛疮生肌\"], \"aliases\": [\"黄耆\", \"北芪\", \"绵芪\"], \"toxicity\": \"无毒\", \"source\": \"神农本草经（上品）\"}, \"processed_forms\": [], \"formulas\": [{\"id\": \"formula.buzhongyiqitang\", \"kind\": \"formula\", \"chinese\": \"补中益气汤\", \"pinyin\": \"bu zhong yi qi tang\"}], \"relations\": [{\"id\": \"relation.huangqi_qixu\", \"subject_id\": \"herb.huangqi\", \"predicate\": \"treats\", \"object_id\": \"syndrome.qixu\", \"tier\": \"CLASSICAL_TEXT\", \"tier_zh\": \"经典文献记载\", \"evidence_ids\": [\"passage.bj_huangqi\"], \"population\": \"\", \"condition\": \"\", \"notes\": \"本经：补虚\"}], \"passages\": [{\"id\": \"passage.bj_huangqi\", \"source\": \"神农本草经\", \"chapter\": \"上品·草部\", \"era\": \"汉\", \"text\": \"黄耆，味甘微温。主痈疽，久败疮，排脓止痛，大风癞疾，五痔鼠瘘，补虚，小儿百病。\", \"translation\": \"\", \"mentions\": [\"herb.huangqi\"]}], \"safety\": []}",
+ "result": {
+  "herb": {
+   "id": "herb.huangqi",
+   "chinese": "黄芪",
+   "pinyin": "huang qi",
+   "latin": "Astragali Radix",
+   "species": [
+    "Astragalus membranaceus",
+    "Astragalus mongholicus"
+   ],
+   "part": "根",
+   "nature": "微温",
+   "flavours": [
+    "甘"
+   ],
+   "meridians": [
+    "脾",
+    "肺"
+   ],
+   "actions": [
+    "补气升阳",
+    "固表止汗",
+    "利水消肿",
+    "生津养血",
+    "托毒排脓",
+    "敛疮生肌"
+   ],
+   "aliases": [
+    "黄耆",
+    "北芪",
+    "绵芪"
+   ],
+   "toxicity": "无毒",
+   "source": "神农本草经（上品）"
+  },
+  "processed_forms": [],
+  "formulas": [
+   {
+    "id": "formula.buzhongyiqitang",
+    "kind": "formula",
+    "chinese": "补中益气汤",
+    "pinyin": "bu zhong yi qi tang"
+   }
+  ],
+  "relations": [
+   {
+    "id": "relation.huangqi_qixu",
+    "subject_id": "herb.huangqi",
+    "predicate": "treats",
+    "object_id": "syndrome.qixu",
+    "tier": "CLASSICAL_TEXT",
+    "tier_zh": "经典文献记载",
+    "evidence_ids": [
+     "passage.bj_huangqi"
+    ],
+    "population": "",
+    "condition": "",
+    "notes": "本经：补虚"
+   }
+  ],
+  "passages": [
+   {
+    "id": "passage.bj_huangqi",
+    "source": "神农本草经",
+    "chapter": "上品·草部",
+    "era": "汉",
+    "text": "黄耆，味甘微温。主痈疽，久败疮，排脓止痛，大风癞疾，五痔鼠瘘，补虚，小儿百病。",
+    "translation": "",
+    "mentions": [
+     "herb.huangqi"
+    ]
+   }
+  ],
+  "safety": []
+ },
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "native"
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "pyodide-314.0.7 / CPython 3.14",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "c3c117d9fe66f8b071b013dceb7f900eab85223da4f61fee34cd3a11dacd017b",
+  "output_sha256": "72d512963e176f29d2ea8eb1aa227a4c902b4156fea14e7feb2a82b3ed1b27df",
+  "started_at": "2026-10-07T09:41:12Z"
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

@@ -1,0 +1,1129 @@
+{
+ "ok": true,
+ "tool": "call_tool",
+ "via": "study.review_claims",
+ "status": "succeeded",
+ "duration_ms": 318,
+ "summary": "3 条主张：1 条允许（机制假说），2 条已拒绝（CLM005、CLM004）",
+ "text": "Two claims were refused by the kernel (CLM005: an efficacy claim rests on a preclinical study; CLM004: a clinical claim rests on a docking prediction). One mechanism hypothesis is allowed, with a declared extrapolation.",
+ "result": {
+  "artifact": {
+   "id": "review.puerarin",
+   "run_id": "r_demo",
+   "skill_id": "review-claims",
+   "skill_version": "0.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "review-claims@0.1.0",
+    "source": "964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=review-claims@0.1.0|source=964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d|benchmark=unversioned",
+   "question": "葛根能否减轻炎症？",
+   "created_at": "2026-10-07T09:41:12Z",
+   "sources": [
+    {
+     "id": "europepmc.snapshot.2026-10",
+     "name": "Europe PMC snapshot (demonstration)",
+     "kind": "literature_index",
+     "maintainer": "TCMScience",
+     "version": "2026.10",
+     "home_url": "https://europepmc.org",
+     "endpoint": "",
+     "access_method": "literature_index",
+     "allowed_hosts": [
+      "www.ebi.ac.uk"
+     ],
+     "license_spdx": "CC-BY-4.0",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d",
+     "snapshot_at": "2026-10-01T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "abstracts only",
+      "retraction status is checked at snapshot time"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · Europe PMC snapshot (demonstration) 2026.10 · https://europepmc.org · snapshot 964e986d5376 at 2026-10-01T00:00:00Z"
+    }
+   ],
+   "sources_hash": "3f071e57963e7ba51cf6d3913de7504461fbbc0527361f3de5e78c22317b75b3",
+   "evidence": [
+    {
+     "id": "ev.invitro",
+     "design": "in_vitro",
+     "tier": "preclinical",
+     "tier_rank": 3,
+     "quote": "puerarin reduced TNF-alpha secretion in RAW264.7 cells",
+     "citation": "Zhang L, et al. Puerarin attenuates LPS-induced inflammation in macrophages. J Ethnopharmacol. 2020.",
+     "title": "Puerarin in macrophages",
+     "identifier": "32112345",
+     "identifier_type": "pmid",
+     "source_card_id": "europepmc.snapshot.2026-10",
+     "content_hash": "a77e98e6a26d155ebc163262e53263d539a2fe7bb6403a37695d37105382c30e",
+     "quote_verified": true,
+     "quote_offset": 14,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "extrapolated",
+      "precision": "not_assessed",
+      "consistency": "single_study",
+      "assessed": [
+       "directness",
+       "consistency"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision"
+      ],
+      "rationale": {},
+      "assessed_by": "reviewer",
+      "assessment_tool": "manual",
+      "describe": "directness=extrapolated; consistency=single_study; unassessed=risk_of_bias,precision"
+     },
+     "subject": "葛根素 puerarin",
+     "population": "RAW264.7 cells",
+     "condition": "inflammation",
+     "comparator": "vehicle",
+     "outcome": "TNF-alpha",
+     "effect": "decrease",
+     "sample_size": 0,
+     "year": 2020,
+     "retracted": "not_retracted",
+     "retrieved_by": "literature_search",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": true,
+     "caveats": [
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "in_vitro evidence does not describe human outcomes"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "ev.docking",
+     "design": "docking",
+     "tier": "computational_prediction",
+     "tier_rank": 0,
+     "quote": "puerarin docks to TNF with a score of -8.1 kcal/mol",
+     "citation": "Docking run j_01HF8T, this project",
+     "title": "",
+     "identifier": "",
+     "identifier_type": "local_artifact",
+     "source_card_id": "europepmc.snapshot.2026-10",
+     "content_hash": "febd711fb4abe3f2aaed0ead9ab4e845015904d03d1a8965b310d87a5a06a823",
+     "quote_verified": true,
+     "quote_offset": 8,
+     "quality": null,
+     "subject": "葛根素 puerarin",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "binding",
+     "effect": "",
+     "sample_size": 0,
+     "year": 2026,
+     "retracted": "unverified",
+     "retrieved_by": "run_pipeline",
+     "retrieval_run": "j_01HF8T",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked"
+     ],
+     "notes": ""
+    }
+   ],
+   "claims": [
+    {
+     "id": "claim.efficacy",
+     "text": "葛根可减轻患者的炎症反应。",
+     "claim_kind": "efficacy",
+     "subject": "葛根",
+     "predicate": "reduces",
+     "object": "inflammation",
+     "supports": [
+      "ev.invitro"
+     ],
+     "asserted_population": "patients",
+     "asserted_outcome": "inflammation",
+     "supported_population": "RAW264.7 cells",
+     "supported_outcome": "TNF-alpha",
+     "direction": "decrease",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.0,
+     "confidence_basis": "",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "一项随机对照试验显示对炎症指标无影响",
+     "produced_by": "model",
+     "tier_floor": "randomized_trial",
+     "clinical": true
+    },
+    {
+     "id": "claim.prediction",
+     "text": "葛根有效，因为葛根素与 TNF 结合。",
+     "claim_kind": "efficacy",
+     "subject": "葛根",
+     "predicate": "treats",
+     "object": "inflammation",
+     "supports": [
+      "ev.docking"
+     ],
+     "asserted_population": "",
+     "asserted_outcome": "",
+     "supported_population": "",
+     "supported_outcome": "",
+     "direction": "decrease",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.0,
+     "confidence_basis": "",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "",
+     "produced_by": "model",
+     "tier_floor": "randomized_trial",
+     "clinical": true
+    },
+    {
+     "id": "claim.hypothesis",
+     "text": "葛根素可能与 TNF 结合（分子对接预测）。",
+     "claim_kind": "mechanism_hypothesis",
+     "subject": "葛根素",
+     "predicate": "binds",
+     "object": "TNF",
+     "supports": [
+      "ev.docking"
+     ],
+     "asserted_population": "",
+     "asserted_outcome": "",
+     "supported_population": "",
+     "supported_outcome": "",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {
+      "population:cells → humans": "in vitro and in silico only; not tested in people"
+     },
+     "validated_extrapolations": {},
+     "confidence": 0.4,
+     "confidence_basis": "one docking score and one cell study; no binding assay",
+     "hedged": true,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "结合实验（SPR / ITC）显示无亲和力",
+     "produced_by": "model",
+     "tier_floor": "computational_prediction",
+     "clinical": false
+    }
+   ],
+   "outputs": [],
+   "limitations": [
+    "two evidence items only: one cell study and one docking run",
+    "no clinical evidence was retrieved"
+   ],
+   "assumptions": [
+    "葛根素 is taken as the active constituent of 葛根"
+   ],
+   "policy_id": "",
+   "audit_head": "",
+   "provenance": {},
+   "status": "draft",
+   "produced_by": "model",
+   "notes": "",
+   "digest": "af3dd1bd7027149cf1abe3d83b8e3f1392f4d0de6eec0c7536ed68022b2dac38"
+  },
+  "verdict": {
+   "artifact_id": "review.puerarin",
+   "publishable": false,
+   "states": {
+    "schema_valid": false,
+    "evidence_verified": false,
+    "outputs_verified": true,
+    "execution_declared": false,
+    "execution_attested": false,
+    "release_authorized": false
+   },
+   "unverified": [
+    "evidence 'ev.invitro': receipt not re-checked (content a77e98e6a26d not available)",
+    "evidence 'ev.docking': receipt not re-checked (content febd711fb4ab not available)",
+    "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+   ],
+   "codes": [
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART106",
+    "ART105"
+   ],
+   "violations": [
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': efficacy is not licensed by preclinical evidence",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': undeclared extrapolation 'population:patients'",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': undeclared extrapolation 'outcome:inflammation'",
+     "severity": "error"
+    },
+    {
+     "code": "ART106",
+     "detail": "claim 'claim.prediction': efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.prediction': efficacy is not licensed by computational_prediction evidence",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "code": "ART116",
+     "detail": "claim 'claim.hypothesis' extrapolates to ['population:cells → humans'] on a declaration alone; no evidence item validates the bridge",
+     "severity": "warning"
+    },
+    {
+     "code": "ART112",
+     "detail": "claim 'claim.hypothesis' states confidence 0.4 but no supporting evidence has an assessed quality dimension",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [
+    {
+     "claim_id": "claim.efficacy",
+     "allowed": false,
+     "codes": [
+      "CLM005",
+      "CLM006",
+      "CLM008",
+      "CLM009",
+      "CLM009"
+     ],
+     "reasons": [
+      {
+       "code": "CLM005",
+       "detail": "efficacy is not licensed by preclinical evidence"
+      },
+      {
+       "code": "CLM006",
+       "detail": "evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target"
+      },
+      {
+       "code": "CLM008",
+       "detail": "evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so"
+      },
+      {
+       "code": "CLM009",
+       "detail": "undeclared extrapolation 'population:patients'"
+      },
+      {
+       "code": "CLM009",
+       "detail": "undeclared extrapolation 'outcome:inflammation'"
+      }
+     ],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "preclinical",
+     "caveats": [
+      "ev.invitro: quality dimension risk_of_bias was not assessed",
+      "ev.invitro: quality dimension precision was not assessed",
+      "ev.invitro: in_vitro evidence does not describe human outcomes"
+     ],
+     "unvalidated_extrapolations": []
+    },
+    {
+     "claim_id": "claim.prediction",
+     "allowed": false,
+     "codes": [
+      "CLM004",
+      "CLM005"
+     ],
+     "reasons": [
+      {
+       "code": "CLM004",
+       "detail": "efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings"
+      },
+      {
+       "code": "CLM005",
+       "detail": "efficacy is not licensed by computational_prediction evidence"
+      }
+     ],
+     "needs_declaration": false,
+     "prediction_as_fact": true,
+     "weakest_tier": "computational_prediction",
+     "caveats": [
+      "ev.docking: retraction status has not been checked",
+      "ev.docking: no lookupable identifier; the citation cannot be checked",
+      "no falsification condition stated"
+     ],
+     "unvalidated_extrapolations": []
+    },
+    {
+     "claim_id": "claim.hypothesis",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "computational_prediction",
+     "caveats": [
+      "extrapolation population:cells → humans is declared, not validated by evidence",
+      "ev.docking: retraction status has not been checked",
+      "ev.docking: no lookupable identifier; the citation cannot be checked"
+     ],
+     "unvalidated_extrapolations": [
+      "population:cells → humans"
+     ]
+    }
+   ],
+   "fixable_by_declaration": false
+  }
+ },
+ "citations": [
+  {
+   "id": "E1",
+   "kind": "pmid",
+   "label": "Zhang L, et al. Puerarin attenuates LPS-induced inflammation in macrophages. J Ethnopharmacol. 2020.",
+   "url": "",
+   "evidence_ref": "ev.invitro"
+  },
+  {
+   "id": "E2",
+   "kind": "source",
+   "label": "Docking run j_01HF8T, this project",
+   "url": "",
+   "evidence_ref": "ev.docking"
+  }
+ ],
+ "governance": {
+  "kind": "skill",
+  "released": false,
+  "artifact": {
+   "id": "review.puerarin",
+   "run_id": "r_demo",
+   "skill_id": "review-claims",
+   "skill_version": "0.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "review-claims@0.1.0",
+    "source": "964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=review-claims@0.1.0|source=964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d|benchmark=unversioned",
+   "question": "葛根能否减轻炎症？",
+   "created_at": "2026-10-07T09:41:12Z",
+   "sources": [
+    {
+     "id": "europepmc.snapshot.2026-10",
+     "name": "Europe PMC snapshot (demonstration)",
+     "kind": "literature_index",
+     "maintainer": "TCMScience",
+     "version": "2026.10",
+     "home_url": "https://europepmc.org",
+     "endpoint": "",
+     "access_method": "literature_index",
+     "allowed_hosts": [
+      "www.ebi.ac.uk"
+     ],
+     "license_spdx": "CC-BY-4.0",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d",
+     "snapshot_at": "2026-10-01T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "abstracts only",
+      "retraction status is checked at snapshot time"
+     ],
+     "offline_capable": true,
+     "notes": "",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · Europe PMC snapshot (demonstration) 2026.10 · https://europepmc.org · snapshot 964e986d5376 at 2026-10-01T00:00:00Z"
+    }
+   ],
+   "sources_hash": "3f071e57963e7ba51cf6d3913de7504461fbbc0527361f3de5e78c22317b75b3",
+   "evidence": [
+    {
+     "id": "ev.invitro",
+     "design": "in_vitro",
+     "tier": "preclinical",
+     "tier_rank": 3,
+     "quote": "puerarin reduced TNF-alpha secretion in RAW264.7 cells",
+     "citation": "Zhang L, et al. Puerarin attenuates LPS-induced inflammation in macrophages. J Ethnopharmacol. 2020.",
+     "title": "Puerarin in macrophages",
+     "identifier": "32112345",
+     "identifier_type": "pmid",
+     "source_card_id": "europepmc.snapshot.2026-10",
+     "content_hash": "a77e98e6a26d155ebc163262e53263d539a2fe7bb6403a37695d37105382c30e",
+     "quote_verified": true,
+     "quote_offset": 14,
+     "quality": {
+      "risk_of_bias": "not_assessed",
+      "directness": "extrapolated",
+      "precision": "not_assessed",
+      "consistency": "single_study",
+      "assessed": [
+       "directness",
+       "consistency"
+      ],
+      "unassessed": [
+       "risk_of_bias",
+       "precision"
+      ],
+      "rationale": {},
+      "assessed_by": "reviewer",
+      "assessment_tool": "manual",
+      "describe": "directness=extrapolated; consistency=single_study; unassessed=risk_of_bias,precision"
+     },
+     "subject": "葛根素 puerarin",
+     "population": "RAW264.7 cells",
+     "condition": "inflammation",
+     "comparator": "vehicle",
+     "outcome": "TNF-alpha",
+     "effect": "decrease",
+     "sample_size": 0,
+     "year": 2020,
+     "retracted": "not_retracted",
+     "retrieved_by": "literature_search",
+     "retrieval_run": "",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": true,
+     "caveats": [
+      "quality dimension risk_of_bias was not assessed",
+      "quality dimension precision was not assessed",
+      "in_vitro evidence does not describe human outcomes"
+     ],
+     "notes": ""
+    },
+    {
+     "id": "ev.docking",
+     "design": "docking",
+     "tier": "computational_prediction",
+     "tier_rank": 0,
+     "quote": "puerarin docks to TNF with a score of -8.1 kcal/mol",
+     "citation": "Docking run j_01HF8T, this project",
+     "title": "",
+     "identifier": "",
+     "identifier_type": "local_artifact",
+     "source_card_id": "europepmc.snapshot.2026-10",
+     "content_hash": "febd711fb4abe3f2aaed0ead9ab4e845015904d03d1a8965b310d87a5a06a823",
+     "quote_verified": true,
+     "quote_offset": 8,
+     "quality": null,
+     "subject": "葛根素 puerarin",
+     "population": "",
+     "condition": "",
+     "comparator": "",
+     "outcome": "binding",
+     "effect": "",
+     "sample_size": 0,
+     "year": 2026,
+     "retracted": "unverified",
+     "retrieved_by": "run_pipeline",
+     "retrieval_run": "j_01HF8T",
+     "retrieved_at": 0.0,
+     "conflicts_with": [],
+     "usable": true,
+     "crossref_ready": false,
+     "caveats": [
+      "retraction status has not been checked",
+      "no lookupable identifier; the citation cannot be checked"
+     ],
+     "notes": ""
+    }
+   ],
+   "claims": [
+    {
+     "id": "claim.efficacy",
+     "text": "葛根可减轻患者的炎症反应。",
+     "claim_kind": "efficacy",
+     "subject": "葛根",
+     "predicate": "reduces",
+     "object": "inflammation",
+     "supports": [
+      "ev.invitro"
+     ],
+     "asserted_population": "patients",
+     "asserted_outcome": "inflammation",
+     "supported_population": "RAW264.7 cells",
+     "supported_outcome": "TNF-alpha",
+     "direction": "decrease",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.0,
+     "confidence_basis": "",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "一项随机对照试验显示对炎症指标无影响",
+     "produced_by": "model",
+     "tier_floor": "randomized_trial",
+     "clinical": true
+    },
+    {
+     "id": "claim.prediction",
+     "text": "葛根有效，因为葛根素与 TNF 结合。",
+     "claim_kind": "efficacy",
+     "subject": "葛根",
+     "predicate": "treats",
+     "object": "inflammation",
+     "supports": [
+      "ev.docking"
+     ],
+     "asserted_population": "",
+     "asserted_outcome": "",
+     "supported_population": "",
+     "supported_outcome": "",
+     "direction": "decrease",
+     "magnitude": "",
+     "declared_extrapolations": {},
+     "validated_extrapolations": {},
+     "confidence": 0.0,
+     "confidence_basis": "",
+     "hedged": false,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "",
+     "produced_by": "model",
+     "tier_floor": "randomized_trial",
+     "clinical": true
+    },
+    {
+     "id": "claim.hypothesis",
+     "text": "葛根素可能与 TNF 结合（分子对接预测）。",
+     "claim_kind": "mechanism_hypothesis",
+     "subject": "葛根素",
+     "predicate": "binds",
+     "object": "TNF",
+     "supports": [
+      "ev.docking"
+     ],
+     "asserted_population": "",
+     "asserted_outcome": "",
+     "supported_population": "",
+     "supported_outcome": "",
+     "direction": "unclear",
+     "magnitude": "",
+     "declared_extrapolations": {
+      "population:cells → humans": "in vitro and in silico only; not tested in people"
+     },
+     "validated_extrapolations": {},
+     "confidence": 0.4,
+     "confidence_basis": "one docking score and one cell study; no binding assay",
+     "hedged": true,
+     "normative": false,
+     "rationale": "",
+     "falsified_by": "结合实验（SPR / ITC）显示无亲和力",
+     "produced_by": "model",
+     "tier_floor": "computational_prediction",
+     "clinical": false
+    }
+   ],
+   "outputs": [],
+   "limitations": [
+    "two evidence items only: one cell study and one docking run",
+    "no clinical evidence was retrieved"
+   ],
+   "assumptions": [
+    "葛根素 is taken as the active constituent of 葛根"
+   ],
+   "policy_id": "",
+   "audit_head": "",
+   "provenance": {},
+   "status": "draft",
+   "produced_by": "model",
+   "notes": "",
+   "digest": "af3dd1bd7027149cf1abe3d83b8e3f1392f4d0de6eec0c7536ed68022b2dac38"
+  },
+  "verdict": {
+   "artifact_id": "review.puerarin",
+   "publishable": false,
+   "states": {
+    "schema_valid": false,
+    "evidence_verified": false,
+    "outputs_verified": true,
+    "execution_declared": false,
+    "execution_attested": false,
+    "release_authorized": false
+   },
+   "unverified": [
+    "evidence 'ev.invitro': receipt not re-checked (content a77e98e6a26d not available)",
+    "evidence 'ev.docking': receipt not re-checked (content febd711fb4ab not available)",
+    "no policy_id/audit_head: the run is not attested by the kernel's audit chain"
+   ],
+   "codes": [
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART105",
+    "ART106",
+    "ART105"
+   ],
+   "violations": [
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': efficacy is not licensed by preclinical evidence",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': undeclared extrapolation 'population:patients'",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.efficacy': undeclared extrapolation 'outcome:inflammation'",
+     "severity": "error"
+    },
+    {
+     "code": "ART106",
+     "detail": "claim 'claim.prediction': efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings",
+     "severity": "error"
+    },
+    {
+     "code": "ART105",
+     "detail": "claim 'claim.prediction': efficacy is not licensed by computational_prediction evidence",
+     "severity": "error"
+    }
+   ],
+   "warnings": [
+    {
+     "code": "ART116",
+     "detail": "claim 'claim.hypothesis' extrapolates to ['population:cells → humans'] on a declaration alone; no evidence item validates the bridge",
+     "severity": "warning"
+    },
+    {
+     "code": "ART112",
+     "detail": "claim 'claim.hypothesis' states confidence 0.4 but no supporting evidence has an assessed quality dimension",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [
+    {
+     "claim_id": "claim.efficacy",
+     "allowed": false,
+     "codes": [
+      "CLM005",
+      "CLM006",
+      "CLM008",
+      "CLM009",
+      "CLM009"
+     ],
+     "reasons": [
+      {
+       "code": "CLM005",
+       "detail": "efficacy is not licensed by preclinical evidence"
+      },
+      {
+       "code": "CLM006",
+       "detail": "evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target"
+      },
+      {
+       "code": "CLM008",
+       "detail": "evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so"
+      },
+      {
+       "code": "CLM009",
+       "detail": "undeclared extrapolation 'population:patients'"
+      },
+      {
+       "code": "CLM009",
+       "detail": "undeclared extrapolation 'outcome:inflammation'"
+      }
+     ],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "preclinical",
+     "caveats": [
+      "ev.invitro: quality dimension risk_of_bias was not assessed",
+      "ev.invitro: quality dimension precision was not assessed",
+      "ev.invitro: in_vitro evidence does not describe human outcomes"
+     ],
+     "unvalidated_extrapolations": []
+    },
+    {
+     "claim_id": "claim.prediction",
+     "allowed": false,
+     "codes": [
+      "CLM004",
+      "CLM005"
+     ],
+     "reasons": [
+      {
+       "code": "CLM004",
+       "detail": "efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings"
+      },
+      {
+       "code": "CLM005",
+       "detail": "efficacy is not licensed by computational_prediction evidence"
+      }
+     ],
+     "needs_declaration": false,
+     "prediction_as_fact": true,
+     "weakest_tier": "computational_prediction",
+     "caveats": [
+      "ev.docking: retraction status has not been checked",
+      "ev.docking: no lookupable identifier; the citation cannot be checked",
+      "no falsification condition stated"
+     ],
+     "unvalidated_extrapolations": []
+    },
+    {
+     "claim_id": "claim.hypothesis",
+     "allowed": true,
+     "codes": [],
+     "reasons": [],
+     "needs_declaration": false,
+     "prediction_as_fact": false,
+     "weakest_tier": "computational_prediction",
+     "caveats": [
+      "extrapolation population:cells → humans is declared, not validated by evidence",
+      "ev.docking: retraction status has not been checked",
+      "ev.docking: no lookupable identifier; the citation cannot be checked"
+     ],
+     "unvalidated_extrapolations": [
+      "population:cells → humans"
+     ]
+    }
+   ],
+   "fixable_by_declaration": false
+  },
+  "claims": [
+   {
+    "id": "claim.efficacy",
+    "text": "葛根可减轻患者的炎症反应。",
+    "claim_kind": "efficacy",
+    "subject": "葛根",
+    "predicate": "reduces",
+    "object": "inflammation",
+    "supports": [
+     "ev.invitro"
+    ],
+    "asserted_population": "patients",
+    "asserted_outcome": "inflammation",
+    "supported_population": "RAW264.7 cells",
+    "supported_outcome": "TNF-alpha",
+    "direction": "decrease",
+    "magnitude": "",
+    "declared_extrapolations": {},
+    "validated_extrapolations": {},
+    "confidence": 0.0,
+    "confidence_basis": "",
+    "hedged": false,
+    "normative": false,
+    "rationale": "",
+    "falsified_by": "一项随机对照试验显示对炎症指标无影响",
+    "produced_by": "model",
+    "tier_floor": "randomized_trial",
+    "clinical": true
+   },
+   {
+    "id": "claim.prediction",
+    "text": "葛根有效，因为葛根素与 TNF 结合。",
+    "claim_kind": "efficacy",
+    "subject": "葛根",
+    "predicate": "treats",
+    "object": "inflammation",
+    "supports": [
+     "ev.docking"
+    ],
+    "asserted_population": "",
+    "asserted_outcome": "",
+    "supported_population": "",
+    "supported_outcome": "",
+    "direction": "decrease",
+    "magnitude": "",
+    "declared_extrapolations": {},
+    "validated_extrapolations": {},
+    "confidence": 0.0,
+    "confidence_basis": "",
+    "hedged": false,
+    "normative": false,
+    "rationale": "",
+    "falsified_by": "",
+    "produced_by": "model",
+    "tier_floor": "randomized_trial",
+    "clinical": true
+   },
+   {
+    "id": "claim.hypothesis",
+    "text": "葛根素可能与 TNF 结合（分子对接预测）。",
+    "claim_kind": "mechanism_hypothesis",
+    "subject": "葛根素",
+    "predicate": "binds",
+    "object": "TNF",
+    "supports": [
+     "ev.docking"
+    ],
+    "asserted_population": "",
+    "asserted_outcome": "",
+    "supported_population": "",
+    "supported_outcome": "",
+    "direction": "unclear",
+    "magnitude": "",
+    "declared_extrapolations": {
+     "population:cells → humans": "in vitro and in silico only; not tested in people"
+    },
+    "validated_extrapolations": {},
+    "confidence": 0.4,
+    "confidence_basis": "one docking score and one cell study; no binding assay",
+    "hedged": true,
+    "normative": false,
+    "rationale": "",
+    "falsified_by": "结合实验（SPR / ITC）显示无亲和力",
+    "produced_by": "model",
+    "tier_floor": "computational_prediction",
+    "clinical": false
+   }
+  ],
+  "evidence": [
+   {
+    "id": "ev.invitro",
+    "design": "in_vitro",
+    "tier": "preclinical",
+    "tier_rank": 3,
+    "quote": "puerarin reduced TNF-alpha secretion in RAW264.7 cells",
+    "citation": "Zhang L, et al. Puerarin attenuates LPS-induced inflammation in macrophages. J Ethnopharmacol. 2020.",
+    "title": "Puerarin in macrophages",
+    "identifier": "32112345",
+    "identifier_type": "pmid",
+    "source_card_id": "europepmc.snapshot.2026-10",
+    "content_hash": "a77e98e6a26d155ebc163262e53263d539a2fe7bb6403a37695d37105382c30e",
+    "quote_verified": true,
+    "quote_offset": 14,
+    "quality": {
+     "risk_of_bias": "not_assessed",
+     "directness": "extrapolated",
+     "precision": "not_assessed",
+     "consistency": "single_study",
+     "assessed": [
+      "directness",
+      "consistency"
+     ],
+     "unassessed": [
+      "risk_of_bias",
+      "precision"
+     ],
+     "rationale": {},
+     "assessed_by": "reviewer",
+     "assessment_tool": "manual",
+     "describe": "directness=extrapolated; consistency=single_study; unassessed=risk_of_bias,precision"
+    },
+    "subject": "葛根素 puerarin",
+    "population": "RAW264.7 cells",
+    "condition": "inflammation",
+    "comparator": "vehicle",
+    "outcome": "TNF-alpha",
+    "effect": "decrease",
+    "sample_size": 0,
+    "year": 2020,
+    "retracted": "not_retracted",
+    "retrieved_by": "literature_search",
+    "retrieval_run": "",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": true,
+    "caveats": [
+     "quality dimension risk_of_bias was not assessed",
+     "quality dimension precision was not assessed",
+     "in_vitro evidence does not describe human outcomes"
+    ],
+    "notes": ""
+   },
+   {
+    "id": "ev.docking",
+    "design": "docking",
+    "tier": "computational_prediction",
+    "tier_rank": 0,
+    "quote": "puerarin docks to TNF with a score of -8.1 kcal/mol",
+    "citation": "Docking run j_01HF8T, this project",
+    "title": "",
+    "identifier": "",
+    "identifier_type": "local_artifact",
+    "source_card_id": "europepmc.snapshot.2026-10",
+    "content_hash": "febd711fb4abe3f2aaed0ead9ab4e845015904d03d1a8965b310d87a5a06a823",
+    "quote_verified": true,
+    "quote_offset": 8,
+    "quality": null,
+    "subject": "葛根素 puerarin",
+    "population": "",
+    "condition": "",
+    "comparator": "",
+    "outcome": "binding",
+    "effect": "",
+    "sample_size": 0,
+    "year": 2026,
+    "retracted": "unverified",
+    "retrieved_by": "run_pipeline",
+    "retrieval_run": "j_01HF8T",
+    "retrieved_at": 0.0,
+    "conflicts_with": [],
+    "usable": true,
+    "crossref_ready": false,
+    "caveats": [
+     "retraction status has not been checked",
+     "no lookupable identifier; the citation cannot be checked"
+    ],
+    "notes": ""
+   }
+  ],
+  "refusals": [
+   {
+    "code": "ART105",
+    "message": "claim 'claim.efficacy': efficacy is not licensed by preclinical evidence",
+    "remedy": ""
+   },
+   {
+    "code": "ART105",
+    "message": "claim 'claim.efficacy': evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target",
+    "remedy": ""
+   },
+   {
+    "code": "ART105",
+    "message": "claim 'claim.efficacy': evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so",
+    "remedy": ""
+   },
+   {
+    "code": "ART105",
+    "message": "claim 'claim.efficacy': undeclared extrapolation 'population:patients'",
+    "remedy": ""
+   },
+   {
+    "code": "ART105",
+    "message": "claim 'claim.efficacy': undeclared extrapolation 'outcome:inflammation'",
+    "remedy": ""
+   },
+   {
+    "code": "ART106",
+    "message": "claim 'claim.prediction': efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings",
+    "remedy": ""
+   },
+   {
+    "code": "ART105",
+    "message": "claim 'claim.prediction': efficacy is not licensed by computational_prediction evidence",
+    "remedy": ""
+   },
+   {
+    "code": "CLM005",
+    "message": "efficacy is not licensed by preclinical evidence",
+    "remedy": ""
+   },
+   {
+    "code": "CLM006",
+    "message": "evidence 'ev.invitro': extrapolated evidence cannot support any claim about the target",
+    "remedy": ""
+   },
+   {
+    "code": "CLM008",
+    "message": "evidence 'ev.invitro' is in_vitro; a efficacy claim in humans extrapolates across species and must say so",
+    "remedy": ""
+   },
+   {
+    "code": "CLM009",
+    "message": "undeclared extrapolation 'population:patients'",
+    "remedy": ""
+   },
+   {
+    "code": "CLM009",
+    "message": "undeclared extrapolation 'outcome:inflammation'",
+    "remedy": ""
+   },
+   {
+    "code": "CLM004",
+    "message": "efficacy claim about humans is supported only by computational prediction (docking); predicted relationships are not clinical findings",
+    "remedy": ""
+   },
+   {
+    "code": "CLM005",
+    "message": "efficacy is not licensed by computational_prediction evidence",
+    "remedy": ""
+   }
+  ],
+  "labels": [
+   "INTERNAL"
+  ],
+  "licences": [
+   {
+    "asset": "europepmc.snapshot.2026-10",
+    "licence": "CC-BY-4.0",
+    "commercial": true,
+    "note": ""
+   }
+  ],
+  "limitations": [
+   "two evidence items only: one cell study and one docking run",
+   "no clinical evidence was retrieved"
+  ],
+  "outputs": []
+ },
+ "receipt": {
+  "where": "browser",
+  "runtime": "pyodide-314.0.7 / CPython 3.14",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=review-claims@0.1.0|source=964e986d5376fe086b1b7858df99bd24db1d830f050e177c85997dc59136cb6d|benchmark=unversioned",
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "2081c4319239a7f5d9fb1bd47bef0316c7240abbe2cbaef036f51311c331616f",
+  "output_sha256": "5cff344d964c0458ea7f59597a68353046b311b15c991d5919fda022ee431a3f",
+  "started_at": "2026-10-07T09:41:12Z",
+  "durable": false
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tcmstudio"
+version = "0.1.0"
+description = "TCMScience Studio: the shared tool catalog and dispatcher (pure Python, also runs in Pyodide) and the local runner."
+requires-python = ">=3.11"
+license = {text = "MIT"}
+# The runner and the in-browser runtime import the same code. Nothing beyond the two
+# TCMScience packages is required at run time; everything else is the standard library.
+dependencies = ["bioagent>=0.2.7", "psh>=0.6.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.scripts]
+tcmstudio = "tcmstudio.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+tcmstudio = ["*.json", "data/*.json", "web/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

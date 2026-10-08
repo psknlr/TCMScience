@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="data:,">
+  <title>Browser runtime check</title>
+  <style>
+    :root { color-scheme: light dark; --fg: #1d1d1b; --muted: #6b6a66; --bg: #faf9f6; --line: #e3e1da; --ok: #2f6b4f; --bad: #9b2c2c; }
+    @media (prefers-color-scheme: dark) { :root { --fg: #ecebe6; --muted: #a09e97; --bg: #1b1b1a; --line: #33322f; --ok: #7fbf9d; --bad: #e08a8a; } }
+    body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+    main { max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+    p { margin: 0 0 16px; color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 500; color: var(--muted); }
+    td.ms { text-align: right; white-space: nowrap; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    .wrap { overflow-x: auto; }
+    code { font: 12px ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Browser runtime check</h1>
+    <p id="status">Starting…</p>
+    <div class="wrap"><table>
+      <thead><tr><th>check</th><th>result</th><th>summary</th><th class="ms">ms</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </main>
+  <script type="module" src="./check.mjs"></script>
+</body>
+</html>

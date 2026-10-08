@@ -1,0 +1,27 @@
+# TCMScience Studio — headers for the files Cloudflare serves directly (Workers Static Assets). The deploy copies this
+# file into the built site (studio/_site/_headers); wrangler reads it and does not publish it as a file.
+# What the Worker answers itself (/v1/*, and a path that matches no file) gets the same headers from src/site.js;
+# test/site.test.js checks that the two agree.
+#
+# Every file carries the page headers: they take effect only on documents and worker scripts (a worker's own policy
+# comes from its script's response), and the app's routes are paths, so a rule for "the HTML" alone would miss some.
+# COOP + COEP make the page cross-origin isolated, which lets the Python worker be interrupted (SharedArrayBuffer);
+# jsDelivr answers with CORS, so Pyodide still loads. Referrer-Policy must not be no-referrer: the browser would then
+# send `Origin: null`, and the relay refuses the page's own model calls.
+
+/*
+  Strict-Transport-Security: max-age=15552000
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), autoplay=(), browsing-topics=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), hid=(), magnetometer=(), microphone=(), midi=(), payment=(), publickey-credentials-get=(), serial=(), usb=(), xr-spatial-tracking=()
+  Cross-Origin-Resource-Policy: same-origin
+  X-Frame-Options: SAMEORIGIN
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'wasm-unsafe-eval'; connect-src 'self' https: http://127.0.0.1:* http://localhost:* ws://127.0.0.1:*; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' https://cdn.jsdelivr.net data:; frame-src 'self' http://127.0.0.1:* http://localhost:* blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'
+  Cache-Control: no-cache
+
+# The Python bundle is named by its content hash (runtime/tcms-py.<sha12>.tar.gz): a new build is a new name.
+/runtime/*.tar.gz
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable

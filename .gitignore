@@ -50,3 +50,10 @@ plan/
 
 # GitHub Pages build output (scripts/build_site.py)
 _site/
+
+# TCMScience Studio build output (studio/scripts/build_web.py)
+studio/_site/
+studio/**/node_modules/
+studio/edge/.wrangler/
+studio/e2e/test-results/
+studio/e2e/playwright-report/

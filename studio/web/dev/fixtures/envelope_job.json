@@ -1,0 +1,43 @@
+{
+ "ok": true,
+ "tool": "run_pipeline",
+ "via": "job.pipeline.dock",
+ "status": "job_submitted",
+ "duration_ms": 84,
+ "summary": "已在本机 Runner 上提交对接任务（dock）",
+ "text": "Job j_01HF8T submitted (pipeline.dock). Use job_status to follow it; its outputs are pending until collected and verified.",
+ "result": null,
+ "citations": [],
+ "governance": {
+  "released": null,
+  "artifact": null,
+  "verdict": null,
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [],
+  "licences": [],
+  "limitations": [],
+  "outputs": [],
+  "kind": "job"
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "CPython 3.13 · tcmstudio 0.1.0",
+  "device": "cuda:0",
+  "versions": {},
+  "composite_version": null,
+  "content_hash": null,
+  "audit_head": null,
+  "input_sha256": "d4d667e1f968bb0905ddb9b98e92b07e9e218660c770f930e5311c40ba315f92",
+  "output_sha256": null,
+  "started_at": "2026-10-07T09:41:12Z"
+ },
+ "job": {
+  "id": "j_01HF8T",
+  "kind": "pipeline.dock",
+  "state": "queued"
+ },
+ "approval": null,
+ "error": null
+}

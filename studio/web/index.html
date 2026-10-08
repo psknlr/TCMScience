@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>TCMScience Studio</title>
+  <meta name="description" content="TCMScience Studio：受治理的科学研究工作台。每次工具运行在哪里、用了什么证据、证据能支撑哪类主张，都写在结果旁边。计算在你自己的电脑上进行。">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/assets/icon-192.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="preload" href="/assets/fonts/inter-latin-wght.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="modulepreload" href="/js/ui/app.js">
+  <link rel="stylesheet" href="/css/fonts.css">
+  <link rel="stylesheet" href="/css/tokens.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <script src="/js/boot.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#composer-input" data-i18n="ui.skip.composer">跳到输入框</a>
+  <a class="skip-link" href="#thread" data-i18n="ui.skip.thread">跳到对话</a>
+  <div id="app" class="app" aria-busy="true">
+    <div class="boot-splash" role="status">
+      <div class="boot-mark" aria-hidden="true">
+        <span class="wordmark"><span class="wordmark__tcm">TCM<span class="wordmark__dot">·</span>Science</span> <span class="wordmark__studio">Studio</span></span>
+      </div>
+      <p class="boot-note" data-i18n="ui.boot.loading">正在载入…</p>
+    </div>
+  </div>
+  <noscript>
+    <div class="noscript">
+      <p><strong>TCMScience Studio</strong> 需要启用 JavaScript。它在浏览器中运行，计算在你自己的电脑上进行。</p>
+      <p>TCMScience Studio needs JavaScript. It runs in your browser, and the computation happens on your own computer.</p>
+    </div>
+  </noscript>
+  <div id="toasts" class="toast-region" role="region" aria-label="通知" aria-live="polite"></div>
+  <div id="announcer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="announcer-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+</body>
+</html>

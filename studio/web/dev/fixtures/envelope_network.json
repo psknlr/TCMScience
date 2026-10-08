@@ -1,0 +1,417 @@
+{
+ "ok": true,
+ "tool": "tcm_network_hypothesis",
+ "via": "skill.analyze-tcm-network-pharmacology",
+ "status": "succeeded",
+ "duration_ms": 1202,
+ "summary": "桂枝汤：网络药理学假说（种子语料）；预测 ≠ 实测",
+ "text": "Herb–target network for 桂枝汤 from the seed corpus. Every target edge is a corpus-recorded relation or a network inference; none is a binding measurement. It supports a mechanism hypothesis at most.",
+ "result": {
+  "artifact": {
+   "id": "analyze-tcm-network-pharmacology",
+   "run_id": "",
+   "skill_id": "analyze-tcm-network-pharmacology",
+   "skill_version": "1.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "analyze-tcm-network-pharmacology@1.1.0",
+    "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=analyze-tcm-network-pharmacology@1.1.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+   "question": "what target network is inferred for 桂枝汤?",
+   "created_at": "2026-10-07T18:54:10+00:00",
+   "sources": [
+    {
+     "id": "tcmscience.tcm.seed",
+     "name": "TCMScience TCM seed corpus",
+     "kind": "pharmacopoeia",
+     "maintainer": "TCMScience",
+     "version": "0.2.6",
+     "home_url": "https://github.com/psknlr/TCMScience",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "b376a9d132244dd90ee1ac16b0e5dda8fc6a02c862b82b64f34467ab9c901ceb",
+     "snapshot_at": "2026-09-25T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "seed corpus only: 23 herbs, 5 processed forms, 6 formulas, 8 syndromes, 9 passages, 2 study records, 14 relations, 14 safety records",
+      "no clinical study data is included; every study record is at EXPERT_EXPERIENCE or below",
+      "coverage is illustrative, not exhaustive; absence from this corpus is not evidence of absence"
+     ],
+     "offline_capable": true,
+     "notes": "Compiled into the package. Declared as a source so a resolution can be traced to the corpus that produced it.",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience TCM seed corpus 0.2.6 · https://github.com/psknlr/TCMScience · snapshot b376a9d13224 at 2026-09-25T00:00:00Z"
+    }
+   ],
+   "sources_hash": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+   "evidence": [],
+   "claims": [],
+   "outputs": [
+    {
+     "path": "network.json",
+     "sha256": "0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d",
+     "media_type": "application/json",
+     "bytes": 1579,
+     "description": "herb–target network with predicted/measured split"
+    }
+   ],
+   "limitations": [
+    "EVERY target edge here is a corpus-recorded relation or a network inference; none is a binding measurement. No docking, no assay, no structure-based prediction was run",
+    "pathway enrichment is a ranked list of recorded predicates, not a background-corrected enrichment analysis; no network randomisation was performed, so no p-value is reported",
+    "the network is built from the seed corpus only; no external target database (BindingDB, ChEMBL, STITCH) was queried",
+    "a predicted edge is a hypothesis about a mechanism. It is not evidence that the formula treats any condition in any patient",
+    "no measured target data exists for this formula in the corpus, so the measured side of the split is empty; measured targets come from the snapshot pipeline (analysis.network_pharmacology), not this corpus",
+    "the corpus records no molecular target relation for this formula or its herbs, so no target network was built and no claim is made",
+    "recorded indications (treats / indicated_for) are traditional-use records whose object is a syndrome; they are reported apart and are not targets"
+   ],
+   "assumptions": [
+    "corpus-recorded relations are treated as hypotheses about mechanism",
+    "absence of a measured edge means no measurement was found, not that binding was tested and excluded"
+   ],
+   "policy_id": "default",
+   "audit_head": "8389c7ef549cb17f9da1b155765a59bd1d4dce627f7c0dab0d81fc8d360a526a",
+   "provenance": {
+    "formula": "formula.guizhitang",
+    "predicted": 0,
+    "measured": 0,
+    "recorded_indications": 1,
+    "prediction_only": true,
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+     "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
+     "arguments_sha256": "0d084f2c7819ddf3f95e281876313a81e1c44f03494ed7e399cc29b1a41f0541",
+     "pre_attestation_digest": "78e3ffd6ebde29c42238d28a572d44ea71b2f4a0484bfeeb9f4228bbe07d49bf",
+     "state_dir": "/tmp/tmpxh8nt0cf/net/state",
+     "run_anchor": "f4cad101d7a8fb44f369ef760a6f5f8d5f8c5f761eba32cbd81443798b883bc3",
+     "operations": []
+    }
+   },
+   "status": "draft",
+   "produced_by": "analyze-tcm-network-pharmacology",
+   "notes": "",
+   "digest": "6b17724831f700f2d80535caa2e2eb6c125734308aec03a01a8564d2164c0982"
+  },
+  "verdict": {
+   "artifact_id": "analyze-tcm-network-pharmacology",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": true,
+    "execution_attested": true,
+    "release_authorized": true
+   },
+   "unverified": [],
+   "codes": [],
+   "violations": [],
+   "warnings": [
+    {
+     "code": "ART105",
+     "detail": "artifact makes no claims; it reports material but asserts nothing",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [],
+   "fixable_by_declaration": false
+  }
+ },
+ "citations": [],
+ "governance": {
+  "kind": "skill",
+  "released": true,
+  "artifact": {
+   "id": "analyze-tcm-network-pharmacology",
+   "run_id": "",
+   "skill_id": "analyze-tcm-network-pharmacology",
+   "skill_version": "1.1.0",
+   "composite_version": {
+    "runtime": "psh-0.6.0+bioagent-0.2.7",
+    "skill": "analyze-tcm-network-pharmacology@1.1.0",
+    "source": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+    "benchmark": "unversioned"
+   },
+   "composite_version_string": "runtime=psh-0.6.0+bioagent-0.2.7|skill=analyze-tcm-network-pharmacology@1.1.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+   "question": "what target network is inferred for 桂枝汤?",
+   "created_at": "2026-10-07T18:54:10+00:00",
+   "sources": [
+    {
+     "id": "tcmscience.tcm.seed",
+     "name": "TCMScience TCM seed corpus",
+     "kind": "pharmacopoeia",
+     "maintainer": "TCMScience",
+     "version": "0.2.6",
+     "home_url": "https://github.com/psknlr/TCMScience",
+     "endpoint": "",
+     "access_method": "local_file",
+     "allowed_hosts": [],
+     "license_spdx": "MIT",
+     "license_note": "",
+     "integration_mode": "native",
+     "snapshot_hash": "b376a9d132244dd90ee1ac16b0e5dda8fc6a02c862b82b64f34467ab9c901ceb",
+     "snapshot_at": "2026-09-25T00:00:00Z",
+     "operation_hashes": {},
+     "known_limits": [
+      "seed corpus only: 23 herbs, 5 processed forms, 6 formulas, 8 syndromes, 9 passages, 2 study records, 14 relations, 14 safety records",
+      "no clinical study data is included; every study record is at EXPERT_EXPERIENCE or below",
+      "coverage is illustrative, not exhaustive; absence from this corpus is not evidence of absence"
+     ],
+     "offline_capable": true,
+     "notes": "Compiled into the package. Declared as a source so a resolution can be traced to the corpus that produced it.",
+     "pinned": true,
+     "licensed": true,
+     "citation": "TCMScience · TCMScience TCM seed corpus 0.2.6 · https://github.com/psknlr/TCMScience · snapshot b376a9d13224 at 2026-09-25T00:00:00Z"
+    }
+   ],
+   "sources_hash": "198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e",
+   "evidence": [],
+   "claims": [],
+   "outputs": [
+    {
+     "path": "network.json",
+     "sha256": "0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d",
+     "media_type": "application/json",
+     "bytes": 1579,
+     "description": "herb–target network with predicted/measured split"
+    }
+   ],
+   "limitations": [
+    "EVERY target edge here is a corpus-recorded relation or a network inference; none is a binding measurement. No docking, no assay, no structure-based prediction was run",
+    "pathway enrichment is a ranked list of recorded predicates, not a background-corrected enrichment analysis; no network randomisation was performed, so no p-value is reported",
+    "the network is built from the seed corpus only; no external target database (BindingDB, ChEMBL, STITCH) was queried",
+    "a predicted edge is a hypothesis about a mechanism. It is not evidence that the formula treats any condition in any patient",
+    "no measured target data exists for this formula in the corpus, so the measured side of the split is empty; measured targets come from the snapshot pipeline (analysis.network_pharmacology), not this corpus",
+    "the corpus records no molecular target relation for this formula or its herbs, so no target network was built and no claim is made",
+    "recorded indications (treats / indicated_for) are traditional-use records whose object is a syndrome; they are reported apart and are not targets"
+   ],
+   "assumptions": [
+    "corpus-recorded relations are treated as hypotheses about mechanism",
+    "absence of a measured edge means no measurement was found, not that binding was tested and excluded"
+   ],
+   "policy_id": "default",
+   "audit_head": "8389c7ef549cb17f9da1b155765a59bd1d4dce627f7c0dab0d81fc8d360a526a",
+   "provenance": {
+    "formula": "formula.guizhitang",
+    "predicted": 0,
+    "measured": 0,
+    "recorded_indications": 1,
+    "prediction_only": true,
+    "environment": {
+     "python": {
+      "implementation": "CPython",
+      "version": "3.13.16"
+     },
+     "platform": {
+      "system": "Linux",
+      "machine": "x86_64"
+     },
+     "packages": {
+      "bioagent": "0.2.7",
+      "numpy": "2.5.3",
+      "pandas": "3.0.5",
+      "psh": "0.6.0",
+      "pyarrow": "25.0.1",
+      "python-dateutil": "2.9.0.post0",
+      "pyyaml": "6.0.1",
+      "scipy": "1.18.1",
+      "six": "1.17.0"
+     },
+     "note": "installed versions of bioagent, psh and bioagent's declared runtime dependencies, transitively; 'missing' means declared but not installed",
+     "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
+    },
+    "governed": {
+     "skill_content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+     "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
+     "arguments_sha256": "0d084f2c7819ddf3f95e281876313a81e1c44f03494ed7e399cc29b1a41f0541",
+     "pre_attestation_digest": "78e3ffd6ebde29c42238d28a572d44ea71b2f4a0484bfeeb9f4228bbe07d49bf",
+     "state_dir": "/tmp/tmpxh8nt0cf/net/state",
+     "run_anchor": "f4cad101d7a8fb44f369ef760a6f5f8d5f8c5f761eba32cbd81443798b883bc3",
+     "operations": []
+    }
+   },
+   "status": "draft",
+   "produced_by": "analyze-tcm-network-pharmacology",
+   "notes": "",
+   "digest": "6b17724831f700f2d80535caa2e2eb6c125734308aec03a01a8564d2164c0982"
+  },
+  "verdict": {
+   "artifact_id": "analyze-tcm-network-pharmacology",
+   "publishable": true,
+   "states": {
+    "schema_valid": true,
+    "evidence_verified": true,
+    "outputs_verified": true,
+    "execution_declared": true,
+    "execution_attested": true,
+    "release_authorized": true
+   },
+   "unverified": [],
+   "codes": [],
+   "violations": [],
+   "warnings": [
+    {
+     "code": "ART105",
+     "detail": "artifact makes no claims; it reports material but asserts nothing",
+     "severity": "warning"
+    }
+   ],
+   "claim_verdicts": [],
+   "fixable_by_declaration": false
+  },
+  "claims": [],
+  "evidence": [],
+  "refusals": [],
+  "labels": [
+   "INTERNAL"
+  ],
+  "licences": [
+   {
+    "asset": "tcmscience.tcm.seed",
+    "licence": "MIT",
+    "commercial": true,
+    "note": ""
+   }
+  ],
+  "limitations": [
+   "EVERY target edge here is a corpus-recorded relation or a network inference; none is a binding measurement. No docking, no assay, no structure-based prediction was run",
+   "pathway enrichment is a ranked list of recorded predicates, not a background-corrected enrichment analysis; no network randomisation was performed, so no p-value is reported",
+   "the network is built from the seed corpus only; no external target database (BindingDB, ChEMBL, STITCH) was queried",
+   "a predicted edge is a hypothesis about a mechanism. It is not evidence that the formula treats any condition in any patient",
+   "no measured target data exists for this formula in the corpus, so the measured side of the split is empty; measured targets come from the snapshot pipeline (analysis.network_pharmacology), not this corpus",
+   "the corpus records no molecular target relation for this formula or its herbs, so no target network was built and no claim is made",
+   "recorded indications (treats / indicated_for) are traditional-use records whose object is a syndrome; they are reported apart and are not targets"
+  ],
+  "outputs": [
+   {
+    "path": "network.json",
+    "sha256": "0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d",
+    "media_type": "application/json",
+    "bytes": 1579,
+    "description": "herb–target network with predicted/measured split",
+    "content": {
+     "composition_edges": [],
+     "formula": {
+      "actions": [
+       "解肌发表",
+       "调和营卫"
+      ],
+      "chinese": "桂枝汤",
+      "id": "formula.guizhitang",
+      "source": "伤寒论"
+     },
+     "ingredients": [
+      {
+       "chinese": "桂枝",
+       "dose": "三两",
+       "herb_id": "herb.guizhi",
+       "processed": "",
+       "role": "君"
+      },
+      {
+       "chinese": "白芍",
+       "dose": "三两",
+       "herb_id": "herb.baishao",
+       "processed": "",
+       "role": "臣"
+      },
+      {
+       "chinese": "生姜",
+       "dose": "三两",
+       "herb_id": "herb.shengjiang",
+       "processed": "",
+       "role": "佐"
+      },
+      {
+       "chinese": "大枣",
+       "dose": "十二枚",
+       "herb_id": "herb.dazao",
+       "processed": "",
+       "role": "佐"
+      },
+      {
+       "chinese": "甘草",
+       "dose": "二两",
+       "herb_id": "herb.gancao",
+       "processed": "processed.zhi_gancao",
+       "role": "使"
+      }
+     ],
+     "measured_targets": [],
+     "pathway_enrichment": [],
+     "predicted_targets": [],
+     "provenance_summary": {
+      "edges_measured": 0,
+      "edges_predicted": 0,
+      "edges_total": 0,
+      "measured_fraction": 0.0
+     },
+     "randomisation": {
+      "note": "network randomisation is not implemented in this build; enrichment ranks are not background-corrected",
+      "performed": false
+     },
+     "recorded_indications": [
+      {
+       "evidence": [
+        "passage.shl_12"
+       ],
+       "object": "syndrome.taiyang_zhongfeng",
+       "predicate": "indicated_for",
+       "subject": "formula.guizhitang",
+       "tier": "classical_text"
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "receipt": {
+  "where": "runner",
+  "runtime": "CPython 3.13 · tcmstudio 0.1.0",
+  "device": "cpu",
+  "versions": {
+   "tcmstudio": "0.1.0",
+   "bioagent": "0.2.7",
+   "psh": "0.6.0"
+  },
+  "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=analyze-tcm-network-pharmacology@1.1.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
+  "content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+  "audit_head": "8389c7ef549cb17f9da1b155765a59bd1d4dce627f7c0dab0d81fc8d360a526a",
+  "input_sha256": "c2a32c33a86b1644fd79fa9b197be6fcd0d7ef24aa812666fae217ad84327184",
+  "output_sha256": "96af7aeaa22850fd66f7a9e5885f6611d19c75d416f138e367874e23f546a374",
+  "started_at": "2026-10-07T09:41:12Z",
+  "durable": true
+ },
+ "job": null,
+ "approval": null,
+ "error": null
+}
