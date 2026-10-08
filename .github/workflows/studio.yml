@@ -211,8 +211,11 @@ jobs:
         env:
           MODEL: ${{ steps.secrets.outputs.model }}
           RELAY_OFF: ${{ steps.secrets.outputs.relay_off }}
-        # a new custom domain and its certificate can take minutes on the first deployment; Tao-S1 is required to
-        # answer only when its key was put and it is not paused (RELAY = "off": health ok:false is then expected)
+          # used only if the Tao-S1 call fails: the check then asks the upstream directly and prints what it says
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        # a new custom domain and its certificate can take minutes on the first deployment, and a key put a moment
+        # ago takes a little while to reach the edge (check.mjs waits for both); Tao-S1 is required to answer only
+        # when its key was put and it is not paused (RELAY = "off": health ok:false is then expected)
         run: |
           if [ "$MODEL" = "1" ] && [ "$RELAY_OFF" != "1" ]; then
             node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model

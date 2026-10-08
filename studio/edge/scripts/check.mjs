@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 // After a deployment: does science.impf.ai answer, with its headers, and does Tao-S1 work? (stdlib only; Node 22)
-//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--require-model] [--relay on|off]
-// 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds);
+//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--settle 120] [--require-model]
+//                          [--relay on|off]
+// 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds), and — when Tao-S1
+//    is required — while a key put a moment ago reaches the edge (--settle seconds: health says ok:false until then);
 // 2. GET / is the app, with the headers from _headers (cross-origin isolation, the content policy);
 // 3. one tiny non-streaming model call (max_tokens 8) with the page's Origin, unless the relay has no key — then a
 //    warning, or a failure with --require-model — or is paused: RELAY = "off" in wrangler.toml (read next to this
 //    script unless --relay says otherwise) is the owner's choice, not a failure.
+// When the model call fails and MINIMAX_API_KEY is in the environment (the deploy workflow passes it), the upstream is
+// called once directly with the settings in wrangler.toml, and its own status, code and message (the key redacted) are
+// added to the reason: the relay never shows them, by design, so this is where the owner learns what the upstream said.
 // Prints one JSON line; exits non-zero with a reason when something is wrong.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -18,6 +23,71 @@ export function relayIn(text) {
   if (typeof text !== "string") return null;
   const m = /^\s*RELAY\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/m.exec(text);
   return m ? (m[1] ?? m[2] ?? m[3]).trim() || "on" : "on";
+}
+
+/** A [vars] value as wrangler.toml sets it (a plain `NAME = "value"` line), or undefined. */
+export function varIn(text, name) {
+  if (typeof text !== "string") return undefined;
+  const m = new RegExp(String.raw`^\s*${name}\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([^\s#]+))`, "m").exec(text);
+  if (!m) return undefined;
+  return m[1] !== undefined ? m[1].replace(/\\(["\\])/g, "$1") : (m[2] ?? m[3]);
+}
+
+/** The upstream's settings from wrangler.toml and the key, for the direct call (null without a key). */
+export function upstreamFrom(text, key) {
+  const k = String(key || "").replace(/\s+/g, "");
+  if (!k) return null;
+  let fields = {};
+  try {
+    const v = JSON.parse(varIn(text, "UPSTREAM_FIELDS") || "{}");
+    if (v && typeof v === "object" && !Array.isArray(v)) fields = v;
+  } catch { /* none */ }
+  return {
+    base: String(varIn(text, "UPSTREAM_BASE") || "https://api.minimax.cn/v1").replace(/\/+$/, ""),
+    model: String(varIn(text, "MODELS") || "MiniMax-M3").split(",")[0].trim(),
+    fields, key: k,
+  };
+}
+
+const redact = (text, key) => {
+  let out = String(text ?? "");
+  if (key) out = out.split(key).join("[key]");
+  return out.replace(/\b(?:sk|eyJ)[A-Za-z0-9._-]{8,}/g, "[redacted]").replace(/\s+/g, " ").trim().slice(0, 300);
+};
+
+/**
+ * One tiny call to the upstream itself, as the relay makes it: what the upstream says, in its own words (a 200 with a
+ * base_resp failure is MiniMax's way too). Never throws: the result is text for the owner's log.
+ */
+export async function diagnose(upstream, fetcher = fetch) {
+  const where = `${upstream.base}/chat/completions with model ${upstream.model}`;
+  let res;
+  try {
+    res = await fetcher(`${upstream.base}/chat/completions`, {
+      method: "POST",
+      headers: { "User-Agent": UA, "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${upstream.key}` },
+      body: JSON.stringify({ model: upstream.model, ...upstream.fields, messages: [{ role: "user", content: "请只回复两个字：可以" }], max_completion_tokens: 16 }),
+    });
+  } catch (err) {
+    return `calling ${where} directly failed: ${redact(err?.cause?.code || err?.message || err, upstream.key)}`;
+  }
+  const text = await res.text().catch(() => "");
+  let j = null;
+  try {
+    j = JSON.parse(text);
+  } catch { /* plain text */ }
+  const base = j?.base_resp;
+  if (res.ok && j && !j.error && !(base && base.status_code)) {
+    return `calling ${where} directly worked (HTTP ${res.status}): the key and the model are fine, so the relay's request differs from this one`;
+  }
+  const parts = [`HTTP ${res.status}`];
+  if (base && base.status_code) parts.push(`base_resp ${base.status_code}${base.status_msg ? ` "${redact(base.status_msg, upstream.key)}"` : ""}`);
+  if (j?.error) {
+    const e = typeof j.error === "object" ? j.error : { message: j.error };
+    parts.push(`error ${[e.type, e.code].filter(Boolean).join("/")}${e.message ? ` "${redact(e.message, upstream.key)}"` : ""}`.trim());
+  }
+  if (parts.length === 1 && text) parts.push(`"${redact(text, upstream.key)}"`);
+  return `calling ${where} directly: ${parts.join(", ")}`;
 }
 
 export async function check(options = {}, io = {}) {
@@ -53,6 +123,24 @@ export async function check(options = {}, io = {}) {
     await sleep(10000);
   }
 
+  // a key put moments ago takes a little while to reach every location: the version before it says ok:false
+  const paused = OFF.test(String(options.relay ?? "").trim());
+  if (!health.ok && options.requireModel && !paused) {
+    const settle = Number(options.settle ?? 120);
+    const until = now() + settle * 1000;
+    while (!health.ok && now() < until) {
+      log(`waiting for Tao-S1's key to take effect at ${url} (health ok:false)`);
+      await sleep(5000);
+      try {
+        const res = await fetcher(`${url}/v1/health`, { headers: { "User-Agent": UA, Accept: "application/json" } });
+        if (res.status === 200 && (res.headers.get("Content-Type") || "").includes("json")) {
+          const j = await res.json();
+          if (j && j.service === "tcmscience-studio") health = j;
+        }
+      } catch { /* the next round */ }
+    }
+  }
+
   // 2. the app and its headers
   const page = await fetcher(`${url}/`, { headers: { "User-Agent": UA, Accept: "text/html" } });
   const type = page.headers.get("Content-Type") || "";
@@ -67,7 +155,7 @@ export async function check(options = {}, io = {}) {
 
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
   if (!health.ok) {
-    if (OFF.test(String(options.relay ?? "").trim())) {
+    if (paused) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
       return { ...summary, call: "skipped (RELAY off)" };
     }
@@ -95,7 +183,9 @@ export async function check(options = {}, io = {}) {
     const hint = e.type === "upstream_auth"
       ? " — the model service refused the key: a key from the international platform (platform.minimax.io) needs UPSTREAM_BASE = \"https://api.minimax.io/v1\" in studio/edge/wrangler.toml, a mainland key https://api.minimax.cn/v1; or the key is wrong"
       : e.type === "forbidden_origin" ? ` — ${origin} is not in ALLOWED_ORIGINS` : "";
-    throw new Error(`the model call answered ${res.status} ${e.type || ""}: ${e.message || text.slice(0, 200)}${hint}`);
+    const upstreamSays = options.upstream && /^upstream_|^content_/.test(String(e.type || ""))
+      ? ` — ${await diagnose(options.upstream, fetcher)}` : "";
+    throw new Error(`the model call answered ${res.status} ${e.type || ""}: ${e.message || text.slice(0, 200)}${hint}${upstreamSays}`);
   }
   if (!reply || !Array.isArray(reply.choices)) throw new Error(`the model call answered 200 but not a completion: ${text.slice(0, 200)}`);
   if (reply.model !== health.model) throw new Error(`the model call answered as ${JSON.stringify(reply.model)}, not ${health.model}`);
@@ -110,6 +200,7 @@ function parse(argv) {
     if (a === "--url") options.url = argv[++i];
     else if (a === "--origin") options.origin = argv[++i];
     else if (a === "--wait") options.wait = Number(argv[++i]);
+    else if (a === "--settle") options.settle = Number(argv[++i]);
     else if (a === "--require-model") options.requireModel = true;
     else if (a === "--relay") options.relay = argv[++i];
     else if (a === "-h" || a === "--help") options.help = true;
@@ -121,15 +212,14 @@ function parse(argv) {
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
   try {
     const options = parse(process.argv.slice(2));
-    if (options.relay === undefined) {
-      let text = null;
-      try {
-        text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
-      } catch { /* not beside the repository's wrangler.toml: RELAY unknown */ }
-      options.relay = relayIn(text);
-    }
+    let text = null;
+    try {
+      text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+    } catch { /* not beside the repository's wrangler.toml: RELAY unknown */ }
+    if (options.relay === undefined) options.relay = relayIn(text);
+    options.upstream = upstreamFrom(text, process.env.MINIMAX_API_KEY);
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--require-model] [--relay on|off]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--relay on|off]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }
