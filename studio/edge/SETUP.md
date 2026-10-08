@@ -206,6 +206,8 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 检查步骤报 `… does not answer … after 600 s` | 新域名或证书还没生效 | 等几分钟后重跑 studio；也可以在 Cloudflare 确认 Worker 的 **Domains & Routes** 里有这个域名 |
 | 检查步骤报 `lacks Cross-Origin-Opener-Policy … _headers` | 部署的网页里没有 `_headers` | 确认 build 作业的 “Build the app” 步骤复制了 `studio/edge/_headers`，重跑 |
 | 检查步骤报 `Tao-S1 is off` | 写入机密那一步没有成功，或 Worker 上没有 `MINIMAX_API_KEY`（`RELAY = "off"` 不会报这个：那是暂停，检查照常通过） | 确认仓库 Secret `MINIMAX_API_KEY` 已设，重跑 studio |
+| 检查步骤报 `400 upstream_rejected`，后面跟着 `calling https://api.minimax… directly: …` | 模型服务拒绝了这次调用。后半句是检查步骤用仓库里的密钥**直接**问模型服务得到的原话（密钥已遮掉），按它判断：`base_resp 2013`（参数无效）多半是这把密钥用不了 `MODELS` 里的模型（例如 Token Plan 订阅密钥、另一个账户或站点的密钥）；`directly worked` 说明密钥和模型都没问题 | 换一把按量付费的 API Key（第 1 步），或把 `MODELS` 改成这把密钥可用的模型名；与 TaoChronos 共用同一把已验证可用的密钥也可以。改后重跑 studio |
+| 检查步骤刚部署完就报 `Tao-S1 is off`，但 `/v1/health` 随后显示 `"ok":true` | 刚写入的机密要几秒到一两分钟才到达各地的边缘节点 | 检查步骤现在最多等 2 分钟（`--settle`）。仍报这个错时，确认仓库 Secret `MINIMAX_API_KEY` 已设，重跑 studio |
 | 检查步骤报 `the model service refused the key` | 国际站密钥配了国内地址（或反之），或者密钥已删除、填错 | 按第 6 步改 `UPSTREAM_BASE`；或更新 `MINIMAX_API_KEY` 后重跑 |
 | 检查步骤或网页提示“额度暂时用完了”“暂时繁忙” | MiniMax 余额不足，或 Token Plan 当前窗口的额度用完、调用过于频繁 | 充值，或等下一个窗口。公开网站建议用按量付费的密钥 |
 | 网页提示“Tao-S1 只供 TCMScience Studio 网页使用” | 网页的地址不在 `ALLOWED_ORIGINS` 里，或浏览器扩展去掉了 `Origin` | 换了网址时，把新地址加进 `ALLOWED_ORIGINS` 并重新部署 |

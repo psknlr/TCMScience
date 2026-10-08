@@ -357,8 +357,10 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   }
   const type = upstream.headers.get("Content-Type") || "";
   if (!upstream.ok) {
-    await cancel(upstream); // its text names the vendor, the model, the parameters, sometimes the key's prefix
-    console.error("upstream", upstream.status);
+    // its text names the vendor, the model, the parameters, sometimes the key's prefix: none of it reaches the visitor;
+    // the owner's log gets the status and the upstream's own failure code (never its message)
+    const said = await upstream.text().catch(() => "");
+    console.error("upstream", upstream.status, upstreamCode(said));
     refund();
     if (upstream.status === 401 || upstream.status === 403) return failed("upstream_auth", cors);
     if (upstream.status === 429) return failed("upstream_rate", cors, retryAfterOf(upstream));
@@ -389,6 +391,18 @@ async function chat(request, env, cfg, cors, allowed, deps) {
   }
   const out = noReasoning ? JSON.stringify(withoutReasoning(j)) : text;
   return new Response(publicText(out, cfg, spend), { status: upstream.status, headers });
+}
+
+/** The upstream's failure code in an error reply (base_resp.status_code, or error.code / error.type), for the log. */
+export function upstreamCode(text) {
+  let j;
+  try {
+    j = JSON.parse(String(text).slice(0, 65536));
+  } catch {
+    return "";
+  }
+  const code = j?.base_resp?.status_code || (j?.error && typeof j.error === "object" ? j.error.code || j.error.type : "");
+  return /^[\w.-]{1,40}$/.test(String(code ?? "")) ? String(code) : "";
 }
 
 function retryAfterOf(response) {

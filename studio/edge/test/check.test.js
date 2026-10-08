@@ -6,7 +6,7 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { check, relayIn } from "../scripts/check.mjs";
+import { check, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
 import { CSP_REPORT_ONLY, secure } from "../src/site.js";
 import { jsonReply, relay } from "./helpers.js";
 
@@ -31,7 +31,11 @@ function site({ env = {}, upstream, pageHeaders = true, downFor = 0 } = {}) {
   return { fetch, seen, r };
 }
 
-const io = (s, logs = []) => ({ fetch: s.fetch, sleep: async () => {}, log: (l) => logs.push(l) });
+// a fake clock: sleeping advances it, so waits (the new domain, the key taking effect) cost no real time
+const io = (s, logs = []) => {
+  let t = 0;
+  return { fetch: s.fetch, sleep: async (ms) => { t += ms; }, log: (l) => logs.push(l), now: () => t };
+};
 
 test("a working deployment: health, the app's headers, one tiny call as the page makes it", async () => {
   const s = site();
@@ -113,7 +117,7 @@ test("the command line: the pause in wrangler.toml, or --relay, decides whether 
   const url = `http://127.0.0.1:${server.address().port}`;
   const script = fileURLToPath(new URL("../scripts/check.mjs", import.meta.url));
   const run = (...args) => new Promise((resolve) => {
-    execFile(process.execPath, [script, "--url", url, "--wait", "0", "--require-model", ...args], (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
+    execFile(process.execPath, [script, "--url", url, "--wait", "0", "--settle", "0", "--require-model", ...args], (err, stdout, stderr) => resolve({ code: err ? err.code : 0, stdout, stderr }));
   });
   const paused = await run("--relay", "off");
   assert.equal(paused.code, 0, paused.stderr);
@@ -125,4 +129,80 @@ test("the command line: the pause in wrangler.toml, or --relay, decides whether 
   const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   const fromToml = await run();
   assert.equal(fromToml.code, /^(off|0|false|no)$/i.test(relayIn(text)) ? 0 : 1, fromToml.stderr);
+});
+
+test("a key put a moment ago: health ok:false is waited out (--settle), then the call is made", async () => {
+  const s = site();
+  let stale = 3; // the edge still serves the version from before the secret
+  const fetch = async (url, init) => {
+    if (new URL(url).pathname === "/v1/health" && stale-- > 0) {
+      return new Response(JSON.stringify({ ok: false, service: "tcmscience-studio", model: "Tao-S1" }), { headers: { "Content-Type": "application/json" } });
+    }
+    return s.fetch(url, init);
+  };
+  const logs = [];
+  let clock = 0;
+  const out = await check({ requireModel: true, relay: "on" }, { fetch, sleep: async (ms) => { clock += ms; }, log: (l) => logs.push(l), now: () => clock });
+  assert.equal(out.call, "ok");
+  assert.match(logs.join("\n"), /waiting for Tao-S1's key to take effect/);
+  // never taking effect within --settle: the same failure as before, after waiting
+  let t = 0;
+  const never = site({ env: { MINIMAX_API_KEY: "" } });
+  await assert.rejects(check({ requireModel: true, relay: "on", settle: 30 }, { fetch: never.fetch, sleep: async (ms) => { t += ms; }, log: () => {}, now: () => t }),
+    /Tao-S1 is off: no MINIMAX_API_KEY secret on the Worker$/);
+  assert.ok(t >= 30000);
+});
+
+const KEY = "sk-cp-secret0123456789";
+const UPSTREAM = { base: "https://api.minimax.cn/v1", model: "MiniMax-M3", fields: { reasoning_split: true }, key: KEY };
+
+test("a refused call: the upstream is asked directly and its own words are in the reason, the key redacted", async () => {
+  const refuse = async () => jsonReply({ base_resp: { status_code: 2013, status_msg: `invalid params, unknown model for key ${KEY}` } });
+  const s = site({ upstream: refuse });
+  const direct = [];
+  const fetch = async (url, init) => {
+    if (new URL(url).host === "api.minimax.cn") {
+      direct.push(JSON.parse(init.body));
+      assert.equal(init.headers.Authorization, `Bearer ${KEY}`);
+      return refuse();
+    }
+    return s.fetch(url, init);
+  };
+  let clock = 0;
+  const err = await check({ requireModel: true, upstream: UPSTREAM }, { fetch, sleep: async (ms) => { clock += ms; }, log: () => {}, now: () => clock }).then(() => null, (e) => e);
+  assert.ok(err);
+  assert.match(err.message, /400 upstream_rejected/);
+  assert.match(err.message, /calling https:\/\/api\.minimax\.cn\/v1\/chat\/completions with model MiniMax-M3 directly: HTTP 200, base_resp 2013 "invalid params, unknown model for key \[key\]"/);
+  assert.ok(!err.message.includes(KEY), "the key is never printed");
+  assert.equal(direct.length, 1);
+  assert.equal(direct[0].model, "MiniMax-M3");
+  assert.equal(direct[0].reasoning_split, true);
+  // without a key in the environment, nothing is called directly
+  const s2 = site({ upstream: refuse });
+  const err2 = await check({ requireModel: true }, io(s2)).then(() => null, (e) => e);
+  assert.ok(!/directly/.test(err2.message));
+});
+
+test("diagnose says what the upstream answered, whatever its shape, and never throws", async () => {
+  const reply = (body, status = 200) => async () => new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  assert.match(await diagnose(UPSTREAM, reply({ error: { type: "invalid_request_error", code: "model_not_found", message: "no such model" } }, 404)),
+    /HTTP 404, error invalid_request_error\/model_not_found "no such model"/);
+  assert.match(await diagnose(UPSTREAM, reply("Bad Request", 400)), /HTTP 400, "Bad Request"/);
+  assert.match(await diagnose(UPSTREAM, reply({ id: "x", choices: [{ message: { content: "可以" } }] })), /directly worked \(HTTP 200\): the key and the model are fine/);
+  assert.match(await diagnose(UPSTREAM, async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }); }), /directly failed: ENOTFOUND/);
+  assert.match(await diagnose(UPSTREAM, reply({ base_resp: { status_code: 1004, status_msg: "login fail: Please carry the API secret key sk-abcdefgh12345 " } })),
+    /base_resp 1004 "login fail: Please carry the API secret key \[redacted\]"/);
+});
+
+test("the upstream settings for the direct call are read from wrangler.toml, and only with a key", () => {
+  const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const u = upstreamFrom(text, ` ${KEY}\n`);
+  assert.equal(u.key, KEY);
+  assert.equal(u.base, varIn(text, "UPSTREAM_BASE").replace(/\/+$/, ""));
+  assert.equal(u.model, varIn(text, "MODELS").split(",")[0].trim());
+  assert.deepEqual(u.fields, JSON.parse(varIn(text, "UPSTREAM_FIELDS")));
+  assert.equal(upstreamFrom(text, ""), null);
+  assert.equal(upstreamFrom(text, undefined), null);
+  assert.equal(varIn('UPSTREAM_FIELDS = "{\\"a\\":1}"', "UPSTREAM_FIELDS"), '{"a":1}');
+  assert.equal(varIn("X = 5", "Y"), undefined);
 });

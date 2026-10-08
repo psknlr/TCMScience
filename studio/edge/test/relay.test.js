@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { config, handle, ipKey, publicText, withoutReasoning } from "../src/relay.js";
+import { config, handle, ipKey, publicText, upstreamCode, withoutReasoning } from "../src/relay.js";
 import { KEY, NOON, PAGE, ask, cut, events, jsonReply, post, quiet, relay, sse, tidy } from "./helpers.js";
 
 // ------------------------------------------------------------------ the call itself
@@ -514,4 +514,13 @@ test("the handler is pure over its dependencies (the Worker entry binds them)", 
   const r = relay();
   const res = await handle(new Request("https://science.impf.ai/v1/health"), { MINIMAX_API_KEY: "k" }, r.deps);
   assert.equal((await res.json()).ok, true);
+});
+
+test("the owner's log gets the upstream's failure code, never its message", () => {
+  assert.equal(upstreamCode(JSON.stringify({ base_resp: { status_code: 2013, status_msg: "invalid params: 你好" } })), "2013");
+  assert.equal(upstreamCode(JSON.stringify({ error: { type: "invalid_request_error", message: "what a visitor wrote" } })), "invalid_request_error");
+  assert.equal(upstreamCode(JSON.stringify({ error: { code: "model_not_found", type: "x" } })), "model_not_found");
+  assert.equal(upstreamCode(JSON.stringify({ error: { code: "a message, not a code" } })), "");
+  assert.equal(upstreamCode("Bad Request"), "");
+  assert.equal(upstreamCode(""), "");
 });
