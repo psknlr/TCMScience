@@ -74,6 +74,8 @@ test("what goes wrong is named: no _headers, no key, a refused key, a wrong orig
   await assert.rejects(check({}, io(site({ upstream: async () => jsonReply({ error: { message: "bad key" } }, 401) }))),
     /503 upstream_auth.*api\.minimax\.io/);
   await assert.rejects(check({ origin: "https://elsewhere.example" }, io(site())), /forbidden_origin.*ALLOWED_ORIGINS/);
+  await assert.rejects(check({}, io(site({ upstream: async () => jsonReply({ error: { type: "insufficient_balance_error", message: "insufficient balance (1008)" } }, 402) }))),
+    /503 upstream_quota.*balance is used up: top up the MiniMax account/);
 });
 
 test("a pause committed in wrangler.toml (RELAY = \"off\") is the owner's choice: the check passes without a call", async () => {

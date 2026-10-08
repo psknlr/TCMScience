@@ -286,6 +286,9 @@ test("the upstream's failures become this service's own words, with the right st
   assert.deepEqual(await outcome(async () => jsonReply(said, 404)), [502, "upstream_error", null]);
   assert.deepEqual(await outcome(async () => jsonReply(said, 400)), [400, "upstream_rejected", null]);
   assert.deepEqual(await outcome(async () => jsonReply(said, 422)), [400, "upstream_rejected", null]);
+  // an empty balance is a spent quota, not a wrong request (MiniMax: HTTP 402, insufficient_balance_error, 1008)
+  assert.deepEqual(await outcome(async () => jsonReply({ error: { type: "insufficient_balance_error", message: "insufficient balance (1008)" } }, 402)), [503, "upstream_quota", null]);
+  assert.deepEqual(await outcome(async () => jsonReply({ base_resp: { status_code: 1008, status_msg: "insufficient balance" } }, 400)), [503, "upstream_quota", null]);
   assert.deepEqual(await outcome(async () => { throw new TypeError("fetch failed"); }), [502, "upstream_unreachable", null]);
   // MiniMax's base_resp inside a 200 reply (it answers a stream request that way too)
   const base = (code) => async () => jsonReply({ id: "x", base_resp: { status_code: code, status_msg: "MiniMax: details" } });
