@@ -360,9 +360,12 @@ async function chat(request, env, cfg, cors, allowed, deps) {
     // its text names the vendor, the model, the parameters, sometimes the key's prefix: none of it reaches the visitor;
     // the owner's log gets the status and the upstream's own failure code (never its message)
     const said = await upstream.text().catch(() => "");
-    console.error("upstream", upstream.status, upstreamCode(said));
+    const code = upstreamCode(said);
+    console.error("upstream", upstream.status, code);
     refund();
     if (upstream.status === 401 || upstream.status === 403) return failed("upstream_auth", cors);
+    // MiniMax answers an empty balance with 402 insufficient_balance_error (1008): the quota is spent, not the request wrong
+    if (upstream.status === 402 || code === "1008" || code === "insufficient_balance_error") return failed("upstream_quota", cors);
     if (upstream.status === 429) return failed("upstream_rate", cors, retryAfterOf(upstream));
     if (upstream.status >= 500 || upstream.status === 404) return failed("upstream_error", cors);
     return failed("upstream_rejected", cors);

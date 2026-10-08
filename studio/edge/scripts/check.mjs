@@ -182,6 +182,7 @@ export async function check(options = {}, io = {}) {
     const e = reply?.error || {};
     const hint = e.type === "upstream_auth"
       ? " — the model service refused the key: a key from the international platform (platform.minimax.io) needs UPSTREAM_BASE = \"https://api.minimax.io/v1\" in studio/edge/wrangler.toml, a mainland key https://api.minimax.cn/v1; or the key is wrong"
+      : e.type === "upstream_quota" ? " — the model service says this key's balance is used up: top up the MiniMax account the key belongs to, or put a key with balance in MINIMAX_API_KEY"
       : e.type === "forbidden_origin" ? ` — ${origin} is not in ALLOWED_ORIGINS` : "";
     const upstreamSays = options.upstream && /^upstream_|^content_/.test(String(e.type || ""))
       ? ` — ${await diagnose(options.upstream, fetcher)}` : "";
