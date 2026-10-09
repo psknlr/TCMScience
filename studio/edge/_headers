@@ -25,3 +25,39 @@
 /runtime/*.tar.gz
   ! Cache-Control
   Cache-Control: public, max-age=31536000, immutable
+
+# The corpus (docs/V2.md §11.2). Objects and manifests are named by their content; latest.json is the pointer a
+# runner reads. A page the runner serves on 127.0.0.1 reads the public corpus, so these may be read cross-origin.
+/corpus/*
+  ! Cross-Origin-Resource-Policy
+  Cross-Origin-Resource-Policy: cross-origin
+  Access-Control-Allow-Origin: *
+
+/corpus/o/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+/corpus/manifest.*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+# Self-hosted Pyodide (V2 §15): a version directory never changes.
+/pyodide/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+# Runner release files (V2 §16): wheels and uv archives sit under content- or version-named directories; the
+# manifest and the install scripts keep the default no-cache.
+/runner/w/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+/runner/uv/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+
+/install.ps1
+  Content-Type: text/plain; charset=utf-8

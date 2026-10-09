@@ -53,6 +53,8 @@ EXTRACT_DIR = "/opt/tcms/site"
 #: Where governed runs keep each project's PSH state in the browser (IDBFS when it works).
 STATE_ROOT = "/persist"
 BOOT_SCHEMA = "tcmstudio.boot/1"
+#: The public site; the runner reads the published corpus and the install scripts point here.
+PUBLIC_SITE_URL = "https://science.impf.ai"
 ENV_INDEX_URL = "TCMSTUDIO_PYODIDE_INDEX_URL"
 
 #: 2020-01-01T00:00:00Z: every bundle entry gets this time, so a rebuild is byte-identical.
@@ -321,6 +323,11 @@ def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str
             bundle = build_bundle()
             catalog, _ = catalog_bytes(strict=False)
             boot = boot_document(bundle, catalog, index_url=key)
+            # A runner-served page reads the public corpus (docs/V2.md §11.4).
+            entry = _hook("tcmstudio.corpus.build", "runtime_boot_entry")
+            corpus_entry = entry() if entry is not None else None
+            if corpus_entry:
+                boot["corpus"] = corpus_entry
             _CACHE = {"boot.json": (_json_bytes(boot), "application/json; charset=utf-8"),
                       "catalog.json": (catalog, "application/json; charset=utf-8"),
                       bundle.name: (bundle.data, "application/gzip")}
@@ -416,13 +423,29 @@ def _install(staging: Path, out: Path) -> None:
         staging.rename(out)
 
 
+def _hook(module: str, name: str) -> Callable[..., Any] | None:
+    """A v2 build step (docs/V2.md) by module and function name, or None when that module
+    is not part of this installation. Each step owns its own files under the staging site."""
+    import importlib
+
+    try:
+        return getattr(importlib.import_module(module), name, None)
+    except ImportError:
+        return None
+
+
 def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | None = None, *,
           dev: bool = False, index_url: str | None = None,
+          corpus: bool = True, self_host_pyodide: bool = False, release: bool = False,
+          site_url: str = PUBLIC_SITE_URL,
           log: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Build the site into ``out_dir`` and return a summary of what was written.
 
-    The site is assembled in a sibling directory and moved into place at the end, so a
-    failed build leaves the previous one as it was."""
+    v2 steps (docs/V2.md): ``corpus`` publishes the corpus under ``corpus/`` and pins it in
+    boot.json (§11); ``self_host_pyodide`` copies pinned Pyodide files under ``pyodide/`` and
+    points boot.json at them (§15); ``release`` writes the runner wheels and the install
+    scripts (§16). The site is assembled in a sibling directory and moved into place at the
+    end, so a failed build leaves the previous one as it was."""
     say = log or (lambda _msg: None)
     out = Path(out_dir).expanduser().resolve()
     web = Path(web_dir).expanduser().resolve() if web_dir else default_web_dir()
@@ -453,6 +476,25 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         runtime.mkdir(exist_ok=True)
         (runtime / bundle.name).write_bytes(bundle.data)
         (runtime / "catalog.json").write_bytes(catalog)
+        extras: dict[str, Any] = {}
+        if self_host_pyodide:
+            step = _hook("tcmstudio.pyodide_host", "self_host")
+            if step is None:
+                raise BuildError("--self-host-pyodide needs tcmstudio.pyodide_host")
+            hosted = step(staging, catalog=doc, log=say)
+            boot["pyodide"]["index_url"] = hosted["index_url"]
+            extras["pyodide"] = hosted
+        if corpus:
+            step = _hook("tcmstudio.corpus.build", "build_site_corpus")
+            entry = step(staging, log=say) if step is not None else None
+            if entry:
+                boot["corpus"] = entry
+                extras["corpus"] = entry
+        if release:
+            step = _hook("tcmstudio.release", "build_release")
+            if step is None:
+                raise BuildError("--release needs tcmstudio.release")
+            extras["release"] = step(staging, site_url=site_url, log=say)
         (runtime / "boot.json").write_bytes(_json_bytes(boot))
         headers = web.parent / "edge" / "_headers"
         if headers.is_file():
@@ -464,7 +506,7 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
     say(f"wrote {out} ({copied} web files{' with test/ and dev/' if dev else ''}"
         f"{', _headers' if headers.is_file() else ''})")
     return {"out": str(out), "web": str(web), "web_files": copied, "dev": dev,
-            "headers": headers.is_file(), "boot": boot,
+            "headers": headers.is_file(), "boot": boot, "extras": extras,
             "catalog": {"bytes": len(catalog), "counts": doc["counts"]},
             "bundle": {"name": bundle.name, "sha256": bundle.sha256, "bytes": len(bundle.data),
                        "files": bundle.files, "raw_bytes": bundle.raw_bytes,
@@ -486,6 +528,15 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help=f"where the worker loads Pyodide from (default: ${ENV_INDEX_URL} or "
                              f"{PYODIDE_INDEX_URL}); absolute, or relative to the site root "
                              "for a self-hosted copy")
+    parser.add_argument("--no-corpus", dest="corpus", action="store_false",
+                        help="do not publish the corpus under corpus/ (docs/V2.md §11)")
+    parser.add_argument("--self-host-pyodide", action="store_true",
+                        help="copy the pinned Pyodide files under pyodide/ and load them from there "
+                             "(docs/V2.md §15; downloads them once into a local cache)")
+    parser.add_argument("--release", action="store_true",
+                        help="also build the runner wheels and the install scripts (docs/V2.md §16)")
+    parser.add_argument("--site-url", default=PUBLIC_SITE_URL,
+                        help=f"the site's public URL, for the install scripts (default {PUBLIC_SITE_URL})")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
 
 
@@ -493,7 +544,11 @@ def run(args: argparse.Namespace) -> int:
     log = (lambda m: print(m, file=sys.stderr))
     try:
         summary = build(args.out, args.web, dev=bool(args.dev),
-                        index_url=getattr(args, "pyodide_index_url", None), log=log)
+                        index_url=getattr(args, "pyodide_index_url", None),
+                        corpus=getattr(args, "corpus", True),
+                        self_host_pyodide=bool(getattr(args, "self_host_pyodide", False)),
+                        release=bool(getattr(args, "release", False)),
+                        site_url=getattr(args, "site_url", PUBLIC_SITE_URL), log=log)
     except BuildError as exc:
         print(f"tcmstudio webbuild: {exc}", file=sys.stderr)
         return 2
