@@ -418,16 +418,25 @@ def _native_entries() -> list[dict[str, Any]]:
     for t in TOOLS:
         zh, en = _NATIVE_TITLES.get(t.name, (t.name, t.name.replace("_", " ")))
         doc = inspect.getdoc(t.fn) or ""
+        summary = _first_paragraph(doc) or t.description
+        if t.name in ("tcm_lookup", "tcm_herb", "tcm_formula"):
+            summary = next(core["description"] for core in CORE_TOOLS if core["name"] == t.name)
         data = list(t.data)
         reads_store = bool(t.reads)
         extra: dict[str, Any] = {"domain": t.domain, "doc": doc[:4000]}
         if data:
             extra["data"] = data
-            extra["needs"] = ["a tcmdb store built or imported on the runner"]
+            extra["needs"] = ["a tcmdb store built or imported in this runtime"]
+        if t.name in ("gc_content", "hamming_distance", "distance_matrix"):
+            extra["execution"] = {"browser_compute": {
+                "backends": ["webgpu", "cpu"],
+                "precision": "Exact uint32 counts; original Python output transforms",
+                "workload": "pairwise aligned nucleotide distance matrix" if t.name == "distance_matrix"
+                            else "nucleotide site counts"}}
         out.append(_entry(
             f"native.{t.name}", "native", zh, en, _native_category(t.name, t.domain),
-            _first_paragraph(doc) or t.description, fn_schema(t.fn, t.example),
-            example=dict(t.example), exec_=R if reads_store else B_R,
+            summary, fn_schema(t.fn, t.example),
+            example=dict(t.example), exec_=B_R,
             tags=[t.name, *t.tags, *_DOMAIN_TAGS.get(t.domain, ()), DOMAINS.get(t.domain, ""),
                   *_NATIVE_EXTRA_TAGS.get(t.name, ())], **extra))
     return out
@@ -665,12 +674,13 @@ def _connector_entries() -> list[dict[str, Any]]:
             out.append(_entry(
                 f"connector.{s.key}.{op.name}", "connector", title, title, category,
                 f"{op.description} ({s.name}, {s.host})", op_schema(op), example=example,
-                exec_=R, network=True,
+                exec_=B_R, network=True,
                 tags=[s.key, s.name, op.name, s.domain, "connector", "API", "在线",
                       *_CONNECTOR_DOMAIN_ZH.get(s.domain, ())],
                 hosts=[s.host],
                 connector={"key": s.key, "name": s.name, "operation": op.name,
                            "method": op.method, "host": s.host, "license": s.license,
+                           "transport": "https" if s.base_url.startswith("https://") else "http",
                            "rate_note": s.rate_note, "docs": s.docs, "domain": s.domain}))
     return out
 
@@ -751,12 +761,34 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
     support = ["independently_replicated", "documented", "associated", "integrated",
                "mentioned", "predicted", "signal", "tested_negative", "inconclusive"]
     tags = ("中医药数据", "数据枢纽", "数据库", "tcmdb", "TCM data")
-    hub_note = "Needs the local runner with the dataset fetched and built (tcmdb.fetch / tcmdb.build jobs)."
+    hub_note = "Needs a dataset store built on the runner or imported into this browser; unavailable stores are reported explicitly."
     return [
+        _entry("tcmdb.formulas", "tcmdb", "完整方剂库检索", "Complete formula workbook", "tcm_data",
+               "Search every row and all seven source fields of the repository formula workbook. "
+               "Duplicate names and source versions are retained, with pagination, literal doses, "
+               "unresolved components and source digest. Data licence is unstated; the records "
+               "are not clinically validated and do not establish efficacy or safety.",
+               obj({"query": S(), "exact": B(default=False), "source": S(),
+                    "limit": I(minimum=1, maximum=100, default=25),
+                    "offset": I(minimum=0, default=0)}), example={"query": "桂枝汤", "exact": True},
+               tags=(*tags, "方剂", "方剂全库", "配方", "84294", "出处")),
+        _entry("tcmdb.materia", "tcmdb", "完整药材身份库", "Complete materia identities", "tcm_data",
+               "Search every checked-in materia identity, alias, medicinal part and species. "
+               "No clinical properties or safety annotation are inferred from an identity match.",
+               obj({"query": S(), "limit": I(minimum=1, maximum=500, default=50),
+                    "offset": I(minimum=0, default=0)}), example={"query": "甘草"},
+               tags=(*tags, "药材", "物种", "别名", "materia")),
+        _entry("tcmdb.import_store", "tcmdb", "导入数据集 SQLite", "Import a dataset SQLite store", "tcm_data",
+               "Import a user's complete built dataset store into this project's data hub. "
+               "The registered dataset, SQLite integrity and provenance/relation schema are "
+               "checked before replacing a store. Accepts base64 SQLite data up to 64 MiB; "
+               "larger data needs the local runner. Import preserves the source data licence.",
+               obj({"dataset": dataset_s, "content_base64": S("base64-encoded SQLite store")},
+                   required=("dataset", "content_base64")), tags=(*tags, "导入", "SQLite")),
         _entry("tcmdb.catalog", "tcmdb", "中医药数据源目录", "TCM data sources", "tcm_data",
                "The 136 TCM source cards: access mode (live_api, snapshot, manual_import, "
                "restricted, unreachable), licence, commercial use, barriers, assessment; on the "
-               "runner also whether each dataset is downloaded and built.",
+               "current runtime also whether each dataset store is built or imported.",
                obj({"query": S(), "module": S("M1..M14"),
                     "access": S(enum=["live_api", "live_api+snapshot", "snapshot",
                                       "manual_import", "restricted", "unreachable"])}),
@@ -773,10 +805,10 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
         _entry("tcmdb.status", "tcmdb", "本地数据状态", "Local data status", "tcm_data",
                "Per dataset: files present, missing default files, whether it is built, table "
                "row counts and relation counts.", obj({"dataset": dataset_s}),
-               exec_=R, tags=(*tags, "状态", "已构建")),
+               exec_=B_R, tags=(*tags, "状态", "已构建")),
         _entry("tcmdb.tables", "tcmdb", "数据表结构", "Tables of a dataset", "tcm_data",
                f"Tables and columns of a built dataset. {hub_note}",
-               obj({"dataset": dataset_s}, required=("dataset",)), exec_=R,
+               obj({"dataset": dataset_s}, required=("dataset",)), exec_=B_R,
                tags=(*tags, "表", "字段")),
         _entry("tcmdb.query", "tcmdb", "数据表查询", "Query a table", "tcm_data",
                "Rows of one source table: where = exact equality, contains = case-insensitive "
@@ -785,7 +817,7 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "where": obj({}, additional=True), "contains": obj({}, additional=S()),
                     "columns": arr(S()), "limit": I(minimum=1, maximum=10000, default=50),
                     "offset": I(minimum=0, default=0)}, required=("dataset", "table")),
-               exec_=R, tags=(*tags, "查询", "SQL")),
+               exec_=B_R, tags=(*tags, "查询", "SQL")),
         _entry("tcmdb.relations", "tcmdb", "数据枢纽关系查询", "Hub relations", "tcm_data",
                "Relations of one shape across every built store, each row with its source, "
                "evidence kind, reference and licence; limit is per source. Predicted, "
@@ -795,7 +827,7 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "outcomes": arr(S(enum=["positive", "negative", "inconclusive"])),
                     "sources": arr(S()), "commercial": B(default=False),
                     "limit": I("per source", minimum=1, maximum=500, default=50)}),
-               exec_=R, tags=(*tags, "关系", "成分", "靶点", "药物相互作用", "herb_ingredient")),
+               exec_=B_R, tags=(*tags, "关系", "成分", "靶点", "药物相互作用", "herb_ingredient")),
         _entry("tcmdb.consensus", "tcmdb", "多源一致性", "Cross-source consensus", "tcm_data",
                "One relation kind reconciled across sources: ids unified, copies counted once, "
                f"evidence kinds kept apart, contradictions and silence reported. {hub_note}",
@@ -803,26 +835,26 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "contains": B(default=False), "min_support": S(enum=support),
                     "merge_processed": B(default=False),
                     "limit": I("items returned", minimum=1, maximum=500, default=50)},
-                   required=("kind",)), exec_=R, tags=(*tags, "一致性", "独立来源", "共识")),
+                   required=("kind",)), exec_=B_R, tags=(*tags, "一致性", "独立来源", "共识")),
         _entry("tcmdb.compare", "tcmdb", "来源比较", "Compare sources", "tcm_data",
                f"Per-source object sets of one subject: shared, source-only, overlaps. {hub_note}",
                obj({"kind": kind_s, "subject": S(), "sources": arr(S()),
                     "merge_processed": B(default=False)}, required=("kind", "subject")),
-               exec_=R, tags=(*tags, "比较", "重叠")),
+               exec_=B_R, tags=(*tags, "比较", "重叠")),
         _entry("tcmdb.evidence_for", "tcmdb", "临床试验与文献记录", "Trials and papers recorded",
                "tcm_data", "Clinical trials, meta-analyses and papers recorded for a herb, formula "
                f"or ingredient across the built stores. {hub_note}",
                obj({"subject": S(), "limit": I("per source", minimum=1, maximum=500, default=50),
                     "contains": B(default=False)}, required=("subject",)),
-               exec_=R, tags=(*tags, "临床试验", "文献", "荟萃分析")),
+               exec_=B_R, tags=(*tags, "临床试验", "文献", "荟萃分析")),
         _entry("tcmdb.licences", "tcmdb", "数据许可", "Licences of built data", "tcm_data",
                "Each built dataset's relation kinds with their licence text, reuse class and "
-               "whether commercial reuse is allowed.", obj({}), exec_=R,
+               "whether commercial reuse is allowed.", obj({}), exec_=B_R,
                tags=(*tags, "许可", "商用", "licence")),
         _entry("tcmdb.unresolved", "tcmdb", "未解析记录", "Unresolved rows", "tcm_data",
                f"Rows a source gave whose object it could not identify. {hub_note}",
                obj({"dataset": dataset_s, "limit": I(minimum=1, maximum=1000, default=50)},
-                   required=("dataset",)), exec_=R, tags=(*tags, "未解析")),
+                   required=("dataset",)), exec_=B_R, tags=(*tags, "未解析")),
     ]
 
 
@@ -1059,6 +1091,25 @@ def _system_entries() -> list[dict[str, Any]]:
                "What can run now and where: runtime, versions, network profile, purpose, "
                "optional dependencies, the project's audit-chain location, and counts of "
                "runnable entries.", obj({}), example={}, tags=(*tags, "能力", "状态", "设备")),
+        _entry("system.provider_catalog", "system", "第三方封装完整目录", "Complete third-party provider index", "system",
+               "Search the complete bundled third-party capability catalogue and inspect every "
+               "reviewed ToolUniverse and BioMCP wrapper, source hosts, package pins and explicit "
+               "availability reasons. Catalogue rows are an index; indexed is not executable. "
+               "Browser HTTP connectors are available separately; Python/MCP wrappers need their "
+               "configured runtime and do not silently appear as working browser tools.",
+               obj({"query": S(), "project": S(), "kind": S(),
+                    "limit": I(minimum=1, maximum=200, default=50),
+                    "offset": I(minimum=0, default=0)}), example={"query": "database"},
+               tags=(*tags, "第三方", "封装", "ToolUniverse", "BioMCP", "Biomni", "database")),
+        _entry("system.provider_call", "system", "调用已审核第三方封装", "Call a reviewed third-party wrapper", "live_sources",
+               "Run only a tool named in the checked-in ToolUniverse or BioMCP allowlist on the "
+               "runner through the BioScience policy kernel. Package/configuration pins and "
+               "network/purpose rules remain enforced; missing dependencies and draft MCP "
+               "configurations are reported explicitly. No arbitrary Python entrypoint or MCP "
+               "server may be supplied.",
+               obj({"provider": S(enum=["tooluniverse", "biomcp"]), "tool": S(),
+                    "arguments": obj({}, additional=True)}, required=("provider", "tool")),
+               exec_=R, network=True, tags=(*tags, "第三方", "ToolUniverse", "BioMCP", "封装")),
         _entry("system.catalog_search", "system", "能力检索", "Search capabilities", "system",
                "Search the catalog by Chinese or English keywords, with filters by category, "
                "kind and what can run now.",

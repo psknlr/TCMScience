@@ -175,3 +175,28 @@ test("isNavigation: Fetch Metadata when the browser sends it, else Accept", () =
   assert.equal(nav({ Accept: "text/html" }), true);
   assert.equal(nav({}), false);
 });
+
+test("source gateway reads its trusted built asset, caches it and uses the Durable Object independently of Tao-S1", async () => {
+  const registry = { version: 1, sources: [{ key: "pubchem", base_url: "https://pubchem.ncbi.nlm.nih.gov/rest/pug", host: "pubchem.ncbi.nlm.nih.gov",
+    operations: [{ name: "cid", path: "compound/cid/{cid}/JSON", method: "GET", params: {} }] }] };
+  const w = setup({ assets: (req) => new URL(req.url).pathname === "/runtime/source-gateway.json"
+    ? new Response(JSON.stringify(registry), { headers: { "Content-Type": "application/json" } }) : new Response("missing", { status: 404 }) });
+  delete w.env.MINIMAX_API_KEY;
+  try {
+    const health = await w.call("/api/sources/health");
+    assert.equal(health.status, 200);
+    assert.equal((await health.json()).operations, 1);
+    const packet = { url: "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/2244/JSON", method: "GET", headers: {}, allowed_hosts: ["pubchem.ncbi.nlm.nih.gov"] };
+    const response = await w.call("/api/sources/request", { method: "POST", headers: { Origin: PAGE, "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.8" }, body: JSON.stringify(packet) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).status, 200);
+    assert.deepEqual(w.assetCalls, ["/runtime/source-gateway.json"]);
+    assert.equal(w.upstream.length, 1);
+    assert.equal(w.upstream[0].init.redirect, "manual");
+    assert.deepEqual(w.bursts, ["sources:203.0.113.8"]);
+    const rows = w.limiter.core.sql.exec("SELECT k FROM hits ORDER BY k").toArray();
+    assert.ok(rows.every((row) => row.k.includes(":sources:")));
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal((await w.call("/api/sources" )).status, 404);
+  } finally { await w.done(); }
+});

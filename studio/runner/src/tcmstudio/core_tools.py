@@ -146,27 +146,26 @@ def _core(name: str, zh: str, en: str, category: str, description: str,
 CORE_TOOLS: tuple[dict[str, Any], ...] = (
     _core("tcm_lookup", "名称解析", "Resolve a TCM name", "tcm_knowledge", """
         Resolve a herb, processed herb, formula or syndrome name (Chinese, pinyin or Latin) to
-        one entity of the TCMScience seed corpus, or list the candidates when the name is
-        ambiguous (参 → 人参 / 丹参); it never guesses. Use it to disambiguate before other
-        calls. Seed corpus only (23 herbs, 5 processed forms, 6 formulas, 8 syndromes): a name
-        that is not found is not evidence that the entity does not exist.""",
+        a curated entity or an identity from all 401 materia records and all 84,294 repository
+        formula rows. Multiple source versions and ambiguous names (参 → 人参 / 丹参) are
+        reported rather than guessed. Processed-form and syndrome annotations remain scoped
+        to their recorded corpus. A name not found is not evidence that it does not exist.""",
           obj({"name": S("e.g. 黄芪, huang qi, Astragali Radix"),
                "kind": S("restrict to one kind; empty = any",
                          enum=["", "herb", "processed", "formula", "syndrome"], default="")},
               required=("name",)), "native.tcm_lookup", B_R),
     _core("tcm_herb", "药材", "Herb record", "tcm_knowledge", """
-        A herb's seed-corpus record: nature and flavours (性味), meridians (归经), actions,
-        processed forms (炮制), formulas containing it, recorded relations with their evidence
-        tier, classical passages and safety records. These are attributions from classical
-        texts and the Pharmacopoeia, not clinical evidence; a missing safety record is not
-        evidence of safety.""",
+        A herb's identity from the full 401-record materia corpus, plus curated annotations
+        where recorded: nature and flavours (性味), meridians (归经), actions, processed forms,
+        relations, classical passages and safety records. Identity-only records do not infer
+        missing clinical properties. A missing safety record is not evidence of safety.""",
           obj({"name": S("herb name, e.g. 黄芪")}, required=("name",)), "native.tcm_herb", B_R),
     _core("tcm_formula", "方剂", "Formula record", "tcm_knowledge", """
-        A formula's composition with 君臣佐使 roles and classical doses, its source text,
-        indications and recorded contraindications, from the seed corpus (6 formulas). The
-        clinic knowledge pack (13 formulas) and the 84,294-formula table used by the research
-        loop are different formula universes: say which one an answer comes from. A classical
-        indication is an attribution, not evidence of efficacy.""",
+        A formula's source versions from the complete 84,294-row repository workbook,
+        preserving literal compositions, doses, source texts, actions, cautions and unresolved
+        ingredients. Curated roles, indications and safety records are added only for their
+        exact source formula. Use tcmdb.formulas for paginated searches across all fields.
+        Workbook data licence is unstated; an indication is an attribution, not evidence of efficacy.""",
           obj({"name": S("formula name, e.g. 桂枝汤")}, required=("name",)),
           "native.tcm_formula", B_R),
     _core("tcm_syndrome", "证候", "Syndrome record", "tcm_knowledge", """
@@ -275,20 +274,20 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
     _core("tcmdb_catalog", "中医药数据源目录", "TCM data sources", "tcm_data", """
         List the TCM data sources (136 source cards): how each is reached (live_api,
         snapshot, manual_import, restricted, unreachable), its licence, whether commercial use
-        is allowed, barriers and assessment. On the local runner, a card with a dataset also
-        says whether it is downloaded and built there. Licence 'not stated' means unknown,
+        is allowed, barriers and assessment. A card with a dataset also reports whether a
+        store is built or imported in the current runtime. Licence 'not stated' means unknown,
         not permitted.""",
           obj({"query": S("words in the name, licence or assessment"),
                "module": S("architecture module M1..M14"),
                "access": S(enum=_ACCESS)}), "tcmdb.catalog", B_R),
     _core("tcmdb_relations", "数据枢纽关系查询", "Hub relations", "tcm_data", """
-        Query relations across every database built on the local runner (herb_ingredient,
+        Query relations across every database store in this runtime (herb_ingredient,
         ingredient_target, formula_herb, herb_drug_interaction, target_disease,
         subject_clinical_trial …). Each row keeps its source, evidence kind (known, predicted,
         aggregated, listed, reported, mentioned, signal, associated), reference and licence;
         limit applies per source. Predicted, aggregated and signal rows support hypotheses
-        only, and a missing row is not evidence of absence. Needs the runner with datasets
-        built (tcmdb.fetch / tcmdb.build jobs).""",
+        only, and a missing row is not evidence of absence. Needs dataset stores built on
+        the runner or imported into this browser.""",
           obj({"kind": S("relation kind, e.g. herb_drug_interaction"),
                "subject": S("id or exact name (e.g. 黄芪, pubchem:5280343)"),
                "object": S("id or exact name"),
@@ -298,38 +297,38 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "sources": arr(S(), "dataset keys"),
                "commercial": B("only rows whose licence allows commercial reuse", default=False),
                "limit": I("rows per source", minimum=1, maximum=500, default=50)}),
-          "tcmdb.relations", R),
+          "tcmdb.relations", B_R),
     _core("tcmdb_consensus", "多源一致性", "Cross-source consensus", "tcm_data", """
         Reconcile one relation kind for a subject (or object) across the built sources: ids
         unified, copies counted once (independent lineages), evidence kinds kept apart,
         contradictions and silent sources reported, with a support level per item
-        (independently_replicated … predicted). Support counts sources, not truth. Needs the
-        local runner with datasets built.""",
+        (independently_replicated … predicted). Support counts sources, not truth. Needs
+        dataset stores built on the runner or imported into this browser.""",
           obj({"kind": S("relation kind, e.g. herb_ingredient"), "subject": S(), "object": S(),
                "min_support": S(enum=_SUPPORT),
                "merge_processed": B("count 炙黄芪 with 黄芪", default=False),
                "limit": I("items returned", minimum=1, maximum=500, default=50)},
-              required=("kind",)), "tcmdb.consensus", R),
+              required=("kind",)), "tcmdb.consensus", B_R),
     _core("connector_call", "在线数据源调用", "Call a live connector", "live_sources", """
         Call one operation of a public biomedical API (117 sources, 444 operations: UniProt,
         Ensembl, ChEMBL, PubChem, Open Targets, STRING, ClinicalTrials.gov, openFDA herbal
-        events, DCABM-TCM, TCMBank, ITCM, SymMap, HERB, COCONUT …) on the local runner,
+        events, DCABM-TCM, TCMBank, ITCM, SymMap, HERB, COCONUT …) in this runtime,
         under the project's network permission profile and each host's rate limit. Find
         connector and operation names with catalog_search(kind='connector'). Live
         third-party data, unreviewed; the source's licence applies.""",
           obj({"connector": S("connector key, e.g. uniprot"),
                "operation": S("operation name, e.g. entry"),
                "arguments": obj({}, description="the operation's arguments", additional=True)},
-              required=("connector", "operation")), "connector.*", R, network=True),
+              required=("connector", "operation")), "connector.*", B_R, network=True),
     _core("literature_search", "文献检索", "Literature search", "literature", """
         Search the literature: Europe PMC (default), PubMed through NCBI E-utilities, or
-        Crossref. Returns titles with PMID / DOI to cite. Runs on the local runner with web
+        Crossref. Returns titles with PMID / DOI to cite. Runs in this runtime with web
         access on. A hit is a pointer to read, not evidence: no claim is licensed until the
         study itself has been assessed.""",
           obj({"query": S("search terms"),
                "source": S(enum=["europepmc", "pubmed", "crossref"], default="europepmc"),
                "limit": I(minimum=1, maximum=50, default=10)}, required=("query",)),
-          "connector.europepmc.search", R, network=True,
+          "connector.europepmc.search", B_R, network=True,
           hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org"]),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """

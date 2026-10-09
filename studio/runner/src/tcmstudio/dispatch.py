@@ -951,7 +951,30 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
     except RuntimeError as exc:
         return _failure("native", "unavailable", str(exc),
                         "The policy kernel is needed to run tools; check the bioagent install.")
-    res = rt.invoke(f"native.tool.{name}", spec=_spec(ctx), **args)
+    if entry.get("data") and ctx.where == "browser":
+        # These older read-only tools take their root from the environment. Scope it to
+        # this call under the same lock used for shared runtime setup; imports then use
+        # the project's browser store rather than another project's or the default root.
+        import os
+        from bioagent.tcmdb import ENV_TCMDB
+        with _ENV_LOCK:
+            previous = os.environ.get(ENV_TCMDB)
+            workspace_previous = os.environ.get("BIOAGENT_WORKSPACE")
+            os.environ[ENV_TCMDB] = str(_hub(ctx).root)
+            os.environ["BIOAGENT_WORKSPACE"] = str(_project(ctx).base)
+            try:
+                res = rt.invoke(f"native.tool.{name}", spec=_spec(ctx), **args)
+            finally:
+                if previous is None:
+                    os.environ.pop(ENV_TCMDB, None)
+                else:
+                    os.environ[ENV_TCMDB] = previous
+                if workspace_previous is None:
+                    os.environ.pop("BIOAGENT_WORKSPACE", None)
+                else:
+                    os.environ["BIOAGENT_WORKSPACE"] = workspace_previous
+    else:
+        res = rt.invoke(f"native.tool.{name}", spec=_spec(ctx), **args)
     value = getattr(res, "value", None)
     o = _call_result(res, entry, ctx, kind="native", licences=licences,
                      limits=_native_limits(name, domain, value, args))
@@ -966,7 +989,76 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         o.summary_en = (f"{en}{entry['title']['en']}: "
                         + (f"{what} not found" if what else "not found")
                         + " (which is not absence)")
+    if name in ("tcm_formula", "tcm_lookup", "tcm_herb"):
+        o = _repository_native(name, args, o)
     return o
+
+
+def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Outcome:
+    """Broaden identity/formula lookups without inferring missing clinical annotations."""
+    from dataclasses import asdict
+    from bioagent.sources.materia import MATERIA, resolve_name
+    from .repository_data import FORMULA_LICENSE, formula_search
+    if base.status != "succeeded" and (base.error or {}).get("type") != "not_found":
+        return base
+    query = str(args.get("name") or "")
+    if name == "tcm_lookup" and isinstance(base.result, Mapping) and base.result.get("found"):
+        entity = base.result.get("entity") or {}
+        if "ingredients" not in entity:
+            return base
+    if name == "tcm_herb" and base.status == "succeeded":
+        return base
+    if name in ("tcm_lookup", "tcm_herb") and args.get("kind", "") in ("", "herb"):
+        identifier = resolve_name(query)
+        materia = MATERIA.get(identifier) if identifier else None
+        if materia:
+            entity = {**asdict(materia), "id": materia.drug_id, "kind": "herb"}
+            result = ({"query": query, "found": True, "ambiguous": False, "status": "resolved",
+                       "match": "materia_identity", "entity": entity, "candidates": []}
+                      if name == "tcm_lookup" else {"herb": entity, "safety": [], "relations": [],
+                                                   "annotation_status": "identity_only"})
+            g = gv.empty("native")
+            g["limitations"] = ["The full materia identity corpus has no inferred clinical or "
+                                "safety properties; an identity match is not a safety assessment."]
+            return Outcome(result=result, governance=g, receipt=base.receipt,
+                           summary=f"完整药材身份库：{materia.chinese}（{materia.drug_id}）",
+                           summary_en=f"Complete materia identities: {materia.chinese} ({materia.drug_id})")
+    if name == "tcm_herb" or (name == "tcm_lookup" and args.get("kind") not in (None, "", "formula")):
+        return base
+    try:
+        records = formula_search(query, exact=True, limit=100)
+    except FileNotFoundError as exc:
+        if base.status == "succeeded" and (name != "tcm_lookup" or base.result.get("found")):
+            return base
+        return _failure("native", "unavailable", str(exc), "Load the complete repository formula asset.")
+    if not records["total"]:
+        return base
+    g = dict(base.governance) if name == "tcm_formula" and base.status == "succeeded" else gv.empty("native")
+    g["licences"] = [*(g.get("licences") or []),
+                     gv.licence_entry("repository_formulas", FORMULA_LICENSE,
+                                      note="workbook data licence is unstated")]
+    g["limitations"] = ["Workbook records are not clinically validated; historical doses, "
+                        "actions and cautions are kept as recorded. Duplicate names identify "
+                        "different source versions and are not silently merged."]
+    if name == "tcm_formula":
+        result = dict(base.result) if base.status == "succeeded" and isinstance(base.result, Mapping) else {}
+        result["repository_records"] = records
+        if not result.get("formula") and records["total"] == 1:
+            row = records["records"][0]
+            result["formula"] = {**row, "chinese": row["name"]}
+            result["ingredients"] = row["components"]
+        result["annotation_scope"] = "Curated annotations apply only to their exact source formula; workbook variants are source records."
+    else:
+        candidates = [{"id": row["id"], "chinese": row["name"], "source": row["source"],
+                       "kind": "formula", "row": row["row"]} for row in records["records"]]
+        single = records["total"] == 1
+        result = {"query": query, "found": single, "ambiguous": not single,
+                  "status": "resolved" if single else "ambiguous", "match": "exact",
+                  "entity": {**records["records"][0], "chinese": query, "kind": "formula"} if single else None,
+                  "candidates": candidates, "candidate_count": records["total"], "provenance": records["provenance"]}
+    return Outcome(result=result, governance=g, receipt=base.receipt,
+                   summary=f"完整方剂库：{query}，{records['total']} 个来源版本",
+                   summary_en=f"Complete formula workbook: {query}, {records['total']} source versions")
 
 
 def _native_summary(name: str, titles: Mapping[str, str], args: Mapping[str, Any],
@@ -1740,7 +1832,10 @@ def _clinic_check(args: Mapping[str, Any], pack: Any) -> Outcome:
 
 def _hub(ctx: Context) -> Any:
     from bioagent.tcmdb import TCMDataHub
-    return TCMDataHub(ctx.tcmdb_root or None)
+    root = ctx.tcmdb_root
+    if not root and ctx.where == "browser":
+        root = str(_project(ctx).base / "tcmdb")
+    return TCMDataHub(root or None)
 
 
 def _exec_tcmdb(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
@@ -1759,11 +1854,34 @@ def _exec_tcmdb(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
         return _failure("tcmdb", "bad_arguments", f"unknown dataset or key: {exc}")
     except ValueError as exc:
         return _failure("tcmdb", "bad_arguments", str(exc))
+    except FileNotFoundError as exc:
+        return _failure("tcmdb", "unavailable", str(exc), "Load the repository formula asset first.")
 
 
 def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
     g = gv.empty("tcmdb")
     g["limitations"] = [gv.LIMIT_HUB]
+    if op in ("formulas", "materia"):
+        from .repository_data import formula_search, materia_search
+        if op == "formulas":
+            result = formula_search(str(args.get("query") or ""), exact=bool(args.get("exact")),
+                                    source=str(args.get("source") or ""),
+                                    limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)))
+            g["licences"] = [gv.licence_entry("repository_formulas", result["provenance"]["license"],
+                                                note="workbook data licence is unstated")]
+            g["limitations"] = ["Source formula records are not clinically validated; an action "
+                                "or dose recorded in the workbook does not establish efficacy or safety."]
+        else:
+            result = materia_search(str(args.get("query") or ""), limit=int(args.get("limit", 50)),
+                                    offset=int(args.get("offset", 0)))
+            g["limitations"] = ["Identity and species records do not supply missing clinical or safety properties."]
+        return Outcome(result=result, governance=g,
+                       summary=f"{'完整方剂库' if op == 'formulas' else '完整药材身份库'}："
+                               f"{result['total']} 条匹配，返回 {result['count']} 条",
+                       summary_en=f"{'Complete formula workbook' if op == 'formulas' else 'Complete materia identities'}: "
+                                  f"{result['total']} matches, {result['count']} returned")
+    if op == "import_store":
+        return _import_tcmdb_store(args, ctx, g)
     if op == "catalog":
         from bioagent.tcmdb import catalog as cards
         items = list(cards())
@@ -1778,7 +1896,7 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                 c.name, c.license, c.assessment, c.barriers, c.connector or "", c.dataset or "",
                 c.url)).casefold()]
         docs = [c.as_dict() for c in items]
-        if ctx.where == "runner":
+        if ctx.where in ("runner", "browser"):
             hub = _hub(ctx)
             for d in docs:
                 if d.get("dataset"):
@@ -1788,8 +1906,6 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                                              "files_default", "missing_default")}
                     except Exception:                           # noqa: BLE001
                         d["local"] = None
-        else:
-            g["limitations"].append("Local download/build status is known only on the runner.")
         g["licences"] = [gv.licence_entry(f"source:{d['name']}", d.get("license"),
                                           note=f"commercial use: {d.get('commercial_use', 'unknown')}")
                          for d in docs[:40]]
@@ -1811,10 +1927,14 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                         "license": d.license, "licence_class": licence_class(d.license),
                         "commercial_use": d.commercial_use, "relations": list(d.relations),
                         "homepage": d.homepage,
+                        "files": [jsonable(f) for f in d.files],
+                        "instructions": d.instructions,
                         "expected_bytes_default": sum(f.expected_bytes or 0 for f in d.files
                                                       if not f.optional) or None,
                         "hosts": sorted({f.url.split("/")[2] for f in d.files if "://" in f.url}),
-                        "instructions": d.instructions[:400] if d.access == "manual" else ""})
+                        "local": {"built": _hub(ctx).db_path(d.key).is_file()},
+                        "browser_access": "live connector or imported store" if d.access == "live"
+                                          else "imported SQLite store"})
         return Outcome(result={"count": len(out), "datasets": out}, governance=g,
                        summary=f"数据集说明：{len(out)} 个",
                        summary_en=f"Dataset specifications: {len(out)}")
@@ -1920,6 +2040,51 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                        governance=g, summary=f"{args['dataset']}：{len(rows)} 条未解析记录",
                        summary_en=f"{args['dataset']}: {len(rows)} unresolved record(s)")
     return _failure("tcmdb", "not_found", f"no data-hub operation {op!r}")
+
+
+def _import_tcmdb_store(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome:
+    import base64
+    import binascii
+    import sqlite3
+    from bioagent.tcmdb.datasets import dataset
+    spec = dataset(str(args["dataset"]))
+    encoded = args["content_base64"]
+    if len(encoded) > 90 * 1024 * 1024:
+        raise ValueError("imported SQLite store exceeds the 64 MiB browser import limit")
+    try:
+        content = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("content_base64 must contain a valid base64 SQLite store") from exc
+    if len(content) > 64 * 1024 * 1024 or not content.startswith(b"SQLite format 3\x00"):
+        raise ValueError("expected a SQLite store of at most 64 MiB")
+    hub = _hub(ctx)
+    path = hub.db_path(spec.key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(path.name + ".import-" + secrets.token_hex(6))
+    staged.write_bytes(content)
+    try:
+        with contextlib.closing(sqlite3.connect(f"file:{staged.as_posix()}?mode=ro", uri=True)) as conn:
+            if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("SQLite integrity check failed")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"_tcmdb_files", "relations"} <= tables:
+                raise ValueError("store lacks _tcmdb_files provenance or relations; build it with bioagent tcmdb first")
+            provenance = {r[1] for r in conn.execute("PRAGMA table_info('_tcmdb_files')")}
+            if not {"tbl", "rows", "license", "sha256"} <= provenance:
+                raise ValueError("store provenance schema is incomplete")
+            from bioagent.tcmdb.rowkit import COLUMNS
+            relation_columns = {r[1] for r in conn.execute("PRAGMA table_info('relations')")}
+            if not set(COLUMNS) <= relation_columns:
+                raise ValueError("store relation schema is incomplete")
+        staged.replace(path)
+    except sqlite3.Error as exc:
+        raise ValueError(f"SQLite store cannot be read: {exc}") from exc
+    finally:
+        staged.unlink(missing_ok=True)
+    g["licences"] = _dataset_licences([spec.key])
+    result = {"dataset": spec.key, "bytes": len(content), "status": hub.status(spec.key)[0]}
+    return Outcome(result=result, governance=g, summary=f"已导入 {spec.name}",
+                   summary_en=f"Imported {spec.name}")
 
 
 def _dataset_licences(keys: list[str]) -> list[dict[str, Any]]:
@@ -2178,6 +2343,17 @@ def _searchable(where: str) -> list[dict[str, Any]]:
 def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
     op = entry["id"].split(".", 1)[1]
     g = gv.empty("system")
+    if op == "provider_call":
+        return _provider_call(entry, args, ctx)
+    if op == "provider_catalog":
+        from .repository_data import provider_catalog
+        result = provider_catalog(str(args.get("query") or ""), project=str(args.get("project") or ""),
+                                  kind=str(args.get("kind") or ""), limit=int(args.get("limit", 50)),
+                                  offset=int(args.get("offset", 0)))
+        g["limitations"] = [result["claim_scope"]]
+        return Outcome(result=result, governance=g,
+                       summary=f"第三方能力目录：{result['corpus_rows']} 项，{result['total']} 项匹配",
+                       summary_en=f"Third-party capability index: {result['corpus_rows']} entries, {result['total']} matches")
     if op == "catalog_search":
         r = catalog_search(args.get("query") or "", category=args.get("category"),
                            kind=args.get("kind"), runnable_now=bool(args.get("runnable_now")),
@@ -2274,6 +2450,84 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
     return _failure("system", "not_found", f"no system operation {op!r}")
 
 
+def _provider_call(entry: dict[str, Any], args: Mapping[str, Any], ctx: Context) -> Outcome:
+    provider, tool = str(args["provider"]), str(args["tool"])
+    given = dict(args.get("arguments") or {})
+    from bioagent.psh.assembly import default_runtime
+    if provider == "tooluniverse":
+        from bioagent.providers.tooluniverse import load_allowlist
+        allow = load_allowlist()
+        reviewed = allow.get(tool)
+        if reviewed is None:
+            return _failure("system", "bad_arguments", f"{tool!r} is not in the reviewed ToolUniverse allowlist")
+        runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
+                                  skills=False, tooluniverse=True, mcp_credentials=None)
+        component = reviewed.component_id
+        licences = [gv.licence_entry(component, allow.package_licence,
+                                     note="wrapper code; returned data terms are separate: " + reviewed.data_terms)]
+    else:
+        from bioagent.providers.biomcp import arguments_for, check_installed, load_server_config
+        from bioagent.providers.biomcp_client import BioMCPClient
+        from bioagent.runtime.component import ComponentManifest, LicenseSpec, Permissions, Provider, RuntimeSpec
+        cfg = load_server_config()
+        if tool not in cfg.tools:
+            return _failure("system", "bad_arguments", f"{tool!r} is not in the reviewed BioMCP allowlist")
+        if cfg.status != "reviewed":
+            return _failure("system", "unavailable", f"BioMCP configuration status is {cfg.status}; "
+                            "the pinned server configuration must be reviewed before execution")
+        missing = check_installed(cfg)
+        if missing:
+            return _failure("system", "unavailable", missing)
+        try:
+            given = arguments_for(tool, given, cfg)
+        except ValueError as exc:
+            return _failure("system", "bad_arguments", str(exc))
+        run_dir = _project(ctx).runs / _new_id("biomcp")
+        run_dir.mkdir(parents=True, exist_ok=True)
+        server = BioMCPClient(run_dir, config=cfg).server_config()
+        policy = cfg.tools[tool]
+        component = f"studio.biomcp.{tool}"
+        manifest = ComponentManifest(id=component, kind="tool", name=tool, version=cfg.version,
+                                     description=policy.notes or tool, domain="literature",
+                                     provider=Provider(project="BioMCP", repo=cfg.repo),
+                                     runtime=RuntimeSpec(backend="mcp", server=cfg.id, entrypoint=tool),
+                                     permissions=Permissions(network=policy.hosts),
+                                     license=LicenseSpec(spdx=cfg.licence, integration_mode="federated", data="unknown"))
+        runtime = default_runtime(catalogue=False, public_apis=False, native_tools=False,
+                                  skills=False, tooluniverse=False, extra_manifests=[manifest],
+                                  mcp_servers=[server])
+        licences = [gv.licence_entry(component, cfg.licence,
+                                     note="BioMCP wrapper code; upstream data licence is not inferred")]
+    try:
+        response = runtime.invoke(component, spec=_spec(ctx), **given)
+        if provider == "biomcp" and getattr(response.status, "value", "") in ("SUCCEEDED", "DEGRADED"):
+            from bioagent.providers.biomcp import adapt
+            adapted = adapt(tool, response.value, arguments=given, retrieved_at=utc_now(), config=cfg)
+            response.status = adapted.status
+            response.error = adapted.reason
+            response.value = {"records": [jsonable(record) for record in adapted.records],
+                              "server": adapted.server, "retrieved_at": adapted.retrieved_at}
+        outcome = _call_result(response, entry, ctx, kind="system", licences=licences,
+                               limits=[gv.LIMIT_LIVE])
+        if outcome.status == "succeeded":
+            outcome.summary = f"{provider} · {tool}：已返回"
+            outcome.summary_en = f"{provider} · {tool}: returned"
+        outcome.receipt["provider"] = provider
+        outcome.receipt["component_id"] = component
+        return outcome
+    finally:
+        close = getattr(runtime, "close", None)
+        if callable(close):
+            close()
+        else:
+            backends = getattr(runtime, "backends", None)
+            if backends is not None:
+                for backend in backends.all():
+                    close_backend = getattr(backend, "close", None)
+                    if callable(close_backend):
+                        close_backend()
+
+
 def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     from .envelope import runtime_string, versions
 
@@ -2292,12 +2546,11 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     project = _project(ctx)
     hub_root = None
     built: list[str] = []
-    if ctx.where == "runner":
-        try:
-            hub = _hub(ctx)
-            hub_root, built = str(hub.root), hub.built()
-        except Exception:                                       # noqa: BLE001
-            pass
+    try:
+        hub = _hub(ctx)
+        hub_root, built = str(hub.root), hub.built()
+    except Exception:                                       # noqa: BLE001
+        pass
     result: dict[str, Any] = {
         "where": ctx.where, "runtime": runtime_string(), "versions": versions(),
         "device": ctx.device,
@@ -2307,7 +2560,7 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         "jobs": ctx.jobs is not None, "dependencies": deps,
         "audit_chain": {"project_id": ctx.project_id, "durable": project.durable,
                         "location": str(project.psh)},
-        "tcmdb": {"root": hub_root, "built": built} if ctx.where == "runner" else None,
+        "tcmdb": {"root": hub_root, "built": built, "browser_import": ctx.where == "browser"},
         "counts": {"entries": len(items), "runnable_here": len(runnable),
                    "by_kind": {k: sum(1 for e in runnable if e["kind"] == k) for k in (
                        "native", "skill", "connector", "clinic", "tcmdb", "study", "job",

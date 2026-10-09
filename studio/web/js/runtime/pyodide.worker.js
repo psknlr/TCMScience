@@ -10,6 +10,8 @@
 // (KeyboardInterrupt in Python) when the page is cross-origin isolated, otherwise the page terminates the worker.
 
 const STATE_ROOT_DEFAULT = "/persist";
+import { createSourceTransport } from "./source-gateway.js";
+import { SequenceCompute, WEBGPU_TOOLS } from "./webgpu.js";
 const PYCACHE_ROOT = "/pycache";
 const CACHE_NAME = "tcmstudio-runtime-v1";
 const BUNDLE_RE = /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/;
@@ -36,10 +38,13 @@ for _p in reversed(_json.loads(PY_PATH_JSON)):
 import sqlite3  # noqa: F401  PSH's audit chain; part of the standard library from Pyodide 314 on
 import tcmstudio.dispatch as _dispatch
 from tcmstudio.envelope import runtime_string as _runtime_string, versions as _versions
+from tcmstudio.browser_http import install as _install_source_transport
+from tcmstudio.browser_compute import call_json as _browser_compute_call
+_install_source_transport(SOURCE_TRANSPORT)
 
 
-def tcms_call(tool, arguments_json, context_json):
-    return _dispatch.call_json(tool, arguments_json, context_json)
+def tcms_call(tool, arguments_json, context_json, acceleration_json="null"):
+    return _browser_compute_call(tool, arguments_json, context_json, acceleration_json)
 
 
 def tcms_modules():
@@ -84,9 +89,13 @@ const state = {
   persist: { mode: "none", durable: false, error: null },
   packages: new Set(),
   lockNames: null,
+  boot: null,
+  site: null,
+  dataAssets: new Set(),
 };
 
 let chain = Promise.resolve();
+const compute = new SequenceCompute();
 
 self.onmessage = (ev) => {
   const data = ev.data;
@@ -158,6 +167,8 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   state.debug = Boolean(dbg);
   state.stateRoot = boot.state_root || STATE_ROOT_DEFAULT;
   const site = siteUrl || new URL("../", self.location.href).href;
+  state.boot = boot;
+  state.site = site;
   const index = withSlash(new URL(indexUrl || boot.pyodide.index_url, site).href);
   const bundleUrl = new URL(boot.bundle.path, site).href;
 
@@ -206,6 +217,7 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   const ns = py.globals.get("dict")();
   ns.set("PY_PATH_JSON", JSON.stringify(boot.bundle.python_path || [boot.bundle.extract_dir || "/opt/tcms/site"]));
   ns.set("PYCACHE_ROOT", PYCACHE_ROOT);
+  ns.set("SOURCE_TRANSPORT", createSourceTransport(site));
   py.runPython(BOOT_PY, { globals: ns });
   api = { call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"), pycacheTar: ns.get("tcms_pycache_tar") };
   if (pycache.restored) pycache.modules = api.modules();
@@ -400,13 +412,31 @@ function withPersistLock(fn) {
 
 // ------------------------------------------------------------------------------------------------------------ calls
 
-async function call({ tool, arguments: args = {}, context = {}, packages = [], stateful = false }) {
+async function call({ tool, arguments: args = {}, context = {}, packages = [], stateful = false, acceleration = "auto" }) {
   if (!api) throw codeError("not_ready", "the runtime has not been initialised");
+  await ensureDataAssets(tool, args);
   if (packages.length) await ensurePackages(packages);
+  const t0 = performance.now();
+  const target = tool === "call_tool" ? args?.tool : tool;
+  const nativeArgs = tool === "call_tool" ? args?.arguments || {} : args;
+  const prepared = await compute.prepare(target, nativeArgs, {
+    preference: acceleration, isCancelled: () => Boolean(interrupt && Atomics.load(interrupt, 0)),
+  });
   const argsJson = JSON.stringify(args ?? {});
-  const run = (durable) => api.call(String(tool), argsJson, JSON.stringify({
-    ...context, where: "browser", state_root: state.stateRoot, durable,
-  }));
+  const run = (durable) => {
+    const text = api.call(String(tool), argsJson, JSON.stringify({
+      ...context, where: "browser", state_root: state.stateRoot, durable,
+    }), JSON.stringify(prepared));
+    if (!WEBGPU_TOOLS.includes(target)) return text;
+    const envelope = JSON.parse(text);
+    if (envelope.receipt) {
+      envelope.receipt.compute ??= { backend: "pyodide", operation: target, precision: "Python float64" };
+      envelope.receipt.compute.requested = acceleration;
+      if (!prepared && compute.fallbackReason) envelope.receipt.compute.fallback_reason = compute.fallbackReason;
+    }
+    envelope.duration_ms = Math.round(performance.now() - t0);
+    return JSON.stringify(envelope);
+  };
   if (!stateful || state.persist.mode !== "idbfs") {
     return { text: run(state.persist.durable), persist: { mode: state.persist.mode, durable: state.persist.durable } };
   }
@@ -428,6 +458,27 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
     }
     return { text, persist: { mode: "idbfs", durable, error } };
   });
+}
+
+async function ensureDataAssets(tool, args) {
+  const target = tool === "call_tool" ? String(args?.tool || "") : String(tool);
+  const input = tool === "call_tool" ? args?.arguments || {} : args;
+  if (["tcm_lookup", "native.tcm_lookup"].includes(target) && input.kind && input.kind !== "formula") return;
+  if (!["tcm_formula", "tcm_lookup", "native.tcm_formula", "native.tcm_lookup", "tcmdb.formulas"].includes(target)) return;
+  const asset = state.boot?.data_assets?.find((x) => x.key === "repository_formulas");
+  if (!asset || state.dataAssets.has(asset.sha256)) return;
+  if (!/^[a-f0-9]{64}$/.test(asset.sha256) || !asset.path || asset.bytes > 25 * 1024 * 1024) {
+    throw codeError("bad_boot", "The full formula asset manifest is invalid");
+  }
+  progress(100, "data", { rows: asset.rows, mb: (asset.bytes / 1e6).toFixed(1) });
+  const url = new URL(asset.path, state.site);
+  if (url.origin !== new URL(state.site).origin) throw codeError("bad_boot", "Formula data must use the same origin");
+  const download = await fetchBundle(url.href, asset, () => {});
+  py.unpackArchive(download.bytes, asset.format || "gztar", { extractDir: asset.extract_dir || "/opt/tcms/data" });
+  if (!py.FS.analyzePath(asset.mount_path).exists) throw codeError("data_missing", "Formula data archive has no expected database");
+  py.runPython(`import os as _asset_os\n_asset_os.environ["BIOAGENT_FORMULA_SQLITE"] = ${JSON.stringify(asset.mount_path)}`);
+  state.dataAssets.add(asset.sha256);
+  progress(100, "ready");
 }
 
 async function ensurePackages(names) {

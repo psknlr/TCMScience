@@ -222,7 +222,10 @@ export class ToolRouter {
     const rt = this.runtimes[place.where];
     if (signal?.aborted) return cancelled(name, r, input);
     try {
-      const env = await raceAbort(rt.call(name, input, { project_id: projectId, conversation_id: conversationId, approvals: granted, signal }), signal);
+      const env = await raceAbort(rt.call(name, input, {
+        project_id: projectId, conversation_id: conversationId, approvals: granted, signal,
+        network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
+      }), signal);
       return normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry });
     } catch (err) {
       if (isAbort(err) || signal?.aborted) return cancelled(name, r, input);

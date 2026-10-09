@@ -12,6 +12,8 @@ import math
 import re
 from typing import Any, Mapping, Sequence
 
+from ._compute import counts_for
+
 __all__ = ["reverse_complement", "transcribe", "translate", "gc_content", "find_orfs",
            "kmer_counts", "hamming_distance", "edit_distance", "codon_usage",
            "melting_temperature", "restriction_sites", "nucleic_acid_weight",
@@ -92,15 +94,18 @@ def translate(sequence: str, frame: int = 0, to_stop: bool = False) -> dict[str,
 def gc_content(sequence: str, window: int = 0) -> dict[str, Any]:
     """GC fraction overall and, with ``window`` > 0, in sliding windows of that width."""
     seq = _clean(sequence)
-    gc = sum(seq.count(b) for b in "GCS")
+    counts = counts_for("gc_content", (seq,), window)
+    gc = counts[0] if counts is not None else sum(seq.count(b) for b in "GCS")
     out: dict[str, Any] = {"gc_fraction": round(gc / len(seq), 6),
                            "gc_percent": round(100.0 * gc / len(seq), 3), "length": len(seq)}
     if window > 0:
         if window > len(seq):
             raise ValueError("window is longer than the sequence")
         out["window"] = window
-        out["windows"] = [round(sum(seq[i:i + window].count(b) for b in "GCS") / window, 4)
-                          for i in range(0, len(seq) - window + 1)]
+        out["windows"] = ([round(counts[(i + 1) * 4] / window, 4)
+                           for i in range(0, len(seq) - window + 1)] if counts is not None else
+                          [round(sum(seq[i:i + window].count(b) for b in "GCS") / window, 4)
+                           for i in range(0, len(seq) - window + 1)])
     return out
 
 
@@ -158,7 +163,8 @@ def hamming_distance(a: str, b: str) -> dict[str, Any]:
     x, y = _clean(a, what="a"), _clean(b, what="b")
     if len(x) != len(y):
         raise ValueError(f"sequences differ in length ({len(x)} vs {len(y)})")
-    d = sum(1 for p, q in zip(x, y) if p != q)
+    counts = counts_for("hamming_distance", (x, y))
+    d = counts[0] if counts is not None else sum(1 for p, q in zip(x, y) if p != q)
     return {"distance": d, "length": len(x), "identity": round(1 - d / len(x), 6)}
 
 

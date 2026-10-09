@@ -82,7 +82,8 @@ function environment(lang, env, project, provider = {}) {
     "# Environment",
     `- Interface language: ${lang === "zh" ? "Chinese (zh)" : "English (en)"}. Answer in the language of the user's message unless the project instructions say otherwise. Herb and formula names stay in Chinese characters; in English you may add pinyin or the Latin name.`,
     `- Today: ${day}.`,
-    `- Compute: browser runtime ${browser} (Python tools in WebAssembly, CPU, single thread)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (runner-only tools, connectors, the TCM data hub, jobs and GPU are unavailable until the user connects it)"}.`,
+    `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (long jobs, native engines and process-based third-party tools require it)"}.`,
+    "- Registered public database connectors and local TCM data inspection can run in the browser. Online requests use the site's bounded source gateway after project web access and approval. Read each entry's execution requirements; a source in the catalog does not mean its entire database is downloaded or freely reusable.",
   ];
   const devices = (env.runner?.devices || []).filter((d) => d && d.available !== false);
   if (runner === "ready" && devices.length) lines.push(`- Runner devices: ${devices.map((d) => d.name ? `${d.id} (${d.name})` : d.id).join(", ")}.`);

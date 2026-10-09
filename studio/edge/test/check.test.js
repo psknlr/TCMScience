@@ -6,14 +6,18 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { check, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
+import { check, checkSources, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
 import { CSP_REPORT_ONLY, secure } from "../src/site.js";
 import { jsonReply, relay } from "./helpers.js";
 
 const HTML = "<!doctype html><title>TCMScience Studio</title>";
+const SOURCE_REGISTRY = { version: 1, sources: [{ key: "example", base_url: "https://data.example.org/v1", host: "data.example.org",
+  operations: [{ name: "lookup", path: "lookup/{id}", method: "GET", params: {} }] }] };
+const SOURCE_HEALTH = { ok: true, service: "tcmscience-sources", version: 1, sources: 1, operations: 1,
+  max_response_bytes: 8388608, timeout_ms: 30000, limits: { perMinute: 120, perDay: 3000, total: 50000 } };
 
 /** A fake science.impf.ai: /v1/* is the relay (with a fake upstream), / is the app with `pageHeaders`. */
-function site({ env = {}, upstream, pageHeaders = true, downFor = 0 } = {}) {
+function site({ env = {}, upstream, pageHeaders = true, downFor = 0, sourceHealth = SOURCE_HEALTH, sourceRegistry = SOURCE_REGISTRY, sourceStatus = 200 } = {}) {
   const r = relay({ env, upstream: upstream || (async () => jsonReply({ id: "c", model: "MiniMax-M3", choices: [{ index: 0, message: { content: "好" } }], usage: { prompt_tokens: 9, completion_tokens: 1 } })) });
   let failures = downFor;
   const seen = [];
@@ -25,6 +29,8 @@ function site({ env = {}, upstream, pageHeaders = true, downFor = 0 } = {}) {
       const path = u.pathname;
       return secure(await r.call(path, init));
     }
+    if (u.pathname === "/api/sources/health") return jsonReply(sourceHealth, sourceStatus);
+    if (u.pathname === "/runtime/source-gateway.json") return jsonReply(sourceRegistry);
     const page = new Response(HTML, { headers: { "Content-Type": "text/html; charset=utf-8" } });
     return pageHeaders ? secure(page) : page;
   };
@@ -50,6 +56,29 @@ test("a working deployment: health, the app's headers, one tiny call as the page
   assert.equal(sent.body.max_tokens, 8);
   assert.ok(sent.init.body.startsWith('{"model":"MiniMax-M3"')); // the page's shape: model first
   assert.ok(CSP_REPORT_ONLY.includes("script-src"));
+});
+
+test("required source check validates the deployed registry even when Tao-S1 has no key", async () => {
+  const s = site({ env: { MINIMAX_API_KEY: "" } });
+  const out = await check({ requireSources: true }, io(s));
+  assert.equal(out.call, "skipped (Tao-S1 off)");
+  assert.deepEqual(out.sources, { status: "ok", sources: 1, operations: 1 });
+  assert.deepEqual(s.seen.map(([m, p]) => `${m} ${p}`), ["GET /v1/health", "GET /", "GET /api/sources/health", "GET /runtime/source-gateway.json"]);
+  assert.equal(s.r.calls.length, 0, "health validation must not make any model or public database call");
+});
+
+test("source deployment check rejects missing endpoints, malformed health, invalid templates and mismatched builds", async () => {
+  await assert.rejects(checkSources("https://science.impf.ai", site({ sourceStatus: 503 }).fetch), /503.*SOURCES must be on/);
+  for (const sourceHealth of [
+    { ...SOURCE_HEALTH, ok: false }, { ...SOURCE_HEALTH, sources: 0 }, { ...SOURCE_HEALTH, sources: "1" },
+    { ...SOURCE_HEALTH, operations: 0 }, { ...SOURCE_HEALTH, max_response_bytes: 999999999 },
+    { ...SOURCE_HEALTH, timeout_ms: 60000 }, { ...SOURCE_HEALTH, limits: { ...SOURCE_HEALTH.limits, total: 0 } },
+  ]) await assert.rejects(checkSources("https://science.impf.ai", site({ sourceHealth }).fetch), /not a valid enabled source gateway health/);
+  await assert.rejects(checkSources("https://science.impf.ai", site({ sourceRegistry: { version: 1, sources: [] } }).fetch), /invalid read-only source definitions/);
+  const mutation = { version: 1, sources: [{ ...SOURCE_REGISTRY.sources[0], operations: [{ path: "", method: "POST", graphql: "mutation{deleteAll}" }] }] };
+  await assert.rejects(checkSources("https://science.impf.ai", site({ sourceRegistry: mutation }).fetch), /invalid read-only source definitions/);
+  await assert.rejects(checkSources("https://science.impf.ai", site({ sourceHealth: { ...SOURCE_HEALTH, operations: 2 } }).fetch), /counts \(1\/2\).*registry \(1\/1\).*redeploy/);
+  await assert.rejects(checkSources("https://science.impf.ai", async () => new Response(HTML, { headers: { "Content-Type": "text/html" } })), /text\/html.*rebuild and deploy/);
 });
 
 test("a new domain: health is retried until it answers; never answering is a failure that says why", async () => {
@@ -111,6 +140,11 @@ test("the command line: the pause in wrangler.toml, or --relay, decides whether 
       res.end(JSON.stringify({ ok: false, service: "tcmscience-studio", version: "1", model: "Tao-S1", models: ["Tao-S1"] }));
       return;
     }
+    if (req.url === "/api/sources/health" || req.url === "/runtime/source-gateway.json") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(req.url.endsWith("health") ? SOURCE_HEALTH : SOURCE_REGISTRY));
+      return;
+    }
     res.writeHead(200, Object.fromEntries(page.headers));
     res.end(HTML);
   });
@@ -127,6 +161,9 @@ test("the command line: the pause in wrangler.toml, or --relay, decides whether 
   const on = await run("--relay", "on");
   assert.equal(on.code, 1);
   assert.match(on.stderr, /check failed: the relay answers but Tao-S1 is off: no MINIMAX_API_KEY secret on the Worker/);
+  const sources = await run("--relay", "off", "--require-sources");
+  assert.equal(sources.code, 0, sources.stderr);
+  assert.deepEqual(JSON.parse(sources.stdout).sources, { status: "ok", sources: 1, operations: 1 });
   // without --relay, the repository's wrangler.toml decides
   const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
   const fromToml = await run();

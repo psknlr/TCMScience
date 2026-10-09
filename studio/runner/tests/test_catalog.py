@@ -33,10 +33,10 @@ CONTRACT_CORE = {
     "clinic_check_prescription": ("clinic.check", ["browser", "runner"], False, False, False),
     "clinic_followup": ("clinic.followup", ["browser", "runner"], False, False, False),
     "tcmdb_catalog": ("tcmdb.catalog", ["browser", "runner"], False, False, False),
-    "tcmdb_relations": ("tcmdb.relations", ["runner"], False, False, False),
-    "tcmdb_consensus": ("tcmdb.consensus", ["runner"], False, False, False),
-    "connector_call": ("connector.*", ["runner"], False, False, True),
-    "literature_search": ("connector.europepmc.search", ["runner"], False, False, True),
+    "tcmdb_relations": ("tcmdb.relations", ["browser", "runner"], False, False, False),
+    "tcmdb_consensus": ("tcmdb.consensus", ["browser", "runner"], False, False, False),
+    "connector_call": ("connector.*", ["browser", "runner"], False, False, True),
+    "literature_search": ("connector.europepmc.search", ["browser", "runner"], False, False, True),
     "network_pharmacology_run": ("job.research.run", ["runner"], True, True, False),
     "run_pipeline": ("job.pipeline.*", ["runner"], True, True, False),
     "job_status": ("system.job_status", ["runner"], False, False, False),
@@ -200,7 +200,7 @@ def test_skills_from_manifests_and_signatures():
     assert {"normalize-tcm-entities", "retrieve-tcm-evidence", "assess-tcm-safety",
             "analyze-tcm-network-pharmacology"} <= set(specs)
     assert len(specs) >= 11
-    lock_hash = {"assess-tcm-safety": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312"}
+    lock_hash = {"assess-tcm-safety": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e"}
     safety = get_entry("skill.assess-tcm-safety")
     # The function takes subject / co_administered / population, not the manifest's 'query'.
     assert safety["parameters"]["required"] == ["subject"]
@@ -222,7 +222,7 @@ def test_skills_from_manifests_and_signatures():
 def test_connector_schemas_from_templates():
     e = get_entry("connector.uniprot.entry")
     assert e["parameters"]["required"] == ["accession"]
-    assert e["network"] and e["exec"] == ["runner"] and e["hosts"] == ["rest.uniprot.org"]
+    assert e["network"] and e["exec"] == ["browser", "runner"] and e["hosts"] == ["rest.uniprot.org"]
     search = get_entry("connector.europepmc.search")
     props = search["parameters"]["properties"]
     assert props["page_size"]["type"] == "integer" and props["page_size"]["default"] == 5
@@ -255,13 +255,13 @@ def test_browser_catalog(browser_catalog, runner_catalog):
     assert set(by_id) == {e["id"] for e in runner_catalog["entries"]}
     for e in by_id.values():
         assert "available" not in e, "the build machine is not the user's browser"
-        if e["kind"] in ("connector", "job"):
+        if e["kind"] == "job":
             assert "browser" not in e["exec"], e["id"]
-    for runner_only in ("tcmdb.relations", "tcmdb.consensus", "system.job_status",
-                        "native.hkbu_formula_lookup", "skill.dock-ligands"):
+    for runner_only in ("system.job_status", "skill.dock-ligands"):
         assert "browser" not in by_id[runner_only]["exec"]
     for both in ("native.reverse_complement", "skill.assess-tcm-safety", "clinic.assess",
-                 "tcmdb.catalog", "study.exposure_screen"):
+                 "tcmdb.catalog", "study.exposure_screen", "tcmdb.relations", "tcmdb.consensus",
+                 "native.hkbu_formula_lookup", "connector.uniprot.entry"):
         assert by_id[both]["exec"] == ["browser", "runner"]
 
 

@@ -168,7 +168,8 @@ def test_capabilities_include_host_facts(server):
     _, c = server
     env = c.call("capabilities_status", {})
     host = env["result"]["host"]
-    assert host["device_for_jobs"] == "cpu" and host["jobs"]["queued"] == 0
+    devices = c.get("/api/devices")[1]
+    assert host["device_for_jobs"] == devices["resolved"] and host["jobs"]["queued"] == 0
     assert {k["kind"] for k in host["kinds"]} >= {"pipeline.rnaseq", "skill.run"}
     assert env["result"]["jobs"] is True
 

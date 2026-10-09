@@ -1,4 +1,4 @@
-// The page side of the Worker: http → https, and the security headers on whatever the Worker itself answers (/v1/*,
+// The page side of the Worker: http → https, and headers on Worker answers (/v1/*, /api/sources/*,
 // and the fallback for a path that matches no file). Files Cloudflare serves directly get the same headers from
 // studio/edge/_headers; test/site.test.js checks that the two say the same.
 

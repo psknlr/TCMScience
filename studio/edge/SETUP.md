@@ -1,4 +1,4 @@
-# 教程：上线 science.impf.ai（网页 + Tao-S1 中继）
+# 教程：上线 science.impf.ai（网页 + Tao-S1 中继 + 数据库网关）
 
 TCMScience Studio 的一次性配置，约 20 分钟。完成后，访客打开 <https://science.impf.ai> 就能使用 Studio，默认模型 Tao-S1
 不用填 API Key。Worker 本身的说明见 [README.md](README.md)。
@@ -178,7 +178,12 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 3. Cloudflare 控制台 → **Workers & Pages** → **tcmscience-studio**：
    - **Settings → Domains & Routes** 里有 `science.impf.ai`（Custom domain）；
    - **Settings → Variables and Secrets** 里，`MINIMAX_API_KEY`（和 `VISITOR_SALT`）是 Secret（值不显示），`UPSTREAM_BASE`、`PER_DAY` 等是明文变量；
-   - **Metrics** 里能看到 `/v1` 的请求数和错误。网页文件由 Cloudflare 直接发送，不计入这里。中继不记录访客写的内容。
+   - **Metrics** 里能看到 `/v1` 和 `/api/sources` 的请求数和错误。网页文件由 Cloudflare 直接发送，不计入这里。中继和网关不记录访客写的内容。
+4. 打开 <https://science.impf.ai/api/sources/health>，确认 `ok:true`、`sources:117`、`operations:444`。
+   这些数随连接器注册表更新而变化，网关不需要 MiniMax 密钥。在网页项目里启用数据库网络访问后，运行一个公共数据库查询，
+   浏览器 Network 中应看到同源的 `/api/sources/request`，查询解析和工具执行仍在浏览器。
+   `runtime/source-gateway.json` 必须与网页一起构建并部署；若网关返回 `not_configured`，重新运行完整 studio 工作流。
+   网关默认响应上限为 8 MiB、时限 30 秒；大型查询请缩小范围或导入文件。六个仅提供 HTTP 的旧源在目录中保留 HTTP 标记，网关不会向它们转发授权密钥。
 
 ## 日常维护
 
@@ -189,6 +194,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 调整限额、模型、允许的网页来源 | 改 `studio/edge/wrangler.toml` 的 `[vars]`，合入 main 后自动重新部署。`PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY` 是每人每分钟、每人每天、全体每天的模型调用次数；`TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` 是每人每天、全体每天的 token。一个问题通常调用模型好几次。在控制台里直接改的变量会被下次部署覆盖 |
 | **暂停 Tao-S1（立即）** | Cloudflare → tcmscience-studio → **Settings → Variables and Secrets**，删除 `MINIMAX_API_KEY`。网页检测到中继没有密钥后，改请访客用自己的模型；网站照常。**同时**删除仓库 Secret `MINIMAX_API_KEY`，否则下次部署会把它写回去 |
 | 暂停 Tao-S1（持久） | 把 `wrangler.toml` 的 `RELAY` 改为 `"off"`，合入 main。部署后的检查会显示 `skipped (RELAY off)`，照常通过。恢复时改回 `"on"` |
+| 调整或暂停数据库网关 | 修改 `wrangler.toml` 的 `SOURCE_PER_MINUTE`、`SOURCE_PER_DAY`、`SOURCE_TOTAL_PER_DAY`；必须保留正数限额。`SOURCES = "off"` 暂停数据库网关，网页和模型中继照常。恢复时改回 `"on"` |
 | 看用量 | MiniMax 控制台的用量或账单页；Cloudflare 里 Worker 的 **Metrics** |
 | 网页的内容安全策略 | 目前是“只报告”（`Content-Security-Policy-Report-Only`，见 `_headers`）。在浏览器 Console 里确认长期没有违规报告后，可以把这一行的名字改为 `Content-Security-Policy` 使其生效，同时改 `src/site.js` |
 
@@ -215,7 +221,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 访客看到“请求太频繁”或“今天的 Tao-S1 免费额度已用完” | 触发了中继的限额（同一出口 IP 的访客共用） | 这是正常的保护，北京时间 8:00 重置。需要时调高 `PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY`；“（按用量计）”的是 token 额度 `TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` |
 | 访客看到“Tao-S1 暂时不可用” | 限额计数（Durable Object）暂时连不上，中继宁可拒绝也不放出不计数的调用 | 通常几秒内恢复；持续出现时看 Worker 的 **Logs** |
 | 访客看到 Cloudflare Error 1102（CPU 超时） | 很长的对话超出免费计划每次请求 10 ms 的 CPU 时间 | 升级 Workers 付费计划（每月 5 美元）；或调低 `MAX_BODY_BYTES` |
-| 访问网站得到 Cloudflare Error 1027 | Workers 免费计划每天 10 万次请求用完了（UTC 零点重置）。只有 `/v1` 和找不到文件的请求计数，网页文件不计 | 全体日限额（默认 20 000 次模型调用）远低于此，一般不会发生。发生时可调低限额，或升级付费计划 |
+| 访问网站得到 Cloudflare Error 1027 | Workers 免费计划每天 10 万次请求用完了（UTC 零点重置）。`/v1`、`/api/sources` 和找不到文件的请求计数，网页文件不计 | 默认每天最多 20 000 次模型调用、50 000 次数据库查询；还需为健康检查、拒绝的请求和资源缺失保留余量。可调低限额或升级付费计划 |
 
 ## 安全须知
 

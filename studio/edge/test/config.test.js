@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { DEFAULTS, config } from "../src/relay.js";
+import { SOURCE_DEFAULTS, sourceConfig } from "../src/sources.js";
 
 /** The subset of TOML that wrangler.toml uses: [table], [[array of tables]], key = string | number | bool | array |
  * inline table, comments. Enough to read the file, not a general parser. */
@@ -60,6 +61,8 @@ const SITE = "https://science.impf.ai";
 const NUMBERS = {
   MAX_OUTPUT_TOKENS: 1, MAX_BODY_BYTES: 1, PER_MINUTE: 0, PER_DAY: 0, TOTAL_PER_DAY: 0, TOKENS_PER_DAY: 0,
   TOTAL_TOKENS_PER_DAY: 0, HSTS_MAX_AGE: 0,
+  SOURCE_MAX_BODY_BYTES: 1024, SOURCE_MAX_RESPONSE_BYTES: 1024, SOURCE_TIMEOUT_MS: 1000,
+  SOURCE_PER_MINUTE: 1, SOURCE_PER_DAY: 1, SOURCE_TOTAL_PER_DAY: 1,
 };
 // a question takes up to 16 model calls (CONTRACTS.md §6 maxSteps): a call limit below that stops the agent halfway
 const AGENT_CALLS = 16;
@@ -68,7 +71,7 @@ const AGENT_CALLS = 16;
 function problems(vars) {
   const out = [];
   const say = (k, why) => out.push(`${k}: ${why}`);
-  const known = [...Object.keys(DEFAULTS), "HSTS_MAX_AGE"];
+  const known = [...Object.keys(DEFAULTS), ...Object.keys(SOURCE_DEFAULTS), "HSTS_MAX_AGE"];
   for (const k of known) if (!(k in vars)) say(k, "missing from [vars]");
   for (const k of Object.keys(vars)) if (!known.includes(k)) say(k, "not a variable the Worker reads (a typo?)");
   const text = {};
@@ -80,6 +83,10 @@ function problems(vars) {
   }
   const has = (k) => k in text;
   if (has("RELAY") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.RELAY)) say("RELAY", `"${text.RELAY}" is neither "on" nor "off"`);
+  if (has("SOURCES") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.SOURCES)) say("SOURCES", "must be on or off");
+  for (const [key, maximum] of [["SOURCE_MAX_BODY_BYTES", 1048576], ["SOURCE_MAX_RESPONSE_BYTES", 16777216], ["SOURCE_TIMEOUT_MS", 30000], ["SOURCE_PER_MINUTE", 10000], ["SOURCE_PER_DAY", 100000], ["SOURCE_TOTAL_PER_DAY", 1000000]]) {
+    if (has(key) && Number(text[key]) > maximum) say(key, `must be at most ${maximum}`);
+  }
   if (has("UPSTREAM_BASE")) {
     let u = null;
     try {
@@ -195,7 +202,7 @@ test("the Worker: one hostname, the app's files first, the relay under /v1/*, it
   assert.equal(toml.workers_dev, false);
   assert.equal(toml.preview_urls, false);
   assert.deepEqual(toml.routes, [{ pattern: "science.impf.ai", custom_domain: true }]);
-  assert.deepEqual(toml.assets, { directory: "../_site", binding: "ASSETS", run_worker_first: ["/v1/*"], not_found_handling: "none" });
+  assert.deepEqual(toml.assets, { directory: "../_site", binding: "ASSETS", run_worker_first: ["/v1/*", "/api/sources/*"], not_found_handling: "none" });
   assert.deepEqual(toml.ratelimits, [{ name: "BURST", namespace_id: "7321", simple: { limit: 40, period: 10 } }]);
   assert.ok(!["7311", "7312", "7313"].includes(toml.ratelimits[0].namespace_id)); // TaoChronos's: their counters would be shared
   assert.deepEqual(toml.durable_objects.bindings, [{ name: "LIMITER", class_name: "Limiter" }]);

@@ -188,7 +188,8 @@ test("call(): starts lazily; the catalog decides packages and state; the envelop
   const call = Worker.instances[0].received.find((m) => m.op === "call");
   assert.deepEqual(call.payload.packages, ["numpy", "scipy"]);
   assert.equal(call.payload.stateful, true);
-  assert.deepEqual(call.payload.context, { project_id: "p1", conversation_id: "c1", approvals: ["once"], device: "cpu" });
+  assert.deepEqual(call.payload.context, { project_id: "p1", conversation_id: "c1", approvals: ["once"], device: "cpu", network: false });
+  assert.equal(call.payload.acceleration, "auto");
   await rt.call("call_tool", { tool: "skill.assess-tcm-safety", arguments: {} });
   await rt.call("call_tool", { tool: "native.edit_distance", arguments: {} });
   await rt.call("capabilities_status", {});
@@ -210,6 +211,15 @@ test("a failed sync to IndexedDB marks the receipt durable:false", async () => {
   assert.equal(env.receipt.durable, false);
   assert.match(env.receipt.persist_error, /quota/);
   assert.equal((await rt.info()).persist.durable, false);
+});
+
+test("explicit CPU preference is forwarded alongside project network access", async () => {
+  const { rt, Worker } = runtime({ settings: { browserAcceleration: "cpu" } });
+  await rt.call("call_tool", { tool: "native.gc_content", arguments: { sequence: "ACGT" } }, { network: true });
+  const payload = Worker.instances[0].received.find((request) => request.op === "call").payload;
+  assert.equal(payload.acceleration, "cpu");
+  assert.equal(payload.context.network, true);
+  rt.stop();
 });
 
 test("calls run one at a time, in order", async () => {

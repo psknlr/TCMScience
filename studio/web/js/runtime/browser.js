@@ -11,6 +11,7 @@
 import { Emitter } from "../core/events.js";
 import { registerStrings, t } from "../core/i18n.js";
 import { canonicalJson, nowIso, sha256Hex } from "../core/util.js";
+import { WEBGPU_TOOLS } from "./webgpu.js";
 
 const CATALOG_SCHEMA = "tcmstudio.catalog/1";
 const BOOT_SCHEMA = "tcmstudio.boot/1";
@@ -33,6 +34,7 @@ registerStrings("zh", {
   "runtime.browser.stage.persist": "正在打开本地审计存储",
   "runtime.browser.stage.import": "正在导入 tcmstudio、bioagent 与 psh",
   "runtime.browser.stage.packages_on_demand": "首次使用，正在载入 {names}",
+  "runtime.browser.stage.data": "正在按需载入完整方剂表：{rows} 条（{mb} MB）",
   "runtime.browser.stage.ready": "就绪：Python 工具在本机 CPU 上运行（单线程，WebAssembly）",
   "runtime.browser.error.unsupported": "此浏览器不支持 Web Worker 或 WebAssembly，Python 工具无法在浏览器中运行；请改用本机 Runner。",
   "runtime.browser.error.not_built": "此站点没有浏览器运行环境（runtime/boot.json 不存在）；请改用本机 Runner。",
@@ -54,6 +56,7 @@ registerStrings("en", {
   "runtime.browser.stage.persist": "Opening local audit storage",
   "runtime.browser.stage.import": "Importing tcmstudio, bioagent and psh",
   "runtime.browser.stage.packages_on_demand": "First use: loading {names}",
+  "runtime.browser.stage.data": "Loading the full formula table on demand: {rows} rows ({mb} MB)",
   "runtime.browser.stage.ready": "Ready: Python tools run on this computer's CPU (single thread, WebAssembly)",
   "runtime.browser.error.unsupported": "This browser has no Web Worker or WebAssembly support, so Python tools cannot run in it; use the local runner.",
   "runtime.browser.error.not_built": "This site has no browser runtime (runtime/boot.json is missing); use the local runner.",
@@ -73,6 +76,7 @@ export async function detectDevice({ navigator: nav = globalThis.navigator, isol
     cross_origin_isolated: Boolean(isolated),
     webgpu: { api: Boolean(nav && "gpu" in nav), adapter: null },
     python: { device: "cpu", threads: 1, note: "Python tools run on the CPU (single thread, WebAssembly)" },
+    compute: { webgpu_tools: [...WEBGPU_TOOLS], webgpu_adapter: false, precision: "Exact uint32 reductions; Python float64 transforms", fallback: "pyodide CPU" },
   };
   if (nav?.gpu?.requestAdapter) {
     try {
@@ -89,6 +93,7 @@ export async function detectDevice({ navigator: nav = globalThis.navigator, isol
           software: fallback || /swiftshader|llvmpipe|lavapipe|software|microsoft basic render/i.test(`${i.vendor} ${i.architecture} ${i.description}`),
           fallback,
         };
+        out.compute.webgpu_adapter = !out.webgpu.adapter.software;
       }
     } catch (err) {
       out.webgpu.error = String(err?.message || err);
@@ -208,6 +213,7 @@ export class BrowserRuntime {
       persist: this.#info?.persist ? { ...this.#info.persist, durable: this.#durable ?? this.#info.persist.durable } : null,
       device: "cpu",
       threads: 1,
+      compute: { webgpu_tools: [...WEBGPU_TOOLS], preference: this.#opts.settings?.browserAcceleration || "auto", fallback: "pyodide CPU" },
       cross_origin_isolated: Boolean(globalThis.crossOriginIsolated),
       interruptible: this.interruptible,
       boot_ms: this.#info?.boot_ms ?? null,
@@ -247,7 +253,7 @@ export class BrowserRuntime {
     } catch (err) {
       return this.#bootFailure(name, input, entry, err, started, t0);
     }
-    const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu" };
+    const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network === true };
     // only capabilities_status reports host facts; the WebGPU probe is not worth making for every call
     if (entry?.id === "system.capabilities") context.capabilities = await this.#capabilities();
     if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.");
@@ -255,6 +261,7 @@ export class BrowserRuntime {
       tool: name,
       arguments: input,
       context,
+      acceleration: ctx.acceleration === "cpu" || this.#opts.settings?.browserAcceleration === "cpu" ? "cpu" : "auto",
       packages: Array.isArray(entry?.pyodide_packages) ? entry.pyodide_packages : [],
       stateful: Boolean(entry && (STATEFUL_KINDS.has(entry.kind) || STATEFUL_IDS.has(entry.id))),
     };

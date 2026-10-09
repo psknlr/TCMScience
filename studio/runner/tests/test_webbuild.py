@@ -23,7 +23,7 @@ import pytest
 from tcmstudio import webbuild
 
 STUDIO = Path(__file__).resolve().parents[2]
-SAFETY_HASH = "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312"
+SAFETY_HASH = "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e"
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +74,7 @@ def test_bundle_holds_the_three_packages_as_installed(members, bundle):
     assert "bioagent/_bundled/skills/tcm/assess-tcm-safety/skill.yaml" in names
     assert any(n.startswith("bioagent/_bundled/skills/candidates/") for n in names)
     assert "bioagent/data/clinic_pack.json" in names                       # package data
-    assert "bioagent/data/unified_capability_catalogue.csv" not in names    # unused in a browser
+    assert "bioagent/data/unified_capability_catalogue.csv" in names        # third-party discovery
     assert not any("__pycache__" in n or n.endswith((".pyc", ".pyo")) for n in names)
     assert not any(n.startswith("tcmstudio/web/") for n in names)
     assert bundle.versions == webbuild._versions()

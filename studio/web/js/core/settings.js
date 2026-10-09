@@ -23,6 +23,7 @@ export const DEFAULTS = Object.freeze({
   maxTokens: 8192,
   maxSteps: 16,
   compute: "auto",
+  browserAcceleration: "auto",
   runner: { url: "http://127.0.0.1:8765", token: "" },
   web: false,
   onboarded: false,
@@ -35,6 +36,7 @@ const ENUMS = {
   theme: ["system", "light", "dark"],
   route: ["auto", "direct", "runner"],
   compute: ["auto", "browser", "runner"],
+  browserAcceleration: ["auto", "cpu"],
 };
 
 const bus = new Emitter();

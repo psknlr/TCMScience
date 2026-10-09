@@ -324,6 +324,11 @@ function computeTab(app) {
   }
   return h("div.stack.stack--xl",
     section({ title: t("ui.compute.title"), children: computePanel(app, { compact: false }) }),
+    section({ title: t("ui.browser.acceleration"), children: selectField({
+      label: t("ui.browser.acceleration"), value: app.state.settings.browserAcceleration || "auto",
+      options: [{ value: "auto", label: t("ui.browser.acceleration_auto") }, { value: "cpu", label: t("ui.browser.acceleration_cpu") }],
+      help: t("ui.browser.acceleration_help"), onChange: (v) => app.setSetting({ browserAcceleration: v }),
+    }) }),
     section({ title: t("ui.web.label"), children: switchControl({ label: t("ui.web.default_label"), description: t("ui.web.default_desc"), checked: app.state.settings.web, onChange: (v) => app.setSetting({ web: v }) }) }),
     section({ title: t("ui.jobs.title"), children: jobsBox }));
 }

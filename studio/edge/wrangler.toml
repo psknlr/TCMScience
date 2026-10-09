@@ -1,4 +1,4 @@
-# TCMScience Studio — one Worker for https://science.impf.ai: the app's files and the Tao-S1 relay under /v1/*.
+# TCMScience Studio — one Worker: static app, Tao-S1 relay /v1/* and data gateway /api/sources/*.
 # Deployed by .github/workflows/studio.yml (SETUP.md). Its secrets are never written here or anywhere in the repository:
 # MINIMAX_API_KEY (required for Tao-S1) and VISITOR_SALT (optional) are set from the repository's Actions secrets.
 name = "tcmscience-studio"
@@ -19,8 +19,8 @@ custom_domain = true
 [assets]
 directory = "../_site"
 binding = "ASSETS"
-# only the relay runs the Worker first; every file is served directly by Cloudflare (free, not counted)
-run_worker_first = ["/v1/*"]
+# the model relay and registered-source gateway run the Worker first; files are served directly (free, not counted)
+run_worker_first = ["/v1/*", "/api/sources/*"]
 # a path that matches no file goes to the Worker, which answers a browser's navigation with index.html (the app's own
 # routes) and anything else with 404. "single-page-application" would answer index.html, with 200, to every miss,
 # including a missing script or JSON file the app asked for.
@@ -54,6 +54,15 @@ TOTAL_TOKENS_PER_DAY = "200000000"
 # exact origins of the pages that may call the relay: the site, and the app as the local runner serves it
 ALLOWED_ORIGINS = "https://science.impf.ai,http://127.0.0.1:8765,http://localhost:8765"
 HSTS_MAX_AGE = "15552000"
+# Registry-only read access for all built-in data connectors (runtime/source-gateway.json).
+# Same origin bypasses public APIs' browser CORS restrictions. No arbitrary URL proxy.
+SOURCES = "on"
+SOURCE_MAX_BODY_BYTES = "393216"
+SOURCE_MAX_RESPONSE_BYTES = "8388608"
+SOURCE_TIMEOUT_MS = "30000"
+SOURCE_PER_MINUTE = "120"
+SOURCE_PER_DAY = "3000"
+SOURCE_TOTAL_PER_DAY = "50000"
 
 # per visitor (IPv6 by /64) and Cloudflare location over ten seconds: checked before the body is read and before the
 # Durable Object is asked. namespace_id is unique in the account (TaoChronos uses 7311, 7312, 7313).

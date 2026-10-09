@@ -1,6 +1,6 @@
 # TCMScience Studio — headers for the files Cloudflare serves directly (Workers Static Assets). The deploy copies this
 # file into the built site (studio/_site/_headers); wrangler reads it and does not publish it as a file.
-# What the Worker answers itself (/v1/*, and a path that matches no file) gets the same headers from src/site.js;
+# What the Worker answers itself (/v1/*, /api/sources/*, and a missing file) gets the same headers from src/site.js;
 # test/site.test.js checks that the two agree.
 #
 # Every file carries the page headers: they take effect only on documents and worker scripts (a worker's own policy

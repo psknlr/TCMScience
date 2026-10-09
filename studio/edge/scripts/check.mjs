@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // After a deployment: does science.impf.ai answer, with its headers, and does Tao-S1 work? (stdlib only; Node 22)
-//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--settle 120] [--require-model]
+//   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--settle 120] [--require-model] [--require-sources]
 //                          [--relay on|off]
 // 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds), and — when Tao-S1
 //    is required — while a key put a moment ago reaches the edge (--settle seconds: health says ok:false until then);
@@ -14,9 +14,44 @@
 // Prints one JSON line; exits non-zero with a reason when something is wrong.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { compileRegistry } from "../src/sources.js";
 
 const UA = "tcmscience-deploy-check/1";
 const OFF = /^(off|0|false|no)$/i; // as the relay reads RELAY (src/relay.js config)
+
+/** Inspect only this deployment's health and generated registry, without consuming a
+ * third-party API's quota. Counts must agree, and the registry must compile using the
+ * gateway's real read-only template validation. */
+export async function checkSources(url, fetcher = fetch) {
+  const read = async (path, maxBytes) => {
+    const response = await fetcher(`${url}${path}`, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(30000) });
+    const type = response.headers.get("Content-Type") || "";
+    if (response.status !== 200 || !type.toLowerCase().includes("json")) {
+      await response.body?.cancel();
+      throw new Error(`${url}${path} answered ${response.status} ${type}: rebuild and deploy the complete site and source gateway (SOURCES must be on)`);
+    }
+    const text = await response.text();
+    if (Buffer.byteLength(text) > maxBytes) throw new Error(`${url}${path} exceeds the source registry size limit`);
+    try { return JSON.parse(text); } catch { throw new Error(`${url}${path} is not valid JSON`); }
+  };
+  const health = await read("/api/sources/health", 65536);
+  const whole = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+  if (health?.ok !== true || health.service !== "tcmscience-sources" || health.version !== 1
+      || !whole(health.sources, 1, 2000) || !whole(health.operations, health.sources, 1000000)
+      || !whole(health.max_response_bytes, 1024, 16777216) || !whole(health.timeout_ms, 1000, 30000)
+      || !whole(health.limits?.perMinute, 1, 10000) || !whole(health.limits?.perDay, 1, 100000)
+      || !whole(health.limits?.total, 1, 1000000)) {
+    throw new Error(`${url}/api/sources/health is not a valid enabled source gateway health response`);
+  }
+  const manifest = await read("/runtime/source-gateway.json", 4194304);
+  let registry;
+  try { registry = compileRegistry(manifest); }
+  catch (error) { throw new Error(`${url}/runtime/source-gateway.json has invalid read-only source definitions (${error.message})`); }
+  if (registry.sources !== health.sources || registry.routes.length !== health.operations) {
+    throw new Error(`${url}: source gateway health counts (${health.sources}/${health.operations}) differ from the deployed registry (${registry.sources}/${registry.routes.length}); redeploy the Worker and site together`);
+  }
+  return { status: "ok", sources: health.sources, operations: health.operations };
+}
 
 /** RELAY as a wrangler.toml sets it ("on" when the file does not say), or null when there is no such file. */
 export function relayIn(text) {
@@ -154,6 +189,7 @@ export async function check(options = {}, io = {}) {
   await page.body?.cancel();
 
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
+  if (options.requireSources) summary.sources = await checkSources(url, fetcher);
   if (!health.ok) {
     if (paused) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
@@ -203,6 +239,7 @@ function parse(argv) {
     else if (a === "--wait") options.wait = Number(argv[++i]);
     else if (a === "--settle") options.settle = Number(argv[++i]);
     else if (a === "--require-model") options.requireModel = true;
+    else if (a === "--require-sources") options.requireSources = true;
     else if (a === "--relay") options.relay = argv[++i];
     else if (a === "-h" || a === "--help") options.help = true;
     else throw new Error(`unknown argument ${a}`);
@@ -220,7 +257,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     if (options.relay === undefined) options.relay = relayIn(text);
     options.upstream = upstreamFrom(text, process.env.MINIMAX_API_KEY);
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--relay on|off]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--require-sources] [--relay on|off]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }

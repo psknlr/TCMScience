@@ -107,7 +107,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+     "skill_content_hash": "3acaee4fdb5f1bd6de4f6ee65644e634a6ff1e8e4484ffe276674568935e1760",
      "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "0d084f2c7819ddf3f95e281876313a81e1c44f03494ed7e399cc29b1a41f0541",
      "pre_attestation_digest": "78e3ffd6ebde29c42238d28a572d44ea71b2f4a0484bfeeb9f4228bbe07d49bf",
@@ -250,7 +250,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+     "skill_content_hash": "3acaee4fdb5f1bd6de4f6ee65644e634a6ff1e8e4484ffe276674568935e1760",
      "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "0d084f2c7819ddf3f95e281876313a81e1c44f03494ed7e399cc29b1a41f0541",
      "pre_attestation_digest": "78e3ffd6ebde29c42238d28a572d44ea71b2f4a0484bfeeb9f4228bbe07d49bf",
@@ -404,7 +404,7 @@
    "psh": "0.6.0"
   },
   "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=analyze-tcm-network-pharmacology@1.1.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
-  "content_hash": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+  "content_hash": "3acaee4fdb5f1bd6de4f6ee65644e634a6ff1e8e4484ffe276674568935e1760",
   "audit_head": "8389c7ef549cb17f9da1b155765a59bd1d4dce627f7c0dab0d81fc8d360a526a",
   "input_sha256": "c2a32c33a86b1644fd79fa9b197be6fcd0d7ef24aa812666fae217ad84327184",
   "output_sha256": "96af7aeaa22850fd66f7a9e5885f6611d19c75d416f138e367874e23f546a374",

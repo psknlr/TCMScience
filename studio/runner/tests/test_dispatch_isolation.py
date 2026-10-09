@@ -63,7 +63,7 @@ def test_browser_path_starts_no_thread_process_or_socket(tmp_path):
     assert r["tcm_safety_report"] == ["succeeded", None, True]
     assert r["clinic_followup"][0] == "succeeded"
     assert r["catalog_search"][0] == "succeeded" and r["capabilities_status"][0] == "succeeded"
-    assert r["connector_call"][:2] == ["failed", "unavailable"]
+    assert r["connector_call"][:2] == ["failed", "network_off"]
 
 
 def test_importing_the_package_is_cheap():

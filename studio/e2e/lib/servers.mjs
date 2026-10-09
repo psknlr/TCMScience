@@ -137,10 +137,14 @@ export function parseHeaders(text) {
  * navigation to an unknown path gets index.html, anything else missing is a 404. /v1/health answers like the relay
  * deployed without its key (Tao-S1 off), which is what a page sees before the owner adds the secret.
  */
-export function startStatic(site) {
+export function startStatic(site, { sources = null } = {}) {
   const rules = existsSync(path.join(site, "_headers")) ? parseHeaders(readFileSync(path.join(site, "_headers"), "utf8")) : [];
   const server = createServer((req, res) => {
     const url = new URL(req.url, "http://x");
+    if (sources && url.pathname.startsWith("/api/sources/")) {
+      Promise.resolve(sources(req, res)).catch(() => res.writeHead(500).end("source test gateway failed"));
+      return;
+    }
     const headers = {};
     for (const r of rules) if (r.re.test(url.pathname)) for (const [k, v] of r.set) headers[k] = v;
     if (url.pathname === "/v1/health") {

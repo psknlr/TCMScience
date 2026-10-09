@@ -9,10 +9,10 @@ from tcmstudio.catalog import get_entry
 from tcmstudio.dispatch import Context, call, call_json, validate
 
 LOCK_HASHES = {
-    "normalize-tcm-entities": "a5de563ed8d6a76dfcc023b7c8f7d4f0fd78b6126ab33e008328d6615b8297b6",
-    "retrieve-tcm-evidence": "f844cf695a60a4dd1ac876d24677031e2e5efdbcf60933314e798b0d25b222ab",
-    "assess-tcm-safety": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
-    "analyze-tcm-network-pharmacology": "6a8a71ad7c52b64809572ee66abec5e0e780d5d70ab16a18de92c5fddbddb0e6",
+    "normalize-tcm-entities": "4bdb9f7bf49b55f4e8ae4e4ccfffe313a705d7cd7b3dc880ea3b0b386eef66c6",
+    "retrieve-tcm-evidence": "94a6671b7225e4b7df320e89082a076db23aa75c19da5ad3ce3763ceaca238df",
+    "assess-tcm-safety": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e",
+    "analyze-tcm-network-pharmacology": "3acaee4fdb5f1bd6de4f6ee65644e634a6ff1e8e4484ffe276674568935e1760",
 }
 
 
@@ -267,10 +267,7 @@ def test_purpose_commercial_is_ruled_on(runner_ctx):
 
 
 def test_browser_mode_refuses_runner_only_entries(browser_ctx):
-    for tool, args in (("tcmdb_relations", {"kind": "herb_ingredient"}),
-                       ("connector_call", {"connector": "uniprot", "operation": "entry",
-                                           "arguments": {"accession": "P04637"}}),
-                       ("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u"}}),
+    for tool, args in (("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u"}}),
                        ("job_status", {"job_id": "j_1"})):
         e = call(tool, args, browser_ctx)
         assert e["status"] == "failed" and e["error"]["type"] == "unavailable", tool
@@ -517,7 +514,7 @@ def test_significance_wording_follows_the_p_value(runner_ctx):
 
 
 def test_a_name_missing_from_the_seed_corpus_is_not_found_not_a_bad_argument(runner_ctx):
-    for tool, args in (("tcm_formula", {"name": "葛根芩连汤"}),
+    for tool, args in (("tcm_formula", {"name": "不存在的测试方剂_12345"}),
                        ("tcm_applicability", {"subject": "黄芪", "object": "不存在证",
                                               "claim_kind": "traditional_use"})):
         e = call(tool, args, runner_ctx)
@@ -529,8 +526,10 @@ def test_a_name_missing_from_the_seed_corpus_is_not_found_not_a_bad_argument(run
 
 def test_summaries_name_the_knowledge_base_a_composition_comes_from(runner_ctx, intake):
     seed = call("tcm_formula", {"name": "四君子汤"}, runner_ctx)
-    assert seed["summary"].startswith("种子语料（6 首方剂）· 四君子汤")
-    assert seed["summary_en"].startswith("Seed corpus (6 formulas) · ")
+    assert seed["summary"].startswith("完整方剂库：四君子汤")
+    assert seed["result"]["annotation_scope"]
+    assert seed["result"]["repository_records"]["total"] > 1
+    assert seed["summary_en"].startswith("Complete formula workbook: ")
     clinic = call("clinic_assess", {"intake": intake}, runner_ctx)
     assert "临床知识包 " in clinic["summary"] and "13 首方剂" in clinic["summary"]
     assert "未经审核" in clinic["summary"] and "clinic pack" in clinic["summary_en"]

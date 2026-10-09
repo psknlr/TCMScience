@@ -60,3 +60,24 @@ test("the table survives a second object over the same storage (an evicted objec
   assert.equal(again.count(`d:chat:a:${day(T)}`), 1);
   assert.equal(again.hit("a", "chat", limits, T).remaining, 3);
 });
+
+test("public source slots pace every visitor by host, survive eviction and cap the waiting queue", () => {
+  const sql = sqlStore();
+  const first = new LimiterCore(sql);
+  assert.deepEqual(first.sourceSlot("api.example.org", 2, T), { ok: true, delay: 0 });
+  assert.deepEqual(first.sourceSlot("api.example.org", 2, T), { ok: true, delay: 500 });
+  const again = new LimiterCore(sql);
+  assert.deepEqual(again.sourceSlot("api.example.org", 2, T), { ok: true, delay: 1000 });
+  for (let n = 3; n <= 20; n++) assert.deepEqual(again.sourceSlot("api.example.org", 2, T), { ok: true, delay: n * 500 });
+  assert.deepEqual(again.sourceSlot("api.example.org", 2, T), { ok: false, retry: 11 });
+  assert.deepEqual(again.sourceSlot("other.example.org", 1, T), { ok: true, delay: 0 });
+  assert.deepEqual(again.sourceSlot("api.example.org", 2, T + 11000), { ok: true, delay: 0 });
+});
+
+test("path-specific source rates do not slow unrelated APIs on the same host", () => {
+  const l = new LimiterCore(sqlStore());
+  assert.deepEqual(l.sourceSlot("www.ebi.ac.uk", 10, T, { "/metagenomics/": 0.1 }), { ok: true, delay: 0 });
+  assert.deepEqual(l.sourceSlot("www.ebi.ac.uk", 10, T), { ok: true, delay: 100 });
+  assert.deepEqual(l.sourceSlot("www.ebi.ac.uk", 10, T, { "/metagenomics/": 0.1 }), { ok: true, delay: 10000 });
+  assert.deepEqual(l.sourceSlot("www.ebi.ac.uk", 10, T, { "/metagenomics/": 0.1 }), { ok: false, retry: 20 });
+});
