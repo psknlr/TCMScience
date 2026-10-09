@@ -1,0 +1,235 @@
+{
+ "files": {
+  "lotus-herbs.json.gz": {
+   "attribution": "Natural-product occurrences from LOTUS (Rutz et al., eLife 2022, doi:10.7554/eLife.70780), frozen export 2026-04-13, Zenodo doi:10.5281/zenodo.19360665, licensed CC BY 4.0; subset and regrouped per herb by TCMScience Studio.",
+   "bytes": 1472562,
+   "changes": "Subset and regrouped, not edited: the export's (structure, organism, reference) triplets are kept only for organisms matched to a materia herb (NCBI taxon id first, then exact species name), regrouped per herb with the number of distinct references (Wikidata reference items) per compound; rows without a valid InChIKey or an organism name are dropped, as bioagent.sources.parsers.lotus drops them. Compound name = the export's structure_nameTraditional, else structure_nameIupac, else null; formula = structure_molecular_formula; smiles = structure_smiles_2D (from the metadata file).",
+   "counts": {
+    "compounds": 20415,
+    "compounds_with_two_recorded_forms": 0,
+    "compounds_without_metadata": 11,
+    "compounds_without_name": 542,
+    "dropped": {
+     "row without an InChIKey or an organism name": 32
+    },
+    "herbs_considered": 401,
+    "herbs_matched": 311,
+    "herbs_unmatched": 90,
+    "lotus_taxids_merged_by_ncbi": 471,
+    "metadata_rows_read": 709740,
+    "name_matches_across_rank": [
+     {
+      "herb": "zisuye",
+      "lotus_taxids": [
+       "151328"
+      ],
+      "name": "Perilla frutescens",
+      "our_taxid": "48386",
+      "wikidata": "Q1076038"
+     },
+     {
+      "herb": "zisuzi",
+      "lotus_taxids": [
+       "151328"
+      ],
+      "name": "Perilla frutescens",
+      "our_taxid": "48386",
+      "wikidata": "Q1076038"
+     }
+    ],
+    "name_matches_refused": [],
+    "occurrences": 36655,
+    "organisms_matched": {
+     "name": 21,
+     "taxid": 406
+    },
+    "rows_read": 674454,
+    "triplets_kept": 48108,
+    "unmatched_by_reason": {
+     "no_lotus_organism": 34,
+     "not_an_organism": 56
+    },
+    "unmatched_organisms": [
+     "baidingxiang",
+     "baihuashe",
+     "biejia",
+     "chantui",
+     "chuanshanjia",
+     "difuzi",
+     "dilong",
+     "ejiao",
+     "fengfang",
+     "guijia",
+     "haipiaoxiao",
+     "hake",
+     "huashanyao",
+     "hugu",
+     "huzhang",
+     "lingyangjiao",
+     "mengchong",
+     "quanxie",
+     "sangpiaoxiao",
+     "shetui",
+     "shijueming",
+     "shuizhi",
+     "tianzhuhuang",
+     "weipi",
+     "wugong",
+     "wushaoshe",
+     "xiangpi",
+     "xijiao",
+     "yemingsha",
+     "zhachan",
+     "zhenzhu",
+     "zhiqiao",
+     "zhishi",
+     "zhuye"
+    ]
+   },
+   "inputs_from_repo": [
+    {
+     "checked_at": "2026-10-06",
+     "materia_entries": 401,
+     "path": "BioScience-Harness/registry/materia_taxa.json",
+     "sha256": "eef5bd74a0acade18ff379875c1815d7a15a5058cf7752b97d0566add82f672b"
+    }
+   ],
+   "licence": "CC-BY-4.0",
+   "matching": {
+    "name": "otherwise, the organism's name is exactly one of the species' names (materia name, NCBI scientific name, curated synonym), and any taxon id LOTUS gives it is in that species' own lineage (else the match is refused as a taxon conflict)",
+    "ncbi_taxonomy": {
+     "citation": "Schoch CL, et al. NCBI Taxonomy: a comprehensive update on curation, resources and tools. Database (Oxford) 2020;2020:baaa062. doi:10.1093/database/baaa062.",
+     "file": "taxdmp_2026-10-01.zip",
+     "sha256": "d744af371c0b9fc7269d80b49546b6ac4c9ddc52a2fd97bcbfd02783edb5c9eb",
+     "url": "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive/taxdmp_2026-10-01.zip"
+    },
+    "not_matched": "organisms named as a variety, subspecies or other taxon below or beside the listed species; genera",
+    "order": [
+     "taxid",
+     "name"
+    ],
+    "taxid": "the organism's NCBI taxon id (LOTUS metadata file, read through NCBI's merged ids) is the verified taxon of one of the herb's source species (bioagent.sources.materia.crude_drugs)"
+   },
+   "raw_bytes": 5746446,
+   "rebuild": "python3 studio/corpus/extract_open.py --out studio/corpus/data",
+   "schema": "tcmstudio.corpus.lotus/1",
+   "sha256": "c29e0535fa5e0948bb300ddd0a91ce4dd922042982161670eec566eab1d4d3ac",
+   "size_limit_bytes": 12000000,
+   "smiles_cap": null,
+   "upstream": [
+    {
+     "bytes": 20594507,
+     "citation": "Rutz A, et al. The LOTUS initiative for open knowledge management in natural products research. eLife 2022;11:e70780. doi:10.7554/eLife.70780. Data: LOTUS frozen export 2026-04-13, Zenodo record 19360665, doi:10.5281/zenodo.19360665 (CC BY 4.0).",
+     "file": "260413_frozen.csv.gz",
+     "licence": "CC-BY-4.0",
+     "md5": "cf0cf2afa2ca4d758b68f2e39d466f5d",
+     "retrieved": "2026-10-09",
+     "sha256": "c0744fb4d4395a638739078601836d9472612c1ed6db6c8e4f0b5e8a972ced70",
+     "source": "lotus",
+     "url": "https://zenodo.org/api/records/19360665/files/260413_frozen.csv.gz/content",
+     "version": "2026-04-13"
+    },
+    {
+     "bytes": 90298678,
+     "citation": "Rutz A, et al. The LOTUS initiative for open knowledge management in natural products research. eLife 2022;11:e70780. doi:10.7554/eLife.70780. Data: LOTUS frozen export 2026-04-13, Zenodo record 19360665, doi:10.5281/zenodo.19360665 (CC BY 4.0).",
+     "file": "260413_frozen_metadata.csv.gz",
+     "licence": "CC-BY-4.0",
+     "md5": "b17048b3b77daae9ab1e480b6591aabd",
+     "retrieved": "2026-10-09",
+     "sha256": "09885dcfb3bc0e6d700fefcd5778e91446a1f9d5d2fbbcbf00eb5d2e83b68844",
+     "source": "lotus",
+     "url": "https://zenodo.org/api/records/19360665/files/260413_frozen_metadata.csv.gz/content",
+     "version": "2026-04-13"
+    },
+    {
+     "bytes": 79650311,
+     "citation": "Schoch CL, et al. NCBI Taxonomy: a comprehensive update on curation, resources and tools. Database (Oxford) 2020;2020:baaa062. doi:10.1093/database/baaa062.",
+     "file": "taxdmp_2026-10-01.zip",
+     "licence": "LicenseRef-NCBI-public-domain",
+     "retrieved": "2026-10-09",
+     "sha256": "d744af371c0b9fc7269d80b49546b6ac4c9ddc52a2fd97bcbfd02783edb5c9eb",
+     "source": "ncbi",
+     "url": "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump_archive/taxdmp_2026-10-01.zip",
+     "version": "2026-10-01"
+    }
+   ]
+  },
+  "pathways.json.gz": {
+   "attribution": "Pathways from Reactome release 97 (CC0); gene symbols from HGNC (CC0), www.genenames.org.",
+   "bytes": 559613,
+   "changes": "Subset, not edited: Reactome rows for Homo sapiens with a UniProt accession (bioagent.sources.parsers.reactome), grouped by lowest-level pathway, members sorted, names from ReactomePathways.txt; HGNC rows with status Approved and at least one UniProt accession, reduced to symbol and accessions.",
+   "counts": {
+    "accessions": 20253,
+    "accessions_with_several_symbols": 69,
+    "hgnc_dropped": {
+     "no UniProt accession": 24945
+    },
+    "hgnc_rows_read": 45233,
+    "memberships": 50283,
+    "names_differing_from_uniprot2reactome": 0,
+    "names_from_reactome_pathways_txt": 2344,
+    "pathway_proteins_with_a_symbol": 11273,
+    "pathway_sizes": {
+     "in_5_to_500": 1684,
+     "max": 478,
+     "min": 1
+    },
+    "pathways": 2344,
+    "proteins": 12155,
+    "reactome_report": {
+     "dropped": {},
+     "read": {
+      "rows": 324818
+     },
+     "source": "reactome"
+    },
+    "symbols": 20288,
+    "symbols_with_several_accessions": 57
+   },
+   "licence": "CC0-1.0",
+   "raw_bytes": 1757634,
+   "rebuild": "python3 studio/corpus/extract_open.py --out studio/corpus/data",
+   "schema": "tcmstudio.corpus.pathways/1",
+   "sha256": "a30deec28007fff95d5a20b35480b4b2b9024ba942bb6b1dddfe81894d408380",
+   "upstream": [
+    {
+     "bytes": 43041375,
+     "citation": "Milacic M, et al. The Reactome Pathway Knowledgebase 2024. Nucleic Acids Res 2024;52(D1):D672-D678. doi:10.1093/nar/gkad1025.",
+     "file": "UniProt2Reactome.txt",
+     "licence": "CC0-1.0",
+     "retrieved": "2026-10-09",
+     "sha256": "e34fe56a5129d88d8cd67300c279d7e81fa1d3bf86fa0577cf91032c326eaecc",
+     "source": "reactome",
+     "url": "https://download.reactome.org/97/UniProt2Reactome.txt",
+     "version": "97"
+    },
+    {
+     "bytes": 1592393,
+     "citation": "Milacic M, et al. The Reactome Pathway Knowledgebase 2024. Nucleic Acids Res 2024;52(D1):D672-D678. doi:10.1093/nar/gkad1025.",
+     "file": "ReactomePathways.txt",
+     "licence": "CC0-1.0",
+     "retrieved": "2026-10-09",
+     "sha256": "f6d7a2bf89b5bcfe0250a0bc7f51bff94641447911712b8ff129f5b55e52df3a",
+     "source": "reactome",
+     "url": "https://download.reactome.org/97/ReactomePathways.txt",
+     "version": "97"
+    },
+    {
+     "bytes": 16973125,
+     "citation": "HGNC Database, HUGO Gene Nomenclature Committee (HGNC), EMBL-EBI, www.genenames.org (complete set 2026-10-06). Seal RL, et al. Genenames.org: the HGNC resources in 2023. Nucleic Acids Res 2023;51(D1):D1003-D1009. doi:10.1093/nar/gkac888.",
+     "file": "hgnc_complete_set_2026-10-06.txt",
+     "licence": "CC0-1.0",
+     "retrieved": "2026-10-09",
+     "sha256": "8bf6f686e640dbc864a346484626953621b0500d900d26cd085a35c2782d725d",
+     "source": "hgnc",
+     "url": "https://storage.googleapis.com/public-download-files/hgnc/archive/archive/monthly/tsv/hgnc_complete_set_2026-10-06.txt",
+     "version": "2026-10-06"
+    }
+   ]
+  }
+ },
+ "note": "CI never downloads these; the corpus build reads the committed files.",
+ "rebuild": "python3 studio/corpus/extract_open.py --out studio/corpus/data",
+ "rebuild_fixtures": "python3 studio/corpus/extract_open.py --out studio/corpus/data --fixtures",
+ "schema": "tcmstudio.corpus.open-data/1"
+}

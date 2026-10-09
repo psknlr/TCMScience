@@ -111,6 +111,11 @@ _REMEDIES: dict[str, str] = {
     "NEEDS_RUNNER": "Start the local runner (tcmstudio serve) and connect it in Settings.",
     "MISSING_DEPENDENCY": "Install the optional dependency on the runner machine; Studio "
                           "never substitutes an approximation.",
+    "CORPUS_UNAVAILABLE": "Run `tcmstudio corpus fetch` once (with web access) to keep the "
+                          "published corpus on the runner machine, or reload the page.",
+    "usage.corpus.formulas": "Set the project's purpose to academic to read the formula table "
+                             "(its licence is unstated and its commercial use unknown), or use "
+                             "the curated formulas and the other packs.",
 }
 
 _RULE_REMEDIES = (

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tcmstudio.catalog import get_entry
 from tcmstudio.dispatch import Context, call, call_json, validate
+from test_corpus_support import tiny_corpus
 
 LOCK_HASHES = {
     "normalize-tcm-entities": "a5de563ed8d6a76dfcc023b7c8f7d4f0fd78b6126ab33e008328d6615b8297b6",
@@ -56,6 +57,13 @@ def core_cases(intake, visits):
         ("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "upload_123"}},
          "job_submitted"),
         ("capabilities_status", {}, "succeeded"),
+        ("corpus_search", {"query": "黄芪"}, "succeeded"),
+        ("corpus_herb", {"name": "黄芪"}, "succeeded"),
+        ("corpus_formula", {"name": "桂枝汤"}, "succeeded"),
+        ("corpus_formulas_with", {"herbs": ["黄芪"]}, "succeeded"),
+        ("corpus_compounds", {"herb": "甘草"}, "succeeded"),
+        ("corpus_safety", {"herbs": ["甘草", "海藻"]}, "succeeded"),
+        ("corpus_info", {}, "succeeded"),
         ("catalog_search", {"query": "十八反"}, "succeeded"),
         ("call_tool", {"tool": "native.egfr_ckd_epi_2021",
                        "arguments": {"creatinine_mg_dl": 1.0, "age_years": 50, "sex": "female"}},
@@ -92,7 +100,9 @@ def check_envelope(e):
     json.dumps(e, ensure_ascii=False, allow_nan=False)
 
 
-def test_every_core_tool_runs_offline_on_the_runner(runner_ctx, intake, visits, jobs):
+def test_every_core_tool_runs_offline_on_the_runner(runner_ctx, intake, visits, jobs,
+                                                    tmp_path_factory):
+    runner_ctx["corpus"] = {"dir": str(tiny_corpus(tmp_path_factory)["site"])}
     seen = set()
     for tool, args, expected in core_cases(intake, visits):
         e = call(tool, args, runner_ctx)

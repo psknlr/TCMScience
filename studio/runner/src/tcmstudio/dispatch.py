@@ -83,9 +83,10 @@ class Context:
     tcmdb_root: str | None = None
     durable: bool | None = None
     capabilities: Mapping[str, Any] | None = None
-    #: docs/V2.md: the published corpus this call reads (``{base_url, manifest, sha256}``,
-    #: from the worker), the kernels the page offers (``{kernels, prefer}``) and, on the
-    #: resumed call, the page's kernel result (``tcmstudio.accel``).
+    #: docs/V2.md: the published corpus this call reads (``{base_url, manifest, sha256}``
+    #: from the worker, or ``{latest_url}``; the runner may pass ``{cache_dir, site_dir}``;
+    #: ``tcmstudio.corpus.default_corpus``), the kernels the page offers (``{kernels,
+    #: prefer}``) and, on the resumed call, the page's kernel result (``tcmstudio.accel``).
     corpus: Mapping[str, Any] | None = None
     accel: Mapping[str, Any] | None = None
     accel_result: Mapping[str, Any] | None = None
@@ -2324,7 +2325,7 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         "counts": {"entries": len(items), "runnable_here": len(runnable),
                    "by_kind": {k: sum(1 for e in runnable if e["kind"] == k) for k in (
                        "native", "skill", "connector", "clinic", "tcmdb", "study", "job",
-                       "system")}}}
+                       "system", "corpus")}}}
     if ctx.where == "browser":
         result["pyodide_loadable"] = ["numpy", "scipy", "pandas"]
     if ctx.capabilities:
@@ -2374,7 +2375,21 @@ def _audit_verify(ctx: Context, g: dict[str, Any]) -> Outcome:
                                  else f"broken at record {result['first_break']}"))
 
 
+# ============================================================================ corpus
+
+def _exec_corpus(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
+    """The published corpus (docs/V2.md §11.5): ``tcmstudio.corpus.tools`` answers, with
+    governance kind ``corpus`` and ``receipt.corpus``."""
+    op = entry["id"].split(".", 1)[1]
+    try:
+        from .corpus.tools import run
+    except ImportError as exc:                                  # pragma: no cover
+        return _failure("corpus", "unavailable", f"{type(exc).__name__}: {exc}")
+    fields = run(op, args, ctx)
+    return Outcome(**{k: v for k, v in fields.items() if k in Outcome.__dataclass_fields__})
+
+
 _EXECUTORS: dict[str, Callable[[dict[str, Any], dict[str, Any], Context], Outcome]] = {
     "native": _exec_native, "connector": _exec_connector, "skill": _exec_skill,
     "clinic": _exec_clinic, "tcmdb": _exec_tcmdb, "study": _exec_study, "job": _exec_job,
-    "system": _exec_system}
+    "system": _exec_system, "corpus": _exec_corpus}

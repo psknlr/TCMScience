@@ -1049,6 +1049,47 @@ def _job_entries() -> list[dict[str, Any]]:
     return out
 
 
+# ------------------------------------------------------------------------- corpus
+
+
+#: The corpus tools (docs/V2.md §11.5) by entry id: (core tool, tags). Their parameters and
+#: summaries are the core tools' own.
+_CORPUS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "corpus.search": ("corpus_search", ("检索", "名称", "方名", "出处", "异名", "search")),
+    "corpus.herb": ("corpus_herb", ("药材", "性味归经", "基原", "物种", "剂量", "herb")),
+    "corpus.formula": ("corpus_formula", ("方剂", "方剂表", "组成", "出处", "君臣佐使",
+                                          "formula")),
+    "corpus.formulas_with": ("corpus_formulas_with", ("含药方剂", "方剂表", "配伍", "组成",
+                                                      "formulas containing")),
+    "corpus.compounds": ("corpus_compounds", ("化合物", "天然产物", "成分", "LOTUS", "InChIKey",
+                                              "compounds")),
+    "corpus.safety": ("corpus_safety", ("十八反", "十九畏", "配伍禁忌", "孕妇", "毒性", "相互作用",
+                                        "safety")),
+    "corpus.info": ("corpus_info", ("语料", "快照", "许可", "来源", "署名", "licence")),
+}
+_CORPUS_EXAMPLES: dict[str, dict[str, Any]] = {
+    "corpus.search": {"query": "黄芪"}, "corpus.herb": {"name": "葛根"},
+    "corpus.formula": {"name": "桂枝汤"}, "corpus.formulas_with": {"herbs": ["黄芪", "当归"]},
+    "corpus.compounds": {"herb": "甘草", "limit": 10},
+    "corpus.safety": {"herbs": ["甘草", "海藻"]},
+    "corpus.info": {},
+}
+
+
+def _corpus_entries() -> list[dict[str, Any]]:
+    from .core_tools import CORE_BY_NAME
+
+    out = []
+    for entry_id, (core_name, tags) in _CORPUS.items():
+        core = CORE_BY_NAME[core_name]
+        out.append(_entry(entry_id, "corpus", core["title"]["zh"], core["title"]["en"],
+                          core["category"], core["description"],
+                          copy.deepcopy(core["parameters"]),
+                          example=_CORPUS_EXAMPLES[entry_id],
+                          tags=(*tags, "语料", "corpus", core_name)))
+    return out
+
+
 # ------------------------------------------------------------------------- system
 
 
@@ -1098,7 +1139,7 @@ def _system_entries() -> list[dict[str, Any]]:
 _SECTION_BUILDERS = {"native": _native_entries, "skill": _skill_entries,
                      "connector": _connector_entries, "clinic": _clinic_entries,
                      "tcmdb": _tcmdb_entries, "study": _study_entries, "job": _job_entries,
-                     "system": _system_entries}
+                     "system": _system_entries, "corpus": _corpus_entries}
 _SECTIONS: dict[str, list[dict[str, Any]]] = {}
 _INDEX: dict[str, dict[str, Any]] = {}
 _FAILED: dict[str, str] = {}
@@ -1212,8 +1253,8 @@ def build_catalog(where: str = "runner", probe: bool = True) -> dict[str, Any]:
 
 _SPLIT = re.compile(r"[\s,，、;；/|()（）\[\]{}:：。.?？!！\"'“”‘’]+")
 _CJK = re.compile(r"[㐀-鿿豈-﫿]")
-_KIND_ORDER = {k: i for i, k in enumerate(("native", "skill", "clinic", "tcmdb", "study",
-                                           "system", "job", "connector"))}
+_KIND_ORDER = {k: i for i, k in enumerate(("native", "corpus", "skill", "clinic", "tcmdb",
+                                           "study", "system", "job", "connector"))}
 
 
 def _tokens(query: str) -> list[str]:

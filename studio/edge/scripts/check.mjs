@@ -154,6 +154,7 @@ export async function check(options = {}, io = {}) {
   await page.body?.cancel();
 
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
+  if (options.v2) summary.v2 = await checkPublished(url, fetcher);
   if (!health.ok) {
     if (paused) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
@@ -194,6 +195,71 @@ export async function check(options = {}, io = {}) {
   return { ...summary, call: "ok", usage: reply.usage || null };
 }
 
+/**
+ * What v2 publishes beside the app (studio/docs/V2.md §11, §15, §16), each checked only when runtime/boot.json or the
+ * runner manifest declares it: the pinned corpus manifest and one of its objects (byte-exact, so served without a
+ * Content-Encoding), latest.json pointing at the same manifest, the self-hosted Pyodide lockfile, and the install
+ * scripts. A declared file that is missing or different is a failed deployment.
+ */
+export async function checkPublished(url, fetcher = fetch) {
+  const get = async (path, accept = "*/*") => {
+    const res = await fetcher(`${url}/${path.replace(/^\/+/, "")}`, { headers: { "User-Agent": UA, Accept: accept } });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      throw new Error(`${url}/${path} answered ${res.status}: it was not deployed`);
+    }
+    return res;
+  };
+  const json = async (path) => {
+    const res = await get(path, "application/json");
+    try {
+      return await res.json();
+    } catch {
+      throw new Error(`${url}/${path} is not JSON`);
+    }
+  };
+  const out = {};
+  const boot = await json("runtime/boot.json");
+  if (boot.corpus?.manifest) {
+    const res = await get(boot.corpus.manifest, "application/json");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (boot.corpus.sha256 && (await sha256Hex(bytes)) !== boot.corpus.sha256) throw new Error(`${boot.corpus.manifest} does not match the SHA-256 in boot.json`);
+    const manifest = JSON.parse(new TextDecoder().decode(bytes));
+    const latest = await json("corpus/latest.json");
+    if (latest.manifest !== boot.corpus.manifest) throw new Error(`corpus/latest.json points at ${latest.manifest}, boot.json at ${boot.corpus.manifest}`);
+    const [path, obj] = Object.entries(manifest.objects || {})[0] || [];
+    if (!obj) throw new Error(`${boot.corpus.manifest} lists no objects`);
+    const o = await get(`corpus/${obj.url}`);
+    if (o.headers.get("Content-Encoding")) throw new Error(`corpus objects are served with Content-Encoding ${o.headers.get("Content-Encoding")}: their SHA-256 would not match`);
+    if ((await sha256Hex(new Uint8Array(await o.arrayBuffer()))) !== obj.sha256) throw new Error(`corpus object ${path} does not match its SHA-256`);
+    out.corpus = { snapshot_id: manifest.snapshot_id, objects: Object.keys(manifest.objects).length };
+  }
+  const index = String(boot.pyodide?.index_url || "");
+  if (index && !/^[a-z]+:\/\//i.test(index)) {
+    const lock = await json(`${index.replace(/\/?$/, "/")}pyodide-lock.json`);
+    out.pyodide = { self_hosted: true, python: lock.info?.python || null };
+  } else {
+    out.pyodide = { self_hosted: false };
+  }
+  let release = null;
+  try {
+    release = await json("runner/manifest.json");
+  } catch { /* no runner release in this site */ }
+  if (release) {
+    for (const script of ["install.sh", "install.ps1"]) {
+      const text = await (await get(script, "text/plain")).text();
+      if (!text.includes("science") && !text.includes("tcmstudio")) throw new Error(`${script} does not look like the runner installer`);
+    }
+    out.runner = { version: release.version || null, installers: ["install.sh", "install.ps1"] };
+  }
+  return out;
+}
+
+async function sha256Hex(bytes) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function parse(argv) {
   const options = {};
   for (let i = 0; i < argv.length; i++) {
@@ -204,6 +270,7 @@ function parse(argv) {
     else if (a === "--settle") options.settle = Number(argv[++i]);
     else if (a === "--require-model") options.requireModel = true;
     else if (a === "--relay") options.relay = argv[++i];
+    else if (a === "--v2") options.v2 = true;
     else if (a === "-h" || a === "--help") options.help = true;
     else throw new Error(`unknown argument ${a}`);
   }
@@ -220,7 +287,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     if (options.relay === undefined) options.relay = relayIn(text);
     options.upstream = upstreamFrom(text, process.env.MINIMAX_API_KEY);
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--relay on|off]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--relay on|off] [--v2]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }

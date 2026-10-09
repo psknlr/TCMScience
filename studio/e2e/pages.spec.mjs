@@ -92,7 +92,8 @@ test("first run, settings with a custom model, catalog and about", async ({ page
 
   // the catalog: categories with counts, search, an entry's page
   await page.goto(`${site.url}/#/catalog`);
-  await expect(page.locator("#app")).toContainText("642");
+  const entries = await page.evaluate(async () => (await (await fetch("/runtime/catalog.json")).json()).counts.entries);
+  await expect(page.locator("#app")).toContainText(String(entries));
   await expect(page.locator("#app")).toContainText("安全与配伍");
   const search = page.getByRole("searchbox").or(page.locator("input[type=search]")).first();
   await search.fill("reverse complement");

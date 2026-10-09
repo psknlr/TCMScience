@@ -33,7 +33,7 @@ TEXT_LIMIT = 16_000
 STATUSES = ("succeeded", "failed", "refused", "needs_approval", "job_submitted", "cancelled")
 ERROR_TYPES = ("bad_arguments", "unavailable", "not_found", "refused", "runtime_error",
                "timeout", "network_off")
-KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system")
+KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system", "corpus")
 
 _MAX_DEPTH = 48
 _MAX_CITATIONS = 40

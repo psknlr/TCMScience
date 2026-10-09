@@ -4,9 +4,10 @@
     tcmstudio call TOOL --args JSON [--where browser|runner] [--network] [--project ID]
     tcmstudio serve …        the local runner (tcmstudio.server)
     tcmstudio webbuild …     the static site build (tcmstudio.webbuild)
+    tcmstudio corpus build|fetch|info …   the published corpus (tcmstudio.corpus.cli)
 
-``serve`` and ``webbuild`` belong to their own modules; this file only hands them their
-arguments, importing them when asked so the other commands never load them.
+``serve``, ``webbuild`` and ``corpus`` belong to their own modules; this file only hands them
+their arguments, importing them when asked so the other commands never load them.
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ __all__ = ["main", "build_parser"]
 _DELEGATED = {"serve": ("tcmstudio.server", "run the local runner on 127.0.0.1 (CPU/GPU jobs, "
                                             "connectors, data hub)"),
               "webbuild": ("tcmstudio.webbuild", "build the static web app with the catalog "
-                                                 "and the Python bundle")}
+                                                 "and the Python bundle"),
+              "corpus": ("tcmstudio.corpus.cli", "build, fetch (for offline use) or describe the "
+                                                 "published TCM corpus")}
 
 
 def build_parser() -> argparse.ArgumentParser:

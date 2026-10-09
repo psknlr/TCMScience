@@ -15,7 +15,8 @@ import copy
 from typing import Any, Mapping
 
 __all__ = ["CORE_TOOLS", "CORE_BY_NAME", "CATEGORY_IDS", "ENTRY_KINDS", "CLAIM_KINDS",
-           "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA", "MODIFICATION_SCHEMA",
+           "CORPUS_KINDS", "INTAKE_SCHEMA", "VISIT_SCHEMA", "HERB_LINE_SCHEMA",
+           "MODIFICATION_SCHEMA",
            "PIPELINES", "route", "core_tools", "S", "I", "N", "B", "arr", "obj"]
 
 # ------------------------------------------------------------------ schema helpers
@@ -62,10 +63,12 @@ def _nullable(schema: Mapping[str, Any]) -> dict[str, Any]:
 CATEGORY_IDS = ("tcm_knowledge", "tcm_safety", "clinic", "tcm_data", "live_sources", "netpharm",
                 "study_design", "clinical_calc", "seq_genomics", "structure_molecules", "omics",
                 "literature", "system")
-ENTRY_KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system")
+ENTRY_KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system",
+               "corpus")
 CLAIM_KINDS = ("attribution", "traditional_use", "mechanism_hypothesis", "mechanism",
                "safety_signal", "association", "efficacy", "recommendation")
 PIPELINES = ("rnaseq", "scrna", "fold", "dock", "admet")
+CORPUS_KINDS = ("herb", "formula", "syndrome", "safety")
 
 # --------------------------------------------------------------- clinic schemas
 
@@ -239,6 +242,79 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         pharmacology on data snapshots, use network_pharmacology_run (a runner job).""",
           obj({"formula_name": S("formula, e.g. 桂枝汤")}, required=("formula_name",)),
           "skill.analyze-tcm-network-pharmacology", B_R),
+    # ---- the published corpus (docs/V2.md §11.5): breadth, with every pack's limits
+    _core("corpus_search", "语料检索", "Search the corpus", "tcm_knowledge", """
+        Search the published TCM corpus by name: herbs (401 crude drugs and their typed
+        aliases), syndromes (27), curated formulas (19), safety records, and the
+        84,294-row formula table by name or 出处 (with row numbers). Matches are exact,
+        prefix or substring, with counts per kind. A processed form (炙甘草), a part or a
+        product is reported as an alias of its crude drug, never resolved to it. Not found
+        in the corpus is not absence; a table row is a compiled record, not a classical
+        quotation.""",
+          obj({"query": S("a name or part of one, e.g. 黄芪, 桂枝汤, 伤寒论 (出处)"),
+               "kinds": arr(S(enum=list(CORPUS_KINDS)), "restrict to these kinds; empty = all"),
+               "limit": I(minimum=1, maximum=100, default=20)}, required=("query",)),
+          "corpus.search", B_R),
+    _core("corpus_herb", "语料·药材", "Corpus herb record", "tcm_knowledge", """
+        One crude drug from the corpus: identity (Chinese, Latin, species with NCBI taxids,
+        part, typed aliases); nature, meridians and actions only where the seed corpus
+        records them (empty for the other herbs, never defaulted); the clinic pack's dose
+        range, pregnancy and toxicity notes (an unreviewed draft); its safety records; how
+        many formula-table rows contain it, with the first 10; how many natural products
+        LOTUS records in its source organisms. Records, not a clinical assessment: no
+        record ≠ safe.""",
+          obj({"name": S("herb name, e.g. 黄芪, 葛根, Astragali Radix")}, required=("name",)),
+          "corpus.herb", B_R),
+    _core("corpus_formula", "语料·方剂", "Corpus formula", "tcm_knowledge", """
+        A formula: the curated record first when the name is curated (seed corpus with
+        君臣佐使 and classical doses; the clinic pack's textbook version), with the number
+        of formula-table rows of that name; otherwise the formula table (84,294 compiled
+        rows): candidates (name, 出处, rowno) when several rows share the name — narrow
+        with source or rowno — or the full row with components resolved to herb ids. A
+        row's 出处 points to a book; it is not a quotation, and roles are not recorded. The
+        table's licence is unstated (published by the site owner's decision); a commercial
+        project cannot read it.""",
+          obj({"name": S("formula name, e.g. 桂枝汤, 人参散"),
+               "source": S("出处 substring to choose among rows of the same name, e.g. 圣惠"),
+               "rowno": I("0-based data row of the table (spreadsheet row = rowno + 2)",
+                          minimum=0),
+               "id": S("curated id (formula.guizhitang) or table id (tcm:formula.fx…)")}),
+          "corpus.formula", B_R),
+    _core("corpus_formulas_with", "语料·含药方剂", "Formulas containing herbs", "tcm_knowledge", """
+        Formula-table rows that contain all (or any) of the given herbs, resolved as the
+        research loop resolves ingredients (any processing state counts as the crude
+        drug): the total and a page of [rowno, name, 出处]. Counts describe a compiled
+        table, not prescribing practice or efficacy.""",
+          obj({"herbs": arr(S(), "herb names, e.g. [黄芪, 当归]", minItems=1, maxItems=12),
+               "match": S(enum=["all", "any"], default="all"),
+               "limit": I(minimum=1, maximum=200, default=20),
+               "offset": I(minimum=0, default=0)}, required=("herbs",)),
+          "corpus.formulas_with", B_R),
+    _core("corpus_compounds", "语料·化合物", "Herb compounds (LOTUS)", "netpharm", """
+        Natural products LOTUS records in a herb's source organisms (matched by NCBI taxon,
+        then exact species name): the organisms and the compounds (InChIKey, name, formula,
+        2-D SMILES, reference count), most-referenced first. LOTUS records that a compound
+        was reported in the organism: presence is not an active constituent, not a
+        content and not efficacy; a mineral has no organism.""",
+          obj({"herb": S("herb name, e.g. 甘草"),
+               "limit": I(minimum=1, maximum=500, default=50),
+               "offset": I(minimum=0, default=0)}, required=("herb",)),
+          "corpus.compounds", B_R),
+    _core("corpus_safety", "语料·安全性记录", "Corpus safety records", "tcm_safety", """
+        Recorded safety information among herbs (and drugs): the pairs the corpus records
+        (十八反, 十九畏, herb–drug interactions) and each herb's pregnancy, toxicity and
+        caution records, with their layer (seed corpus, clinic-pack draft) and severity as
+        stated ('unstated' when the source gives none). Records, not a clinical safety
+        assessment: no record ≠ safe; an unrecognised name is reported, not ignored.""",
+          obj({"herbs": arr(S(), "herb (or drug) names, e.g. [甘草, 海藻]", minItems=1,
+                            maxItems=30)}, required=("herbs",)),
+          "corpus.safety", B_R),
+    _core("corpus_info", "语料信息", "Corpus info", "tcm_data", """
+        What the published corpus holds: the snapshot id, each pack (core, formulas, lotus,
+        pathways) with its licence, publication basis, counts, sources and limits, and the
+        attribution page. Use it to cite the corpus or to say what a pack can and cannot
+        support.""",
+          obj({}), "corpus.info", B_R),
     _core("clinic_assess", "辨证与处方草案", "Differentiation & draft", "clinic", """
         From a 四诊 intake (bioagent.clinic.intake/1): red-flag screen → syndrome
         differentiation (with the questions to ask next) → a draft prescription for a
@@ -407,7 +483,11 @@ _SIMPLE = {"tcm_normalize": "skill.normalize-tcm-entities",
            "clinic_followup": "clinic.followup", "tcmdb_catalog": "tcmdb.catalog",
            "tcmdb_relations": "tcmdb.relations", "tcmdb_consensus": "tcmdb.consensus",
            "job_status": "system.job_status", "capabilities_status": "system.capabilities",
-           "catalog_search": "system.catalog_search"}
+           "catalog_search": "system.catalog_search",
+           "corpus_search": "corpus.search", "corpus_herb": "corpus.herb",
+           "corpus_formula": "corpus.formula", "corpus_formulas_with": "corpus.formulas_with",
+           "corpus_compounds": "corpus.compounds", "corpus_safety": "corpus.safety",
+           "corpus_info": "corpus.info"}
 
 
 def core_tools(where: str = "runner") -> list[dict[str, Any]]:

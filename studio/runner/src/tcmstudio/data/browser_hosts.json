@@ -1,0 +1,1163 @@
+{
+ "checked": "2026-10-09",
+ "counts": {
+  "browser_by_host_rule": 273,
+  "browser_by_operation": 318,
+  "cors_false": 32,
+  "cors_null": 0,
+  "cors_true": 68,
+  "entries": 444,
+  "hosts": 100,
+  "preflight_false": 2,
+  "preflight_true": 13
+ },
+ "hosts": {
+  "47.92.70.12": {
+   "cors": false,
+   "evidence": "http:// only (http://47.92.70.12/chedi/api/): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "herb_api.detail": false,
+    "herb_api.search": false
+   },
+   "preflight": null
+  },
+  "alphafold.ebi.ac.uk": {
+   "cors": true,
+   "evidence": "GET https://alphafold.ebi.ac.uk/api/prediction/P04637 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "alphafold.prediction": true,
+    "alphafold.uniprot_summary": true
+   },
+   "preflight": null
+  },
+  "aopwiki.org": {
+   "cors": true,
+   "evidence": "GET https://aopwiki.org/aops/1.xml → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "aopwiki.aop": true,
+    "aopwiki.aop_xml": true,
+    "aopwiki.event": true,
+    "aopwiki.relationship": true
+   },
+   "preflight": null
+  },
+  "api.biorxiv.org": {
+   "cors": true,
+   "evidence": "GET https://api.biorxiv.org/details/biorxiv/10.1101/2020.03.24.004655/na/json → 200, Access-Control-Allow-Origin: *; 1/1 successful answers carry it",
+   "ops": {
+    "biorxiv.details": true
+   },
+   "preflight": null
+  },
+  "api.cellosaurus.org": {
+   "cors": false,
+   "evidence": "GET https://api.cellosaurus.org/release-info?format=json → 200, Access-Control-Allow-Origin: (absent); 0/5 successful answers carry it",
+   "ops": {
+    "cellosaurus.cell_line": false,
+    "cellosaurus.cell_line_by_accession": false,
+    "cellosaurus.cell_line_by_xref": false,
+    "cellosaurus.release_info": false,
+    "cellosaurus.search": false
+   },
+   "preflight": null
+  },
+  "api.cellxgene.cziscience.com": {
+   "cors": false,
+   "evidence": "GET https://api.cellxgene.cziscience.com/curation/v1/collections/e5f58829-1a66-40b5-a624-9046778e74f5 → 200, Access-Control-Allow-Origin: (absent); 0/1 successful answers carry it",
+   "ops": {
+    "cellxgene.collection": false
+   },
+   "preflight": null
+  },
+  "api.cpicpgx.org": {
+   "cors": true,
+   "evidence": "GET https://api.cpicpgx.org/v1/pair_view?select=pairid%2Cgenesymbol%2Cdrugname%2Ccpiclevel%2Cclinpgxlevel%2Cpgxtesting%2Cgui → 200, Access-Control-Allow-Origin: *; 8/8 successful answers carry it",
+   "ops": {
+    "cpic.alleles": true,
+    "cpic.drug": true,
+    "cpic.gene": true,
+    "cpic.pairs_by_level": true,
+    "cpic.pairs_for_drug": true,
+    "cpic.pairs_for_gene": true,
+    "cpic.recommendations": true,
+    "cpic.report_files": true
+   },
+   "preflight": null
+  },
+  "api.crossref.org": {
+   "cors": true,
+   "evidence": "GET https://api.crossref.org/works/10.1038/s41586-020-2308-7 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "crossref.search": true,
+    "crossref.work": true
+   },
+   "preflight": null
+  },
+  "api.fda.gov": {
+   "cors": true,
+   "evidence": "GET https://api.fda.gov/drug/label.json?search=openfda.generic_name%3Aaspirin&limit=1 → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "openfda.drug_event": true,
+    "openfda.drug_label": true,
+    "openfda.herbal_event_coreported_drugs": true,
+    "openfda.herbal_event_reactions": true
+   },
+   "preflight": null
+  },
+  "api.figshare.com": {
+   "cors": false,
+   "evidence": "GET https://api.figshare.com/v2/articles/29432726 → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "figshare.article": false,
+    "figshare.article_files": false
+   },
+   "preflight": null
+  },
+  "api.gbif.org": {
+   "cors": true,
+   "evidence": "GET https://api.gbif.org/v1/species/match?name=Panax+ginseng → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "gbif.match": true,
+    "gbif.occurrences": true,
+    "gbif.species": true
+   },
+   "preflight": null
+  },
+  "api.gdc.cancer.gov": {
+   "cors": true,
+   "evidence": "GET https://api.gdc.cancer.gov/projects/TCGA-BRCA?expand=summary → 200, Access-Control-Allow-Origin: https://science.impf.ai; 4/4 successful answers carry it",
+   "ops": {
+    "gdc.cases": true,
+    "gdc.project": true,
+    "gdc.projects": true,
+    "gdc.status": true
+   },
+   "preflight": null
+  },
+  "api.genome.ucsc.edu": {
+   "cors": true,
+   "evidence": "GET https://api.genome.ucsc.edu/getData/sequence?genome=hg38&chrom=chr17&start=7668402&end=7668502 → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "ucsc.chromosomes": true,
+    "ucsc.genomes": true,
+    "ucsc.sequence": true,
+    "ucsc.track": true
+   },
+   "preflight": null
+  },
+  "api.imaging.datacommons.cancer.gov": {
+   "cors": true,
+   "evidence": "GET https://api.imaging.datacommons.cancer.gov/v3/version → 200, Access-Control-Allow-Origin: *; 12/12 successful answers carry it; OPTIONS https://api.imaging.datacommons.cancer.gov/v3/licenses → 200, allow-origin *, allow-headers content-type; 3/3 preflights pass",
+   "ops": {
+    "idc.analysis_results": true,
+    "idc.attribute_values": true,
+    "idc.clinical_tables": true,
+    "idc.cohort_counts": true,
+    "idc.collection": true,
+    "idc.collections": true,
+    "idc.licenses": true,
+    "idc.sql": true,
+    "idc.stats": true,
+    "idc.table": true,
+    "idc.tables": true,
+    "idc.version": true
+   },
+   "preflight": true
+  },
+  "api.mavedb.org": {
+   "cors": true,
+   "evidence": "GET https://api.mavedb.org/api/v1/score-sets/urn:mavedb:00000001-a-1 → 200, Access-Control-Allow-Origin: *; 6/6 successful answers carry it; OPTIONS https://api.mavedb.org/api/v1/score-sets/search → 200, allow-origin https://science.impf.ai, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "mavedb.gene_score_sets": true,
+    "mavedb.licenses": true,
+    "mavedb.score_set": true,
+    "mavedb.score_sets_by_target": true,
+    "mavedb.scores": true,
+    "mavedb.search_score_sets": true
+   },
+   "preflight": true
+  },
+  "api.monarchinitiative.org": {
+   "cors": true,
+   "evidence": "GET https://api.monarchinitiative.org/v3/api/entity/MONDO:0005015 → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "monarch.associations": true,
+    "monarch.entity": true,
+    "monarch.search": true
+   },
+   "preflight": null
+  },
+  "api.ncbi.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://api.ncbi.nlm.nih.gov/datasets/v2/gene/symbol/TP53/taxon/human → 200, Access-Control-Allow-Origin: https://science.impf.ai; 4/4 successful answers carry it",
+   "ops": {
+    "ncbi_datasets.gene_by_id": true,
+    "ncbi_datasets.gene_by_symbol": true,
+    "ncbi_datasets.genome_report": true,
+    "ncbi_datasets.taxonomy": true
+   },
+   "preflight": null
+  },
+  "api.openalex.org": {
+   "cors": true,
+   "evidence": "GET https://api.openalex.org/works/doi:10.1038/s41586-020-2308-7 → 200, Access-Control-Allow-Origin: *; 1/1 successful answers carry it",
+   "ops": {
+    "openalex.work": true
+   },
+   "preflight": null
+  },
+  "api.orphadata.com": {
+   "cors": true,
+   "evidence": "GET https://api.orphadata.com/rd-associated-genes/orphacodes/93 → 200, Access-Control-Allow-Origin: https://science.impf.ai; 9/9 successful answers carry it",
+   "ops": {
+    "orphadata.by_hpo": true,
+    "orphadata.by_name": true,
+    "orphadata.by_omim": true,
+    "orphadata.classifications": true,
+    "orphadata.cross_references": true,
+    "orphadata.epidemiology": true,
+    "orphadata.genes": true,
+    "orphadata.natural_history": true,
+    "orphadata.phenotypes": true
+   },
+   "preflight": null
+  },
+  "api.platform.opentargets.org": {
+   "cors": true,
+   "evidence": "POST https://api.platform.opentargets.org/api/v4/graphql → 200, Access-Control-Allow-Origin: https://science.impf.ai; 2/2 successful answers carry it; OPTIONS https://api.platform.opentargets.org/api/v4/graphql → 200, allow-origin https://science.impf.ai, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "opentargets.associated_diseases": true,
+    "opentargets.target": true
+   },
+   "preflight": true
+  },
+  "biit.cs.ut.ee": {
+   "cors": true,
+   "evidence": "POST https://biit.cs.ut.ee/gprofiler/api/gost/profile/ → 200, Access-Control-Allow-Origin: https://science.impf.ai; 2/2 successful answers carry it; OPTIONS https://biit.cs.ut.ee/gprofiler/api/gost/profile/ → 200, allow-origin https://science.impf.ai, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "gprofiler.convert": true,
+    "gprofiler.gost": true
+   },
+   "preflight": true
+  },
+  "bio-computing.hrbmu.edu.cn": {
+   "cors": false,
+   "evidence": "http:// only (http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api/browse/getbrowsetable): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "gutmgene.metabolite_gene": false,
+    "gutmgene.microbe_gene": false,
+    "gutmgene.microbe_metabolite": false
+   },
+   "preflight": null
+  },
+  "bionet.ncpsb.org.cn": {
+   "cors": false,
+   "evidence": "http:// only (http://bionet.ncpsb.org.cn/seed_tcm/Search/restful): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "dcabm_tcm.herb_blood": false,
+    "dcabm_tcm.ingredient": false,
+    "dcabm_tcm.prescription_blood": false
+   },
+   "preflight": null
+  },
+  "bioregistry.io": {
+   "cors": false,
+   "evidence": "GET https://bioregistry.io/api/registry/hgnc → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "bioregistry.reference": false,
+    "bioregistry.registry": false
+   },
+   "preflight": null
+  },
+  "chip-atlas.org": {
+   "cors": false,
+   "evidence": "GET https://chip-atlas.org/data/list_of_genome.json → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "chip_atlas.antigens": false,
+    "chip_atlas.experiment": false,
+    "chip_atlas.genomes": false,
+    "chip_atlas.target_genes_index": false
+   },
+   "preflight": null
+  },
+  "civicdb.org": {
+   "cors": true,
+   "evidence": "POST https://civicdb.org/api/graphql → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it; OPTIONS https://civicdb.org/api/graphql → 200, allow-origin *, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "civic.gene": true,
+    "civic.variant": true
+   },
+   "preflight": true
+  },
+  "clinicaltables.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://clinicaltables.nlm.nih.gov/api/icd10cm/v3/search?sf=code%2Cname&terms=type+2+diabetes&maxList=5 → 200, Access-Control-Allow-Origin: *; 5/5 successful answers carry it",
+   "ops": {
+    "nlm_clinical_tables.conditions": true,
+    "nlm_clinical_tables.hcpcs": true,
+    "nlm_clinical_tables.icd10cm": true,
+    "nlm_clinical_tables.loinc": true,
+    "nlm_clinical_tables.rxterms": true
+   },
+   "preflight": null
+  },
+  "clinicaltrials.gov": {
+   "cors": true,
+   "evidence": "GET https://clinicaltrials.gov/api/v2/studies?query.term=TP53&pageSize=5&fields=NCTId%2CBriefTitle%2COverallStatus%2CPhase%2 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "clinicaltrials.search": true,
+    "clinicaltrials.study": true
+   },
+   "preflight": null
+  },
+  "coconut.naturalproducts.net": {
+   "cors": false,
+   "evidence": "POST https://coconut.naturalproducts.net/api/search → 200, Access-Control-Allow-Origin: (absent); 0/3 successful answers carry it; OPTIONS https://coconut.naturalproducts.net/api/search → 200, allow-origin (absent), allow-headers (absent); 0/3 preflights pass",
+   "ops": {
+    "coconut.collection_molecules": false,
+    "coconut.organism_molecules": false,
+    "coconut.search": false
+   },
+   "preflight": false
+  },
+  "covid19-1.ireceptor.org": {
+   "cors": true,
+   "evidence": "GET https://covid19-1.ireceptor.org/airr/v1/info → 200, Access-Control-Allow-Origin: *; 8/8 successful answers carry it; OPTIONS https://covid19-1.ireceptor.org/airr/v1/repertoire → 204, allow-origin *, allow-headers origin, x-requested-with, content-type; 7/7 preflights pass",
+   "ops": {
+    "ireceptor_adc.info": true,
+    "ireceptor_adc.rearrangement_count": true,
+    "ireceptor_adc.rearrangements": true,
+    "ireceptor_adc.rearrangements_by_junction": true,
+    "ireceptor_adc.repertoires": true,
+    "ireceptor_adc.repertoires_by_study": true,
+    "ireceptor_adc.studies_by_diagnosis": true,
+    "ireceptor_adc.study_counts": true
+   },
+   "preflight": true
+  },
+  "dailymed.nlm.nih.gov": {
+   "cors": false,
+   "evidence": "GET https://dailymed.nlm.nih.gov/dailymed/services/v2/spls.json?drug_name=metformin&pagesize=3 → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "dailymed.drug_names": false,
+    "dailymed.spls": false
+   },
+   "preflight": null
+  },
+  "data.4dnucleome.org": {
+   "cors": false,
+   "evidence": "GET https://data.4dnucleome.org/experiment-set-replicates/4DNESU36SE4V/?format=json → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "fourdn.experiment_set": false,
+    "fourdn.experiment_sets_by_sample": false,
+    "fourdn.processed_file": false,
+    "fourdn.processed_files_by_format": false
+   },
+   "preflight": null
+  },
+  "data.rcsb.org": {
+   "cors": true,
+   "evidence": "GET https://data.rcsb.org/rest/v1/core/entry/4HHB → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "rcsb.entry": true,
+    "rcsb.polymer_entity": true
+   },
+   "preflight": null
+  },
+  "datasets-server.huggingface.co": {
+   "cors": true,
+   "evidence": "GET https://datasets-server.huggingface.co/splits?dataset=michaelwzhu%2FShenNong_TCM_Dataset → 200, Access-Control-Allow-Origin: https://science.impf.ai; 2/2 successful answers carry it",
+   "ops": {
+    "hf_datasets_server.rows": true,
+    "hf_datasets_server.splits": true
+   },
+   "preflight": null
+  },
+  "dgidb.org": {
+   "cors": true,
+   "evidence": "POST https://dgidb.org/api/graphql → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it; OPTIONS https://dgidb.org/api/graphql → 200, allow-origin *, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "dgidb.drug_interactions": true,
+    "dgidb.gene_interactions": true
+   },
+   "preflight": true
+  },
+  "disease-ontology.org": {
+   "cors": true,
+   "evidence": "GET https://disease-ontology.org/api/metadata/DOID:1612 → 200, Access-Control-Allow-Origin: https://science.impf.ai; 1/1 successful answers carry it",
+   "ops": {
+    "disease_ontology.metadata": true
+   },
+   "preflight": null
+  },
+  "disprot.org": {
+   "cors": true,
+   "evidence": "GET https://disprot.org/api/DP00086 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "disprot.entry": true,
+    "disprot.search_by_accession": true
+   },
+   "preflight": null
+  },
+  "entity.api.hubmapconsortium.org": {
+   "cors": true,
+   "evidence": "GET https://entity.api.hubmapconsortium.org/entities/HBM543.RSRV.265 → 200, Access-Control-Allow-Origin: *; 1/1 successful answers carry it",
+   "ops": {
+    "hubmap_entity.entity": true
+   },
+   "preflight": null
+  },
+  "eutils.ncbi.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=TP53+AND+cancer&retmode=json&retmax=5 → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "ncbi_eutils.efetch": true,
+    "ncbi_eutils.einfo": true,
+    "ncbi_eutils.esearch": true,
+    "ncbi_eutils.esummary": true
+   },
+   "preflight": null
+  },
+  "explorer.gnps2.org": {
+   "cors": false,
+   "evidence": "GET https://explorer.gnps2.org/api/datasets/MSV000084794/files → 200, Access-Control-Allow-Origin: (absent); 0/1 successful answers carry it",
+   "ops": {
+    "gnps_explorer.dataset_files": false
+   },
+   "preflight": null
+  },
+  "external.gnps2.org": {
+   "cors": false,
+   "evidence": "GET https://external.gnps2.org/gnpslibrary.json → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "gnps.libraries": false,
+    "gnps.spectrum": false
+   },
+   "preflight": null
+  },
+  "gnomad.broadinstitute.org": {
+   "cors": true,
+   "evidence": "POST https://gnomad.broadinstitute.org/api → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it; OPTIONS https://gnomad.broadinstitute.org/api → 204, allow-origin *, allow-headers content-type; 2/2 preflights pass",
+   "ops": {
+    "gnomad.gene_constraint": true,
+    "gnomad.variant": true
+   },
+   "preflight": true
+  },
+  "gpcrdb.org": {
+   "cors": false,
+   "evidence": "GET https://gpcrdb.org/services/protein/adrb2_human/ → 200, Access-Control-Allow-Origin: (absent); 0/6 successful answers carry it",
+   "ops": {
+    "gpcrdb.drugs": false,
+    "gpcrdb.ligands": false,
+    "gpcrdb.mutants": false,
+    "gpcrdb.protein": false,
+    "gpcrdb.protein_by_accession": false,
+    "gpcrdb.structure": false
+   },
+   "preflight": null
+  },
+  "gtexportal.org": {
+   "cors": true,
+   "evidence": "GET https://gtexportal.org/api/v2/reference/gene?geneId=TP53 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "gtex.gene": true,
+    "gtex.median_expression": true
+   },
+   "preflight": null
+  },
+  "huggingface.co": {
+   "cors": true,
+   "evidence": "GET https://huggingface.co/api/datasets/michaelwzhu/ShenNong_TCM_Dataset → 200, Access-Control-Allow-Origin: https://science.impf.ai; 2/2 successful answers carry it",
+   "ops": {
+    "huggingface.dataset": true,
+    "huggingface.dataset_tree": true
+   },
+   "preflight": null
+  },
+  "id.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://id.nlm.nih.gov/mesh/lookup/descriptor?label=Diabetes+Mellitus%2C+Type+2&match=contains&limit=5 → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "mesh.descriptor": true,
+    "mesh.details": true,
+    "mesh.term": true
+   },
+   "preflight": null
+  },
+  "idr.openmicroscopy.org": {
+   "cors": true,
+   "evidence": "GET https://idr.openmicroscopy.org/api/v0/m/screens/?limit=5&offset=0 → 200, Access-Control-Allow-Origin: *; 9/9 successful answers carry it",
+   "ops": {
+    "idr.compound_studies": true,
+    "idr.container_values": true,
+    "idr.containers": true,
+    "idr.gene_studies": true,
+    "idr.project_study": true,
+    "idr.projects": true,
+    "idr.screen_study": true,
+    "idr.screens": true,
+    "idr.search_studies": true
+   },
+   "preflight": null
+  },
+  "itcm.biotcm.net": {
+   "cors": false,
+   "evidence": "http:// only (http://itcm.biotcm.net/getHerbInfo/21): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "itcm.herb": false,
+    "itcm.herb_diseases": false,
+    "itcm.herb_formulas": false,
+    "itcm.herb_ingredients": false,
+    "itcm.ingredient_targets": false
+   },
+   "preflight": null
+  },
+  "jaspar.elixir.no": {
+   "cors": false,
+   "evidence": "GET https://jaspar.elixir.no/api/v1/matrix/MA0139.2/?format=json → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "jaspar.factor_matrices": false,
+    "jaspar.matrix": false,
+    "jaspar.releases": false,
+    "jaspar.search": null,
+    "jaspar.versions": false
+   },
+   "preflight": null
+  },
+  "klifs.net": {
+   "cors": true,
+   "evidence": "GET https://klifs.net/api/kinase_ID?kinase_name=EGFR&species=HUMAN → 200, Access-Control-Allow-Origin: *; 7/7 successful answers carry it",
+   "ops": {
+    "klifs.drugs": true,
+    "klifs.interaction_fingerprint": true,
+    "klifs.kinase_id": true,
+    "klifs.kinase_names": true,
+    "klifs.ligand_bioactivities": true,
+    "klifs.ligands": true,
+    "klifs.structures": true
+   },
+   "preflight": null
+  },
+  "massbank.eu": {
+   "cors": true,
+   "evidence": "GET https://massbank.eu/MassBank-api/records/search?inchi_key=IKGXIBQEEMLURG-NVPNHPEKSA-N → 200, Access-Control-Allow-Origin: *; 10/10 successful answers carry it; OPTIONS https://massbank.eu/MassBank-export/convert → 403, allow-origin (absent), allow-headers (absent); 0/1 preflights pass",
+   "ops": {
+    "massbank.browse_options": true,
+    "massbank.convert": false,
+    "massbank.count": true,
+    "massbank.metadata": true,
+    "massbank.peak_search": true,
+    "massbank.record": true,
+    "massbank.record_jsonld": false,
+    "massbank.record_simple": true,
+    "massbank.record_text": false,
+    "massbank.records": true,
+    "massbank.records_search": true,
+    "massbank.records_search_name": true,
+    "massbank.status": true
+   },
+   "preflight": false
+  },
+  "massive.ucsd.edu": {
+   "cors": false,
+   "evidence": "GET https://massive.ucsd.edu/ProteoSAFe/proxi/v0.1/datasets?resultType=compact&pageSize=5&pageNumber=1&search=Ginkgo → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "massive.dataset": false,
+    "massive.dataset_search": false
+   },
+   "preflight": null
+  },
+  "metabolomics-usi.gnps2.org": {
+   "cors": false,
+   "evidence": "GET https://metabolomics-usi.gnps2.org/json/?usi1=mzspec%3AGNPS%3AGNPS-LIBRARY%3Aaccession%3ACCMSLIB00000001547 → 200, Access-Control-Allow-Origin: (absent); 0/1 successful answers carry it",
+   "ops": {
+    "gnps_usi.spectrum": false
+   },
+   "preflight": null
+  },
+  "mibig.secondarymetabolites.org": {
+   "cors": false,
+   "evidence": "GET https://mibig.secondarymetabolites.org/repository/BGC0000001.5/annotations.json → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "mibig.entry": false,
+    "mibig.stats": false
+   },
+   "preflight": null
+  },
+  "mygene.info": {
+   "cors": true,
+   "evidence": "GET https://mygene.info/v3/query?q=symbol%3ATP53&species=human&size=5&fields=symbol%2Cname%2Centrezgene%2Censembl.gene → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "mygene.gene": true,
+    "mygene.query": true
+   },
+   "preflight": null
+  },
+  "myvariant.info": {
+   "cors": true,
+   "evidence": "GET https://myvariant.info/v1/variant/chr17:g.7675088C>T?assembly=hg38&fields=clinvar.rcv.clinical_significance%2Cdbsnp.rsid → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "myvariant.query": true,
+    "myvariant.variant": true
+   },
+   "preflight": null
+  },
+  "omnipathdb.org": {
+   "cors": false,
+   "evidence": "GET https://omnipathdb.org/interactions?partners=TP53&genesymbols=1&format=json&limit=10 → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "omnipath.annotations": false,
+    "omnipath.interactions": false
+   },
+   "preflight": null
+  },
+  "ontology.jax.org": {
+   "cors": true,
+   "evidence": "GET https://ontology.jax.org/api/hp/terms/HP:0001250 → 200, Access-Control-Allow-Origin: https://science.impf.ai; 3/3 successful answers carry it",
+   "ops": {
+    "hpo.search": true,
+    "hpo.term": true,
+    "hpo.term_annotations": true
+   },
+   "preflight": null
+  },
+  "openneuro.org": {
+   "cors": true,
+   "evidence": "POST https://openneuro.org/crn/graphql → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it; OPTIONS https://openneuro.org/crn/graphql → 204, allow-origin *, allow-headers content-type; 3/3 preflights pass",
+   "ops": {
+    "openneuro.dataset": true,
+    "openneuro.datasets": true,
+    "openneuro.snapshot_files": true
+   },
+   "preflight": true
+  },
+  "pantherdb.org": {
+   "cors": true,
+   "evidence": "GET https://pantherdb.org/services/oai/pantherdb/geneinfo?geneInputList=TP53%2CBRCA1&organism=9606 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "panther.enrich": true,
+    "panther.geneinfo": true
+   },
+   "preflight": null
+  },
+  "pharmacodb.ca": {
+   "cors": true,
+   "evidence": "POST https://pharmacodb.ca/graphql → 200, Access-Control-Allow-Origin: *; 7/7 successful answers carry it; OPTIONS https://pharmacodb.ca/graphql → 204, allow-origin *, allow-headers content-type; 7/7 preflights pass",
+   "ops": {
+    "pharmacodb.biomarkers": true,
+    "pharmacodb.cell_line": true,
+    "pharmacodb.compound": true,
+    "pharmacodb.dataset_stats": true,
+    "pharmacodb.experiments": true,
+    "pharmacodb.experiments_in_cell_line": true,
+    "pharmacodb.search": true
+   },
+   "preflight": true
+  },
+  "pharos-api.ncats.io": {
+   "cors": true,
+   "evidence": "POST https://pharos-api.ncats.io/graphql → 200, Access-Control-Allow-Origin: *; 7/7 successful answers carry it; OPTIONS https://pharos-api.ncats.io/graphql → 204, allow-origin *, allow-headers content-type; 7/7 preflights pass",
+   "ops": {
+    "pharos.ligand": true,
+    "pharos.target": true,
+    "pharos.target_diseases": true,
+    "pharos.target_interactions": true,
+    "pharos.target_ligands": true,
+    "pharos.tdl_counts": true,
+    "pharos.version": true
+   },
+   "preflight": true
+  },
+  "phytohub.eu": {
+   "cors": false,
+   "evidence": "GET https://phytohub.eu/entries/PHUB000006.json → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "phytohub.entry": false,
+    "phytohub.food_source": false,
+    "phytohub.search": false,
+    "phytohub.structure_sdf": false
+   },
+   "preflight": null
+  },
+  "portal.hubmapconsortium.org": {
+   "cors": false,
+   "evidence": "GET https://portal.hubmapconsortium.org/browse/dataset/3d14dcc3d7c3e0cd339c9366e34b37c7.json → 200, Access-Control-Allow-Origin: (absent); 0/2 successful answers carry it",
+   "ops": {
+    "hubmap_portal.entity": false,
+    "hubmap_portal.organ": false
+   },
+   "preflight": null
+  },
+  "pubchem.ncbi.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/2244/property/MolecularFormula,MolecularWeight,IUPACName,Canonica → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "pubchem.cid_by_name": true,
+    "pubchem.properties_by_cid": true,
+    "pubchem.synonyms": true
+   },
+   "preflight": null
+  },
+  "query-api.iedb.org": {
+   "cors": true,
+   "evidence": "GET https://query-api.iedb.org/epitope_search?linear_sequence=eq.SIINFEKL&select=structure_id%2Clinear_sequence%2Cstructure_ → 200, Access-Control-Allow-Origin: *; 13/13 successful answers carry it",
+   "ops": {
+    "iedb.antigens": true,
+    "iedb.bcell_by_sequence": true,
+    "iedb.bcr_by_cdr3": true,
+    "iedb.epitope": true,
+    "iedb.epitope_summary": true,
+    "iedb.epitopes_by_organism": true,
+    "iedb.epitopes_by_sequence": true,
+    "iedb.mhc_by_sequence": true,
+    "iedb.reference_by_pmid": true,
+    "iedb.tcell_assays": true,
+    "iedb.tcell_by_antigen": true,
+    "iedb.tcell_by_molecule": true,
+    "iedb.tcr_by_epitope": true
+   },
+   "preflight": null
+  },
+  "query.wikidata.org": {
+   "cors": true,
+   "evidence": "GET https://query.wikidata.org/sparql?format=json&query=SELECT+%3Fitem+%3FitemLabel+%3Frank+%3FrankLabel+WHERE+%7B+%3Fitem+w → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "wikidata_sparql.compounds_in_taxon": true,
+    "wikidata_sparql.sparql": true,
+    "wikidata_sparql.taxa_with_compound": true,
+    "wikidata_sparql.taxon_by_name": true
+   },
+   "preflight": null
+  },
+  "rdf.metanetx.org": {
+   "cors": true,
+   "evidence": "POST https://rdf.metanetx.org/sparql/ → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "metanetx.chem": true,
+    "metanetx.chem_by_xref": true
+   },
+   "preflight": null
+  },
+  "reactome.org": {
+   "cors": true,
+   "evidence": "GET https://reactome.org/ContentService/data/query/R-HSA-69488 → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "reactome.pathways_for_entity": true,
+    "reactome.query": true,
+    "reactome.version": true
+   },
+   "preflight": null
+  },
+  "remap.univ-amu.fr": {
+   "cors": true,
+   "evidence": "GET https://remap.univ-amu.fr/api/v1/datasets/findByTarget/target=FOXA1&taxid=9606 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "remap.datasets_by_biotype": true,
+    "remap.datasets_by_target": true
+   },
+   "preflight": null
+  },
+  "resolver.api.identifiers.org": {
+   "cors": true,
+   "evidence": "GET https://resolver.api.identifiers.org/hgnc:11998 → 200, Access-Control-Allow-Origin: *; 1/1 successful answers carry it",
+   "ops": {
+    "identifiers_org.resolve": true
+   },
+   "preflight": null
+  },
+  "rest.ensembl.org": {
+   "cors": true,
+   "evidence": "GET https://rest.ensembl.org/lookup/symbol/homo_sapiens/TP53?content-type=application%2Fjson&expand=0 → 200, Access-Control-Allow-Origin: *; 5/5 successful answers carry it",
+   "ops": {
+    "ensembl.gene_lookup": true,
+    "ensembl.id_lookup": true,
+    "ensembl.ping": null,
+    "ensembl.sequence": true,
+    "ensembl.vep_hgvs": true,
+    "ensembl.xrefs": true
+   },
+   "preflight": null
+  },
+  "rest.genenames.org": {
+   "cors": true,
+   "evidence": "GET https://rest.genenames.org/fetch/symbol/TP53 → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "hgnc.hgnc_id": true,
+    "hgnc.search": true,
+    "hgnc.symbol": true
+   },
+   "preflight": null
+  },
+  "rest.kegg.jp": {
+   "cors": false,
+   "evidence": "GET https://rest.kegg.jp/get/hsa:7157 → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "kegg.find": false,
+    "kegg.get": false,
+    "kegg.info": false,
+    "kegg.link": false
+   },
+   "preflight": null
+  },
+  "rest.uniprot.org": {
+   "cors": true,
+   "evidence": "GET https://rest.uniprot.org/uniprotkb/P04637.json → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "uniprot.entry": true,
+    "uniprot.fasta": true,
+    "uniprot.search": true
+   },
+   "preflight": null
+  },
+  "rnacentral.org": {
+   "cors": false,
+   "evidence": "GET https://rnacentral.org/api/v1/rna/?format=json&external_id=MIMAT0000062 → 200, Access-Control-Allow-Origin: (absent); 0/5 successful answers carry it",
+   "ops": {
+    "rnacentral.go_annotations": false,
+    "rnacentral.interactions": null,
+    "rnacentral.protein_targets": false,
+    "rnacentral.rna": false,
+    "rnacentral.rna_by_external_id": false,
+    "rnacentral.xrefs": false
+   },
+   "preflight": null
+  },
+  "rxnav.nlm.nih.gov": {
+   "cors": true,
+   "evidence": "GET https://rxnav.nlm.nih.gov/REST/rxcui/6809/properties.json → 200, Access-Control-Allow-Origin: *; 5/5 successful answers carry it",
+   "ops": {
+    "rxnav.approximate": true,
+    "rxnav.drug_classes": true,
+    "rxnav.properties": true,
+    "rxnav.related": true,
+    "rxnav.rxcui_by_name": true
+   },
+   "preflight": null
+  },
+  "sabiork.h-its.org": {
+   "cors": false,
+   "evidence": "GET https://sabiork.h-its.org/export-api/sabio/kinlaw-entry/json?q=Inhibitor%3Aquercetin&page=1&pageSize=5 → 200, Access-Control-Allow-Origin: (absent); 0/5 successful answers carry it",
+   "ops": {
+    "sabio_rk.compound": false,
+    "sabio_rk.enzyme_by_ec": false,
+    "sabio_rk.kinlaw_entry": false,
+    "sabio_rk.kinlaw_search": false,
+    "sabio_rk.protein": false
+   },
+   "preflight": null
+  },
+  "search.api.hubmapconsortium.org": {
+   "cors": true,
+   "evidence": "POST https://search.api.hubmapconsortium.org/v3/search → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it; OPTIONS https://search.api.hubmapconsortium.org/v3/search → 204, allow-origin *, allow-headers Authorization, Cache-Control, Content-Type; 2/2 preflights pass",
+   "ops": {
+    "hubmap_search.datasets_by_organ": true,
+    "hubmap_search.datasets_by_type": true
+   },
+   "preflight": true
+  },
+  "service.azul.data.humancellatlas.org": {
+   "cors": true,
+   "evidence": "GET https://service.azul.data.humancellatlas.org/index/projects/74b6d569-3b11-42ef-b6b1-a0454522b4a0? → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "hca_azul.file": true,
+    "hca_azul.project": true
+   },
+   "preflight": null
+  },
+  "services.cancerimagingarchive.net": {
+   "cors": true,
+   "evidence": "GET https://services.cancerimagingarchive.net/nbia-api/services/v4/getCollectionValues → 200, Access-Control-Allow-Origin: *; 6/6 successful answers carry it",
+   "ops": {
+    "tcia.body_parts": true,
+    "tcia.collections": true,
+    "tcia.modalities": true,
+    "tcia.patient_studies": true,
+    "tcia.patients": true,
+    "tcia.series": null,
+    "tcia.series_size": true
+   },
+   "preflight": null
+  },
+  "signor.uniroma2.it": {
+   "cors": false,
+   "evidence": "GET https://signor.uniroma2.it/getData.php?organism=9606&id=P62258 → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "signor.entity_relations": false,
+    "signor.pathway_description": false,
+    "signor.pathway_relations": false,
+    "signor.relations_among": false
+   },
+   "preflight": null
+  },
+  "string-db.org": {
+   "cors": true,
+   "evidence": "GET https://string-db.org/api/tsv/get_string_ids?identifiers=TP53&species=9606&limit=1 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "string.map_ids": true,
+    "string.network": true
+   },
+   "preflight": null
+  },
+  "tcmbank.cn": {
+   "cors": false,
+   "evidence": "http:// only (http://tcmbank.cn/api/herb/search?herb_name=Huang+Qi&cur_page=1&per_page=5): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "tcmbank.detail": false,
+    "tcmbank.herb_ingredients": false,
+    "tcmbank.herb_search": false,
+    "tcmbank.ingredient_search": false
+   },
+   "preflight": null
+  },
+  "ttd.idrblab.cn": {
+   "cors": true,
+   "evidence": "GET https://ttd.idrblab.cn/api/ttd/getTargetGeneralInfo/T47101 → 200, Access-Control-Allow-Origin: https://science.impf.ai; 3/3 successful answers carry it",
+   "ops": {
+    "ttd.target": true,
+    "ttd.target_drugs": true,
+    "ttd.target_pathways": true
+   },
+   "preflight": null
+  },
+  "uxn2ycvimg.us-east-2.awsapprunner.com": {
+   "cors": false,
+   "evidence": "GET https://uxn2ycvimg.us-east-2.awsapprunner.com/synonyms/name/imatinib → 200, Access-Control-Allow-Origin: (absent); 0/9 successful answers carry it",
+   "ops": {
+    "drugcentral.activities": false,
+    "drugcentral.atc": false,
+    "drugcentral.drug_by_name": false,
+    "drugcentral.faers": false,
+    "drugcentral.gene_activities": false,
+    "drugcentral.identifiers": false,
+    "drugcentral.indications": false,
+    "drugcentral.structure": null,
+    "drugcentral.structure_by_inchikey": false,
+    "drugcentral.target_activities": false
+   },
+   "preflight": null
+  },
+  "vdjserver.org": {
+   "cors": true,
+   "evidence": "GET https://vdjserver.org/airr/v1/info → 200, Access-Control-Allow-Origin: *; 8/8 successful answers carry it; OPTIONS https://vdjserver.org/airr/v1/repertoire → 200, allow-origin *, allow-headers Content-Type, Authorization, Content-Length, X-Requested-With; 7/7 preflights pass",
+   "ops": {
+    "vdjserver_adc.info": true,
+    "vdjserver_adc.rearrangement_count": true,
+    "vdjserver_adc.rearrangements": true,
+    "vdjserver_adc.rearrangements_by_junction": true,
+    "vdjserver_adc.repertoires": true,
+    "vdjserver_adc.repertoires_by_study": true,
+    "vdjserver_adc.studies_by_diagnosis": true,
+    "vdjserver_adc.study_counts": true
+   },
+   "preflight": true
+  },
+  "www.bv-brc.org": {
+   "cors": true,
+   "evidence": "GET https://www.bv-brc.org/api/genome/?eq(genome_id,83332.12)&select(genome_id,genome_name,taxon_id,genome_status,host_name, → 200, Access-Control-Allow-Origin: https://science.impf.ai; 9/9 successful answers carry it",
+   "ops": {
+    "bv_brc.amr_lab_by_antibiotic": true,
+    "bv_brc.antibiotic": true,
+    "bv_brc.epitopes_by_taxon": true,
+    "bv_brc.genome": true,
+    "bv_brc.genome_amr": true,
+    "bv_brc.genomes_by_taxon": true,
+    "bv_brc.ppi_by_genome": true,
+    "bv_brc.specialty_genes": true,
+    "bv_brc.taxonomy": true
+   },
+   "preflight": null
+  },
+  "www.cancerimagingarchive.net": {
+   "cors": true,
+   "evidence": "GET https://www.cancerimagingarchive.net/api/v2/collections/?search=lung&per_page=5&page=1&fields=id%2Cslug%2Ccollection_doi → 200, Access-Control-Allow-Origin: https://science.impf.ai; 3/3 successful answers carry it",
+   "ops": {
+    "tcia_cm.collection": true,
+    "tcia_cm.collections_search": true,
+    "tcia_cm.download": null,
+    "tcia_cm.licenses": true
+   },
+   "preflight": null
+  },
+  "www.cbioportal.org": {
+   "cors": true,
+   "evidence": "GET https://www.cbioportal.org/api/genes/TP53 → 200, Access-Control-Allow-Origin: *; 4/4 successful answers carry it",
+   "ops": {
+    "cbioportal.gene": true,
+    "cbioportal.molecular_profiles": true,
+    "cbioportal.studies": true,
+    "cbioportal.study": true
+   },
+   "preflight": null
+  },
+  "www.ebi.ac.uk": {
+   "cors": false,
+   "evidence": "GET https://www.ebi.ac.uk/Tools/webservices/psicquic/intact/webservices/current/search/query/ADRB2?format=tab25&firstResult= → 200, Access-Control-Allow-Origin: (absent); 50/63 successful answers carry it",
+   "ops": {
+    "biosamples.by_organism": null,
+    "biosamples.sample": null,
+    "biosamples.search": null,
+    "biostudies.bioimages_search": true,
+    "biostudies.search": true,
+    "biostudies.study": true,
+    "biostudies.study_info": true,
+    "chebi.children": true,
+    "chebi.compound": true,
+    "chebi.compounds": true,
+    "chebi.parents": true,
+    "chebi.search": true,
+    "chebi.structure_search": true,
+    "chembl.activities": true,
+    "chembl.molecule": true,
+    "chembl.target": true,
+    "chembl.target_search": true,
+    "ebi_search.domains": true,
+    "ebi_search.search": true,
+    "ena.filereport": true,
+    "ena.search": true,
+    "europepmc.citations": true,
+    "europepmc.search": true,
+    "europepmc_annotations.by_article": true,
+    "europepmc_annotations.by_entity": true,
+    "gwas_catalog.associations_by_rsid": true,
+    "gwas_catalog.snp": true,
+    "gwas_catalog.snps_by_gene": true,
+    "impc.disease_models": true,
+    "impc.gene": true,
+    "impc.genes_with_phenotype": true,
+    "impc.phenotype_calls": true,
+    "impc.statistical_results": true,
+    "intact.complex": true,
+    "intact.complex_search": true,
+    "intact.interactions": true,
+    "intact.psicquic_count": false,
+    "intact.psicquic_query": false,
+    "interpro.entry": true,
+    "interpro.protein": true,
+    "interpro.protein_entries": true,
+    "metabolights.studies": true,
+    "metabolights.study": true,
+    "mgnify.analysis": false,
+    "mgnify.analysis_annotations": false,
+    "mgnify.biomes": false,
+    "mgnify.genome": false,
+    "mgnify.genome_catalogues": false,
+    "mgnify.genomes": false,
+    "mgnify.studies": false,
+    "mgnify.studies_by_biome": false,
+    "mgnify.study": false,
+    "mgnify.study_analyses": false,
+    "mgnify.study_samples": false,
+    "ols.ontologies": true,
+    "ols.search": true,
+    "ols.term": true,
+    "pdbe.best_structures": true,
+    "pdbe.entry_summary": true,
+    "pdbe.molecules": true,
+    "pdbe.uniprot_mapping": true,
+    "pride.project": true,
+    "pride.search": true,
+    "quickgo.annotations": true,
+    "quickgo.go_search": true,
+    "quickgo.go_term": true
+   },
+   "preflight": null
+  },
+  "www.encodeproject.org": {
+   "cors": true,
+   "evidence": "GET https://www.encodeproject.org/search/?type=Experiment&searchTerm=ATAC-seq+K562&format=json&limit=2 → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "encode.experiment": true,
+    "encode.search": true
+   },
+   "preflight": null
+  },
+  "www.knapsackfamily.com": {
+   "cors": false,
+   "evidence": "GET https://www.knapsackfamily.com/knapsack_core/information.php?sname=C_ID&word=C00000001 → 200, Access-Control-Allow-Origin: (absent); 0/4 successful answers carry it",
+   "ops": {
+    "knapsack.metabolite": false,
+    "knapsack.metabolite_search": false,
+    "knapsack.organism_metabolites": false,
+    "knapsack.pair_reference": false
+   },
+   "preflight": null
+  },
+  "www.metabolomicsworkbench.org": {
+   "cors": true,
+   "evidence": "GET https://www.metabolomicsworkbench.org/rest/refmet/match/citrate/name/ → 200, Access-Control-Allow-Origin: *; 10/10 successful answers carry it",
+   "ops": {
+    "metabolomics_workbench.compound_by_inchikey": true,
+    "metabolomics_workbench.compound_by_pubchem_cid": true,
+    "metabolomics_workbench.metstat": true,
+    "metabolomics_workbench.refmet": true,
+    "metabolomics_workbench.refmet_by_formula": true,
+    "metabolomics_workbench.refmet_match": true,
+    "metabolomics_workbench.studies_by_refmet_name": true,
+    "metabolomics_workbench.study_analyses": true,
+    "metabolomics_workbench.study_metabolites": true,
+    "metabolomics_workbench.study_summary": true
+   },
+   "preflight": null
+  },
+  "www.ncbi.nlm.nih.gov": {
+   "cors": false,
+   "evidence": "GET https://www.ncbi.nlm.nih.gov/research/pubtator3-api/publications/export/biocjson?pmids=31452104 → 200, Access-Control-Allow-Origin: (absent); 0/3 successful answers carry it",
+   "ops": {
+    "pubtator.autocomplete": false,
+    "pubtator.export": false,
+    "pubtator.search": false
+   },
+   "preflight": null
+  },
+  "www.proteinatlas.org": {
+   "cors": true,
+   "evidence": "GET https://www.proteinatlas.org/ENSG00000141510.json → 200, Access-Control-Allow-Origin: *; 2/2 successful answers carry it",
+   "ops": {
+    "proteinatlas.gene": true,
+    "proteinatlas.search": true
+   },
+   "preflight": null
+  },
+  "www.proteomicsdb.org": {
+   "cors": true,
+   "evidence": "GET https://www.proteomicsdb.org/proteomicsdb/logic/api/proteinexpression.xsodata/InputParams(PROTEINFILTER='P00533',MS_LEVE → 200, Access-Control-Allow-Origin: https://science.impf.ai; 4/4 successful answers carry it",
+   "ops": {
+    "proteomicsdb.curves": true,
+    "proteomicsdb.dose_response_datasets": true,
+    "proteomicsdb.expression": true,
+    "proteomicsdb.protein": true
+   },
+   "preflight": null
+  },
+  "www.rhea-db.org": {
+   "cors": true,
+   "evidence": "GET https://www.rhea-db.org/rhea?query=chebi%3A58573&columns=rhea-id%2Cequation%2Cchebi-id%2Cec%2Cuniprot%2Cpubmed&format=ts → 200, Access-Control-Allow-Origin: *; 1/1 successful answers carry it",
+   "ops": {
+    "rhea.search": true
+   },
+   "preflight": null
+  },
+  "www.symmap.org": {
+   "cors": false,
+   "evidence": "http:// only (http://www.symmap.org/related_components/): a page served over https cannot call it (mixed content); not requested",
+   "ops": {
+    "symmap.related": false
+   },
+   "preflight": null
+  },
+  "www.wikipathways.org": {
+   "cors": true,
+   "evidence": "GET https://www.wikipathways.org/json/getPathwayInfo.json?pwId=WP254 → 200, Access-Control-Allow-Origin: *; 3/3 successful answers carry it",
+   "ops": {
+    "wikipathways.find": true,
+    "wikipathways.info": true,
+    "wikipathways.list": true
+   },
+   "preflight": null
+  }
+ },
+ "method": "For each connector operation whose example names every required argument: the request the runner sends (same URL, method, Accept, body), with 'Origin: https://science.impf.ai', redirects followed by hand on the same host; cors = every successful answer carries Access-Control-Allow-Origin '*' or the origin. Requests that are not CORS-simple (JSON or GraphQL POST) also get an OPTIONS preflight (Access-Control-Request-Method, Access-Control-Request-Headers: content-type); preflight = 2xx with the origin and the header allowed. null = not reachable from the probe's network (DNS, refusal, proxy policy, timeout) or only 5xx/429 answers. http:// sources are false (mixed content). Run from a sandboxed Linux container whose outbound HTTPS goes through an egress proxy; at most 1 request/second per host, 15 s timeouts.",
+ "origin": "https://science.impf.ai",
+ "schema": "tcmstudio.browser-hosts/1"
+}

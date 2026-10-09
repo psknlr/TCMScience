@@ -1,12 +1,13 @@
 // The deploy check (scripts/check.mjs) against the real relay handler, through an injected fetch.
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { check, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
+import { check, checkPublished, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
 import { CSP_REPORT_ONLY, secure } from "../src/site.js";
 import { jsonReply, relay } from "./helpers.js";
 
@@ -207,4 +208,53 @@ test("the upstream settings for the direct call are read from wrangler.toml, and
   assert.equal(upstreamFrom(text, undefined), null);
   assert.equal(varIn('UPSTREAM_FIELDS = "{\\"a\\":1}"', "UPSTREAM_FIELDS"), '{"a":1}');
   assert.equal(varIn("X = 5", "Y"), undefined);
+});
+
+// ---------------------------------------------------------------------------------- v2: what the site publishes
+
+
+/** A fake site serving `files` ({path: string | Uint8Array | {body, headers}}); anything else is 404. */
+function published(files) {
+  return async (url) => {
+    const path = new URL(url).pathname.replace(/^\//, "");
+    const f = files[path];
+    if (f === undefined) return new Response("not found", { status: 404 });
+    const body = f?.body ?? f;
+    return new Response(typeof body === "string" ? body : body, { status: 200, headers: f?.headers || {} });
+  };
+}
+
+function corpusSite({ encoding = null, tamper = false, latest = null } = {}) {
+  const obj = new Uint8Array([31, 139, 8, 0, 1, 2, 3]);
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  const manifest = JSON.stringify({ schema: "tcmstudio.corpus/1", snapshot_id: "tcmcorpus-2026.10.09-abc", objects: { "core/core.json": { url: "o/aa.gz", sha256: sha(obj) } } });
+  return {
+    "runtime/boot.json": JSON.stringify({ pyodide: { index_url: "pyodide/314.0.7/" }, corpus: { manifest: "corpus/manifest.abc.json", sha256: sha(Buffer.from(manifest)) } }),
+    "corpus/manifest.abc.json": manifest,
+    "corpus/latest.json": JSON.stringify({ manifest: latest || "corpus/manifest.abc.json" }),
+    "corpus/o/aa.gz": { body: tamper ? new Uint8Array([0]) : obj, headers: encoding ? { "Content-Encoding": encoding } : {} },
+    "pyodide/314.0.7/pyodide-lock.json": JSON.stringify({ info: { python: "3.14.2" } }),
+    "runner/manifest.json": JSON.stringify({ version: "0.2.0" }),
+    "install.sh": "#!/bin/sh\n# TCMScience runner installer (science.impf.ai)\n",
+    "install.ps1": "# TCMScience runner installer (science.impf.ai)\n",
+  };
+}
+
+test("v2: the corpus, self-hosted Pyodide and the installers are checked when the site declares them", async () => {
+  const out = await checkPublished("https://science.impf.ai", published(corpusSite()));
+  assert.deepEqual(out.corpus, { snapshot_id: "tcmcorpus-2026.10.09-abc", objects: 1 });
+  assert.deepEqual(out.pyodide, { self_hosted: true, python: "3.14.2" });
+  assert.equal(out.runner.version, "0.2.0");
+  // a site without v2 files: nothing declared, nothing required
+  const bare = await checkPublished("https://science.impf.ai", published({ "runtime/boot.json": JSON.stringify({ pyodide: { index_url: "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/" } }) }));
+  assert.deepEqual(bare, { pyodide: { self_hosted: false } });
+});
+
+test("v2: a re-encoded or different corpus object, or a stale latest.json, fails the check", async () => {
+  await assert.rejects(checkPublished("https://x.test", published(corpusSite({ encoding: "gzip" }))), /Content-Encoding gzip/);
+  await assert.rejects(checkPublished("https://x.test", published(corpusSite({ tamper: true }))), /does not match its SHA-256/);
+  await assert.rejects(checkPublished("https://x.test", published(corpusSite({ latest: "corpus/manifest.old.json" }))), /latest\.json points at/);
+  const files = corpusSite();
+  delete files["install.ps1"];
+  await assert.rejects(checkPublished("https://x.test", published(files)), /install\.ps1 answered 404/);
 });

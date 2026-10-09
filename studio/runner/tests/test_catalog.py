@@ -29,6 +29,13 @@ CONTRACT_CORE = {
     "tcm_safety_report": ("skill.assess-tcm-safety", ["browser", "runner"], False, False, False),
     "tcm_network_hypothesis": ("skill.analyze-tcm-network-pharmacology", ["browser", "runner"],
                                False, False, False),
+    "corpus_search": ("corpus.search", ["browser", "runner"], False, False, False),
+    "corpus_herb": ("corpus.herb", ["browser", "runner"], False, False, False),
+    "corpus_formula": ("corpus.formula", ["browser", "runner"], False, False, False),
+    "corpus_formulas_with": ("corpus.formulas_with", ["browser", "runner"], False, False, False),
+    "corpus_compounds": ("corpus.compounds", ["browser", "runner"], False, False, False),
+    "corpus_safety": ("corpus.safety", ["browser", "runner"], False, False, False),
+    "corpus_info": ("corpus.info", ["browser", "runner"], False, False, False),
     "clinic_assess": ("clinic.assess", ["browser", "runner"], False, False, False),
     "clinic_check_prescription": ("clinic.check", ["browser", "runner"], False, False, False),
     "clinic_followup": ("clinic.followup", ["browser", "runner"], False, False, False),
@@ -115,7 +122,7 @@ def test_counts(runner_catalog):
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
-    assert kinds["job"] == 9 and kinds["system"] >= 5
+    assert kinds["job"] == 9 and kinds["system"] >= 5 and kinds["corpus"] == 7
     assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"])
 
 
@@ -153,7 +160,7 @@ def test_entries_are_well_formed(runner_catalog):
     problems = []
     for e in runner_catalog["entries"]:
         assert e["kind"] in ("native", "skill", "connector", "clinic", "tcmdb", "study", "job",
-                             "system")
+                             "system", "corpus")
         assert e["id"].startswith(e["kind"] + ".")
         assert set(e["title"]) == {"zh", "en"} and e["title"]["zh"] and e["title"]["en"]
         assert e["summary"], e["id"]
@@ -319,7 +326,7 @@ def test_catalog_cli_writes_the_document(tmp_path):
                           timeout=120)
     assert proc.returncode == 0, proc.stderr
     doc = json.loads(Path(out).read_text(encoding="utf-8"))
-    assert doc["where"] == "browser" and len(doc["core"]) == 25
+    assert doc["where"] == "browser" and len(doc["core"]) == 32
     assert len(doc["entries"]) == doc["counts"]["entries"]
     # the acts reserved for a person ship with the catalog, so the page refuses them by name too
     assert "clinic.sign" in doc["never_offered"] and "system.shell" in doc["never_offered"]

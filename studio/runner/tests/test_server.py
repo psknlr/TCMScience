@@ -35,7 +35,7 @@ def test_info_describes_this_runner(server):
     assert info["settings"] == srv.state.get()
     assert info["network"] == {"enabled": False, "profile": "biomedical-research"}
     assert info["purpose"] == "academic"
-    assert info["counts"]["core"] == 25 and info["counts"]["entries"] >= 600
+    assert info["counts"]["core"] == 32 and info["counts"]["entries"] >= 600
     assert info["token_required"] is True
     assert any(e["id"] == "omics-builtin" and e["installed"] for e in info["engines"])
     missing = [e for e in info["engines"] if not e["installed"]]
@@ -62,7 +62,7 @@ def test_catalog_reflects_this_runner(server):
     assert status == 200 and h["content-encoding"] == "gzip"
     doc = json.loads(gzip.decompress(raw))
     assert doc["schema"] == "tcmstudio.catalog/1" and doc["where"] == "runner"
-    assert len(doc["core"]) == 25
+    assert len(doc["core"]) == 32
     jobs = {e["id"]: e for e in doc["entries"] if e["kind"] == "job"}
     # the research loop needs snapshots this fresh home does not have
     research = jobs["job.research.run"]
