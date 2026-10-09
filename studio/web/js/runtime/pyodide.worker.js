@@ -1,10 +1,18 @@
-// The browser runtime's worker (CONTRACTS §5): pinned Pyodide running the real psh + bioagent + tcmstudio code.
+// The browser runtime's worker (CONTRACTS §5, docs/V2.md §13): pinned Pyodide running the real psh + bioagent +
+// tcmstudio code. The page runs one or more of these (./pool.js): the primary keeps each project's state in IDBFS and
+// saves the compiled modules; a secondary runs stateless calls with neither.
 //
 // Protocol. Requests arrive as JSON strings {id, op, payload} with op init | info | call | device | warm (| debug when
 // the page asked for it); replies leave as JSON strings {id, ok, result | error, ms}; while booting, progress leaves
 // as {type:"progress", progress, stage, vars, message}. The envelope of a call is the JSON text Python wrote, spliced
-// into the reply unparsed, so no number is reformatted on the way. The one structured message is
-// {type:"interrupt-buffer", buffer}: a SharedArrayBuffer cannot travel as JSON.
+// into the reply unparsed, so no number is reformatted on the way. Two structured messages may come before init:
+// {type:"interrupt-buffer", buffer} (a SharedArrayBuffer cannot travel as JSON) and {type:"wasm-module", module}
+// (Pyodide's WebAssembly, compiled once by the page for every worker).
+//
+// Accelerators (docs/V2.md §13.4). When a call's reply is a marker {"__accelerate__": {token, kernel, input}}, the
+// worker posts {type:"accelerate", id, token, kernel, input} to the page, waits for {type:"accelerated", id, token,
+// ok, result | error | cancelled}, and resumes the call in Python with the result (an error resumes with {"error"}:
+// Python then computes natively). A cancelled answer ends the call as cancelled without going back into Python.
 //
 // One operation runs at a time. Python blocks this thread while it runs; a cancel comes through the interrupt buffer
 // (KeyboardInterrupt in Python) when the page is cross-origin isolated, otherwise the page terminates the worker.
@@ -15,8 +23,14 @@ const CACHE_NAME = "tcmstudio-runtime-v1";
 const BUNDLE_RE = /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/;
 const PYCACHE_RE = /\/runtime\/\.pycache\/[^/]+\.tar$/;
 const PERSIST_LOCK = "tcmstudio.persist";
+const WASM_RE = /\/pyodide\.asm\.wasm(?:[?#]|$)/;
+const MARKER_PREFIX = '{"__accelerate__"';
+// A tool may hand more than one loop to the page; more rounds than this is a bug, not a computation.
+const MAX_ACCEL_ROUNDS = 8;
+const CORPUS_POINTER_TIMEOUT_MS = 15_000;
 
 const BOOT_PY = `
+import importlib.util as _ilu
 import json as _json
 import os as _os
 import sys as _sys
@@ -33,33 +47,113 @@ for _p in reversed(_json.loads(PY_PATH_JSON)):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 
+# urllib through synchronous XHR (docs/V2.md §12), when this bundle has it: Pyodide has no ssl, so stock urllib
+# cannot open an https URL at all.
+_BROWSERHTTP = "absent"
+if _ilu.find_spec("tcmstudio.browserhttp") is not None:
+    try:
+        import tcmstudio.browserhttp as _browserhttp
+        _browserhttp.install()
+        _BROWSERHTTP = "installed"
+    except Exception as _exc:  # noqa: BLE001 - reported by tcms_info, never fatal to the boot
+        _BROWSERHTTP = f"failed: {type(_exc).__name__}: {_exc}"
+
 import sqlite3  # noqa: F401  PSH's audit chain; part of the standard library from Pyodide 314 on
 import tcmstudio.dispatch as _dispatch
 from tcmstudio.envelope import runtime_string as _runtime_string, versions as _versions
+
+try:
+    from tcmstudio.accel import resume_json as _resume_json
+except ImportError:  # a bundle from before accelerators: nothing ever asks to resume
+    _resume_json = None
 
 
 def tcms_call(tool, arguments_json, context_json):
     return _dispatch.call_json(tool, arguments_json, context_json)
 
 
+def tcms_resume(token, result_json):
+    if _resume_json is None:
+        return _json.dumps({"ok": False, "tool": "accelerate", "via": "accelerate", "status": "failed",
+                            "summary": "此代码包不支持加速计算", "summary_en": "This bundle has no accelerators",
+                            "text": "accelerate: failed. Error (runtime_error): no accelerator support",
+                            "error": {"type": "runtime_error", "message": "no accelerator support", "hint": ""}})
+    return _resume_json(token, result_json)
+
+
 def tcms_modules():
     return len(_sys.modules)
 
 
+def _bundle_pycache_dirs():
+    return [PYCACHE_ROOT + _p for _p in _json.loads(PY_PATH_JSON) if _os.path.isdir(PYCACHE_ROOT + _p)]
+
+
+def tcms_pycache_count():
+    n = 0
+    for _top in _bundle_pycache_dirs():
+        for _root, _dirs, _files in _os.walk(_top):
+            n += sum(1 for _f in _files if _f.endswith(".pyc"))
+    return n
+
+
 def tcms_pycache_tar():
+    # The bundle tree only (docs/V2.md §13.3). numpy, scipy and pandas ship sources, so their modules are compiled
+    # into the same prefix; carried in the tar they made it five times larger and every later boot slower.
     import io
     import tarfile
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
-        tar.add(PYCACHE_ROOT, arcname=".")
+        for _top in _bundle_pycache_dirs():
+            tar.add(_top, arcname=_top[len(PYCACHE_ROOT):].lstrip("/"))
     return buf.getvalue()
 
 
 def tcms_info():
     return _json.dumps({"runtime": _runtime_string(), "versions": _versions(),
-                        "platform": _sys.platform,
+                        "platform": _sys.platform, "browserhttp": _BROWSERHTTP,
                         "python_path": [p for p in _sys.path if p in _json.loads(PY_PATH_JSON)]},
                        ensure_ascii=False)
+`;
+
+// Test pages only (the page's debug option): a tool, "debug.accel_probe", that hands one kernel input to the page
+// and finishes with whatever comes back, so the accelerator loop can be checked end to end without a real
+// accelerated tool. It computes the same sum natively and says whether the two agree.
+const DEBUG_PY = `
+import json as _json
+import tcmstudio.dispatch as _dispatch
+from tcmstudio import accel as _accel
+
+_PROBE = "debug.accel_probe"
+_PROBE_KERNEL = "np-null-mt/1"
+_call_before_probe = _dispatch._call
+
+
+def _probe_call(name, arguments, ctx, notes, t0, started):
+    if name != _PROBE:
+        return _call_before_probe(name, arguments, ctx, notes, t0, started)
+    args, _problem = _dispatch._parse_arguments(arguments)
+    args = args or {}
+    data = {"n": int(args.get("n", 1000)), "seed": str(args.get("seed", "probe"))}
+    if _accel.available(ctx, _PROBE_KERNEL):
+        raise _accel.Accelerate(_PROBE_KERNEL, data)
+    got = _accel.result_for(ctx, _PROBE_KERNEL, data)
+    native = sum(range(data["n"]))
+    value, engine, error = native, "python", None
+    if got is not None and "_error" not in got:
+        value, engine = got.get("sum"), str(got.get("engine") or "accelerator")
+    elif got is not None:
+        error = got["_error"]
+    result = {"value": value, "native": native, "equal": value == native, "engine": engine, "error": error,
+              "accelerated": got is not None}
+    return {"ok": True, "tool": name, "via": name, "status": "succeeded", "duration_ms": 0,
+            "summary": "accelerator probe", "summary_en": "accelerator probe",
+            "text": f"{name} → {name}: succeeded", "result": result, "citations": [],
+            "governance": {"kind": "system", "released": None, "refusals": [], "outputs": []},
+            "receipt": {"where": ctx.where, "accel": {"engine": engine}}, "job": None, "approval": None, "error": None}
+
+
+_dispatch._call = _probe_call
 `;
 
 // scipy's Matrix Market reader starts a C++ thread pool; WebAssembly here has no threads, and the failed thread start
@@ -75,16 +169,21 @@ except Exception:
 let py = null;
 let api = null;
 let interrupt = null;
+let wasmModule = null;
 let fatal = null;
 let bootInfo = null;
-let pycache = { key: null, modules: 0, restored: false };
+let pycache = { key: null, modules: 0, files: 0, restored: false };
 const state = {
   debug: false,
+  role: "primary",
   stateRoot: STATE_ROOT_DEFAULT,
   persist: { mode: "none", durable: false, error: null },
   packages: new Set(),
   lockNames: null,
+  corpusP: Promise.resolve(null),
+  moduleShared: false,
 };
+const accelWaiters = new Map();
 
 let chain = Promise.resolve();
 
@@ -95,11 +194,24 @@ self.onmessage = (ev) => {
     if (py && interrupt) py.setInterruptBuffer(interrupt);
     return;
   }
+  if (data && typeof data === "object" && data.type === "wasm-module") {
+    wasmModule = data.module instanceof WebAssembly.Module ? data.module : null;
+    return;
+  }
   let msg;
   try {
     msg = typeof data === "string" ? JSON.parse(data) : data;
   } catch {
     return; // not ours
+  }
+  if (msg?.type === "accelerated") {
+    // the page's answer to an accelerate request: the call that asked is waiting in the chain, so not through it
+    const waiter = accelWaiters.get(String(msg.token));
+    if (waiter) {
+      accelWaiters.delete(String(msg.token));
+      waiter(msg);
+    }
+    return;
   }
   if (!msg || msg.id === undefined || msg.id === null) return;
   chain = chain.then(() => handle(msg)).catch(() => {});
@@ -120,7 +232,7 @@ async function handle({ id, op, payload }) {
         return await savePycache().catch(() => {});
       }
       case "call": {
-        const out = await call(payload || {});
+        const out = await call(id, payload || {});
         self.postMessage(`{"id":${JSON.stringify(id)},"ok":true,"ms":${ms()},"persist":${JSON.stringify(out.persist)},"result":${out.text}}`);
         // after the reply, so the caller never waits for it
         return await savePycache().catch(() => {});
@@ -148,7 +260,7 @@ function progress(value, stage, vars = {}, message = "") {
 
 // ------------------------------------------------------------------------------------------------------------- boot
 
-async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = true }) {
+async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = true, role = "primary" }) {
   if (py && api) return bootInfo;
   if (!boot?.pyodide || !boot?.bundle?.sha256 || !boot?.bundle?.path) throw codeError("bad_boot", "boot.json is incomplete (pyodide, bundle.path, bundle.sha256 are required)");
   const t0 = performance.now();
@@ -156,10 +268,13 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   let lap = performance.now();
   const mark = (k) => { const n = performance.now(); timings[k] = Math.round(n - lap); lap = n; };
   state.debug = Boolean(dbg);
+  state.role = role === "secondary" ? "secondary" : "primary";
   state.stateRoot = boot.state_root || STATE_ROOT_DEFAULT;
   const site = siteUrl || new URL("../", self.location.href).href;
+  // a self-hosted Pyodide is named relative to the site ("pyodide/314.0.7/"): its wheels then load from there too
   const index = withSlash(new URL(indexUrl || boot.pyodide.index_url, site).href);
   const bundleUrl = new URL(boot.bundle.path, site).href;
+  state.corpusP = corpusSpec(boot, site);
 
   // Pyodide and the bundle download at the same time; a bundle that fails its hash stops the boot at once.
   let pyDone = false;
@@ -168,7 +283,13 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   progress(3, "pyodide", { version: boot.pyodide.version }, `Loading Pyodide ${boot.pyodide.version}`);
   const pyP = (async () => {
     const { loadPyodide } = await import(index + "pyodide.mjs");
-    const instance = await loadPyodide({ indexURL: index });
+    const restore = wasmModule ? serveCompiledModule(wasmModule) : () => {};
+    let instance;
+    try {
+      instance = await loadPyodide({ indexURL: index });
+    } finally {
+      restore();
+    }
     pyDone = true;
     timings.pyodide = Math.round(performance.now() - t0);
     progress(overall(), "pyodide_ready", { version: instance.version });
@@ -200,31 +321,58 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   mark("persist");
 
   progress(89, "import");
-  pycache.key = new URL(`runtime/.pycache/${boot.bundle.sha256.slice(0, 16)}-pyodide-${py.version}.tar`, site).href;
+  pycache.key = new URL(`runtime/.pycache/${boot.bundle.sha256.slice(0, 16)}-pyodide-${py.version}-bundle.tar`, site).href;
   pycache.restored = await restorePycache();
   mark("pycache");
   const ns = py.globals.get("dict")();
   ns.set("PY_PATH_JSON", JSON.stringify(boot.bundle.python_path || [boot.bundle.extract_dir || "/opt/tcms/site"]));
   ns.set("PYCACHE_ROOT", PYCACHE_ROOT);
   py.runPython(BOOT_PY, { globals: ns });
-  api = { call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"), pycacheTar: ns.get("tcms_pycache_tar") };
-  if (pycache.restored) pycache.modules = api.modules();
+  if (state.debug) py.runPython(DEBUG_PY, { globals: py.globals.get("dict")() });
+  api = {
+    call: ns.get("tcms_call"), resume: ns.get("tcms_resume"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"),
+    pycacheTar: ns.get("tcms_pycache_tar"), pycacheCount: ns.get("tcms_pycache_count"),
+  };
+  if (pycache.restored) {
+    pycache.modules = api.modules();
+    pycache.files = api.pycacheCount();
+  }
   mark("import");
 
   const pyInfo = JSON.parse(api.info());
   bootInfo = {
     ...pyInfo,
+    role: state.role,
     pyodide: { version: py.version, index_url: index },
     packages: [...state.packages],
     persist: { ...state.persist, root: state.stateRoot },
     interruptible: Boolean(interrupt),
     cross_origin_isolated: Boolean(self.crossOriginIsolated),
+    shared_module: state.moduleShared,
     bundle: { path: boot.bundle.path, sha256: boot.bundle.sha256, bytes: bundle.bytes.byteLength, from_cache: bundle.fromCache },
-    pycache: { restored: pycache.restored },
+    pycache: { restored: pycache.restored, saves: state.role === "primary" },
     timings,
     boot_ms: Math.round(performance.now() - t0),
   };
   return bootInfo;
+}
+
+/**
+ * Hand Pyodide the module the page compiled instead of compiling pyodide.asm.wasm here: its loader asks for it with
+ * WebAssembly.instantiateStreaming(fetch(<index>pyodide.asm.wasm)). Anything else goes to the real function. Returns
+ * the function that puts the original back (after loadPyodide, so no later instantiation is touched).
+ */
+function serveCompiledModule(module) {
+  const original = WebAssembly.instantiateStreaming;
+  WebAssembly.instantiateStreaming = async function instantiateStreaming(source, imports) {
+    const res = await source;
+    if (!WASM_RE.test(String(res?.url || ""))) return original.call(WebAssembly, res, imports);
+    try { await res.body?.cancel?.(); } catch { /* already read or closed */ }
+    const instance = await WebAssembly.instantiate(module, imports);
+    state.moduleShared = true;
+    return { instance, module };
+  };
+  return () => { WebAssembly.instantiateStreaming = original; };
 }
 
 function quietLoad() {
@@ -308,6 +456,38 @@ async function readAll(res, expected, onFraction) {
   return out;
 }
 
+// ------------------------------------------------------------------------------------------------------- corpus
+
+/**
+ * context.corpus for every call (docs/V2.md §11.4), from boot.json's "corpus": the published manifest pinned by the
+ * build ({base, manifest, sha256}, relative to the site), or, on a page the runner serves, the public pointer
+ * ({latest_url}), read once here. A pointer that cannot be read is passed on as is: Python reads it itself and says
+ * why the corpus is unavailable.
+ */
+async function corpusSpec(boot, site) {
+  const c = boot?.corpus;
+  if (!c || typeof c !== "object") return null;
+  if (c.manifest && c.sha256) {
+    return { base_url: new URL(c.base || "corpus/", site).href, manifest: String(c.manifest), sha256: String(c.sha256), ...(c.snapshot_id ? { snapshot_id: String(c.snapshot_id) } : {}) };
+  }
+  if (!c.latest_url) return null;
+  const latest = new URL(c.latest_url, site).href;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), CORPUS_POINTER_TIMEOUT_MS);
+  try {
+    const res = await fetch(latest, { cache: "no-cache", signal: ctl.signal });
+    if (res.ok) {
+      const doc = await res.json();
+      if (doc?.manifest && /^[0-9a-f]{64}$/.test(String(doc.sha256 || ""))) {
+        return { base_url: new URL(".", latest).href, manifest: String(doc.manifest), sha256: String(doc.sha256), ...(doc.snapshot_id ? { snapshot_id: String(doc.snapshot_id) } : {}) };
+      }
+    }
+  } catch { /* below */ } finally {
+    clearTimeout(timer);
+  }
+  return { latest_url: latest };
+}
+
 // ---------------------------------------------------------------------------------------------- compiled modules
 
 /** Put back the modules compiled on an earlier visit (about a second of the first call), if their copy is intact. */
@@ -329,14 +509,20 @@ async function restorePycache() {
   }
 }
 
-/** After an operation that imported new modules, keep the compiled tree for the next visit. */
+/**
+ * After an operation that compiled new modules of the bundle, keep them for the next visit (the primary only: a
+ * secondary restores the tree and never writes it, so two workers never race to replace it).
+ */
 async function savePycache() {
-  if (!api || !pycache.key || fatal) return;
+  if (!api || !pycache.key || fatal || state.role !== "primary") return;
   let bytes;
   try {
     const n = api.modules();
     if (n <= pycache.modules) return;
     pycache.modules = n;
+    const files = api.pycacheCount();
+    if (files <= pycache.files) return; // only site-packages modules were new: nothing of the bundle to keep
+    pycache.files = files;
     const proxy = api.pycacheTar();
     try { bytes = proxy.toJs(); } finally { proxy.destroy?.(); }
   } catch (err) {
@@ -400,15 +586,16 @@ function withPersistLock(fn) {
 
 // ------------------------------------------------------------------------------------------------------------ calls
 
-async function call({ tool, arguments: args = {}, context = {}, packages = [], stateful = false }) {
+async function call(id, { tool, arguments: args = {}, context = {}, packages = [], stateful = false }) {
   if (!api) throw codeError("not_ready", "the runtime has not been initialised");
   if (packages.length) await ensurePackages(packages);
   const argsJson = JSON.stringify(args ?? {});
-  const run = (durable) => api.call(String(tool), argsJson, JSON.stringify({
-    ...context, where: "browser", state_root: state.stateRoot, durable,
-  }));
+  const corpus = await state.corpusP;
+  const run = (durable) => finishAccelerated(id, api.call(String(tool), argsJson, JSON.stringify({
+    ...(corpus ? { corpus } : {}), ...context, where: "browser", state_root: state.stateRoot, durable,
+  })));
   if (!stateful || state.persist.mode !== "idbfs") {
-    return { text: run(state.persist.durable), persist: { mode: state.persist.mode, durable: state.persist.durable } };
+    return { text: await run(state.persist.durable), persist: { mode: state.persist.mode, durable: state.persist.durable } };
   }
   return withPersistLock(async () => {
     let durable = true;
@@ -419,7 +606,7 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
       durable = false;
       error = `sync from IndexedDB failed: ${messageOf(err)}`;
     }
-    const text = run(durable);
+    const text = await run(durable);
     try {
       await syncfs(false);
     } catch (err) {
@@ -427,6 +614,28 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
       error = `sync to IndexedDB failed: ${messageOf(err)}`;
     }
     return { text, persist: { mode: "idbfs", durable, error } };
+  });
+}
+
+/** A reply that is an accelerator marker goes to the page; the call resumes with its answer, until it is an envelope. */
+async function finishAccelerated(id, text) {
+  for (let round = 0; typeof text === "string" && text.startsWith(MARKER_PREFIX); round++) {
+    if (round >= MAX_ACCEL_ROUNDS) throw codeError("runtime_error", `the tool asked for the accelerator more than ${MAX_ACCEL_ROUNDS} times`);
+    const marker = JSON.parse(text).__accelerate__ || {};
+    const answer = await accelerate(id, marker);
+    if (answer.cancelled) throw codeError("cancelled", "stopped during the accelerated step");
+    const body = answer.ok
+      ? JSON.stringify(answer.result && typeof answer.result === "object" ? answer.result : {})
+      : JSON.stringify({ error: String(answer.error || "the accelerator failed") });
+    text = api.resume(String(marker.token || ""), body);
+  }
+  return text;
+}
+
+function accelerate(id, marker) {
+  return new Promise((resolve) => {
+    accelWaiters.set(String(marker.token || ""), resolve);
+    self.postMessage(JSON.stringify({ type: "accelerate", id, token: marker.token, kernel: marker.kernel, input: marker.input ?? null }));
   });
 }
 
@@ -467,6 +676,13 @@ function debug({ action }) {
     try { py._api.fatal_error(new Error("fatal error induced by the runtime test page")); } catch { /* reported on next use */ }
     return { induced: "fatal" };
   }
+  if (action === "pycache") {
+    // what the compiled-module tar of this bundle would hold now, and whether this worker saves it
+    const proxy = api.pycacheTar();
+    let bytes;
+    try { bytes = proxy.toJs(); } finally { proxy.destroy?.(); }
+    return { role: state.role, saves: state.role === "primary", bytes: bytes.byteLength, files: api.pycacheCount(), key: pycache.key };
+  }
   throw codeError("bad_request", `unknown debug action: ${action}`);
 }
 
@@ -479,7 +695,7 @@ async function detectDevice() {
     memory_gb: nav.deviceMemory ?? null,
     cross_origin_isolated: Boolean(self.crossOriginIsolated),
     webgpu: { api: "gpu" in nav, adapter: null },
-    python: { device: "cpu", threads: 1, note: "Python tools run on the CPU (single thread, WebAssembly)" },
+    python: { device: "cpu", threads: 1, note: "Python tools run on the CPU (single thread per worker, WebAssembly)" },
   };
   if (nav.gpu) {
     try {

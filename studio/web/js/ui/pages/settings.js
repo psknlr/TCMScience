@@ -8,6 +8,7 @@ import { cssEscape, debounce, fill, formatDuration, formatNumber, h } from "../d
 import { icon } from "../icons.js";
 import { confirmDialog, toast } from "../overlay.js";
 import { computePanel, detectLocalModels, relayErrorLine } from "../panels.js";
+import { browserComputeSection } from "../browser-compute.js";
 import { button, chip, disclosure, iconButton, keyValue, notice, section, segmented, selectField, spinner, statusDot, switchControl, textArea, textField } from "../primitives.js";
 import { SETTINGS_TABS } from "../router.js";
 import { shortcutTable } from "../palette.js";
@@ -324,6 +325,7 @@ function computeTab(app) {
   }
   return h("div.stack.stack--xl",
     section({ title: t("ui.compute.title"), children: computePanel(app, { compact: false }) }),
+    browserComputeSection(app),
     section({ title: t("ui.web.label"), children: switchControl({ label: t("ui.web.default_label"), description: t("ui.web.default_desc"), checked: app.state.settings.web, onChange: (v) => app.setSetting({ web: v }) }) }),
     section({ title: t("ui.jobs.title"), children: jobsBox }));
 }

@@ -23,6 +23,8 @@ export const DEFAULTS = Object.freeze({
   maxTokens: 8192,
   maxSteps: 16,
   compute: "auto",
+  // docs/V2.md §13.1 settings.compute.browser; `compute` itself stays the v1 target string (auto | browser | runner)
+  computeBrowser: { workers: "auto", gpu: "auto" },
   runner: { url: "http://127.0.0.1:8765", token: "" },
   web: false,
   onboarded: false,
@@ -67,7 +69,7 @@ export function saveSettings(next) {
 export function updateSettings(patch) {
   const cur = loadSettings();
   const next = { ...cur, ...patch };
-  for (const k of ["models", "baseUrls", "keys", "runner"]) {
+  for (const k of ["models", "baseUrls", "keys", "runner", "computeBrowser"]) {
     if (patch && patch[k] && typeof patch[k] === "object" && !Array.isArray(patch[k])) next[k] = { ...cur[k], ...patch[k] };
   }
   return saveSettings(next);
@@ -95,6 +97,7 @@ function normalize(raw) {
   s.runner = { ...DEFAULTS.runner, ...(s.runner && typeof s.runner === "object" ? s.runner : {}) };
   s.runner.url = String(s.runner.url || DEFAULTS.runner.url);
   s.runner.token = String(s.runner.token || "");
+  s.computeBrowser = computeBrowser(s.computeBrowser);
   s.maxTokens = posInt(s.maxTokens, DEFAULTS.maxTokens);
   s.maxSteps = Math.min(64, posInt(s.maxSteps, DEFAULTS.maxSteps));
   s.inspectorWidth = posInt(s.inspectorWidth, DEFAULTS.inspectorWidth);
@@ -103,6 +106,14 @@ function normalize(raw) {
   for (const k of ["rememberKeys", "thinking", "web", "onboarded", "sidebarCollapsed"]) s[k] = Boolean(s[k]);
   if (typeof s.provider !== "string" || !s.provider) s.provider = DEFAULTS.provider;
   return s;
+}
+
+/** Python workers "auto" or 1..8 (the runtime caps a number at cores − 1); the GPU "auto" or "off". */
+function computeBrowser(raw) {
+  const src = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const n = Number(src.workers);
+  const workers = src.workers !== "auto" && Number.isInteger(n) && n >= 1 && n <= 8 ? n : DEFAULTS.computeBrowser.workers;
+  return { workers, gpu: src.gpu === "off" ? "off" : DEFAULTS.computeBrowser.gpu };
 }
 
 function posInt(v, dflt) {

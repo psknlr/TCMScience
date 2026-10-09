@@ -1,5 +1,7 @@
 // BrowserRuntime against a scripted worker: the lifecycle, the queue, cancellation (interrupt buffer, terminate and
-// restart), fatal errors, boot failures. The real worker and Pyodide are exercised in Chromium by run.mjs.
+// restart), fatal errors, boot failures. These run the pool with one worker (the v1 behaviour, and a phone's); the
+// pool itself and the accelerator loop are in pool.test.mjs. The real worker and Pyodide are exercised in Chromium
+// by run.mjs and e2e/pool.spec.mjs.
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -72,8 +74,17 @@ function workerClass(behavior = {}) {
         this.buffer = new Uint8Array(data.buffer);
         return;
       }
+      if (data && typeof data === "object" && data.type === "wasm-module") {
+        this.module = data.module;
+        return;
+      }
       assert.equal(typeof data, "string", "requests cross the boundary as JSON strings");
       const msg = JSON.parse(data);
+      if (msg.type) {
+        this.messages = [...(this.messages || []), msg];
+        behavior.message?.(this, msg);
+        return;
+      }
       this.received.push(msg);
       const handler = behavior[msg.op] || DEFAULTS[msg.op];
       setTimeout(() => handler(this, msg), 0);
@@ -109,7 +120,7 @@ const DEFAULTS = {
 function runtime(opts = {}, behavior = {}) {
   const s = site(opts.site);
   const Worker = workerClass(behavior);
-  const rt = new BrowserRuntime({ bootUrl: "https://science.impf.ai/runtime/boot.json", fetch: s.fetch, Worker, warm: false, interruptGraceMs: 50, ...opts });
+  const rt = new BrowserRuntime({ bootUrl: "https://science.impf.ai/runtime/boot.json", fetch: s.fetch, Worker, warm: false, interruptGraceMs: 50, workers: 1, accel: false, ...opts });
   const statuses = [];
   rt.onStatus((ev) => statuses.push(ev));
   return { rt, Worker, statuses, fetchCalls: s.calls };
