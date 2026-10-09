@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import governance as gv
+from .accel import Accelerate, marker as accel_marker
 from .catalog import (NEVER_OFFERED, dependency_present, entries as catalog_entries,
                       catalog_search, get_entry, skill_specs, suggest)
 from .core_tools import CORE_BY_NAME, route
@@ -82,6 +83,12 @@ class Context:
     tcmdb_root: str | None = None
     durable: bool | None = None
     capabilities: Mapping[str, Any] | None = None
+    #: docs/V2.md: the published corpus this call reads (``{base_url, manifest, sha256}``,
+    #: from the worker), the kernels the page offers (``{kernels, prefer}``) and, on the
+    #: resumed call, the page's kernel result (``tcmstudio.accel``).
+    corpus: Mapping[str, Any] | None = None
+    accel: Mapping[str, Any] | None = None
+    accel_result: Mapping[str, Any] | None = None
 
     @property
     def profile(self) -> str:
@@ -128,6 +135,9 @@ class Context:
             ctx.durable = _truthy(value["durable"])
         if isinstance(value.get("capabilities"), Mapping):
             ctx.capabilities = value["capabilities"]
+        for key in ("corpus", "accel", "accel_result"):
+            if isinstance(value.get(key), Mapping):
+                setattr(ctx, key, value[key])
         if value.get("jobs") is not None:
             ctx.jobs = value["jobs"]
         return ctx, notes
@@ -490,6 +500,9 @@ def call(tool: str, arguments: Any = None, context: Any = None) -> dict[str, Any
         ctx, ctx_notes = Context(), [f"context ignored: {exc}"]
     try:
         return _call(name, arguments, ctx, ctx_notes, t0, started)
+    except Accelerate as req:
+        # the page runs the kernel and resumes the call (tcmstudio.accel, docs/V2.md §13.4)
+        return accel_marker(name, arguments, context, req)
     except KeyboardInterrupt:
         return shape(name, via=name, kind="system", status="cancelled", summary="已取消",
                      summary_en="Cancelled",
