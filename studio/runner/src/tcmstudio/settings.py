@@ -13,6 +13,11 @@ lets any page that holds it run tools on this machine.
 The home also gives bioagent its data directories: ``BIOAGENT_DATA_LAKE``,
 ``BIOAGENT_TCMDB`` and ``BIOAGENT_WORKSPACE`` point under it unless the user already set
 them, so the runner never writes into a source checkout.
+
+A runner put there by the one-line installer (docs/V2.md §16) finds ``<home>/install.json``
+beside it: ``{schema, method: "uv-tool", version, site, os, options: {cn, extras, gpu,
+autostart, port}, …}``. Its environment has no pip, so a missing engine is installed by running
+the install command again with ``--extras``; :func:`reinstall_command` writes that command.
 """
 
 from __future__ import annotations
@@ -23,14 +28,16 @@ import json
 import os
 import re
 import secrets
+import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Iterable, Mapping, MutableMapping
 
 __all__ = ["DEFAULT_HOME", "SettingsError", "HomeInUse", "HomeLock", "RunnerState",
            "default_settings", "validate", "home_paths", "data_environment", "apply_environment",
-           "prepare_home"]
+           "prepare_home", "INSTALL_SCHEMA", "ENGINE_EXTRAS", "install_record",
+           "reinstall_command", "extras_for"]
 
 DEFAULT_HOME = Path("~/.tcmscience/studio")
 SCHEMA = "tcmstudio.runner/1"
@@ -61,7 +68,12 @@ class HomeLock:
     def acquire(self) -> None:
         try:
             import fcntl
-        except ImportError:                                     # Windows: no jobs, no lock
+        except ImportError:
+            # Windows: no jobs and no lock, but the pid is written all the same: the installer
+            # reads it to stop this runner before it replaces or removes the installation.
+            with contextlib.suppress(OSError):
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_text(str(os.getpid()), encoding="utf-8")
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fh = open(self.path, "a+", encoding="utf-8")            # noqa: SIM115 - held open
@@ -280,3 +292,89 @@ def apply_environment(home: str | Path,
     for key, value in values.items():
         env.setdefault(key, value)
     return values
+
+
+# ----------------------------------------------------------------------------- the installer
+
+INSTALL_SCHEMA = "tcmstudio.install/1"
+#: The bioagent extra that brings an engine's Python packages (BioScience-Harness pyproject). The
+#: command-line tools (Salmon, kallisto, HISAT2, fastp, ColabFold) come from the system's package
+#: manager and have none.
+ENGINE_EXTRAS = {"pydeseq2": "analysis", "scanpy": "analysis", "scvi": "scvi", "esmfold": "fold",
+                 "vina": "docking", "admet": "admet"}
+#: The same by the module or distribution a tool reports missing.
+_MODULE_EXTRAS = {"pydeseq2": "analysis", "scanpy": "analysis", "leidenalg": "analysis",
+                  "igraph": "analysis", "umap": "analysis", "umap-learn": "analysis",
+                  "anndata": "analysis", "h5py": "analysis", "tmtools": "analysis",
+                  "gseapy": "analysis", "harmonypy": "analysis", "scvi": "scvi",
+                  "scvi-tools": "scvi", "torch": "fold", "transformers": "fold",
+                  "meeko": "docking", "vina": "docking", "gemmi": "docking",
+                  "rdkit": "admet", "sklearn": "admet", "scikit-learn": "admet",
+                  "openpyxl": "formulas", "mcp": "mcp", "paperqa": "literature",
+                  "paper-qa": "literature"}
+_EXTRA_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+
+
+def install_record(home: str | Path, prefix: str | Path | None = None) -> dict[str, Any] | None:
+    """``<home>/install.json`` when it describes the installation this code runs from: written
+    by the one-line installer (``method: "uv-tool"``) and read by a Python that lives in a
+    ``uv tool`` environment (``uv-receipt.toml`` beside it). None otherwise (a checkout, pip, a
+    hand-edited or unreadable file): the hints then stay as they are."""
+    path = Path(home).expanduser() / "install.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, Mapping) or doc.get("method") != "uv-tool":
+        return None
+    if not (Path(prefix if prefix is not None else sys.prefix) / "uv-receipt.toml").is_file():
+        return None
+    options = doc.get("options") if isinstance(doc.get("options"), Mapping) else {}
+    extras = options.get("extras")
+    extras = [e for e in (extras if isinstance(extras, list) else []) if
+              isinstance(e, str) and _EXTRA_RE.match(e)]
+    site = doc.get("site") if isinstance(doc.get("site"), str) else ""
+    if not re.match(r"^https?://[A-Za-z0-9.\-\[\]:]+$", site.rstrip("/")):
+        site = "https://science.impf.ai"
+    return {"method": "uv-tool", "version": str(doc.get("version") or ""),
+            "site": site.rstrip("/"), "os": str(doc.get("os") or ""),
+            "options": {"cn": options.get("cn") is True, "gpu": options.get("gpu") is True,
+                        "autostart": options.get("autostart") is True, "extras": extras}}
+
+
+def extras_for(names: Iterable[str]) -> list[str]:
+    """The bioagent extras that bring these engines, modules or distributions (known ones only)."""
+    out: list[str] = []
+    for name in names:
+        key = str(name or "").strip().lower()
+        extra = ENGINE_EXTRAS.get(key) or _MODULE_EXTRAS.get(key) or _MODULE_EXTRAS.get(
+            key.split(".", 1)[0])
+        if extra and extra not in out:
+            out.append(extra)
+    return out
+
+
+def reinstall_command(record: Mapping[str, Any], extras: Iterable[str] = ()) -> str:
+    """The install command that adds ``extras`` to what ``record`` installed, keeping its other
+    choices (the extras already there, --cn, --gpu, --autostart): an installed runner has no pip,
+    and running the installer again is how it changes."""
+    opts = record.get("options") or {}
+    wanted = list(opts.get("extras") or [])
+    for extra in extras:
+        if _EXTRA_RE.match(str(extra)) and extra not in wanted:
+            wanted.append(extra)
+    site = str(record.get("site") or "https://science.impf.ai").rstrip("/")
+    flags = []
+    if opts.get("cn"):
+        flags.append("cn")
+    if opts.get("gpu"):
+        flags.append("gpu")
+        wanted = [e for e in wanted if e != "fold"]           # --gpu already brings it
+    if opts.get("autostart"):
+        flags.append("autostart")
+    if record.get("os") == "windows":
+        args = "".join(f" --{f}" for f in flags) + (f" --extras {','.join(wanted)}" if wanted else "")
+        return (f'powershell -ExecutionPolicy ByPass -c "& ([scriptblock]::Create((irm '
+                f'{site}/install.ps1))){args}"')
+    args = "".join(f" --{f}" for f in flags) + (f" --extras {','.join(wanted)}" if wanted else "")
+    return f"curl -LsSf {site}/install.sh | sh" + (f" -s --{args}" if args else "")

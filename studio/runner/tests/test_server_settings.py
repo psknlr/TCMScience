@@ -154,11 +154,18 @@ def test_flags_are_saved_as_settings(tmp_path):
     assert saved["threads"] == 2 and saved["network"]["enabled"] is True
 
 
-def test_serve_as_a_process_prints_the_pairing_link_and_stops_cleanly(tmp_path):
+def _decode_pair(link: str) -> dict:
+    import base64
+    code = link.split("#pair=")[1]
+    return json.loads(base64.urlsafe_b64decode(code + "=" * (-len(code) % 4)))
+
+
+def test_serve_as_a_process_prints_a_one_time_link_and_stops_cleanly(tmp_path):
     env = {k: v for k, v in os.environ.items() if not k.startswith("BIOAGENT_")}
+    log = tmp_path / "logs" / "runner.log"
     proc = subprocess.Popen(
         [sys.executable, "-m", "tcmstudio", "serve", "--port", "0", "--no-browser",
-         "--home", str(tmp_path / "home"), "--web", "none"],
+         "--home", str(tmp_path / "home"), "--web", "none", "--log", str(log)],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, text=True)
     lines = []
     port = None
@@ -176,18 +183,65 @@ def test_serve_as_a_process_prints_the_pairing_link_and_stops_cleanly(tmp_path):
                 break
         banner = "".join(lines)
         assert port, banner
-        assert "https://science.impf.ai/#pair=" in banner and "配对令牌 Token" in banner
+        # the link carries a one-time code, never the token (docs/V2.md §16)
+        link = re.search(r"配对链接 Pair\s+(\S+)", banner).group(1)
+        assert link.startswith("https://science.impf.ai/#pair=")
+        doc = _decode_pair(link)
+        assert doc == {"url": f"http://127.0.0.1:{port}", "code": doc["code"]}
+        assert len(doc["code"]) >= 22
         token = json.loads((tmp_path / "home" / "runner.json").read_text())["token"]
-        assert token in banner
+        assert token not in banner and "--show-token" in banner
+        assert "只能用一次" in banner and "one use" in banner
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         conn.request("GET", "/api/health")
         health = json.loads(conn.getresponse().read())
+        conn.request("POST", "/api/pair/claim", body=json.dumps({"code": doc["code"]}),
+                     headers={"Origin": "https://science.impf.ai",
+                              "Content-Type": "application/json"})
+        claimed = json.loads(conn.getresponse().read())
         conn.close()
         assert health["name"] == "tcmstudio" and health["token_required"] is True
+        assert claimed == {"url": f"http://127.0.0.1:{port}", "token": token}
         proc.send_signal(signal.SIGTERM)
         assert proc.wait(15) == 0
         assert "stopped" in proc.stderr.read()
+        # --log: the banner, the pairing event and the request log went to the file as well
+        text = log.read_text(encoding="utf-8")
+        assert "配对链接 Pair" in text and "已配对 Paired" in text
+        assert "POST /api/pair/claim 200" in text and "stopped" in text
+        assert token not in text
     finally:
         if proc.poll() is None:
             proc.kill()
             proc.wait(5)
+
+
+def test_show_token_prints_it_and_a_tokenless_runner_links_without_a_code(tmp_path):
+    from tcmstudio.server import ServerConfig, _banner, make_server
+    server = make_server(ServerConfig(home=tmp_path / "a", port=0, web=None, torch_probe=False,
+                                      show_token=True))
+    try:
+        banner = _banner(server, {})
+        assert server.guard.token in banner
+        assert "code" in _decode_pair(re.search(r"Pair\s+(\S+)", banner).group(1))
+    finally:
+        server.close()
+    server = make_server(ServerConfig(home=tmp_path / "b", port=0, web=None, torch_probe=False,
+                                      no_token=True))
+    try:
+        banner = _banner(server, {})
+        doc = _decode_pair(re.search(r"Pair\s+(\S+)", banner).group(1))
+        assert doc == {"url": server.url, "token": ""}                # nothing secret to carry
+        assert "not required" in banner
+    finally:
+        server.close()
+
+
+def test_startup_errors_reach_the_log_file(tmp_path, capsys):
+    log = tmp_path / "runner.log"
+    parser = argparse.ArgumentParser()
+    add_arguments(parser)
+    assert run(parser.parse_args(["--port", "70000", "--home", str(tmp_path / "h"),
+                                  "--log", str(log)])) == 2
+    assert "not a port number" in capsys.readouterr().err
+    assert "not a port number" in log.read_text(encoding="utf-8")

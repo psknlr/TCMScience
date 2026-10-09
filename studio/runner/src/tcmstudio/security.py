@@ -15,17 +15,31 @@ Three checks keep it the user's own:
   in ``X-TCM-Token`` (or ``?token=`` on a GET, for EventSource and file links). It is
   compared in constant time. ``--no-token`` turns it off, and is refused unless the runner
   is bound to a loopback address.
+
+Pairing never puts the token in a URL (docs/V2.md §16). :class:`PairBook` holds the two ways a
+page gets it: a **one-time code** in the link the runner prints or opens
+(``#pair=<base64url({url, code})>``, 128 bits, single use, 10 minutes), which the page trades
+at ``POST /api/pair/claim``; and a **request approved on this computer**: an allowed page asks
+(``POST /api/pair/request``), the user compares a 6-digit code on the runner's own page
+(``/pair``) and allows it, and the page that asked, holding the request's secret, receives the
+token once. Both are rate limited, and at most five requests wait at a time.
 """
 
 from __future__ import annotations
 
+import collections
+import hashlib
 import hmac
 import ipaddress
-from typing import Iterable
+import secrets
+import threading
+import time
+from typing import Any, Callable, Iterable
 from urllib.parse import urlsplit
 
 __all__ = ["PUBLIC_ORIGIN", "SecurityError", "Guard", "is_loopback_host", "normalize_origin",
-           "host_of", "ALLOW_HEADERS", "EXPOSE_HEADERS", "ALLOW_METHODS"]
+           "host_of", "ALLOW_HEADERS", "EXPOSE_HEADERS", "ALLOW_METHODS", "PAIR_TTL_S",
+           "MAX_PENDING_REQUESTS", "RateLimit", "PairBook"]
 
 PUBLIC_ORIGIN = "https://science.impf.ai"
 LOOPBACK_NAMES = frozenset({"localhost", "localhost.", "127.0.0.1", "::1"})
@@ -33,7 +47,8 @@ WILDCARD_BINDS = frozenset({"", "0.0.0.0", "::"})
 ALLOW_METHODS = "GET, HEAD, POST, PUT, DELETE, OPTIONS"
 # What a page may send: the runner's own headers, and those the model proxy forwards.
 ALLOW_HEADERS = ", ".join((
-    "content-type", "accept", "x-tcm-token", "x-tcm-target", "x-filename", "x-project-id",
+    "content-type", "accept", "x-tcm-token", "x-tcm-pair-secret", "x-tcm-target", "x-filename",
+    "x-project-id",
     "authorization", "x-api-key", "api-key", "anthropic-version", "anthropic-beta",
     "anthropic-dangerous-direct-browser-access", "http-referer", "x-title",
     "openai-organization", "openai-project", "last-event-id", "cache-control"))
@@ -187,3 +202,164 @@ class Guard:
         if private_network:
             headers.append(("Access-Control-Allow-Private-Network", "true"))
         return 204, headers
+
+
+# ================================================================================ pairing
+
+#: A one-time code and a pairing request live ten minutes.
+PAIR_TTL_S = 600
+#: Requests waiting for the user's answer at once: a page cannot flood the user with approvals.
+MAX_PENDING_REQUESTS = 5
+#: Codes outstanding at once (each printed or opened link has its own).
+MAX_CODES = 32
+
+
+class RateLimit:
+    """At most ``limit`` events in any ``window_s`` seconds (a sliding window, thread-safe)."""
+
+    def __init__(self, limit: int, window_s: float, clock: Callable[[], float] = time.monotonic) -> None:
+        self.limit = limit
+        self.window_s = window_s
+        self._clock = clock
+        self._events: collections.deque[float] = collections.deque()
+        self._lock = threading.Lock()
+
+    def _trim(self, now: float) -> None:
+        while self._events and self._events[0] <= now - self.window_s:
+            self._events.popleft()
+
+    def allow(self) -> bool:
+        """Record one event if it is within the limit; False (nothing recorded) when it is not."""
+        with self._lock:
+            now = self._clock()
+            self._trim(now)
+            if len(self._events) >= self.limit:
+                return False
+            self._events.append(now)
+            return True
+
+    def exhausted(self) -> bool:
+        with self._lock:
+            self._trim(self._clock())
+            return len(self._events) >= self.limit
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+class PairBook:
+    """One-time pairing codes and page-initiated pairing requests, in memory (a restart forgets
+    them: an old link or request is then simply invalid).
+
+    A request goes ``pending`` → ``approved`` (on the runner's page) → ``delivered`` (the token
+    was handed to the page that asked, once), or ``pending`` → ``denied`` | ``expired``. Every
+    lookup compares secrets in constant time; codes are kept only as their SHA-256."""
+
+    def __init__(self, *, ttl_s: float = PAIR_TTL_S, max_pending: int = MAX_PENDING_REQUESTS,
+                 max_codes: int = MAX_CODES, clock: Callable[[], float] = time.monotonic) -> None:
+        self.ttl_s = ttl_s
+        self.max_pending = max_pending
+        self.max_codes = max_codes
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._codes: dict[str, float] = {}                    # sha256(code) -> expiry
+        self._requests: dict[str, dict[str, Any]] = {}
+        # Guessing is hopeless (128-bit codes, 96-bit ids with 192-bit secrets), and these keep it so.
+        self.failed_claims = RateLimit(10, 60, clock)
+        self.opened = RateLimit(20, ttl_s, clock)
+        self.failed_answers = RateLimit(10, 60, clock)
+        self.failed_polls = RateLimit(30, 60, clock)
+
+    # ------------------------------------------------------------------- codes
+    def new_code(self) -> str:
+        """A fresh single-use code (22 URL-safe characters, 128 bits)."""
+        code = secrets.token_urlsafe(16)
+        with self._lock:
+            now = self._clock()
+            for key, expires in list(self._codes.items()):
+                if expires <= now:
+                    del self._codes[key]
+            while len(self._codes) >= self.max_codes:        # the oldest link stops working first
+                del self._codes[min(self._codes, key=self._codes.__getitem__)]
+            self._codes[_digest(code)] = now + self.ttl_s
+        return code
+
+    def claim(self, code: Any) -> bool:
+        """True once for a code that was issued and has not expired; it is spent either way."""
+        if not isinstance(code, str) or not 16 <= len(code) <= 64:
+            return False
+        with self._lock:
+            expires = self._codes.pop(_digest(code), None)
+            return expires is not None and expires > self._clock()
+
+    # ---------------------------------------------------------------- requests
+    def _sweep(self, now: float) -> None:
+        for rid, r in list(self._requests.items()):
+            if r["state"] == "pending" and r["expires"] <= now:
+                r["state"] = "expired"
+            if r["expires"] + 60 <= now:                       # the page has had its answer
+                del self._requests[rid]
+
+    def pending(self) -> int:
+        with self._lock:
+            self._sweep(self._clock())
+            return sum(r["state"] == "pending" for r in self._requests.values())
+
+    def open_request(self, origin: str) -> dict[str, Any] | None:
+        """A new request from ``origin`` (a copy, secrets included), or None when
+        ``max_pending`` requests already wait for an answer."""
+        with self._lock:
+            now = self._clock()
+            self._sweep(now)
+            if sum(r["state"] == "pending" for r in self._requests.values()) >= self.max_pending:
+                return None
+            r = {"id": secrets.token_urlsafe(12), "secret": secrets.token_urlsafe(24),
+                 "nonce": secrets.token_urlsafe(24), "code": f"{secrets.randbelow(10 ** 6):06d}",
+                 "origin": origin, "state": "pending", "created": now, "expires": now + self.ttl_s}
+            self._requests[r["id"]] = r
+            return dict(r)
+
+    def request(self, rid: Any) -> dict[str, Any] | None:
+        """A copy of the request ``rid`` (its state brought up to date), or None."""
+        if not isinstance(rid, str) or not rid:
+            return None
+        with self._lock:
+            now = self._clock()
+            self._sweep(now)
+            r = self._requests.get(rid)
+            return {**r, "expires_in": max(0, int(r["expires"] - now))} if r else None
+
+    def answer(self, rid: Any, nonce: Any, allow: bool) -> str | None:
+        """The user's answer on the runner's page. Returns the new state, or None when there is
+        no pending request with that id and nonce (expired, answered, or not that page's)."""
+        if not isinstance(rid, str) or not isinstance(nonce, str):
+            return None
+        with self._lock:
+            self._sweep(self._clock())
+            r = self._requests.get(rid)
+            if r is None or r["state"] != "pending" or not hmac.compare_digest(
+                    nonce.encode("utf-8"), r["nonce"].encode("utf-8")):
+                return None
+            r["state"] = "approved" if allow else "denied"
+            return r["state"]
+
+    def poll(self, rid: Any, origin: str | None, secret: Any) -> dict[str, Any] | None:
+        """What the page that asked sees: ``{state, expires_in}``; ``deliver: True`` exactly once,
+        when the request was approved (the caller then hands out the token). None when the id,
+        the origin or the secret does not match: the poller learns nothing about other requests."""
+        if not isinstance(rid, str) or not isinstance(secret, str) or not origin:
+            return None
+        with self._lock:
+            now = self._clock()
+            self._sweep(now)
+            r = self._requests.get(rid)
+            if r is None or r["origin"] != origin.strip() or not hmac.compare_digest(
+                    secret.encode("utf-8"), r["secret"].encode("utf-8")):
+                return None
+            out: dict[str, Any] = {"state": r["state"],
+                                   "expires_in": max(0, int(r["expires"] - now))}
+            if r["state"] == "approved":
+                r["state"] = "delivered"
+                out["deliver"] = True
+            return out

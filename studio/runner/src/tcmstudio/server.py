@@ -3,7 +3,7 @@
     tcmstudio serve [--host 127.0.0.1] [--port 8765] [--home ~/.tcmscience/studio] [--web DIR]
                     [--allow-origin URL]... [--allow-host HOST]... [--no-token] [--no-browser]
                     [--device auto|cpu|cuda:0|mps] [--threads N] [--max-jobs N] [--network]
-                    [--quiet]
+                    [--quiet] [--log FILE] [--show-token]
 
 A standard-library HTTP server (``ThreadingHTTPServer``) with the JSON API of CONTRACTS §4:
 tool calls through ``tcmstudio.dispatch`` (in a worker pool: governed runs are CPU-bound),
@@ -12,6 +12,13 @@ proxy, and the web app itself, so ``http://127.0.0.1:8765/`` works offline.
 
 Who may call it is decided in ``tcmstudio.security`` (Host check, Origin allowlist, pairing
 token). Request bodies are never logged: a proxied model call carries the user's key.
+
+Pairing (docs/V2.md §16): the banner prints, and the runner opens, a link with a one-time code
+(``#pair=<base64url({url, code})>``), never the token; the page trades the code at
+``POST /api/pair/claim``. A runner already running in the background is paired from the page:
+``POST /api/pair/request`` → the user allows it on the runner's own page ``/pair`` → the page,
+polling ``GET /api/pair/request/<id>`` with ``X-TCM-Pair-Secret``, receives the token once.
+``POST /api/pair/link`` (token required) makes a fresh link for the install scripts.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ import argparse
 import base64
 import contextlib
 import gzip
+import html
 import itertools
 import json
 import os
@@ -41,12 +49,14 @@ from . import __version__
 from . import devices as dev
 from .jobs import JobError, JobService, JobsHook, Uploads, iter_events, media_type
 from .llmproxy import LOCAL_SERVERS, LLMProxy, ProxyRefused, probe_local
-from .security import PUBLIC_ORIGIN, Guard, SecurityError, is_loopback_host, normalize_origin
-from .settings import (DEFAULT_HOME, HomeInUse, HomeLock, RunnerState, SettingsError,
-                       apply_environment, data_environment, prepare_home)
+from .security import (PAIR_TTL_S, PUBLIC_ORIGIN, Guard, PairBook, SecurityError, host_of,
+                       is_loopback_host, normalize_origin)
+from .settings import (DEFAULT_HOME, ENGINE_EXTRAS, HomeInUse, HomeLock, RunnerState,
+                       SettingsError, apply_environment, data_environment, extras_for,
+                       install_record, prepare_home, reinstall_command)
 
 __all__ = ["ServerConfig", "RunnerServer", "Handler", "add_arguments", "run", "make_server",
-           "pairing_link", "default_web_root"]
+           "pairing_link", "fresh_pairing_link", "default_web_root"]
 
 JSON_TYPE = "application/json; charset=utf-8"
 MAX_JSON = 8 * 2**20
@@ -89,10 +99,38 @@ def default_web_root() -> Path | None:
     return None
 
 
-def pairing_link(url: str, token: str | None, origin: str = PUBLIC_ORIGIN) -> str:
-    payload = json.dumps({"url": url, "token": token or ""}, separators=(",", ":"))
-    code = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
-    return f"{origin}/#pair={code}"
+def pairing_link(url: str, token: str | None = None, origin: str = PUBLIC_ORIGIN, *,
+                 code: str | None = None) -> str:
+    """``<origin>/#pair=<base64url(JSON)>``: ``{url, code}`` with a one-time code (§16), else the
+    v1 ``{url, token}``, kept for a runner without a token (nothing secret to carry) and for
+    pages that still hold such a link."""
+    doc = {"url": url, "code": code} if code else {"url": url, "token": token or ""}
+    payload = json.dumps(doc, separators=(",", ":"))
+    encoded = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"{origin}/#pair={encoded}"
+
+
+def fresh_pairing_link(url: str, home: str | os.PathLike[str] | None = None, *,
+                       local: bool = False, timeout: float = 10.0) -> str:
+    """A new one-time pairing link from the runner at ``url``, asked with the token in
+    ``<home>/runner.json`` (``POST /api/pair/link``). The install scripts start the runner in
+    the background and open this link; ``local`` gives the link to the app the runner serves.
+    Raises OSError or ValueError when the runner cannot be asked."""
+    import urllib.request
+
+    path = Path(home if home is not None else DEFAULT_HOME).expanduser() / "runner.json"
+    token = json.loads(path.read_text(encoding="utf-8")).get("token") or ""
+    req = urllib.request.Request(url.rstrip("/") + "/api/pair/link", data=b"{}", method="POST",
+                                 headers={"Content-Type": "application/json",
+                                          "X-TCM-Token": str(token)})
+    # loopback: never through a proxy the environment names
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(req, timeout=timeout) as res:                  # noqa: S310 (loopback)
+        doc = json.loads(res.read().decode("utf-8"))
+    link = doc.get("local_link" if local else "link")
+    if not isinstance(link, str) or "#pair=" not in link:
+        raise ValueError(f"the runner at {url} returned no pairing link")
+    return link
 
 
 @dataclass
@@ -109,6 +147,8 @@ class ServerConfig:
     max_jobs: int | None = None
     network: bool = False
     quiet: bool = False
+    log_file: Path | None = None                           # --log: banner and request log
+    show_token: bool = False
     open_browser: bool = False
     kinds: Mapping[str, Any] | None = None                 # tests add their own kinds
     poll_s: float = 1.0
@@ -137,6 +177,11 @@ class RunnerServer(ThreadingHTTPServer):
             raise
 
     def _setup(self, config: ServerConfig) -> None:
+        self._log_fh: Any = None
+        if config.log_file:
+            path = Path(config.log_file).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_fh = open(path, "a", encoding="utf-8", buffering=1)     # noqa: SIM115
         self.state = RunnerState(self.home)
         overrides: dict[str, Any] = {}
         if config.device:
@@ -152,6 +197,8 @@ class RunnerServer(ThreadingHTTPServer):
         token = Guard.resolve_token(config.host, self.state.token, config.no_token)
         self.guard = Guard(bind_host=config.host, token=token, allow_origins=config.allow_origins)
         self.proxy = LLMProxy(config.allow_hosts)
+        self.pairs = PairBook()
+        self.install = install_record(self.home)
         self.environ = dict(os.environ if config.environ is None else config.environ)
         self.data_env = data_environment(self.home, self.environ)
         self.probe = dev.DeviceProbe(torch=config.torch_probe)
@@ -198,8 +245,40 @@ class RunnerServer(ThreadingHTTPServer):
         shown = f"[{host}]" if ":" in host else host
         return f"http://{shown}:{self.port}"
 
-    def pairing_link(self) -> str:
-        return pairing_link(self.url, self.guard.token)
+    def pairing_link(self, origin: str = PUBLIC_ORIGIN) -> str:
+        """A link that pairs a page at ``origin`` with this runner: a fresh one-time code when a
+        token is required, the bare address when none is (nothing secret to carry)."""
+        if self.guard.token is None:
+            return pairing_link(self.url, None, origin)
+        return pairing_link(self.url, origin=origin, code=self.pairs.new_code())
+
+    # ---------------------------------------------------------------- output
+    def say(self, text: str) -> None:
+        """A line for the person running this: standard error (absent under pythonw) and the
+        --log file. Never a request body or the token."""
+        for stream in (sys.stderr, self._log_fh):
+            if stream is None:
+                continue
+            with contextlib.suppress(OSError, ValueError, AttributeError):
+                stream.write(text + "\n")
+                stream.flush()
+
+    def log_line(self, text: str) -> None:
+        """One request-log line, to the --log file or standard error; nothing with --quiet."""
+        if self.config.quiet:
+            return
+        stream = self._log_fh or sys.stderr
+        if stream is None:                     # pythonw: no console, no file
+            return
+        with contextlib.suppress(OSError, ValueError, AttributeError):
+            stream.write(text + "\n")
+            stream.flush()
+
+    def close_log(self) -> None:
+        if self._log_fh is not None:
+            with contextlib.suppress(OSError):
+                self._log_fh.close()
+            self._log_fh = None
 
     def start_background(self) -> None:
         self.jobs.start()
@@ -210,14 +289,30 @@ class RunnerServer(ThreadingHTTPServer):
             self.probe.facts()
             self.catalog()
         except Exception as exc:                                # noqa: BLE001
-            print(f"tcmstudio: warming up failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            self.say(f"tcmstudio: warming up failed: {type(exc).__name__}: {exc}")
 
-    def close(self) -> None:
+    def close(self, *, keep_log: bool = False) -> None:
         self.stopping.set()
         self.jobs.stop()
         self.pool.shutdown(wait=False, cancel_futures=True)
         self.server_close()
         self.home_lock.release()
+        if not keep_log:
+            self.close_log()
+
+    # ---------------------------------------------------------------- engines
+    def engines(self) -> list[dict[str, Any]]:
+        """The engines (devices.engines), with the install command a runner installed by the
+        one-line installer can use: the installer again with --extras (its environment has no
+        pip). Command-line tools keep their package-manager command."""
+        items = dev.engines()
+        if self.install:
+            for item in items:
+                extra = ENGINE_EXTRAS.get(item.get("id", ""))
+                if extra and not item.get("installed"):
+                    item["install"] = reinstall_command(self.install, [extra])
+                    item["install_via"] = "installer"
+        return items
 
     # ------------------------------------------------------------------ catalog
     def catalog(self, refresh: bool = False) -> dict[str, Any]:
@@ -255,7 +350,7 @@ class RunnerServer(ThreadingHTTPServer):
             **({"device_note": note} if note else {}),
             "threads_per_job": settings["threads"], "max_jobs": settings["max_jobs"],
             "allow_remote": settings["allow_remote"],
-            "engines": dev.engines(),
+            "engines": self.engines(),
             "kinds": [{"kind": k["kind"], "available": k["available"], "missing": k["missing"]}
                       for k in self.jobs.kind_list()],
             "jobs": self.jobs.counts()}
@@ -274,12 +369,14 @@ class RunnerServer(ThreadingHTTPServer):
             "cpu": {"cores": facts["cpu"]["cores"], "model": facts["cpu"]["model"],
                     "arch": facts["cpu"].get("arch")},
             "memory_gb": facts["memory_gb"], "devices": facts["devices"],
-            "engines": dev.engines(), "settings": settings, "network": settings["network"],
+            "engines": self.engines(), "settings": settings, "network": settings["network"],
             "purpose": settings["purpose"],
             "counts": {"core": counts.get("core", len(doc.get("core", ()))),
                        "entries": counts.get("entries", len(doc.get("entries", ())))},
             "url": self.url, "token_required": self.guard.token_required,
             "web": self.web_root is not None,
+            "install": ({"method": self.install["method"], "version": self.install["version"],
+                         "options": self.install["options"]} if self.install else None),
             "jobs": {**self.jobs.counts(), "available": self.jobs.unavailable is None,
                      **({"note": self.jobs.unavailable} if self.jobs.unavailable else {})},
             "paths": {"data_lake": self.data_env["BIOAGENT_DATA_LAKE"],
@@ -330,6 +427,8 @@ class RunnerServer(ThreadingHTTPServer):
             err["hint"] = ("This runner's network access is off: turn on 'Runner network' in "
                            "Settings → Compute, or start the runner with --network. "
                            + (err.get("hint") or "")).strip()
+        if isinstance(err, dict) and self.install and "pip install" in str(err.get("hint") or ""):
+            _installer_hint(envelope, err, self.install)
         return envelope
 
     # --------------------------------------------------------------- runtime
@@ -404,6 +503,25 @@ def _restate_refusal(envelope: dict[str, Any], refusal: Any) -> None:
     envelope["text"] = text[:16000]
 
 
+def _installer_hint(envelope: dict[str, Any], err: dict[str, Any], record: Mapping[str, Any]) -> None:
+    """A runner the installer put in place has no pip: a missing optional package is added by
+    running the install command again with the extra that brings it."""
+    import re
+    missing = err.get("missing") or []
+    if not missing:
+        m = re.search(r"needs (.+?), which (?:is|are) not installed", str(err.get("message") or ""))
+        missing = [x.strip() for x in m.group(1).split(",")] if m else []
+    extras = extras_for(missing)
+    old = str(err.get("hint") or "")
+    command = reinstall_command(record, extras)
+    err["hint"] = (f"Run the install command again with the extra it needs: {command}"
+                   if extras else
+                   "Run the install command again with the extra it needs (--extras analysis, "
+                   f"docking, admet, fold or scvi): {reinstall_command(record)}")
+    if old and isinstance(envelope.get("text"), str):
+        envelope["text"] = envelope["text"].replace(old, err["hint"])[:16000]
+
+
 def _confined(base: Path, rel: str) -> Path | None:
     rel = (rel or "").replace("\\", "/").lstrip("/")
     if not rel or any(part in ("..", "") for part in rel.split("/")):
@@ -447,7 +565,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.command in ("GET", "HEAD", "OPTIONS") and status < 400:
             return                     # reads and polls would drown what changed
         if path.startswith("/api/") or status >= 400:
-            sys.stderr.write(f"{time.strftime('%H:%M:%S')} {self.command} {path} {status}\n")
+            # a pairing request's id and secret never reach the log
+            shown = "/api/pair/request/…" if path.startswith("/api/pair/request/") else path
+            self.server.log_line(f"{time.strftime('%H:%M:%S')} {self.command} {shown} {status}")
 
     def log_error(self, format: str, *args: Any) -> None:       # noqa: A002
         return
@@ -629,6 +749,10 @@ class Handler(BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         if path == "/v1" or path.startswith("/v1/"):
             return self._no_relay(method, path)
+        if path == "/pair":
+            return self._pair_page(method)
+        if path.startswith("/api/pair/") and path != "/api/pair/link":
+            return self._pair_api(method, path[len("/api/pair/"):])
         if not path.startswith("/api/"):
             if method not in ("GET", "HEAD"):
                 raise _Refused(405, "method_not_allowed", f"{method} is not allowed here",
@@ -689,6 +813,12 @@ class Handler(BaseHTTPRequestHandler):
         if head == "call" and len(parts) == 1:
             allow("POST")
             return self._call()
+        if head == "pair" and parts[1:] == ["link"]:
+            # a holder of the token asks for a fresh one-time link (the install scripts do)
+            allow("POST")
+            self._body(4096)
+            return self._json({"link": srv.pairing_link(), "local_link": srv.pairing_link(srv.url),
+                               "expires_in": PAIR_TTL_S if srv.guard.token else None})
         if head == "jobs":
             return self._jobs(method, parts[1:])
         if head == "uploads":
@@ -878,6 +1008,132 @@ class Handler(BaseHTTPRequestHandler):
         raise _Refused(404, "not_relay", message, code=NO_RELAY_CODE, port=NO_RELAY_PORT,
                        message_en=NO_RELAY_MESSAGE_EN)
 
+    # ----------------------------------------------------------------- pairing
+    def _pair_api(self, method: str, rest: str) -> None:
+        """What a page calls to pair (no token: these hand it out). Each needs an Origin the
+        runner allows (checked in _route), and the answer goes to that origin only."""
+        srv = self.server
+        book = srv.pairs
+        origin = (self.headers.get("Origin") or "").strip()
+        if not origin:
+            raise _Refused(403, "forbidden_origin",
+                           "pairing is answered only to a web page (the request has no Origin)")
+        if rest == "claim":
+            if method != "POST":
+                raise _Refused(405, "method_not_allowed", "POST only", allow="POST")
+            if book.failed_claims.exhausted():
+                raise _Refused(429, "too_many_attempts",
+                               "too many wrong pairing codes; wait a minute and try again")
+            body = self._json_body_small()
+            code = body.get("code") if isinstance(body, dict) else None
+            if not book.claim(code):
+                book.failed_claims.allow()
+                raise _Refused(410, "code_invalid",
+                               "this pairing link was used already, has expired (10 minutes), or "
+                               "is not from this runner; pair again from the page (Connect "
+                               "local runner)")
+            srv.say(f"  已配对 Paired · {origin} (one-time link)")
+            return self._json({"url": srv.url, "token": srv.guard.token or ""})
+        if rest == "request":
+            if method != "POST":
+                raise _Refused(405, "method_not_allowed", "POST only", allow="POST")
+            self._json_body_small()
+            if book.pending() >= book.max_pending:
+                raise _Refused(429, "too_many_pending",
+                               f"{book.max_pending} pairing requests are already waiting; answer "
+                               "them on the runner's page, or wait until they expire")
+            if not book.opened.allow():
+                raise _Refused(429, "too_many_requests",
+                               "too many pairing requests; wait a few minutes and try again")
+            r = book.open_request(origin)
+            if r is None:
+                raise _Refused(429, "too_many_pending",
+                               f"{book.max_pending} pairing requests are already waiting")
+            approve = f"{srv.url}/pair?r={r['id']}"
+            srv.say(f"  配对请求 Pair request · {origin} · 确认码 code {_code6(r['code'])} · {approve}")
+            return self._json({"request_id": r["id"], "secret": r["secret"], "code6": r["code"],
+                               "approve_url": approve, "expires_in": int(book.ttl_s)}, 201)
+        parts = rest.split("/")
+        if len(parts) == 2 and parts[0] == "request" and parts[1]:
+            if method not in ("GET", "HEAD"):
+                raise _Refused(405, "method_not_allowed", "GET only", allow="GET")
+            if book.failed_polls.exhausted():
+                raise _Refused(429, "too_many_attempts", "too many unknown pairing requests")
+            got = book.poll(parts[1], origin, self.headers.get("X-TCM-Pair-Secret"))
+            if got is None:
+                book.failed_polls.allow()
+                raise _Refused(404, "not_found", "no such pairing request")
+            out: dict[str, Any] = {"state": got["state"], "expires_in": got["expires_in"]}
+            if got.get("deliver"):
+                out.update(state="approved", url=srv.url, token=srv.guard.token or "")
+                srv.say(f"  已配对 Paired · {origin} (allowed on this computer)")
+            return self._json(out)
+        raise _Refused(404, "not_found", f"no endpoint /api/pair/{rest}")
+
+    def _json_body_small(self) -> Any:
+        data = self._body(4096)
+        if not data.strip():
+            return {}
+        try:
+            return json.loads(data.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            raise _Refused(400, "bad_request", "the body is not JSON") from None
+
+    def _pair_page(self, method: str) -> None:
+        """The runner's own approval page: shown only on this computer, never in a frame, never
+        readable by another origin; the form is accepted only from this page (its Origin and its
+        nonce)."""
+        srv = self.server
+        book = srv.pairs
+        host = (self.headers.get("Host") or "").strip()
+        if not is_loopback_host(host_of(host)):
+            return self._page(403, _PAGE_ONLY_HERE)
+        own = f"http://{host}".lower()
+        origin = self.headers.get("Origin")
+        if method in ("GET", "HEAD"):
+            if origin is not None and origin.strip().lower() != own:
+                return self._page(403, _PAGE_FOREIGN)        # a script elsewhere asking for it
+            r = book.request(self._query().get("r", ""))
+            if not r or r["state"] != "pending":
+                return self._page(410, _PAGE_GONE)
+            return self._page(200, _approve_page(r))
+        if method != "POST":
+            raise _Refused(405, "method_not_allowed", "GET or POST", allow="GET, POST")
+        site = (self.headers.get("Sec-Fetch-Site") or "same-origin").strip().lower()
+        if origin is None or origin.strip().lower() != own or site != "same-origin":
+            self._body(4096)
+            return self._page(403, _PAGE_FOREIGN)
+        if book.failed_answers.exhausted():
+            self._body(4096)
+            return self._page(429, _PAGE_GONE)
+        form = {k: v[-1] for k, v in parse_qs(self._body(4096).decode("utf-8", "replace")).items()}
+        decision = form.get("decision")
+        state = book.answer(form.get("r"), form.get("nonce"), decision == "allow") \
+            if decision in ("allow", "deny") else None
+        if state is None:
+            book.failed_answers.allow()
+            return self._page(410, _PAGE_GONE)
+        r = book.request(form.get("r")) or {}
+        srv.say(f"  配对请求 Pair request · {r.get('origin', '?')} · "
+                + ("已允许 allowed" if state == "approved" else "已拒绝 denied"))
+        return self._page(200, _PAGE_ALLOWED if state == "approved" else _PAGE_DENIED)
+
+    def _page(self, status: int, body: str) -> None:
+        """An HTML page of the pairing flow. Sent without CORS headers (no other origin may read
+        it), not cacheable, not frameable, with nothing it could load from elsewhere."""
+        data = body.encode("utf-8")
+        self.send_response(status)
+        for k, v in (("Content-Type", "text/html; charset=utf-8"), ("Content-Length", str(len(data))),
+                     ("Cache-Control", "no-store"), ("X-Content-Type-Options", "nosniff"),
+                     *PAIR_PAGE_HEADERS):
+            self.send_header(k, v)
+        if not self._body_consumed:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(data)
+
     # ------------------------------------------------------------------ static
     def _static(self, path: str) -> None:
         srv = self.server
@@ -934,6 +1190,104 @@ class Handler(BaseHTTPRequestHandler):
                 shutil.copyfileobj(fh, self.wfile, 1 << 20)
 
 
+# ============================================================================= pairing pages
+
+#: The approval page's headers. ``Referrer-Policy`` must not be ``no-referrer``: Chromium then
+#: sends ``Origin: null`` with the form, and the same-origin check would refuse the user's answer.
+PAIR_PAGE_HEADERS = (
+    ("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+                                "frame-ancestors 'none'; base-uri 'none'"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "same-origin"),
+    ("Cross-Origin-Opener-Policy", "same-origin"),
+    ("Cross-Origin-Resource-Policy", "same-origin"),
+)
+
+_PAGE_STYLE = """
+:root{color-scheme:light dark;--bg:#fbfaf7;--ink:#1d1d1b;--muted:#5d5b55;--line:#d9d5cc;--card:#fff;
+--accent:#1f5f4a;--accent-ink:#fff;--warn:#8a3b12}
+@media (prefers-color-scheme:dark){:root{--bg:#161614;--ink:#ecebe6;--muted:#a9a69d;--line:#3a3934;
+--card:#1f1f1c;--accent:#6fc2a2;--accent-ink:#0d1f18;--warn:#f0a070}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font:16px/1.6 system-ui,-apple-system,"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif}
+main{max-width:34rem;margin:0 auto;padding:32px 16px 48px}
+.brand{font-size:.85rem;color:var(--muted);margin:0 0 20px}
+h1{font-size:1.35rem;line-height:1.35;margin:0 0 4px}.en{color:var(--muted);margin:0 0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:0 0 16px}
+.k{font-size:.85rem;color:var(--muted);margin:0}.v{margin:2px 0 0;font:600 1rem ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere}
+.code{font:700 2.2rem/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.12em;margin:6px 0 0}
+p{margin:0 0 12px}.small{font-size:.85rem;color:var(--muted)}
+form{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0 12px}
+button{font:inherit;font-weight:600;min-height:44px;padding:8px 20px;border-radius:10px;cursor:pointer;
+border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button.allow{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.warn{color:var(--warn)}
+"""
+
+
+def _code6(code: str) -> str:
+    return f"{code[:3]} {code[3:]}" if len(code) == 6 else code
+
+
+def _page_doc(title: str, body: str) -> str:
+    return ("<!doctype html><html lang=\"zh-Hans\"><head><meta charset=\"utf-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+            "<meta name=\"referrer\" content=\"same-origin\">"
+            f"<title>{title}</title><style>{_PAGE_STYLE}</style></head><body><main>"
+            "<p class=\"brand\">TCMScience Studio · 本机 Runner <span lang=\"en\">local runner</span></p>"
+            f"{body}</main></body></html>")
+
+
+def _approve_page(r: Mapping[str, Any]) -> str:
+    origin = html.escape(str(r.get("origin") or ""))
+    code = str(r.get("code") or "")
+    spoken = " ".join(code)
+    minutes = max(1, -(-int(r.get("expires_in") or 0) // 60))
+    return _page_doc("允许连接本机 Runner？· Allow this page?", f"""
+<h1>允许这个网页使用本机 Runner？</h1>
+<p class="en" lang="en">Allow this web page to use the runner on this computer?</p>
+<div class="card"><p class="k">请求来源 <span lang="en">Requested by</span></p><p class="v">{origin}</p></div>
+<div class="card"><p class="k">确认码 <span lang="en">Code</span></p>
+<p class="code" aria-label="{spoken}">{html.escape(_code6(code))}</p></div>
+<p>请核对：发起请求的页面上显示的确认码与这里相同。允许后，这个网页可以在这台电脑上运行工具、读写 Runner 的主目录。如果不是你刚刚发起的，请选择拒绝。</p>
+<p class="small" lang="en">Check that the page that asked shows the same code. Once allowed, that page can run tools
+on this computer and read and write the runner's home. If you did not just ask for this, choose Deny.</p>
+<form method="post" action="/pair">
+<input type="hidden" name="r" value="{html.escape(str(r.get('id') or ''))}">
+<input type="hidden" name="nonce" value="{html.escape(str(r.get('nonce') or ''))}">
+<button class="allow" type="submit" name="decision" value="allow" id="allow">允许 <span lang="en">Allow</span></button>
+<button type="submit" name="decision" value="deny" id="deny">拒绝 <span lang="en">Deny</span></button>
+</form>
+<p class="small">{minutes} 分钟内有效 · <span lang="en">valid for {minutes} min</span></p>
+""")
+
+
+_PAGE_ALLOWED = _page_doc("已允许 · Allowed", """
+<h1 id="result" data-state="approved">已允许</h1><p class="en" lang="en">Allowed.</p>
+<p>可以关闭此页，回到 TCMScience Studio；它会自动连接。</p>
+<p class="small" lang="en">You can close this tab and return to TCMScience Studio; it connects by itself.</p>""")
+_PAGE_DENIED = _page_doc("已拒绝 · Denied", """
+<h1 id="result" data-state="denied">已拒绝</h1><p class="en" lang="en">Denied.</p>
+<p>那个网页没有得到 Runner 的使用权限。可以关闭此页。</p>
+<p class="small" lang="en">That page was not given access to the runner. You can close this tab.</p>""")
+_PAGE_GONE = _page_doc("配对请求已失效 · Request gone", """
+<h1 id="result" data-state="gone">这个配对请求已过期或已处理</h1>
+<p class="en" lang="en">This pairing request has expired or was already answered.</p>
+<p>请回到 TCMScience Studio，再点一次「连接本机 Runner」。</p>
+<p class="small" lang="en">Return to TCMScience Studio and press “Connect local runner” again.</p>""")
+_PAGE_ONLY_HERE = _page_doc("只能在本机确认 · This computer only", """
+<h1 id="result" data-state="forbidden" class="warn">只能在运行 Runner 的这台电脑上确认</h1>
+<p class="en" lang="en">Pairing is confirmed only on the computer the runner runs on.</p>
+<p>请在这台电脑的浏览器中用 127.0.0.1 打开确认页。</p>
+<p class="small" lang="en">Open the confirmation page on this computer, at 127.0.0.1.</p>""")
+_PAGE_FOREIGN = _page_doc("已拒绝 · Refused", """
+<h1 id="result" data-state="forbidden" class="warn">只接受来自这个确认页本身的操作</h1>
+<p class="en" lang="en">Only this confirmation page itself can answer a pairing request.</p>
+<p>请直接在确认页上点「允许」或「拒绝」。</p>
+<p class="small" lang="en">Press Allow or Deny on the confirmation page itself.</p>""")
+
+
 # ============================================================================= the command
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
@@ -966,7 +1320,13 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--network", action="store_true",
                         help="turn on the runner's network access (saved; connectors, "
                              "downloads); each project still needs its own web access")
-    parser.add_argument("--quiet", action="store_true", help="log nothing per request")
+    parser.add_argument("--quiet", action="store_true",
+                        help="log nothing per request (use it under pythonw, which has no console)")
+    parser.add_argument("--log", default=None, metavar="FILE",
+                        help="append the banner, pairing events and the request log to FILE")
+    parser.add_argument("--show-token", action="store_true",
+                        help="print the pairing token in the banner (for pairing by hand, e.g. a "
+                             "runner on another machine); links never carry it")
 
 
 def _config_from_args(args: argparse.Namespace) -> ServerConfig:
@@ -982,6 +1342,8 @@ def _config_from_args(args: argparse.Namespace) -> ServerConfig:
                         allow_hosts=list(args.allow_host), no_token=args.no_token,
                         device=args.device, threads=args.threads, max_jobs=args.max_jobs,
                         network=args.network, quiet=args.quiet,
+                        log_file=Path(args.log).expanduser() if getattr(args, "log", None) else None,
+                        show_token=bool(getattr(args, "show_token", False)),
                         open_browser=not args.no_browser)
 
 
@@ -1008,24 +1370,32 @@ def _banner(server: RunnerServer, env_set: Mapping[str, str]) -> str:
     gpus = [d for d in facts["devices"] if d["id"] != "cpu"]
     resolved, _ = dev.resolve(settings["device"], facts["devices"])
     cpu = facts["cpu"]
+    token = server.guard.token
     lines = [
         f"TCMScience Studio 本机 Runner / local runner  tcmstudio {v['tcmstudio']} · "
         f"bioagent {v['bioagent']} · psh {v['psh']} · Python {v['python']}",
         "",
         f"  配对链接 Pair      {server.pairing_link()}",
-        f"  本机地址 Local     {server.url}/" + ("" if server.web_root else
-                                               "   (API only: no web app found)"),
     ]
+    if token:
+        lines.append(f"                     一次性：{PAIR_TTL_S // 60} 分钟内有效，只能用一次 · one use, "
+                     f"valid {PAIR_TTL_S // 60} minutes; later, pair from the page (连接本机 Runner)")
+    lines.append(f"  本机地址 Local     {server.url}/" + ("" if server.web_root else
+                                                     "   (API only: no web app found)"))
     if server.web_root is not None:
         # the app served here connects itself when opened through this link (any port, token or not)
-        lines.append(f"  本机页面 Local app {pairing_link(server.url, server.guard.token, server.url)}")
-    if server.guard.token:
-        lines.append(f"  配对令牌 Token     {server.guard.token}")
+        lines.append(f"  本机页面 Local app {server.pairing_link(server.url)}")
+    if token and server.config.show_token:
+        lines.append(f"  配对令牌 Token     {token}")
         lines.append("                     只在你自己的浏览器中使用 · keep it to your own browser")
+    elif token:
+        lines.append(f"  配对令牌 Token     不显示；保存在 {server.state.path} · not shown "
+                     "(--show-token prints it)")
     else:
         lines.append("  配对令牌 Token     不需要 / not required (--no-token, this machine only)")
     if server.config.host in ("0.0.0.0", "::") and (lan := _lan_address()):
-        lines.append(f"  局域网 LAN        http://{lan}:{server.port}/  (pair by address and token)")
+        lines.append(f"  局域网 LAN        http://{lan}:{server.port}/  (pair by address and token; "
+                     "--show-token prints it)")
     lines += [
         f"  主目录 Home       {server.home}",
         f"  设备 Device       {settings['device']} → {resolved} · CPU {cpu.get('cores')} 核 cores"
@@ -1047,6 +1417,10 @@ def _banner(server: RunnerServer, env_set: Mapping[str, str]) -> str:
         lines.append(f"  数据 Data         {env_set.get('BIOAGENT_DATA_LAKE')}")
     for note in server.state.notes:
         lines.append(f"  注意 Note         {note}")
+    if server.install:
+        lines.append(f"  安装 Installed    {server.install['method']} {server.install['version']} "
+                     "· 更新或增加引擎：再次运行安装命令 · update or add engines: run the install "
+                     "command again")
     lines += ["",
               "  在浏览器打开配对链接即可连接。Open the pairing link to connect Studio to this runner.",
               "  Ctrl+C 停止 stop · 运行中的任务会继续，下次启动时重新接管 · running jobs keep "
@@ -1054,33 +1428,47 @@ def _banner(server: RunnerServer, env_set: Mapping[str, str]) -> str:
     return "\n".join(lines)
 
 
+def _startup_error(config: ServerConfig | None, message: str) -> None:
+    """A reason the runner did not start: on standard error, and in the --log file (a runner
+    started at login has no terminal; its log is where the user looks)."""
+    print(message, file=sys.stderr)
+    if config is not None and config.log_file:
+        with contextlib.suppress(OSError):
+            path = Path(config.log_file).expanduser()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+
+
 def run(args: argparse.Namespace) -> int:
+    config: ServerConfig | None = None
     try:
         config = _config_from_args(args)
         if not 0 <= config.port < 65536:          # 0: the system picks a free port
             raise SecurityError(f"--port {config.port} is not a port number")
     except SecurityError as exc:
-        print(f"tcmstudio serve: {exc}", file=sys.stderr)
+        _startup_error(config, f"tcmstudio serve: {exc}")
         return 2
     prepare_home(config.home)
     env_set = apply_environment(config.home)
     try:
         server = make_server(config)
     except ValueError as exc:            # SecurityError, SettingsError, a bad --allow-host
-        print(f"tcmstudio serve: {exc}", file=sys.stderr)
+        _startup_error(config, f"tcmstudio serve: {exc}")
         return 2
     except HomeInUse as exc:
-        print(f"tcmstudio serve: {exc}", file=sys.stderr)
+        _startup_error(config, f"tcmstudio serve: {exc}")
         return 1
     except OSError as exc:
-        print(f"tcmstudio serve: cannot listen on {config.host}:{config.port} ({exc.strerror or exc}). "
-              "Is another runner already running? Use --port to pick another port.", file=sys.stderr)
+        _startup_error(config, f"tcmstudio serve: cannot listen on {config.host}:{config.port} "
+                               f"({exc.strerror or exc}). Is another runner already running? Use "
+                               "--port to pick another port.")
         return 1
     server.start_background()
-    print(_banner(server, env_set), file=sys.stderr, flush=True)
+    server.say(_banner(server, env_set))
     if not is_loopback_host(config.host) and config.host not in ("0.0.0.0", "::"):
-        print("  注意 Note: the pairing link works only for a loopback runner; pair this one "
-              "by its address and token.", file=sys.stderr)
+        server.say("  注意 Note: the pairing link works only for a loopback runner; pair this one "
+                   "by its address and token (--show-token).")
     if config.open_browser:
         threading.Timer(0.5, lambda: _open(server.pairing_link())).start()
 
@@ -1098,13 +1486,13 @@ def run(args: argparse.Namespace) -> int:
         pass
     finally:
         running = server.jobs.counts().get("running", 0)
-        server.close()
+        server.close(keep_log=True)
         for sig, handler in previous.items():
             with contextlib.suppress(ValueError, OSError):
                 signal.signal(sig, handler)
-        print("\ntcmstudio: stopped" + (f"; {running} job(s) keep running and will be "
-                                         "re-attached at the next start" if running else ""),
-              file=sys.stderr)
+        server.say("\ntcmstudio: stopped" + (f"; {running} job(s) keep running and will be "
+                                              "re-attached at the next start" if running else ""))
+        server.close_log()
     return 0
 
 
