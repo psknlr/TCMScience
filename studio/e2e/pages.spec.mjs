@@ -87,12 +87,20 @@ test("first run, settings with a custom model, catalog and about", async ({ page
   for (const tab of ["compute", "general", "shortcuts"]) {
     await page.goto(`${site.url}/#/settings/${tab}`);
     await expect(page.locator(`[aria-current="page"], .is-on, [aria-selected="true"]`).filter({ hasText: { compute: "计算", general: "通用", shortcuts: "快捷键" }[tab] }).first()).toBeVisible();
+    if (tab === "compute") {
+      await page.getByLabel("浏览器加速", { exact: true }).selectOption("cpu");
+      await page.reload();
+      await expect(page.getByLabel("浏览器加速", { exact: true })).toHaveValue("cpu");
+      expect(await page.evaluate(() => globalThis.__studio.state.settings.browserAcceleration)).toBe("cpu");
+    }
   }
-  await expect(page.locator("#app")).toContainText("Ctrl+K");
+  await expect(page.locator("#app")).toContainText(/Ctrl\+K|⌘K/);
 
   // the catalog: categories with counts, search, an entry's page
   await page.goto(`${site.url}/#/catalog`);
-  await expect(page.locator("#app")).toContainText("642");
+  const entries = await page.evaluate(() => globalThis.__studio.catalog.entries.length);
+  expect(entries).toBeGreaterThan(642);
+  await expect(page.locator(".catalog__lede")).toContainText(String(entries));
   await expect(page.locator("#app")).toContainText("安全与配伍");
   const search = page.getByRole("searchbox").or(page.locator("input[type=search]")).first();
   await search.fill("reverse complement");

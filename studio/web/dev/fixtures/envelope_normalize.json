@@ -190,7 +190,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "a5de563ed8d6a76dfcc023b7c8f7d4f0fd78b6126ab33e008328d6615b8297b6",
+     "skill_content_hash": "4bdb9f7bf49b55f4e8ae4e4ccfffe313a705d7cd7b3dc880ea3b0b386eef66c6",
      "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "441e6a90a42b1f0f3d92eb818e391c31c5665e93a4d0d0124377feb57aed1987",
      "pre_attestation_digest": "6d4f429d6ff411f1c14415816260f648e1fd6ae94f5e142dbcbda73399297cce",
@@ -436,7 +436,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "a5de563ed8d6a76dfcc023b7c8f7d4f0fd78b6126ab33e008328d6615b8297b6",
+     "skill_content_hash": "4bdb9f7bf49b55f4e8ae4e4ccfffe313a705d7cd7b3dc880ea3b0b386eef66c6",
      "pinned_by": "/home/user/TCMScience/.worktrees/studio/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "441e6a90a42b1f0f3d92eb818e391c31c5665e93a4d0d0124377feb57aed1987",
      "pre_attestation_digest": "6d4f429d6ff411f1c14415816260f648e1fd6ae94f5e142dbcbda73399297cce",
@@ -666,7 +666,7 @@
    "psh": "0.6.0"
   },
   "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=normalize-tcm-entities@1.0.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
-  "content_hash": "a5de563ed8d6a76dfcc023b7c8f7d4f0fd78b6126ab33e008328d6615b8297b6",
+  "content_hash": "4bdb9f7bf49b55f4e8ae4e4ccfffe313a705d7cd7b3dc880ea3b0b386eef66c6",
   "audit_head": "c4cd9a2ee5e873cb5cc6e823d7ade00e55bbc03c3e286bbe193aea92ad260196",
   "input_sha256": "ee5bf7826c221eb83d4770efc971a2eae0b50c6aca8947fddda1935d21cfd755",
   "output_sha256": "61db0a1956edf6262d09867c069e48ae9e4741d20bd0b50a8165c85f818e7f3e",

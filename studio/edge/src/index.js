@@ -2,11 +2,13 @@
 //   The app's files: Workers Static Assets (binding ASSETS, directory ../_site). Cloudflare serves them without
 //     running this Worker (free and not counted), with the headers in _headers. A path that matches no file comes
 //     here: a browser navigating to one of the app's routes gets index.html, anything else 404.
-//   /v1/*: the Tao-S1 relay (relay.js). The Worker runs first only here (run_worker_first in wrangler.toml).
+//   /v1/*: the Tao-S1 relay (relay.js). /api/sources/*: registered read-only database transport (sources.js).
+//   The Worker runs first on both API namespaces (run_worker_first in wrangler.toml).
 //   Limiter: the counters behind the relay's limits, one SQLite-backed Durable Object for the whole service.
 import { DurableObject } from "cloudflare:workers";
 import { LimiterCore } from "./limiter.js";
 import { handle } from "./relay.js";
+import { handleSources } from "./sources.js";
 import { redirectHttps, secure } from "./site.js";
 
 export class Limiter extends DurableObject {
@@ -22,6 +24,10 @@ export class Limiter extends DurableObject {
   spend(who, kind, tokens) {
     return this.core.spend(who, kind, tokens);
   }
+
+  sourceSlot(host, rps, prefixes) {
+    return this.core.sourceSlot(host, rps, Date.now(), prefixes);
+  }
 }
 
 /** The relay's dependencies, bound to this Worker's bindings. */
@@ -31,6 +37,7 @@ export function relayDeps(env, ctx) {
     // throws when the object cannot be reached: the relay then refuses the call (fail closed)
     gate: ({ who, kind, limits, reserve }) => limiter().hit(who, kind, limits, reserve),
     spend: (who, kind, tokens) => limiter().spend(who, kind, tokens),
+    pace: (host, rps, prefixes) => limiter().sourceSlot(host, rps, prefixes),
     // the ten-second gate is a cheap, approximate pre-filter in front of the Durable Object, which still counts every
     // call: if the binding itself fails, the call goes on to the object rather than being refused
     burst: async (key) => {
@@ -78,6 +85,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/v1" || url.pathname.startsWith("/v1/")) {
       return secure(await handle(request, env, relayDeps(env, ctx)), env);
+    }
+    if (url.pathname === "/api/sources" || url.pathname.startsWith("/api/sources/")) {
+      return secure(await handleSources(request, env, relayDeps(env, ctx)), env);
     }
     return secure(await missing(request, env, url), env);
   },

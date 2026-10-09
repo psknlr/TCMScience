@@ -371,6 +371,9 @@ class HTTPBackend(Backend):
     """Executes `http`-backed components against public REST/GraphQL endpoints."""
 
     backend = "http"
+    # Installed only by Studio's Pyodide worker. Native Python keeps urllib's guarded
+    # opener; a browser transport must preserve the same response/error interface.
+    browser_opener_factory = None
 
     def __init__(self, *, cache_dir: Path | str | None = None, timeout_s: float = 30.0,
                  max_bytes: int = 64 * 1024 * 1024, max_retries: int = 3,
@@ -409,8 +412,9 @@ class HTTPBackend(Backend):
         meta: dict[str, Any] = {"url": req.full_url, "method": req.method, "host": req.host,
                                 "cached": False, "attempts": 0, "http_status": None}
         allowed = frozenset(h.lower() for h in (allowed_hosts or ()) if h) | {req.host.lower()}
-        opener = urllib.request.build_opener(
-            _GuardedRedirects(allowed, urllib.parse.urlsplit(req.url).scheme))
+        factory = type(self).browser_opener_factory
+        opener = (factory(allowed) if factory else urllib.request.build_opener(
+            _GuardedRedirects(allowed, urllib.parse.urlsplit(req.url).scheme)))
         if self.offline:
             return ExecutionStatus.UNAVAILABLE, None, "backend is offline", meta
 

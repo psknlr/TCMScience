@@ -12,6 +12,7 @@ export class LimiterCore {
     this.sql = sql;
     // CREATE ... IF NOT EXISTS never migrates an existing table: a change of columns needs a new table name.
     this.sql.exec("CREATE TABLE IF NOT EXISTS hits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS source_slots (host TEXT PRIMARY KEY, next_ms INTEGER NOT NULL)");
     this.minute = new Map(); // per-minute counts live in memory: an evicted object forgets at most a minute
     this.currentMinute = -1;
     this.currentDay = null;
@@ -24,6 +25,23 @@ export class LimiterCore {
 
   bump(key, today, by = 1) {
     this.sql.exec("INSERT INTO hits (k, n, day) VALUES (?, MAX(0, ?), ?) ON CONFLICT(k) DO UPDATE SET n = MAX(0, n + ?)", key, by, today, by);
+  }
+
+  /** Reserve a host's next public API slot across every browser. Persisting the slot
+   * prevents a cold Durable Object from bursting immediately after eviction. A full
+   * ten-second queue is refused rather than keeping unbounded requests in memory. */
+  sourceSlot(host, rps, now = Date.now(), prefixes = {}) {
+    const interval = (rate) => Math.ceil(1000 / (Number.isFinite(Number(rate)) && Number(rate) > 0 ? Math.min(20, Number(rate)) : 2));
+    const buckets = { [host]: interval(rps), ...Object.fromEntries(Object.entries(prefixes).map(([path, rate]) => [host + path, interval(rate)])) };
+    let next = now;
+    for (const key of Object.keys(buckets)) {
+      const rows = this.sql.exec("SELECT next_ms FROM source_slots WHERE host = ?", key).toArray();
+      next = Math.max(next, Number(rows[0]?.next_ms) || now);
+    }
+    const delay = next - now;
+    if (delay > 10000) return { ok: false, retry: Math.ceil(delay / 1000) };
+    for (const [key, gap] of Object.entries(buckets)) this.sql.exec("INSERT INTO source_slots (host, next_ms) VALUES (?, ?) ON CONFLICT(host) DO UPDATE SET next_ms = excluded.next_ms", key, next + gap);
+    return { ok: true, delay };
   }
 
   /**

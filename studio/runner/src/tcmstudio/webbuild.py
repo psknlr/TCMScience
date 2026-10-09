@@ -34,6 +34,7 @@ import subprocess
 import sys
 import tarfile
 import threading
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Iterable, Sequence
@@ -121,9 +122,7 @@ def _sources() -> list[_Source]:
         raise BuildError(f"bioagent at {bioagent} carries no skills or registry (neither a "
                          "source checkout nor a wheel with bioagent/_bundled); governed skills "
                          "could not run in the browser.")
-    # Only CapabilityRegistry reads the 0.9 MB catalogue, and nothing in the browser does.
-    bio = _Source(bio.dist, bio.package, bio.extras,
-                  (*bio.skip, "data/unified_capability_catalogue.csv"))
+    # Keep the complete provider catalogue available to browser capability discovery.
     return [bio,
             _Source("psh", _package_dir("psh")),
             # A wheel of tcmstudio may carry the web app as package data; it is not Python.
@@ -295,11 +294,80 @@ def boot_document(bundle: Bundle, catalog: bytes, *,
         "catalog_sha256": hashlib.sha256(catalog).hexdigest(),
         "state_root": STATE_ROOT,
         "versions": dict(bundle.versions),
+        "source_gateway": {"path": "runtime/source-gateway.json", "request_path": "/api/sources/request"},
+        "data_assets": data_assets()[1],
     }
 
 
 def _json_bytes(doc: Any) -> bytes:
     return (json.dumps(doc, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def source_gateway_document() -> dict[str, Any]:
+    """Generate the gateway's fixed request templates from the same connector registry."""
+    from bioagent.backends.http import _default_rates
+    from bioagent.providers.public_apis import SOURCES
+    rates = _default_rates()
+    sources = []
+    for source in SOURCES:
+        if not source.base_url.startswith(("https://", "http://")):
+            continue
+        operations = []
+        for op in source.operations:
+            item = {"name": op.name, "path": op.path, "method": op.method,
+                    "params": dict(op.params), "accept": op.accept}
+            for name in ("graphql", "variables", "json_body", "form"):
+                value = getattr(op, name)
+                if value is not None and value != {}:
+                    item[name] = value
+            operations.append(item)
+        sources.append({"key": source.key, "name": source.name,
+                        "base_url": source.base_url, "host": source.host,
+                        "transport": "https" if source.base_url.startswith("https://") else "http",
+                        "rate_rps": rates.get(source.host, 2.0),
+                        "rate_paths": {key[len(source.host):]: value for key, value in rates.items()
+                                       if key.startswith(source.host + "/")},
+                        "operations": operations})
+    return {"version": 1, "sources": sources}
+
+
+_DATA_LOCK = threading.Lock()
+_DATA_CACHE: tuple[str, dict[str, tuple[bytes, str]], list[dict[str, Any]]] | None = None
+
+
+def data_assets() -> tuple[dict[str, tuple[bytes, str]], list[dict[str, Any]]]:
+    """An indexed complete workbook, loaded on demand; every deployable file is <25 MiB."""
+    from .repository_data import FORMULA_MOUNT, build_formula_store, workbook_path
+    global _DATA_CACHE
+    workbook = workbook_path()
+    if workbook is None:
+        return {}, []
+    key = f"{workbook}:{workbook.stat().st_mtime_ns}:{workbook.stat().st_size}"
+    with _DATA_LOCK:
+        if _DATA_CACHE is not None and _DATA_CACHE[0] == key:
+            return _DATA_CACHE[1], _DATA_CACHE[2]
+        with tempfile.TemporaryDirectory(prefix="tcmstudio-web-data-") as folder:
+            database = Path(folder) / "repository-formulas.sqlite"
+            metadata = build_formula_store(workbook, database)
+            packed = _tar_gz({database.name: database.read_bytes()})
+        digest = hashlib.sha256(packed).hexdigest()
+        source = workbook.read_bytes()
+        source_digest = hashlib.sha256(source).hexdigest()
+        name = f"formulas.{digest[:12]}.tar.gz"
+        original = f"formulas-source.{source_digest[:12]}.xlsx"
+        for label, content in ((name, packed), (original, source)):
+            if len(content) > 25 * 1024 * 1024:
+                raise BuildError(f"{label} exceeds the Cloudflare Pages 25 MiB asset limit")
+        files = {name: (packed, "application/gzip"), original: (source,
+                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        manifest = [{"key": "repository_formulas", "path": f"runtime/{name}",
+                     "sha256": digest, "bytes": len(packed), "format": "gztar",
+                     "extract_dir": str(Path(FORMULA_MOUNT).parent),
+                     "mount_path": FORMULA_MOUNT, **metadata,
+                     "source_path": f"runtime/{original}", "source_bytes": len(source),
+                     "lazy": True, "clinical_validation": "not assessed"}]
+        _DATA_CACHE = key, files, manifest
+        return files, manifest
 
 
 # =================================================================== runtime on demand
@@ -324,6 +392,9 @@ def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str
             _CACHE = {"boot.json": (_json_bytes(boot), "application/json; charset=utf-8"),
                       "catalog.json": (catalog, "application/json; charset=utf-8"),
                       bundle.name: (bundle.data, "application/gzip")}
+            _CACHE["source-gateway.json"] = (_json_bytes(source_gateway_document()),
+                                              "application/json; charset=utf-8")
+            _CACHE.update(data_assets()[0])
             _CACHE_KEY = key
         return dict(_CACHE)
 
@@ -454,6 +525,9 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         (runtime / bundle.name).write_bytes(bundle.data)
         (runtime / "catalog.json").write_bytes(catalog)
         (runtime / "boot.json").write_bytes(_json_bytes(boot))
+        (runtime / "source-gateway.json").write_bytes(_json_bytes(source_gateway_document()))
+        for name, (content, _media) in data_assets()[0].items():
+            (runtime / name).write_bytes(content)
         headers = web.parent / "edge" / "_headers"
         if headers.is_file():
             shutil.copyfile(headers, staging / "_headers")

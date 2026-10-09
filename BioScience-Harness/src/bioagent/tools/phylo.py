@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from ._compute import counts_for
+
 __all__ = ["distance_matrix", "neighbor_joining", "upgma", "parse_newick", "tree_distances"]
 
 _TRANSITIONS = {("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")}
@@ -42,16 +44,21 @@ def distance_matrix(sequences: Mapping[str, str] | Sequence[str], model: str = "
     matrix = [[0.0] * n for _ in range(n)]
     compared = [[0] * n for _ in range(n)]
     saturated = []
+    counts = counts_for("distance_matrix", seqs)
     for i in range(n):
         for j in range(i + 1, n):
             sites = diffs = ts = 0
-            for a, b in zip(seqs[i], seqs[j]):
-                if a in "ACGT" and b in "ACGT":
-                    sites += 1
-                    if a != b:
-                        diffs += 1
-                        if (a, b) in _TRANSITIONS:
-                            ts += 1
+            if counts is not None:
+                at = (i * n + j) * 4
+                sites, diffs, ts = counts[at:at + 3]
+            else:
+                for a, b in zip(seqs[i], seqs[j]):
+                    if a in "ACGT" and b in "ACGT":
+                        sites += 1
+                        if a != b:
+                            diffs += 1
+                            if (a, b) in _TRANSITIONS:
+                                ts += 1
             if sites == 0:
                 raise ValueError(f"{names[i]} and {names[j]} share no comparable sites")
             p = diffs / sites

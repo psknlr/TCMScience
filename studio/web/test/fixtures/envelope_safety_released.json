@@ -370,7 +370,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+     "skill_content_hash": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e",
      "pinned_by": "<repo>/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "58a7fbfa9024de6de7078611ac1bbbb363f63acf7d431fd9b359f0e3f698cabf",
      "pre_attestation_digest": "4e3b275c2b1241164e1c1c9121039dca433c2a51764f0e0dc9c4b08d962f6c87",
@@ -826,7 +826,7 @@
      "digest": "sha256:31fb942bc52e504043c5bb09a3c99497de0168458f0b2d00d770f646d6eefdf3"
     },
     "governed": {
-     "skill_content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+     "skill_content_hash": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e",
      "pinned_by": "<repo>/BioScience-Harness/registry/skills.lock.yaml",
      "arguments_sha256": "58a7fbfa9024de6de7078611ac1bbbb363f63acf7d431fd9b359f0e3f698cabf",
      "pre_attestation_digest": "4e3b275c2b1241164e1c1c9121039dca433c2a51764f0e0dc9c4b08d962f6c87",
@@ -1333,7 +1333,7 @@
    "psh": "0.6.0"
   },
   "composite_version": "runtime=psh-0.6.0+bioagent-0.2.7|skill=assess-tcm-safety@1.0.0|source=198210d114c9e6aac0f5d3ed14df8b8520f2c3260a9e784726daf232481e2c6e|benchmark=unversioned",
-  "content_hash": "e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312",
+  "content_hash": "5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e",
   "audit_head": "43c45a75850f347b67213284fc31ee678ff0152624e8a271df377eee3b1d103d",
   "input_sha256": "098281a34f1e60900a501ed9e3a9711830add4512fe63895b55dbf437c98016f",
   "output_sha256": "0b66f854734f4d057cedb5d32ad0da80652b548fda222268a752ba9231eb4bb5",

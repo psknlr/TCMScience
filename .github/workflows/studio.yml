@@ -19,6 +19,7 @@ on:
       - "BioScience-Harness/registry/**"
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
+      - "中医方剂数据表.xlsx"
   pull_request:
     paths: # the same list
       - "studio/**"
@@ -30,6 +31,7 @@ on:
       - "BioScience-Harness/registry/**"
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
+      - "中医方剂数据表.xlsx"
   workflow_dispatch:
 
 permissions:
@@ -174,6 +176,12 @@ jobs:
           else
             echo "relay_off=0" >> "$GITHUB_OUTPUT"
           fi
+          if grep -Eiq "^[[:space:]]*SOURCES[[:space:]]*=[[:space:]]*${q}(off|0|false|no)[[:space:]]*${q}(#.*)?\$" studio/edge/wrangler.toml; then
+            echo "::notice::SOURCES is off in studio/edge/wrangler.toml: the source gateway is paused"
+            echo "sources_off=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "sources_off=0" >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy the Worker with the app, then give it its secrets
         if: steps.secrets.outputs.ready == '1'
         working-directory: studio/edge
@@ -206,19 +214,22 @@ jobs:
           if [ -n "$salt" ]; then
             printf '%s' "$salt" | npx --yes "$WRANGLER" secret put VISITOR_SALT
           fi
-      - name: Check the site, its headers, and one tiny Tao-S1 call
+      - name: Check the site, source gateway, and one tiny Tao-S1 call
         if: steps.secrets.outputs.ready == '1'
         env:
           MODEL: ${{ steps.secrets.outputs.model }}
           RELAY_OFF: ${{ steps.secrets.outputs.relay_off }}
+          SOURCES_OFF: ${{ steps.secrets.outputs.sources_off }}
           # used only if the Tao-S1 call fails: the check then asks the upstream directly and prints what it says
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
         # a new custom domain and its certificate can take minutes on the first deployment, and a key put a moment
         # ago takes a little while to reach the edge (check.mjs waits for both); Tao-S1 is required to answer only
         # when its key was put and it is not paused (RELAY = "off": health ok:false is then expected)
         run: |
+          source_check_args=()
+          if [ "$SOURCES_OFF" != "1" ]; then source_check_args+=(--require-sources); fi
           if [ "$MODEL" = "1" ] && [ "$RELAY_OFF" != "1" ]; then
-            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model
+            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model "${source_check_args[@]}"
           else
-            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600
+            node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 "${source_check_args[@]}"
           fi

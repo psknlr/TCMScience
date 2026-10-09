@@ -102,21 +102,22 @@ test("a change to anything the site bundles or tcmstudio imports runs the workfl
 
 test("the check after a deployment requires Tao-S1 only when its key was put and RELAY is not off", async () => {
   const secrets = runOf("Are the secrets set?");
-  const check = runOf("Check the site, its headers, and one tiny Tao-S1 call");
+  const check = runOf("Check the site, source gateway, and one tiny Tao-S1 call");
   const toml = readFileSync(path.join(STUDIO, "edge", "wrangler.toml"), "utf8");
   expect(toml).toMatch(/^RELAY = .*$/m);
   // the relay's own reading of RELAY decides what "off" is
   const { config } = await import(pathToFileURL(path.join(STUDIO, "edge", "src", "relay.js")).href);
+  const { sourceConfig } = await import(pathToFileURL(path.join(STUDIO, "edge", "src", "sources.js")).href);
 
-  const deploy = (relay, key) => {
+  const deploy = (relay, key, sources = '"on"') => {
     const cwd = scratch("tcmstudio-ci");
     mkdirSync(path.join(cwd, "studio", "edge"), { recursive: true });
-    writeFileSync(path.join(cwd, "studio", "edge", "wrangler.toml"), toml.replace(/^RELAY = .*$/m, () => `RELAY = ${relay}`));
+    writeFileSync(path.join(cwd, "studio", "edge", "wrangler.toml"), toml.replace(/^RELAY = .*$/m, () => `RELAY = ${relay}`).replace(/^SOURCES = .*$/m, () => `SOURCES = ${sources}`));
     const s = runStep(secrets, { cwd, env: { CF_TOKEN: "t", CF_ACCOUNT: "a", KEY: key } });
-    const c = runStep(check, { cwd, env: { MODEL: s.outputs.model, RELAY_OFF: s.outputs.relay_off, SITE_URL: "https://science.impf.ai" }, record: ["node"] });
+    const c = runStep(check, { cwd, env: { MODEL: s.outputs.model, RELAY_OFF: s.outputs.relay_off, SOURCES_OFF: s.outputs.sources_off, SITE_URL: "https://science.impf.ai" }, record: ["node"] });
     expect(c.calls, "check.mjs runs once").toHaveLength(1);
     expect(c.calls[0]).toMatch(/^node studio\/edge\/scripts\/check\.mjs --url https:\/\/science\.impf\.ai /);
-    return { ...s.outputs, required: / --require-model\b/.test(c.calls[0]), stdout: s.stdout };
+    return { ...s.outputs, required: / --require-model\b/.test(c.calls[0]), requiredSources: / --require-sources\b/.test(c.calls[0]), stdout: s.stdout };
   };
 
   for (const value of ["on", "off", "OFF", "0", "1", "false", "true", "no", "yes", "offline"]) {
@@ -128,6 +129,7 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
       expect(r.model, `RELAY = ${relay}: the key is still put`).toBe("1");
       expect(r.relay_off, `RELAY = ${relay}`).toBe(off ? "1" : "0");
       expect(r.required, `RELAY = ${relay}: --require-model`).toBe(!off);
+      expect(r.requiredSources, "source gateway health stays required independently of model pause").toBe(true);
       if (off) expect(r.stdout).toMatch(/::notice::RELAY is off/);
     }
   }
@@ -136,6 +138,18 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
   const nokey = deploy('"on"', "  \n");
   expect(nokey.model).toBe("0");
   expect(nokey.required).toBe(false);
+  expect(nokey.requiredSources, "database access does not depend on a model key").toBe(true);
+  for (const value of ["on", "off", "OFF", "0", "1", "false", "true", "no", "yes", "offline"]) {
+    const off = !sourceConfig({ SOURCES: value }).enabled;
+    for (const sources of [`"${value}"`, `'${value}'`]) {
+      const r = deploy('"on"', "sk-test", sources);
+      expect(r.sources_off, `SOURCES = ${sources}`).toBe(off ? "1" : "0");
+      expect(r.requiredSources, `SOURCES = ${sources}: --require-sources`).toBe(!off);
+      expect(r.required, "source pause never relaxes Tao-S1 validation when its key was put").toBe(true);
+      if (off) expect(r.stdout).toMatch(/::notice::SOURCES is off/);
+    }
+  }
+  expect(deploy('"on"', "sk-test", '"off" # maintenance').requiredSources).toBe(false);
 });
 
 test("the deployment claims no DNS safeguard that wrangler in CI does not give", () => {

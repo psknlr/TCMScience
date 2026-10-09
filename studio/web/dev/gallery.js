@@ -163,7 +163,7 @@ function governanceSection() {
   });
   return h("div",
     h("div.g-grid",
-      g("hash badges", h("div.g-row", hashBadge("0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d"), hashBadge("e525e3abd5011488dd01b5a2720b8256e7c75766d49383287fe214271b173312", { label: "Skill", compact: true }), hashBadge(""))),
+      g("hash badges", h("div.g-row", hashBadge("0da551c093b58f51724d7ab206890c783280d79b008fd7d1ac9c5b45fe1f626d"), hashBadge("5a12df2abe348b70547efb3529853cc6cb40c0495bce4eb5db9c732cf306a87e", { label: "Skill", compact: true }), hashBadge(""))),
       g("evidence families (§6.1)", h("div.g-row", familyChip("tradition", { design: "classical_text" }), familyChip("tradition", { tier: "expert_experience" }), familyChip("bench", { design: "in_vitro" }), familyChip("clinical", { design: "randomized_trial" }), familyChip("predicted", { design: "docking" }), familyChip("predicted", { design: "network_prediction" }))),
       g("verdict badges (§6.2)", h("div.g-row",
         verdictPill(verdictBadge({ states: { release_authorized: true }, authorized: true, publishable: true })),
