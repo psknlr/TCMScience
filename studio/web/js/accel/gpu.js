@@ -11,9 +11,10 @@
 //   atLeast  the count, summed over passes
 //
 // Permutations advance in passes of at most 100 per dispatch, one submit each; the state persists between passes,
-// so the pass size never changes the numbers and no submit runs long enough to trip a GPU watchdog (a slow pass
-// halves the next). Pathways that do not fit one binding (never assume more than 128 MiB) run in batches. Only the
-// u32 counts are read back. The host (host.js) recomputes two pathways in JS before it trusts a GPU result.
+// so the pass size never changes the numbers. The first pass is short and times the device; later passes are sized
+// to take about a second, so no submit runs long enough to trip a GPU watchdog on a slow phone. Pathways that do not
+// fit one binding (never assume more than 128 MiB) run in batches. Only the u32 counts are read back. The host
+// (host.js) recomputes two pathways in JS before it trusts a GPU result.
 
 import { abortError } from "../core/util.js";
 import { fromString } from "./mt19937.js";
@@ -21,7 +22,9 @@ import { streamName } from "./npnull.js";
 
 /** At most this many permutations per dispatch. */
 export const PASS_PERMUTATIONS = 100;
-/** A pass that took longer than this halves the next one. */
+/** The first pass of a run: short, to time the device before a longer submit. */
+export const FIRST_PASS_PERMUTATIONS = 10;
+/** Later passes are sized to take about this long. */
 export const PASS_TARGET_MS = 1000;
 /** Never assume a storage binding larger than this, whatever the adapter says (the WebGPU default limit). */
 export const MAX_BINDING_BYTES = 128 * 1024 * 1024;
@@ -165,8 +168,8 @@ export function gpuLayout(plan) {
  * Pathways per batch: every per-pathway buffer within one binding (the device's limits, never above 128 MiB), the
  * batch within MAX_BATCH_BYTES and the dispatch within maxComputeWorkgroupsPerDimension.
  */
-export function batchSize(plan, layout, limits = {}) {
-  const binding = Math.min(MAX_BINDING_BYTES, num(limits.maxStorageBufferBindingSize, MAX_BINDING_BYTES), num(limits.maxBufferSize, MAX_BINDING_BYTES));
+export function batchSize(plan, layout, limits = {}, maxBindingBytes = MAX_BINDING_BYTES) {
+  const binding = Math.min(MAX_BINDING_BYTES, num(maxBindingBytes, MAX_BINDING_BYTES), num(limits.maxStorageBufferBindingSize, MAX_BINDING_BYTES), num(limits.maxBufferSize, MAX_BINDING_BYTES));
   const rows = Math.max(layout.stateRows, layout.workRows, layout.words);
   const perPathway = 4 * (layout.stateRows + layout.workRows + layout.words + 2);
   const groups = num(limits.maxComputeWorkgroupsPerDimension, 65535);
@@ -271,8 +274,9 @@ const now = () => (globalThis.performance?.now ? performance.now() : Date.now())
 /**
  * at_least for every pathway of the plan on the GPU (`ctx` from openGpu). Rejects with an AbortError when `signal`
  * aborts (between passes: a pass already submitted finishes on the GPU), or an Error when the device fails.
+ * `maxBindingBytes` lowers the binding size a batch may use (the tests force several batches with it).
  */
-export async function runWebGPU(plan, ctx, { signal, onProgress, passPermutations = PASS_PERMUTATIONS, passTargetMs = PASS_TARGET_MS } = {}) {
+export async function runWebGPU(plan, ctx, { signal, onProgress, passTargetMs = PASS_TARGET_MS, maxBindingBytes = MAX_BINDING_BYTES } = {}) {
   const n = plan.ids.length;
   const perms = plan.permutations;
   const counts = new Array(n);
@@ -281,9 +285,9 @@ export async function runWebGPU(plan, ctx, { signal, onProgress, passPermutation
   const { device } = ctx;
   const pipeline = await pipelineFor(ctx);
   const layout = gpuLayout(plan);
-  const size = batchSize(plan, layout, device.limits);
+  const size = batchSize(plan, layout, device.limits, maxBindingBytes);
   const G = globalThis.GPUBufferUsage;
-  let step = Math.max(1, Math.min(passPermutations, PASS_PERMUTATIONS));
+  let step = FIRST_PASS_PERMUTATIONS;
   const total = n * Math.max(1, perms);
   for (let from = 0; from < n; from += size) {
     if (signal?.aborted) throw abortError();
@@ -334,8 +338,9 @@ export async function runWebGPU(plan, ctx, { signal, onProgress, passPermutation
         });
         await settle(device.queue.onSubmittedWorkDone(), signal, ctx);
         await submitted.scope;
-        const ms = now() - t0;
-        if (ms > passTargetMs && step > 1) step = Math.max(1, Math.floor(step / 2));
+        // size the next pass to about passTargetMs at this batch's measured rate
+        const ms = Math.max(1, now() - t0);
+        step = Math.max(1, Math.min(PASS_PERMUTATIONS, Math.floor((count * passTargetMs) / ms)));
         done += count;
         onProgress?.((from * perms + (to - from) * done) / total);
       }
@@ -394,3 +399,6 @@ function settle(promise, signal, ctx) {
   }
   return Promise.race(races).finally(() => { if (onAbort) signal.removeEventListener("abort", onAbort); });
 }
+
+/** The host code whose source text, with WGSL, defines what the GPU computes (host.js digests it). */
+export const SOURCES = Object.freeze([WGSL, gpuLayout, batchArrays, runWebGPU]);

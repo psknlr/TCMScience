@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/dev/test/*.test.mjs",
+    "test": "node --test web/test/*.test.mjs web/test/runtime/*.test.mjs web/dev/test/*.test.mjs web/test/accel/*.test.mjs",
     "test:e2e": "playwright test -c e2e/playwright.config.mjs",
     "test:runtime": "node web/test/runtime/run.mjs"
   },

@@ -436,7 +436,8 @@ def _hook(module: str, name: str) -> Callable[..., Any] | None:
 
 def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | None = None, *,
           dev: bool = False, index_url: str | None = None,
-          corpus: bool = True, self_host_pyodide: bool = False, release: bool = False,
+          corpus: bool = True, self_host_pyodide: bool = False, self_host_fonts: bool = False,
+          release: bool = False,
           site_url: str = PUBLIC_SITE_URL,
           log: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Build the site into ``out_dir`` and return a summary of what was written.
@@ -484,6 +485,11 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
             hosted = step(staging, catalog=doc, log=say)
             boot["pyodide"]["index_url"] = hosted["index_url"]
             extras["pyodide"] = hosted
+        if self_host_fonts:
+            step = _hook("tcmstudio.webfonts", "self_host_fonts")
+            if step is None:
+                raise BuildError("--self-host-fonts needs tcmstudio.webfonts")
+            extras["fonts"] = step(staging, log=say)
         if corpus:
             step = _hook("tcmstudio.corpus.build", "build_site_corpus")
             entry = step(staging, log=say) if step is not None else None
@@ -533,6 +539,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--self-host-pyodide", action="store_true",
                         help="copy the pinned Pyodide files under pyodide/ and load them from there "
                              "(docs/V2.md §15; downloads them once into a local cache)")
+    parser.add_argument("--self-host-fonts", action="store_true",
+                        help="copy the CJK webfont slices css/fonts.css loads from a CDN under assets/ "
+                             "and point the stylesheet at them (docs/V2.md §15)")
     parser.add_argument("--release", action="store_true",
                         help="also build the runner wheels and the install scripts (docs/V2.md §16)")
     parser.add_argument("--site-url", default=PUBLIC_SITE_URL,
@@ -547,6 +556,7 @@ def run(args: argparse.Namespace) -> int:
                         index_url=getattr(args, "pyodide_index_url", None),
                         corpus=getattr(args, "corpus", True),
                         self_host_pyodide=bool(getattr(args, "self_host_pyodide", False)),
+                        self_host_fonts=bool(getattr(args, "self_host_fonts", False)),
                         release=bool(getattr(args, "release", False)),
                         site_url=getattr(args, "site_url", PUBLIC_SITE_URL), log=log)
     except BuildError as exc:

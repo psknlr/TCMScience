@@ -102,11 +102,11 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/tcmstudio
-          key: tcmstudio-${{ hashFiles('studio/runner/src/tcmstudio/pyodide_host.py', 'studio/runner/src/tcmstudio/release.py', 'studio/runner/src/tcmstudio/corpus/*.py', '中医方剂数据表.xlsx') }}
+          key: tcmstudio-${{ hashFiles('studio/runner/src/tcmstudio/pyodide_host.py', 'studio/runner/src/tcmstudio/webfonts.py', 'studio/runner/src/tcmstudio/release.py', 'studio/runner/src/tcmstudio/corpus/*.py', '中医方剂数据表.xlsx') }}
           restore-keys: tcmstudio-
       - name: Build the app (studio/_site) with its headers, the corpus, Pyodide and the runner release
         run: |
-          python3 studio/scripts/build_web.py --out studio/_site --self-host-pyodide --release --site-url "$SITE_URL"
+          python3 studio/scripts/build_web.py --out studio/_site --self-host-pyodide --self-host-fonts --release --site-url "$SITE_URL"
           cp studio/edge/_headers studio/_site/_headers
           test -f studio/_site/index.html || { echo "::error::the build wrote no index.html"; exit 1; }
           # Workers Static Assets: at most 25 MiB a file and 20 000 files (Free plan)

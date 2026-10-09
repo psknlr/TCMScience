@@ -140,6 +140,20 @@ export function prepare(input) {
   };
 }
 
+/** The plan restricted to the pathways at `indices` (in that order): for recomputing a sample of a result. */
+export function subPlan(plan, indices) {
+  const memberStart = new Uint32Array(indices.length + 1);
+  const pos = [];
+  indices.forEach((p, i) => {
+    for (let m = plan.memberStart[p]; m < plan.memberStart[p + 1]; m++) pos.push(plan.memberPos[m]);
+    memberStart[i + 1] = pos.length;
+  });
+  return {
+    ...plan, ids: indices.map((p) => plan.ids[p]), observed: Uint32Array.from(indices, (p) => plan.observed[p]),
+    memberStart, memberPos: Uint32Array.from(pos),
+  };
+}
+
 /** The string Python seeds a pathway's stream with: f"{seed}:{pathway}". */
 export function streamName(plan, p) {
   return `${plan.seed}:${plan.ids[p]}`;
@@ -221,3 +235,6 @@ export async function nullCounts(input, opts) {
   const plan = prepare(input);
   return countRange(plan, 0, plan.ids.length, opts);
 }
+
+/** The functions whose source text defines this kernel's numbers on the CPU (host.js digests them). */
+export const SOURCES = Object.freeze([checkInput, prepare, subPlan, streamName, makeWork, countPathway, countRange]);

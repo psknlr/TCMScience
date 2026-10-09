@@ -8,7 +8,8 @@ import { lang, registerStrings, t } from "../core/i18n.js";
 import { browserSettings, effective, holdWakeLock, workerCap } from "../runtime/device.js";
 import { fill, formatDuration, h } from "./dom.js";
 import { icon } from "./icons.js";
-import { button, chip, keyValue, notice, progressBar, section, selectField, statusDot, switchControl } from "./primitives.js";
+import { readSpeed } from "../accel/speed.js";
+import { button, chip, keyValue, notice, progressBar, section, selectField, statusDot } from "./primitives.js";
 
 registerStrings("zh", {
   "bc.title": "浏览器算力",
@@ -40,6 +41,13 @@ registerStrings("zh", {
   "bc.workers.help": "每个 Python 进程单线程运行，约占 100 MB 内存（载入 scipy / pandas 后约 300 MB）。上限为 CPU 核心数减 1（{cap} 个）。",
   "bc.workers.phone": "手机上默认只用 1 个：内存不足时，系统会直接重新载入页面。",
   "bc.gpu_switch": "允许使用 GPU（WebGPU）",
+  "bc.gpu_mode": "GPU（WebGPU）",
+  "bc.gpu_mode.auto": "自动：测速显示 GPU 更快时才用",
+  "bc.gpu_mode.on": "优先使用 GPU",
+  "bc.gpu_mode.off": "只用 CPU",
+  "bc.gpu_mode.unmeasured": "这台设备还没有测速：自动模式先用 CPU 多线程；运行下方的「浏览器算力测试」后，会选择更快的一方。",
+  "bc.gpu_mode.measured_faster": "上次测速：GPU {gpu}，CPU {cpu}，自动模式使用 GPU。",
+  "bc.gpu_mode.measured_slower": "上次测速：GPU {gpu}，CPU {cpu}，自动模式使用 CPU 多线程。",
   "bc.gpu_switch.desc": "只在检测到硬件 GPU 时使用。GPU 只做整数计数；p 值和多重检验校正仍在 CPU 上以双精度计算。",
   "bc.gpu_switch.none": "这台设备当前没有可用的硬件 GPU，开启后也只用 CPU。",
   "bc.status": "运行状态",
@@ -76,6 +84,7 @@ registerStrings("zh", {
   "bc.engine.webgpu": "WebGPU 计算着色器",
   "bc.engine.js-workers": "JavaScript 并行 Worker",
   "bc.engine.python": "Python（Pyodide，单线程）",
+  "bc.engine.js": "JavaScript 单线程（参照）",
   "bc.faq.q": "浏览器能直接使用 CPU / GPU 吗？",
   "bc.faq.cpu": "能使用 CPU：通过 WebAssembly，在多个并行的 Web Worker 中用到这台设备的全部 CPU 核心（每个 Worker 一个线程）。",
   "bc.faq.gpu": "能使用 GPU：通过 WebGPU 计算着色器（Chrome / Edge 113 及以上、Safari 26 / iOS 26、Android 版 Chrome 121 及以上）。",
@@ -111,6 +120,13 @@ registerStrings("en", {
   "bc.workers.help": "Each Python worker runs on one thread and needs about 100 MB of memory (about 300 MB with scipy / pandas). At most the number of CPU cores minus one ({cap}).",
   "bc.workers.phone": "Phones use 1 by default: when memory runs out, the system simply reloads the page.",
   "bc.gpu_switch": "Allow the GPU (WebGPU)",
+  "bc.gpu_mode": "GPU (WebGPU)",
+  "bc.gpu_mode.auto": "Auto: only when measured faster",
+  "bc.gpu_mode.on": "Prefer the GPU",
+  "bc.gpu_mode.off": "CPU only",
+  "bc.gpu_mode.unmeasured": "Not measured on this device yet: auto uses the CPU workers; run the browser benchmark below and auto will pick the faster one.",
+  "bc.gpu_mode.measured_faster": "Last benchmark: GPU {gpu}, CPU {cpu}; auto uses the GPU.",
+  "bc.gpu_mode.measured_slower": "Last benchmark: GPU {gpu}, CPU {cpu}; auto uses the CPU workers.",
   "bc.gpu_switch.desc": "Used only when a hardware GPU is found. The GPU only counts integers; p-values and multiple-testing corrections are computed on the CPU in double precision.",
   "bc.gpu_switch.none": "This device has no hardware GPU available right now; with this on, the CPU is still used.",
   "bc.status": "Status",
@@ -147,6 +163,7 @@ registerStrings("en", {
   "bc.engine.webgpu": "WebGPU compute shader",
   "bc.engine.js-workers": "JavaScript workers",
   "bc.engine.python": "Python (Pyodide, one thread)",
+  "bc.engine.js": "JavaScript, one thread (reference)",
   "bc.faq.q": "Can the browser use the CPU / GPU directly?",
   "bc.faq.cpu": "The CPU, yes: through WebAssembly, every CPU core of this device in parallel Web Workers (one thread each).",
   "bc.faq.gpu": "The GPU, yes: through WebGPU compute shaders (Chrome / Edge 113+, Safari 26 / iOS 26, Chrome for Android 121+).",
@@ -194,6 +211,9 @@ export function browserComputeSection(app) {
       fill(box, ...benchContent(app, rt));
       if (hadFocus) box.querySelector("button")?.focus({ preventScroll: true });
     }
+    // a finished benchmark changes what "auto" picks for the GPU: show the new measurement beside the setting
+    const controlsBox = body.querySelector("[data-bc-controls]");
+    if (controlsBox && !bench.running && !controlsBox.contains(document.activeElement)) fill(controlsBox, controls(app, rt, device));
   };
   bench.listeners.add(onBench);
   return section({ title: t("bc.title"), children: body, className: "browser-compute" });
@@ -203,7 +223,7 @@ function content(app, rt, device) {
   return [
     h("p.muted.small", t("bc.lede")),
     deviceCard(device),
-    controls(app, rt, device),
+    h("div", { "data-bc-controls": "" }, controls(app, rt, device)),
     h("div.stack", h("p.field__label", t("bc.status")), h("div.stack", { "data-bc-status": "", role: "status", "aria-live": "polite" }, statusLines(rt))),
     h("div.stack", { "data-bc-bench": "" }, benchContent(app, rt)),
     faq(),
@@ -257,19 +277,33 @@ function controls(app, rt, device) {
   const phone = device && (device.cls === "phone" || device.cls === "phone-low");
   const workers = selectField({
     label: t("bc.workers"), value: s.workers === "auto" ? "auto" : String(Math.min(s.workers, cap)), options,
-    help: [t("bc.workers.help", { cap }), phone ? t("bc.workers.phone") : ""].filter(Boolean).join(" "),
+    help: sentences(t("bc.workers.help", { cap }), phone ? t("bc.workers.phone") : ""),
     onChange: (v) => save({ workers: v === "auto" ? "auto" : Number(v) }),
   });
   workers.input.dataset.key = "bc-workers";
   const noGpu = device && device.gpu !== "hardware";
-  const gpu = switchControl({
-    label: t("bc.gpu_switch"),
-    description: [t("bc.gpu_switch.desc"), noGpu ? t("bc.gpu_switch.none") : ""].filter(Boolean).join(" "),
-    checked: s.gpu !== "off",
-    onChange: (on) => save({ gpu: on ? "auto" : "off" }),
+  const measured = readSpeed();
+  const gpu = selectField({
+    label: t("bc.gpu_mode"), value: s.gpu,
+    options: [
+      { value: "auto", label: t("bc.gpu_mode.auto") },
+      { value: "on", label: t("bc.gpu_mode.on") },
+      { value: "off", label: t("bc.gpu_mode.off") },
+    ],
+    help: sentences(
+      t("bc.gpu_switch.desc"),
+      measured ? t(measured.gpu_ms < measured.cpu_ms ? "bc.gpu_mode.measured_faster" : "bc.gpu_mode.measured_slower", { gpu: formatDuration(measured.gpu_ms), cpu: formatDuration(measured.cpu_ms) }) : t("bc.gpu_mode.unmeasured"),
+      noGpu ? t("bc.gpu_switch.none") : "",
+    ),
+    onChange: (v) => save({ gpu: v }),
   });
-  gpu.querySelector("[role=switch]")?.setAttribute("data-key", "bc-gpu");
+  gpu.input.dataset.key = "bc-gpu";
   return h("div.stack", workers, gpu);
+}
+
+/** Sentences run on: no space between Chinese sentences, one between English ones. */
+function sentences(...parts) {
+  return parts.filter(Boolean).join(lang() === "zh" ? "" : " ");
 }
 
 function statusLines(rt) {
@@ -362,7 +396,8 @@ function benchResults(rows, world) {
       return h("tr",
         h("td", engine),
         h("td", dev || "—", software ? h("div", chip({ label: t("bc.bench.software", { name: softwareName(dev) }), tone: "slate" })) : null),
-        h("td.num", Number.isFinite(Number(r.ms)) ? formatDuration(Number(r.ms)) : "—"),
+        // ms null: the engine was not run (its note says why)
+        h("td.num", { style: { whiteSpace: "nowrap" } }, typeof r.ms === "number" && Number.isFinite(r.ms) ? formatDuration(r.ms) : "—"),
         h("td", r.equal === true ? chip({ label: t("bc.bench.same"), tone: "jade" }) : r.equal === false ? chip({ label: t("bc.bench.differs"), tone: "vermilion" }) : h("span.muted", t("bc.bench.unchecked"))),
         h("td.small", r.note ? String(r.note) : ""));
     })));

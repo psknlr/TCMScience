@@ -62,12 +62,12 @@ export function workerCap(device = {}) {
   return clamp((positive(device.cores) || 2) - 1, 1, MAX_WORKERS);
 }
 
-/** settings.computeBrowser, checked: {workers: "auto" | 1..8, gpu: "auto" | "off"}. */
+/** settings.computeBrowser, checked: {workers: "auto" | 1..8, gpu: "auto" | "on" | "off"} ("on": prefer the GPU). */
 export function browserSettings(raw) {
   const s = raw && typeof raw === "object" ? raw : {};
   const n = Number(s.workers);
   const workers = s.workers !== "auto" && Number.isInteger(n) && n >= 1 && n <= MAX_WORKERS ? n : "auto";
-  return { workers, gpu: s.gpu === "off" ? "off" : "auto" };
+  return { workers, gpu: s.gpu === "off" || s.gpu === "on" ? s.gpu : "auto" };
 }
 
 /**

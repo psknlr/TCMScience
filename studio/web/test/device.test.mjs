@@ -1,8 +1,9 @@
 // Device classes (docs/V2.md §13.1): the table, the platform sniffing behind it, what settings may change, and the
 // detection and wake-lock helpers against fake navigators.
-import "./fixtures/setup.mjs";
+import { resetStorage } from "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { DEFAULTS, loadSettings, saveSettings, updateSettings } from "../js/core/settings.js";
 import { browserSettings, classify, detect, effective, gpuKind, holdWakeLock, platformOf, quickFacts, workerCap } from "../js/runtime/device.js";
 
 const UA = {
@@ -86,7 +87,9 @@ test("settings may lower the pool or ask for more, never beyond cores − 1; the
   assert.equal(effective(gpu, {}).gpu_enabled, true);
   assert.equal(effective(gpu, { gpu: "off" }).gpu_enabled, false);
   assert.equal(effective({ ...desktop, webgpu: "software" }, {}).gpu_enabled, false, "a software renderer is never used as a GPU");
-  assert.deepEqual(browserSettings({ workers: "9", gpu: "on" }), { workers: "auto", gpu: "auto" });
+  assert.deepEqual(browserSettings({ workers: "9", gpu: "on" }), { workers: "auto", gpu: "on" }, "on = prefer the GPU");
+  assert.deepEqual(browserSettings({ workers: "x", gpu: "turbo" }), { workers: "auto", gpu: "auto" });
+  assert.equal(effective(gpu, { gpu: "on" }).gpu_enabled, true);
   assert.deepEqual(browserSettings({ workers: 3, gpu: "off" }), { workers: 3, gpu: "off" });
   assert.deepEqual(browserSettings({ workers: 0 }), { workers: "auto", gpu: "auto" });
   assert.deepEqual(browserSettings(null), { workers: "auto", gpu: "auto" });
@@ -123,4 +126,20 @@ test("holdWakeLock: takes the screen lock when it can, releases once, never thro
   refused();
   const none = await holdWakeLock({});
   none();
+});
+
+test("settings.computeBrowser: defaults, merged one level deep, invalid values back to auto", () => {
+  resetStorage();
+  assert.deepEqual(DEFAULTS.computeBrowser, { workers: "auto", gpu: "auto" });
+  assert.deepEqual(loadSettings().computeBrowser, { workers: "auto", gpu: "auto" });
+  updateSettings({ computeBrowser: { gpu: "off" } });
+  assert.deepEqual(loadSettings().computeBrowser, { workers: "auto", gpu: "off" });
+  updateSettings({ computeBrowser: { workers: 3 } });
+  assert.deepEqual(loadSettings().computeBrowser, { workers: 3, gpu: "off" }, "a patch keeps the other field");
+  saveSettings({ ...loadSettings(), computeBrowser: { workers: 12, gpu: "maybe" } });
+  assert.deepEqual(loadSettings().computeBrowser, { workers: "auto", gpu: "auto" });
+  saveSettings({ ...loadSettings(), computeBrowser: "fast" });
+  assert.deepEqual(loadSettings().computeBrowser, { workers: "auto", gpu: "auto" });
+  assert.equal(loadSettings().compute, "auto", "the v1 target string is untouched");
+  resetStorage();
 });

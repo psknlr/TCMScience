@@ -211,3 +211,6 @@ export function sample(g, population, k) {
   }
   return result;
 }
+
+/** The code whose source text defines the random stream and the draws (host.js digests it). */
+export const SOURCES = Object.freeze([MT19937, strSeedKey, bigEndianKey, fromKey, fromString, setsize]);

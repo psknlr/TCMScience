@@ -459,6 +459,8 @@ export class BrowserRuntime {
     try {
       const boot = await this.#boot();
       if (gen !== this.#generation) throw new Error("superseded");
+      // the page downloads and compiles Pyodide's WebAssembly first (once; later boots reuse it)
+      this.#setStatus("loading", { progress: 2, message: t("runtime.browser.stage.pyodide", { version: boot.pyodide?.version || "" }) });
       const module = await this.#sharedModule();
       if (gen !== this.#generation) throw new Error("superseded");
       const pw = this.#newWorker(0, true);
@@ -767,7 +769,7 @@ export class BrowserRuntime {
     let kernels = [];
     try { kernels = [...(host.kernels?.() || [])].filter((k) => typeof k === "string" && k); } catch { kernels = []; }
     if (!kernels.length) return null;
-    return { kernels, prefer: this.#browser.gpu === "off" ? "cpu" : "auto" };
+    return { kernels, prefer: this.#browser.gpu === "off" ? "cpu" : this.#browser.gpu === "on" ? "gpu" : "auto" };
   }
 
   /** The AccelHost of web/js/accel/host.js ({kernels(), run(kernel, input, {signal, onProgress})}), or null. */
