@@ -69,6 +69,11 @@ registerStrings("en", {
 });
 
 /** The device report of CONTRACTS §5, from the page itself: needs no Python, so it never starts the worker. */
+/** "auto" | "cpu" (no GPU) | "reference" (the original Python for every tool); anything else is "auto". */
+export function accelerationOf(value) {
+  return value === "cpu" || value === "reference" ? value : "auto";
+}
+
 export async function detectDevice({ navigator: nav = globalThis.navigator, isolated = globalThis.crossOriginIsolated, timeoutMs = 3000 } = {}) {
   const out = {
     cores: nav?.hardwareConcurrency ?? null,
@@ -261,7 +266,8 @@ export class BrowserRuntime {
       tool: name,
       arguments: input,
       context,
-      acceleration: ctx.acceleration === "cpu" || this.#opts.settings?.browserAcceleration === "cpu" ? "cpu" : "auto",
+      // the router passes the live setting with every call; the settings this runtime was made with may be old
+      acceleration: accelerationOf(ctx.acceleration ?? this.#opts.settings?.browserAcceleration),
       packages: Array.isArray(entry?.pyodide_packages) ? entry.pyodide_packages : [],
       stateful: Boolean(entry && (STATEFUL_KINDS.has(entry.kind) || STATEFUL_IDS.has(entry.id))),
     };

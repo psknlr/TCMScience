@@ -11,7 +11,8 @@
 
 const STATE_ROOT_DEFAULT = "/persist";
 import { createSourceTransport } from "./source-gateway.js";
-import { SequenceCompute, WEBGPU_TOOLS } from "./webgpu.js";
+import { SequenceAccelerator, kernelOptions, normalizePreference } from "../compute/accelerator.js";
+import { pythonKernels } from "../compute/bridge.js";
 const PYCACHE_ROOT = "/pycache";
 const CACHE_NAME = "tcmstudio-runtime-v1";
 const BUNDLE_RE = /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/;
@@ -40,11 +41,13 @@ import tcmstudio.dispatch as _dispatch
 from tcmstudio.envelope import runtime_string as _runtime_string, versions as _versions
 from tcmstudio.browser_http import install as _install_source_transport
 from tcmstudio.browser_compute import call_json as _browser_compute_call
+from tcmstudio.browser_compute import install_js_kernels as _install_js_kernels
 _install_source_transport(SOURCE_TRANSPORT)
+_install_js_kernels(JS_KERNELS)
 
 
-def tcms_call(tool, arguments_json, context_json, acceleration_json="null"):
-    return _browser_compute_call(tool, arguments_json, context_json, acceleration_json)
+def tcms_call(tool, arguments_json, context_json, acceleration_json="null", options_json="{}"):
+    return _browser_compute_call(tool, arguments_json, context_json, acceleration_json, options_json)
 
 
 def tcms_modules():
@@ -95,7 +98,13 @@ const state = {
 };
 
 let chain = Promise.resolve();
-const compute = new SequenceCompute();
+// GPU counts prepared before a call (the scheduler decides); the CPU kernels Python calls synchronously
+const accel = new SequenceAccelerator();
+const kernelStats = [];
+const jsKernels = pythonKernels({ stats: kernelStats, isCancelled: () => Boolean(interrupt && Atomics.load(interrupt, 0)) });
+// tools whose receipt says which backend computed them
+const COMPUTE_TOOLS = new Set(["native.distance_matrix", "native.hamming_distance", "native.gc_content",
+  "native.global_alignment", "native.local_alignment", "native.protein_alignment", "native.edit_distance"]);
 
 self.onmessage = (ev) => {
   const data = ev.data;
@@ -218,6 +227,7 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   ns.set("PY_PATH_JSON", JSON.stringify(boot.bundle.python_path || [boot.bundle.extract_dir || "/opt/tcms/site"]));
   ns.set("PYCACHE_ROOT", PYCACHE_ROOT);
   ns.set("SOURCE_TRANSPORT", createSourceTransport(site));
+  ns.set("JS_KERNELS", jsKernels);
   py.runPython(BOOT_PY, { globals: ns });
   api = { call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"), pycacheTar: ns.get("tcms_pycache_tar") };
   if (pycache.restored) pycache.modules = api.modules();
@@ -419,20 +429,29 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
   const t0 = performance.now();
   const target = tool === "call_tool" ? args?.tool : tool;
   const nativeArgs = tool === "call_tool" ? args?.arguments || {} : args;
-  const prepared = await compute.prepare(target, nativeArgs, {
-    preference: acceleration, isCancelled: () => Boolean(interrupt && Atomics.load(interrupt, 0)),
+  const preference = normalizePreference(acceleration);
+  const { packet, plan } = await accel.prepare(target, nativeArgs, {
+    preference, isCancelled: () => Boolean(interrupt && Atomics.load(interrupt, 0)),
   });
   const argsJson = JSON.stringify(args ?? {});
+  const options = JSON.stringify(kernelOptions(preference));
   const run = (durable) => {
+    kernelStats.length = 0;
+    const started = performance.now();
     const text = api.call(String(tool), argsJson, JSON.stringify({
       ...context, where: "browser", state_root: state.stateRoot, durable,
-    }), JSON.stringify(prepared));
-    if (!WEBGPU_TOOLS.includes(target)) return text;
+    }), JSON.stringify(packet), options);
+    if (!COMPUTE_TOOLS.has(target)) return text;
     const envelope = JSON.parse(text);
     if (envelope.receipt) {
-      envelope.receipt.compute ??= { backend: "pyodide", operation: target, precision: "Python float64" };
-      envelope.receipt.compute.requested = acceleration;
-      if (!prepared && compute.fallbackReason) envelope.receipt.compute.fallback_reason = compute.fallbackReason;
+      const c = envelope.receipt.compute ??= { backend: "pyodide", operation: target, precision: "Python float64" };
+      c.requested = preference;
+      if (plan) c.plan = planSummary(plan);
+      if (!packet && plan?.fallback_reason) c.fallback_reason = plan.fallback_reason;
+      else if (!packet && plan?.passed_over?.length) c.fallback_reason = plan.passed_over.find((r) => r.id === "webgpu")?.reason;
+      if (!c.fallback_reason) delete c.fallback_reason;
+      // what ran inside Python teaches the scheduler about this device
+      if (envelope.status === "succeeded" && !packet) accel.learn(target, nativeArgs, c.backend === "js" ? "js" : "python", performance.now() - started);
     }
     envelope.duration_ms = Math.round(performance.now() - t0);
     return JSON.stringify(envelope);
@@ -581,6 +600,16 @@ function messageOf(err) {
   const s = String(err?.message || err || "error");
   // A Python traceback: the last line names the exception.
   return s.length > 2000 ? `…${s.slice(-2000)}` : s;
+}
+
+/** The scheduler's provenance, short enough for a receipt: what was considered, passed over, tried and run. */
+function planSummary(p) {
+  return {
+    considered: (p.considered || []).map((r) => r.id),
+    passed_over: (p.passed_over || []).map((r) => ({ id: r.id, reason: r.reason })),
+    tried: (p.tried || []).map((r) => ({ id: r.id, outcome: r.outcome, ...(r.reason ? { reason: r.reason } : {}) })),
+    chosen: p.executed?.id || null,
+  };
 }
 
 function withSlash(url) {

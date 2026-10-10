@@ -63,12 +63,16 @@ test("browser Python uses full formula rows and governed same-origin database ac
     const args = { sequences: ["ACGT".repeat(20000), "ACGA".repeat(20000)], model: "p" };
     const gpu = await browser.call("call_tool", { tool: "native.distance_matrix", arguments: args }, { acceleration: "auto" });
     const cpu = await browser.call("call_tool", { tool: "native.distance_matrix", arguments: args }, { acceleration: "cpu" });
-    return { gpu, cpu, device: await browser.device() };
+    const reference = await browser.call("call_tool", { tool: "native.distance_matrix", arguments: args }, { acceleration: "reference" });
+    return { gpu, cpu, reference, device: await browser.device() };
   });
-  expect(compute.gpu.status, JSON.stringify(compute.gpu.error)).toBe("succeeded");
-  expect(compute.cpu.status, JSON.stringify(compute.cpu.error)).toBe("succeeded");
-  expect(compute.gpu.result).toEqual(compute.cpu.result);
-  expect(compute.cpu.receipt.compute.backend).toBe("pyodide");
-  if (compute.device.compute?.webgpu_adapter) expect(compute.gpu.receipt.compute.backend).toBe("webgpu");
+  for (const k of ["gpu", "cpu", "reference"]) expect(compute[k].status, JSON.stringify(compute[k].error)).toBe("succeeded");
+  // the same numbers whatever computed them: the GPU, the CPU kernel, or the original Python
+  expect(compute.gpu.result).toEqual(compute.reference.result);
+  expect(compute.cpu.result).toEqual(compute.reference.result);
+  expect(compute.gpu.receipt.output_sha256).toBe(compute.reference.receipt.output_sha256);
+  expect(compute.reference.receipt.compute.backend).toBe("pyodide");
+  expect(compute.cpu.receipt.compute.backend).toBe("js");
+  expect(["webgpu", "js"]).toContain(compute.gpu.receipt.compute.backend);
   test.info().annotations.push({ type: "compute_backend", description: compute.gpu.receipt.compute.backend });
 });

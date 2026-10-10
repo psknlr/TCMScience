@@ -51,11 +51,11 @@ function failuresOf(expectations) {
 }
 
 /** One call as the router makes it; `expect(env)` returns [[condition, description], …]. */
-async function run(label, tool, args, expect, { compare = false, signal, project_id = project } = {}) {
+async function run(label, tool, args, expect, { compare = false, signal, project_id = project, acceleration } = {}) {
   const t0 = performance.now();
   let env;
   try {
-    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal });
+    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal, ...(acceleration ? { acceleration } : {}) });
   } catch (err) {
     check(label, false, `call threw: ${err?.message || err}`);
     return null;
@@ -119,7 +119,8 @@ async function cancelCheck({ expectInterrupt }) {
   setTimeout(() => ac.abort(), 600);
   const env = await run("cancel a running call", "call_tool", { tool: "native.edit_distance", arguments: long }, (e) => [
     [e.status === "cancelled", `status cancelled (got ${e.status})`],
-  ], { signal: ac.signal });
+  // the original Python, which takes seconds here: the CPU kernel finishes a 4000×4000 edit distance before any cancel
+  ], { signal: ac.signal, acceleration: "reference" });
   const ms = out.calls.at(-1)?.ms ?? 0;
   if (expectInterrupt) {
     // Python stopped through the interrupt buffer: no restart, the dispatcher's own cancelled envelope
@@ -129,10 +130,65 @@ async function cancelCheck({ expectInterrupt }) {
   } else {
     check("cancel: terminate + restart", ms < 1500 && (rt.status === "loading" || rt.status === "ready"), `${ms} ms; status ${rt.status}`);
   }
+  if (expectInterrupt) {
+    // the same through a CPU kernel (synchronous JavaScript inside the Python call): the kernel reads the flag too,
+    // stops at its next row, and Python raises KeyboardInterrupt in place: still no restart
+    const huge = { a: "ACGTN".repeat(6000), b: "TGCAN".repeat(6000) };
+    const ac2 = new AbortController();
+    const before = out.statuses.filter((s) => s.status === "loading").length;
+    setTimeout(() => ac2.abort(), 600);
+    const e2 = await run("cancel a running kernel", "call_tool", { tool: "native.edit_distance", arguments: huge }, (e) => [
+      [e.status === "cancelled", `status cancelled (got ${e.status})`],
+    ], { signal: ac2.signal, acceleration: "auto" });
+    const ms2 = out.calls.at(-1)?.ms ?? 0;
+    const restarted2 = out.statuses.filter((s) => s.status === "loading").length > before;
+    check("cancel: the kernel stopped in place", e2?.receipt?.runtime?.startsWith("pyodide") && !restarted2 && ms2 < 3500,
+      `${ms2} ms after the call started; ${restarted2 ? "the worker was restarted" : "no restart"}`);
+  }
   await run("next call after the cancel", "tcm_compatibility", { herbs: ["人参", "藜芦"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
     [e.result?.compatible === false, "人参 + 藜芦 recorded as incompatible"],
   ]);
+}
+
+/** A deterministic DNA string (LCG), so the native comparison sees the same input. */
+function dnaOf(n, seed, letters = "ACGT") {
+  let x = seed >>> 0;
+  let out = "";
+  for (let i = 0; i < n; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; out += letters[(x >>> 16) % letters.length]; }
+  return out;
+}
+
+/**
+ * The CPU kernels Python calls in the Worker (studio/web/js/compute): the same call with the kernels (auto) and with
+ * the original Python only (reference) gives the same result and output hash, the receipt names the backend that ran,
+ * and the native comparison (python3 -m tcmstudio call) agrees with both.
+ */
+async function kernelChecks() {
+  const cases = [
+    ["global alignment 300×280", "native.global_alignment", { a: dnaOf(300, 1), b: dnaOf(280, 2) }],
+    ["local alignment, integer scores", "native.local_alignment", { a: dnaOf(240, 3), b: dnaOf(260, 4), match: 2, mismatch: -1, gap: -2 }],
+    ["protein alignment, BLOSUM62", "native.protein_alignment", { a: dnaOf(180, 5, "ARNDCQEGHILKMFPSTWYV"), b: dnaOf(170, 6, "ARNDCQEGHILKMFPSTWYV"), mode: "local" }],
+    ["edit distance, Chinese with astral letters", "native.edit_distance", { a: "葛根芩连汤𠀀".repeat(40), b: "葛根黄芩黄连汤𠀁".repeat(36) }],
+    ["distance matrix 12 × 400 (CPU counts)", "native.distance_matrix", { sequences: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, dnaOf(400, 10 + i, "ACGTN-")])), model: "k2p" }],
+    ["GC windows of 400", "native.gc_content", { sequence: dnaOf(6000, 7, "ACGTSWN"), window: 400 }],
+  ];
+  for (const [label, tool, args] of cases) {
+    const fast = await run(`kernel: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+      [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+      [e.receipt?.compute?.backend === "js", `computed by the CPU kernel (got ${e.receipt?.compute?.backend}: ${JSON.stringify(e.receipt?.compute?.kernels || [])})`],
+      [(e.receipt?.compute?.kernels || []).every((k) => k.outcome === "used"), "every kernel answer checked out"],
+    ], { compare: true, acceleration: "auto" });
+    const slow = await run(`reference: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+      [e.status === "succeeded", `succeeded (got ${e.status})`],
+      [e.receipt?.compute?.backend === "pyodide", `the original Python (got ${e.receipt?.compute?.backend})`],
+      [e.receipt?.compute?.requested === "reference", "the receipt says the reference was asked for"],
+    ], { acceleration: "reference" });
+    check(`same result: ${label}`, Boolean(fast && slow) && JSON.stringify(fast.result) === JSON.stringify(slow.result) && fast.receipt?.output_sha256 === slow.receipt?.output_sha256,
+      `output ${fast?.receipt?.output_sha256?.slice(0, 12)}… vs ${slow?.receipt?.output_sha256?.slice(0, 12)}…; ${fast?.duration_ms} ms with the kernel, ${slow?.duration_ms} ms without`);
+    out.kernels ||= [];
+    out.kernels.push({ label, tool, kernel_ms: fast?.duration_ms ?? null, reference_ms: slow?.duration_ms ?? null });
+  }
 }
 
 async function full() {
@@ -229,6 +285,8 @@ async function full() {
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.host?.browser?.device?.webgpu !== undefined, "host facts include the device report"],
   ]);
+
+  await kernelChecks();
 
   await cancelCheck({ expectInterrupt: Boolean(globalThis.crossOriginIsolated) });
 
