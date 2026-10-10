@@ -449,6 +449,44 @@ def _copy_web(web: Path, dest: Path, *, dev: bool) -> int:
     return count
 
 
+_SW_MARKER = "const PRECACHE = null; // filled by the build: {version, index_url, files: [{path, sha256}]}"
+# what the service worker does not keep in the shell: content-addressed data the runtime Worker keeps itself,
+# the test and design pages of a --dev build, and the worker script and edge headers themselves
+_SW_SKIP_PREFIXES = ("test/", "dev/")
+_SW_SKIP_SUFFIXES = (".tar.gz", ".xlsx")
+_SW_SKIP_NAMES = {"sw.js", "_headers"}
+
+
+def service_worker_manifest(site: Path, index_url: str) -> dict[str, Any]:
+    """The shell files of a built site with their SHA-256, and a version that changes when
+    any of them does (``sw.js`` caches exactly these, checked, one version at a time)."""
+    files = []
+    for path in sorted(p for p in site.rglob("*") if p.is_file()):
+        rel = path.relative_to(site).as_posix()
+        if rel in _SW_SKIP_NAMES or rel.startswith(_SW_SKIP_PREFIXES) or rel.endswith(_SW_SKIP_SUFFIXES):
+            continue
+        if any(part.startswith(".") for part in path.relative_to(site).parts):
+            continue
+        files.append({"path": "/" if rel == "index.html" else f"/{rel}",
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    version = hashlib.sha256(json.dumps([files, index_url], sort_keys=True).encode()).hexdigest()[:16]
+    return {"version": version, "index_url": index_url, "files": files}
+
+
+def _fill_service_worker(site: Path, index_url: str) -> dict[str, Any] | None:
+    sw = site / "sw.js"
+    if not sw.is_file():
+        return None
+    text = sw.read_text(encoding="utf-8")
+    if _SW_MARKER not in text:
+        raise BuildError("sw.js has no PRECACHE line for the build to fill")
+    manifest = service_worker_manifest(site, index_url)
+    sw.write_text(text.replace(_SW_MARKER, "const PRECACHE = "
+                               + json.dumps(manifest, separators=(",", ":"), ensure_ascii=False) + ";"),
+                  encoding="utf-8")
+    return manifest
+
+
 def _looks_built(out: Path) -> bool:
     return (out / "runtime" / "boot.json").is_file() and (out / "index.html").is_file()
 
@@ -528,6 +566,7 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         (runtime / "source-gateway.json").write_bytes(_json_bytes(source_gateway_document()))
         for name, (content, _media) in data_assets()[0].items():
             (runtime / name).write_bytes(content)
+        sw = _fill_service_worker(staging, boot["pyodide"]["index_url"])
         headers = web.parent / "edge" / "_headers"
         if headers.is_file():
             shutil.copyfile(headers, staging / "_headers")
@@ -535,10 +574,12 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
+    kept = f", sw.js keeping {len(sw['files'])} files" if sw else ""
     say(f"wrote {out} ({copied} web files{' with test/ and dev/' if dev else ''}"
-        f"{', _headers' if headers.is_file() else ''})")
+        f"{', _headers' if headers.is_file() else ''}{kept})")
     return {"out": str(out), "web": str(web), "web_files": copied, "dev": dev,
             "headers": headers.is_file(), "boot": boot,
+            "service_worker": {"version": sw["version"], "files": len(sw["files"])} if sw else None,
             "catalog": {"bytes": len(catalog), "counts": doc["counts"]},
             "bundle": {"name": bundle.name, "sha256": bundle.sha256, "bytes": len(bundle.data),
                        "files": bundle.files, "raw_bytes": bundle.raw_bytes,

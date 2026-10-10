@@ -187,6 +187,33 @@ def test_build_writes_the_site(site, bundle):
     assert not list(out.parent.glob(f".{out.name}.*")), "no staging directory left behind"
 
 
+def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site):
+    out, summary = site
+    text = (out / "sw.js").read_text(encoding="utf-8")
+    assert "const PRECACHE = null;" not in text, "the build fills the manifest"
+    manifest = json.loads(text.split("const PRECACHE = ", 1)[1].split(";\n", 1)[0])
+    assert summary["service_worker"] == {"version": manifest["version"], "files": len(manifest["files"])}
+    paths = {f["path"] for f in manifest["files"]}
+    assert {"/", "/js/main.js", "/js/ui/app.js", "/js/compute/kernels.js", "/runtime/boot.json",
+            "/runtime/catalog.json", "/manifest.webmanifest"} <= paths
+    assert "/index.html" not in paths, "the page is kept as / (Workers may redirect /index.html)"
+    assert not any(p.endswith((".tar.gz", ".xlsx")) or p in ("/sw.js", "/_headers") for p in paths), \
+        "content-addressed data stays with the runtime Worker's own cache"
+    for f in manifest["files"]:
+        disk = out / ("index.html" if f["path"] == "/" else f["path"].lstrip("/"))
+        assert hashlib.sha256(disk.read_bytes()).hexdigest() == f["sha256"], f["path"]
+    boot = json.loads((out / "runtime" / "boot.json").read_text(encoding="utf-8"))
+    assert manifest["index_url"] == boot["pyodide"]["index_url"]
+    # deterministic: the same files give the same manifest and version; another index gives another version
+    assert webbuild.service_worker_manifest(out, manifest["index_url"]) == manifest
+    assert webbuild.service_worker_manifest(out, "/pyodide/")["version"] != manifest["version"]
+
+
+def test_the_unbuilt_service_worker_caches_nothing():
+    text = (STUDIO / "web" / "sw.js").read_text(encoding="utf-8")
+    assert webbuild._SW_MARKER in text, "the source keeps the line the build fills"
+
+
 def test_dev_build_includes_the_test_pages(tmp_path):
     out = tmp_path / "dev_site"
     webbuild.build(out, dev=True)

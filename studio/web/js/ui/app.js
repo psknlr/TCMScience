@@ -161,6 +161,18 @@ export class App {
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
     this.checkRelay();
     this.#watchConnectivity();
+    this.#offline();
+  }
+
+  /** The service worker that keeps the app and its runtime usable offline (core/offline.js, /sw.js). */
+  #offline() {
+    import("../core/offline.js")
+      .then((m) => m.registerServiceWorker({
+        // a new version waits until the person chooses to reload into it: nothing changes under an open page
+        onUpdate: (apply) => toast(t("ui.offline.update"), { action: { label: t("ui.offline.reload"), onClick: apply }, timeout: 0 }),
+      }))
+      .then((r) => { this.state.serviceWorker = r?.state || null; })
+      .catch(() => { this.state.serviceWorker = "failed"; });
   }
 
   // ----------------------------------------------------------------------------------------------- connectivity
