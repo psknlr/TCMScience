@@ -55,8 +55,36 @@ def _float(value: float) -> Any:
     return value
 
 
+_INF = float("inf")
+
+
 def jsonable(value: Any, _depth: int = 0, _stack: tuple[int, ...] = ()) -> Any:
     """A JSON-compatible copy of ``value``. Never raises."""
+    # The plain JSON types by their exact type first: nearly every value is one, and a
+    # result is walked several times per call (hashes, citations, the model's text). The
+    # answers are those of _jsonable below; anything else, subclasses included, goes there.
+    t = type(value)
+    if t is str or t is int or t is bool or value is None:
+        return value
+    if t is float:
+        if value != value:
+            return "NaN"
+        if value == _INF or value == -_INF:
+            return "Infinity" if value > 0 else "-Infinity"
+        return value
+    if (t is list or t is dict) and _depth <= _MAX_DEPTH and id(value) not in _stack:
+        stack = _stack + (id(value),)
+        try:
+            if t is list:
+                return [jsonable(v, _depth + 1, stack) for v in value]
+            return {k if type(k) is str else str(k) if not isinstance(k, enum.Enum)
+                    else str(jsonable(k)): jsonable(v, _depth + 1, stack) for k, v in value.items()}
+        except Exception:                                       # noqa: BLE001
+            return f"<unrenderable {t.__name__}>"
+    return _jsonable(value, _depth, _stack)
+
+
+def _jsonable(value: Any, _depth: int, _stack: tuple[int, ...]) -> Any:
     try:
         if value is None or isinstance(value, (bool, str)):
             return value
@@ -272,7 +300,10 @@ def _scan(value: Any, out: _Citations, budget: list[int], depth: int = 0) -> Non
     if budget[0] <= 0 or depth > 24 or len(out.items) >= _MAX_CITATIONS:
         return
     budget[0] -= 1
-    if isinstance(value, Mapping):
+    t = type(value)
+    if t is float or t is int or t is bool or value is None:
+        return                                    # a number names nothing (it still counts)
+    if t is dict or isinstance(value, Mapping):
         rec = value
         label = _label_from(rec)
         rid = rec.get("id")
