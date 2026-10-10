@@ -6,6 +6,7 @@ import { CAPABILITIES_SCHEMA, fingerprint, probeCapabilities, summarizeCapabilit
 import { ComputeScheduler, SchedulerError } from "../js/compute/scheduler.js";
 import { GPU_MIN_OPERATIONS, SequenceAccelerator, inputDigest, kernelOptions, normalizePreference } from "../js/compute/accelerator.js";
 import { SequenceCompute, planSequenceCompute, referenceCounts } from "../js/runtime/webgpu.js";
+import { detectDevice } from "../js/runtime/browser.js";
 
 // ------------------------------------------------------------------------------------------------- capabilities
 
@@ -295,4 +296,12 @@ test("without SIMD the plan says why, and the JavaScript kernel counts", async (
   const o = await acc.prepare("native.distance_matrix", big);
   assert.equal(o.plan.executed.id, "js");
   assert.equal(o.plan.passed_over.find((r) => r.id === "wasm-simd").reason, "No WebAssembly SIMD here (this engine has no WebAssembly SIMD)");
+});
+
+test("the device report names the CPU kernels and what they fall back to", async () => {
+  const d = await detectDevice({ navigator: { hardwareConcurrency: 4 }, isolated: true });
+  assert.deepEqual(d.compute.cpu_kernels["wasm-simd"], ["native.distance_matrix", "native.hamming_distance", "native.gc_content"]);
+  assert.deepEqual(d.compute.cpu_kernels.js, ["native.global_alignment", "native.local_alignment", "native.protein_alignment", "native.edit_distance"]);
+  assert.equal(d.compute.fallback, "the CPU kernels, then the original Python");
+  assert.equal(d.compute.webgpu_adapter, false, "no adapter in Node");
 });

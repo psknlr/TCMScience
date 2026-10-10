@@ -295,7 +295,8 @@ CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
   `durable:false`.
 - A Pyodide fatal error terminates and restarts the worker. The failed call returns `status:"failed"`,
   `error.type:"runtime_error"`.
-- Device report: `{cores, memory_gb, cross_origin_isolated, webgpu:{api, adapter:{vendor, architecture, description, software:bool}|null}}`.
+- Device report: `{cores, memory_gb, cross_origin_isolated, webgpu:{api, adapter:{vendor, architecture, description, software:bool}|null}}`,
+  plus `python` and `compute` (the local backends: CONTRACT_NOTES, browser-compute).
   The UI says "Python tools run on the CPU (single thread, WebAssembly)". A software WebGPU adapter is reported as such.
 
 ---

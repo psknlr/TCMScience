@@ -1,0 +1,903 @@
+{
+ "measured_at": "2026-10-10T18:21:59.438Z",
+ "reps": 3,
+ "chromium_flags": [
+  "--enable-unsafe-webgpu",
+  "--use-angle=swiftshader",
+  "--enable-features=Vulkan,WebMachineLearningNeuralNetwork"
+ ],
+ "environment": {
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "cores": 4,
+  "platform": "linux 6.18.44-fc-v114 x64",
+  "node": "v22.22.0"
+ },
+ "browser": {
+  "schema": "tcmstudio.browser-bench/1",
+  "ok": true,
+  "failures": [],
+  "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36",
+  "isolated": true,
+  "reps": 3,
+  "quick": false,
+  "caps": {
+   "schema": "tcmstudio.capabilities/1",
+   "scope": "window",
+   "cpu": {
+    "logical_cores": 4,
+    "device_memory_gb": 8,
+    "form": "desktop"
+   },
+   "isolation": {
+    "cross_origin_isolated": true,
+    "shared_array_buffer": true
+   },
+   "wasm": {
+    "available": true,
+    "simd": true,
+    "relaxed_simd": true,
+    "threads": true,
+    "threads_usable": true,
+    "bulk_memory": true
+   },
+   "webgpu": {
+    "api": true,
+    "adapter": {
+     "vendor": "google",
+     "architecture": "swiftshader",
+     "device": "",
+     "description": "",
+     "fallback": true
+    },
+    "software": true,
+    "features": [
+     "bgra8unorm-storage",
+     "chromium-experimental-timestamp-query-inside-passes",
+     "chromium-experimental-unorm16-texture-formats",
+     "clip-distances",
+     "core-features-and-limits",
+     "depth-clip-control",
+     "depth32float-stencil8",
+     "float32-blendable",
+     "float32-filterable",
+     "indirect-first-instance",
+     "rg11b10ufloat-renderable",
+     "subgroups",
+     "texture-component-swizzle",
+     "texture-compression-astc",
+     "texture-compression-astc-sliced-3d",
+     "texture-compression-bc",
+     "texture-compression-bc-sliced-3d",
+     "texture-compression-etc2",
+     "timestamp-query"
+    ],
+    "limits": {
+     "maxBufferSize": 1073741824,
+     "maxStorageBufferBindingSize": 1073741824,
+     "maxComputeWorkgroupStorageSize": 32768,
+     "maxComputeInvocationsPerWorkgroup": 256,
+     "maxComputeWorkgroupSizeX": 256,
+     "maxComputeWorkgroupsPerDimension": 65535,
+     "maxStorageBuffersPerShaderStage": 10
+    },
+    "error": null
+   },
+   "webnn": {
+    "api": true,
+    "contexts": [
+     {
+      "label": "default",
+      "requested": {},
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "cpu",
+      "requested": {
+       "deviceType": "cpu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "gpu",
+      "requested": {
+       "deviceType": "gpu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "npu",
+      "requested": {
+       "deviceType": "npu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "low-power",
+      "requested": {
+       "powerPreference": "low-power"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     }
+    ],
+    "note": "A created context shows that the browser accepted the request; it does not show which processor ran the graph.",
+    "distinct_backends_hint": 1
+   },
+   "storage": {
+    "quota_bytes": 1121988197,
+    "usage_bytes": 0,
+    "persisted": false,
+    "opfs": true,
+    "cache_api": true,
+    "indexeddb": true,
+    "service_worker": true
+   },
+   "network": {
+    "online": true,
+    "effective_type": "4g",
+    "save_data": false
+   },
+   "timer": {
+    "resolution_ms": 0.005
+   },
+   "probe_ms": 90
+  },
+  "boot": {
+   "wall_ms": 3807,
+   "runtime": "pyodide-314.0.7 / CPython 3.14.2",
+   "timings": {
+    "bundle": 145,
+    "pyodide": 2187,
+    "packages": 158,
+    "unpack": 227,
+    "persist": 6,
+    "pycache": 1,
+    "import": 1182
+   },
+   "bundle_from_cache": false
+  },
+  "tools": [
+   {
+    "tool": "native.global_alignment",
+    "size": "300×300",
+    "units": 90000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "a55fceefd5f229695d996ba59e7011520eae8f5c75757f4d2d1cca9baec59124",
+    "reference_ms": 51,
+    "local_ms": 7,
+    "speedup": 7.29,
+    "reference_all": [
+     49,
+     51,
+     63
+    ],
+    "local_all": [
+     15,
+     5,
+     7
+    ]
+   },
+   {
+    "tool": "native.local_alignment",
+    "size": "300×300",
+    "units": 90000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "a6b0157845247af1b4f4a0c71a899fd033aecdc5f41ab84dfba58cf33ba60129",
+    "reference_ms": 60,
+    "local_ms": 5,
+    "speedup": 12,
+    "reference_all": [
+     112,
+     60,
+     57
+    ],
+    "local_all": [
+     9,
+     5,
+     4
+    ]
+   },
+   {
+    "tool": "native.global_alignment",
+    "size": "1000×1000",
+    "units": 1000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "e137cdc1e85371e554c935d9a036267dd476b6416de202406978b1993623dc36",
+    "reference_ms": 604,
+    "local_ms": 23,
+    "speedup": 26.26,
+    "reference_all": [
+     610,
+     568,
+     604
+    ],
+    "local_all": [
+     33,
+     18,
+     23
+    ]
+   },
+   {
+    "tool": "native.local_alignment",
+    "size": "1000×1000",
+    "units": 1000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "52edd12dbcbdcc371c38671f2b88a39401fe755bb7cf5f48b58e236320906096",
+    "reference_ms": 666,
+    "local_ms": 31,
+    "speedup": 21.48,
+    "reference_all": [
+     655,
+     666,
+     750
+    ],
+    "local_all": [
+     36,
+     27,
+     31
+    ]
+   },
+   {
+    "tool": "native.global_alignment",
+    "size": "2000×2000",
+    "units": 4000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "e9a8584e5377d0bdf9a2ca7fa24086354b9e18862b1bec53fb05bd4415785e23",
+    "reference_ms": 2298,
+    "local_ms": 74,
+    "speedup": 31.05,
+    "reference_all": [
+     2293,
+     2298,
+     2466
+    ],
+    "local_all": [
+     98,
+     56,
+     74
+    ]
+   },
+   {
+    "tool": "native.local_alignment",
+    "size": "2000×2000",
+    "units": 4000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "32ed15a2c9aaac6dceeb01ab6b9434ddaa25b321b7a471046667a480ae0989e2",
+    "reference_ms": 2900,
+    "local_ms": 93,
+    "speedup": 31.18,
+    "reference_all": [
+     2899,
+     3017,
+     2900
+    ],
+    "local_all": [
+     109,
+     93,
+     60
+    ]
+   },
+   {
+    "tool": "native.protein_alignment",
+    "size": "600×600",
+    "units": 360000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "e44506a6f2dde03f0a9b657d8d0418b4fbd69133156e41b538d89f490fe22aa8",
+    "reference_ms": 271,
+    "local_ms": 10,
+    "speedup": 27.1,
+    "reference_all": [
+     295,
+     271,
+     266
+    ],
+    "local_all": [
+     10,
+     10,
+     10
+    ]
+   },
+   {
+    "tool": "native.edit_distance",
+    "size": "500×500",
+    "units": 250000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "ae0f91859f825a3d767ae8e09c9f92660832935ca928b030b5c1e50a5b2b7876",
+    "reference_ms": 70,
+    "local_ms": 5,
+    "speedup": 14,
+    "reference_all": [
+     74,
+     68,
+     70
+    ],
+    "local_all": [
+     6,
+     3,
+     5
+    ]
+   },
+   {
+    "tool": "native.edit_distance",
+    "size": "2000×2000",
+    "units": 4000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "ecd6df88b5eba1dbd8dd26f98a9c67e8c510204518a7b9720156fc371329b3fa",
+    "reference_ms": 1456,
+    "local_ms": 34,
+    "speedup": 42.82,
+    "reference_all": [
+     1456,
+     1443,
+     1612
+    ],
+    "local_all": [
+     34,
+     34,
+     36
+    ]
+   },
+   {
+    "tool": "native.edit_distance",
+    "size": "4000×4000",
+    "units": 16000000,
+    "backend": "js",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "3798269e287ac021e320f350f75749a7d60797532beecaf80d219dee2e2a2dde",
+    "reference_ms": 5733,
+    "local_ms": 162,
+    "speedup": 35.39,
+    "reference_all": [
+     5683,
+     5733,
+     6148
+    ],
+    "local_all": [
+     162,
+     190,
+     136
+    ]
+   },
+   {
+    "tool": "native.distance_matrix",
+    "size": "20 seqs × 500",
+    "units": 95000,
+    "backend": "wasm-simd",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "f83d4b06d9d9835f59476b51d470c676d3f75a09c1119b5c8d55b0746958c769",
+    "reference_ms": 29,
+    "local_ms": 16,
+    "speedup": 1.81,
+    "reference_all": [
+     34,
+     29,
+     29
+    ],
+    "local_all": [
+     16,
+     16,
+     14
+    ]
+   },
+   {
+    "tool": "native.distance_matrix",
+    "size": "60 seqs × 1000",
+    "units": 1770000,
+    "backend": "wasm-simd",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "b61f8dd5f1f2240479b3b0f2a6ce7aee169f4d1e89118bb5e7827f2b9d0f8c92",
+    "reference_ms": 384,
+    "local_ms": 84,
+    "speedup": 4.57,
+    "reference_all": [
+     369,
+     384,
+     413
+    ],
+    "local_all": [
+     81,
+     84,
+     97
+    ]
+   },
+   {
+    "tool": "native.distance_matrix",
+    "size": "120 seqs × 1000",
+    "units": 7140000,
+    "backend": "wasm-simd",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "5bf7f0e229f23ae446eb6ec7c59f9554002840c7a97f1cc8d77382106461d66d",
+    "reference_ms": 1519,
+    "local_ms": 268,
+    "speedup": 5.67,
+    "reference_all": [
+     1519,
+     1504,
+     1628
+    ],
+    "local_all": [
+     259,
+     298,
+     268
+    ]
+   },
+   {
+    "tool": "native.hamming_distance",
+    "size": "200 000",
+    "units": 200000,
+    "backend": "wasm-simd",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "89f81573a9849fc315e90cc66b6fa487448914d5c2736912b54a76a7af525731",
+    "reference_ms": 30,
+    "local_ms": 15,
+    "speedup": 2,
+    "reference_all": [
+     32,
+     29,
+     30
+    ],
+    "local_all": [
+     16,
+     15,
+     15
+    ]
+   },
+   {
+    "tool": "native.gc_content",
+    "size": "20 000, windows of 500",
+    "units": 9750500,
+    "backend": "wasm-simd",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "869fe082c1ca75ed1d3fff1454afee29519a25f2ce621667f4f18e2352d4da8a",
+    "reference_ms": 215,
+    "local_ms": 183,
+    "speedup": 1.17,
+    "reference_all": [
+     215,
+     202,
+     225
+    ],
+    "local_all": [
+     174,
+     183,
+     184
+    ]
+   },
+   {
+    "tool": "native.fisher_exact",
+    "size": "2×2",
+    "units": 1,
+    "backend": "pyodide",
+    "same_output": true,
+    "status": "succeeded",
+    "output_sha256": "4025116c896194655edf2e4efc04c679b046f44d1733e4a8dc1ad8b33cc6ed1b",
+    "reference_ms": 0,
+    "local_ms": 0,
+    "speedup": null,
+    "reference_all": [
+     1,
+     0,
+     0
+    ],
+    "local_all": [
+     0,
+     0,
+     0
+    ]
+   }
+  ],
+  "kernels": [
+   {
+    "kernel": "needleman-wunsch",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 12.36,
+    "ns_per_cell": 12.36
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 12.84,
+    "ns_per_cell": 12.84
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 8.71,
+    "ns_per_cell": 8.71
+   },
+   {
+    "kernel": "needleman-wunsch",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 87.54,
+    "ns_per_cell": 21.885
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 50.07,
+    "ns_per_cell": 12.518
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 35.74,
+    "ns_per_cell": 8.935
+   },
+   {
+    "kernel": "needleman-wunsch",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 193.68,
+    "ns_per_cell": 12.105
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 200.46,
+    "ns_per_cell": 12.529
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 158.04,
+    "ns_per_cell": 9.878
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "60 seqs × 1000",
+    "cells": 1770000,
+    "ms": 5.4,
+    "ns_per_cell": 3.051
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "60 seqs × 1000",
+    "cells": 1770000,
+    "exact": true,
+    "ms": 0.74,
+    "ns_per_cell": 0.418
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "120 seqs × 1000",
+    "cells": 7140000,
+    "ms": 35.82,
+    "ns_per_cell": 5.017
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "120 seqs × 1000",
+    "cells": 7140000,
+    "exact": true,
+    "ms": 2.69,
+    "ns_per_cell": 0.377
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "250 seqs × 1000",
+    "cells": 31125000,
+    "ms": 190.59,
+    "ns_per_cell": 6.123
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "250 seqs × 1000",
+    "cells": 31125000,
+    "exact": true,
+    "ms": 6.41,
+    "ns_per_cell": 0.206
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "40 seqs × 8000",
+    "cells": 6240000,
+    "ms": 20.08,
+    "ns_per_cell": 3.218
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "40 seqs × 8000",
+    "cells": 6240000,
+    "exact": true,
+    "ms": 2.18,
+    "ns_per_cell": 0.349
+   },
+   {
+    "kernel": "hamming counts (JavaScript)",
+    "size": "2 × 1 000 000",
+    "cells": 1000000,
+    "ms": 17.23,
+    "ns_per_cell": 17.23
+   },
+   {
+    "kernel": "hamming counts (WebAssembly SIMD)",
+    "size": "2 × 1 000 000",
+    "cells": 1000000,
+    "exact": true,
+    "ms": 3.99,
+    "ns_per_cell": 3.99
+   },
+   {
+    "kernel": "GC count (JavaScript)",
+    "size": "1 000 000",
+    "cells": 1000000,
+    "ms": 13,
+    "ns_per_cell": 13
+   },
+   {
+    "kernel": "GC count (WebAssembly SIMD)",
+    "size": "1 000 000",
+    "cells": 1000000,
+    "exact": true,
+    "ms": 1.44,
+    "ns_per_cell": 1.44
+   }
+  ],
+  "webgpu": [
+   {
+    "size": "60 seqs × 1000",
+    "cells": 1770000,
+    "exact": true,
+    "software": true,
+    "adapter": "google swiftshader",
+    "ms": 130.82,
+    "note": "software renderer (SwiftShader): these timings are not a GPU's"
+   },
+   {
+    "size": "120 seqs × 1000",
+    "cells": 7140000,
+    "exact": true,
+    "software": true,
+    "adapter": "google swiftshader",
+    "ms": 578.02,
+    "note": "software renderer (SwiftShader): these timings are not a GPU's"
+   },
+   {
+    "size": "250 seqs × 1000",
+    "cells": 31125000,
+    "exact": true,
+    "software": true,
+    "adapter": "google swiftshader",
+    "ms": 2136.96,
+    "note": "software renderer (SwiftShader): these timings are not a GPU's"
+   }
+  ],
+  "webnn": {
+   "api": true,
+   "contexts": [
+    {
+     "label": "default",
+     "requested": {},
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "cpu",
+     "requested": {
+      "deviceType": "cpu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "gpu",
+     "requested": {
+      "deviceType": "gpu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "npu",
+     "requested": {
+      "deviceType": "npu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "low-power",
+     "requested": {
+      "powerPreference": "low-power"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    }
+   ],
+   "note": "A created context shows that the browser accepted the request; it does not show which processor ran the graph.",
+   "distinct_backends_hint": 1
+  },
+  "page_ms": 76398,
+  "console": [
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status",
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status"
+  ]
+ },
+ "native": {
+  "python": "3.13.16",
+  "calls": [
+   {
+    "tool": "native.global_alignment",
+    "ms": 29.461735999575467,
+    "status": "succeeded",
+    "output_sha256": "a55fceefd5f229695d996ba59e7011520eae8f5c75757f4d2d1cca9baec59124"
+   },
+   {
+    "tool": "native.local_alignment",
+    "ms": 35.953216000052635,
+    "status": "succeeded",
+    "output_sha256": "a6b0157845247af1b4f4a0c71a899fd033aecdc5f41ab84dfba58cf33ba60129"
+   },
+   {
+    "tool": "native.global_alignment",
+    "ms": 340.94664199983526,
+    "status": "succeeded",
+    "output_sha256": "e137cdc1e85371e554c935d9a036267dd476b6416de202406978b1993623dc36"
+   },
+   {
+    "tool": "native.local_alignment",
+    "ms": 429.6203099984268,
+    "status": "succeeded",
+    "output_sha256": "52edd12dbcbdcc371c38671f2b88a39401fe755bb7cf5f48b58e236320906096"
+   },
+   {
+    "tool": "native.global_alignment",
+    "ms": 1522.428223001043,
+    "status": "succeeded",
+    "output_sha256": "e9a8584e5377d0bdf9a2ca7fa24086354b9e18862b1bec53fb05bd4415785e23"
+   },
+   {
+    "tool": "native.local_alignment",
+    "ms": 1803.8530009998794,
+    "status": "succeeded",
+    "output_sha256": "32ed15a2c9aaac6dceeb01ab6b9434ddaa25b321b7a471046667a480ae0989e2"
+   },
+   {
+    "tool": "native.protein_alignment",
+    "ms": 192.94153400005598,
+    "status": "succeeded",
+    "output_sha256": "e44506a6f2dde03f0a9b657d8d0418b4fbd69133156e41b538d89f490fe22aa8"
+   },
+   {
+    "tool": "native.edit_distance",
+    "ms": 33.204696999746375,
+    "status": "succeeded",
+    "output_sha256": "ae0f91859f825a3d767ae8e09c9f92660832935ca928b030b5c1e50a5b2b7876"
+   },
+   {
+    "tool": "native.edit_distance",
+    "ms": 714.4591090000176,
+    "status": "succeeded",
+    "output_sha256": "ecd6df88b5eba1dbd8dd26f98a9c67e8c510204518a7b9720156fc371329b3fa"
+   },
+   {
+    "tool": "native.edit_distance",
+    "ms": 2543.186233000597,
+    "status": "succeeded",
+    "output_sha256": "3798269e287ac021e320f350f75749a7d60797532beecaf80d219dee2e2a2dde"
+   },
+   {
+    "tool": "native.distance_matrix",
+    "ms": 23.331742999289418,
+    "status": "succeeded",
+    "output_sha256": "f83d4b06d9d9835f59476b51d470c676d3f75a09c1119b5c8d55b0746958c769"
+   },
+   {
+    "tool": "native.distance_matrix",
+    "ms": 214.40906299903872,
+    "status": "succeeded",
+    "output_sha256": "b61f8dd5f1f2240479b3b0f2a6ce7aee169f4d1e89118bb5e7827f2b9d0f8c92"
+   },
+   {
+    "tool": "native.distance_matrix",
+    "ms": 981.8080450004345,
+    "status": "succeeded",
+    "output_sha256": "5bf7f0e229f23ae446eb6ec7c59f9554002840c7a97f1cc8d77382106461d66d"
+   },
+   {
+    "tool": "native.hamming_distance",
+    "ms": 12.034551000397187,
+    "status": "succeeded",
+    "output_sha256": "89f81573a9849fc315e90cc66b6fa487448914d5c2736912b54a76a7af525731"
+   },
+   {
+    "tool": "native.gc_content",
+    "ms": 137.0461599999544,
+    "status": "succeeded",
+    "output_sha256": "869fe082c1ca75ed1d3fff1454afee29519a25f2ce621667f4f18e2352d4da8a"
+   },
+   {
+    "tool": "native.fisher_exact",
+    "ms": 0.5165550010133302,
+    "status": "succeeded",
+    "output_sha256": "4025116c896194655edf2e4efc04c679b046f44d1733e4a8dc1ad8b33cc6ed1b"
+   }
+  ]
+ }
+}

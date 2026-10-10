@@ -521,6 +521,47 @@ runner-core: if `_submit_job` mapped an exception's `.type`/`.hint` itself, this
 touches `runtime_error`). `/api/kinds` reports `pipeline.scrna` with `gpu:false` (bioagent runs scVI on the CPU by
 design); the catalog's `job.pipeline.scrna` says `gpu:true` — runner-core may want to align it.
 
+## browser-compute: local backends in the Worker (additions to §3 and §5)
+
+How the browser runtime computes faster than Pyodide alone, and what it reports. The design, the rules and the
+measurements are in [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md).
+
+**`receipt.compute`** is on the envelopes of the tools that have a local backend (`native.distance_matrix`,
+`hamming_distance`, `gc_content`, `global_alignment`, `local_alignment`, `protein_alignment`, `edit_distance`) when they
+run in the browser:
+
+```jsonc
+"compute": {
+  "backend": "webgpu" | "wasm-simd" | "js" | "pyodide",  // what produced the numbers (decided in Python, after its checks)
+  "operation": "native.distance_matrix",
+  "precision": "exact integer counts (WebAssembly SIMD, CPU); Python float64 transforms",
+  "kernels": [{"kernel": "sequence.counts", "outcome": "used" | "declined" | "rejected",
+               "reason"?: "…", "backend"?: "wasm-simd" | "js", "ms"?: 1.234}],
+  "gpu_rejected"?: "why a prepared GPU packet was not used",
+  "requested": "auto" | "cpu" | "reference",               // Settings → Compute → Browser acceleration
+  "plan"?: {"considered": ["wasm-simd", "webgpu", "js", "python"], "passed_over": [{"id", "reason"}],
+            "tried": [{"id", "outcome", "reason"?}], "chosen": "wasm-simd" | null},
+  "fallback_reason"?: "…"
+}
+```
+
+`backend` is the fact and `plan` the scheduler's prediction made before the call (for a sequence tool). They can
+differ: the plan may choose a CPU kernel that Python then finds not worth calling for so small an input. `receipt.device`
+is `webgpu` only when GPU counts were used (§3). A failed call earns no accelerator credit: its `backend` is `pyodide`.
+
+**Device report** (§5) additions: `python {device:"cpu", threads:1, note}` and `compute {webgpu_tools, webgpu_adapter
+(false for a software adapter), cpu_kernels {"wasm-simd": [tools], js: [tools]}, precision, fallback}`.
+`system.capabilities` also carries `browser.compute`, the probe of `compute/capabilities.js` (schema
+`tcmstudio.capabilities/1`: WebAssembly features, WebGPU adapter, features and limits, WebNN contexts as requested and
+reported, storage, timer resolution).
+
+**The kernel boundary.** At boot the Worker calls `tcmstudio.browser_compute.install_js_kernels(js)` with
+`compute/bridge.js pythonKernels()`: one method, `call(name, payload_json) -> result_json`, returning `"null"` to
+decline. `sequence.counts` → `{counts: [u32 …], backend}`; `align.nw_linear` / `align.sw_linear` →
+`{aligned_x, aligned_y, score_bits, score_int, start_a?, end_a?, start_b?, end_b?}`, the score as the 16 hex digits of its
+IEEE-754 bits with whether Python holds it as an int; `sequence.levenshtein` → `{distance}`. Nothing crosses as a
+proxy object, so no number changes type on the way.
+
 ## integration: how the notes above were resolved (CONTRACTS.md updated where the implementation is better)
 
 - **Placement (runner-core, web-core, web-ui).** CONTRACTS §2 said `exec` order is the preference (browser first);

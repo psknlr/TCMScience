@@ -30,14 +30,20 @@ as a separate static asset. Its `LicenseRef-user-supplied-unstated` provenance i
 retained. These are source records, not newly validated clinical recommendations.
 The curated clinical/safety seed retains its original evidence annotations.
 
-Native Python tools continue to use the device's WASM CPU. The adapted sequence
-tools (`native.gc_content`, `native.hamming_distance`, `native.distance_matrix`)
-can calculate integer counts using WebGPU, then use the original Python functions
-for scientific formulas, rounding, validation and policy processing. Receipts
-identify the actual backend. No accelerator is used merely because a visitor opens
-the page. Settings → Compute → Browser acceleration can force CPU execution.
-GPU failure, unsupported inputs or resource bounds fall back to the CPU. A GPU
-adapter's existence does not imply all tools are accelerated.
+Native Python tools continue to run on the device's CPU in WebAssembly (Pyodide).
+Seven tools also have exact local kernels in the Worker: the sequence alignments
+(global, local, protein) and the edit distance in JavaScript, and the integer
+counts of `native.distance_matrix`, `native.hamming_distance` and
+`native.gc_content` in WebAssembly SIMD, or with WebGPU where the scheduler
+expects the GPU to be faster. The original Python functions still compute the
+scientific formulas, rounding, validation and policy processing, and check every
+kernel result before using it; the output is byte-identical to Python's. Receipts
+identify the actual backend (`receipt.compute`). No accelerator is used merely
+because a visitor opens the page. Settings → Compute → Browser acceleration
+chooses Auto, CPU only (no GPU) or the Python reference only. GPU failure,
+unsupported inputs or resource bounds fall back to the CPU kernels, then to
+Python. A GPU adapter's existence does not imply all tools are accelerated.
+Design, rules and measurements: [BROWSER_COMPUTE.md](BROWSER_COMPUTE.md).
 
 `system.provider_catalog` searches all 2,567 repository capability entries, including
 286 databases. `system.provider_call` exposes the reviewed ToolUniverse allowlist
@@ -47,12 +53,20 @@ on reviewed versions and local Python/MCP process transports; their coverage and
 requirements are surfaced separately from browser HTTP connectors.
 Full database copies, unrestricted third-party code, large
 omics/docking engines and general NPU access cannot be supplied by a browser API
-alone. No WebNN/NPU acceleration is claimed by this change.
+alone. No WebNN or NPU acceleration is used or claimed: WebNN is probed and
+reported (Settings, `system.capabilities`), but a context the browser creates for
+an "npu" request is not evidence of an NPU.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),
 [Worker XHR](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest_API/Synchronous_and_Asynchronous_Requests),
 and [WebGPU compute](https://gpuweb.github.io/gpuweb/).
+
+After a first visit the app shell, the Python runtime and the fonts are kept by a
+service worker against a manifest of SHA-256 hashes, so the page opens and runs
+browser tools offline; data files used once stay in the runtime's verified cache.
+A new version is offered, never forced; `?nosw` removes the service worker and its
+caches. Model calls and database queries still need the network.
 
 Deploy with the existing `studio` workflow. A changed workbook also triggers that
 workflow. Each generated static file must remain below Cloudflare's 25 MiB asset
