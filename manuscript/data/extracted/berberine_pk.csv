@@ -1,0 +1,7 @@
+contrast,metric,mean_a,mean_b,n_a,n_b,ratio,ci_low,ci_high,level,verdict
+GQD vs HL,AUC_last (h·ng/mL),389.12,197.98,10,10,1.9654510557,1.3988060575,2.7616393505,0.9,increased
+GQD vs HL,Cmax (ng/mL),28.2,76.65,10,10,0.3679060665,0.2469257988,0.5481601132,0.9,decreased
+GQD vs GQD-GC,AUC_last (h·ng/mL),389.12,148.97,10,10,2.6120695442,1.8023512306,3.7855592117,0.9,increased
+GQD vs GQD-GC,Cmax (ng/mL),28.2,32.28,10,10,0.873605948,0.579691019,1.3165416183,0.9,inconclusive
+GQD-GC vs HL,AUC_last (h·ng/mL),148.97,197.98,10,10,0.7524497424,0.5369328895,1.0544718454,0.9,inconclusive
+GQD-GC vs HL,Cmax (ng/mL),32.28,76.65,10,10,0.4211350294,0.3118677216,0.568685698,0.9,decreased

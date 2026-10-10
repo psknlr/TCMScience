@@ -1,0 +1,13 @@
+# Building the display items (make_all.py). Versions are those the committed files were
+# built with; later releases should give the same figures.
+matplotlib>=3.8          # built with 3.11.2
+numpy>=1.26              # built with 2.5.3
+scipy>=1.11              # built with 1.18.1 (hypergeometric P values in Fig. 5)
+openpyxl>=3.1            # Source Data workbooks
+pypdf>=4.0               # page-size check in make_all.py
+python-docx>=1.1         # Table1.docx (optional; the .md, .csv and .tex need nothing)
+# Fonts: Arial, or Liberation Sans (metrically identical), and WenQuanYi Zen Hei for
+# Chinese characters (Debian/Ubuntu: fonts-liberation fonts-wqy-zenhei).
+# Re-extracting the data (extract_data.py) also needs the repository's own packages:
+#   pip install -e "PSH-Harness[test]" -e "BioScience-Harness[dev]"
+# and, for --cases, GSEApy and PaperQA2 (BioScience-Harness[analysis,literature]).

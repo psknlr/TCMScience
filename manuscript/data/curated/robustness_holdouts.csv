@@ -1,0 +1,11 @@
+pathway,holdout,q,status,source,quote
+Synthesis of EET and DHET,none (baseline),0.033,released,docs/falsifiable-studies.md:58,| nothing (baseline) | 0.033 | 0.033 | 0.033 |
+Synthesis of 16-20-HETE,none (baseline),0.033,released,docs/falsifiable-studies.md:58,| nothing (baseline) | 0.033 | 0.033 | 0.033 |
+Biosynthesis of maresin-like SPMs,none (baseline),0.033,released,docs/falsifiable-studies.md:58,| nothing (baseline) | 0.033 | 0.033 | 0.033 |
+Synthesis of EET and DHET,each of the 12 largest assay campaigns,,survives all 12,docs/falsifiable-studies.md:59,| survives all | survives all |
+Synthesis of 16-20-HETE,each of the 12 largest assay campaigns,,survives all 12,docs/falsifiable-studies.md:59,| survives all | survives all |
+Biosynthesis of maresin-like SPMs,AID2284394,0.093,lost,docs/falsifiable-studies.md:59,lost without AID2284394 (q 0.093)
+Biosynthesis of maresin-like SPMs,AID2283485,0.086,lost,docs/falsifiable-studies.md:59,or AID2283485 (q 0.086)
+Synthesis of EET and DHET,whole CYP-panel family (4161 edges),,not testable,docs/falsifiable-studies.md:60,"| the whole CYP-panel family (4,161 edges) | not testable | not testable | 0.299 |"
+Synthesis of 16-20-HETE,whole CYP-panel family (4161 edges),,not testable,docs/falsifiable-studies.md:60,"| the whole CYP-panel family (4,161 edges) | not testable | not testable | 0.299 |"
+Biosynthesis of maresin-like SPMs,whole CYP-panel family (4161 edges),0.299,lost,docs/falsifiable-studies.md:60,"| the whole CYP-panel family (4,161 edges) | not testable | not testable | 0.299 |"

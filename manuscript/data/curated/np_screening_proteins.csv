@@ -1,0 +1,15 @@
+family,protein,active,tested,assay_origin,source,quote
+CYP450,CYP1A2,136,205,uniform panels (Tox21 and qHTS),README.md:141,**CYP1A2** (136 of 205 constituents active)
+CYP450,CYP2C19,91,204,uniform panels (Tox21 and qHTS),README.md:141,**CYP2C19** (91/204)
+CYP450,CYP2C9,78,206,uniform panels (Tox21 and qHTS),README.md:141,**CYP2C9** (78/206)
+CYP450,CYP2D6,75,204,uniform panels (Tox21 and qHTS),README.md:141,**CYP2D6** (75/204)
+CYP450,CYP3A4,70,224,uniform panels (Tox21 and qHTS),README.md:141,**CYP3A4** (70/224)
+Nuclear receptor,ESR1,83,191,"uniform panels (Tox21, Attagene, Odyssey Thera); mostly agonist mode",BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,ESR1（191 中 83）
+Nuclear receptor,AR,58,183,uniform panels; mostly antagonist-mode reporter assays,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,AR（183 中 58）
+Nuclear receptor,PPARG,46,211,uniform panels; mostly antagonist-mode reporter assays,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,PPARG（211 中 46）
+Nuclear receptor,THRB,26,254,uniform panels; mostly antagonist-mode reporter assays,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,THRB（254 中 26）
+Carbonic anhydrase,CA1,19,21,small literature sets selected for actives,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:407,CA1 21 中 19
+Carbonic anhydrase,CA2,23,23,small literature sets selected for actives,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:407,CA2 23 中 23
+Carbonic anhydrase,CA4,22,23,small literature sets selected for actives,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:407,CA4 23 中 22
+Carbonic anhydrase,CA7,24,26,small literature sets selected for actives,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:407,CA7 26 中 24
+Carbonic anhydrase,CA12,28,28,small literature sets selected for actives,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:407,CA12 28 中 28

@@ -1,0 +1,26 @@
+pathway,carrier,min_constituents,q,source,quote
+Reversible hydration of carbon dioxide,carbonic anhydrases,10,0.010,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,二氧化碳可逆水合（q = 0.010）
+Synthesis of EET and DHET,cytochrome P450,10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,EET/DHET 合成
+Synthesis of 16-20-HETE,cytochrome P450,10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,16-20-HETE 合成
+Biosynthesis of maresin-like SPMs,cytochrome P450,10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,类 maresin SPM 合成
+Aspirin ADME,cytochrome P450,10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,阿司匹林 ADME
+Xenobiotics,cytochrome P450,10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,外源物代谢
+WNT mediated activation of DVL,casein kinase 2 (3 subunits),10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,"WNT 介导的 DVL 激活"
+Condensation of prometaphase chromosomes,casein kinase 2 (3 subunits),10,,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,"前中期染色体凝缩"
+Reversible hydration of carbon dioxide,carbonic anhydrases,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,二氧化碳可逆水合
+Xenobiotics,cytochrome P450,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,外源物代谢
+Synthesis of EET and DHET,cytochrome P450,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,EET/DHET 合成
+Synthesis of 16-20-HETE,cytochrome P450,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,16-20-HETE 合成
+Biosynthesis of maresin-like SPMs,cytochrome P450,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,类 maresin SPM 合成
+Aspirin ADME,cytochrome P450,20,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,阿司匹林 ADME（均 q = 0.008）
+CYP2E1 reactions,cytochrome P450,20,0.020,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,CYP2E1 反应（q = 0.020）
+Nuclear receptor transcription pathway,nuclear receptors,20,0.023,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,核受体转录通路（q = 0.023）
+Erythrocytes take up oxygen and release CO2,carbonic anhydrases,20,0.026,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,红细胞摄取氧并释放二氧化碳（q = 0.026）
+Xenobiotics,cytochrome P450,50,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,外源物代谢
+Synthesis of EET and DHET,cytochrome P450,50,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,EET/DHET 合成
+Synthesis of 16-20-HETE,cytochrome P450,50,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,16-20-HETE 合成
+Biosynthesis of maresin-like SPMs,cytochrome P450,50,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,类 maresin SPM 合成
+Aspirin ADME,cytochrome P450,50,0.008,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,阿司匹林 ADME（均 q = 0.008）
+CYP2E1 reactions,cytochrome P450,50,0.014,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,CYP2E1 反应（q = 0.014）
+Nuclear receptor transcription pathway,nuclear receptors,50,0.023,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,核受体转录通路（q = 0.023）
+Aflatoxin activation and detoxification,cytochrome P450,50,0.030,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,黄曲霉毒素活化与解毒（q = 0.030）

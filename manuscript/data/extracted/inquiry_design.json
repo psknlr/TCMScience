@@ -1,0 +1,101 @@
+{
+ "analyses": [
+  {
+   "cost": 1.0,
+   "design": "in_silico",
+   "id": "annotated",
+   "outcomes": [
+    "enriched",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 1.0,
+   "design": "in_silico",
+   "id": "assayed",
+   "outcomes": [
+    "enriched",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 1.0,
+   "design": "in_silico",
+   "id": "assayed-seed",
+   "outcomes": [
+    "enriched",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 21.0,
+   "design": "in_silico",
+   "id": "random-herbs",
+   "outcomes": [
+    "specific",
+    "not_specific",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 21.0,
+   "design": "in_silico",
+   "id": "random-herbs-2",
+   "outcomes": [
+    "specific",
+    "not_specific",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 11.0,
+   "design": "in_silico",
+   "id": "rewired",
+   "outcomes": [
+    "beyond_wiring",
+    "explained_by_degree",
+    "not_enriched"
+   ]
+  },
+  {
+   "cost": 11.0,
+   "design": "in_silico",
+   "id": "rewired-2",
+   "outcomes": [
+    "beyond_wiring",
+    "explained_by_degree",
+    "not_enriched"
+   ]
+  }
+ ],
+ "explanations": [
+  {
+   "claim_kind": "mechanism_hypothesis",
+   "id": "target",
+   "prior": 0.3,
+   "role": "substantive"
+  },
+  {
+   "claim_kind": null,
+   "id": "coverage",
+   "prior": 0.3,
+   "role": "artefact"
+  },
+  {
+   "claim_kind": null,
+   "id": "promiscuity",
+   "prior": 0.3,
+   "role": "artefact"
+  }
+ ],
+ "rule": {
+  "accept_at": 0.95,
+  "budget": null,
+  "catch_all_alarm": 0.5,
+  "catch_all_floor": 0.05,
+  "max_steps": 64,
+  "min_gain": 0.001,
+  "min_severity": 0.8,
+  "require_replication": true
+ }
+}

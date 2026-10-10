@@ -1,0 +1,32 @@
+{
+ "assays_active": 128,
+ "assays_inactive": 379,
+ "groups": {
+  "GQD": {
+   "cmax_nM_total": 83.8,
+   "cmax_ng_ml": 28.2,
+   "verdicts": {
+    "depends_on_unknowns": 22,
+    "implausible": 106
+   }
+  },
+  "GQD-GC": {
+   "cmax_nM_total": 96.0,
+   "cmax_ng_ml": 32.28,
+   "verdicts": {
+    "depends_on_unknowns": 22,
+    "implausible": 106
+   }
+  },
+  "HL": {
+   "cmax_nM_total": 227.9,
+   "cmax_ng_ml": 76.65,
+   "verdicts": {
+    "depends_on_unknowns": 28,
+    "implausible": 100
+   }
+  }
+ },
+ "protocol": "sha256:94f9536e706f",
+ "status": "exploratory"
+}

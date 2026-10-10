@@ -1,0 +1,4 @@
+stage,order,errors_released,mutants,note,source,quote
+Round 1 (commit 2a0753e),1,19,111,before the round-1 fixes,docs/governance-ablation.md:94,"**Round 1** (19 → 10 of 111). Run on commit `2a0753e`, the full stack released 19 of the"
+After round 1,2,10,111,citations in every sentence; Chinese clinical wording; near names in text (CLM014),docs/governance-ablation.md:94,(19 → 10 of 111)
+After round 2,3,0,121,"ten fixes; five TCM checks (CLM015–CLM019), each with an operator (10 mutants added)",docs/governance-ablation.md:108,**Round 2** (10 → 0).

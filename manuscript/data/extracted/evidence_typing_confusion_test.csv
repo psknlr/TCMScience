@@ -1,0 +1,10 @@
+reference,systematic_review,randomized_trial,observational,case_report,animal,in_vitro,ambiguous,no rule
+systematic_review,36,0,0,0,0,0,0,4
+randomized_trial,0,35,1,0,0,0,2,10
+observational,0,0,40,0,0,0,0,2
+case_report,0,0,0,35,0,0,1,6
+animal,0,0,0,0,12,0,5,14
+in_vitro,0,0,0,0,0,33,0,9
+narrative_review,2,0,0,0,0,0,0,23
+editorial,0,0,0,0,1,0,0,14
+protocol,0,1,0,0,0,0,0,16

@@ -1,0 +1,5 @@
+case,order,short,kind,evidence,allowed,codes,source,quote
+compound,1,"Docking suggests 4-aminobenzamidine may bind trypsin's S1 pocket (a hypothesis for an assay)",mechanism_hypothesis,docking,1,,docs/end-to-end-cases.md:90,| Docking suggests 4-aminobenzamidine may bind the S1 pocket of trypsin
+compound,2,4-Aminobenzamidine inhibits human trypsin-1,mechanism,docking,0,CLM005,docs/end-to-end-cases.md:91,"| 4-Aminobenzamidine inhibits human trypsin-1 (mechanism, citing docking) | refused, CLM005"
+compound,3,4-Aminobenzamidine reduces attacks of hereditary chronic pancreatitis,efficacy,docking,0,CLM004;CLM005;CLM013;CLM009,docs/end-to-end-cases.md:92,"refused, CLM004, CLM005, CLM013 and CLM009"
+compound,4,… may bind trypsin at concentrations reached in patients,mechanism_hypothesis,docking,0,CLM017,docs/end-to-end-cases.md:93,"| … may bind trypsin at concentrations reached in patients | refused, CLM017 |"

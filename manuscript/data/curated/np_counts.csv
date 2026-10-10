@@ -1,0 +1,32 @@
+key,value,unit,description,source,quote
+constituents,1792,constituents,constituents of the four herbs across NPASS CMAUP and LOTUS,README.md:132,"1,792 constituents"
+assayed_proteins,391,proteins,human proteins with a measured potency (any value),README.md:132,391 human proteins with a measured potency
+assayed_hits,237,proteins,assayed human proteins with a potency at or below 10 uM,README.md:132,"237 of them at ≤ 10 µM"
+reactome_background,12155,proteins,background: the whole human Reactome annotation,README.md:136,"| 12,155 | 1,684 | **66** |"
+reactome_pathways_tested,1684,pathways,pathways tested against the whole-annotation background,README.md:136,"| 12,155 | 1,684 | **66** |"
+reactome_significant,66,pathways,significant (BH and degree-matched permutation) against the whole annotation,README.md:136,"| 12,155 | 1,684 | **66** |"
+assayed_background,391,proteins,background: proteins actually assayed,README.md:137,"| 391 | 959 | **0** |"
+assayed_pathways_tested,959,pathways,pathways tested against the assayed background,README.md:137,"| 391 | 959 | **0** |"
+assayed_significant,0,pathways,significant against the assayed background,README.md:137,"| 391 | 959 | **0** |"
+ca_pathway_members,12,proteins,members of the carbonic-anhydrase (CO2 hydration) pathway all of which were assayed,README.md:139,All 12 carbonic-anhydrase-pathway proteins had been assayed
+ca_pathway_hits,11,proteins,of those members recorded as hits,README.md:139,and 11 were hits
+assayed_hit_share,61,percent,share of assayed proteins recorded as hits,README.md:139,61 % of assayed proteins are recorded as hits
+max_fold_assayed,1.65,fold,largest enrichment fold any pathway can reach on the assayed background,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:386,任何通路的富集倍数最多约 1.65
+pubchem_cids,1768,compounds,constituents with a PubChem CID,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:394,"1,792 个成分中 1,768 个在 PubChem 有 CID"
+pubchem_results,422390,results,PubChem BioAssay results retrieved for those compounds,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:394,"共 422,390 条检测结果"
+pubchem_definitive,143679,results,definitive results on human Swiss-Prot proteins,README.md:141,"PubChem BioAssay contributes 143,679 results on 1,029 human proteins (10,696 active, 132,983 inactive)"
+pubchem_active,10696,results,of those active,README.md:141,"10,696 active"
+pubchem_inactive,132983,results,of those inactive,README.md:141,"132,983 inactive"
+pubchem_proteins,1029,proteins,human proteins with a definitive result,README.md:141,"1,029 human proteins"
+pubchem_unmapped,23230,results,results discarded because the gene id maps to no unique Swiss-Prot primary accession,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:394,"23,230 条因基因号对不上唯一的 Swiss-Prot 主号而丢弃"
+screening_proteins,472,proteins,proteins tested against at least 20 constituents,README.md:141,"On the 472 proteins tested against ≥ 20 constituents (51,304 tests, 6.5 % active)"
+screening_tests,51304,tests,compound–protein tests on those proteins,README.md:141,"51,304 tests"
+screening_active,3357,tests,of those active,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:395,"51,304 次检测中 3,357 次有活性"
+screening_proteins_any_hit,79,percent,share of the 472 proteins with at least one active test,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:395,472 个蛋白中，79% 至少有一次命中
+screening_passing,9,pathways,pathways passing BH and 10 000 permutations at the default threshold,README.md:141,"nine pathways pass (10,000 permutations, q = 0.008–0.026)"
+nr_family_active,568,tests,active tests on the 22 nuclear receptors,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,"22 个核受体，3,355 次检测中 568 次有活性"
+nr_family_tests,3355,tests,tests on the 22 nuclear receptors,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:406,"3,355 次检测中 568 次有活性（16.9%"
+ca_family_active,116,tests,active tests on the five carbonic anhydrases,README.md:141,116 of 121 tests active
+ca_family_tests,121,tests,tests on the five carbonic anhydrases,README.md:141,116 of 121 tests active
+marker_compounds,4,compounds,"marker compounds of the four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) recovered in all three composition sources",README.md:130,"(puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources"
+string_nodes,237,proteins,STRING subnetwork of the measured targets (score ≥ 0.7; descriptive only),BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:350,"STRING 子网络有 237 个节点、624 条边"

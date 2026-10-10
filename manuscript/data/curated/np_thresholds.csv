@@ -1,0 +1,4 @@
+min_constituents,proteins,pathways_tested,active_percent,pathways_passing,source,quote
+10,524,516,7.0,8,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:400,| 10 | 524 | 516 | 7.0% | 8 条
+20,472,468,6.5,9,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:401,| 20（默认） | 472 | 468 | 6.5% | 9 条
+50,417,406,6.3,8,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:402,| 50 | 417 | 406 | 6.3% | 8 条

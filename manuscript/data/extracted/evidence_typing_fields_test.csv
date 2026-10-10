@@ -1,0 +1,4 @@
+field,filled,n,rate,ci_low,ci_high,ambiguous,no_rule
+population,28,302,0.0927,0.0649,0.1307,14,260
+comparator,41,302,0.1358,0.1017,0.179,8,253
+outcome,20,302,0.0662,0.0433,0.1001,6,276

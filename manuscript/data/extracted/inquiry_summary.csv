@@ -1,0 +1,4 @@
+world,verdict,leader,posterior,claim_kind,certainty,steps,np_runs,np_runs_if_everything,mechanism_claims_released,not_run
+selective,accepted,target,0.9739344415,mechanism_hypothesis,tentative,5,45,67,1,rewired;rewired-2
+coverage,accepted,coverage,0.9760483928,,strong,4,14,67,0,random-herbs;random-herbs-2;rewired-2
+promiscuous,accepted,promiscuity,0.9739344415,,strong,5,45,67,0,rewired;rewired-2

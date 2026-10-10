@@ -1,0 +1,28 @@
+{
+ "base_cases": 10,
+ "by_language": {
+  "en": {
+   "base_cases": 4,
+   "mutants": 48,
+   "refused_by_full": 0,
+   "released_by_full": 0
+  },
+  "zh": {
+   "base_cases": 6,
+   "mutants": 73,
+   "refused_by_full": 0,
+   "released_by_full": 0
+  }
+ },
+ "error_classes": 26,
+ "false_refusals": [],
+ "gates": {
+  "claim_contract": "domain",
+  "licensing": "kernel",
+  "output": "kernel",
+  "provenance": "kernel",
+  "release_path": "domain"
+ },
+ "mutants": 121,
+ "survivors": []
+}

@@ -1,0 +1,15 @@
+configuration,gates,n_gates,errors_released,mutants,rate,ci_low,ci_high,false_refusals,base_cases
+ungoverned,,0,121,121,1.0,0.9692,1.0,0,10
+kernel only,licensing;output;provenance,3,7,121,0.0579,0.0283,0.1146,0,10
+domain only,claim_contract;release_path,2,57,121,0.4711,0.3844,0.5595,0,10
+full,claim_contract;licensing;output;provenance;release_path,5,0,121,0.0,0.0,0.0308,0,10
+full without provenance,claim_contract;licensing;output;release_path,4,10,121,0.0826,0.0455,0.1455,0,10
+full without output,claim_contract;licensing;provenance;release_path,4,42,121,0.3471,0.2682,0.4355,0,10
+full without licensing,claim_contract;output;provenance;release_path,4,0,121,0.0,0.0,0.0308,0,10
+full without claim_contract,licensing;output;provenance;release_path,4,6,121,0.0496,0.0229,0.104,0,10
+full without release_path,claim_contract;licensing;output;provenance,4,1,121,0.0083,0.0015,0.0453,0,10
+provenance only,provenance,1,111,121,0.9174,0.8545,0.9545,0,10
+output only,output,1,22,121,0.1818,0.1232,0.26,0,10
+licensing only,licensing,1,70,121,0.5785,0.4894,0.6628,0,10
+claim_contract only,claim_contract,1,58,121,0.4793,0.3923,0.5676,0,10
+release_path only,release_path,1,117,121,0.9669,0.9181,0.9871,0,10

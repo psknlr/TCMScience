@@ -1,0 +1,31 @@
+{
+ "dev_records": 176,
+ "frozen_on": "2026-10-07",
+ "licences": {
+  "CC-BY": 46,
+  "CC-BY-3.0": 45,
+  "CC-BY-4.0": 386,
+  "CC0-1.0": 1
+ },
+ "manual_checked": 30,
+ "manual_correct": {
+  "ci95": [
+   0.5907,
+   0.8821
+  ],
+  "k": 23,
+  "n": 30,
+  "rate": 0.7667
+ },
+ "records": 478,
+ "rules_after": "9f78756177f8",
+ "rules_before": "0b111264cdeb",
+ "sample_sha256": "d6b6080e9b80",
+ "test_labelled": 245,
+ "test_negatives": 57,
+ "test_records": 302,
+ "widening": {
+  "efficacy": 3,
+  "n": 4
+ }
+}

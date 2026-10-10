@@ -1,0 +1,17 @@
+design,max_certainty
+classical_text,moderate
+commentary,moderate
+expert_consensus,moderate
+in_silico,tentative
+in_vitro,tentative
+animal,tentative
+case_report,tentative
+case_series,tentative
+cross_sectional,moderate
+case_control,moderate
+cohort,moderate
+non_randomised_trial,moderate
+randomised_trial,strong
+systematic_review,strong
+guideline,strong
+unknown,uncertain

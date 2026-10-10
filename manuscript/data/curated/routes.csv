@@ -1,0 +1,9 @@
+route,name,status,shown,source,quote
+A,Mechanism robustness,run,a,docs/falsifiable-studies.md:116,| A. Mechanism robustness | **Run** on 葛根芩连汤 (above) |
+B,Exposure-constrained mechanism,run,c,docs/falsifiable-studies.md:117,| B. Exposure-constrained mechanism | **Run** on berberine from published summaries
+C,Cell context and direction,not started,,docs/falsifiable-studies.md:118,| C. Cell context and direction | Not started |
+D,Formula vs monomer,run,b,docs/falsifiable-studies.md:119,| D. Formula vs monomer | **Run** at the exposure level
+E,Combination,implemented,,docs/falsifiable-studies.md:120,| E. Combination | Analysis implemented and tested |
+F,Preparation and batch,records,,docs/falsifiable-studies.md:121,| F. Preparation and batch | Records in place (`PreparationBatch`) |
+G,Response heterogeneity,implemented,,docs/falsifiable-studies.md:122,| G. Response heterogeneity | Analysis implemented and tested |
+H,Benefit vs toxicity,partly,,docs/falsifiable-studies.md:123,| H. Benefit vs toxicity | Partly (ToxCast with negatives and cytotoxicity in `tcmdb`) |

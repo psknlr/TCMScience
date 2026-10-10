@@ -1,0 +1,13 @@
+negative,read_as,k,n,rate,ci_low,ci_high
+narrative_review,typed,2,25,0.08,0.0222,0.2497
+narrative_review,as_trial,0,25,0.0,0.0,0.1332
+narrative_review,as_review,2,25,0.08,0.0222,0.2497
+editorial,typed,1,15,0.0667,0.0119,0.2982
+editorial,as_trial,0,15,0.0,0.0,0.2039
+editorial,as_review,0,15,0.0,0.0,0.2039
+protocol,typed,1,17,0.0588,0.0105,0.2698
+protocol,as_trial,1,17,0.0588,0.0105,0.2698
+protocol,as_review,0,17,0.0,0.0,0.1843
+all,typed,4,57,0.0702,0.0276,0.167
+all,as_trial,1,57,0.0175,0.0031,0.0929
+all,as_review,2,57,0.0351,0.0097,0.1192

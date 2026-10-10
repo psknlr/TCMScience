@@ -1,0 +1,7 @@
+definition,label,background,disease_genes,overlap,fold,p_hypergeometric,p_permutation,default,source,quote
+genetic_ge_0.5,Genetic association ≥ 0.5 (default),"whole Reactome annotation (12,155 proteins)",478,9,0.97,0.59,0.67,1,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:370,| 遗传关联 ≥ 0.5（默认） | 478 | 9 | 0.97 | 0.59 | 0.67 |
+genetic_any,"Genetic association, any score","whole Reactome annotation (12,155 proteins)",2215,41,0.95,0.67,0.72,0,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:371,"| 遗传关联，不设阈值 | 2,215 | 41 | 0.95 | 0.67 | 0.72 |"
+genetic_ge_0.8,Genetic association ≥ 0.8,"whole Reactome annotation (12,155 proteins)",82,2,1.25,0.48,0.58,0,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:372,| 遗传关联 ≥ 0.8 | 82 | 2 | 1.25 | 0.48 | 0.58 |
+overall_ge_0.5,Overall score ≥ 0.5,"whole Reactome annotation (12,155 proteins)",156,8,2.63,0.011,0.033,0,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:373,| 总分 ≥ 0.5 | 156 | 8 | 2.63 | 0.011 | 0.033 |
+literature_ge_0.5,Literature co-mention ≥ 0.5,"whole Reactome annotation (12,155 proteins)",556,57,5.26,5.2e-26,0.001,0,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:374,| 文献共现 ≥ 0.5 | 556 | 57 | 5.26 | 5.2e-26 | 0.001 |
+genetic_ge_0.5_assayed,"Genetic association ≥ 0.5, assayed background",assayed proteins (391),14,9,1.06,0.50,,0,BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md:385,测过的蛋白里有 14 个是疾病基因，9 个命中，倍数 1.06，p = 0.50

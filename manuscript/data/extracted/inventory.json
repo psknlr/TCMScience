@@ -1,0 +1,67 @@
+{
+ "claim_reason_codes": 19,
+ "claim_reasons": {
+  "CLM001": "claim cites no evidence",
+  "CLM002": "a cited evidence item is not present",
+  "CLM003": "all supporting evidence is retracted",
+  "CLM004": "a clinical claim rests only on computational prediction",
+  "CLM005": "evidence tier is below the floor for this claim kind",
+  "CLM006": "evidence quality blocks this claim",
+  "CLM007": "a normative claim does not use claim_kind 'recommendation'",
+  "CLM008": "cross-species extrapolation is not declared",
+  "CLM009": "an extrapolation beyond the evidence is not declared",
+  "CLM010": "a supporting quote was not located in its source",
+  "CLM011": "the claim's wording asserts more than its declared claim_kind",
+  "CLM012": "an extrapolation is marked validated by evidence that is not present",
+  "CLM013": "the claim's stated evidence scope is not what its cited evidence covers",
+  "CLM014": "the claim names a drug by a near name of the one its evidence studied",
+  "CLM015": "the claim is about a formula and its evidence about a constituent, or the reverse",
+  "CLM016": "the claim names a processing state other than the one its evidence studied",
+  "CLM017": "the claim asserts relevance at human exposure that no cited evidence measured",
+  "CLM018": "the claim counts more independent sources than its evidence holds",
+  "CLM019": "the claim states an absence (no effect, no harm, no relation) that no cited evidence tested"
+ },
+ "compiler_diagnostics": 71,
+ "compiler_diagnostics_by_family": {
+  "EFF": 5,
+  "IFC": 7,
+  "REP": 6,
+  "RES": 6,
+  "SCI": 8,
+  "SIR": 16,
+  "STAT": 15,
+  "TYP": 8
+ },
+ "native_tool_domains": 12,
+ "native_tools": 150,
+ "native_tools_by_domain": {
+  "clinical-calculators": 55,
+  "file-formats": 8,
+  "pharmacology": 9,
+  "phylogenetics": 5,
+  "population-genetics": 3,
+  "protein-analysis": 4,
+  "sequence-alignment": 3,
+  "sequence-analysis": 18,
+  "statistics": 27,
+  "survival-analysis": 2,
+  "tcm-knowledge": 11,
+  "variant-analysis": 5
+ },
+ "operations_in_verification_file": 444,
+ "operations_live_verified": 444,
+ "public_sources": 117,
+ "public_sources_by_group": {
+  "core": 16,
+  "extended": 42,
+  "supplement": 49,
+  "tcm": 10
+ },
+ "sources_in_verification_file": 117,
+ "tcm_tools": 11,
+ "typed_operations": 444,
+ "verification_dates": [
+  "2026-09-17",
+  "2026-10-07"
+ ]
+}

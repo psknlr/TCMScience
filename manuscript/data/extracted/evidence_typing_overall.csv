@@ -1,0 +1,17 @@
+version,split,metric,k,n,rate,ci_low,ci_high
+before,dev,precision,86,98,0.8776,0.7981,0.9285
+before,dev,coverage,87,140,0.6214,0.5389,0.6975
+before,dev,negatives_typed,11,36,0.3056,0.18,0.4686
+before,dev,wrong_readings,12,,,,
+before,test,precision,155,175,0.8857,0.8301,0.9248
+before,test,coverage,156,245,0.6367,0.5748,0.6944
+before,test,negatives_typed,19,57,0.3333,0.2249,0.4628
+before,test,wrong_readings,20,,,,
+after,dev,precision,119,121,0.9835,0.9417,0.9955
+after,dev,coverage,121,140,0.8643,0.7977,0.9114
+after,dev,negatives_typed,0,36,0.0,0.0,0.0964
+after,dev,wrong_readings,2,,,,
+after,test,precision,191,196,0.9745,0.9417,0.9891
+after,test,coverage,192,245,0.7837,0.7279,0.8306
+after,test,negatives_typed,4,57,0.0702,0.0276,0.167
+after,test,wrong_readings,5,,,,

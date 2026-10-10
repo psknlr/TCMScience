@@ -1,0 +1,11 @@
+case,language,claim_kind,source_design,statement
+E1,zh,efficacy,randomized_trial,葛根芩连汤可降低成人2型糖尿病患者的糖化血红蛋白（doi:10.5555/tcm-ablation.01）。
+E2,en,efficacy,randomized_trial,Empagliflozin reduced the combined risk of cardiovascular death or hospitalization for heart failure in patients with heart failure and a preserved ejection fraction (PMID: 34449189).
+E3,zh,efficacy,randomized_trial,黄芪注射液可降低成人慢性心力衰竭患者的再住院率（doi:10.5555/tcm-ablation.03）。
+E4,zh,efficacy,randomized_trial,制附子1.5g/日可增加成人慢性心力衰竭患者的6分钟步行距离（doi:10.5555/tcm-ablation.04）。
+A1,en,association,observational,Higher serum C-telopeptide was associated with all-cause mortality in adults aged 65 or older (doi:10.5555/tcm-ablation.05).
+A2,zh,association,observational,长期服用含马兜铃酸的中药与成人慢性肾脏病患者终末期肾病风险升高相关（doi:10.5555/tcm-ablation.06）。
+S1,zh,safety_signal,case_report,服用含何首乌的制剂可能与成人药物性肝损伤有关（doi:10.5555/tcm-ablation.07）。
+M1,en,mechanism,in_vitro,"In vitro, compound A may inhibit target T1 (doi:10.5555/tcm-ablation.08)."
+H1,en,mechanism_hypothesis,docking,"Docking suggests that baicalin may bind PTP1B, a mechanism hypothesis for experimental testing (doi:10.5555/tcm-ablation.09)."
+C1,zh,attribution,classical_text,《伤寒论》第34条记载：喘而汗出者，葛根黄芩黄连汤主之（passage.shl_34）。
