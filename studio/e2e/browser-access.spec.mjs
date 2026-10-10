@@ -72,7 +72,8 @@ test("browser Python uses full formula rows and governed same-origin database ac
   expect(compute.cpu.result).toEqual(compute.reference.result);
   expect(compute.gpu.receipt.output_sha256).toBe(compute.reference.receipt.output_sha256);
   expect(compute.reference.receipt.compute.backend).toBe("pyodide");
-  expect(compute.cpu.receipt.compute.backend).toBe("js");
-  expect(["webgpu", "js"]).toContain(compute.gpu.receipt.compute.backend);
+  // the CPU counts are WebAssembly SIMD (every engine Playwright drives has it); "auto" may also choose the GPU
+  expect(compute.cpu.receipt.compute.backend).toBe("wasm-simd");
+  expect(["webgpu", "wasm-simd"]).toContain(compute.gpu.receipt.compute.backend);
   test.info().annotations.push({ type: "compute_backend", description: compute.gpu.receipt.compute.backend });
 });

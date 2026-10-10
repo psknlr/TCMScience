@@ -4,13 +4,15 @@
 //
 //   tools:   the real tool calls through the Worker (Pyodide), with the original Python ("reference") and with the
 //            local backends ("auto"), alternating, `reps` times each; the worker's own duration_ms is the timing.
-//   kernels: the JavaScript kernels alone, in the page, on the same inputs (no Python, no JSON).
+//   kernels: the JavaScript and WebAssembly SIMD kernels alone, in the page, on the same inputs (no Python, no JSON);
+//            each SIMD result is compared with the JavaScript one before it is timed.
 //   webgpu:  the WGSL count kernel, with exact parity against the CPU reference (a software adapter is labelled).
 //   webnn:   which contexts can be created here, and whether a small graph computes correctly on each.
 
 import { BrowserRuntime } from "../../js/runtime/browser.js";
 import { probeCapabilities } from "../../js/compute/capabilities.js";
 import { levenshtein, needlemanWunsch, sequenceCounts, smithWaterman } from "../../js/compute/kernels.js";
+import { sequenceCountsSIMD, simdStatus } from "../../js/compute/simd.js";
 import { SequenceCompute, planSequenceCompute, referenceCounts } from "../../js/runtime/webgpu.js";
 
 const q = new URLSearchParams(location.search);
@@ -109,11 +111,22 @@ function kernelBench() {
     out.kernels.push({ kernel: "smith-waterman", size: `${n}×${n}`, cells: n * n, ms: round(time(() => smithWaterman(a, b, "ACGT", "ACGT", DNA_TABLE, Array(16).fill(false), -2, false)), 2) });
     out.kernels.push({ kernel: "levenshtein", size: `${n}×${n}`, cells: n * n, ms: round(time(() => levenshtein(a, b)), 2) });
   }
-  for (const [n, w] of [[60, 1000], [120, 1000], [250, 1000]]) {
+  const simd = simdStatus().available;
+  const counts = (kernel, size, cells, tool, seqs, window = 0) => {
+    out.kernels.push({ kernel: `${kernel} (JavaScript)`, size, cells, ms: round(time(() => sequenceCounts(tool, seqs, window)), 2) });
+    if (!simd) { out.kernels.push({ kernel: `${kernel} (WebAssembly SIMD)`, size, cells, ms: null, note: "no SIMD here" }); return; }
+    const same = JSON.stringify(Array.from(sequenceCountsSIMD(tool, seqs, window))) === JSON.stringify(Array.from(sequenceCounts(tool, seqs, window)));
+    if (!same) fail(`SIMD ${kernel} ${size} differs from the JavaScript kernel`);
+    out.kernels.push({ kernel: `${kernel} (WebAssembly SIMD)`, size, cells, exact: same, ms: same ? round(time(() => sequenceCountsSIMD(tool, seqs, window)), 2) : null });
+  };
+  for (const [n, w] of QUICK ? [[60, 1000], [250, 1000]] : [[60, 1000], [120, 1000], [250, 1000], [40, 8000]]) {
     const seqs = Array.from({ length: n }, (_, i) => dnaOf(w, 100 + i, "ACGTN-"));
-    out.kernels.push({ kernel: "distance counts", size: `${n} seqs × ${w}`, cells: n * (n - 1) / 2 * w, ms: round(time(() => sequenceCounts("native.distance_matrix", seqs)), 2) });
+    counts("distance counts", `${n} seqs × ${w}`, n * (n - 1) / 2 * w, "native.distance_matrix", seqs);
   }
-  for (const k of out.kernels) k.ns_per_cell = round((k.ms * 1e6) / k.cells, 3);
+  const long = [dnaOf(1_000_000, 3, "ACGTN"), dnaOf(1_000_000, 4, "ACGTN")];
+  counts("hamming counts", "2 × 1 000 000", 1_000_000, "native.hamming_distance", long);
+  counts("GC count", "1 000 000", 1_000_000, "native.gc_content", [long[0]]);
+  for (const k of out.kernels) k.ns_per_cell = k.ms === null ? null : round((k.ms * 1e6) / k.cells, 3);
 }
 
 // ------------------------------------------------------------------------------------------------- WebGPU

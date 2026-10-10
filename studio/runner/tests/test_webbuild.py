@@ -194,8 +194,11 @@ def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site)
     manifest = json.loads(text.split("const PRECACHE = ", 1)[1].split(";\n", 1)[0])
     assert summary["service_worker"] == {"version": manifest["version"], "files": len(manifest["files"])}
     paths = {f["path"] for f in manifest["files"]}
-    assert {"/", "/js/main.js", "/js/ui/app.js", "/js/compute/kernels.js", "/runtime/boot.json",
-            "/runtime/catalog.json", "/manifest.webmanifest"} <= paths
+    assert {"/", "/js/main.js", "/js/ui/app.js", "/js/compute/kernels.js", "/js/compute/simd.js",
+            "/js/compute/wasm/seqcount.wasm.js", "/runtime/boot.json", "/runtime/catalog.json",
+            "/manifest.webmanifest"} <= paths
+    assert (out / "js" / "compute" / "wasm" / "seqcount.wat").is_file(), "the module's source ships beside it"
+    assert "/js/compute/wasm/seqcount.wat" not in paths, "but nothing loads it, so it is not cached"
     assert "/index.html" not in paths, "the page is kept as / (Workers may redirect /index.html)"
     assert not any(p.endswith((".tar.gz", ".xlsx")) or p in ("/sw.js", "/_headers") for p in paths), \
         "content-addressed data stays with the runtime Worker's own cache"

@@ -29,7 +29,8 @@ Two kinds of help, both optional and both checked by the caller before use:
 
 ``KERNEL_EVENTS``
     When set to a list, :func:`note` appends what happened to each kernel result
-    (``used``, ``declined``, ``rejected`` with the reason), so a receipt can say what ran.
+    (``used``, ``declined``, ``rejected`` with the reason, and any details such as the
+    backend that computed it), so a receipt can say what ran.
 """
 from contextvars import ContextVar
 
@@ -38,11 +39,11 @@ KERNELS = ContextVar("bioagent_cpu_kernels", default=None)
 KERNEL_EVENTS = ContextVar("bioagent_kernel_events", default=None)
 
 
-def note(name, outcome, reason=""):
+def note(name, outcome, reason="", **details):
     """Record what became of a kernel's result in this call (no-op unless someone listens)."""
     events = KERNEL_EVENTS.get()
     if events is not None:
-        events.append({"kernel": name, "outcome": outcome, **({"reason": reason} if reason else {})})
+        events.append({"kernel": name, "outcome": outcome, **({"reason": reason} if reason else {}), **details})
 
 
 def counts_for(tool, sequences, window=0):

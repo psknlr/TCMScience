@@ -8,19 +8,27 @@ import { codePoints, levenshtein, needlemanWunsch, sequenceCounts, smithWaterman
 
 const CASES = JSON.parse(readFileSync(new URL("./fixtures/kernel_cases.json", import.meta.url), "utf8")).cases;
 
-test("every fixture case: the JavaScript kernel answers what Python computes, to the bit and the type", () => {
-  const k = pythonKernels();
-  const byKernel = {};
-  for (const c of CASES) {
-    // the text Python sent, not a re-serialisation of it (JSON.stringify(-0) is "0")
-    const got = JSON.parse(k.call(c.kernel, c.payload_json));
-    assert.deepEqual(got, c.expect, `${c.kernel} ${c.payload_json.slice(0, 120)}`);
-    byKernel[c.kernel] = (byKernel[c.kernel] || 0) + 1;
-  }
-  // the fixture covers each kernel substantially
-  assert.ok(byKernel["align.nw_linear"] > 100 && byKernel["align.sw_linear"] > 100, JSON.stringify(byKernel));
-  assert.ok(byKernel["sequence.levenshtein"] > 30 && byKernel["sequence.counts"] >= 30, JSON.stringify(byKernel));
-});
+for (const [label, opts, countsBy] of [["WebAssembly SIMD", {}, "wasm-simd"], ["JavaScript", { simd: false }, "js"]]) {
+  test(`every fixture case: the kernels answer what Python computes, to the bit and the type (counts by ${label})`, () => {
+    const k = pythonKernels(opts);
+    const byKernel = {};
+    for (const c of CASES) {
+      // the text Python sent, not a re-serialisation of it (JSON.stringify(-0) is "0")
+      const got = JSON.parse(k.call(c.kernel, c.payload_json));
+      const what = `${c.kernel} ${c.payload_json.slice(0, 120)}`;
+      if (c.kernel === "sequence.counts") {
+        assert.deepEqual(got.counts, c.expect, what);
+        assert.equal(got.backend, countsBy, what);
+      } else {
+        assert.deepEqual(got, c.expect, what);
+      }
+      byKernel[c.kernel] = (byKernel[c.kernel] || 0) + 1;
+    }
+    // the fixture covers each kernel substantially
+    assert.ok(byKernel["align.nw_linear"] > 100 && byKernel["align.sw_linear"] > 100, JSON.stringify(byKernel));
+    assert.ok(byKernel["sequence.levenshtein"] > 30 && byKernel["sequence.counts"] >= 30, JSON.stringify(byKernel));
+  });
+}
 
 test("the fixtures include the hard cases: integer-typed scores, negative zero, empty local alignments, astral CJK", () => {
   const align = CASES.filter((c) => c.kernel.startsWith("align."));
@@ -57,6 +65,7 @@ test("a kernel that cannot take its input declines (null) instead of throwing in
   assert.equal(k.call("align.nw_linear", JSON.stringify({ x: "AC", y: "AG", alpha_x: "A", alpha_y: "AG", table: [1, 0], table_int: [false, false], gap: -1, gap_int: false })), "null", "a letter missing from its alphabet");
   assert.equal(k.call("sequence.counts", JSON.stringify({ tool: "native.distance_matrix", sequences: ["ACG", "AC"] })), "null", "unequal lengths");
   assert.equal(k.call("sequence.counts", JSON.stringify({ tool: "native.gc_content", sequences: ["ACG"], window: 4 })), "null", "a window longer than the sequence");
+  assert.equal(k.call("sequence.counts", JSON.stringify({ tool: "native.gc_content", sequences: ["GCé"] })), "null", "not ASCII");
   assert.equal(k.call("no.such.kernel", "{}"), "null");
   assert.equal(k.call("sequence.levenshtein", "not json"), "null");
 });

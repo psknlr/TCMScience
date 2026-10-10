@@ -451,7 +451,11 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
       else if (!packet && plan?.passed_over?.length) c.fallback_reason = plan.passed_over.find((r) => r.id === "webgpu")?.reason;
       if (!c.fallback_reason) delete c.fallback_reason;
       // what ran inside Python teaches the scheduler about this device
-      if (envelope.status === "succeeded" && !packet) accel.learn(target, nativeArgs, c.backend === "js" ? "js" : "python", performance.now() - started);
+      if (envelope.status === "succeeded" && !packet) {
+        const k = (c.kernels || []).find((e) => e.kernel === "sequence.counts" && e.outcome === "used");
+        if (k) accel.learn(target, nativeArgs, k.backend || "js", Number.isFinite(k.ms) ? k.ms : performance.now() - started);
+        else if (!c.kernels?.length) accel.learn(target, nativeArgs, "python", performance.now() - started);
+      }
     }
     envelope.duration_ms = Math.round(performance.now() - t0);
     return JSON.stringify(envelope);

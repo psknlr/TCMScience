@@ -10,10 +10,12 @@ Counts prepared by WebGPU before the call (a GPU answers asynchronously)
     is not used; the original Python computes and the receipt says why. The call never
     fails because of a packet.
 
-CPU kernels the tools call synchronously (JavaScript in the Worker)
+CPU kernels the tools call synchronously (in the Worker)
     ``bioagent.tools._compute.KERNELS``: the tools hand their own normalised input to the
     kernel and check its result before using it (bioagent.tools.align, .sequence). Small
     inputs stay in Python, where crossing into JavaScript would cost more than it saves.
+    The integer counts come from WebAssembly SIMD where the engine has it, else from
+    JavaScript; the alignments and the edit distance are JavaScript.
 
 ``receipt.compute`` names the backend that produced the numbers and what each kernel did;
 ``receipt.device`` is ``webgpu`` only when GPU counts were used (CONTRACTS §3). Python keeps
@@ -43,6 +45,7 @@ KERNEL_MIN_CELLS = 2048
 GC_MIN_WINDOW = 256   # measured in Chromium: a 60-wide window was slower with the kernel than without
 
 GPU_PRECISION = "uint32 exact counts; Python float64 transforms"
+SIMD_PRECISION = "exact integer counts (WebAssembly SIMD, CPU); Python float64 transforms"
 CPU_PRECISION = {
     "sequence.counts": "exact integer counts (JavaScript, CPU); Python float64 transforms",
     "align.nw_linear": "the dynamic programme in IEEE-754 doubles and exact integers, as Python computes it; "
@@ -192,12 +195,14 @@ class _Call:
         if not all(s.isascii() for s in sequences):
             note("sequence.counts", "declined", "sequence counts take ASCII sequences")
             return None
-        counts = self._js("sequence.counts", {"tool": tool, "sequences": list(sequences), "window": window})
+        r = self._js("sequence.counts", {"tool": tool, "sequences": list(sequences), "window": window})
+        counts = r.get("counts") if isinstance(r, dict) else None
         if counts is None:
             note("sequence.counts", "declined")
             return None
+        backend = r.get("backend") if r.get("backend") in ("wasm-simd", "js") else "js"
         reason = check_counts(name, counts, sequences, window)
-        note("sequence.counts", "rejected" if reason else "used", reason or "")
+        note("sequence.counts", "rejected" if reason else "used", reason or "", backend=backend)
         return None if reason else counts
 
     def aligner(self, name):
@@ -236,11 +241,13 @@ class _Call:
     # -- the receipt
 
     def compute(self, tool):
-        used = [e["kernel"] for e in self.events if e["outcome"] == "used"]
+        used = [e for e in self.events if e["outcome"] == "used"]
         if self.gpu_used:
             out = {"backend": "webgpu", "operation": self.packet["tool"], "precision": GPU_PRECISION}
         elif used:
-            out = {"backend": "js", "operation": tool, "precision": CPU_PRECISION.get(used[0], "")}
+            backend = used[0].get("backend", "js")
+            precision = SIMD_PRECISION if backend == "wasm-simd" else CPU_PRECISION.get(used[0]["kernel"], "")
+            out = {"backend": backend, "operation": tool, "precision": precision}
         elif tool in _KERNEL_TOOLS:
             out = {"backend": "pyodide", "operation": tool, "precision": "Python float64"}
         else:

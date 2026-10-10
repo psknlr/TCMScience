@@ -5,9 +5,11 @@
 // as an int.
 //
 // call(name, payloadJson) → resultJson | "null" (declined). Names: sequence.counts, align.nw_linear,
-// align.sw_linear, sequence.levenshtein (bioagent.tools._compute documents what each computes).
+// align.sw_linear, sequence.levenshtein (bioagent.tools._compute documents what each computes). The counts come
+// from the WebAssembly SIMD kernel where the engine has SIMD, else from the JavaScript one; the result says which.
 
 import { levenshtein, needlemanWunsch, sequenceCounts, smithWaterman } from "./kernels.js";
+import { sequenceCountsSIMD } from "./simd.js";
 
 const view = new DataView(new ArrayBuffer(8));
 
@@ -24,16 +26,33 @@ export function bitsDouble(hex) {
   return view.getFloat64(0, false);
 }
 
+/** The integer counts → {counts, backend: "wasm-simd" | "js"}. SIMD declines (null) where the engine lacks it. */
+function counts(a, opts, simd) {
+  const window = a.window ?? 0;
+  if (simd) {
+    let c = null;
+    try {
+      c = sequenceCountsSIMD(a.tool, a.sequences, window, opts);
+    } catch (err) {
+      if (err?.code === "cancelled") throw err;
+      c = null; // too large for its memory, say: the JavaScript kernel takes it (and rejects what is not valid)
+    }
+    if (c) return { counts: Array.from(c), backend: "wasm-simd" };
+  }
+  return { counts: Array.from(sequenceCounts(a.tool, a.sequences, window, opts)), backend: "js" };
+}
+
 /**
- * Make the object handed to Python. `stats` (optional) receives {name, ms, backend} for each call, for the receipt
- * and the benchmarks; `now` is the clock; `isCancelled` is polled by the kernels (the Worker's interrupt flag).
+ * Make the object handed to Python. `stats` (optional) receives {name, ms, backend, ok} for each call, for the
+ * benchmarks; `now` is the clock; `isCancelled` is polled by the kernels (the Worker's interrupt flag); `simd: false`
+ * keeps the counts on the JavaScript kernel (the tests compare the two).
  */
-export function pythonKernels({ stats = null, now = () => performance.now(), isCancelled = null } = {}) {
+export function pythonKernels({ stats = null, now = () => performance.now(), isCancelled = null, simd = true } = {}) {
   const opts = { isCancelled };
   const run = (name, a) => {
     switch (name) {
       case "sequence.counts":
-        return Array.from(sequenceCounts(a.tool, a.sequences, a.window ?? 0, opts));
+        return counts(a, opts, simd);
       case "align.nw_linear": {
         const r = needlemanWunsch(a.x, a.y, a.alpha_x, a.alpha_y, a.table, a.table_int, a.gap, a.gap_int, opts);
         return { aligned_x: r.alignedX, aligned_y: r.alignedY, score_bits: doubleBits(r.score), score_int: r.scoreInt };
@@ -64,7 +83,7 @@ export function pythonKernels({ stats = null, now = () => performance.now(), isC
         // raises KeyboardInterrupt at once, as it reads the same flag
         out = null;
       }
-      stats?.push?.({ name: String(name), ms: now() - t0, backend: "js", ok: out !== null });
+      stats?.push?.({ name: String(name), ms: now() - t0, backend: out?.backend || "js", ok: out !== null });
       return JSON.stringify(out);
     },
   };

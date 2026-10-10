@@ -453,7 +453,7 @@ _SW_MARKER = "const PRECACHE = null; // filled by the build: {version, index_url
 # what the service worker does not keep in the shell: content-addressed data the runtime Worker keeps itself,
 # the test and design pages of a --dev build, and the worker script and edge headers themselves
 _SW_SKIP_PREFIXES = ("test/", "dev/")
-_SW_SKIP_SUFFIXES = (".tar.gz", ".xlsx")
+_SW_SKIP_SUFFIXES = (".tar.gz", ".xlsx", ".wat")   # .wat: the readable source of an embedded WebAssembly module
 _SW_SKIP_NAMES = {"sw.js", "_headers"}
 
 

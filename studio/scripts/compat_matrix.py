@@ -13,7 +13,8 @@ specific class its code and dependencies support, never in one it has not been s
   1g runs in the browser now; its data comes from the source's public API through the site's
      bounded gateway (the request, parsing and policy run locally; the data is remote by nature)
   2  converted: a JavaScript CPU kernel computes the hot loop, byte-identical to Python (checked)
-  3  WebGPU: integer reductions on the GPU, exact, with CPU recounts (and 2 as its fallback)
+  3  WebGPU and WebAssembly SIMD: exact integer reductions on the GPU or with SIMD on the CPU,
+     with recounts in Python (and the JavaScript kernel, then Python, as the fallbacks)
   4  WebNN candidate: neural inference once a model is packaged (none ships yet)
   5  WASM SIMD / threads candidate: a CPU kernel would pay off; not written yet
   6  needs substantial work to run in a browser (data, memory, a job model), though its
@@ -42,7 +43,7 @@ CLASS_LABELS = {
     "1": "browser now (Pyodide, CPU)",
     "1g": "browser now; data via the gateway",
     "2": "browser: JavaScript CPU kernel",
-    "3": "browser: WebGPU (exact) + CPU kernel",
+    "3": "browser: WebGPU / WASM SIMD (exact) + CPU kernel",
     "4": "WebNN candidate",
     "5": "WASM SIMD/threads candidate",
     "6": "substantial work for the browser",
@@ -57,11 +58,12 @@ KERNEL = {
     "native.protein_alignment": "Needleman–Wunsch / Smith–Waterman (BLOSUM62)",
     "native.edit_distance": "Levenshtein",
 }
-# … and those that also have the WebGPU count kernel (studio/web/js/runtime/webgpu.js)
+# … and those whose integer counts also have the WebGPU kernel (studio/web/js/runtime/webgpu.js) and the
+# WebAssembly SIMD kernel (studio/web/js/compute/wasm/seqcount.wat)
 GPU = {
     "native.distance_matrix": "pairwise site/difference/transition counts",
     "native.hamming_distance": "mismatch count",
-    "native.gc_content": "GC counts (windows: CPU prefix sums)",
+    "native.gc_content": "GC counts (windows slide in JavaScript)",
 }
 # CPU work in Pyodide that a WASM SIMD or threaded kernel would speed up (measured or O(·) evident), not written
 WASM_CANDIDATES = {
@@ -109,9 +111,9 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
     """→ (class, local backends in order, fallback, validation, notes)."""
     eid, exec_ = e["id"], e.get("exec") or []
     if eid in GPU:
-        return ("3", "webgpu → js kernel → pyodide", "the CPU kernel, then the original Python",
+        return ("3", "webgpu | wasm-simd → js kernel → pyodide", "the CPU kernel, then the original Python",
                 "exact integer counts; packet bound to the input by SHA-256; Python recounts sampled records; "
-                "fixtures + randomized end-to-end parity", GPU[eid])
+                "fixtures + randomized end-to-end parity (SIMD and JavaScript alike)", GPU[eid])
     if eid in KERNEL:
         return ("2", "js kernel → pyodide", "the original Python",
                 "byte-identical output (score bits and int/float type); Python re-checks every alignment; "
@@ -182,7 +184,8 @@ FAMILIES = [
      "done, exact; speed-ups measured in docs/benchmarks", "WASM SIMD (anti-diagonal) for a further gain"),
     ("Sequence counts: distance matrices, Hamming, GC windows", "native.distance_matrix, hamming_distance, gc_content",
      "3", "O(n²·w) comparisons; counts handed back are O(n²)", "yes (GPU where present)",
-     "done: WebGPU exact + CPU kernel; result handling now dominates large matrices", "WASM SIMD byte compares"),
+     "done: WebGPU, WebAssembly SIMD and JavaScript kernels, all exact; handing the counts to Python now "
+     "dominates large matrices", "a compact count format across the Pyodide boundary"),
     ("Phylogeny, k-mers, ORFs, rank statistics", "neighbor_joining, upgma, kmer_counts, …", "5",
      "O(n³) (trees), linear (scans)", "yes", "runs in Pyodide; candidates for kernels", "P2"),
     ("Network pharmacology (permutation null)", "skill.analyze-tcm-network-pharmacology", "5",

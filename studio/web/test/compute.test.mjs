@@ -94,6 +94,15 @@ function backend(id, kind, { exact = true, cost = 1, fail = 0, result = id, code
   };
 }
 
+test("a backend that defers its work is not timed by its hand-off; record() says what the work took", async () => {
+  const s = new ComputeScheduler({ backends: [{ ...backend("simd", "wasm-simd", { cost: 1 }), defers: true }, backend("js", "js", { cost: 2 })] });
+  const { provenance } = await s.run({ op: "x", units: 1000 }, null);
+  assert.equal(provenance.executed.id, "simd");
+  assert.deepEqual(s.measurements(), []);
+  s.record("simd", "x", 1000, 5);
+  assert.deepEqual(s.measurements(), [{ backend: "simd", op: "x", bucket: 10, ms_per_unit: 0.005 }]);
+});
+
 test("the cheapest supported backend runs; a failure falls back to the next, and provenance says so", async () => {
   const gpu = backend("webgpu", "webgpu", { cost: 1, fail: 1 });
   const js = backend("js", "js", { cost: 5 });
@@ -192,12 +201,21 @@ function fakeGPU({ fail = null } = {}) {
 }
 
 // two sequences of 80 000: the CPU kernel's ~0.1 ms beats the GPU's set-up; forty of 8 000 (6.2 M comparisons,
-// quadratic in the number of sequences) is where the GPU pays for itself
+// quadratic in the number of sequences) is where the GPU pays for itself against the JavaScript kernel, and sixty-four
+// of 40 000 (81 M) against WebAssembly SIMD
 const big = { sequences: { a: "ACGT".repeat(20000), b: "ACGA".repeat(20000) }, model: "p" };
 const huge = { sequences: Array.from({ length: 40 }, (_, i) => "ACGT".repeat(2000).slice(i) + "ACGT".slice(0, i % 4).padEnd(i, "A").slice(0, i)), model: "p" };
+const giant = { sequences: Array.from({ length: 64 }, (_, i) => "ACGT".repeat(10000).slice(i) + "A".repeat(i)), model: "p" };
+// an engine without WebAssembly SIMD (the GPU-against-JavaScript tests)
+const noSIMD = () => ({ available: false, reason: "not in this test" });
+
+function countTask(tool, args, preference = "auto") {
+  const plan = planSequenceCompute(tool, args);
+  return { op: "sequence.counts", tool, units: plan.operations, counts: plan.records * 4, exact: true, preference };
+}
 
 test("the accelerator: large work goes to the GPU with a digest Python can check; CPU-only and reference never do", async () => {
-  const acc = new SequenceAccelerator({ gpu: fakeGPU() });
+  const acc = new SequenceAccelerator({ gpu: fakeGPU(), simd: noSIMD });
   assert.equal((await acc.prepare("native.distance_matrix", big)).packet, null, "two long sequences: the CPU kernel is cheaper");
   const out = await acc.prepare("native.distance_matrix", huge);
   assert.equal(out.packet.backend, "webgpu");
@@ -214,22 +232,24 @@ test("the accelerator: large work goes to the GPU with a digest Python can check
 });
 
 test("the accelerator: small work stays on the CPU; a GPU that fails leaves the counting to Python", async () => {
-  const acc = new SequenceAccelerator({ gpu: fakeGPU() });
+  const acc = new SequenceAccelerator({ gpu: fakeGPU(), simd: noSIMD });
   const small = await acc.prepare("native.hamming_distance", { a: "ACGT", b: "ACGA" });
   assert.equal(small.packet, null);
   assert.match(small.plan.passed_over.find((r) => r.id === "webgpu").reason, /Small workload/);
   assert.ok(GPU_MIN_OPERATIONS > 4);
-  const broken = new SequenceAccelerator({ gpu: fakeGPU({ fail: "WebGPU device lost: GPU process crashed" }) });
+  const broken = new SequenceAccelerator({ gpu: fakeGPU({ fail: "WebGPU device lost: GPU process crashed" }), simd: noSIMD });
   const o = await broken.prepare("native.distance_matrix", huge);
   assert.equal(o.packet, null);
   assert.equal(o.plan.tried[0].outcome, "error");
   assert.equal(broken.scheduler.health("webgpu").setAside, true, "a lost device is not tried again this session");
   assert.equal((await broken.prepare("native.fisher_exact", {})).packet, null, "not a sequence tool");
-  assert.equal((await broken.prepare("native.gc_content", { sequence: "XYZ" })).plan.executed, null, "input the kernels do not take");
+  const odd = await broken.prepare("native.gc_content", { sequence: "XYZ" });
+  assert.equal(odd.plan.executed, null, "input the GPU kernel does not take");
+  assert.match(odd.plan.fallback_reason, /CPU kernel where that applies/, "the CPU kernels may still take it: the plan does not say otherwise");
 });
 
 test("the accelerator learns from what ran inside Python", async () => {
-  const acc = new SequenceAccelerator({ gpu: fakeGPU() });
+  const acc = new SequenceAccelerator({ gpu: fakeGPU(), simd: noSIMD });
   assert.equal((await acc.prepare("native.distance_matrix", huge)).plan.executed.id, "webgpu");
   // on this device the CPU kernel turned out much faster than the cost model thought, and the GPU slower
   const ops = planSequenceCompute("native.distance_matrix", huge).operations;
@@ -240,9 +260,39 @@ test("the accelerator learns from what ran inside Python", async () => {
 
 test("the real SequenceCompute rejects software adapters, so the scheduler falls back on SwiftShader", async () => {
   const gpu = new SequenceCompute({ navigator: { gpu: { requestAdapter: async () => ({ info: { vendor: "google", architecture: "swiftshader" } }) } } });
-  const acc = new SequenceAccelerator({ gpu });
+  const acc = new SequenceAccelerator({ gpu, simd: noSIMD });
   const o = await acc.prepare("native.distance_matrix", huge);
   assert.equal(o.packet, null);
   assert.match(o.plan.tried[0].reason, /software/);
   assert.equal(o.plan.executed.id, "js", "the counting falls to the CPU kernel");
+});
+
+test("with WebAssembly SIMD the CPU kernel is SIMD: it takes what the GPU's set-up does not pay for", async () => {
+  const acc = new SequenceAccelerator({ gpu: fakeGPU() }); // the real simdStatus(): Node has SIMD
+  const o = await acc.prepare("native.distance_matrix", huge);
+  assert.equal(o.packet, null, "nothing prepared: Python calls the SIMD kernel itself");
+  assert.equal(o.plan.executed.id, "wasm-simd");
+  assert.deepEqual(o.plan.considered.map((r) => r.id), ["wasm-simd", "webgpu", "js", "python"]);
+  // sixty-four sequences of 40 000: enough work for the GPU to pay back its fixed cost
+  assert.equal(acc.scheduler.plan(countTask("native.distance_matrix", giant)).order[0].id, "webgpu");
+  // what it measures moves the choice: a SIMD run this fast keeps even the giant workload on the CPU
+  const ops = planSequenceCompute("native.distance_matrix", giant).operations;
+  acc.learn("native.distance_matrix", giant, "wasm-simd", ops * 5e-8);
+  assert.equal(acc.scheduler.plan(countTask("native.distance_matrix", giant)).order[0].id, "wasm-simd");
+});
+
+test("a path that runs inside Python is timed by what it took there, never by its instant hand-off", async () => {
+  const acc = new SequenceAccelerator({ gpu: fakeGPU() });
+  await acc.prepare("native.distance_matrix", huge);
+  assert.deepEqual(acc.scheduler.measurements(), [], "the hand-off is not a measurement");
+  acc.learn("native.distance_matrix", huge, "wasm-simd", 1.5);
+  acc.learn("native.distance_matrix", huge, "pyodide", 900); // not a backend the scheduler knows: ignored
+  assert.deepEqual(acc.scheduler.measurements().map((m) => m.backend), ["wasm-simd"]);
+});
+
+test("without SIMD the plan says why, and the JavaScript kernel counts", async () => {
+  const acc = new SequenceAccelerator({ gpu: fakeGPU(), simd: () => ({ available: false, reason: "this engine has no WebAssembly SIMD" }) });
+  const o = await acc.prepare("native.distance_matrix", big);
+  assert.equal(o.plan.executed.id, "js");
+  assert.equal(o.plan.passed_over.find((r) => r.id === "wasm-simd").reason, "No WebAssembly SIMD here (this engine has no WebAssembly SIMD)");
 });

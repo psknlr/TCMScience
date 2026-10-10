@@ -9,7 +9,7 @@ Entries: 647. Running in the browser today (classes 1, 1g, 2, 3, 5): 629; with a
 | 1 | browser now (Pyodide, CPU) | 169 | clinic 5, native 135, skill 4, study 4, system 6, tcmdb 15 |
 | 1g | browser now; data via the gateway | 444 | connector 444 |
 | 2 | browser: JavaScript CPU kernel | 4 | native 4 |
-| 3 | browser: WebGPU (exact) + CPU kernel | 3 | native 3 |
+| 3 | browser: WebGPU / WASM SIMD (exact) + CPU kernel | 3 | native 3 |
 | 5 | WASM SIMD/threads candidate | 9 | native 8, skill 1 |
 | 6 | substantial work for the browser | 3 | job 2, skill 1 |
 | 7 | native engine or GPU framework (runner) | 9 | job 4, skill 5 |
@@ -23,7 +23,7 @@ Class 4 (WebNN) has no entries: no tool runs a neural model in the browser yet. 
 |---|---|---|---|---|---|---|
 | Native tools: clinical calculators, statistics, pharmacology, file formats, variants, survival | native: clinical_calc, study_design, … | 1 | KB; microseconds to milliseconds | yes | done (runs in Pyodide, outputs identical to native CPython) | — |
 | Sequence alignment and edit distance | native.global/local/protein_alignment, native.edit_distance | 2 | O(n·m) cells, ≤ 4 M (alignment); 1 byte of traceback per cell | yes | done, exact; speed-ups measured in docs/benchmarks | WASM SIMD (anti-diagonal) for a further gain |
-| Sequence counts: distance matrices, Hamming, GC windows | native.distance_matrix, hamming_distance, gc_content | 3 | O(n²·w) comparisons; counts handed back are O(n²) | yes (GPU where present) | done: WebGPU exact + CPU kernel; result handling now dominates large matrices | WASM SIMD byte compares |
+| Sequence counts: distance matrices, Hamming, GC windows | native.distance_matrix, hamming_distance, gc_content | 3 | O(n²·w) comparisons; counts handed back are O(n²) | yes (GPU where present) | done: WebGPU, WebAssembly SIMD and JavaScript kernels, all exact; handing the counts to Python now dominates large matrices | a compact count format across the Pyodide boundary |
 | Phylogeny, k-mers, ORFs, rank statistics | neighbor_joining, upgma, kmer_counts, … | 5 | O(n³) (trees), linear (scans) | yes | runs in Pyodide; candidates for kernels | P2 |
 | Network pharmacology (permutation null) | skill.analyze-tcm-network-pharmacology | 5 | 1000 permutations × pathways; Brandes betweenness | yes | runs in Pyodide | P1: exact MT19937 port |
 | Governed TCM skills, clinic, TCM data hub queries, studies | skill.*(tcm), clinic.*, tcmdb.*, study.* | 1 | MB (formula SQLite 12 MB, loaded on demand) | yes | done | ranked multi-term formula retrieval (P1) |

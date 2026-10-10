@@ -119,19 +119,22 @@ def test_invalid_arguments_fail_as_before_with_or_without_a_packet():
 # ------------------------------------------------------------------------------------------- the real JS kernels
 
 class NodeKernels:
-    """studio/web/js/compute/bridge.js in a Node process: call(name, payload_json) -> json, as in the Worker."""
+    """studio/web/js/compute/bridge.js in a Node process: call(name, payload_json) -> json, as in the Worker.
+    ``counts_by`` is the backend the counts come from: ``wasm-simd`` (as where the engine has SIMD) or ``js``."""
 
     SCRIPT = (
         "import { pythonKernels } from %s;\n"
         "import readline from 'node:readline';\n"
-        "const k = pythonKernels();\n"
+        "const k = pythonKernels({ simd: %s });\n"
         "readline.createInterface({ input: process.stdin }).on('line', (line) => {\n"
         "  const { name, payload } = JSON.parse(line);\n"
         "  process.stdout.write(JSON.stringify(k.call(name, payload)) + '\\n');\n"
         "});\n")
 
-    def __init__(self):
-        self.proc = subprocess.Popen(["node", "--input-type=module", "-e", self.SCRIPT % json.dumps(BRIDGE.as_uri())],
+    def __init__(self, counts_by="wasm-simd"):
+        self.counts_by = counts_by
+        script = self.SCRIPT % (json.dumps(BRIDGE.as_uri()), "true" if counts_by == "wasm-simd" else "false")
+        self.proc = subprocess.Popen(["node", "--input-type=module", "-e", script],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8")
         self.calls = []
 
@@ -146,11 +149,11 @@ class NodeKernels:
         self.proc.wait(timeout=10)
 
 
-@pytest.fixture
-def js():
+@pytest.fixture(params=["wasm-simd", "js"])
+def js(request):
     if shutil.which("node") is None:
         pytest.skip("node is not installed: the JavaScript kernels cannot be run here")
-    k = NodeKernels()
+    k = NodeKernels(request.param)
     browser_compute.install_js_kernels(k)
     try:
         yield k
@@ -230,11 +233,15 @@ def test_count_kernels_match_python(js):
     a, b = dna(rng, 9000, "ACGTUNRY"), dna(rng, 9000, "ACGTUNRY")
     fast, slow = both({"tool": "native.hamming_distance", "arguments": {"a": a, "b": b}})
     same(fast, slow)
-    assert fast["receipt"]["compute"]["backend"] == "js"
+    compute = fast["receipt"]["compute"]
+    assert compute["backend"] == js.counts_by
+    assert compute["kernels"] == [{"kernel": "sequence.counts", "outcome": "used", "backend": js.counts_by,
+                                   "ms": compute["kernels"][0]["ms"]}]
+    assert ("WebAssembly SIMD" in compute["precision"]) == (js.counts_by == "wasm-simd")
     s = dna(rng, 3000, "ACGTSWN")
     fast, slow = both({"tool": "native.gc_content", "arguments": {"sequence": s, "window": 300}})
     same(fast, slow)
-    assert fast["receipt"]["compute"]["backend"] == "js"
+    assert fast["receipt"]["compute"]["backend"] == js.counts_by
     fast, slow = both({"tool": "native.gc_content", "arguments": {"sequence": s, "window": 50}})
     same(fast, slow)
     assert fast["receipt"]["compute"]["backend"] == "pyodide", "short windows: Python's str.count is as fast"
@@ -257,7 +264,7 @@ def test_a_wrong_kernel_answer_is_caught_and_the_original_runs(js):
         if name == "sequence.levenshtein":
             out["distance"] = -1
         if name == "sequence.counts":
-            out = out[:-1]                                        # the wrong shape
+            out["counts"] = out["counts"][:-1]                    # the wrong shape
         return json.dumps(out)
 
     js.call = lying

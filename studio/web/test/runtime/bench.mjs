@@ -82,8 +82,8 @@ function markdown(report) {
     const sameNative = n?.output_sha256 && n.output_sha256 === t.output_sha256;
     lines.push(`| \`${t.tool.replace("native.", "")}\` | ${t.size} | ${t.backend} | ${t.reference_ms} | ${t.local_ms} | ${t.speedup ? `${t.speedup}×` : "—"} | ${n ? n.ms.toFixed(1) : "—"} | ${t.same_output && (n ? sameNative : true) ? "yes" : "**no**"} |`);
   }
-  lines.push("", `## The JavaScript kernels alone (no Python, no JSON)`, "", `| Kernel | Size | ms | ns per cell |`, `|---|---|---:|---:|`);
-  for (const k of report.browser.kernels) lines.push(`| ${k.kernel} | ${k.size} | ${k.ms} | ${k.ns_per_cell} |`);
+  lines.push("", `## The CPU kernels alone (no Python, no JSON)`, "", "Every WebAssembly SIMD result was compared with the JavaScript kernel's before it was timed.", "", `| Kernel | Size | ms | ns per cell |`, `|---|---|---:|---:|`);
+  for (const k of report.browser.kernels) lines.push(`| ${k.kernel} | ${k.size} | ${k.ms ?? "—"} | ${k.ns_per_cell ?? (k.note || "—")} |`);
   lines.push("", `## WebGPU (the WGSL count kernel, exact parity with the CPU reference)`, "");
   if (report.browser.webgpu.some((w) => w.ms !== undefined)) {
     lines.push(`| Size | Adapter | ms | Exact | Note |`, `|---|---|---:|:---:|---|`);

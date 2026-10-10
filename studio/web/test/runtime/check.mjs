@@ -161,22 +161,24 @@ function dnaOf(n, seed, letters = "ACGT") {
 
 /**
  * The CPU kernels Python calls in the Worker (studio/web/js/compute): the same call with the kernels (auto) and with
- * the original Python only (reference) gives the same result and output hash, the receipt names the backend that ran,
- * and the native comparison (python3 -m tcmstudio call) agrees with both.
+ * the original Python only (reference) gives the same result and output hash, the receipt names the backend that ran
+ * (the counts by WebAssembly SIMD, which every engine this runs in has; the rest by JavaScript), and the native
+ * comparison (python3 -m tcmstudio call) agrees with both.
  */
 async function kernelChecks() {
   const cases = [
-    ["global alignment 300×280", "native.global_alignment", { a: dnaOf(300, 1), b: dnaOf(280, 2) }],
-    ["local alignment, integer scores", "native.local_alignment", { a: dnaOf(240, 3), b: dnaOf(260, 4), match: 2, mismatch: -1, gap: -2 }],
-    ["protein alignment, BLOSUM62", "native.protein_alignment", { a: dnaOf(180, 5, "ARNDCQEGHILKMFPSTWYV"), b: dnaOf(170, 6, "ARNDCQEGHILKMFPSTWYV"), mode: "local" }],
-    ["edit distance, Chinese with astral letters", "native.edit_distance", { a: "葛根芩连汤𠀀".repeat(40), b: "葛根黄芩黄连汤𠀁".repeat(36) }],
-    ["distance matrix 12 × 400 (CPU counts)", "native.distance_matrix", { sequences: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, dnaOf(400, 10 + i, "ACGTN-")])), model: "k2p" }],
-    ["GC windows of 400", "native.gc_content", { sequence: dnaOf(6000, 7, "ACGTSWN"), window: 400 }],
+    ["global alignment 300×280", "native.global_alignment", { a: dnaOf(300, 1), b: dnaOf(280, 2) }, "js"],
+    ["local alignment, integer scores", "native.local_alignment", { a: dnaOf(240, 3), b: dnaOf(260, 4), match: 2, mismatch: -1, gap: -2 }, "js"],
+    ["protein alignment, BLOSUM62", "native.protein_alignment", { a: dnaOf(180, 5, "ARNDCQEGHILKMFPSTWYV"), b: dnaOf(170, 6, "ARNDCQEGHILKMFPSTWYV"), mode: "local" }, "js"],
+    ["edit distance, Chinese with astral letters", "native.edit_distance", { a: "葛根芩连汤𠀀".repeat(40), b: "葛根黄芩黄连汤𠀁".repeat(36) }, "js"],
+    ["distance matrix 12 × 400 (CPU counts)", "native.distance_matrix", { sequences: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, dnaOf(400, 10 + i, "ACGTN-")])), model: "k2p" }, "wasm-simd"],
+    ["GC windows of 400", "native.gc_content", { sequence: dnaOf(6000, 7, "ACGTSWN"), window: 400 }, "wasm-simd"],
+    ["Hamming distance 200 000", "native.hamming_distance", { a: dnaOf(200000, 8, "ACGTN"), b: dnaOf(200000, 9, "ACGTN") }, "wasm-simd"],
   ];
-  for (const [label, tool, args] of cases) {
+  for (const [label, tool, args, backend] of cases) {
     const fast = await run(`kernel: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
       [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
-      [e.receipt?.compute?.backend === "js", `computed by the CPU kernel (got ${e.receipt?.compute?.backend}: ${JSON.stringify(e.receipt?.compute?.kernels || [])})`],
+      [e.receipt?.compute?.backend === backend, `computed by ${backend} (got ${e.receipt?.compute?.backend}: ${JSON.stringify(e.receipt?.compute?.kernels || [])})`],
       [(e.receipt?.compute?.kernels || []).every((k) => k.outcome === "used"), "every kernel answer checked out"],
     ], { compare: true, acceleration: "auto" });
     const slow = await run(`reference: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
@@ -186,6 +188,15 @@ async function kernelChecks() {
     ], { acceleration: "reference" });
     check(`same result: ${label}`, Boolean(fast && slow) && JSON.stringify(fast.result) === JSON.stringify(slow.result) && fast.receipt?.output_sha256 === slow.receipt?.output_sha256,
       `output ${fast?.receipt?.output_sha256?.slice(0, 12)}… vs ${slow?.receipt?.output_sha256?.slice(0, 12)}…; ${fast?.duration_ms} ms with the kernel, ${slow?.duration_ms} ms without`);
+    if (backend === "wasm-simd") {
+      // "CPU only" keeps the SIMD kernel (it is the CPU) and never the GPU
+      await run(`CPU only: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+        [e.status === "succeeded", `succeeded (got ${e.status})`],
+        [e.receipt?.compute?.backend === "wasm-simd", `computed by wasm-simd (got ${e.receipt?.compute?.backend})`],
+        [!(e.receipt?.compute?.plan?.considered || []).includes("webgpu"), "the GPU was not considered"],
+        [e.receipt?.output_sha256 === slow?.receipt?.output_sha256, "the same output as the reference"],
+      ], { acceleration: "cpu" });
+    }
     out.kernels ||= [];
     out.kernels.push({ label, tool, kernel_ms: fast?.duration_ms ?? null, reference_ms: slow?.duration_ms ?? null });
   }

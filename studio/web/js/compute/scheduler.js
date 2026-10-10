@@ -31,7 +31,9 @@ export class SchedulerError extends Error {
  * A backend: {id, kind (BACKEND_KINDS), exact: true when its results are bit-identical to the reference,
  * supports(task, caps) → {ok, reason?}, cost(task, caps) → estimated ms (or null when it cannot say),
  * run(task, input, {signal}) → result}. `verify(task, input, result) → {ok, reason?}` is optional: when given, a run
- * whose output fails it counts as a failure and the next backend runs.
+ * whose output fails it counts as a failure and the next backend runs. `defers: true` marks a backend whose run()
+ * only hands the work to code that runs afterwards: its run() takes no time worth learning, and what the work
+ * really took comes back through record().
  */
 export class ComputeScheduler {
   #backends = new Map();
@@ -179,7 +181,7 @@ export class ComputeScheduler {
   #succeeded(b, task, ms) {
     const h = this.#healthOf(b.id);
     h.failures = 0;
-    this.record(b.id, task.op, Number(task.units) || 0, ms);
+    if (!b.defers) this.record(b.id, task.op, Number(task.units) || 0, ms);
   }
 
   #failed(b, err) {

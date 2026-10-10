@@ -246,6 +246,7 @@ export function sequenceCounts(tool, sequences, window = 0, { isCancelled } = {}
     return Uint32Array.of(d, 0, 0, 0);
   }
   if (tool === "native.gc_content") {
+    if (seqs.length !== 1) throw new RangeError("GC content counts one sequence");
     const s = seqs[0];
     if (!Number.isSafeInteger(window) || window < 0 || window > width) throw new RangeError("window out of range");
     const records = window > 0 ? width - window + 2 : 1;
