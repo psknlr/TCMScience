@@ -1,0 +1,30 @@
+domain,sources,operations,names
+genomics,16,58,Ensembl REST; gnomAD GraphQL; MyGene.info; MyVariant.info; HGNC REST; NCBI Datasets v2; GWAS Catalog; UCSC Genome Browser API; ENA Portal API; MaveDB API; IMPC Solr API; RNAcentral REST API; ChIP-Atlas HTTP API; ReMap 2022 REST API; 4D Nucleome Data Portal (metadata); EMBL-EBI BioSamples
+literature,8,17,NCBI E-utilities; Europe PMC; PubTator 3; Europe PMC Annotations; Crossref; OpenAlex; bioRxiv / medRxiv API; EBI Search
+ontology,7,16,QuickGO; EMBL-EBI OLS4; HPO (JAX Ontology API); Monarch Initiative API v3; Disease Ontology; Bioregistry; Identifiers.org resolver
+natural-products,6,20,Wikidata SPARQL; GBIF API; COCONUT 2.0 search API; KNApSAcK Core (program URL scheme); MIBiG (repository JSON); PhytoHub (entry JSON)
+pathways,6,16,KEGG REST; Reactome ContentService; WikiPathways; OmniPath; g:Profiler; PANTHER
+proteomics,6,16,UniProt REST; STRING; InterPro API; PRIDE Archive; DisProt REST API; ProteomicsDB API
+clinical,5,22,ClinicalTrials.gov v2; openFDA; RxNav RxNorm API; DailyMed; Orphadata API (Orphanet)
+imaging,5,35,NCI Imaging Data Commons API v3; TCIA NBIA REST API v4; TCIA Collection Manager API; Image Data Resource (OMERO JSON API and IDR searcher); OpenNeuro GraphQL API
+single-cell,5,8,CZ CELLxGENE Discover; Human Cell Atlas Data Portal (Azul index); HuBMAP Search API; HuBMAP Entity API; HuBMAP Data Portal (entity and organ JSON)
+spectra,5,19,MassBank3 REST API and export service; GNPS public spectral libraries (GNPS2 external); Metabolomics USI resolver (GNPS2); GNPS2 dataset explorer; MassIVE PROXI dataset API
+tcm,5,15,DCABM-TCM RESTful search; TCMBank (site JSON endpoints); ITCM (site JSON endpoints); SymMap v2 (site query endpoint); HERB 2.0 (site query endpoint)
+pharmacology,4,26,TTD (site JSON endpoints); DrugCentral DRS API; Pharos GraphQL API (IDG / TCRD); GPCRdb web services
+structural-biology,4,15,RCSB PDB Data API; AlphaFold DB; PDBe API; KLIFS API
+cancer-genomics,3,10,CIViC GraphQL; cBioPortal; NCI GDC API
+chemistry,3,13,ChEMBL; PubChem PUG-REST; ChEBI 2.0 REST API
+datasets,3,6,Hugging Face Hub API; Hugging Face datasets-server; figshare API v2
+expression,3,8,Human Protein Atlas; GTEx Portal API; BioStudies
+immunology,3,29,IEDB Query API; iReceptor AIRR COVID-19 repository (ADC API); VDJServer Community Data Portal (ADC API)
+mechanism,3,14,IntAct and Complex Portal (EMBL-EBI); SIGNOR API; JASPAR REST API
+metabolism,3,8,Rhea REST (reaction search); SABIO-RK Export API; MetaNetX SPARQL
+drug-discovery,2,4,Open Targets Platform; DGIdb GraphQL
+medical-terminology,2,8,NLM Clinical Table Search Service; MeSH RDF lookup
+metabolomics,2,12,"MetaboLights; Metabolomics Workbench REST API (NMDR, RefMet)"
+microbiome,2,14,gutMGene v2.0 (browse API); MGnify API v2
+pharmacogenomics,2,15,PharmacoDB (site GraphQL endpoint); CPIC database API
+cell-biology,1,5,Cellosaurus API
+epigenomics,1,2,ENCODE Portal
+microbiology,1,9,BV-BRC Data API
+toxicology,1,4,AOP-Wiki (OECD AOP Knowledge Base)

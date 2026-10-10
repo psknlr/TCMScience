@@ -6,25 +6,29 @@ is the one drawn; each is traced to its source in `source_data/` and `data/`.
 ---
 
 **Fig. 1 | TCMScience separates what a language model may propose from what the system may
-release.** **a**, Architecture. The language model plans, proposes explanations and predictions
-and drafts claims, but holds no authority. A trusted kernel (PSH) labels every datum at entry,
-intersects every request with a policy lattice that can only narrow authority, compiles plans
-into typed, bounded programs (71 diagnostic codes), routes every model, tool and delegation call
-through one gateway, quarantines output and releases a claim only when its evidence licenses
-that kind of claim; each step enters a hash-chained, tamper-evident audit. A scientist plane
-keeps hypotheses, preregistered protocols and observations as content-hashed records and runs
-the inquiry engine (Fig. 7). The governance layer constrains the kernel and never executes; the
-capability plane is reached only through the gateway. Solid arrows, execution; dashed arrows,
-constraint. **b**, Data enter as audited snapshots. Each provider release, under a source card
-stating its licence and access path, is parsed, normalized to shared identifiers, passed through
-a quality gate that fails closed, content-hashed (`key@version#` and the first 12 characters of
-its SHA-256) and recorded on a hash-chained ledger verified on load. A run may use only the
-sources its skill declares, the registry admits and its policy allows; its lock names every
-snapshot, and a rerun on other content under the same label is refused. **c**, Native tools by
-domain (n = 150; TCM knowledge highlighted) and compiler diagnostics by family (n = 71; the
-evidence-type family, TYP, highlighted). Counts in **a** and **c** are read from the code at the
-commit the figures were built from: 117 public sources expose 444 typed operations, all of
-which were verified against their live services between 17 September and 7 October 2026.
+release.** **a**, Architecture, each component named as in the code. The language model
+proposes plans, explanations, predictions and claims, and holds no authority. The trusted
+kernel (PSH) labels every value at ingress; compiles a program in eight passes (71 diagnostic
+codes) into a typed plan; checks the whole plan against an authority that can only narrow; runs
+it in a bounded loop whose only actions are model, tool and delegation calls through one
+ExecutionBroker; and releases output along one path (quarantine, output gate, release gate),
+recording every gate's decision on a hash-chained audit. A scientist plane keeps hypotheses,
+preregistered protocols and observations as content-hashed records and runs the inquiry engine
+(Fig. 7). The governance layer constrains the kernel and never executes. The capability plane
+is admitted through one bridge. Solid arrows, execution; dashed arrows, constraint. **b**, The
+117 public sources the connectors reach, in 29 domains, with the sources and typed operations
+in each (TCM highlighted). All 444 operations were verified against the live services between
+17 September and 7 October 2026. **c**, Data enter as audited snapshots. Each provider release,
+under a source card stating its licence and access paths, is parsed, normalized to shared
+identifiers, passed through a quality gate that fails closed, content-hashed and recorded on a
+ledger verified on load. Below, the eight source cards and the role each played in the 葛根芩连汤
+study (Fig. 5); vermillion, no licence stated on the card. A run may use only the sources its
+skill declares, the registry admits and its policy allows; its lock names every snapshot.
+**d**, Left, the catalogue of 136 TCM databases by how each can be reached (dark, live; light,
+as files; grey, not at all), and the federated catalogue of 2,567 capabilities from 16 projects
+by kind (filled, the licence permits vendoring; open, invoked in place only). Right, the 150
+native tools by domain (TCM knowledge highlighted). All names and counts are read from the code
+at the commit the figures were built from.
 
 ---
 

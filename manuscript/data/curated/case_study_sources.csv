@@ -1,0 +1,8 @@
+key,role,source,quote
+npass,composition,README.md:130,"NPASS, CMAUP and LOTUS for composition"
+cmaup,composition,README.md:130,"NPASS, CMAUP and LOTUS for composition"
+lotus,composition,README.md:130,"NPASS, CMAUP and LOTUS for composition"
+pubchem_bioassay,activity,README.md:130,curated potency measurements and PubChem BioAssay for activity
+reactome,biology,README.md:130,Reactome and STRING for biology
+string,biology,README.md:130,Reactome and STRING for biology
+opentargets,indication,README.md:130,Open Targets for the indication

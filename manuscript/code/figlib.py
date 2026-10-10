@@ -83,6 +83,37 @@ def pct(v: float) -> str:
     return f"{100 * v:.0f}"
 
 
+# ------------------------------------------------------------------- measured text
+def text_width(fig, text: str, size: float, weight: str = "normal") -> float:
+    """Width of ``text`` in millimetres as it will be drawn on ``fig`` (fallback fonts too)."""
+    t = fig.text(0, 0, text, fontsize=size, fontweight=weight)
+    width = t.get_window_extent(renderer=fig.canvas.get_renderer()).width
+    t.remove()
+    return width / fig.dpi * 25.4
+
+
+def wrap(fig, items, width: float, size: float, *, sep: str = " · ",
+         weight: str = "normal") -> list[str]:
+    """Lines no wider than ``width`` mm, breaking only between ``items``.
+
+    ``items`` is a list of phrases (kept whole) or a string (broken between words).
+    """
+    if isinstance(items, str):
+        items, sep = items.split(" "), " "
+    lines: list[str] = []
+    line = ""
+    for item in items:
+        trial = f"{line}{sep}{item}" if line else item
+        if line and text_width(fig, trial, size, weight) > width:
+            lines.append(line + (sep.rstrip() if sep.strip() not in ("", "·") else ""))
+            line = item
+        else:
+            line = trial
+    if line:
+        lines.append(line)
+    return lines
+
+
 # ------------------------------------------------------------------ reproducible files
 FIXED_TIME = (2026, 10, 10, 0, 0, 0)
 FIXED_ISO = "2026-10-10T00:00:00Z"

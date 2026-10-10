@@ -8,6 +8,7 @@ counts) are written as the figure computes them, next to the inputs they come fr
 
 from __future__ import annotations
 
+import collections
 import json
 
 from openpyxl import Workbook
@@ -69,27 +70,128 @@ def wilson_cols(k, n):
 
 
 def fig1():
+    import fig1_architecture as f1
     inv = fl.load_json("inventory.json")
+    cap = fl.load_json("capabilities.json")
+    rt = inv["runtime"]
+    sources = fl.rows("public_sources.csv")
+    roles = {r["key"]: r for r in fl.rows("case_study_sources.csv")}
+    code = "data/extracted/inventory.json, capabilities.json (extract_data.py)"
+    components = [
+        ["governance", "skills locked in registry/skills.lock.yaml",
+         len(cap["skills"]["stable_locked"]), ", ".join(cap["skills"]["stable_locked"])],
+        ["governance", "candidate skills (skills/candidates)", len(cap["skills"]["candidates"]),
+         ", ".join(cap["skills"]["candidates"])],
+        ["governance", "claim reason codes (CLM001-)", inv["claim_reason_codes"], ""],
+        ["kernel", "compiler passes (psh.compiler.pipeline.PASS_ORDER)",
+         len(rt["compiler_passes"]), ", ".join(rt["compiler_passes"])],
+        ["kernel", "compiler diagnostic codes (psh.compiler.diagnostics.REGISTRY)",
+         inv["compiler_diagnostics"], ", ".join(f"{k} {v}" for k, v in
+                                               inv["compiler_diagnostics_by_family"].items())],
+        ["kernel", "PlanValidator check families", len(rt["plan_validator_families"]),
+         ", ".join(rt["plan_validator_families"])],
+        ["kernel", "task kinds the loop dispatches (three broker calls)",
+         len(rt["task_kinds"]), ", ".join(rt["task_kinds"])],
+        ["kernel", "loop stop reasons (psh.runtime.loop.Termination)",
+         len(rt["loop_terminations"]), ", ".join(rt["loop_terminations"])],
+        ["capability plane", "public sources", cap["public_sources"]["total"],
+         ", ".join(f"{k} {v}" for k, v in cap["public_sources"]["by_group"].items())],
+        ["capability plane", "typed operations", inv["typed_operations"],
+         f"{inv['operations_live_verified']} verified live, "
+         + " to ".join(inv["verification_dates"])],
+        ["capability plane", "public source domains", cap["public_sources"]["domains"], ""],
+        ["capability plane", "TCM data hub datasets (bioagent.tcmdb.DATASETS)",
+         cap["tcm_hub"]["datasets"], ", ".join(f"{k} {v}" for k, v in
+                                               cap["tcm_hub"]["by_access"].items())],
+        ["capability plane", "TCM database catalogue entries (tcm_source_catalog.json)",
+         cap["tcm_catalogue"]["total"], f"version {cap['tcm_catalogue']['version']}"],
+        ["capability plane", "formulas in the formula table", cap["formula_table"]["formulas"],
+         f"{cap['formula_table']['resolved_formulas']} with every component resolved"],
+        ["capability plane", "source cards (bioagent.sources.cards)",
+         len(cap["snapshot_cards"]), ", ".join(c["key"] for c in cap["snapshot_cards"])],
+        ["capability plane", "snapshot parsers (bioagent.sources.parsers)",
+         len(cap["snapshot_parsers"]), ", ".join(cap["snapshot_parsers"])],
+        ["capability plane", "native tools (bioagent.tools.TOOLS)", inv["native_tools"],
+         f"{inv['native_tool_domains']} domains"],
+        ["capability plane", "structure engines (bioagent.structure.engines)",
+         len(cap["engines"]["structure"]), ", ".join(cap["engines"]["structure"])],
+        ["capability plane", "structure predictors (bioagent.structure.predict.PREDICTORS)",
+         len(cap["engines"]["structure_predictors"]),
+         ", ".join(cap["engines"]["structure_predictors"])],
+        ["capability plane", "docking scoring (AutoDock Vina)",
+         len(cap["engines"]["docking_scoring"]), ", ".join(cap["engines"]["docking_scoring"])],
+        ["capability plane", "differential expression backends",
+         len(cap["engines"]["differential_expression"]),
+         ", ".join(cap["engines"]["differential_expression"])],
+        ["capability plane", "single-cell analysis backends", len(cap["engines"]["single_cell"]),
+         ", ".join(cap["engines"]["single_cell"])],
+        ["capability plane", "RNA-seq command-line tools",
+         len(cap["engines"]["rnaseq_command_line"]),
+         ", ".join(cap["engines"]["rnaseq_command_line"])],
+        ["capability plane", "ADMET models (bioagent.admet.models.ENDPOINTS)",
+         cap["engines"]["admet_endpoints"], ""],
+        ["capability plane", f"ToolUniverse {cap['tooluniverse']['version']} tools admitted",
+         len(cap["tooluniverse"]["tools"]), ", ".join(cap["tooluniverse"]["tools"])],
+        ["capability plane", f"BioMCP {cap['biomcp']['version']} tools ({cap['biomcp']['status']})",
+         len(cap["biomcp"]["tools"]), ", ".join(cap["biomcp"]["tools"])],
+        ["capability plane", "MCP servers admitted (registry/mcp_servers.yaml)",
+         cap["mcp_servers_admitted"], ""],
+        ["capability plane", "Biomni implementation bindings", len(cap["bindings"]),
+         ", ".join(b["component"] for b in cap["bindings"])],
+    ]
+    domains = collections.defaultdict(lambda: [0, 0])
+    for s in sources:
+        domains[s["domain"]][0] += 1
+        domains[s["domain"]][1] += int(s["operations"])
+    hub = fl.rows("tcmdb_datasets.csv")
+    cat = fl.rows("tcm_catalogue.csv")
     return book("Fig1", [
-        ("a_inventory", "Fig. 1a: counts shown in the capability plane and kernel",
-         "data/extracted/inventory.json (bioagent.providers, bioagent.tools, "
-         "psh.compiler.diagnostics, BioScience-Harness/data/connector_live_verification.csv)",
-         ["quantity", "value"],
-         [["public sources", inv["public_sources"]],
-          *[[f"public sources: {k}", v] for k, v in inv["public_sources_by_group"].items()],
-          ["typed operations", inv["typed_operations"]],
-          ["operations verified live", inv["operations_live_verified"]],
-          ["verification dates", " to ".join(inv["verification_dates"])],
-          ["native tools", inv["native_tools"]],
-          ["native tool domains", inv["native_tool_domains"]],
-          ["compiler diagnostics", inv["compiler_diagnostics"]],
-          ["claim reason codes", inv["claim_reason_codes"]]]),
-        ("c_tools_by_domain", "Fig. 1c: native tools by domain", "data/extracted/inventory.json",
-         ["domain", "tools"], sorted(inv["native_tools_by_domain"].items(), key=lambda x: -x[1])),
-        ("c_diagnostics", "Fig. 1c: compiler diagnostics by family",
-         "data/extracted/inventory.json (psh.compiler.diagnostics.REGISTRY)",
-         ["family", "codes"],
-         sorted(inv["compiler_diagnostics_by_family"].items(), key=lambda x: -x[1])),
+        ("a_components", "Fig. 1a: the names and counts in each layer", code,
+         ["layer", "quantity", "value", "members"], components),
+        ("b_domains", "Fig. 1b: public sources and typed operations per domain",
+         "bioagent.providers (data/extracted/public_sources.csv)",
+         ["domain", "sources", "typed operations"],
+         sorted(([d, n, o] for d, (n, o) in domains.items()), key=lambda r: (-r[1], r[0]))),
+        ("b_sources", "Fig. 1b: every public source, as registered and as drawn",
+         "bioagent.providers (data/extracted/public_sources.csv)",
+         ["domain", "key", "name", "name as drawn", "typed operations", "group", "host",
+          "licence"],
+         [[s["domain"], s["key"], s["name"], f1.SHORT[s["key"]], s["operations"], s["group"],
+           s["host"], s["licence"]] for s in sorted(sources, key=lambda s: (s["domain"],
+                                                                          s["key"]))]),
+        ("c_source_cards", "Fig. 1c: the source cards snapshots are built from",
+         "bioagent.sources.cards.SOURCE_CARDS; roles from README.md:130 "
+         "(data/curated/case_study_sources.csv)",
+         ["key", "name on the card", "access", "licence on the card", "role in the case study"],
+         [[c["key"], c["name"], ", ".join(c["access"]), c["licence"],
+           roles[c["key"]]["role"] if c["key"] in roles else "not used"]
+          for c in cap["snapshot_cards"]]),
+        ("d_tcm_catalogue", "Fig. 1d: the TCM database catalogue by how each is reached",
+         "BioScience-Harness/src/bioagent/data/tcm_source_catalog.json",
+         ["access", "databases"],
+         [[label, cap["tcm_catalogue"]["by_access"][k]] for k, label in f1.ACCESS]),
+        ("d_tcm_catalogue_entries", "Fig. 1d: every catalogue entry",
+         "BioScience-Harness/src/bioagent/data/tcm_source_catalog.json",
+         ["no", "name", "access", "connector", "dataset", "checked"],
+         [[r["no"], r["name"], r["access"], r["connector"], r["dataset"], r["checked"]]
+          for r in cat]),
+        ("d_tcm_hub", "TCM data hub datasets (named in Fig. 1a)", "bioagent.tcmdb.DATASETS",
+         ["key", "name", "access", "licence", "commercial use", "relations"],
+         [[r["key"], r["name"], r["access"], r["licence"], r["commercial_use"],
+           r["relations"]] for r in hub]),
+        ("d_federated", "Fig. 1d: the federated capability catalogue by kind and use",
+         "BioScience-Harness/src/bioagent/data/unified_capability_catalogue.csv",
+         ["kind", "may be vendored", "adapter only", "total"],
+         [[f1.KIND[r["kind"]], r["vendor"], r["adapter_only"], r["total"]]
+          for r in fl.rows("federated_catalogue_kinds.csv")]),
+        ("d_federated_projects", "Fig. 1d: the 16 projects the catalogue federates",
+         "BioScience-Harness/data/repos_manifest.csv",
+         ["project", "repository", "licence", "integration mode", "vendorable"],
+         [[r["project"], r["repo"], r["licence"], r["integration_mode"], r["vendorable"]]
+          for r in fl.rows("federated_projects.csv")]),
+        ("d_native_tools", "Fig. 1d: native tools by domain", "bioagent.tools.TOOLS",
+         ["domain", "tools"], sorted(inv["native_tools_by_domain"].items(),
+                                     key=lambda x: -x[1])),
         ("claim_codes", "Claim reason codes (Figs. 1-2)",
          "bioagent.contracts.candidate_claim.CLAIM_REASONS", ["code", "meaning"],
          list(inv["claim_reasons"].items())),

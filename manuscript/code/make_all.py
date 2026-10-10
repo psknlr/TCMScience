@@ -7,7 +7,9 @@
 
 Checks, after building: every figure is 183 mm wide and no deeper than a page; every PDF
 embeds only the allowed fonts, all of them; every text is 5-8 pt and every line at least
-0.25 pt (enforced as each figure is saved). A failed check stops the build.
+0.25 pt (enforced as each figure is saved). The two IEEE-style flowcharts are built too, at
+7.16 in and 3.5 in, in Times-metric type of 8 pt or more with strokes of 0.5 pt or more. A
+failed check stops the build.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ import nature_style as ns
 
 FIGURES = ["fig1_architecture", "fig2_licensing", "fig3_ablation", "fig4_evidence_typing",
            "fig5_network_pharmacology", "fig6_falsifiable", "fig7_inquiry"]
+IEEE = [("ieee_fig_architecture", 7.16), ("ieee_fig_minimal", 3.5)]
 
 
 def pdf_size_mm(pdf: Path) -> tuple[float, float]:
@@ -50,12 +53,20 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(f"{pdf.name}: {w:.1f} × {h:.1f} mm is not a two-column figure")
         fonts = ns.check_fonts(pdf)
         rows.append((pdf.stem, f"{w:.0f} × {h:.0f} mm", ", ".join(sorted(set(fonts)))))
+    import ieee_style
+    for name, width in IEEE:
+        pdf = importlib.import_module(name).main()[0]
+        w, h = (v / 25.4 for v in pdf_size_mm(pdf))
+        if abs(w - width) > 0.01 or h > ieee_style.MAX_DEPTH_IN:
+            raise SystemExit(f"{pdf.name}: {w:.2f} × {h:.2f} in is not a {width} in figure")
+        fonts = ieee_style.check_fonts(pdf)
+        rows.append((pdf.stem, f"{w:.2f} × {h:.2f} in", ", ".join(sorted(set(fonts)))))
     importlib.import_module("make_table1").main()
     importlib.import_module("make_source_data").main()
     width = max(len(r[2]) for r in rows)
-    print(f"{'item':6} {'size':16} fonts")
+    print(f"{'item':22} {'size':16} fonts")
     for stem, size, fonts in rows:
-        print(f"{stem:6} {size:16} {fonts:{width}}")
+        print(f"{stem:22} {size:16} {fonts:{width}}")
     print("Table1 .md .csv .tex .docx; Source_Data_Fig1-7.xlsx")
     return 0
 

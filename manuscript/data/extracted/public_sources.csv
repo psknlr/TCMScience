@@ -1,0 +1,118 @@
+key,name,group,domain,host,licence,operations
+ensembl,Ensembl REST,core,genomics,rest.ensembl.org,Apache-2.0,6
+uniprot,UniProt REST,core,proteomics,rest.uniprot.org,CC-BY-4.0,3
+ncbi_eutils,NCBI E-utilities,core,literature,eutils.ncbi.nlm.nih.gov,Public-domain (US Gov),4
+chembl,ChEMBL,core,chemistry,www.ebi.ac.uk,CC-BY-SA-3.0,4
+pubchem,PubChem PUG-REST,core,chemistry,pubchem.ncbi.nlm.nih.gov,Public-domain (US Gov),3
+clinicaltrials,ClinicalTrials.gov v2,core,clinical,clinicaltrials.gov,Public-domain (US Gov),2
+openfda,openFDA,core,clinical,api.fda.gov,Public-domain (US Gov),4
+string,STRING,core,proteomics,string-db.org,CC-BY-4.0,2
+kegg,KEGG REST,core,pathways,rest.kegg.jp,Academic use free; commercial requires license,4
+reactome,Reactome ContentService,core,pathways,reactome.org,CC0-1.0,3
+opentargets,Open Targets Platform,core,drug-discovery,api.platform.opentargets.org,CC0-1.0,2
+rcsb,RCSB PDB Data API,core,structural-biology,data.rcsb.org,CC0-1.0,2
+europepmc,Europe PMC,core,literature,www.ebi.ac.uk,CC-BY / mixed per article,2
+gnomad,gnomAD GraphQL,core,genomics,gnomad.broadinstitute.org,CC0-1.0 (data) / CC-BY-4.0,2
+mygene,MyGene.info,core,genomics,mygene.info,Apache-2.0,2
+myvariant,MyVariant.info,core,genomics,myvariant.info,Apache-2.0,2
+hgnc,HGNC REST,extended,genomics,rest.genenames.org,CC0-1.0,3
+ncbi_datasets,NCBI Datasets v2,extended,genomics,api.ncbi.nlm.nih.gov,Public-domain (US Gov),4
+gwas_catalog,GWAS Catalog,extended,genomics,www.ebi.ac.uk,EMBL-EBI terms of use (open),3
+ucsc,UCSC Genome Browser API,extended,genomics,api.genome.ucsc.edu,Public (UCSC terms),4
+alphafold,AlphaFold DB,extended,structural-biology,alphafold.ebi.ac.uk,CC-BY-4.0,2
+pdbe,PDBe API,extended,structural-biology,www.ebi.ac.uk,CC-BY-4.0,4
+interpro,InterPro API,extended,proteomics,www.ebi.ac.uk,CC0-1.0,3
+quickgo,QuickGO,extended,ontology,www.ebi.ac.uk,CC-BY-4.0,3
+pride,PRIDE Archive,extended,proteomics,www.ebi.ac.uk,CC0-1.0 (metadata),2
+proteinatlas,Human Protein Atlas,extended,expression,www.proteinatlas.org,CC-BY-SA-3.0,2
+gtex,GTEx Portal API,extended,expression,gtexportal.org,Open (GTEx terms),2
+encode,ENCODE Portal,extended,epigenomics,www.encodeproject.org,CC-BY-4.0,2
+ena,ENA Portal API,extended,genomics,www.ebi.ac.uk,Open (INSDC),2
+biostudies,BioStudies,extended,expression,www.ebi.ac.uk,Open (EMBL-EBI terms),4
+cellxgene,CZ CELLxGENE Discover,extended,single-cell,api.cellxgene.cziscience.com,CC-BY-4.0,1
+metabolights,MetaboLights,extended,metabolomics,www.ebi.ac.uk,CC0-1.0,2
+wikipathways,WikiPathways,extended,pathways,www.wikipathways.org,CC0-1.0,3
+omnipath,OmniPath,extended,pathways,omnipathdb.org,Mixed per resource (some CC-BY-NC-SA),2
+dgidb,DGIdb GraphQL,extended,drug-discovery,dgidb.org,MIT (code) / CC-BY-4.0 (data),2
+civic,CIViC GraphQL,extended,cancer-genomics,civicdb.org,CC0-1.0,2
+cbioportal,cBioPortal,extended,cancer-genomics,www.cbioportal.org,ODbL / per-study terms,4
+gdc,NCI GDC API,extended,cancer-genomics,api.gdc.cancer.gov,Public (NCI GDC open data),4
+nlm_clinical_tables,NLM Clinical Table Search Service,extended,medical-terminology,clinicaltables.nlm.nih.gov,Public-domain (US Gov),5
+rxnav,RxNav RxNorm API,extended,clinical,rxnav.nlm.nih.gov,Public-domain (US Gov),5
+dailymed,DailyMed,extended,clinical,dailymed.nlm.nih.gov,Public-domain (US Gov),2
+mesh,MeSH RDF lookup,extended,medical-terminology,id.nlm.nih.gov,Public-domain (US Gov),3
+pubtator,PubTator 3,extended,literature,www.ncbi.nlm.nih.gov,Public-domain (US Gov),3
+europepmc_annotations,Europe PMC Annotations,extended,literature,www.ebi.ac.uk,CC-BY,2
+crossref,Crossref,extended,literature,api.crossref.org,CC0-1.0 (metadata),2
+openalex,OpenAlex,extended,literature,api.openalex.org,CC0-1.0,1
+biorxiv,bioRxiv / medRxiv API,extended,literature,api.biorxiv.org,CC-BY-4.0 (metadata),1
+ebi_search,EBI Search,extended,literature,www.ebi.ac.uk,Apache-2.0 (service),2
+ols,EMBL-EBI OLS4,extended,ontology,www.ebi.ac.uk,Apache-2.0 (service) / per ontology,3
+hpo,HPO (JAX Ontology API),extended,ontology,ontology.jax.org,HPO licence (free with attribution),3
+monarch,Monarch Initiative API v3,extended,ontology,api.monarchinitiative.org,BSD-3-Clause (service) / per source,3
+disease_ontology,Disease Ontology,extended,ontology,disease-ontology.org,CC0-1.0,1
+bioregistry,Bioregistry,extended,ontology,bioregistry.io,CC0-1.0,2
+identifiers_org,Identifiers.org resolver,extended,ontology,resolver.api.identifiers.org,CC0-1.0,1
+wikidata_sparql,Wikidata SPARQL,extended,natural-products,query.wikidata.org,CC0-1.0,4
+gbif,GBIF API,extended,natural-products,api.gbif.org,CC-BY-4.0 / CC0 (per dataset),3
+gprofiler,g:Profiler,extended,pathways,biit.cs.ut.ee,BSD-3-Clause (service),2
+panther,PANTHER,extended,pathways,pantherdb.org,Free for research use (PANTHER terms),2
+dcabm_tcm,DCABM-TCM RESTful search,tcm,tcm,bionet.ncpsb.org.cn,Not stated (sister of BATMAN-TCM: free for academic use),3
+tcmbank,TCMBank (site JSON endpoints),tcm,tcm,tcmbank.cn,Not stated (help page: for academic queries),4
+itcm,ITCM (site JSON endpoints),tcm,tcm,itcm.biotcm.net,Not stated,5
+ttd,TTD (site JSON endpoints),tcm,pharmacology,ttd.idrblab.cn,Not stated (citation requested),3
+symmap,SymMap v2 (site query endpoint),tcm,tcm,www.symmap.org,Not stated (files 'free to download'; BUCM copyright),1
+herb_api,HERB 2.0 (site query endpoint),tcm,tcm,47.92.70.12,Not stated,2
+iedb,IEDB Query API,tcm,immunology,query-api.iedb.org,CC-BY-4.0,13
+huggingface,Hugging Face Hub API,tcm,datasets,huggingface.co,Per dataset (read the card's licence),2
+hf_datasets_server,Hugging Face datasets-server,tcm,datasets,datasets-server.huggingface.co,Per dataset (read the card's licence),2
+figshare,figshare API v2,tcm,datasets,api.figshare.com,Per article (CC BY 4.0 for TCMP-300),2
+coconut,COCONUT 2.0 search API,supplement,natural-products,coconut.naturalproducts.net,CC0 (download page: 'COCONUT data is released under the Creative Commons CC0 license'); the terms of service keep the restrictions of the original data owners of each collection,3
+knapsack,KNApSAcK Core (program URL scheme),supplement,natural-products,www.knapsackfamily.com,"CC BY-NC-ND 4.0 (KNApSAcK Core terms of service, Art. 2); 'cannot be re-distributed or used for commercial purposes ... without contacting the KNApSAcK DB group' (top page); cite Afendi et al. 2012, doi:10.1093/pcp/pcr165",4
+mibig,MIBiG (repository JSON),supplement,natural-products,mibig.secondarymetabolites.org,"CC BY 4.0 (site footer: 'This work is licensed under a Creative Commons Attribution 4.0 International License'); cite Zdouc, Blin et al. 2025, doi:10.1093/nar/gkae1115",2
+gutmgene,gutMGene v2.0 (browse API),supplement,microbiome,bio-computing.hrbmu.edu.cn,"not stated on the site; the gutMGene v2.0 article (NAR 2025, PMC11701569) is CC BY-NC 4.0 and the site says it is 'freely available'; commercial use unknown",3
+phytohub,PhytoHub (entry JSON),supplement,natural-products,phytohub.eu,not stated; the home page says only 'PhytoHub is a freely available electronic database'; commercial use unknown,4
+mavedb,MaveDB API,supplement,genomics,api.mavedb.org,"Per score set: CC0 1.0 (default), CC BY 4.0, CC BY-SA 4.0, and CC BY-NC-SA 4.0 on a few older sets (read license.shortName of each score set); API software AGPL-3.0",6
+impc,IMPC Solr API,supplement,genomics,www.ebi.ac.uk,CC-BY-4.0,5
+aopwiki,AOP-Wiki (OECD AOP Knowledge Base),supplement,toxicology,aopwiki.org,CC BY-SA 2.0 (AOP-Wiki default); an AOP page may be 'All rights reserved' (see <wiki-license> in its XML),4
+orphadata,Orphadata API (Orphanet),supplement,clinical,api.orphadata.com,CC-BY-4.0 (Orphadata Science; every response carries __licence). Cite Orphadata Science with the data version; a tool that offers results built on these data to third parties must say Orphanet data were used.,9
+massbank,MassBank3 REST API and export service,supplement,spectra,massbank.eu,"Per record: CC0, CC BY, CC BY-SA, CC BY-NC, CC BY-NC-SA, CC BY-NC-ND or dl-de/by-2-0 (each record's 'license' field is binding; NC records are not for commercial use)",13
+gnps,GNPS public spectral libraries (GNPS2 external),supplement,spectra,external.gnps2.org,"CC0 for spectra contributed directly to GNPS (documentation, 'License'); imported third-party libraries (MASSBANK, MASSBANKEU, MONA, HMDB, RESPECT, ...) keep their upstream licences",2
+gnps_usi,Metabolomics USI resolver (GNPS2),supplement,spectra,metabolomics-usi.gnps2.org,"CC0 for spectra contributed directly to GNPS (documentation, 'License'); imported third-party libraries (MASSBANK, MASSBANKEU, MONA, HMDB, RESPECT, ...) keep their upstream licences",1
+gnps_explorer,GNPS2 dataset explorer,supplement,spectra,explorer.gnps2.org,"Per dataset (MassIVE states each dataset's licence, e.g. CC0 1.0)",1
+massive,MassIVE PROXI dataset API,supplement,spectra,massive.ucsd.edu,"Per dataset (each dataset page states its licence, e.g. CC0 1.0)",2
+metabolomics_workbench,"Metabolomics Workbench REST API (NMDR, RefMet)",supplement,metabolomics,www.metabolomicsworkbench.org,"Site terms of use: personal, non-commercial use of the content; public study data are in the public domain after their embargo (data-sharing FAQ), and each study states its own licence (e.g. CC BY 4.0); RefMet has no licence of its own",10
+chebi,ChEBI 2.0 REST API,supplement,chemistry,www.ebi.ac.uk,CC BY 4.0,6
+rhea,Rhea REST (reaction search),supplement,metabolism,www.rhea-db.org,CC BY 4.0,1
+sabio_rk,SABIO-RK Export API,supplement,metabolism,sabiork.h-its.org,HITS SABIO-RK Non-Commercial Purpose License (internal non-commercial research and academic use only; cite SABIO-RK),5
+metanetx,MetaNetX SPARQL,supplement,metabolism,rdf.metanetx.org,"CC BY 4.0 for MNXref's own content; rows also carry their upstream's terms, several non-commercial (KEGG, BiGG, HMDB, MetaCyc, enviPath, SABIO-RK)",2
+disprot,DisProt REST API,supplement,proteomics,disprot.org,CC BY 4.0,2
+rnacentral,RNAcentral REST API,supplement,genomics,rnacentral.org,CC0 1.0 (data from release 20 on; earlier data under EMBL-EBI terms of use),6
+chip_atlas,ChIP-Atlas HTTP API,supplement,genomics,chip-atlas.org,CC BY 4.0 (site and OpenAPI; the NBDC archive page states CC BY-SA 4.0),4
+remap,ReMap 2022 REST API,supplement,genomics,remap.univ-amu.fr,CC BY-NC 4.0 (ReMap catalogues),2
+hca_azul,Human Cell Atlas Data Portal (Azul index),supplement,single-cell,service.azul.data.humancellatlas.org,"CC BY 4.0 for open-access projects (HCA data use agreement, release dcp60); managed-access projects (DUO GRU / GRU-NCU) need an HCA Data Access Committee approval and are not served to anonymous callers",2
+hubmap_search,HuBMAP Search API,supplement,single-cell,search.api.hubmapconsortium.org,HuBMAP External Data Sharing Policy: open data released under a permissive licence such as CC BY 4.0 (DOI-registered datasets carry CC BY 4.0); users agree not to identify or contact participants,2
+hubmap_entity,HuBMAP Entity API,supplement,single-cell,entity.api.hubmapconsortium.org,"HuBMAP External Data Sharing Policy (open data: permissive, e.g. CC BY 4.0)",1
+hubmap_portal,HuBMAP Data Portal (entity and organ JSON),supplement,single-cell,portal.hubmapconsortium.org,"HuBMAP External Data Sharing Policy (open data: permissive, e.g. CC BY 4.0)",2
+fourdn,4D Nucleome Data Portal (metadata),supplement,genomics,data.4dnucleome.org,"4DN data: 'External data users may freely download, analyze, and publish results based on any 4DN data provided here without restrictions' (AWS Open Data registry); cite the 4DN papers and acknowledge the generating lab",4
+biosamples,EMBL-EBI BioSamples,supplement,genomics,www.ebi.ac.uk,EMBL-EBI terms of use: no restriction beyond the data owners'; attribution expected (no BioSamples-specific data licence),3
+drugcentral,DrugCentral DRS API,supplement,pharmacology,uxn2ycvimg.us-east-2.awsapprunner.com,CC BY-SA 4.0,10
+pharmacodb,PharmacoDB (site GraphQL endpoint),supplement,pharmacogenomics,pharmacodb.ca,"Not stated (no licence on the site or in its code; the screens it re-processes keep their own terms, e.g. GDSC is non-commercial)",7
+pharos,Pharos GraphQL API (IDG / TCRD),supplement,pharmacology,pharos-api.ncats.io,Not stated (Pharos defers to the licences of its primary sources),7
+cpic,CPIC database API,supplement,pharmacogenomics,api.cpicpgx.org,CC0-1.0 (CPIC curated content; attribution requested),8
+gpcrdb,GPCRdb web services,supplement,pharmacology,gpcrdb.org,"CC-BY-4.0 (ligand bioactivities keep their upstream licences: ChEMBL CC BY-SA 3.0, Guide to Pharmacology and DrugCentral CC BY-SA 4.0)",6
+klifs,KLIFS API,supplement,structural-biology,klifs.net,"Free for academia and industry (KLIFS FAQ; no formal licence); bioactivities are ChEMBL data (CC BY-SA 3.0), structures from the PDB",7
+proteomicsdb,ProteomicsDB API,supplement,proteomics,www.proteomicsdb.org,CC BY 2.5 (data); the Terms of Use license the service for research purposes only and forbid making it available to third parties,4
+intact,IntAct and Complex Portal (EMBL-EBI),supplement,mechanism,www.ebi.ac.uk,CC BY 4.0 (IntAct data); CC0 1.0 (Complex Portal data),5
+signor,SIGNOR API,supplement,mechanism,signor.uniroma2.it,CC BY 4.0,4
+jaspar,JASPAR REST API,supplement,mechanism,jaspar.elixir.no,CC BY 4.0,5
+cellosaurus,Cellosaurus API,supplement,cell-biology,api.cellosaurus.org,CC BY 4.0 (Cellosaurus licensing statement and the API's OpenAPI info),5
+ireceptor_adc,iReceptor AIRR COVID-19 repository (ADC API),supplement,immunology,covid19-1.ireceptor.org,Not stated for the data (service software GNU LGPL v3; ADC API specification CC BY 4.0); iReceptor Gateway terms: commercial access is paid from 2026-08-31,8
+vdjserver_adc,VDJServer Community Data Portal (ADC API),supplement,immunology,vdjserver.org,Not stated for the data (service software GNU AGPL v3; ADC API specification CC BY 4.0),8
+bv_brc,BV-BRC Data API,supplement,microbiology,www.bv-brc.org,"Not stated (cite Olson et al., Nucleic Acids Res 2023, gkac1003)",9
+mgnify,MGnify API v2,supplement,microbiome,www.ebi.ac.uk,EMBL-EBI Terms of Use (no additional restrictions beyond the original data owners'),11
+idc,NCI Imaging Data Commons API v3,supplement,imaging,api.imaging.datacommons.cancer.gov,"Metadata: MIT (idc-index); each DICOM series has its own licence (license_short_name: CC BY 4.0, CC BY 3.0, CC BY-NC 4.0, CC BY-NC 3.0, National Library of Medicine Terms and Conditions)",12
+tcia,TCIA NBIA REST API v4,supplement,imaging,services.cancerimagingarchive.net,"Per series (LicenseName/LicenseURI): mostly CC BY 3.0 / CC BY 4.0, some CC BY-NC; TCIA Data Usage Policy (https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/): cite each dataset's DOI, no re-identification",7
+tcia_cm,TCIA Collection Manager API,supplement,imaging,www.cancerimagingarchive.net,"Per download item (data_license): CC BY 4.0, CC BY 3.0, CC BY-NC 4.0, CC BY-NC 3.0, TCIA Restricted/Limited, NCTN/NCORP, NIH Controlled Data Access; TCIA Data Usage Policy (https://www.cancerimagingarchive.net/data-usage-policies-and-restrictions/): cite each dataset's DOI, no re-identification",4
+idr,Image Data Resource (OMERO JSON API and IDR searcher),supplement,imaging,idr.openmicroscopy.org,"Per study ('License' in the study annotation): mostly CC BY 4.0 or CC0; some CC BY-NC-SA 3.0, CC BY-NC 4.0, CC BY-NC-ND 4.0, CC BY-SA 3.0",9
+openneuro,OpenNeuro GraphQL API,supplement,imaging,openneuro.org,"Per dataset (description.License): CC0 for about 93%; PDDL for legacy OpenfMRI imports; a few CC BY, CC BY-SA, CC BY-NC; some unstated",3

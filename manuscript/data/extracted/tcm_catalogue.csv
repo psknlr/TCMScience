@@ -1,0 +1,137 @@
+no,name,access,connector,dataset,checked
+1,TCMSP (v2.3),manual_import,,tcmsp_export,2026-10-01
+2,TCM Database@Taiwan,unreachable,,,2026-10-01
+3,TCMBank,live_api+snapshot,tcmbank,tcmbank,2026-10-01
+4,TCMSID,unreachable,,,2026-10-01
+5,NPASS 2.0,snapshot,,sources:npass,2026-10-07
+6,CMAUP 2.0,snapshot,,sources:cmaup,2026-10-07
+7,ccTCM,unreachable,,,2026-10-01
+8,BATMAN-TCM 2.0,snapshot,,batman2,2026-10-01
+9,HIT 2.0,unreachable,,,2026-10-01
+10,HIT 1.0,unreachable,,,2026-10-01
+11,dbPTH 1.0,snapshot,,dbpth,2026-10-01
+12,PharmMapper,restricted,,,2026-10-01
+13,HERB 2.0,live_api+snapshot,herb_api,herb2,2026-10-02
+14,HERB 1.0,snapshot,,herb1,2026-10-01
+15,ETCM v2.0,unreachable,,,2026-10-01
+16,TCMID 2.0,unreachable,,,2026-10-01
+17,TCMM,unreachable,,,2026-10-01
+18,TCM-Mesh,unreachable,,,2026-10-01
+19,LTM-TCM,unreachable,,,2026-10-01
+20,ITCM,live_api+snapshot,itcm,itcm,2026-10-01
+21,TCM-ID,manual_import,,,2026-10-01
+22,YaTCM,unreachable,,,2026-10-01
+23,CPMCP,unreachable,,,2026-10-01
+24,TCMKD,restricted,,,2026-10-01
+25,古今医案云平台/方剂数据库,restricted,,,2026-10-01
+26,中国中医药数据库(CINTCM/CINTMED),restricted,,,2026-10-01
+27,SymMap v2,live_api+snapshot,symmap,symmap2,2026-10-02
+28,DCABM-TCM,live_api+snapshot,dcabm_tcm,dcabm,2026-10-01
+29,MRTCM,unreachable,,,2026-10-01
+30,HIM数据库,unreachable,,,2026-10-01
+31,TCMSTD（系统毒理学数据库）,unreachable,,,2026-10-01
+32,openFDA / FAERS,live_api,openfda,,2026-10-01
+33,FDA FAERS季度原始文件,snapshot,,faers,2026-10-01
+34,TADRRS-HM（台湾）,restricted,,,2026-10-01
+35,KAERS（韩国）,restricted,,,2026-10-01
+36,CADRMS/国家药品不良反应监测,manual_import,,,2026-10-01
+37,NCCIH HerbList,manual_import,,,2026-10-01
+38,CancerHSP,manual_import,,,2026-10-01
+39,DDID,snapshot,,ddid,2026-10-01
+40,PHYDGI,restricted,,,2026-10-01
+41,TwoSIDES,snapshot,,nsides,2026-10-01
+42,openFDA/FAERS（联用信号挖掘模式）,live_api,openfda,,2026-10-01
+43,Natural Medicines（商业）,restricted,,,2026-10-01
+44,Medscape Interaction Checker,restricted,,,2026-10-01
+45,Stockley's Herbal Medicines Interactions,restricted,,,2026-10-01
+46,DrugBank,restricted,,drugbank_vocabulary,2026-10-01
+47,TCMIO,snapshot,,tcmio,2026-10-01
+48,ImmPort,snapshot,,immport,2026-10-01
+49,IEDB,live_api+snapshot,iedb,iedb,2026-10-01
+50,SuperTCM,unreachable,,,2026-10-01
+51,CINTCM,restricted,,,2026-10-01
+52,INPUT（网络药理平台）,manual_import,,,2026-10-01
+53,TM-MC 2.0,snapshot,,tmmc2,2026-10-01
+54,BATMAN-TCM 1.0,snapshot,,batman1,2026-10-01
+55,ShenNong-TCM-Dataset,live_api+snapshot,huggingface,shennong,2026-10-01
+56,TCM-NER,restricted,,,2026-10-01
+57,TCM-Ladder,live_api+snapshot,huggingface,tcm_ladder,2026-10-01
+58,CMLM-ZhongJing数据,restricted,,,2026-10-01
+59,herbnet（知识图谱）,restricted,,,2026-10-01
+60,中医医案知识图谱,restricted,,,2026-10-01
+61,TCMP-300,live_api+snapshot,figshare,tcmp300,2026-10-01
+62,IGTCM,unreachable,,,2026-10-01
+63,TTD（Therapeutic Target Database）,live_api+snapshot,ttd,ttd,2026-10-01
+64,MeSH,live_api,mesh,,2026-10-01
+65,PreDC,unreachable,,,2026-10-01
+66,NPACT,manual_import,,,2026-10-01
+67,COCONUT 2.0 (COlleCtion of Open Natural prodUcTs),live_api+snapshot,coconut,coconut,2026-10-01
+68,World Flora Online Plant List (June 2026),snapshot,,wfo,2026-10-01
+69,"IMPPAT 3.0 (Indian Medicinal Plants, Phytochemistry And Therapeutics)",snapshot,,imppat3,2026-10-01
+70,KNApSAcK Core,live_api,knapsack,,2026-10-01
+71,TCMToxDB,snapshot,,tcmtoxdb,2026-10-01
+72,PhytoHub,live_api,phytohub,,2026-10-01
+73,MIBiG 4.0,live_api+snapshot,mibig,mibig,2026-10-01
+74,gutMGene v2.0,live_api+snapshot,gutmgene,gutmgene,2026-10-01
+75,EMA herbal medicines (HMPC),snapshot,,ema_herbal,2026-10-01
+76,MassBank,live_api+snapshot,massbank,massbank,2026-10-01
+77,GNPS spectral libraries,live_api+snapshot,gnps,gnps,2026-10-01
+78,NP-MRD,snapshot,,np_mrd,2026-10-01
+79,Metabolomics Workbench / RefMet,live_api,metabolomics_workbench,,2026-10-01
+80,ChEBI,live_api+snapshot,chebi,chebi,2026-10-01
+81,Rhea,live_api+snapshot,rhea,rhea,2026-10-01
+82,MetaNetX/MNXref,live_api+snapshot,metanetx,metanetx,2026-10-01
+83,SABIO-RK,live_api,sabio_rk,,2026-10-01
+84,USDA FoodData Central,snapshot,,fooddata_central,2026-10-01
+85,"BioGRID (interactions, chemical associations) + BioGRID ORCS (CRISPR screens)",snapshot,,biogrid,2026-10-01
+86,IntAct and Complex Portal (EMBL-EBI),live_api+snapshot,intact,intact,2026-10-01
+87,SIGNOR,live_api+snapshot,signor,signor,2026-10-01
+88,IUPHAR/BPS Guide to PHARMACOLOGY (GtoPdb),restricted,,,2026-10-01
+89,JASPAR 2026,live_api+snapshot,jaspar,jaspar,2026-10-01
+90,Cellosaurus,live_api+snapshot,cellosaurus,cellosaurus,2026-10-01
+91,LINCS L1000 (GEO GSE92742 / GSE70138 metadata),snapshot,,lincs_l1000,2026-10-01
+92,DepMap Public 24Q4 + PRISM Repurposing 24Q2 (figshare),snapshot,,depmap,2026-10-01
+93,scPerturb,snapshot,,scperturb,2026-10-01
+94,ARCHS4,snapshot,,archs4,2026-10-01
+95,eQTL Catalogue,snapshot,,eqtl_catalogue,2026-10-01
+96,MaveDB,live_api,mavedb,,2026-10-01
+97,International Mouse Phenotyping Consortium (IMPC),live_api+snapshot,impc,impc,2026-10-01
+98,FinnGen,restricted,,,2026-10-01
+99,IEU OpenGWAS,restricted,,,2026-10-01
+100,EPA ToxCast invitrodb v4.3 (CompTox),snapshot,,comptox,2026-10-01
+101,AOP-Wiki (OECD AOP Knowledge Base),live_api+snapshot,aopwiki,aopwiki,2026-10-01
+102,Orphadata Science (Orphanet),live_api+snapshot,orphadata,orphadata,2026-10-01
+103,NHANES 2017-2018 public-use files (CDC/NCHS),snapshot,,nhanes,2026-10-01
+104,MIMIC-IV (PhysioNet),restricted,,,2026-10-01
+105,DrugCentral,live_api+snapshot,drugcentral,drugcentral,2026-10-01
+106,DrugComb,snapshot,,drugcomb,2026-10-01
+107,PharmacoDB,live_api,pharmacodb,,2026-10-01
+108,GDSC (Genomics of Drug Sensitivity in Cancer),snapshot,,gdsc,2026-10-01
+109,Pharos / TCRD (IDG),live_api+snapshot,pharos,pharos,2026-10-01
+110,PharmVar (Pharmacogene Variation Consortium),snapshot,,pharmvar,2026-10-01
+111,CPIC (Clinical Pharmacogenetics Implementation Consortium) / ClinPGx (formerly PharmGKB) annotations,live_api+snapshot,cpic,cpic,2026-10-01
+112,GPCRdb,live_api+snapshot,gpcrdb,gpcrdb,2026-10-01
+113,KLIFS (Kinase-Ligand Interaction Fingerprints and Structures),live_api,klifs,,2026-10-01
+114,ProteomicsDB,live_api,proteomicsdb,,2026-10-01
+115,iPTMnet,snapshot,,iptmnet,2026-10-01
+116,DisProt,live_api+snapshot,disprot,disprot,2026-10-01
+117,RNAcentral,live_api+snapshot,rnacentral,rnacentral,2026-10-01
+118,miRTarBase,snapshot,,mirtarbase,2026-10-01
+119,ChIP-Atlas,live_api+snapshot,chip_atlas,chip_atlas,2026-10-01
+120,ReMap 2022,live_api+snapshot,remap,remap,2026-10-01
+121,Human Cell Atlas Data Portal (Azul),live_api,hca_azul,,2026-10-01
+122,"HuBMAP (search, entity and portal APIs; bulk metadata exports)",live_api+snapshot,hubmap_search,hubmap,2026-10-01
+123,Human Tumor Atlas Network,restricted,,,2026-10-01
+124,4D Nucleome Data Portal,live_api+snapshot,fourdn,fourdn,2026-10-01
+125,EMBL-EBI BioSamples,live_api,biosamples,,2026-10-01
+126,iReceptor AIRR COVID-19 repository (AIRR Data Commons API) / VDJServer Community Data Portal (AIRR Data Commons API),live_api,ireceptor_adc,,2026-10-01
+127,BV-BRC Data API,live_api,bv_brc,,2026-10-01
+128,MGnify API v2,live_api,mgnify,,2026-10-01
+129,NCI Imaging Data Commons (IDC),live_api+snapshot,idc,idc,2026-10-01
+130,The Cancer Imaging Archive (TCIA),live_api,tcia,,2026-10-01
+131,EMBL-EBI BioImage Archive,live_api,biostudies,,2026-10-01
+132,Image Data Resource (IDR),live_api+snapshot,idr,idr,2026-10-01
+133,OpenNeuro,live_api,openneuro,,2026-10-01
+134,HKBU Chinese medicine formula database (manual integration),manual_import,,hkbu_formulas_manual,2026-10-04
+135,Hong Kong Chinese Materia Medica Standards (HKCMMS),manual_import,,hkcmms_manual,2026-10-04
+136,Hong Kong Chinese Materia Medica reference DNA sequences,manual_import,,hk_cmm_dna_manual,2026-10-04

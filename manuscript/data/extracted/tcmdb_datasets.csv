@@ -1,0 +1,77 @@
+key,name,access,licence,commercial_use,relations
+herb2,HERB 2.0,download,not stated,unknown,4
+herb1,HERB 1.0,download,not stated,unknown,0
+symmap2,SymMap v2,download,not stated,unknown,0
+itcm,ITCM,download,not stated,unknown,4
+batman2,BATMAN-TCM 2.0,download,free for academic use; commercial use by arrangement with the authors,unknown,3
+batman1,BATMAN-TCM 1.0,download,free for academic use; commercial use by arrangement with the authors,unknown,1
+tcmbank,TCMBank,download,not stated (academic use),unknown,0
+tmmc2,TM-MC 2.0,download,"per file, by the icons on the download page (no deed link, no version, no terms page): CC BY for medicinal_material, chemical_protein, protein_disease and prescription; CC BY-NC for medicinal_compound and chemical_property",forbidden,4
+tcmio,TCMIO,download,not stated,unknown,3
+dcabm,DCABM-TCM,download,not stated (sister of BATMAN-TCM: free for academic use),unknown,0
+dbpth,dbPTH,download,'All datasets and annotations are free for use' (download page),unknown,1
+ddid,DDID,download,not stated (cite the paper),unknown,1
+ttd,TTD,download,not stated (cite the paper),unknown,1
+immport,ImmPort gene lists,download,ImmPort Data Use Agreement (use and redistribution permitted; cite),unknown,1
+nsides,nSIDES (OFFSIDES / TWOSIDES),download,not stated,unknown,1
+faers,FDA FAERS quarterly ASCII,download,US federal public domain,unknown,0
+mesh,MeSH descriptors,download,NLM terms and conditions (free; attribution),unknown,0
+shennong,ShenNong-TCM-Dataset,download,Apache-2.0,unknown,0
+tcm_ladder,TCM-Ladder,download,CC-BY-4.0,unknown,0
+tcmp300,TCMP-300,download,CC BY 4.0,unknown,0
+symmap_api,SymMap v2 (per-entity query endpoint),live,not stated,unknown,6
+herb_api,HERB 2.0 (per-entity query endpoint),live,not stated,unknown,5
+tcmsp_export,TCMSP (exported tables),manual,ODbL 1.0 (database) / DbCL 1.0 (contents),unknown,2
+drugbank_vocabulary,DrugBank open vocabulary,manual,CC0 1.0,unknown,0
+coconut,COCONUT 2.0 (COlleCtion of Open Natural prodUcTs),download,CC0 (COCONUT); each collection's owner terms kept,allowed,1
+wfo,World Flora Online Plant List (June 2026),download,CC0 1.0 (Zenodo record 20782718),allowed,0
+imppat3,"IMPPAT 3.0 (Indian Medicinal Plants, Phytochemistry And Therapeutics)",download,CC BY-NC-ND 4.0 (site footer),forbidden,4
+tcmtoxdb,TCMToxDB,download,not stated (no data licence or terms of use on the site),unknown,2
+mibig,MIBiG 4.0,download,CC BY 4.0,allowed,2
+gutmgene,gutMGene v2.0,download,not stated (no data licence or terms of use on the site),unknown,2
+ema_herbal,EMA herbal medicines (HMPC),download,"EMA legal notice: reproduction and distribution allowed for any purpose, commercial included, provided EMA is acknowledged as the source (attribution-only, as CC BY); not for third-party content",allowed,1
+eqtl_catalogue,eQTL Catalogue (dataset catalogue and fine-mapped eQTLs),download,CC BY 4.0 (data); code Apache-2.0,allowed,1
+impc,IMPC knockout mouse phenotype calls,download,CC BY 4.0,allowed,1
+comptox,EPA ToxCast invitrodb v4.3 (CompTox),download,CC0 1.0 (US EPA open data),allowed,3
+aopwiki,AOP-Wiki (OECD AOP Knowledge Base),download,CC BY-SA 2.0 (AOP-Wiki default for all content); AOP pages an author marked 'All rights reserved' keep that licence on their rows,allowed,4
+orphadata,Orphadata Science (Orphanet),download,CC BY 4.0 (Orphadata Science; attribution required),allowed,2
+nhanes,NHANES 2017-2018 public-use files (CDC/NCHS),download,"US public domain (CDC/NCHS: attribute the agency, no endorsement implied, do not alter the substantive content) under the NCHS Data User Agreement: statistical reporting and analysis only, no attempt to identify any person, no linkage with individually identifiable data.",allowed,0
+massbank,MassBank (MassBank-data release 2026.03),download,"Per record (each record's LICENSE line binds it): CC BY, CC BY-NC-SA, CC BY-SA, dl-de/by-2-0, CC BY-NC, CC0, CC BY-NC-ND (counts in release 2026.03: 48404, 33478, 21086, 20658, 8434, 7031, 149). The Zenodo archive's own cc-by-4.0 does not override them.",unknown,2
+gnps,GNPS natural-product spectral libraries,download,"CC0 1.0 for spectra contributed directly to GNPS (GNPS documentation, 'License'); imported third-party libraries keep their upstream licences",allowed,1
+np_mrd,NP-MRD (Natural Products Magnetic Resonance Database),download,CC BY-NC 4.0,forbidden,1
+chebi,ChEBI (flat files),download,CC BY 4.0,allowed,3
+rhea,Rhea (TSV and RDF),download,CC BY 4.0,allowed,2
+metanetx,MetaNetX/MNXref,download,"CC BY 4.0 for MNXref's own content; each row is also subject to the terms of the resource it came from, several of them non-commercial (KEGG, BiGG, HMDB, MetaCyc, enviPath CC BY-NC-SA 4.0, SABIO-RK)",unknown,0
+fooddata_central,USDA FoodData Central,download,CC0 1.0,allowed,1
+iptmnet,iPTMnet,download,"CC BY-NC-SA 4.0 (iPTMnet licence page, download page and readme header; the readme footer says CC BY 4.0 and the API spec CC BY-NC-ND 4.0: the files' most restrictive statement is applied). Citing the source databases of each row is required when redistributing.",forbidden,2
+disprot,DisProt,download,CC BY 4.0,allowed,2
+rnacentral,RNAcentral id mappings,download,CC0 1.0 (release 20 onwards),allowed,0
+mirtarbase,miRTarBase,download,"No licence grant stated: the LICENSE file is only a warranty disclaimer (it calls the database provided at no cost); the site footer says 'Copyright ISBLab, CUHK-Shenzhen'",unknown,1
+chip_atlas,ChIP-Atlas,download,"CC BY 4.0 (chip-atlas.org footer and OpenAPI); the NBDC LSDB archive licence page (2020-05-14) states CC BY-SA 4.0, so share-alike is assumed",allowed,1
+remap,ReMap 2022,download,CC BY-NC 4.0 (ReMap catalogues; ReMapEnrich and the pipeline are GPLv3),forbidden,0
+hubmap,"HuBMAP bulk metadata (datasets, samples, donors) and organ list",download,"HuBMAP External Data Sharing Policy: open data released under a permissive licence, e.g. CC BY 4.0; DOI-registered datasets CC BY 4.0. Do not use the data to identify or contact participants",allowed,1
+fourdn,"4D Nucleome union chromatin-loop sets (HFFc6, H1-hESC)",download,"4DN data on AWS Open Data: 'External data users may freely download, analyze, and publish results based on any 4DN data provided here without restrictions'; cite the 4DN papers and acknowledge the lab",unknown,1
+drugcentral,DrugCentral,download,CC BY-SA 4.0,allowed,1
+drugcomb,DrugComb,download,CC BY 4.0 (the DrugComb authors' Zenodo deposits); the screens it collects keep their own terms (e.g. GDSC is non-commercial),unknown,0
+gdsc,Genomics of Drug Sensitivity in Cancer (GDSC1/GDSC2),download,"DepMap at Sanger Data Usage Policy: internal research and educational use; no resale, redistribution or commercial services; commercial use not permitted without prior consent",forbidden,1
+pharos,Pharos / TCRD (Pharos400 target development levels),download,not stated: Pharos defers to its primary sources ('Please respect their individual licenses regarding proper use and redistribution'),unknown,1
+pharmvar,PharmVar (Pharmacogene Variation Consortium),download,CC BY-SA 4.0 under the PharmVar Terms and Conditions (last modified 2023-03-24): research use only; the data may not be offered for sale as a commercial item,forbidden,1
+cpic,CPIC gene-drug pairs,download,CC0 1.0 (CPIC curated content; CPIC asks for attribution),allowed,1
+clinpgx,ClinPGx (formerly PharmGKB) annotations,download,CC BY-SA 4.0 under the ClinPGx Data Usage Policy: research use only; ClinPGx data may not be sold for private or commercial use,forbidden,2
+gpcrdb,GPCRdb drug-target table,download,CC BY 4.0,allowed,1
+biogrid,BioGRID interactions and chemical associations,download,MIT (BioGRID: 'freely available to both academic and commercial users'),allowed,4
+biogrid_orcs,BioGRID ORCS CRISPR screens,download,MIT (BioGRID: 'freely available to both academic and commercial users'),allowed,1
+intact,IntAct negative interactions and Complex Portal complexes,download,CC0 1.0 (Complex Portal); CC BY 4.0 (IntAct),allowed,3
+signor,SIGNOR causal relations,download,CC BY 4.0,allowed,4
+jaspar,JASPAR 2026 transcription factor binding profiles,download,CC BY 4.0,allowed,1
+cellosaurus,Cellosaurus (cell line knowledge resource),download,CC BY 4.0,allowed,1
+lincs_l1000,"LINCS L1000 metadata (Broad, GEO GSE92742 and GSE70138)",download,"No licence stated. GEO public deposit (NCBI: 'public, non-sensitive, unrestricted scientific data sharing'); LINCS data release policy: 'released without any restrictions except correct citation'",allowed,0
+depmap,DepMap Public 24Q4 and PRISM Repurposing 24Q2 (figshare deposits),download,CC BY 4.0,allowed,3
+scperturb,scPerturb harmonised single-cell perturbation data (Zenodo),download,CC BY 4.0 (Zenodo record licence; the original studies' deposits keep their own terms),allowed,0
+archs4,ARCHS4 uniformly processed RNA-seq (version list and pinned HDF5),download,not stated (reprocessed public GEO/SRA samples; the site asks for citation of Lachmann et al. 2018),unknown,0
+iedb,IEDB (Immune Epitope Database) exports,download,CC BY 4.0,allowed,4
+idc,NCI Imaging Data Commons index (idc-index-data),download,MIT (idc-index-data package),allowed,1
+idr,Image Data Resource study exports,download,CC0 1.0 (idr0013 MitoCheck); CC BY 4.0 (idr0021); per study,allowed,2
+hkbu_formulas_manual,HKBU formulas (reviewed manual export),manual,not stated; verify applicable data permissions before production use,unknown,1
+hkcmms_manual,Hong Kong Chinese Materia Medica Standards (HKCMMS),manual,Hong Kong Government publication; the terms are not stated here — verify reproduction and redistribution terms before production use,unknown,0
+hk_cmm_dna_manual,Hong Kong Chinese Materia Medica reference DNA sequences,manual,not stated; verify applicable data permissions before production use,unknown,0

@@ -29,6 +29,8 @@ def pc(k, n, digits=0):
 
 def rows() -> list[list[str]]:
     inv = fl.load_json("inventory.json")
+    cap = fl.load_json("capabilities.json")
+    live = sum(v for k, v in cap["tcm_catalogue"]["by_access"].items() if k.startswith("live"))
     conf = {r["configuration"]: r for r in fl.rows("ablation_configurations.csv")}
     uniq = {r["gate"]: int(r["unique"]) for r in fl.rows("ablation_unique.csv")}
     summ = fl.load_json("ablation_summary.json")
@@ -71,16 +73,23 @@ def rows() -> list[list[str]]:
 
     return [
         ["1", "What does each plane hold, and what may the model do?",
-         "Counts read from the code at this commit; connectors' live-verification record",
-         f"{inv['public_sources']} public sources with {inv['typed_operations']} typed "
-         f"operations, all {inv['operations_live_verified']} verified live "
-         f"({inv['verification_dates'][0]} to {inv['verification_dates'][1]}); "
-         f"{inv['native_tools']} native tools in {inv['native_tool_domains']} domains; "
-         f"{inv['compiler_diagnostics']} compiler diagnostics in "
-         f"{len(inv['compiler_diagnostics_by_family'])} families; "
+         "Names and counts read from the code at this commit (the kernel's runtime, the "
+         "providers, the TCM catalogue and data hub, the source cards, the registries and "
+         "engines); the connectors' live-verification record",
+         f"{inv['public_sources']} public sources in {cap['public_sources']['domains']} "
+         f"domains with {inv['typed_operations']} typed operations, all "
+         f"{inv['operations_live_verified']} verified live "
+         f"({inv['verification_dates'][0]} to {inv['verification_dates'][1]}); a catalogue "
+         f"of {cap['tcm_catalogue']['total']} TCM databases ({live} reachable live) and a "
+         f"hub of {cap['tcm_hub']['datasets']} datasets; {len(cap['snapshot_cards'])} source "
+         f"cards; {inv['native_tools']} native tools in {inv['native_tool_domains']} domains; "
+         f"{cap['federated']['capabilities']:,} federated capabilities from "
+         f"{cap['federated']['projects']} projects; {inv['compiler_diagnostics']} compiler "
+         f"diagnostics in {len(inv['compiler_diagnostics_by_family'])} families; "
          f"{inv['claim_reason_codes']} claim codes",
-         "Isolation: components running in-process are not isolated, the bundled sandbox is a "
-         "no-op, and the audit chain is tamper-evident, not tamper-proof"],
+         "That a registered source is fit for a given claim; isolation: components running "
+         "in-process are not isolated, the bundled sandbox is a no-op, and the audit chain is "
+         "tamper-evident, not tamper-proof"],
         ["2", "Can a prediction be released as a fact?",
          "The kernel's design × claim matrix (16 designs × 8 claim kinds), checked against the "
          "compile-time table; 15 drafted claims through three end-to-end chains",

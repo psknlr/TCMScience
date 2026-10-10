@@ -57,6 +57,78 @@
   "supplement": 49,
   "tcm": 10
  },
+ "runtime": {
+  "compiler_passes": [
+   "structure",
+   "method",
+   "typecheck",
+   "effects",
+   "infoflow",
+   "statistics",
+   "reproducibility",
+   "resources"
+  ],
+  "evaluator_layers": [
+   "structural",
+   "execution",
+   "evidence",
+   "goal"
+  ],
+  "loop_default_limits": {
+   "max_iterations": 12,
+   "max_replans": 2
+  },
+  "loop_terminations": [
+   "goal_satisfied",
+   "max_iterations",
+   "budget_exhausted",
+   "deadline",
+   "no_progress",
+   "max_replans",
+   "plan_rejected",
+   "policy_denied",
+   "escalated",
+   "unrecoverable_error",
+   "cancelled",
+   "awaiting"
+  ],
+  "plan_validator_families": [
+   "graph",
+   "authority",
+   "dataflow",
+   "budget",
+   "scientific"
+  ],
+  "runner_stages": [
+   "ingest",
+   "classify",
+   "policy_snapshot",
+   "bind",
+   "plan",
+   "validate_plan",
+   "resolve",
+   "compile_context",
+   "preflight",
+   "execute",
+   "capture_to_quarantine",
+   "ingest_evidence",
+   "verify",
+   "release_gate",
+   "commit_validated_state",
+   "checkpoint"
+  ],
+  "stores": [
+   "git_workspace",
+   "event_store",
+   "artifact_store",
+   "index_store"
+  ],
+  "task_kinds": [
+   "model",
+   "tool",
+   "delegate"
+  ]
+ },
  "sources_in_verification_file": 117,
  "tcm_tools": 11,
  "typed_operations": 444,

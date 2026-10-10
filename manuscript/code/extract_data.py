@@ -162,8 +162,209 @@ def inventory() -> None:
         "compiler_diagnostics_by_family": dict(sorted(families.items())),
         "claim_reason_codes": len(CLAIM_REASONS),
         "claim_reasons": dict(CLAIM_REASONS),
+        "runtime": runtime_shape(),
     }
     write_json("inventory.json", value)
+
+
+def runtime_shape() -> dict:
+    """The trusted path's fixed structure, read from the kernel rather than its prose."""
+    import inspect
+    import re
+    from psh.compiler.pipeline import PASS_ORDER
+    from psh.config import PSHConfig
+    from psh.runtime import plan_validator
+    from psh.runtime.evaluator import Evaluator
+    from psh.runtime.loop import LoopLimits, Termination
+    from psh.runtime.plan import _KINDS
+    from psh.runtime.runner import STAGES
+
+    families = re.findall(r"PlanViolation\(\s*\"(\w+)\"", inspect.getsource(plan_validator))
+    kinds = [k for k in ("model", "tool", "delegate") if k in _KINDS]
+    assert len(kinds) == len(_KINDS), _KINDS
+    stores = ("git_workspace", "event_store", "artifact_store", "index_store")
+    assert all(isinstance(getattr(PSHConfig, s), property) for s in stores)
+    limits = LoopLimits()
+    return {
+        "compiler_passes": list(PASS_ORDER),
+        "runner_stages": list(STAGES),
+        "task_kinds": kinds,
+        "loop_terminations": [t.value for t in Termination if t is not Termination.RUNNING],
+        "loop_default_limits": {"max_iterations": limits.max_iterations,
+                                "max_replans": limits.max_replans},
+        "plan_validator_families": list(dict.fromkeys(families)),
+        "evaluator_layers": [m for m in ("structural", "execution", "evidence", "goal")
+                             if callable(getattr(Evaluator, m, None))],
+        "stores": list(stores),
+    }
+
+
+# ---------------------------------------------------------- the tools and data in the code
+def studio_catalogue() -> dict:
+    """What Studio offers a model: its core tools and the catalogue entries behind them.
+
+    Built by Studio's own ``tcmstudio.catalog.build_catalog`` (without probing this
+    machine for optional packages, which changes availability marks, not entries).
+    """
+    sys.path.insert(0, str(REPO / "studio" / "runner" / "src"))
+    from tcmstudio.catalog import build_catalog
+    doc = build_catalog("runner", probe=False)
+    if doc.get("problems"):
+        raise SystemExit(f"Studio catalogue incomplete: {doc['problems']}")
+    return {"core_tools": doc["counts"]["core"], "entries": doc["counts"]["entries"],
+            "entries_by_kind": doc["counts"]["by_kind"],
+            "core": [t["name"] for t in doc["core"]]}
+
+
+def capabilities(formulas: bool = True) -> None:
+    """What the capability plane actually holds, read from the code and its registries.
+
+    The README's inventory lags the code; these numbers are the code's own: every public
+    source with its domain and operations, the TCM catalogue and data hub, the federated
+    capability catalogue, the snapshot source cards, the bound implementations and
+    reviewed external tools, the engines the pipelines can select, and the skills.
+    """
+    import collections
+    import yaml
+    from bioagent.providers.public_apis import CORE_SOURCES, SOURCES, SUPPLEMENT_SOURCES
+    from bioagent.providers.public_apis_ext import EXTENDED_SOURCES
+    from bioagent.providers.public_apis_tcm import TCM_SOURCES
+    from bioagent.tcmdb import DATASETS, EVIDENCE, RELATION_KINDS
+    from bioagent.sources.cards import SOURCE_CARDS
+    from bioagent.admet.models import ENDPOINTS
+    from bioagent.omics.backends import VERSION_ARGS
+    from bioagent.omics.de_backends import BACKENDS as DE_BACKENDS
+    from bioagent.omics.sc.analysis import ANALYSIS_BACKENDS, INTEGRATION_METHODS
+    from bioagent.structure import engines as structure_engines
+    from bioagent.structure.predict import PREDICTORS
+    import bioagent.docking.engine as docking_engine
+    import inspect
+    import re
+    import bioagent.acquisition.sources as acq
+    import pkgutil
+    import bioagent.sources.parsers as parsers
+
+    group = {}
+    for name, members in (("core", CORE_SOURCES), ("extended", EXTENDED_SOURCES),
+                          ("tcm", TCM_SOURCES), ("supplement", SUPPLEMENT_SOURCES)):
+        for s in members:
+            group[s.key] = name
+    write_csv("public_sources.csv", [
+        {"key": s.key, "name": s.name, "group": group[s.key], "domain": s.domain,
+         "host": s.host, "licence": s.license, "operations": len(s.operations)}
+        for s in SOURCES])
+    by_domain = collections.defaultdict(lambda: {"sources": 0, "operations": 0, "names": []})
+    for s in SOURCES:
+        d = by_domain[s.domain]
+        d["sources"] += 1
+        d["operations"] += len(s.operations)
+        d["names"].append(s.name)
+    write_csv("public_sources_by_domain.csv", [
+        {"domain": k, "sources": v["sources"], "operations": v["operations"],
+         "names": "; ".join(v["names"])}
+        for k, v in sorted(by_domain.items(), key=lambda kv: (-kv[1]["sources"], kv[0]))])
+
+    cat = json.loads((BIO / "src" / "bioagent" / "data" / "tcm_source_catalog.json").read_text())
+    write_csv("tcm_catalogue.csv", [
+        {"no": e["no"], "name": e["name"], "access": e["access"],
+         "connector": e.get("connector") or "", "dataset": e.get("dataset") or "",
+         "checked": e["checked"]} for e in cat["entries"]])
+    write_csv("tcmdb_datasets.csv", [
+        {"key": d.key, "name": d.name, "access": d.access, "licence": d.license,
+         "commercial_use": d.commercial_use, "relations": len(d.relations or ())}
+        for d in DATASETS])
+
+    repos = read_csv(BIO / "data" / "repos_manifest.csv")
+    write_csv("federated_projects.csv", [
+        {"project": r["project"], "repo": r["repo_slug"], "licence": r["license_spdx"],
+         "integration_mode": r["integration_mode"], "vendorable": r["vendorable"]}
+        for r in repos])
+    catalogue = read_csv(BIO / "src" / "bioagent" / "data" / "unified_capability_catalogue.csv")
+    kinds = collections.Counter((r["kind"], r["integration_mode"]) for r in catalogue)
+    write_csv("federated_catalogue_kinds.csv", [
+        {"kind": k, "vendor": kinds.get((k, "vendor"), 0),
+         "adapter_only": kinds.get((k, "adapter-only"), 0),
+         "total": kinds.get((k, "vendor"), 0) + kinds.get((k, "adapter-only"), 0)}
+        for k in sorted({k for k, _ in kinds}, key=lambda k: -sum(v for (kk, _), v in
+                                                             kinds.items() if kk == k))])
+
+    reg = BIO / "registry"
+    bindings = yaml.safe_load((reg / "implementation_bindings.yaml").read_text())["bindings"]
+    tu = yaml.safe_load((reg / "tooluniverse_allowlist.yaml").read_text())
+    bm = yaml.safe_load((reg / "biomcp_server.yaml").read_text())
+    mcp = yaml.safe_load((reg / "mcp_servers.yaml").read_text())
+    lic = yaml.safe_load((reg / "licence_records.yaml").read_text())
+    lock = yaml.safe_load((reg / "skills.lock.yaml").read_text())
+    engines = sorted(c.name for c in vars(structure_engines).values()
+                     if isinstance(c, type) and issubclass(c, structure_engines.Engine)
+                     and getattr(c, "name", ""))
+    acq_specs = [v for v in vars(acq).values() if isinstance(v, (list, tuple)) and v
+                 and type(v[0]).__name__ == "AcquisitionSpec"]
+    skill_dirs = sorted(p.name for p in (BIO / "skills" / "tcm").iterdir() if p.is_dir())
+    candidates = sorted(f"{p.parent.name}/{p.name}"
+                        for p in (BIO / "skills" / "candidates").glob("*/*") if p.is_dir())
+
+    def _names(items):
+        if isinstance(items, dict):
+            return list(items)
+        return [i if isinstance(i, str) else (i.get("name") or i.get("tool")) for i in items]
+
+    def card_row(c):
+        modes = sorted({a.mode for a in c.access})
+        return {"key": c.key, "name": c.name, "licence": c.license, "access": modes}
+
+    # AutoDock Vina's scoring functions are a literal in the check that refuses any other
+    found = re.search(r"scoring not in \(([^)]*)\)", inspect.getsource(docking_engine))
+    docking_scoring = re.findall(r"\"(\w+)\"", found.group(1))
+
+    summary = {
+        "public_sources": {"total": len(SOURCES), "operations": sum(len(s.operations)
+                                                                    for s in SOURCES),
+                           "domains": len(by_domain),
+                           "by_group": {g: sum(v == g for v in group.values())
+                                        for g in ("core", "extended", "tcm", "supplement")}},
+        "tcm_catalogue": {"total": len(cat["entries"]), "version": cat["version"],
+                          "by_access": dict(collections.Counter(e["access"]
+                                                                for e in cat["entries"]))},
+        "tcm_hub": {"datasets": len(DATASETS),
+                    "by_access": dict(collections.Counter(d.access for d in DATASETS)),
+                    "relation_kinds": len(RELATION_KINDS), "evidence_levels": sorted(EVIDENCE)},
+        "snapshot_cards": [card_row(c) for c in (SOURCE_CARDS.values() if isinstance(SOURCE_CARDS, dict) else SOURCE_CARDS)],
+        "snapshot_parsers": sorted(m.name for m in pkgutil.iter_modules(parsers.__path__)
+                                   if m.name != "common"),
+        "acquisition_specs": sum(len(s) for s in acq_specs),
+        "federated": {"projects": len(repos),
+                      "capabilities": len(catalogue),
+                      "by_kind": dict(collections.Counter(r["kind"] for r in catalogue)),
+                      "by_integration": dict(collections.Counter(r["integration_mode"]
+                                                                 for r in catalogue))},
+        "bindings": [{"component": b["component"], "project": b["project"],
+                      "commit": str(b["commit"])[:10], "licence": b["licence"]["spdx"]}
+                     for b in bindings],
+        "tooluniverse": {"package": tu["package"], "version": tu["reviewed_version"],
+                         "licence": tu["package_licence"],
+                         "tools": _names(tu["tools"])},
+        "biomcp": {"package": bm["server"]["package"], "version": bm["server"]["version"],
+                   "status": bm["status"], "transport": bm["server"]["transport"],
+                   "tools": _names(bm["tools"]),
+                   "not_admitted": _names(bm["not_admitted"])},
+        "mcp_servers_admitted": len(mcp["servers"]),
+        "licence_records": {k: len(v) for k, v in lic.items() if isinstance(v, list)},
+        "engines": {"structure": engines, "structure_predictors": list(PREDICTORS),
+                    "docking_scoring": docking_scoring,
+                    "differential_expression": list(DE_BACKENDS),
+                    "single_cell": list(ANALYSIS_BACKENDS),
+                    "single_cell_integration": list(INTEGRATION_METHODS),
+                    "rnaseq_command_line": sorted(VERSION_ARGS),
+                    "admet_endpoints": len(ENDPOINTS)},
+        "studio": studio_catalogue(),
+        "skills": {"stable_locked": [s["skill_id"] for s in lock["skills"]],
+                   "tcm_skill_dirs": skill_dirs, "candidates": candidates},
+    }
+    if formulas:
+        from bioagent.sources.formulas import load_formula_table
+        summary["formula_table"] = load_formula_table().stats()
+    write_json("capabilities.json", summary)
 
 
 # ------------------------------------------------------------------- governance ablation
@@ -449,6 +650,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="re-run end-to-end cases 1 and 2 (needs GSEApy and PaperQA2)")
     ap.add_argument("--verify", action="store_true",
                     help="re-run the ablation and evidence-typing checks first")
+    ap.add_argument("--no-formulas", action="store_true",
+                    help="skip loading the 84,294-formula table (about 20 s)")
     args = ap.parse_args(argv)
     n = verify_curated()
     print(f"curated: {n} values match the lines they cite")
@@ -456,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
         verify_benchmarks()
     licensing()
     inventory()
+    capabilities(formulas=not args.no_formulas)
     ablation()
     evidence_typing()
     inquiry()

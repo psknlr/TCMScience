@@ -21,3 +21,4 @@ reports them.
 | `robustness_holdouts.csv` | the released hypotheses' q values with evidence held out | `docs/falsifiable-studies.md` |
 | `ablation_rounds.csv` | errors the full stack released in each benchmark round | `docs/governance-ablation.md`, committed results |
 | `e2e_case3_claims.csv` | case 3's drafted claims and verdicts (docking needs AutoDock Vina) | `docs/end-to-end-cases.md` |
+| `case_study_sources.csv` | the role each source card played in the 葛根芩连汤 case study (Fig. 1c) | `README.md` |

@@ -1,0 +1,325 @@
+{
+ "acquisition_specs": 25,
+ "bindings": [
+  {
+   "commit": "400c1f366b",
+   "component": "biomni.tool.annotate_celltype_scrna",
+   "licence": "Apache-2.0",
+   "project": "Biomni"
+  },
+  {
+   "commit": "400c1f366b",
+   "component": "biomni.tool.create_harmony_embeddings_scrna",
+   "licence": "Apache-2.0",
+   "project": "Biomni"
+  },
+  {
+   "commit": "400c1f366b",
+   "component": "biomni.tool.create_scvi_embeddings_scrna",
+   "licence": "Apache-2.0",
+   "project": "Biomni"
+  },
+  {
+   "commit": "400c1f366b",
+   "component": "biomni.tool.gene_set_enrichment_analysis",
+   "licence": "Apache-2.0",
+   "project": "Biomni"
+  }
+ ],
+ "biomcp": {
+  "not_admitted": [
+   "trial_getter",
+   "trial_locations_getter",
+   "search",
+   "fetch",
+   "think"
+  ],
+  "package": "biomcp-python",
+  "status": "draft",
+  "tools": [
+   "article_searcher",
+   "article_getter",
+   "trial_searcher",
+   "trial_protocol_getter",
+   "variant_searcher"
+  ],
+  "transport": "stdio",
+  "version": "0.7.3"
+ },
+ "engines": {
+  "admet_endpoints": 22,
+  "differential_expression": [
+   "builtin",
+   "pydeseq2"
+  ],
+  "docking_scoring": [
+   "vina",
+   "vinardo"
+  ],
+  "rnaseq_command_line": [
+   "fastp",
+   "featureCounts",
+   "hisat2",
+   "hisat2-build",
+   "kallisto",
+   "salmon",
+   "samtools"
+  ],
+  "single_cell": [
+   "builtin",
+   "scanpy"
+  ],
+  "single_cell_integration": [
+   "none",
+   "harmony",
+   "scvi"
+  ],
+  "structure": [
+   "boltz",
+   "chai-1",
+   "openmm",
+   "proteinmpnn"
+  ],
+  "structure_predictors": [
+   "esmatlas",
+   "esmfold",
+   "colabfold"
+  ]
+ },
+ "federated": {
+  "by_integration": {
+   "adapter-only": 670,
+   "vendor": 1897
+  },
+  "by_kind": {
+   "agent_role": 53,
+   "benchmark": 155,
+   "database": 286,
+   "dataset": 76,
+   "skill": 405,
+   "software": 113,
+   "tool": 1479
+  },
+  "capabilities": 2567,
+  "projects": 16
+ },
+ "formula_table": {
+  "components": 639708,
+  "drugs_in_table": 401,
+  "drugs_used": 400,
+  "formulas": 84294,
+  "resolved_components": 583909,
+  "resolved_formulas": 50291
+ },
+ "licence_records": {
+  "code": 14,
+  "data": 10,
+  "model": 0,
+  "service": 2
+ },
+ "mcp_servers_admitted": 0,
+ "public_sources": {
+  "by_group": {
+   "core": 16,
+   "extended": 42,
+   "supplement": 49,
+   "tcm": 10
+  },
+  "domains": 29,
+  "operations": 444,
+  "total": 117
+ },
+ "skills": {
+  "candidates": [
+   "clinic/draft-tcm-prescription",
+   "literature/retrieve-literature-evidence",
+   "molecular/dock-ligands",
+   "molecular/predict-admet",
+   "molecular/predict-protein-structure",
+   "omics/rnaseq-differential-expression",
+   "omics/scrna-cell-atlas"
+  ],
+  "stable_locked": [
+   "analyze-tcm-network-pharmacology",
+   "assess-tcm-safety",
+   "normalize-tcm-entities",
+   "retrieve-tcm-evidence"
+  ],
+  "tcm_skill_dirs": [
+   "analyze-tcm-network-pharmacology",
+   "assess-tcm-safety",
+   "network-pharmacology",
+   "normalize-tcm-entities",
+   "retrieve-tcm-evidence"
+  ]
+ },
+ "snapshot_cards": [
+  {
+   "access": [
+    "api",
+    "bulk"
+   ],
+   "key": "lotus",
+   "licence": "CC-BY-4.0",
+   "name": "LOTUS natural products occurrences (frozen export)"
+  },
+  {
+   "access": [
+    "bulk"
+   ],
+   "key": "npass",
+   "licence": "Not stated",
+   "name": "NPASS 2.0"
+  },
+  {
+   "access": [
+    "bulk"
+   ],
+   "key": "cmaup",
+   "licence": "Not stated",
+   "name": "CMAUP 2.0"
+  },
+  {
+   "access": [
+    "api",
+    "manual"
+   ],
+   "key": "bindingdb",
+   "licence": "CC-BY-3.0",
+   "name": "BindingDB"
+  },
+  {
+   "access": [
+    "api",
+    "bulk"
+   ],
+   "key": "string",
+   "licence": "CC-BY-4.0",
+   "name": "STRING v12 (human)"
+  },
+  {
+   "access": [
+    "api",
+    "bulk"
+   ],
+   "key": "reactome",
+   "licence": "CC0-1.0",
+   "name": "Reactome (UniProt to lowest-level pathway)"
+  },
+  {
+   "access": [
+    "api",
+    "bulk"
+   ],
+   "key": "pubchem_bioassay",
+   "licence": "NCBI-data-policy",
+   "name": "PubChem BioAssay (per-compound assay results)"
+  },
+  {
+   "access": [
+    "api",
+    "bulk"
+   ],
+   "key": "opentargets",
+   "licence": "CC0-1.0",
+   "name": "Open Targets Platform (target-disease associations)"
+  }
+ ],
+ "snapshot_parsers": [
+  "bindingdb",
+  "cmaup",
+  "lotus",
+  "npass",
+  "opentargets",
+  "pubchem_bioassay",
+  "reactome",
+  "string_db"
+ ],
+ "studio": {
+  "core": [
+   "tcm_lookup",
+   "tcm_herb",
+   "tcm_formula",
+   "tcm_syndrome",
+   "tcm_classical_search",
+   "tcm_compatibility",
+   "tcm_applicability",
+   "tcm_normalize",
+   "tcm_evidence",
+   "tcm_safety_report",
+   "tcm_network_hypothesis",
+   "clinic_assess",
+   "clinic_check_prescription",
+   "clinic_followup",
+   "tcmdb_catalog",
+   "tcmdb_relations",
+   "tcmdb_consensus",
+   "connector_call",
+   "literature_search",
+   "network_pharmacology_run",
+   "run_pipeline",
+   "job_status",
+   "capabilities_status",
+   "catalog_search",
+   "call_tool"
+  ],
+  "core_tools": 25,
+  "entries": 647,
+  "entries_by_kind": {
+   "clinic": 5,
+   "connector": 444,
+   "job": 9,
+   "native": 150,
+   "skill": 11,
+   "study": 4,
+   "system": 9,
+   "tcmdb": 15
+  }
+ },
+ "tcm_catalogue": {
+  "by_access": {
+   "live_api": 19,
+   "live_api+snapshot": 37,
+   "manual_import": 10,
+   "restricted": 21,
+   "snapshot": 31,
+   "unreachable": 18
+  },
+  "total": 136,
+  "version": "2026-10-01"
+ },
+ "tcm_hub": {
+  "by_access": {
+   "download": 69,
+   "live": 2,
+   "manual": 5
+  },
+  "datasets": 76,
+  "evidence_levels": [
+   "aggregated",
+   "associated",
+   "known",
+   "listed",
+   "mentioned",
+   "predicted",
+   "reported",
+   "signal"
+  ],
+  "relation_kinds": 58
+ },
+ "tooluniverse": {
+  "licence": "Apache-2.0",
+  "package": "tooluniverse",
+  "tools": [
+   "UniProt_get_entry_by_accession",
+   "PubChem_get_CID_by_compound_name",
+   "PubChem_get_compound_properties_by_CID",
+   "ChEMBL_search_activities",
+   "Reactome_map_uniprot_to_pathways",
+   "EuropePMC_search_articles",
+   "ClinicalTrials_search_studies",
+   "STRING_get_interaction_partners"
+  ],
+  "version": "1.5.6"
+ }
+}

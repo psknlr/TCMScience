@@ -1,0 +1,17 @@
+project,repo,licence,integration_mode,vendorable
+K-Dense-scientific-agent-skills,K-Dense-AI/scientific-agent-skills,MIT,vendor,True
+Biomni,snap-stanford/Biomni,Apache-2.0,vendor,True
+ClawBio,ClawBio/ClawBio,MIT,vendor,True
+Robin,Future-House/robin,Apache-2.0,vendor,True
+PantheonOS_src,aristoteleo/PantheonOS,BSD-2-Clause,vendor,True
+AutoBA,JoshuaChou2018/AutoBA,MIT,vendor,True
+OriGene,GENTEL-lab/OriGene,NOASSERTION,adapter-only,False
+STELLA,zaixizhang/STELLA,Apache-2.0,vendor,True
+GenoMAS,Liu-Hy/GenoMAS,MIT,vendor,True
+BioMedAgent,BOBQWERA/BioMedAgent,NONE,adapter-only,False
+OrigeneMCP,GENTEL-lab/OrigeneMCP,NONE,adapter-only,False
+Agentomics,BioGeMT/agentomics-ml,MIT,vendor,True
+BioMedArena,AI-in-Health/BioMedArena,MIT,vendor,True
+CellAgent,liu-shiqiang/CellAgent,NONE,adapter-only,False
+GeneAgent,ncbi-nlp/GeneAgent,NLM-Public-Domain,vendor,True
+CRISPR-GPT,cong-lab/crispr-gpt-pub,NONE,adapter-only,False
