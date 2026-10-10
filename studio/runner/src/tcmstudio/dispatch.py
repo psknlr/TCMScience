@@ -1862,15 +1862,28 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
     g = gv.empty("tcmdb")
     g["limitations"] = [gv.LIMIT_HUB]
     if op in ("formulas", "materia"):
-        from .repository_data import formula_search, materia_search
+        from .repository_data import formula_search, materia_search, ranked_formula_search
         if op == "formulas":
-            result = formula_search(str(args.get("query") or ""), exact=bool(args.get("exact")),
-                                    source=str(args.get("source") or ""),
-                                    limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)))
+            if args.get("rank"):
+                if args.get("exact"):
+                    raise ValueError("rank and exact do not go together: exact already names one formula")
+                result = ranked_formula_search(str(args.get("query") or ""),
+                                               source=str(args.get("source") or ""),
+                                               aliases=bool(args.get("aliases", True)),
+                                               limit=int(args.get("limit", 25)),
+                                               offset=int(args.get("offset", 0)))
+            else:
+                result = formula_search(str(args.get("query") or ""), exact=bool(args.get("exact")),
+                                        source=str(args.get("source") or ""),
+                                        limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)))
             g["licences"] = [gv.licence_entry("repository_formulas", result["provenance"]["license"],
                                                 note="workbook data licence is unstated")]
             g["limitations"] = ["Source formula records are not clinically validated; an action "
                                 "or dose recorded in the workbook does not establish efficacy or safety."]
+            if "rank" in result:
+                g["limitations"].append("The order is lexical relevance (where and how rarely the terms "
+                                        "occur), not a clinical ranking; other names of a herb come from "
+                                        "the materia table and are listed in rank.terms.")
         else:
             result = materia_search(str(args.get("query") or ""), limit=int(args.get("limit", 50)),
                                     offset=int(args.get("offset", 0)))

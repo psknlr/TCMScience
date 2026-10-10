@@ -368,10 +368,10 @@ a first visit downloads about 11 MB from jsDelivr, and later visits read them fr
 | Suite | What it proves | Result |
 |---|---|---|
 | `cd studio && npm test` (Node 22) | Kernels against 374 fixture cases from the Python reference (SIMD and JavaScript counts both); SIMD against JavaScript over awkward widths, alphabets and refusals; the committed WebAssembly binary against its source; scheduler rules; capability probing; the service worker; the network-switch races (19 tests) | 331 passed, 1 skipped (bioagent not installed for the system Python) |
-| `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, the web build and its service-worker manifest, the matrix | 325 passed |
+| `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, ranked formula search, the pinned skills' code against their pins, the web build and its service-worker manifest, the matrix | 338 passed |
 | `pytest -m unit BioScience-Harness` | The tools' kernel hooks and checks; everything else in bioagent | 2534 passed, 131 skipped |
 | `node --test studio/edge/test` | The Worker: relay, gateway, headers | 63 passed |
-| `node studio/web/test/runtime/run.mjs` | Real Pyodide in Chromium 141: 47 checks (governed skills, tools, kernels with each acceleration choice, cancellation), reload from cache, a non-isolated page, a tampered bundle refused; 17 envelopes compared field by field with native CPython | all passed |
+| `node studio/web/test/runtime/run.mjs` | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; 18 envelopes compared field by field with native CPython | all passed |
 
 **Cross-platform status.** Tested: Chromium 141 headless on Linux x86-64, isolated and not isolated; Node 22 (V8)
 for the kernels; native CPython 3.13 for the comparisons. The repository's Playwright suite also emulates a phone (390 ×
@@ -387,8 +387,7 @@ nothing changes.
 
 | Phase | Work | Priority | Status |
 |---|---|---|---|
-| 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths | — | **Done** (this branch) |
-| 2 | Ranked multi-term formula retrieval (today `tcmdb.formulas` is one substring, in row order) | P1 | Proposed |
+| 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
 | 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws | P1 | Proposed |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
@@ -396,6 +395,33 @@ nothing changes.
 | 3 | WASM threads for distance-matrix rows and neighbour joining; SIMD alignment (anti-diagonals) | P2 | Proposed |
 | 4 | Optional NPU operation in the local runner ([§6](#6-webgpu-webassembly-and-webnn)); in-browser chat models (WebLLM) for desktops with a capable GPU, opt-in and labelled | P3 | Proposed |
 | 4 | Small-dataset browser mode for single-cell analysis | P3 | Proposed |
+
+### 11.1 Ranked formula search
+
+`tcmdb.formulas` searched one literal substring, in workbook order. "黄芪 当归" found nothing, since that string with its
+space occurs nowhere, and an exact name such as 桂枝汤 came after every longer name that contains it. The bigger gap was
+in recall: the workbook writes the herb 黄芪 mostly as 黄耆, its classical form. A search for 黄芪 found 31 rows; 5,936
+rows contain the herb under one of its names.
+
+With `rank: true` (opt-in: the default search is unchanged, and now notes `also_written` names), the query splits into
+terms. Each herb is also searched under the other names the materia table gives it. Rows come back in order of a lexical
+relevance score: per term, the best field it occurs in (exact name 6, name 4, composition 3, actions 2, other fields 1),
+weighted by its rarity (BM25's idf), with ties in workbook order. Each record says how it matched, and the result lists
+which names each term was searched under. The expansion is conservative:
+
+- only the fewest names that find the rest (黄芪 needs 黄耆 alone: 炙黄芪 contains 黄芪);
+- a processed form asked for (炙甘草) is searched as written, never widened to every 甘草;
+- processed forms are not added (姜汁 is how 黄连（姜汁炒）is prepared, not an ingredient);
+- one-letter names (归, 姜) and names that are part of another drug's name (姜 in 干姜) are never used.
+
+Measured: 0.1–0.9 s natively on the full workbook, depending on how many rows the terms match. In the browser the
+runtime check runs "黄芪 当归" and compares the envelope with native CPython: the same rows, in the same order, with
+the same scores. The order is lexical relevance, not a clinical one, and the result's limitations say so.
+
+The materia module is read, not changed. It is part of the reviewed code of the pinned TCM skills, and adding helpers
+to it moved their content hashes. The runtime check caught it: governed runs were refused, as they should be when code
+differs from its review. The helpers now live in `tcmstudio.repository_data`, and a runner test fails if any pinned
+skill's code no longer matches its pin.
 
 ---
 
@@ -416,6 +442,8 @@ nothing changes.
 - A benchmark harness that times only outputs checked equal to the reference, and the measurements in [§9](#9-performance).
 - Envelope post-processing for large results about 1.6× faster natively, and the 120 × 1000 distance-matrix call
   1.9× faster in the browser, byte-identical (differential tests against the original code).
+- Ranked formula search over the 84,294-row workbook, with a herb found under every name the materia table gives it
+  (黄芪 also as 黄耆: 5,936 rows instead of 31), identical in the browser and on the runner.
 
 **Implemented, partly verified**
 
@@ -423,8 +451,8 @@ nothing changes.
 - WebNN probing: contexts and a small graph checked in Chromium; which processor ran them cannot be known from the page.
 
 **Proposed, not implemented** (nothing in the app claims these): WebNN or WebGPU model inference (embeddings,
-classifiers, local chat models), WASM-threaded kernels, the MT19937-exact permutation port, ranked formula retrieval,
-a native NPU operation, persistent-storage requests and model caching in OPFS, an enforcing CSP, and testing in
+classifiers, local chat models), WASM-threaded kernels, the MT19937-exact permutation port, semantic (embedding)
+retrieval, a native NPU operation, persistent-storage requests and model caching in OPFS, an enforcing CSP, and testing in
 Firefox, Safari, on phones, GPUs and NPUs.
 
 **What Studio may say about itself, then**: tools run locally in the browser, on the CPU, with exact kernels for

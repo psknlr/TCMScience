@@ -766,12 +766,20 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
         _entry("tcmdb.formulas", "tcmdb", "完整方剂库检索", "Complete formula workbook", "tcm_data",
                "Search every row and all seven source fields of the repository formula workbook. "
                "Duplicate names and source versions are retained, with pagination, literal doses, "
-               "unresolved components and source digest. Data licence is unstated; the records "
-               "are not clinically validated and do not establish efficacy or safety.",
+               "unresolved components and source digest. By default the query is one literal "
+               "substring, in workbook order. With rank: true it is split into terms (spaces or "
+               "、，；), a herb is also searched under the other names the materia table gives it "
+               "(黄芪 also as 黄耆, which most classical sources write; aliases: false searches the "
+               "terms as written), and rows come most relevant first: exact name, then name, "
+               "composition, actions, other fields, weighted by how rare each term is. Every "
+               "record says how it matched. Data licence is unstated; the records are not "
+               "clinically validated and do not establish efficacy or safety.",
                obj({"query": S(), "exact": B(default=False), "source": S(),
+                    "rank": B("split the query into terms and order rows by relevance", default=False),
+                    "aliases": B("with rank: also search a herb under its other names", default=True),
                     "limit": I(minimum=1, maximum=100, default=25),
-                    "offset": I(minimum=0, default=0)}), example={"query": "桂枝汤", "exact": True},
-               tags=(*tags, "方剂", "方剂全库", "配方", "84294", "出处")),
+                    "offset": I(minimum=0, default=0)}), example={"query": "黄芪 当归", "rank": True},
+               tags=(*tags, "方剂", "方剂全库", "配方", "84294", "出处", "排序", "别名")),
         _entry("tcmdb.materia", "tcmdb", "完整药材身份库", "Complete materia identities", "tcm_data",
                "Search every checked-in materia identity, alias, medicinal part and species. "
                "No clinical properties or safety annotation are inferred from an identity match.",

@@ -258,6 +258,15 @@ async function full() {
     [typeof e.result?.p_value === "number", "a p value"],
   ], { compare: true });
 
+  // the full formula workbook (loaded on demand, verified by SHA-256), searched by relevance with a herb's other
+  // names: the same rows in the same order as the runner's CPython
+  await run("tcmdb.formulas ranked: 黄芪 当归", "call_tool", { tool: "tcmdb.formulas", arguments: { query: "黄芪 当归", rank: true, limit: 5 } }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+    [e.result?.corpus_rows === 84294 && e.result?.total > 20000, `the whole workbook searched (total ${e.result?.total})`],
+    [JSON.stringify(e.result?.rank?.terms?.[0]?.search) === JSON.stringify(["黄芪", "黄耆"]), "黄芪 also searched as 黄耆"],
+    [Object.keys(e.result?.records?.[0]?.match?.fields || {}).length === 2, "the first record matches both terms"],
+  ], { compare: true });
+
   await run("catalog_search 十八反", "catalog_search", { query: "十八反" }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [(e.result?.matched || []).some((m) => m.id === "native.tcm_compatibility"), "finds native.tcm_compatibility"],

@@ -8,7 +8,9 @@ The browser loads the compressed, indexed store only when a lookup needs it.
 from __future__ import annotations
 
 import atexit
+import functools
 import hashlib
+import math
 import os
 import re
 import sqlite3
@@ -18,7 +20,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 FORMULA_LICENSE = "LicenseRef-user-supplied-unstated"
 FORMULA_MOUNT = "/opt/tcms/data/repository-formulas.sqlite"
@@ -128,14 +130,32 @@ def formula_store() -> Path:
         return _LOCAL[1]
 
 
+def _record(row: sqlite3.Row, metadata: Mapping[str, str]) -> dict[str, Any]:
+    from bioagent.sources.formulas import FormulaRecord, parse_composition
+
+    rec = FormulaRecord(row["row"], row["name"], row["clean_name"], row["source"],
+                        row["composition"], parse_composition(row["composition"]),
+                        row["preparation"], row["actions"], row["usage"], row["cautions"])
+    return {"id": rec.id, "row": rec.row, "name": rec.name,
+            "written_name": rec.written_name, "source": rec.source,
+            **{c: row[c] for c in FORMULA_COLUMNS if c != "name"},
+            "components": [asdict(c) for c in rec.components],
+            "resolved": rec.resolved, "unresolved": list(rec.unresolved),
+            "license": metadata["license"], "clinical_validation": "not assessed"}
+
+
+def _open_store() -> sqlite3.Connection:
+    conn = sqlite3.connect(f"file:{formula_store().as_posix()}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def formula_search(query: str = "", *, exact: bool = False, source: str = "",
                    limit: int = 25, offset: int = 0) -> dict[str, Any]:
     """Search every formula row, retain duplicate names/versions and paginate explicitly."""
-    from bioagent.sources.formulas import FormulaRecord, _clean_name, parse_composition
+    from bioagent.sources.formulas import _clean_name
 
-    path = formula_store()
-    conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+    conn = _open_store()
     try:
         clauses, params = [], []
         if query:
@@ -154,20 +174,195 @@ def formula_search(query: str = "", *, exact: bool = False, source: str = "",
         rows = conn.execute("SELECT * FROM formulas" + where + " ORDER BY row LIMIT ? OFFSET ?",
                             [*params, limit, offset]).fetchall()
         metadata = dict(conn.execute("SELECT key, value FROM metadata"))
+        records = [_record(row, metadata) for row in rows]
+        out = {"query": query, "count": len(records), "total": total, "offset": offset,
+               "next_offset": offset + len(records) if offset + len(records) < total else None,
+               "corpus_rows": int(metadata["rows"]), "records": records,
+               "provenance": metadata, "claim_scope": "source formula records"}
+        if query and not exact:
+            # a herb the workbook also writes otherwise (黄芪 / 黄耆): say so, without changing the search
+            plan = search_variants(query.strip())
+            if len(plan["search"]) > 1:
+                out["also_written"] = {"materia": plan["materia"], "names": plan["search"][1:],
+                                       "hint": "rank: true searches these names too"}
+        return out
+    finally:
+        conn.close()
+
+
+# ------------------------------------------------------------------- ranked search
+
+#: Terms are separated by spaces or by these marks: 黄芪 当归, 黄芪、当归, 黄芪,当归.
+_TERM_SPLIT = re.compile(r"[\s\u3000,，、;；/|+]+")
+MAX_TERMS = 12
+#: A term's weight in a row is that of the best field it occurs in.
+FIELD_WEIGHTS = {"exact_name": 6, "name": 4, "composition": 3, "actions": 2, "other": 1}
+_OTHER_FIELDS = ("source", "preparation", "usage", "cautions")
+_FIELD_OF_WEIGHT = {w: f for f, w in FIELD_WEIGHTS.items()}
+RANK_METHOD = ("score = sum over terms of idf(term) x the weight of the best field the term (or a "
+               "name it is searched under) occurs in: the formula's exact name 6, its name 4, "
+               "composition 3, actions 2, source, preparation, usage or cautions 1; "
+               "idf = ln(1 + (N - df + 0.5) / (df + 0.5)) over the N rows searched; "
+               "ties in workbook order. A lexical relevance order, not a clinical one.")
+
+
+def query_terms(query: str) -> list[str]:
+    """The distinct terms of a query, in order."""
+    return list(dict.fromkeys(t for t in _TERM_SPLIT.split(query or "") if t))
+
+
+# The materia table is read here and never extended: bioagent.sources.materia is part of the
+# reviewed code of the pinned TCM skills (their content hash covers it), so a helper added
+# there would move their pins and their governed runs would be refused until re-reviewed.
+
+@functools.lru_cache(maxsize=1)
+def _names_by_drug() -> dict[str, tuple[str, ...]]:
+    """Every name the materia table gives each drug: its Chinese name, its aliases, then the
+    reviewed aliases (川当归 …), without repeats."""
+    from bioagent.sources import materia
+
+    names: dict[str, list[str]] = {d: [e.chinese, *e.aliases] for d, e in materia.MATERIA.items()}
+    for name, drug in materia._REVIEWED_ALIASES.items():
+        names[drug].append(name)
+    return {d: tuple(dict.fromkeys(ns)) for d, ns in names.items()}
+
+
+def _drug_named(raw: str) -> str | None:
+    """The drug whose name ``raw`` is, exactly (after removing notes and spaces and
+    simplifying traditional characters); unlike ``materia.resolve_name``, no processing
+    word is stripped."""
+    from bioagent.sources import materia
+
+    name = materia.normalise_name(materia.to_simplified(raw))
+    return materia._NAME_INDEX.get(name) if name else None
+
+
+def _processed_base(name: str, drug: str) -> str | None:
+    """The name of ``drug`` that ``name`` is a processed form of (炙甘草 → 甘草, 甘草末 →
+    甘草, 姜汁 → 姜), by the materia table's own processing words; a drug's Chinese name is
+    never one (生姜 is a drug of its own)."""
+    from bioagent.sources import materia
+
+    if name == materia.MATERIA[drug].chinese:
+        return None
+    known = set(_names_by_drug()[drug])
+    for p in materia._PREFIXES:
+        if name.startswith(p) and name[len(p):] in known:
+            return name[len(p):]
+    for x in materia._SUFFIXES:
+        if name.endswith(x) and name[: -len(x)] in known:
+            return name[: -len(x)]
+    return None
+
+
+def search_variants(term: str, aliases: bool = True) -> dict[str, Any]:
+    """What a search for ``term`` looks for: the term itself and, when it is a drug's name
+    in the materia table (and ``aliases``), the drug's other names (黄芪 → 黄耆; 甘草 → 粉草,
+    国老, 炙草). Only the fewest strings that find them all are kept, since a substring
+    search for 黄芪 already finds 炙黄芪. A processed form asked for (炙甘草) is searched as
+    it is, never widened to the plain drug; processed forms are not added either (姜汁 is
+    how 黄连（姜汁炒）is prepared, not an ingredient). One-letter names (归, 姜) and names
+    that are part of another drug's name are left out: they would find other drugs."""
+    out: dict[str, Any] = {"term": term, "search": [term]}
+    if not aliases or not term:
+        return out
+    from bioagent.sources import materia
+
+    drug = _drug_named(term)
+    if drug is None:
+        return out
+    out["materia"] = drug
+    base = _processed_base(materia.normalise_name(materia.to_simplified(term)), drug)
+    if base is not None:
+        out["processed_form_of"] = base
+        return out
+    table = _names_by_drug()
+    others = [name for d, names in table.items() if d != drug for name in names]
+    names = [n for n in table[drug]
+             if n != term and len(n) >= 2 and not any(n in other for other in others)
+             and _processed_base(n, drug) is None]
+    keep = [term]
+    for n in sorted(names, key=lambda x: (len(x), x)):
+        if not any(k in n for k in keep):
+            keep.append(n)
+    out["search"] = [term] + [n for n in table[drug] if n in keep and n != term]
+    return out
+
+
+def _has_ascii_letter(text: str) -> bool:
+    return any("a" <= c <= "z" or "A" <= c <= "Z" for c in text)
+
+
+def _matches(column: str, needles: list[str]) -> tuple[str, list[str]]:
+    # lower() only where it can change something: it copies every value it reads
+    parts = [f"instr(lower({column}), lower(?)) > 0" if _has_ascii_letter(n) else f"instr({column}, ?) > 0"
+             for n in needles]
+    return "(" + " OR ".join(parts) + ")", list(needles)
+
+
+def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
+                          limit: int = 25, offset: int = 0) -> dict[str, Any]:
+    """Rows matching any term of ``query``, most relevant first (``RANK_METHOD``), each
+    with how it matched; herb names also under their other names (``search_variants``)."""
+    from bioagent.sources.formulas import _clean_name
+
+    terms = query_terms(query)
+    if not terms:
+        raise ValueError("a ranked search needs at least one term")
+    if len(terms) > MAX_TERMS:
+        raise ValueError(f"a ranked search takes at most {MAX_TERMS} terms, not {len(terms)}")
+    plans = [search_variants(t, aliases) for t in terms]
+    cases, params = [], []
+    for i, plan in enumerate(plans):
+        sql, ps = ["CASE WHEN (clean_name = ? OR name = ?) THEN 6"], [_clean_name(plan["term"]), plan["term"]]
+        for column, weight in (("name", 4), ("composition", 3), ("actions", 2)):
+            m, mp = _matches(column, plan["search"])
+            sql.append(f"WHEN {m} THEN {weight}")
+            ps += mp
+        others = [_matches(c, plan["search"]) for c in _OTHER_FIELDS]
+        sql.append("WHEN " + " OR ".join(m for m, _ in others) + " THEN 1 ELSE 0 END AS w" + str(i))
+        ps += [v for _, mp in others for v in mp]
+        cases.append(" ".join(sql))
+        params += ps
+    where, where_params = "", []
+    if source:
+        where, where_params = " WHERE instr(lower(source), lower(?)) > 0", [source]
+    weights = ", ".join(f"w{i}" for i in range(len(plans)))
+    sql = (f"SELECT row, {weights} FROM (SELECT row, {', '.join(cases)} FROM formulas{where}) "
+           f"WHERE {' + '.join(f'w{i}' for i in range(len(plans)))} > 0")
+    conn = _open_store()
+    try:
+        searched = conn.execute("SELECT count(*) FROM formulas" + where, where_params).fetchone()[0]
+        hits = conn.execute(sql, [*params, *where_params]).fetchall()
+        df = [sum(1 for h in hits if h[1 + i] > 0) for i in range(len(plans))]
+        idf = [math.log(1 + (searched - d + 0.5) / (d + 0.5)) for d in df]
+        scored = []
+        for h in hits:
+            score = 0.0
+            for i in range(len(plans)):
+                if h[1 + i]:
+                    score += idf[i] * h[1 + i]
+            scored.append((-score, h[0], h))
+        scored.sort()
+        page = scored[offset:offset + limit]
+        metadata = dict(conn.execute("SELECT key, value FROM metadata"))
+        rows = {r["row"]: r for r in conn.execute(
+            f"SELECT * FROM formulas WHERE row IN ({', '.join('?' * len(page))})",
+            [h[1] for h in page])} if page else {}
         records = []
-        for row in rows:
-            rec = FormulaRecord(row["row"], row["name"], row["clean_name"], row["source"],
-                                row["composition"], parse_composition(row["composition"]),
-                                row["preparation"], row["actions"], row["usage"], row["cautions"])
-            records.append({"id": rec.id, "row": rec.row, "name": rec.name,
-                            "written_name": rec.written_name, "source": rec.source,
-                            **{c: row[c] for c in FORMULA_COLUMNS if c != "name"},
-                            "components": [asdict(c) for c in rec.components],
-                            "resolved": rec.resolved, "unresolved": list(rec.unresolved),
-                            "license": metadata["license"], "clinical_validation": "not assessed"})
+        for neg, row_id, h in page:
+            rec = _record(rows[row_id], metadata)
+            rec["match"] = {"score": round(-neg, 6),
+                            "fields": {plans[i]["term"]: _FIELD_OF_WEIGHT[h[1 + i]]
+                                       for i in range(len(plans)) if h[1 + i]}}
+            records.append(rec)
+        total = len(scored)
         return {"query": query, "count": len(records), "total": total, "offset": offset,
                 "next_offset": offset + len(records) if offset + len(records) < total else None,
                 "corpus_rows": int(metadata["rows"]), "records": records,
+                "rank": {"method": RANK_METHOD, "aliases": aliases, "rows_searched": searched,
+                         "terms": [{**plan, "rows": df[i], "idf": round(idf[i], 6)}
+                                   for i, plan in enumerate(plans)]},
                 "provenance": metadata, "claim_scope": "source formula records"}
     finally:
         conn.close()
