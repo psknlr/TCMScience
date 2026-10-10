@@ -138,6 +138,19 @@ function browserCard(app, { compact }) {
     facts.push(h("li", { class: ad?.software ? "is-muted" : "" }, icon("gpu", { size: 14 }), gpuText));
     if (!compact) facts.push(h("li", icon("lock", { size: 14 }), dev.cross_origin_isolated ? t("ui.browser.isolated") : t("ui.browser.not_isolated")));
   }
+  const caps = b.caps;
+  if (!caps && !compact) app.computeCapabilities();
+  if (caps && !compact) {
+    const w = caps.wasm || {};
+    facts.push(h("li", icon("zap", { size: 14 }), t("ui.browser.wasm", {
+      simd: w.simd ? t("ui.common.yes") : t("ui.common.no"),
+      threads: w.threads_usable ? t("ui.common.yes") : w.threads ? t("ui.browser.threads_isolation") : t("ui.common.no"),
+    })));
+    const nn = caps.webnn || {};
+    const made = (nn.contexts || []).filter((c) => c.created).map((c) => c.label);
+    facts.push(h("li", { class: made.length ? "" : "is-muted" }, icon("cpu", { size: 14 }),
+      !nn.api ? t("ui.browser.webnn_none") : made.length ? t("ui.browser.webnn_contexts", { list: made.join(", ") }) : t("ui.browser.webnn_failed")));
+  }
   body.push(h("ul.rt-card__facts", { role: "list" }, facts));
   if (status === "idle" || status === "error") body.push(h("div.rt-card__actions", button({ label: t("ui.browser.preload"), size: "sm", icon: "download", onClick: () => app.preloadBrowser() })));
   return h("section", { class: ["rt-card", status === "ready" && "is-ready"] }, head, body);

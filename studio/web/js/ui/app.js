@@ -33,6 +33,7 @@ export class App {
   #webToastClose = null;
   #peers = null;
   #sending = false;
+  #capsP = null;
 
   constructor() {
     this.bus = new Emitter();
@@ -59,7 +60,7 @@ export class App {
       sidebarOpen: false,         // the off-canvas / overlay sidebar on narrow screens
       relay: null,
       runner: { status: "idle", info: null, error: null, devices: null, settings: null },
-      browser: { status: "idle", progress: null, message: "", device: null },
+      browser: { status: "idle", progress: null, message: "", device: null, caps: null },
       storageWarning: null,
     };
   }
@@ -311,6 +312,16 @@ export class App {
 
   async preloadBrowser() {
     try { await this.runtimes.browser?.start?.(); } catch (err) { toast(err?.message || String(err), { tone: "warn" }); }
+  }
+
+  /** What this browser can compute with (compute/capabilities.js), probed once per page. */
+  async computeCapabilities() {
+    if (this.state.browser.caps) return this.state.browser.caps;
+    this.#capsP ||= import("../compute/capabilities.js")
+      .then((m) => m.probeCapabilities({ timeoutMs: 2500 }))
+      .then((caps) => { this.state.browser.caps = caps; this.emit("runtime", { kind: "browser" }); return caps; })
+      .catch(() => null);
+    return this.#capsP;
   }
 
   async browserDevice() {

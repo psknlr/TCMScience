@@ -347,7 +347,10 @@ export class BrowserRuntime {
   async #capabilities() {
     let device = null;
     try { device = await this.device(); } catch { device = null; }
-    return { browser: { device, interruptible: this.interruptible, durable: this.#durable ?? this.#info?.persist?.durable ?? null, packages: [...this.#packages] } };
+    // what this browser can compute with, probed (compute/capabilities.js): requested, reported and verified kept apart
+    let compute = null;
+    try { compute = await (await import("../compute/capabilities.js")).probeCapabilities({ timeoutMs: 2000 }); } catch { compute = null; }
+    return { browser: { device, compute, interruptible: this.interruptible, durable: this.#durable ?? this.#info?.persist?.durable ?? null, packages: [...this.#packages] } };
   }
 
   async #spawn(restart) {
