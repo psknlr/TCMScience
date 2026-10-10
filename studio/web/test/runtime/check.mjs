@@ -148,6 +148,11 @@ async function full() {
     performance.now() - d0);
 
   if (!(await startChecked())) return;
+  // the content hashes the skills are pinned to (registry/skills.lock.yaml, carried by the catalog): a re-pin moves
+  // the expectation with it, and a run whose skill content differs from its pin still fails
+  const pinned = (id) => doc.entries.find((x) => x.id === id)?.skill?.content_hash || "(not in the catalog)";
+  const safetyHash = pinned("skill.assess-tcm-safety");
+  const normalizeHash = pinned("skill.normalize-tcm-entities");
 
   await run("tcm_compatibility 甘草 + 甘遂", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
@@ -159,7 +164,7 @@ async function full() {
     [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
     [e.governance?.released === true, "released"],
     [allStates(e), "all six verdict states true"],
-    [e.receipt?.content_hash?.startsWith("e525e3abd501"), `content hash e525e3abd501… (got ${e.receipt?.content_hash})`],
+    [e.receipt?.content_hash === safetyHash, `content hash ${safetyHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
     [has(e.governance?.evidence, "十八反"), "the 十八反 finding in the evidence"],
     [e.citations?.length > 0, "citations"],
     [/ABSENCE OF A RECORD IS NOT EVIDENCE OF SAFETY/i.test(e.text || ""), "text restates that no record is not safety"],
@@ -171,7 +176,7 @@ async function full() {
     return [
       [e.status === "succeeded", `succeeded (got ${e.status})`],
       [e.governance?.released === true, "released"],
-      [e.receipt?.content_hash?.startsWith("a5de563ed8d6"), `content hash a5de563ed8d6… (got ${e.receipt?.content_hash})`],
+      [e.receipt?.content_hash === normalizeHash, `content hash ${normalizeHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
       [jiang?.status === "ambiguous" && jiang.candidates?.includes("herb.shengjiang") && jiang.candidates?.includes("herb.ganjiang"), "姜 kept ambiguous (生姜 / 干姜)"],
     ];
   }, { compare: true });
@@ -191,10 +196,12 @@ async function full() {
     [(e.result?.matched || []).some((m) => m.id === "native.tcm_compatibility"), "finds native.tcm_compatibility"],
   ], { compare: true });
 
-  await run("connector_call in the browser → unavailable", "connector_call", { connector: "uniprot", operation: "entry", arguments: { accession: "P04637" } }, (e) => [
+  // connectors run in the browser through the site's source gateway, once the project's web access is on; this
+  // check runs with web access off, so the call is decided before any request leaves the page
+  await run("connector_call in the browser with web access off → network_off", "connector_call", { connector: "uniprot", operation: "entry", arguments: { accession: "P04637" } }, (e) => [
     [e.status === "failed", `failed (got ${e.status})`],
-    [e.error?.type === "unavailable", `error unavailable (got ${e.error?.type})`],
-    [/runner/i.test(e.error?.hint || ""), "the remedy names the local runner"],
+    [e.error?.type === "network_off", `error network_off (got ${e.error?.type})`],
+    [/web access|network/i.test(`${e.error?.hint || ""} ${e.error?.message || ""}`), "the remedy names web access"],
   ], { compare: true });
 
   await run("call_tool clinic.sign → refused (a person's act)", "call_tool", { tool: "clinic.sign" }, (e) => [
@@ -209,7 +216,7 @@ async function full() {
 
   await run("tcm_safety_report again (warm)", "tcm_safety_report", { subject: "附子" }, (e) => [
     [e.status === "succeeded" && e.governance?.released === true, `succeeded and released (got ${e.status})`],
-    [e.receipt?.content_hash?.startsWith("e525e3abd501"), "same content hash"],
+    [e.receipt?.content_hash === safetyHash, "same content hash, as pinned"],
   ]);
 
   await run("audit chain of the project", "call_tool", { tool: "system.audit_verify" }, (e) => [
@@ -253,6 +260,7 @@ async function full() {
 
 async function reload() {
   await boot();
+  const evidenceHash = (await rt.catalog())?.entries?.find((x) => x.id === "skill.retrieve-tcm-evidence")?.skill?.content_hash || "(not in the catalog)";
   const info = await startChecked();
   if (!info) return;
   check("bundle from Cache Storage", info.bundle?.from_cache === true, `from_cache ${info.bundle?.from_cache}`);
@@ -264,7 +272,7 @@ async function reload() {
   ]);
   await run("tcm_evidence 黄芪 (governed)", "tcm_evidence", { subject: "黄芪" }, (e) => [
     [e.status === "succeeded" && e.governance?.released === true, `succeeded and released (got ${e.status})`],
-    [e.receipt?.content_hash?.startsWith("f844cf695a60"), `content hash f844cf695a60… (got ${e.receipt?.content_hash})`],
+    [e.receipt?.content_hash === evidenceHash, `content hash ${evidenceHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
   ], { compare: true });
   const runs = (e) => e?.result?.events?.bioscience_skill_run_started ?? 0;
   await run("the chain grew by one run", "call_tool", { tool: "system.audit_verify" }, (e) => [
