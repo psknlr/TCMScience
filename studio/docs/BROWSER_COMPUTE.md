@@ -39,6 +39,12 @@ distance (pure-Python O(n·m) loops: a 2000 × 2000 local alignment took 2.9 s i
 yet: neighbour joining and UPGMA (O(n³) in Python) and the network-pharmacology permutation null (1000 seeded
 permutations per pathway; a port must reproduce Python's Mersenne Twister draws exactly).
 
+**A constraint on acceleration.** The four governed TCM skills (safety, entity normalisation, evidence retrieval,
+network pharmacology) are pinned in `BioScience-Harness/registry/skills.lock.yaml`. The pin is a content hash over each
+skill's code and everything it imports, and a governed run whose code differs from its pin is refused. Speeding up
+anything inside them is therefore a change for the maintainers to review and re-pin, never a silent optimisation.
+Everything accelerated here sits outside those closures, and a runner test checks the pins on every run.
+
 **Defects found and fixed along the way**:
 
 | Defect | Effect | Fix |
@@ -388,7 +394,7 @@ nothing changes.
 | Phase | Work | Priority | Status |
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
-| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws | P1 | Proposed |
+| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws. Its code belongs to a pinned governed skill, so a port needs the maintainers' review and a new pin; on the seed corpus the whole governed run takes about 0.5 s natively, so it waits for data that makes it slow | P2 | Proposed |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |

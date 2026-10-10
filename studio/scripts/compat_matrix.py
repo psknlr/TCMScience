@@ -189,7 +189,7 @@ FAMILIES = [
     ("Phylogeny, k-mers, ORFs, rank statistics", "neighbor_joining, upgma, kmer_counts, …", "5",
      "O(n³) (trees), linear (scans)", "yes", "runs in Pyodide; candidates for kernels", "P2"),
     ("Network pharmacology (permutation null)", "skill.analyze-tcm-network-pharmacology", "5",
-     "1000 permutations × pathways; Brandes betweenness", "yes", "runs in Pyodide", "P1: exact MT19937 port"),
+     "1000 permutations × pathways; Brandes betweenness", "yes", "runs in Pyodide", "P2: exact MT19937 port (pinned skill code: needs a reviewed re-pin)"),
     ("Governed TCM skills, clinic, TCM data hub queries, studies", "skill.*(tcm), clinic.*, tcmdb.*, study.*", "1",
      "MB (formula SQLite 12 MB, loaded on demand)", "yes",
      "done; formula search ranked by relevance, a herb under all its names (rank: true)",
