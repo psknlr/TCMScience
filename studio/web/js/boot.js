@@ -29,4 +29,41 @@
   var w = Number(settings.inspectorWidth);
   if (w >= 320 && w <= 720) root.style.setProperty("--inspector-w", w + "px");
   root.classList.add("js");
+
+  // The app's modules could not be loaded (the connection dropped while the page loaded, a file is missing): main.js
+  // never runs then, and its own "could not start" message with it. Say so instead of loading forever. A module
+  // that failed to download fires "error" on its <script>, which only a capturing listener sees; an exception while
+  // the modules are evaluated reaches window before main.js has run (main.js sets __studio when it starts).
+  var shown = false;
+  function failed() {
+    if (shown || window.__studio) return;
+    var app = document.getElementById("app");
+    if (!app) return;
+    shown = true;
+    var zh = lang === "zh";
+    app.removeAttribute("aria-busy");
+    var box = document.createElement("div");
+    box.className = "boot-splash";
+    box.setAttribute("role", "alert");
+    var p = document.createElement("p");
+    p.className = "boot-note";
+    p.textContent = navigator.onLine === false
+      ? (zh ? "TCMScience Studio 未能载入：设备已断网。联网后请重新载入。" : "TCMScience Studio could not load: this device is offline. Reload once it is connected.")
+      : (zh ? "TCMScience Studio 未能载入页面文件。请重新载入页面。" : "TCMScience Studio could not load its files. Reload the page to try again.");
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn btn--primary btn--md";
+    b.textContent = zh ? "重新载入" : "Reload";
+    b.addEventListener("click", function () { location.reload(); });
+    box.appendChild(p);
+    box.appendChild(b);
+    app.replaceChildren ? app.replaceChildren(box) : (app.innerHTML = "", app.appendChild(box));
+  }
+  window.addEventListener("error", function (e) {
+    var el = e && e.target;
+    if (el && el.tagName === "SCRIPT" && el.type === "module") { failed(); return; }
+    // only this site's own files: an extension's script that throws early is not the app failing to start
+    var file = e && typeof e.filename === "string" ? e.filename : "";
+    if (file && file.indexOf(location.origin + "/js/") === 0) failed();
+  }, true);
 })();

@@ -21,8 +21,19 @@ import { HashRouter, routeHref } from "./router.js";
 import { registerUiStrings } from "./strings.js";
 
 const DRAFT_SAVE_MS = 1500;
+const PEER_CHANNEL = "tcmstudio";
 
 export class App {
+  // projectId → the web access last asked for, while the write that stores it is still under way
+  #webIntent = new Map();
+  // writes of project defaults (web, compute, model), one at a time and in the order they were asked for
+  #defaultsQueue = Promise.resolve();
+  // PUT /api/settings to the runner, one at a time: the answers then arrive in the order of the presses
+  #runnerQueue = Promise.resolve();
+  #webToastClose = null;
+  #peers = null;
+  #sending = false;
+
   constructor() {
     this.bus = new Emitter();
     this.store = null;
@@ -70,12 +81,14 @@ export class App {
 
     this.store = await openStore();
     if (!this.store.persistent) this.state.storageWarning = t("ui.storage.memory");
+    this.connectPeers();
 
     // a pairing link from `tcmstudio serve` (#pair=…): take it before the router reads the hash
     let pairing = null;
     let runtimeMod = null;
     try {
       runtimeMod = await import("../runtime/index.js");
+      this.runtimeMod = runtimeMod;
       const runnerMod = await import("../runtime/runner.js");
       pairing = runnerMod.takePairing?.() || null;
       this.runnerMod = runnerMod;
@@ -147,6 +160,36 @@ export class App {
     if (pairing) this.#afterPairing(pairing);
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
     this.checkRelay();
+    this.#watchConnectivity();
+  }
+
+  // ----------------------------------------------------------------------------------------------- connectivity
+
+  /**
+   * The device's own connection. Going offline is said once (what still works: tools in this browser, the local
+   * runner, a local model); coming back re-checks the relay, whose health was otherwise only read at start, and lets a
+   * paired runner that dropped meanwhile reconnect. navigator.onLine can only be trusted when it says offline.
+   */
+  #watchConnectivity() {
+    this.state.online = globalThis.navigator?.onLine !== false;
+    const recheck = debounce(() => {
+      this.checkRelay();
+      // the same rule as at start: only a runner this page was paired with, so no new permission prompt appears
+      const r = this.runtimes.runner;
+      if (r?.status === "offline" && this.runtimeMod?.shouldAutoConnect?.(this.state.settings)) r.start().catch(() => {});
+    }, 800);
+    window.addEventListener("offline", () => {
+      this.state.online = false;
+      this.emit("connectivity", { online: false });
+      toast(t("ui.net.offline"), { tone: "warn", timeout: 8000 });
+    });
+    window.addEventListener("online", () => {
+      const was = this.state.online;
+      this.state.online = true;
+      this.emit("connectivity", { online: true });
+      if (!was) toast(t("ui.net.online"), { tone: "ok" });
+      recheck();
+    });
   }
 
   // ----------------------------------------------------------------------------------------------- settings
@@ -268,16 +311,37 @@ export class App {
     return dev;
   }
 
-  async updateRunnerSettings(patch) {
-    const runner = this.runtimes.runner;
-    if (!runner || this.state.runner.status !== "ready") return;
-    try {
-      const next = await runner.settings.put({ ...(this.state.runner.settings || {}), ...patch });
-      this.state.runner.settings = next || { ...(this.state.runner.settings || {}), ...patch };
-      this.emit("runtime", { kind: "runner" });
-    } catch (err) {
-      toast(err?.message || String(err), { tone: "warn" });
-    }
+  /**
+   * Change some of the runner's settings (the device, threads, its network switch). Only the changed fields are sent:
+   * the runner merges them into what it holds, which another tab or `tcmstudio serve --network` may have changed since
+   * this page last read it, so an older copy is never written back over them. One request at a time, so the answers
+   * come back in the order of the presses. Whatever happens, the views are told to show what the runner now holds:
+   * a switch that flipped when pressed flips back when the change did not happen. → the runner's settings, or null.
+   */
+  updateRunnerSettings(patch) {
+    const run = async () => {
+      const runner = this.runtimes.runner;
+      try {
+        if (!runner || this.state.runner.status !== "ready") {
+          toast(t("ui.runner.settings_offline"), { tone: "warn" });
+          return null;
+        }
+        try {
+          const next = await runner.settings.put(patch);
+          this.state.runner.settings = next && typeof next === "object" ? next : mergeRunnerSettings(this.state.runner.settings, patch);
+          return this.state.runner.settings;
+        } catch (err) {
+          toast(t("ui.runner.settings_failed", { message: err?.message || String(err) }), { tone: "warn", timeout: 6000 });
+          try { this.state.runner.settings = await runner.settings.get(); } catch { /* keep the last copy read */ }
+          return null;
+        }
+      } finally {
+        this.emit("runtime", { kind: "runner" });
+      }
+    };
+    const done = this.#runnerQueue.then(run, run);
+    this.#runnerQueue = done.then(() => undefined, () => undefined);
+    return done;
   }
 
   openPairing(pairing) {
@@ -399,13 +463,110 @@ export class App {
 
   async updateProject(id, patch) {
     const p = await this.store.projects.update(id, patch);
-    if (this.state.project?.id === id) {
-      this.state.project = p;
-      this.toolRouter?.setSettings(this.effectiveSettings());
+    this.#adoptProject(p);
+    try {
+      await this.refreshProjects();
+    } finally {
+      // the change is stored: the views hear of it even when re-reading the lists fails
+      this.emit("project", p);
+      this.#tellPeers(p.id);
     }
-    await this.refreshProjects();
-    this.emit("project", p);
     return p;
+  }
+
+  /**
+   * Change some of a project's defaults ({web, compute, provider, model}; undefined removes one), merged into the
+   * stored record inside its transaction (store.projects.setDefaults), and queued behind the writes asked for before
+   * it, so they land in the order of the presses. Rejects when the write fails; nothing else is changed then.
+   */
+  updateProjectDefaults(id, partial) {
+    const run = async () => {
+      const p = await this.store.projects.setDefaults(id, partial);
+      this.#adoptProject(p);
+      this.emit("project", p);
+      this.#tellPeers(p.id);
+      // the lists only follow (the sidebar's order by updatedAt): a failure there does not undo the change
+      this.refreshProjects().catch(() => {});
+      return p;
+    };
+    const done = this.#defaultsQueue.then(run, run);
+    this.#defaultsQueue = done.then(() => undefined, () => undefined);
+    return done;
+  }
+
+  /** The same, for a control: a failed write is said in a toast instead of being thrown. → the project, or null. */
+  async saveProjectDefaults(id, partial) {
+    try {
+      return await this.updateProjectDefaults(id, partial);
+    } catch (err) {
+      toast(t("ui.project.save_failed", { message: err?.message || String(err) }), { tone: "warn", timeout: 6000 });
+      await this.#reloadProject(id);
+      return null;
+    }
+  }
+
+  /** Revoke standing approvals of a project (store.projects.patchApprovals: a grant landing meanwhile is kept). */
+  async revokeApprovals(id, keys) {
+    const p = await this.store.projects.patchApprovals(id, { revoke: keys });
+    this.#adoptProject(p);
+    this.emit("project", p);
+    this.#tellPeers(p.id);
+    await this.refreshProjects().catch(() => {});
+    return p;
+  }
+
+  /** A stored project record is the open one: the state and the tool router follow it. */
+  #adoptProject(p) {
+    if (!p || this.state.project?.id !== p.id) return;
+    this.state.project = p;
+    this.toolRouter?.setSettings(this.effectiveSettings());
+  }
+
+  /** Re-read a project from the store (after a failed write, or another tab's change) and tell the views. */
+  async #reloadProject(id) {
+    let p = null;
+    try { p = await this.store.projects.get(id); } catch { p = null; }
+    if (p) {
+      this.#adoptProject(p);
+      this.emit("project", p);
+    }
+    if (this.state.project?.id === id) this.emit("web", this.webOn());
+    return p;
+  }
+
+  // ----------------------------------------------------------------------------------------------- other tabs
+
+  /**
+   * Tabs of this site share the store. When one changes a project, the others re-read it, so their switches show the
+   * stored state (and a press there starts from it). BroadcastChannel is missing in some old browsers: then each tab
+   * only sees its own changes, as before.
+   */
+  connectPeers({ channel } = {}) {
+    if (this.#peers) return true;
+    try {
+      this.#peers = channel || (typeof BroadcastChannel === "function" ? new BroadcastChannel(PEER_CHANNEL) : null);
+    } catch {
+      this.#peers = null;
+    }
+    if (!this.#peers) return false;
+    this.#peers.onmessage = (e) => { this.#onPeer(e?.data).catch(() => {}); };
+    return true;
+  }
+
+  disconnectPeers() {
+    try { this.#peers?.close?.(); } catch { /* closed */ }
+    this.#peers = null;
+  }
+
+  #tellPeers(projectId) {
+    try { this.#peers?.postMessage({ type: "project", id: projectId }); } catch { /* the channel is closed */ }
+  }
+
+  async #onPeer(msg) {
+    if (!msg || msg.type !== "project" || typeof msg.id !== "string") return;
+    // a press here that is still being written wins over the record another tab wrote before it
+    if (this.state.project?.id === msg.id && !this.#webIntent.has(msg.id)) await this.#reloadProject(msg.id);
+    await this.refreshProjects().catch(() => {});
   }
 
   async deleteProject(id) {
@@ -493,22 +654,65 @@ export class App {
   /** The compute target: the project's own default when it has one, else the global setting. */
   async setCompute(compute) {
     const p = this.state.project;
-    if (p?.defaults?.compute) await this.updateProject(p.id, { defaults: { ...p.defaults, compute } });
+    if (p?.defaults?.compute) await this.saveProjectDefaults(p.id, { compute });
     else this.setSetting({ compute });
     this.emit("runtime", { kind: "compute" });
   }
 
+  /**
+   * Web access for the open project (with none open, the default for new projects). While a press is being written,
+   * what that press asked for: a second press toggles from what the switch shows, not from the record it replaces.
+   */
   webOn() {
     const p = this.state.project;
-    return p ? Boolean(p.defaults?.web) : Boolean(this.state.settings.web);
+    if (!p) return Boolean(this.state.settings.web);
+    if (this.#webIntent.has(p.id)) return this.#webIntent.get(p.id);
+    return Boolean(p.defaults?.web);
   }
 
+  /** Every web-access write asked for so far has landed (a turn about to start waits for this). */
+  webSettled() {
+    return this.#defaultsQueue;
+  }
+
+  /**
+   * Turn web access on or off. Every view shows the new state at once ("web"); the write is queued behind the ones
+   * before it and changes only `defaults.web` in the stored record, so quick presses end where the last one says
+   * and a model or compute default changed meanwhile stays. The toast speaks when the last press is stored. When a
+   * write fails, the views go back to what the store holds and a toast says why. → true when stored.
+   */
   async setWeb(on) {
+    const value = Boolean(on);
     const p = this.state.project;
-    if (p) await this.updateProject(p.id, { defaults: { ...(p.defaults || {}), web: Boolean(on) } });
-    else this.setSetting({ web: Boolean(on) });
-    this.emit("web", Boolean(on));
-    toast(on ? t("ui.web.on_toast") : t("ui.web.off_toast"));
+    if (!p) {
+      this.setSetting({ web: value });
+      this.emit("web", value);
+      this.#webToast(value ? t("ui.web.on_toast") : t("ui.web.off_toast"));
+      return true;
+    }
+    const id = p.id;
+    this.#webIntent.set(id, value);
+    this.emit("web", value);
+    try {
+      await this.updateProjectDefaults(id, { web: value });
+    } catch (err) {
+      // a later press still queued settles the switch itself; this one only clears its own intent
+      if (this.#webIntent.get(id) === value) this.#webIntent.delete(id);
+      this.#webToast(t("ui.web.failed", { message: err?.message || String(err) }), "warn");
+      await this.#reloadProject(id);
+      return false;
+    }
+    if (this.#webIntent.get(id) !== value) return true; // a later press is on its way
+    this.#webIntent.delete(id);
+    this.emit("web", this.webOn());
+    if (this.state.project?.id === id) this.#webToast(value ? t("ui.web.on_toast") : t("ui.web.off_toast"));
+    return true;
+  }
+
+  /** One toast for web access at a time: a newer press replaces the word of the one before it. */
+  #webToast(message, tone = "neutral") {
+    this.#webToastClose?.();
+    this.#webToastClose = toast(message, { tone, ...(tone === "warn" ? { timeout: 6000 } : {}) });
   }
 
   // ----------------------------------------------------------------------------------------------- turns
@@ -519,9 +723,20 @@ export class App {
    */
   async send(text, { files = [], editOf = null } = {}) {
     const content = String(text || "").trim();
-    if (!content || this.state.turn) return false;
+    if (!content || this.state.turn || this.#sending) return false;
+    this.#sending = true;
+    try {
+      return await this.#send(content, { files, editOf });
+    } finally {
+      this.#sending = false;
+    }
+  }
+
+  async #send(content, { files, editOf }) {
     // typed in a composer that is about to be replaced (the project page → the conversation): its successor takes focus
     const typing = document.activeElement?.id === "composer-input";
+    // web access (or compute) just switched: the turn starts once that is stored, so its tools see what the switch shows
+    await this.webSettled();
     let project = this.state.project;
     if (!project) {
       project = this.state.projects[0] || await this.store.projects.create({ name: t("ui.project.default_name"), web: this.state.settings.web });
@@ -1003,6 +1218,17 @@ export function liveToolMessages(live, conversationId) {
 
 function hostOf(url) {
   try { return new URL(url).host; } catch { return String(url || ""); }
+}
+
+/** The runner's settings with a patch merged as the runner merges it (network one level deep). */
+export function mergeRunnerSettings(current, patch = {}) {
+  const cur = current && typeof current === "object" ? current : {};
+  const out = { ...cur, ...patch };
+  if (patch.network !== undefined) {
+    const net = typeof patch.network === "boolean" ? { enabled: patch.network } : patch.network || {};
+    out.network = { ...(cur.network || {}), ...net };
+  }
+  return out;
 }
 
 export function autoTitle(text) {

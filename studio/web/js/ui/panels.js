@@ -71,10 +71,39 @@ export function computePanel(app, { compact = false, onNavigate } = {}) {
   parts.push(runnerCard(app, { compact }));
   if (compact) {
     parts.push(h("div.panel__block.panel__block--row",
-      switchControl({ label: t("ui.web.label"), description: s.project ? t("ui.web.desc_project", { name: s.project.name }) : t("ui.web.desc_default"), checked: app.webOn(), onChange: (v) => app.setWeb(v) })));
+      webSwitch(app, { description: s.project ? t("ui.web.desc_project", { name: s.project.name }) : t("ui.web.desc_default") })));
     parts.push(h("div.panel__foot", h("a.panel__link", { href: "#/settings/compute", onClick: () => onNavigate?.() }, t("ui.compute.more"), icon("chevronRight", { size: 14 }))));
   }
   return h("div", { class: ["panel", compact && "panel--compact"] }, parts);
+}
+
+/**
+ * The project's web-access switch. Every copy on the page (the compute popover, the phone's options sheet, the
+ * project's defaults) follows the app's "web" and "project" events, so each shows the same state as the composer
+ * chip: a stale copy would turn a press into a no-op (pressing "off" on a switch that still showed off while the
+ * project was on). One listener per app updates the copies in the document; a removed copy holds nothing.
+ */
+export function webSwitch(app, { label = t("ui.web.label"), description } = {}) {
+  syncWebSwitches(app);
+  const row = switchControl({ label, description, checked: app.webOn(), onChange: (v) => app.setWeb(v) });
+  const sw = row.matches?.('[role="switch"]') ? row : row.querySelector('[role="switch"]');
+  sw.dataset.sync = "web";
+  return row;
+}
+
+const webSynced = new WeakSet();
+
+function syncWebSwitches(app) {
+  if (webSynced.has(app)) return;
+  webSynced.add(app);
+  const sync = () => {
+    const on = String(app.webOn());
+    for (const sw of document.querySelectorAll('[data-sync="web"]')) {
+      if (sw.getAttribute("aria-checked") !== on) sw.setAttribute("aria-checked", on);
+    }
+  };
+  app.on("web", sync);
+  app.on("project", sync);
 }
 
 function browserCard(app, { compact }) {
