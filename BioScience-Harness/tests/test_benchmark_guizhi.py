@@ -281,3 +281,15 @@ def test_the_command_writes_the_report_and_the_summary_lists_what_did_not_pass(t
     assert "| research_pipeline_report | offline | 12 | 3 | 0 | 0 | 9 | 0 | 0 |" in text
     assert "acceptance explained" in text and "`benchmark.guizhi-palpitations.03.compounds` | SKIPPED" in text
     assert "never counted as passes" in text
+
+
+def test_a_stage_that_raises_is_recorded_as_a_failure_and_the_others_still_report(tmp_path, table,
+                                                                                  monkeypatch):
+    def broken(run, stage):
+        raise KeyError("a defect")
+    monkeypatch.setattr(benchmark, "_herbs", broken)
+    doc, records = benchmark.run_benchmark(tmp_path / "work", log=lambda m: None)
+    by = _by_stage(records)
+    assert by["herbs"].status == FAIL and "KeyError" in by["herbs"].failure_reason
+    assert by["formula_version"].status == PASS and by["formula_distinction"].status == PASS
+    assert doc["acceptance"]["how"] == "not met"

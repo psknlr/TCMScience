@@ -151,7 +151,7 @@ def _load_table(run: _Run) -> None:
 
 
 def _formula_version(run: _Run, stage: Mapping[str, Any]) -> Record:
-    from ..sources.formulas import source_matches, split_source
+    from ..sources.formulas import TABLE_LICENSE, source_matches, split_source
     from ..tcm import default_knowledge
 
     rec = _record(stage, "bioagent validate benchmark --out OUT")
@@ -189,8 +189,8 @@ def _formula_version(run: _Run, stage: Mapping[str, Any]) -> Record:
     agree = same_drugs and source_matches(seed.source, books) and all(
         x["agree"] for x in doses.values())
     rec.add("curated_crosscheck", PASS if agree else FAIL,
-            (f"the curated {seed.chinese} ({seed.source}) has the same five crude drugs and doses "
-             "as the workbook record") if agree else
+            (f"the curated {seed.chinese} ({seed.source}) has the same {len(wb)} crude drugs and "
+             "doses as the workbook record") if agree else
             f"the curated formula and the workbook record disagree: {doses}", doses=doses)
     passages = [{"id": p.id, "source": p.source, "chapter": p.chapter, "text": p.text}
                 for p in kb.passages_mentioning(seed.id)]
@@ -201,7 +201,8 @@ def _formula_version(run: _Run, stage: Mapping[str, Any]) -> Record:
         "fingerprint": r.version().fingerprint, "versions_of_the_name": len(versions),
         "distinct_compositions": len(distinct),
         "curated": {"id": seed.id, "source": seed.source, "doses": doses, "passages": passages},
-        "licence": "LicenseRef-user-supplied-unstated (workbook); curated formula CC0"})
+        "licence": {"workbook": TABLE_LICENSE,
+                    "curated": "MIT (the seed corpus, as its source card declares)"}})
     return rec
 
 
@@ -298,6 +299,11 @@ def _research(run: _Run) -> None:
         run.research_status = (BLOCKED if re.search(r"no snapshot|not importable|review", text)
                                else FAIL)
         run.research_error = f"{type(exc).__name__}: {text}"
+        return
+    except Exception as exc:                                    # noqa: BLE001
+        # a defect, not a reason: recorded as one, and the other stages still report
+        run.research_status = FAIL
+        run.research_error = f"{type(exc).__name__}: {exc} ({_where(exc)})"
         return
     out = Path(run.research.output_dir)
     run.result = json.loads((out / "result.json").read_text(encoding="utf-8"))
@@ -912,25 +918,47 @@ def _artifacts(run: _Run, stage: Mapping[str, Any], repeat: Mapping[str, str] | 
 
 # --------------------------------------------------------------------------- the run
 
+def _where(exc: BaseException) -> str:
+    """The innermost frame an exception came from, for a record a reader can act on."""
+    import traceback
+    frames = traceback.extract_tb(exc.__traceback__)
+    return f"{Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else "?"
+
+
+def _guarded(fn: Callable[..., Record], run: _Run, stage: Mapping[str, Any]) -> Record:
+    """A stage's record; a stage that raises is recorded as FAIL with the exception, so one
+    defect does not take the other stages' reports with it."""
+    t0 = time.perf_counter()
+    try:
+        rec = fn(run, stage)
+    except Exception as exc:                                    # noqa: BLE001
+        rec = _record(stage, "bioagent validate benchmark --out OUT")
+        rec.add("stage", FAIL, f"{type(exc).__name__}: {exc} ({_where(exc)})")
+    rec.runtime_s = time.perf_counter() - t0
+    if stage["id"] in run.outputs:
+        rec.provenance = {k: v for k, v in run.outputs[stage["id"]].items() if k != "content"}
+    return rec
+
+
 def _stages(run: _Run, repeat: Mapping[str, str] | None = None) -> list[Record]:
     defn = {s["id"]: s for s in run.defn["stages"]}
-    _load_table(run)
-    out = [_formula_version(run, defn["formula_version"]), _herbs(run, defn["herbs"])]
-    _acquire(run)
+    try:
+        _load_table(run)
+    except Exception as exc:                                    # noqa: BLE001
+        run.table, run.table_error = None, f"{type(exc).__name__}: {exc} ({_where(exc)})"
+    out = [_guarded(_formula_version, run, defn["formula_version"]),
+           _guarded(_herbs, run, defn["herbs"])]
+    try:
+        _acquire(run)
+    except Exception as exc:                                    # noqa: BLE001
+        run.data_status, run.data_reason = FAIL, f"{type(exc).__name__}: {exc} ({_where(exc)})"
     _research(run)
     for sid, fn in (("compounds", _compounds), ("targets", _targets),
                     ("measured_vs_predicted", _measured_vs_predicted), ("pathways", _pathways),
                     ("enrichment", _enrichment), ("literature", _literature),
                     ("evidence", _evidence), ("hypotheses", _hypotheses),
                     ("formula_distinction", _distinction)):
-        t0 = time.perf_counter()
-        rec = fn(run, defn[sid])
-        rec.runtime_s = time.perf_counter() - t0
-        if sid in run.outputs:
-            rec.provenance = {k: v for k, v in run.outputs[sid].items() if k != "content"}
-        out.append(rec)
-    out[0].provenance = {k: v for k, v in run.outputs.get("formula_version", {}).items() if k != "content"}
-    out[1].provenance = {k: v for k, v in run.outputs.get("herbs", {}).items() if k != "content"}
+        out.append(_guarded(fn, run, defn[sid]))
     out.append(_artifacts(run, defn["artifacts"], repeat))
     return out
 
