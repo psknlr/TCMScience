@@ -44,12 +44,20 @@ def test_a_group_without_tested_pins_is_refused(tmp_path):
         load_environments()["groups"]["machine_learning"])
 
 
-def test_the_check_after_the_install_is_the_readiness_check(tmp_path):
+def test_the_check_after_the_install_is_the_readiness_check(tmp_path, monkeypatch):
+    # Not what this machine happens to have installed: numpy and scipy are bioagent's own
+    # dependencies, and the other package exists nowhere.
+    from bioagent.validation import dependencies
+    groups = {"groups": {"present": {"packages": {"numpy": "0", "scipy": "0"}},
+                         "absent": {"packages": {"tcmscience-no-such-package": "1.0"}}}}
+    monkeypatch.setattr(dependencies, "load_environments", lambda path=None: groups)
     kind = KINDS["env.provision"]
-    problems = kind.verify(kind.prepare({"group": "data_files"}, _ctx(tmp_path)), {})
-    assert problems == [], "openpyxl and pyarrow import and compute here"
-    result = kind.result(tmp_path, {"group": "data_files"})
-    assert result["status"] == "PASS" and result["checks"]["openpyxl:calculation"] == "PASS"
+    assert kind.verify(kind.prepare({"group": "present"}, _ctx(tmp_path)), {}) == []
+    checks = kind.result(tmp_path, {"group": "present"})["checks"]
+    assert checks["numpy:calculation"] == "PASS" and checks["scipy:calculation"] == "PASS"
+    assert checks["numpy:version"] == "UNVERIFIED", "not the tested pin: reported, not hidden"
+    problems = kind.verify(kind.prepare({"group": "absent"}, _ctx(tmp_path)), {})
+    assert len(problems) == 1 and problems[0].startswith("tcmscience-no-such-package:import: BLOCKED")
 
 
 def test_with_the_runner_offline_it_is_refused(tmp_path):
