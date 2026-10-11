@@ -175,8 +175,11 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
     _core("tcm_syndrome", "证候", "Syndrome record", "tcm_knowledge", """
         A syndrome (证): manifestations, tongue, pulse, treatment principle (治法) and the
         formulas recorded for it, from the seed corpus (8 syndromes), with the classical
-        passages that record them. A recorded indication is an attribution, not evidence of
-        efficacy.""",
+        passages that record them; and the formulas of the complete 84,294-row workbook whose
+        recorded 功效 mentions the syndrome's name (脾胃气虚证 as 脾胃气虚), with their count and
+        the first records (page with tcmdb.formulas and indication). For a syndrome outside the
+        seed, how many workbook formulas mention it. A mention is a literal match, not a
+        curated link; a recorded indication is an attribution, not evidence of efficacy.""",
           obj({"name": S("syndrome name, e.g. 脾胃气虚证")}, required=("name",)),
           "native.tcm_syndrome", B_R),
     _core("tcm_classical_search", "经典条文检索", "Classical passages", "tcm_knowledge", """

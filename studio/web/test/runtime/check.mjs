@@ -235,6 +235,11 @@ async function full() {
     [JSON.stringify(e.result?.repository_formulas?.herb?.searched) === JSON.stringify(["黄芪", "黄耆"]), "also searched as 黄耆"],
     [!(e.governance?.limitations || []).some((x) => /^Seed corpus only/.test(x)), "no longer labelled seed corpus only"],
   ], { compare: true });
+  await run("tcm_syndrome 脾胃气虚证 (formulas whose 功效 mentions it)", "tcm_syndrome", { name: "脾胃气虚证" }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status})`],
+    [e.result?.repository_formulas?.total > 100 && JSON.stringify(e.result?.repository_formulas?.indication?.terms) === JSON.stringify(["脾胃气虚"]), `${e.result?.repository_formulas?.total} workbook formulas mention 脾胃气虚`],
+    [(e.result?.formulas || []).length === 2, "the seed's curated formulas stay"],
+  ], { compare: true });
 
   await run("tcm_compatibility 甘草 + 甘遂", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],

@@ -167,10 +167,12 @@ def _open_store() -> sqlite3.Connection:
 
 
 def formula_search(query: str = "", *, exact: bool = False, source: str = "",
-                   limit: int = 25, offset: int = 0, herb: str = "") -> dict[str, Any]:
+                   limit: int = 25, offset: int = 0, herb: str = "",
+                   indication: str = "") -> dict[str, Any]:
     """Search every formula row, retain duplicate names/versions and paginate explicitly.
     ``herb`` keeps the rows whose composition names that herb (``herb_plan``); they come
-    with the formulas named after it first, then in workbook order."""
+    with the formulas named after it first, then in workbook order. ``indication`` keeps
+    the rows whose 功效 text mentions any of its terms (``_indication_clause``)."""
     from bioagent.sources.formulas import _clean_name
 
     conn = _open_store()
@@ -195,6 +197,11 @@ def formula_search(query: str = "", *, exact: bool = False, source: str = "",
             params.extend(ps)
             named, order_params = _herb_clause(plan, "name")
             order = f"{named} DESC, row"
+        indications = _indication_terms(indication)
+        if indications:
+            clause, ps = _indication_clause(indications)
+            clauses.append(clause)
+            params.extend(ps)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         total = conn.execute("SELECT count(*) FROM formulas" + where, params).fetchone()[0]
         rows = conn.execute(f"SELECT * FROM formulas{where} ORDER BY {order} LIMIT ? OFFSET ?",
@@ -207,6 +214,8 @@ def formula_search(query: str = "", *, exact: bool = False, source: str = "",
                "provenance": metadata, "claim_scope": "source formula records"}
         if plan is not None:
             out["herb"] = _plan_summary(plan)
+        if indications:
+            out["indication"] = _indication_summary(indications)
         if query and not exact:
             # a herb the workbook also writes otherwise (黄芪 / 黄耆): say so, without changing the search
             also = search_variants(query.strip())
@@ -382,12 +391,75 @@ def herb_formulas(herb: str, *, limit: int = 20, offset: int = 0) -> dict[str, A
     return out
 
 
+# ------------------------------------------------------------ formulas for an indication
+
+#: The workbook's 功效 column (``actions``) records what a formula is for. Its 注意 column
+#: (``cautions``) records whom it is not for (气虚人减量服), so a term there is never taken
+#: for an indication.
+INDICATION_FIELD = "actions"
+
+
+def _indication_terms(text: str) -> list[str]:
+    terms = query_terms(text)
+    if len(terms) > MAX_TERMS:
+        raise ValueError(f"indication takes at most {MAX_TERMS} terms, not {len(terms)}")
+    return terms
+
+
+def _indication_clause(terms: list[str]) -> tuple[str, list[str]]:
+    """Rows whose 功效 text contains any of ``terms``, as written."""
+    parts = [f"instr(lower({INDICATION_FIELD}), lower(?)) > 0" if _has_ascii_letter(t)
+             else f"instr({INDICATION_FIELD}, ?) > 0" for t in terms]
+    return "(" + " OR ".join(parts) + ")", list(terms)
+
+
+def _indication_summary(terms: list[str]) -> dict[str, Any]:
+    return {"terms": list(terms), "field": f"{INDICATION_FIELD} (功效)",
+            "not_searched": "cautions (注意): a term there says whom a formula is not for"}
+
+
+def syndrome_terms(names: Any) -> list[str]:
+    """How a syndrome is written in the workbook's 功效 text, which is Chinese: each of its
+    Chinese names without the closing 证 (脾胃气虚证 → 脾胃气虚), of two characters at least."""
+    out: list[str] = []
+    for name in names or ():
+        term = "".join(str(name or "").split())
+        if term.endswith("证"):
+            term = term[:-1]
+        if len(term) >= 2 and term not in out and any("一" <= c <= "鿿" for c in term):
+            out.append(term)
+    return out
+
+
+INDICATION_FORMULAS_SCOPE = ("workbook source records whose recorded 功效 text mentions the "
+                             "term as written (never its 注意 cautions): not a curated "
+                             "syndrome-formula link, a diagnosis or a recommendation")
+
+
+def indication_formulas(terms: list[str], *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    """The workbook formulas whose 功效 text mentions any of ``terms``, compact (row, name,
+    source, actions), in workbook order; the whole list pages through tcmdb.formulas with
+    the same ``indication``."""
+    joined = " ".join(terms)
+    found = formula_search("", indication=joined, limit=limit, offset=offset)
+    records = [{"id": r["id"], "row": r["row"], "name": r["name"], "source": r["source"],
+                "actions": r["actions"]} for r in found["records"]]
+    out = {"indication": found["indication"], "total": found["total"], "count": len(records),
+           "offset": offset, "next_offset": found["next_offset"],
+           "corpus_rows": found["corpus_rows"], "records": records,
+           "scope": INDICATION_FORMULAS_SCOPE, "provenance": found["provenance"]}
+    if found["next_offset"] is not None:
+        out["more"] = {"tool": "tcmdb.formulas",
+                       "arguments": {"indication": joined, "offset": found["next_offset"]}}
+    return out
+
+
 def formula_corpus_status() -> dict[str, Any]:
     """Which formula corpus the lookups here can use, without building or loading it: the
     complete workbook (loaded, or indexed on first use) or, when it is missing, why and how
     to supply it. The curated seed corpus is always there."""
     seed = {"formulas": _seed_formulas(), "scope": "curated: roles, indications, safety"}
-    fix = ("in the browser it loads with the first formula or herb lookup; on a runner, set "
+    fix = ("in the browser it loads with the first formula, herb or syndrome lookup; on a runner, set "
            "BIOAGENT_FORMULA_WORKBOOK to the repository's 中医方剂数据表.xlsx (or "
            "BIOAGENT_FORMULA_SQLITE to a built store)")
     # the same order formula_store() follows
@@ -441,7 +513,8 @@ def _matches(column: str, needles: list[str]) -> tuple[str, list[str]]:
 
 
 def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
-                          limit: int = 25, offset: int = 0, herb: str = "") -> dict[str, Any]:
+                          limit: int = 25, offset: int = 0, herb: str = "",
+                          indication: str = "") -> dict[str, Any]:
     """Rows matching any term of ``query``, most relevant first (``RANK_METHOD``), each
     with how it matched; herb names also under their other names (``search_variants``)."""
     from bioagent.sources.formulas import _clean_name
@@ -472,6 +545,11 @@ def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
     if herb.strip():
         herb_scope = herb_plan(herb.strip())
         clause, ps = _herb_clause(herb_scope, "composition")
+        filters.append(clause)
+        where_params.extend(ps)
+    indications = _indication_terms(indication)
+    if indications:
+        clause, ps = _indication_clause(indications)
         filters.append(clause)
         where_params.extend(ps)
     where = " WHERE " + " AND ".join(filters) if filters else ""
@@ -512,6 +590,7 @@ def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
                          "terms": [{**plan, "rows": df[i], "idf": round(idf[i], 6)}
                                    for i, plan in enumerate(plans)]},
                 **({"herb": _plan_summary(herb_scope)} if herb_scope else {}),
+                **({"indication": _indication_summary(indications)} if indications else {}),
                 "provenance": metadata, "claim_scope": "source formula records"}
     finally:
         conn.close()

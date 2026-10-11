@@ -993,6 +993,8 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         o = _repository_native(name, args, o)
     if name == "tcm_herb":
         o = _herb_formulas(args, o)
+    elif name == "tcm_syndrome":
+        o = _syndrome_formulas(args, o)
     elif name == "tcm_compatibility":
         o = _compatibility_formulas(entry, args, ctx, o, licences)
     return o
@@ -1050,6 +1052,75 @@ def _herb_formulas(args: Mapping[str, Any], o: Outcome) -> Outcome:
                   + (f"（亦写作 {'、'.join(others)}）" if others else ""))
     o.summary_en += (f"; complete formula workbook: {found['total']:,} formula records contain it"
                      + (f" (also written {', '.join(others)})" if others else ""))
+    return o
+
+
+def _syndrome_formulas(args: Mapping[str, Any], o: Outcome) -> Outcome:
+    """The workbook formulas whose recorded 功效 mentions a syndrome, beside the seed's
+    curated ones; for a syndrome the seed does not hold, how many mention it and how to
+    list them (it stays not found: a mention is not a syndrome record)."""
+    from .repository_data import FORMULA_LICENSE, indication_formulas, syndrome_terms
+    recorded = o.status == "succeeded" and isinstance(o.result, Mapping)
+    if not recorded and (o.error or {}).get("type") != "not_found":
+        return o
+    syndrome = (o.result.get("syndrome") or {}) if recorded else {}
+    terms = syndrome_terms([syndrome.get("chinese"), *(syndrome.get("aliases") or ())]
+                           if recorded else [args.get("name")])
+    if not terms:
+        return o
+    try:
+        found = indication_formulas(terms, limit=20 if recorded else 0)
+    except FileNotFoundError as exc:
+        if recorded:
+            return _workbook_unavailable(o, "repository_formulas", exc)
+        g = dict(o.governance or gv.empty("native"))
+        g["limitations"] = [_LIMIT_NO_WORKBOOK, *(g.get("limitations") or [])]
+        o.governance = g
+        o.summary += "（完整方剂库未加载：仅检索种子语料）"
+        o.summary_en += " (the complete formula workbook is not loaded: seed corpus only)"
+        return o
+    g = dict(o.governance or gv.empty("native"))
+    g["licences"] = [*(g.get("licences") or []),
+                     gv.licence_entry("repository_formulas", FORMULA_LICENSE,
+                                      note="workbook data licence is unstated")]
+    shown = "」「".join(terms)
+    if not recorded:
+        listing = {"tool": "tcmdb.formulas", "arguments": {"indication": " ".join(terms)}}
+        if found["total"]:
+            o.summary += f"；完整方剂库中 {found['total']:,} 条方剂的功效提及「{shown}」（可用 tcmdb.formulas 加 indication 列出）"
+            o.summary_en += (f"; {found['total']:,} formulas of the complete workbook mention "
+                             f"{', '.join(terms)} in their recorded actions (tcmdb.formulas with "
+                             "indication lists them)")
+            err = dict(o.error or {})
+            err["hint"] = (f"tcmdb.formulas {json.dumps(listing['arguments'], ensure_ascii=False)} "
+                           f"lists the {found['total']:,} workbook formulas whose recorded 功效 "
+                           "mentions it. " + str(err.get("hint") or ""))
+            o.error = err
+        else:
+            o.summary += f"；完整方剂库的功效文字中也没有「{shown}」（字面匹配，不等于没有相应方剂）"
+            o.summary_en += (f"; no formula of the complete workbook has {', '.join(terms)} in "
+                             "its recorded actions as written (a literal match, not absence)")
+        g["limitations"] = [*(g.get("limitations") or []),
+                            "The workbook was searched for the name as written in its 功效 text "
+                            "(never its 注意 cautions); a mention is not a syndrome record, a "
+                            "diagnosis or a recommendation."]
+        o.governance = g
+        return o
+    result = dict(o.result)
+    result["repository_formulas"] = found
+    result["formulas_scope"] = "the curated seed corpus's formulas for this syndrome"
+    # the formulas now come from the whole workbook: the seed limit no longer covers them
+    g["limitations"] = [x for x in (g.get("limitations") or []) if x != gv.LIMIT_SEED] + [
+        "The syndrome's record (manifestations, tongue, pulse, treatment principle) and its curated "
+        "formulas, relations and passages are from the seed corpus (8 syndromes): absence there "
+        "is not absence.",
+        "The workbook formulas are source records whose recorded 功效 text mentions the syndrome's "
+        "name as written (never their 注意 cautions); a mention is not a curated syndrome-formula "
+        "link, a diagnosis or a recommendation."]
+    o.result, o.governance = result, g
+    o.summary += f"；完整方剂库 {found['total']:,} 条方剂的功效提及「{shown}」"
+    o.summary_en += (f"; complete formula workbook: {found['total']:,} formula records mention "
+                     f"{', '.join(terms)} in their recorded actions")
     return o
 
 
@@ -2013,12 +2084,14 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                                aliases=bool(args.get("aliases", True)),
                                                limit=int(args.get("limit", 25)),
                                                offset=int(args.get("offset", 0)),
-                                               herb=str(args.get("herb") or ""))
+                                               herb=str(args.get("herb") or ""),
+                                               indication=str(args.get("indication") or ""))
             else:
                 result = formula_search(str(args.get("query") or ""), exact=bool(args.get("exact")),
                                         source=str(args.get("source") or ""),
                                         limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)),
-                                        herb=str(args.get("herb") or ""))
+                                        herb=str(args.get("herb") or ""),
+                                        indication=str(args.get("indication") or ""))
             g["licences"] = [gv.licence_entry("repository_formulas", result["provenance"]["license"],
                                                 note="workbook data licence is unstated")]
             g["limitations"] = ["Source formula records are not clinically validated; an action "
@@ -2750,7 +2823,7 @@ def _formula_corpus(ctx: Context) -> dict[str, Any]:
     if ctx.where == "browser" and status["workbook"]["status"] == "unavailable":
         status["workbook"] = {"status": "on_demand",
                               "note": "the page loads it (verified by SHA-256) with the first "
-                                      "formula or herb lookup"}
+                                      "formula, herb or syndrome lookup"}
     return status
 
 

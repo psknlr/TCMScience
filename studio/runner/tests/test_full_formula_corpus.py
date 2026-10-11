@@ -80,6 +80,60 @@ def test_tcmdb_formulas_pages_through_a_herbs_formulas_in_one_stable_order(brows
     assert named == sorted(named, reverse=True), "the formulas named after the herb come first"
 
 
+# ------------------------------------------------------------------------- a syndrome's formulas
+
+def test_a_syndrome_lists_the_workbook_formulas_whose_actions_mention_it(browser_ctx):
+    e = call("tcm_syndrome", {"name": "脾胃气虚证"}, browser_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    found = e["result"]["repository_formulas"]
+    expected = _rows("instr(actions, '脾胃气虚') > 0")
+    assert found["total"] == len(expected) > 100 and found["indication"]["terms"] == ["脾胃气虚"]
+    assert {r["row"] for r in found["records"]} <= expected and found["count"] == 20
+    assert found["more"] == {"tool": "tcmdb.formulas", "arguments": {"indication": "脾胃气虚", "offset": 20}}
+    assert [f["chinese"] for f in e["result"]["formulas"]] == ["补中益气汤", "四君子汤"], "the seed's stay"
+    limits = e["governance"]["limitations"]
+    assert LIMIT_SEED not in limits and any("never their 注意 cautions" in x for x in limits)
+    assert f"{len(expected)} 条方剂的功效提及「脾胃气虚」" in e["summary"]
+
+
+def test_a_syndromes_other_names_are_searched_too(browser_ctx):
+    found = call("tcm_syndrome", {"name": "太阳中风证"}, browser_ctx)["result"]["repository_formulas"]
+    assert found["indication"]["terms"] == ["太阳中风", "表虚"], "表虚证 is the seed's other name for it"
+    assert found["total"] == len(_rows("instr(actions, '太阳中风') > 0 OR instr(actions, '表虚') > 0"))
+
+
+def test_a_contraindication_is_never_counted_as_an_indication():
+    # 注意 says whom a formula is not for: 气虚人减量服, 气虚挟寒者慎用
+    only_cautions = _rows("instr(cautions, '气虚') > 0 AND instr(actions, '气虚') = 0")
+    assert len(only_cautions) > 10
+    found = repository_data.formula_search("", indication="气虚", limit=5000)
+    assert found["total"] == len(_rows("instr(actions, '气虚') > 0")) == found["count"]
+    assert not {r["row"] for r in found["records"]} & only_cautions
+
+
+def test_a_syndrome_outside_the_seed_says_how_many_workbook_formulas_mention_it(browser_ctx):
+    e = call("tcm_syndrome", {"name": "湿热证"}, browser_ctx)
+    assert e["error"]["type"] == "not_found", "a mention is not a syndrome record"
+    n = len(_rows("instr(actions, '湿热') > 0"))
+    assert n > 500 and f"{n:,} 条方剂的功效提及「湿热」" in e["summary"]
+    assert e["error"]["hint"].startswith('tcmdb.formulas {"indication": "湿热"}')
+    listed = call("call_tool", {"tool": "tcmdb.formulas", "arguments": {"indication": "湿热"}}, browser_ctx)
+    assert listed["status"] == "succeeded" and listed["result"]["total"] == n
+    none = call("tcm_syndrome", {"name": "肝郁脾虚证"}, browser_ctx)
+    assert none["error"]["type"] == "not_found" and "字面匹配，不等于没有相应方剂" in none["summary"]
+    english = call("tcm_syndrome", {"name": "damp heat"}, browser_ctx)
+    assert english["error"]["type"] == "not_found" and "完整方剂库" not in english["summary"], \
+        "the 功效 text is Chinese: an English name is not searched in it"
+
+
+def test_a_ranked_search_within_an_indication(browser_ctx):
+    e = call("call_tool", {"tool": "tcmdb.formulas", "arguments": {
+        "query": "黄芪", "rank": True, "indication": "脾胃气虚", "limit": 100}}, browser_ctx)
+    within = _rows("instr(actions, '脾胃气虚') > 0")
+    assert e["result"]["rank"]["rows_searched"] == len(within)
+    assert {r["row"] for r in e["result"]["records"]} <= within and e["result"]["total"] > 0
+
+
 # ------------------------------------------------------------------------- compatibility
 
 def test_a_formula_outside_the_seed_is_checked_as_its_workbook_herbs(browser_ctx):
@@ -148,6 +202,12 @@ def test_without_the_workbook_the_seed_answer_says_it_is_only_the_seed(browser_c
     # herbs alone never need the workbook, so checking them downloads nothing
     call("tcm_compatibility", {"herbs": ["葛根", "甘草"]}, browser_ctx)
     assert repository_data.take_formula_store_wanted() is False
+    syndrome = call("tcm_syndrome", {"name": "脾胃气虚证"}, browser_ctx)
+    assert syndrome["result"]["repository_formulas"]["status"] == "unavailable"
+    outside = call("tcm_syndrome", {"name": "湿热证"}, browser_ctx)
+    assert outside["error"]["type"] == "not_found" and "完整方剂库未加载" in outside["summary"]
+    assert outside["governance"]["limitations"][0] == herb["governance"]["limitations"][0]
+    assert repository_data.take_formula_store_wanted() is True
 
 
 def test_the_capabilities_say_which_formula_corpus_is_there(browser_ctx):

@@ -498,8 +498,8 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
 
 // the lookups that always read the complete formula workbook (tcmstudio.repository_data): it is loaded before they
 // run. Others that need it only sometimes (tcm_compatibility, for a formula outside the seed) ask for it as they go.
-const FORMULA_TOOLS = new Set(["tcm_formula", "tcm_lookup", "tcm_herb", "tcmdb.formulas",
-  "native.tcm_formula", "native.tcm_lookup", "native.tcm_herb"]);
+const FORMULA_TOOLS = new Set(["tcm_formula", "tcm_lookup", "tcm_herb", "tcm_syndrome", "tcmdb.formulas",
+  "native.tcm_formula", "native.tcm_lookup", "native.tcm_herb", "native.tcm_syndrome"]);
 
 async function ensureDataAssets(tool, args) {
   const target = tool === "call_tool" ? String(args?.tool || "") : String(tool);

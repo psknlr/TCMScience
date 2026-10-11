@@ -24,14 +24,15 @@ Bulk downloads and large model assets are outside this bounded query gateway.
 The repository formula workbook is indexed in full, preserving all seven columns,
 duplicate names and source versions. Its compressed SQLite asset is verified against
 the build manifest's SHA-256 before use and loads when a lookup needs it: before
-`tcm_formula`, `tcm_lookup`, `tcm_herb` and `tcmdb.formulas`, which always read it,
+`tcm_formula`, `tcm_lookup`, `tcm_herb`, `tcm_syndrome` and `tcmdb.formulas`, which always read it,
 and during a call that turns out to need it (a compatibility check of a formula
 outside the seed), which then runs again with it. Formula questions are answered
 from all 84,294 rows: a herb's formulas (`tcm_herb`, under the herb's other names,
-other drugs whose names contain it excluded), a formula's source versions, and the
-herbs of a formula checked for incompatibilities when the workbook holds one version
-of it. `tcmdb.formulas` supports pagination, source and herb filters and a ranked
-mode; `tcmdb.materia` exposes the complete packaged materia collection. The original
+other drugs whose names contain it excluded), a syndrome's formulas (`tcm_syndrome`:
+those whose recorded 功效 mentions it, never their 注意 cautions), a formula's source
+versions, and the herbs of a formula checked for incompatibilities when the workbook
+holds one version of it. `tcmdb.formulas` supports pagination, source, herb and
+indication filters and a ranked mode; `tcmdb.materia` exposes the complete packaged materia collection. The original
 workbook remains available as a separate static asset. Its
 `LicenseRef-user-supplied-unstated` provenance is retained. These are source
 records, not newly validated clinical recommendations. The curated clinical/safety
