@@ -32,6 +32,48 @@
   "STAT": 15,
   "TYP": 8
  },
+ "compiler_diagnostics_by_severity": {
+  "EFF": {
+   "error": 4,
+   "warning": 1
+  },
+  "IFC": {
+   "error": 6,
+   "info": 1
+  },
+  "REP": {
+   "error": 2,
+   "warning": 4
+  },
+  "RES": {
+   "error": 6
+  },
+  "SCI": {
+   "error": 3,
+   "warning": 5
+  },
+  "SIR": {
+   "error": 16
+  },
+  "STAT": {
+   "error": 5,
+   "warning": 10
+  },
+  "TYP": {
+   "error": 6,
+   "warning": 2
+  }
+ },
+ "inquiry_stopping_rule": {
+  "accept_at": 0.95,
+  "budget": null,
+  "catch_all_alarm": 0.5,
+  "catch_all_floor": 0.05,
+  "max_steps": 64,
+  "min_gain": 0.01,
+  "min_severity": 0.8,
+  "require_replication": true
+ },
  "native_tool_domains": 12,
  "native_tools": 150,
  "native_tools_by_domain": {

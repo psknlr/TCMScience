@@ -1,4 +1,4 @@
-"""House style for the two IEEE Transactions-style architecture flowcharts.
+"""House style for the IEEE Transactions-style figures: flowcharts and plots, in colour.
 
 IEEE sizes figures to its columns: 3.5 in (21 picas) for one column and 7.16 in (43 picas)
 for two. It prefers vector files (PDF, EPS) with fonts embedded, raster line art at
@@ -8,9 +8,17 @@ for two. It prefers vector files (PDF, EPS) with fonts embedded, raster line art
   metrically identical to it, so the figures set like the IEEEtran text around them;
 * every text is 8 pt or larger at final size (block names 8 pt bold, region names 9 pt
   bold) and every stroke at least 0.5 pt, so nothing thins out in print;
-* the drawing is greyscale: meaning is carried by line style (solid, execution; dashed,
-  untrusted or constraint), by weight and by labels, never by hue, so it reads the same
-  in print, on screen and in a photocopy;
+* colour is Okabe-Ito (Wong, Nat. Methods 2011), the palette of the Nature figures, with
+  one meaning per hue across the set: blue, the trusted kernel and what it releases;
+  green, the capability plane; orange, governance; reddish purple, the scientist plane;
+  vermillion, refusals and errors; grey, the untrusted model. The six hues pass a
+  colour-vision check against white (worst adjacent pair Delta E 9.6 under deuteranopia,
+  20.0 in normal vision); orange, purple and sky blue fall below 3:1 contrast, so they
+  only fill shapes that also carry a label, and strokes use darkened shades;
+* colour is never the only cue, because IEEE prints many pages in greyscale: regions also
+  differ in line style (solid, execution; dashed, untrusted; dash-dot, constraint) and
+  weight, plotted series in marker and line style, and magnitudes use one hue that runs
+  light to dark;
 * each figure is written as PDF and EPS (vector, TrueType embedded) and as a 600 dpi PNG.
 
 The checks run as each figure is saved, so a label added later cannot slip below them.
@@ -54,8 +62,37 @@ BLACK = "#000000"
 DARK = "#333333"
 GREY = "#6e6e6e"
 LIGHT = "#bdbdbd"
-FILL = "#f2f2f2"     # the trusted kernel's region
-FILL2 = "#e4e4e4"    # emphasis inside a region
+GRID = "#cfcfcf"
+FILL = "#f2f2f2"     # the untrusted model's box
+FILL2 = "#e4e4e4"
+
+# Okabe-Ito, one meaning per hue (see the module docstring)
+BLUE = "#0072B2"
+VERMILLION = "#D55E00"
+GREEN = "#009E73"
+ORANGE = "#E69F00"
+PURPLE = "#CC79A7"
+SKY = "#56B4E9"
+
+
+def shade(colour: str, amount: float) -> tuple[float, float, float]:
+    """``colour`` mixed with black: 0 leaves it, 1 is black (for strokes and text)."""
+    r, g, b = ns.to_rgb(colour)
+    return (r * (1 - amount), g * (1 - amount), b * (1 - amount))
+
+
+tint = ns.tint
+
+#: Semantic roles: (stroke, region fill, block fill).
+ROLE = {
+    "kernel": (BLUE, tint(BLUE, 0.08), tint(BLUE, 0.16)),
+    "capability": (shade(GREEN, 0.15), tint(GREEN, 0.07), tint(GREEN, 0.15)),
+    "governance": (shade(ORANGE, 0.28), tint(ORANGE, 0.08), tint(ORANGE, 0.18)),
+    "scientist": (shade(PURPLE, 0.30), tint(PURPLE, 0.10), tint(PURPLE, 0.20)),
+    "refusal": (VERMILLION, tint(VERMILLION, 0.08), tint(VERMILLION, 0.16)),
+    "model": (GREY, FILL, FILL),
+    "neutral": (BLACK, "white", "white"),
+}
 
 LINE = TEXT * 1.15 * 25.4 / 72      # one line of 8 pt text at linespacing 1.15, in mm
 
@@ -70,6 +107,9 @@ def apply() -> None:
     if not faces:
         raise RuntimeError("neither Times New Roman nor Liberation Serif is installed; "
                            "install fonts-liberation to build the IEEE figures")
+    plt.rcdefaults()                    # nothing carried over from another style
+    # Text metrics depend on hinting; state it rather than inherit a system matplotlibrc.
+    plt.rcParams["text.hinting"] = "no_hinting"
     plt.rcParams.update({
         "font.family": faces[:1],
         "font.size": TEXT,
@@ -78,7 +118,39 @@ def apply() -> None:
         "mathtext.it": f"{faces[0]}:italic",
         "mathtext.bf": f"{faces[0]}:bold",
         "text.color": BLACK,
+        "axes.labelsize": TEXT,
+        "axes.titlesize": TEXT,
+        "axes.linewidth": 0.5,
+        "axes.edgecolor": BLACK,
+        "axes.labelcolor": BLACK,
+        "axes.axisbelow": True,
+        "axes.unicode_minus": True,
+        "xtick.labelsize": TEXT,
+        "ytick.labelsize": TEXT,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+        "xtick.major.width": 0.5,
+        "ytick.major.width": 0.5,
+        "xtick.minor.width": 0.5,
+        "ytick.minor.width": 0.5,
+        "xtick.major.size": 2.5,
+        "ytick.major.size": 2.5,
+        "xtick.minor.size": 1.5,
+        "ytick.minor.size": 1.5,
+        "xtick.major.pad": 2.0,
+        "ytick.major.pad": 2.0,
+        "legend.fontsize": TEXT,
+        "legend.frameon": True,
+        "legend.fancybox": False,
+        "legend.edgecolor": BLACK,
+        "legend.framealpha": 1.0,
+        "legend.borderpad": 0.35,
+        "legend.handlelength": 1.6,
+        "legend.handletextpad": 0.4,
+        "legend.labelspacing": 0.25,
+        "legend.columnspacing": 0.9,
         "lines.linewidth": 0.75,
+        "lines.markersize": 3.5,
         "patch.linewidth": 0.75,
         "hatch.linewidth": 0.5,
         "figure.dpi": 150,
@@ -99,29 +171,29 @@ def figure(width_in: float, height_mm: float):
 
 # ------------------------------------------------------------------------------- drawing
 def region(ax, x, y, w, h, title, *, fill="white", lw=0.75, style="-", note=None,
-           title_size=REGION, title_at="left"):
+           title_size=REGION, title_at="left", edge=BLACK, title_colour=BLACK):
     """A subsystem boundary with its name at the top left or right (and an italic note)."""
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=BLACK,
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=edge,
                                 lw=lw, linestyle=style, zorder=1))
     if title_at == "right":
         ax.text(x + w - 1.6, y + 1.3, title, fontsize=title_size, fontweight="bold",
-                ha="right", va="top", zorder=4)
+                ha="right", va="top", zorder=4, color=title_colour)
     else:
         ax.text(x + 1.6, y + 1.3, title, fontsize=title_size, fontweight="bold", ha="left",
-                va="top", zorder=4)
+                va="top", zorder=4, color=title_colour)
     if note:
         ax.text(x + w - 1.6, y + 1.3, note, fontsize=TEXT, fontstyle="italic", ha="right",
                 va="top", color=DARK, zorder=4)
 
 
 def block(fig, ax, x, y, w, h, name, body=None, *, fill="white", lw=0.75, style="-",
-          align="center", sep=None, name_size=NAME):
+          align="center", sep=None, name_size=NAME, edge=BLACK, name_colour=BLACK):
     """A component: its name in bold over a body wrapped to the block's width.
 
     The body is a string (wrapped between words) or a list of phrases (kept whole,
     separated by ``sep``). A body that does not fit stops the build.
     """
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=BLACK,
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=edge,
                                 lw=lw, linestyle=style, zorder=2))
     tx = {"center": x + w / 2, "left": x + 1.4}[align]
     lines = []
@@ -141,23 +213,24 @@ def block(fig, ax, x, y, w, h, name, body=None, *, fill="white", lw=0.75, style=
     top = y + (h - total) / 2
     if names:
         ax.text(tx, top, "\n".join(names), fontsize=name_size, fontweight="bold", ha=align,
-                va="top", linespacing=1.15, zorder=4)
+                va="top", linespacing=1.15, zorder=4, color=name_colour)
     if lines:
         ax.text(tx, top + len(names) * LINE, "\n".join(lines), fontsize=TEXT, ha=align,
                 va="top", linespacing=1.15, zorder=4)
     return (x, y, w, h)
 
 
-def strip(fig, ax, x, y, w, h, name, body, *, fill="white", lw=0.75, style="-", sep=" · "):
+def strip(fig, ax, x, y, w, h, name, body, *, fill="white", lw=0.75, style="-", sep=" · ",
+          edge=BLACK, name_colour=BLACK):
     """A long, low block: its name in bold, then its body on the same line(s)."""
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=BLACK,
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="square,pad=0", fc=fill, ec=edge,
                                 lw=lw, linestyle=style, zorder=2))
     nw = fl.text_width(fig, name, TEXT, "bold")
     lines = fl.wrap(fig, body, w - nw - 4.0, TEXT, sep=sep)
     if len(lines) * LINE > h - 0.6:
         raise SystemExit(f"strip {name!r}: {len(lines)} lines in {h:.1f} mm")
     ax.text(x + 1.4, y + h / 2, name, fontsize=TEXT, fontweight="bold", ha="left",
-            va="center", zorder=4)
+            va="center", zorder=4, color=name_colour)
     ax.text(x + 2.6 + nw, y + h / 2, "\n".join(lines), fontsize=TEXT, ha="left",
             va="center", linespacing=1.15, zorder=4)
 
@@ -183,6 +256,23 @@ def arrow(ax, points, *, lw=0.75, dashed=False, head=True, both=False, color=BLA
                                      shrinkA=0, shrinkB=0, zorder=z))
 
 
+def diamond(fig, ax, cx, cy, w, h, label, *, edge=BLACK, fill="white", lw=0.75):
+    """A decision: a rhombus centred on (cx, cy) with its question inside. Text that would
+    cross the rhombus's edges stops the build."""
+    from matplotlib.patches import Polygon
+    ax.add_patch(Polygon([(cx - w / 2, cy), (cx, cy - h / 2), (cx + w / 2, cy),
+                          (cx, cy + h / 2)], closed=True, fc=fill, ec=edge, lw=lw, zorder=2))
+    lines = label.split("\n")
+    n = len(lines)
+    for i, line in enumerate(lines):
+        dy = (i - (n - 1) / 2) * LINE
+        room = w * (1 - (abs(dy) + LINE / 2) / (h / 2))
+        if fl.text_width(fig, line, TEXT) > room:
+            raise SystemExit(f"diamond: {line!r} does not fit a {w}x{h} mm rhombus")
+    ax.text(cx, cy, label, fontsize=TEXT, ha="center", va="center", linespacing=1.15,
+            zorder=4)
+
+
 def text(ax, x, y, s, *, ha="left", va="center", style="normal", weight="normal",
          color=BLACK, size=TEXT, bg=False, **kw):
     t = ax.text(x, y, s, fontsize=size, ha=ha, va=va, fontstyle=style, fontweight=weight,
@@ -192,11 +282,35 @@ def text(ax, x, y, s, *, ha="left", va="center", style="normal", weight="normal"
     return t
 
 
-def step(ax, x, y, n, r=2.0):
+def step(ax, x, y, n, r=2.0, colour=BLACK):
     """A numbered step marker, as the caption refers to it."""
-    ax.add_patch(Circle((x, y), r, fc=BLACK, ec=BLACK, lw=0.5, zorder=6))
+    ax.add_patch(Circle((x, y), r, fc=colour, ec=colour, lw=0.5, zorder=6))
     ax.text(x, y + 0.05, str(n), fontsize=TEXT, fontweight="bold", color="white",
             ha="center", va="center", zorder=7)
+
+
+# ---------------------------------------------------------------------------------- plots
+def axes(fig, left, top, width, height):
+    """Axes placed in millimetres from the figure's top-left corner, in the IEEE look:
+    a full frame, ticks inward on all four sides, a light dotted grid."""
+    ax = ns.axes_mm(fig, left, top, width, height)
+    for sp in ax.spines.values():
+        sp.set_visible(True)
+        sp.set_linewidth(0.5)
+        sp.set_color(BLACK)
+    ax.tick_params(which="both", direction="in", top=True, right=True, colors=BLACK)
+    return ax
+
+
+def grid(ax, axis="both"):
+    ax.grid(True, axis=axis, color=GRID, lw=0.5, linestyle=(0, (1.0, 1.5)))
+    ax.set_axisbelow(True)
+
+
+def subcaption(fig, x_mm, y_mm, text):
+    """An IEEE sub-caption, "(a) ...", centred under its panel at (x, y) mm from top-left."""
+    w, h = fig.get_size_inches()
+    fig.text(x_mm * MM / w, 1 - y_mm * MM / h, text, ha="center", va="top", fontsize=TEXT)
 
 
 # -------------------------------------------------------------------------------- output

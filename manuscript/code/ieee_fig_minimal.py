@@ -23,18 +23,23 @@ def main():
     fig = st.figure(st.ONE_COLUMN, H)
     ax = fl.canvas(fig, 0, 0, W, H)
     kx, ky, kw, kh = 22.0, 19.0, 36.0, 18.0          # the kernel, at the centre
+    kern, _, kblock = st.ROLE["kernel"]
+    capc, _, cblock = st.ROLE["capability"]
+    ref, _, rblock = st.ROLE["refusal"]
+    mod, mfill, _ = st.ROLE["model"]
     st.block(fig, ax, kx, 1.0, kw, 10.5, "Language model", "proposes; untrusted",
-             style=(0, (3.0, 2.0)))
+             style=(0, (3.0, 2.0)), edge=mod, fill=mfill)
     st.block(fig, ax, kx, ky, kw, kh, "Trusted kernel",
-             ["compiles, authorizes,", "executes and verifies"], sep="\n", fill=st.FILL,
-             lw=1.25, name_size=st.REGION)
+             ["compiles, authorizes,", "executes and verifies"], sep="\n", fill=kblock,
+             lw=1.25, name_size=st.REGION, edge=kern, name_colour=kern)
     st.block(fig, ax, kx, 44.5, kw, 10.5, "Tools and data",
-             "connectors, tools, snapshots")
+             "connectors, tools, snapshots", edge=capc, fill=cblock, name_colour=capc)
     st.block(fig, ax, 0.4, ky + 4.0, 15.6, kh - 8.0, "Question")
     st.block(fig, ax, 64.0, ky - 2.5, W - 64.4, 10.0, "Licensed claim", "its kind licensed",
-             lw=1.25)
-    st.block(fig, ax, 64.0, ky + 10.5, W - 64.4, 10.0, "Refusal", "code and remedy")
-    st.block(fig, ax, 64.0, 44.5, W - 64.4, 10.5, "Audit", "hash-chained")
+             lw=1.25, edge=kern, name_colour=kern)
+    st.block(fig, ax, 64.0, ky + 10.5, W - 64.4, 10.0, "Refusal", "code and remedy",
+             edge=ref, fill=rblock, name_colour=ref)
+    st.block(fig, ax, 64.0, 44.5, W - 64.4, 10.5, "Audit", "hash-chained", edge=kern)
 
     st.arrow(ax, [(16.0, ky + kh / 2), (kx, ky + kh / 2)])
     # the kernel alone calls the model and the tools
@@ -52,9 +57,9 @@ def main():
                 ha=side if side == "right" else "left", style="italic")
     # what leaves, and what is kept
     st.arrow(ax, [(kx + kw, ky + 4.0), (64.0, ky + 2.5)])
-    st.arrow(ax, [(kx + kw, ky + kh - 4.0), (64.0, ky + 15.5)])
+    st.arrow(ax, [(kx + kw, ky + kh - 4.0), (64.0, ky + 15.5)], color=ref)
     st.arrow(ax, [(kx + kw - 3.0, ky + kh), (kx + kw - 3.0, 40.6), (84.0, 40.6),
-                  (84.0, 44.5)], dashed=True)
+                  (84.0, 44.5)], dashed=True, color=kern)
     st.text(ax, 81.6, 41.0, "every decision", ha="right", style="italic", va="top")
     return st.save(fig, "IEEE_Fig_Minimal")
 

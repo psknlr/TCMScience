@@ -143,6 +143,10 @@ def inventory() -> None:
     families = collections.Counter("".join(c for c in code if c.isalpha())
                                    for code in REGISTRY)
     tcm_tools = domains.get("tcm-knowledge", 0)
+    severities = {}
+    for code, spec in REGISTRY.items():
+        fam = severities.setdefault("".join(c for c in code if c.isalpha()), {})
+        fam[spec.severity.name.lower()] = fam.get(spec.severity.name.lower(), 0) + 1
     value = {
         "public_sources": len(SOURCES),
         "public_sources_by_group": {"core": len(CORE_SOURCES),
@@ -162,9 +166,22 @@ def inventory() -> None:
         "compiler_diagnostics_by_family": dict(sorted(families.items())),
         "claim_reason_codes": len(CLAIM_REASONS),
         "claim_reasons": dict(CLAIM_REASONS),
+        "compiler_diagnostics_by_severity": severities,
         "runtime": runtime_shape(),
+        "inquiry_stopping_rule": stopping_rule(),
     }
     write_json("inventory.json", value)
+    write_csv("compiler_diagnostics.csv", [
+        {"code": code, "family": "".join(c for c in code if c.isalpha()),
+         "severity": spec.severity.name.lower(), "title": spec.title, "remedy": spec.remedy}
+        for code, spec in sorted(REGISTRY.items())])
+
+
+def stopping_rule() -> dict:
+    """The inquiry engine's default stopping rule (psh.scientist.inquiry.StoppingRule)."""
+    import dataclasses
+    from psh.scientist.inquiry import StoppingRule
+    return {f.name: getattr(StoppingRule(), f.name) for f in dataclasses.fields(StoppingRule)}
 
 
 def runtime_shape() -> dict:
@@ -230,7 +247,8 @@ def capabilities(formulas: bool = True) -> None:
     from bioagent.providers.public_apis_ext import EXTENDED_SOURCES
     from bioagent.providers.public_apis_tcm import TCM_SOURCES
     from bioagent.tcmdb import DATASETS, EVIDENCE, RELATION_KINDS
-    from bioagent.sources.cards import SOURCE_CARDS
+    from bioagent.sources.cards import ACCESS_MODES, SOURCE_CARDS
+    from bioagent.sources.snapshot import QCThresholds
     from bioagent.admet.models import ENDPOINTS
     from bioagent.omics.backends import VERSION_ARGS
     from bioagent.omics.de_backends import BACKENDS as DE_BACKENDS
@@ -332,6 +350,8 @@ def capabilities(formulas: bool = True) -> None:
         "snapshot_cards": [card_row(c) for c in (SOURCE_CARDS.values() if isinstance(SOURCE_CARDS, dict) else SOURCE_CARDS)],
         "snapshot_parsers": sorted(m.name for m in pkgutil.iter_modules(parsers.__path__)
                                    if m.name != "common"),
+        "snapshot_access_modes": list(ACCESS_MODES),
+        "snapshot_qc_max_drift": QCThresholds().max_drift,
         "acquisition_specs": sum(len(s) for s in acq_specs),
         "federated": {"projects": len(repos),
                       "capabilities": len(catalogue),

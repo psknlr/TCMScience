@@ -106,6 +106,9 @@ def apply() -> None:
         raise RuntimeError("neither Arial nor Liberation Sans is installed; "
                            "install fonts-liberation (or Arial) to build the figures")
     family = latin[:1] + _available(CJK)
+    plt.rcdefaults()                    # nothing carried over from another style
+    # Text metrics depend on hinting; state it rather than inherit a system matplotlibrc.
+    plt.rcParams["text.hinting"] = "no_hinting"
     plt.rcParams.update({
         "font.family": family,
         "font.size": SIZE,

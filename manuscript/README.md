@@ -1,8 +1,9 @@
-# Manuscript display items: Figs. 1–7, Table 1 and two IEEE-style flowcharts
+# Manuscript display items: Figs. 1–7, Table 1 and twelve IEEE-style figures
 
 The figures, table, legends and Source Data for the TCMScience paper, built to Nature's
-specifications for final figures, and two architecture flowcharts in the style of the IEEE
-Transactions. Every name and number they show is read from the code and committed results of
+specifications for final figures, and a second set of twelve colour figures in the style of the
+IEEE Transactions: six flowcharts of the architecture and its processes, and six plots of the
+results. Every name and number they show is read from the code and committed results of
 this repository, or from its documentation with the file and line cited, and the build checks
 that it still is. Where the README and the code disagree about which tools and databases the
 system has, the figures follow the code (see [Found while building](#found-while-building)).
@@ -25,9 +26,24 @@ backstop for the manuscript's source and PDF, which live outside this working tr
 | [Table 1](tables/Table1.md) | Each figure's question, construction, principal result and what it does not show | the same data files (`.md`, `.csv`, `.tex`, `.docx`) |
 | [Legends](legends.md) | Figure legends, 264–347 words each | — |
 | [Source Data](source_data/) | One workbook per figure, one sheet per panel, with provenance on every sheet | the same data files |
-| [IEEE Fig. 1](ieee/IEEE_Fig_Architecture.pdf) | The agent architecture in full, as a two-column IEEE flowchart (7.16 in): entry, the trusted kernel's ten numbered steps, governance, the capability plane | the code, as for Fig. 1 |
-| [IEEE Fig. 2](ieee/IEEE_Fig_Minimal.pdf) | The same architecture reduced to its one idea, as a one-column IEEE flowchart (3.5 in) | — |
-| [IEEE captions](ieee/captions.md) | Captions for both, also as IEEEtran `figure*`/`figure` environments ([`captions.tex`](ieee/captions.tex)) | — |
+| [IEEE figures](ieee/captions.md) | Twelve colour figures in IEEE Transactions style, listed below, with captions also as IEEEtran `figure*`/`figure` environments ([`captions.tex`](ieee/captions.tex)) | as listed below |
+
+### IEEE-style figures
+
+| Fig. | File | Width | Shows | Built from |
+| --- | --- | --- | --- | --- |
+| 1 | [Architecture](ieee/IEEE_Fig_Architecture.pdf) | 2 col. | The agent in full: entry, the kernel's ten numbered steps, governance, the capability plane | the code, as for Nature Fig. 1 |
+| 2 | [Minimal](ieee/IEEE_Fig_Minimal.pdf) | 1 col. | The same architecture reduced to its one idea | — |
+| 3 | [Execution path](ieee/IEEE_Fig_ExecutionPath.pdf) | 2 col. | The 16 stages of `Runner.run`, its two ordering invariants, the quarantine span and the refusal scope | `psh.runtime.runner.STAGES` |
+| 4 | [Compiler](ieee/IEEE_Fig_Compiler.pdf) | 2 col. | The eight compiler passes, their 71 diagnostics by severity, lowering, the plan validator, the repair loop | `psh.compiler` (`PASS_ORDER`, `REGISTRY`), `psh.runtime.plan_validator` |
+| 5 | [Snapshots](ieee/IEEE_Fig_Snapshots.pdf) | 2 col. | Data entry from source card to verified load, the quality gate's three outcomes, the eight source cards and their licences | `bioagent.sources` (cards, snapshot, ledger) |
+| 6 | [Inquiry loop](ieee/IEEE_Fig_InquiryLoop.pdf) | 1 col. | How the inquiry engine picks its next step, with the default stopping rule | `psh.scientist.inquiry` (`next_step`, `StoppingRule`) |
+| 7 | [Inventory](ieee/IEEE_Fig_Inventory.pdf) | 2 col. | Public sources and operations by domain, the TCM catalogue, the federated catalogue, the native tools | as for Nature Fig. 1 |
+| 8 | [Licensing](ieee/IEEE_Fig_Licensing.pdf) | 1 col. | The design × claim licensing matrix and the strongest wording per design | as for Nature Fig. 2 |
+| 9 | [Ablation](ieee/IEEE_Fig_Ablation.pdf) | 2 col. | Errors released by configuration, errors only one gate stops, closure rounds, refusal by error class | as for Nature Fig. 3 |
+| 10 | [Evidence typing](ieee/IEEE_Fig_EvidenceTyping.pdf) | 2 col. | Confusion matrix, precision and recall per design, overall shares on test and dev | as for Nature Fig. 4 |
+| 11 | [Case study](ieee/IEEE_Fig_CaseStudy.pdf) | 2 col. | Background choice, the carbonic-anhydrase pathway, disease-gene definitions, activity by protein | as for Nature Fig. 5 |
+| 12 | [Inquiry](ieee/IEEE_Fig_Inquiry.pdf) | 2 col. | Belief in three planted worlds and what each analysis was worth before any run | as for Nature Fig. 7 |
 
 ```
 manuscript/
@@ -35,14 +51,14 @@ manuscript/
 ├── tables/         Table1.md · .csv · .tex · .docx
 ├── legends.md
 ├── source_data/    Source_Data_Fig1–7.xlsx
-├── ieee/           IEEE_Fig_Architecture and IEEE_Fig_Minimal: .pdf, .eps (vector) and .png
-│                   (600 dpi); captions.md, captions.tex
+├── ieee/           the twelve IEEE-style figures: .pdf, .eps (vector) and .png (600 dpi);
+│                   captions.md, captions.tex
 ├── data/
 │   ├── extracted/  read from the code and committed results by code/extract_data.py
 │   └── curated/    documented values, each with the file, line and a quote it must match
 └── code/           nature_style.py, figlib.py, extract_data.py, fig1–fig7, make_table1.py,
-                    make_source_data.py, ieee_style.py, ieee_fig_architecture.py,
-                    ieee_fig_minimal.py, make_all.py, requirements.txt
+                    make_source_data.py, ieee_style.py, ieee_fig_*.py (12),
+                    ieee_captions.py, make_all.py, requirements.txt
 ```
 
 ## Build
@@ -58,7 +74,8 @@ python manuscript/code/make_all.py --extract --cases --verify
 ```
 
 On the same commit a rebuild is byte-identical: PDFs carry no creation date, the EPS files a
-fixed one, and the Office files' timestamps are fixed. A difference after a rebuild is therefore a change in the data or
+fixed one, and the Office files' timestamps are fixed. Each style starts from matplotlib's own
+defaults and states its text hinting, so a system `matplotlibrc` cannot change the output. A difference after a rebuild is therefore a change in the data or
 the code.
 
 ## Standards applied
@@ -83,24 +100,33 @@ Checked by the build, not by eye:
   beside their inputs; for Fig. 1, every public source, catalogue entry, source card, federated
   project and engine by name.
 
-The IEEE-style flowcharts follow IEEE's figure sizes instead, also checked by the build:
+The IEEE-style figures follow IEEE's figure sizes instead, also checked by the build:
 
 - **Size.** One column, 3.5 in (21 pc); two columns, 7.16 in (43 pc), so `captions.tex` places
   them at `\columnwidth` and `\textwidth` of an IEEEtran journal page, at 100 %.
 - **Type.** Times New Roman where installed, otherwise Liberation Serif, which is metrically
   identical, embedded as TrueType; every text 8–9 pt at final size, every stroke at least
   0.5 pt. Text that does not fit its block stops the build rather than overflowing it.
-- **Greyscale.** Meaning is carried by line style (solid, execution; dashed, an untrusted
-  component or a constraint), weight and labels, never by hue, so the figures read the same in
-  print and on screen. Numbered steps in the full flowchart are the ones its caption walks
-  through.
+- **Colour.** Okabe–Ito, as in the Nature figures, with one meaning per hue across the set:
+  blue, the trusted kernel and what it releases; green, the capability plane; orange,
+  governance; reddish purple, the scientist plane; vermillion, refusals and errors; grey, the
+  untrusted model. The six hues pass the colour-vision check against white (worst adjacent pair
+  ΔE 9.6 under deuteranopia, 20.0 in normal vision); orange, purple and sky blue, below 3:1
+  contrast, only fill shapes that also carry a label, and strokes use darkened shades.
+- **Greyscale print.** Colour is never the only cue: regions also differ in line style (solid,
+  execution; dashed, untrusted; dash-dot, constraint) and weight, plotted series in marker and
+  line style, and magnitudes use one hue from light to dark, so every figure still reads when
+  IEEE prints it in greyscale. The plots use IEEE's usual frame: a full box, ticks inward, a
+  dotted grid, sub-captions "(a)" under each panel. Numbered steps in the full flowchart are
+  the ones its caption walks through.
 - **Files.** PDF and EPS (vector) and PNG at 600 dpi, IEEE's floor for line art.
 
 ## Provenance and checks
 
 - **Extracted values** (`data/extracted/`) come from the kernel's own tables, imported rather
   than copied (the licensing matrix, the compiler's passes and diagnostics, the plan
-  validator's check families, the loop's stop reasons, the four stores), from the capability
+  validator's check families, the loop's stop reasons, the four stores, the inquiry engine's
+  default stopping rule), from the capability
   plane's own registries (every public source, the TCM catalogue and data hub, the source cards
   and parsers, the federated catalogue, the reviewed external tools, the engines, and the tool
   catalogue Studio builds from the code), from the committed benchmark results, and from runs

@@ -28,6 +28,12 @@ def main():
     H = 179.0
     fig = st.figure(st.TWO_COLUMN, H)
     ax = fl.canvas(fig, 0, 0, W, H)
+    kern, kfill, kblock = st.ROLE["kernel"]
+    capc, cfill, _ = st.ROLE["capability"]
+    govc, gfill, _ = st.ROLE["governance"]
+    sci, _, sfill = st.ROLE["scientist"]
+    ref, _, rfill = st.ROLE["refusal"]
+    mod, mfill, _ = st.ROLE["model"]
 
     # ---------------------------------------------------------------- entry and the model
     st.region(ax, 0, 0, 117, 21, "Entry: a question, a program or a skill",
@@ -40,33 +46,35 @@ def main():
         st.block(fig, ax, 1.6 + i * (ew + 1.6), 5.2, ew, 14.2, name, body)
     st.block(fig, ax, 121, 3.0, W - 121, 14.0, "Language model (untrusted)",
              "proposes plans, programs, explanations, predictions and claims; "
-             "holds no authority", style=(0, (3.0, 2.0)))
+             "holds no authority", style=(0, (3.0, 2.0)), edge=mod, fill=mfill)
 
     # ------------------------------------------------------------------- trusted kernel
     KT, KB, KR = 24.0, 131.0, 146.0
-    st.region(ax, 0, KT, KR, KB - KT, "Trusted kernel (PSH)", fill=st.FILL, lw=1.25,
-              title_at="right")
+    st.region(ax, 0, KT, KR, KB - KT, "Trusted kernel (PSH)", fill=kfill, lw=1.25,
+              title_at="right", edge=kern, title_colour=kern)
     # K1: classify, plan, compile, validate
     y1, h1 = 31.0, 18.0
-    st.block(fig, ax, 3, y1, 22, h1, "Ingress", "a Classifier labels every value")
+    st.block(fig, ax, 3, y1, 22, h1, "Ingress", "a Classifier labels every value", edge=kern)
     st.block(fig, ax, 30, y1, 27, h1, "Planner",
-             "ModelPlanner proposes through call_model; bounded repair")
+             "ModelPlanner proposes through call_model; bounded repair", edge=kern)
     passes = ", ".join(rt["compiler_passes"])
     st.block(fig, ax, 62, y1, 50, h1, "Scientific compiler",
-             f"{passes}; {inv['compiler_diagnostics']} diagnostic codes; lowered to a Plan")
+             f"{passes}; {inv['compiler_diagnostics']} diagnostic codes; lowered to a Plan",
+             edge=kern)
     st.block(fig, ax, 117, y1, 26, h1, "PlanValidator",
-             ", ".join(rt["plan_validator_families"]))
+             ", ".join(rt["plan_validator_families"]), edge=kern)
     for x1, x2 in ((25, 30), (57, 62), (112, 117)):
         st.arrow(ax, [(x1, y1 + h1 / 2), (x2, y1 + h1 / 2)])
     # rejection returns to the planner with its codes
     yf = y1 + h1 + 3.2
-    st.arrow(ax, [(121.5, y1 + h1), (121.5, yf), (46.5, yf), (46.5, y1 + h1)])
-    ax.plot([87, 87], [y1 + h1, yf], color=st.BLACK, lw=0.75, zorder=3)
+    st.arrow(ax, [(121.5, y1 + h1), (121.5, yf), (46.5, yf), (46.5, y1 + h1)], color=ref)
+    ax.plot([87, 87], [y1 + h1, yf], color=ref, lw=0.75, zorder=3)
     st.text(ax, 84.0, yf + 2.2, "refused: diagnostics with code and remedy", ha="center",
-            style="italic")
+            style="italic", color=ref)
     # K2: the loop and the broker
     y2, h2 = 58.0, 26.0
-    st.region(ax, 3, y2, 80, h2, "ExecutionBroker: the only way to act", title_size=st.NAME)
+    st.region(ax, 3, y2, 80, h2, "ExecutionBroker: the only way to act", title_size=st.NAME,
+              edge=kern, fill=kblock)
     gw = (80 - 3.2 - 3.2) / 3
     gates = [("ModelGateway", "to the model; ceilings per destination"),
              ("ToolGateway", "ExecPolicy and approvals; isolated execution"),
@@ -74,11 +82,11 @@ def main():
     gx = []
     for i, (name, body) in enumerate(gates):
         x = 4.6 + i * (gw + 1.6)
-        st.block(fig, ax, x, y2 + 5.2, gw, h2 - 6.8, name, body)
+        st.block(fig, ax, x, y2 + 5.2, gw, h2 - 6.8, name, body, edge=kern)
         gx.append(x)
     st.block(fig, ax, 93, y2, 50, h2, "AgentLoopController",
              f"plan, act, observe, evaluate ({', '.join(rt['evaluator_layers'])}); "
-             f"{len(rt['loop_terminations'])} stop reasons; checkpoint and resume")
+             f"{len(rt['loop_terminations'])} stop reasons; checkpoint and resume", edge=kern)
     st.arrow(ax, [(136.0, y1 + h1), (136.0, y2)])
     st.text(ax, 134.8, y2 - 2.6, "validated plan", ha="right", style="italic")
     st.arrow(ax, [(93, y2 + 9.0), (83, y2 + 9.0)])
@@ -88,7 +96,7 @@ def main():
     # lower left: the services every gate shares
     st.block(fig, ax, 3, 90, 25.5, 39, "Kernel services",
              ["AuthorityLattice", "BudgetGovernor", "ExecPolicy", "Hooks", "ContextCompiler",
-              "EventStore", "EvidenceSigner"], sep="\n", align="left")
+              "EventStore", "EvidenceSigner"], sep="\n", align="left", edge=kern)
     # K3: one release path
     y3, h3 = 91.5, 15.0
     fw = (105 - 3 * 4.0) / 4
@@ -99,7 +107,7 @@ def main():
     fx = []
     for i, (name, body) in enumerate(fin):
         x = 38 + i * (fw + 4.0)
-        st.block(fig, ax, x, y3, fw, h3, name, body)
+        st.block(fig, ax, x, y3, fw, h3, name, body, edge=kern)
         fx.append(x)
         if i:
             st.arrow(ax, [(x - 4.0, y3 + h3 / 2), (x, y3 + h3 / 2)])
@@ -114,13 +122,14 @@ def main():
              "index_store": ("Index\nstore", "WorkGraph")}
     sw = (74 - 3 * 1.6) / 4
     for i, key in enumerate(rt["stores"]):
-        st.block(fig, ax, 38 + i * (sw + 1.6), y4, sw, h4, *names[key])
+        st.block(fig, ax, 38 + i * (sw + 1.6), y4, sw, h4, *names[key], edge=kern)
     pg = fx[3]
-    st.block(fig, ax, 116, y4, 27, h4, "PersistenceGateway")
+    st.block(fig, ax, 116, y4, 27, h4, "PersistenceGateway", edge=kern)
     st.arrow(ax, [(pg + fw / 2, y3 + h3), (pg + fw / 2, y4)])
     st.arrow(ax, [(116, y4 + h4 / 2), (112, y4 + h4 / 2)])
     st.strip(fig, ax, 38, 124.5, 105, 5.0, "Scientist plane",
-             ["ScientificLedger", "ScientificWorldModel", "inquiry engine"])
+             ["ScientificLedger", "ScientificWorldModel", "inquiry engine"],
+             edge=sci, fill=sfill, name_colour=sci)
 
     # ---------------------------------------------------- governance and the two outcomes
     gov = [("Skill contracts", f"skill.yaml compiled; {len(cap['skills']['stable_locked'])} "
@@ -132,7 +141,7 @@ def main():
            ("Benchmarks", "governance ablation; evidence typing")]
     GH = 65.5
     st.region(ax, 151, KT, W - 151, GH, "Governance", style=(0, (4.0, 1.5, 1.0, 1.5)),
-              title_size=st.NAME)
+              title_size=st.NAME, edge=govc, fill=gfill, title_colour=govc)
     st.text(ax, 152.6, KT + 5.0, "never executes", style="italic", va="top")
     y = KT + 8.8
     for name, body in gov:
@@ -141,21 +150,24 @@ def main():
         st.text(ax, 152.4, y + st.LINE, "\n".join(lines), va="top")
         y += (1 + len(lines)) * st.LINE + 0.8
     assert y < KT + GH, y
-    st.arrow(ax, [(151, 52.0), (KR, 52.0)], dashed=True)
+    st.arrow(ax, [(151, 52.0), (KR, 52.0)], dashed=True, color=govc)
     st.block(fig, ax, 151, y3 - 0.5, W - 151, 16.5, "Released result",
-             "claim kind licensed; snapshots and chain head named", lw=1.25)
+             "claim kind licensed; snapshots and chain head named", lw=1.25, edge=kern,
+             fill=kblock, name_colour=kern)
     st.block(fig, ax, 151, 110, W - 151, 19, "Refusal",
-             "code and remedy; the text withheld")
+             "code and remedy; the text withheld", edge=ref, fill=rfill, name_colour=ref)
     st.arrow(ax, [(fx[3] + fw, y3 + 5.0), (151, y3 + 5.0)])
-    st.arrow(ax, [(fx[3] + fw, y3 + 11.5), (147.8, y3 + 11.5), (147.8, 119.5), (151, 119.5)])
+    st.arrow(ax, [(fx[3] + fw, y3 + 11.5), (147.8, y3 + 11.5), (147.8, 119.5), (151, 119.5)],
+             color=ref)
 
     # --------------------------------------------------------------- capability plane
     CT = 136.0
     st.region(ax, 0, CT, W, H - 1.0 - CT, "Capability plane (BioScience-Harness)",
-              note="reached only through the ToolGateway; nothing in it is trusted")
+              note="reached only through the ToolGateway; nothing in it is trusted",
+              edge=capc, fill=cfill, title_colour=capc)
     st.strip(fig, ax, 3, CT + 5.6, W - 6, 7.4, "BioScienceBridge",
              ["each component becomes a PSH manifest", "BioScience's licence and lineage "
-              "policy rules as well", "an isolated entrypoint"])
+              "policy rules as well", "an isolated entrypoint"], edge=capc, name_colour=capc)
     pub = cap["public_sources"]
     tu, bm = cap["tooluniverse"], cap["biomcp"]
     caps = [("Public connectors", f"{pub['total']} sources, {pub['operations']} typed "
@@ -175,7 +187,8 @@ def main():
                                   f"{cap['federated']['capabilities']:,} catalogued")]
     cw = (W - 6 - 5 * 1.6) / 6
     for i, (name, body) in enumerate(caps):
-        st.block(fig, ax, 3 + i * (cw + 1.6), CT + 15.6, cw, H - 1.0 - CT - 18.2, name, body)
+        st.block(fig, ax, 3 + i * (cw + 1.6), CT + 15.6, cw, H - 1.0 - CT - 18.2, name, body,
+                 edge=capc)
     tx = gx[1]
     st.arrow(ax, [(tx + 2.5, y2 + h2), (tx + 2.5, CT + 5.6)])
     st.arrow(ax, [(tx + 5.5, CT + 5.6), (tx + 5.5, y2 + h2)])
@@ -194,7 +207,7 @@ def main():
                                 (139.6, y2 - 4.6), (88.0, y2 + 12.9),
                                 (tx - 14.2, KB + 2.6), (98.6, 87.5),
                                 (148.6, y3 + 1.0), (pg + fw / 2 - 3.6, y4 - 2.0)], start=1):
-        st.step(ax, x, y, n)
+        st.step(ax, x, y, n, colour=kern)
     return st.save(fig, "IEEE_Fig_Architecture")
 
 

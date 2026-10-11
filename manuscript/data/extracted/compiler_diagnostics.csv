@@ -1,0 +1,72 @@
+code,family,severity,title,remedy
+EFF201,EFF,error,an effect needs a destination this run does not permit,"run under a profile that permits it, or use a capability that does not require it"
+EFF202,EFF,error,an effect needs more autonomy than this run holds,"raise the run's autonomy, or remove the effect"
+EFF203,EFF,error,an effect exceeds the run's risk ceiling,run under a profile whose risk ceiling covers it
+EFF204,EFF,error,an effect requires human approval and this run cannot obtain one,run at act_with_approval or above with an approval handler configured
+EFF205,EFF,warning,a consequential effect is declared with no acceptance condition covering it,state how the program will know the action succeeded
+IFC301,IFC,error,data flows into an operation whose destination may not receive it,"de-identify before this step, or route it to a destination the label permits"
+IFC302,IFC,error,a declassification states no method,"name the process that lowers the label (de-identification, aggregation)"
+IFC303,IFC,error,this policy does not permit declassification here,a named declassifier in the policy must perform it
+IFC304,IFC,error,a derived value claims a lower sensitivity than its inputs,"add an explicit declassification, or carry the inputs' label forward"
+IFC305,IFC,error,a licence term forbids the destination this step reaches,a research-only source may not be published or sent to a public provider
+IFC306,IFC,error,a value's label exceeds the run's data ceiling,run under a profile whose ceiling covers it
+IFC307,IFC,info,provenance weakens along this path,recorded so the claim's certainty can reflect it
+REP501,REP,warning,a non-deterministic step declares no seed,"set repro.seed, or state why the step cannot be seeded"
+REP502,REP,warning,a dataset version is unpinned,set repro.dataset_version so the run can be repeated against the same data
+REP503,REP,warning,a tool version is unpinned,set repro.tool_version
+REP504,REP,warning,an isolated component declares no environment,set repro.container_digest or repro.environment
+REP505,REP,error,the program requires preregistration and declares no protocol,add a protocol node and freeze it before the analysis runs
+REP506,REP,error,an analysis runs before the protocol it claims to follow is frozen,make the analysis depend on the protocol node
+RES601,RES,error,the program's token estimate exceeds the run's ceiling,"reduce the plan, or run with a larger budget"
+RES602,RES,error,the program's cost estimate exceeds the run's ceiling,"reduce the plan, or run with a larger budget"
+RES603,RES,error,the critical path exceeds the run's time ceiling,"shorten the chain, or run with a longer deadline"
+RES604,RES,error,the program needs more calls than the run's ceiling allows,"reduce the number of steps, or run with a larger budget"
+RES605,RES,error,a fan-out states no bound,set fan_out.max_items; an unbounded map over a produced list is an unbounded budget
+RES606,RES,error,a bounded fan-out still exceeds the run's ceiling,"lower the bound, or run with a larger budget"
+SCI701,SCI,warning,a hypothesis has no prediction,state what the hypothesis implies that could be observed
+SCI702,SCI,error,a prediction has no falsifier,state the observation that would refute it; a prediction nothing could contradict generates work and no knowledge
+SCI703,SCI,warning,a hypothesis has no alternative,name the competing explanation the work is meant to rule out
+SCI704,SCI,error,an experiment tests a hypothesis that is not in this program,"declare the hypothesis, or correct the id"
+SCI705,SCI,warning,an experiment discriminates between no hypotheses,say which hypotheses the result would tell apart
+SCI706,SCI,error,a claim answers a question that is not in this program,"declare the question, or correct the id"
+SCI707,SCI,warning,the program asserts a mechanism or efficacy claim and states no hypothesis,"state the hypothesis the claim rests on, so it can be argued against"
+SCI708,SCI,warning,a prediction is never tested,"add an analysis or experiment that reads it, or remove it"
+SIR001,SIR,error,dependency names a node that is not in this program,"add the node, or correct the id"
+SIR002,SIR,error,the dependency graph has a cycle,break the cycle; a step cannot depend on its own output
+SIR003,SIR,error,an executing node names no objective,say what the step achieves
+SIR004,SIR,error,a tool node names no component,name a component_id from the registry
+SIR005,SIR,error,a model node must declare exactly one model effect,"declare one of model.local, model.trusted_remote, model.public_remote"
+SIR006,SIR,error,a delegate node must declare the delegate effect,"declare effects: [""delegate""]"
+SIR007,SIR,error,a tool node declares no effects,declare what the tool does; a step with no declared effect cannot be gated before it runs
+SIR008,SIR,error,a declaration declares effects,a hypothesis or a prediction performs nothing; remove the effects or make it an executing node
+SIR009,SIR,error,a port reads a node that produces no value,read from an executing node; a declaration has no result
+SIR010,SIR,error,the program has no executable node,"add at least one model, tool or delegate node"
+SIR011,SIR,error,the program states no acceptance condition,add acceptance: there is otherwise no definition of done
+SIR012,SIR,error,a payload literal reads like a reference to another node,declare an input port instead; a payload is never resolved
+SIR013,SIR,error,the node's role and its specification disagree,"a hypothesis node carries a hypothesis spec, a prediction node a prediction spec, an analysis node an analysis spec"
+SIR014,SIR,error,the declared repeat semantics contradict a declared effect,a step that commits laboratory or clinical resources is non_repeatable
+SIR015,SIR,error,a fan-out iterates a node that is not in this program,name the node whose result is iterated
+SIR017,SIR,error,a node requires evidence and declares no output schema,an evidence requirement implies a structured return; declare output_schema
+STAT401,STAT,error,multiple tests with no multiplicity correction,"declare multiplicity: bonferroni, holm, bh or permutation"
+STAT402,STAT,warning,the number of tests is not stated,state analysis.tests so multiplicity can be judged
+STAT403,STAT,warning,a confirmatory analysis states neither sample size nor power,state analysis.sample_size and analysis.power
+STAT404,STAT,error,a survival analysis states no censoring strategy,state analysis.censoring
+STAT405,STAT,warning,a proportional-hazards model does not check its assumption,set analysis.proportional_hazards_checked once the check is in the plan
+STAT406,STAT,error,feature selection uses the evaluation data,set analysis.feature_selection: train_only
+STAT407,STAT,error,a predictive model is evaluated with no held-out data,"declare analysis.data_split: train_test, cross_validation or external"
+STAT408,STAT,warning,a subgroup analysis was not preregistered,"preregister the subgroups, or report the analysis as exploratory"
+STAT409,STAT,error,a discovery analysis declares no null model,"declare analysis.null_model: permutation, random_features or negative_control; a significant result is not a finding until it beats one"
+STAT410,STAT,warning,a batch variable is declared and not adjusted for,"set analysis.batch_adjusted, or state why the batch cannot confound"
+STAT411,STAT,warning,missing data handling is unstated,state analysis.missingness
+STAT412,STAT,warning,no interval estimate is reported,set analysis.reports_interval; a point estimate without one is not a result
+STAT413,STAT,warning,a discovery claim rests on a single unreplicated analysis,"declare analysis.replication, or narrow the claim"
+STAT414,STAT,warning,the significance threshold is implausible,alpha is a probability; state the one the analysis will use
+STAT415,STAT,warning,more tests are declared than the data could support,check analysis.tests against the rows the input produces
+TYP101,TYP,error,a claim node states no claim type,"state produces.claim: what kind of assertion, about whom, how firmly"
+TYP102,TYP,error,no input evidence licenses this claim,"weaken the claim, change its kind, or add a source whose design reaches it"
+TYP103,TYP,warning,the claim reaches beyond its evidence,"set claim.extrapolation_declared so the release records the stretch, or narrow the claim"
+TYP104,TYP,error,evidence provenance is unstated or unevidential,state how the source was obtained; a value the system generated is not evidence for its own conclusion
+TYP105,TYP,error,a retrieval node produces no evidence type,"state produces.evidence, including the study design"
+TYP106,TYP,error,a claim node reads no evidence,bind the claim to the step that produced its evidence
+TYP107,TYP,error,a source is marked retracted,remove it; a retracted source cannot support a claim
+TYP108,TYP,warning,an input's expected type does not match what the source produces,"correct the expected_type, or the pointer"

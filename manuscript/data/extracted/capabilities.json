@@ -153,6 +153,12 @@
    "retrieve-tcm-evidence"
   ]
  },
+ "snapshot_access_modes": [
+  "bulk",
+  "api",
+  "manual",
+  "web"
+ ],
  "snapshot_cards": [
   {
    "access": [
@@ -235,6 +241,7 @@
   "reactome",
   "string_db"
  ],
+ "snapshot_qc_max_drift": 0.2,
  "studio": {
   "core": [
    "tcm_lookup",
