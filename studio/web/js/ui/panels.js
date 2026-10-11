@@ -71,10 +71,39 @@ export function computePanel(app, { compact = false, onNavigate } = {}) {
   parts.push(runnerCard(app, { compact }));
   if (compact) {
     parts.push(h("div.panel__block.panel__block--row",
-      switchControl({ label: t("ui.web.label"), description: s.project ? t("ui.web.desc_project", { name: s.project.name }) : t("ui.web.desc_default"), checked: app.webOn(), onChange: (v) => app.setWeb(v) })));
+      webSwitch(app, { description: s.project ? t("ui.web.desc_project", { name: s.project.name }) : t("ui.web.desc_default") })));
     parts.push(h("div.panel__foot", h("a.panel__link", { href: "#/settings/compute", onClick: () => onNavigate?.() }, t("ui.compute.more"), icon("chevronRight", { size: 14 }))));
   }
   return h("div", { class: ["panel", compact && "panel--compact"] }, parts);
+}
+
+/**
+ * The project's web-access switch. Every copy on the page (the compute popover, the phone's options sheet, the
+ * project's defaults) follows the app's "web" and "project" events, so each shows the same state as the composer
+ * chip: a stale copy would turn a press into a no-op (pressing "off" on a switch that still showed off while the
+ * project was on). One listener per app updates the copies in the document; a removed copy holds nothing.
+ */
+export function webSwitch(app, { label = t("ui.web.label"), description } = {}) {
+  syncWebSwitches(app);
+  const row = switchControl({ label, description, checked: app.webOn(), onChange: (v) => app.setWeb(v) });
+  const sw = row.matches?.('[role="switch"]') ? row : row.querySelector('[role="switch"]');
+  sw.dataset.sync = "web";
+  return row;
+}
+
+const webSynced = new WeakSet();
+
+function syncWebSwitches(app) {
+  if (webSynced.has(app)) return;
+  webSynced.add(app);
+  const sync = () => {
+    const on = String(app.webOn());
+    for (const sw of document.querySelectorAll('[data-sync="web"]')) {
+      if (sw.getAttribute("aria-checked") !== on) sw.setAttribute("aria-checked", on);
+    }
+  };
+  app.on("web", sync);
+  app.on("project", sync);
 }
 
 function browserCard(app, { compact }) {
@@ -108,6 +137,19 @@ function browserCard(app, { compact }) {
     else gpuText = t("ui.browser.webgpu_hw", { name: [ad.vendor, ad.architecture, ad.description].filter(Boolean).join(" ") });
     facts.push(h("li", { class: ad?.software ? "is-muted" : "" }, icon("gpu", { size: 14 }), gpuText));
     if (!compact) facts.push(h("li", icon("lock", { size: 14 }), dev.cross_origin_isolated ? t("ui.browser.isolated") : t("ui.browser.not_isolated")));
+  }
+  const caps = b.caps;
+  if (!caps && !compact) app.computeCapabilities();
+  if (caps && !compact) {
+    const w = caps.wasm || {};
+    facts.push(h("li", icon("zap", { size: 14 }), t("ui.browser.wasm", {
+      simd: w.simd ? t("ui.common.yes") : t("ui.common.no"),
+      threads: w.threads_usable ? t("ui.common.yes") : w.threads ? t("ui.browser.threads_isolation") : t("ui.common.no"),
+    })));
+    const nn = caps.webnn || {};
+    const made = (nn.contexts || []).filter((c) => c.created).map((c) => c.label);
+    facts.push(h("li", { class: made.length ? "" : "is-muted" }, icon("cpu", { size: 14 }),
+      !nn.api ? t("ui.browser.webnn_none") : made.length ? t("ui.browser.webnn_contexts", { list: made.join(", ") }) : t("ui.browser.webnn_failed")));
   }
   body.push(h("ul.rt-card__facts", { role: "list" }, facts));
   if (status === "idle" || status === "error") body.push(h("div.rt-card__actions", button({ label: t("ui.browser.preload"), size: "sm", icon: "download", onClick: () => app.preloadBrowser() })));

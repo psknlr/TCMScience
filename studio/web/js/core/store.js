@@ -39,12 +39,26 @@ function req(r) {
   });
 }
 
+/** A connection that is gone rather than a request that was wrong: worth one new connection and one retry. */
+function connectionLost(err) {
+  return err?.name === "InvalidStateError" || err?.name === "UnknownError";
+}
+
 class IDBBackend {
-  constructor(db) {
-    this.db = db;
+  constructor(db, { idb = null, name = DB_NAME, version = DB_VERSION } = {}) {
     this.persistent = true;
-    // another tab upgraded the schema: close so it is not blocked; this tab must reload
-    db.onversionchange = () => { try { db.close(); } catch { /* closed */ } };
+    this.idb = idb;
+    this.name = name;
+    this.version = version;
+    this.upgraded = false;
+    this.#adopt(db);
+  }
+
+  #adopt(db) {
+    this.db = db;
+    // another tab upgraded the schema: close so it is not blocked; this tab must reload (no reconnect: it would
+    // open the newer schema with this tab's older code)
+    db.onversionchange = () => { this.upgraded = true; try { db.close(); } catch { /* closed */ } };
   }
 
   static open(idb, name = DB_NAME, version = DB_VERSION) {
@@ -55,22 +69,39 @@ class IDBBackend {
         const db = r.result;
         for (let v = (e.oldVersion || 0) + 1; v <= version; v++) MIGRATIONS[v - 1](db, r.transaction);
       };
-      r.onsuccess = () => resolve(new IDBBackend(r.result));
+      r.onsuccess = () => resolve(new IDBBackend(r.result, { idb, name, version }));
       r.onerror = () => reject(r.error);
       r.onblocked = () => reject(new Error("IndexedDB upgrade blocked by another open tab"));
     });
   }
 
-  async get(store, id) {
-    return (await req(this.db.transaction(store).objectStore(store).get(id))) ?? null;
+  /**
+   * Run `body(tx)` in a new transaction. When the connection is gone (Safari drops it in a tab left in the
+   * background; the browser closes it when site data is cleared), every transaction fails until the page reloads:
+   * open a new connection once and run it again. A failed transaction wrote nothing, so the retry cannot double it.
+   */
+  async #run(names, mode, body) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await body(this.db.transaction(names, mode));
+      } catch (err) {
+        if (attempt > 0 || !connectionLost(err) || this.upgraded || !this.idb) throw err;
+        const fresh = await IDBBackend.open(this.idb, this.name, this.version);
+        this.#adopt(fresh.db);
+      }
+    }
   }
 
-  async all(store) {
-    return req(this.db.transaction(store).objectStore(store).getAll());
+  get(store, id) {
+    return this.#run(store, "readonly", async (tx) => (await req(tx.objectStore(store).get(id))) ?? null);
   }
 
-  async byIndex(store, index, value) {
-    return req(this.db.transaction(store).objectStore(store).index(index).getAll(value));
+  all(store) {
+    return this.#run(store, "readonly", (tx) => req(tx.objectStore(store).getAll()));
+  }
+
+  byIndex(store, index, value) {
+    return this.#run(store, "readonly", (tx) => req(tx.objectStore(store).index(index).getAll(value)));
   }
 
   /**
@@ -81,37 +112,46 @@ class IDBBackend {
   bulk(ops) {
     if (!ops.length) return Promise.resolve([]);
     const names = [...new Set(ops.map((o) => o.store))];
+    return this.#run(names, "readwrite", (tx) => this.#bulkIn(tx, ops));
+  }
+
+  #bulkIn(tx, ops) {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(names, "readwrite");
       const patched = [];
       tx.oncomplete = () => resolve(patched);
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("transaction aborted"));
-      for (const o of ops) {
-        const s = tx.objectStore(o.store);
-        if ("put" in o) s.put(o.put);
-        else if ("patch" in o) {
-          const slot = patched.length;
-          patched.push(null);
-          const r = s.get(o.patch);
-          r.onsuccess = () => {
-            if (!r.result) return;
-            let next;
-            try { next = o.fn(r.result); } catch (err) { tx.abort(); reject(err); return; }
-            if (next) { s.put(next); patched[slot] = next; }
-          };
-        } else s.delete(o.delete);
+      try {
+        for (const o of ops) {
+          const s = tx.objectStore(o.store);
+          if ("put" in o) s.put(o.put);
+          else if ("patch" in o) {
+            const slot = patched.length;
+            patched.push(null);
+            const r = s.get(o.patch);
+            r.onsuccess = () => {
+              if (!r.result) return;
+              let next;
+              try { next = o.fn(r.result); } catch (err) { tx.abort(); reject(err); return; }
+              if (next) { s.put(next); patched[slot] = next; }
+            };
+          } else s.delete(o.delete);
+        }
+      } catch (err) {
+        // a record that cannot be stored (DataCloneError): none of the writes happen, not the ones before it
+        try { tx.abort(); } catch { /* already finished */ }
+        reject(err);
       }
     });
   }
 
-  async clear() {
-    await new Promise((resolve, reject) => {
-      const tx = this.db.transaction(STORES, "readwrite");
+  clear() {
+    return this.#run(STORES, "readwrite", (tx) => new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("transaction aborted"));
       for (const s of STORES) tx.objectStore(s).clear();
-    });
+    }));
   }
 
   close() {
@@ -210,6 +250,43 @@ export class Store {
       },
       async update(id, patch = {}) {
         const [next] = await b.bulk([{ store: "projects", patch: id, fn: (cur) => ({ ...cur, ...patch, id: cur.id, createdAt: cur.createdAt, updatedAt: now() }) }]);
+        if (!next) throw new Error(`no project ${id}`);
+        return next;
+      },
+      /**
+       * Change some of a project's defaults (web, compute, provider, model), merged into the stored ones inside the
+       * write's transaction: a caller holding an older copy of the project cannot put back a default someone else
+       * changed meanwhile. A key whose value is undefined is removed (the project follows the global setting again).
+       */
+      async setDefaults(id, partial = {}) {
+        const [next] = await b.bulk([{
+          store: "projects", patch: id,
+          fn: (cur) => {
+            const defaults = { ...(cur.defaults || {}) };
+            for (const [k, v] of Object.entries(partial || {})) {
+              if (v === undefined) delete defaults[k];
+              else defaults[k] = v;
+            }
+            return { ...cur, defaults, updatedAt: now() };
+          },
+        }]);
+        if (!next) throw new Error(`no project ${id}`);
+        return next;
+      },
+      /**
+       * Grant standing approvals ("project") and revoke others, inside the write's transaction, so a grant made from
+       * an older copy of the record cannot bring back an approval revoked meanwhile (or drop one granted meanwhile).
+       */
+      async patchApprovals(id, { grant = [], revoke = [] } = {}) {
+        const [next] = await b.bulk([{
+          store: "projects", patch: id,
+          fn: (cur) => {
+            const approvals = { ...(cur.approvals || {}) };
+            for (const k of grant) approvals[k] = "project";
+            for (const k of revoke) delete approvals[k];
+            return { ...cur, approvals, updatedAt: now() };
+          },
+        }]);
         if (!next) throw new Error(`no project ${id}`);
         return next;
       },

@@ -164,7 +164,8 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         A formula's source versions from the complete 84,294-row repository workbook,
         preserving literal compositions, doses, source texts, actions, cautions and unresolved
         ingredients. Curated roles, indications and safety records are added only for their
-        exact source formula. Use tcmdb.formulas for paginated searches across all fields.
+        exact source formula. Use tcmdb.formulas for paginated searches across all fields
+        (rank: true for several terms, ordered by relevance, with a herb under all its names).
         Workbook data licence is unstated; an indication is an attribution, not evidence of efficacy.""",
           obj({"name": S("formula name, e.g. 桂枝汤")}, required=("name",)),
           "native.tcm_formula", B_R),

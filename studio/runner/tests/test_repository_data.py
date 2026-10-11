@@ -8,6 +8,8 @@ import sqlite3
 import tarfile
 from types import SimpleNamespace
 
+import pytest
+
 from tcmstudio import webbuild
 from tcmstudio.dispatch import call
 from tcmstudio.repository_data import formula_search, materia_search, provider_catalog
@@ -122,3 +124,137 @@ def test_provider_wrappers_are_explicitly_unavailable_without_configuration(runn
     assert runner["status"] == "failed" and "draft" in runner["error"]["message"]
     browser = call("system.provider_call", args, {**browser_ctx, "network": True})
     assert browser["status"] == "failed" and browser["error"]["type"] == "unavailable"
+
+
+# ------------------------------------------------------------------- ranked search
+
+def _rows_containing(*needles: str) -> set[int]:
+    """Rows with any needle in any of the seven fields, counted independently of the search."""
+    from tcmstudio.repository_data import FORMULA_COLUMNS, formula_store
+    conn = sqlite3.connect(formula_store())
+    try:
+        found = set()
+        for row in conn.execute(f"SELECT row, {', '.join(FORMULA_COLUMNS)} FROM formulas"):
+            if any(n in (cell or "") for cell in row[1:] for n in needles):
+                found.add(row[0])
+        return found
+    finally:
+        conn.close()
+
+
+def test_a_herb_is_found_under_the_name_classical_sources_write():
+    from tcmstudio.repository_data import ranked_formula_search, search_variants
+    assert search_variants("黄芪")["search"] == ["黄芪", "黄耆"]
+    literal = formula_search("黄芪")["total"]
+    ranked = ranked_formula_search("黄芪", limit=5)
+    assert ranked["total"] == len(_rows_containing("黄芪", "黄耆"))
+    assert ranked["total"] > 100 * literal, "黄耆 is how most of the workbook writes it"
+    term, = ranked["rank"]["terms"]
+    assert term["materia"] == "huangqi" and term["rows"] == ranked["total"]
+    plain = ranked_formula_search("黄芪", aliases=False)
+    assert plain["total"] == literal and plain["rank"]["terms"][0]["search"] == ["黄芪"]
+    assert formula_search("黄芪", limit=1)["also_written"]["names"] == ["黄耆"]
+    assert "also_written" not in formula_search("桂枝汤", limit=1)
+
+
+def test_several_terms_rank_rows_with_more_of_them_first():
+    from tcmstudio.repository_data import ranked_formula_search, search_variants
+    result = ranked_formula_search("黄芪、当归", limit=50)
+    variants = [*search_variants("黄芪")["search"], *search_variants("当归")["search"]]
+    assert result["total"] == len(_rows_containing(*variants))
+    scores = [r["match"]["score"] for r in result["records"]]
+    assert scores == sorted(scores, reverse=True)
+    top = result["records"][0]
+    assert set(top["match"]["fields"]) == {"黄芪", "当归"}
+    assert all(set(r["match"]["fields"]) <= {"黄芪", "当归"} and r["match"]["fields"] for r in result["records"])
+
+
+def test_an_exact_name_comes_first_and_ties_keep_workbook_order():
+    from tcmstudio.repository_data import ranked_formula_search
+    result = ranked_formula_search("桂枝汤", limit=100)
+    fields = [r["match"]["fields"]["桂枝汤"] for r in result["records"]]
+    exact = fields.count("exact_name")
+    assert exact >= 2 and fields[:exact] == ["exact_name"] * exact
+    assert all(r["name"] == "桂枝汤" or r["written_name"] == "桂枝汤" or "桂枝汤" in r["name"]
+               for r in result["records"][:exact])
+    rows = [r["row"] for r in result["records"][:exact]]
+    assert rows == sorted(rows), "equal scores keep the workbook's order"
+
+
+def test_ranked_pages_are_one_stable_order():
+    from tcmstudio.repository_data import ranked_formula_search
+    whole = [r["row"] for r in ranked_formula_search("补气 黄芪", limit=60)["records"]]
+    paged = [r["row"] for offset in (0, 20, 40)
+             for r in ranked_formula_search("补气 黄芪", limit=20, offset=offset)["records"]]
+    assert paged == whole
+    assert [r["row"] for r in ranked_formula_search("补气 黄芪", limit=60)["records"]] == whole
+
+
+def test_a_source_filter_narrows_the_ranked_rows():
+    from tcmstudio.repository_data import ranked_formula_search
+    result = ranked_formula_search("桂枝", source="伤寒论", limit=100)
+    assert result["total"] > 0 and result["rank"]["rows_searched"] < result["corpus_rows"]
+    assert all("伤寒论" in r["source"] for r in result["records"])
+
+
+@pytest.mark.parametrize("term, absent", [
+    ("当归", "归"), ("生姜", "姜"), ("生姜", "姜汁"), ("生姜", "煨姜")])
+def test_names_that_would_find_other_drugs_or_preparations_are_not_searched(term, absent):
+    from tcmstudio.repository_data import search_variants
+    assert absent not in search_variants(term)["search"]
+
+
+def test_a_processed_form_is_searched_as_written():
+    from tcmstudio.repository_data import search_variants
+    assert search_variants("炙甘草") == {"term": "炙甘草", "search": ["炙甘草"], "materia": "gancao",
+                                        "processed_form_of": "甘草"}
+    assert search_variants("黃耆")["search"][:1] == ["黃耆"] and "黄耆" in search_variants("黃耆")["search"]
+    assert search_variants("补气") == {"term": "补气", "search": ["补气"]}
+
+
+def test_ranked_search_through_the_dispatcher(browser_ctx):
+    ok = call("call_tool", {"tool": "tcmdb.formulas", "arguments": {"query": "黄芪 当归", "rank": True,
+                                                                     "limit": 2}}, browser_ctx)
+    assert ok["status"] == "succeeded", ok["error"]
+    assert ok["result"]["count"] == 2 and "rank" in ok["result"]
+    assert any("lexical relevance" in x for x in ok["governance"]["limitations"])
+    assert ok["governance"]["licences"], "the workbook's unstated licence travels with ranked results too"
+    for args, why in (({"query": "桂枝汤", "rank": True, "exact": True}, "rank and exact"),
+                      ({"query": "  ", "rank": True}, "at least one term"),
+                      ({"query": " ".join(f"t{i}" for i in range(13)), "rank": True}, "at most 12")):
+        bad = call("call_tool", {"tool": "tcmdb.formulas", "arguments": args}, browser_ctx)
+        assert bad["status"] == "failed" and bad["error"]["type"] == "bad_arguments", args
+        assert why in bad["error"]["message"]
+
+
+def test_the_name_helpers_read_the_materia_table_as_it_is():
+    from tcmstudio.repository_data import _drug_named, _names_by_drug, _processed_base
+    assert _drug_named("黄芪") == _drug_named("黄耆") == _drug_named("黃耆") == "huangqi"
+    assert _drug_named("炙甘草") == "gancao" and _drug_named("生姜") == "shengjiang"
+    assert _drug_named("酒炒黄芪") is None and _drug_named("桂枝汤") is None and _drug_named("") is None
+    names = _names_by_drug()["danggui"]
+    assert names[0] == "当归" and "川当归" in names and len(names) == len(set(names))
+    for name, drug, base in (("炙甘草", "gancao", "甘草"), ("甘草末", "gancao", "甘草"), ("粉草", "gancao", None),
+                             ("甘草", "gancao", None), ("生姜", "shengjiang", None), ("姜汁", "shengjiang", "姜")):
+        assert _processed_base(name, drug) == base, name
+
+
+def test_the_pinned_skills_still_run_the_code_that_was_reviewed():
+    """Code a pinned skill imports cannot change without a review and a new pin: its governed
+    runs are refused otherwise. Do not edit the pin to make this pass."""
+    import yaml
+    from pathlib import Path
+    from bioagent.skills.loader import skill_content_hash
+    harness = Path(__file__).resolve().parents[3] / "BioScience-Harness"
+    pins = {e["skill_id"]: e["content_hash"]
+            for e in yaml.safe_load((harness / "registry" / "skills.lock.yaml").read_text(encoding="utf-8"))["skills"]}
+    checked = 0
+    for manifest in harness.glob("skills/**/skill.yaml"):
+        spec = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        sid = spec.get("id") or manifest.parent.name
+        if sid in pins:
+            entry = (spec.get("runtime") or {}).get("entrypoint", "")
+            assert skill_content_hash(manifest.parent, entrypoint=entry) == pins[sid], sid
+            checked += 1
+    assert checked == len(pins) >= 4
+

@@ -51,11 +51,11 @@ function failuresOf(expectations) {
 }
 
 /** One call as the router makes it; `expect(env)` returns [[condition, description], …]. */
-async function run(label, tool, args, expect, { compare = false, signal, project_id = project } = {}) {
+async function run(label, tool, args, expect, { compare = false, signal, project_id = project, acceleration } = {}) {
   const t0 = performance.now();
   let env;
   try {
-    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal });
+    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal, ...(acceleration ? { acceleration } : {}) });
   } catch (err) {
     check(label, false, `call threw: ${err?.message || err}`);
     return null;
@@ -119,7 +119,8 @@ async function cancelCheck({ expectInterrupt }) {
   setTimeout(() => ac.abort(), 600);
   const env = await run("cancel a running call", "call_tool", { tool: "native.edit_distance", arguments: long }, (e) => [
     [e.status === "cancelled", `status cancelled (got ${e.status})`],
-  ], { signal: ac.signal });
+  // the original Python, which takes seconds here: the CPU kernel finishes a 4000×4000 edit distance before any cancel
+  ], { signal: ac.signal, acceleration: "reference" });
   const ms = out.calls.at(-1)?.ms ?? 0;
   if (expectInterrupt) {
     // Python stopped through the interrupt buffer: no restart, the dispatcher's own cancelled envelope
@@ -129,10 +130,76 @@ async function cancelCheck({ expectInterrupt }) {
   } else {
     check("cancel: terminate + restart", ms < 1500 && (rt.status === "loading" || rt.status === "ready"), `${ms} ms; status ${rt.status}`);
   }
+  if (expectInterrupt) {
+    // the same through a CPU kernel (synchronous JavaScript inside the Python call): the kernel reads the flag too,
+    // stops at its next row, and Python raises KeyboardInterrupt in place: still no restart
+    const huge = { a: "ACGTN".repeat(6000), b: "TGCAN".repeat(6000) };
+    const ac2 = new AbortController();
+    const before = out.statuses.filter((s) => s.status === "loading").length;
+    setTimeout(() => ac2.abort(), 600);
+    const e2 = await run("cancel a running kernel", "call_tool", { tool: "native.edit_distance", arguments: huge }, (e) => [
+      [e.status === "cancelled", `status cancelled (got ${e.status})`],
+    ], { signal: ac2.signal, acceleration: "auto" });
+    const ms2 = out.calls.at(-1)?.ms ?? 0;
+    const restarted2 = out.statuses.filter((s) => s.status === "loading").length > before;
+    check("cancel: the kernel stopped in place", e2?.receipt?.runtime?.startsWith("pyodide") && !restarted2 && ms2 < 3500,
+      `${ms2} ms after the call started; ${restarted2 ? "the worker was restarted" : "no restart"}`);
+  }
   await run("next call after the cancel", "tcm_compatibility", { herbs: ["人参", "藜芦"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
     [e.result?.compatible === false, "人参 + 藜芦 recorded as incompatible"],
   ]);
+}
+
+/** A deterministic DNA string (LCG), so the native comparison sees the same input. */
+function dnaOf(n, seed, letters = "ACGT") {
+  let x = seed >>> 0;
+  let out = "";
+  for (let i = 0; i < n; i++) { x = (Math.imul(x, 1103515245) + 12345) >>> 0; out += letters[(x >>> 16) % letters.length]; }
+  return out;
+}
+
+/**
+ * The CPU kernels Python calls in the Worker (studio/web/js/compute): the same call with the kernels (auto) and with
+ * the original Python only (reference) gives the same result and output hash, the receipt names the backend that ran
+ * (the counts by WebAssembly SIMD, which every engine this runs in has; the rest by JavaScript), and the native
+ * comparison (python3 -m tcmstudio call) agrees with both.
+ */
+async function kernelChecks() {
+  const cases = [
+    ["global alignment 300×280", "native.global_alignment", { a: dnaOf(300, 1), b: dnaOf(280, 2) }, "js"],
+    ["local alignment, integer scores", "native.local_alignment", { a: dnaOf(240, 3), b: dnaOf(260, 4), match: 2, mismatch: -1, gap: -2 }, "js"],
+    ["protein alignment, BLOSUM62", "native.protein_alignment", { a: dnaOf(180, 5, "ARNDCQEGHILKMFPSTWYV"), b: dnaOf(170, 6, "ARNDCQEGHILKMFPSTWYV"), mode: "local" }, "js"],
+    ["edit distance, Chinese with astral letters", "native.edit_distance", { a: "葛根芩连汤𠀀".repeat(40), b: "葛根黄芩黄连汤𠀁".repeat(36) }, "js"],
+    ["distance matrix 12 × 400 (CPU counts)", "native.distance_matrix", { sequences: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`s${i}`, dnaOf(400, 10 + i, "ACGTN-")])), model: "k2p" }, "wasm-simd"],
+    ["GC windows of 400", "native.gc_content", { sequence: dnaOf(6000, 7, "ACGTSWN"), window: 400 }, "wasm-simd"],
+    ["Hamming distance 200 000", "native.hamming_distance", { a: dnaOf(200000, 8, "ACGTN"), b: dnaOf(200000, 9, "ACGTN") }, "wasm-simd"],
+  ];
+  for (const [label, tool, args, backend] of cases) {
+    const fast = await run(`kernel: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+      [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+      [e.receipt?.compute?.backend === backend, `computed by ${backend} (got ${e.receipt?.compute?.backend}: ${JSON.stringify(e.receipt?.compute?.kernels || [])})`],
+      [(e.receipt?.compute?.kernels || []).every((k) => k.outcome === "used"), "every kernel answer checked out"],
+    ], { compare: true, acceleration: "auto" });
+    const slow = await run(`reference: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+      [e.status === "succeeded", `succeeded (got ${e.status})`],
+      [e.receipt?.compute?.backend === "pyodide", `the original Python (got ${e.receipt?.compute?.backend})`],
+      [e.receipt?.compute?.requested === "reference", "the receipt says the reference was asked for"],
+    ], { acceleration: "reference" });
+    check(`same result: ${label}`, Boolean(fast && slow) && JSON.stringify(fast.result) === JSON.stringify(slow.result) && fast.receipt?.output_sha256 === slow.receipt?.output_sha256,
+      `output ${fast?.receipt?.output_sha256?.slice(0, 12)}… vs ${slow?.receipt?.output_sha256?.slice(0, 12)}…; ${fast?.duration_ms} ms with the kernel, ${slow?.duration_ms} ms without`);
+    if (backend === "wasm-simd") {
+      // "CPU only" keeps the SIMD kernel (it is the CPU) and never the GPU
+      await run(`CPU only: ${label}`, "call_tool", { tool, arguments: args }, (e) => [
+        [e.status === "succeeded", `succeeded (got ${e.status})`],
+        [e.receipt?.compute?.backend === "wasm-simd", `computed by wasm-simd (got ${e.receipt?.compute?.backend})`],
+        [!(e.receipt?.compute?.plan?.considered || []).includes("webgpu"), "the GPU was not considered"],
+        [e.receipt?.output_sha256 === slow?.receipt?.output_sha256, "the same output as the reference"],
+      ], { acceleration: "cpu" });
+    }
+    out.kernels ||= [];
+    out.kernels.push({ label, tool, kernel_ms: fast?.duration_ms ?? null, reference_ms: slow?.duration_ms ?? null });
+  }
 }
 
 async function full() {
@@ -148,6 +215,11 @@ async function full() {
     performance.now() - d0);
 
   if (!(await startChecked())) return;
+  // the content hashes the skills are pinned to (registry/skills.lock.yaml, carried by the catalog): a re-pin moves
+  // the expectation with it, and a run whose skill content differs from its pin still fails
+  const pinned = (id) => doc.entries.find((x) => x.id === id)?.skill?.content_hash || "(not in the catalog)";
+  const safetyHash = pinned("skill.assess-tcm-safety");
+  const normalizeHash = pinned("skill.normalize-tcm-entities");
 
   await run("tcm_compatibility 甘草 + 甘遂", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
@@ -159,7 +231,7 @@ async function full() {
     [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
     [e.governance?.released === true, "released"],
     [allStates(e), "all six verdict states true"],
-    [e.receipt?.content_hash?.startsWith("e525e3abd501"), `content hash e525e3abd501… (got ${e.receipt?.content_hash})`],
+    [e.receipt?.content_hash === safetyHash, `content hash ${safetyHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
     [has(e.governance?.evidence, "十八反"), "the 十八反 finding in the evidence"],
     [e.citations?.length > 0, "citations"],
     [/ABSENCE OF A RECORD IS NOT EVIDENCE OF SAFETY/i.test(e.text || ""), "text restates that no record is not safety"],
@@ -171,7 +243,7 @@ async function full() {
     return [
       [e.status === "succeeded", `succeeded (got ${e.status})`],
       [e.governance?.released === true, "released"],
-      [e.receipt?.content_hash?.startsWith("a5de563ed8d6"), `content hash a5de563ed8d6… (got ${e.receipt?.content_hash})`],
+      [e.receipt?.content_hash === normalizeHash, `content hash ${normalizeHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
       [jiang?.status === "ambiguous" && jiang.candidates?.includes("herb.shengjiang") && jiang.candidates?.includes("herb.ganjiang"), "姜 kept ambiguous (生姜 / 干姜)"],
     ];
   }, { compare: true });
@@ -186,15 +258,26 @@ async function full() {
     [typeof e.result?.p_value === "number", "a p value"],
   ], { compare: true });
 
+  // the full formula workbook (loaded on demand, verified by SHA-256), searched by relevance with a herb's other
+  // names: the same rows in the same order as the runner's CPython
+  await run("tcmdb.formulas ranked: 黄芪 当归", "call_tool", { tool: "tcmdb.formulas", arguments: { query: "黄芪 当归", rank: true, limit: 5 } }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+    [e.result?.corpus_rows === 84294 && e.result?.total > 20000, `the whole workbook searched (total ${e.result?.total})`],
+    [JSON.stringify(e.result?.rank?.terms?.[0]?.search) === JSON.stringify(["黄芪", "黄耆"]), "黄芪 also searched as 黄耆"],
+    [Object.keys(e.result?.records?.[0]?.match?.fields || {}).length === 2, "the first record matches both terms"],
+  ], { compare: true });
+
   await run("catalog_search 十八反", "catalog_search", { query: "十八反" }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [(e.result?.matched || []).some((m) => m.id === "native.tcm_compatibility"), "finds native.tcm_compatibility"],
   ], { compare: true });
 
-  await run("connector_call in the browser → unavailable", "connector_call", { connector: "uniprot", operation: "entry", arguments: { accession: "P04637" } }, (e) => [
+  // connectors run in the browser through the site's source gateway, once the project's web access is on; this
+  // check runs with web access off, so the call is decided before any request leaves the page
+  await run("connector_call in the browser with web access off → network_off", "connector_call", { connector: "uniprot", operation: "entry", arguments: { accession: "P04637" } }, (e) => [
     [e.status === "failed", `failed (got ${e.status})`],
-    [e.error?.type === "unavailable", `error unavailable (got ${e.error?.type})`],
-    [/runner/i.test(e.error?.hint || ""), "the remedy names the local runner"],
+    [e.error?.type === "network_off", `error network_off (got ${e.error?.type})`],
+    [/web access|network/i.test(`${e.error?.hint || ""} ${e.error?.message || ""}`), "the remedy names web access"],
   ], { compare: true });
 
   await run("call_tool clinic.sign → refused (a person's act)", "call_tool", { tool: "clinic.sign" }, (e) => [
@@ -209,7 +292,7 @@ async function full() {
 
   await run("tcm_safety_report again (warm)", "tcm_safety_report", { subject: "附子" }, (e) => [
     [e.status === "succeeded" && e.governance?.released === true, `succeeded and released (got ${e.status})`],
-    [e.receipt?.content_hash?.startsWith("e525e3abd501"), "same content hash"],
+    [e.receipt?.content_hash === safetyHash, "same content hash, as pinned"],
   ]);
 
   await run("audit chain of the project", "call_tool", { tool: "system.audit_verify" }, (e) => [
@@ -222,6 +305,8 @@ async function full() {
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.host?.browser?.device?.webgpu !== undefined, "host facts include the device report"],
   ]);
+
+  await kernelChecks();
 
   await cancelCheck({ expectInterrupt: Boolean(globalThis.crossOriginIsolated) });
 
@@ -253,6 +338,7 @@ async function full() {
 
 async function reload() {
   await boot();
+  const evidenceHash = (await rt.catalog())?.entries?.find((x) => x.id === "skill.retrieve-tcm-evidence")?.skill?.content_hash || "(not in the catalog)";
   const info = await startChecked();
   if (!info) return;
   check("bundle from Cache Storage", info.bundle?.from_cache === true, `from_cache ${info.bundle?.from_cache}`);
@@ -264,7 +350,7 @@ async function reload() {
   ]);
   await run("tcm_evidence 黄芪 (governed)", "tcm_evidence", { subject: "黄芪" }, (e) => [
     [e.status === "succeeded" && e.governance?.released === true, `succeeded and released (got ${e.status})`],
-    [e.receipt?.content_hash?.startsWith("f844cf695a60"), `content hash f844cf695a60… (got ${e.receipt?.content_hash})`],
+    [e.receipt?.content_hash === evidenceHash, `content hash ${evidenceHash.slice(0, 12)}… as pinned (got ${e.receipt?.content_hash})`],
   ], { compare: true });
   const runs = (e) => e?.result?.events?.bioscience_skill_run_started ?? 0;
   await run("the chain grew by one run", "call_tool", { tool: "system.audit_verify" }, (e) => [

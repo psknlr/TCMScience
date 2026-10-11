@@ -47,6 +47,11 @@ export function storeApprovals(store) {
     },
     async grant(projectId, keys) {
       if (!projectId || !keys.length) return;
+      if (typeof store.projects.patchApprovals === "function") {
+        // inside the write's transaction: an approval revoked while this call waited for its answer stays revoked
+        try { await store.projects.patchApprovals(projectId, { grant: keys }); } catch { /* the project is gone */ }
+        return;
+      }
       const p = await store.projects.get(projectId);
       if (!p) return;
       const approvals = { ...(p.approvals || {}) };

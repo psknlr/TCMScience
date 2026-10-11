@@ -86,7 +86,7 @@ function headersFor(rules, pathname) {
   return h;
 }
 
-function serve({ site, isolated, pyodideDir }) {
+export function serve({ site, isolated, pyodideDir }) {
   const rules = isolated && existsSync(path.join(site, "_headers")) ? parseHeaders(readFileSync(path.join(site, "_headers"), "utf8")) : [];
   const server = createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
@@ -115,7 +115,7 @@ function serve({ site, isolated, pyodideDir }) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, origin: `http://127.0.0.1:${server.address().port}` })));
 }
 
-async function loadPlaywright() {
+export async function loadPlaywright() {
   const tries = [
     () => import("playwright"),
     () => (process.env.PLAYWRIGHT_MODULE ? createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE) : null),
@@ -131,7 +131,7 @@ async function loadPlaywright() {
   throw new Error("Playwright is not installed (npm i -D playwright, or set PLAYWRIGHT_MODULE)");
 }
 
-function buildSite() {
+export function buildSite() {
   const dir = mkdtempSync(path.join(tmpdir(), "tcmstudio-site-"));
   const out = path.join(dir, "site");
   const r = spawnSync(PYTHON, [path.join(STUDIO, "scripts", "build_web.py"), "--out", out, "--dev"], { stdio: ["ignore", "inherit", "inherit"] });
@@ -139,7 +139,7 @@ function buildSite() {
   return { out, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-async function runPage(context, url, timeoutMs) {
+export async function runPage(context, url, timeoutMs) {
   const page = await context.newPage();
   const console_ = [];
   page.on("console", (m) => console_.push(`${m.type()}: ${m.text()}`.slice(0, 400)));
@@ -163,8 +163,11 @@ async function runPage(context, url, timeoutMs) {
 // --------------------------------------------------------------------------------------- native comparison
 
 function nativeCall(tool, args, stateRoot, project) {
-  const r = spawnSync(PYTHON, ["-m", "tcmstudio", "call", tool, "--args", JSON.stringify(args), "--where", "browser",
-    "--state-root", stateRoot, "--project", project, "--compact"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  // the arguments go on stdin: a long sequence is more than one command-line argument may hold (128 KiB on Linux)
+  const r = spawnSync(PYTHON, ["-m", "tcmstudio", "call", tool, "--args", "-", "--where", "browser",
+    "--state-root", stateRoot, "--project", project, "--compact"],
+  { input: JSON.stringify(args), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (r.error) throw new Error(`native call ${tool} did not start: ${r.error.message}`);
   if (!r.stdout.trim()) throw new Error(`native call ${tool} printed nothing: ${r.stderr.slice(-500)}`);
   return JSON.parse(r.stdout);
 }

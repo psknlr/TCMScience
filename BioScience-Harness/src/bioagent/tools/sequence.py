@@ -12,7 +12,7 @@ import math
 import re
 from typing import Any, Mapping, Sequence
 
-from ._compute import counts_for
+from ._compute import counts_for, kernel, note
 
 __all__ = ["reverse_complement", "transcribe", "translate", "gc_content", "find_orfs",
            "kmer_counts", "hamming_distance", "edit_distance", "codon_usage",
@@ -173,6 +173,15 @@ def edit_distance(a: str, b: str) -> dict[str, Any]:
     if not isinstance(a, str) or not isinstance(b, str):
         raise ValueError("a and b must be strings")
     x, y = a.strip().upper(), b.strip().upper()
+    fast = kernel("sequence.levenshtein")
+    if fast is not None:
+        d = fast(x, y)
+        # what a kernel's answer can be checked against without redoing it; parity tests do the rest
+        if type(d) is int and abs(len(x) - len(y)) <= d <= max(len(x), len(y)):
+            note("sequence.levenshtein", "used")
+            return {"distance": d, "length_a": len(x), "length_b": len(y)}
+        note("sequence.levenshtein", "declined" if d is None else "rejected",
+             "" if d is None else "the distance is outside what two strings of these lengths allow")
     prev = list(range(len(y) + 1))
     for i, ca in enumerate(x, 1):
         cur = [i]

@@ -12,6 +12,18 @@ import { Emitter } from "../core/events.js";
 import { registerStrings, t } from "../core/i18n.js";
 import { canonicalJson, nowIso, sha256Hex } from "../core/util.js";
 import { WEBGPU_TOOLS } from "./webgpu.js";
+import { simdStatus } from "../compute/simd.js";
+
+// the tools whose hot loop has a CPU kernel in the Worker (compute/bridge.js): the counts with WebAssembly SIMD where
+// the engine has it (JavaScript otherwise), the dynamic programmes in JavaScript
+const JS_KERNEL_TOOLS = Object.freeze(["native.global_alignment", "native.local_alignment", "native.protein_alignment", "native.edit_distance"]);
+const COMPUTE_PRECISION = "Exact: integer counts on the GPU or the CPU, alignments and distances to the bit; Python float64 transforms";
+const COMPUTE_FALLBACK = "the CPU kernels, then the original Python";
+
+function cpuKernels() {
+  const simd = simdStatus().available;
+  return { "wasm-simd": simd ? [...WEBGPU_TOOLS] : [], js: simd ? [...JS_KERNEL_TOOLS] : [...WEBGPU_TOOLS, ...JS_KERNEL_TOOLS] };
+}
 
 const CATALOG_SCHEMA = "tcmstudio.catalog/1";
 const BOOT_SCHEMA = "tcmstudio.boot/1";
@@ -69,6 +81,11 @@ registerStrings("en", {
 });
 
 /** The device report of CONTRACTS §5, from the page itself: needs no Python, so it never starts the worker. */
+/** "auto" | "cpu" (no GPU) | "reference" (the original Python for every tool); anything else is "auto". */
+export function accelerationOf(value) {
+  return value === "cpu" || value === "reference" ? value : "auto";
+}
+
 export async function detectDevice({ navigator: nav = globalThis.navigator, isolated = globalThis.crossOriginIsolated, timeoutMs = 3000 } = {}) {
   const out = {
     cores: nav?.hardwareConcurrency ?? null,
@@ -76,7 +93,7 @@ export async function detectDevice({ navigator: nav = globalThis.navigator, isol
     cross_origin_isolated: Boolean(isolated),
     webgpu: { api: Boolean(nav && "gpu" in nav), adapter: null },
     python: { device: "cpu", threads: 1, note: "Python tools run on the CPU (single thread, WebAssembly)" },
-    compute: { webgpu_tools: [...WEBGPU_TOOLS], webgpu_adapter: false, precision: "Exact uint32 reductions; Python float64 transforms", fallback: "pyodide CPU" },
+    compute: { webgpu_tools: [...WEBGPU_TOOLS], webgpu_adapter: false, cpu_kernels: cpuKernels(), precision: COMPUTE_PRECISION, fallback: COMPUTE_FALLBACK },
   };
   if (nav?.gpu?.requestAdapter) {
     try {
@@ -213,7 +230,7 @@ export class BrowserRuntime {
       persist: this.#info?.persist ? { ...this.#info.persist, durable: this.#durable ?? this.#info.persist.durable } : null,
       device: "cpu",
       threads: 1,
-      compute: { webgpu_tools: [...WEBGPU_TOOLS], preference: this.#opts.settings?.browserAcceleration || "auto", fallback: "pyodide CPU" },
+      compute: { webgpu_tools: [...WEBGPU_TOOLS], cpu_kernels: cpuKernels(), preference: this.#opts.settings?.browserAcceleration || "auto", fallback: COMPUTE_FALLBACK },
       cross_origin_isolated: Boolean(globalThis.crossOriginIsolated),
       interruptible: this.interruptible,
       boot_ms: this.#info?.boot_ms ?? null,
@@ -261,7 +278,8 @@ export class BrowserRuntime {
       tool: name,
       arguments: input,
       context,
-      acceleration: ctx.acceleration === "cpu" || this.#opts.settings?.browserAcceleration === "cpu" ? "cpu" : "auto",
+      // the router passes the live setting with every call; the settings this runtime was made with may be old
+      acceleration: accelerationOf(ctx.acceleration ?? this.#opts.settings?.browserAcceleration),
       packages: Array.isArray(entry?.pyodide_packages) ? entry.pyodide_packages : [],
       stateful: Boolean(entry && (STATEFUL_KINDS.has(entry.kind) || STATEFUL_IDS.has(entry.id))),
     };
@@ -341,7 +359,10 @@ export class BrowserRuntime {
   async #capabilities() {
     let device = null;
     try { device = await this.device(); } catch { device = null; }
-    return { browser: { device, interruptible: this.interruptible, durable: this.#durable ?? this.#info?.persist?.durable ?? null, packages: [...this.#packages] } };
+    // what this browser can compute with, probed (compute/capabilities.js): requested, reported and verified kept apart
+    let compute = null;
+    try { compute = await (await import("../compute/capabilities.js")).probeCapabilities({ timeoutMs: 2000 }); } catch { compute = null; }
+    return { browser: { device, compute, interruptible: this.interruptible, durable: this.#durable ?? this.#info?.persist?.durable ?? null, packages: [...this.#packages] } };
   }
 
   async #spawn(restart) {

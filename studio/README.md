@@ -99,10 +99,17 @@ tcmstudio serve
   TCMScience Python 代码。150 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，结果哈希与电脑上相同。
   第一次运行要下载约 11 MB（之后从缓存读取）。在模拟中端手机（CPU 降速 4 倍）的测试里，冷启动后第一次受治理调用约 10 秒完成
   （`e2e/mobile.spec.mjs`）。
-- **GPU 自动加速。** GC 含量、汉明距离和序列距离矩阵可通过 WebGPU 计算整数计数，原有 Python 继续处理公式和输出；
-  不支持、设备丢失或规模超限时回退 WASM CPU。「设置 → 计算」可选择仅 CPU。普通访问不会启动计算。
+- **本机加速，结果不变。** 序列比对（全局、局部、蛋白）和编辑距离由 JavaScript 内核计算；序列距离矩阵、汉明距离和
+  GC 含量的整数计数由 WebAssembly SIMD 内核计算，调度器预计 GPU 更快时改用 WebGPU。原有 Python 继续处理公式、取整和
+  输出，并在使用前核对每个内核结果，输出与原始 Python 逐字节相同。实测序列比对和编辑距离比浏览器里的原始 Python 快
+  7–43 倍，也快于本机 CPython（[测量](docs/BROWSER_COMPUTE.md#9-performance)）。不支持、设备丢失或规模超限时回退到
+  CPU 内核，再回退到 Python。「设置 → 计算」可选自动、仅 CPU 或仅原始 Python。普通访问不会启动计算。
+- **离线可用。** 第一次访问后，网页、Python 运行环境和字体由 Service Worker 按带 SHA-256 的清单缓存，断网时仍能打开页面、
+  运行浏览器工具；用过的数据文件（如方剂表）也保存在本地并经校验。新版本下载好后提示重新载入，不会强制切换；网址加
+  `?nosw` 可移除 Service Worker 及其缓存。模型调用和数据库查询仍需联网。
 - **手机免安装数据库访问。** 注册的数据库查询经同源网关转发，仍需项目联网开关和批准。完整方剂表按需下载并校验，保留全部
-  84,294 条来源记录。大文件、后台任务和依赖本地进程的第三方工具仍需 Runner。
+  84,294 条来源记录；`tcmdb.formulas` 加 `rank: true` 可多词检索并按相关度排序，药名同时按药材表中的其他写法查找（如
+  黄芪 / 黄耆），每条记录注明如何匹配。大文件、后台任务和依赖本地进程的第三方工具仍需 Runner。
 - **测试范围。** 自动测试用的是 Chromium 的手机模拟（Android 视口、触控、降速 CPU），还没有在真机上测过 iOS Safari；
   iPhone 上的 Safari 也支持 WebAssembly，内存较小的机型首次加载可能较慢。
 
@@ -128,7 +135,9 @@ tcmstudio serve
 - 种子语料是示范性的：没有记载不等于安全，未显著不等于无关；古籍记载是出处，不是临床证据；预测不等于实测，网络药理最多支持
   机制**假说**。
 - 「已准予发布」只表示内核的六项发布检查通过，不表示结论正确；证据种类是类型，不是等级。
-- 浏览器里的 Python 在 CPU 上单线程运行；WebGPU 只加速已适配的整数统计内核，不代表所有 Python 引擎都能使用 GPU。
+- 浏览器里的 Python 在 CPU 上单线程运行；本机内核只覆盖 7 个序列工具（比对、编辑距离和三项整数计数），WebGPU 只用于
+  其中的整数计数，不代表所有 Python 引擎都能使用 GPU。浏览器能创建 WebNN 的「npu」上下文不等于有 NPU：Studio 不使用也
+  不声称 NPU 加速。
 - 完整方剂表是原始来源记录，授权状态未声明；不把这些记录自动升级为临床知识、安全判断或完整靶点网络。
 - 可复现的是输入哈希、Skill 内容哈希和每个输出文件的 SHA-256；整份结果的哈希含运行编号、时间和审计链位置，每次都不同。
 - 中继的来源检查只防止网页被别处盗用，不是身份认证；限额按 IP 计，同一出口的访客（如一个实验室）共用。
@@ -214,4 +223,6 @@ Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/ru
 `cd studio && npm run test:e2e` (Playwright: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker).
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 
-Browser database access and acceleration: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md).
+Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md). Local computation in the browser (exact
+JavaScript and WebAssembly SIMD kernels for seven sequence tools, WebGPU counts where a GPU is present, offline use, what
+was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).

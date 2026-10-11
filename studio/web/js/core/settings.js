@@ -36,7 +36,7 @@ const ENUMS = {
   theme: ["system", "light", "dark"],
   route: ["auto", "direct", "runner"],
   compute: ["auto", "browser", "runner"],
-  browserAcceleration: ["auto", "cpu"],
+  browserAcceleration: ["auto", "cpu", "reference"],
 };
 
 const bus = new Emitter();

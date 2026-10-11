@@ -8,8 +8,8 @@ import { debounce, download, fill, formatBytes, formatDateTime, formatRelative, 
 import { verdictPill, hashBadge } from "../governance.js";
 import { icon } from "../icons.js";
 import { confirmDialog, openDialog, openMenu, promptDialog, toast } from "../overlay.js";
-import { availableProviders } from "../panels.js";
-import { button, chip, emptyState, iconButton, notice, progressBar, section, selectField, switchControl, textArea } from "../primitives.js";
+import { availableProviders, webSwitch } from "../panels.js";
+import { button, chip, emptyState, iconButton, notice, progressBar, section, selectField, textArea } from "../primitives.js";
 import { mountComposer } from "../composer.js";
 import { filePreview, inlinedInPrompt } from "../files.js";
 
@@ -232,18 +232,19 @@ function defaultsSection(app, p) {
   return section({
     title: t("ui.project.defaults"),
     children: h("div.defaults",
+      // each control changes only its own default: this section is not redrawn on every change, so a copy of the
+      // whole defaults taken when it was drawn would put back a default changed since (web access, most often)
       selectField({ label: t("ui.project.default_model"), value: d.provider || "", options: modelOptions, help: t("ui.project.default_model_help"),
-        onChange: (v) => app.updateProject(p.id, { defaults: { ...(p.defaults || {}), provider: v || undefined, model: v ? app.state.settings.models?.[v] || "" : undefined } }) }),
+        onChange: (v) => app.saveProjectDefaults(p.id, { provider: v || undefined, model: v ? app.state.settings.models?.[v] || "" : undefined }) }),
       selectField({ label: t("ui.project.default_compute"), value: d.compute || "", help: t("ui.project.default_compute_help"),
         options: [{ value: "", label: t("ui.project.follow_global") }, { value: "auto", label: t("ui.compute.auto") }, { value: "browser", label: t("ui.compute.browser") }, { value: "runner", label: t("ui.compute.runner") }],
-        onChange: (v) => app.updateProject(p.id, { defaults: { ...(p.defaults || {}), compute: v || undefined } }) }),
-      switchControl({ label: t("ui.web.label"), description: t("ui.web.desc_long"), checked: Boolean(d.web), onChange: (v) => app.setWeb(v) }),
+        onChange: (v) => app.saveProjectDefaults(p.id, { compute: v || undefined }) }),
+      webSwitch(app, { description: t("ui.web.desc_long") }),
       Object.keys(p.approvals || {}).length ? h("div.approvals",
         h("p.field__label", t("ui.project.approvals")),
         h("ul.approvals__list", { role: "list" }, Object.keys(p.approvals).map((k) => h("li", approvalLabel(k), button({ label: t("ui.project.revoke"), size: "sm", variant: "ghost", onClick: async () => {
-          const next = { ...p.approvals };
-          delete next[k];
-          await app.updateProject(p.id, { approvals: next });
+          // only this key, inside the write: an approval granted since this list was drawn is kept
+          try { await app.revokeApprovals(p.id, [k]); } catch (err) { toast(t("ui.project.save_failed", { message: err?.message || String(err) }), { tone: "warn" }); }
           app.emit("conversations");
         } })))),
         h("p.field__help", t("ui.project.approvals_help"))) : null),
