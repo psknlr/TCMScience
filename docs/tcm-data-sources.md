@@ -726,3 +726,23 @@ Each of these commands records what it found:
   `bioagent validate reachability`).
 
 Sites change. The catalogue's `checked` date says when each source was last looked at.
+
+On 2026-10-11 (`sources-live` run 38164474741, from a GitHub-hosted runner):
+
+- every downloadable hub dataset was fetched, built, rebuilt identically and queried, except
+  miRTarBase, whose server ends the TLS handshake (BLOCKED; a person who can reach it adds
+  its files with `import-raw`);
+- 438 of the 444 connector operations answered; KNApSAcK's four and ReMap's two timed out
+  and are BLOCKED in that run's report;
+- of the 17 sources catalogued unreachable that were asked again, six answered at their
+  front end (ccTCM, HIT 2.0, ETCM v2.0, TCMSTD, IGTCM on port 96, PreDC). Their cards say
+  so and stay unreachable until a person has looked at whether their data can be
+  obtained (a backend on another port, a login, a maintenance page). Ten did not answer:
+  timeouts, a certificate for another name, an expired certificate, HTTP 403, and four
+  names that no longer resolve. HIT 1.0 answered too, but its site was defaced. Its card
+  now says the host is not to be contacted (`do_not_contact`), and no check sends it
+  anything.
+
+Files whose address names a fixed release are held to checksums that several live runs
+read alike (`bioagent/data/hub_reviewed_checksums.json`, 88 files in 25 datasets). A file
+at a rolling address is verified by its size or its structure and stays UNVERIFIED.

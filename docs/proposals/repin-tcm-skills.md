@@ -96,4 +96,18 @@ the behaviour outside the closure until a re-pin moves it where it belongs:
   (`api.opengwas.io`) is defined and pending (`providers/supplement/genetics.py`), and the
   runtime's policy kernel refuses a host the research profile does not list.
 
+- `acquisition/sources.py`: three research files have no reviewed checksum, and every
+  research stage that reads them stays UNVERIFIED (the benchmark's pathway, enrichment,
+  evidence and hypothesis stages; scenario 4's research run):
+  - `9606.protein.aliases.v12.0.txt.gz` (STRING): a fixed release that live-data runs
+    #3 to #5 read alike (19,777,800 bytes,
+    `sha256:b65f730b993ed0c1bd72edf4565d3d425db42861101b29699704810e8f125680`) and can be
+    pinned as it is;
+  - `UniProt2Reactome.txt`: read from Reactome's `download/current/`, which changes with
+    each release; pin a versioned copy instead;
+  - `uniprot_human_reviewed_accessions.txt`: a live UniProt query; pin a release's file.
+  The hub's own files are pinned outside the closure
+  (`bioagent/data/hub_reviewed_checksums.json`); these three are read by the research
+  snapshots through the closure's acquisition table.
+
 None of these changes what the skills compute; each changes their content hash.

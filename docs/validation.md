@@ -34,6 +34,8 @@ on `FAIL`; the live-data workflow uses it.
 | 5 Performance and reliability | each record's runtime; resumed downloads (a byte-range request on a partial file); rebuild and repeat digests; the agent's failure budget | inside tiers 2–4, and the agent tests | — |
 | 3 Every hub dataset | each downloadable and per-entity hub dataset (79 defined) fetched from its own server the way Studio's `tcmdb.fetch` job fetches it, built, checked and queried, one runner each; the manual ones listed with what a person has to do | `sources-live.yml`: by hand, weekly, and on a push that changes the hub | `bioagent validate datasets --out DIR --live --confirm-large` |
 | 2–4 The engines as jobs | docking, ADMET and the RNA-seq and single-cell pipelines submitted as runner jobs through tcmstudio's own runner over HTTP, approved by the operator, followed with `job_status`, checked against independent references | `agent-engines.yml`: by hand, weekly, and on a push that changes the engines or the job path | `tcmstudio validate --out DIR --tier live --approve-jobs --scenarios 7 8 9 --require-pass` |
+| 2–4 Every scenario through the runner | all twelve scenarios, every call sent to tcmstudio's runner over HTTP on the hub tier 3 built, the engines installed: docking, ADMET, the omics pipelines and the research loop (`research.snapshot`, then `network_pharmacology_run`) run as jobs | `live-data.yml`, after tiers 3 and 4 | `tcmstudio validate --out DIR --tier live --kinds core --tcmdb-root W/tcmdb --approve-jobs` |
+| 3 Every connector, every unreachable source | each operation of each shipped connector (444 across 117 services) sent once; each source catalogued unreachable asked once more, except a host recorded as compromised | `sources-live.yml` | `scripts/verify_connectors.py --report DIR --fail-on fail`; `bioagent validate reachability --out DIR` |
 
 The specialised CI jobs stay as they were and remain part of the picture: the analysis
 pipelines with the standard tools, docking and ADMET with their engines, the structure
@@ -86,7 +88,7 @@ record each (`bioagent.validation.hub_datasets`):
 | Check | What it takes to pass |
 |---|---|
 | acquisition | every file kept only once verified: its reviewed checksum, else the declared or the server's size, else, for a file a server streams without a size, its format's own completeness checks (a zip's per-member CRC-32s, a gzip, bzip2 or xz stream's check, a JSON or XML document that parses to its end). An HTML page in place of a file, a redirect to an undeclared host and a truncated transfer are refused |
-| integrity | every file held to a reviewed checksum (PASS); a file kept on its size or its structure alone is UNVERIFIED with the SHA-256 that was read, for a maintainer to review and pin |
+| integrity | every file held to a reviewed checksum (PASS): the spec's own, or one from `bioagent/data/hub_reviewed_checksums.json`, which pins a file only when its address names a fixed release (or it belongs to an archive whose files do not change: a Zenodo record, a figshare or Clowder file id, GEO supplementary files, a 4DN accession) and two or more live runs read it alike, and records the runs. A file kept on its size or its structure alone (a `current` directory, an API export, a repository's main branch) is UNVERIFIED with the SHA-256 that was read |
 | entity_tables | for a dataset whose relations come from tables fetched per entity on request (ChIP-Atlas's Target Genes, per transcription factor), one fetched (STAT3) |
 | build | the SQLite store, and rows of the declared relation kinds |
 | check | the hub's acceptance checks; a rebuild gives the same relations |
@@ -118,6 +120,23 @@ BLOCKED with its reason and the import command a person who can reach it would u
 nothing is tried around it. Manual datasets are listed the same way. Each live result is
 folded into the committed record (`bioagent validate record --report ...`), which the
 database readiness report reads as `real_download` and `recorded_build`.
+
+### Connectors and the sources catalogued unreachable
+
+The same workflow sends every operation of every shipped connector once, from its own
+example, through the real HTTP backend (`scripts/verify_connectors.py --report DIR
+--fail-on fail`). A wrong answer fails the job. A service that timed out, refused or was
+not there is reported BLOCKED (never a pass), as a dataset's blocked server is. The
+committed record `data/connector_live_verification.csv`, which a connector ships on, takes
+the operations that answered; one that timed out keeps its last answer, and the run's
+report says it timed out. A connector for a service that answers only registered users
+(IEU OpenGWAS) stays pending until a run with a person's token, from the repository's
+secrets, has verified it (`bioagent.credentials`).
+
+`bioagent validate reachability` asks each source the catalogue records as unreachable
+once more, one request each. An answer says the card should be re-assessed by a person,
+not that its data can be obtained. A host recorded as compromised (`do_not_contact`: HIT
+1.0's defaced site) is sent nothing, not even that request.
 
 ## The Guizhi Decoction and palpitations benchmark
 
@@ -175,7 +194,7 @@ it (`tool_unavailable`, `data_unavailable`, …).
 | 1 | formula composition and provenance | runs | the workbook |
 | 2 | natural-product compound identification | BLOCKED | NPASS, CMAUP or LOTUS built (`--tcmdb-root`); PubChem live |
 | 3 | compound–target retrieval | BLOCKED | NPASS or CMAUP built |
-| 4 | mechanism hypothesis generation | UNVERIFIED | the seed skill correctly claims nothing; measured hypotheses are the benchmark's |
+| 4 | mechanism hypothesis generation | UNVERIFIED | the seed skill correctly claims nothing; with `--approve-jobs` in the live tier, the research loop runs as jobs on the real files |
 | 5 | pathway enrichment | runs (against SciPy) | — |
 | 6 | protein sequence analysis | runs (against the standard residue table) | — |
 | 7 | molecular docking | BLOCKED; UNVERIFIED where the engines are installed; with `--approve-jobs`, a job that must pass | Vina, meeko, RDKit, gemmi (`env.provision` group docking) |
@@ -185,14 +204,18 @@ it (`tool_unavailable`, `data_unavailable`, …).
 | 11 | evidence synthesis | runs | — |
 | 12 | cross-database integration | BLOCKED | two of NPASS, CMAUP, LOTUS built |
 
-### Scenarios 7–9 as approved jobs (`--approve-jobs`)
+### Every scenario through the runner (`--approve-jobs`)
 
 With the operator's approval the validator starts tcmstudio's own runner in a temporary
-home (`tcmstudio/validate_jobs.py`) and calls it over HTTP the way the Studio page does:
-`POST /api/call` with the pairing token and the approvals the page's router would ask for
+home (`tcmstudio/validate_jobs.py`), with a data lake and workspace of its own, and sends
+every call of every scenario to it over HTTP the way the Studio page does: `POST
+/api/call` with the pairing token and the approvals the page's router would ask for
 (`job`, `network`, `remote_upload`, `first_runner_call`), files through `POST
-/api/uploads`, the pipeline submitted with `run_pipeline` and followed with `job_status`
-until it has finished. The runner's job service does what it does for a user: the gate,
+/api/uploads`, a job submitted (`run_pipeline`, `network_pharmacology_run`, `call_tool`)
+and followed with `job_status` until it has finished. The runner lets no job send data
+to a third party (`allow_remote` off); no scenario needs to. `live-data.yml` runs all
+twelve this way on the hub that tier 3 built from real downloads; `agent-engines.yml`
+runs 7–9 alone and requires them to pass. The runner's job service does what it does for a user: the gate,
 the fixed command line, the artefact checks and the run's own verification. Each job's
 step records its id, kind, final state, approvals and artefacts; a job that failed, was
 refused (an engine not installed: `tool_unavailable` with the remedy) or did not finish
@@ -205,13 +228,22 @@ outside the code:
 | 8 | `pipeline.admet`: aspirin, caffeine, n-tetracontane; live, two models built from TDC's archive | weights from IUPAC atomic weights (±0.06); polar surface areas summed by hand from Ertl's fragment contributions (63.60, 61.82, 0 Å²); Lipinski violations 0, 0, 2; live: TDC's scaffold split sizes (Caco-2 728/182, HIA 461/117) and metrics, held-out Caco-2 MAE ≤ 0.40 and HIA AUROC ≥ 0.85 |
 | 9 | `pipeline.rnaseq`: a simulated experiment (`bioagent.omics.reference_world`, 3 + 3 paired libraries) uploaded as FASTQ files, a sheet, a transcriptome and a GTF | the 7 planted genes called (padj < 0.05) in their direction, each log2 fold change within 1 of the planted 2, at most 2 unplanted genes called (Benjamini-Hochberg bounds the expected share of false calls, not one run's); Welch's t against SciPy |
 | 9 | live: `pipeline.scrna` on 10x Genomics' PBMC 1k (Zenodo record 14868136, its MD5 read from the record) | 700–1,600 cells kept; T, NK, B and monocyte clusters all found; at most 5 % of cells called a type that does not circulate; each lineage's share within a widened healthy-adult range (T 25–85 %, NK 2–35 %, B 2–30 %, monocytes 4–45 %) |
+| 4 | live: `research.snapshot` (the research files downloaded and verified by the job, 桂枝汤《伤寒论》 in the herb layer), then `network_pharmacology_run` with the benchmark's protocol | the gold standard reproduced from the real files; targets from measured activities, predictions left out; every surviving claim a mechanism hypothesis worded as one, and none invented when nothing survives; every edge a claim cites found in the runner's own ledger snapshots, its compound-target step measured; the run read the snapshots the build recorded; the artifact passed its release validation. An input without a reviewed checksum or size is named, and leaves the scenario UNVERIFIED |
 
 Run here (Python 3.12 with the engines installed, offline): the docking job redocked
 benzamidine 0.42 Å from its crystal pose with the box 0.22 Å from the crystal centroid
 (benzamidine −6.08, 4-methylbenzamidine −6.17, octane −3.48 kcal/mol; Vina 1.2.7); the
 ADMET job matched every weight, surface area and rule count; the RNA-seq job called all 7
 planted genes in their direction, and 2 unplanted ones. The live tier, with salmon, the
-TDC models and the PBMC sample, is CI's `agent-engines` workflow.
+TDC models and the PBMC sample, is CI's `agent-engines` workflow; its run 38164474760
+passed every check: the same docking result, the Caco-2 model's held-out MAE 0.2821 and
+the HIA model's AUROC 0.9239 on TDC's 728/182 and 461/117 splits, all 7 planted genes
+quantified by salmon, and the PBMC sample's 1,044 cells annotated as blood (T 45 %, NK 5 %,
+B 16 %, monocytes 31 %).
+
+Scenario 4's research job is also run here on a planted world whose answer is known
+(`bioagent.research.planted`, pathway A): the runner's job finds A, and its claim's cited
+edges are found in the runner's ledger snapshots (`test_validate_jobs.py`).
 
 Scenario 11 found that a safety report on 甘草 named only 甘遂: the seed corpus behind the
 pinned skill holds 23 herbs. Studio now adds the clinic pack's 十八反/十九畏 table beside the
@@ -236,7 +268,10 @@ failures and the ways on.
 - **STRING aliases, Reactome's UniProt mapping and the UniProt accession list**: no
   reviewed checksum (Reactome's `current` file and the UniProt query change with every
   release), so the stages that read them stay `UNVERIFIED`, with the SHA-256 of what was
-  read, for a maintainer to review and pin.
+  read. STRING's v12.0 file is a fixed release that live-data runs #3 to #5 read alike, but
+  its spec is in `acquisition/sources.py`, inside the pinned governed skills' import
+  closure: its pin waits on the maintainer re-pin
+  (`docs/proposals/repin-tcm-skills.md`), with versioned copies of the other two.
 - **The four pinned governed skills** still read the illustrative seed corpus; changing
   them changes their content hashes, which only a maintainer's review may re-pin
   (`docs/proposals/repin-tcm-skills.md`). Studio routes around the corpus's limits
@@ -248,4 +283,5 @@ failures and the ways on.
   `--approve-jobs` the validator approves nothing: where the engines are installed, the
   docking and ADMET scenarios ask `capabilities_status`, submit nothing, and stay
   `UNVERIFIED`. With it, the operator's approval is recorded in every report and the jobs
-  run and are judged (above); `agent-engines.yml` requires them to pass.
+  run and are judged (above); `agent-engines.yml` requires them to pass, and
+  `live-data.yml` runs them with the other nine scenarios.
