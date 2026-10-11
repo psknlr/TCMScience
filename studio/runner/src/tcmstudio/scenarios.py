@@ -538,7 +538,7 @@ def _admet(x: _Run) -> None:
         card = models.get(endpoint) or {}
         score = _float(card.get("test_score"))
         x.expect(f"{endpoint}_split", (card.get("train"), card.get("test")) == (train, test)
-                 and card.get("metric") == metric,
+                 and str(card.get("metric") or "").upper() == metric,
                  f"{card.get('train')}/{card.get('test')} molecules, {card.get('metric')}: TDC's "
                  f"scaffold split of {endpoint} is {train}/{test}, scored by {metric}")
         x.expect(f"{endpoint}_held_out", good(score),
@@ -612,7 +612,8 @@ def _rnaseq(x: _Run) -> None:
     extra = sorted(set(called) - set(UP) - set(DOWN))
     x.expect("planted_up", len(up) == len(UP),
              f"{len(up)} of the {len(UP)} genes planted four times higher are called up "
-             f"(padj < 0.05): {up}", engine=summary.get("engine"))
+             f"(padj < 0.05, quantified by {summary.get('engine') or 'the pipeline'}): {up}",
+             engine=summary.get("engine"))
     x.expect("planted_down", len(down) == len(DOWN),
              f"{len(down)} of the {len(DOWN)} genes planted four times lower are called down: "
              f"{down}")

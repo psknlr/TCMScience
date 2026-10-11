@@ -133,8 +133,9 @@ def test_the_admet_job_is_judged_by_atomic_weights_pubchem_and_tdc():
     rec, _ = _run(scenarios._admet, _Finished("pipeline.admet", {"admet.tsv": _admet_rows()}))
     assert rec.check("models").status == UNVERIFIED, "offline, no model is built"
     assert all(c.status == PASS for c in rec.checks if c.name != "models"), rec.as_dict()
-    models = {"caco2_wang": {"metric": "MAE", "test_score": 0.2818, "train": 728, "test": 182},
-              "hia_hou": {"metric": "AUROC", "test_score": 0.9239, "train": 461, "test": 117}}
+    # the cards write the metric as TDC's leaderboard does, in lower case
+    models = {"caco2_wang": {"metric": "mae", "test_score": 0.2821, "train": 728, "test": 182},
+              "hia_hou": {"metric": "auroc", "test_score": 0.9239, "train": 461, "test": 117}}
     runner = _Finished("pipeline.admet", {"admet.tsv": _admet_rows(), "models": models})
     rec, _ = _run(scenarios._admet, runner, tier="live")
     assert rec.status == PASS, rec.as_dict()
