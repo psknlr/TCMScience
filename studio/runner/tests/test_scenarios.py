@@ -84,3 +84,48 @@ def test_the_rule_table_names_what_the_seed_corpus_cannot_see(browser_ctx):
                                                     "in_seed_corpus": False}]
     ok = call("tcm_compatibility", {"herbs": ["桂枝", "白芍"]}, browser_ctx)
     assert "rule_table_conflicts" not in ok["result"]
+
+
+# hub rows as tcmdb returns them (bioagent.tcmdb.rowkit.rel): context is compact JSON
+_BERBERINE = "inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N"
+_OCCURS = {"kind": "organism_compound", "source": "npass", "subject_id": "ncbitaxon:261450",
+           "subject_name": "Coptis chinensis", "object_id": _BERBERINE, "object_name": "berberine",
+           "evidence": "known", "reference": "pmid:123", "context": None}
+_MEASURED = {"kind": "compound_target", "source": "npass", "subject_id": _BERBERINE,
+             "object_id": "uniprot:P35354", "object_name": "Cyclooxygenase-2", "evidence": "known",
+             "reference": "pmid:456", "context": "{\"measure\": \"IC50\", \"unit\": \"nM\", \"value\": \"12.5\"}"}
+
+
+def _canned(monkeypatch, answers):
+    from tcmstudio import dispatch
+
+    def call(tool, args, ctx):
+        rows = answers[tool]
+        return {"status": "succeeded", "result": {"rows": rows, "built": ["npass", "cmaup", "lotus"],
+                                                  "sources": ["npass", "cmaup"]},
+                "summary_en": f"{tool}: {len(rows)} rows"}
+    monkeypatch.setattr(dispatch, "call", call)
+
+
+def _one(sid, ctx=None):
+    from bioagent.validation import Record
+    s = next(x for x in scenarios.SCENARIOS if x.id == sid)
+    rec = Record(sid, "scenario")
+    try:
+        s.run(scenarios._Run(rec, ctx or {}, "offline"))
+    except scenarios._Stop:
+        pass
+    return rec
+
+
+def test_on_a_built_hub_the_data_scenarios_read_rows_as_the_hub_returns_them(monkeypatch):
+    _canned(monkeypatch, {"tcmdb.relations": [_OCCURS]})
+    rec = _one("np_compound_identification")
+    assert rec.check("marker_compound").status == PASS and rec.check("provenance").status == PASS
+    _canned(monkeypatch, {"tcmdb.relations": [_MEASURED]})
+    rec = _one("compound_target_retrieval")
+    assert [c.status for c in rec.checks if not c.name.startswith("step")] == [PASS] * 4, rec.as_dict()
+    unmeasured = dict(_MEASURED, context=None, reference=None)
+    _canned(monkeypatch, {"tcmdb.relations": [_MEASURED, unmeasured]})
+    rec = _one("compound_target_retrieval")
+    assert rec.check("measure_recorded").status == "FAIL" and rec.check("referenced").status == "FAIL"

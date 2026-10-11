@@ -167,6 +167,17 @@ def _hub_rows(env: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     return list(_result(env).get("rows") or ())
 
 
+def _context(row: Mapping[str, Any]) -> dict[str, Any]:
+    """A hub row's context: stored as compact JSON (``tcmdb.rowkit.ctx``)."""
+    c = row.get("context")
+    if isinstance(c, str):
+        try:
+            c = json.loads(c)
+        except ValueError:
+            return {}
+    return dict(c) if isinstance(c, Mapping) else {}
+
+
 def _needs_built(x: _Run, env: Mapping[str, Any] | None, datasets: tuple[str, ...]) -> None:
     built = set(_result(env).get("built") or ())
     if not built & set(datasets):
@@ -186,9 +197,10 @@ def _np_compounds(x: _Run) -> None:
              f"{len(rows)} constituents recorded for Coptis chinensis" if hits else
              f"berberine is not among the {len(rows)} constituents recorded for Coptis chinensis",
              sources=sorted({row.get("source") for row in hits}))
-    x.expect("provenance", all(row.get("source") and (row.get("source_record_id") or row.get("record"))
+    x.expect("provenance", all(row.get("source") and (row.get("reference") or row.get("note"))
                                for row in hits) if hits else False,
-             "each record names its source and its record id")
+             "each record names its source and its reference (a PMID or DOI, or the database it "
+             "relays)", sources=sorted({row.get("source") for row in hits}))
     p = x.step("connector.pubchem.cid_by_name", {"name": "berberine"}, network=True, optional=True)
     if p is not None:
         cids = json.dumps(_result(p))
@@ -202,13 +214,15 @@ def _compound_targets(x: _Run) -> None:
     if not rows:
         x.blocked("data", "no compound-target record of berberine in the built datasets")
     measured = [row for row in rows if row.get("evidence") != "predicted"]
-    with_measure = [row for row in measured if (row.get("context") or {}).get("measure")
-                    or row.get("measure") or row.get("value")]
+    with_measure = [row for row in measured
+                    if _context(row).get("measure") and _context(row).get("value") is not None]
     x.expect("measured", len(measured) == len(rows),
              f"{len(rows)} records, all measured activities" if len(measured) == len(rows) else
              f"{len(rows) - len(measured)} of {len(rows)} records are predictions")
-    x.expect("measure_recorded", bool(with_measure),
-             f"{len(with_measure)} records carry the measurement (type, value, unit)")
+    x.expect("measure_recorded", len(with_measure) == len(measured),
+             f"{len(with_measure)} of {len(measured)} records carry the measurement (type and value)")
+    x.expect("referenced", all(row.get("reference") for row in measured),
+             "each measurement cites its publication (PMID or DOI)")
     x.expect("human_proteins", any(str(row.get("object_id", "")).startswith("uniprot:") for row in rows),
              "targets are identified as UniProt proteins")
 
