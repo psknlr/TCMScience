@@ -152,3 +152,24 @@ def test_classify_names_policy_dns_tls_and_rate_limits():
         err = urllib.error.HTTPError("https://x.org/f", code, "x", {}, None)
         assert classify(err, "x.org")[0] == want, code
     assert classify(ValueError("bad"), "x.org")[0] == FAIL
+
+
+def _tool(path, script):
+    path.write_text("#!/bin/sh\n" + script, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_a_binary_is_asked_for_its_version_the_way_it_answers(tmp_path, monkeypatch):
+    # analysis job, ci 273: kallisto 0.48.0 reads --version as an unknown command, prints its
+    # usage ("kallisto 0.48.0 ...") and exits 1; its version command is `kallisto version`
+    from bioagent.validation.dependencies import readiness
+    _tool(tmp_path / "kallisto", 'if [ "$1" = version ]; then echo "kallisto, version 0.48.0"; exit 0; fi\n'
+                                 'echo "kallisto 0.48.0"; echo; echo "Usage: kallisto <CMD> [arguments] .."; exit 1\n')
+    _tool(tmp_path / "salmon", 'echo "salmon: error while loading shared libraries" >&2; exit 127\n')
+    monkeypatch.setenv("PATH", str(tmp_path))
+    rec, = readiness({"groups": {"t": {"packages": {}, "binaries": ["kallisto", "salmon", "fastp"]}}})
+    assert rec.check("kallisto:binary").status == PASS
+    assert rec.check("kallisto:binary").detail == "kallisto, version 0.48.0"
+    broken = rec.check("salmon:binary")
+    assert broken.status == FAIL and "exited 127" in broken.detail and "shared libraries" in broken.detail
+    assert rec.check("fastp:binary").status == BLOCKED

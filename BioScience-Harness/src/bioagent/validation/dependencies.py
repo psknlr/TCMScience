@@ -37,6 +37,10 @@ __all__ = ["MODULES", "load_environments", "readiness", "install_command"]
 MODULES = {"scikit-learn": "sklearn", "umap-learn": "umap", "scvi-tools": "scvi",
            "paper-qa": "paperqa"}
 
+#: binary -> the arguments that print its version, where ``--version`` is not one: kallisto
+#: reads ``--version`` as an unknown command, prints its usage and exits 1
+VERSION_ARGS = {"kallisto": ["version"]}
+
 
 def load_environments(path: str | Path | None = None) -> dict[str, Any]:
     from ..config import registry_dir
@@ -282,12 +286,15 @@ def readiness(groups: Mapping[str, Any] | None = None, *, calculate: bool = True
                 rec.add(f"{binary}:binary", BLOCKED, "not on the PATH (install it with the "
                         "system's package manager)")
                 continue
+            args = VERSION_ARGS.get(binary, ["--version"])
             try:
-                res = subprocess.run([exe, "--version"], capture_output=True, text=True,
+                res = subprocess.run([exe, *args], capture_output=True, text=True,
                                      timeout=30, check=False)
                 text = (res.stdout or res.stderr).strip().splitlines()[:1]
+                said = text[0] if text else "no output"
                 rec.add(f"{binary}:binary", PASS if res.returncode == 0 else FAIL,
-                        text[0] if text else f"exit {res.returncode}", path=exe)
+                        said if res.returncode == 0 else
+                        f"`{binary} {' '.join(args)}` exited {res.returncode}: {said}", path=exe)
             except (OSError, subprocess.SubprocessError) as exc:
                 rec.add(f"{binary}:binary", FAIL, f"{type(exc).__name__}: {exc}")
         out.append(rec)
