@@ -439,7 +439,7 @@ def test_a_refused_job_reaches_the_model_as_a_refusal(tmp_path):
         assert env["status"] == "failed"
         assert env["error"]["type"] == "unavailable"
         assert env["error"]["message"].startswith("Research loop cannot run on this runner")
-        assert "build_source_snapshots" in env["error"]["hint"]
+        assert "job.research.snapshot" in env["error"]["hint"]
         assert any("snapshots" in m for m in env["error"]["missing"])
         assert "此处不可运行" in env["summary"] and "运行出错" not in env["summary"]
         assert "cannot run here" in env["summary_en"] and "runtime error" not in env["summary_en"]

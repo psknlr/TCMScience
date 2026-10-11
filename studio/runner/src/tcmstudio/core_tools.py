@@ -352,7 +352,9 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         verified data snapshots (NPASS / CMAUP / LOTUS, STRING, Reactome, Open Targets) →
         measured-target pathway enrichment with a degree-matched permutation null →
         pre-registered rebuttals → attested release. Needs the snapshots built on the
-        runner; the user approves each job. Returns a job id: follow it with job_status.
+        runner, with the formula in their herb layer (the job.research.snapshot job builds
+        them: formulas ["桂枝汤《伤寒论》"]); the user approves each job. Returns a job id:
+        follow it with job_status.
         Claims are capped at mechanism_hypothesis, and a refuted hypothesis is a result.""",
           obj({"formula": S("formula name, e.g. 葛根芩连汤"),
                "disease": S("disease ontology id, e.g. MONDO_0005148"),

@@ -1057,6 +1057,25 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                            "accept_review": B(default=False)}, required=("question",)),
         "heavy": ["pyarrow"], "duration": "minutes",
         "tags": ("网络药理", "研究闭环", "通路富集", "置换检验")},
+    "research.snapshot": {
+        "title": ("构建研究数据快照", "Build the research snapshots"), "category": "netpharm",
+        "summary": "Build the snapshots research.run reads, in one recorded run: download "
+                   "NPASS, CMAUP and LOTUS (and STRING and Reactome) from their reviewed URLs, "
+                   "verify every file against its reviewed checksum or size, parse and gate "
+                   "them, check that the real files reproduce the known marker compounds, "
+                   "record every snapshot in the ledger, and report each stage. A formula "
+                   "studied later must be in the herb layer: name it here with its source book "
+                   "(e.g. 桂枝汤《伤寒论》). Re-running reuses every verified file.",
+        "parameters": obj({"sources": arr(S(enum=["npass", "cmaup", "lotus"]),
+                                          "natural-product sources (default: all three)"),
+                           "network": B("also STRING and Reactome, for enrichment and the "
+                                        "protein network", default=True),
+                           "formulas": arr(S(), "formulas to add to the herb layer, each with "
+                                                "its source book, e.g. 桂枝汤《伤寒论》")}),
+        "network": True, "duration": "minutes",
+        "hosts": ["bidd.group", "zenodo.org", "stringdb-downloads.org", "reactome.org",
+                  "rest.uniprot.org"],
+        "tags": ("快照", "数据下载", "研究闭环", "NPASS", "CMAUP", "LOTUS", "snapshot")},
     "skill.run": {
         "title": ("受治理 Skill 后台运行", "Governed skill (background)"), "category": "system",
         "summary": "Run any governed skill as a background job on the runner, with the project's "
