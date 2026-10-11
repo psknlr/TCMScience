@@ -224,27 +224,33 @@ def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
     is BLOCKED, SKIPPED or UNVERIFIED is listed with the failures: none of them is a pass."""
     from . import STATUSES, load_report
 
-    files: list[Path] = []
+    # a report found under a directory is named by its place there (data/…, benchmark/…):
+    # two runs write reports of the same name, and a reader has to tell them apart
+    files: list[tuple[Path, str]] = []
     for p in map(Path, paths):
-        files += sorted(p.rglob("*.json")) if p.is_dir() else [p]
+        if p.is_dir():
+            files += [(f, f.relative_to(p).parent.as_posix()) for f in sorted(p.rglob("*.json"))]
+        else:
+            files.append((p, "."))
     docs = []
-    for f in files:
+    for f, where in files:
         try:
-            docs.append((f, load_report(f)))
+            doc = load_report(f)
         except (ValueError, OSError, json.JSONDecodeError, UnicodeDecodeError):
             continue
+        docs.append((doc.get("report") if where == "." else f"{where}/{doc.get('report')}", doc))
     head = "| report | tier | records | " + " | ".join(STATUSES) + " |"
     lines = ["## Validation reports", "", head, "|" + "---|" * (3 + len(STATUSES))]
     failing = []
-    for f, doc in docs:
+    for name, doc in docs:
         counts = (doc.get("summary") or {}).get("status") or {}
-        lines.append(f"| {doc.get('report')} | {doc.get('tier') or '-'} | "
+        lines.append(f"| {name} | {doc.get('tier') or '-'} | "
                      f"{(doc.get('summary') or {}).get('records', 0)} | "
                      + " | ".join(str(counts.get(st, 0)) for st in STATUSES) + " |")
         for r in doc.get("records") or ():
             if r.get("status") not in (PASS, "NOT_APPLICABLE"):
-                failing.append((doc.get("report"), r))
-    for f, doc in docs:
+                failing.append((name, r))
+    for _, doc in docs:
         acc = doc.get("acceptance")
         if acc:
             lines += ["", f"**{(doc.get('benchmark') or {}).get('id', doc.get('report'))}**: "
@@ -252,7 +258,7 @@ def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
                           + ("every stage completed" if acc.get("completed") else
                              f"{len(acc.get('not_completed') or [])} stage(s) not completed, each "
                              "with the reason below")]
-    for f, doc in docs:
+    for _, doc in docs:
         # every stage of a benchmark and every scenario, passed or not, with what it found:
         # the numbers a reader needs are in the checks' details
         if doc.get("benchmark") or doc.get("report") == "agent_regression_report":

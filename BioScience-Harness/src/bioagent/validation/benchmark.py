@@ -505,6 +505,12 @@ def _measured_vs_predicted(run: _Run, stage: Mapping[str, Any]) -> Record:
 
 # --------------------------------------------------------------------------- 6. pathways
 
+#: why a pre-registered pathway can have no rows in the snapshot (sources/parsers/reactome.py)
+NOT_ANNOTATED = ("UniProt2Reactome.txt lists the lowest-level pathways each protein is annotated "
+                 "to, so a pathway made up of sub-pathways has no rows of its own; that alone does "
+                 "not mean Reactome lacks it")
+
+
 def _pathways(run: _Run, stage: Mapping[str, Any]) -> Record:
     rec = _record(stage, "bioagent validate benchmark --out OUT --live")
     if run.research is None:
@@ -533,8 +539,10 @@ def _pathways(run: _Run, stage: Mapping[str, Any]) -> Record:
                       "tested": bool(row), "q_value": row.get("q_value"),
                       "empirical_p": row.get("empirical_p")})
     rec.add("pathway_set_in_release", PASS if found else UNVERIFIED,
-            f"{len(found)} of the {len(wanted)} pre-registered pathway(s) found in this Reactome release"
-            + (f"; not found: {', '.join(absent)}" if absent else ""), absent=absent)
+            f"{len(found)} of the {len(wanted)} pre-registered pathway(s) have proteins annotated to "
+            "them in this release's UniProt2Reactome.txt"
+            + (f"; none annotated there: {', '.join(absent)} ({NOT_ANNOTATED})" if absent else ""),
+            absent=absent)
     with_targets = [f for f in found if f["measured_targets"]]
     rec.add("membership_identified", PASS,
             (f"{len(with_targets)} pre-registered pathway(s) contain measured targets: " + "; ".join(
@@ -542,7 +550,8 @@ def _pathways(run: _Run, stage: Mapping[str, Any]) -> Record:
                 for f in with_targets[:8])) if with_targets else
             "none of the formula's measured targets is annotated to the pre-registered cardiac "
             "and electrophysiological pathways")
-    run.write(stage, {"pre_registered": wanted, "found": found, "not_in_release": absent,
+    run.write(stage, {"pre_registered": wanted, "found": found, "not_annotated": absent,
+                      "not_annotated_means": NOT_ANNOTATED,
                       "interpretation": "membership of measured targets in Reactome pathways; a "
                                         "pathway listed here is not a mechanism"})
     return rec
@@ -573,7 +582,7 @@ def _enrichment(run: _Run, stage: Mapping[str, Any]) -> Record:
             f"{len(rows)} pathways tested against the {params.get('background')} background "
             f"({background.get('proteins', '?')} proteins) with BH over all "
             f"of them and a degree-matched permutation null ({params.get('permutations')} draws); "
-            f"{len(significant)} pass both",
+            f"{len(significant)} pass both" + _power(background),
             tested=len(rows), significant=len(significant), query=query)
     if query < 3:
         rec.add("supported_by_data", NOT_APPLICABLE,
@@ -595,6 +604,18 @@ def _enrichment(run: _Run, stage: Mapping[str, Any]) -> Record:
                      "refuted": run.rebuttal.get("refuted") or [], "not_run": not_run},
         "result_digest": run.result.get("digest")})
     return rec
+
+
+def _power(background: Mapping[str, Any]) -> str:
+    """How much the over-representation test could find: when most assayed proteins are
+    potent hits, no pathway can be enriched by much, and an empty result says little."""
+    proteins, potent = background.get("proteins"), background.get("potent_in_background")
+    if not proteins or potent is None:
+        return ""
+    if not potent:
+        return f"; none of the {proteins} assayed proteins is a potent hit"
+    return (f"; {potent} of the {proteins} assayed proteins are potent hits, so no pathway can "
+            f"exceed a {proteins / potent:.2f}-fold enrichment")
 
 
 def _moot(not_run: Any) -> bool:
@@ -827,8 +848,9 @@ def _hypotheses(run: _Run, stage: Mapping[str, Any]) -> Record:
     rec.add("labelled", FAIL if problems else PASS,
             "; ".join(problems) if problems else
             (f"{len(hypotheses)} hypotheses, each of kind mechanism_hypothesis, worded as one"
-             if hypotheses else "no pathway survived analysis and rebuttal: no mechanism "
-             "hypothesis is licensed by these data, and that negative result is the finding"))
+             if hypotheses else "no pathway survived analysis and rebuttal, so these data "
+             "license no mechanism hypothesis. That is an absence of evidence for enrichment, "
+             "not evidence that any pathway is uninvolved" + _power(run.result.get("background") or {})))
     verdict = run.research.verdict
     rec.add("released", PASS if run.research.released else UNVERIFIED,
             "the research artifact passed its release validation" if run.research.released else

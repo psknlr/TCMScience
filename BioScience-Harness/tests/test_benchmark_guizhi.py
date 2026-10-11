@@ -165,7 +165,8 @@ def test_on_the_planted_world_every_stage_runs_and_none_passes_on_snapshots_it_d
     found, = pathways["found"]
     assert found["name"] == "Phase 3 - rapid repolarisation" and len(found["measured_targets"]) == 8
     assert "R-HSA-5576891" not in {p["pathway"] for p in pathways["found"]}
-    assert "Cardiac conduction" in pathways["not_in_release"]
+    assert "Cardiac conduction" in pathways["not_annotated"]
+    assert "lowest-level" in pathways["not_annotated_means"]
     enrichment = json.loads((art / "07_enrichment.json").read_text())
     assert [r["pathway"] for r in enrichment["significant"]] == ["reactome:R-HSA-5576890"]
     assert enrichment["rebuttal"]["survived"] == ["reactome:R-HSA-5576890"]
@@ -222,6 +223,25 @@ def test_a_target_no_snapshot_edge_records_fails_the_stage(tmp_path):
     rec = benchmark._targets(run, _stage("targets"))
     assert rec.check("targets_measured").status == FAIL and "uniprot:P99999" in rec.check(
         "targets_measured").detail
+
+
+def test_no_surviving_pathway_is_an_absence_of_evidence_with_the_test_s_power_stated(tmp_path):
+    # live-data run 38127338070: 0 of 1123 pathways passed, on an assayed background where
+    # most proteins are potent hits; the stage must not read as "these pathways are uninvolved"
+    run = benchmark._Run(tmp_path, benchmark.definition(), live=False, raw=tmp_path, snapshot_root=None,
+                         ledger=None, parameters=FAST, log=lambda m: None)
+    run.research = SimpleNamespace(snapshots={}, artifact=None, verdict=None, released=True)
+    run.acquisition = {"route": "given"}
+    run.data_reason = "fixture"
+    run.rebuttal = {"survived": [], "refuted": [], "not_run": []}
+    run.result = {"claims": [], "background": {"proteins": 558, "potent_in_background": 540}}
+    rec = benchmark._hypotheses(run, _stage("hypotheses"))
+    detail = rec.check("labelled").detail
+    assert rec.check("labelled").status == PASS
+    assert "absence of evidence" in detail and "not evidence that any pathway is uninvolved" in detail
+    assert "540 of the 558 assayed proteins are potent hits" in detail and "1.03-fold" in detail
+    assert benchmark._power({}) == "" and "none of the 9" in benchmark._power(
+        {"proteins": 9, "potent_in_background": 0})
 
 
 class _Answer:
@@ -281,6 +301,14 @@ def test_the_command_writes_the_report_and_the_summary_lists_what_did_not_pass(t
     assert "| research_pipeline_report | offline | 12 | 3 | 0 | 0 | 9 | 0 | 0 |" in text
     assert "acceptance explained" in text and "`benchmark.guizhi-palpitations.03.compounds` | SKIPPED" in text
     assert "never counted as passes" in text
+    # two runs' reports of the same name, under one directory, are told apart by where they are
+    import shutil
+    shutil.copytree(out, tmp_path / "all" / "benchmark")
+    shutil.copytree(out, tmp_path / "all" / "again")
+    text = summary_markdown([tmp_path / "all"])
+    assert "| benchmark/research_pipeline_report | offline | 12 |" in text
+    assert "| again/research_pipeline_report | offline | 12 |" in text
+    assert "| again/research_pipeline_report | `benchmark.guizhi-palpitations.03.compounds` | SKIPPED |" in text
 
 
 def test_a_stage_that_raises_is_recorded_as_a_failure_and_the_others_still_report(tmp_path, table,
