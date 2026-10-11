@@ -23,6 +23,39 @@ test("opens IndexedDB at the contract's version, with the contract's stores and 
   assert.equal(again.persistent, true, "reopening an existing database works");
 });
 
+test("projects from before web access was on by default are read once as it reads now; ones turned off after standing approvals stay off", async () => {
+  const idb = new IDBFactory();
+  const store = await openStore({ indexedDB: idb });
+  const rec = (id, web, approvals = {}) => ({ id, name: id, archived: false, createdAt: 1, updatedAt: 100 + id.length, defaults: { web }, approvals });
+  // records as the release before wrote them: no webDefault mark
+  await store.backend.bulk([
+    rec("never-touched", false),
+    rec("runner-and-jobs-only", false, { runner: "project", "job.pipeline": "project" }),
+    rec("already-on", true, { "connector.europepmc.search:network": "project" }),
+    rec("off-after-approving-a-host", false, { "connector.europepmc.search:network": "project" }),
+    rec("off-after-approving-an-upload", false, { "pipeline.fold:remote_upload": "project" }),
+  ].map((put) => ({ store: "projects", put })));
+  const fresh = await store.projects.create({ name: "新项目", web: false });         // this version: a choice
+  assert.equal((await store.projects.adoptWebDefault()).length, 5, "the five unmarked records, in one write");
+  const web = Object.fromEntries((await store.projects.list()).map((p) => [p.name, p.defaults.web]));
+  assert.deepEqual(web, {
+    "never-touched": true, "runner-and-jobs-only": true, "already-on": true, 新项目: false,
+    // on again, these standing approvals would reach the network or a third party without asking
+    "off-after-approving-a-host": false, "off-after-approving-an-upload": false,
+  });
+  const turned = await store.projects.get("never-touched");
+  assert.equal(turned.updatedAt, rec("never-touched").updatedAt, "the list order is kept");
+  assert.equal(turned.webDefault, 2);
+  assert.deepEqual((await store.projects.get("runner-and-jobs-only")).approvals, { runner: "project", "job.pipeline": "project" });
+  assert.equal((await store.projects.get(fresh.id)).defaults.web, false);
+  // once: an off chosen since stays, and nothing is written again
+  await store.projects.setDefaults("never-touched", { web: false });
+  assert.deepEqual(await store.projects.adoptWebDefault(), []);
+  assert.equal((await store.projects.get("never-touched")).defaults.web, false);
+  store.close();
+  assert.equal((await openStore({ indexedDB: idb })).backend.db.version, DB_VERSION, "no new database version");
+});
+
 test("without IndexedDB the in-memory store has the same API and says it is not persistent", async () => {
   const mem = await openStore({ indexedDB: null });
   assert.equal(mem.persistent, false);
@@ -37,12 +70,12 @@ test("projects: create with defaults, update keeps identity, list sorts by recen
   const s = await fresh();
   const a = await s.projects.create({ name: "葛根芩连汤复核", description: "网络药理学复核", instructions: "回答用中文" });
   assert.match(a.id, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(a.defaults, { web: false });
+  assert.deepEqual(a.defaults, { web: true }, "web access is on by default");
   assert.deepEqual(a.approvals, {});
   assert.equal(a.archived, false);
   await new Promise((r) => setTimeout(r, 2));
-  const b = await s.projects.create({ name: "安全性检索", web: true });
-  assert.equal(b.defaults.web, true);
+  const b = await s.projects.create({ name: "安全性检索", web: false });
+  assert.equal(b.defaults.web, false);
   assert.deepEqual((await s.projects.list()).map((p) => p.name), ["安全性检索", "葛根芩连汤复核"]);
   await new Promise((r) => setTimeout(r, 2));
   const up = await s.projects.update(a.id, { name: "葛根芩连汤", id: "hijack", createdAt: 0 });
@@ -149,7 +182,7 @@ test("search: projects, titles and message text, zh and en, every word must matc
 
 test("export → import: a full copy with new ids, links rewritten, file bytes checked", async () => {
   const s = await fresh();
-  const p = await s.projects.create({ name: "导出", instructions: "x", web: true });
+  const p = await s.projects.create({ name: "导出", instructions: "x", web: false });
   await s.projects.update(p.id, { approvals: { runner: "project" } });
   const f = await s.files.add(p.id, new Blob([new Uint8Array([0, 1, 2, 250, 255])], { type: "application/octet-stream" }), { name: "bin.dat" });
   const c = await s.conversations.create({ projectId: p.id, title: "对话" });
@@ -166,7 +199,9 @@ test("export → import: a full copy with new ids, links rewritten, file bytes c
   assert.notEqual(newId, p.id);
   const imported = await other.projects.get(newId);
   assert.deepEqual(imported.approvals, {}, "approvals are not imported");
-  assert.equal(imported.defaults.web, false, "web access is not imported");
+  assert.equal(imported.defaults.web, true, "web access is this browser's default for a new project, not the file's");
+  const offHere = await other.projects.get(await other.importProject(blob, { web: false }));
+  assert.equal(offHere.defaults.web, false, "a browser whose default is off imports it off");
   assert.equal(imported.instructions, "x");
   const [conv] = await other.conversations.list(newId);
   assert.notEqual(conv.id, c.id);

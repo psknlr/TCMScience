@@ -61,7 +61,7 @@ tcmstudio serve
 | `--home DIR` | 主目录（默认 `~/.tcmscience/studio`）：设置与令牌 `runner.json`、任务、上传、各项目的审计链、数据 |
 | `--device auto\|cpu\|cuda:N\|rocm:N\|mps` | 任务用的设备（会保存）。`auto` 选可用的 GPU，没有就用 CPU |
 | `--threads N` · `--max-jobs N` | 每个任务的 CPU 线程数、同时运行的任务数（会保存） |
-| `--network` | 打开 Runner 自己的联网开关（会保存）；每个项目还要单独打开「联网」 |
+| `--no-network` | 关闭 Runner 自己的联网开关（默认开启；会保存，`--network` 重新打开）；每个项目的「联网」开关和每个新主机的批准仍然有效 |
 | `--allow-origin URL` · `--allow-host HOST` | 允许另一个页面来源；允许模型代理转发到另一个模型服务 |
 | `--no-token` | 不要求配对令牌（只在绑定本机地址时可用） |
 | `--web DIR` · `--no-browser` · `--quiet` | 提供另一份网页（如 `studio/_site`）；不打开浏览器；不逐条记录请求 |

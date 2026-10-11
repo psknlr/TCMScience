@@ -70,16 +70,18 @@ def jobs() -> FakeJobs:
     return FakeJobs()
 
 
+# Network access is on by default; the tests run offline, so their contexts say so.
+
 @pytest.fixture
 def runner_ctx(tmp_path, jobs) -> dict[str, Any]:
-    return {"where": "runner", "state_root": str(tmp_path / "projects"),
+    return {"where": "runner", "state_root": str(tmp_path / "projects"), "network": False,
             "project_id": "p-test", "jobs": jobs, "tcmdb_root": str(tmp_path / "tcmdb")}
 
 
 @pytest.fixture
 def browser_ctx(tmp_path) -> dict[str, Any]:
     return {"where": "browser", "state_root": str(tmp_path / "persist"), "project_id": "p-web",
-            "durable": False}
+            "durable": False, "network": False}
 
 
 @pytest.fixture

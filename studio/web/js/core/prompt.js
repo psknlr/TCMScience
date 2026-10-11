@@ -77,7 +77,7 @@ function environment(lang, env, project, provider = {}) {
   const day = Number.isNaN(date.getTime()) ? String(env.date) : date.toISOString().slice(0, 10);
   const browser = env.browser?.status || "idle";
   const runner = env.runner?.status || "offline";
-  const web = typeof project?.defaults?.web === "boolean" ? project.defaults.web : Boolean(env.web);
+  const web = typeof project?.defaults?.web === "boolean" ? project.defaults.web : env.web !== false;
   const lines = [
     "# Environment",
     `- Interface language: ${lang === "zh" ? "Chinese (zh)" : "English (en)"}. Answer in the language of the user's message unless the project instructions say otherwise. Herb and formula names stay in Chinese characters; in English you may add pinyin or the Latin name.`,

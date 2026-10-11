@@ -6,6 +6,7 @@
 // conversation.leafId selects the branch shown. threadPath/siblingsOf/latestLeaf work on a conversation's messages.
 
 import { t } from "./i18n.js";
+import { WEB_DEFAULT_VERSION } from "./settings.js";
 import { base64ToBytes, blobToBase64, sha256Hex, uuid } from "./util.js";
 
 export const DB_NAME = "tcmstudio";
@@ -27,6 +28,23 @@ const MIGRATIONS = [
     files.createIndex("sha256", "sha256");
   },
 ];
+
+/**
+ * A project record from before web access was on by default (no `webDefault` mark), as it reads now, marked so it is
+ * read so only once; null when it already carries the mark. Its off was the old default, not a choice, and becomes on,
+ * except where the project stands approved to reach the network or to send data to a third party: its user turned
+ * web access off after granting those, and on again they would run without asking. Everywhere else nothing new runs
+ * unasked, since each network tool still asks before its first call. `updatedAt` is kept (the list order stays).
+ *
+ * This is a mark on each record, not a schema version: a new version of the database would close it under every tab
+ * still running the previous release, and their conversations could not be saved until they reloaded.
+ */
+export function webOnByDefault(project) {
+  if (!project || typeof project !== "object" || project.webDefault === WEB_DEFAULT_VERSION) return null;
+  const standing = Object.keys(project.approvals || {}).some((k) => k.endsWith(":network") || k.endsWith(":remote_upload"));
+  const turnOn = project.defaults?.web === false && !standing;
+  return { ...project, webDefault: WEB_DEFAULT_VERSION, ...(turnOn ? { defaults: { ...project.defaults, web: true } } : {}) };
+}
 
 const STORES = ["projects", "conversations", "messages", "files"];
 
@@ -241,12 +259,18 @@ export class Store {
         const t0 = now();
         const p = {
           id: uuid(), name: String(name || "").trim() || t("core.project.untitled"), description, instructions, color, icon,
-          archived: false, createdAt: t0, updatedAt: t0,
-          defaults: { web: false, ...defaults, ...(web === undefined ? {} : { web: Boolean(web) }) },
+          archived: false, createdAt: t0, updatedAt: t0, webDefault: WEB_DEFAULT_VERSION,
+          defaults: { web: true, ...defaults, ...(web === undefined ? {} : { web: Boolean(web) }) },
           approvals: {},
         };
         await b.bulk([{ store: "projects", put: p }]);
         return p;
+      },
+      /** Read each project from before web access was on by default as it reads now (webOnByDefault), in one write. */
+      async adoptWebDefault() {
+        const ops = (await b.all("projects")).filter((p) => p.webDefault !== WEB_DEFAULT_VERSION)
+          .map((p) => ({ store: "projects", patch: p.id, fn: webOnByDefault }));
+        return (await b.bulk(ops)).filter(Boolean);
       },
       async update(id, patch = {}) {
         const [next] = await b.bulk([{ store: "projects", patch: id, fn: (cur) => ({ ...cur, ...patch, id: cur.id, createdAt: cur.createdAt, updatedAt: now() }) }]);
@@ -451,9 +475,10 @@ export class Store {
 
   /**
    * Import an exported project as a new project (new ids throughout, links rewritten), so importing twice gives two
-   * copies and never overwrites. Every file's bytes must match its sha256, or nothing is imported.
+   * copies and never overwrites. Every file's bytes must match its sha256, or nothing is imported. `web`: this
+   * browser's web access for new projects (on unless the user turned that default off).
    */
-  async importProject(blobOrText) {
+  async importProject(blobOrText, { web = true } = {}) {
     const text = typeof blobOrText === "string" ? blobOrText : await blobOrText.text();
     let doc;
     try { doc = JSON.parse(text); } catch { throw new Error("not a TCMScience Studio project file (invalid JSON)"); }
@@ -462,10 +487,11 @@ export class Store {
     const map = (old) => (old == null ? old : ids.get(old) || (ids.set(old, uuid()), ids.get(old)));
     const ops = [];
     const t0 = now();
-    // trust does not travel with a file: standing approvals and web access are this browser's decisions to make again
+    // trust does not travel with a file: standing approvals are this browser's to give again (each network tool asks
+    // before its first call), and web access is what this browser gives a new project
     const project = {
-      ...doc.project, id: map(doc.project.id), updatedAt: t0, archived: false, approvals: {},
-      defaults: { ...(doc.project.defaults || {}), web: false },
+      ...doc.project, id: map(doc.project.id), updatedAt: t0, archived: false, approvals: {}, webDefault: WEB_DEFAULT_VERSION,
+      defaults: { ...(doc.project.defaults || {}), web: Boolean(web) },
     };
     ops.push({ store: "projects", put: project });
     const fileRecs = [];

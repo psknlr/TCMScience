@@ -404,7 +404,7 @@ def test_output_token_is_reserved(tmp_path):
 
 
 def test_network_and_remote_gates(tmp_path):
-    with running_server(tmp_path / "home") as (srv, c):
+    with running_server(tmp_path / "home", network=False) as (srv, c):
         status, body = c.post("/api/jobs", {"kind": "tcmdb.fetch", "params": {"dataset": "itcm"}})
         assert status == 422 and body["error"]["type"] == "network_off"
         status, body = c.post("/api/jobs", {"kind": "pipeline.fold", "params": {

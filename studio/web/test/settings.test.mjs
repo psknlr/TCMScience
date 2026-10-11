@@ -1,7 +1,7 @@
 import { resetStorage } from "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
+import { DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, WEB_DEFAULT_VERSION, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
 
 beforeEach(() => resetStorage());
 
@@ -12,9 +12,22 @@ test("defaults are the contract's", () => {
   assert.equal(s.maxSteps, 16);
   assert.equal(s.maxTokens, 8192);
   assert.deepEqual(s.runner, { url: "http://127.0.0.1:8765", token: "" });
-  assert.equal(s.web, false);
+  assert.equal(s.web, true, "web access is on by default");
+  assert.equal(s.webDefault, WEB_DEFAULT_VERSION);
   s.models.x = "mutated";
   assert.deepEqual(loadSettings().models, {}, "each load is a fresh copy");
+});
+
+test("an off saved before web access was on by default was that default, not a choice; one saved since stays off", () => {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ lang: "en", theme: "dark", web: false }));   // an older version
+  const s = loadSettings();
+  assert.equal(s.web, true);
+  assert.deepEqual([s.lang, s.theme], ["en", "dark"], "nothing else changes");
+  updateSettings({ web: false });                                                                 // the user's own
+  assert.equal(JSON.parse(localStorage.getItem(SETTINGS_KEY)).webDefault, WEB_DEFAULT_VERSION);
+  assert.equal(loadSettings().web, false);
+  saveSettings({ ...loadSettings(), theme: "light" });
+  assert.equal(loadSettings().web, false, "and stays off through later saves");
 });
 
 test("save, load, update; invalid values fall back; the language is mirrored", () => {

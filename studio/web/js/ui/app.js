@@ -82,6 +82,8 @@ export class App {
 
     this.store = await openStore();
     if (!this.store.persistent) this.state.storageWarning = t("ui.storage.memory");
+    // projects from before web access was on by default, read once as they read now (store.js webOnByDefault)
+    try { await this.store.projects.adoptWebDefault(); } catch (err) { console.warn("web access default not applied", err); }
     this.connectPeers();
 
     // a pairing link from `tcmstudio serve` (#pair=…): take it before the router reads the hash
@@ -690,7 +692,8 @@ export class App {
     const p = this.state.project;
     if (!p) return Boolean(this.state.settings.web);
     if (this.#webIntent.has(p.id)) return this.#webIntent.get(p.id);
-    return Boolean(p.defaults?.web);
+    // a project without its own value follows the default for new projects, as the router and the prompt do
+    return typeof p.defaults?.web === "boolean" ? p.defaults.web : Boolean(this.state.settings.web);
   }
 
   /** Every web-access write asked for so far has landed (a turn about to start waits for this). */

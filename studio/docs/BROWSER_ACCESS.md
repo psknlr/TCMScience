@@ -8,7 +8,10 @@ not an arbitrary URL proxy. It validates origins, templates, hosts, redirects,
 credentials, request sizes and response sizes, and applies visitor and source
 rate limits. `/api/sources/health` reports the deployed manifest counts and limits.
 
-Project web access is off by default. The existing approval flow still applies.
+Project web access is on by default in every compute mode (browser, runner and auto), and the runner's own
+network switch is on by default too. The approval flow still applies: each network tool asks before its first
+call, naming its hosts, and sending data to a third-party service asks separately. A project can turn web access
+off, and `tcmstudio serve --no-network` turns the runner's off.
 Python policy checks, request rendering, parsers and error statuses run inside the
 Pyodide Worker; only HTTP transport crosses the edge. Approved database URLs,
 query bodies and supported request headers therefore pass through science.impf.ai

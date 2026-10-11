@@ -42,7 +42,7 @@ def test_runner_json_keeps_token_and_valid_fields(tmp_path):
     assert len(token) >= 30
     state.update({"threads": 3, "purpose": "commercial"})
     doc = json.loads((tmp_path / "runner.json").read_text())
-    assert doc["schema"] == "tcmstudio.runner/1" and doc["token"] == token
+    assert doc["schema"] == "tcmstudio.runner/2" and doc["token"] == token
     assert doc["settings"]["threads"] == 3 and doc["settings"]["purpose"] == "commercial"
     assert (tmp_path / "runner.json").stat().st_mode & 0o777 == 0o600
     # a hand-edited file: valid fields kept, the rest back to defaults
@@ -54,6 +54,58 @@ def test_runner_json_keeps_token_and_valid_fields(tmp_path):
     assert again.settings["max_jobs"] == 4
     assert again.settings["threads"] == st.default_settings()["threads"]
     assert again.settings["purpose"] == "commercial"
+
+
+def test_network_access_is_on_by_default(tmp_path):
+    state = st.RunnerState(tmp_path)
+    assert state.settings["network"] == {"enabled": True, "profile": "biomedical-research"}
+    assert st.validate({"network": {"profile": "biomedical-research"}}, {})["network"]["enabled"]
+    assert not state.notes, "a new runner has nothing to explain"
+
+
+def _schema_1(tmp_path, network):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    doc = {"schema": "tcmstudio.runner/1", "token": "t" * 32, "created_at": "2026-01-01T00:00:00Z",
+           "settings": {**st.default_settings(), "network": network}}
+    (tmp_path / "runner.json").write_text(json.dumps(doc))
+
+
+def test_a_runner_json_from_before_turns_network_on_once(tmp_path):
+    # every runner.json written before schema 2 holds the old default, off, from its first start
+    _schema_1(tmp_path, {"enabled": False, "profile": "biomedical-research"})
+    state = st.RunnerState(tmp_path)
+    assert state.settings["network"]["enabled"] is True and state.token == "t" * 32
+    assert any("--no-network" in n for n in state.notes), "the runner says so, and how to undo it"
+    doc = json.loads((tmp_path / "runner.json").read_text())
+    assert doc["schema"] == "tcmstudio.runner/2" and doc["settings"]["network"]["enabled"] is True
+    # once: turned off now, it stays off
+    state.update({"network": {"enabled": False}})
+    again = st.RunnerState(tmp_path)
+    assert again.settings["network"]["enabled"] is False and not again.notes
+
+
+def test_an_offline_profile_was_chosen_and_stays(tmp_path):
+    _schema_1(tmp_path, {"enabled": False, "profile": "offline-analysis"})
+    state = st.RunnerState(tmp_path)
+    assert state.settings["network"] == {"enabled": False, "profile": "offline-analysis"}
+    assert not state.notes
+
+
+def test_serve_turns_network_off_with_no_network(tmp_path):
+    from test_server_support import running_server
+    from tcmstudio import server as srv
+    parser = argparse.ArgumentParser()
+    srv.add_arguments(parser)
+
+    def config(*flags):
+        return srv._config_from_args(parser.parse_args(list(flags)))
+
+    assert config().network is None, "no flag: the saved setting, on by default"
+    assert config("--no-network").network is False and config("--network").network is True
+    with running_server(tmp_path / "home", network=False) as (s, _):
+        assert s.state.get()["network"]["enabled"] is False
+    with running_server(tmp_path / "home") as (s, _):
+        assert s.state.get()["network"]["enabled"] is False, "saved: off until turned on"
 
 
 def test_unreadable_runner_json_is_kept_and_replaced(tmp_path):

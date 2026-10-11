@@ -67,11 +67,12 @@ class Context:
     ``<project_id>/clinic`` (clinic sessions): ``<home>/projects`` on the runner,
     ``/persist`` in the browser. Without it, state goes to a temporary directory: attested,
     but not durable. ``jobs`` is the runner's job service: ``submit(kind, params,
-    project_id) -> Job`` and ``get(job_id, wait_s) -> Job``.
+    project_id) -> Job`` and ``get(job_id, wait_s) -> Job``. Network access is on unless the
+    caller turns it off (the project's web access, the runner's switch, ``--no-network``).
     """
 
     where: str = field(default_factory=_auto_where)
-    network: bool = False
+    network: bool = True
     purpose: str = "academic"
     state_root: str | None = None
     project_id: str | None = None
@@ -487,7 +488,8 @@ def call(tool: str, arguments: Any = None, context: Any = None) -> dict[str, Any
     try:
         ctx, ctx_notes = Context.coerce(context)
     except Exception as exc:                                    # noqa: BLE001
-        ctx, ctx_notes = Context(), [f"context ignored: {exc}"]
+        # a context that cannot be read does not say whether web access is on: keep it off
+        ctx, ctx_notes = Context(network=False), [f"context ignored: {exc}; network off"]
     try:
         return _call(name, arguments, ctx, ctx_notes, t0, started)
     except KeyboardInterrupt:

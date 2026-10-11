@@ -33,7 +33,7 @@ def test_info_describes_this_runner(server):
     assert info["cpu"]["cores"] >= 1
     assert info["devices"][0]["id"] == "cpu" and info["devices"][0]["available"] is True
     assert info["settings"] == srv.state.get()
-    assert info["network"] == {"enabled": False, "profile": "biomedical-research"}
+    assert info["network"] == {"enabled": True, "profile": "biomedical-research"}, "on by default"
     assert info["purpose"] == "academic"
     assert info["counts"]["core"] == 25 and info["counts"]["entries"] >= 600
     assert info["token_required"] is True
@@ -141,10 +141,11 @@ def test_call_governed_skill_is_released_on_a_durable_chain(server):
     assert verify["result"]["records"] > 0
 
 
-def test_network_off_is_a_refusal_that_names_the_runner_switch(server):
-    _, c = server
-    env = c.call("connector_call", {"connector": "uniprot", "operation": "entry",
-                                    "arguments": {"accession": "P69905"}})
+def test_network_off_is_a_refusal_that_names_the_runner_switch(tmp_path):
+    with running_server(tmp_path / "home", network=False) as (srv, c):     # --no-network
+        assert srv.state.get()["network"]["enabled"] is False
+        env = c.call("connector_call", {"connector": "uniprot", "operation": "entry",
+                                        "arguments": {"accession": "P69905"}})
     assert env["status"] == "failed"
     assert env["error"]["type"] == "network_off"
     assert "Runner network" in env["error"]["hint"] and "--network" in env["error"]["hint"]

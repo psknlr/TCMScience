@@ -349,7 +349,7 @@ function generalTab(app, rerender) {
     importInput.value = "";
     if (!f) return;
     try {
-      const id = await store.importProject(f);
+      const id = await store.importProject(f, { web: app.state.settings.web });
       await app.refreshProjects();
       toast(t("ui.general.imported"), { tone: "ok" });
       app.navigate({ name: "project", projectId: id });

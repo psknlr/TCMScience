@@ -55,7 +55,8 @@ async function run(label, tool, args, expect, { compare = false, signal, project
   const t0 = performance.now();
   let env;
   try {
-    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal, ...(acceleration ? { acceleration } : {}) });
+    // web access is on by default; this harness has no source gateway, so its calls say off (as the native ones do)
+    env = await rt.call(tool, args, { project_id, conversation_id: "runtime-check", approvals: [], signal, network: false, ...(acceleration ? { acceleration } : {}) });
   } catch (err) {
     check(label, false, `call threw: ${err?.message || err}`);
     return null;

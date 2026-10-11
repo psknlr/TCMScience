@@ -180,6 +180,13 @@ test("start(): the boot manifest goes to the worker; progress becomes loading ev
   assert.deepEqual(i.packages, ["pyyaml", "packaging"]);
 });
 
+test("call(): a project with web access off passes that on", async () => {
+  const { rt, Worker } = runtime();
+  await rt.call("tcm_herb", { name: "黄芪" }, { project_id: "p1", network: false });
+  const call = Worker.instances[0].received.find((m) => m.op === "call");
+  assert.equal(call.payload.context.network, false);
+});
+
 test("call(): starts lazily; the catalog decides packages and state; the envelope comes back as Python wrote it", async () => {
   const { rt, Worker } = runtime();
   const env = await rt.call("clinic_assess", { intake: { a: 1 } }, { project_id: "p1", conversation_id: "c1", approvals: ["once"] });
@@ -188,7 +195,8 @@ test("call(): starts lazily; the catalog decides packages and state; the envelop
   const call = Worker.instances[0].received.find((m) => m.op === "call");
   assert.deepEqual(call.payload.packages, ["numpy", "scipy"]);
   assert.equal(call.payload.stateful, true);
-  assert.deepEqual(call.payload.context, { project_id: "p1", conversation_id: "c1", approvals: ["once"], device: "cpu", network: false });
+  // web access unless the caller says otherwise (the router always says: the project's switch)
+  assert.deepEqual(call.payload.context, { project_id: "p1", conversation_id: "c1", approvals: ["once"], device: "cpu", network: true });
   assert.equal(call.payload.acceleration, "auto");
   await rt.call("call_tool", { tool: "skill.assess-tcm-safety", arguments: {} });
   await rt.call("call_tool", { tool: "native.edit_distance", arguments: {} });

@@ -330,7 +330,8 @@ export class ToolRouter {
         if (p && typeof p.web === "boolean") return p.web;
       } catch { /* fall back to the default */ }
     }
-    return Boolean(this.settings?.web);
+    // the default for new projects; on unless the user turned it off (settings.js)
+    return this.settings?.web !== false;
   }
 
   #status(web) {
