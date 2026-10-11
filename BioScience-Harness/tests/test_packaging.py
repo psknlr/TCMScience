@@ -73,9 +73,11 @@ def test_package_data_declares_every_runtime_data_file() -> None:
     """A new file under bioagent/data/ must be matched by pyproject's globs."""
     import fnmatch
 
-    pyproject = (REPO / "pyproject.toml").read_text(encoding="utf-8")
-    assert '"bioagent.data"' in pyproject, "package-data entry for bioagent.data is missing"
-    globs = ["*.csv", "*.json", "*.parquet"]
+    import tomllib
+
+    pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    globs = pyproject["tool"]["setuptools"]["package-data"].get("bioagent.data")
+    assert globs, "package-data entry for bioagent.data is missing"
     for path in (REPO / "src" / "bioagent" / "data").iterdir():
         if path.name in ("__init__.py", "__pycache__"):
             continue

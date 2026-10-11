@@ -575,9 +575,17 @@ def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     if p.get("site_ligand"):
         out["site_ligand"] = _text("site_ligand", p["site_ligand"],
                                    pattern=re.compile(r"^[A-Za-z0-9]{1,5}$"))
-        if not remote:
-            raise BadParams("site_ligand: its SMILES comes from the RCSB Chemical Component "
-                            "Dictionary; set allow_remote, or give center and size instead")
+        smiles = p.get("site_ligand_smiles")
+        if smiles:
+            if not (isinstance(smiles, str) and _SMILES.match(smiles.strip())
+                    and not smiles.strip().startswith("-")):
+                raise BadParams("site_ligand_smiles: one SMILES (the co-crystal ligand's, for "
+                                "its bond orders)")
+            out["site_ligand_smiles"] = smiles.strip()
+        elif not remote:
+            raise BadParams("site_ligand: its bond orders come from site_ligand_smiles, or from "
+                            "the RCSB Chemical Component Dictionary with allow_remote; or give "
+                            "center and size instead")
     center, size = p.get("center"), p.get("size")
     if center or size:
         if not (isinstance(center, list) and isinstance(size, list) and len(center) == 3
@@ -595,8 +603,8 @@ def _dock_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "dock", r["receptor"], r["ligands"], _opt("out", OUTPUT_TOKEN),
                 _opt("scoring", r["scoring"]), _opt("exhaustiveness", r["exhaustiveness"]),
                 _opt("poses", r["poses"]), _opt("seed", r["seed"]))
-    for key, flag in (("site_ligand", "site-ligand"), ("center", "center"), ("size", "size"),
-                      ("chains", "chains")):
+    for key, flag in (("site_ligand", "site-ligand"), ("site_ligand_smiles", "site-ligand-smiles"),
+                      ("center", "center"), ("size", "size"), ("chains", "chains")):
         if r.get(key):
             argv.append(_opt(flag, r[key]))
     if r["allow_remote"]:
@@ -620,12 +628,76 @@ def _admet_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     endpoints = [_text("endpoints", e, pattern=re.compile(r"^[A-Za-z0-9_.]{1,64}$"))
                  for e in p.get("endpoints") or []]
     return {"molecules": molecules, "endpoints": endpoints,
+            "build_models": bool(p.get("build_models")),
             "cache": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "admet")}
 
 
 def _admet_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "admet", r["molecules"], _opt("out", OUTPUT_TOKEN), _opt("cache", r["cache"]))
+    if r.get("build_models"):
+        # TDC's ADMET group archive (pinned SHA-256) is downloaded once and the models trained
+        # into the cache; a model whose finished file still matches its card is kept
+        argv.append("--build-models")
     return argv + [_opt("endpoint", e) for e in r["endpoints"]]
+
+
+def _run_json(job_dir: Path) -> dict[str, Any]:
+    try:
+        doc = json.loads((job_dir / "out" / "run.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _rnaseq_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """The run's summary, and the genes it called, most significant first: what an agent
+    reads from job_status, so it can name them without opening the table."""
+    out = stdout_json(job_dir)
+    out = dict(out) if isinstance(out, dict) else {}
+    alpha = float(r.get("alpha") or 0.05)
+    called = []
+    try:
+        with (job_dir / "out" / "deseq2_results.tsv").open(encoding="utf-8") as fh:
+            for row in csv.DictReader(fh, dialect="excel-tab"):
+                try:
+                    q = float(row.get("p_adjusted") or "nan")
+                except ValueError:
+                    continue
+                if q < alpha:
+                    called.append(row)
+    except (OSError, csv.Error):
+        return out or None
+    called.sort(key=lambda row: float(row["p_adjusted"]))
+    out["called"] = {"alpha": alpha, "count": len(called), "top": called[:25],
+                     "table": "deseq2_results.tsv"}
+    return out
+
+
+def _dock_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """The scores, and what makes them interpretable: whether redocking the co-crystal
+    ligand reproduced its pose (the setup's validation), the box, the engines' versions."""
+    del r
+    run = _run_json(job_dir)
+    out: dict[str, Any] = {"scores.tsv": _table_head(job_dir / "out" / "scores.tsv")}
+    for key in ("validation", "box", "versions", "warnings"):
+        if run.get(key) is not None:
+            out[key] = run[key]
+    return out
+
+
+def _admet_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """The table, and each model's held-out score (a prediction is only as good as that)."""
+    del r
+    run = _run_json(job_dir)
+    out: dict[str, Any] = {"admet.tsv": _table_head(job_dir / "out" / "admet.tsv")}
+    models = run.get("models") or {}
+    if models:
+        out["models"] = {e: {k: v for k, v in (card or {}).items()
+                             if k in ("metric", "test_score", "train", "test", "archive_sha256")}
+                         for e, card in models.items()}
+    if run.get("warnings"):
+        out["warnings"] = run["warnings"]
+    return out
 
 
 # ----------------------------------------------------------------------------- research
@@ -1022,7 +1094,7 @@ def default_kinds() -> dict[str, Kind]:
              _rnaseq_prepare, _rnaseq_command,
              artefacts=(run_json, report, ("results", "deseq2_results.tsv", True)),
              validators={"run": _verifier("bioagent.omics.rnaseq")},
-             timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress),
+             timeout_s=48 * 3600.0, result=_rnaseq_result, progress=_rnaseq_progress),
         Kind("pipeline.scrna", ("单细胞分析流程", "Single-cell pipeline"), "minutes",
              _scrna_prepare, _scrna_command,
              artefacts=(run_json, report, ("clusters", "clusters.tsv", True),
@@ -1043,11 +1115,12 @@ def default_kinds() -> dict[str, Kind]:
              validators={"run": _verifier("bioagent.docking.pipeline")},
              network=lambda r: bool(r.get("allow_remote")),
              remote=lambda r: bool(r.get("allow_remote")), timeout_s=24 * 3600.0,
-             result=_table_result("scores.tsv")),
+             result=_dock_result),
         Kind("pipeline.admet", ("ADMET 预测流程", "ADMET"), "minutes", _admet_prepare,
              _admet_command, artefacts=(("table", "admet.tsv", True), run_json),
              validators={"run": _verifier("bioagent.admet.pipeline")},
-             timeout_s=6 * 3600.0, result=_table_result("admet.tsv")),
+             network=lambda r: bool(r.get("build_models")),
+             timeout_s=6 * 3600.0, result=_admet_result),
         Kind("research.run", ("研究闭环", "Research loop"), "minutes", _research_prepare,
              _research_command,
              artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True)),

@@ -79,7 +79,7 @@ where = ["src"]
 # src/bioagent/data/ must be matched here or it will be silently dropped again —
 # tests/test_packaging.py builds a wheel and asserts the catalogue is inside it.
 [tool.setuptools.package-data]
-"bioagent.data" = ["*.csv", "*.json", "*.parquet"]
+"bioagent.data" = ["*.csv", "*.json", "*.parquet", "*.pdb"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

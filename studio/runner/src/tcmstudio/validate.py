@@ -2,6 +2,13 @@
 
     tcmstudio validate --out DIR [--tier offline|live] [--kinds native skill …]
                        [--tcmdb-root DIR] [--probe-network]
+                       [--approve-jobs [--scenarios 7 8 9] [--jobs-timeout S] [--require-pass]]
+
+With ``--approve-jobs`` the operator approves the jobs the regression scenarios submit:
+tcmstudio's own runner is started in a temporary home and called over HTTP the way the
+Studio page calls it, and docking, ADMET and the RNA-seq and single-cell pipelines run as
+its jobs, followed with ``job_status`` and checked against their references
+(``scenarios.py``, ``validate_jobs.py``).
 
 writes, in DIR:
 
@@ -606,6 +613,19 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
     p.add_argument("--probe-network", action="store_true",
                    help="probe the research hosts with real requests (the live tier always does)")
     p.add_argument("--strict", action="store_true", help="exit non-zero on BLOCKED too")
+    p.add_argument("--approve-jobs", action="store_true",
+                   help="the operator approves the jobs the scenarios submit: tcmstudio's own "
+                        "runner is started in a temporary home and every scenario call goes to "
+                        "it over HTTP; docking, ADMET and the RNA-seq and single-cell pipelines "
+                        "run as its jobs and are followed to the end. Recorded in every report")
+    p.add_argument("--scenarios", nargs="*", type=int, default=None,
+                   help="only these regression scenarios (numbers 1-12); without --kinds, no "
+                        "capability is validated")
+    p.add_argument("--jobs-timeout", type=float, default=3600.0,
+                   help="seconds a scenario waits for its job (default 3600)")
+    p.add_argument("--require-pass", action="store_true",
+                   help="exit non-zero unless every scenario run is PASS (an engine that is not "
+                        "installed, or a job that did not finish, fails the run)")
 
 
 def run(a: argparse.Namespace) -> int:
@@ -631,10 +651,12 @@ def run(a: argparse.Namespace) -> int:
                "project_id": "validation"}
         kinds = set(a.kinds) if a.kinds else None
         items: list[tuple[str, str, Mapping[str, Any]]] = []
-        if kinds is None or "core" in kinds:
-            items += [(c["name"], "core", c) for c in CORE_TOOLS]
-        items += [(e["id"], e["kind"], e) for e in catalog_entries("runner", probe=False)
-                  if kinds is None or e["kind"] in kinds]
+        # --scenarios alone runs those scenarios and no capability checks (--kinds adds them)
+        if getattr(a, "scenarios", None) is None or kinds is not None:
+            if kinds is None or "core" in kinds:
+                items += [(c["name"], "core", c) for c in CORE_TOOLS]
+            items += [(e["id"], e["kind"], e) for e in catalog_entries("runner", probe=False)
+                      if kinds is None or e["kind"] in kinds]
         log(f"validating {len(items)} capabilities ({a.tier} tier)")
         t0 = time.perf_counter()
         records = validate_entries(items, ctx_base=ctx, tier=a.tier, built=built, log=log)
@@ -655,7 +677,19 @@ def run(a: argparse.Namespace) -> int:
             chain_records.append(r)
         log(f"validated in {time.perf_counter() - t0:.0f} s")
         from .scenarios import SCENARIOS, run_scenarios
-        scenarios = run_scenarios(ctx, tier=a.tier, log=log)
+        runner = None
+        if getattr(a, "approve_jobs", False):
+            from .validate_jobs import AgentRunner
+            log("jobs approved by the operator (--approve-jobs): starting tcmstudio's runner")
+            runner = AgentRunner(Path(tmp) / "runner", tcmdb_root=tcmdb_root,
+                                 network=a.tier == "live", log=log)
+        try:
+            scenarios = run_scenarios(ctx, tier=a.tier, log=log, runner=runner,
+                                      only=getattr(a, "scenarios", None),
+                                      jobs_timeout_s=getattr(a, "jobs_timeout", 3600.0))
+        finally:
+            if runner is not None:
+                runner.close()
         sandbox = sandbox_records(state_root, tcmdb_root,
                                   probe_network=a.probe_network or a.tier == "live")
         deps = dep_readiness()
@@ -682,8 +716,15 @@ def run(a: argparse.Namespace) -> int:
             notes=["Twelve research scenarios, each the tool calls a correct answer needs, run "
                    "through the dispatcher in order. A step that cannot run here ends the "
                    "scenario with its class (tool_unavailable, data_unavailable) and reason: "
-                   "BLOCKED or SKIPPED, never PASS."],
-            extra={"scenarios": [x.as_dict() for x in SCENARIOS]})}
+                   "BLOCKED or SKIPPED, never PASS."]
+                  + (["Jobs were approved by the operator (--approve-jobs): every call went to "
+                      "tcmstudio's own runner over HTTP, as the Studio page sends it, and each "
+                      "job was submitted with run_pipeline and followed with job_status."]
+                     if getattr(a, "approve_jobs", False) else
+                     ["No job was approved: a scenario that needs one says so (UNVERIFIED)."]),
+            extra={"scenarios": [x.as_dict() for x in SCENARIOS],
+                   "jobs_approved": bool(getattr(a, "approve_jobs", False)),
+                   "scenarios_run": [int(r.component.split(".")[1]) for r in scenarios]})}
     for name, doc in docs.items():
         write_report(out / f"{name}.json", doc)
     summary = {"schema": "tcmscience.validation-summary/1", "tier": a.tier,
@@ -703,6 +744,12 @@ def run(a: argparse.Namespace) -> int:
     for r in failed:
         log(f"  FAIL {r.component}: {r.failure_reason}")
     bad = {FAIL, BLOCKED} if a.strict else {FAIL}
+    if getattr(a, "require_pass", False):
+        short = [r for r in scenarios if r.status != PASS]
+        for r in short:
+            log(f"  NOT PASS {r.component}: {r.status} {r.failure_reason or ''}")
+        if short or not scenarios:
+            return 1
     return 1 if any(r.status in bad for r in judged) else 0
 
 

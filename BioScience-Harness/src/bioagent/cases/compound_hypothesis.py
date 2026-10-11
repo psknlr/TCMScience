@@ -38,7 +38,8 @@ __all__ = ["COMPOUND", "VALIDATION_LIGAND", "run_case", "open_targets_rows"]
 COMPOUND = ("4-aminobenzamidine", "NC(=N)c1ccc(N)cc1")
 VALIDATION_LIGAND = ("benzamidine", "NC(=N)c1ccccc1")
 _FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "fixtures"
-POCKET = _FIXTURES / "docking" / "3ptb_pocket.pdb"
+#: trypsin's S1 pocket with benzamidine (PDB 3PTB, CC0), shipped with the package
+POCKET = Path(__file__).resolve().parents[1] / "data" / "3ptb_pocket.pdb"
 OPEN_TARGETS = _FIXTURES / "cases" / "opentargets_prss1.json"
 
 

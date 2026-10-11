@@ -301,9 +301,11 @@ explicit box (`--center`, `--size`).
 | trypsin–benzamidine (3PTB) | 0.37 Å | −6.0 kcal/mol |
 | streptavidin–biotin (1STP) | 0.61 Å | −7.5 kcal/mol |
 
-The test fixture, the 12 Å pocket of 3PTB, gives 0.38 Å. In it, benzamidine's amidine
-hydrogen-bonds Asp189 at the bottom of the S1 pocket, as in the crystal, and
-benzamidine outscores octane.
+The 12 Å pocket of 3PTB that bioagent ships (`bioagent/data/3ptb_pocket.pdb`), used by
+the tests and by `tcmstudio validate --approve-jobs`, gives 0.38 Å (0.42 Å when the
+redocking runs as a Studio runner job). In it, benzamidine's amidine hydrogen-bonds
+Asp189 at the bottom of the S1 pocket, as in the crystal, and benzamidine outscores
+octane.
 
 Also checked: an unreadable ligand is recorded as a failure and the run goes on; a site
 without a co-crystal ligand is reported as not validated; `verify_run` finds a changed

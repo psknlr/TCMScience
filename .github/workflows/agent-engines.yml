@@ -1,0 +1,92 @@
+name: agent-engines
+
+# The engines under the agent's own scheduling (docs/validation.md): docking, ADMET and the
+# RNA-seq and single-cell pipelines run as jobs of tcmstudio's runner, the way a Studio
+# user's do. `tcmstudio validate --approve-jobs` starts the runner in a temporary home and
+# calls it over HTTP as the Studio page does: files go in as uploads, run_pipeline submits
+# the job (with the approvals the page's router would ask for), and job_status follows it
+# to the end. The finished results are checked against references established outside the
+# code:
+#
+#   7 docking   benzamidine redocked into trypsin within 2.0 Å of its crystal pose (PDB
+#               3PTB), the box centred on the crystal ligand, both amidines scoring better
+#               than octane, the engines' versions recorded
+#   8 ADMET     molecular weights from IUPAC atomic weights, polar surface areas from Ertl's
+#               fragment contributions, Lipinski violations by the rule's limits; two models
+#               trained from TDC's archive (Harvard Dataverse, pinned SHA-256) on TDC's
+#               scaffold split, held-out Caco-2 MAE ≤ 0.40 and HIA AUROC ≥ 0.85
+#   9 omics     Welch's t against SciPy; FASTQ to differential expression on a simulated
+#               experiment whose genes are planted (salmon is installed, so it quantifies);
+#               10x Genomics' PBMC 1k from Zenodo (MD5 from the record) annotated as blood:
+#               T, NK, B and monocytes in healthy proportions, no tissue cell types
+#
+# The approval is the operator's: running this workflow is the decision to run these jobs,
+# and every report says so. --require-pass fails the run unless all three scenarios pass:
+# an engine that is not installed, a job that does not finish, or a reference not met.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 5 * * 3"
+  push:
+    paths:
+      - "studio/runner/src/tcmstudio/scenarios.py"
+      - "studio/runner/src/tcmstudio/validate.py"
+      - "studio/runner/src/tcmstudio/validate_jobs.py"
+      - "studio/runner/src/tcmstudio/kinds.py"
+      - "studio/runner/src/tcmstudio/jobs.py"
+      - "studio/runner/src/tcmstudio/server.py"
+      - "BioScience-Harness/src/bioagent/docking/**"
+      - "BioScience-Harness/src/bioagent/admet/**"
+      - "BioScience-Harness/src/bioagent/omics/**"
+      - ".github/workflows/agent-engines.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-engines-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engines:
+    name: Docking, ADMET and transcriptomics as approved runner jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # AutoDock Vina publishes wheels up to CPython 3.12
+          python-version: "3.12"
+      - name: Command-line tools the RNA-seq pipeline uses when present
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fastp salmon kallisto hisat2 subread samtools
+      - run: python -m pip install --upgrade pip
+      - run: >-
+          pip install -e PSH-Harness
+          -e "BioScience-Harness[formulas,docking,admet,analysis]" -e studio/runner
+      - name: Scenarios 7, 8 and 9, each a job submitted and followed through the runner
+        run: >-
+          tcmstudio validate --out "$RUNNER_TEMP/engines" --tier live --approve-jobs
+          --scenarios 7 8 9 --jobs-timeout 2400 --require-pass
+      - name: Summary
+        if: always()
+        run: bioagent validate summary "$RUNNER_TEMP/engines" --rows 80 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: The scenarios' checks, printed whole
+        if: always()
+        run: |
+          python - "$RUNNER_TEMP/engines/agent_regression_report.json" <<'EOF'
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          for r in doc["records"]:
+              print(f"== {r['component']}: {r['status']}")
+              for c in r["checks"]:
+                  print(f"   {c['status']:<10} {c['name']}: {c['detail'][:400]}")
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-engines-reports
+          path: ${{ runner.temp }}/engines
+          retention-days: 30

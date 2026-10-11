@@ -15,8 +15,8 @@ from omics_world import need_module
 
 pytestmark = pytest.mark.unit
 
-FIX = Path(__file__).parent / "fixtures" / "docking"
-POCKET = FIX / "3ptb_pocket.pdb"
+#: the pocket the package ships (bioagent/data; tests/fixtures/docking/README.md)
+POCKET = Path(__file__).resolve().parents[1] / "src" / "bioagent" / "data" / "3ptb_pocket.pdb"
 BENZAMIDINE = "NC(=N)c1ccccc1"
 CANDIDATES = Path(__file__).resolve().parents[1] / "skills" / "candidates" / "molecular"
 

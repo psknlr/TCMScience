@@ -1023,6 +1023,9 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
         "parameters": obj({"receptor": S(f"PDB file ({_UPLOAD}), PDB:<id>[:chains] or UniProt:<acc>"),
                            "ligands": S(f"CSV name,smiles / SDF / .smi ({_UPLOAD}) or one SMILES"),
                            "site_ligand": S("co-crystal ligand residue name"),
+                           "site_ligand_smiles": S("its SMILES, for the bond orders; without it "
+                                                   "they come from the RCSB Chemical Component "
+                                                   "Dictionary (allow_remote)"),
                            "center": arr(N(), minItems=3, maxItems=3),
                            "size": arr(N(), minItems=3, maxItems=3),
                            "chains": S(), "scoring": S(enum=["vina", "vinardo"], default="vina"),
@@ -1040,8 +1043,13 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                    "NIH alerts, and 22 TDC-trained endpoints once the models are built. "
                    "Predicted, not measured.",
         "parameters": obj({"molecules": S(f"CSV name,smiles / SDF / .smi ({_UPLOAD}) or one SMILES"),
-                           "endpoints": arr(S())}, required=("molecules",)),
-        "heavy": ["rdkit", "scikit-learn"], "duration": "minutes",
+                           "endpoints": arr(S()),
+                           "build_models": B("train the 22 models first from TDC's ADMET group "
+                                             "(downloaded once from Harvard Dataverse, pinned "
+                                             "SHA-256); kept in the runner's cache",
+                                             default=False)}, required=("molecules",)),
+        "heavy": ["rdkit", "scikit-learn"], "network_if": "build_models",
+        "hosts": ["dataverse.harvard.edu"], "duration": "minutes",
         "tags": ("ADMET", "成药性", "毒性预测")},
     "research.run": {
         "title": ("研究闭环", "Research loop"), "category": "netpharm",

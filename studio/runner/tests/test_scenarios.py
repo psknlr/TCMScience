@@ -153,7 +153,7 @@ def test_an_engine_that_is_installed_is_not_given_a_job_the_validator_would_have
     assert rec.status == UNVERIFIED, rec.as_dict()
     assert [c.name for c in rec.checks] == ["step 1: capabilities_status", "reference_run"]
     assert "rdkit, meeko, vina, gemmi are installed here" in rec.check("reference_run").detail
-    assert "test_docking.py" in rec.check("reference_run").detail
+    assert "--approve-jobs" in rec.check("reference_run").detail
 
 
 def test_a_submitted_job_is_pending_work_not_a_failure_and_not_a_pass(monkeypatch):

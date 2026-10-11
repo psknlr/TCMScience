@@ -12,6 +12,16 @@ its engine is not here, the data are not, the network is off for this tier — a
 scenario stops there with that reason. Such a scenario is BLOCKED or SKIPPED, never PASS;
 the outcome classes are the ones the Studio agent reads under each result
 (``studio/web/js/core/agent.js``, ``outcomeOf``).
+
+The engines (docking, ADMET, the RNA-seq and single-cell pipelines) run as runner jobs a
+person approves. With an operator's approval (``tcmstudio validate --approve-jobs``) the
+scenarios are run against tcmstudio's own runner over HTTP (``validate_jobs.AgentRunner``):
+files are uploaded as a user uploads them, ``run_pipeline`` submits the job, ``job_status``
+follows it to the end, and the finished result is checked against a reference established
+outside the code: the crystal pose of benzamidine in trypsin (PDB 3PTB), molecular weights
+from IUPAC atomic weights and polar surface areas as PubChem gives them, TDC's split sizes,
+the genes planted in a simulated experiment, and the composition of human blood. Without
+the approval no job is submitted, and those checks are UNVERIFIED with the reason.
 """
 
 from __future__ import annotations
@@ -78,14 +88,27 @@ class _Stop(Exception):
 
 
 class _Run:
-    def __init__(self, rec: Any, ctx: Mapping[str, Any], tier: str) -> None:
+    def __init__(self, rec: Any, ctx: Mapping[str, Any], tier: str, *, runner: Any = None,
+                 jobs_timeout_s: float = 3600.0) -> None:
         self.rec, self.ctx, self.tier = rec, dict(ctx), tier
+        #: tcmstudio's runner over HTTP, when the operator approved jobs (validate_jobs)
+        self.runner = runner
+        self.jobs_timeout_s = jobs_timeout_s
         self.n = 0
         self.calls: list[dict[str, Any]] = []
 
+    def upload(self, path: Any, name: str | None = None) -> dict[str, Any]:
+        """A file added to the runner as a user adds one (``POST /api/uploads``)."""
+        meta = self.runner.upload(path, name=name)
+        self.calls.append({"upload": meta.get("name"), "id": meta.get("id"),
+                           "bytes": meta.get("size") or meta.get("bytes")})
+        return meta
+
     def step(self, tool: str, args: Mapping[str, Any], *, network: bool = False,
-             optional: bool = False) -> dict[str, Any] | None:
-        """Call ``tool``; its result, or None (and the scenario stops unless ``optional``)."""
+             optional: bool = False, job: bool = False) -> dict[str, Any] | None:
+        """Call ``tool``; its result, or None (and the scenario stops unless ``optional``).
+        A job (``job``) is followed with ``job_status`` until it has finished, and its
+        result is the finished job's."""
         from bioagent.validation import BLOCKED, FAIL, PASS, SKIPPED, UNVERIFIED
 
         from .dispatch import call
@@ -98,28 +121,80 @@ class _Run:
                 return None
             raise _Stop
         t0 = time.perf_counter()
-        env = call(tool, dict(args), {**self.ctx, "network": bool(network and self.tier == "live")})
+        if self.runner is not None:
+            from .validate_jobs import approvals_for
+            approvals = approvals_for(tool, args, job=job,
+                                      network=bool(network and self.tier == "live"))
+            env = self.runner.call(tool, dict(args), approvals=approvals)
+        else:
+            approvals = []
+            env = call(tool, dict(args), {**self.ctx,
+                                          "network": bool(network and self.tier == "live")})
         took = time.perf_counter() - t0
         cls = outcome_of(env)
         self.calls.append({"tool": tool, "arguments": dict(args), "status": env.get("status"),
-                           "outcome": cls, "seconds": round(took, 2)})
+                           "outcome": cls, "seconds": round(took, 2),
+                           **({"approvals": approvals} if approvals else {})})
         if env.get("status") == "succeeded":
             self.rec.add(name, PASS, env.get("summary_en") or env.get("summary") or "succeeded",
                          duration_s=took)
             return env
         if env.get("status") == "job_submitted":
-            # accepted, not done: a job has no result until it has finished and been verified,
-            # and this suite does not follow jobs
-            self.rec.add(name, UNVERIFIED, f"submitted as job {(env.get('job') or {}).get('id')}; "
-                         "this suite does not follow runner jobs, so nothing it computes is "
-                         "checked here", duration_s=took)
-            return env
+            job_id = (env.get("job") or {}).get("id")
+            if self.runner is None:
+                # accepted, not done: a job has no result until it has finished and been
+                # verified, and without an approved runner this suite does not follow jobs
+                self.rec.add(name, UNVERIFIED, f"submitted as job {job_id}; without "
+                             "--approve-jobs this suite does not follow runner jobs, so nothing "
+                             "it computes is checked here", duration_s=took)
+                return env
+            return self._follow(name, str(job_id), approvals, took, optional)
         err = env.get("error") or {}
         status = (BLOCKED if cls in ("tool_unavailable", "data_unavailable", "not_permitted")
                   else FAIL)
         self.rec.add(name, status, f"{cls}: {err.get('message', '')}"[:400]
                      + (f" — {err['hint']}" if err.get("hint") else ""), outcome=cls,
                      duration_s=took)
+        if optional:
+            return None
+        raise _Stop
+
+    def _follow(self, name: str, job_id: str, approvals: list[str], took: float,
+                optional: bool) -> dict[str, Any] | None:
+        """``job_status`` until the job has finished; the step is the job's outcome."""
+        from bioagent.validation import BLOCKED, FAIL, PASS
+
+        t0 = time.perf_counter()
+        polls = [0]
+
+        def count(_env: Mapping[str, Any]) -> None:
+            polls[0] += 1
+        env = self.runner.follow(job_id, timeout_s=self.jobs_timeout_s, on_poll=count)
+        job = _result(env)
+        waited = time.perf_counter() - t0
+        state = job.get("state")
+        self.calls.append({"tool": "job_status", "job_id": job_id, "polls": polls[0],
+                           "state": state, "seconds": round(waited, 2)})
+        evidence = {"job_id": job_id, "kind": job.get("kind"), "state": state,
+                    "approvals": approvals, "artefacts": [a.get("name") or a.get("path")
+                                                          for a in job.get("artefacts") or ()
+                                                          if isinstance(a, Mapping)],
+                    "duration_s": took + waited}
+        if state == "succeeded":
+            self.rec.add(name, PASS, f"job {job_id} ({job.get('kind')}) succeeded and its "
+                         "outputs were verified by the runner", **evidence)
+            return env
+        if state is None:
+            err = env.get("error") or {}
+            self.rec.add(name, FAIL, f"job {job_id}: job_status answered "
+                         f"{env.get('status')}: {err.get('message', '')}"[:400], **evidence)
+        elif state in ("queued", "running"):
+            self.rec.add(name, BLOCKED, f"job {job_id} was still {state} after "
+                         f"{self.jobs_timeout_s:.0f} s (--jobs-timeout)", **evidence)
+        else:
+            outcome = job.get("outcome") or {}
+            self.rec.add(name, FAIL, f"job {job_id} {state}: "
+                         f"{outcome.get('error') or outcome}"[:600], **evidence)
         if optional:
             return None
         raise _Stop
@@ -323,6 +398,154 @@ def _engine_scenario(skill: str, args: Mapping[str, Any], where_checked: str) ->
     return run
 
 
+# ------------------------------------------------------------ the engines, as approved jobs
+def _job_result(env: Mapping[str, Any] | None) -> dict[str, Any]:
+    """What a finished job computed: the job kind's own result, as job_status gives it."""
+    value = _result(env).get("result")
+    return value if isinstance(value, dict) else {}
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return math.nan
+
+
+def _pocket() -> Any:
+    """Trypsin's S1 pocket with its co-crystal benzamidine (PDB 3PTB, CC0; bioagent's data)."""
+    from importlib.resources import files
+    from pathlib import Path
+    return Path(str(files("bioagent.data") / "3ptb_pocket.pdb"))
+
+
+def _crystal_centroid(pdb: Any, resname: str) -> tuple[float, ...]:
+    """The centroid of a co-crystal ligand's heavy atoms, read from the PDB coordinates."""
+    xyz = [(float(line[30:38]), float(line[38:46]), float(line[46:54]))
+           for line in pdb.read_text().splitlines()
+           if line.startswith("HETATM") and line[17:20].strip() == resname
+           and line[76:78].strip() != "H"]
+    return tuple(sum(c[i] for c in xyz) / len(xyz) for i in range(3)) if xyz else ()
+
+
+#: benzamidine is 3PTB's co-crystal ligand; 4-methylbenzamidine is a trypsin inhibitor of
+#: the same class; octane has no amidine to anchor at Asp189 in the S1 pocket
+_DOCK_LIGANDS = (("benzamidine", "NC(=N)c1ccccc1"), ("4-methylbenzamidine", "Cc1ccc(cc1)C(N)=N"),
+                 ("octane", "CCCCCCCC"))
+
+
+def _docking(x: _Run) -> None:
+    if x.runner is None:
+        return _DOCK_REFERENCE(x)
+    import tempfile
+    from pathlib import Path
+    pocket = _pocket()
+    with tempfile.TemporaryDirectory(prefix="dock-") as tmp:
+        ligands = Path(tmp) / "ligands.csv"
+        ligands.write_text("name,smiles\n" + "".join(f"{n},{s}\n" for n, s in _DOCK_LIGANDS),
+                           encoding="utf-8")
+        receptor, table = x.upload(pocket), x.upload(ligands)
+    env = x.step("run_pipeline", {"pipeline": "dock", "arguments": {
+        "receptor": receptor["id"], "ligands": table["id"], "site_ligand": "BEN",
+        "site_ligand_smiles": _DOCK_LIGANDS[0][1], "seed": 42}}, job=True)
+    res = _job_result(env)
+    v = res.get("validation") or {}
+    rmsd = _float(v.get("top_pose_rmsd"))
+    x.expect("redocking", bool(v.get("passed")) and rmsd <= 2.0,
+             f"benzamidine redocked {rmsd:.2f} Å from its crystal pose in 3PTB (threshold "
+             "2.0 Å): the setup reproduces the experiment before any score is read",
+             validation={k: v.get(k) for k in ("top_pose_rmsd", "best_rmsd_in_top3",
+                                               "top_score", "threshold", "passed")})
+    centre = [(_float(c)) for c in (res.get("box") or {}).get("center") or ()]
+    crystal = _crystal_centroid(pocket, "BEN")
+    off = math.dist(centre, crystal) if len(centre) == 3 and crystal else math.inf
+    x.expect("site", off < 1.5, f"the box is centred {off:.2f} Å from benzamidine's crystal "
+                                "centroid, computed here from the PDB coordinates",
+             box=res.get("box"), crystal_centroid=crystal)
+    scores = {row.get("ligand"): _float(row.get("best_score"))
+              for row in res.get("scores.tsv") or ()}
+    amidines = [scores.get(n, math.nan) for n, _ in _DOCK_LIGANDS[:2]]
+    x.expect("ranking", all(a < scores.get("octane", math.nan) for a in amidines),
+             f"best scores (kcal/mol) {scores}: both amidines, which anchor at Asp189, score "
+             "better than octane, which cannot", scores=scores)
+    versions = res.get("versions") or {}
+    x.expect("engines_recorded", all(versions.get(k) not in (None, "", "unknown")
+                                     for k in ("vina", "meeko", "rdkit")),
+             f"engine versions recorded with the run: {versions}")
+
+
+#: molecular formulas (for weights from IUPAC standard atomic weights), topological polar
+#: surface areas summed by hand from Ertl et al. 2000's fragment contributions, and
+#: Lipinski violations by the rule's four limits. Aspirin: two carbonyl O (17.07 each), the
+#: ester O (9.23), the acid OH (20.23). Caffeine: two carbonyl O, three N-methylated
+#: aromatic N (4.93 each), one pyridine-type aromatic N (12.89). (PubChem's 58.4 Å² for
+#: caffeine is another program's reading of the same method.)
+_ADMET_MOLECULES = {
+    "aspirin": ("CC(=O)Oc1ccccc1C(=O)O", {"C": 9, "H": 8, "O": 4},
+                2 * 17.07 + 9.23 + 20.23, 0),
+    "caffeine": ("Cn1cnc2c1c(=O)n(C)c(=O)n2C", {"C": 8, "H": 10, "N": 4, "O": 2},
+                 2 * 17.07 + 3 * 4.93 + 12.89, 0),
+    # 563 g/mol and logP far above 5: two of Lipinski's four limits broken
+    "tetracontane": ("C" * 40, {"C": 40, "H": 82}, 0.0, 2),
+}
+_ATOMIC_WEIGHT = {"C": 12.011, "H": 1.008, "N": 14.007, "O": 15.999}
+#: TDC's ADMET group: the scaffold split's sizes and its leaderboard metric, with the least
+#: a model built here must reach on the held-out scaffolds (the documented build reaches
+#: 0.28 and 0.92; TDC's simplest descriptor baselines reach about 0.39 and 0.97)
+_TDC = {"caco2_wang": ("MAE", 728, 182, lambda s: s <= 0.40, "MAE ≤ 0.40"),
+        "hia_hou": ("AUROC", 461, 117, lambda s: s >= 0.85, "AUROC ≥ 0.85")}
+
+
+def _admet(x: _Run) -> None:
+    if x.runner is None:
+        return _ADMET_REFERENCE(x)
+    import tempfile
+    from pathlib import Path
+    live = x.tier == "live"
+    with tempfile.TemporaryDirectory(prefix="admet-") as tmp:
+        table = Path(tmp) / "molecules.csv"
+        table.write_text("name,smiles\n" + "".join(f"{n},{m[0]}\n"
+                                                   for n, m in _ADMET_MOLECULES.items()),
+                         encoding="utf-8")
+        molecules = x.upload(table)
+    args: dict[str, Any] = {"molecules": molecules["id"]}
+    if live:
+        # the models are trained here from TDC's archive (Harvard Dataverse, pinned SHA-256)
+        args.update(build_models=True, endpoints=sorted(_TDC))
+    env = x.step("run_pipeline", {"pipeline": "admet", "arguments": args}, job=True,
+                 network=live)
+    res = _job_result(env)
+    rows = {r.get("name"): r for r in res.get("admet.tsv") or ()}
+    for name, (_smiles, formula, tpsa, lipinski) in _ADMET_MOLECULES.items():
+        row = rows.get(name) or {}
+        weight = sum(_ATOMIC_WEIGHT[e] * n for e, n in formula.items())
+        got = _float(row.get("MolWt"))
+        x.expect(f"{name}_weight", abs(got - weight) < 0.06,
+                 f"{got} g/mol against {weight:.3f} from the IUPAC atomic weights")
+        got = _float(row.get("TPSA"))
+        x.expect(f"{name}_tpsa", abs(got - tpsa) < 0.06,
+                 f"TPSA {got} Å² against {tpsa:.2f} from Ertl's fragment contributions")
+        got = row.get("lipinski_violations")
+        x.expect(f"{name}_lipinski", str(got) == str(lipinski),
+                 f"{got} Lipinski violation(s); {lipinski} by the rule's four limits")
+    if not live:
+        x.unverified("models", "the endpoint models are trained from TDC's archive in the live "
+                               "tier (build_models); offline only the descriptors, rules and "
+                               "alerts are computed, and no endpoint is predicted")
+        return
+    models = res.get("models") or {}
+    for endpoint, (metric, train, test, good, floor) in _TDC.items():
+        card = models.get(endpoint) or {}
+        score = _float(card.get("test_score"))
+        x.expect(f"{endpoint}_split", (card.get("train"), card.get("test")) == (train, test)
+                 and card.get("metric") == metric,
+                 f"{card.get('train')}/{card.get('test')} molecules, {card.get('metric')}: TDC's "
+                 f"scaffold split of {endpoint} is {train}/{test}, scored by {metric}")
+        x.expect(f"{endpoint}_held_out", good(score),
+                 f"held-out {metric} {score:.4g} on scaffolds the model never saw ({floor})",
+                 archive_sha256=card.get("archive_sha256"))
+
+
 def _transcriptomics(x: _Run) -> None:
     from scipy.stats import ttest_ind
     a = [5.1, 5.3, 4.9, 5.6, 5.2]
@@ -343,13 +566,146 @@ def _transcriptomics(x: _Run) -> None:
         x.unverified("pipeline_packages", "no transcriptomics group in the environments file")
         return
     from bioagent.validation import PASS
+    if x.runner is not None:
+        _rnaseq(x)
+        _pbmc(x)
+        return
     if rec.status == PASS:
-        x.unverified("pipeline_reference", "the pipelines' packages import and compute here; their "
-                                           "reference comparisons are CI's analysis-tools job")
+        x.unverified("pipeline_reference", "the pipelines' packages import and compute here; "
+                                           "their runs as approved jobs are `tcmstudio validate "
+                                           "--approve-jobs` (CI's agent-engines workflow)")
     else:
         x.blocked("pipeline_packages", f"the transcriptomics packages are not ready here "
                                        f"({rec.failure_reason}); provision them with job.env.provision "
                                        f"(group transcriptomics): {rec.reproduce}")
+
+
+def _rnaseq(x: _Run) -> None:
+    """FASTQ to differential expression on a simulated experiment whose answer is planted:
+    genes G000-G003 four times higher in the treated samples, G004-G006 four times lower."""
+    import csv
+    import io
+    import tempfile
+    from pathlib import Path
+
+    from bioagent.omics.reference_world import DOWN, UP, make_world
+    with tempfile.TemporaryDirectory(prefix="rnaseq-") as tmp:
+        world = make_world(Path(tmp) / "world", seed=1, paired=True)
+        for fq in sorted(world.root.glob("*.fastq.gz")):
+            x.upload(fq)
+        sheet, tx, gtf = x.upload(world.sheet), x.upload(world.transcripts), x.upload(world.gtf)
+    env = x.step("run_pipeline", {"pipeline": "rnaseq", "arguments": {
+        "samples": sheet["id"], "transcripts": tx["id"], "annotation": gtf["id"],
+        "contrast": "condition,treated,control"}}, job=True)
+    job_id = str(_result(env).get("id"))
+    summary = _job_result(env)
+    try:
+        text = x.runner.file(job_id, "deseq2_results.tsv").decode("utf-8")
+    except RuntimeError as exc:
+        x.expect("results_table", False, f"the results table could not be read: {exc}")
+        return
+    rows = list(csv.DictReader(io.StringIO(text), dialect="excel-tab"))
+    called = {r["gene_id"]: _float(r.get("log2_fold_change")) for r in rows
+              if _float(r.get("p_adjusted")) < 0.05}
+    up = [g for g in UP if called.get(g, 0.0) > 0]
+    down = [g for g in DOWN if called.get(g, 0.0) < 0]
+    extra = sorted(set(called) - set(UP) - set(DOWN))
+    x.expect("planted_up", len(up) == len(UP),
+             f"{len(up)} of the {len(UP)} genes planted four times higher are called up "
+             f"(padj < 0.05): {up}", engine=summary.get("engine"))
+    x.expect("planted_down", len(down) == len(DOWN),
+             f"{len(down)} of the {len(DOWN)} genes planted four times lower are called down: "
+             f"{down}")
+    # planted four-fold: log2 fold change 2; with three libraries a side its standard error
+    # is about 0.3, so an estimate more than 1 away is not the planted effect
+    off = {g: round(called[g], 2) for g in (*UP, *DOWN)
+           if g in called and abs(abs(called[g]) - 2.0) > 1.0}
+    x.expect("fold_changes", not off and len(up) + len(down) == len(UP) + len(DOWN),
+             "each planted gene's log2 fold change is within 1 of the planted 2"
+             if not off else f"estimates far from the planted log2 fold change 2: {off}",
+             log2_fold_changes={g: round(called.get(g, math.nan), 3) for g in (*UP, *DOWN)})
+    # Benjamini-Hochberg at 5 % bounds the expected share of false calls, not one run's: in
+    # simulated worlds like this one a run calls 0 or 2 unplanted genes, so 2 is the bound
+    x.expect("false_discoveries", len(extra) <= 2,
+             f"{len(extra)} gene(s) called that were not planted: {extra} (of "
+             f"{len(called)} called among {len(rows)} tested)", tested=len(rows),
+             engine=summary.get("engine"))
+
+
+#: Zenodo record of 10x Genomics' PBMC datasets re-aligned with Cell Ranger 9 (filtered
+#: gene-barcode matrices); its files and their MD5 sums are read from the record itself
+_PBMC_RECORD = "14868136"
+_LINEAGE = {"T": ("Naive CD4+ T cell", "Memory CD4+ T cell", "CD8+ T cell",
+                  "Regulatory T cell"),
+            "NK": ("NK cell",), "B": ("B cell", "Plasma cell"),
+            "monocyte": ("CD14+ monocyte", "FCGR3A+ monocyte")}
+#: cell types that do not circulate: none belongs in blood
+_TISSUE = ("Epithelial cell", "Endothelial cell", "Fibroblast", "Smooth muscle cell", "Pericyte",
+           "Hepatocyte", "Keratinocyte", "Cardiomyocyte", "Neuron", "Astrocyte",
+           "Oligodendrocyte", "Microglia", "Adipocyte")
+#: share of PBMC in healthy adults (flow cytometry: T 45-70 %, B 5-15 %, NK 5-20 %, monocytes
+#: 10-30 %), widened for what clustering and marker annotation of 1,000 cells can resolve
+_PBMC_SHARE = {"T": (0.25, 0.85), "NK": (0.02, 0.35), "B": (0.02, 0.30),
+               "monocyte": (0.04, 0.45)}
+
+
+def _pbmc(x: _Run) -> None:
+    """A real single-cell dataset: 10x Genomics' 1k PBMC from a healthy donor."""
+    import re as _re
+    import tempfile
+    import urllib.request
+    from pathlib import Path
+
+    from bioagent.validation import SKIPPED
+    if x.tier != "live":
+        x.rec.add("pbmc_1k", SKIPPED, "downloads 10x Genomics' PBMC 1k from Zenodo: the live tier")
+        return
+    try:
+        req = urllib.request.Request(f"https://zenodo.org/api/records/{_PBMC_RECORD}",
+                                     headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:            # noqa: S310
+            record = json.loads(r.read().decode("utf-8"))
+    except Exception as exc:                                        # noqa: BLE001
+        x.blocked("pbmc_record", f"Zenodo record {_PBMC_RECORD} did not answer: "
+                                 f"{type(exc).__name__}: {exc}")
+    files = record.get("files") or []
+    pick = next((f for f in files if _re.search(r"pbmc_?1k.*filtered_feature_bc_matrix\.h5$",
+                                                 str(f.get("key")), _re.I)), None)
+    if pick is None:
+        x.blocked("pbmc_record", f"record {_PBMC_RECORD} has no PBMC 1k filtered matrix; it "
+                                 f"holds {[f.get('key') for f in files][:12]}")
+    from bioagent.acquisition.downloader import Downloader, DownloadError
+    with tempfile.TemporaryDirectory(prefix="pbmc-") as tmp:
+        try:
+            got = Downloader(tmp, timeout_s=300).fetch(
+                pick["links"]["self"], pick["key"], checksum=pick.get("checksum"))
+        except (DownloadError, OSError) as exc:
+            x.blocked("pbmc_download", f"{pick['key']}: {exc}")
+        x.expect("pbmc_download", got.verified,
+                 f"{pick['key']}, {got.bytes} bytes, matches the record's {pick.get('checksum')}")
+        source = x.upload(Path(tmp) / pick["key"])
+    env = x.step("run_pipeline", {"pipeline": "scrna", "arguments": {
+        "source": source["id"], "integration": "none", "doublets": "remove", "seed": 0}},
+        job=True)
+    summary = _job_result(env)
+    cells = int(summary.get("cells") or 0)
+    sizes = {str(k): int(v) for k, v in (summary.get("clusters") or {}).items()}
+    types = {str(k): str(v) for k, v in (summary.get("cell_types") or {}).items()}
+    x.expect("cells", 700 <= cells <= 1600,
+             f"{cells} cells kept after QC and doublet removal (the dataset is about 1,000 cells)")
+    share = {lin: sum(n for c, n in sizes.items() if types.get(c) in names) / max(cells, 1)
+             for lin, names in _LINEAGE.items()}
+    tissue = sum(n for c, n in sizes.items() if types.get(c) in _TISSUE) / max(cells, 1)
+    x.expect("lineages", all(share[lin] > 0 for lin in _LINEAGE),
+             "T, NK, B and monocyte clusters are all found: "
+             + ", ".join(f"{k} {v:.0%}" for k, v in share.items()), cell_types=types)
+    x.expect("no_tissue_types", tissue <= 0.05,
+             f"{tissue:.1%} of the cells are called a cell type that does not circulate")
+    out = {k: v for k, v in share.items()
+           if not _PBMC_SHARE[k][0] <= v <= _PBMC_SHARE[k][1]}
+    x.expect("composition", not out,
+             "each lineage's share is within the range for healthy adult blood"
+             if not out else f"outside the healthy range: {out} (ranges {_PBMC_SHARE})")
 
 
 def _literature(x: _Run) -> None:
@@ -393,6 +749,18 @@ def _integration(x: _Run) -> None:
     x.expect("sources_agree", len(agree) >= 2,
              f"berberine in its source species is recorded by {agree}: the sources meet on one "
              "InChIKey", sources=sorted(built))
+
+
+#: without an approved runner: whether the engine is installed, asked the way the agent
+#: asks; the run itself is `tcmstudio validate --approve-jobs`
+_DOCK_REFERENCE = _engine_scenario(
+    "skill.dock-ligands", {"receptor": "PDB:3PTB", "ligands": "NC(=N)c1ccccc1",
+                           "site_ligand": "BEN", "allow_remote": True},
+    "`tcmstudio validate --approve-jobs` (CI's agent-engines workflow: redocking 3PTB as a "
+    "runner job)")
+_ADMET_REFERENCE = _engine_scenario(
+    "skill.predict-admet", {"molecules": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"},
+    "`tcmstudio validate --approve-jobs` (CI's agent-engines workflow)")
 
 
 SCENARIOS: tuple[Scenario, ...] = (
@@ -440,28 +808,38 @@ SCENARIOS: tuple[Scenario, ...] = (
              ("DRVYIHPF (angiotensin II) by the standard code", "mass equals the standard residue table"),
              (), _protein_sequence),
     Scenario(7, "molecular_docking", "Molecular docking",
-             "Dock a ligand into a receptor and report the poses.",
-             ("AutoDock Vina, meeko, RDKit, gemmi (env.provision group docking)",),
-             ("poses and scores", "the engine's version"),
-             ("redocking reproduces the crystal pose (CI's molecular-tools job)",),
-             ("needs a provisioned docking environment",),
-             # trypsin and its co-crystal benzamidine: the redocking CI's job checks
-             _engine_scenario("skill.dock-ligands", {"receptor": "PDB:3PTB", "ligands": "NC(=N)c1ccccc1",
-                                                     "site_ligand": "BEN", "allow_remote": True},
-                              "CI's molecular-tools job (tests/test_docking.py, redocking a crystal pose)")),
+             "Dock benzamidine and two other ligands into trypsin's S1 pocket and report the poses.",
+             ("AutoDock Vina, meeko, RDKit, gemmi (env.provision group docking)",
+              "trypsin's pocket with benzamidine, PDB 3PTB (shipped, CC0)"),
+             ("poses and scores", "the redocking check", "the engines' versions"),
+             ("run as a runner job the operator approved, followed with job_status",
+              "redocked benzamidine within 2.0 Å of its crystal pose",
+              "the box centred on the crystal ligand", "both amidines score better than octane"),
+             ("needs a provisioned docking environment and an approval to run a job",),
+             _docking),
     Scenario(8, "admet", "Drug-likeness and ADMET evaluation",
-             "Predict ADMET properties for a molecule.",
-             ("RDKit, scikit-learn (env.provision group admet)",),
-             ("properties per molecule", "the model's applicability domain"),
-             ("models trained from an archive with known answers (CI's molecular-tools job)",),
-             ("needs a provisioned ADMET environment",),
-             _engine_scenario("skill.predict-admet", {"molecules": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"},
-                              "CI's molecular-tools job (tests/test_admet.py)")),
+             "Predict ADMET properties for aspirin, caffeine and a C40 alkane.",
+             ("RDKit, scikit-learn (env.provision group admet)",
+              "TDC's ADMET group from Harvard Dataverse (live tier)"),
+             ("properties and rules per molecule", "held-out scores of the models built"),
+             ("run as a runner job the operator approved, followed with job_status",
+              "weights equal IUPAC atomic weights; TPSA equals Ertl's fragment sums",
+              "Lipinski: 0, 0 and 2 violations",
+              "live: TDC's split sizes, Caco-2 MAE ≤ 0.40, HIA AUROC ≥ 0.85"),
+             ("needs a provisioned ADMET environment and an approval to run a job; models in "
+              "the live tier",),
+             _admet),
     Scenario(9, "transcriptomics", "Transcriptomic and single-cell data analysis",
-             "Test a gene's expression between two groups; run the single-cell atlas.",
-             ("Scanpy and the analysis extras for the single-cell pipeline",),
-             ("Welch's t statistic and p-value", "the cell atlas"),
-             ("t and p equal SciPy's", "the pipelines' reference comparisons (CI's analysis-tools job)"),
+             "Test a gene's expression between two groups; find the differentially expressed "
+             "genes of an experiment from its FASTQ files; annotate a blood sample's cells.",
+             ("a simulated RNA-seq experiment with planted genes",
+              "10x Genomics' PBMC 1k from Zenodo (live tier)"),
+             ("Welch's t statistic and p-value", "differential expression", "the cell atlas"),
+             ("t and p equal SciPy's",
+              "run as runner jobs the operator approved, followed with job_status",
+              "the 7 planted genes called in their direction near the planted four-fold, "
+              "at most 2 genes that were not",
+              "live: T, NK, B and monocytes in healthy proportions, no tissue cell types"),
              ("the pipelines run as runner jobs and need their optional packages",),
              _transcriptomics),
     Scenario(10, "clinical_literature", "Clinical literature and trial retrieval",
@@ -486,15 +864,21 @@ SCENARIOS: tuple[Scenario, ...] = (
 
 
 def run_scenarios(ctx: Mapping[str, Any], *, tier: str = "offline",
-                  log: Callable[[str], None] = lambda m: None) -> list[Any]:
-    """One validation record per scenario."""
+                  log: Callable[[str], None] = lambda m: None, runner: Any = None,
+                  only: Any = None, jobs_timeout_s: float = 3600.0) -> list[Any]:
+    """One validation record per scenario (``only``: these numbers). With ``runner``
+    (``validate_jobs.AgentRunner``, the operator's approval) every call goes to tcmstudio's
+    runner over HTTP and jobs are submitted and followed."""
     from bioagent.validation import Record
 
     out = []
     for s in SCENARIOS:
+        if only and s.n not in set(only):
+            continue
         rec = Record(f"scenario.{s.n:02d}.{s.id}", "scenario", "", input=s.as_dict(),
-                     reproduce=f"tcmstudio validate --out OUT --tier {tier}")
-        x = _Run(rec, ctx, tier)
+                     reproduce=f"tcmstudio validate --out OUT --tier {tier}"
+                               + (" --approve-jobs" if runner is not None else ""))
+        x = _Run(rec, ctx, tier, runner=runner, jobs_timeout_s=jobs_timeout_s)
         t0 = time.perf_counter()
         try:
             s.run(x)
@@ -504,6 +888,9 @@ def run_scenarios(ctx: Mapping[str, Any], *, tier: str = "offline",
             rec.add("scenario", "FAIL", f"{type(exc).__name__}: {exc}")
         rec.runtime_s = time.perf_counter() - t0
         rec.provenance = {"calls": x.calls}
+        if runner is not None:
+            # the approval every job here ran on: the operator's, on the command line
+            rec.provenance["jobs_approved_by"] = "the operator (tcmstudio validate --approve-jobs)"
         log(f"scenario {s.n:2d} {s.id}: {rec.status}")
         out.append(rec)
     return out
