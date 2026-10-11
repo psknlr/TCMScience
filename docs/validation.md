@@ -33,7 +33,7 @@ on `FAIL`; the live-data workflow uses it.
 | 4 End-to-end research | the Guizhi Decoction and palpitations benchmark on those files, its literature queried live, run twice and compared | `live-data.yml` | `bioagent validate benchmark --out DIR --raw W/raw --live --repeat --strict` |
 | 5 Performance and reliability | each record's runtime; resumed downloads (a byte-range request on a partial file); rebuild and repeat digests; the agent's failure budget | inside tiers 2–4, and the agent tests | — |
 | 3 Every hub dataset | each downloadable and per-entity hub dataset (79 defined) fetched from its own server the way Studio's `tcmdb.fetch` job fetches it, built, checked and queried, one runner each; the manual ones listed with what a person has to do | `sources-live.yml`: by hand, weekly, and on a push that changes the hub | `bioagent validate datasets --out DIR --live --confirm-large` |
-| 2–4 The engines as jobs | docking, ADMET and the RNA-seq and single-cell pipelines submitted as runner jobs through tcmstudio's own runner over HTTP, approved by the operator, followed with `job_status`, checked against independent references | `agent-engines.yml`: by hand, weekly, and on a push that changes the engines or the job path | `tcmstudio validate --out DIR --tier live --approve-jobs --scenarios 7 8 9 --require-pass` |
+| 2–4 The engines as jobs | the engine groups installed by the runner's own `env.provision` jobs on a runner with only the base packages, then docking, ADMET and the RNA-seq and single-cell pipelines submitted as runner jobs through tcmstudio's own runner over HTTP, approved by the operator, followed with `job_status`, checked against independent references | `agent-engines.yml`: by hand, weekly, and on a push that changes the engines or the job path | `tcmstudio validate --out DIR --tier live --approve-jobs --provision docking admet transcriptomics --scenarios 7 8 9 --require-pass` |
 | 2–4 Every scenario through the runner | all twelve scenarios, every call sent to tcmstudio's runner over HTTP on the hub tier 3 built, the engines installed: docking, ADMET, the omics pipelines and the research loop (`research.snapshot`, then `network_pharmacology_run`) run as jobs | `live-data.yml`, after tiers 3 and 4 | `tcmstudio validate --out DIR --tier live --kinds core --tcmdb-root W/tcmdb --approve-jobs` |
 | 3 Every connector, every unreachable source | each operation of each shipped connector (444 across 117 services) sent once; each source catalogued unreachable asked once more, except a host recorded as compromised | `sources-live.yml` | `scripts/verify_connectors.py --report DIR --fail-on fail`; `bioagent validate reachability --out DIR` |
 
@@ -279,7 +279,10 @@ failures and the ways on.
 - **erratum.0001** (桂枝甘草汤《伤寒论》) is proposed, applied and labelled, awaiting review.
 - **Engines** (docking, ADMET, the RNA-seq and single-cell pipelines): on a default runner
   they are not installed; `env.provision` installs a group at the CI-tested pins after
-  approval. Through the agent they run as jobs a person approves. Without
+  approval, and the runner verifies it (imports, versions, a known answer where the
+  readiness check has one) before the job succeeds. `agent-engines.yml` installs them only
+  that way (`--provision`); the system's command-line tools (salmon, fastp, …) come from
+  the package manager, and a provision job reports the ones it did not find. Through the agent they run as jobs a person approves. Without
   `--approve-jobs` the validator approves nothing: where the engines are installed, the
   docking and ADMET scenarios ask `capabilities_status`, submit nothing, and stay
   `UNVERIFIED`. With it, the operator's approval is recorded in every report and the jobs

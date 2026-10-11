@@ -309,3 +309,35 @@ def test_the_provision_job_is_judged_on_the_packages_it_installs(monkeypatch):
         return [rec]
     monkeypatch.setattr("bioagent.validation.dependencies.readiness", readiness)
     assert kinds._provision_verify({"group": "transcriptomics"}, {}) == []
+
+
+@pytest.mark.parametrize("deferred_only,code", [(True, 0), (False, 1)])
+def test_require_pass_accepts_a_group_unverified_only_for_a_calculation_left_to_its_job(
+        tmp_path, monkeypatch, deferred_only, code):
+    from tcmstudio import validate_jobs
+    from tcmstudio.cli import main
+
+    class _Runner:
+        def __init__(self, *a, **kw):
+            pass
+
+        def close(self):
+            pass
+
+    def provision(runner, groups, **kw):
+        rec = Record("provision.docking", "provision")
+        rec.add("verified", UNVERIFIED, "vina:calculation left to the docking job",
+                deferred_only=deferred_only)
+        return [rec]
+
+    def run_scenarios(ctx, **kw):
+        rec = Record("scenario.07.molecular_docking", "scenario")
+        rec.add("redocking", PASS, "0.42 Å")
+        return [rec]
+    monkeypatch.setattr(validate_jobs, "AgentRunner", _Runner)
+    monkeypatch.setattr(scenarios, "run_provision", provision)
+    monkeypatch.setattr(scenarios, "run_scenarios", run_scenarios)
+    assert main(["validate", "--out", str(tmp_path), "--approve-jobs", "--provision", "docking",
+                 "--scenarios", "7", "--require-pass"]) == code
+    doc = json.loads((tmp_path / "agent_regression_report.json").read_text())
+    assert doc["provisioned"] == ["docking"] and doc["scenarios_run"] == [7]
