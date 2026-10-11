@@ -35,7 +35,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from . import governance as gv
-from .catalog import (NEVER_OFFERED, dependency_present, entries as catalog_entries,
+from .catalog import (NEVER_OFFERED, canonical_name, dependency_present,
+                      entries as catalog_entries,
                       catalog_search, get_entry, skill_specs, suggest)
 from .core_tools import CORE_BY_NAME, route
 from .envelope import jsonable, shape, utc_now
@@ -582,6 +583,12 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                                        "Name the catalog entry to run in 'tool'.")
                 elif target in NEVER_OFFERED:
                     outcome = _refuse_human(target)
+        if outcome is None and target not in CORE_BY_NAME and get_entry(target) is None:
+            # tcmdb_status for tcmdb.status: the one id it can only mean, run and named back
+            canon = canonical_name(target)
+            if canon:
+                notes.append(f"'{target}' is written '{canon}'; call it so")
+                target = via = canon
         if outcome is None:
             if target in CORE_BY_NAME:
                 core = CORE_BY_NAME[target]

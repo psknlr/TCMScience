@@ -144,7 +144,11 @@ export class ToolRouter {
       const refused = humanOnly(id);
       if (refused) return refused;
       const entry = cat?.byId?.[id] || cat?.coreTool?.(id) || null;
-      if (!entry) return { error: "not_found", name: id || "(missing tool)", suggestions: cat?.suggest?.(id) || [] };
+      if (!entry) {
+        const canon = id && cat?.canonicalName?.(id);
+        if (canon) return { ...this.resolve(name, { ...args, tool: canon }), renamed: { from: id, to: canon, name, args: { ...args, tool: canon } } };
+        return { error: "not_found", name: id || "(missing tool)", suggestions: cat?.suggest?.(id) || [] };
+      }
       return { core, entry, target: entry, key: entry.id || entry.name, label: labelOf(entry) };
     }
     if (core) {
@@ -156,6 +160,9 @@ export class ToolRouter {
     }
     const entry = cat?.byId?.[name];
     if (entry) return { core: null, entry, target: entry, key: entry.id, label: labelOf(entry) };
+    // tcmdb_status for tcmdb.status: the one id it can only mean (run as that, and named back to the model)
+    const canon = cat?.canonicalName?.(name);
+    if (canon && canon !== name) return { ...this.resolve(canon, args), renamed: { from: name, to: canon, name: canon, args } };
     return { error: "not_found", name, suggestions: cat?.suggest?.(name) || [] };
   }
 
@@ -167,6 +174,11 @@ export class ToolRouter {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
     const input = isPlainObject(args) ? args : {};
     const r = this.resolve(name, input);
+    if (r.renamed && !r.error) {
+      const env = await this.call(r.renamed.name, r.renamed.args, ctx);
+      const note = `Note: '${r.renamed.from}' is written '${r.renamed.to}'; call it so.`;
+      return { ...env, text: env.text ? `${env.text}\n${note}` : note };
+    }
     if (r.error === "human_only") {
       // a refusal, shown as one with its code: nothing here or anywhere else can do it for the model
       return synthEnvelope({

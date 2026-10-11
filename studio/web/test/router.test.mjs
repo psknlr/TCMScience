@@ -85,6 +85,24 @@ test("unknown tools fail as not_found with suggestions; unavailable tools fail w
   assert.ok(un.receipt.input_sha256 && /^[0-9a-f]{64}$/.test(un.receipt.input_sha256));
 });
 
+test("a name that differs from an id only in case and separators runs as that id, and the model is told its name", async () => {
+  const { r, runtimes } = router({ runner: "offline" });
+  // function-calling APIs allow no dots in a tool's name: models write native_reverse_complement
+  const viaCallTool = await r.call("call_tool", { tool: "native_reverse_complement", arguments: { sequence: "ATGC" } });
+  assert.equal(viaCallTool.status, "succeeded");
+  assert.equal(runtimes.browser.calls.at(-1).args.tool, "native.reverse_complement", "the runtime gets the real id");
+  assert.match(viaCallTool.text, /'native_reverse_complement' is written 'native\.reverse_complement'; call it so/);
+  const direct = await r.call("Native.Reverse-Complement", { sequence: "ATGC" });
+  assert.equal(direct.status, "succeeded");
+  assert.equal(runtimes.browser.calls.at(-1).tool, "native.reverse_complement");
+  const core = await r.call("tcm.herb", { name: "甘草" });
+  assert.equal(core.status, "succeeded");
+  assert.equal(runtimes.browser.calls.at(-1).tool, "tcm_herb");
+  assert.equal(r.whereCall("call_tool", { tool: "native_reverse_complement" }), "browser");
+  // a misspelling is not a separator: still unknown, with the did-you-mean hint
+  assert.equal((await r.call("tcm_herbs", {})).error.type, "not_found");
+});
+
 test("the first runner call of a project needs approval; 'once' covers this page's life, 'project' is remembered", async () => {
   const approvals = memoryApprovals({ p1: { web: true, approvals: {} }, p2: { web: true, approvals: {} } });
   const { r } = router({ runner: "ready", web: true, approvals });

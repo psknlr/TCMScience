@@ -20,7 +20,7 @@ import { toProviderTools } from "./catalog.js";
 import { t } from "./i18n.js";
 import { isIdentityQuestion } from "./prompt.js";
 import { synthEnvelope } from "./router.js";
-import { clip, isAbort, sleep as defaultSleep, uuid } from "./util.js";
+import { canonicalJson, clip, isAbort, isPlainObject, sleep as defaultSleep, uuid } from "./util.js";
 
 export const MAX_STEPS = 16;
 export const OLD_RESULT_CHARS = 2500;
@@ -32,6 +32,45 @@ export const DANGLING_TEXT = "(this call was stopped before it finished; there i
 export const LIMIT_TEXT = "Not run: the limit of model calls for this turn was reached. Answer from the results you have.";
 
 export const formatOf = (provider) => (provider?.format === "anthropic" ? "anthropic" : "openai");
+
+// A call the model repeats in a turn, with the same arguments, is answered from the first when its result depends
+// only on what it is given: a lookup or computation, a database query, a governed run, a search of the fixed formula
+// and materia tables. Never a job, an act that needs confirming, a status, or anything whose answer the turn itself
+// can change; and a call that can change state (a job, a confirmed act, the clinic, the data hub, a study) starts the
+// count again. A first answer that may not hold on a second try (a runtime error, a stop) is not reused.
+const REUSABLE_KINDS = new Set(["native", "connector", "skill"]);
+const REUSABLE_ENTRIES = new Set(["tcmdb.formulas", "tcmdb.materia"]);
+const STATEFUL_KINDS = new Set(["job", "clinic", "tcmdb", "study"]);
+const SETTLED_ERRORS = new Set(["bad_arguments", "not_found", "network_off", "declined", "refused"]);
+
+/** How a call may be reused: {key} when a repeat of it is answered from the first, {stateful} when it starts over. */
+export function reusePolicy(router, c) {
+  let r = null;
+  try { r = router?.resolve?.(c.name, isPlainObject(c.arguments) ? c.arguments : {}) ?? null; } catch { r = null; }
+  const target = r && !r.error ? r.target : null;
+  if (!target) return { key: null, stateful: false };
+  const id = r.entry?.id || target.id || "";
+  const acts = Boolean(target.confirm || target.job);
+  const pure = !acts && (REUSABLE_KINDS.has(target.kind) || REUSABLE_ENTRIES.has(id));
+  return {
+    key: pure ? `${c.name}\u0000${canonicalJson(isPlainObject(c.arguments) ? c.arguments : {})}` : null,
+    stateful: acts || (STATEFUL_KINDS.has(target.kind) && !REUSABLE_ENTRIES.has(id)),
+  };
+}
+
+const settled = (env) => env?.status === "succeeded"
+  || ((env?.status === "failed" || env?.status === "refused") && SETTLED_ERRORS.has(env?.error?.type));
+
+/** The answer to a repeated call: the first one's outcome, pointing to it rather than repeating it. */
+function reusedEnvelope(first, prior) {
+  return {
+    ...first,
+    citations: [], // the first call's citations already carry their numbers
+    summary: t("core.agent.reused", { step: prior.step }),
+    text: `Not run again: the same call, with the same arguments, was made earlier in this turn (step ${prior.step}, call ${prior.callId}); use its result. Change the arguments to learn something new.`,
+    reused: { step: prior.step, callId: prior.callId },
+  };
+}
 const libFor = (format, llm) => (llm?.[format]) || (format === "anthropic" ? anthropicLib : openaiLib);
 
 /**
@@ -61,6 +100,7 @@ export async function runTurn({
   const texts = [];
   const reasonings = [];
   const toolMessages = [];
+  const seen = new Map(); // a call's key (reusePolicy) → {step, callId, envelope: Promise}
   const emit = (ev) => {
     try { onEvent?.(ev); } catch (err) { (globalThis.reportError || console.error)(err); }
   };
@@ -236,15 +276,28 @@ export async function runTurn({
       let where = null;
       try { where = router?.whereCall ? router.whereCall(c.name, c.arguments) : router?.where?.(c.name) ?? null; } catch { where = null; }
       emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where, step: s });
-      try {
-        envelope = router
-          ? await router.call(c.name, c.arguments, { projectId, conversationId, signal, callId: c.id, onApproval: approvalHandler(c.id) })
-          : await synthEnvelope({ tool: c.name, args: c.arguments, status: "failed", summary: "no router", text: "No tool runtime is available.", error: { type: "unavailable", message: "no router", hint: "" } });
-      } catch (err) {
-        envelope = await synthEnvelope({
-          tool: c.name, args: c.arguments, status: "failed", summary: err?.message || String(err), text: `The tool failed to run: ${err?.message || err}. There is no result.`,
-          error: { type: "runtime_error", message: err?.message || String(err), hint: "" },
-        });
+      const reuse = reusePolicy(router, c);
+      if (reuse.stateful) seen.clear();
+      const prior = reuse.key ? seen.get(reuse.key) : null;
+      if (prior) {
+        const first = await prior.envelope;
+        if (settled(first)) envelope = reusedEnvelope(first, prior);
+      }
+      if (!envelope) {
+        const run = (async () => {
+          try {
+            return router
+              ? await router.call(c.name, c.arguments, { projectId, conversationId, signal, callId: c.id, onApproval: approvalHandler(c.id) })
+              : await synthEnvelope({ tool: c.name, args: c.arguments, status: "failed", summary: "no router", text: "No tool runtime is available.", error: { type: "unavailable", message: "no router", hint: "" } });
+          } catch (err) {
+            return synthEnvelope({
+              tool: c.name, args: c.arguments, status: "failed", summary: err?.message || String(err), text: `The tool failed to run: ${err?.message || err}. There is no result.`,
+              error: { type: "runtime_error", message: err?.message || String(err), hint: "" },
+            });
+          }
+        })();
+        if (reuse.key) seen.set(reuse.key, { step: s, callId: c.id, envelope: run });
+        envelope = await run;
       }
     }
     emit({ type: "tool.end", callId: c.id, envelope, step: s });

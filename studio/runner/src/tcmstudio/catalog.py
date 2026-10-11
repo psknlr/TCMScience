@@ -31,7 +31,8 @@ from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KI
                          VISIT_SCHEMA, S, arr, obj)
 
 __all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "build_catalog",
-           "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "schema_for",
+           "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "canonical_name",
+           "schema_for",
            "fn_schema", "skill_specs", "skill_lockfile"]
 
 SCHEMA_ID = "tcmstudio.catalog/1"
@@ -1418,6 +1419,29 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
                            for cid, zh, en in CATEGORIES},
             "how": "Run an entry with call_tool {\"tool\": \"<id>\", \"arguments\": {…}} using "
                    "its parameters schema."}
+
+
+_LOOSE: dict[str, str | None] | None = None
+
+
+def _loose_key(name: str) -> str:
+    return re.sub(r"[\s._\-]+", "_", str(name or "").strip().lower()).strip("_")
+
+
+def canonical_name(name: str) -> str | None:
+    """The core tool or entry id ``name`` means when it differs from it only in case and
+    separators: ``tcmdb_status`` is ``tcmdb.status`` (function-calling APIs allow no dots
+    in a tool's name, so models write them otherwise). None when nothing matches, or more
+    than one id does."""
+    global _LOOSE
+    if _LOOSE is None:
+        from .core_tools import CORE_BY_NAME
+        table: dict[str, str | None] = {}
+        for i in [*CORE_BY_NAME, *entry_ids()]:
+            k = _loose_key(i)
+            table[k] = i if table.get(k, i) == i else None
+        _LOOSE = table
+    return _LOOSE.get(_loose_key(name)) or None
 
 
 def suggest(name: str, n: int = 3) -> list[str]:

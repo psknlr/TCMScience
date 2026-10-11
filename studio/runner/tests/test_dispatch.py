@@ -622,3 +622,19 @@ def test_a_process_leaves_no_temporary_directory_behind(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["status"] == "succeeded"
     assert [p.name for p in tmp.iterdir() if p.name.startswith("tcmstudio-")] == []
+
+
+def test_a_name_differing_only_in_separators_runs_as_the_id_it_means(runner_ctx):
+    # function-calling APIs allow no dots in a tool's name: models write tcmdb_status
+    e = call("call_tool", {"tool": "tcmdb_status", "arguments": {}}, runner_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    assert e["via"] == "tcmdb.status"
+    assert "'tcmdb_status' is written 'tcmdb.status'" in e["text"]
+    herb = call("TCM.Herb", {"name": "黄芪"}, runner_ctx)
+    assert herb["status"] == "succeeded" and "is written 'tcm_herb'" in herb["text"]
+    # a misspelling is not a separator: still unknown, with the did-you-mean hint
+    typo = call("tcm_herbs", {"name": "黄芪"}, runner_ctx)
+    assert typo["error"]["type"] == "not_found" and "tcm_herb" in typo["error"]["hint"]
+    from tcmstudio.catalog import canonical_name
+    assert canonical_name("connector_europepmc_search") == "connector.europepmc.search"
+    assert canonical_name("no.such.tool") is None
