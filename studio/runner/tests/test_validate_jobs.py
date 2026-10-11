@@ -248,3 +248,64 @@ def test_without_approved_jobs_the_measured_path_says_how_it_runs():
     rec, _ = _run(scenarios._mechanism_hypothesis, None)
     assert rec.check("measured_hypotheses").status == UNVERIFIED, rec.as_dict()
     assert "--approve-jobs" in rec.check("measured_hypotheses").detail
+
+
+# ------------------------------------------------------------------ engines installed by the agent
+def test_an_engine_group_is_installed_by_the_runners_own_provision_job():
+    runner = _Finished("env.provision", {"group": "docking", "status": "PASS",
+                                         "checks": {"import": "PASS", "version": "PASS",
+                                                    "known_answer": "PASS"}})
+    [rec] = scenarios.run_provision(runner, ["docking"], jobs_timeout_s=900)
+    assert rec.status == PASS and rec.component == "provision.docking", rec.as_dict()
+    tool, args, approvals = runner.calls[0]
+    assert tool == "call_tool" and args == {"tool": "job.env.provision",
+                                            "arguments": {"group": "docking"}}
+    assert approvals == ["job", "network", "first_runner_call"]
+    # a group the runner could not verify after installing it is not passed
+    runner = _Finished("env.provision", {"group": "docking", "status": "FAIL",
+                                         "checks": {"vina:version": "FAIL"}})
+    [rec] = scenarios.run_provision(runner, ["docking"], jobs_timeout_s=900)
+    assert rec.check("verified").status == FAIL
+    # Vina's known answer is a docking, left to the docking job by design: the group stays
+    # UNVERIFIED and says so; only that may be accepted beside a passing docking scenario
+    runner = _Finished("env.provision", {"group": "docking", "status": "UNVERIFIED", "checks": {
+        "vina:import": "PASS", "vina:version": "PASS", "vina:calculation": "UNVERIFIED",
+        "rdkit:import": "PASS", "rdkit:version": "PASS", "rdkit:calculation": "PASS"}})
+    [rec] = scenarios.run_provision(runner, ["docking"], jobs_timeout_s=900)
+    check = rec.check("verified")
+    assert check.status == UNVERIFIED and check.evidence["deferred_only"] is True
+    assert "prepared receptor" in check.detail
+
+
+def test_provisioning_needs_the_operators_approval_of_jobs(tmp_path):
+    from tcmstudio.cli import main
+    with pytest.raises(SystemExit, match="--approve-jobs"):
+        main(["validate", "--out", str(tmp_path), "--provision", "docking"])
+
+
+def test_a_missing_command_line_tool_leaves_a_group_unverified_not_failed():
+    """The provision job installs Python packages; salmon and its kind come from the
+    system's package manager, so their absence is reported, and fails nothing."""
+    runner = _Finished("env.provision", {"group": "transcriptomics", "status": "BLOCKED",
+                                         "checks": {"scanpy:import": "PASS",
+                                                    "scanpy:version": "PASS",
+                                                    "scanpy:calculation": "PASS",
+                                                    "salmon:binary": "BLOCKED"}})
+    [rec] = scenarios.run_provision(runner, ["transcriptomics"], jobs_timeout_s=900)
+    check = rec.check("verified")
+    assert check.status == UNVERIFIED and check.evidence["deferred_only"] is False
+    assert "salmon is not on the PATH" in check.detail
+
+
+def test_the_provision_job_is_judged_on_the_packages_it_installs(monkeypatch):
+    from bioagent.validation import BLOCKED as B, PASS as P, Record as R
+
+    from tcmstudio import kinds
+
+    def readiness(groups):
+        rec = R("transcriptomics", "environment")
+        rec.add("scanpy:import", P, "imports")
+        rec.add("salmon:binary", B, "not on the PATH")
+        return [rec]
+    monkeypatch.setattr("bioagent.validation.dependencies.readiness", readiness)
+    assert kinds._provision_verify({"group": "transcriptomics"}, {}) == []

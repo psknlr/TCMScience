@@ -623,6 +623,10 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
                         "capability is validated")
     p.add_argument("--jobs-timeout", type=float, default=3600.0,
                    help="seconds a scenario waits for its job (default 3600)")
+    p.add_argument("--provision", nargs="*", default=None, metavar="GROUP",
+                   help="with --approve-jobs: install these engine groups first (docking, "
+                        "admet, transcriptomics, ...), each by the runner's own env.provision "
+                        "job at its CI-tested pins, as a user's approval installs them")
     p.add_argument("--data-lake", default="",
                    help="with --approve-jobs: the runner's data lake, where its research jobs "
                         "keep raw files and snapshots (default: inside the runner's temporary "
@@ -633,6 +637,9 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
 
 
 def run(a: argparse.Namespace) -> int:
+    if getattr(a, "provision", None) and not getattr(a, "approve_jobs", False):
+        raise SystemExit("--provision installs packages through runner jobs: it needs "
+                         "--approve-jobs, the operator's approval of those jobs")
     from bioagent.tcmdb.hub import TCMDataHub
     from bioagent.validation import BLOCKED, FAIL, PASS, Record, report, write_report
     from bioagent.validation.databases import readiness as db_readiness
@@ -689,9 +696,14 @@ def run(a: argparse.Namespace) -> int:
                                  network=a.tier == "live", log=log,
                                  data_lake=getattr(a, "data_lake", "") or None)
         try:
-            scenarios = run_scenarios(ctx, tier=a.tier, log=log, runner=runner,
-                                      only=getattr(a, "scenarios", None),
-                                      jobs_timeout_s=getattr(a, "jobs_timeout", 3600.0))
+            provisioned = []
+            if runner is not None and getattr(a, "provision", None):
+                from .scenarios import run_provision
+                provisioned = run_provision(runner, a.provision, log=log,
+                                            jobs_timeout_s=getattr(a, "jobs_timeout", 3600.0))
+            scenarios = provisioned + run_scenarios(
+                ctx, tier=a.tier, log=log, runner=runner, only=getattr(a, "scenarios", None),
+                jobs_timeout_s=getattr(a, "jobs_timeout", 3600.0))
         finally:
             if runner is not None:
                 runner.close()
@@ -724,12 +736,19 @@ def run(a: argparse.Namespace) -> int:
                    "BLOCKED or SKIPPED, never PASS."]
                   + (["Jobs were approved by the operator (--approve-jobs): every call went to "
                       "tcmstudio's own runner over HTTP, as the Studio page sends it, and each "
-                      "job was submitted with run_pipeline and followed with job_status."]
+                      "job was submitted (run_pipeline, network_pharmacology_run, call_tool) "
+                      "and followed with job_status."]
+                     + (["The engine groups named with --provision were installed first, each "
+                         "by the runner's own env.provision job (records provision.*)."]
+                        if getattr(a, "provision", None) else [])
                      if getattr(a, "approve_jobs", False) else
                      ["No job was approved: a scenario that needs one says so (UNVERIFIED)."]),
             extra={"scenarios": [x.as_dict() for x in SCENARIOS],
                    "jobs_approved": bool(getattr(a, "approve_jobs", False)),
-                   "scenarios_run": [int(r.component.split(".")[1]) for r in scenarios]})}
+                   "scenarios_run": [int(r.component.split(".")[1]) for r in scenarios
+                                     if r.component.startswith("scenario.")],
+                   "provisioned": [r.component.split(".", 1)[1] for r in scenarios
+                                   if r.component.startswith("provision.")]})}
     for name, doc in docs.items():
         write_report(out / f"{name}.json", doc)
     summary = {"schema": "tcmscience.validation-summary/1", "tier": a.tier,
@@ -750,7 +769,11 @@ def run(a: argparse.Namespace) -> int:
         log(f"  FAIL {r.component}: {r.failure_reason}")
     bad = {FAIL, BLOCKED} if a.strict else {FAIL}
     if getattr(a, "require_pass", False):
-        short = [r for r in scenarios if r.status != PASS]
+        # an installed group may stay UNVERIFIED only for a calculation the readiness check
+        # leaves to the engine's own job by design; the scenario running that engine is it
+        short = [r for r in scenarios if r.status != PASS and not (
+            r.component.startswith("provision.") and r.check("verified") is not None
+            and r.check("verified").evidence.get("deferred_only"))]
         for r in short:
             log(f"  NOT PASS {r.component}: {r.status} {r.failure_reason or ''}")
         if short or not scenarios:

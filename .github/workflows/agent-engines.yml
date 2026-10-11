@@ -20,9 +20,17 @@ name: agent-engines
 #               10x Genomics' PBMC 1k from Zenodo (MD5 from the record) annotated as blood:
 #               T, NK, B and monocytes in healthy proportions, no tissue cell types
 #
+# The engines are not installed beforehand: the runner installs them the way a Studio user
+# does, with its own env.provision job for each group (docking, ADMET, transcriptomics) at
+# the CI-tested pins, verified by the runner before the job succeeds. Only the system's
+# command-line tools (salmon and the like, which no pip job installs) are put on the PATH.
+#
 # The approval is the operator's: running this workflow is the decision to run these jobs,
-# and every report says so. --require-pass fails the run unless all three scenarios pass:
-# an engine that is not installed, a job that does not finish, or a reference not met.
+# and every report says so. --require-pass fails the run unless the three groups were
+# installed and verified and all three scenarios pass: an engine that is not installed, a
+# job that does not finish, or a reference not met. (A group may stay UNVERIFIED only for a
+# known answer the readiness check leaves to the engine's own job, such as Vina's docking:
+# the scenario that runs it is that check.)
 on:
   workflow_dispatch:
   schedule:
@@ -33,6 +41,8 @@ on:
       - "studio/runner/src/tcmstudio/validate.py"
       - "studio/runner/src/tcmstudio/validate_jobs.py"
       - "studio/runner/src/tcmstudio/kinds.py"
+      - "BioScience-Harness/registry/scientific_environments.json"
+      - "BioScience-Harness/src/bioagent/validation/dependencies.py"
       - "studio/runner/src/tcmstudio/jobs.py"
       - "studio/runner/src/tcmstudio/server.py"
       - "BioScience-Harness/src/bioagent/docking/**"
@@ -63,12 +73,12 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q fastp salmon kallisto hisat2 subread samtools
       - run: python -m pip install --upgrade pip
-      - run: >-
-          pip install -e PSH-Harness
-          -e "BioScience-Harness[formulas,docking,admet,analysis]" -e studio/runner
-      - name: Scenarios 7, 8 and 9, each a job submitted and followed through the runner
+      - name: The base packages only; the engines come from the runner's own provision jobs
+        run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
+      - name: The engine groups provisioned by the runner, then scenarios 7, 8 and 9 as its jobs
         run: >-
           tcmstudio validate --out "$RUNNER_TEMP/engines" --tier live --approve-jobs
+          --provision docking admet transcriptomics
           --scenarios 7 8 9 --jobs-timeout 2400 --require-pass
       - name: Summary
         if: always()

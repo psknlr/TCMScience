@@ -1046,3 +1046,67 @@ def run_scenarios(ctx: Mapping[str, Any], *, tier: str = "offline",
         log(f"scenario {s.n:2d} {s.id}: {rec.status}")
         out.append(rec)
     return out
+
+
+def run_provision(runner: Any, groups: Sequence[str], *, log: Callable[[str], None] = lambda m: None,
+                  jobs_timeout_s: float = 3600.0) -> list[Any]:
+    """Each engine group installed the way a user installs it: an ``env.provision`` job,
+    approved (by the operator here) and followed to the end. The job installs the group's
+    CI-tested pins from wheels into the runner's own Python, and the runner verifies it
+    (each package imported at its pinned version and given a calculation with a known
+    answer) before it succeeds. One record per group."""
+    from bioagent.validation import Record
+
+    out = []
+    for group in groups:
+        rec = Record(f"provision.{group}", "provision", "", input={"group": group},
+                     reproduce=f"tcmstudio validate --out OUT --tier live --approve-jobs "
+                               f"--provision {group}")
+        x = _Run(rec, {}, "live", runner=runner, jobs_timeout_s=jobs_timeout_s)
+        t0 = time.perf_counter()
+        try:
+            env = x.step("call_tool", {"tool": "job.env.provision", "arguments": {"group": group}},
+                         network=True, job=True)
+            _provision_verdict(x, group, _job_result(env))
+        except _Stop:
+            pass
+        rec.runtime_s = time.perf_counter() - t0
+        rec.provenance = {"calls": x.calls,
+                          "jobs_approved_by": "the operator (tcmstudio validate --approve-jobs)"}
+        log(f"provision {group}: {rec.status}")
+        out.append(rec)
+    return out
+
+
+def _provision_verdict(x: _Run, group: str, res: Mapping[str, Any]) -> None:
+    """The runner's own verification of an installed group, as its job reported it. A
+    package whose known-answer calculation the readiness check leaves to the engine's own
+    job (Vina's docking, PyDESeq2's fit: ``dependencies.NO_CALCULATION``) keeps the group
+    UNVERIFIED, saying so; the scenario that runs that engine is its calculation."""
+    from bioagent.validation import FAIL, PASS, UNVERIFIED
+    from bioagent.validation.dependencies import NO_CALCULATION
+
+    checks = dict(res.get("checks") or {})
+    # a command-line tool comes from the system's package manager, not from this job: one
+    # that is missing leaves the group unverified here, never failed
+    bad = sorted(k for k, v in checks.items() if v in ("FAIL", "BLOCKED")
+                 and not (k.endswith(":binary") and v == "BLOCKED"))
+    open_ = sorted(k for k, v in checks.items() if v not in ("PASS", "NOT_APPLICABLE")
+                   and k not in bad)
+    deferred = [k for k in open_ if k.endswith(":calculation")
+                and k.split(":", 1)[0] in NO_CALCULATION]
+    if not checks or bad:
+        x.rec.add("verified", FAIL, f"{group}: not installed and verified: "
+                  + (", ".join(f"{k} {checks[k]}" for k in bad) or "the job reported no checks"),
+                  checks=checks)
+    elif not open_:
+        x.rec.add("verified", PASS, f"{group}: every package imported at its tested pin and "
+                  "computed a known answer, checked by the runner", checks=checks)
+    else:
+        why = "; ".join([f"{k.split(':', 1)[0]}: {NO_CALCULATION[k.split(':', 1)[0]]}"
+                         for k in deferred]
+                        + [f"{k.split(':', 1)[0]} is not on the PATH (the system's package "
+                           "manager installs it)" for k in open_ if k.endswith(":binary")])
+        x.rec.add("verified", UNVERIFIED, f"{group}: every package imported at its tested pin; "
+                  f"not computed here: {', '.join(open_)}" + (f" ({why})" if why else ""),
+                  checks=checks, deferred_only=open_ == deferred)

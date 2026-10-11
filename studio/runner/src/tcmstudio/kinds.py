@@ -860,8 +860,11 @@ def _provision_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[st
     importlib.invalidate_caches()
     group = (load_environments().get("groups") or {}).get(r["group"]) or {}
     [record] = readiness({"groups": {r["group"]: group}})
+    # the job installs the group's Python packages and is judged on them; a command-line
+    # tool the group also names (salmon, fastp, ...) comes from the system's package
+    # manager, and the job's result reports whether it is there
     return [f"{c.name}: {c.status}: {c.detail}" for c in record.checks
-            if c.status in ("FAIL", "BLOCKED")]
+            if c.status in ("FAIL", "BLOCKED") and not c.name.endswith(":binary")]
 
 
 def _provision_result(job_dir: Path, r: dict[str, Any]) -> Any:
