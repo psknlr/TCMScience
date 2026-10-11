@@ -16,7 +16,10 @@ void window;
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** An App with a real store (fake IndexedDB) and an open project; `slow` delays every write by that many ms. */
+/**
+ * An App with a real store (fake IndexedDB) and an open project; `slow` delays every write by that many ms. The
+ * project starts with web access off (new ones start on), so the presses below have somewhere to go.
+ */
 async function makeApp({ idb = new IDBFactory(), slow = 0, projectId = null } = {}) {
   const app = new App();
   app.store = await openStore({ indexedDB: idb });
@@ -26,7 +29,7 @@ async function makeApp({ idb = new IDBFactory(), slow = 0, projectId = null } = 
     backend.bulk = async (ops) => { await delay(slow); return bulk(ops); };
   }
   app.toolRouter = new ToolRouter({ catalog: null, runtimes: {}, settings: app.state.settings, store: app.store });
-  const p = projectId ? await app.store.projects.get(projectId) : await app.store.projects.create({ name: "葛根芩连汤" });
+  const p = projectId ? await app.store.projects.get(projectId) : await app.store.projects.create({ name: "葛根芩连汤", web: false });
   app.state.project = p;
   return { app, p };
 }

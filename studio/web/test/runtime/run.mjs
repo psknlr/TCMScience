@@ -164,7 +164,7 @@ export async function runPage(context, url, timeoutMs) {
 
 function nativeCall(tool, args, stateRoot, project) {
   // the arguments go on stdin: a long sequence is more than one command-line argument may hold (128 KiB on Linux)
-  const r = spawnSync(PYTHON, ["-m", "tcmstudio", "call", tool, "--args", "-", "--where", "browser",
+  const r = spawnSync(PYTHON, ["-m", "tcmstudio", "call", tool, "--args", "-", "--where", "browser", "--no-network",
     "--state-root", stateRoot, "--project", project, "--compact"],
   { input: JSON.stringify(args), encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   if (r.error) throw new Error(`native call ${tool} did not start: ${r.error.message}`);

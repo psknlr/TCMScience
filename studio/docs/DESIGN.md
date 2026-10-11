@@ -47,7 +47,7 @@ and from an audit of the TCMScience project page and the Arena. The tokens are c
 
 | Borrow (table stakes) | Differentiate (TCMScience only) |
 |---|---|
-| Projects with instructions + knowledge | Per-project **policy**: allowed sources, web access off by default, skills can only narrow sources |
+| Projects with instructions + knowledge | Per-project **policy**: allowed sources, web access on by default (each new host asks first), skills can only narrow sources |
 | Thread + side panel | The side panel is a **governance inspector**, not just an artifact viewer |
 | Collapsible thinking / tool calls | Each tool card says *where* it ran (browser / local runner) and on *which device*, and shows input/output **hashes** |
 | Plan → approve → run | The plan is a *compiled* program: compile-time refusals (`EVIDENCE103`) appear **before** anything runs |
@@ -210,7 +210,7 @@ Legend: **MVP** = first public release at science.impf.ai; **L1** = next; **L2**
   - Per-project **instructions** (system prompt addendum).
   - Per-project **knowledge**: uploaded files plus pasted notes, stored in the browser (IndexedDB)
     or in the runner workspace.
-  - Per-project defaults: model, compute target, enabled skills/tools, web access (off by default).
+  - Per-project defaults: model, compute target, enabled skills/tools, web access (on by default; each new host still asks).
   - Project overview page: instructions, knowledge files, datasets, and recent claims with
     verdicts.
 - **L1**

@@ -13,7 +13,8 @@ export const SCREENS = process.env.STUDIO_E2E_SCREENS || path.join(process.env.S
  * `custom` = {id, base_url, model} adds an OpenAI-compatible provider and makes it the active one.
  */
 export async function seedSettings(page, patch = {}, { custom = null } = {}) {
-  const settings = { onboarded: true, lang: "zh", theme: "light", ...patch };
+  // as this version saves them (webDefault: settings.js WEB_DEFAULT_VERSION), so a seeded `web: false` stays off
+  const settings = { onboarded: true, lang: "zh", theme: "light", webDefault: 2, ...patch };
   if (custom) {
     settings.customProviders = [{ id: custom.id || "custom-e2e", label: custom.label || "E2E mock", format: "openai", base_url: custom.base_url, model: custom.model, headers: {}, extra_body: {}, max_tokens_param: "max_tokens", stream_usage: true }];
     settings.provider = custom.id || "custom-e2e";

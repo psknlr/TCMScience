@@ -288,7 +288,7 @@ Established tools now run inside the governance, not beside it. Each one is reac
 
 ### Data sources
 
-Every source has a card stating its licence and access path. Web access is off unless a person has approved it, and a skill can narrow its sources but never widen them.
+Every source has a card stating its licence and access path. Web access is on by default, but each new host is reached only after a person approves it, and a skill can narrow its sources but never widen them.
 
 | Source | Provides | Licence |
 |---|---|---|

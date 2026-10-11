@@ -119,8 +119,10 @@ one test.
   not a job). Keys stored in `project.approvals` as `"project"`: the entry id (confirm/job), `<entry id>:network`,
   `<entry id>:remote_upload`, and `runner` (first runner call). Core tools are keyed by the entry they map to, so an
   approval through `call_tool` covers the core tool too. "once" on the first runner call holds for the page's life.
-- Network entries need `project.defaults.web` (else `settings.web` when there is no project); off → `failed` /
-  `network_off`, no prompt. Hosts shown come from `entry.hosts` or `entry.skill.network`.
+- Network entries need `project.defaults.web` (else `settings.web` when there is no project; both on by default);
+  off → `failed` / `network_off`, no prompt. On, each network entry still asks before its first call (`network`
+  approval) unless the project stands approved for it. Hosts shown come from `entry.hosts` or `entry.skill.network`.
+  A context that does not say (`network` absent) means on; a context the dispatcher cannot read means off.
 - Runtimes are called as `call(name, args, {project_id, conversation_id, approvals: [granted reasons], signal})`;
   the runner forwards the first three as §4's `context`. A runtime that throws gives `failed/runtime_error`; a stop
   gives `cancelled` (the browser call itself may go on; its result is discarded).
@@ -322,7 +324,7 @@ record (PMID preferred over its DOI), classical passages labelled `《书名》�
 (a numeral as a string, one value for a list, `null` for an optional argument) are repaired and reported as
 `Note:` lines in `text`.
 
-**CLI (web-ui's reproduce command).** `tcmstudio call TOOL --args JSON|@FILE|- [--where browser|runner] [--network]
+**CLI (web-ui's reproduce command).** `tcmstudio call TOOL --args JSON|@FILE|- [--where browser|runner] [--no-network]
 [--purpose academic|commercial] [--project ID] [--state-root DIR] [--tcmdb-root DIR] [--compact|--text]` prints the
 envelope (exit 0 for succeeded/job_submitted, 1 otherwise). `tcmstudio catalog [--where] [--out FILE] [--no-probe]
 [--indent N]`. `tcmstudio serve|webbuild …` hand every following argument to the module's own parser.
@@ -342,9 +344,11 @@ needed), so a page can check its saved token without a 401. The pairing link's `
 paired by address and token. `--port 0` lets the system pick a port (the banner shows it).
 
 **Settings.** Defaults: `device:"auto"`, `threads: min(4, cores)`, `max_jobs: 1` (2 on ≥ 8 cores),
-`network:{enabled:false, profile:"biomedical-research"}`, `purpose:"academic"`, `allow_remote:false`. PUT merges, ignores
+`network:{enabled:true, profile:"biomedical-research"}`, `purpose:"academic"`, `allow_remote:false`. PUT merges, ignores
 unknown keys, accepts `network: true|false` as the enabled switch, and refuses a bad value with 400 (nothing changed).
-`--device/--threads/--max-jobs/--network` are applied and saved. Two switches gate the network: the project's web
+`--device/--threads/--max-jobs/--network|--no-network` are applied and saved. A `runner.json` of schema
+`tcmstudio.runner/1` (network off by default then) is read once with network on, unless its profile is
+`offline-analysis`, and the banner says so. Two switches gate the network: the project's web
 access (the router) and the runner's own `settings.network` (passed to the dispatcher as `context.network`). When the
 runner's is off, a `network_off` envelope's `error.hint` says so first.
 

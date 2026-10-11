@@ -30,7 +30,8 @@ PROBE = textwrap.dedent(r"""
     from tcmstudio.catalog import build_catalog
     from tcmstudio.dispatch import call
     doc = build_catalog("browser")
-    ctx = {"where": "browser", "state_root": sys.argv[1], "project_id": "iso"}
+    # web access off, as a project can set it: a connector is refused before any request
+    ctx = {"where": "browser", "state_root": sys.argv[1], "project_id": "iso", "network": False}
     results = {}
     for tool, args in [("tcm_compatibility", {"herbs": ["甘草", "甘遂"]}),
                        ("tcm_safety_report", {"subject": "甘草", "co_administered": ["甘遂"]}),

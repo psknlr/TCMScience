@@ -2,7 +2,7 @@
 
     tcmstudio serve [--host 127.0.0.1] [--port 8765] [--home ~/.tcmscience/studio] [--web DIR]
                     [--allow-origin URL]... [--allow-host HOST]... [--no-token] [--no-browser]
-                    [--device auto|cpu|cuda:0|mps] [--threads N] [--max-jobs N] [--network]
+                    [--device auto|cpu|cuda:0|mps] [--threads N] [--max-jobs N] [--no-network]
                     [--quiet]
 
 A standard-library HTTP server (``ThreadingHTTPServer``) with the JSON API of CONTRACTS §4:
@@ -107,7 +107,7 @@ class ServerConfig:
     device: str | None = None
     threads: int | None = None
     max_jobs: int | None = None
-    network: bool = False
+    network: bool | None = None                 # None: the saved setting (on by default)
     quiet: bool = False
     open_browser: bool = False
     kinds: Mapping[str, Any] | None = None                 # tests add their own kinds
@@ -145,8 +145,8 @@ class RunnerServer(ThreadingHTTPServer):
             overrides["threads"] = config.threads
         if config.max_jobs:
             overrides["max_jobs"] = config.max_jobs
-        if config.network:
-            overrides["network"] = {"enabled": True}
+        if config.network is not None:
+            overrides["network"] = {"enabled": bool(config.network)}
         if overrides:
             self.state.update(overrides)            # raises SettingsError on a bad flag value
         token = Guard.resolve_token(config.host, self.state.token, config.no_token)
@@ -963,9 +963,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help="CPU threads per job (saved)")
     parser.add_argument("--max-jobs", type=int, default=None,
                         help="jobs running at once (saved)")
-    parser.add_argument("--network", action="store_true",
-                        help="turn on the runner's network access (saved; connectors, "
-                             "downloads); each project still needs its own web access")
+    parser.add_argument("--network", action=argparse.BooleanOptionalAction, default=None,
+                        help="the runner's network access for connectors and downloads: on by "
+                             "default, --no-network turns it off (saved); each project's web "
+                             "access and each new host's approval still apply")
     parser.add_argument("--quiet", action="store_true", help="log nothing per request")
 
 

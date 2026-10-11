@@ -12,7 +12,8 @@ let mock;
 
 test.beforeAll(async () => {
   mock = await startMockLLM();
-  runner = await startRunner();
+  // the runner's own network switch is on by default; these tests reach no network, so it is off here
+  runner = await startRunner({ args: ["--no-network"] });
 });
 
 test.afterAll(async () => {
@@ -108,30 +109,31 @@ test("a background job: approved, followed on its card until collected, then rea
   watch.expectClean();
 });
 
-test("network: off in the project means no call and no prompt; on, the hosts are asked about, then the runner's own switch decides", async ({ page }) => {
+test("network: on in a new project, the hosts are asked about, then the runner's own switch decides; off in the project means no call and no prompt", async ({ page }) => {
   const watch = watchConsole(page);
   await seedSettings(page, {}, { custom: { id: "custom-e2e", base_url: `${mock.url}/v1`, model: "mock-sci-1" } });
   await openPaired(page, runner);
   await newProject(page, "E2E 联网");
 
-  // web access is off by default: decided in the page, no approval card
+  // web access is on by default: the card names the hosts first; this runner's own switch is off (--no-network)
+  await expect(page.locator(".composer").getByRole("button", { name: /联网/ })).toHaveAttribute("aria-pressed", "true");
   await send(page, "检索相关文献");
-  let answer = await waitForAnswers(page, 1);
-  await expect(answer).toContainText("文献检索的结果：failed（未联网）");
-  expect(await page.locator(".permission").count()).toBe(0);
-
-  // on for this project: the card names the hosts; the runner's network switch is still off (its default)
-  await page.locator(".composer").getByRole("button", { name: /不联网/ }).click();
-  await expect(page.locator(".composer")).toContainText("联网");
-  await send(page, "再检索一次文献");
   const asked = await approve(page, "once");
   expect(asked).toMatch(/europepmc|ebi\.ac\.uk|ncbi|crossref/i);
-  answer = await waitForAnswers(page, 2);
+  let answer = await waitForAnswers(page, 1);
   await expect(answer).toContainText("文献检索的结果：failed（未联网）");
   const db = await readDb(page);
   const last = db.messages.filter((m) => m.role === "tool").sort((a, b) => a.createdAt - b.createdAt).at(-1);
   expect(last.envelope.receipt.where).toBe("runner");
   expect(last.envelope.error.type).toBe("network_off");
   expect(last.envelope.error.hint || "").toMatch(/runner|Runner|--network/);
+
+  // off for this project: decided in the page, no approval card
+  await page.locator(".composer").getByRole("button", { name: /联网/ }).click();
+  await expect(page.locator(".composer").getByRole("button", { name: /不联网/ })).toHaveAttribute("aria-pressed", "false");
+  await send(page, "再检索一次文献");
+  answer = await waitForAnswers(page, 2);
+  await expect(answer).toContainText("文献检索的结果：failed（未联网）");
+  expect(await page.locator(".permission").count()).toBe(0);
   watch.expectClean();
 });

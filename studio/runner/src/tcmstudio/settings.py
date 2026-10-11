@@ -4,7 +4,7 @@
 page edits through ``GET/PUT /api/settings`` (CONTRACTS §4)::
 
     {device: "auto"|"cpu"|"cuda:N"|"rocm:N"|"mps", threads: int, max_jobs: int,
-     network: {enabled: bool, profile: "offline-analysis"|"biomedical-research"},
+     network: {enabled: bool (default true), profile: "offline-analysis"|"biomedical-research"},
      purpose: "academic"|"commercial", allow_remote: bool}
 
 The file is written atomically and readable only by its owner, because the token in it
@@ -33,7 +33,10 @@ __all__ = ["DEFAULT_HOME", "SettingsError", "HomeInUse", "HomeLock", "RunnerStat
            "prepare_home"]
 
 DEFAULT_HOME = Path("~/.tcmscience/studio")
-SCHEMA = "tcmstudio.runner/1"
+SCHEMA = "tcmstudio.runner/2"
+#: Before schema 2 the runner's network access was off by default, and every runner.json
+#: holds that default from its first start (``RunnerState._load`` turns it on once).
+OLD_SCHEMAS = (None, "tcmstudio.runner/1")
 PROFILES = ("offline-analysis", "biomedical-research")
 PURPOSES = ("academic", "commercial")
 DEVICE_RE = re.compile(r"^(auto|cpu|mps|cuda:\d{1,2}|rocm:\d{1,2})$")
@@ -98,7 +101,7 @@ def default_settings() -> dict[str, Any]:
         "threads": threads,
         # one job at a time unless the machine has room for two of the default size
         "max_jobs": 2 if cores >= 8 else 1,
-        "network": {"enabled": False, "profile": "biomedical-research"},
+        "network": {"enabled": True, "profile": "biomedical-research"},
         "purpose": "academic",
         "allow_remote": False,
     }
@@ -150,7 +153,7 @@ def validate(patch: Mapping[str, Any], current: Mapping[str, Any] | None = None)
             if net["profile"] not in PROFILES:
                 raise SettingsError(f"network.profile must be one of {', '.join(PROFILES)}")
             merged["profile"] = net["profile"]
-        out["network"] = {"enabled": bool(merged.get("enabled", False)),
+        out["network"] = {"enabled": bool(merged.get("enabled", True)),
                           "profile": merged.get("profile") or "biomedical-research"}
     if "purpose" in patch:
         if patch["purpose"] not in PURPOSES:
@@ -209,8 +212,20 @@ class RunnerState:
         self.created_at = str(doc.get("created_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ",
                                                                       time.gmtime()))
         self.settings = _clean(doc.get("settings"))
+        if isinstance(doc.get("settings"), Mapping) and doc.get("schema") in OLD_SCHEMAS:
+            self._network_on_by_default()
         if fresh or doc.get("settings") != self.settings or doc.get("schema") != SCHEMA:
             self.save()
+
+    def _network_on_by_default(self) -> None:
+        """A runner.json from before network access was on by default holds that default,
+        off: turn it on, once. An offline-analysis profile was chosen, not defaulted, so it
+        stays. Each project's web access and each new host's approval still apply."""
+        net = self.settings["network"]
+        if not net["enabled"] and net["profile"] != "offline-analysis":
+            self.settings["network"] = {**net, "enabled": True}
+            self.notes.append("network access is now on by default (it was off): turn it off in "
+                              "Settings → Compute or start the runner with --no-network")
 
     def save(self) -> None:
         with self._lock:

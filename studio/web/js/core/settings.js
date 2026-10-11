@@ -5,6 +5,11 @@ import { Emitter } from "./events.js";
 import { storage } from "./util.js";
 
 export const SETTINGS_KEY = "tcmstudio.settings";
+/**
+ * Web access is on by default (version 2). Settings saved before that hold the old default, off, which nobody chose:
+ * read without this mark, they come back on (loadSettings). Saved with it, an "off" is the user's own and stays.
+ */
+export const WEB_DEFAULT_VERSION = 2;
 export const SESSION_KEYS_KEY = "tcmstudio.keys";
 export const LANG_KEY = "tcmscience.lang";
 
@@ -25,7 +30,8 @@ export const DEFAULTS = Object.freeze({
   compute: "auto",
   browserAcceleration: "auto",
   runner: { url: "http://127.0.0.1:8765", token: "" },
-  web: false,
+  web: true,
+  webDefault: WEB_DEFAULT_VERSION,
   onboarded: false,
   inspectorWidth: 400,
   sidebarCollapsed: false,
@@ -43,7 +49,7 @@ const bus = new Emitter();
 
 /** A fresh, complete settings object: what was saved, over DEFAULTS, with nested objects copied. */
 export function loadSettings() {
-  const saved = storage.getJSON(SETTINGS_KEY) || {};
+  const saved = migrate(storage.getJSON(SETTINGS_KEY) || {});
   const s = normalize(saved);
   if (!s.rememberKeys) s.keys = { ...(storage.getJSON(SESSION_KEYS_KEY, "session") || {}) };
   return s;
@@ -88,6 +94,12 @@ export function clearKeys() {
   return saveSettings(s);
 }
 
+/** Settings as saved by an older version, read as this one means them (see WEB_DEFAULT_VERSION). */
+function migrate(saved) {
+  if (!saved || typeof saved !== "object" || saved.webDefault === WEB_DEFAULT_VERSION) return saved;
+  return { ...saved, web: true, webDefault: WEB_DEFAULT_VERSION };
+}
+
 function normalize(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   const s = { ...clone(DEFAULTS), ...clone(src) };
@@ -103,6 +115,7 @@ function normalize(raw) {
   s.temperature = s.temperature === null || s.temperature === "" || s.temperature === undefined || !Number.isFinite(Number(s.temperature))
     ? null : Number(s.temperature);
   for (const k of ["rememberKeys", "thinking", "web", "onboarded", "sidebarCollapsed"]) s[k] = Boolean(s[k]);
+  s.webDefault = WEB_DEFAULT_VERSION;
   if (typeof s.provider !== "string" || !s.provider) s.provider = DEFAULTS.provider;
   return s;
 }

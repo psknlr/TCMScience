@@ -270,7 +270,7 @@ export class BrowserRuntime {
     } catch (err) {
       return this.#bootFailure(name, input, entry, err, started, t0);
     }
-    const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network === true };
+    const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network !== false };
     // only capabilities_status reports host facts; the WebGPU probe is not worth making for every call
     if (entry?.id === "system.capabilities") context.capabilities = await this.#capabilities();
     if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.");

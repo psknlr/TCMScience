@@ -395,10 +395,16 @@ export async function createRuntimes(settings) → {browser: BrowserRuntime, run
 
 | store | keyPath | indexes | record |
 |---|---|---|---|
-| `projects` | `id` | `updatedAt` | `{id, name, description, instructions, color, icon, archived:false, createdAt, updatedAt, defaults:{provider?, model?, compute?, web?:false}, approvals:{[toolOrEntryId]: "project"}}` |
+| `projects` | `id` | `updatedAt` | `{id, name, description, instructions, color, icon, archived:false, createdAt, updatedAt, webDefault:2, defaults:{provider?, model?, compute?, web?:true}, approvals:{[toolOrEntryId]: "project"}}` |
 | `conversations` | `id` | `projectId`, `updatedAt` | `{id, projectId, title, createdAt, updatedAt, leafId, model?, pinned?:false}` |
 | `messages` | `id` | `conversationId` | `{id, conversationId, parentId, role:"user"|"assistant"|"tool", createdAt, content, attachments?:[fileId], reasoning?, toolCalls?:[{id,name,args}], toolCallId?, envelope?, provider, model, wire?, usage?, status?:"ok"|"stopped"|"error", error?}` |
 | `files` | `id` | `projectId`, `sha256` | `{id, projectId, name, type, bytes, sha256, blob, source:"upload"|"tool", createdAt, runnerUploadId?}` |
+
+Web access is on by default. A project record without `webDefault: 2` was written while it was off by default: when
+the app starts it is read once as it reads now (`projects.adoptWebDefault`), its `defaults.web` turned from `false` to
+`true` unless it holds a standing `<entry>:network` or `<entry>:remote_upload` approval (its user turned web access off
+after granting it), `updatedAt` kept, and the mark added. A mark per record rather than a new database version: an
+upgrade would close the database under every tab still running the previous release.
 
 IDs are `crypto.randomUUID()`. Branching: editing a user message creates a sibling with the same `parentId`.
 `conversation.leafId` selects the shown branch. A turn is saved when it ends, and saves are
@@ -418,7 +424,8 @@ debounced during streaming.
   "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 16,
   "compute": "auto",                               // auto | browser | runner
   "runner": {"url": "http://127.0.0.1:8765", "token": ""},
-  "web": false,                                    // default web access for new projects
+  "web": true,                                     // default web access for new projects (on; each host still asks)
+  "webDefault": 2,                                 // read without it, a saved "web": false is the old default: on
   "onboarded": false,
   "inspectorWidth": 400, "sidebarCollapsed": false
 }

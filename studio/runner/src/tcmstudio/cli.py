@@ -1,7 +1,7 @@
 """``tcmstudio``: the catalog, one call, the local runner, and the web build.
 
     tcmstudio catalog [--where browser|runner] [--out FILE] [--no-probe]
-    tcmstudio call TOOL --args JSON [--where browser|runner] [--network] [--project ID]
+    tcmstudio call TOOL --args JSON [--where browser|runner] [--no-network] [--project ID]
     tcmstudio serve …        the local runner (tcmstudio.server)
     tcmstudio webbuild …     the static site build (tcmstudio.webbuild)
 
@@ -47,8 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     k.add_argument("--args", default="{}",
                    help="arguments as JSON, @FILE to read them from a file, or - for stdin")
     k.add_argument("--where", choices=("runner", "browser"), default="runner")
-    k.add_argument("--network", action="store_true",
-                   help="allow network access (permission profile biomedical-research)")
+    k.add_argument("--network", action=argparse.BooleanOptionalAction, default=True,
+                   help="network access, on by default (permission profile biomedical-research); "
+                        "--no-network keeps the call offline")
     k.add_argument("--purpose", choices=("academic", "commercial"), default="academic")
     k.add_argument("--project", default=None, help="project id (selects the audit chain)")
     k.add_argument("--state-root", default=None,
