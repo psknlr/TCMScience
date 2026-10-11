@@ -67,6 +67,31 @@ def outcome_of(env: Mapping[str, Any]) -> str | None:
     return None
 
 
+#: A job's error when it could not reach a host, in the words of Python's urllib, ssl and
+#: socket (requests and urllib3 wrap the same words). bioagent.validation.network.classify
+#: makes each of these BLOCKED when it holds the exception itself; a job's reaches the
+#: scenario only as its error text.
+_UNREACHABLE = (
+    (re.compile(r"Tunnel connection failed|ProxyError|HTTP Error 407", re.I),
+     "the proxy refused to connect to the host: the network policy here does not allow it"),
+    (re.compile(r"Name or service not known|nodename nor servname|Temporary failure in name "
+                r"resolution|NameResolutionError|getaddrinfo failed", re.I),
+     "the host's name does not resolve here"),
+    (re.compile(r"CERTIFICATE_VERIFY_FAILED|certificate verify failed", re.I),
+     "TLS certificate verification failed, and verification is never turned off"),
+    (re.compile(r"urlopen error timed out|ConnectTimeout|Read timed out", re.I),
+     "the host did not answer in time"),
+    (re.compile(r"Connection refused|Network is unreachable|Connection reset by peer|"
+                r"RemoteDisconnected", re.I),
+     "the host could not be reached"),
+)
+
+
+def _unreachable(error: str) -> str | None:
+    """Why a job failed for want of a host it needed, or None if it failed on its own."""
+    return next((why for pattern, why in _UNREACHABLE if pattern.search(error)), None)
+
+
 @dataclass(frozen=True)
 class Scenario:
     n: int
@@ -195,8 +220,12 @@ class _Run:
                          f"{self.jobs_timeout_s:.0f} s (--jobs-timeout)", **evidence)
         else:
             outcome = job.get("outcome") or {}
-            self.rec.add(name, FAIL, f"job {job_id} {state}: "
-                         f"{outcome.get('error') or outcome}"[:600], **evidence)
+            error = f"{outcome.get('error') or outcome}"
+            # a job that could not reach a host it needed is blocked by the network, not wrong
+            why = _unreachable(error)
+            self.rec.add(name, BLOCKED if why else FAIL,
+                         f"job {job_id} {state}: " + (f"{why}: {error}" if why else error)[:600],
+                         **evidence)
         if optional:
             return None
         raise _Stop

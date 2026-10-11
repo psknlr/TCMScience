@@ -215,12 +215,14 @@ every call of every scenario to it over HTTP the way the Studio page does: `POST
 and followed with `job_status` until it has finished. The runner lets no job send data
 to a third party (`allow_remote` off); no scenario needs to. `live-data.yml` runs all
 twelve this way on the hub that tier 3 built from real downloads; `agent-engines.yml`
-runs 7–9 alone and requires them to pass. The runner's job service does what it does for a user: the gate,
-the fixed command line, the artefact checks and the run's own verification. Each job's
-step records its id, kind, final state, approvals and artefacts; a job that failed, was
-refused (an engine not installed: `tool_unavailable` with the remedy) or did not finish
-within `--jobs-timeout` is not passed. The finished results are judged against references
-outside the code:
+runs 7–9 alone and requires them to pass. The runner's job service does what it does for
+a user: the gate, the fixed command line, the artefact checks and the run's own
+verification. Each job's step records its id, kind, final state, approvals and artefacts;
+a job that failed, was refused (an engine not installed: `tool_unavailable` with the
+remedy) or did not finish within `--jobs-timeout` is not passed. A job that failed because
+it could not reach a host it needed (a proxy's refusal, a name that does not resolve, a
+certificate that does not verify, a timeout) is BLOCKED with that reason; one that failed
+on its own is FAIL. The finished results are judged against references outside the code:
 
 | # | The job | Checked against |
 |---|---|---|

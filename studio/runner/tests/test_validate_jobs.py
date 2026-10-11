@@ -160,6 +160,24 @@ def test_a_job_that_failed_on_the_runner_fails_the_scenario_with_its_reason():
     assert rec.status == FAIL and "vina exited" in rec.check("step 1: run_pipeline").detail
 
 
+@pytest.mark.parametrize("error", [
+    "exit 1; refused: could not download the TDC ADMET group from https://dataverse.harvard"
+    ".edu/api/access/datafile/4426004: <urlopen error Tunnel connection failed: 403 Forbidden>",
+    "exit 1; refused: could not download the TDC ADMET group from https://dataverse.harvard"
+    ".edu/api/access/datafile/4426004: <urlopen error [Errno -2] Name or service not known>",
+    "exit 1; refused: could not download the TDC ADMET group from https://dataverse.harvard"
+    ".edu/api/access/datafile/4426004: <urlopen error timed out>",
+])
+def test_a_job_that_could_not_reach_its_host_is_blocked_not_failed(error):
+    # what this container's proxy did to the ADMET job: the host was out of reach, and
+    # nothing the job computed was wrong
+    runner = _Finished("pipeline.admet", None, state="failed", outcome={"error": error})
+    rec, _ = _run(scenarios._admet, runner, tier="live")
+    step = rec.check("step 1: run_pipeline")
+    assert rec.status == BLOCKED and step.status == BLOCKED, rec.as_dict()
+    assert "dataverse.harvard.edu" in step.detail, "the reason is kept whole"
+
+
 def test_the_blood_sample_needs_the_live_tier():
     rec, _ = _run(scenarios._pbmc, _Finished("pipeline.scrna", {}))
     assert rec.check("pbmc_1k").status == SKIPPED
