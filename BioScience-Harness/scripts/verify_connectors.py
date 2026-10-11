@@ -37,6 +37,9 @@ from bioagent.providers.supplement import load_pending  # noqa: E402
 
 FIELDS = ("source", "source_name", "operation", "smoke", "status", "http_status", "attempts",
           "latency_ms", "result_hash", "error", "host", "license", "verified_at")
+#: outcomes that are not a wrong answer: an answer with a documented shortfall, a service
+#: that refused, was not there or did not answer in time (reported, never a pass)
+_NOT_A_FAILURE = ("SUCCEEDED", "DEGRADED", "DENIED", "UNAVAILABLE", "TIMEOUT")
 
 
 def main() -> int:
@@ -46,6 +49,10 @@ def main() -> int:
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--report", default="", help="also write DIR/connector_live_report.json")
+    ap.add_argument("--fail-on", choices=("any", "fail"), default="any",
+                    help="exit non-zero on any operation that did not succeed (any), or only "
+                         "on a wrong answer (fail): a service that refused, was not there or "
+                         "timed out is then reported BLOCKED without failing the run")
     args = ap.parse_args()
 
     # Pending connectors are verified only when named: they are not shipped, and a run
@@ -56,7 +63,7 @@ def main() -> int:
     manifests = {m.id.rsplit(".", 1)[-1]: m for m in PublicAPIProvider(sources).discover()}
     backend = HTTPBackend(cache_dir=None, timeout_s=args.timeout, max_retries=2)
     rows: list[dict] = []
-    failures = 0
+    failures = wrong = 0
     for source in sources:
         if args.only and source.key not in args.only:
             continue
@@ -94,6 +101,7 @@ def main() -> int:
                 digest = "sha256:" + hashlib.sha256(blob).hexdigest()[:12]
             ok = result.status.value == "SUCCEEDED"
             failures += 0 if ok else 1
+            wrong += 0 if result.status.value in _NOT_A_FAILURE else 1
             rows.append({
                 "source": source.key, "source_name": source.name, "operation": op.name,
                 "smoke": op.name == source.smoke, "status": result.status.value,
@@ -124,7 +132,7 @@ def main() -> int:
             writer.writeheader()
             writer.writerows(rows)
         print(f"wrote {out}")
-    return 1 if failures else 0
+    return 1 if (wrong if args.fail_on == "fail" else failures) else 0
 
 
 def _write_report(rows: list[dict], out: Path) -> None:

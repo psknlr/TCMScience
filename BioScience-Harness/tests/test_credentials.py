@@ -124,3 +124,31 @@ def test_with_a_token_it_goes_in_the_header_and_nowhere_else(monkeypatch, tmp_pa
     written = (tmp_path / "rows.csv").read_text() + (report / "connector_live_report.json"
                                                      ).read_text()
     assert TOKEN not in written and TOKEN not in capsys.readouterr().out
+
+
+def _run_script(monkeypatch, tmp_path, status, *extra):
+    from bioagent.backends import http as httpmod
+    from bioagent.status import ExecutionStatus
+
+    class _Result:
+        def __init__(self):
+            self.status, self.value = ExecutionStatus(status), None
+            self.error = "URLError: timed out" if status == "TIMEOUT" else "HTTP 400"
+            self.metadata = {"http_status": None if status == "TIMEOUT" else 400, "attempts": 3}
+    monkeypatch.setattr(httpmod.HTTPBackend, "invoke", lambda self, manifest, **kw: _Result())
+    monkeypatch.setattr(sys, "argv", ["verify_connectors.py", "--only", "knapsack", "--out",
+                                      str(tmp_path / "rows.csv"), "--report",
+                                      str(tmp_path / "report"), *extra])
+    with pytest.raises(SystemExit) as code:
+        runpy.run_path(str(ROOT / "scripts" / "verify_connectors.py"), run_name="__main__")
+    report = json.loads((tmp_path / "report" / "connector_live_report.json").read_text())
+    return code.value.code, {r["status"] for r in report["records"]}
+
+
+def test_a_service_that_did_not_answer_is_blocked_and_fails_the_run_only_when_asked(
+        monkeypatch, tmp_path):
+    """The live workflow fails on a wrong answer, not on a server that timed out; the
+    timeout is reported BLOCKED either way, never as a pass."""
+    assert _run_script(monkeypatch, tmp_path, "TIMEOUT") == (1, {"BLOCKED"})
+    assert _run_script(monkeypatch, tmp_path, "TIMEOUT", "--fail-on", "fail") == (0, {"BLOCKED"})
+    assert _run_script(monkeypatch, tmp_path, "FAILED", "--fail-on", "fail") == (1, {"FAIL"})

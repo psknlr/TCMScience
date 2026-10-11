@@ -104,8 +104,10 @@ jobs:
         working-directory: BioScience-Harness
         run: |
           code=0
+          # a wrong answer fails the job; a service that timed out, refused or was not
+          # there is reported BLOCKED (never a pass), as a dataset's blocked server is
           PYTHONPATH=src python scripts/verify_connectors.py --out "$RUNNER_TEMP/connectors.csv" \
-            --report "$RUNNER_TEMP/reports/connectors" || code=$?
+            --report "$RUNNER_TEMP/reports/connectors" --fail-on fail || code=$?
           echo "----- BEGIN connector_live_verification.csv -----"
           cat "$RUNNER_TEMP/connectors.csv"
           echo "----- END connector_live_verification.csv -----"
