@@ -64,6 +64,19 @@ jobs:
         id: scenarios
         continue-on-error: true
         run: tcmstudio validate --out "$RUNNER_TEMP/reports/scenarios" --tier live --kinds core --tcmdb-root "$RUNNER_TEMP/work/tcmdb"
+      - name: The live downloads, folded into the verification record
+        if: always() && steps.data.outcome != 'skipped'
+        run: |
+          report="$RUNNER_TEMP/reports/data/live_download_validation.json"
+          test -f "$report" || { echo "no live download report"; exit 0; }
+          # this run's results over the committed record's, file by file
+          cp BioScience-Harness/src/bioagent/data/live_download_verification.json "$RUNNER_TEMP/reports/" 2>/dev/null || true
+          bioagent validate record --report "$report" --record "$RUNNER_TEMP/reports/live_download_verification.json"
+          # printed whole between markers: the committed record
+          # (src/bioagent/data/live_download_verification.json) is updated from this text
+          echo "----- BEGIN live_download_verification.json -----"
+          cat "$RUNNER_TEMP/reports/live_download_verification.json"
+          echo "----- END live_download_verification.json -----"
       - name: Summary
         if: always()
         run: bioagent validate summary "$RUNNER_TEMP/reports" --rows 80 | tee -a "$GITHUB_STEP_SUMMARY"
