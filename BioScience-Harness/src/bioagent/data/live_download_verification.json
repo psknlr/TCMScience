@@ -1,4 +1,3340 @@
 {
+ "datasets": {
+  "aopwiki": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "aop-wiki-xml-2026-10-01.gz": {
+     "bytes": 10559600,
+     "reason": "10559600 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://aopwiki.org/downloads/aop-wiki-xml-2026-10-01.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 12 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: aop-wiki-xml-2026-10-01.gz ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:09Z",
+   "version": "quarterly XML 2026-10-01 (AOP-Wiki release 2.8)"
+  },
+  "archs4": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "archs4_versionfile.json": {
+     "bytes": 17134,
+     "checksum": "sha256:78c0accdf6c6e46abff7115835df60686fe3b8cac2b9e0f9b4f11defa21dd905",
+     "reason": "17134 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://archs4.org/api/versionfile",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: archs4_versionfile.json sha256:78c0accdf6c6e46abff7115835df60686fe3b8cac2b9e0f9b4f11defa21dd905",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:19Z",
+   "version": "version list as fetched; HDF5 pinned to v2.5 (2025-01-14)"
+  },
+  "batman1": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "batman1_known_dti.txt": {
+     "bytes": 1267171,
+     "checksum": "sha256:fa1ad76cfd98bf0ee1796e91b519d2e4688e537e44fd44706afe025a950fb1a1",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "http://bionet.ncpsb.org.cn/batman-tcm/index.php/Home/download/fileDownload?fileName=Known%20drug-target%20interaction%20data.txt",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 1 of 1 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:36:56Z",
+   "version": "1.0"
+  },
+  "batman2": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "formula_browse.txt": {
+     "bytes": 5574431,
+     "checksum": "sha256:79db346dfed77cd5556f24a0c5d312af9a7c8896e9b9ec66e7f356e760e10ff1",
+     "reason": "5574431 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/formula_browse.txt",
+     "verified": "size"
+    },
+    "herb_browse.txt": {
+     "bytes": 18160550,
+     "checksum": "sha256:7d3992de5b953be9c2f2265f6698566d0883815b9b2c9b0d0cdac38469949f07",
+     "reason": "18160550 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/herb_browse.txt",
+     "verified": "size"
+    },
+    "known_browse_by_ingredients.txt.gz": {
+     "bytes": 88231,
+     "checksum": "sha256:8b615e243a7d7708b959cc8c6e119f905983130b061f4e16d305d20dee99ebe3",
+     "reason": "88231 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/known_browse_by_ingredients.txt.gz",
+     "verified": "size"
+    },
+    "known_browse_by_targets.txt.gz": {
+     "bytes": 55577,
+     "checksum": "sha256:540f055a9948ca8f5c6f7c668da52290d9ab53165ec56616ff7c8b1519457133",
+     "reason": "55577 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/known_browse_by_targets.txt.gz",
+     "verified": "size"
+    },
+    "predicted__browse_by_targets.txt.gz": {
+     "bytes": 7430119,
+     "checksum": "sha256:19bf7db384c451749d652b9ee8c8e61d9aaa8acb35ff699a4accdc6990c959b2",
+     "reason": "7430119 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/predicted__browse_by_targets.txt.gz",
+     "verified": "size"
+    },
+    "predicted_browse_by_ingredients.txt.gz": {
+     "bytes": 5610906,
+     "checksum": "sha256:61d7215af9b74929b2d9ea8cc0562316ebddb7573bac77367986df903bc5f075",
+     "reason": "5610906 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://batman2.cloudna.cn/downloadApiFile/data/browser/predicted_browse_by_ingredients.txt.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 6 of 6 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: known_browse_by_ingredients.txt.gz sha256:8b615e243a7d7708b959cc8c6e119f905983130b061f4e16d305d20dee99ebe3; predicted_browse_by_ingredients.txt.gz sha256:61d7215af9b74929b2d9ea8cc0562316ebddb7573bac77367986df903bc5f075; known_browse_by_targets.txt.gz sha256:540f055a9948ca8f5c6f7c668da52290d9ab53165ec56616ff7c8b1519457133; predicted__browse_by_targets.txt.gz sha256:19bf7db384c451749d652b9ee8c8e61d9aaa8acb35ff699a4accdc6990c959b2; herb_browse.txt sha256:7d3992de5b953be9c2f2265f6698566d0883815b9b2c9b0d0cdac38469949f07; formula_browse.txt sha256:79db346dfed77cd5556f24a0c5d312af9a7c8896e9b9ec66e7f356e760e10ff1",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:08Z",
+   "version": "2.0"
+  },
+  "biogrid": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "BIOGRID-ALL-5.0.262.tab3.zip": {
+     "bytes": 182882024,
+     "checksum": "sha256:7221dad43bd90ec24d1fca5e9e5989e021cb6dfb002a205d92cae5ca4219c86b",
+     "reason": "182882024 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-ALL-5.0.262.tab3.zip",
+     "verified": "size"
+    },
+    "BIOGRID-CHEMICALS-5.0.262.chemtab.zip": {
+     "bytes": 1370068,
+     "checksum": "sha256:3acafe570911b40c85c2f06cdf2bc5bd60f1d705366539d5156cf66c616c6ed6",
+     "reason": "1370068 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-CHEMICALS-5.0.262.chemtab.zip",
+     "verified": "size"
+    },
+    "BIOGRID-MV-Physical-5.0.262.tab3.zip": {
+     "bytes": 35126043,
+     "checksum": "sha256:7183980a5f492028c7da5815dc83a44ae9f53cb748463297c5f9dc5844484ef1",
+     "reason": "35126043 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-MV-Physical-5.0.262.tab3.zip",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: BIOGRID-MV-Physical-5.0.262.tab3.zip sha256:7183980a5f492028c7da5815dc83a44ae9f53cb748463297c5f9dc5844484ef1; BIOGRID-CHEMICALS-5.0.262.chemtab.zip sha256:3acafe570911b40c85c2f06cdf2bc5bd60f1d705366539d5156cf66c616c6ed6; BIOGRID-ALL-5.0.262.tab3.zip sha256:7221dad43bd90ec24d1fca5e9e5989e021cb6dfb002a205d92cae5ca4219c86b",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:50:53Z",
+   "version": "5.0.262 (2026-10-01)"
+  },
+  "biogrid_orcs": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "BIOGRID-ORCS-ALL-drosophila_melanogaster-2.0.18.screens.tar.gz": {
+     "bytes": 755206,
+     "reason": "755206 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://downloads.thebiogrid.org/Download/BioGRID-ORCS/Release-Archive/BIOGRID-ORCS-2.0.18/BIOGRID-ORCS-ALL-drosophila_melanogaster-2.0.18.screens.tar.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: BIOGRID-ORCS-ALL-drosophila_melanogaster-2.0.18.screens.tar.gz ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:48Z",
+   "version": "2.0.18"
+  },
+  "cellosaurus": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "cellosaurus.txt": {
+     "bytes": 122297334,
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.txt",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 4 of 4 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:50Z",
+   "version": "56.0 (2026-06-25)"
+  },
+  "chebi": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "LICENSE": {
+     "bytes": 18655,
+     "checksum": "sha256:fe7b4ce83b8381cc5b216bbb4af73c570688d1b819c73bbaed8ca401f4677cd6",
+     "reason": "18655 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/LICENSE",
+     "verified": "size"
+    },
+    "chemical_data.tsv.gz": {
+     "bytes": 3755817,
+     "checksum": "sha256:5c5d6d4b2c84d7bcf8e6c0cdd5b2eb05650886c78977bae8771dff959ada3b80",
+     "reason": "3755817 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/chemical_data.tsv.gz",
+     "verified": "size"
+    },
+    "compound_origins.tsv.gz": {
+     "bytes": 1023228,
+     "checksum": "sha256:d5ebb869ba460f551cfacf7e3be3e32afc128502aa88afce9ebeb3920ea7454e",
+     "reason": "1023228 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/compound_origins.tsv.gz",
+     "verified": "size"
+    },
+    "compounds.tsv.gz": {
+     "bytes": 6993365,
+     "checksum": "sha256:e192fa302ae2107b7cb3007be7d8c7d3b95b72ded3d9e5335c9fd5e79cec9e9a",
+     "reason": "6993365 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/compounds.tsv.gz",
+     "verified": "size"
+    },
+    "database_accession.tsv.gz": {
+     "bytes": 3951238,
+     "checksum": "sha256:0a40ba07c747edd4772840337e38be5d5b4efabf386d06cdea4e892724a999f7",
+     "reason": "3951238 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/database_accession.tsv.gz",
+     "verified": "size"
+    },
+    "names.tsv.gz": {
+     "bytes": 9506977,
+     "checksum": "sha256:64c9c9ec9e7f97c3e8723c124e0a88bd2761ad558f412b13941906be6c7f7f91",
+     "reason": "9506977 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/names.tsv.gz",
+     "verified": "size"
+    },
+    "relation.tsv.gz": {
+     "bytes": 2700067,
+     "checksum": "sha256:9b9298ba4651161799e61460cf0e3e17467501ac0bf0cfb79eb2696075118145",
+     "reason": "2700067 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/relation.tsv.gz",
+     "verified": "size"
+    },
+    "relation_type.tsv.gz": {
+     "bytes": 252,
+     "checksum": "sha256:d49a15afd5e86b346e5559f715e662e1eff8745a89b7405ea83a16e625321b54",
+     "reason": "252 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/relation_type.tsv.gz",
+     "verified": "size"
+    },
+    "secondary_ids.tsv.gz": {
+     "bytes": 86794,
+     "checksum": "sha256:788afa6c82e28671ad40abeac080e8251686a850f15fe81cef7bc0f34f835aaa",
+     "reason": "86794 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/secondary_ids.tsv.gz",
+     "verified": "size"
+    },
+    "source.tsv.gz": {
+     "bytes": 3723,
+     "checksum": "sha256:d5e94ebb56517a358f1af9736340b53adce48ad9f9100b463814f4d9ca5b7dec",
+     "reason": "3723 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/source.tsv.gz",
+     "verified": "size"
+    },
+    "status.tsv.gz": {
+     "bytes": 71,
+     "checksum": "sha256:232d4f4deaa47200f57fec1fe8c6cecfac0a8b8d16c9fee4236730460799e0e5",
+     "reason": "71 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/status.tsv.gz",
+     "verified": "size"
+    },
+    "structures.tsv.gz": {
+     "bytes": 93035382,
+     "checksum": "sha256:02007c9dc11dd4cdc453503700178a35094b7f2e44297149aae6f594aac42bd9",
+     "reason": "93035382 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/structures.tsv.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 12 of 12 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: compounds.tsv.gz sha256:e192fa302ae2107b7cb3007be7d8c7d3b95b72ded3d9e5335c9fd5e79cec9e9a; names.tsv.gz sha256:64c9c9ec9e7f97c3e8723c124e0a88bd2761ad558f412b13941906be6c7f7f91; relation.tsv.gz sha256:9b9298ba4651161799e61460cf0e3e17467501ac0bf0cfb79eb2696075118145; relation_type.tsv.gz sha256:d49a15afd5e86b346e5559f715e662e1eff8745a89b7405ea83a16e625321b54; chemical_data.tsv.gz sha256:5c5d6d4b2c84d7bcf8e6c0cdd5b2eb05650886c78977bae8771dff959ada3b80; database_accession.tsv.gz sha256:0a40ba07c747edd4772840337e38be5d5b4efabf386d06cdea4e892724a999f7",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:52Z",
+   "version": "255 (2026-09-09)"
+  },
+  "chip_atlas": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "entity_tables": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "analysisList.tab": {
+     "bytes": 210378,
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://chip-atlas.dbcls.jp/data/metadata/analysisList.tab",
+     "verified": "none"
+    },
+    "antigenList.tab": {
+     "bytes": 10151392,
+     "checksum": "sha256:2cfdc94654e722a176196adb1e020364df9306c504c9dbe99750cb625304cf9b",
+     "reason": "10151392 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://chip-atlas.dbcls.jp/data/metadata/antigenList.tab",
+     "verified": "size"
+    },
+    "celltypeList.tab": {
+     "bytes": 10175006,
+     "checksum": "sha256:3ddb3db201de07d3ed1f3ddc59d7aaac36df0c010216c512994d3a42b4b1e7ce",
+     "reason": "10175006 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://chip-atlas.dbcls.jp/data/metadata/celltypeList.tab",
+     "verified": "size"
+    }
+   },
+   "reason": "acquisition: 4 of 4 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:42Z",
+   "version": "metadata of 2026-09-28"
+  },
+  "clinpgx": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "chemicals.zip": {
+     "bytes": 816104,
+     "checksum": "sha256:11a292c9802e3ce431ada32f0e49a505ea5dacbf38a09ec227e2d4be3afff3d6",
+     "reason": "816104 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://api.clinpgx.org/v1/download/file/data/chemicals.zip",
+     "verified": "size"
+    },
+    "drugLabels.zip": {
+     "bytes": 60036,
+     "checksum": "sha256:ad892f2a413882d4d0f83e27453c811f79b8cc15e15eb0860b73b5bf0e8a7ef8",
+     "reason": "60036 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://api.clinpgx.org/v1/download/file/data/drugLabels.zip",
+     "verified": "size"
+    },
+    "relationships.zip": {
+     "bytes": 4300897,
+     "checksum": "sha256:a126f11045adc16bc2b2ccf825d9ed0be055410ef84120adee90ba1a34492f7a",
+     "reason": "4300897 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://api.clinpgx.org/v1/download/file/data/relationships.zip",
+     "verified": "size"
+    },
+    "summaryAnnotations.zip": {
+     "bytes": 1236737,
+     "checksum": "sha256:16e10905ca674f1e3dcf0477f0d3a1e7c4380eeda35fed612f5a7a218288adb5",
+     "reason": "1236737 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://api.clinpgx.org/v1/download/file/data/summaryAnnotations.zip",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: relationships.zip sha256:a126f11045adc16bc2b2ccf825d9ed0be055410ef84120adee90ba1a34492f7a; summaryAnnotations.zip sha256:16e10905ca674f1e3dcf0477f0d3a1e7c4380eeda35fed612f5a7a218288adb5; chemicals.zip sha256:11a292c9802e3ce431ada32f0e49a505ea5dacbf38a09ec227e2d4be3afff3d6; drugLabels.zip sha256:ad892f2a413882d4d0f83e27453c811f79b8cc15e15eb0860b73b5bf0e8a7ef8",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:46:57Z",
+   "version": "files of 2026-09-05"
+  },
+  "cmaup": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "PASS",
+    "queries": "PASS"
+   },
+   "files": {
+    "CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt": {
+     "bytes": 1338251,
+     "checksum": "sha256:10b3ffacafcdae53180842945468aad726f1be30deafbc56fd04de4eca1165f5",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredient_Target_Associations_ActivityValues_References.txt",
+     "verified": "checksum"
+    },
+    "CMAUPv2.0_download_Ingredients_All.txt": {
+     "bytes": 25238280,
+     "checksum": "sha256:5b091ad0c4f8c576cfbd2b5ee5418dd25c1171ccaf2f9811acb558717f155c6f",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Ingredients_All.txt",
+     "verified": "checksum"
+    },
+    "CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt": {
+     "bytes": 7973286,
+     "checksum": "sha256:a0a7321201b15f4465e615e97e6f01651e26db6a88c13faea47d8e337a7e598b",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plant_Ingredient_Associations_allIngredients.txt",
+     "verified": "checksum"
+    },
+    "CMAUPv2.0_download_Plants.txt": {
+     "bytes": 648352,
+     "checksum": "sha256:74c41c5b1b85e041163c2b74ac74e400f49cd4696a8f8a2bb1d112da3fffe780",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Plants.txt",
+     "verified": "checksum"
+    },
+    "CMAUPv2.0_download_Targets.txt": {
+     "bytes": 117843,
+     "checksum": "sha256:baf471c054fb858e130fdf6ab0b4e78869e8acb20336fad757828113b67ae16b",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/CMAUP/downloadFiles/CMAUPv2.0_download_Targets.txt",
+     "verified": "checksum"
+    }
+   },
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "PASS",
+   "verified_at": "2026-10-11T18:42:29Z",
+   "version": "2.0"
+  },
+  "coconut": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "coconut_csv-10-2026.zip": {
+     "bytes": 247959854,
+     "checksum": "sha256:95a0525b11a334389ceebb941d0a8ee9446892fccf4f8ff78d2184efc1c974ea",
+     "reason": "247959854 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://coconut.s3.uni-jena.de/prod/downloads/2026-10/coconut_csv-10-2026.zip",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: coconut_csv-10-2026.zip sha256:95a0525b11a334389ceebb941d0a8ee9446892fccf4f8ff78d2184efc1c974ea",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:41:44Z",
+   "version": "2026-10 (monthly release; files of 2026-10-01)"
+  },
+  "comptox": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "DB_release_README_SUMMARY.pdf": {
+     "bytes": 171736,
+     "checksum": "sha256:fffa727f45f01a2e3593d93348aee527a03c5b1957bfe75b7567da7354d108af",
+     "reason": "171736 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/697b7530e4b0731a6170449e/blob",
+     "verified": "size"
+    },
+    "DSSTox_CCD_dump_12092025_CSVs.zip": {
+     "bytes": 289824966,
+     "checksum": "sha256:66fc9d4d3bda053ab60ee01e2ff0ed4ba030339588c40711b6939faede6cf4c3",
+     "reason": "289824966 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/69529775e4b0731a616efc4b/blob",
+     "verified": "size"
+    },
+    "analytical_qc_invitrodb_v4_3_AUG2025.xlsx": {
+     "bytes": 2915329,
+     "checksum": "sha256:7d562347a459da5e03e51bb3f40b1561b9d07f96a0b695bbdc296e19c2e7cd67",
+     "reason": "2915329 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3ab8/blob",
+     "verified": "size"
+    },
+    "assay_annotations_invitrodb_v4_3_AUG2025.xlsx": {
+     "bytes": 1088201,
+     "checksum": "sha256:eecbdac47fe4b4c3db765d412d15526331c269d36c7d79dde938f59ea60461f9",
+     "reason": "1088201 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa8/blob",
+     "verified": "size"
+    },
+    "assay_target_mappings_invitrodb_v4_3_AUG2025.xlsx": {
+     "bytes": 97652,
+     "checksum": "sha256:bf45c47dc383c16aea9c4cf92993f7034a3141a252aa02d9f7aa7216ac84c394",
+     "reason": "97652 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa0/blob",
+     "verified": "size"
+    },
+    "cytotox_invitrodb_v4_3_AUG2025.xlsx": {
+     "bytes": 943302,
+     "checksum": "sha256:3bc444f658c80e4ac9a1189f083c0120365b504e10d0aa4e0f07feda294c08dd",
+     "reason": "943302 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa4/blob",
+     "verified": "size"
+    },
+    "pubchem_invitrodb_v4_3_19AUG2026.zip": {
+     "bytes": 192901527,
+     "checksum": "sha256:1682ffcd99ee45ce10973ee0284ccb7b30f726573e2d8408e8df0c4f1d96a886",
+     "reason": "192901527 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://clowder.edap-cluster.com/api/files/6a85a260e4b0731a36bd04cc/blob",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 7 of 7 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: pubchem_invitrodb_v4_3_19AUG2026.zip sha256:1682ffcd99ee45ce10973ee0284ccb7b30f726573e2d8408e8df0c4f1d96a886; assay_annotations_invitrodb_v4_3_AUG2025.xlsx sha256:eecbdac47fe4b4c3db765d412d15526331c269d36c7d79dde938f59ea60461f9; assay_target_mappings_invitrodb_v4_3_AUG2025.xlsx sha256:bf45c47dc383c16aea9c4cf92993f7034a3141a252aa02d9f7aa7216ac84c394; cytotox_invitrodb_v4_3_AUG2025.xlsx sha256:3bc444f658c80e4ac9a1189f083c0120365b504e10d0aa4e0f07feda294c08dd; analytical_qc_invitrodb_v4_3_AUG2025.xlsx sha256:7d562347a459da5e03e51bb3f40b1561b9d07f96a0b695bbdc296e19c2e7cd67; DSSTox_CCD_dump_12092025_CSVs.zip sha256:66fc9d4d3bda053ab60ee01e2ff0ed4ba030339588c40711b6939faede6cf4c3",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:50:02Z",
+   "version": "invitrodb v4.3 (August 2025); PubChem deposition of 2026-08-19"
+  },
+  "cpic": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "cpic_gene-drug_pairs.xlsx": {
+     "bytes": 33032,
+     "checksum": "sha256:75d21130a324c90305702ec7789c823c05001f2f6ad510f7267c8801be443c9a",
+     "reason": "33032 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://files.cpicpgx.org/data/report/current/pair/cpic_gene-drug_pairs.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: cpic_gene-drug_pairs.xlsx sha256:75d21130a324c90305702ec7789c823c05001f2f6ad510f7267c8801be443c9a",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:12Z",
+   "version": "report of 2026-08-07"
+  },
+  "dbpth": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "Homo_sapiens.zip": {
+     "bytes": 1165724,
+     "checksum": "sha256:5e3de49418db277c489a992bda1b677a6d28b5a58c027439b597d9baea4a3893",
+     "reason": "1165724 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://dbpth.biocuckoo.cn/Download/Species/Homo_sapiens.zip",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: Homo_sapiens.zip sha256:5e3de49418db277c489a992bda1b677a6d28b5a58c027439b597d9baea4a3893",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:00Z",
+   "version": ""
+  },
+  "dcabm": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "Constituents_detected_in_blood20230603.inchi": {
+     "bytes": 317469,
+     "checksum": "sha256:6a4e58aebd62068e1767669e67f3ceaffd3a520e7d7f4937cfd1443d40a294d8",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "http://bionet.ncpsb.org.cn/seed_tcm/download/downloadFile?fileName=Constituents_detected_in_blood20230603.inchi",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 1 of 1 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:36:51Z",
+   "version": "2023-06-03"
+  },
+  "ddid": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "DDID_Disease_Information.csv": {
+     "bytes": 102307,
+     "checksum": "sha256:033e539586d19ec9249353c37784fb2c06320ec5c84259f2a4daaa31beffd864",
+     "reason": "102307 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Disease%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_Drug_Information.csv": {
+     "bytes": 2236382,
+     "checksum": "sha256:b598a4c8fa8de95f7a0526ae88c9f2ffcdaecffd040c77d9d89b950cce8e8931",
+     "reason": "2236382 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Drug%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_Food_Information.csv": {
+     "bytes": 134921,
+     "checksum": "sha256:ae6c323fa48c5fce2dc0668cb75ea7c1f47af6e13ae1d6526ea4f49cca0e15fd",
+     "reason": "134921 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Food%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_Herb_Information.csv": {
+     "bytes": 428852,
+     "checksum": "sha256:0dc677a0699b3f4e9bd17a35140671818f662d0ed09f0252ddedb18032b968f6",
+     "reason": "428852 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Herb%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_Interaction_Information.csv": {
+     "bytes": 18386578,
+     "checksum": "sha256:971f358383bff8462f507179782e5204c99ab4574c7f9b3b9c3be2bd06fd1749",
+     "reason": "18386578 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Interaction%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_NP_Information.csv": {
+     "bytes": 6536107,
+     "checksum": "sha256:4dcf139647c0de8a04fbbe889fab17d069950c657b5faa6ecf0fd7bfc05d3dd9",
+     "reason": "6536107 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/NP%20Information.csv",
+     "verified": "size"
+    },
+    "DDID_Target_Information.csv": {
+     "bytes": 103697,
+     "checksum": "sha256:48b37ae8e33124868e70347c87a4c5c9ae7afb19ae3be108bda6cfb820baf7fb",
+     "reason": "103697 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://bddg.hznu.edu.cn/ddid/static/download/Target%20Information.csv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 7 of 7 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: DDID_Interaction_Information.csv sha256:971f358383bff8462f507179782e5204c99ab4574c7f9b3b9c3be2bd06fd1749; DDID_Drug_Information.csv sha256:b598a4c8fa8de95f7a0526ae88c9f2ffcdaecffd040c77d9d89b950cce8e8931; DDID_Food_Information.csv sha256:ae6c323fa48c5fce2dc0668cb75ea7c1f47af6e13ae1d6526ea4f49cca0e15fd; DDID_Herb_Information.csv sha256:0dc677a0699b3f4e9bd17a35140671818f662d0ed09f0252ddedb18032b968f6; DDID_NP_Information.csv sha256:4dcf139647c0de8a04fbbe889fab17d069950c657b5faa6ecf0fd7bfc05d3dd9; DDID_Target_Information.csv sha256:48b37ae8e33124868e70347c87a4c5c9ae7afb19ae3be108bda6cfb820baf7fb",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:03Z",
+   "version": ""
+  },
+  "depmap": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "AchillesCommonEssentialControls.csv": {
+     "bytes": 17015,
+     "checksum": "sha256:a1a48ad516011c521b1981769e2f78de84d1410371f8517a7428349be6e6b98a",
+     "reason": "17015 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51063560",
+     "verified": "size"
+    },
+    "AchillesNonessentialControls.csv": {
+     "bytes": 11490,
+     "checksum": "sha256:c7add12af5a37912997fdab0a7aabeef8d811b1ac7ee23dfcffa3a06471ce097",
+     "reason": "11490 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51063566",
+     "verified": "size"
+    },
+    "CRISPRInferredCommonEssentials.csv": {
+     "bytes": 20795,
+     "checksum": "sha256:0352de5335ae3bf72250dd136d1b0df87a6b72f653df34c2560cce17c0e7d928",
+     "reason": "20795 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51064916",
+     "verified": "size"
+    },
+    "Model.csv": {
+     "bytes": 645696,
+     "checksum": "sha256:b7a0c1385e6cef30132b56aff61f1261d11e3f490490b355c430d32ee0dbdcfa",
+     "reason": "645696 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51065297",
+     "verified": "size"
+    },
+    "PortalCompounds.csv": {
+     "bytes": 692052,
+     "checksum": "sha256:8078ad69c27378a8101e90358dc216bfa03156c20f3087b66a260b90a8fad992",
+     "reason": "692052 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51065762",
+     "verified": "size"
+    },
+    "README.txt": {
+     "bytes": 43103,
+     "checksum": "sha256:f744a5cf5c112e01276e772679157aac8e85cdc4a8f6d3b86d808e3bfd332891",
+     "reason": "43103 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/51065795",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 6 of 6 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: Model.csv sha256:b7a0c1385e6cef30132b56aff61f1261d11e3f490490b355c430d32ee0dbdcfa; CRISPRInferredCommonEssentials.csv sha256:0352de5335ae3bf72250dd136d1b0df87a6b72f653df34c2560cce17c0e7d928; PortalCompounds.csv sha256:8078ad69c27378a8101e90358dc216bfa03156c20f3087b66a260b90a8fad992; AchillesCommonEssentialControls.csv sha256:a1a48ad516011c521b1981769e2f78de84d1410371f8517a7428349be6e6b98a; AchillesNonessentialControls.csv sha256:c7add12af5a37912997fdab0a7aabeef8d811b1ac7ee23dfcffa3a06471ce097; README.txt sha256:f744a5cf5c112e01276e772679157aac8e85cdc4a8f6d3b86d808e3bfd332891",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:33Z",
+   "version": "DepMap Public 24Q4 (figshare+ 10.25452/figshare.plus.27993248.v1, 2024-12-10); Repurposing Public 24Q2 (10.6084/m9.figshare.25917643.v1)"
+  },
+  "disprot": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "disprot_2026_06.json": {
+     "bytes": 28304359,
+     "reason": "28304359 bytes, whole: it parses as one whole JSON document (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://disprot.org/api/search?release=2026_06&show_ambiguous=true&show_obsolete=false&namespace=all&get_consensus=false&format=json",
+     "verified": "structure"
+    },
+    "disprot_2026_06_regions.tsv": {
+     "bytes": 4659842,
+     "checksum": "sha256:16bbcce3f1cc730bf4d01ef8536f7f438150bf5510d9aeabf9625f2af5670d6f",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://disprot.org/api/search?release=2026_06&show_ambiguous=true&show_obsolete=false&namespace=all&get_consensus=false&format=tsv",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 3 of 3 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:38Z",
+   "version": "2026_06"
+  },
+  "drugcentral": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "EMA_Approved.csv": {
+     "bytes": 8099,
+     "checksum": "sha256:58e32326c89fa4f1901e51303c92fa77c685e82bf3bb79b05fee87ef155d0de8",
+     "reason": "8099 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://drugcentral.org/static/EMA_Approved.csv",
+     "verified": "size"
+    },
+    "FDA_Approved.csv": {
+     "bytes": 42482,
+     "checksum": "sha256:e645cf89a6f2f01317b9a42354ba761c13b21908c0212444f6aead0791a88186",
+     "reason": "42482 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://drugcentral.org/static/FDA_Approved.csv",
+     "verified": "size"
+    },
+    "PMDA_Approved.csv": {
+     "bytes": 7716,
+     "checksum": "sha256:b88d9bb693e015a31dd838bcb7ec6033cb472216adc3946da2891d90236e1e9b",
+     "reason": "7716 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://drugcentral.org/static/PMDA_Approved.csv",
+     "verified": "size"
+    },
+    "drug.target.interaction.tsv.gz": {
+     "bytes": 956583,
+     "checksum": "sha256:1908684983a79a067a44da952e1f6fd26b0f34cc36560cd9be0f0843bbfee1e1",
+     "reason": "956583 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://unmtid-dbs.net/download/drug.target.interaction.tsv.gz",
+     "verified": "size"
+    },
+    "structures.smiles.tsv": {
+     "bytes": 1089436,
+     "checksum": "sha256:5b81423a2ec1e2766e9666ec4a172d5a5b47045ea2cc032d1ba06085956bc1fc",
+     "reason": "1089436 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://unmtid-dbs.net/download/DrugCentral/2021_09_01/structures.smiles.tsv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 5 of 5 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: drug.target.interaction.tsv.gz sha256:1908684983a79a067a44da952e1f6fd26b0f34cc36560cd9be0f0843bbfee1e1; structures.smiles.tsv sha256:5b81423a2ec1e2766e9666ec4a172d5a5b47045ea2cc032d1ba06085956bc1fc; FDA_Approved.csv sha256:e645cf89a6f2f01317b9a42354ba761c13b21908c0212444f6aead0791a88186; EMA_Approved.csv sha256:58e32326c89fa4f1901e51303c92fa77c685e82bf3bb79b05fee87ef155d0de8; PMDA_Approved.csv sha256:b88d9bb693e015a31dd838bcb7ec6033cb472216adc3946da2891d90236e1e9b",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:03Z",
+   "version": "2026-09-25 dump; drug-target file 2026-09-27"
+  },
+  "drugcomb": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "DrugComb_cell_line_identifiers.xlsx": {
+     "bytes": 161434,
+     "checksum": "sha256:88c7c2a06351e715f1f5c276a98d049fbe33d038516f711b8d9a166e11cd045d",
+     "reason": "161434 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/18449193/files/DrugComb_cell_line_identifiers.xlsx/content",
+     "verified": "size"
+    },
+    "DrugComb_drug_identifiers.xlsx": {
+     "bytes": 5856350,
+     "checksum": "sha256:02b1655ad15a81e0bef06909e147ff4c688938aa7f75eb04603f440e8b18438c",
+     "reason": "5856350 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/18449193/files/DrugComb_drug_identifiers.xlsx/content",
+     "verified": "size"
+    },
+    "summary_table_v1.4.csv": {
+     "bytes": 193184734,
+     "checksum": "sha256:e08e3d35bfa4bea011afe1b05b7025acde5c669c5e8d265866b5e12b08037a2f",
+     "reason": "193184734 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/11102665/files/summary_table_v1.4.csv/content",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: summary_table_v1.4.csv sha256:e08e3d35bfa4bea011afe1b05b7025acde5c669c5e8d265866b5e12b08037a2f; DrugComb_drug_identifiers.xlsx sha256:02b1655ad15a81e0bef06909e147ff4c688938aa7f75eb04603f440e8b18438c; DrugComb_cell_line_identifiers.xlsx sha256:88c7c2a06351e715f1f5c276a98d049fbe33d038516f711b8d9a166e11cd045d",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:45:29Z",
+   "version": "1.4 (summary 2019, identifiers re-deposited 2026-02-01); 1.5 optional"
+  },
+  "ema_herbal": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "ema_documents.json": {
+     "bytes": 37284180,
+     "checksum": "sha256:720e81d76cc25263bfb55e8b2500ebb0f076f7a14e553604505d3e8362914852",
+     "reason": "37284180 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.ema.europa.eu/en/documents/report/documents-output-json-report_en.json",
+     "verified": "size"
+    },
+    "ema_herbal_medicines.json": {
+     "bytes": 202757,
+     "checksum": "sha256:7fc0be29c9f2366e8d0d4b48fa01b53056ddbf783fc64e3b31314c2a2c3d732f",
+     "reason": "202757 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.ema.europa.eu/en/documents/report/medicines-output-herbal_medicines-report-output-json_en.json",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: ema_herbal_medicines.json sha256:7fc0be29c9f2366e8d0d4b48fa01b53056ddbf783fc64e3b31314c2a2c3d732f; ema_documents.json sha256:720e81d76cc25263bfb55e8b2500ebb0f076f7a14e553604505d3e8362914852",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:06Z",
+   "version": "rolling (regenerated at 06:00 and 18:00 CET; each row carries the file's meta_timestamp)"
+  },
+  "eqtl_catalogue": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "QTD000266.credible_sets.tsv.gz": {
+     "bytes": 1280028,
+     "checksum": "sha256:91f63ffaac04d49bce19ac0b825b51c05699a8ee94bc842ef044f0b068f2991d",
+     "reason": "1280028 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/spot/eQTL/susie/QTS000015/QTD000266/QTD000266.credible_sets.tsv.gz",
+     "verified": "size"
+    },
+    "dataset_metadata_r7.tsv": {
+     "bytes": 75969,
+     "checksum": "sha256:70b0b6eac8a607568d11b3f2d8ad6cf6e9bb430ffafa4883627797d8967785ea",
+     "reason": "75969 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/master/data_tables/dataset_metadata_r7.tsv",
+     "verified": "size"
+    },
+    "dataset_metadata_r8_beta.tsv": {
+     "bytes": 64533,
+     "checksum": "sha256:8937b7e0199d14b8c27316c5069d9bf0a2dbff98c274f016e61b0327ae951ad0",
+     "reason": "64533 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/master/data_tables/dataset_metadata_r8_beta.tsv",
+     "verified": "size"
+    },
+    "tabix_ftp_paths.tsv": {
+     "bytes": 287387,
+     "checksum": "sha256:20912adbeb700bb0224e73f1acba79921cb7afd4323955b00e4e9a73da49b7f4",
+     "reason": "287387 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://raw.githubusercontent.com/eQTL-Catalogue/eQTL-Catalogue-resources/master/tabix/tabix_ftp_paths.tsv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: dataset_metadata_r7.tsv sha256:70b0b6eac8a607568d11b3f2d8ad6cf6e9bb430ffafa4883627797d8967785ea; dataset_metadata_r8_beta.tsv sha256:8937b7e0199d14b8c27316c5069d9bf0a2dbff98c274f016e61b0327ae951ad0; tabix_ftp_paths.tsv sha256:20912adbeb700bb0224e73f1acba79921cb7afd4323955b00e4e9a73da49b7f4; QTD000266.credible_sets.tsv.gz sha256:91f63ffaac04d49bce19ac0b825b51c05699a8ee94bc842ef044f0b068f2991d",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:53Z",
+   "version": "release 7 (2023) and release-8 beta (2026-09)"
+  },
+  "faers": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "NOT_APPLICABLE",
+    "check": "NOT_APPLICABLE",
+    "integrity": "UNVERIFIED",
+    "queries": "NOT_APPLICABLE"
+   },
+   "files": {
+    "faers_ascii_2026q2.zip": {
+     "bytes": 63223614,
+     "checksum": "sha256:90213500721ecaf976ee45d8ad04aa2dbb80861d93c87fef67ccaf515919bf2a",
+     "reason": "63223614 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://fis.fda.gov/content/Exports/faers_ascii_2026q2.zip",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: faers_ascii_2026q2.zip sha256:90213500721ecaf976ee45d8ad04aa2dbb80861d93c87fef67ccaf515919bf2a",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:54Z",
+   "version": ""
+  },
+  "fooddata_central": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "FoodData_Central_foundation_food_csv_2026-04-30.zip": {
+     "bytes": 3825741,
+     "reason": "3825741 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_foundation_food_csv_2026-04-30.zip",
+     "verified": "structure"
+    },
+    "FoodData_Central_sr_legacy_food_csv_2018-04.zip": {
+     "bytes": 6074592,
+     "reason": "6074592 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://fdc.nal.usda.gov/fdc-datasets/FoodData_Central_sr_legacy_food_csv_2018-04.zip",
+     "verified": "structure"
+    }
+   },
+   "reason": "integrity: 2 of 11 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: FoodData_Central_foundation_food_csv_2026-04-30.zip ; FoodData_Central_sr_legacy_food_csv_2018-04.zip ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:17Z",
+   "version": "Foundation Foods April 2026 (file re-issued 2026-08-19); SR Legacy April 2018 (final)"
+  },
+  "fourdn": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "H1ESC.union-loops.bedpe.gz": {
+     "bytes": 1478901,
+     "checksum": "sha256:8f2b0d965eca52bda2da2bf52e34813ccedb866f8f60856b066e4b60ea784c91",
+     "reason": "1478901 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/ed5747aa-9b78-4ff5-965f-0d7b389a6219/4DNFIX6VZKOA.bedpe.gz",
+     "verified": "size"
+    },
+    "HFFc6.union-loops.bedpe.gz": {
+     "bytes": 1595045,
+     "checksum": "sha256:1cc29d4fdae698dcd4160965e941b6a05c93aaccc8be1f5413873448285830d5",
+     "reason": "1595045 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/153d40b0-8e43-4821-87a2-b5b78842f453/4DNFI32J1C6W.bedpe.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: HFFc6.union-loops.bedpe.gz sha256:1cc29d4fdae698dcd4160965e941b6a05c93aaccc8be1f5413873448285830d5; H1ESC.union-loops.bedpe.gz sha256:8f2b0d965eca52bda2da2bf52e34813ccedb866f8f60856b066e4b60ea784c91",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:23Z",
+   "version": "union loop sets released 2025-11-04 (4DNFI32J1C6W, 4DNFIX6VZKOA)"
+  },
+  "gdsc": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "GDSC1_fitted_dose_response_27Oct23.xlsx": {
+     "bytes": 30348857,
+     "checksum": "sha256:6dfad242263d93b6814cc51146b15346d3c69abe1aba834a0977ba9e3fd3b6a5",
+     "reason": "30348857 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cmp.cog.sanger.ac.uk/download/GDSC1_fitted_dose_response_27Oct23.xlsx",
+     "verified": "size"
+    },
+    "GDSC2_fitted_dose_response_27Oct23.xlsx": {
+     "bytes": 22112537,
+     "checksum": "sha256:0e99120a14a003dcbd3c27c020f1cfd35e38ee091067a2406f66c0d4dbc1c899",
+     "reason": "22112537 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cmp.cog.sanger.ac.uk/download/GDSC2_fitted_dose_response_27Oct23.xlsx",
+     "verified": "size"
+    },
+    "model_list_20260921.csv": {
+     "bytes": 957555,
+     "checksum": "sha256:419f65d1d6534454194f1a744550fab632cd1d7411f6b13411a885735aa37006",
+     "reason": "957555 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cog.sanger.ac.uk/cmp/download/model_list_20260921.csv",
+     "verified": "size"
+    },
+    "screened_compounds_rel_8.5_inchi.csv": {
+     "bytes": 60969,
+     "checksum": "sha256:16fb779bf55a0171ef388d1764d074db28c12e3e28ddc74516816dfd2568061d",
+     "reason": "60969 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cog.sanger.ac.uk/cmp/download/screened_compounds_rel_8.5_inchi.csv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: GDSC2_fitted_dose_response_27Oct23.xlsx sha256:0e99120a14a003dcbd3c27c020f1cfd35e38ee091067a2406f66c0d4dbc1c899; GDSC1_fitted_dose_response_27Oct23.xlsx sha256:6dfad242263d93b6814cc51146b15346d3c69abe1aba834a0977ba9e3fd3b6a5; screened_compounds_rel_8.5_inchi.csv sha256:16fb779bf55a0171ef388d1764d074db28c12e3e28ddc74516816dfd2568061d; model_list_20260921.csv sha256:419f65d1d6534454194f1a744550fab632cd1d7411f6b13411a885735aa37006",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:17Z",
+   "version": "release 8.5 (27Oct23); model list 2026-09-21"
+  },
+  "gnps": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "ELIXDB-LICHEN-DATABASE.json": {
+     "bytes": 1680813,
+     "checksum": "sha256:8916d942f2da961ba5b08fbba3926145f6c9cc7988f36a25c99ff536d4e15794",
+     "reason": "1680813 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/ELIXDB-LICHEN-DATABASE.json",
+     "verified": "size"
+    },
+    "GNPS-NIH-NATURALPRODUCTSLIBRARY.json": {
+     "bytes": 57973750,
+     "checksum": "sha256:500902e9d1a395478641d16d10c018246479ad3380b732282fb9b59b51a5ad01",
+     "reason": "57973750 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/GNPS-NIH-NATURALPRODUCTSLIBRARY.json",
+     "verified": "size"
+    },
+    "GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_NEGATIVE.json": {
+     "bytes": 9248995,
+     "checksum": "sha256:5bc5ea9b5998bbb67a7cd21ca840154eed2cb1f6b697a482ce78adbe98016299",
+     "reason": "9248995 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_NEGATIVE.json",
+     "verified": "size"
+    },
+    "GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_POSITIVE.json": {
+     "bytes": 86013647,
+     "checksum": "sha256:976f22039dcd19ac51f05a33b55728ac95239cca66005681b10e222eef7c803f",
+     "reason": "86013647 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_POSITIVE.json",
+     "verified": "size"
+    },
+    "GNPS-PRESTWICKPHYTOCHEM.json": {
+     "bytes": 4612863,
+     "checksum": "sha256:b013bf40b9406fbc74c969455a4dd450e7577f7a4b6ec0e1f552edee783d0c57",
+     "reason": "4612863 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/GNPS-PRESTWICKPHYTOCHEM.json",
+     "verified": "size"
+    },
+    "LEAFBOT.json": {
+     "bytes": 2910000,
+     "checksum": "sha256:3a3c545f05bf2700e5d80537b8f55d7bb2bda624367827934e7f499a480b0011",
+     "reason": "2910000 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/LEAFBOT.json",
+     "verified": "size"
+    },
+    "MIADB.json": {
+     "bytes": 1948276,
+     "checksum": "sha256:81e53264a9a4a2b66e3bed43d6722775491dd26da311625f82238b2bceb55738",
+     "reason": "1948276 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/MIADB.json",
+     "verified": "size"
+    },
+    "PHENOLICSDB.json": {
+     "bytes": 1165568,
+     "checksum": "sha256:40485553c29523fd4e3d14396ce209b0791e5a1a1d98a22c63f1e56b273072f1",
+     "reason": "1165568 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/PHENOLICSDB.json",
+     "verified": "size"
+    },
+    "PYRROLIZIDINE-ALKALOID-SPECTRAL-LIBRARY.json": {
+     "bytes": 938816,
+     "checksum": "sha256:13125c50f0f1b058788b50d761bbfce41aa69573534ca20eb83aeb25722aea02",
+     "reason": "938816 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/PYRROLIZIDINE-ALKALOID-SPECTRAL-LIBRARY.json",
+     "verified": "size"
+    },
+    "TUEBINGEN-NATURAL-PRODUCT-COLLECTION.json": {
+     "bytes": 4436703,
+     "checksum": "sha256:8fd3fabe4917e772e86dd731fab1f99cd76d4f58b85b022da13c7cfed6c43a51",
+     "reason": "4436703 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/TUEBINGEN-NATURAL-PRODUCT-COLLECTION.json",
+     "verified": "size"
+    },
+    "UM-NPDC.json": {
+     "bytes": 927198,
+     "checksum": "sha256:833c39048289f165d0a160eea89c7c984f68f4fa14a40f6c547d71dd6961838d",
+     "reason": "927198 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/UM-NPDC.json",
+     "verified": "size"
+    },
+    "XANTHONES-DB.json": {
+     "bytes": 383278,
+     "checksum": "sha256:1493d5cf74c3b9670352974cda543f01bd35def42cc4d4eae3a295f63146ebbc",
+     "reason": "383278 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://external.gnps2.org/gnpslibrary/XANTHONES-DB.json",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 12 of 12 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: GNPS-NIH-NATURALPRODUCTSLIBRARY.json sha256:500902e9d1a395478641d16d10c018246479ad3380b732282fb9b59b51a5ad01; GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_POSITIVE.json sha256:976f22039dcd19ac51f05a33b55728ac95239cca66005681b10e222eef7c803f; GNPS-NIH-NATURALPRODUCTSLIBRARY_ROUND2_NEGATIVE.json sha256:5bc5ea9b5998bbb67a7cd21ca840154eed2cb1f6b697a482ce78adbe98016299; GNPS-PRESTWICKPHYTOCHEM.json sha256:b013bf40b9406fbc74c969455a4dd450e7577f7a4b6ec0e1f552edee783d0c57; LEAFBOT.json sha256:3a3c545f05bf2700e5d80537b8f55d7bb2bda624367827934e7f499a480b0011; PHENOLICSDB.json sha256:40485553c29523fd4e3d14396ce209b0791e5a1a1d98a22c63f1e56b273072f1",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:41:53Z",
+   "version": "per-library JSON exports, rebuilt daily by GNPS2 (fetched 2026-10-01; the store records each file's SHA-256)"
+  },
+  "gpcrdb": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "gpcrdb_drugs.json": {
+     "bytes": 596479,
+     "checksum": "sha256:72b7c1d738c7ce21a05aa6e41ee0e0f54b217e981f6e09821c4ee744434ef659",
+     "reason": "596479 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://gpcrdb.org/services/drugs/download/",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: gpcrdb_drugs.json sha256:72b7c1d738c7ce21a05aa6e41ee0e0f54b217e981f6e09821c4ee744434ef659",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:39Z",
+   "version": "release of 2026-09-22"
+  },
+  "gutmgene": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "gutmgene_metabolite_gene.csv": {
+     "bytes": 698451,
+     "checksum": "sha256:c909912b73df2abc2d69f2fa33d3caa8734758d57b190740166c3986088077db",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api/dow/downloadFolder?filepath=allfile/Microbial%20metabolite-Host%20Gene.csv",
+     "verified": "none"
+    },
+    "gutmgene_microbe_gene.csv": {
+     "bytes": 740908,
+     "checksum": "sha256:55d342a9ffc2c54a3fa510d229e9ab61cbbb1929d9ab66a67219d9c4f34bee78",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api/dow/downloadFolder?filepath=allfile/Gut%20Microbe-Host%20Gene.csv",
+     "verified": "none"
+    },
+    "gutmgene_microbe_metabolite.csv": {
+     "bytes": 1532993,
+     "checksum": "sha256:ccafe0deb480ea374a510a1178d92e93180b344e3fb644cfcd5cc6cb2ea9342f",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "http://bio-computing.hrbmu.edu.cn/gutMGene2.0_api/dow/downloadFolder?filepath=allfile/Gut%20Microbe-Microbial%20metabolite.csv",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 3 of 3 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:23Z",
+   "version": "2.0 (NAR 2025, 53:D783)"
+  },
+  "herb1": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "HERB_disease_info_v1.txt": {
+     "bytes": 4690056,
+     "checksum": "sha256:8174cfdd362abb175455af6c4953ca88e4fdb577bf58aa489e02237b93961827",
+     "reason": "4690056 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_disease_info_v1.txt",
+     "verified": "size"
+    },
+    "HERB_experiment_info_v1.txt": {
+     "bytes": 408325,
+     "checksum": "sha256:e1f5db5618f75949b1f3ee23f237dad9306dfab04236f03363a0f4b921f2c3c5",
+     "reason": "408325 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_experiment_info_v1.txt",
+     "verified": "size"
+    },
+    "HERB_herb_info_v1.txt": {
+     "bytes": 1663130,
+     "checksum": "sha256:6768404ae20c32d9aa4176f8c5c1709eaccc827da04dd8a745805f79149073e6",
+     "reason": "1663130 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_herb_info_v1.txt",
+     "verified": "size"
+    },
+    "HERB_ingredient_info_v1.txt": {
+     "bytes": 12042562,
+     "checksum": "sha256:250ef1c7448559b2afa4af9e805774c925219292a9b2ed952a283789efdfd9e7",
+     "reason": "12042562 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_ingredient_info_v1.txt",
+     "verified": "size"
+    },
+    "HERB_reference_info_v1.txt": {
+     "bytes": 3966937,
+     "checksum": "sha256:ce506ad470f2a1f795265f02438df3e816ccaafd2b4cc1776a883205c52cbc65",
+     "reason": "3966937 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_reference_info_v1.txt",
+     "verified": "size"
+    },
+    "HERB_target_info_v1.txt": {
+     "bytes": 2181362,
+     "checksum": "sha256:1bef9797019919dbd4fc6aad11abaaca976aa4d86cb6db2f8baa0c0a37ed2b85",
+     "reason": "2181362 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V1/HERB_target_info_v1.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 6 of 6 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: HERB_herb_info_v1.txt sha256:6768404ae20c32d9aa4176f8c5c1709eaccc827da04dd8a745805f79149073e6; HERB_ingredient_info_v1.txt sha256:250ef1c7448559b2afa4af9e805774c925219292a9b2ed952a283789efdfd9e7; HERB_target_info_v1.txt sha256:1bef9797019919dbd4fc6aad11abaaca976aa4d86cb6db2f8baa0c0a37ed2b85; HERB_disease_info_v1.txt sha256:8174cfdd362abb175455af6c4953ca88e4fdb577bf58aa489e02237b93961827; HERB_reference_info_v1.txt sha256:ce506ad470f2a1f795265f02438df3e816ccaafd2b4cc1776a883205c52cbc65; HERB_experiment_info_v1.txt sha256:e1f5db5618f75949b1f3ee23f237dad9306dfab04236f03363a0f4b921f2c3c5",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:38:33Z",
+   "version": "1.0"
+  },
+  "herb2": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "HERB_clinical_trials_v2.txt": {
+     "bytes": 15732992,
+     "checksum": "sha256:6a0124d454206c7a5efddb03482df8c56b8e5b658029ee143ac1300fda540cc0",
+     "reason": "15732992 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_clinical_trials_v2.txt",
+     "verified": "size"
+    },
+    "HERB_disease_info_v2.txt": {
+     "bytes": 7931515,
+     "checksum": "sha256:1e110dd7ff72644f6efbd4668bdfb8c21392a1ab57cbb0c94d08540249ef8191",
+     "reason": "7931515 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_disease_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_experiment_info_v2.txt": {
+     "bytes": 941202,
+     "checksum": "sha256:319ef651dbfbd2598715acd6dca33da6e4ffeedd5ec1bbcc207155445fb1baaf",
+     "reason": "941202 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_experiment_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_formula_info_v2.txt": {
+     "bytes": 3713119,
+     "checksum": "sha256:0c0c32e4b4e35ec042f582e5d50622ff23cf8325b94ad57c5a9ef6944780bf28",
+     "reason": "3713119 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_formula_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_herb_info_v2.txt": {
+     "bytes": 1864763,
+     "checksum": "sha256:c465d5dbd4c5a5e39b497bd0ba4dbd1bebc5f0be1c8f1cd8e3a515c0af514e09",
+     "reason": "1864763 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_herb_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_ingredient_info_v2.txt": {
+     "bytes": 22572386,
+     "checksum": "sha256:7b533f16e7c87dc95421dcf55a041574b795bfa3f439dcf2a9a16acbfa0bdb20",
+     "reason": "22572386 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_ingredient_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_meta_info_v2.txt": {
+     "bytes": 22477197,
+     "checksum": "sha256:e6cad525d9ee2b4b23548f1e2f74eaa3983f8c5a8b0a65ef69face177189924a",
+     "reason": "22477197 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_meta_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_reference_info_v2.txt": {
+     "bytes": 14987466,
+     "checksum": "sha256:345c33c4afebd46e02f7fecd7317af5b1094c9e17a7eca717acc146cfdb84793",
+     "reason": "14987466 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_reference_info_v2.txt",
+     "verified": "size"
+    },
+    "HERB_target_info_v2.txt": {
+     "bytes": 2512008,
+     "checksum": "sha256:72996abd3acc8b8faffa8f9093fdfb516ffbfa19aafcdf0f5221da5bc60b9a70",
+     "reason": "2512008 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://47.92.70.12/static/download_data/V2/HERB_target_info_v2.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 9 of 9 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: HERB_herb_info_v2.txt sha256:c465d5dbd4c5a5e39b497bd0ba4dbd1bebc5f0be1c8f1cd8e3a515c0af514e09; HERB_ingredient_info_v2.txt sha256:7b533f16e7c87dc95421dcf55a041574b795bfa3f439dcf2a9a16acbfa0bdb20; HERB_formula_info_v2.txt sha256:0c0c32e4b4e35ec042f582e5d50622ff23cf8325b94ad57c5a9ef6944780bf28; HERB_target_info_v2.txt sha256:72996abd3acc8b8faffa8f9093fdfb516ffbfa19aafcdf0f5221da5bc60b9a70; HERB_disease_info_v2.txt sha256:1e110dd7ff72644f6efbd4668bdfb8c21392a1ab57cbb0c94d08540249ef8191; HERB_experiment_info_v2.txt sha256:319ef651dbfbd2598715acd6dca33da6e4ffeedd5ec1bbcc207155445fb1baaf",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:47Z",
+   "version": "2.0"
+  },
+  "herb_api": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "NOT_APPLICABLE",
+    "queries": "PASS"
+   },
+   "files": {},
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "PASS",
+   "verified_at": "2026-10-11T18:38:25Z",
+   "version": ""
+  },
+  "hubmap": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "datasets.tsv": {
+     "bytes": 8601416,
+     "checksum": "sha256:0cbc4b3b1927c250e1d31703e48b7a7e5b05b4fd3c4153f4ee0af16ec6321760",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://portal.hubmapconsortium.org/metadata/v0/datasets.tsv",
+     "verified": "none"
+    },
+    "donors.tsv": {
+     "bytes": 131265,
+     "checksum": "sha256:4c7cfe440240e54b7d7150c5e2ccc4e36b2505bd7179f9aa4adc98881f28f575",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://portal.hubmapconsortium.org/metadata/v0/donors.tsv",
+     "verified": "none"
+    },
+    "organs.json": {
+     "bytes": 9507,
+     "checksum": "sha256:c55068a5c49467cead0a2c9a9ad198cba34f7b1b87fb1fb6902e20356cc75dc8",
+     "reason": "9507 bytes, whole: it parses as one whole JSON document (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://ontology.api.hubmapconsortium.org/organs?application_context=HUBMAP",
+     "verified": "structure"
+    },
+    "samples.tsv": {
+     "bytes": 2104294,
+     "checksum": "sha256:6b9904a0c86b487815377faf8e579fe43687d748dbd30706f8b51e03311178ac",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://portal.hubmapconsortium.org/metadata/v0/samples.tsv",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 4 of 4 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:25Z",
+   "version": "live export, fetched 2026-10-01"
+  },
+  "idc": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "idc_index_data-24.2.2-py3-none-any.whl": {
+     "bytes": 77341561,
+     "reason": "77341561 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://files.pythonhosted.org/packages/70/b3/3adf736fa7db08e64dbbc04084a48054c18cc08822bee75ae5d6f7832f1c/idc_index_data-24.2.2-py3-none-any.whl",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 5 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: idc_index_data-24.2.2-py3-none-any.whl ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:29Z",
+   "version": "IDC v24 (idc-index-data 24.2.2, 2026-07-11)"
+  },
+  "idr": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "idr0013-neumann-mitocheck_screenA.parquet": {
+     "bytes": 128248107,
+     "checksum": "sha256:fecebd7dcf8bb32f9fab625786f6bec367bd61fa19f15841c8546f6c1f3d6af5",
+     "reason": "128248107 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://idr.openmicroscopy.org/searchengine/api/v1/resources/container_data/?container_name=idr0013-neumann-mitocheck/screenA&container_type=screen&data_source=idr&file_type=parquet",
+     "verified": "size"
+    },
+    "idr0021-lawo-pericentriolarmaterial_experimentA.csv": {
+     "bytes": 301670,
+     "checksum": "sha256:28bc8eb5cf2a0fc16b266d20ba9d373ae0d8cfb3d0b254eadcc958c7612fab82",
+     "reason": "301670 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://idr.openmicroscopy.org/searchengine/api/v1/resources/container_data/?container_name=idr0021-lawo-pericentriolarmaterial/experimentA&container_type=project&data_source=idr&file_type=csv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: idr0013-neumann-mitocheck_screenA.parquet sha256:fecebd7dcf8bb32f9fab625786f6bec367bd61fa19f15841c8546f6c1f3d6af5; idr0021-lawo-pericentriolarmaterial_experimentA.csv sha256:28bc8eb5cf2a0fc16b266d20ba9d373ae0d8cfb3d0b254eadcc958c7612fab82",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:45:49Z",
+   "version": "IDR exports of 2026-06-23 (searcher 0.8.2)"
+  },
+  "iedb": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "bcr_full_v3_tsv.zip": {
+     "bytes": 1360940,
+     "checksum": "sha256:240d88c8858cf9df5a07d142d08f9a2bbdd2287ac0a1f4e550ff45f660d677a6",
+     "reason": "1360940 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.iedb.org/downloader.php?file_name=doc/bcr_full_v3_tsv.zip",
+     "verified": "structure"
+    },
+    "epitope_id_chebi_id_pubchem_id_maps.txt": {
+     "bytes": 456667,
+     "checksum": "sha256:7f68187e9c5f2d5f81023dfdbf1282e17882755d8019c0fa7696efd8e02f4b19",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://www.iedb.org/downloader.php?file_name=doc/epitope_id_chebi_id_pubchem_id_maps.txt",
+     "verified": "none"
+    },
+    "reference_full_v3_tsv.zip": {
+     "bytes": 3315815,
+     "checksum": "sha256:02130a1082b4278a3edea6d82980875ca93f720cba2d289afbdf463486e3d864",
+     "reason": "3315815 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.iedb.org/downloader.php?file_name=doc/reference_full_v3_tsv.zip",
+     "verified": "structure"
+    },
+    "tcell_full_v3_tsv.zip": {
+     "bytes": 45127983,
+     "checksum": "sha256:ed8e682a22752acc1c00c0b5a108e08801765cc033705b735e5fa27a2224c95a",
+     "reason": "45127983 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.iedb.org/downloader.php?file_name=doc/tcell_full_v3_tsv.zip",
+     "verified": "structure"
+    },
+    "tcr_full_v3_tsv.zip": {
+     "bytes": 9132745,
+     "checksum": "sha256:af42dca2fcbe2e72352d42c03b08f75783eba6bfe18c1d52f95f516901f67fca",
+     "reason": "9132745 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.iedb.org/downloader.php?file_name=doc/tcr_full_v3_tsv.zip",
+     "verified": "structure"
+    }
+   },
+   "reason": "acquisition: 5 of 5 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:52:56Z",
+   "version": "exports of 2026-10-01 (IEDB publishes no release number; the exports are regenerated as curation proceeds)"
+  },
+  "immport": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "all_gene_lists.gmt": {
+     "bytes": 66617,
+     "checksum": "sha256:f194f9e54d85b5911d3b7407c586b4a631432579144814c68a01b554624b5e68",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://s3.immport.org/release/genelists/current/all_gene_lists.gmt?download=true",
+     "verified": "none"
+    },
+    "all_gene_lists.json": {
+     "bytes": 33497,
+     "checksum": "sha256:736a066fc9deb8c25dd1c4ae731e76e028f8cfead9f257ff95f7c16ed03eaa00",
+     "reason": "33497 bytes, whole: it parses as one whole JSON document (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://s3.immport.org/release/genelists/current/all_gene_lists.json?download=true",
+     "verified": "structure"
+    }
+   },
+   "reason": "acquisition: 2 of 2 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:36:53Z",
+   "version": ""
+  },
+  "impc": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "README.md": {
+     "bytes": 19984,
+     "checksum": "sha256:d1fda25c91c7977eaf3c933d53e70ce950b6b334dbef59d475c0cea2109d7598",
+     "reason": "19984 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/README.md",
+     "verified": "size"
+    },
+    "genotype-phenotype-assertions-ALL.csv.gz": {
+     "bytes": 5001223,
+     "checksum": "sha256:f9d5c963f4c33abf5caf107dcb764924db76a201dee27830afadd3d65852799f",
+     "reason": "5001223 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/genotype-phenotype-assertions-ALL.csv.gz",
+     "verified": "size"
+    },
+    "viability.csv.gz": {
+     "bytes": 479554,
+     "checksum": "sha256:6a3095081ed9050e94096be455ca69d4f70ff527560818781c6eb56e6b341336",
+     "reason": "479554 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/viability.csv.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: genotype-phenotype-assertions-ALL.csv.gz sha256:f9d5c963f4c33abf5caf107dcb764924db76a201dee27830afadd3d65852799f; viability.csv.gz sha256:6a3095081ed9050e94096be455ca69d4f70ff527560818781c6eb56e6b341336; README.md sha256:d1fda25c91c7977eaf3c933d53e70ce950b6b334dbef59d475c0cea2109d7598",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:11Z",
+   "version": "data release 24.0 (2026-03-16)"
+  },
+  "imppat3": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "Bioactivity_IMPPAT_Phytochemicals.tsv": {
+     "bytes": 2864778,
+     "checksum": "sha256:6a8aeaa8d7350c2513decf52733da50fbe1917e88cd6f187299a8b88b007e33e",
+     "reason": "2864778 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/Bioactivity_IMPPAT_Phytochemicals.tsv",
+     "verified": "size"
+    },
+    "Chemical_Information_IMPPAT_Phytochemicals.tsv": {
+     "bytes": 9901357,
+     "checksum": "sha256:f1610d4d529f57feba65f673090227bb66b243e855d88d8b2d6816a20a948e9f",
+     "reason": "9901357 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/Chemical_Information_IMPPAT_Phytochemicals.tsv",
+     "verified": "size"
+    },
+    "IMPPAT_Phytochemical_Plant_Association.tsv": {
+     "bytes": 14724808,
+     "checksum": "sha256:8c86875b1a3377122611d72d4a4067cfce26af9f770fb874b94f62b1fa9d4864",
+     "reason": "14724808 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/IMPPAT_Phytochemical_Plant_Association.tsv",
+     "verified": "size"
+    },
+    "IMPPAT_PolyHerbalFormulations.tsv": {
+     "bytes": 4929420,
+     "checksum": "sha256:9b814015ee9e368a7801d3f05114221795221645c01e1d9116e24c04cb0f7558",
+     "reason": "4929420 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/IMPPAT_PolyHerbalFormulations.tsv",
+     "verified": "size"
+    },
+    "IMPPAT_SingleHerbalFormulations.tsv": {
+     "bytes": 303826,
+     "checksum": "sha256:b582f10e72843d75063b9eea25c20ee0f9de30871edd93c3a76fdc0fd2b00295",
+     "reason": "303826 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/IMPPAT_SingleHerbalFormulations.tsv",
+     "verified": "size"
+    },
+    "IMPPAT_TherapeuticUse_Plant_Association.tsv": {
+     "bytes": 7356547,
+     "checksum": "sha256:dab0c68bbda8553947dd3b645e0c9931eeeaccf977c41c27539c5dd5eb09f77e",
+     "reason": "7356547 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/IMPPAT_TherapeuticUse_Plant_Association.tsv",
+     "verified": "size"
+    },
+    "Plant_Information_IMPPAT.tsv": {
+     "bytes": 541093,
+     "checksum": "sha256:f68c4f57ee1a58079147bf40c4cec03d647c2e2354e77e058db6e7620e450011",
+     "reason": "541093 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/Plant_Information_IMPPAT.tsv",
+     "verified": "size"
+    },
+    "Target_IMPPAT_Phytochemicals.tsv": {
+     "bytes": 2238310,
+     "checksum": "sha256:87bcdfb01f78e7f783a33dfa8a76adcb68539b97eda0bccac2929342347910a1",
+     "reason": "2238310 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://cb.imsc.res.in/imppat/images/Batch_Download/Target_IMPPAT_Phytochemicals.tsv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 8 of 8 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: Plant_Information_IMPPAT.tsv sha256:f68c4f57ee1a58079147bf40c4cec03d647c2e2354e77e058db6e7620e450011; Chemical_Information_IMPPAT_Phytochemicals.tsv sha256:f1610d4d529f57feba65f673090227bb66b243e855d88d8b2d6816a20a948e9f; IMPPAT_Phytochemical_Plant_Association.tsv sha256:8c86875b1a3377122611d72d4a4067cfce26af9f770fb874b94f62b1fa9d4864; IMPPAT_TherapeuticUse_Plant_Association.tsv sha256:dab0c68bbda8553947dd3b645e0c9931eeeaccf977c41c27539c5dd5eb09f77e; Target_IMPPAT_Phytochemicals.tsv sha256:87bcdfb01f78e7f783a33dfa8a76adcb68539b97eda0bccac2929342347910a1; Bioactivity_IMPPAT_Phytochemicals.tsv sha256:6a8aeaa8d7350c2513decf52733da50fbe1917e88cd6f187299a8b88b007e33e",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:25Z",
+   "version": "3.0 (released 2026-09-30)"
+  },
+  "intact": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "complextab_10090.tsv": {
+     "bytes": 1471187,
+     "checksum": "sha256:ba66aed64325da4508f7c0c976831550c6aff015ab76eddb1ec9c96375027684",
+     "reason": "1471187 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/intact/complex/current/complextab/10090.tsv",
+     "verified": "size"
+    },
+    "complextab_9606.tsv": {
+     "bytes": 5292514,
+     "checksum": "sha256:29d3aeec7ede35e8686de3cf73620b5871c3e68d7ca069385153a9b28e80012a",
+     "reason": "5292514 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/intact/complex/current/complextab/9606.tsv",
+     "verified": "size"
+    },
+    "intact_negative.txt": {
+     "bytes": 5178956,
+     "checksum": "sha256:19c9ca88450a64228871c79e7c5eaf2d80d4cd63c60080236685ec7c39c2cda4",
+     "reason": "5178956 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/intact/current/psimitab/intact_negative.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: complextab_9606.tsv sha256:29d3aeec7ede35e8686de3cf73620b5871c3e68d7ca069385153a9b28e80012a; complextab_10090.tsv sha256:ba66aed64325da4508f7c0c976831550c6aff015ab76eddb1ec9c96375027684; intact_negative.txt sha256:19c9ca88450a64228871c79e7c5eaf2d80d4cd63c60080236685ec7c39c2cda4",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:12Z",
+   "version": "IntAct release 2026-01-09; Complex Portal files of 2026-01-14"
+  },
+  "iptmnet": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "protein.txt": {
+     "bytes": 9324847,
+     "checksum": "sha256:381b90d7a9d5b1653c33bc3076db62ba9ffb3130c89f453276f310b2413e9309",
+     "reason": "9324847 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://research.bioinformatics.udel.edu/iptmnet_data/files/current/protein.txt",
+     "verified": "size"
+    },
+    "ptm.txt": {
+     "bytes": 44116546,
+     "checksum": "sha256:d5b2ed7c7138bc77f6f712feb038e18ddc4c791e96823b286a680e1982eff20f",
+     "reason": "44116546 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://research.bioinformatics.udel.edu/iptmnet_data/files/current/ptm.txt",
+     "verified": "size"
+    },
+    "readme.txt": {
+     "bytes": 1892,
+     "checksum": "sha256:03526d7031f5270804b26605a67325a6e0a979d30fc62fbf6b896e0e2760ef2c",
+     "reason": "1892 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://research.bioinformatics.udel.edu/iptmnet_data/files/current/readme.txt",
+     "verified": "size"
+    },
+    "score.txt": {
+     "bytes": 26110370,
+     "checksum": "sha256:e7dfa494099ab9d8cdff54c727aba65251067a041b931846d8656c622563fe63",
+     "reason": "26110370 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://research.bioinformatics.udel.edu/iptmnet_data/files/current/score.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: readme.txt sha256:03526d7031f5270804b26605a67325a6e0a979d30fc62fbf6b896e0e2760ef2c; ptm.txt sha256:d5b2ed7c7138bc77f6f712feb038e18ddc4c791e96823b286a680e1982eff20f; score.txt sha256:e7dfa494099ab9d8cdff54c727aba65251067a041b931846d8656c622563fe63; protein.txt sha256:381b90d7a9d5b1653c33bc3076db62ba9ffb3130c89f453276f310b2413e9309",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:30Z",
+   "version": "6.2 (ptm.txt 2025-10-14; score.txt and protein.txt 2024-01-31)"
+  },
+  "itcm": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "itcm_disease_detail.txt": {
+     "bytes": 830520,
+     "checksum": "sha256:481f3a53c3aebec279533b9901659f3f3cbe9601cdb207e85c1729a5db4b99ac",
+     "reason": "830520 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downDetail/disease",
+     "verified": "size"
+    },
+    "itcm_formula2herb.txt": {
+     "bytes": 1440505,
+     "checksum": "sha256:83d354136bf6d7d3bab3a2b02a5b56d7fd1da4fd1d2d2a4d557a6831f21885dd",
+     "reason": "1440505 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downNetwork/formula2herb",
+     "verified": "size"
+    },
+    "itcm_formula_detail.txt": {
+     "bytes": 11391995,
+     "checksum": "sha256:b78075f4a2569e78b4743fc1579e3bcddea7be450d8aac5c490d145484a12a32",
+     "reason": "11391995 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downDetail/formula",
+     "verified": "size"
+    },
+    "itcm_herb2ingredient.txt": {
+     "bytes": 1137794,
+     "checksum": "sha256:b9d743ae8f3e2a5da6bda5283d1b27da96e604899c27c319ebf664c2b58b95b2",
+     "reason": "1137794 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downNetwork/herb2ingredient",
+     "verified": "size"
+    },
+    "itcm_herb_detail.txt": {
+     "bytes": 1980675,
+     "checksum": "sha256:7525ae46d88b7b691ff8e9464b5d1ab71bc295e32083f0c5e9ffcfb1f3078c90",
+     "reason": "1980675 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downDetail/herb",
+     "verified": "size"
+    },
+    "itcm_ingredient2target.txt": {
+     "bytes": 1555816,
+     "checksum": "sha256:db9740899be90a93f10bc45bef228a4d7b7a61d98a8de4db6e4915a81e1a1041",
+     "reason": "1555816 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downNetwork/ingredient2target",
+     "verified": "size"
+    },
+    "itcm_ingredient_detail.txt": {
+     "bytes": 9272801,
+     "checksum": "sha256:07aebbbbd6cc1f8d7d14069a8b0871a5aab02b20bb9555857505000d6a8b481b",
+     "reason": "9272801 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downDetail/ingredient",
+     "verified": "size"
+    },
+    "itcm_target2disease.txt": {
+     "bytes": 865960,
+     "checksum": "sha256:3899f064fee3843985cff577b8e25f67d716606a5944595f451e7ea3157f09e7",
+     "reason": "865960 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downNetwork/target2disease",
+     "verified": "size"
+    },
+    "itcm_target_detail.txt": {
+     "bytes": 2867467,
+     "checksum": "sha256:ce20caf3d1fa42973a12f23888d463f651fc474f6501249d76769e763bd87353",
+     "reason": "2867467 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://itcm.biotcm.net/downDetail/target",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 9 of 9 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: itcm_herb_detail.txt sha256:7525ae46d88b7b691ff8e9464b5d1ab71bc295e32083f0c5e9ffcfb1f3078c90; itcm_ingredient_detail.txt sha256:07aebbbbd6cc1f8d7d14069a8b0871a5aab02b20bb9555857505000d6a8b481b; itcm_formula_detail.txt sha256:b78075f4a2569e78b4743fc1579e3bcddea7be450d8aac5c490d145484a12a32; itcm_target_detail.txt sha256:ce20caf3d1fa42973a12f23888d463f651fc474f6501249d76769e763bd87353; itcm_disease_detail.txt sha256:481f3a53c3aebec279533b9901659f3f3cbe9601cdb207e85c1729a5db4b99ac; itcm_herb2ingredient.txt sha256:b9d743ae8f3e2a5da6bda5283d1b27da96e604899c27c319ebf664c2b58b95b2",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:38:05Z",
+   "version": ""
+  },
+  "jaspar": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "JASPAR2026.sql.gz": {
+     "bytes": 2228558,
+     "reason": "2228558 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://jaspar.elixir.no/download/database/JASPAR2026.sql.gz",
+     "verified": "size"
+    },
+    "JASPAR2026_CORE_non-redundant_pfms_meme.txt": {
+     "bytes": 1351973,
+     "checksum": "sha256:18f47f8fe9994e49db102b9ff3d4f4505fa102d414baeab7cfb01dda35b44a5f",
+     "reason": "1351973 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://jaspar.elixir.no/download/data/2026/CORE/JASPAR2026_CORE_non-redundant_pfms_meme.txt",
+     "verified": "size"
+    },
+    "JASPAR2026_CORE_vertebrates_non-redundant_pfms_jaspar.txt": {
+     "bytes": 336314,
+     "checksum": "sha256:4005b5449ba07d9b58495f51143186e7e3959efd0ad670770fbddf57bf941e8f",
+     "reason": "336314 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://jaspar.elixir.no/download/data/2026/CORE/JASPAR2026_CORE_vertebrates_non-redundant_pfms_jaspar.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 6 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: JASPAR2026.sql.gz ; JASPAR2026_CORE_non-redundant_pfms_meme.txt sha256:18f47f8fe9994e49db102b9ff3d4f4505fa102d414baeab7cfb01dda35b44a5f; JASPAR2026_CORE_vertebrates_non-redundant_pfms_jaspar.txt sha256:4005b5449ba07d9b58495f51143186e7e3959efd0ad670770fbddf57bf941e8f",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:25Z",
+   "version": "2026 (11th release)"
+  },
+  "lincs_l1000": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz": {
+     "bytes": 2528,
+     "checksum": "sha256:88c6ca5ff8bb3cf3af22c2eb8cbe769f9ae8e305a760959b18711877d730d61c",
+     "reason": "2528 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz",
+     "verified": "size"
+    },
+    "GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz": {
+     "bytes": 82376,
+     "checksum": "sha256:000171e8ce17cb00a3e80a907d97f0bc4218077eb4cb2ac03f4e0f9f4f2e5493",
+     "reason": "82376 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz",
+     "verified": "size"
+    },
+    "GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz": {
+     "bytes": 1943865,
+     "checksum": "sha256:b78284478d62029f600d4397334c538d363123110affd2454bf0055bd0678e01",
+     "reason": "1943865 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz",
+     "verified": "size"
+    },
+    "GSE92742_Broad_LINCS_cell_info.txt.gz": {
+     "bytes": 2528,
+     "checksum": "sha256:88c6ca5ff8bb3cf3af22c2eb8cbe769f9ae8e305a760959b18711877d730d61c",
+     "reason": "2528 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_cell_info.txt.gz",
+     "verified": "size"
+    },
+    "GSE92742_Broad_LINCS_gene_info.txt.gz": {
+     "bytes": 216692,
+     "checksum": "sha256:741216ccc53320119b47ab006de3bcad48963c57087c9e07f50f0d6cd088711a",
+     "reason": "216692 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_gene_info.txt.gz",
+     "verified": "size"
+    },
+    "GSE92742_Broad_LINCS_pert_info.txt.gz": {
+     "bytes": 1138509,
+     "checksum": "sha256:b1945b3fde51021865b12269929cc78ccf2665be27f53a4da9336e4ddcf4b42f",
+     "reason": "1138509 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_pert_info.txt.gz",
+     "verified": "size"
+    },
+    "GSE92742_Broad_LINCS_sig_info.txt.gz": {
+     "bytes": 11124404,
+     "checksum": "sha256:19da29c0ee12ddf27f9698cd0da40beaff58657dcde9d382aae068737e831299",
+     "reason": "11124404 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_sig_info.txt.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 7 of 7 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: GSE92742_Broad_LINCS_sig_info.txt.gz sha256:19da29c0ee12ddf27f9698cd0da40beaff58657dcde9d382aae068737e831299; GSE92742_Broad_LINCS_pert_info.txt.gz sha256:b1945b3fde51021865b12269929cc78ccf2665be27f53a4da9336e4ddcf4b42f; GSE92742_Broad_LINCS_cell_info.txt.gz sha256:88c6ca5ff8bb3cf3af22c2eb8cbe769f9ae8e305a760959b18711877d730d61c; GSE92742_Broad_LINCS_gene_info.txt.gz sha256:741216ccc53320119b47ab006de3bcad48963c57087c9e07f50f0d6cd088711a; GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz sha256:b78284478d62029f600d4397334c538d363123110affd2454bf0055bd0678e01; GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz sha256:000171e8ce17cb00a3e80a907d97f0bc4218077eb4cb2ac03f4e0f9f4f2e5493",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:31Z",
+   "version": "GSE92742 (Phase I, files of 2017) and GSE70138 (Phase II, 2017-03-06 build)"
+  },
+  "lotus": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "PASS",
+    "queries": "PASS"
+   },
+   "files": {
+    "260413_frozen.csv.gz": {
+     "bytes": 20594507,
+     "checksum": "md5:cf0cf2afa2ca4d758b68f2e39d466f5d",
+     "reason": "hashes to the reviewed md5",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/19360665/files/260413_frozen.csv.gz/content",
+     "verified": "checksum"
+    }
+   },
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "PASS",
+   "verified_at": "2026-10-11T18:40:29Z",
+   "version": "2026-04-13"
+  },
+  "massbank": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "MassBank-data-2026.03.zip": {
+     "bytes": 239602156,
+     "checksum": "sha256:12c6a922929f9bf2484c46586b6101512a415e44680558883b0630c6e47905fb",
+     "reason": "239602156 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/19590880/files/MassBank/MassBank-data-2026.03.zip/content",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: MassBank-data-2026.03.zip sha256:12c6a922929f9bf2484c46586b6101512a415e44680558883b0630c6e47905fb",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:01Z",
+   "version": "2026.03 (data release; the live API at massbank.eu served data version 2025.10 on 2026-10-01)"
+  },
+  "mesh": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "NOT_APPLICABLE",
+    "check": "NOT_APPLICABLE",
+    "integrity": "UNVERIFIED",
+    "queries": "NOT_APPLICABLE"
+   },
+   "files": {
+    "desc2026.gz": {
+     "bytes": 16812612,
+     "checksum": "sha256:ccd4d0d33bebfd4c836a59e7dd0c635b1d4e20c4f5a6abc55e2eb0ba4c8716dd",
+     "reason": "16812612 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: desc2026.gz sha256:ccd4d0d33bebfd4c836a59e7dd0c635b1d4e20c4f5a6abc55e2eb0ba4c8716dd",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:22Z",
+   "version": "2026"
+  },
+  "metanetx": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "mnxref_tsv.tar.gz": {
+     "bytes": 208238077,
+     "reason": "208238077 bytes, whole: the gzip stream ends with its check intact (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.metanetx.org/ftp/4.5/mnxref_tsv.tar.gz",
+     "verified": "structure"
+    }
+   },
+   "reason": "integrity: 1 of 5 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: mnxref_tsv.tar.gz ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:17Z",
+   "version": "4.5 (2025-08-13)"
+  },
+  "mibig": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "mibig_json_4.0.tar.gz": {
+     "bytes": 954258,
+     "reason": "954258 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://dl.secondarymetabolites.org/mibig/mibig_json_4.0.tar.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: mibig_json_4.0.tar.gz ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:38:52Z",
+   "version": "4.0 (2024-11-15)"
+  },
+  "mirtarbase": {
+   "checks": {
+    "acquisition": "BLOCKED",
+    "build": "SKIPPED",
+    "check": "SKIPPED",
+    "queries": "SKIPPED"
+   },
+   "files": {
+    "LICENSE": {
+     "reason": "awi.cuhk.edu.cn could not be reached ([SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1010))",
+     "status": "BLOCKED",
+     "url": "https://awi.cuhk.edu.cn/miRTarBase/downloads/files/LICENSE"
+    },
+    "miRTarBase_SE_WR.csv": {
+     "reason": "awi.cuhk.edu.cn could not be reached ([SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1010))",
+     "status": "BLOCKED",
+     "url": "https://awi.cuhk.edu.cn/miRTarBase/downloads/files/10.0/miRTarBase_SE_WR.csv"
+    }
+   },
+   "reason": "acquisition: 0 of 2 file(s) obtained and kept; LICENSE: BLOCKED: awi.cuhk.edu.cn could not be reached ([SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1010)); miRTarBase_SE_WR.csv: BLOCKED: awi.cuhk.edu.cn could not be reached ([SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:1010)); a person who can reach it can add the files with `bioagent tcmdb import-raw mirtarbase FILE...`, which verifies each as a download would be",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "BLOCKED",
+   "verified_at": "2026-10-11T18:43:03Z",
+   "version": "10.0 files (the downloads page is labelled Release 11.0)"
+  },
+  "nhanes": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "DEMO_J.xpt": {
+     "bytes": 3412720,
+     "checksum": "sha256:c0b46e0345ea19404928656277c8b0d10b0cca348a9b2fe4fc3c67e8b7ee73ec",
+     "reason": "3412720 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DEMO_J.xpt",
+     "verified": "size"
+    },
+    "DSQIDS_J.xpt": {
+     "bytes": 8958720,
+     "checksum": "sha256:685dea29427853b57085a4232586dc1b1d61f4385c0bbb0c88ab0f62abc0fbe1",
+     "reason": "8958720 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DSQIDS_J.xpt",
+     "verified": "size"
+    },
+    "PFAS_J.xpt": {
+     "bytes": 344800,
+     "checksum": "sha256:bd2460dc1916fc80b41bef9ac7cdd367f04f25158ec1736706663886b3e4e6b3",
+     "reason": "344800 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/PFAS_J.xpt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: DEMO_J.xpt sha256:c0b46e0345ea19404928656277c8b0d10b0cca348a9b2fe4fc3c67e8b7ee73ec; PFAS_J.xpt sha256:bd2460dc1916fc80b41bef9ac7cdd367f04f25158ec1736706663886b3e4e6b3; DSQIDS_J.xpt sha256:685dea29427853b57085a4232586dc1b1d61f4385c0bbb0c88ab0f62abc0fbe1",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:09Z",
+   "version": "2017-2018 cycle (J)"
+  },
+  "np_mrd": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "assignment_tables.zip": {
+     "bytes": 464020,
+     "checksum": "sha256:a8d40e6ed75187bcffe321a054084ada9b56cc264cd180ca637b095a14683b8e",
+     "reason": "464020 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/assignment_tables.zip",
+     "verified": "size"
+    },
+    "npmrd_natural_products_NP0000001_NP0050000_json.zip": {
+     "bytes": 32739476,
+     "checksum": "sha256:04af0dfb4ae4c23b8a5ce516c7be0c988de73babc4a87f08a291e5c3118cc38c",
+     "reason": "32739476 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/npmrd_natural_products_NP0000001_NP0050000_json.zip",
+     "verified": "size"
+    },
+    "npmrd_natural_products_NP0300001_NP0350000_json.zip": {
+     "bytes": 29080699,
+     "checksum": "sha256:f947a47e3f5168adc0178750dba3d705f177aa418541250b4106cca05a626cba",
+     "reason": "29080699 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/npmrd_natural_products_NP0300001_NP0350000_json.zip",
+     "verified": "size"
+    },
+    "peak_lists.zip": {
+     "bytes": 161406,
+     "checksum": "sha256:234a3b204d7454a3cb701b6f93dc38225f39542710f6b864de7cfef59f3a02f5",
+     "reason": "161406 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/peak_lists.zip",
+     "verified": "size"
+    },
+    "smiles_NP0000001_NP0050000.csv.gz": {
+     "bytes": 1539234,
+     "checksum": "sha256:ff73c0416f821fc8c29349cf2d1f1bdc1b5947df6dc208460992925aafdfacff",
+     "reason": "1539234 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0000001_NP0050000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0050001_NP0100000.csv.gz": {
+     "bytes": 972512,
+     "checksum": "sha256:48e3df1b164c6b348fe3a45e3e84f34615d5be35a69ffebfa167352813cbc03f",
+     "reason": "972512 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0050001_NP0100000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0100001_NP0150000.csv.gz": {
+     "bytes": 609576,
+     "checksum": "sha256:ea8f303d15ed6f4aa9fd9610ae254c835cc7bd91611c337c8a525e12d9df20ae",
+     "reason": "609576 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0100001_NP0150000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0150001_NP0200000.csv.gz": {
+     "bytes": 2724667,
+     "checksum": "sha256:1749028904fc4e6bdfd0887a2550f0fa084709b6313da38a3e024df3f867f60e",
+     "reason": "2724667 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0150001_NP0200000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0200001_NP0250000.csv.gz": {
+     "bytes": 2734147,
+     "checksum": "sha256:c3becbaaccc75109d93f700a714128e0806e18a1905f4915cf7507b4b35cf29c",
+     "reason": "2734147 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0200001_NP0250000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0250001_NP0300000.csv.gz": {
+     "bytes": 2733262,
+     "checksum": "sha256:f08b77d34c38a55f45cd6f29a1771cde22774f725decbc13196cb46108e1d907",
+     "reason": "2733262 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0250001_NP0300000.csv.gz",
+     "verified": "size"
+    },
+    "smiles_NP0300001_NP0350000.csv.gz": {
+     "bytes": 1929558,
+     "checksum": "sha256:a48818b507354ec1b80e3943311f8b392930504ec1c138e6fc2f8ae08b91ba71",
+     "reason": "1929558 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://np-mrd.org/system/downloads/current/smiles_NP0300001_NP0350000.csv.gz",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 11 of 11 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: peak_lists.zip sha256:234a3b204d7454a3cb701b6f93dc38225f39542710f6b864de7cfef59f3a02f5; assignment_tables.zip sha256:a8d40e6ed75187bcffe321a054084ada9b56cc264cd180ca637b095a14683b8e; smiles_NP0000001_NP0050000.csv.gz sha256:ff73c0416f821fc8c29349cf2d1f1bdc1b5947df6dc208460992925aafdfacff; smiles_NP0050001_NP0100000.csv.gz sha256:48e3df1b164c6b348fe3a45e3e84f34615d5be35a69ffebfa167352813cbc03f; smiles_NP0100001_NP0150000.csv.gz sha256:ea8f303d15ed6f4aa9fd9610ae254c835cc7bd91611c337c8a525e12d9df20ae; smiles_NP0150001_NP0200000.csv.gz sha256:1749028904fc4e6bdfd0887a2550f0fa084709b6313da38a3e024df3f867f60e",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:41:38Z",
+   "version": "downloads released 2025-08-01 (fetched 2026-10-01)"
+  },
+  "npass": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "PASS",
+    "queries": "PASS"
+   },
+   "files": {
+    "NPASSv2.0_download_naturalProducts_activities.txt": {
+     "bytes": 90364982,
+     "checksum": "sha256:ced9ee333e7e5e12eb07d21d52ec20af777b6c429a6438ed9b402ca8fd547507",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_activities.txt",
+     "verified": "checksum"
+    },
+    "NPASSv2.0_download_naturalProducts_generalInfo.txt": {
+     "bytes": 9379911,
+     "checksum": "sha256:4ec8f066abf7cebe8b172e1b16a6248f3b6a94efb00ed587f0a9489f5ca688bf",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_generalInfo.txt",
+     "verified": "checksum"
+    },
+    "NPASSv2.0_download_naturalProducts_speciesInfo.txt": {
+     "bytes": 3631384,
+     "checksum": "sha256:a934641ce11140938c72f0fb63bd775a153398e4caf429a4a171b563669fb65a",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_speciesInfo.txt",
+     "verified": "checksum"
+    },
+    "NPASSv2.0_download_naturalProducts_species_pair.txt": {
+     "bytes": 80284064,
+     "checksum": "sha256:acc4f806d48327c6f258ef75afa6b69ff7d362455dff35e3a720976d09543c3e",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_species_pair.txt",
+     "verified": "checksum"
+    },
+    "NPASSv2.0_download_naturalProducts_structureInfo.txt": {
+     "bytes": 29748831,
+     "checksum": "sha256:cbe688e9b6fdd0960c78d1a93d7f487ca4a2bbad3017275515c3d90d2a0f72fa",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_structureInfo.txt",
+     "verified": "checksum"
+    },
+    "NPASSv2.0_download_naturalProducts_targetInfo.txt": {
+     "bytes": 629317,
+     "checksum": "sha256:d171c261e839a95ff6fdadeba6d1eeacf1536a70eae7668d6a179f85d44d83dc",
+     "reason": "hashes to the reviewed sha256",
+     "status": "PASS",
+     "url": "https://bidd.group/NPASS/downloadFiles/NPASSv2.0_download_naturalProducts_targetInfo.txt",
+     "verified": "checksum"
+    }
+   },
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "PASS",
+   "verified_at": "2026-10-11T18:53:13Z",
+   "version": "2.0"
+  },
+  "nsides": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "OFFSIDES.csv.gz": {
+     "bytes": 68762346,
+     "checksum": "sha256:0b5d2bd93ed44b95c22d8f9f053acbef4f59280027ae54d48dfe40d4fb9d60b3",
+     "reason": "68762346 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tatonettilab-resources.s3.amazonaws.com/nsides/OFFSIDES.csv.gz",
+     "verified": "size"
+    },
+    "README.txt": {
+     "bytes": 2589,
+     "checksum": "sha256:d81160f8c5fd7a275d9d69c7f813d9a8332e2fa745892ca390f79f0b9edd60bf",
+     "reason": "2589 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tatonettilab-resources.s3.amazonaws.com/nsides/README.txt",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: README.txt sha256:d81160f8c5fd7a275d9d69c7f813d9a8332e2fa745892ca390f79f0b9edd60bf; OFFSIDES.csv.gz sha256:0b5d2bd93ed44b95c22d8f9f053acbef4f59280027ae54d48dfe40d4fb9d60b3",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:49Z",
+   "version": ""
+  },
+  "orphadata": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "en_product1.xml": {
+     "bytes": 54026799,
+     "reason": "54026799 bytes, whole: it parses as one whole XML document (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.orphadata.com/data/xml/en_product1.xml",
+     "verified": "structure"
+    },
+    "en_product4.xml": {
+     "bytes": 47893357,
+     "checksum": "sha256:4f44e8a61201399911aa1ba44a293c0ccaa5ce11272c47d40862255cb72f6b32",
+     "reason": "47893357 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.orphadata.com/data/xml/en_product4.xml",
+     "verified": "size"
+    },
+    "en_product6.xml": {
+     "bytes": 22612034,
+     "checksum": "sha256:f1c039f78683beea7ca5b34d1c01c4ec98f80e8ca488eee69770074db1020e39",
+     "reason": "22612034 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.orphadata.com/data/xml/en_product6.xml",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: en_product6.xml sha256:f1c039f78683beea7ca5b34d1c01c4ec98f80e8ca488eee69770074db1020e39; en_product4.xml sha256:4f44e8a61201399911aa1ba44a293c0ccaa5ce11272c47d40862255cb72f6b32; en_product1.xml ",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:40:52Z",
+   "version": "Orphanet knowledge base, July 2026 release (JDBOR 2026-06-23)"
+  },
+  "pharmvar": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "pharmvar_all.zip": {
+     "bytes": 193085083,
+     "checksum": "sha256:1bdee4e93d45aa1d07b9d8bf21cbaad14832e32ea5e27010272d83d84d032878",
+     "reason": "193085083 bytes, whole: every member of the zip matches its CRC-32 (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://www.pharmvar.org/get-download-file?name=ALL&refSeq=ALL&fileType=zip&version=current",
+     "verified": "structure"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: pharmvar_all.zip sha256:1bdee4e93d45aa1d07b9d8bf21cbaad14832e32ea5e27010272d83d84d032878",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:17Z",
+   "version": "6.2.29 (VCF fileDate 2026-09-22; 15 genes)"
+  },
+  "pharos": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "pharos400_tdls_canonicals.csv": {
+     "bytes": 44614999,
+     "checksum": "sha256:ee8fdc79893235a451ab7a8a4b6099da390ae9ccd341179297d8f8730f801459",
+     "reason": "44614999 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://opendata.ncats.nih.gov/public/pharos/pharos400_tdls_canonicals.csv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: pharos400_tdls_canonicals.csv sha256:ee8fdc79893235a451ab7a8a4b6099da390ae9ccd341179297d8f8730f801459",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:34Z",
+   "version": "Pharos400 (2026-05-28); the live API serves pharos319"
+  },
+  "remap": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "download_by_target.json": {
+     "bytes": 1947768,
+     "checksum": "sha256:2cf0f40b653ce4705e3cf54137ecd270a5e71c87982245253dd9ab959df78d1a",
+     "reason": "1947768 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://remap.univ-amu.fr/download_by_target.json",
+     "verified": "size"
+    },
+    "remap2022_hsap_biotypes.xlsx": {
+     "bytes": 57255,
+     "checksum": "sha256:fa5015553401988d9e5f37404d3c29f824d7afcc201151d65f17b1350c54a6af",
+     "reason": "57255 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://remap.univ-amu.fr/storage/remap2022/biotypes/remap2022_hsap_biotypes.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: download_by_target.json sha256:2cf0f40b653ce4705e3cf54137ecd270a5e71c87982245253dd9ab959df78d1a; remap2022_hsap_biotypes.xlsx sha256:fa5015553401988d9e5f37404d3c29f824d7afcc201151d65f17b1350c54a6af",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:28Z",
+   "version": "2022"
+  },
+  "rhea": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "LICENSE.txt": {
+     "bytes": 681,
+     "checksum": "sha256:b9df4c23b425e50676352ec3c4cf1ae753d70ab339a8b5b9ae631f5418acf03e",
+     "reason": "681 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/LICENSE.txt",
+     "verified": "size"
+    },
+    "chebiId_name.tsv": {
+     "bytes": 589500,
+     "checksum": "sha256:a5ec0562b6aa09d793192328ee4ae93d627972ccf59bc382fe6519dc8352c4bc",
+     "reason": "589500 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/chebiId_name.tsv",
+     "verified": "size"
+    },
+    "chebi_pH7_3_mapping.tsv": {
+     "bytes": 3099222,
+     "checksum": "sha256:7076e992933d94e81b66e55d4977c4634b11ad5d9146052c0a25ebc72b5067b2",
+     "reason": "3099222 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/chebi_pH7_3_mapping.tsv",
+     "verified": "size"
+    },
+    "rhea-directions.tsv": {
+     "bytes": 446712,
+     "checksum": "sha256:deae1911da372c70ee8fc97992809c7923e63b288a8702fc4396edcb2633fb04",
+     "reason": "446712 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/rhea-directions.tsv",
+     "verified": "size"
+    },
+    "rhea-relationships.tsv": {
+     "bytes": 364857,
+     "checksum": "sha256:8776eb89e2e8cb8e6878fd04ac8df4d4a26f12e8f645643a1b1e1aba23581fe9",
+     "reason": "364857 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/rhea-relationships.tsv",
+     "verified": "size"
+    },
+    "rhea-release.properties": {
+     "bytes": 53,
+     "checksum": "sha256:4259110467406048a19f7dd797bc3f0506736d1cf2a8327f67ec7b10043fc5d4",
+     "reason": "53 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/rhea-release.properties",
+     "verified": "size"
+    },
+    "rhea.rdf.gz": {
+     "bytes": 8718726,
+     "reason": "8718726 bytes, whole: the gzip stream ends with its check intact (no checksum or size to check it against)",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/rdf/rhea.rdf.gz",
+     "verified": "structure"
+    },
+    "rhea2uniprot_sprot.tsv": {
+     "bytes": 8835509,
+     "checksum": "sha256:ff2e1038df2352d4ce4f3e9ae840c350211d8193e79b6a0a2d29fc1c2f392def",
+     "reason": "8835509 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/rhea2uniprot_sprot.tsv",
+     "verified": "size"
+    },
+    "rhea2xrefs.tsv": {
+     "bytes": 1196556,
+     "checksum": "sha256:0f00a1de31cc093c74ce3e357ce6d05c0c2aba1d05c1c9632e18cd4873c69b53",
+     "reason": "1196556 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.expasy.org/databases/rhea/tsv/rhea2xrefs.tsv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 9 of 10 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: rhea.rdf.gz ; rhea-directions.tsv sha256:deae1911da372c70ee8fc97992809c7923e63b288a8702fc4396edcb2633fb04; rhea2uniprot_sprot.tsv sha256:ff2e1038df2352d4ce4f3e9ae840c350211d8193e79b6a0a2d29fc1c2f392def; rhea2xrefs.tsv sha256:0f00a1de31cc093c74ce3e357ce6d05c0c2aba1d05c1c9632e18cd4873c69b53; chebi_pH7_3_mapping.tsv sha256:7076e992933d94e81b66e55d4977c4634b11ad5d9146052c0a25ebc72b5067b2; rhea-relationships.tsv sha256:8776eb89e2e8cb8e6878fd04ac8df4d4a26f12e8f645643a1b1e1aba23581fe9",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:31Z",
+   "version": "142 (2026-09-02)"
+  },
+  "rnacentral": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "hgnc.tsv": {
+     "bytes": 443710,
+     "checksum": "sha256:ca675b369422757a34946fbd013e7ef6f28d554c84f39f60768bc4307058328f",
+     "reason": "443710 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/hgnc.tsv",
+     "verified": "size"
+    },
+    "intact.tsv": {
+     "bytes": 47941,
+     "checksum": "sha256:a7a82edc5f176de9488cfa3e595518e2c259d604b5dff56f5662ef706c3cec57",
+     "reason": "47941 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/intact.tsv",
+     "verified": "size"
+    },
+    "lncbase.tsv": {
+     "bytes": 67845,
+     "checksum": "sha256:7cf038f7055b8b99634e61b88c35baa05b43fd69cf76fc78832b3bbd03b14ebb",
+     "reason": "67845 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/lncbase.tsv",
+     "verified": "size"
+    },
+    "mirbase.tsv": {
+     "bytes": 5372558,
+     "checksum": "sha256:ca56cc4e93b7108f1affa7615a0d67c0798abefd75c8a9d67cb2f084bac8315f",
+     "reason": "5372558 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/mirbase.tsv",
+     "verified": "size"
+    },
+    "release_notes.txt": {
+     "bytes": 727,
+     "checksum": "sha256:ea6934cc70f1242167739ce65f4a586704eea6874f80f1851a19e5c00d681f61",
+     "reason": "727 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/release_notes.txt",
+     "verified": "size"
+    },
+    "tarbase.tsv": {
+     "bytes": 167718,
+     "checksum": "sha256:e7eafd0058ebacca9d71bbbca4c1625a93535a9c908e2f2834236573f0893a43",
+     "reason": "167718 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/tarbase.tsv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 6 of 6 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: release_notes.txt sha256:ea6934cc70f1242167739ce65f4a586704eea6874f80f1851a19e5c00d681f61; mirbase.tsv sha256:ca56cc4e93b7108f1affa7615a0d67c0798abefd75c8a9d67cb2f084bac8315f; hgnc.tsv sha256:ca675b369422757a34946fbd013e7ef6f28d554c84f39f60768bc4307058328f; tarbase.tsv sha256:e7eafd0058ebacca9d71bbbca4c1625a93535a9c908e2f2834236573f0893a43; lncbase.tsv sha256:7cf038f7055b8b99634e61b88c35baa05b43fd69cf76fc78832b3bbd03b14ebb; intact.tsv sha256:a7a82edc5f176de9488cfa3e595518e2c259d604b5dff56f5662ef706c3cec57",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:33Z",
+   "version": "27 (2026-07-20)"
+  },
+  "scperturb": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "zenodo_13350497.json": {
+     "bytes": 49340,
+     "checksum": "sha256:6c58f10323d1c0f165b7d2b7302de906bae2ba68102b57cf811e37f17d94f46e",
+     "reason": "49340 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/records/13350497/export/json",
+     "verified": "size"
+    },
+    "zenodo_7058382.json": {
+     "bytes": 14522,
+     "checksum": "sha256:04bb57ee4c0494554c0aa3b10e5b593490dede0d6c41193ee0494c459729a9e6",
+     "reason": "14522 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/records/7058382/export/json",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: zenodo_13350497.json sha256:6c58f10323d1c0f165b7d2b7302de906bae2ba68102b57cf811e37f17d94f46e; zenodo_7058382.json sha256:04bb57ee4c0494554c0aa3b10e5b593490dede0d6c41193ee0494c459729a9e6",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:44:45Z",
+   "version": "Zenodo 13350497 (v1.4, 2024-08-26) and 7058382 (ATAC v1.0)"
+  },
+  "shennong": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "ChatMed_TCM-v0.2.json": {
+     "bytes": 110482165,
+     "checksum": "sha256:9021c29d476a21bd316eab37410b9134b2bdc464dcb9d215fb58e23269b9a2ab",
+     "reason": "110482165 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://huggingface.co/datasets/michaelwzhu/ShenNong_TCM_Dataset/resolve/main/ChatMed_TCM-v0.2.json",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: ChatMed_TCM-v0.2.json sha256:9021c29d476a21bd316eab37410b9134b2bdc464dcb9d215fb58e23269b9a2ab",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:32Z",
+   "version": ""
+  },
+  "signor": {
+   "checks": {
+    "acquisition": "UNVERIFIED",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "SIGNOR_Oct2026_release.txt": {
+     "bytes": 21425930,
+     "checksum": "sha256:63db6f65e9148e81354f564c3c3cdfc9ee45dc421553bd0926e5fae511ef9d06",
+     "reason": "21425930 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://signor.uniroma2.it/releases/Oct2026_release.txt",
+     "verified": "size"
+    },
+    "SIGNOR_complexes.tsv": {
+     "bytes": 68659,
+     "checksum": "sha256:5e65e5ccea9af881488ac33d0c54d43efcc4f566d74f9a48e2ae298fb2df9964",
+     "reason": "kept with no checksum and no size to verify it against",
+     "status": "UNVERIFIED",
+     "url": "https://signor.uniroma2.it/API/getComplexData.php",
+     "verified": "none"
+    }
+   },
+   "reason": "acquisition: 2 of 2 file(s) obtained and kept",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:56Z",
+   "version": "October 2026 release (SIGNOR 4.0)"
+  },
+  "symmap2": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "SymMap_v2.0_SMDE.xlsx": {
+     "bytes": 2255321,
+     "checksum": "sha256:05545f8cecbafe8734bce804bd062791fcf72e9c17bce52e7d75137e264dbe4f",
+     "reason": "2255321 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMDE%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMDE_key.xlsx": {
+     "bytes": 735937,
+     "checksum": "sha256:cb820976e66761a6bd60ad2462219fffa3c2317f02d62d94781be6ce340191b9",
+     "reason": "735937 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMDE%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMHB.xlsx": {
+     "bytes": 99614,
+     "checksum": "sha256:aafa7a2dca0298eca73ae3add133110ff9f114f23480aae204b94e95800c0288",
+     "reason": "99614 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMHB%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMHB_key.xlsx": {
+     "bytes": 65615,
+     "checksum": "sha256:7b521fc01582a423999e646fc2ca750399f7c86a6bf2158c726cb7d63703043f",
+     "reason": "65615 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMHB%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMIT.xlsx": {
+     "bytes": 1889366,
+     "checksum": "sha256:2cadefea5a598d6d7ae39360a8f5ac9bbbcc4f9e62d8f9546a4eab8679b31dbf",
+     "reason": "1889366 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMIT%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMIT_key.xlsx": {
+     "bytes": 3687312,
+     "checksum": "sha256:503cb997da5719566fcb6e046b1b027aa84b8fb36fecfe347c452d6357608c38",
+     "reason": "3687312 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMIT%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMMS.xlsx": {
+     "bytes": 262393,
+     "checksum": "sha256:c83d52386f7f723ac252d4d5adc71c0f64587ea3ffc3d0b7ab87ef3e6e5d37c9",
+     "reason": "262393 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMMS%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMMS_key.xlsx": {
+     "bytes": 300757,
+     "checksum": "sha256:271e56c3ef0c43e2e597f729a12ad8c981b8f3ae0f2dd5175ea98736f447b105",
+     "reason": "300757 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMMS%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMSY.xlsx": {
+     "bytes": 31666,
+     "checksum": "sha256:6d91b4bfae9752f42cb51d1c049f204ce61b7349c77dd0c2673b97519e25d9a2",
+     "reason": "31666 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMSY%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMSY_key.xlsx": {
+     "bytes": 20654,
+     "checksum": "sha256:62b38cc3d8804566e3722a77af010c22ca84924e6598b569d4b7871daa59966d",
+     "reason": "20654 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMSY%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMTS.xlsx": {
+     "bytes": 225683,
+     "checksum": "sha256:cb548f0ff63aba55a371ee644fb967f9810567bbd9602366354f6a461dd0c9ff",
+     "reason": "225683 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTS%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMTS_key.xlsx": {
+     "bytes": 103155,
+     "checksum": "sha256:faef8b3bf4dedfad741002e28cf4e33c7c19ad01a1db240e142d8ca5af8c3da3",
+     "reason": "103155 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTS%20key%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMTT.xlsx": {
+     "bytes": 1677922,
+     "checksum": "sha256:9a1c03b22c3ea09fc417206e43e44a378f72e975805d66fcfabd72e38e3895f8",
+     "reason": "1677922 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTT%20file.xlsx",
+     "verified": "size"
+    },
+    "SymMap_v2.0_SMTT_key.xlsx": {
+     "bytes": 1275988,
+     "checksum": "sha256:6c25ef5d77da614e7d4a76f2a1e2124615666e8bbab8a88198878b6186ad8295",
+     "reason": "1275988 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTT%20key%20file.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 14 of 14 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: SymMap_v2.0_SMHB.xlsx sha256:aafa7a2dca0298eca73ae3add133110ff9f114f23480aae204b94e95800c0288; SymMap_v2.0_SMIT.xlsx sha256:2cadefea5a598d6d7ae39360a8f5ac9bbbcc4f9e62d8f9546a4eab8679b31dbf; SymMap_v2.0_SMTT.xlsx sha256:9a1c03b22c3ea09fc417206e43e44a378f72e975805d66fcfabd72e38e3895f8; SymMap_v2.0_SMDE.xlsx sha256:05545f8cecbafe8734bce804bd062791fcf72e9c17bce52e7d75137e264dbe4f; SymMap_v2.0_SMTS.xlsx sha256:cb548f0ff63aba55a371ee644fb967f9810567bbd9602366354f6a461dd0c9ff; SymMap_v2.0_SMMS.xlsx sha256:c83d52386f7f723ac252d4d5adc71c0f64587ea3ffc3d0b7ab87ef3e6e5d37c9",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:38:05Z",
+   "version": "2.0"
+  },
+  "symmap_api": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "NOT_APPLICABLE",
+    "queries": "PASS"
+   },
+   "files": {},
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "PASS",
+   "verified_at": "2026-10-11T18:37:55Z",
+   "version": ""
+  },
+  "tcm_ladder": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "fillInTheBlank.parquet": {
+     "bytes": 368111,
+     "checksum": "sha256:4f13f432f7bebc2d3f6ee08a712e79c07157d86220c14a88fa70b0bf5afe49d2",
+     "reason": "368111 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://huggingface.co/datasets/timzzyus/TCM-Ladder/resolve/main/fillInTheBlank.parquet",
+     "verified": "size"
+    },
+    "multiChoice.parquet": {
+     "bytes": 929873,
+     "checksum": "sha256:4362af0b46ec9790e933c482612360d1f594115c6344e7ceadd183b6c936701c",
+     "reason": "929873 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://huggingface.co/datasets/timzzyus/TCM-Ladder/resolve/main/multiChoice.parquet",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 2 of 2 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: multiChoice.parquet sha256:4362af0b46ec9790e933c482612360d1f594115c6344e7ceadd183b6c936701c; fillInTheBlank.parquet sha256:4f13f432f7bebc2d3f6ee08a712e79c07157d86220c14a88fa70b0bf5afe49d2",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:33Z",
+   "version": ""
+  },
+  "tcmbank": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "disease_all.xlsx": {
+     "bytes": 2445433,
+     "checksum": "sha256:e9e86cd74777d3fc6f523f5e26eae5d86a23cce5a4e5276d1302acc54c857d37",
+     "reason": "2445433 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmbank.cn/file/TCM_database/disease_all.xlsx",
+     "verified": "size"
+    },
+    "gene_all.xlsx": {
+     "bytes": 1684300,
+     "checksum": "sha256:0c5003770183a6a8eeb6d6c59635075f494c50c992ee1eb728b86c1e27602f5a",
+     "reason": "1684300 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmbank.cn/file/TCM_database/gene_all.xlsx",
+     "verified": "size"
+    },
+    "herb_all.xlsx": {
+     "bytes": 1475016,
+     "checksum": "sha256:1796d232c8fd9a0fe4a50352ceabaa1c12b5145a63c0d6bc14fad348ec6940e8",
+     "reason": "1475016 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmbank.cn/file/TCM_database/herb_all.xlsx",
+     "verified": "size"
+    },
+    "ingredient_all.xlsx": {
+     "bytes": 64110358,
+     "checksum": "sha256:1b576a1a286298bc2a5db7cbb1cd073769911415720e02f115e383b261ec502d",
+     "reason": "64110358 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmbank.cn/file/TCM_database/ingredient_all.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: herb_all.xlsx sha256:1796d232c8fd9a0fe4a50352ceabaa1c12b5145a63c0d6bc14fad348ec6940e8; ingredient_all.xlsx sha256:1b576a1a286298bc2a5db7cbb1cd073769911415720e02f115e383b261ec502d; gene_all.xlsx sha256:0c5003770183a6a8eeb6d6c59635075f494c50c992ee1eb728b86c1e27602f5a; disease_all.xlsx sha256:e9e86cd74777d3fc6f523f5e26eae5d86a23cce5a4e5276d1302acc54c857d37",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:43:47Z",
+   "version": ""
+  },
+  "tcmio": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "ingredient.xlsx": {
+     "bytes": 2459235,
+     "checksum": "sha256:b95c484f76841e8aa0161edd0108257c830e9927d1ded25f20120238e3194627",
+     "reason": "2459235 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/6",
+     "verified": "size"
+    },
+    "ingredient_target_relation.xlsx": {
+     "bytes": 870072,
+     "checksum": "sha256:95c7bc58d7af63452b1d364f398c24478d44cfe35bb492a4817e3b7a9bc4dec4",
+     "reason": "870072 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/8",
+     "verified": "size"
+    },
+    "ligand_target_relation.xlsx": {
+     "bytes": 6377757,
+     "checksum": "sha256:314fe1521c70c5f83f1a1fa2619951ed264d13552ff6c5d176af9307a2f60e5a",
+     "reason": "6377757 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/9",
+     "verified": "size"
+    },
+    "prescription.xlsx": {
+     "bytes": 210155,
+     "checksum": "sha256:eeae3f690c691decee51fe85f2dc0efab985b1d3594f6c0f98bc233593fd3bae",
+     "reason": "210155 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/2",
+     "verified": "size"
+    },
+    "prescription_tcm_relation.xlsx": {
+     "bytes": 413763,
+     "checksum": "sha256:bfe61d0ae35b2ac7ddd248fd193f2e0f3b43c10127c56d43b3498a2641222993",
+     "reason": "413763 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/4",
+     "verified": "size"
+    },
+    "target.xlsx": {
+     "bytes": 349427,
+     "checksum": "sha256:8fc89ae23fc6019f78481537edb2a56a42982ca0d305a97e8e8da9f4b832e4fb",
+     "reason": "349427 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/1",
+     "verified": "size"
+    },
+    "tcm.xlsx": {
+     "bytes": 92056,
+     "checksum": "sha256:0ea8e7dad897549e6616816a0fd6a273c19a0d3a73430f916622c253ec3b126c",
+     "reason": "92056 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/3",
+     "verified": "size"
+    },
+    "tcm_ingredient_relation.xlsx": {
+     "bytes": 644703,
+     "checksum": "sha256:c654028ea14a6a147189347f298b00c96986923715eff8dfff9a9f7f53e4a00b",
+     "reason": "644703 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "http://tcmio.xielab.net/download/7",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 8 of 8 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: target.xlsx sha256:8fc89ae23fc6019f78481537edb2a56a42982ca0d305a97e8e8da9f4b832e4fb; prescription.xlsx sha256:eeae3f690c691decee51fe85f2dc0efab985b1d3594f6c0f98bc233593fd3bae; tcm.xlsx sha256:0ea8e7dad897549e6616816a0fd6a273c19a0d3a73430f916622c253ec3b126c; prescription_tcm_relation.xlsx sha256:bfe61d0ae35b2ac7ddd248fd193f2e0f3b43c10127c56d43b3498a2641222993; ingredient.xlsx sha256:b95c484f76841e8aa0161edd0108257c830e9927d1ded25f20120238e3194627; tcm_ingredient_relation.xlsx sha256:c654028ea14a6a147189347f298b00c96986923715eff8dfff9a9f7f53e4a00b",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:38:07Z",
+   "version": "2019-11-21"
+  },
+  "tcmp300": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "tcmp-info-20250329.csv": {
+     "bytes": 20103,
+     "checksum": "sha256:fc8db8959b8c72f5d449d2c889d2426c36ebae46e2f5423255f7899081c9b95e",
+     "reason": "20103 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ndownloader.figshare.com/files/55750814",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 1 of 1 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: tcmp-info-20250329.csv sha256:fc8db8959b8c72f5d449d2c889d2426c36ebae46e2f5423255f7899081c9b95e",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:26Z",
+   "version": ""
+  },
+  "tcmtoxdb": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "TCMTox_formula.csv": {
+     "bytes": 651950,
+     "checksum": "sha256:422b1590fc42f16e3cd9e4b70d74939a113a42514c868faed2ef053c5b863a28",
+     "reason": "651950 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.sdu-idea.cn/TCMToxDB/TCMTox_formula.csv",
+     "verified": "size"
+    },
+    "TCMTox_herb.csv": {
+     "bytes": 110666,
+     "checksum": "sha256:30ce6c99615827293cba0c6197f8b31c9ef5c1f4aec5c3d3fbc02fa2565f1e63",
+     "reason": "110666 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.sdu-idea.cn/TCMToxDB/TCMTox_herb.csv",
+     "verified": "size"
+    },
+    "TCMTox_ingredient.csv": {
+     "bytes": 3504004,
+     "checksum": "sha256:622afcba2f9623df04545589916e4dadbbd4045756cdd5fc28f704d4bee5ca06",
+     "reason": "3504004 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.sdu-idea.cn/TCMToxDB/TCMTox_ingredient.csv",
+     "verified": "size"
+    },
+    "TCMTox_target.csv": {
+     "bytes": 5691410,
+     "checksum": "sha256:17a9b7633c50bdeb4170c8b1bd5ab30ff7f65b9c0304eb94e423e0b2c0a39dd9",
+     "reason": "5691410 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://www.sdu-idea.cn/TCMToxDB/TCMTox_target.csv",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: TCMTox_formula.csv sha256:422b1590fc42f16e3cd9e4b70d74939a113a42514c868faed2ef053c5b863a28; TCMTox_herb.csv sha256:30ce6c99615827293cba0c6197f8b31c9ef5c1f4aec5c3d3fbc02fa2565f1e63; TCMTox_ingredient.csv sha256:622afcba2f9623df04545589916e4dadbbd4045756cdd5fc28f704d4bee5ca06; TCMTox_target.csv sha256:17a9b7633c50bdeb4170c8b1bd5ab30ff7f65b9c0304eb94e423e0b2c0a39dd9",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:39:02Z",
+   "version": "2026-03-05 (the files' Last-Modified)"
+  },
+  "tmmc2": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "README.txt": {
+     "bytes": 4616,
+     "checksum": "sha256:ecc190a577cd6a52f4115d9e0e0fd9198716402df3db389dbb2c0860d1494195",
+     "reason": "4616 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/README.txt",
+     "verified": "size"
+    },
+    "chemical_property.xlsx": {
+     "bytes": 16889121,
+     "checksum": "sha256:d2d6fb77b1fb956d3a2780f28d6d0fb9d8bbf0acc5d989699129a4035fb08622",
+     "reason": "16889121 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/chemical_property.xlsx",
+     "verified": "size"
+    },
+    "chemical_protein.xlsx": {
+     "bytes": 17304358,
+     "checksum": "sha256:fb1413b3a621c8ea84b1a126ef4992643bdec9bb3c0ca2480026828276491acb",
+     "reason": "17304358 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/chemical_protein.xlsx",
+     "verified": "size"
+    },
+    "medicinal_compound.xlsx": {
+     "bytes": 3239592,
+     "checksum": "sha256:8661bf6415778e339be40e6f84dd30ddbdaf9df8f71d5f9ee9539bae3f186f60",
+     "reason": "3239592 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/medicinal_compound.xlsx",
+     "verified": "size"
+    },
+    "medicinal_material.xlsx": {
+     "bytes": 52391,
+     "checksum": "sha256:caaf658ae12b9fef4747615e1250a6142320a5c8d4edd1dc65a983a1e5d2c04b",
+     "reason": "52391 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/medicinal_material.xlsx",
+     "verified": "size"
+    },
+    "prescription.xlsx": {
+     "bytes": 2623959,
+     "checksum": "sha256:7f0bdf8dafb647d400df6244d4a9a35f684f59ac4db04acfbecea21ad823f5b4",
+     "reason": "2623959 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/prescription.xlsx",
+     "verified": "size"
+    },
+    "protein_disease.xlsx": {
+     "bytes": 28355621,
+     "checksum": "sha256:4997c6a81ce303b234455959a63c674a73b6b56ceb78ec37da977a24cffd4cb5",
+     "reason": "28355621 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://tm-mc.kr/download/protein_disease.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 7 of 7 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: README.txt sha256:ecc190a577cd6a52f4115d9e0e0fd9198716402df3db389dbb2c0860d1494195; medicinal_material.xlsx sha256:caaf658ae12b9fef4747615e1250a6142320a5c8d4edd1dc65a983a1e5d2c04b; medicinal_compound.xlsx sha256:8661bf6415778e339be40e6f84dd30ddbdaf9df8f71d5f9ee9539bae3f186f60; chemical_property.xlsx sha256:d2d6fb77b1fb956d3a2780f28d6d0fb9d8bbf0acc5d989699129a4035fb08622; chemical_protein.xlsx sha256:fb1413b3a621c8ea84b1a126ef4992643bdec9bb3c0ca2480026828276491acb; protein_disease.xlsx sha256:4997c6a81ce303b234455959a63c674a73b6b56ceb78ec37da977a24cffd4cb5",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:42:18Z",
+   "version": "2.0 (files of 2026-01-08 to 2026-06-15)"
+  },
+  "ttd": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "P1-01-TTD_target_download.txt": {
+     "bytes": 8672051,
+     "checksum": "sha256:f779330d2af791959e4cb0587964024ee2db00da94539b919625df4506039022",
+     "reason": "8672051 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ttd.idrblab.cn/files/download/P1-01-TTD_target_download.txt",
+     "verified": "size"
+    },
+    "P1-02-TTD_drug_download.txt": {
+     "bytes": 12463915,
+     "checksum": "sha256:8b20a32faebc4ab15d7e72ce0e2aadbc0aa4386b683f0a538efb33f36c26ff35",
+     "reason": "12463915 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ttd.idrblab.cn/files/download/P1-02-TTD_drug_download.txt",
+     "verified": "size"
+    },
+    "P1-05-Drug_disease.txt": {
+     "bytes": 2756589,
+     "checksum": "sha256:e1f82b8d2873a21112f1eb7abc550cb84da02d8996906c67447e11cd502bf75a",
+     "reason": "2756589 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ttd.idrblab.cn/files/download/P1-05-Drug_disease.txt",
+     "verified": "size"
+    },
+    "P1-07-Drug-TargetMapping.xlsx": {
+     "bytes": 1194236,
+     "checksum": "sha256:f398fbb3c6834b90b4527f02374e2ad026a870845cd01082ff0ce5164faf2f35",
+     "reason": "1194236 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://ttd.idrblab.cn/files/download/P1-07-Drug-TargetMapping.xlsx",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 4 of 4 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: P1-01-TTD_target_download.txt sha256:f779330d2af791959e4cb0587964024ee2db00da94539b919625df4506039022; P1-02-TTD_drug_download.txt sha256:8b20a32faebc4ab15d7e72ce0e2aadbc0aa4386b683f0a538efb33f36c26ff35; P1-05-Drug_disease.txt sha256:e1f82b8d2873a21112f1eb7abc550cb84da02d8996906c67447e11cd502bf75a; P1-07-Drug-TargetMapping.xlsx sha256:f398fbb3c6834b90b4527f02374e2ad026a870845cd01082ff0ce5164faf2f35",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:37:28Z",
+   "version": "10.1.01 (2024-01-10)"
+  },
+  "wfo": {
+   "checks": {
+    "acquisition": "PASS",
+    "build": "PASS",
+    "check": "PASS",
+    "integrity": "UNVERIFIED",
+    "queries": "PASS"
+   },
+   "files": {
+    "_DwC_backbone_R.zip": {
+     "bytes": 121660019,
+     "checksum": "sha256:ccfc7e3ca85c8b80aa96eb52d4e50e07e1811d28916b544280d8a4f1a043ba72",
+     "reason": "121660019 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/20782718/files/_DwC_backbone_R.zip/content",
+     "verified": "size"
+    },
+    "deduplicated_ids_lookup.csv.gz": {
+     "bytes": 429458,
+     "checksum": "sha256:f67078503ceb8849ab63d10ee89a94ae0f8da6103e15b46e1b04df73242096a6",
+     "reason": "429458 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/20782718/files/deduplicated_ids_lookup.csv.gz/content",
+     "verified": "size"
+    },
+    "deprecated_names_lookup.csv.gz": {
+     "bytes": 707640,
+     "checksum": "sha256:9dd08ac269f0a7e93b295dc40a78eb8767a703eb996504e03ee5c0d38c972567",
+     "reason": "707640 bytes, the declared or the server's size",
+     "status": "PASS",
+     "url": "https://zenodo.org/api/records/20782718/files/deprecated_names_lookup.csv.gz/content",
+     "verified": "size"
+    }
+   },
+   "reason": "integrity: 3 of 3 file(s) have no reviewed checksum; the SHA-256 read is recorded for review: _DwC_backbone_R.zip sha256:ccfc7e3ca85c8b80aa96eb52d4e50e07e1811d28916b544280d8a4f1a043ba72; deprecated_names_lookup.csv.gz sha256:9dd08ac269f0a7e93b295dc40a78eb8767a703eb996504e03ee5c0d38c972567; deduplicated_ids_lookup.csv.gz sha256:f67078503ceb8849ab63d10ee89a94ae0f8da6103e15b46e1b04df73242096a6",
+   "run": "https://github.com/psknlr/TCMScience/actions/runs/38164474741",
+   "status": "UNVERIFIED",
+   "verified_at": "2026-10-11T18:41:23Z",
+   "version": "2026-06 (published 2026-06-21; a release each June and December)"
+  }
+ },
  "files": {
   "260413_frozen.csv.gz": {
    "bytes": 20594507,

@@ -358,7 +358,29 @@ DATASETS: tuple[DatasetSpec, ...] = (
 
 from .extra import EXTRA_DATASETS  # noqa: E402
 
-DATASETS = DATASETS + EXTRA_DATASETS
+
+def _reviewed(specs: tuple[DatasetSpec, ...]) -> tuple[DatasetSpec, ...]:
+    """The specs with the checksums reviewed in ``bioagent/data/hub_reviewed_checksums.json``:
+    files of a fixed release, or of an archive that does not change, that two or more live
+    runs read identically (the file states the rule and the runs). A pin applies only to
+    the address it was reviewed at; a spec's own checksum is never replaced."""
+    import json
+    from dataclasses import replace
+    from importlib import resources
+
+    pins = json.loads(resources.files("bioagent.data").joinpath(
+        "hub_reviewed_checksums.json").read_text(encoding="utf-8"))["files"]
+    out = []
+    for d in specs:
+        table = pins.get(d.key) or {}
+        files = tuple(replace(f, checksum=table[f.name]["checksum"])
+                      if f.name in table and not f.checksum and f.url == table[f.name]["url"]
+                      else f for f in d.files)
+        out.append(replace(d, files=files) if files != d.files else d)
+    return tuple(out)
+
+
+DATASETS = _reviewed(DATASETS + EXTRA_DATASETS)
 
 _BY_KEY = {d.key: d for d in DATASETS}
 if len(_BY_KEY) != len(DATASETS):                       # pragma: no cover

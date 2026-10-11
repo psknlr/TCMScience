@@ -1,0 +1,1008 @@
+{
+ "schema": "tcmscience.hub-reviewed-checksums/1",
+ "rule": "A hub file's checksum is pinned here only when (1) its address names a fixed release, or it is a file of an archive whose files do not change once published (a Zenodo record, a figshare file id, a GEO series' supplementary files, a 4DN file accession, a Clowder file id), and (2) two or more live runs, on different GitHub-hosted runners, read the same SHA-256 and size. A file at a rolling address (a 'current' directory, an API export, a repository's main branch, a file with no release in its address) is not pinned: its size or its structure verifies it, and the integrity check says it is unverified. A pinned file that hashes differently is refused, and the change is reviewed before a new pin.",
+ "reviewed": "2026-10-11",
+ "files": {
+  "biogrid": {
+   "BIOGRID-ALL-5.0.262.tab3.zip": {
+    "checksum": "sha256:7221dad43bd90ec24d1fca5e9e5989e021cb6dfb002a205d92cae5ca4219c86b",
+    "bytes": 182882024,
+    "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-ALL-5.0.262.tab3.zip",
+    "fixed": "BioGRID release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "BIOGRID-CHEMICALS-5.0.262.chemtab.zip": {
+    "checksum": "sha256:3acafe570911b40c85c2f06cdf2bc5bd60f1d705366539d5156cf66c616c6ed6",
+    "bytes": 1370068,
+    "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-CHEMICALS-5.0.262.chemtab.zip",
+    "fixed": "BioGRID release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "BIOGRID-MV-Physical-5.0.262.tab3.zip": {
+    "checksum": "sha256:7183980a5f492028c7da5815dc83a44ae9f53cb748463297c5f9dc5844484ef1",
+    "bytes": 35126043,
+    "url": "https://downloads.thebiogrid.org/Download/BioGRID/Release-Archive/BIOGRID-5.0.262/BIOGRID-MV-Physical-5.0.262.tab3.zip",
+    "fixed": "BioGRID release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "coconut": {
+   "coconut_csv-10-2026.zip": {
+    "checksum": "sha256:95a0525b11a334389ceebb941d0a8ee9446892fccf4f8ff78d2184efc1c974ea",
+    "bytes": 247959854,
+    "url": "https://coconut.s3.uni-jena.de/prod/downloads/2026-10/coconut_csv-10-2026.zip",
+    "fixed": "COCONUT monthly release",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "comptox": {
+   "DB_release_README_SUMMARY.pdf": {
+    "checksum": "sha256:fffa727f45f01a2e3593d93348aee527a03c5b1957bfe75b7567da7354d108af",
+    "bytes": 171736,
+    "url": "https://clowder.edap-cluster.com/api/files/697b7530e4b0731a6170449e/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "DSSTox_CCD_dump_12092025_CSVs.zip": {
+    "checksum": "sha256:66fc9d4d3bda053ab60ee01e2ff0ed4ba030339588c40711b6939faede6cf4c3",
+    "bytes": 289824966,
+    "url": "https://clowder.edap-cluster.com/api/files/69529775e4b0731a616efc4b/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "analytical_qc_invitrodb_v4_3_AUG2025.xlsx": {
+    "checksum": "sha256:7d562347a459da5e03e51bb3f40b1561b9d07f96a0b695bbdc296e19c2e7cd67",
+    "bytes": 2915329,
+    "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3ab8/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "assay_annotations_invitrodb_v4_3_AUG2025.xlsx": {
+    "checksum": "sha256:eecbdac47fe4b4c3db765d412d15526331c269d36c7d79dde938f59ea60461f9",
+    "bytes": 1088201,
+    "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa8/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "assay_target_mappings_invitrodb_v4_3_AUG2025.xlsx": {
+    "checksum": "sha256:bf45c47dc383c16aea9c4cf92993f7034a3141a252aa02d9f7aa7216ac84c394",
+    "bytes": 97652,
+    "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa0/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "cytotox_invitrodb_v4_3_AUG2025.xlsx": {
+    "checksum": "sha256:3bc444f658c80e4ac9a1189f083c0120365b504e10d0aa4e0f07feda294c08dd",
+    "bytes": 943302,
+    "url": "https://clowder.edap-cluster.com/api/files/68af6bd3e4b02565fc7c3aa4/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "pubchem_invitrodb_v4_3_19AUG2026.zip": {
+    "checksum": "sha256:1682ffcd99ee45ce10973ee0284ccb7b30f726573e2d8408e8df0c4f1d96a886",
+    "bytes": 192901527,
+    "url": "https://clowder.edap-cluster.com/api/files/6a85a260e4b0731a36bd04cc/blob",
+    "fixed": "a Clowder file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "dcabm": {
+   "Constituents_detected_in_blood20230603.inchi": {
+    "checksum": "sha256:6a4e58aebd62068e1767669e67f3ceaffd3a520e7d7f4937cfd1443d40a294d8",
+    "bytes": 317469,
+    "url": "http://bionet.ncpsb.org.cn/seed_tcm/download/downloadFile?fileName=Constituents_detected_in_blood20230603.inchi",
+    "fixed": "dated file name",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "depmap": {
+   "AchillesCommonEssentialControls.csv": {
+    "checksum": "sha256:a1a48ad516011c521b1981769e2f78de84d1410371f8517a7428349be6e6b98a",
+    "bytes": 17015,
+    "url": "https://ndownloader.figshare.com/files/51063560",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "AchillesNonessentialControls.csv": {
+    "checksum": "sha256:c7add12af5a37912997fdab0a7aabeef8d811b1ac7ee23dfcffa3a06471ce097",
+    "bytes": 11490,
+    "url": "https://ndownloader.figshare.com/files/51063566",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "CRISPRInferredCommonEssentials.csv": {
+    "checksum": "sha256:0352de5335ae3bf72250dd136d1b0df87a6b72f653df34c2560cce17c0e7d928",
+    "bytes": 20795,
+    "url": "https://ndownloader.figshare.com/files/51064916",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "Model.csv": {
+    "checksum": "sha256:b7a0c1385e6cef30132b56aff61f1261d11e3f490490b355c430d32ee0dbdcfa",
+    "bytes": 645696,
+    "url": "https://ndownloader.figshare.com/files/51065297",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "PortalCompounds.csv": {
+    "checksum": "sha256:8078ad69c27378a8101e90358dc216bfa03156c20f3087b66a260b90a8fad992",
+    "bytes": 692052,
+    "url": "https://ndownloader.figshare.com/files/51065762",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "README.txt": {
+    "checksum": "sha256:f744a5cf5c112e01276e772679157aac8e85cdc4a8f6d3b86d808e3bfd332891",
+    "bytes": 43103,
+    "url": "https://ndownloader.figshare.com/files/51065795",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "drugcentral": {
+   "structures.smiles.tsv": {
+    "checksum": "sha256:5b81423a2ec1e2766e9666ec4a172d5a5b47045ea2cc032d1ba06085956bc1fc",
+    "bytes": 1089436,
+    "url": "https://unmtid-dbs.net/download/DrugCentral/2021_09_01/structures.smiles.tsv",
+    "fixed": "dated DrugCentral dump",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "drugcomb": {
+   "DrugComb_cell_line_identifiers.xlsx": {
+    "checksum": "sha256:88c7c2a06351e715f1f5c276a98d049fbe33d038516f711b8d9a166e11cd045d",
+    "bytes": 161434,
+    "url": "https://zenodo.org/api/records/18449193/files/DrugComb_cell_line_identifiers.xlsx/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "DrugComb_drug_identifiers.xlsx": {
+    "checksum": "sha256:02b1655ad15a81e0bef06909e147ff4c688938aa7f75eb04603f440e8b18438c",
+    "bytes": 5856350,
+    "url": "https://zenodo.org/api/records/18449193/files/DrugComb_drug_identifiers.xlsx/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "summary_table_v1.4.csv": {
+    "checksum": "sha256:e08e3d35bfa4bea011afe1b05b7025acde5c669c5e8d265866b5e12b08037a2f",
+    "bytes": 193184734,
+    "url": "https://zenodo.org/api/records/11102665/files/summary_table_v1.4.csv/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "faers": {
+   "faers_ascii_2026q2.zip": {
+    "checksum": "sha256:90213500721ecaf976ee45d8ad04aa2dbb80861d93c87fef67ccaf515919bf2a",
+    "bytes": 63223614,
+    "url": "https://fis.fda.gov/content/Exports/faers_ascii_2026q2.zip",
+    "fixed": "FAERS quarterly release",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "fourdn": {
+   "H1ESC.union-loops.bedpe.gz": {
+    "checksum": "sha256:8f2b0d965eca52bda2da2bf52e34813ccedb866f8f60856b066e4b60ea784c91",
+    "bytes": 1478901,
+    "url": "https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/ed5747aa-9b78-4ff5-965f-0d7b389a6219/4DNFIX6VZKOA.bedpe.gz",
+    "fixed": "a 4DN file accession",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HFFc6.union-loops.bedpe.gz": {
+    "checksum": "sha256:1cc29d4fdae698dcd4160965e941b6a05c93aaccc8be1f5413873448285830d5",
+    "bytes": 1595045,
+    "url": "https://4dn-open-data-public.s3.amazonaws.com/fourfront-webprod/wfoutput/153d40b0-8e43-4821-87a2-b5b78842f453/4DNFI32J1C6W.bedpe.gz",
+    "fixed": "a 4DN file accession",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "gdsc": {
+   "GDSC1_fitted_dose_response_27Oct23.xlsx": {
+    "checksum": "sha256:6dfad242263d93b6814cc51146b15346d3c69abe1aba834a0977ba9e3fd3b6a5",
+    "bytes": 30348857,
+    "url": "https://cmp.cog.sanger.ac.uk/download/GDSC1_fitted_dose_response_27Oct23.xlsx",
+    "fixed": "dated GDSC release file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GDSC2_fitted_dose_response_27Oct23.xlsx": {
+    "checksum": "sha256:0e99120a14a003dcbd3c27c020f1cfd35e38ee091067a2406f66c0d4dbc1c899",
+    "bytes": 22112537,
+    "url": "https://cmp.cog.sanger.ac.uk/download/GDSC2_fitted_dose_response_27Oct23.xlsx",
+    "fixed": "dated GDSC release file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "model_list_20260921.csv": {
+    "checksum": "sha256:419f65d1d6534454194f1a744550fab632cd1d7411f6b13411a885735aa37006",
+    "bytes": 957555,
+    "url": "https://cog.sanger.ac.uk/cmp/download/model_list_20260921.csv",
+    "fixed": "dated model list",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "screened_compounds_rel_8.5_inchi.csv": {
+    "checksum": "sha256:16fb779bf55a0171ef388d1764d074db28c12e3e28ddc74516816dfd2568061d",
+    "bytes": 60969,
+    "url": "https://cog.sanger.ac.uk/cmp/download/screened_compounds_rel_8.5_inchi.csv",
+    "fixed": "release in the file name",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "herb1": {
+   "HERB_disease_info_v1.txt": {
+    "checksum": "sha256:8174cfdd362abb175455af6c4953ca88e4fdb577bf58aa489e02237b93961827",
+    "bytes": 4690056,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_disease_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_experiment_info_v1.txt": {
+    "checksum": "sha256:e1f5db5618f75949b1f3ee23f237dad9306dfab04236f03363a0f4b921f2c3c5",
+    "bytes": 408325,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_experiment_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_herb_info_v1.txt": {
+    "checksum": "sha256:6768404ae20c32d9aa4176f8c5c1709eaccc827da04dd8a745805f79149073e6",
+    "bytes": 1663130,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_herb_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_ingredient_info_v1.txt": {
+    "checksum": "sha256:250ef1c7448559b2afa4af9e805774c925219292a9b2ed952a283789efdfd9e7",
+    "bytes": 12042562,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_ingredient_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_reference_info_v1.txt": {
+    "checksum": "sha256:ce506ad470f2a1f795265f02438df3e816ccaafd2b4cc1776a883205c52cbc65",
+    "bytes": 3966937,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_reference_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_target_info_v1.txt": {
+    "checksum": "sha256:1bef9797019919dbd4fc6aad11abaaca976aa4d86cb6db2f8baa0c0a37ed2b85",
+    "bytes": 2181362,
+    "url": "http://47.92.70.12/static/download_data/V1/HERB_target_info_v1.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "herb2": {
+   "HERB_clinical_trials_v2.txt": {
+    "checksum": "sha256:6a0124d454206c7a5efddb03482df8c56b8e5b658029ee143ac1300fda540cc0",
+    "bytes": 15732992,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_clinical_trials_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_disease_info_v2.txt": {
+    "checksum": "sha256:1e110dd7ff72644f6efbd4668bdfb8c21392a1ab57cbb0c94d08540249ef8191",
+    "bytes": 7931515,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_disease_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_experiment_info_v2.txt": {
+    "checksum": "sha256:319ef651dbfbd2598715acd6dca33da6e4ffeedd5ec1bbcc207155445fb1baaf",
+    "bytes": 941202,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_experiment_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_formula_info_v2.txt": {
+    "checksum": "sha256:0c0c32e4b4e35ec042f582e5d50622ff23cf8325b94ad57c5a9ef6944780bf28",
+    "bytes": 3713119,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_formula_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_herb_info_v2.txt": {
+    "checksum": "sha256:c465d5dbd4c5a5e39b497bd0ba4dbd1bebc5f0be1c8f1cd8e3a515c0af514e09",
+    "bytes": 1864763,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_herb_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_ingredient_info_v2.txt": {
+    "checksum": "sha256:7b533f16e7c87dc95421dcf55a041574b795bfa3f439dcf2a9a16acbfa0bdb20",
+    "bytes": 22572386,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_ingredient_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_meta_info_v2.txt": {
+    "checksum": "sha256:e6cad525d9ee2b4b23548f1e2f74eaa3983f8c5a8b0a65ef69face177189924a",
+    "bytes": 22477197,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_meta_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_reference_info_v2.txt": {
+    "checksum": "sha256:345c33c4afebd46e02f7fecd7317af5b1094c9e17a7eca717acc146cfdb84793",
+    "bytes": 14987466,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_reference_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "HERB_target_info_v2.txt": {
+    "checksum": "sha256:72996abd3acc8b8faffa8f9093fdfb516ffbfa19aafcdf0f5221da5bc60b9a70",
+    "bytes": 2512008,
+    "url": "http://47.92.70.12/static/download_data/V2/HERB_target_info_v2.txt",
+    "fixed": "HERB version in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "impc": {
+   "README.md": {
+    "checksum": "sha256:d1fda25c91c7977eaf3c933d53e70ce950b6b334dbef59d475c0cea2109d7598",
+    "bytes": 19984,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/README.md",
+    "fixed": "IMPC release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "genotype-phenotype-assertions-ALL.csv.gz": {
+    "checksum": "sha256:f9d5c963f4c33abf5caf107dcb764924db76a201dee27830afadd3d65852799f",
+    "bytes": 5001223,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/genotype-phenotype-assertions-ALL.csv.gz",
+    "fixed": "IMPC release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "viability.csv.gz": {
+    "checksum": "sha256:6a3095081ed9050e94096be455ca69d4f70ff527560818781c6eb56e6b341336",
+    "bytes": 479554,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/impc/all-data-releases/release-24.0/results/viability.csv.gz",
+    "fixed": "IMPC release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "jaspar": {
+   "JASPAR2026_CORE_non-redundant_pfms_meme.txt": {
+    "checksum": "sha256:18f47f8fe9994e49db102b9ff3d4f4505fa102d414baeab7cfb01dda35b44a5f",
+    "bytes": 1351973,
+    "url": "https://jaspar.elixir.no/download/data/2026/CORE/JASPAR2026_CORE_non-redundant_pfms_meme.txt",
+    "fixed": "JASPAR release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "JASPAR2026_CORE_vertebrates_non-redundant_pfms_jaspar.txt": {
+    "checksum": "sha256:4005b5449ba07d9b58495f51143186e7e3959efd0ad670770fbddf57bf941e8f",
+    "bytes": 336314,
+    "url": "https://jaspar.elixir.no/download/data/2026/CORE/JASPAR2026_CORE_vertebrates_non-redundant_pfms_jaspar.txt",
+    "fixed": "JASPAR release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "lincs_l1000": {
+   "GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz": {
+    "checksum": "sha256:88c6ca5ff8bb3cf3af22c2eb8cbe769f9ae8e305a760959b18711877d730d61c",
+    "bytes": 2528,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_cell_info_2017-04-28.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz": {
+    "checksum": "sha256:000171e8ce17cb00a3e80a907d97f0bc4218077eb4cb2ac03f4e0f9f4f2e5493",
+    "bytes": 82376,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_pert_info_2017-03-06.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz": {
+    "checksum": "sha256:b78284478d62029f600d4397334c538d363123110affd2454bf0055bd0678e01",
+    "bytes": 1943865,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/GSE70138_Broad_LINCS_sig_info_2017-03-06.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE92742_Broad_LINCS_cell_info.txt.gz": {
+    "checksum": "sha256:88c6ca5ff8bb3cf3af22c2eb8cbe769f9ae8e305a760959b18711877d730d61c",
+    "bytes": 2528,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_cell_info.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE92742_Broad_LINCS_gene_info.txt.gz": {
+    "checksum": "sha256:741216ccc53320119b47ab006de3bcad48963c57087c9e07f50f0d6cd088711a",
+    "bytes": 216692,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_gene_info.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE92742_Broad_LINCS_pert_info.txt.gz": {
+    "checksum": "sha256:b1945b3fde51021865b12269929cc78ccf2665be27f53a4da9336e4ddcf4b42f",
+    "bytes": 1138509,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_pert_info.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "GSE92742_Broad_LINCS_sig_info.txt.gz": {
+    "checksum": "sha256:19da29c0ee12ddf27f9698cd0da40beaff58657dcde9d382aae068737e831299",
+    "bytes": 11124404,
+    "url": "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/GSE92742_Broad_LINCS_sig_info.txt.gz",
+    "fixed": "a GEO series' supplementary file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "massbank": {
+   "MassBank-data-2026.03.zip": {
+    "checksum": "sha256:12c6a922929f9bf2484c46586b6101512a415e44680558883b0630c6e47905fb",
+    "bytes": 239602156,
+    "url": "https://zenodo.org/api/records/19590880/files/MassBank/MassBank-data-2026.03.zip/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "mesh": {
+   "desc2026.gz": {
+    "checksum": "sha256:ccd4d0d33bebfd4c836a59e7dd0c635b1d4e20c4f5a6abc55e2eb0ba4c8716dd",
+    "bytes": 16812612,
+    "url": "https://nlmpubs.nlm.nih.gov/projects/mesh/MESH_FILES/xmlmesh/desc2026.gz",
+    "fixed": "MeSH production year",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "nhanes": {
+   "DEMO_J.xpt": {
+    "checksum": "sha256:c0b46e0345ea19404928656277c8b0d10b0cca348a9b2fe4fc3c67e8b7ee73ec",
+    "bytes": 3412720,
+    "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DEMO_J.xpt",
+    "fixed": "NHANES cycle file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "DSQIDS_J.xpt": {
+    "checksum": "sha256:685dea29427853b57085a4232586dc1b1d61f4385c0bbb0c88ab0f62abc0fbe1",
+    "bytes": 8958720,
+    "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/DSQIDS_J.xpt",
+    "fixed": "NHANES cycle file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "PFAS_J.xpt": {
+    "checksum": "sha256:bd2460dc1916fc80b41bef9ac7cdd367f04f25158ec1736706663886b3e4e6b3",
+    "bytes": 344800,
+    "url": "https://wwwn.cdc.gov/Nchs/Data/Nhanes/Public/2017/DataFiles/PFAS_J.xpt",
+    "fixed": "NHANES cycle file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "pharos": {
+   "pharos400_tdls_canonicals.csv": {
+    "checksum": "sha256:ee8fdc79893235a451ab7a8a4b6099da390ae9ccd341179297d8f8730f801459",
+    "bytes": 44614999,
+    "url": "https://opendata.ncats.nih.gov/public/pharos/pharos400_tdls_canonicals.csv",
+    "fixed": "Pharos data version in the file name",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "remap": {
+   "remap2022_hsap_biotypes.xlsx": {
+    "checksum": "sha256:fa5015553401988d9e5f37404d3c29f824d7afcc201151d65f17b1350c54a6af",
+    "bytes": 57255,
+    "url": "https://remap.univ-amu.fr/storage/remap2022/biotypes/remap2022_hsap_biotypes.xlsx",
+    "fixed": "ReMap release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "rnacentral": {
+   "hgnc.tsv": {
+    "checksum": "sha256:ca675b369422757a34946fbd013e7ef6f28d554c84f39f60768bc4307058328f",
+    "bytes": 443710,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/hgnc.tsv",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "intact.tsv": {
+    "checksum": "sha256:a7a82edc5f176de9488cfa3e595518e2c259d604b5dff56f5662ef706c3cec57",
+    "bytes": 47941,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/intact.tsv",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "lncbase.tsv": {
+    "checksum": "sha256:7cf038f7055b8b99634e61b88c35baa05b43fd69cf76fc78832b3bbd03b14ebb",
+    "bytes": 67845,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/lncbase.tsv",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "mirbase.tsv": {
+    "checksum": "sha256:ca56cc4e93b7108f1affa7615a0d67c0798abefd75c8a9d67cb2f084bac8315f",
+    "bytes": 5372558,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/mirbase.tsv",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "release_notes.txt": {
+    "checksum": "sha256:ea6934cc70f1242167739ce65f4a586704eea6874f80f1851a19e5c00d681f61",
+    "bytes": 727,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/release_notes.txt",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "tarbase.tsv": {
+    "checksum": "sha256:e7eafd0058ebacca9d71bbbca4c1625a93535a9c908e2f2834236573f0893a43",
+    "bytes": 167718,
+    "url": "https://ftp.ebi.ac.uk/pub/databases/RNAcentral/releases/27.0/id_mapping/database_mappings/tarbase.tsv",
+    "fixed": "RNAcentral release in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "signor": {
+   "SIGNOR_Oct2026_release.txt": {
+    "checksum": "sha256:63db6f65e9148e81354f564c3c3cdfc9ee45dc421553bd0926e5fae511ef9d06",
+    "bytes": 21425930,
+    "url": "https://signor.uniroma2.it/releases/Oct2026_release.txt",
+    "fixed": "SIGNOR release file",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "symmap2": {
+   "SymMap_v2.0_SMDE.xlsx": {
+    "checksum": "sha256:05545f8cecbafe8734bce804bd062791fcf72e9c17bce52e7d75137e264dbe4f",
+    "bytes": 2255321,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMDE%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMDE_key.xlsx": {
+    "checksum": "sha256:cb820976e66761a6bd60ad2462219fffa3c2317f02d62d94781be6ce340191b9",
+    "bytes": 735937,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMDE%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMHB.xlsx": {
+    "checksum": "sha256:aafa7a2dca0298eca73ae3add133110ff9f114f23480aae204b94e95800c0288",
+    "bytes": 99614,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMHB%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMHB_key.xlsx": {
+    "checksum": "sha256:7b521fc01582a423999e646fc2ca750399f7c86a6bf2158c726cb7d63703043f",
+    "bytes": 65615,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMHB%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMIT.xlsx": {
+    "checksum": "sha256:2cadefea5a598d6d7ae39360a8f5ac9bbbcc4f9e62d8f9546a4eab8679b31dbf",
+    "bytes": 1889366,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMIT%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMIT_key.xlsx": {
+    "checksum": "sha256:503cb997da5719566fcb6e046b1b027aa84b8fb36fecfe347c452d6357608c38",
+    "bytes": 3687312,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMIT%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMMS.xlsx": {
+    "checksum": "sha256:c83d52386f7f723ac252d4d5adc71c0f64587ea3ffc3d0b7ab87ef3e6e5d37c9",
+    "bytes": 262393,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMMS%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMMS_key.xlsx": {
+    "checksum": "sha256:271e56c3ef0c43e2e597f729a12ad8c981b8f3ae0f2dd5175ea98736f447b105",
+    "bytes": 300757,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMMS%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMSY.xlsx": {
+    "checksum": "sha256:6d91b4bfae9752f42cb51d1c049f204ce61b7349c77dd0c2673b97519e25d9a2",
+    "bytes": 31666,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMSY%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMSY_key.xlsx": {
+    "checksum": "sha256:62b38cc3d8804566e3722a77af010c22ca84924e6598b569d4b7871daa59966d",
+    "bytes": 20654,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMSY%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMTS.xlsx": {
+    "checksum": "sha256:cb548f0ff63aba55a371ee644fb967f9810567bbd9602366354f6a461dd0c9ff",
+    "bytes": 225683,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTS%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMTS_key.xlsx": {
+    "checksum": "sha256:faef8b3bf4dedfad741002e28cf4e33c7c19ad01a1db240e142d8ca5af8c3da3",
+    "bytes": 103155,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTS%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMTT.xlsx": {
+    "checksum": "sha256:9a1c03b22c3ea09fc417206e43e44a378f72e975805d66fcfabd72e38e3895f8",
+    "bytes": 1677922,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTT%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "SymMap_v2.0_SMTT_key.xlsx": {
+    "checksum": "sha256:6c25ef5d77da614e7d4a76f2a1e2124615666e8bbab8a88198878b6186ad8295",
+    "bytes": 1275988,
+    "url": "http://www.symmap.org/static/download/V2.0/SymMap%20v2.0%2C%20SMTT%20key%20file.xlsx",
+    "fixed": "SymMap v2.0 in the path",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "tcmp300": {
+   "tcmp-info-20250329.csv": {
+    "checksum": "sha256:fc8db8959b8c72f5d449d2c889d2426c36ebae46e2f5423255f7899081c9b95e",
+    "bytes": 20103,
+    "url": "https://ndownloader.figshare.com/files/55750814",
+    "fixed": "a figshare file id",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  },
+  "wfo": {
+   "_DwC_backbone_R.zip": {
+    "checksum": "sha256:ccfc7e3ca85c8b80aa96eb52d4e50e07e1811d28916b544280d8a4f1a043ba72",
+    "bytes": 121660019,
+    "url": "https://zenodo.org/api/records/20782718/files/_DwC_backbone_R.zip/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "deduplicated_ids_lookup.csv.gz": {
+    "checksum": "sha256:f67078503ceb8849ab63d10ee89a94ae0f8da6103e15b46e1b04df73242096a6",
+    "bytes": 429458,
+    "url": "https://zenodo.org/api/records/20782718/files/deduplicated_ids_lookup.csv.gz/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   },
+   "deprecated_names_lookup.csv.gz": {
+    "checksum": "sha256:9dd08ac269f0a7e93b295dc40a78eb8767a703eb996504e03ee5c0d38c972567",
+    "bytes": 707640,
+    "url": "https://zenodo.org/api/records/20782718/files/deprecated_names_lookup.csv.gz/content",
+    "fixed": "a file of a published Zenodo record",
+    "read_by": [
+     "https://github.com/psknlr/TCMScience/actions/runs/38157405923",
+     "https://github.com/psknlr/TCMScience/actions/runs/38163083017",
+     "https://github.com/psknlr/TCMScience/actions/runs/38164474741"
+    ]
+   }
+  }
+ }
+}
