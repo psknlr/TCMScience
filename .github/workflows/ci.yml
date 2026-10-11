@@ -363,6 +363,37 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/llama.log"
 
+  validation:
+    # Tier 2 of the validation plan (BioScience-Harness/docs/VALIDATION.md), offline: every
+    # registered capability enumerated and run through the dispatcher with its reference
+    # output (tcmstudio validate), the optional scientific packages imported and used for a
+    # calculation, every catalogued source's readiness, and the Guizhi Decoction benchmark as
+    # far as it goes without the network. Nothing is downloaded: a check that needs the
+    # network is SKIPPED, and the summary lists it with the rest. A FAIL fails the job.
+    # Tiers 3 and 4, with the network, are .github/workflows/live-data.yml.
+    name: Validation reports (offline tier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
+      - name: Every capability through the dispatcher
+        run: tcmstudio validate --out "$RUNNER_TEMP/reports/capabilities"
+      - name: The Guizhi Decoction and palpitations benchmark, offline
+        run: bioagent validate benchmark --out "$RUNNER_TEMP/reports/benchmark"
+      - name: Summary
+        if: always()
+        run: bioagent validate summary "$RUNNER_TEMP/reports" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: validation-reports-offline
+          path: ${{ runner.temp }}/reports
+          retention-days: 14
+
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
     # record in data/connector_live_verification.csv says when.

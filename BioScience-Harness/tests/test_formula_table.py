@@ -179,8 +179,16 @@ def test_a_name_with_several_compositions_needs_its_book(table):
 
 
 def test_a_book_title_is_not_read_as_a_formula_name(table):
-    q = parse_question("葛芩连汤《鸡峰普济方》", table=table)
+    q = parse_question("葛芩连汤《某书》，参见《鸡峰普济方》", table=table)
     assert q.formula.chinese == "葛芩连汤"
+
+
+def test_a_book_no_version_cites_is_refused_with_the_books_they_cite(table):
+    # 葛芩连汤 has one version, from 《某书》: asked for the 《千金》 one, the loop does not
+    # study the 《某书》 one under that name
+    with pytest.raises(QuestionRefused, match="no version of 葛芩连汤 .*cites 《千金》") as exc:
+        parse_question("葛芩连汤《千金》", table=table)
+    assert "《某书》卷一" in str(exc.value)
 
 
 def test_a_formula_with_an_unresolved_ingredient_is_refused(table):
@@ -255,3 +263,63 @@ def test_a_mineral_component_is_named_as_a_limitation(tmp_path):
                        snapshot_root=tmp_path / "snap", ledger_path=ledger.path,
                        state_dir=tmp_path / "state", output_dir=tmp_path / "out")
     assert any("朱砂 (mineral)" in line for line in run.artifact.limitations)
+
+
+# ------------------------------------------------------------------ errata
+
+ERRATUM_ROW = ("桂枝甘草汤（《伤寒论》。）", "桂枝4两（去皮），草2两（炙）。", "《伤寒论》。", "",
+               "发汗过多，其人叉手自冒心，心下悸，欲得按者。", "", "")
+
+
+def _errata(tmp_path, monkeypatch, **change):
+    from bioagent.sources import formulas
+    doc = json.loads(formulas.ERRATA_FILE.read_text(encoding="utf-8"))
+    doc["errata"][0].update(change)
+    path = tmp_path / "errata.json"
+    path.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("BIOAGENT_FORMULA_ERRATA", str(path))
+    return path
+
+
+def test_a_misread_composition_is_read_through_its_erratum_and_keeps_its_text():
+    rec, = records_from_rows([ERRATUM_ROW])
+    assert rec.erratum is not None and rec.erratum.id == "erratum.0001"
+    assert rec.composition == "桂枝4两（去皮），草2两（炙）。", "the workbook is not edited"
+    assert rec.id == "tcm:formula.fx3fcb0aa28cc9", "the id is the digest of the text as written"
+    assert rec.resolved and [c.drug for c in rec.components] == ["guizhi", "gancao"]
+    assert [c.name for c in rec.written_components] == ["桂枝", "草"]
+    version = rec.version()
+    assert version.written == ("桂枝", "草"), "each component keeps the name the workbook wrote"
+    nodes, edges = herb_rows(version)
+    assert {e["raw"]["written"] for e in edges if e["predicate"] == "contains"} == {"桂枝", "草"}
+    assert "第64条" in rec.erratum.authority and rec.erratum.status == "proposed"
+
+
+def test_an_erratum_applies_only_to_the_text_it_names(tmp_path, monkeypatch):
+    changed = (ERRATUM_ROW[0], "桂枝4两，草2两。", *ERRATUM_ROW[2:])
+    rec, = records_from_rows([changed])
+    assert rec.erratum is None and not rec.resolved and rec.unresolved == ("草",)
+    _errata(tmp_path, monkeypatch, status="rejected", reviewed_by="a maintainer")
+    rec, = records_from_rows([ERRATUM_ROW])
+    assert rec.erratum is None and not rec.resolved, "a rejected erratum is not applied"
+    monkeypatch.setenv("BIOAGENT_FORMULA_ERRATA", "none")
+    assert records_from_rows([ERRATUM_ROW])[0].erratum is None
+
+
+@pytest.mark.parametrize("change, message", [
+    ({"corrected": "桂枝4两（去皮），甘草2两（炙），大枣12枚。"}, "does not add"),
+    ({"formula_id": "tcm:formula.fx000000000000"}, "give tcm:formula.fx3fcb0aa28cc9"),
+    ({"authority": ""}, "quotes no authority"),
+    ({"status": "approved"}, "status 'approved'"),
+])
+def test_a_malformed_erratum_is_refused(tmp_path, monkeypatch, change, message):
+    _errata(tmp_path, monkeypatch, **change)
+    with pytest.raises(ValueError, match=message):
+        records_from_rows([ERRATUM_ROW])
+
+
+def test_a_question_reaches_the_corrected_formula_by_its_book():
+    table = FormulaTable(records_from_rows([ERRATUM_ROW]))
+    q = parse_question("桂枝甘草汤《伤寒论》与心下悸", table=table)
+    assert q.formula_id == "tcm:formula.fx3fcb0aa28cc9"
+    assert [c[0] for c in q.formula.components] == ["tcm:herb.guizhi", "tcm:herb.gancao"]

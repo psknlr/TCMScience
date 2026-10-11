@@ -10,6 +10,10 @@
     bioagent validate databases --out DIR    database_readiness_report.json (no downloads)
     bioagent validate record --report DIR/live_download_validation.json
                                              fold a live run into the committed record
+    bioagent validate benchmark --out DIR [--live] [--raw RAW] [--repeat]
+        research_pipeline_report.json        the Guizhi Decoction and palpitations benchmark,
+                                             twelve stages, with one hashed artifact each
+        scientific_reproducibility_report.json   (--repeat) the artifacts of a second run
 
 Without ``--live`` nothing is requested from any server: the network checks are SKIPPED
 and only files already in the work directory are checked. ``--strict`` exits non-zero on
@@ -49,6 +53,23 @@ def build_parser() -> argparse.ArgumentParser:
     b = sub.add_parser("databases", help="every catalogued source, without downloads")
     b.add_argument("--out", required=True)
     b.add_argument("--tcmdb-root", default="")
+    m = sub.add_parser("benchmark", help="the Guizhi Decoction and palpitations benchmark")
+    m.add_argument("--out", required=True, help="where the reports go")
+    m.add_argument("--work", default="", help="snapshots, the research run and the artifacts "
+                                              "(default: OUT/work)")
+    m.add_argument("--raw", default="", help="the research raw files (default: WORK/raw; "
+                                             "`validate data --work W` leaves them in W/raw)")
+    m.add_argument("--snapshots", default="", help="snapshots built elsewhere; their data "
+                                                   "provenance stays UNVERIFIED")
+    m.add_argument("--ledger", default="", help="their ledger (default: SNAPSHOTS/ledger.jsonl)")
+    m.add_argument("--live", action="store_true",
+                   help="download the files that are missing and query the literature")
+    m.add_argument("--repeat", action="store_true",
+                   help="run again in a fresh state directory and compare the artifacts")
+    m.add_argument("--strict", action="store_true", help="exit non-zero on BLOCKED too")
+    v = sub.add_parser("summary", help="every report under the given paths, as one Markdown table")
+    v.add_argument("paths", nargs="+", help="report files or directories holding them")
+    v.add_argument("--rows", type=int, default=40, help="how many non-passing records to list")
     r = sub.add_parser("record", help="fold a live run's results into the committed record")
     r.add_argument("--report", required=True, help="a live_download_validation.json")
     r.add_argument("--record", default="", help="the record to update (default: the shipped "
@@ -197,10 +218,80 @@ def _record(a: argparse.Namespace) -> int:
     return 0
 
 
+def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
+    """The reports under ``paths`` as Markdown: one line of counts per report, the acceptance
+    of a benchmark, and the records that did not pass, each with its reason. A record that
+    is BLOCKED, SKIPPED or UNVERIFIED is listed with the failures: none of them is a pass."""
+    from . import STATUSES, load_report
+
+    files: list[Path] = []
+    for p in map(Path, paths):
+        files += sorted(p.rglob("*.json")) if p.is_dir() else [p]
+    docs = []
+    for f in files:
+        try:
+            docs.append((f, load_report(f)))
+        except (ValueError, OSError, json.JSONDecodeError, UnicodeDecodeError):
+            continue
+    head = "| report | tier | records | " + " | ".join(STATUSES) + " |"
+    lines = ["## Validation reports", "", head, "|" + "---|" * (3 + len(STATUSES))]
+    failing = []
+    for f, doc in docs:
+        counts = (doc.get("summary") or {}).get("status") or {}
+        lines.append(f"| {doc.get('report')} | {doc.get('tier') or '-'} | "
+                     f"{(doc.get('summary') or {}).get('records', 0)} | "
+                     + " | ".join(str(counts.get(st, 0)) for st in STATUSES) + " |")
+        for r in doc.get("records") or ():
+            if r.get("status") not in (PASS, "NOT_APPLICABLE"):
+                failing.append((doc.get("report"), r))
+    for f, doc in docs:
+        acc = doc.get("acceptance")
+        if acc:
+            lines += ["", f"**{(doc.get('benchmark') or {}).get('id', doc.get('report'))}**: "
+                          f"acceptance {acc.get('how')}; "
+                          + ("every stage completed" if acc.get("completed") else
+                             f"{len(acc.get('not_completed') or [])} stage(s) not completed, each "
+                             "with the reason below")]
+    order = {FAIL: 0, BLOCKED: 1, "UNVERIFIED": 2, "SKIPPED": 3}
+    failing.sort(key=lambda x: (order.get(x[1].get("status"), 9), x[0] or "", x[1].get("component", "")))
+    if failing:
+        lines += ["", f"### Not passed ({len(failing)}; the first {min(rows, len(failing))})", "",
+                  "| report | component | status | reason |", "|---|---|---|---|"]
+        for report_name, r in failing[:rows]:
+            reason = (r.get("failure_reason") or "").replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {report_name} | `{r.get('component')}` | {r.get('status')} | "
+                         f"{reason[:240]} |")
+    lines += ["", "A record is PASS only when every check that applies to it passed; BLOCKED, "
+                  "SKIPPED and UNVERIFIED are reported as such and never counted as passes."]
+    return "\n".join(lines) + "\n"
+
+
+def _benchmark(a: argparse.Namespace) -> int:
+    from . import benchmark
+
+    out = Path(a.out)
+    work = Path(a.work) if a.work else out / "work"
+    snaps = Path(a.snapshots) if a.snapshots else None
+    ledger = Path(a.ledger) if a.ledger else (snaps / "ledger.jsonl" if snaps else None)
+    doc, records = benchmark.run_benchmark(work, raw=a.raw or None, snapshot_root=snaps,
+                                           ledger=ledger, live=a.live, repeat=a.repeat, log=_log)
+    doc["benchmark"]["artifacts"] = str((work / "artifacts").resolve())
+    benchmark.write(doc, out)
+    _summary(records)
+    acceptance = doc["acceptance"]
+    _log(f"acceptance: {acceptance['how']} ({'every stage completed' if acceptance['completed'] else str(len(acceptance['not_completed'])) + ' stage(s) not completed, each with its reason'})")
+    return _exit(records, a.strict)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
     if a.what == "data":
         return _data(a)
+    if a.what == "benchmark":
+        return _benchmark(a)
+    if a.what == "summary":
+        sys.stdout.write(summary_markdown(a.paths, a.rows))
+        return 0
     if a.what == "deps":
         from .dependencies import readiness
         from .environment import fingerprint

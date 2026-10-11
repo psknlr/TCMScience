@@ -1,0 +1,79 @@
+name: live-data
+
+# Tiers 3 and 4 of the validation plan (BioScience-Harness/docs/VALIDATION.md): the
+# reviewed research files are downloaded from their upstream servers (NPASS and CMAUP from
+# bidd.group, LOTUS from Zenodo, STRING, Reactome, UniProt), verified against their reviewed
+# checksums, built into the data hub and into research snapshots, queried, and rebuilt to
+# check the digests; then the Guizhi Decoction and palpitations benchmark runs on the same
+# files with its literature queried live, twice, and its artifacts are compared.
+#
+# Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
+# data are acquired, built, analysed or validated. --strict makes a file that could not be
+# downloaded fail the job: a blocked or skipped live test is never a successful one. The
+# reports are uploaded whatever happens, and the summary lists every record that did not
+# pass with its reason.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
+  push:
+    paths:
+      - "BioScience-Harness/src/bioagent/acquisition/**"
+      - "BioScience-Harness/src/bioagent/sources/**"
+      - "BioScience-Harness/src/bioagent/tcmdb/**"
+      - "BioScience-Harness/src/bioagent/research/**"
+      - "BioScience-Harness/src/bioagent/validation/**"
+      - "BioScience-Harness/src/bioagent/analysis/network_pharmacology.py"
+      - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
+      - "BioScience-Harness/src/bioagent/data/formula_errata.json"
+      - ".github/workflows/live-data.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-data-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: Real downloads, hub datasets, research snapshots and the benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]"
+      - name: The runner
+        run: |
+          df -h "$RUNNER_TEMP" | tail -1
+          python -c "import platform, sys; print(platform.platform(), sys.version.split()[0])"
+      - name: "Tier 3: the files from their servers, verified, built, queried and rebuilt"
+        id: data
+        continue-on-error: true
+        run: bioagent validate data --out "$RUNNER_TEMP/reports/data" --work "$RUNNER_TEMP/work" --live --strict
+      - name: "Tier 4: the Guizhi Decoction and palpitations benchmark on those files, literature live"
+        id: benchmark
+        continue-on-error: true
+        run: bioagent validate benchmark --out "$RUNNER_TEMP/reports/benchmark" --raw "$RUNNER_TEMP/work/raw" --work "$RUNNER_TEMP/bench" --live --repeat --strict
+      - name: Summary
+        if: always()
+        run: bioagent validate summary "$RUNNER_TEMP/reports" --rows 80 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-validation-reports
+          path: |
+            ${{ runner.temp }}/reports
+            ${{ runner.temp }}/bench/artifacts
+            ${{ runner.temp }}/bench/snapshot_report.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: The verdict
+        if: always()
+        run: |
+          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}"
+          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success

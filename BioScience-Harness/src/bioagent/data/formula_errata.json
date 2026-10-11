@@ -1,0 +1,21 @@
+{
+  "schema": "tcmscience.formula_errata/1",
+  "description": "Corrections to how a composition in 中医方剂数据表.xlsx is read. The workbook is never edited: a corrected record keeps its text, its row and its id (a digest of the text as written); only the parse of its composition changes, the written names stay on each component, and every output that uses the record names the erratum. An erratum applies only while the record still reads exactly as 'written'. status: 'proposed' is applied and labelled as awaiting a maintainer's review, 'accepted' has been reviewed, 'rejected' is not applied.",
+  "errata": [
+    {
+      "id": "erratum.0001",
+      "formula_id": "tcm:formula.fx3fcb0aa28cc9",
+      "row": 23098,
+      "name": "桂枝甘草汤",
+      "source": "《伤寒论》。",
+      "field": "配方",
+      "written": "桂枝4两（去皮），草2两（炙）。",
+      "corrected": "桂枝4两（去皮），甘草2两（炙）。",
+      "reason": "草 is 甘草 with its first character lost: the formula is named for its two herbs, and the text it cites gives 甘草二两（炙）. Read as written, 草 resolves to no crude drug, so the record could not be studied or compared with 桂枝汤.",
+      "authority": "《伤寒论》辨太阳病脉证并治中·第64条：发汗过多，其人叉手自冒心，心下悸，欲得按者，桂枝甘草汤主之。桂枝甘草汤方：桂枝四两（去皮），甘草二两（炙）。",
+      "status": "proposed",
+      "proposed": "2026-10-11",
+      "reviewed_by": ""
+    }
+  ]
+}

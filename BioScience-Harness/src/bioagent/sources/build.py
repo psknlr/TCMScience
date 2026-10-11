@@ -208,6 +208,10 @@ def build_gold(raw_dir: str | Path, root: str | Path, *,
         raw = {"herbs.py": Path(herb_layer.__file__), "materia.py": Path(materia_module.__file__)}
         if "" in origins:
             raw["formulas.py"] = Path(formula_module.__file__)
+            # how the table's compositions were read is an input too (formulas.load_errata)
+            errata = formula_module._errata_path()
+            if errata is not None and errata.is_file():
+                raw["formula_errata.json"] = errata
         if hkbu.KEY in origins:
             from ..tcmdb.extra import traditional
             raw.update({"hkbu.py": Path(hkbu.__file__),

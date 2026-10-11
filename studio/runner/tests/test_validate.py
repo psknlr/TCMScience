@@ -103,7 +103,8 @@ def test_the_command_writes_every_report(tmp_path):
     out = tmp_path / "reports"
     assert main(["validate", "--out", str(out), "--kinds", "core", "native"]) == 0
     for name in ("agent_inventory", "tool_validation_report", "sandbox_execution_report",
-                 "dependency_readiness_report", "database_readiness_report", "validation_summary"):
+                 "dependency_readiness_report", "database_readiness_report", "validation_summary",
+                 "agent_regression_report"):
         assert (out / f"{name}.json").is_file(), name
     inv = json.loads((out / "agent_inventory.json").read_text())
     assert inv["counts"]["core_tools"] == len(CORE_TOOLS)
@@ -113,6 +114,9 @@ def test_the_command_writes_every_report(tmp_path):
     assert report["summary"]["records"] == len(CORE_TOOLS) + 150 + len(validate.CHAINS)
     summary = json.loads((out / "validation_summary.json").read_text())
     assert summary["reports"]["tool_validation_report"]["PASS"] >= 74
+    regression = json.loads((out / "agent_regression_report.json").read_text())
+    assert regression["summary"]["records"] == 12 and len(regression["scenarios"]) == 12
+    assert regression["summary"]["status"][FAIL] == 0
     sandbox = json.loads((out / "sandbox_execution_report.json").read_text())
     net = next(r for r in sandbox["records"] if r["component"] == "network")
     assert net["status"] == SKIPPED, "never 'online' without a request"

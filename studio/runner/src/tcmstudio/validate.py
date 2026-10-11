@@ -8,6 +8,7 @@ writes, in DIR:
     agent_inventory.json            every core tool, catalog entry, job kind, governed skill,
                                     hub dataset, source card and execution backend
     tool_validation_report.json     every core tool and catalog entry against twelve checks
+    agent_regression_report.json    twelve research scenarios run as tool chains (scenarios.py)
     sandbox_execution_report.json   where it ran: the network as requests found it, storage
                                     that persists, devices
     dependency_readiness_report.json    optional packages imported, versioned, computing
@@ -653,6 +654,8 @@ def run(a: argparse.Namespace) -> int:
             r.add("integration", status, detail)
             chain_records.append(r)
         log(f"validated in {time.perf_counter() - t0:.0f} s")
+        from .scenarios import SCENARIOS, run_scenarios
+        scenarios = run_scenarios(ctx, tier=a.tier, log=log)
         sandbox = sandbox_records(state_root, tcmdb_root,
                                   probe_network=a.probe_network or a.tier == "live")
         deps = dep_readiness()
@@ -673,7 +676,14 @@ def run(a: argparse.Namespace) -> int:
         "dependency_readiness_report": report("dependency_readiness_report", deps, tier=a.tier,
                                               environment=env),
         "database_readiness_report": report("database_readiness_report", dbs, tier=a.tier,
-                                            environment=env)}
+                                            environment=env),
+        "agent_regression_report": report(
+            "agent_regression_report", scenarios, tier=a.tier, environment=env,
+            notes=["Twelve research scenarios, each the tool calls a correct answer needs, run "
+                   "through the dispatcher in order. A step that cannot run here ends the "
+                   "scenario with its class (tool_unavailable, data_unavailable) and reason: "
+                   "BLOCKED or SKIPPED, never PASS."],
+            extra={"scenarios": [x.as_dict() for x in SCENARIOS]})}
     for name, doc in docs.items():
         write_report(out / f"{name}.json", doc)
     summary = {"schema": "tcmscience.validation-summary/1", "tier": a.tier,
@@ -688,11 +698,12 @@ def run(a: argparse.Namespace) -> int:
                                                  + "\n", encoding="utf-8")
     for name, counts in summary["reports"].items():
         log(f"{name}: " + ", ".join(f"{k} {v}" for k, v in counts.items() if v))
-    failed = [r for r in records + chain_records if r.status == FAIL]
+    judged = records + chain_records + scenarios
+    failed = [r for r in judged if r.status == FAIL]
     for r in failed:
         log(f"  FAIL {r.component}: {r.failure_reason}")
     bad = {FAIL, BLOCKED} if a.strict else {FAIL}
-    return 1 if any(r.status in bad for r in records + chain_records) else 0
+    return 1 if any(r.status in bad for r in judged) else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:                 # pragma: no cover

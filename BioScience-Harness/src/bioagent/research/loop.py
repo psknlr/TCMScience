@@ -153,14 +153,6 @@ def _table() -> Any:
 
 
 _FORMULA_ID = re.compile(r"tcm:formula\.[A-Za-z0-9_]+")
-#: Full titles a question may use for the abbreviations the formula table cites.
-_BOOK_ABBREVIATIONS = {
-    "太平惠民和剂局方": "局方", "和剂局方": "局方", "太平圣惠方": "圣惠", "千金要方": "千金",
-    "备急千金要方": "千金", "千金翼方": "千金翼", "外台秘要": "外台", "肘后备急方": "肘后",
-    "小儿药证直诀": "小儿药证直诀", "普济本事方": "本事", "妇人大全良方": "妇人良方",
-    "景岳全书": "景岳全书", "证治准绳": "准绳", "医方考": "医方考", "鸡峰普济方": "鸡峰",
-}
-_BOOK = re.compile(r"《([^》]+)》")
 
 
 def parse_question(text: str, *, disease: str = "", table: Any = None) -> ResearchQuestion:
@@ -170,7 +162,8 @@ def parse_question(text: str, *, disease: str = "", table: Any = None) -> Resear
     hand-checked name, or by a name in the formula table (中医方剂数据表). The table
     holds many formulas under one name — there are dozens of 四君子汤 — so a name that
     matches several different compositions must be narrowed by the source book written in
-    the question (``四君子汤《局方》``), or the question is refused with the candidates. A
+    the question (``四君子汤《局方》``), or the question is refused with the candidates; a
+    book that none of the name's versions cites is refused too, with the books they cite. A
     formula with an ingredient the materia table cannot resolve is refused too, naming the
     ingredient: studying the rest as if it were absent would study a different formula. A
     disease is recognised only by an ontology id (``MONDO_0005148``).
@@ -202,7 +195,9 @@ def parse_question(text: str, *, disease: str = "", table: Any = None) -> Resear
     if table is not None and all(t is not table for t in _TABLES):
         _TABLES.append(table)
     # A book title is not a formula name, even when a formula shares it (普济方).
-    names = table.names_in(_BOOK.sub("", text)) if table is not None else []
+    from ..sources.formulas import source_matches, split_source
+    bare, books = split_source(text)
+    names = table.names_in(bare) if table is not None else []
     if not names:
         known = sorted({f.chinese for f in FORMULAS.values()})
         raise QuestionRefused(
@@ -211,13 +206,18 @@ def parse_question(text: str, *, disease: str = "", table: Any = None) -> Resear
     if len(names) > 1:
         raise QuestionRefused(f"the question names more than one formula: {names}")
     candidates = table.named(names[0])
-    books = [_BOOK_ABBREVIATIONS.get(b, b) for b in _BOOK.findall(text)]
     if books:
-        narrowed = [r for r in candidates
-                    if any(b == s or b in s or s in b
-                           for b in books for s in _BOOK.findall(r.source) or [r.source])]
-        if narrowed:
-            candidates = narrowed
+        # A book that no version cites is refused: studying another book's version under
+        # the name asked for would study a formula the question did not name.
+        narrowed = [r for r in candidates if source_matches(r.source, books)]
+        if not narrowed:
+            cited = sorted({r.source or "(no source)" for r in candidates})
+            raise QuestionRefused(
+                f"no version of {names[0]} in the formula table cites "
+                + "".join(f"《{b}》" for b in books)
+                + f"; its {len(candidates)} version(s) cite: {'; '.join(cited[:8])}"
+                + (" …" if len(cited) > 8 else ""))
+        candidates = narrowed
     distinct: dict[tuple, Any] = {}
     for r in candidates:
         distinct.setdefault(tuple((c.drug, c.name) for c in r.components), r)
