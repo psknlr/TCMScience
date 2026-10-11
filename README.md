@@ -317,7 +317,8 @@ bioagent validate summary reports/                     # every report as one Mar
 ```
 
 CI runs the offline tier on every push and the live tiers on GitHub's runners
-(`.github/workflows/live-data.yml`).
+(`.github/workflows/live-data.yml`). What they established, and what they did not, against
+the plan's acceptance criteria: [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md).
 
 ## TCMScience Arena
 

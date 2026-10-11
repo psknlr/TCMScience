@@ -35,7 +35,10 @@ on `FAIL`; the live-data workflow uses it.
 
 The specialised CI jobs stay as they were and remain part of the picture: the analysis
 pipelines with the standard tools, docking and ADMET with their engines, the structure
-engines, scVI, the end-to-end cases and the manual live-connector verification.
+engines, scVI, the end-to-end cases and the manual live-connector verification. The
+molecular-modelling and analysis jobs also write the dependency readiness report: the
+groups they install are imported, checked against their locked versions and given a
+calculation with a known answer there, not only reported `BLOCKED` where they are absent.
 
 Every command can be summarised as Markdown, which both workflows append to the run's
 summary page:
@@ -93,11 +96,11 @@ a degree-matched permutation null, and three rebuttals.
 | 3 | compounds | the herbs' constituents in NPASS, CMAUP and LOTUS, by composition level and source |
 | 4 | targets | proteins measured at or below 10 µM, each resting on a measured edge (a target without one fails the stage) |
 | 5 | measured_vs_predicted | every edge class counted as measured or predicted; no target or hypothesis rests on a prediction |
-| 6 | pathways | the pre-registered pathways that contain measured targets: a membership, not a mechanism |
-| 7 | enrichment | the controlled over-representation analysis and its rebuttals, governed under PSH |
+| 6 | pathways | the pre-registered pathways that contain measured targets: a membership, not a mechanism. `UniProt2Reactome.txt` lists lowest-level pathways, so a parent such as Cardiac conduction has no rows of its own; the stage names it as not annotated |
+| 7 | enrichment | the controlled over-representation analysis and its rebuttals, governed under PSH, with the test's power: how many assayed proteins are potent hits, and so the largest fold enrichment possible |
 | 8 | literature | pre-registered Europe PMC and ClinicalTrials.gov queries, records typed by metadata, not appraised |
 | 9 | evidence | each evidence type graded by tier with the claims it can license; contradictions computed from the records |
-| 10 | hypotheses | the pathways that survived, each a labelled mechanism hypothesis citing measured edges, with what would test it |
+| 10 | hypotheses | the pathways that survived, each a labelled mechanism hypothesis citing measured edges, with what would test it; none surviving is an absence of evidence, not evidence of no involvement |
 | 11 | formula_distinction | 桂枝汤 against 桂枝甘草汤: compositions, doses, indications; 心下悸 is 桂枝甘草汤's (§64) |
 | 12 | artifacts | one canonical JSON artifact per stage with its SHA-256; `--repeat` compares a second run byte for byte |
 
@@ -131,8 +134,8 @@ it (`tool_unavailable`, `data_unavailable`, …).
 | 4 | mechanism hypothesis generation | UNVERIFIED | the seed skill correctly claims nothing; measured hypotheses are the benchmark's |
 | 5 | pathway enrichment | runs (against SciPy) | — |
 | 6 | protein sequence analysis | runs (against the standard residue table) | — |
-| 7 | molecular docking | BLOCKED | Vina, meeko, RDKit, gemmi (`env.provision` group docking) |
-| 8 | drug-likeness and ADMET | BLOCKED | RDKit, scikit-learn |
+| 7 | molecular docking | BLOCKED | Vina, meeko, RDKit, gemmi (`env.provision` group docking); where they are installed, UNVERIFIED |
+| 8 | drug-likeness and ADMET | BLOCKED | RDKit, scikit-learn; where they are installed, UNVERIFIED |
 | 9 | transcriptomic and single-cell analysis | BLOCKED | the transcriptomics packages |
 | 10 | clinical literature and trials | SKIPPED | the network (live tier) |
 | 11 | evidence synthesis | runs | — |
@@ -156,10 +159,12 @@ failures and the ways on.
 ## Not verified here, and why
 
 - **Live downloads from this development sandbox**: its egress proxy refuses bidd.group,
-  zenodo.org and stringdb-downloads.org. The live tier runs on GitHub's runners instead.
-- **STRING aliases and Reactome's UniProt mapping**: no reviewed checksum (Reactome's
-  `current` file changes with every release), so the stages that read them stay
-  `UNVERIFIED`, with the SHA-256 of what was read.
+  zenodo.org and stringdb-downloads.org. The live tier runs on GitHub's runners instead;
+  what it found is in [the release qualification report](release-qualification-2026-10.md).
+- **STRING aliases, Reactome's UniProt mapping and the UniProt accession list**: no
+  reviewed checksum (Reactome's `current` file and the UniProt query change with every
+  release), so the stages that read them stay `UNVERIFIED`, with the SHA-256 of what was
+  read, for a maintainer to review and pin.
 - **The four pinned governed skills** still read the illustrative seed corpus; changing
   them changes their content hashes, which only a maintainer's review may re-pin
   (`docs/proposals/repin-tcm-skills.md`). Studio routes around the corpus's limits
@@ -167,3 +172,6 @@ failures and the ways on.
 - **erratum.0001** (桂枝甘草汤《伤寒论》) is proposed, applied and labelled, awaiting review.
 - **Engines** (docking, ADMET, single-cell): verified in their own CI jobs, not on a
   default runner; `env.provision` installs a group at the CI-tested pins after approval.
+  Through the agent they run as jobs a person approves, and the validator approves
+  nothing on anyone's behalf: where the engines are installed, the docking and ADMET
+  scenarios ask `capabilities_status`, submit nothing, and stay `UNVERIFIED`.
