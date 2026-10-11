@@ -5,7 +5,8 @@ name: live-data
 # bidd.group, LOTUS from Zenodo, STRING, Reactome, UniProt), verified against their reviewed
 # checksums, built into the data hub and into research snapshots, queried, and rebuilt to
 # check the digests; then the Guizhi Decoction and palpitations benchmark runs on the same
-# files with its literature queried live, twice, and its artifacts are compared.
+# files with its literature queried live, twice, and its artifacts are compared; and the
+# twelve regression scenarios run live against the hub those files built.
 #
 # Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
 # data are acquired, built, analysed or validated. --strict makes a file that could not be
@@ -46,7 +47,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]"
+      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
       - name: The runner
         run: |
           df -h "$RUNNER_TEMP" | tail -1
@@ -59,6 +60,10 @@ jobs:
         id: benchmark
         continue-on-error: true
         run: bioagent validate benchmark --out "$RUNNER_TEMP/reports/benchmark" --raw "$RUNNER_TEMP/work/raw" --work "$RUNNER_TEMP/bench" --live --repeat --strict
+      - name: "The regression scenarios and the core tools, live, on the hub those files built"
+        id: scenarios
+        continue-on-error: true
+        run: tcmstudio validate --out "$RUNNER_TEMP/reports/scenarios" --tier live --kinds core --tcmdb-root "$RUNNER_TEMP/work/tcmdb"
       - name: Summary
         if: always()
         run: bioagent validate summary "$RUNNER_TEMP/reports" --rows 80 | tee -a "$GITHUB_STEP_SUMMARY"
@@ -75,5 +80,5 @@ jobs:
       - name: The verdict
         if: always()
         run: |
-          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}"
-          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success
+          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
+          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success
