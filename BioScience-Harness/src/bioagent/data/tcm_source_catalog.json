@@ -30,7 +30,7 @@
    "dataset": null,
    "license": "not stated (unreachable); paper describes it as non-commercial free database.",
    "barriers": "Host unreachable (upstream timeout).",
-   "assessment": "Server times out (HTTP 503 from proxy); appears defunct; no mirrors found.",
+   "assessment": "Server times out (HTTP 503 from proxy); appears defunct; no mirrors found. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): tcm.cmu.edu.tw did not answer within 20 s.",
    "checked": "2026-10-01"
   },
   {
@@ -61,7 +61,7 @@
    "dataset": null,
    "license": "not stated (unreachable)",
    "barriers": "Database no longer hosted at its domain.",
-   "assessment": "Domain serves an unrelated third-party placeholder; dataset not obtainable online.",
+   "assessment": "Domain serves an unrelated third-party placeholder; dataset not obtainable online. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): TLS certificate verification failed for tcm.scbdd.com (the certificate is not valid for that name); verification is never turned off.",
    "checked": "2026-10-01"
   },
   {
@@ -106,7 +106,7 @@
    "dataset": null,
    "license": "not stated",
    "barriers": "Backend on raw IP:3456 unreachable through this egress (timeout).",
-   "assessment": "Front-end loads but all data come from a raw-IP:3456 backend that times out from this environment.",
+   "assessment": "Front-end loads but all data come from a raw-IP:3456 backend that times out from this environment. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): www.cctcm.org.cn answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {
@@ -136,7 +136,7 @@
    "dataset": null,
    "license": "not stated (unreachable)",
    "barriers": "Non-standard port 2345 times out from this environment (non-443 ports may not traverse proxy; also may be down).",
-   "assessment": "Real server on port 2345 times out; use HIT-derived data via BATMAN-TCM 2.0 / dbPTH.",
+   "assessment": "Real server on port 2345 times out; use HIT-derived data via BATMAN-TCM 2.0 / dbPTH. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): hit2.badd-cao.net answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {
@@ -152,7 +152,8 @@
    "license": "not stated",
    "barriers": "Page defaced/compromised; treat host as untrusted.",
    "assessment": "Host defaced ('Hacked By ...'); treat as compromised and do not fetch from it.",
-   "checked": "2026-10-01"
+   "checked": "2026-10-01",
+   "do_not_contact": true
   },
   {
    "no": 11,
@@ -228,7 +229,7 @@
    "dataset": null,
    "license": "Terms & Conditions page in SPA (/Help/termsConditions) and registration links https://docs.cmnpd.org/terms-and-conditions; not fetched",
    "barriers": "Registration/login exists (with terms checkbox -> https://docs.cmnpd.org/terms-and-conditions); backend on port 18124 unreachable from this environment",
-   "assessment": "Only static SPA shell reachable; all data come from :18124 which times out from this egress (would be web_export/undocumented API elsewhere).",
+   "assessment": "Only static SPA shell reachable; all data come from :18124 which times out from this egress (would be web_export/undocumented API elsewhere). Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): www.tcmip.cn answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {
@@ -243,7 +244,7 @@
    "dataset": null,
    "license": "original: not determinable; Zenodo upload labelled CC-BY-4.0 (third-party)",
    "barriers": "site down",
-   "assessment": "Origin times out; only a tiny unofficial herb table on Zenodo; TCMID ids survive as cross-refs in HERB 2.0/ITCM.",
+   "assessment": "Origin times out; only a tiny unofficial herb table on Zenodo; TCMID ids survive as cross-refs in HERB 2.0/ITCM. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): www.megabionet.org did not answer within 20 s.",
    "checked": "2026-10-01"
   },
   {
@@ -258,7 +259,7 @@
    "dataset": null,
    "license": "Article is CC BY 4.0; data licence not stated",
    "barriers": "expired TLS certificate (not bypassed); full data on request only",
-   "assessment": "Expired certificate blocks access; complete data only by contacting authors (restricted).",
+   "assessment": "Expired certificate blocks access; complete data only by contacting authors (restricted). Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): TLS certificate verification failed for www.tcmm.net.cn (the certificate has expired); verification is never turned off.",
    "checked": "2026-10-01"
   },
   {
@@ -273,7 +274,7 @@
    "dataset": null,
    "license": "not stated",
    "barriers": "site defunct",
-   "assessment": "Hosting returns Cloudways domain-mapping error page; database offline.",
+   "assessment": "Hosting returns Cloudways domain-mapping error page; database offline. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): mesh.tcm.microbioinformatics.org answers HTTP 403 (authorisation required); access controls are not bypassed.",
    "checked": "2026-10-01"
   },
   {
@@ -289,7 +290,7 @@
    "dataset": null,
    "license": "not stated (bioinformaticshome lists 'Not licensed', free)",
    "barriers": "domain no longer resolves",
-   "assessment": "Host NXDOMAIN.",
+   "assessment": "Host NXDOMAIN. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): the name cloud.tasly.com does not resolve.",
    "checked": "2026-10-01"
   },
   {
@@ -334,7 +335,7 @@
    "dataset": null,
    "license": "not stated (paper: free web toolkit)",
    "barriers": "host unreachable",
-   "assessment": "Origin times out from this egress.",
+   "assessment": "Origin times out from this egress. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): cadd.pharmacy.nankai.edu.cn answers HTTP 403 (authorisation required); access controls are not bypassed.",
    "checked": "2026-10-01"
   },
   {
@@ -350,7 +351,7 @@
    "dataset": null,
    "license": "article CC BY-NC; data licence not stated",
    "barriers": "domain lapsed",
-   "assessment": "Domain NXDOMAIN; partial coverage via HERB 2.0 formula table cross-refs.",
+   "assessment": "Domain NXDOMAIN; partial coverage via HERB 2.0 formula table cross-refs. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): the name cpmcp.top does not resolve.",
    "checked": "2026-10-01"
   },
   {
@@ -456,7 +457,7 @@
    "dataset": null,
    "license": "paper: 'freely accessible to academic researchers'; data licence not stated",
    "barriers": "site gone",
-   "assessment": "Domain no longer resolves; only paper supplementary data could be used.",
+   "assessment": "Domain no longer resolves; only paper supplementary data could be used. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): the name www.bioinformatics.org.cn does not resolve.",
    "checked": "2026-10-01"
   },
   {
@@ -471,7 +472,7 @@
    "dataset": null,
    "license": "not stated",
    "barriers": "login/register endpoints present (role unclear); backend down at test time",
-   "assessment": "Front end loads but its data API returned 503; recheck later; if it returns, it would be web_export via undocumented POST JSON.",
+   "assessment": "Front end loads but its data API returned 503; recheck later; if it returns, it would be web_export via undocumented POST JSON. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): www.bic.ac.cn answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {
@@ -760,7 +761,7 @@
    "dataset": null,
    "license": "not stated",
    "barriers": "host unreachable from this env (possibly decommissioned or blocked)",
-   "assessment": "DNS failure and proxy 502; cannot verify. Recheck from a non-proxied network.",
+   "assessment": "DNS failure and proxy 502; cannot verify. Recheck from a non-proxied network. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): the name tcm.charite.de does not resolve.",
    "checked": "2026-10-01"
   },
   {
@@ -941,7 +942,7 @@
    "dataset": null,
    "license": "not determined",
    "barriers": "Host on port 96 unreachable from this environment (proxy limitation).",
-   "assessment": "Only served on a non-standard port that this egress cannot reach; re-test from an unrestricted network.",
+   "assessment": "Only served on a non-standard port that this egress cannot reach; re-test from an unrestricted network. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): yeyn.group:96 answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {
@@ -986,7 +987,7 @@
    "dataset": null,
    "license": "not stated",
    "barriers": "Data pages redirect to a maintenance notice; download links disabled.",
-   "assessment": "Legacy site in 'maintenance' since migration of TCMSP; no download; only reachable via a redirect-leaked page body, which is not a sound access path.",
+   "assessment": "Legacy site in 'maintenance' since migration of TCMSP; no download; only reachable via a redirect-leaked page body, which is not a sound access path. Re-checked 2026-10-11 from a GitHub-hosted runner (sources-live run 38164474741): old.tcmsp-e.com answers (HTTP 200). That is the front end; whether its data can be obtained was not examined, so the card stays unreachable until a person re-assesses it.",
    "checked": "2026-10-01"
   },
   {

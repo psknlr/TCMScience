@@ -298,16 +298,20 @@ def test_the_unreachable_sources_are_asked_once_each_and_an_answer_asks_for_revi
 
     def fake(url, timeout_s=20.0):
         asked.append(url)
-        if "badd-cao" in url:
-            return Probe(url, "www.badd-cao.net", PASS, "HTTP 200 from www.badd-cao.net",
+        if "hit2.badd-cao" in url:
+            return Probe(url, "hit2.badd-cao.net", PASS, "HTTP 200 from hit2.badd-cao.net",
                          http_status=200, final_url=url)
         return Probe(url, "x", BLOCKED, "the name does not resolve here")
     monkeypatch.setattr(network, "probe", fake)
     assert validate(["reachability", "--out", str(tmp_path)]) == 0
     doc = load_report(tmp_path / "source_reachability_report.json")
     recs = {r["component"]: r for r in doc["records"]}
-    assert len(asked) == len(set(asked)) == len(recs), "one request per source"
+    assert len(asked) == len(set(asked)) == len(recs) - 1, "one request per source but one"
     assert all(u.startswith("http") and " " not in u for u in asked), "only the address"
-    hit = recs["source.10"]
+    hit = recs["source.9"]
     assert hit["status"] == PASS and "re-assess" in hit["checks"][0]["detail"]
     assert recs["source.2"]["status"] == BLOCKED
+    # HIT 1.0's host was defaced: it is recorded as compromised and gets no request at all
+    assert not any("www.badd-cao.net" in u for u in asked)
+    assert recs["source.10"]["status"] == SKIPPED
+    assert "compromised" in recs["source.10"]["checks"][0]["detail"]

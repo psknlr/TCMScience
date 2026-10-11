@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-from . import BLOCKED, FAIL, PASS, Record, report, write_report
+from . import BLOCKED, FAIL, PASS, SKIPPED, Record, report, write_report
 
 __all__ = ["main", "build_parser"]
 
@@ -291,7 +291,8 @@ def _reachability(a: argparse.Namespace) -> int:
     """One request (``HEAD``, else a one-byte ``GET``) to each card's address. A card is
     catalogued ``unreachable`` from where it was assessed; an answer from here says it
     should be re-assessed by a person, not that its data can be obtained: whether they
-    can is the card's own question (a login, a page with no export)."""
+    can is the card's own question (a login, a page with no export). A host recorded as
+    compromised (``do_not_contact``) gets no request."""
     from ..tcmdb import catalog
     from .environment import fingerprint
     from .network import probe
@@ -308,6 +309,14 @@ def _reachability(a: argparse.Namespace) -> int:
                      provenance={"name": card.name, "assessment": card.assessment,
                                  "barriers": card.barriers, "checked": card.checked},
                      reproduce=f"bioagent validate reachability --out OUT --access {card.access}")
+        if card.do_not_contact:
+            # a compromised host gets no request at all, not even this one
+            rec.add("reachable", SKIPPED, "not contacted: the host is recorded as compromised "
+                    f"({str(card.barriers)[:160]})")
+            _log(f"skipped  source {card.no:>3} {card.name}: recorded as compromised, not "
+                 "contacted")
+            records.append(rec)
+            continue
         p = probe(url)
         answered = p.status == PASS or "redirected to" in p.reason
         rec.add("reachable", PASS if answered else p.status,

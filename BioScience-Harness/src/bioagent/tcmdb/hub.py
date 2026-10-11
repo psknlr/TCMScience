@@ -69,6 +69,9 @@ class SourceCard:
     #: source was added from otherwise.
     origin: str = "architecture"
     commercial_use: str = "unknown"            # allowed | forbidden | unknown
+    #: the host is recorded as compromised (a defaced site): no request is sent to it, not
+    #: even a probe of whether it answers
+    do_not_contact: bool = False
 
     @property
     def callable_live(self) -> bool:
@@ -94,7 +97,8 @@ def catalog() -> tuple[SourceCard, ...]:
                             dataset=e.get("dataset"), license=e["license"],
                             barriers=e["barriers"], assessment=e["assessment"],
                             checked=e["checked"], origin=e.get("origin", "architecture"),
-                            commercial_use=e.get("commercial_use", "unknown"))
+                            commercial_use=e.get("commercial_use", "unknown"),
+                            do_not_contact=bool(e.get("do_not_contact", False)))
                  for e in entries)
 
 
