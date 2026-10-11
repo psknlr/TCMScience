@@ -64,6 +64,26 @@ def main() -> int:
         for op in source.operations:
             rendered = (op.render(**op.example) if source in pending
                         else render_call(source.key, op.name))
+            cred = getattr(source, "credential", None)
+            if cred is not None:
+                # a person's credential, from the environment, as a header to the source's
+                # own host; without it nothing is sent, and the row says why
+                from bioagent.credentials import CredentialMissing, headers_for
+                try:
+                    rendered["headers"] = {**dict(rendered.get("headers") or {}),
+                                           **headers_for(cred, source.base_url, source.host)}
+                except CredentialMissing as exc:
+                    failures += 1
+                    rows.append({
+                        "source": source.key, "source_name": source.name,
+                        "operation": op.name, "smoke": op.name == source.smoke,
+                        "status": "DENIED", "http_status": "", "attempts": 0,
+                        "latency_ms": 0, "result_hash": "", "error": str(exc)[:160],
+                        "host": source.host, "license": source.license,
+                        "verified_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+                    print(f"FAIL {source.key:22s} {op.name:22s} DENIED      -      0ms "
+                          f"no credential ({cred.env} is not set)")
+                    continue
             t0 = time.perf_counter()
             result = backend.invoke(manifest, use_cache=False, **rendered)
             latency_ms = int((time.perf_counter() - t0) * 1000)

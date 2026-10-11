@@ -17,14 +17,22 @@ Checked from this environment on 2026-10-01 (review of 2026-09-30):
   requests, and the full phenotype calls are the ``impc`` snapshot (``tcmdb.extra.genetics``).
 
 Not wrapped: the eQTL Catalogue REST API (retired, HTTP 410; the data are files, see the
-``eqtl_catalogue`` dataset), the FinnGen PheWeb browser (robots.txt disallows everything;
-summary statistics follow a registration form) and IEU OpenGWAS (every data endpoint
-needs a personal JWT, and its EULA forbids commercial use without a licence and bulk
-download through the API).
+``eqtl_catalogue`` dataset) and the FinnGen PheWeb browser (robots.txt disallows
+everything; summary statistics follow a registration form).
+
+Pending, with a person's credential: **IEU OpenGWAS** (``opengwas``). Every data endpoint
+needs a personal JWT (from logging in at api.opengwas.io), and its terms forbid commercial
+use without a licence and bulk download through the API. The connector is defined from
+the API's own client (the ieugwasr package: ``gwasinfo``, ``tophits``, ``associations``,
+``phewas``, POST with a JSON body, ``Authorization: Bearer <JWT>``) and carries the token
+from ``BIOAGENT_CREDENTIAL_OPENGWAS`` (``bioagent.credentials``). It ships once
+``scripts/verify_connectors.py --only opengwas`` has run with a token and every operation
+answered; until then it is PENDING, and nothing calls it.
 """
 
 from __future__ import annotations
 
+from ...credentials import Credential
 from ..public_apis import Operation, PublicSource
 
 _MAVEDB_LICENCE = ("Per score set: CC0 1.0 (default), CC BY 4.0, CC BY-SA 4.0, and CC "
@@ -129,4 +137,48 @@ SOURCES: tuple[PublicSource, ...] = (
 )
 
 #: Nothing is pending: every operation above answered the verification run.
-PENDING: tuple[PublicSource, ...] = ()
+_OPENGWAS_TERMS = ("OpenGWAS terms of use: a registered user's personal token; "
+                   "non-commercial use without a licence; no bulk download through the API")
+
+#: the token a registered OpenGWAS user supplies; sent only to api.opengwas.io
+OPENGWAS_CREDENTIAL = Credential(
+    "BIOAGENT_CREDENTIAL_OPENGWAS", obtain="log in at https://api.opengwas.io/profile/ to "
+    "get a token (it expires; renew it there)", terms=_OPENGWAS_TERMS)
+
+PENDING: tuple[PublicSource, ...] = (
+    PublicSource(
+        "opengwas", "IEU OpenGWAS API", "https://api.opengwas.io/api", "api.opengwas.io",
+        _OPENGWAS_TERMS,
+        "GWAS summary statistics of about 50,000 studies (UK Biobank, FinnGen, GIANT, ...): "
+        "a study's metadata, its genome-wide significant hits clumped by LD, a variant's "
+        "associations with chosen studies, and a variant's associations across all of them "
+        "(PheWAS). Needs a registered user's token (BIOAGENT_CREDENTIAL_OPENGWAS).",
+        "genetics", (
+            Operation("gwasinfo", "Metadata of studies by OpenGWAS id (e.g. ieu-a-2): trait, "
+                      "population, sample size, number of SNPs, consortium, PubMed id.",
+                      "gwasinfo", method="POST", json_body={"id": ["{id}"]}, args=("id",),
+                      example={"id": "ieu-a-2"}),
+            Operation("tophits", "A study's associations below pval, clumped by LD "
+                      "(r2 0.001 within 10,000 kb in the EUR reference: the server's "
+                      "pre-clumped set when the defaults are kept).",
+                      "tophits", method="POST",
+                      json_body={"id": ["{id}"], "pval": "{pval}", "preclumped": 1,
+                                 "clump": 1, "r2": 0.001, "kb": 10000, "pop": "EUR"},
+                      args=("id",), example={"id": "ieu-a-2", "pval": 5e-8}),
+            Operation("associations", "A variant's association with studies (beta, se, p, "
+                      "effect and other allele, allele frequency), with an LD proxy "
+                      "where the variant itself was not measured (proxies 1).",
+                      "associations", method="POST",
+                      json_body={"variant": ["{variant}"], "id": ["{id}"],
+                                 "proxies": "{proxies}", "r2": 0.8, "align_alleles": 1,
+                                 "palindromes": 1, "maf_threshold": 0.3},
+                      args=("variant", "id"),
+                      example={"variant": "rs1205", "id": "ieu-a-2", "proxies": 0}),
+            Operation("phewas", "A variant's associations across every study with p below "
+                      "pval (PheWAS).", "phewas", method="POST",
+                      json_body={"variant": ["{variant}"], "pval": "{pval}"},
+                      args=("variant",), example={"variant": "rs1205", "pval": 1e-5}),
+        ), smoke="gwasinfo", docs="https://api.opengwas.io/api/",
+        rate_note="a per-user allowance (HTTP 429 when used up); kept at 1 req/s",
+        credential=OPENGWAS_CREDENTIAL),
+)

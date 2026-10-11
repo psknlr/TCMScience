@@ -92,4 +92,8 @@ the behaviour outside the closure until a re-pin moves it where it belongs:
   profile, so nothing is refused meanwhile, but the allowlist is the record of where the
   harness reaches.
 
-Neither changes what the skills compute; each changes their content hash.
+- `policy.py`, again, when a credentialed connector ships: IEU OpenGWAS
+  (`api.opengwas.io`) is defined and pending (`providers/supplement/genetics.py`), and the
+  runtime's policy kernel refuses a host the research profile does not list.
+
+None of these changes what the skills compute; each changes their content hash.

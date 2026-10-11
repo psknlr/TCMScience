@@ -675,6 +675,41 @@ each needs a permitted export (or a verified API) and the field and licence revi
 guide describes before it can be added, so the catalogue is not to be padded with
 unverified or unreachable entries.
 
+## Sources that need a person's account
+
+Nothing here logs in, solves a challenge, accepts terms or pays on anyone's behalf, and no
+access control is worked around. Where a source needs an account, a person who has one
+can still bring it in, in one of two ways:
+
+- **A credential for an API** (`bioagent.credentials`). A connector whose service answers
+  only registered users names the environment variable that carries the person's token
+  (`BIOAGENT_CREDENTIAL_<SOURCE>`). The runner reads it at call time and sends it as a
+  header, only over https, only to that service's host. It is never written to a cache,
+  a record or a log, never passed to a job's environment, and never part of anything
+  shown to a model; without it the call is refused before any request, with where to get
+  one and the terms that come with it. Such a connector is pending until a run with a
+  token has verified every operation: `sources-live` verifies it when the repository has
+  the token among its secrets, and then it can ship.
+- **Files for the data hub** (`bioagent tcmdb import-raw KEY FILE...`). A person downloads
+  or exports the files under the source's terms and adds them; each is verified as a
+  download would be (its reviewed checksum, else its size) before the same loader reads
+  it. A source that could not be reached from here at all (an unreachable host, a TLS
+  handshake its server ends) is added the same way by a person who can reach it.
+
+What each restricted source needs:
+
+| Source | What a person needs | How it comes in |
+| --- | --- | --- |
+| IEU OpenGWAS (99) | an OpenGWAS account and its token (api.opengwas.io); non-commercial terms, no bulk download | the `opengwas` connector, pending: set `BIOAGENT_CREDENTIAL_OPENGWAS` on the runner and add the token as the repository secret `OPENGWAS_JWT`; once `sources-live` has verified it, it ships, and the research profile's allowlist gains `api.opengwas.io` with the next maintainer re-pin |
+| DrugBank (46) | a DrugBank account (academic CC BY-NC 4.0, or a commercial licence) | the `drugbank_vocabulary` dataset (manual import); the open vocabulary is CC0 |
+| TCMSP (1) | the site's pages, exported by a person | the `tcmsp_export` dataset (manual import) |
+| GtoPdb (88) | registration and an API key (since September 2026); fees for commercial organisations | not wrapped: its files would come in by manual import once its terms are accepted |
+| FinnGen (98) | the summary-statistics registration form | not wrapped: the released files by manual import |
+| HTAN (123) | a Synapse or cloud account; dbGaP for the controlled tier | not wrapped |
+| MIMIC-IV (104) | PhysioNet credentialed access and its data use agreement, which forbids sending the data to online model services | not wrapped; any use stays on the person's machine |
+| TCM-NER (56), TCMKD (24), the 古今医案云 case platform (25) | a Tianchi, TCMKD or platform account (the last also a CAPTCHA) | TCM-NER's files by manual import (CC BY-SA); the others offer no export |
+| CINTCM (26, 51), Natural Medicines (43), Medscape (44), Stockley's (45), PHYDGI (40) | a paid subscription or product | not wrapped |
+
 ## Re-checking
 
 Each of these commands records what it found:
@@ -685,5 +720,9 @@ Each of these commands records what it found:
   their sizes and checksums in `raw/<key>/.downloads.json`.
 - `python -m bioagent.cli tcmdb build <key>` rebuilds a store and records the SHA-256 of
   every file it loaded.
+- `bioagent validate datasets --datasets <keys> --live --out DIR` fetches, verifies,
+  builds, checks and queries datasets the way the Studio jobs do (`sources-live` runs every
+  one weekly, and every connector operation, and asks the unreachable sources again with
+  `bioagent validate reachability`).
 
 Sites change. The catalogue's `checked` date says when each source was last looked at.

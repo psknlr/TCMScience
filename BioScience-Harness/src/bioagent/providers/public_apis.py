@@ -129,6 +129,10 @@ class PublicSource:
     #: data instead of being floored as uninspectable text, which would keep it from a
     #: remote model. Only fields a reviewer read in the source's replies are declared.
     output_schema: Mapping[str, Any] = field(default_factory=dict)
+    #: A service that answers only a registered user: the credential a person supplies
+    #: (``bioagent.credentials.Credential``), sent as a header at call time, only to
+    #: ``host``. ``None`` for the open services, which are all the shipped ones.
+    credential: Any = None
 
     def op(self, name: str) -> Operation:
         for o in self.operations:

@@ -961,7 +961,9 @@ class JobService:
     def _job_env(self, kind: Kind, job: _Job, settings: Mapping[str, Any]) -> dict[str, str]:
         env = dict(self.data_env)
         for key, value in self.environ.items():
-            if key.startswith("BIOAGENT_") and not key.startswith("BIOAGENT_JOB_"):
+            # a person's credentials (bioagent.credentials) stay with the runner's own calls
+            if key.startswith("BIOAGENT_") and not key.startswith(("BIOAGENT_JOB_",
+                                                                   "BIOAGENT_CREDENTIAL_")):
                 env.setdefault(key, value)
         for key in _PASS_ENV:
             if self.environ.get(key):

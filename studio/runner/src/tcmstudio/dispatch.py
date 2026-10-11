@@ -1495,6 +1495,22 @@ def _exec_connector(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -
                                component_id=f"public.connector.{key}")
     except ArgumentError as exc:
         return _failure("connector", "bad_arguments", str(exc), _signature(entry["parameters"]))
+    cred = getattr(BY_KEY[key], "credential", None)
+    if cred is not None:
+        # a service that answers only a registered user: the person's own credential, held
+        # by the runner's environment, sent as a header to the source's own host at call
+        # time. It is never in the arguments, the receipt or anything the model reads.
+        from bioagent.credentials import CredentialMissing, headers_for
+        if ctx.where != "runner":
+            return _failure("connector", "unavailable",
+                            f"{info.get('name')} needs the user's own credential, which only "
+                            "the local runner holds; run this call on the runner",
+                            cred.obtain)
+        try:
+            kwargs["headers"] = {**dict(kwargs.get("headers") or {}),
+                                 **headers_for(cred, BY_KEY[key].base_url, BY_KEY[key].host)}
+        except CredentialMissing as exc:
+            return _failure("connector", "unavailable", str(exc), cred.obtain)
     try:
         rt = _runtime()
     except RuntimeError as exc:

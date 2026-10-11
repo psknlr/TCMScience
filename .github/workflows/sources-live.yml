@@ -89,6 +89,11 @@ jobs:
     name: Every connector operation, live
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # A service that answers only registered users is verified with a person's own
+      # token, from this repository's secrets when one has been added (OPENGWAS_JWT);
+      # bioagent.credentials sends it as a header to the service's host and nowhere else
+      BIOAGENT_CREDENTIAL_OPENGWAS: ${{ secrets.OPENGWAS_JWT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -105,12 +110,27 @@ jobs:
           cat "$RUNNER_TEMP/connectors.csv"
           echo "----- END connector_live_verification.csv -----"
           exit $code
+      - name: The pending connectors that need a person's credential
+        if: always()
+        working-directory: BioScience-Harness
+        run: |
+          if [ -z "$BIOAGENT_CREDENTIAL_OPENGWAS" ]; then
+            echo "OpenGWAS: no token among this repository's secrets (OPENGWAS_JWT); not verified, stays pending"
+            exit 0
+          fi
+          code=0
+          PYTHONPATH=src python scripts/verify_connectors.py --only opengwas \
+            --out "$RUNNER_TEMP/connectors-credentialed.csv" \
+            --report "$RUNNER_TEMP/reports/connectors-credentialed" || code=$?
+          cat "$RUNNER_TEMP/connectors-credentialed.csv"
+          exit $code
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: check-connectors
           path: |
             ${{ runner.temp }}/reports/connectors
+            ${{ runner.temp }}/reports/connectors-credentialed
             ${{ runner.temp }}/connectors.csv
           retention-days: 30
 

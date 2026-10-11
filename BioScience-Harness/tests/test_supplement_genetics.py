@@ -311,7 +311,9 @@ def _allowed(host):
 
 def test_genetics_connectors_are_registered_on_allowed_hosts_with_rates():
     assert {s.key for s in connectors.SOURCES} == {"mavedb", "impc"}
-    assert connectors.PENDING == ()
+    # OpenGWAS waits on a run with a registered user's token (test_credentials.py)
+    assert [s.key for s in connectors.PENDING] == ["opengwas"]
+    assert all(s.key not in BY_KEY for s in connectors.PENDING)
     for source in connectors.SOURCES:
         assert BY_KEY[source.key] is source
         assert _allowed(source.host) and source.host in DEFAULT_RATES
