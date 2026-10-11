@@ -242,6 +242,18 @@ async function full() {
     [(e.result?.formulas || []).length === 2, "the seed's curated formulas stay"],
   ], { compare: true });
 
+  // a card is not a dataset: each says how ready its source is here; NPASS, CMAUP and LOTUS are datasets now
+  await run("tcmdb_catalog: readiness, and NPASS / LOTUS as datasets", "tcmdb_catalog", { query: "" }, (e) => {
+    const cards = Object.fromEntries((e.result?.cards || []).map((c) => [c.no, c]));
+    return [
+      [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+      [cards[5]?.dataset === "npass" && cards[5]?.readiness?.state === "supported", `NPASS supported (got ${JSON.stringify(cards[5]?.readiness)})`],
+      [/local runner/.test(cards[5]?.readiness?.next_step || "") && /tcmdb\.import_store/.test(cards[5]?.readiness?.next_step || ""), "the browser's next step names the runner or an imported store"],
+      [cards[137]?.dataset === "lotus", "LOTUS has a card"],
+      [/catalogued \d+/.test(e.summary_en || ""), `the summary counts by readiness (${e.summary_en})`],
+    ];
+  });
+
   await run("tcm_compatibility 甘草 + 甘遂", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.compatible === false, "not compatible"],

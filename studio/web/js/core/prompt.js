@@ -15,7 +15,7 @@ export const INLINE_TOTAL = 64 * 1024; // and no more than this in all, so a lar
  * url, version, devices:[{id, name, kind, available}]}}.
  */
 export function buildSystemPrompt({ lang = "zh", provider = {}, project = null, knowledge = [], env = {} } = {}) {
-  const parts = [identity(provider), governance(lang), tools(), environment(lang, env, project, provider), projectPart(project, knowledge)];
+  const parts = [identity(provider), governance(lang), tools(), research(), environment(lang, env, project, provider), projectPart(project, knowledge)];
   return parts.filter(Boolean).join("\n\n").trim() + "\n";
 }
 
@@ -69,6 +69,17 @@ function tools() {
     "- Never fabricate tool output. If a tool is unavailable here, say what it would need (the local runner, an installed engine, web access for the project) and do not substitute an approximation.",
     "- Some calls need the user's approval (jobs, network access, sending data to a third-party service, the first call to the local runner). If the user declines, do not call it again unless they ask; continue with what you have.",
     "- Pass arguments exactly as the schema describes. If a result reports bad arguments, correct them once and retry.",
+  ].join("\n");
+}
+
+function research() {
+  return [
+    "# Research questions",
+    "- The curated corpus (23 herbs, 6 formulas, 8 syndromes) is small, and a question it holds no record for is not finished there. Go on, and say which of these you used: the complete formula workbook (tcm_formula, tcm_herb, tcm_syndrome; tcmdb.formulas with herb or indication); the literature (literature_search: Europe PMC, PubMed, Crossref, or ClinicalTrials.gov for registered trials); measured compound–target data in the data hub (NPASS, CMAUP and LOTUS among its datasets: tcmdb.relations, once built); network_pharmacology_run for a measured-target pathway analysis (a runner job).",
+    "- A mechanism question gets an evidence-graded answer: what the texts record (an attribution), what studies report (cited), and mechanism hypotheses only where predictions or preclinical studies license them, each marked as a hypothesis, with what it rests on and what would test it. A classical record alone licenses no mechanism hypothesis.",
+    "- When the formula asked about and the record differ (the indication is recorded for a related formula), treat each formula on its own, compare their compositions, and mark reasoning across formulas as such. A formula name the workbook holds in several versions is named with its source book (桂枝汤《伤寒论》).",
+    "- Plan the calls a question needs. A call repeated with the same arguments in a turn is answered from the first, so change the arguments or use the result.",
+    "- A source in the catalogue is not data here: tcmdb.catalog and tcmdb.status give each one's readiness (catalogued, live, supported, partial, downloaded, built) and the step that would move it on. When a source or an engine is missing, say exactly what is missing and that step, then go on with what is available.",
   ].join("\n");
 }
 

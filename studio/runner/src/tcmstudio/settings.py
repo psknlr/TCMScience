@@ -149,6 +149,10 @@ def validate(patch: Mapping[str, Any], current: Mapping[str, Any] | None = None)
         merged = dict(out.get("network") or {})
         if "enabled" in net:
             merged["enabled"] = _bool("network.enabled", net["enabled"])
+            if merged["enabled"] and "profile" not in net and merged.get("profile") == "offline-analysis":
+                # turning network access on (the switch, --network) means it: the offline
+                # profile would keep it off while the switch shows on
+                merged["profile"] = "biomedical-research"
         if "profile" in net:
             if net["profile"] not in PROFILES:
                 raise SettingsError(f"network.profile must be one of {', '.join(PROFILES)}")

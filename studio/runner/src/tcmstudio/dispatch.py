@@ -604,6 +604,13 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                     entry = get_entry("connector.europepmc.search")
                     kind = "connector"
                     outcome, via = _literature_search(v.value, ctx)
+                elif (target == "network_pharmacology_run" and ctx.where == "runner"
+                      and _formula_ambiguity(v.value.get("formula"))):
+                    entry = get_entry("job.research.run")
+                    kind, via = "job", "job.research.run"
+                    outcome = _failure("job", "bad_arguments",
+                                       _formula_ambiguity(v.value.get("formula")) or "",
+                                       "Call it again with the formula's source book in the name.")
                 else:
                     entry_id, entry_args = route(target, v.value)
                     via = entry_id
@@ -1452,6 +1459,11 @@ def _count_records(value: Any) -> int | None:
     return None
 
 
+def _formula_ambiguity(formula: Any) -> str | None:
+    from .kinds import formula_ambiguity
+    return formula_ambiguity(str(formula or ""))
+
+
 def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, str]:
     source = args.get("source") or "europepmc"
     query = str(args["query"])
@@ -1498,6 +1510,23 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
                          "year": str(parts[0] or ""),
                          "authors": ", ".join(f"{a.get('family', '')} {a.get('given', '')}".strip()
                                               for a in (it.get("author") or [])[:6])})
+    elif source == "clinicaltrials":
+        via = "connector.clinicaltrials.search"
+        o = _run_connector_entry(via, {"term": query, "page_size": limit}, ctx)
+        if o.status != "succeeded":
+            return o, via
+        total = (o.result or {}).get("totalCount")
+        hits = []
+        for study in (o.result or {}).get("studies") or ():
+            p = study.get("protocolSection") or {}
+            ident = p.get("identificationModule") or {}
+            hits.append({"title": ident.get("briefTitle", ""), "nct": ident.get("nctId", ""),
+                         "status": (p.get("statusModule") or {}).get("overallStatus", ""),
+                         "phase": ", ".join((p.get("designModule") or {}).get("phases") or ()),
+                         "conditions": ", ".join(list((p.get("conditionsModule") or {})
+                                                      .get("conditions") or ())[:6])})
+        limits.insert(0, "A registered trial is a record that a study was planned or run, not "
+                         "its result: no claim is licensed until its results are assessed.")
     else:
         via = "connector.europepmc.search"
         o = _run_connector_entry(via, {"query": query, "page_size": limit}, ctx)
@@ -1511,7 +1540,8 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
                          "journal": r.get("journalTitle", ""), "year": r.get("pubYear", ""),
                          "authors": r.get("authorString", ""), "source": r.get("source", "")})
     hits = [{k: v for k, v in h.items() if v not in ("", None)} for h in hits[:limit]]
-    name = {"pubmed": "PubMed", "crossref": "Crossref"}.get(source, "Europe PMC")
+    name = {"pubmed": "PubMed", "crossref": "Crossref",
+            "clinicaltrials": "ClinicalTrials.gov"}.get(source, "Europe PMC")
     result = {"source": source, "query": query, "total": total, "count": len(hits), "hits": hits}
     g = o.governance or gv.empty("connector")
     g["limitations"] = limits
@@ -2079,6 +2109,57 @@ def _exec_tcmdb(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
         return _failure("tcmdb", "unavailable", str(exc), "Load the repository formula asset first.")
 
 
+#: How far a data source is from answering a query, in order. A card in the catalogue is
+#: not a dataset here: only "built" answers tcmdb.query, tcmdb.relations and evidence_for.
+READINESS = ("catalogued", "live", "supported", "partial", "downloaded", "built")
+_READINESS_ZH = {"catalogued": "仅收录", "live": "在线可查", "supported": "可下载",
+                 "partial": "部分下载", "downloaded": "已下载未构建", "built": "可查询"}
+
+
+def _readiness(ctx: Context, key: str | None, status: Mapping[str, Any] | None, *,
+               access: str = "download", connector: str | None = None,
+               barriers: str = "") -> dict[str, Any]:
+    """How ready a source is here, and the one step that would move it on."""
+    runner = ctx.where == "runner"
+    if key and status is not None and access == "live":
+        return {"state": "live", "next_step": f"query it live: tcmdb.relations or the {key} "
+                                              "connector (web access on)"}
+    if key and status is not None:
+        if status.get("built"):
+            return {"state": "built", "next_step": f"query it: tcmdb.query, tcmdb.relations or "
+                                                   f"tcmdb.evidence_for (dataset {key})"}
+        missing = list(status.get("missing_default") or [])
+        present = int(status.get("files_present") or 0)
+        # every file optional (fetched only on request): nothing present is nothing downloaded
+        optional_only = not int(status.get("files_default") or 0)
+        build = (f"job.tcmdb.build {{dataset: {key}}}" if runner else
+                 f"on the local runner, job.tcmdb.build {{dataset: {key}}}")
+        if not missing and (present or not optional_only):
+            return {"state": "downloaded", "next_step": build}
+        fetch = f"job.tcmdb.fetch {{dataset: {key}{', include_optional: true' if optional_only else ''}}}"
+        if access == "manual":
+            how = "place the files by hand (tcmdb.datasets gives the instructions), then build"
+        else:
+            how = (f"{fetch}, then job.tcmdb.build" if runner else
+                   f"on the local runner, {fetch} then job.tcmdb.build; "
+                   "or import a built store here with tcmdb.import_store")
+        return {"state": "partial" if present else "supported", "next_step": how,
+                **({"missing": missing} if present else {})}
+    if connector:
+        return {"state": "live", "next_step": f"connector_call {{connector: {connector}}} "
+                                              "(web access on)"}
+    return {"state": "catalogued",
+            "next_step": "none here: the source is described, not integrated"
+                         + (f" ({barriers})" if barriers and barriers != "none" else "")}
+
+
+def _readiness_line(states: list[str]) -> tuple[str, str]:
+    counts = {s: states.count(s) for s in READINESS if states.count(s)}
+    zh = "，".join(f"{_READINESS_ZH[s]} {n}" for s, n in reversed(list(counts.items())))
+    en = ", ".join(f"{s} {n}" for s, n in reversed(list(counts.items())))
+    return zh, en
+
+
 def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
     g = gv.empty("tcmdb")
     g["limitations"] = [gv.LIMIT_HUB]
@@ -2134,22 +2215,35 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                 c.name, c.license, c.assessment, c.barriers, c.connector or "", c.dataset or "",
                 c.url)).casefold()]
         docs = [c.as_dict() for c in items]
-        if ctx.where in ("runner", "browser"):
-            hub = _hub(ctx)
-            for d in docs:
-                if d.get("dataset"):
-                    try:
-                        st = hub.status(d["dataset"])[0]
-                        d["local"] = {k: st.get(k) for k in ("built", "files_present",
-                                                             "files_default", "missing_default")}
-                    except Exception:                           # noqa: BLE001
-                        d["local"] = None
+        from bioagent.tcmdb import dataset as dataset_spec
+        hub = _hub(ctx) if ctx.where in ("runner", "browser") else None
+        for d in docs:
+            st, access = None, "download"
+            if d.get("dataset"):
+                try:
+                    access = dataset_spec(d["dataset"]).access
+                    st = hub.status(d["dataset"])[0] if hub is not None else {}
+                    d["local"] = {k: st.get(k) for k in ("built", "files_present",
+                                                         "files_default", "missing_default")}
+                except Exception:                               # noqa: BLE001
+                    d["local"] = None
+            d["readiness"] = _readiness(ctx, d.get("dataset") if st is not None else None, st,
+                                        access=access, connector=d.get("connector"),
+                                        barriers=str(d.get("barriers") or ""))
+            if d.get("connector") and d["readiness"]["state"] not in ("built", "live"):
+                # a stored copy is not ready, but the source answers live meanwhile
+                d["readiness"]["live"] = (f"connector_call {{connector: {d['connector']}}} "
+                                          "(web access on)")
         g["licences"] = [gv.licence_entry(f"source:{d['name']}", d.get("license"),
                                           note=f"commercial use: {d.get('commercial_use', 'unknown')}")
                          for d in docs[:40]]
-        return Outcome(result={"count": len(docs), "cards": docs}, governance=g,
-                       summary=f"中医药数据源目录：{len(docs)} 张数据源卡片",
-                       summary_en=f"TCM data sources: {len(docs)} source card(s)")
+        g["limitations"].append("A card says a source exists and how it is reached; only a "
+                                "dataset whose readiness is 'built' answers queries here.")
+        zh, en = _readiness_line([d["readiness"]["state"] for d in docs])
+        return Outcome(result={"count": len(docs), "cards": docs, "readiness_states": list(READINESS)},
+                       governance=g,
+                       summary=f"中医药数据源目录：{len(docs)} 张数据源卡片（{zh}）",
+                       summary_en=f"TCM data sources: {len(docs)} source card(s) ({en})")
     if op == "datasets":
         from bioagent.tcmdb import DATASETS
         from bioagent.tcmdb.spec import licence_class
@@ -2171,11 +2265,15 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                                       if not f.optional) or None,
                         "hosts": sorted({f.url.split("/")[2] for f in d.files if "://" in f.url}),
                         "local": {"built": _hub(ctx).db_path(d.key).is_file()},
+                        "readiness": _readiness(ctx, d.key, _hub(ctx).status(d.key)[0],
+                                                access=d.access),
                         "browser_access": "live connector or imported store" if d.access == "live"
                                           else "imported SQLite store"})
-        return Outcome(result={"count": len(out), "datasets": out}, governance=g,
-                       summary=f"数据集说明：{len(out)} 个",
-                       summary_en=f"Dataset specifications: {len(out)}")
+        zh, en = _readiness_line([d["readiness"]["state"] for d in out])
+        return Outcome(result={"count": len(out), "datasets": out, "readiness_states": list(READINESS)},
+                       governance=g,
+                       summary=f"数据集说明：{len(out)} 个（{zh}）",
+                       summary_en=f"Dataset specifications: {len(out)} ({en})")
     if op == "relation_kinds":
         from bioagent.tcmdb import EVIDENCE, RELATION_KINDS
         from bioagent.tcmdb.rowkit import COLUMNS, EFFECTS, OUTCOMES
@@ -2188,10 +2286,14 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
     hub = _hub(ctx)
     if op == "status":
         rows = hub.status(args.get("dataset") or None)
+        for r in rows:
+            r["readiness"] = _readiness(ctx, r["dataset"], r, access=r.get("access") or "download")
         built = [r["dataset"] for r in rows if r.get("built")]
-        return Outcome(result={"root": str(hub.root), "datasets": rows, "built": built},
-                       governance=g, summary=f"本地数据：{len(built)}/{len(rows)} 个数据集已构建",
-                       summary_en=f"Local data: {len(built)}/{len(rows)} datasets built")
+        zh, en = _readiness_line([r["readiness"]["state"] for r in rows])
+        return Outcome(result={"root": str(hub.root), "datasets": rows, "built": built,
+                               "readiness_states": list(READINESS)},
+                       governance=g, summary=f"本地数据：{len(built)}/{len(rows)} 个数据集已构建（{zh}）",
+                       summary_en=f"Local data: {len(built)}/{len(rows)} datasets built ({en})")
     if op == "tables":
         tables = hub.tables(args["dataset"])
         return Outcome(result={"dataset": args["dataset"], "tables": tables}, governance=g,

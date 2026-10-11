@@ -638,3 +638,39 @@ def test_a_name_differing_only_in_separators_runs_as_the_id_it_means(runner_ctx)
     from tcmstudio.catalog import canonical_name
     assert canonical_name("connector_europepmc_search") == "connector.europepmc.search"
     assert canonical_name("no.such.tool") is None
+
+
+def test_literature_search_reaches_registered_trials(runner_ctx, monkeypatch):
+    from tcmstudio import dispatch
+    from tcmstudio.dispatch import Outcome
+    seen = {}
+
+    def fake(entry_id, args, ctx):
+        seen.update(entry=entry_id, args=args)
+        return Outcome(result={"studies": [{"protocolSection": {
+            "identificationModule": {"nctId": "NCT01234567", "briefTitle": "Guizhi decoction for palpitations"},
+            "statusModule": {"overallStatus": "COMPLETED"}, "designModule": {"phases": ["PHASE2"]},
+            "conditionsModule": {"conditions": ["Palpitations", "Arrhythmia"]}}}]})
+    monkeypatch.setattr(dispatch, "_run_connector_entry", fake)
+    e = call("literature_search", {"query": "guizhi decoction", "source": "clinicaltrials", "limit": 5},
+             {**runner_ctx, "network": True})
+    assert e["status"] == "succeeded", e["error"]
+    assert seen == {"entry": "connector.clinicaltrials.search", "args": {"term": "guizhi decoction", "page_size": 5}}
+    assert e["result"]["hits"] == [{"title": "Guizhi decoction for palpitations", "nct": "NCT01234567",
+                                    "status": "COMPLETED", "phase": "PHASE2",
+                                    "conditions": "Palpitations, Arrhythmia"}]
+    assert "ClinicalTrials.gov" in e["summary_en"]
+    assert e["governance"]["limitations"][0].startswith("A registered trial is a record")
+
+
+def test_a_formula_the_research_loop_would_refuse_is_refused_before_a_job(runner_ctx):
+    # 桂枝汤 names 30 compositions in the workbook: the job used to be queued and fail
+    e = call("network_pharmacology_run", {"formula": "桂枝汤"}, runner_ctx)
+    assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments", e["error"]
+    assert "30 different compositions" in e["error"]["message"]
+    assert "桂枝汤《" in e["error"]["message"] and "source book" in e["error"]["message"]
+    assert runner_ctx["jobs"].submitted == [], "no job was queued"
+    from tcmstudio.kinds import formula_ambiguity
+    assert formula_ambiguity("葛根芩连汤") is None, "a hand-checked formula"
+    assert formula_ambiguity("桂枝汤《伤寒论》") is None, "a name with its book"
+    assert formula_ambiguity("桂枝甘草汤") is None, "one composition"

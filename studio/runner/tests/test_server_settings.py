@@ -243,3 +243,15 @@ def test_serve_as_a_process_prints_the_pairing_link_and_stops_cleanly(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(5)
+
+
+def test_turning_network_on_lifts_an_offline_profile(tmp_path):
+    # a runner kept offline by its profile showed its switch on and stayed offline
+    _schema_1(tmp_path, {"enabled": False, "profile": "offline-analysis"})
+    state = st.RunnerState(tmp_path)
+    assert state.update({"network": {"enabled": True}})["network"] == {
+        "enabled": True, "profile": "biomedical-research"}
+    assert state.update({"network": True})["network"]["profile"] == "biomedical-research"
+    # a profile asked for by name is kept, on or off
+    assert state.update({"network": {"enabled": True, "profile": "offline-analysis"}})["network"] == {
+        "enabled": True, "profile": "offline-analysis"}

@@ -1,6 +1,6 @@
 {
  "version": "2026-10-01",
- "source_document": "tcm_agent_architecture.docx (66 databases, 14 modules); entries 67-133 added from the review of 2026-09-30",
+ "source_document": "tcm_agent_architecture.docx (66 databases, 14 modules); entries 67-133 added from the review of 2026-09-30; entry 137 (LOTUS) added on 2026-10-11",
  "entries": [
   {
    "no": 1,
@@ -73,10 +73,10 @@
    "url": "https://bidd.group/NPASS/",
    "access": "snapshot",
    "connector": null,
-   "dataset": "sources:npass",
+   "dataset": "npass",
    "license": "not stated (no licence or terms on bidd.group/NPASS, read 2026-10-07)",
    "barriers": "none",
-   "assessment": "Bulk files already acquired and parsed (sources.parsers.npass); used by the research loop.",
+   "assessment": "Bulk files acquired and parsed (sources.parsers.npass) for the research loop's snapshots, and a hub dataset since 2026-10-11 (tcmdb.extra.np_activity): fetch and build give organism_compound and compound_target relations (measured activities on protein targets with a PMID or DOI).",
    "checked": "2026-10-07"
   },
   {
@@ -88,10 +88,10 @@
    "url": "https://bidd.group/CMAUP/",
    "access": "snapshot",
    "connector": null,
-   "dataset": "sources:cmaup",
+   "dataset": "cmaup",
    "license": "not stated (no licence or terms on bidd.group/CMAUP, read 2026-10-07)",
    "barriers": "none",
-   "assessment": "Bulk files already acquired and parsed (sources.parsers.cmaup); used by the research loop.",
+   "assessment": "Bulk files acquired and parsed (sources.parsers.cmaup) for the research loop's snapshots, and a hub dataset since 2026-10-11 (tcmdb.extra.np_activity): fetch and build give organism_compound (no reference per pair) and compound_target relations (measured activities with a PMID or DOI).",
    "checked": "2026-10-07"
   },
   {
@@ -2213,6 +2213,23 @@
    "checked": "2026-10-04",
    "origin": "integration-2026-10-04",
    "commercial_use": "unknown"
+  },
+  {
+   "no": 137,
+   "name": "LOTUS (natural products occurrences)",
+   "modules": [
+    "M1"
+   ],
+   "url": "https://lotus.naturalproducts.net/",
+   "access": "live_api+snapshot",
+   "connector": "wikidata_sparql",
+   "dataset": "lotus",
+   "license": "CC-BY-4.0 (the Zenodo frozen export, record 19360665); LOTUS's statements in Wikidata are CC0",
+   "barriers": "none",
+   "assessment": "Structure-organism pairs with references, curated in Wikidata. The frozen export of 2026-04-13 (acquisition table: Zenodo md5s) is the hub dataset 'lotus' (organism_compound: 'known' when manually validated, else 'reported'); live occurrences through the wikidata_sparql connector (compounds_in_taxon, taxa_with_compound). Added from the reviewed acquisition entry and the snapshot card (sources.cards), not re-read live.",
+   "checked": "2026-10-11",
+   "origin": "case-study-2026-10-11",
+   "commercial_use": "allowed"
   }
  ]
 }
