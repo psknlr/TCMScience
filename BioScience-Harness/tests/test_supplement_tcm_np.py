@@ -12,6 +12,7 @@ import gzip
 import io
 import json
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -529,7 +530,10 @@ def test_the_hub_fetch_waits_out_zenodos_crawl_delay(tmp_path, monkeypatch):
     monkeypatch.setattr(downloader.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(downloader.time, "sleep", lambda s: clock.__setitem__(0, clock[0] + s))
     monkeypatch.setattr(downloader.urllib.request, "urlopen", fake_urlopen)
-    monkeypatch.setattr(downloader.Downloader, "_hash", staticmethod(lambda p, a="sha256": "x"))
+    # the bodies stand in for WFO's files, so they hash to the files' reviewed checksums
+    reviewed = {f.name: f.checksum for f in dataset("wfo").files}
+    monkeypatch.setattr(downloader.Downloader, "_hash", staticmethod(
+        lambda p, a="sha256": reviewed.get(Path(p).name.removesuffix(".part")) or "x"))
     h = TCMDataHub(tmp_path / "hub")
     results = h.fetch("wfo", log=lambda m: None)
     assert [r["ok"] for r in results] == [True, True, True]
