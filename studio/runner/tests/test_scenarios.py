@@ -49,8 +49,8 @@ def test_what_cannot_run_here_ends_with_its_class_and_never_passes(offline):
         rec = offline[sid]
         assert rec.status == BLOCKED and "built" in rec.failure_reason and "--tcmdb-root" in rec.failure_reason
     for sid in ("molecular_docking", "admet"):
-        rec = offline[sid]
-        assert rec.status == BLOCKED and "tool_unavailable" in rec.failure_reason
+        # refused where the engine is missing; not submitted where it is (both tested below)
+        assert offline[sid].status in (BLOCKED, UNVERIFIED), offline[sid].as_dict()
     assert offline["clinical_literature"].status == SKIPPED
     assert offline["mechanism_hypothesis"].status == UNVERIFIED
     assert offline["mechanism_hypothesis"].check("only_hypotheses").status == PASS
@@ -129,3 +129,39 @@ def test_on_a_built_hub_the_data_scenarios_read_rows_as_the_hub_returns_them(mon
     _canned(monkeypatch, {"tcmdb.relations": [_MEASURED, unmeasured]})
     rec = _one("compound_target_retrieval")
     assert rec.check("measure_recorded").status == "FAIL" and rec.check("referenced").status == "FAIL"
+
+
+def _runner_ctx(tmp_path):
+    return {"where": "runner", "state_root": str(tmp_path / "state"),
+            "tcmdb_root": str(tmp_path / "tcmdb"), "project_id": "scenarios"}
+
+
+def test_an_engine_that_is_missing_is_refused_by_the_dispatcher_with_its_remedy(tmp_path, monkeypatch):
+    from tcmstudio import dispatch
+    monkeypatch.setattr(dispatch, "dependency_present", lambda name: False)
+    for sid, engine in (("molecular_docking", "vina"), ("admet", "scikit-learn")):
+        rec = _one(sid, _runner_ctx(tmp_path))
+        assert rec.status == BLOCKED and "tool_unavailable" in rec.failure_reason, rec.as_dict()
+        assert engine in rec.failure_reason and "Install it" in rec.failure_reason
+
+
+def test_an_engine_that_is_installed_is_not_given_a_job_the_validator_would_have_to_approve(
+        tmp_path, monkeypatch):
+    from tcmstudio import dispatch
+    monkeypatch.setattr(dispatch, "dependency_present", lambda name: True)
+    rec = _one("molecular_docking", _runner_ctx(tmp_path))
+    assert rec.status == UNVERIFIED, rec.as_dict()
+    assert [c.name for c in rec.checks] == ["step 1: capabilities_status", "reference_run"]
+    assert "rdkit, meeko, vina, gemmi are installed here" in rec.check("reference_run").detail
+    assert "test_docking.py" in rec.check("reference_run").detail
+
+
+def test_a_submitted_job_is_pending_work_not_a_failure_and_not_a_pass(monkeypatch):
+    from bioagent.validation import Record
+    from tcmstudio import dispatch
+    monkeypatch.setattr(dispatch, "call", lambda tool, args, ctx: {
+        "status": "job_submitted", "job": {"id": "job-1", "state": "queued"}})
+    rec = Record("x", "scenario")
+    env = scenarios._Run(rec, {}, "offline").step("run_pipeline", {"pipeline": "dock"})
+    assert env["status"] == "job_submitted"
+    assert rec.status == UNVERIFIED and "job-1" in rec.check("step 1: run_pipeline").detail

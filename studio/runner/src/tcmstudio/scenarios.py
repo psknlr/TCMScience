@@ -86,7 +86,7 @@ class _Run:
     def step(self, tool: str, args: Mapping[str, Any], *, network: bool = False,
              optional: bool = False) -> dict[str, Any] | None:
         """Call ``tool``; its result, or None (and the scenario stops unless ``optional``)."""
-        from bioagent.validation import BLOCKED, FAIL, PASS, SKIPPED
+        from bioagent.validation import BLOCKED, FAIL, PASS, SKIPPED, UNVERIFIED
 
         from .dispatch import call
         self.n += 1
@@ -106,6 +106,13 @@ class _Run:
         if env.get("status") == "succeeded":
             self.rec.add(name, PASS, env.get("summary_en") or env.get("summary") or "succeeded",
                          duration_s=took)
+            return env
+        if env.get("status") == "job_submitted":
+            # accepted, not done: a job has no result until it has finished and been verified,
+            # and this suite does not follow jobs
+            self.rec.add(name, UNVERIFIED, f"submitted as job {(env.get('job') or {}).get('id')}; "
+                         "this suite does not follow runner jobs, so nothing it computes is "
+                         "checked here", duration_s=took)
             return env
         err = env.get("error") or {}
         status = (BLOCKED if cls in ("tool_unavailable", "data_unavailable", "not_permitted")
@@ -294,11 +301,25 @@ def _protein_sequence(x: _Run) -> None:
 
 
 def _engine_scenario(skill: str, args: Mapping[str, Any], where_checked: str) -> Callable[[_Run], None]:
+    """An engine that runs as a runner job the user approves. Whether it is installed is
+    asked the way the agent asks (capabilities_status); when it is not, the skill is called
+    and the dispatcher's own refusal, with its remedy, is the result. When it is, nothing is
+    submitted: the validator approves no job on a person's behalf, and the engine's reference
+    run is the CI job named."""
     def run(x: _Run) -> None:
-        env = x.step(skill, args, optional=True)
-        if env is None:
+        from .catalog import entries
+
+        heavy = next((e.get("heavy") or [] for e in entries("runner", probe=False)
+                      if e["id"] == skill), [])
+        have = _result(x.step("capabilities_status", {})).get("dependencies") or {}
+        if heavy and all(have.get(d) for d in heavy):
+            x.unverified("reference_run", f"{', '.join(heavy)} are installed here; a run is a "
+                                          f"runner job the user approves, and its reference run "
+                                          f"is {where_checked}")
+            return
+        if x.step(skill, args, optional=True) is None:
             raise _Stop
-        x.unverified("reference_run", f"the engine is present; its reference run is {where_checked}")
+        x.unverified("reference_run", f"the engine answered; its reference run is {where_checked}")
     return run
 
 
@@ -424,7 +445,9 @@ SCENARIOS: tuple[Scenario, ...] = (
              ("poses and scores", "the engine's version"),
              ("redocking reproduces the crystal pose (CI's molecular-tools job)",),
              ("needs a provisioned docking environment",),
-             _engine_scenario("skill.dock-ligands", {"receptor": "receptor.pdb", "ligands": "CCO"},
+             # trypsin and its co-crystal benzamidine: the redocking CI's job checks
+             _engine_scenario("skill.dock-ligands", {"receptor": "PDB:3PTB", "ligands": "NC(=N)c1ccccc1",
+                                                     "site_ligand": "BEN", "allow_remote": True},
                               "CI's molecular-tools job (tests/test_docking.py, redocking a crystal pose)")),
     Scenario(8, "admet", "Drug-likeness and ADMET evaluation",
              "Predict ADMET properties for a molecule.",
