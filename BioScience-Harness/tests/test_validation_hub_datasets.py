@@ -286,3 +286,28 @@ def test_the_hub_fetches_exactly_the_files_named(served, tmp_path):
     assert [r["file"] for r in out] == [name] and out[0]["ok"]
     with pytest.raises(HubError, match="no file"):
         hub.fetch("npass", files=["nothing.txt"], log=lambda m: None)
+
+
+# ------------------------------------------------------- unreachable sources, asked again
+def test_the_unreachable_sources_are_asked_once_each_and_an_answer_asks_for_review(
+        tmp_path, monkeypatch):
+    from bioagent.validation import network
+    from bioagent.validation.network import Probe
+
+    asked = []
+
+    def fake(url, timeout_s=20.0):
+        asked.append(url)
+        if "badd-cao" in url:
+            return Probe(url, "www.badd-cao.net", PASS, "HTTP 200 from www.badd-cao.net",
+                         http_status=200, final_url=url)
+        return Probe(url, "x", BLOCKED, "the name does not resolve here")
+    monkeypatch.setattr(network, "probe", fake)
+    assert validate(["reachability", "--out", str(tmp_path)]) == 0
+    doc = load_report(tmp_path / "source_reachability_report.json")
+    recs = {r["component"]: r for r in doc["records"]}
+    assert len(asked) == len(set(asked)) == len(recs), "one request per source"
+    assert all(u.startswith("http") and " " not in u for u in asked), "only the address"
+    hit = recs["source.10"]
+    assert hit["status"] == PASS and "re-assess" in hit["checks"][0]["detail"]
+    assert recs["source.2"]["status"] == BLOCKED

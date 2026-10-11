@@ -86,6 +86,12 @@ def build_parser() -> argparse.ArgumentParser:
                    help="allow files above the downloader's size gate (an operator's decision)")
     h.add_argument("--list", action="store_true", help="print the selected keys as JSON, run nothing")
     h.add_argument("--strict", action="store_true", help="exit non-zero on BLOCKED too")
+    k = sub.add_parser("reachability",
+                       help="the catalogue's sources asked once, over the network, whether "
+                            "they answer from here (a card's 'unreachable' re-checked)")
+    k.add_argument("--out", required=True, help="where the report goes")
+    k.add_argument("--access", nargs="*", default=["unreachable"],
+                   help="the catalogue access classes to ask (default: unreachable)")
     r = sub.add_parser("record", help="fold a live run's results into the committed record")
     r.add_argument("--report", required=True, nargs="+",
                    help="live_download_validation.json and/or hub_dataset_report.json files")
@@ -281,6 +287,45 @@ def _datasets(a: argparse.Namespace) -> int:
     return _exit(records, a.strict)
 
 
+def _reachability(a: argparse.Namespace) -> int:
+    """One request (``HEAD``, else a one-byte ``GET``) to each card's address. A card is
+    catalogued ``unreachable`` from where it was assessed; an answer from here says it
+    should be re-assessed by a person, not that its data can be obtained: whether they
+    can is the card's own question (a login, a page with no export)."""
+    from ..tcmdb import catalog
+    from .environment import fingerprint
+    from .network import probe
+
+    records = []
+    for card in catalog():
+        # a card's address may carry a note after it ("http://… (2013, Tongji Univ.) -
+        # defunct"); one with no address at all is not asked
+        url = str(card.url).split()[0] if str(card.url).strip() else ""
+        if card.access not in set(a.access) or not url.startswith(("http://", "https://")):
+            continue
+        rec = Record(f"source.{card.no}", "source_reachability", "",
+                     input={"url": url, "card_address": card.url, "access": card.access},
+                     provenance={"name": card.name, "assessment": card.assessment,
+                                 "barriers": card.barriers, "checked": card.checked},
+                     reproduce=f"bioagent validate reachability --out OUT --access {card.access}")
+        p = probe(url)
+        answered = p.status == PASS or "redirected to" in p.reason
+        rec.add("reachable", PASS if answered else p.status,
+                (f"answers from here ({p.reason}; HTTP {p.http_status}, final "
+                 f"{p.final_url or url}); the card says {card.access!r}: "
+                 f"{str(card.assessment)[:200]} — a person should re-assess it")
+                if answered else p.reason, probe=p.as_dict())
+        _log(f"{'ANSWERS ' if answered else 'no      '} source {card.no:>3} {card.name}: "
+             f"{p.reason[:160]}")
+        records.append(rec)
+    write_report(Path(a.out) / "source_reachability_report.json", report(
+        "source_reachability", records, tier="live", environment=fingerprint(),
+        notes=["One request per source, to its catalogued address. An answer means the card "
+               "should be re-assessed; it does not mean its data can be obtained."]))
+    _summary(records)
+    return 0
+
+
 def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
     """The reports under ``paths`` as Markdown: one line of counts per report, the acceptance
     of a benchmark, and the records that did not pass, each with its reason. A record that
@@ -373,6 +418,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _benchmark(a)
     if a.what == "datasets":
         return _datasets(a)
+    if a.what == "reachability":
+        return _reachability(a)
     if a.what == "summary":
         sys.stdout.write(summary_markdown(a.paths, a.rows))
         return 0

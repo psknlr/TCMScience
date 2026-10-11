@@ -9,6 +9,12 @@ shipped because its rows say SUCCEEDED, and the date on the row says when.
     PYTHONPATH=src python scripts/verify_connectors.py                # everything
     PYTHONPATH=src python scripts/verify_connectors.py --only hgnc ols # a subset
     PYTHONPATH=src python scripts/verify_connectors.py --no-write      # report only
+    PYTHONPATH=src python scripts/verify_connectors.py --out X.csv --report DIR
+                                                    # elsewhere, plus a validation report
+
+``--report DIR`` also writes ``DIR/connector_live_report.json``: one record per operation
+(``bioagent.validation``), PASS for an answer, BLOCKED for a service that refused or did not
+answer, FAIL otherwise, read by ``bioagent validate summary`` with the other live reports.
 """
 
 from __future__ import annotations
@@ -39,6 +45,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(ROOT / "data" / "connector_live_verification.csv"))
     ap.add_argument("--no-write", action="store_true")
     ap.add_argument("--timeout", type=float, default=30.0)
+    ap.add_argument("--report", default="", help="also write DIR/connector_live_report.json")
     args = ap.parse_args()
 
     # Pending connectors are verified only when named: they are not shipped, and a run
@@ -82,6 +89,8 @@ def main() -> int:
     total = len(rows)
     print(f"\n{total - failures}/{total} operations succeeded across "
           f"{len({r['source'] for r in rows})} sources")
+    if args.report:
+        _write_report(rows, Path(args.report))
     if not args.no_write:
         out = Path(args.out)
         if args.only and out.exists():
@@ -96,6 +105,32 @@ def main() -> int:
             writer.writerows(rows)
         print(f"wrote {out}")
     return 1 if failures else 0
+
+
+def _write_report(rows: list[dict], out: Path) -> None:
+    from bioagent.validation import (BLOCKED, FAIL, PASS, UNVERIFIED, Record, report,
+                                     write_report)
+    from bioagent.validation.environment import fingerprint
+
+    records = []
+    for r in rows:
+        rec = Record(f"connector.{r['source']}.{r['operation']}", "connector_operation", "",
+                     input={"host": r["host"], "smoke": r["smoke"]},
+                     provenance={"name": r["source_name"], "license": r["license"]},
+                     reproduce=f"PYTHONPATH=src python scripts/verify_connectors.py --only "
+                               f"{r['source']} --no-write")
+        # an answer with a documented shortfall (DEGRADED: a truncated body) is not a pass;
+        # a service that refused or was not there is BLOCKED; a wrong answer is a FAIL
+        status = {"SUCCEEDED": PASS, "DEGRADED": UNVERIFIED, "DENIED": BLOCKED,
+                  "UNAVAILABLE": BLOCKED, "TIMEOUT": BLOCKED}.get(r["status"], FAIL)
+        rec.add("live_call", status, f"{r['status']} (HTTP {r['http_status'] or '-'}, "
+                f"{r['latency_ms']} ms){': ' + r['error'] if r['error'] else ''}",
+                http_status=r["http_status"], result_hash=r["result_hash"],
+                verified_at=r["verified_at"])
+        records.append(rec)
+    write_report(out / "connector_live_report.json", report(
+        "connector_live_verification", records, tier="live", environment=fingerprint()))
+    print(f"wrote {out / 'connector_live_report.json'}")
 
 
 if __name__ == "__main__":
