@@ -71,6 +71,95 @@ function reusedEnvelope(first, prior) {
     reused: { step: prior.step, callId: prior.callId },
   };
 }
+// What a result means for the question, in one line the model reads under it. Without it a missing tool, a store not
+// built here, a lookup that matched nothing and a tested negative all read as "nothing", and an answer can report as
+// a negative finding what is only a database that is not here. An ordinary result gets no line.
+const LIST_KEYS = ["rows", "records", "relations", "results", "matched", "hits", "items", "assertions", "edges"];
+const OUTCOME_TEXT = {
+  tool_unavailable: "the tool cannot run here; calling it again will not help: use another route, or say it is unavailable",
+  data_unavailable: "the data this needs are not available here; that says nothing about the question: say which data are missing",
+  no_record: "nothing matched; that is not evidence that none exists",
+  input_error: "the arguments were refused; change them as the message says",
+  not_permitted: "not done: it needs a person's decision",
+  tool_failed: "the call failed; the same input will fail again unless the cause is removed",
+  negative_finding: "the records report a tested negative result: a finding, not missing data",
+  mixed_findings: "some records report positive and some negative results: weigh both",
+  inconclusive: "the records are inconclusive: they neither support nor refute",
+};
+
+function outcomesIn(result) {
+  const seen = new Set();
+  if (!isPlainObject(result)) return seen;
+  for (const key of LIST_KEYS) {
+    const list = result[key];
+    if (!Array.isArray(list)) continue;
+    for (const row of list.slice(0, 500)) {
+      const o = isPlainObject(row) ? row.outcome : null;
+      if (o === "positive" || o === "negative" || o === "inconclusive") seen.add(o);
+    }
+  }
+  return seen;
+}
+
+function emptyResult(result) {
+  if (!isPlainObject(result)) return false;
+  const lists = LIST_KEYS.filter((k) => Array.isArray(result[k]));
+  if (lists.length) return lists.every((k) => result[k].length === 0);
+  return result.total === 0 || result.count === 0;
+}
+
+/** [code, advice] for a result that is not an ordinary answer; null for one that is. */
+export function outcomeOf(envelope) {
+  const err = envelope?.error || {};
+  const msg = String(err.message || "");
+  if (envelope?.status === "failed" || envelope?.status === "refused") {
+    if (err.type === "not_found" && /^unknown tool/i.test(msg)) return ["tool_unavailable", OUTCOME_TEXT.tool_unavailable];
+    if (err.type === "unavailable") {
+      return /not built|no store|store is|import (it|a store)|not downloaded|no files/i.test(msg)
+        ? ["data_unavailable", OUTCOME_TEXT.data_unavailable] : ["tool_unavailable", OUTCOME_TEXT.tool_unavailable];
+    }
+    if (err.type === "network_off") return ["data_unavailable", "the source cannot be reached with web access off; that says nothing about the question"];
+    if (err.type === "not_found") return ["no_record", OUTCOME_TEXT.no_record];
+    if (err.type === "bad_arguments") return ["input_error", OUTCOME_TEXT.input_error];
+    if (err.type === "refused" || err.type === "declined") return ["not_permitted", OUTCOME_TEXT.not_permitted];
+    return ["tool_failed", OUTCOME_TEXT.tool_failed];
+  }
+  if (envelope?.status !== "succeeded") return null;
+  const found = outcomesIn(envelope.result);
+  if (found.has("negative")) return found.has("positive") ? ["mixed_findings", OUTCOME_TEXT.mixed_findings] : ["negative_finding", OUTCOME_TEXT.negative_finding];
+  if (found.has("inconclusive") && !found.has("positive")) return ["inconclusive", OUTCOME_TEXT.inconclusive];
+  if (emptyResult(envelope.result)) return ["no_record", "the query ran and matched nothing; that is not evidence that none exists"];
+  return null;
+}
+
+// A tool that fails over and over in one turn is not called again in it: three failures, or one that a retry cannot
+// change (the tool is not here, cannot run here, or the user declined it). The model is told so, with the failures,
+// and is pointed at the ways on: another tool, the missing data named, or the question put to the user.
+export const FAILURE_BUDGET = 3;
+const FINAL_OUTCOMES = new Set(["tool_unavailable", "not_permitted"]);
+
+function failureKey(router, c) {
+  try {
+    const r = router?.resolve?.(c.name, isPlainObject(c.arguments) ? c.arguments : {});
+    return (r && !r.error && (r.entry?.id || r.target?.id)) || c.name;
+  } catch {
+    return c.name;
+  }
+}
+
+/** The tool as the model named it, with the entry it resolved to when that differs (call_tool, a loose name). */
+const named = (c, key) => (key && key !== c.name && key !== `native.${c.name}` ? `${c.name} (${key})` : c.name);
+
+async function budgetEnvelope(c, key, past) {
+  const list = past.map((p) => `step ${p.step}: ${p.type}${p.message ? ` (${clip(p.message, 120)})` : ""}`).join("; ");
+  const env = await synthEnvelope({
+    tool: c.name, args: c.arguments, status: "refused", summary: t("core.agent.failure_budget", { n: past.length }),
+    text: `Not run: ${named(c, key)} has failed ${past.length === 1 ? "in a way a retry cannot change" : `${past.length} times`} in this turn (${list}). Do not call it again in this turn. Change approach: use another tool (catalog_search), name the data or tool that is missing, or ask the user.`,
+    error: { type: "refused", message: `failure budget: ${named(c, key)} failed ${past.length} time(s) in this turn`, hint: "change approach" },
+  });
+  return { ...env, budget: true };
+}
+
 const libFor = (format, llm) => (llm?.[format]) || (format === "anthropic" ? anthropicLib : openaiLib);
 
 /**
@@ -101,6 +190,8 @@ export async function runTurn({
   const reasonings = [];
   const toolMessages = [];
   const seen = new Map(); // a call's key (reusePolicy) → {step, callId, envelope: Promise}
+  const failures = new Map(); // a tool's key (failureKey) → [{step, callId, type, message, final}]
+  const notes = new Map(); // callId → a line added under its result (the failure budget)
   const emit = (ev) => {
     try { onEvent?.(ev); } catch (err) { (globalThis.reportError || console.error)(err); }
   };
@@ -276,6 +367,13 @@ export async function runTurn({
       let where = null;
       try { where = router?.whereCall ? router.whereCall(c.name, c.arguments) : router?.where?.(c.name) ?? null; } catch { where = null; }
       emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where, step: s });
+      const fkey = failureKey(router, c);
+      const past = failures.get(fkey) || [];
+      if (past.length >= FAILURE_BUDGET || past.some((p) => p.final)) {
+        envelope = await budgetEnvelope(c, fkey, past);
+        emit({ type: "tool.end", callId: c.id, envelope, step: s });
+        return { c, s, envelope };
+      }
       const reuse = reusePolicy(router, c);
       if (reuse.stateful) seen.clear();
       const prior = reuse.key ? seen.get(reuse.key) : null;
@@ -299,13 +397,34 @@ export async function runTurn({
         if (reuse.key) seen.set(reuse.key, { step: s, callId: c.id, envelope: run });
         envelope = await run;
       }
+      if (!envelope.reused) noteFailure(fkey, c, s, envelope);
     }
     emit({ type: "tool.end", callId: c.id, envelope, step: s });
     return { c, s, envelope };
   }
 
+  function noteFailure(key, c, s, envelope) {
+    if (envelope.status === "succeeded" || envelope.status === "job_submitted") { failures.delete(key); return; }
+    if (envelope.status !== "failed" && envelope.status !== "refused") return; // a stop is not the tool's failure
+    const [code] = outcomeOf(envelope) || ["tool_failed"];
+    const list = [...(failures.get(key) || []), {
+      step: s, callId: c.id, type: envelope.error?.type || envelope.status, message: envelope.error?.message || "",
+      final: FINAL_OUTCOMES.has(code),
+    }];
+    failures.set(key, list);
+    const last = list[list.length - 1];
+    const who = named(c, key);
+    if (last.final) notes.set(c.id, `This failure will not change on a retry: ${who} is not called again in this turn.`);
+    else if (list.length === FAILURE_BUDGET - 1) notes.set(c.id, `${who} has now failed ${list.length} times in this turn; one more failure and it is not called again in this turn. Change what you send (see the error), or take another route.`);
+    else if (list.length >= FAILURE_BUDGET) notes.set(c.id, `${who} has failed ${list.length} times in this turn and is not called again in it. Change approach.`);
+  }
+
   function resultOf({ c, envelope }) {
-    const text = clip(envelope.text || (envelope.ok ? envelope.summary || "{}" : `Failed: ${envelope.error?.message || envelope.summary || "no result"}`), RESULT_CHARS);
+    const outcome = envelope.reused || envelope.budget ? null : outcomeOf(envelope);
+    const lines = [outcome ? `Outcome: ${outcome[0]} — ${outcome[1]}.` : "", notes.get(c.id) || ""].filter(Boolean);
+    const body = envelope.text || (envelope.ok ? envelope.summary || "{}" : `Failed: ${envelope.error?.message || envelope.summary || "no result"}`);
+    const tail = lines.length ? `\n${lines.join("\n")}` : "";
+    const text = clip(body, RESULT_CHARS - tail.length) + tail;
     return { id: c.id, text, isError: envelope.status === "failed" || envelope.status === "cancelled" };
   }
 
