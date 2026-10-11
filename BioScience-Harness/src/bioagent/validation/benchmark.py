@@ -111,6 +111,9 @@ class _Run:
         self.rebuttal: dict[str, Any] = {}
         self.snaps: dict[str, Any] = {}
         self.outputs: dict[str, dict[str, Any]] = {}
+        #: A repeat reads the literature the first run recorded instead of asking again: the
+        #: answers are inputs, and what the repeat checks is the computation on them.
+        self.replay_literature: Mapping[str, Any] | None = None
 
     # the stages' artifacts, by stage id
     def write(self, stage: Mapping[str, Any], content: Mapping[str, Any]) -> dict[str, Any]:
@@ -606,6 +609,10 @@ def _moot(not_run: Any) -> bool:
 def _literature(run: _Run, stage: Mapping[str, Any]) -> Record:
     rec = _record(stage, "bioagent validate benchmark --out OUT --live")
     lit = run.defn["literature"]
+    if run.replay_literature is not None:
+        rec.add("queries", NOT_APPLICABLE, "a repeat: the first run's answers are read again")
+        run.write(stage, run.replay_literature)
+        return rec
     if not run.live:
         rec.add("queries", SKIPPED, "web access was not requested (--live); no query was sent")
         run.write(stage, {"queries": [], "sent": False})
@@ -994,6 +1001,7 @@ def run_benchmark(work: str | Path, *, raw: str | Path | None = None,
         again_dir = work / "repeat"
         shutil.rmtree(again_dir, ignore_errors=True)
         second = make(again_dir, first.snapshot_root, first.ledger, False)
+        second.replay_literature = (first.outputs.get("literature") or {}).get("content")
         _stages(second)
         digests = {k: v["sha256"] for k, v in second.outputs.items()}
         records[-1] = _artifacts(first, {s["id"]: s for s in defn["stages"]}["artifacts"], digests)

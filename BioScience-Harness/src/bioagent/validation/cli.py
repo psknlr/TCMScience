@@ -252,6 +252,19 @@ def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
                           + ("every stage completed" if acc.get("completed") else
                              f"{len(acc.get('not_completed') or [])} stage(s) not completed, each "
                              "with the reason below")]
+    for f, doc in docs:
+        # every stage of a benchmark and every scenario, passed or not, with what it found:
+        # the numbers a reader needs are in the checks' details
+        if doc.get("benchmark") or doc.get("report") == "agent_regression_report":
+            title = ("Benchmark stages: " + str((doc.get("benchmark") or {}).get("id"))
+                     if doc.get("benchmark") else "Regression scenarios")
+            lines += ["", f"### {title} ({doc.get('tier') or '-'})", "",
+                      "| component | status | what it found |", "|---|---|---|"]
+            for r in doc.get("records") or ():
+                found = "; ".join(f"{c.get('name')}: {c.get('status')} — {c.get('detail', '')}"
+                                  for c in r.get("checks") or ())
+                found = found.replace("|", "\\|").replace("\n", " ")
+                lines.append(f"| `{r.get('component')}` | {r.get('status')} | {found[:900]} |")
     order = {FAIL: 0, BLOCKED: 1, "UNVERIFIED": 2, "SKIPPED": 3}
     failing.sort(key=lambda x: (order.get(x[1].get("status"), 9), x[0] or "", x[1].get("component", "")))
     if failing:

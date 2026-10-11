@@ -293,3 +293,28 @@ def test_a_stage_that_raises_is_recorded_as_a_failure_and_the_others_still_repor
     assert by["herbs"].status == FAIL and "KeyError" in by["herbs"].failure_reason
     assert by["formula_version"].status == PASS and by["formula_distinction"].status == PASS
     assert doc["acceptance"]["how"] == "not met"
+
+
+def test_a_live_run_repeats_identically_with_its_literature_replayed(tmp_path, world):
+    # live-data run 38125314518 failed here: the repeat did not query the literature, so its
+    # evidence artifact lacked the literature entry the first run's had
+    root, ledger = world
+    epmc = {"hitCount": 1, "resultList": {"result": [
+        {"id": "1", "source": "MED", "pmid": "1", "title": "t", "pubYear": "2020",
+         "pubType": "research-article"}]}}
+    trials = {"studies": []}
+    backend = _Backend([_Answer("SUCCEEDED", epmc), _Answer("SUCCEEDED", epmc),
+                        _Answer("SUCCEEDED", epmc), _Answer("SUCCEEDED", trials)])
+    doc, records = benchmark.run_benchmark(tmp_path / "work", snapshot_root=root, ledger=ledger,
+                                           parameters=FAST, live=True, repeat=True, backend=backend,
+                                           log=lambda m: None)
+    by = _by_stage(records)
+    assert by["literature"].status == PASS and len(backend.calls) == 4, "asked once, not twice"
+    assert by["artifacts"].check("repeat").status == PASS, by["artifacts"].as_dict()
+    evidence = json.loads((tmp_path / "work" / "artifacts" / "09_evidence.json").read_text())
+    assert any(e["type"] == "literature" for e in evidence["evidence"])
+    from bioagent.validation.cli import summary_markdown
+    benchmark.write(doc, tmp_path / "out")
+    text = summary_markdown([tmp_path / "out"])
+    assert "### Benchmark stages: guizhi-palpitations (live)" in text
+    assert "`benchmark.guizhi-palpitations.04.targets` | UNVERIFIED | data_provenance" in text
