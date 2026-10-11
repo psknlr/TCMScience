@@ -107,15 +107,31 @@ def build_formula_store(workbook: Path, destination: Path) -> dict[str, Any]:
             "source_name": workbook.name}
 
 
+#: Set when a lookup wanted the complete workbook and it was not there. The browser's Worker
+#: reads it after a call (``take_formula_store_wanted``), loads the asset and runs the call
+#: again, so a lookup that only sometimes needs the workbook does not download it every time.
+_WANTED = False
+
+
+def take_formula_store_wanted() -> bool:
+    """Whether a lookup since the last call wanted the missing workbook; clears the flag."""
+    global _WANTED
+    wanted, _WANTED = _WANTED, False
+    return wanted
+
+
 def formula_store() -> Path:
+    global _WANTED
     explicit = os.environ.get("BIOAGENT_FORMULA_SQLITE")
     path = Path(explicit or FORMULA_MOUNT)
     if path.is_file():
         return path
     if explicit:
+        _WANTED = True
         raise FileNotFoundError(f"formula store is not loaded: {path}")
     workbook = workbook_path()
     if workbook is None:
+        _WANTED = True
         raise FileNotFoundError("the full formula asset is not loaded; load the repository "
                                 "formula asset or set BIOAGENT_FORMULA_WORKBOOK")
     global _LOCAL
@@ -151,8 +167,10 @@ def _open_store() -> sqlite3.Connection:
 
 
 def formula_search(query: str = "", *, exact: bool = False, source: str = "",
-                   limit: int = 25, offset: int = 0) -> dict[str, Any]:
-    """Search every formula row, retain duplicate names/versions and paginate explicitly."""
+                   limit: int = 25, offset: int = 0, herb: str = "") -> dict[str, Any]:
+    """Search every formula row, retain duplicate names/versions and paginate explicitly.
+    ``herb`` keeps the rows whose composition names that herb (``herb_plan``); they come
+    with the formulas named after it first, then in workbook order."""
     from bioagent.sources.formulas import _clean_name
 
     conn = _open_store()
@@ -169,22 +187,33 @@ def formula_search(query: str = "", *, exact: bool = False, source: str = "",
         if source:
             clauses.append("instr(lower(source), lower(?)) > 0")
             params.append(source)
+        plan, order, order_params = None, "row", []
+        if herb.strip():
+            plan = herb_plan(herb.strip())
+            clause, ps = _herb_clause(plan, "composition")
+            clauses.append(clause)
+            params.extend(ps)
+            named, order_params = _herb_clause(plan, "name")
+            order = f"{named} DESC, row"
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         total = conn.execute("SELECT count(*) FROM formulas" + where, params).fetchone()[0]
-        rows = conn.execute("SELECT * FROM formulas" + where + " ORDER BY row LIMIT ? OFFSET ?",
-                            [*params, limit, offset]).fetchall()
+        rows = conn.execute(f"SELECT * FROM formulas{where} ORDER BY {order} LIMIT ? OFFSET ?",
+                            [*params, *order_params, limit, offset]).fetchall()
         metadata = dict(conn.execute("SELECT key, value FROM metadata"))
         records = [_record(row, metadata) for row in rows]
         out = {"query": query, "count": len(records), "total": total, "offset": offset,
                "next_offset": offset + len(records) if offset + len(records) < total else None,
                "corpus_rows": int(metadata["rows"]), "records": records,
                "provenance": metadata, "claim_scope": "source formula records"}
+        if plan is not None:
+            out["herb"] = _plan_summary(plan)
         if query and not exact:
             # a herb the workbook also writes otherwise (黄芪 / 黄耆): say so, without changing the search
-            plan = search_variants(query.strip())
-            if len(plan["search"]) > 1:
-                out["also_written"] = {"materia": plan["materia"], "names": plan["search"][1:],
-                                       "hint": "rank: true searches these names too"}
+            also = search_variants(query.strip())
+            if len(also["search"]) > 1:
+                out["also_written"] = {"materia": also["materia"], "names": also["search"][1:],
+                                       "hint": "rank: true searches these names too; herb: finds "
+                                               "the formulas whose composition names it"}
         return out
     finally:
         conn.close()
@@ -289,6 +318,117 @@ def search_variants(term: str, aliases: bool = True) -> dict[str, Any]:
     return out
 
 
+# ------------------------------------------------------------ formulas naming a herb
+
+def herb_plan(herb: str) -> dict[str, Any]:
+    """How the formulas whose composition names ``herb`` are found: under the names
+    ``search_variants`` gives it (黄芪 also as 黄耆), each matched only where it is not part
+    of another drug's name: the names of other drugs that contain it are blanked out of the
+    text first, so 茯苓 does not find 土茯苓. A name the materia table does not know is
+    searched as written."""
+    plan = search_variants(herb)
+    drug = plan.get("materia")
+    table = _names_by_drug()
+    needles = []
+    for name in plan["search"]:
+        near = {n for d, names in table.items() if d != drug for n in names
+                if name in n and n != name} if drug else set()
+        needles.append({"name": name, "not_within": sorted(near, key=lambda x: (-len(x), x))})
+    return {**plan, "needles": needles}
+
+
+def _herb_clause(plan: Mapping[str, Any], column: str) -> tuple[str, list[str]]:
+    parts, params = [], []
+    for needle in plan["needles"]:
+        expr = column
+        for other in needle["not_within"]:
+            expr = f"replace({expr}, ?, '|')"
+            params.append(other)
+        parts.append(f"instr(lower({expr}), lower(?)) > 0" if _has_ascii_letter(needle["name"])
+                     else f"instr({expr}, ?) > 0")
+        params.append(needle["name"])
+    return "(" + " OR ".join(parts) + ")", params
+
+
+def _plan_summary(plan: Mapping[str, Any]) -> dict[str, Any]:
+    out = {"term": plan["term"], "searched": list(plan["search"]),
+           "field": "composition",
+           "not_within": {n["name"]: n["not_within"] for n in plan["needles"] if n["not_within"]}}
+    for key in ("materia", "processed_form_of"):
+        if key in plan:
+            out[key] = plan[key]
+    return out
+
+
+HERB_FORMULAS_SCOPE = ("workbook source records whose composition names the herb (its other "
+                       "names included, other drugs whose names contain it excluded): not "
+                       "curated roles, doses or indications")
+
+
+def herb_formulas(herb: str, *, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    """The workbook formulas whose composition names ``herb``, compact (row, name, source,
+    composition), formulas named after it first; the whole list pages through
+    tcmdb.formulas with the same ``herb``."""
+    found = formula_search("", herb=herb, limit=limit, offset=offset)
+    records = [{"id": r["id"], "row": r["row"], "name": r["name"], "source": r["source"],
+                "composition": r["composition"]} for r in found["records"]]
+    out = {"herb": found["herb"], "total": found["total"], "count": len(records),
+           "offset": offset, "next_offset": found["next_offset"],
+           "corpus_rows": found["corpus_rows"], "records": records,
+           "scope": HERB_FORMULAS_SCOPE, "provenance": found["provenance"]}
+    if found["next_offset"] is not None:
+        out["more"] = {"tool": "tcmdb.formulas",
+                       "arguments": {"herb": herb, "offset": found["next_offset"]}}
+    return out
+
+
+def formula_corpus_status() -> dict[str, Any]:
+    """Which formula corpus the lookups here can use, without building or loading it: the
+    complete workbook (loaded, or indexed on first use) or, when it is missing, why and how
+    to supply it. The curated seed corpus is always there."""
+    seed = {"formulas": _seed_formulas(), "scope": "curated: roles, indications, safety"}
+    fix = ("in the browser it loads with the first formula or herb lookup; on a runner, set "
+           "BIOAGENT_FORMULA_WORKBOOK to the repository's 中医方剂数据表.xlsx (or "
+           "BIOAGENT_FORMULA_SQLITE to a built store)")
+    # the same order formula_store() follows
+    explicit = os.environ.get("BIOAGENT_FORMULA_SQLITE")
+    path = Path(explicit or FORMULA_MOUNT)
+    if path.is_file():
+        return {"seed": seed, "workbook": {"status": "loaded", "rows": _store_rows(path)}}
+    if explicit:
+        return {"seed": seed, "workbook": {"status": "unavailable",
+                                           "reason": f"BIOAGENT_FORMULA_SQLITE names no file: {path}",
+                                           "fix": fix}}
+    workbook = workbook_path()
+    if workbook is not None:
+        built = _LOCAL is not None and _LOCAL[1].is_file()
+        return {"seed": seed, "workbook": {
+            "status": "loaded" if built else "available", "source": workbook.name,
+            **({"rows": _store_rows(_LOCAL[1])} if built else {"note": "indexed on first use"})}}
+    return {"seed": seed, "workbook": {"status": "unavailable",
+                                       "reason": "the complete formula workbook is not loaded here",
+                                       "fix": fix}}
+
+
+def _store_rows(path: Path) -> int | None:
+    try:
+        conn = sqlite3.connect(f"file:{Path(path).as_posix()}?mode=ro", uri=True)
+        try:
+            return int(dict(conn.execute("SELECT key, value FROM metadata"))["rows"])
+        finally:
+            conn.close()
+    except Exception:                                           # noqa: BLE001
+        return None
+
+
+def _seed_formulas() -> int | None:
+    try:
+        from bioagent.tcm.knowledge import default_knowledge
+        return len(default_knowledge().formulas)
+    except Exception:                                           # noqa: BLE001
+        return None
+
+
 def _has_ascii_letter(text: str) -> bool:
     return any("a" <= c <= "z" or "A" <= c <= "Z" for c in text)
 
@@ -301,7 +441,7 @@ def _matches(column: str, needles: list[str]) -> tuple[str, list[str]]:
 
 
 def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
-                          limit: int = 25, offset: int = 0) -> dict[str, Any]:
+                          limit: int = 25, offset: int = 0, herb: str = "") -> dict[str, Any]:
     """Rows matching any term of ``query``, most relevant first (``RANK_METHOD``), each
     with how it matched; herb names also under their other names (``search_variants``)."""
     from bioagent.sources.formulas import _clean_name
@@ -324,9 +464,17 @@ def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
         ps += [v for _, mp in others for v in mp]
         cases.append(" ".join(sql))
         params += ps
-    where, where_params = "", []
+    filters, where_params = [], []
     if source:
-        where, where_params = " WHERE instr(lower(source), lower(?)) > 0", [source]
+        filters.append("instr(lower(source), lower(?)) > 0")
+        where_params.append(source)
+    herb_scope = None
+    if herb.strip():
+        herb_scope = herb_plan(herb.strip())
+        clause, ps = _herb_clause(herb_scope, "composition")
+        filters.append(clause)
+        where_params.extend(ps)
+    where = " WHERE " + " AND ".join(filters) if filters else ""
     weights = ", ".join(f"w{i}" for i in range(len(plans)))
     sql = (f"SELECT row, {weights} FROM (SELECT row, {', '.join(cases)} FROM formulas{where}) "
            f"WHERE {' + '.join(f'w{i}' for i in range(len(plans)))} > 0")
@@ -363,6 +511,7 @@ def ranked_formula_search(query: str, *, source: str = "", aliases: bool = True,
                 "rank": {"method": RANK_METHOD, "aliases": aliases, "rows_searched": searched,
                          "terms": [{**plan, "rows": df[i], "idf": round(idf[i], 6)}
                                    for i, plan in enumerate(plans)]},
+                **({"herb": _plan_summary(herb_scope)} if herb_scope else {}),
                 "provenance": metadata, "claim_scope": "source formula records"}
     finally:
         conn.close()

@@ -221,6 +221,21 @@ async function full() {
   const safetyHash = pinned("skill.assess-tcm-safety");
   const normalizeHash = pinned("skill.normalize-tcm-entities");
 
+  // The complete formula workbook, not the six-formula seed. First a compatibility check of a formula the seed does
+  // not hold: the call asks for the workbook as it goes, the Worker loads it and runs the call again; the formula is
+  // checked as its herbs, and the recorded 十八反 pair in it is found. Then a herb's formulas, from the same workbook.
+  await run("tcm_compatibility 甘遂半夏汤 (the workbook, loaded on demand)", "tcm_compatibility", { herbs: ["甘遂半夏汤"] }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],
+    [JSON.stringify(e.result?.expanded_formulas?.[0]?.herbs) === JSON.stringify(["甘遂", "半夏", "芍药", "甘草"]), `expanded from the workbook (got ${JSON.stringify(e.result?.expanded_formulas)})`],
+    [(e.result?.conflicts || []).some((c) => /甘遂反甘草/.test(c.description || "")), "the 十八反 pair 甘遂 / 甘草 found"],
+  ], { compare: true });
+  await run("tcm_herb 黄芪 (formulas from the complete workbook)", "tcm_herb", { name: "黄芪" }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status})`],
+    [e.result?.repository_formulas?.total > 5000 && e.result?.repository_formulas?.corpus_rows === 84294, `${e.result?.repository_formulas?.total} of 84,294 rows name it`],
+    [JSON.stringify(e.result?.repository_formulas?.herb?.searched) === JSON.stringify(["黄芪", "黄耆"]), "also searched as 黄耆"],
+    [!(e.governance?.limitations || []).some((x) => /^Seed corpus only/.test(x)), "no longer labelled seed corpus only"],
+  ], { compare: true });
+
   await run("tcm_compatibility 甘草 + 甘遂", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.compatible === false, "not compatible"],
@@ -304,6 +319,7 @@ async function full() {
   await run("capabilities_status", "capabilities_status", {}, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status})`],
     [e.result?.host?.browser?.device?.webgpu !== undefined, "host facts include the device report"],
+    [e.result?.formulas?.workbook?.status === "loaded" && e.result?.formulas?.workbook?.rows === 84294, `the complete formula workbook is loaded (got ${JSON.stringify(e.result?.formulas?.workbook)})`],
   ]);
 
   await kernelChecks();
@@ -366,6 +382,11 @@ async function nonisolated() {
   if (!(await startChecked())) return;
   check("not interruptible", rt.interruptible === false, `interruptible ${rt.interruptible}`);
   await run("tcm_compatibility", "tcm_compatibility", { herbs: ["甘草", "甘遂"] }, (e) => [[e.status === "succeeded", `succeeded (got ${e.status})`]]);
+  // a fresh Worker: tcm_herb loads the complete workbook before it runs
+  await run("tcm_herb 葛根 (the workbook loaded first)", "tcm_herb", { name: "葛根" }, (e) => [
+    [e.status === "succeeded", `succeeded (got ${e.status})`],
+    [e.result?.repository_formulas?.total > 1000, `${e.result?.repository_formulas?.total} workbook formulas name it`],
+  ]);
   await cancelCheck({ expectInterrupt: false });
   out.info = await rt.info();
 }

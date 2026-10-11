@@ -991,7 +991,141 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                         + " (which is not absence)")
     if name in ("tcm_formula", "tcm_lookup", "tcm_herb"):
         o = _repository_native(name, args, o)
+    if name == "tcm_herb":
+        o = _herb_formulas(args, o)
+    elif name == "tcm_compatibility":
+        o = _compatibility_formulas(entry, args, ctx, o, licences)
     return o
+
+
+#: Said whenever the complete workbook could not be consulted, so a seed-only answer is never
+#: mistaken for a search of the whole corpus.
+_LIMIT_NO_WORKBOOK = ("The complete formula workbook (84,294 rows) is not loaded here, so only "
+                      "the curated seed corpus (6 formulas) was searched; this is not a search "
+                      "of the whole corpus.")
+
+
+def _workbook_unavailable(o: Outcome, key: str, exc: Exception) -> Outcome:
+    """The answer without the workbook, saying so in the result, its limits and its line."""
+    from .repository_data import formula_corpus_status
+    result = dict(o.result) if isinstance(o.result, Mapping) else {"value": o.result}
+    result[key] = {"status": "unavailable", "reason": str(exc),
+                   "fix": formula_corpus_status()["workbook"].get("fix", "")}
+    g = dict(o.governance or gv.empty("native"))
+    g["limitations"] = [_LIMIT_NO_WORKBOOK, *(g.get("limitations") or [])]
+    o.result, o.governance = result, g
+    o.summary += "（完整方剂库未加载：仅检索种子语料）"
+    o.summary_en += " (the complete formula workbook is not loaded: seed corpus only)"
+    return o
+
+
+def _herb_formulas(args: Mapping[str, Any], o: Outcome) -> Outcome:
+    """A herb's formulas from the complete workbook, beside the seed's curated ones."""
+    from .repository_data import FORMULA_LICENSE, herb_formulas
+    if o.status != "succeeded" or not isinstance(o.result, Mapping):
+        return o
+    try:
+        found = herb_formulas(str(args.get("name") or ""))
+    except FileNotFoundError as exc:
+        return _workbook_unavailable(o, "repository_formulas", exc)
+    result = dict(o.result)
+    result["repository_formulas"] = found
+    if "formulas" in result:
+        result["formulas_scope"] = "the curated seed corpus's formulas, with their roles"
+    g = dict(o.governance or gv.empty("native"))
+    g["licences"] = [*(g.get("licences") or []),
+                     gv.licence_entry("repository_formulas", FORMULA_LICENSE,
+                                      note="workbook data licence is unstated")]
+    # the formulas now come from the whole workbook: the seed limit no longer covers them
+    limits = [x for x in (g.get("limitations") or []) if x != gv.LIMIT_SEED]
+    if result.get("annotation_status") != "identity_only":
+        limits.append("Curated annotations (nature, meridians, actions, relations, safety) are from "
+                      "the seed corpus (23 herbs): absence there is not absence.")
+    limits.append("The workbook formulas are source records whose composition names the herb "
+                  "(under its other names); they are not curated roles, doses or indications.")
+    g["limitations"] = limits
+    o.result, o.governance = result, g
+    others = found["herb"]["searched"][1:]
+    o.summary += (f"；完整方剂库 {found['total']:,} 条方剂记录含此药"
+                  + (f"（亦写作 {'、'.join(others)}）" if others else ""))
+    o.summary_en += (f"; complete formula workbook: {found['total']:,} formula records contain it"
+                     + (f" (also written {', '.join(others)})" if others else ""))
+    return o
+
+
+def _compatibility_formulas(entry: dict[str, Any], args: Mapping[str, Any], ctx: Context,
+                            o: Outcome, licences: list[dict[str, Any]]) -> Outcome:
+    """Formula names the seed corpus does not hold, expanded into their herbs from the
+    complete workbook when it holds exactly one version of the formula; with several
+    versions the check cannot know which was meant, and says so. A name the materia table
+    knows is a herb, never a formula: the workbook has formulas called 雷丸 or 麝香 whose
+    herbs are others."""
+    from bioagent.sources.materia import resolve_name
+    from .repository_data import FORMULA_LICENSE, formula_search
+    if o.status != "succeeded" or not isinstance(o.result, Mapping):
+        return o
+    names = [str(u.get("name")) for u in o.result.get("unresolved") or []
+             if u.get("name") and not resolve_name(str(u.get("name")).strip())]
+    if not names:
+        return o
+    expanded: dict[str, dict[str, Any]] = {}
+    versions: dict[str, int] = {}
+    try:
+        for name in names:
+            found = formula_search(name, exact=True, limit=2)
+            if found["total"] == 1:
+                row = found["records"][0]
+                herbs = list(dict.fromkeys(c["name"] for c in row["components"] if c.get("name")))
+                if herbs:
+                    expanded[name] = {"row": row["row"], "name": row["name"], "source": row["source"],
+                                      "composition": row["composition"], "herbs": herbs}
+            elif found["total"] > 1:
+                versions[name] = found["total"]
+    except FileNotFoundError as exc:
+        return _workbook_unavailable(o, "repository_formulas", exc)
+    if not expanded and not versions:
+        return o
+    out = o
+    if expanded:
+        herbs: list[str] = []
+        for h in args.get("herbs") or ():
+            herbs.extend(expanded[str(h)]["herbs"] if str(h) in expanded else [str(h)])
+        res = _runtime().invoke("native.tool.tcm_compatibility", spec=_spec(ctx),
+                                herbs=list(dict.fromkeys(herbs)))
+        out = _call_result(res, entry, ctx, kind="native", licences=licences,
+                           limits=_native_limits("tcm_compatibility", entry.get("domain", ""),
+                                                 getattr(res, "value", None)))
+        if out.status != "succeeded":
+            return o
+        out.summary, out.summary_en = _native_summary("tcm_compatibility", entry["title"],
+                                                      args, out.result)
+    result = dict(out.result)
+    if expanded:
+        result["expanded_formulas"] = [{"formula": k, **v} for k, v in expanded.items()]
+    if versions:
+        result["ambiguous_formulas"] = [
+            {"formula": k, "versions": n,
+             "hint": "the workbook holds several versions of this formula; list the herbs of "
+                     "the one meant (tcm_formula shows them)"} for k, n in versions.items()]
+    g = dict(out.governance or gv.empty("native"))
+    g["licences"] = [*(g.get("licences") or []),
+                     gv.licence_entry("repository_formulas", FORMULA_LICENSE,
+                                      note="workbook data licence is unstated")]
+    g["limitations"] = [*(g.get("limitations") or []),
+                        "A formula outside the curated seed was checked as the herbs of its one "
+                        "workbook version; incompatibility records cover the seed corpus's herbs "
+                        "only, so a herb without records is reported unresolved, not safe."]
+    out.result, out.governance = result, g
+    if expanded:
+        parts = "、".join(f"{k}（{len(v['herbs'])} 味）" for k, v in expanded.items())
+        parts_en = ", ".join(f"{k} ({len(v['herbs'])} herbs)" for k, v in expanded.items())
+        out.summary += f"；按完整方剂库组成展开：{parts}"
+        out.summary_en += f"; expanded from the complete formula workbook: {parts_en}"
+    if versions:
+        out.summary += "；" + "、".join(f"{k} 有 {n} 个版本，未展开" for k, n in versions.items())
+        out.summary_en += "; " + ", ".join(f"{k} has {n} versions, not expanded"
+                                           for k, n in versions.items())
+    return out
 
 
 def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Outcome:
@@ -1029,8 +1163,9 @@ def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Out
         records = formula_search(query, exact=True, limit=100)
     except FileNotFoundError as exc:
         if base.status == "succeeded" and (name != "tcm_lookup" or base.result.get("found")):
-            return base
-        return _failure("native", "unavailable", str(exc), "Load the complete repository formula asset.")
+            return _workbook_unavailable(base, "repository_records", exc)
+        return _failure("native", "unavailable", str(exc), "Load the complete repository formula asset.",
+                        limitations=[_LIMIT_NO_WORKBOOK])
     if not records["total"]:
         return base
     g = dict(base.governance) if name == "tcm_formula" and base.status == "succeeded" else gv.empty("native")
@@ -1573,9 +1708,12 @@ def _skill_summary(sid: str, titles: Mapping[str, str], args: Mapping[str, Any],
             resolved = sum(1 for q in qs if q.get("status") == "resolved")
             ambiguous = sum(1 for q in qs if q.get("status") == "ambiguous")
             rest = len(qs) - resolved - ambiguous
-            return (f"{len(qs)} 个名称：{resolved} 个解析，{ambiguous} 个存在歧义，{rest} 个未解析",
+            tail = "（种子语料；完整药材与方剂库请用 tcm_lookup）" if rest else ""
+            tail_en = (" (seed corpus; tcm_lookup resolves names against the complete materia and "
+                       "formula corpora)") if rest else ""
+            return (f"{len(qs)} 个名称：{resolved} 个解析，{ambiguous} 个存在歧义，{rest} 个未解析{tail}",
                     f"{len(qs)} name(s): {resolved} resolved, {ambiguous} ambiguous, "
-                    f"{rest} unresolved")
+                    f"{rest} unresolved{tail_en}")
         if sid == "retrieve-tcm-evidence":
             c = outputs.get("evidence.json") or {}
             ev = c.get("evidence") or []
@@ -1595,9 +1733,12 @@ def _skill_summary(sid: str, titles: Mapping[str, str], args: Mapping[str, Any],
             name = args.get("formula_name")
             if not c.get("formula"):
                 n = _seed_formula_count()
-                return (f"{name}：种子语料（{n} 首方剂）中没有该方剂，未构建网络（空结果，不是阴性发现）",
+                return (f"{name}：种子语料（{n} 首方剂）中没有该方剂，未构建网络（空结果，不是阴性发现）；"
+                        "完整方剂库的组成见 tcm_formula，实测靶点网络需 network_pharmacology_run",
                         f"{name}: not among the seed corpus's {n} formulas, so no network was "
-                        "built (an empty result, not a null finding)")
+                        "built (an empty result, not a null finding); tcm_formula gives its "
+                        "composition from the complete workbook, and network_pharmacology_run "
+                        "builds measured-target networks")
             p = c.get("provenance_summary") or {}
             herbs = len(c.get("ingredients") or [])
             measured, predicted = p.get("edges_measured", 0) or 0, p.get("edges_predicted", 0) or 0
@@ -1871,11 +2012,13 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                                                source=str(args.get("source") or ""),
                                                aliases=bool(args.get("aliases", True)),
                                                limit=int(args.get("limit", 25)),
-                                               offset=int(args.get("offset", 0)))
+                                               offset=int(args.get("offset", 0)),
+                                               herb=str(args.get("herb") or ""))
             else:
                 result = formula_search(str(args.get("query") or ""), exact=bool(args.get("exact")),
                                         source=str(args.get("source") or ""),
-                                        limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)))
+                                        limit=int(args.get("limit", 25)), offset=int(args.get("offset", 0)),
+                                        herb=str(args.get("herb") or ""))
             g["licences"] = [gv.licence_entry("repository_formulas", result["provenance"]["license"],
                                                 note="workbook data licence is unstated")]
             g["limitations"] = ["Source formula records are not clinically validated; an action "
@@ -2574,6 +2717,7 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         "audit_chain": {"project_id": ctx.project_id, "durable": project.durable,
                         "location": str(project.psh)},
         "tcmdb": {"root": hub_root, "built": built, "browser_import": ctx.where == "browser"},
+        "formulas": _formula_corpus(ctx),
         "counts": {"entries": len(items), "runnable_here": len(runnable),
                    "by_kind": {k: sum(1 for e in runnable if e["kind"] == k) for k in (
                        "native", "skill", "connector", "clinic", "tcmdb", "study", "job",
@@ -2593,6 +2737,21 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
                            f"网络{'已开启' if ctx.network else '未开启'}",
                    summary_en=f"Capabilities: {where_en}; {len(runnable)}/{len(items)} entries "
                               f"runnable; web access {'on' if ctx.network else 'off'}")
+
+
+def _formula_corpus(ctx: Context) -> dict[str, Any]:
+    """Which formula corpus lookups can use here (the seed always; the complete workbook
+    loaded, available, or missing and why), without loading anything."""
+    from .repository_data import formula_corpus_status
+    try:
+        status = formula_corpus_status()
+    except Exception as exc:                                    # noqa: BLE001
+        return {"workbook": {"status": "unknown", "reason": str(exc)}}
+    if ctx.where == "browser" and status["workbook"]["status"] == "unavailable":
+        status["workbook"] = {"status": "on_demand",
+                              "note": "the page loads it (verified by SHA-256) with the first "
+                                      "formula or herb lookup"}
+    return status
 
 
 def _audit_verify(ctx: Context, g: dict[str, Any]) -> Outcome:

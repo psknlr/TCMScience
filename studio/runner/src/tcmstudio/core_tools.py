@@ -157,8 +157,11 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
     _core("tcm_herb", "药材", "Herb record", "tcm_knowledge", """
         A herb's identity from the full 401-record materia corpus, plus curated annotations
         where recorded: nature and flavours (性味), meridians (归经), actions, processed forms,
-        relations, classical passages and safety records. Identity-only records do not infer
-        missing clinical properties. A missing safety record is not evidence of safety.""",
+        relations, classical passages and safety records; and the formulas of the complete
+        84,294-row workbook whose composition names it (under its other names, 黄芪 also as
+        黄耆), with their count and the first records (page with tcmdb.formulas and herb).
+        Identity-only records do not infer missing clinical properties. A missing safety
+        record is not evidence of safety.""",
           obj({"name": S("herb name, e.g. 黄芪")}, required=("name",)), "native.tcm_herb", B_R),
     _core("tcm_formula", "方剂", "Formula record", "tcm_knowledge", """
         A formula's source versions from the complete 84,294-row repository workbook,
@@ -184,11 +187,14 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "limit": I(minimum=1, maximum=50, default=5)}, required=("query",)),
           "native.tcm_classical_search", B_R),
     _core("tcm_compatibility", "配伍禁忌核查", "Compatibility check", "tcm_safety", """
-        Check two or more herbs (or a formula's ingredients) for recorded incompatibilities —
-        十八反, 十九畏 and other records — and report names it could not resolve.
-        'compatible: true' only means no record was found in the seed corpus; it is never a
-        statement that the combination is safe.""",
-          obj({"herbs": arr(S(), "herb names, e.g. [甘草, 甘遂]", minItems=2)},
+        Check two or more herbs (or one formula's ingredients) for recorded incompatibilities —
+        十八反, 十九畏 and other records — and report names it could not resolve. A formula
+        outside the curated seed is checked as the herbs of the complete workbook's version
+        when there is exactly one (with several, it asks which). 'compatible: true' only means
+        no record was found in the seed corpus's safety records; it is never a statement that
+        the combination is safe.""",
+          obj({"herbs": arr(S(), "herb names, or one formula, e.g. [甘草, 甘遂] or [甘遂半夏汤]",
+                            minItems=1)},
               required=("herbs",)), "native.tcm_compatibility", B_R),
     _core("tcm_applicability", "主张适用性", "Claim licensing", "tcm_knowledge", """
         Ask which kind of claim the recorded evidence licenses that SUBJECT treats or is
@@ -206,7 +212,8 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         Governed run of the normalize-tcm-entities skill: resolve a list of names to
         seed-corpus entities, keeping ambiguity (candidates) instead of guessing; an
         unresolved name is reported, not dropped. Returns an attested artifact with the
-        kernel's release verdict and the claims it allowed.""",
+        kernel's release verdict and the claims it allowed. Its corpus is the reviewed seed;
+        tcm_lookup resolves names against the complete materia and formula corpora.""",
           obj({"names": arr(S(), "names to resolve, e.g. [黄芪, 桂枝汤, 姜]", minItems=1)},
               required=("names",)), "skill.normalize-tcm-entities", B_R),
     _core("tcm_evidence", "证据检索（受治理）", "Retrieve evidence (governed)", "tcm_knowledge", """
@@ -235,8 +242,10 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         Governed run of analyze-tcm-network-pharmacology on the seed corpus: a formula's
         composition and recorded indications with predicted and measured edges kept apart.
         On the seed corpus it returns no targets, and its claims are capped at
-        mechanism_hypothesis: predicted ≠ measured. For measured-target network
-        pharmacology on data snapshots, use network_pharmacology_run (a runner job).""",
+        mechanism_hypothesis: predicted ≠ measured. A formula outside the seed's six is not
+        built; tcm_formula gives its composition from the complete workbook. For
+        measured-target network pharmacology on data snapshots, use network_pharmacology_run
+        (a runner job).""",
           obj({"formula_name": S("formula, e.g. 桂枝汤")}, required=("formula_name",)),
           "skill.analyze-tcm-network-pharmacology", B_R),
     _core("clinic_assess", "辨证与处方草案", "Differentiation & draft", "clinic", """

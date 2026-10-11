@@ -22,13 +22,23 @@ transport. HTTPS-to-HTTP redirects are refused. Credentials never cross hosts.
 Bulk downloads and large model assets are outside this bounded query gateway.
 
 The repository formula workbook is indexed in full, preserving all seven columns,
-duplicate names and source versions. Its compressed SQLite asset loads only for
-formula/name search and is verified against the build manifest's SHA-256 before
-use. `tcmdb.formulas` supports pagination and source filters; `tcmdb.materia` exposes
-the complete packaged materia collection. The original workbook remains available
-as a separate static asset. Its `LicenseRef-user-supplied-unstated` provenance is
-retained. These are source records, not newly validated clinical recommendations.
-The curated clinical/safety seed retains its original evidence annotations.
+duplicate names and source versions. Its compressed SQLite asset is verified against
+the build manifest's SHA-256 before use and loads when a lookup needs it: before
+`tcm_formula`, `tcm_lookup`, `tcm_herb` and `tcmdb.formulas`, which always read it,
+and during a call that turns out to need it (a compatibility check of a formula
+outside the seed), which then runs again with it. Formula questions are answered
+from all 84,294 rows: a herb's formulas (`tcm_herb`, under the herb's other names,
+other drugs whose names contain it excluded), a formula's source versions, and the
+herbs of a formula checked for incompatibilities when the workbook holds one version
+of it. `tcmdb.formulas` supports pagination, source and herb filters and a ranked
+mode; `tcmdb.materia` exposes the complete packaged materia collection. The original
+workbook remains available as a separate static asset. Its
+`LicenseRef-user-supplied-unstated` provenance is retained. These are source
+records, not newly validated clinical recommendations. The curated clinical/safety
+seed (23 herbs, 6 formulas) keeps its original evidence annotations, and the
+governed skills, whose code is pinned, still run on it. When the workbook cannot be
+loaded, an answer says it searched the seed only, and `capabilities_status`
+reports which formula corpus is available.
 
 Native Python tools continue to run on the device's CPU in WebAssembly (Pyodide).
 Seven tools also have exact local kernels in the Worker: the sequence alignments
