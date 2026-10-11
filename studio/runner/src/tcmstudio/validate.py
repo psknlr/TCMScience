@@ -623,6 +623,10 @@ def add_arguments(p: argparse.ArgumentParser) -> None:
                         "capability is validated")
     p.add_argument("--jobs-timeout", type=float, default=3600.0,
                    help="seconds a scenario waits for its job (default 3600)")
+    p.add_argument("--data-lake", default="",
+                   help="with --approve-jobs: the runner's data lake, where its research jobs "
+                        "keep raw files and snapshots (default: inside the runner's temporary "
+                        "home); files already there are reused once verified")
     p.add_argument("--require-pass", action="store_true",
                    help="exit non-zero unless every scenario run is PASS (an engine that is not "
                         "installed, or a job that did not finish, fails the run)")
@@ -682,7 +686,8 @@ def run(a: argparse.Namespace) -> int:
             from .validate_jobs import AgentRunner
             log("jobs approved by the operator (--approve-jobs): starting tcmstudio's runner")
             runner = AgentRunner(Path(tmp) / "runner", tcmdb_root=tcmdb_root,
-                                 network=a.tier == "live", log=log)
+                                 network=a.tier == "live", log=log,
+                                 data_lake=getattr(a, "data_lake", "") or None)
         try:
             scenarios = run_scenarios(ctx, tier=a.tier, log=log, runner=runner,
                                       only=getattr(a, "scenarios", None),

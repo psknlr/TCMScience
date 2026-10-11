@@ -10,6 +10,7 @@ canned finished jobs, then on the runner refusing a job whose engine is not inst
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
 
 import pytest
@@ -174,3 +175,76 @@ def test_the_runner_refuses_a_docking_job_whose_engine_is_missing_and_says_how(t
     assert rec.status == BLOCKED, rec.as_dict()
     detail = rec.check("step 1: run_pipeline").detail
     assert "tool_unavailable" in detail and "vina" in detail
+
+
+# ------------------------------------------------------------------ the research loop (scenario 4)
+def test_an_approved_research_job_runs_on_the_runner_and_its_claims_are_checked(tmp_path):
+    """The research loop as the agent runs it (network_pharmacology_run), on a planted world
+    whose answer is known: pathway A is where the constituents act. The finished run's claims
+    are looked up in the runner's own ledger snapshots."""
+    from bioagent.research.planted import PATHWAY, build_world
+    from bioagent.sources.ledger import SnapshotLedger
+    lake = tmp_path / "lake"
+    build_world("selective", lake / "snapshots",
+                ledger=SnapshotLedger(lake / "snapshots" / "ledger.jsonl"))
+    with AgentRunner(tmp_path / "home", tcmdb_root=tmp_path / "tcmdb", network=False,
+                     data_lake=lake, poll_s=0.2) as runner:
+        assert runner.server.state.get()["allow_remote"] is False
+        rec = Record("scenario.04", "scenario")
+        x = scenarios._Run(rec, {}, "live", runner=runner, jobs_timeout_s=900)
+        try:
+            scenarios._measured_hypotheses(x, "葛根芩连汤", parameters={})
+        except scenarios._Stop:
+            pass
+        jobs = runner.server.jobs.list()
+    assert rec.status == PASS, rec.as_dict()
+    assert [j["kind"] for j in jobs] == ["research.run"] and jobs[0]["state"] == "succeeded"
+    step = rec.check("step 1: network_pharmacology_run")
+    assert step.evidence["approvals"] == ["job", "first_runner_call"]
+    assert rec.check("labelled").evidence["hypotheses"] == [PATHWAY]
+    assert rec.check("measured_targets").evidence["targets"] > 0
+    assert rec.check("cites_measured_edges").status == PASS
+    assert rec.check("released").status == PASS
+
+
+class _Research(_Finished):
+    """A finished research run whose outputs are served as the runner serves them."""
+
+    def __init__(self, files, summary):
+        super().__init__("research.run", summary)
+        self.files = files
+
+    def file(self, job_id, rel):
+        if rel not in self.files:
+            raise RuntimeError(f"{rel} of job {job_id}: HTTP 404")
+        return json.dumps(self.files[rel]).encode("utf-8")
+
+
+def test_a_claim_worded_beyond_a_hypothesis_fails_the_scenario():
+    claim = {"kind": "mechanism_hypothesis", "object": "reactome:R-HSA-1", "support": [],
+             "statement": "This proves that the formula cures arrhythmia."}
+    runner = _Research({"result.json": {"targets": [{"target": "uniprot:P1"}],
+                                        "claims": [claim], "excluded": {}},
+                        "rebuttal.json": {"survived": ["reactome:R-HSA-1"], "refuted": []}},
+                       {"released": True, "snapshots": {}})
+    rec, _ = _run(lambda x: scenarios._measured_hypotheses(x, "桂枝汤《伤寒论》"), runner,
+                  tier="live")
+    assert rec.check("labelled").status == FAIL and rec.status == FAIL
+    tool, args, approvals = runner.calls[0]
+    assert tool == "network_pharmacology_run" and args["formula"] == "桂枝汤《伤寒论》"
+    assert args["parameters"] == {"activity": ["npass", "cmaup"], "optional": ["lotus", "string"]}
+    # nothing survived: nothing is claimed, and that passes
+    runner = _Research({"result.json": {"targets": [{"target": "uniprot:P1"}], "claims": [claim],
+                                        "excluded": {}},
+                        "rebuttal.json": {"survived": [], "refuted": [{"object": "x"}]}},
+                       {"released": True, "snapshots": {}})
+    rec, _ = _run(lambda x: scenarios._measured_hypotheses(x, "桂枝汤《伤寒论》"), runner,
+                  tier="live")
+    assert rec.status == PASS, rec.as_dict()
+    assert "none is invented" in rec.check("labelled").detail
+
+
+def test_without_approved_jobs_the_measured_path_says_how_it_runs():
+    rec, _ = _run(scenarios._mechanism_hypothesis, None)
+    assert rec.check("measured_hypotheses").status == UNVERIFIED, rec.as_dict()
+    assert "--approve-jobs" in rec.check("measured_hypotheses").detail

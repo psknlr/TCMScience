@@ -13,15 +13,17 @@ scenario stops there with that reason. Such a scenario is BLOCKED or SKIPPED, ne
 the outcome classes are the ones the Studio agent reads under each result
 (``studio/web/js/core/agent.js``, ``outcomeOf``).
 
-The engines (docking, ADMET, the RNA-seq and single-cell pipelines) run as runner jobs a
-person approves. With an operator's approval (``tcmstudio validate --approve-jobs``) the
-scenarios are run against tcmstudio's own runner over HTTP (``validate_jobs.AgentRunner``):
-files are uploaded as a user uploads them, ``run_pipeline`` submits the job, ``job_status``
+The engines (docking, ADMET, the RNA-seq and single-cell pipelines) and the research loop
+run as runner jobs a person approves. With an operator's approval (``tcmstudio validate
+--approve-jobs``) every scenario call goes to tcmstudio's own runner over HTTP
+(``validate_jobs.AgentRunner``): files are uploaded as a user uploads them, a job is
+submitted (``run_pipeline``, ``network_pharmacology_run``, ``call_tool``), ``job_status``
 follows it to the end, and the finished result is checked against a reference established
 outside the code: the crystal pose of benzamidine in trypsin (PDB 3PTB), molecular weights
-from IUPAC atomic weights and polar surface areas as PubChem gives them, TDC's split sizes,
-the genes planted in a simulated experiment, and the composition of human blood. Without
-the approval no job is submitted, and those checks are UNVERIFIED with the reason.
+from IUPAC atomic weights and polar surface areas from Ertl's fragment contributions, TDC's
+split sizes, the genes planted in a simulated experiment, the composition of human blood,
+and, for the research loop, the ledger snapshots its claims cite. Without the approval no
+job is submitted, and those checks are UNVERIFIED with the reason.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ import math
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 __all__ = ["SCENARIOS", "Scenario", "outcome_of", "run_scenarios"]
 
@@ -321,9 +323,151 @@ def _mechanism_hypothesis(x: _Run) -> None:
              "rather than inventing one")
     x.expect("seed_labelled", "Seed corpus only" in limits and ("no claim is made" in limits or claims),
              "the run says it is on the illustrative seed corpus and why it claims nothing")
-    x.unverified("measured_hypotheses",
-                 "hypotheses on measured targets come from the research loop on snapshots of the real "
-                 "files: the Guizhi Decoction benchmark (bioagent validate benchmark --live) runs them")
+    if x.runner is None or x.tier != "live":
+        x.unverified("measured_hypotheses",
+                     "hypotheses on measured targets come from the research loop on snapshots of "
+                     "the real files: with jobs approved in the live tier (tcmstudio validate "
+                     "--tier live --approve-jobs) this scenario runs it as the agent does, "
+                     "research.snapshot then network_pharmacology_run; the Guizhi Decoction "
+                     "benchmark (bioagent validate benchmark --live) runs the same loop")
+        return
+    snap = x.step("call_tool", {"tool": "job.research.snapshot",
+                                "arguments": {"formulas": [_RESEARCH_FORMULA]}},
+                  network=True, job=True)
+    _measured_hypotheses(x, _RESEARCH_FORMULA, built=_research_snapshots(x, snap))
+
+
+#: scenario 4 on measured data studies the benchmark's formula with the benchmark's protocol
+#: (activity from NPASS and CMAUP; LOTUS and STRING optional), named with its book: the
+#: research loop studies one composition, and the workbook holds 30 under this name
+_RESEARCH_FORMULA = "桂枝汤《伤寒论》"
+_RESEARCH_PARAMETERS = {"activity": ["npass", "cmaup"], "optional": ["lotus", "string"]}
+
+
+def _research_snapshots(x: _Run, env: Mapping[str, Any] | None) -> dict[str, str]:
+    """The research.snapshot job: the gold standard reproduced from the real files, and how
+    far its inputs are verified. The snapshot ids it recorded, by key."""
+    from bioagent.validation import PASS, UNVERIFIED
+    built = _job_result(env)
+    stages = built.get("stages") or {}
+    ids = {k: str((v or {}).get("id")) for k, v in (built.get("snapshots") or {}).items()}
+    x.expect("gold_standard", stages.get("build") in (PASS, UNVERIFIED) and bool(ids),
+             f"{len(ids)} snapshots built from the real files ({', '.join(sorted(ids))}), "
+             "reproducing the marker compounds the files are known to hold", stages=stages)
+    if stages.get("integrity") == PASS:
+        x.rec.add("inputs_verified", PASS, "every input file matches its reviewed checksum or size")
+        return ids
+    unverified = []
+    try:
+        doc = json.loads(x.runner.file(str(_result(env).get("id")), "snapshot_report.json"))
+        unverified = [r.get("file") for s in doc.get("stages") or ()
+                      if s.get("stage") == "integrity"
+                      for r in s.get("files") or () if r.get("status") != PASS]
+    except (RuntimeError, ValueError):
+        pass
+    which = ", ".join(unverified) or "the job's snapshot_report.json names them"
+    x.rec.add("inputs_verified", UNVERIFIED,
+              f"{len(unverified) or 'some'} input file(s) have no reviewed checksum or size, so "
+              f"what is computed from them is not verified: {which}", files=unverified)
+    return ids
+
+
+def _measured_hypotheses(x: _Run, formula: str, *, built: Mapping[str, str] | None = None,
+                         parameters: Mapping[str, Any] | None = None) -> None:
+    """network_pharmacology_run as the agent calls it, and the finished run checked against
+    the snapshots it read: targets from measured activities, every surviving claim a
+    mechanism hypothesis worded as one, every edge it cites in a ledger snapshot with a
+    measured compound-target step, the snapshots the build recorded, the release."""
+    from bioagent.contracts.claim_language import overreaching_language
+    from bioagent.validation import PASS, UNVERIFIED
+    env = x.step("network_pharmacology_run",
+                 {"formula": formula,
+                  "parameters": dict(_RESEARCH_PARAMETERS if parameters is None else parameters)},
+                 job=True)
+    job_id, run = str(_result(env).get("id")), _job_result(env)
+    try:
+        result = json.loads(x.runner.file(job_id, "result.json"))
+        rebuttal = json.loads(x.runner.file(job_id, "rebuttal.json"))
+    except (RuntimeError, ValueError) as exc:
+        x.expect("outputs", False, f"the finished run's result could not be read: {exc}")
+        return
+    targets = result.get("targets") or []
+    left_out = int((result.get("excluded") or {}).get(
+        "predicted target edge (not used by this skill)", 0))
+    x.expect("measured_targets", bool(targets),
+             f"{len(targets)} proteins on which {formula}'s constituents have a measured "
+             f"activity passing the protocol's potency threshold; {left_out} predicted "
+             "compound-target edge(s) were left out" if targets else
+             f"no measured target of {formula}'s constituents in these snapshots",
+             targets=len(targets), predicted_left_out=left_out)
+    survived = set(rebuttal.get("survived") or ())
+    claims = [c for c in result.get("claims") or () if c.get("object") in survived]
+    problems = []
+    for c in claims:
+        if c.get("kind") != "mechanism_hypothesis":
+            problems.append(f"{c.get('object')} is a {c.get('kind')} claim")
+        over = [f.phrase for f in overreaching_language(c.get("statement", ""), c.get("kind", ""))]
+        if over:
+            problems.append(f"{c.get('object')}: wording claims more than a hypothesis: {over}")
+    x.expect("labelled", not problems, "; ".join(problems) if problems else
+             (f"{len(claims)} hypothesis(es) survived analysis and rebuttal, each a mechanism "
+              "hypothesis worded as one" if claims else
+              "no pathway survived analysis and rebuttal, so no mechanism hypothesis is "
+              "claimed and none is invented"),
+             hypotheses=[c.get("object") for c in claims],
+             refuted=[r.get("object") for r in rebuttal.get("refuted") or ()])
+    _cited_edges(x, run, claims)
+    used = {k: str(v) for k, v in (run.get("snapshots") or {}).items()}
+    if built is not None:
+        same = {k: sid for k, sid in used.items() if k in built}
+        x.expect("snapshots_used", bool(same) and all(built[k] == sid for k, sid in same.items()),
+                 "the run read the snapshots the build job recorded: "
+                 + ", ".join(f"{k} {sid[:16]}" for k, sid in sorted(same.items())),
+                 snapshots=used)
+    if run.get("released"):
+        x.rec.add("released", PASS, "the research artifact passed its release validation: the "
+                  "quotes re-verified against the snapshots and the audit chain attested",
+                  run_id=run.get("run_id"))
+    else:
+        x.rec.add("released", UNVERIFIED, f"the artifact was not authorised for release: "
+                  f"{run.get('states')}", run_id=run.get("run_id"))
+
+
+def _cited_edges(x: _Run, run: Mapping[str, Any], claims: Sequence[Mapping[str, Any]]) -> None:
+    """Every edge a surviving claim cites, looked up in the runner's own ledger snapshots:
+    it is there, and the claim's compound-target step is a measured activity."""
+    from pathlib import Path
+
+    from bioagent.validation import PASS, UNVERIFIED
+    if not claims:
+        x.rec.add("cites_measured_edges", PASS, "no hypothesis survived, so none cites an edge")
+        return
+    try:
+        from bioagent.sources.ledger import SnapshotLedger
+        from bioagent.sources.snapshot import load_snapshot
+        root = Path(x.runner.data_lake) / "snapshots"
+        entries = {e.snapshot_id: e for e in SnapshotLedger(root / "ledger.jsonl").entries()}
+        edges: dict[tuple[str, str], Mapping[str, Any]] = {}
+        for key, sid in (run.get("snapshots") or {}).items():
+            snap = load_snapshot(root, key, entries[sid].version, expected_id=sid)
+            edges.update({(sid, str(e.get("source_record_id"))): e for e in snap.edges})
+    except Exception as exc:                                    # noqa: BLE001
+        x.rec.add("cites_measured_edges", UNVERIFIED, "the runner's snapshots could not be read "
+                  f"here: {type(exc).__name__}: {exc}")
+        return
+    bad = []
+    for c in claims:
+        support = [(str(s[0]), str(s[1])) for s in c.get("support") or ()]
+        missing = [s for s in support if s not in edges]
+        steps = [edges[s] for s in support if s in edges and edges[s].get("predicate") == "targets"]
+        if missing:
+            bad.append(f"{c.get('object')}: {len(missing)} cited edge(s) are in no snapshot")
+        elif not steps or any(e.get("knowledge_level") == "prediction" or not e.get("measure")
+                              for e in steps):
+            bad.append(f"{c.get('object')}: its compound-target step is not a measured activity")
+    x.expect("cites_measured_edges", not bad, "; ".join(bad) if bad else
+             f"every edge the {len(claims)} hypothesis(es) cite is in a ledger snapshot, and each "
+             "compound-target step is a measured activity")
 
 
 def _enrichment(x: _Run) -> None:
@@ -791,12 +935,19 @@ SCENARIOS: tuple[Scenario, ...] = (
              ("an assay potency is not an effect in the body",), _compound_targets),
     Scenario(4, "mechanism_hypothesis", "Molecular mechanism hypothesis generation",
              "Propose mechanism hypotheses for 桂枝汤, labelled as such.",
-             ("the curated seed corpus (governed skill)", "research snapshots for measured data"),
+             ("the curated seed corpus (governed skill)",
+              "research snapshots of NPASS, CMAUP, LOTUS, STRING and Reactome, built by the "
+              "research.snapshot job (live tier, jobs approved)"),
              ("hypotheses of kind mechanism_hypothesis, or no claim where no target is recorded",
-              "the corpus they rest on, named"),
+              "the corpus they rest on, named",
+              "with jobs approved: the research loop run on the real files as the agent runs it"),
              ("kind mechanism_hypothesis", "no overreaching wording", "no claim without a target",
-              "the seed corpus labelled"),
-             ("on the seed corpus it is a demonstration; on measured data it is the benchmark",),
+              "the seed corpus labelled", "targets from measured activities",
+              "every edge a hypothesis cites is in a ledger snapshot",
+              "the artifact passes its release validation"),
+             ("on the seed corpus it is a demonstration",
+              "a research input file without a reviewed checksum or size leaves what is computed "
+              "from it unverified"),
              _mechanism_hypothesis),
     Scenario(5, "pathway_enrichment", "Pathway enrichment analysis",
              "Is a set of measured targets over-represented in a pathway?",

@@ -8,6 +8,14 @@ name: live-data
 # files with its literature queried live, twice, and its artifacts are compared; and the
 # twelve regression scenarios run live against the hub those files built.
 #
+# The scenarios run under the agent's own scheduling: `tcmstudio validate --approve-jobs`
+# starts tcmstudio's runner and sends every scenario call to it over HTTP, as the Studio
+# page does. What runs as a job is submitted and followed to the end: docking, ADMET and
+# the RNA-seq and single-cell pipelines (their engines are installed here), and the
+# research loop, whose research.snapshot job downloads and verifies the research files
+# itself before network_pharmacology_run studies 桂枝汤《伤寒论》 on them. Running this
+# workflow is the operator's approval of those jobs, and every report says so.
+#
 # Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
 # data are acquired, built, analysed or validated. --strict makes a file that could not be
 # downloaded fail the job: a blocked or skipped live test is never a successful one. The
@@ -27,6 +35,9 @@ on:
       - "BioScience-Harness/src/bioagent/analysis/network_pharmacology.py"
       - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
       - "BioScience-Harness/src/bioagent/data/formula_errata.json"
+      - "studio/runner/src/tcmstudio/scenarios.py"
+      - "studio/runner/src/tcmstudio/validate.py"
+      - "studio/runner/src/tcmstudio/validate_jobs.py"
       - ".github/workflows/live-data.yml"
 
 permissions:
@@ -45,9 +56,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
+          # AutoDock Vina publishes wheels up to CPython 3.12
           python-version: "3.12"
+      - name: Command-line tools the RNA-seq pipeline uses when present
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fastp salmon kallisto hisat2 subread samtools
       - run: python -m pip install --upgrade pip
-      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
+      - run: >-
+          pip install -e PSH-Harness
+          -e "BioScience-Harness[formulas,docking,admet,analysis]" -e studio/runner
       - name: The runner
         run: |
           df -h "$RUNNER_TEMP" | tail -1
@@ -60,10 +78,26 @@ jobs:
         id: benchmark
         continue-on-error: true
         run: bioagent validate benchmark --out "$RUNNER_TEMP/reports/benchmark" --raw "$RUNNER_TEMP/work/raw" --work "$RUNNER_TEMP/bench" --live --repeat --strict
-      - name: "The regression scenarios and the core tools, live, on the hub those files built"
+      - name: "The twelve regression scenarios through the agent's runner, and the core tools, live, on the hub those files built"
         id: scenarios
         continue-on-error: true
-        run: tcmstudio validate --out "$RUNNER_TEMP/reports/scenarios" --tier live --kinds core --tcmdb-root "$RUNNER_TEMP/work/tcmdb"
+        run: >-
+          tcmstudio validate --out "$RUNNER_TEMP/reports/scenarios" --tier live --kinds core
+          --tcmdb-root "$RUNNER_TEMP/work/tcmdb" --approve-jobs --jobs-timeout 2400
+      - name: The scenarios' checks, printed whole
+        if: always() && steps.scenarios.outcome != 'skipped'
+        run: |
+          report="$RUNNER_TEMP/reports/scenarios/agent_regression_report.json"
+          test -f "$report" || { echo "no regression report"; exit 0; }
+          python - "$report" <<'EOF'
+          import json, sys
+          doc = json.load(open(sys.argv[1]))
+          print("jobs approved:", doc.get("jobs_approved"), "| scenarios:", doc.get("scenarios_run"))
+          for r in doc["records"]:
+              print(f"== {r['component']}: {r['status']}")
+              for c in r["checks"]:
+                  print(f"   {c['status']:<10} {c['name']}: {c['detail'][:400]}")
+          EOF
       - name: The live downloads, folded into the verification record
         if: always() && steps.data.outcome != 'skipped'
         run: |

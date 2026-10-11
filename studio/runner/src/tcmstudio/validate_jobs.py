@@ -44,12 +44,20 @@ class AgentRunner:
     """tcmstudio's runner in a temporary home, served on 127.0.0.1, called over HTTP."""
 
     def __init__(self, home: str | Path, *, tcmdb_root: str | Path, network: bool,
+                 data_lake: str | Path | None = None,
                  log: Callable[[str], None] = lambda m: None, poll_s: float = 0.5) -> None:
         from .server import RunnerServer, ServerConfig
+        from .settings import home_paths
 
         environ = dict(os.environ)
         environ["BIOAGENT_TCMDB"] = str(tcmdb_root)
         self.home = Path(home)
+        # The runner's data lake (research raw files and snapshots) and workspace are its
+        # own, never the operator's: what its jobs write stays where this run can see it.
+        paths = home_paths(self.home)
+        self.data_lake = Path(data_lake) if data_lake else paths["data"]
+        environ["BIOAGENT_DATA_LAKE"] = str(self.data_lake)
+        environ["BIOAGENT_WORKSPACE"] = str(paths["workspace"])
         self.network = network
         self.log = log
         self.server = RunnerServer(ServerConfig(
@@ -57,11 +65,12 @@ class AgentRunner:
             keepalive_s=5.0, local_servers=(), environ=environ, network=network, max_jobs=1,
             quiet=True))
         # the runner's own settings, as a user sets them in Settings → Compute: the network
-        # on or off, and whether a job may send data to a third-party service
+        # on or off, and no job may send data to a third-party service (no scenario does;
+        # one that tried would be refused, as on a runner whose user has not allowed it)
         self.server.state.update({"network": {"enabled": network,
                                               "profile": "biomedical-research" if network
                                               else "offline-analysis"},
-                                  "allow_remote": network})
+                                  "allow_remote": False})
         self.server.start_background()
         self._thread = threading.Thread(target=self.server.serve_forever,
                                         kwargs={"poll_interval": 0.1}, daemon=True)
