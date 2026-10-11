@@ -1,0 +1,119 @@
+name: sources-live
+
+# Every hub dataset from its own server (docs/validation.md): each dataset on a runner of
+# its own, fetched the way Studio's tcmdb.fetch job fetches it (TCMDataHub.fetch: a
+# reviewed checksum, else the declared or the server's size; an HTML page in place of a
+# file refused), built, checked (a rebuild gives the same relations, every row uses a
+# declared kind, evidence and outcome) and queried (every declared relation kind and every
+# table answers). The per-entity services (SymMap, HERB) are asked for one entity. The
+# manual datasets are listed with what a person has to do. Every live result is then
+# folded into the record the database readiness report reads, printed whole so the
+# committed record can follow it.
+#
+# A source that refuses (a login, a challenge page, a host that does not answer) is
+# BLOCKED with its reason and is never counted as passed; nothing here tries to get past
+# it. Weekly, by hand, and on a push that changes the hub or this validation.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * 2"
+  push:
+    paths:
+      - "BioScience-Harness/src/bioagent/tcmdb/**"
+      - "BioScience-Harness/src/bioagent/acquisition/**"
+      - "BioScience-Harness/src/bioagent/validation/hub_datasets.py"
+      - ".github/workflows/sources-live.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sources-live-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: The datasets a program can fetch
+    runs-on: ubuntu-latest
+    outputs:
+      datasets: ${{ steps.list.outputs.datasets }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && pip install -e PSH-Harness -e "BioScience-Harness[formulas]"
+      - id: list
+        run: |
+          keys=$(bioagent validate datasets --out "$RUNNER_TEMP/plan" --access download live --list)
+          echo "$keys"
+          echo "datasets=$keys" >> "$GITHUB_OUTPUT"
+
+  dataset:
+    name: ${{ matrix.dataset }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        dataset: ${{ fromJSON(needs.plan.outputs.datasets) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && pip install -e PSH-Harness -e "BioScience-Harness[formulas]"
+      - name: Fetched, verified, built, checked and queried
+        # --confirm-large: running this workflow is the operator's decision to download
+        # every file, however large; a file the disk cannot hold is still refused
+        run: >-
+          bioagent validate datasets --datasets "${{ matrix.dataset }}" --live --confirm-large
+          --out "$RUNNER_TEMP/reports/${{ matrix.dataset }}" --root "$RUNNER_TEMP/hub"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dataset-${{ matrix.dataset }}
+          path: ${{ runner.temp }}/reports/${{ matrix.dataset }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  fold:
+    name: Every result, folded into the verification record
+    needs: dataset
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip && pip install -e PSH-Harness -e "BioScience-Harness[formulas]"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dataset-*
+          path: ${{ runner.temp }}/reports
+      - name: The manual datasets, with what a person has to do
+        run: bioagent validate datasets --access manual --out "$RUNNER_TEMP/reports/manual"
+      - name: The record
+        run: |
+          cp BioScience-Harness/src/bioagent/data/live_download_verification.json "$RUNNER_TEMP/record.json"
+          bioagent validate record --record "$RUNNER_TEMP/record.json" \
+            --report "$RUNNER_TEMP"/reports/dataset-*/hub_dataset_report.json
+          # printed whole between markers: the committed record
+          # (src/bioagent/data/live_download_verification.json) is updated from this text
+          echo "----- BEGIN live_download_verification.json -----"
+          cat "$RUNNER_TEMP/record.json"
+          echo "----- END live_download_verification.json -----"
+      - name: Summary
+        if: always()
+        run: bioagent validate summary "$RUNNER_TEMP/reports" --rows 200 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sources-live-reports
+          path: |
+            ${{ runner.temp }}/reports
+            ${{ runner.temp }}/record.json
+          retention-days: 30

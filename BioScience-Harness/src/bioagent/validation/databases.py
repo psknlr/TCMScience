@@ -17,6 +17,9 @@ that is catalogued but not integrated can never read as ready for analysis:
     real_download  the last real download of its files, from the committed verification
                    record (``data/live_download_verification.json``): PASS with the date and
                    the CI run, or UNVERIFIED when it was never run
+    recorded_build when that record holds the dataset's own live run (``bioagent validate
+                   datasets --live``, the sources-live workflow): whether the files it
+                   fetched were built, checked and queried there
     live_api       for a source with a connector: its operations' last recorded live calls
                    (``data/connector_live_verification.csv``), or UNVERIFIED with none
     local_build    built in this environment (SKIPPED when not: nothing here says it is not)
@@ -68,6 +71,17 @@ def load_verification(path: str | Path | None = None) -> dict[str, Any]:
 
 
 def _real_download(spec: Any, record: Mapping[str, Any]) -> tuple[str, str, dict[str, Any]]:
+    entry = (record.get("datasets") or {}).get(spec.key)
+    if entry:                                   # the dataset's own live run (validate datasets)
+        files = entry.get("files") or {}
+        acq = (entry.get("checks") or {}).get("acquisition", UNVERIFIED)
+        kept = sum(1 for f in files.values() if f.get("status") in (PASS, UNVERIFIED))
+        detail = (f"{kept} of {len(files)} default files downloaded by a recorded run "
+                  f"({entry.get('verified_at') or 'undated'})")
+        if acq not in (PASS, UNVERIFIED) and entry.get("reason"):
+            detail += f": {entry['reason'][:300]}"
+        return acq, detail, {"files": {n: f.get("status") for n, f in files.items()},
+                             "runs": [entry["run"]] if entry.get("run") else []}
     files = record.get("files") or {}
     default = [f for f in spec.files if not f.optional]
     if not default:
@@ -159,6 +173,14 @@ def readiness(hub: Any = None, *, verification: Mapping[str, Any] | None = None,
         else:
             for name in ("integrity", "parser", "real_download"):
                 rec.add(name, NOT_APPLICABLE, "no files are downloaded by a program")
+        entry = (record.get("datasets") or {}).get(spec.key) if spec is not None else None
+        if entry:
+            stages = {k: v for k, v in (entry.get("checks") or {}).items()
+                      if k in ("build", "check", "queries")}
+            rec.add("recorded_build", aggregate(stages.values()) if stages else SKIPPED,
+                    f"in the recorded live run ({entry.get('verified_at') or 'undated'}): "
+                    + (", ".join(f"{k} {v}" for k, v in stages.items()) or "not reached"),
+                    stages=stages, run=entry.get("run"))
         if card.connector:
             rows = live.get(card.connector) or []
             if not rows:

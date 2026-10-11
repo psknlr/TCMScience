@@ -8,8 +8,11 @@
         scientific_reproducibility_report.json   rebuilds that must give the same digests
     bioagent validate deps --out DIR         dependency_readiness_report.json
     bioagent validate databases --out DIR    database_readiness_report.json (no downloads)
-    bioagent validate record --report DIR/live_download_validation.json
-                                             fold a live run into the committed record
+    bioagent validate datasets --out DIR [--live] [--root HUB] [--datasets KEY ...]
+        hub_dataset_report.json              every hub dataset: fetched as Studio's tcmdb.fetch
+                                             job does, verified, built, checked, queried
+    bioagent validate record --report DIR/live_download_validation.json [DIR2/hub_dataset_report.json ...]
+                                             fold live runs into the committed record
     bioagent validate benchmark --out DIR [--live] [--raw RAW] [--repeat]
         research_pipeline_report.json        the Guizhi Decoction and palpitations benchmark,
                                              twelve stages, with one hashed artifact each
@@ -70,8 +73,22 @@ def build_parser() -> argparse.ArgumentParser:
     v = sub.add_parser("summary", help="every report under the given paths, as one Markdown table")
     v.add_argument("paths", nargs="+", help="report files or directories holding them")
     v.add_argument("--rows", type=int, default=40, help="how many non-passing records to list")
+    h = sub.add_parser("datasets", help="every hub dataset: fetched, verified, built, checked "
+                                        "and queried")
+    h.add_argument("--out", required=True, help="where the report goes")
+    h.add_argument("--root", default="", help="the data hub (default: OUT/hub)")
+    h.add_argument("--datasets", nargs="*", default=None,
+                   help="these keys (default: every dataset of the --access modes)")
+    h.add_argument("--access", nargs="*", default=["download", "live", "manual"],
+                   choices=["download", "live", "manual"])
+    h.add_argument("--live", action="store_true", help="request the files from their servers")
+    h.add_argument("--confirm-large", action="store_true",
+                   help="allow files above the downloader's size gate (an operator's decision)")
+    h.add_argument("--list", action="store_true", help="print the selected keys as JSON, run nothing")
+    h.add_argument("--strict", action="store_true", help="exit non-zero on BLOCKED too")
     r = sub.add_parser("record", help="fold a live run's results into the committed record")
-    r.add_argument("--report", required=True, help="a live_download_validation.json")
+    r.add_argument("--report", required=True, nargs="+",
+                   help="live_download_validation.json and/or hub_dataset_report.json files")
     r.add_argument("--record", default="", help="the record to update (default: the shipped "
                                                 "bioagent/data/live_download_verification.json)")
     return p
@@ -182,16 +199,13 @@ def _summary(records: Sequence[Record]) -> None:
 
 
 def _record(a: argparse.Namespace) -> int:
+    """Fold live runs into the committed record: research raw files by name (``files``),
+    hub datasets by key (``datasets``). An offline report verifies nothing about a server
+    and is refused; within a live report, a file or dataset that was not requested (its
+    connectivity or acquisition SKIPPED) is left as it was."""
     from . import load_report
     from .databases import VERIFICATION_RECORD, load_verification
 
-    doc = load_report(a.report)
-    if doc.get("report") != "live_download_validation":
-        print(f"{a.report} is not a live_download_validation report", file=sys.stderr)
-        return 2
-    if doc.get("tier") != "live":
-        print("an offline run verifies nothing about the servers; not recorded", file=sys.stderr)
-        return 2
     target = Path(a.record) if a.record else Path(__file__).resolve().parents[1] / "data" / \
         VERIFICATION_RECORD
     record: dict[str, Any] = load_verification(target) or {
@@ -199,23 +213,72 @@ def _record(a: argparse.Namespace) -> int:
         "note": "Real downloads of the reviewed research files, one entry per file, folded in "
                 "from CI's live-data workflow by `bioagent validate record`. A file appears "
                 "only once a live run reached its server; its status is that run's."}
-    run = ((doc.get("environment") or {}).get("ci") or {}).get("url", "")
-    files = record.setdefault("files", {})
-    for r in doc.get("records", ()):
-        checks = {c["name"]: c for c in r.get("checks", ())}
-        if checks.get("connectivity", {}).get("status") in (None, "SKIPPED"):
-            continue
-        prov = r.get("provenance") or {}
-        files[r["component"]] = {
-            "status": r["status"], "verified_at": doc.get("generated_at", ""), "run": run,
-            "url": (r.get("input") or {}).get("url"), "bytes": prov.get("bytes"),
-            "sha256": prov.get("sha256"),
-            "checks": {k: v["status"] for k, v in checks.items()},
-            **({"reason": r["failure_reason"]} if r.get("failure_reason") else {})}
+    folded = 0
+    for path in a.report:
+        doc = load_report(path)
+        kind = doc.get("report")
+        if kind not in ("live_download_validation", "hub_dataset_validation"):
+            print(f"{path} is not a live_download_validation or hub_dataset_validation report",
+                  file=sys.stderr)
+            return 2
+        if doc.get("tier") != "live":
+            print(f"{path}: an offline run verifies nothing about the servers; not recorded",
+                  file=sys.stderr)
+            return 2
+        run = ((doc.get("environment") or {}).get("ci") or {}).get("url", "")
+        when = doc.get("generated_at", "")
+        for r in doc.get("records", ()):
+            checks = {c["name"]: c for c in r.get("checks", ())}
+            if kind == "live_download_validation":
+                if checks.get("connectivity", {}).get("status") in (None, "SKIPPED"):
+                    continue
+                prov = r.get("provenance") or {}
+                record.setdefault("files", {})[r["component"]] = {
+                    "status": r["status"], "verified_at": when, "run": run,
+                    "url": (r.get("input") or {}).get("url"), "bytes": prov.get("bytes"),
+                    "sha256": prov.get("sha256"),
+                    "checks": {k: v["status"] for k, v in checks.items()},
+                    **({"reason": r["failure_reason"]} if r.get("failure_reason") else {})}
+            else:
+                acq = checks.get("acquisition") or {}
+                if (r.get("input") or {}).get("access") == "manual" or \
+                        acq.get("status") in (None, "SKIPPED"):
+                    continue
+                files = ((acq.get("evidence") or {}).get("files") or {})
+                record.setdefault("datasets", {})[r["component"].split(".", 1)[-1]] = {
+                    "status": r["status"], "verified_at": when, "run": run,
+                    "version": r.get("version"),
+                    "checks": {k: v["status"] for k, v in checks.items()},
+                    "files": {name: {k: v for k, v in (row or {}).items()
+                                     if k in ("status", "url", "bytes", "checksum", "verified",
+                                              "reason") and v not in (None, "")}
+                              for name, row in files.items()},
+                    **({"reason": r["failure_reason"]} if r.get("failure_reason") else {})}
+            folded += 1
     target.write_text(json.dumps(record, ensure_ascii=False, indent=1, sort_keys=True) + "\n",
                       encoding="utf-8")
-    print(f"recorded {len(files)} files in {target}")
+    print(f"recorded {folded} entries ({len(record.get('files') or {})} files, "
+          f"{len(record.get('datasets') or {})} datasets) in {target}")
     return 0
+
+
+def _datasets(a: argparse.Namespace) -> int:
+    from ..tcmdb import TCMDataHub
+    from .environment import fingerprint
+    from .hub_datasets import dataset_keys, validate_datasets
+
+    keys = list(a.datasets) if a.datasets else dataset_keys(a.access)
+    if a.list:
+        print(json.dumps(keys))
+        return 0
+    out = Path(a.out)
+    hub = TCMDataHub(Path(a.root) if a.root else out / "hub")
+    records = validate_datasets(hub, keys, live=a.live, confirm=a.confirm_large, log=_log)
+    write_report(out / "hub_dataset_report.json", report(
+        "hub_dataset_validation", records, tier="live" if a.live else "offline",
+        environment=fingerprint(), extra={"datasets": keys}))
+    _summary(records)
+    return _exit(records, a.strict)
 
 
 def summary_markdown(paths: Sequence[str | Path], rows: int = 40) -> str:
@@ -308,6 +371,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _data(a)
     if a.what == "benchmark":
         return _benchmark(a)
+    if a.what == "datasets":
+        return _datasets(a)
     if a.what == "summary":
         sys.stdout.write(summary_markdown(a.paths, a.rows))
         return 0
