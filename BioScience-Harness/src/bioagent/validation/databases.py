@@ -156,31 +156,7 @@ def readiness(hub: Any = None, *, verification: Mapping[str, Any] | None = None,
             rec.add("acquisition", PASS, "filled per entity through its connector")
         else:
             rec.add("acquisition", PASS, f"{len(spec.files)} files from reviewed URLs")
-        if spec is not None and spec.access == "download":
-            default = [f for f in spec.files if not f.optional]
-            sums = sum(1 for f in default if f.checksum)
-            sizes = sum(1 for f in default if f.expected_bytes is not None)
-            rec.add("integrity", PASS if default and sums == len(default) else UNVERIFIED,
-                    f"{sums} of {len(default)} default files with a reviewed checksum, "
-                    f"{sizes} with a reviewed size",
-                    expected_bytes=sum(f.expected_bytes or 0 for f in default) or None)
-            tables = [f for f in spec.files if f.table]
-            rec.add("parser", PASS if tables and spec.relations else UNVERIFIED,
-                    f"{len(tables)} tables; relations {list(spec.relations) or 'none declared'}",
-                    formats=sorted({f.fmt for f in spec.files}))
-            s, d, ev = _real_download(spec, record)
-            rec.add("real_download", s, d, **ev)
-        else:
-            for name in ("integrity", "parser", "real_download"):
-                rec.add(name, NOT_APPLICABLE, "no files are downloaded by a program")
-        entry = (record.get("datasets") or {}).get(spec.key) if spec is not None else None
-        if entry:
-            stages = {k: v for k, v in (entry.get("checks") or {}).items()
-                      if k in ("build", "check", "queries")}
-            rec.add("recorded_build", aggregate(stages.values()) if stages else SKIPPED,
-                    f"in the recorded live run ({entry.get('verified_at') or 'undated'}): "
-                    + (", ".join(f"{k} {v}" for k, v in stages.items()) or "not reached"),
-                    stages=stages, run=entry.get("run"))
+        _dataset_checks(rec, spec, record)
         if card.connector:
             rows = live.get(card.connector) or []
             if not rows:
@@ -194,26 +170,82 @@ def readiness(hub: Any = None, *, verification: Mapping[str, Any] | None = None,
                         f"called ({latest[:10]})" + (f"; failed: "
                         f"{sorted(r.get('operation', '') for r in bad)}" if bad else ""),
                         verified_at=latest)
-        here = status.get(card.dataset or "")
-        if spec is None:
-            rec.add("local_build", NOT_APPLICABLE, "no dataset")
-        elif here and here.get("built"):
-            rec.add("local_build", PASS, f"built: {here.get('relations')}")
-            try:
-                rows = {k: len(hub.relations(k, sources=[spec.key], limit=1))
-                        for k in spec.relations}
-            except Exception as exc:                            # noqa: BLE001
-                rec.add("query", FAIL, f"{type(exc).__name__}: {exc}")
-            else:
-                empty = [k for k, n in rows.items() if not n]
-                rec.add("query", FAIL if empty else PASS,
-                        f"no rows of {empty}" if empty else
-                        f"a row of each declared kind reads back ({', '.join(rows)})")
-        else:
-            rec.add("local_build", SKIPPED, "not built in this environment")
-            rec.add("query", SKIPPED, "not built in this environment")
+        _build_checks(rec, spec, hub, status)
         if spec is not None:
             rec.provenance["consumers"] = sorted({c for k in spec.relations
                                                   for c in CONSUMERS.get(k, ["tcmdb_relations"])})
         out.append(rec)
+    # a dataset no source card names would otherwise be in no record at all
+    named = {c.dataset for c in catalog() if c.dataset}
+    for spec in DATASETS:
+        if spec.key in named:
+            continue
+        rec = Record(f"dataset.{spec.key}", "database", spec.version,
+                     provenance={"name": spec.name, "url": spec.homepage, "access": spec.access,
+                                 "licence": spec.license, "commercial_use": spec.commercial_use,
+                                 "dataset": spec.key, "catalogue": list(spec.catalog)})
+        rec.add("catalogue", UNVERIFIED,
+                f"no source card names this dataset (it cites card(s) {list(spec.catalog)})")
+        cls = licence_class(spec.license)
+        rec.add("licence", UNVERIFIED if cls == "unknown" else PASS,
+                f"{spec.license!r}: {cls}" + (" — not permission" if cls == "unknown" else ""),
+                reuse_class=cls)
+        rec.add("acquisition", NOT_APPLICABLE if spec.access == "manual" else PASS,
+                {"manual": f"a person exports the files: {spec.instructions[:300]}",
+                 "live": "filled per entity through its connector"}.get(
+                    spec.access, f"{len(spec.files)} files from reviewed URLs"))
+        _dataset_checks(rec, spec, record)
+        _build_checks(rec, spec, hub, status)
+        out.append(rec)
     return out
+
+
+def _dataset_checks(rec: Record, spec: Any, record: Mapping[str, Any]) -> None:
+    """The checks that belong to a hub dataset rather than to its source card."""
+    if spec is not None and spec.access == "download":
+        default = [f for f in spec.files if not f.optional]
+        sums = sum(1 for f in default if f.checksum)
+        sizes = sum(1 for f in default if f.expected_bytes is not None)
+        rec.add("integrity", PASS if default and sums == len(default) else UNVERIFIED,
+                f"{sums} of {len(default)} default files with a reviewed checksum, "
+                f"{sizes} with a reviewed size",
+                expected_bytes=sum(f.expected_bytes or 0 for f in default) or None)
+        tables = [f for f in spec.files if f.table]
+        rec.add("parser", PASS if tables and spec.relations else UNVERIFIED,
+                f"{len(tables)} tables; relations {list(spec.relations) or 'none declared'}",
+                formats=sorted({f.fmt for f in spec.files}))
+        s, d, ev = _real_download(spec, record)
+        rec.add("real_download", s, d, **ev)
+    else:
+        for name in ("integrity", "parser", "real_download"):
+            rec.add(name, NOT_APPLICABLE, "no files are downloaded by a program")
+    entry = (record.get("datasets") or {}).get(spec.key) if spec is not None else None
+    if entry:
+        stages = {k: v for k, v in (entry.get("checks") or {}).items()
+                  if k in ("build", "check", "queries")}
+        rec.add("recorded_build", aggregate(stages.values()) if stages else SKIPPED,
+                f"in the recorded live run ({entry.get('verified_at') or 'undated'}): "
+                + (", ".join(f"{k} {v}" for k, v in stages.items()) or "not reached"),
+                stages=stages, run=entry.get("run"))
+
+
+def _build_checks(rec: Record, spec: Any, hub: Any, status: Mapping[str, Any]) -> None:
+    """Built here, and queried here."""
+    here = status.get(spec.key) if spec is not None else None
+    if spec is None:
+        rec.add("local_build", NOT_APPLICABLE, "no dataset")
+    elif here and here.get("built"):
+        rec.add("local_build", PASS, f"built: {here.get('relations')}")
+        try:
+            rows = {k: len(hub.relations(k, sources=[spec.key], limit=1))
+                    for k in spec.relations}
+        except Exception as exc:                            # noqa: BLE001
+            rec.add("query", FAIL, f"{type(exc).__name__}: {exc}")
+        else:
+            empty = [k for k, n in rows.items() if not n]
+            rec.add("query", FAIL if empty else PASS,
+                    f"no rows of {empty}" if empty else
+                    f"a row of each declared kind reads back ({', '.join(rows)})")
+    else:
+        rec.add("local_build", SKIPPED, "not built in this environment")
+        rec.add("query", SKIPPED, "not built in this environment")

@@ -67,13 +67,18 @@ def _sha256(path: Path) -> str:
     return "sha256:" + h.hexdigest()
 
 
+def _files(spec: Any) -> list[Any]:
+    """The files a dataset is validated on: its default files, or, for a dataset that
+    has only optional ones (a superseded release, a large export), those."""
+    default = [f for f in spec.files if not f.optional]
+    return default or list(spec.files)
+
+
 def _present(hub: Any, spec: Any) -> list[dict[str, Any]]:
-    """Offline: the default files already in the hub, verified against what can be."""
+    """Offline: the files already in the hub, verified against what can be."""
     raw = hub.raw_dir(spec.key)
     out = []
-    for f in spec.files:
-        if f.optional:
-            continue
+    for f in _files(spec):
         path = raw / f.name
         if not path.is_file():
             out.append({"file": f.name, "ok": False, "status": SKIPPED,
@@ -165,8 +170,7 @@ def validate_dataset(hub: Any, key: str, *, live: bool, confirm: bool = False,
 
     spec = dataset(key)
     rec = Record(f"tcmdb.{key}", "hub_dataset", spec.version,
-                 input={"access": spec.access, "files": [f.name for f in spec.files
-                                                         if not f.optional]},
+                 input={"access": spec.access, "files": [f.name for f in _files(spec)]},
                  provenance={"name": spec.name, "homepage": spec.homepage,
                              "license": spec.license, "commercial_use": spec.commercial_use,
                              "catalogue": list(spec.catalog)},
@@ -205,14 +209,16 @@ def validate_dataset(hub: Any, key: str, *, live: bool, confirm: bool = False,
             rec.add("acquisition", PASS if ok else BLOCKED,
                     f"{len(ok)} of {len(out)} entities answered ({ids})" if ok else
                     f"no entity answered: {[str(r.get('error') or r)[:160] for r in out][:3]}",
-                    answers=[{k: r.get(k) for k in ("id", "ok", "error", "rows")}
+                    answers=[{k: r.get(k) for k in ("file", "ok", "cached", "error")}
                              for r in out][:10])
             if not ok:
                 _skip_rest(rec, "the service did not answer")
                 return rec
             rec.add("integrity", NOT_APPLICABLE, "a service's answers, not a released file")
         else:
-            results = hub.fetch(key, confirm=confirm, log=log) if live else _present(hub, spec)
+            only_optional = not any(not f.optional for f in spec.files)
+            results = (hub.fetch(key, include_optional=only_optional, confirm=confirm, log=log)
+                       if live else _present(hub, spec))
             if not _acquisition(rec, spec, results):
                 _skip_rest(rec, "the files are not all here")
                 return rec

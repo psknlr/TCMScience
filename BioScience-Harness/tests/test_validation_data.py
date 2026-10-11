@@ -256,6 +256,11 @@ def test_the_database_report_reads_the_record_and_never_calls_unknown_ready(tmp_
     assert npass.check("local_build").status == SKIPPED and npass.status != PASS
     cmaup = recs["source.6"]
     assert cmaup.check("real_download").status == UNVERIFIED
-    assert all(r.check("catalogue").status == PASS for r in recs.values())
+    assert all(r.check("catalogue").status == PASS for k, r in recs.items() if k.startswith("source."))
+    # a dataset no card names has a record of its own, and says so: none is left out
+    covered = {r.provenance.get("dataset") for r in recs.values()}
+    assert {d.key for d in datasets_module.DATASETS} <= covered
+    assert all(r.check("catalogue").status == UNVERIFIED
+               for k, r in recs.items() if k.startswith("dataset."))
     connector = next(r for r in recs.values() if r.check("live_api"))
     assert connector.check("live_api").status == UNVERIFIED, "no recorded live call given"
