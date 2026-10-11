@@ -301,6 +301,24 @@ Every source has a card stating its licence and access path. Web access is on by
 | Reactome | pathway membership | CC0 |
 | Open Targets 26.09 | target–disease associations | CC0 |
 
+### Validation
+
+A capability is not counted as working because it is registered or because its unit tests
+pass. Each run records PASS, FAIL, BLOCKED, SKIPPED, UNVERIFIED or NOT_APPLICABLE per check,
+and a blocked or skipped live test is never counted as passed ([docs/validation.md](docs/validation.md)).
+
+```bash
+tcmstudio validate --out reports/                      # every capability through the dispatcher,
+                                                       # and twelve research scenarios
+bioagent validate data --out reports/ --live           # the real NPASS, CMAUP, LOTUS, STRING,
+                                                       # Reactome files: downloaded, verified, built
+bioagent validate benchmark --out reports/ --live      # 桂枝汤 and palpitations, twelve stages
+bioagent validate summary reports/                     # every report as one Markdown table
+```
+
+CI runs the offline tier on every push and the live tiers on GitHub's runners
+(`.github/workflows/live-data.yml`).
+
 ## TCMScience Arena
 
 A read-only public evaluation site ([live](https://psknlr.github.io/TCMScience/arena/), [source](arena/web)). It **renders results and never computes a score**, so changing the site cannot change a result. It covers six tracks (entity, evidence, network pharmacology, safety, trial audit, end-to-end) scored on eight dimensions that are always shown decomposed. A run stopped by a hard gate stays visible on the experimental board. Benchmark cases and gold answers are not distributed with the code, and `scripts/check_leakage.py` verifies that none has leaked.
