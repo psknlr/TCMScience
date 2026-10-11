@@ -326,10 +326,14 @@ class RunnerServer(ThreadingHTTPServer):
         if isinstance(err, dict) and err.get("type") == "network_off" and not (
                 net.get("enabled") and net.get("profile") != "offline-analysis"):
             # Two switches gate the network: the project's web access (the page) and this
-            # runner's own setting. Say which one is off.
-            err["hint"] = ("This runner's network access is off: turn on 'Runner network' in "
-                           "Settings → Compute, or start the runner with --network. "
-                           + (err.get("hint") or "")).strip()
+            # runner's own setting. Say which one is off, and how.
+            why = ("This runner's network profile is offline-analysis, which keeps it offline: "
+                   "turn 'Runner network' off and on again in Settings → Compute (or start it "
+                   "with --network) to use the biomedical-research profile. "
+                   if net.get("enabled") else
+                   "This runner's network access is off: turn on 'Runner network' in "
+                   "Settings → Compute, or start the runner with --network. ")
+            err["hint"] = (why + (err.get("hint") or "")).strip()
         return envelope
 
     # --------------------------------------------------------------- runtime

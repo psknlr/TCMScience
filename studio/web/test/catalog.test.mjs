@@ -127,3 +127,15 @@ test("never_offered (the acts reserved for a person) survives loading and mergin
   assert.deepEqual(new Catalog(testCatalogDoc()).neverOffered, {});
   assert.deepEqual(new Catalog(merged.toJSON()).neverOffered, merged.neverOffered);
 });
+
+test("canonicalName: the one id a name means up to case and separators, none when two ids share the spelling", () => {
+  const doc = testCatalogDoc();
+  const c = new Catalog(doc);
+  assert.equal(c.canonicalName("connector_europepmc_search"), "connector.europepmc.search");
+  assert.equal(c.canonicalName("TCM-HERB"), "tcm_herb");
+  assert.equal(c.canonicalName("native.tcm_herb"), "native.tcm_herb");
+  assert.equal(c.canonicalName("no.such.tool"), null);
+  const twin = { ...doc.entries[0], id: "native.tcm.herb" };       // native.tcm_herb and native.tcm.herb
+  const ambiguous = new Catalog({ ...doc, entries: [...doc.entries, twin] });
+  assert.equal(ambiguous.canonicalName("native_tcm_herb"), null, "two ids, so neither is guessed");
+});

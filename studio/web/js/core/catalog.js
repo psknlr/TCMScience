@@ -9,6 +9,8 @@ import { canonicalJson, isPlainObject, nowIso, sha256Hex } from "./util.js";
 export const CATALOG_SCHEMA = "tcmstudio.catalog/1";
 const LOCAL_TOOLS = new Set(["catalog_search", "capabilities_status"]);
 
+const looseKey = (name) => String(name || "").trim().toLowerCase().replace(/[\s._-]+/g, "_").replace(/^_+|_+$/g, "");
+
 export class Catalog {
   constructor(doc = {}) {
     this.schema = doc.schema || CATALOG_SCHEMA;
@@ -52,6 +54,22 @@ export class Catalog {
     }
     out.sort((a, b) => b[0] - a[0] || a[1].id.localeCompare(b[1].id));
     return out.slice(0, Math.max(1, Math.min(Number(limit) || 25, 200))).map(([score, e]) => ({ ...e, score }));
+  }
+
+  /**
+   * The core tool or entry id a name means when it differs from it only in case and separators: "tcmdb_status" is
+   * "tcmdb.status" (function-calling APIs allow no dots in a tool's name, so models write them otherwise). null when
+   * nothing matches, or more than one id does.
+   */
+  canonicalName(name) {
+    if (!this._loose) {
+      this._loose = new Map();
+      for (const id of [...this.core.map((c) => c.name), ...this.entries.map((e) => e.id)]) {
+        const k = looseKey(id);
+        this._loose.set(k, (this._loose.has(k) ? this._loose.get(k) : id) === id ? id : null);
+      }
+    }
+    return this._loose.get(looseKey(name)) || null;
   }
 
   /** Close ids for a name that does not exist (did-you-mean). */

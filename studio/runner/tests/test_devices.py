@@ -163,3 +163,16 @@ def test_cpu_and_memory_facts():
     assert mem is None or mem > 0
     usage = dev.DeviceProbe(torch=False, which=which_for()).usage()
     assert "memory_available_gb" in usage and "gpus" in usage
+
+
+def test_an_engines_install_command_asks_for_the_versions_bioagent_declares():
+    # the docking and ADMET engines are bioagent's "docking" and "admet" extras
+    import re
+    import tomllib
+    from pathlib import Path
+    from tcmstudio.devices import _ENGINES
+    extras = tomllib.loads((Path(__file__).parents[3] / "BioScience-Harness" / "pyproject.toml")
+                           .read_text(encoding="utf-8"))["project"]["optional-dependencies"]
+    by = {e["id"]: e for e in _ENGINES}
+    for engine, extra in (("vina", "docking"), ("admet", "admet")):
+        assert sorted(re.findall(r'"([^"]+)"', by[engine]["install"])) == sorted(extras[extra]), engine

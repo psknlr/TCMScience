@@ -285,10 +285,11 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "baseline": VISIT_SCHEMA, "current": VISIT_SCHEMA},
               required=("baseline", "current")), "clinic.followup", B_R),
     _core("tcmdb_catalog", "中医药数据源目录", "TCM data sources", "tcm_data", """
-        List the TCM data sources (136 source cards): how each is reached (live_api,
+        List the TCM data sources (one card each): how each is reached (live_api,
         snapshot, manual_import, restricted, unreachable), its licence, whether commercial use
-        is allowed, barriers and assessment. A card with a dataset also reports whether a
-        store is built or imported in the current runtime. Licence 'not stated' means unknown,
+        is allowed, barriers and assessment, and its readiness here (catalogued, live,
+        supported, partial, downloaded, built) with the step that would move it on: a card is
+        not a dataset, and only 'built' answers queries. Licence 'not stated' means unknown,
         not permitted.""",
           obj({"query": S("words in the name, licence or assessment"),
                "module": S("architecture module M1..M14"),
@@ -334,15 +335,17 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "arguments": obj({}, description="the operation's arguments", additional=True)},
               required=("connector", "operation")), "connector.*", B_R, network=True),
     _core("literature_search", "文献检索", "Literature search", "literature", """
-        Search the literature: Europe PMC (default), PubMed through NCBI E-utilities, or
-        Crossref. Returns titles with PMID / DOI to cite. Runs in this runtime with web
-        access on. A hit is a pointer to read, not evidence: no claim is licensed until the
-        study itself has been assessed.""",
+        Search the literature: Europe PMC (default), PubMed through NCBI E-utilities,
+        Crossref, or registered studies on ClinicalTrials.gov. Returns titles with PMID / DOI
+        (or NCT id) to cite. Runs in this runtime with web access on. A hit is a pointer to
+        read, not evidence: no claim is licensed until the study itself has been assessed.""",
           obj({"query": S("search terms"),
-               "source": S(enum=["europepmc", "pubmed", "crossref"], default="europepmc"),
+               "source": S(enum=["europepmc", "pubmed", "crossref", "clinicaltrials"],
+                           default="europepmc"),
                "limit": I(minimum=1, maximum=50, default=10)}, required=("query",)),
           "connector.europepmc.search", B_R, network=True,
-          hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org"]),
+          hosts=["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov", "api.crossref.org",
+                 "clinicaltrials.gov"]),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """
         Start the closed research loop as a job on the local runner: frozen protocol →

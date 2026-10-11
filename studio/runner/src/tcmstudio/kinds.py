@@ -641,6 +641,36 @@ def _research_requirements(data_env: Mapping[str, str]) -> list[str]:
     return [] if ledger.is_file() else [f"snapshots ({ledger})"]
 
 
+def formula_ambiguity(formula: str) -> str | None:
+    """Why the research loop would refuse this formula name, said before a job is queued:
+    the workbook holds it under several compositions and no source book narrows it (桂枝汤
+    has 30), with the books that tell them apart. None when the loop takes it: a
+    hand-checked name, a formula id, a name with its book (桂枝汤《伤寒论》), one
+    composition, or no workbook here to tell (the loop reads the question itself)."""
+    formula = str(formula or "").strip()
+    if not formula or "《" in formula or formula.startswith("tcm:formula."):
+        return None
+    try:
+        from bioagent.research.loop import FORMULA_NAMES
+        if any(name.lower() in formula.lower() for name in FORMULA_NAMES):
+            return None
+        from .repository_data import formula_search
+        found = formula_search(formula, exact=True, limit=100)
+    except Exception:                                           # noqa: BLE001
+        return None
+    distinct: dict[tuple, dict[str, Any]] = {}
+    for r in found["records"]:      # as the loop tells compositions apart (parse_question)
+        distinct.setdefault(tuple((c.get("drug"), c.get("name")) for c in r["components"]), r)
+    if len(distinct) < 2:
+        return None
+    books = list(dict.fromkeys(b for r in distinct.values()
+                               for b in re.findall(r"《([^》]+)》", r.get("source") or "")))
+    examples = "、".join(f"{formula}《{b}》" for b in books[:3])
+    return (f"{formula} names {len(distinct)} different compositions in the formula workbook, "
+            f"and the research loop studies one: name it with its source book"
+            + (f" (e.g. {examples})" if examples else "") + "; tcm_formula lists every version")
+
+
 def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     root, ledger = snapshot_paths(ctx.data_env)
     out: dict[str, Any] = {
@@ -657,6 +687,9 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         out["disease"] = _text("disease", p["disease"], pattern=_DISEASE)
     if p.get("formula"):
         out["formula"] = _text("formula", p["formula"], max_len=100)
+        ambiguous = formula_ambiguity(out["formula"])
+        if ambiguous:
+            raise BadParams(f"formula: {ambiguous}")
     return out
 
 

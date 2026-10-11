@@ -126,6 +126,13 @@ one test.
 - Runtimes are called as `call(name, args, {project_id, conversation_id, approvals: [granted reasons], signal})`;
   the runner forwards the first three as §4's `context`. A runtime that throws gives `failed/runtime_error`; a stop
   gives `cancelled` (the browser call itself may go on; its result is discarded).
+- A tool name that differs from one id only in case and separators (`tcmdb_status` for `tcmdb.status`: function-calling
+  APIs allow no dots) runs as that id, directly or through `call_tool`, here and in the dispatcher, and its `text`
+  ends `Note: '<name>' is written '<id>'; call it so.`; a spelling two ids share stays `not_found`.
+- In a turn, the agent answers a call repeated with the same arguments from the first (`reused: {step, callId}`, a
+  `text` that points to it, no citations) when the target is a native, connector or skill entry, `tcmdb.formulas` or
+  `tcmdb.materia`, and not a job or a confirmed act; a job, a confirmed act, or a clinic, tcmdb or study call starts
+  the count again, and a first answer that did not settle (a runtime error, a stop) is run again.
 - `catalog_search` / `capabilities_status` are answered by the page when the placed runtime is not `ready`
   (`receipt: {where:"browser", runtime:"studio-js", local:true}`), so the model never waits for Pyodide to search.
 - Router-made envelopes: `receipt.runtime "studio-router"`, `decided_by: "router"`, `output_sha256: null`,
@@ -586,6 +593,24 @@ decline. `sequence.counts` → `{counts: [u32 …], backend}`; `align.nw_linear`
 `{aligned_x, aligned_y, score_bits, score_int, start_a?, end_a?, start_b?, end_b?}`, the score as the 16 hex digits of its
 IEEE-754 bits with whether Python holds it as an int; `sequence.levenshtein` → `{distance}`. Nothing crosses as a
 proxy object, so no number changes type on the way.
+
+**Data sources and their readiness.** `tcmdb.catalog` cards, `tcmdb.datasets` and `tcmdb.status` rows each carry
+`readiness: {state, next_step, missing?, live?}`, `state` one of `catalogued` (described, nothing integrated), `live` (a
+connector or a live dataset), `supported` (a dataset spec, nothing downloaded), `partial`, `downloaded` (files present,
+not built), `built` (answers `tcmdb.query`, `tcmdb.relations`, `tcmdb.evidence_for`); `next_step` names the job
+(`job.tcmdb.fetch {dataset}`, `job.tcmdb.build`) on the runner, or the runner and `tcmdb.import_store` in the browser;
+`live` names a card's connector while its stored copy is not built. The summaries count cards by state. NPASS 2.0
+(card 5), CMAUP 2.0 (6) and LOTUS (137) are datasets `npass`, `cmaup`, `lotus` (`bioagent.tcmdb.extra.np_activity`):
+their files are the acquisition table's (URL, size, checksum), read as the snapshot parsers read them, into
+`organism_compound` and `compound_target` relations; `hub.check` compares each raw file with its reviewed checksum.
+
+**Literature and research jobs.** `literature_search` takes `source: "clinicaltrials"` (ClinicalTrials.gov v2:
+`hits: [{title, nct, status, phase, conditions}]`, a registered trial being a record of a study, not its result). On
+the runner, `network_pharmacology_run` with a formula name the workbook holds under several compositions and no source
+book is `bad_arguments` before any job is queued, naming the books that tell them apart (`桂枝汤《伤寒论》`), as the
+research loop's own `parse_question` would refuse it after the job started. Turning a runner's network on
+(`network: {enabled: true}`, the switch, `--network`) lifts an `offline-analysis` profile; a profile asked for by name
+is kept.
 
 ## integration: how the notes above were resolved (CONTRACTS.md updated where the implementation is better)
 

@@ -31,7 +31,8 @@ from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KI
                          VISIT_SCHEMA, S, arr, obj)
 
 __all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "build_catalog",
-           "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "schema_for",
+           "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "canonical_name",
+           "schema_for",
            "fn_schema", "skill_specs", "skill_lockfile"]
 
 SCHEMA_ID = "tcmstudio.catalog/1"
@@ -752,8 +753,18 @@ def _tcmdb_vocab() -> tuple[list[str], list[str], list[str]]:
         return [], [], []
 
 
+def _tcmdb_counts() -> tuple[str, str]:
+    """How many source cards and dataset specifications the hub has, for the texts."""
+    try:
+        from bioagent.tcmdb import DATASETS, catalog as cards
+        return str(len(cards())), str(len(DATASETS))
+    except Exception:                                           # noqa: BLE001
+        return "the", "the"
+
+
 def _tcmdb_entries() -> list[dict[str, Any]]:
     kinds, keys, _ = _tcmdb_vocab()
+    n_cards, n_datasets = _tcmdb_counts()
     kind_s = S("relation kind", enum=kinds) if kinds else S("relation kind")
     dataset_s = S("dataset key", enum=keys) if keys else S("dataset key")
     ev = ["known", "predicted", "aggregated", "listed", "reported", "mentioned", "signal",
@@ -798,16 +809,18 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                obj({"dataset": dataset_s, "content_base64": S("base64-encoded SQLite store")},
                    required=("dataset", "content_base64")), tags=(*tags, "导入", "SQLite")),
         _entry("tcmdb.catalog", "tcmdb", "中医药数据源目录", "TCM data sources", "tcm_data",
-               "The 136 TCM source cards: access mode (live_api, snapshot, manual_import, "
-               "restricted, unreachable), licence, commercial use, barriers, assessment; on the "
-               "current runtime also whether each dataset store is built or imported.",
+               f"The {n_cards} TCM source cards: access mode (live_api, snapshot, manual_import, "
+               "restricted, unreachable), licence, commercial use, barriers, assessment, and each "
+               "card's readiness here (catalogued, live, supported, partial, downloaded, built) "
+               "with the step that would move it on. Only 'built' answers queries.",
                obj({"query": S(), "module": S("M1..M14"),
                     "access": S(enum=["live_api", "live_api+snapshot", "snapshot",
                                       "manual_import", "restricted", "unreachable"])}),
                example={"query": "HERB"}, tags=(*tags, "数据源", "许可", "授权")),
         _entry("tcmdb.datasets", "tcmdb", "可下载数据集", "Dataset specifications", "tcm_data",
-               "The 76 dataset specifications: access (download, manual, live), licence and "
-               "its reuse class, commercial use, relation kinds, hosts and expected sizes.",
+               f"The {n_datasets} dataset specifications: access (download, manual, live), licence "
+               "and its reuse class, commercial use, relation kinds, hosts, expected sizes, and "
+               "readiness here with the next step.",
                obj({"query": S(), "access": S(enum=["download", "manual", "live"])}),
                example={"query": "ddid"}, tags=(*tags, "数据集", "下载", "大小")),
         _entry("tcmdb.relation_kinds", "tcmdb", "关系类型与词表", "Relation kinds & vocabularies",
@@ -1418,6 +1431,29 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
                            for cid, zh, en in CATEGORIES},
             "how": "Run an entry with call_tool {\"tool\": \"<id>\", \"arguments\": {…}} using "
                    "its parameters schema."}
+
+
+_LOOSE: dict[str, str | None] | None = None
+
+
+def _loose_key(name: str) -> str:
+    return re.sub(r"[\s._\-]+", "_", str(name or "").strip().lower()).strip("_")
+
+
+def canonical_name(name: str) -> str | None:
+    """The core tool or entry id ``name`` means when it differs from it only in case and
+    separators: ``tcmdb_status`` is ``tcmdb.status`` (function-calling APIs allow no dots
+    in a tool's name, so models write them otherwise). None when nothing matches, or more
+    than one id does."""
+    global _LOOSE
+    if _LOOSE is None:
+        from .core_tools import CORE_BY_NAME
+        table: dict[str, str | None] = {}
+        for i in [*CORE_BY_NAME, *entry_ids()]:
+            k = _loose_key(i)
+            table[k] = i if table.get(k, i) == i else None
+        _LOOSE = table
+    return _LOOSE.get(_loose_key(name)) or None
 
 
 def suggest(name: str, n: int = 3) -> list[str]:

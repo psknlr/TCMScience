@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DANGLING_TEXT, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, prepareWire, renumberCitations, runTurn } from "../js/core/agent.js";
+import { DANGLING_TEXT, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, prepareWire, renumberCitations, reusePolicy, runTurn } from "../js/core/agent.js";
 import { Catalog } from "../js/core/catalog.js";
 import { ProviderError } from "../js/core/llm/sse.js";
 import { activeProvider } from "../js/core/providers.js";
@@ -63,7 +63,8 @@ test("multi-step tool use: the model calls tools, gets envelopes back, then answ
 
 test("max steps: the last allowed call is made with tool_choice none; the turn ends as max_steps", async () => {
   let n = 0;
-  const llm = scriptedLLM([() => openaiStep({ text: `第${++n}步`, calls: [{ id: `t${n}`, name: "tcm_herb", args: { name: "葛根" } }] })]);
+  // a new herb each step: the same call twice would be answered from the first (reusePolicy)
+  const llm = scriptedLLM([() => openaiStep({ text: `第${++n}步`, calls: [{ id: `t${n}`, name: "tcm_herb", args: { name: `葛根${n}` } }] })]);
   const { router, runtimes } = makeRouter();
   const res = await runTurn({ provider: deepseek, system: "", history: [user("循环")], router, catalog, settings: { maxSteps: 3 }, llm: { openai: llm }, onEvent: () => {} });
   assert.equal(llm.calls.length, 3, "never more model calls than maxSteps");
@@ -75,6 +76,48 @@ test("max steps: the last allowed call is made with tool_choice none; the turn e
   const last = res.toolMessages.at(-1);
   assert.equal(last.envelope.status, "cancelled");
   assert.deepEqual(res.assistant.wire.at(-1), { role: "tool", tool_call_id: "t3", content: last.content }, "and still answered, so the history stays valid");
+});
+
+test("a lookup repeated in a turn with the same arguments is answered from the first, not run again; a job between starts over", async () => {
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcm_herb", args: { name: "桂枝" } }, { id: "b", name: "tcm_herb", args: { name: "桂枝" } }] }),
+    openaiStep({ calls: [{ id: "c", name: "tcm_herb", args: { name: "桂枝" } }, { id: "d", name: "tcm_herb", args: { name: "白芍" } }] }),
+    openaiStep({ calls: [{ id: "e", name: "run_pipeline", args: { pipeline: "rnaseq" } }] }),
+    openaiStep({ calls: [{ id: "f", name: "tcm_herb", args: { name: "桂枝" } }] }),
+    openaiStep({ text: "完成" }),
+  ]);
+  const { router, runtimes } = makeRouter({ runner: "ready", approvals: memoryApprovals({ p: { web: true, approvals: { runner: "project", "job.pipeline": "project" } } }) });
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("桂枝")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {}, projectId: "p", conversationId: "c1" });
+  const ran = runtimes.runner.calls.filter((x) => x.tool === "tcm_herb").map((x) => x.args.name);
+  assert.deepEqual(ran, ["桂枝", "白芍", "桂枝"], "b (same step) and c (next step) reuse a; after the job, f runs again");
+  const byId = Object.fromEntries(res.toolMessages.map((m) => [m.toolCallId, m.envelope]));
+  for (const id of ["b", "c"]) {
+    assert.equal(byId[id].status, "succeeded");
+    assert.deepEqual(byId[id].reused, { step: 1, callId: "a" });
+    assert.match(byId[id].text, /^Not run again: the same call, with the same arguments, was made earlier in this turn \(step 1, call a\)/);
+    assert.deepEqual(byId[id].citations, []);
+  }
+  assert.equal(byId.f.reused, undefined);
+});
+
+test("a repeat is run again when the first did not settle (a runtime error), and a job is never reused", async () => {
+  let n = 0;
+  const answer = (tool, args) => (tool === "tcm_herb" && ++n === 1
+    ? { ...envelopeFor(tool, "browser"), ok: false, status: "failed", error: { type: "runtime_error", message: "worker restarted", hint: "" } }
+    : envelopeFor(tool, "browser"));
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcm_herb", args: { name: "桂枝" } }] }),
+    openaiStep({ calls: [{ id: "b", name: "tcm_herb", args: { name: "桂枝" } }] }),
+    openaiStep({ text: "完成" }),
+  ]);
+  const { router, runtimes } = makeRouter({ answer });
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("桂枝")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  assert.equal(runtimes.browser.calls.length, 2);
+  assert.equal(res.toolMessages.at(-1).envelope.status, "succeeded");
+  assert.equal(reusePolicy(router, { name: "run_pipeline", arguments: { pipeline: "rnaseq" } }).key, null);
+  assert.equal(reusePolicy(router, { name: "run_pipeline", arguments: { pipeline: "rnaseq" } }).stateful, true);
+  assert.equal(reusePolicy(router, { name: "catalog_search", arguments: { query: "x" } }).key, null, "a status of what is installed can change");
+  assert.ok(reusePolicy(router, { name: "literature_search", arguments: { query: "x" } }).key);
 });
 
 test("default limit is 16 model calls", async () => {

@@ -28,7 +28,7 @@ test("clinic privacy: through Tao-S1 or a cloud API the model is told to keep pa
 
 test("the sections come in the contract's order and carry the governance rules", () => {
   const p = buildSystemPrompt({ lang: "zh", provider: relay, project: { name: "葛根芩连汤复核", instructions: "只讨论经典记载。", defaults: { web: true } }, knowledge: [], env: { date: "2026-10-07", browser: { status: "ready" }, runner: { status: "offline" } } });
-  const order = ["# Identity", "# How TCMScience reasons", "# Tools", "# Environment", "# Project"].map((h) => p.indexOf(h));
+  const order = ["# Identity", "# How TCMScience reasons", "# Tools", "# Research questions", "# Environment", "# Project"].map((h) => p.indexOf(h));
   assert.ok(order.every((i) => i >= 0));
   assert.deepEqual([...order].sort((a, b) => a - b), order);
   for (const rule of [/types, not grades/, /never stated as a fact/, /no record ≠ safe/, /not irrelevant/, /attribution or a traditional use/, /licensed practitioner/, /\[E1\]/, /CLM005/, /catalog_search/, /call_tool/, /job_status/, /Never fabricate/]) {
@@ -97,4 +97,14 @@ test("citations: the model is told to cite only this turn's ids (an earlier resu
   const p = buildSystemPrompt({ lang: "en", provider: relay });
   assert.match(p, /Cite only ids a tool returned in this turn; to rely on an earlier turn's result, call the tool again\./);
   assert.doesNotMatch(p, /in this conversation/);
+});
+
+test("research questions go past the curated corpus, and a mechanism answer is graded by its evidence", () => {
+  const p = buildSystemPrompt({ lang: "en" });
+  const part = p.slice(p.indexOf("# Research questions"), p.indexOf("# Environment"));
+  for (const tool of ["tcm_formula", "literature_search", "ClinicalTrials.gov", "tcmdb.relations", "network_pharmacology_run", "tcmdb.status"]) {
+    assert.ok(part.includes(tool), tool);
+  }
+  assert.match(part, /A classical record alone licenses no mechanism hypothesis/);
+  assert.match(part, /桂枝汤《伤寒论》/);
 });

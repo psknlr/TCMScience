@@ -486,10 +486,13 @@ _ENGINES: tuple[dict[str, Any], ...] = (
      "used_by": ["pipeline.fold"]},
     {"id": "vina", "name": "AutoDock Vina (RDKit, Meeko, Gemmi)",
      "modules": ("rdkit", "meeko", "vina", "gemmi"), "dist": "vina",
-     "used_by": ["pipeline.dock"], "install": "pip install rdkit meeko vina gemmi"},
+     "used_by": ["pipeline.dock"],
+     # the versions bioagent's "docking" extra asks for (BioScience-Harness/pyproject.toml)
+     "install": 'pip install "rdkit>=2023.9" "meeko>=0.6" "vina>=1.2.5" "gemmi>=0.6"'},
     {"id": "admet", "name": "ADMET models (RDKit, scikit-learn)",
      "modules": ("rdkit", "sklearn"), "dist": "scikit-learn", "used_by": ["pipeline.admet"],
-     "install": "pip install rdkit scikit-learn"},
+     # the versions bioagent's "admet" extra asks for
+     "install": 'pip install "rdkit>=2023.9" "scikit-learn>=1.3"'},
     {"id": "pyarrow", "name": "Snapshot tables (PyArrow)", "modules": ("pyarrow",),
      "dist": "pyarrow", "used_by": ["research.run"], "install": "pip install pyarrow"},
 )
