@@ -111,6 +111,7 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "access key and is not wrapped.",
         relations=("protein_interaction", "genetic_interaction", "drug_target",
                    "compound_target"),
+        optional_relations={"genetic_interaction": ("BIOGRID-ALL-5.0.262.tab3.zip",)},
         relation_licenses={"drug_target": "MIT (BioGRID curation); " + _DRUGBANK_ROWS},
         commercial_use="allowed",
         upstream=_BIOGRID_UPSTREAM,

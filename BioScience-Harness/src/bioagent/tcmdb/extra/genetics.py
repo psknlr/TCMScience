@@ -86,6 +86,7 @@ EQTL_CATALOGUE = DatasetSpec(
     upstream=("GTEx", "BLUEPRINT", "GEUVADIS", "TwinsUK", "OneK1K", "INTERVAL",
               "Sun_2018"),
     relations=("variant_gene",),
+    optional_relations={"variant_gene": ("QTD000266.credible_sets.tsv.gz",)},
     notes="Uniformly re-processed molecular QTLs (gene expression, exon, transcript, "
           "txrevise and Leafcutter splicing, microarray, one plasma pQTL study) from about "
           "42 public studies. The default files describe the 758 release-7 and 592 "

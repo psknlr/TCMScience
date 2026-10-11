@@ -76,7 +76,7 @@ def _real_download(spec: Any, record: Mapping[str, Any]) -> tuple[str, str, dict
         files = entry.get("files") or {}
         acq = (entry.get("checks") or {}).get("acquisition", UNVERIFIED)
         kept = sum(1 for f in files.values() if f.get("status") in (PASS, UNVERIFIED))
-        detail = (f"{kept} of {len(files)} default files downloaded by a recorded run "
+        detail = (f"{kept} of {len(files)} files downloaded by a recorded run "
                   f"({entry.get('verified_at') or 'undated'})")
         if acq not in (PASS, UNVERIFIED) and entry.get("reason"):
             detail += f": {entry['reason'][:300]}"

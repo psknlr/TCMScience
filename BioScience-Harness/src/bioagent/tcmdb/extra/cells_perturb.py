@@ -288,8 +288,12 @@ _GEO1 = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE92nnn/GSE92742/suppl/"
 _GEO2 = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE70nnn/GSE70138/suppl/"
 _GEO3 = "https://ftp.ncbi.nlm.nih.gov/geo/series/GSE106nnn/GSE106127/suppl/"
 _FIGSHARE = "https://ndownloader.figshare.com/files/"
+#: figshare answers a file's URL with a redirect to its S3 bucket (seen 2026-10-11)
+FIGSHARE_HANDOFF = ("s3-eu-west-1.amazonaws.com",)
 _ZENODO_RNA = "https://zenodo.org/api/records/13350497/files/"
 _ARCHS4 = "https://s3.dev.maayanlab.cloud/archs4/files/"
+#: the bucket's URLs redirect to the same lab's other S3 host
+_ARCHS4_HANDOFF = ("s3.k8s.maayanlab.cloud",)
 
 
 def _lincs(base: str, name: str, table: str, **kw) -> FileSpec:
@@ -300,7 +304,8 @@ def _lincs(base: str, name: str, table: str, **kw) -> FileSpec:
 def _figshare(file_id: int, name: str, table: str, size: int, *, fmt: str = "csv",
               optional: bool = False, note: str = "") -> FileSpec:
     return FileSpec(_FIGSHARE + str(file_id), name, table, fmt=fmt if table else "raw",
-                    optional=optional, expected_bytes=size, note=note)
+                    optional=optional, expected_bytes=size, note=note,
+                    redirects=FIGSHARE_HANDOFF)
 
 
 #: scPerturb's drug-perturbation datasets (sci-Plex, MIX-seq, ...), with their sizes from
@@ -491,10 +496,12 @@ DATASETS: tuple[DatasetSpec, ...] = (
                   "versions", fmt="archs4_versions",
                   note="every released file: species, level, sample count, size, sha1"),
          FileSpec(_ARCHS4 + "human_gene_v2.5.h5", "human_gene_v2.5.h5", "", fmt="raw",
+                  redirects=_ARCHS4_HANDOFF,
                   optional=True, expected_bytes=47865298452,
                   note="human gene counts v2.5 (888,821 samples), sha1 "
                        "ae96de0519b9f008b0dc3a9f944ee9007daf2f6a"),
          FileSpec(_ARCHS4 + "mouse_gene_v2.5.h5", "mouse_gene_v2.5.h5", "", fmt="raw",
+                  redirects=_ARCHS4_HANDOFF,
                   optional=True, expected_bytes=38960132574,
                   note="mouse gene counts v2.5 (997,515 samples), sha1 "
                        "22605c9b6c4e7502b0861d4d8591ce128907c39f")),

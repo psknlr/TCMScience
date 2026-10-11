@@ -32,6 +32,10 @@ _BATMAN = "http://batman2.cloudna.cn/downloadApiFile/data/browser/"
 _TTD = "https://ttd.idrblab.cn/files/download/"
 _DDID = "https://bddg.hznu.edu.cn/ddid/static/download/"
 _NSIDES = "https://tatonettilab-resources.s3.amazonaws.com/nsides/"
+#: where Hugging Face and figshare hand their files off to (seen 2026-10-11): the CDN
+#: under Hugging Face's own hf.co domain, and figshare's S3 bucket
+_HF_HANDOFF = ("*.hf.co",)
+_FIGSHARE_HANDOFF = ("s3-eu-west-1.amazonaws.com",)
 #: TM-MC gives each download a licence icon and nothing else (no deed link, no version)
 _TMMC_BY = "CC BY (version unstated)"
 _TMMC_NC = "CC BY-NC (version unstated)"
@@ -254,8 +258,10 @@ DATASETS: tuple[DatasetSpec, ...] = (
          FileSpec(_NSIDES + "TWOSIDES.csv.gz", "TWOSIDES.csv.gz", "twosides", fmt="csv",
                   optional=True, note="738 MB")),
         notes="Drug side effects (OFFSIDES) and drug-drug-side-effect signals (TWOSIDES) "
-              "mined from FAERS; the baseline herb-drug signals are compared against.",
-        relations=("drug_adverse_event",)),
+              "mined from FAERS; the baseline herb-drug signals are compared against. "
+              "drug_adverse_event rows come from OFFSIDES; TWOSIDES is loaded as a table.",
+        relations=("drug_adverse_event",),
+        optional_relations={"drug_adverse_event": ("OFFSIDES.csv.gz",)}),
     DatasetSpec(
         "faers", "FDA FAERS quarterly ASCII", (33,),
         "https://fis.fda.gov/extensions/FPD-QDE-FAERS/FPD-QDE-FAERS.html",
@@ -277,28 +283,30 @@ DATASETS: tuple[DatasetSpec, ...] = (
         "https://huggingface.co/datasets/michaelwzhu/ShenNong_TCM_Dataset", "Apache-2.0",
         (FileSpec("https://huggingface.co/datasets/michaelwzhu/ShenNong_TCM_Dataset/resolve/"
                   "main/ChatMed_TCM-v0.2.json", "ChatMed_TCM-v0.2.json", "instruction",
-                  fmt="jsonl", optional=True, note="110 MB"),),
+                  fmt="jsonl", optional=True, note="110 MB", redirects=_HF_HANDOFF),),
         notes="About 110k generated query/response pairs for instruction tuning. Generated "
               "text: training data, never evidence."),
     DatasetSpec(
         "tcm_ladder", "TCM-Ladder", (57,), "https://huggingface.co/datasets/timzzyus/TCM-Ladder",
         "CC-BY-4.0",
         (FileSpec("https://huggingface.co/datasets/timzzyus/TCM-Ladder/resolve/main/"
-                  "multiChoice.parquet", "multiChoice.parquet", "multi_choice", fmt="parquet"),
+                  "multiChoice.parquet", "multiChoice.parquet", "multi_choice", fmt="parquet",
+                  redirects=_HF_HANDOFF),
          FileSpec("https://huggingface.co/datasets/timzzyus/TCM-Ladder/resolve/main/"
                   "fillInTheBlank.parquet", "fillInTheBlank.parquet", "fill_in_blank",
-                  fmt="parquet"),
+                  fmt="parquet", redirects=_HF_HANDOFF),
          FileSpec("https://huggingface.co/datasets/timzzyus/TCM-Ladder/resolve/main/"
                   "visual.parquet", "visual.parquet", "", fmt="raw", optional=True,
-                  note="730 MB, images embedded")),
+                  note="730 MB, images embedded", redirects=_HF_HANDOFF)),
         notes="An evaluation benchmark for TCM language models."),
     DatasetSpec(
         "tcmp300", "TCMP-300", (61,), "https://doi.org/10.6084/m9.figshare.29432726.v2",
         "CC BY 4.0",
         (FileSpec("https://ndownloader.figshare.com/files/55750814", "tcmp-info-20250329.csv",
-                  "species", fmt="csv"),
+                  "species", fmt="csv", redirects=_FIGSHARE_HANDOFF),
          FileSpec("https://ndownloader.figshare.com/files/55751081", "tcmp-300-release.tar.gz",
-                  "", fmt="raw", optional=True, note="12.8 GB of images")),
+                  "", fmt="raw", optional=True, note="12.8 GB of images",
+                  redirects=_FIGSHARE_HANDOFF)),
         notes="300 medicinal-plant classes for image recognition; the class table is the "
               "default, the images are optional."),
     # ------------------------------------------------- live, per-entity (tcmdb.live)

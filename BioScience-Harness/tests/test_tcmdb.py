@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -77,6 +78,10 @@ def test_every_tcm_host_is_in_the_research_profile_allowlist():
         for f in spec.files:
             if f.url:
                 assert _allowed(urlsplit(f.url).hostname or ""), (spec.key, f.url)
+            # a hand-off is a bare host, or *.domain, named next to an https URL
+            for host in f.redirects:
+                assert f.url.startswith("https://"), (spec.key, f.name)
+                assert re.fullmatch(r"(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+", host), host
 
 
 def test_manual_datasets_say_how_a_person_obtains_them():

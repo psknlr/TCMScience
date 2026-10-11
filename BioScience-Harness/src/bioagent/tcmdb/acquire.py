@@ -14,14 +14,26 @@ declared size. Every attempt is appended to ``<root>/audit/downloads.jsonl``, ke
 against; ``FAIL`` a file refused because it is not the reviewed one (wrong checksum or size,
 a redirect elsewhere); ``BLOCKED`` an attempt something outside the code stopped (a network
 policy, an unresolvable name, a full disk, a size that needs a person's confirmation).
+
+A file that arrives with neither a reviewed checksum nor a size (a server that streams
+it without announcing one) is still checked for being whole when its format allows
+(``structure``): a zip's per-member CRC-32s, a gzip, bzip2 or xz stream's own checks, a
+JSON or XML document that parses to its end. ``verified`` is then ``structure``; a file
+that fails is incomplete and is not kept. Plain text and tables carry no such check and
+stay unverified.
 """
 
 from __future__ import annotations
 
+import bz2
+import gzip
 import hashlib
 import json
+import lzma
 import os
 import shutil
+import zipfile
+import zlib
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -29,7 +41,7 @@ from ..validation import BLOCKED, FAIL, utc_now
 
 __all__ = ["AUDIT_FILE", "MANIFEST", "audit_path", "append_audit", "read_audit",
            "copy_verified", "disk_shortfall", "digest", "outcome_of_error", "read_manifest",
-           "record_manifest", "verification"]
+           "record_manifest", "structure", "verification"]
 
 AUDIT_FILE = "downloads.jsonl"
 #: the downloader's own record of what it fetched (``acquisition.downloader``)
@@ -146,8 +158,46 @@ def verification(raw_dir: str | Path, name: str, reviewed: str | None) -> str:
     if reviewed and str(rec.get("checksum", "")).split(":", 1)[0] == reviewed.split(":", 1)[0]:
         return "mismatch"
     if rec.get("verified"):
-        return "size"
+        return "structure" if rec.get("verified_by") == "structure" else "size"
     return "unverified"
+
+
+def structure(path: str | Path) -> tuple[bool | None, str]:
+    """Whether a file with nothing else to verify it against is whole, by its format's own
+    checks: ``(True, how)``, ``(False, why)`` for an incomplete or corrupt file, or
+    ``(None, "")`` for a format that carries no such check (plain text, a table)."""
+    import xml.etree.ElementTree as ET
+
+    path = Path(path)
+    with open(path, "rb") as fh:
+        head = fh.read(64)
+    lead = head.lstrip()[:1]
+    try:
+        if head[:4] == b"PK\x03\x04":
+            with zipfile.ZipFile(path) as z:
+                bad = z.testzip()
+            return ((True, "every member of the zip matches its CRC-32") if bad is None
+                    else (False, f"the zip member {bad} does not match its CRC-32"))
+        for magic, opener, kind in ((b"\x1f\x8b", gzip.open, "gzip"),
+                                    (b"BZh", bz2.open, "bzip2"),
+                                    (b"\xfd7zXZ\x00", lzma.open, "xz")):
+            if head.startswith(magic):
+                with opener(path, "rb") as fh:
+                    while fh.read(1 << 20):
+                        pass
+                return True, f"the {kind} stream ends with its check intact"
+        if lead in (b"{", b"[") or path.suffix.lower() == ".json":
+            with open(path, "rb") as fh:
+                json.load(fh)
+            return True, "it parses as one whole JSON document"
+        if lead == b"<" or path.suffix.lower() == ".xml":
+            for _event, el in ET.iterparse(path):
+                el.clear()
+            return True, "it parses as one whole XML document"
+    except (zipfile.BadZipFile, EOFError, OSError, ValueError, zlib.error, lzma.LZMAError,
+            ET.ParseError) as exc:
+        return False, f"{type(exc).__name__}: {str(exc)[:200]}"
+    return None, ""
 
 
 def copy_verified(src: str | Path, dest: str | Path) -> None:

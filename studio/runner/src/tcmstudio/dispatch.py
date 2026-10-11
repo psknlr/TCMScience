@@ -2462,6 +2462,8 @@ def _tcmdb_op(op: str, args: Mapping[str, Any], ctx: Context) -> Outcome:
                         "expected_bytes_default": sum(f.expected_bytes or 0 for f in d.files
                                                       if not f.optional) or None,
                         "hosts": sorted({f.url.split("/")[2] for f in d.files if "://" in f.url}),
+                        # where a host hands the files off (figshare -> S3), as reviewed
+                        "handoff_hosts": sorted({h for f in d.files for h in f.redirects}),
                         "local": {"built": _hub(ctx).db_path(d.key).is_file()},
                         "readiness": _readiness(ctx, d.key, _hub(ctx).status(d.key)[0],
                                                 access=d.access),

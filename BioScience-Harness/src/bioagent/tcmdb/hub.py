@@ -169,7 +169,8 @@ class TCMDataHub:
     def status(self, key: str | None = None) -> list[dict[str, Any]]:
         """What is downloaded and built, per dataset. ``verification`` says, for each file
         present, how it was verified when it was kept (``tcmdb.acquire.verification``):
-        ``checksum``, ``size``, ``mismatch`` (not the reviewed file) or ``unverified``."""
+        ``checksum``, ``size``, ``structure`` (whole by its format's own checks),
+        ``mismatch`` (not the reviewed file) or ``unverified``."""
         from .acquire import verification
         out = []
         for spec in (dataset(key),) if key else DATASETS:
@@ -197,8 +198,12 @@ class TCMDataHub:
 
     # ------------------------------------------------------------------- fetch
     def fetch(self, key: str, *, include_optional: bool = False, confirm: bool = False,
-              log=print) -> list[dict[str, Any]]:
+              files: Iterable[str] | None = None, log=print) -> list[dict[str, Any]]:
         """Download a dataset's files, each kept only once verified, every attempt recorded.
+
+        By default the dataset's default files, with ``include_optional`` its optional
+        ones too; ``files`` names exactly the files to fetch, default or optional (the
+        live validation fetches the optional files a relation kind needs this way).
 
         * A file with a reviewed checksum (``FileSpec.checksum``) is kept only if it hashes
           to it; one without, only if its size is the declared or the server's size.
@@ -212,7 +217,7 @@ class TCMDataHub:
 
         Manual datasets raise with their instructions.
         """
-        from ..acquisition.downloader import Downloader
+        from .download import HubDownloader
         spec = dataset(key)
         if spec.access == "manual":
             raise HubError(f"{spec.name} cannot be downloaded by a program. "
@@ -220,11 +225,19 @@ class TCMDataHub:
         if spec.access == "live":
             raise HubError(f"{spec.name} is filled per entity: use hub.enrich(<name>) or "
                            f"hub.enrich_{'symmap' if key == 'symmap_api' else 'herb'}([...])")
-        dl = Downloader(self.raw_dir(key), timeout_s=120, log=log,
-                        min_interval_s=spec.min_interval_s)
+        dl = HubDownloader(self.raw_dir(key), timeout_s=120, log=log,
+                           min_interval_s=spec.min_interval_s)
         refused: dict[str, str] = {}
+        if files is not None:
+            wanted = set(files)
+            unknown = wanted - {f.name for f in spec.files}
+            if unknown:
+                raise HubError(f"{spec.name} has no file(s) {sorted(unknown)}")
+            chosen = [f for f in spec.files if f.name in wanted]
+        else:
+            chosen = [f for f in spec.files if include_optional or not f.optional]
         return [self._fetch_file(key, f, dl, refused, confirm=confirm, log=log)
-                for f in spec.files if include_optional or not f.optional]
+                for f in chosen]
 
     def _fetch_file(self, key: str, f: Any, dl: Any, refused: dict[str, str], *,
                     confirm: bool, log) -> dict[str, Any]:
@@ -248,20 +261,36 @@ class TCMDataHub:
         if not reason:
             try:
                 r = dl.fetch(f.url, f.name, checksum=f.checksum, expected_bytes=f.expected_bytes,
-                             confirm=confirm)
+                             confirm=confirm, redirects=f.redirects)
                 if not f.html_ok and _looks_like_html(raw / f.name):
                     (raw / f.name).unlink(missing_ok=True)
                     raise HubError(f"{f.url} returned an HTML page (a login, challenge or "
                                    "error page), not the file; it was not kept")
                 verified = "checksum" if f.checksum else ("size" if r.verified else "none")
+                whole, how = (acquire.structure(raw / f.name) if verified == "none"
+                              else (None, ""))
+                if whole is False:                  # a transfer cut short: FAIL, not kept
+                    from ..acquisition.downloader import DownloadError
+                    (raw / f.name).unlink(missing_ok=True)
+                    raise DownloadError(f"{f.name} is incomplete or corrupt ({how}); it was "
+                                        "not kept")
+                if whole:
+                    verified = "structure"
+                    acquire.record_manifest(raw, f.name, {
+                        **acquire.read_manifest(raw).get(f.name, {}), "verified": True,
+                        "verified_by": "structure", "structure": how})
                 status = PASS if verified != "none" else UNVERIFIED
                 reason = {"checksum": f"hashes to the reviewed {f.checksum.split(':')[0]}"
                           if f.checksum else "",
                           "size": f"{r.bytes} bytes, the declared or the server's size",
+                          "structure": f"{r.bytes} bytes, whole: {how} (no checksum or size "
+                                       "to check it against)",
                           "none": "kept with no checksum and no size to verify it against"
                           }[verified]
                 entry.update(route="cache" if r.from_cache else "download", bytes=r.bytes,
                              checksum=r.checksum, verified=verified)
+                if getattr(dl, "served_from", ""):
+                    entry["served_from"] = dl.served_from       # the reviewed hand-off
                 out = {"file": f.name, "bytes": r.bytes, "checksum": r.checksum,
                        "cached": r.from_cache, "ok": True, "verified": verified}
                 log(f"{key}: {f.name} {r.bytes} bytes{' (cached)' if r.from_cache else ''}, "

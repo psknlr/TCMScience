@@ -887,6 +887,12 @@ DATASETS: tuple[DatasetSpec, ...] = (
               "status, when set, is in the note; AOPs 'under development' should not be "
               "cited (FAQ). robots.txt restricts nothing.",
         relations=("key_event_relationship", "aop_event", "stressor_aop", "stressor_event"),
+        known_empty={k: "the 2026-10-01 export links no stressor to any key event: no "
+                        "key-event-stressor element under any of its key events (sources-"
+                        "live run 38157405923), and AOPWikiRDF's conversion of the "
+                        "2026-10-10 export links none of its 1,602 key events to a "
+                        "stressor (260 of its 600 AOPs name stressors)"
+                     for k in ("stressor_event", "key_event_stressor")},
         commercial_use="allowed",
         crosswalk={"compound": "SELECT DISTINCT 'comptox:' || dsstox_id, 'inchikey:' || "
                                "coalesce(jchem_inchi_key, indigo_inchi_key) FROM chemical "

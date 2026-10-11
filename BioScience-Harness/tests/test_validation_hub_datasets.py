@@ -146,3 +146,143 @@ def test_a_validator_defect_on_one_dataset_does_not_end_the_run(served, tmp_path
                                           log=lambda m: None)
     assert [r.component for r in recs] == ["tcmdb.npass", "tcmdb.drugbank_vocabulary"]
     assert UNVERIFIED not in {recs[1].status}
+
+
+# ------------------------------------------------------- which files, which entities
+def test_a_dataset_is_validated_on_the_files_its_declared_relations_come_from():
+    from bioagent.tcmdb.datasets import dataset
+
+    def names(key):
+        return [f.name for f in hub_datasets._files(dataset(key))]
+    # genetic interactions are only in BioGRID's complete file; nSIDES's adverse events
+    # only in OFFSIDES (TWOSIDES, 738 MB, yields none); the eQTL credible sets, not the
+    # 779 MB analysis-layer parquet
+    assert "BIOGRID-ALL-5.0.262.tab3.zip" in names("biogrid")
+    assert names("nsides") == ["README.txt", "OFFSIDES.csv.gz"]
+    assert "QTD000266.credible_sets.tsv.gz" in names("eqtl_catalogue")
+    assert not any(n.endswith(".parquet") for n in names("eqtl_catalogue"))
+    assert names("herb1") == [f.name for f in dataset("herb1").files], "all optional"
+    assert names("npass") == [f.name for f in dataset("npass").files if not f.optional]
+
+
+class _Answer:
+    def __init__(self, value):
+        from bioagent.status import ExecutionStatus
+        self.status, self.value, self.error = ExecutionStatus("SUCCEEDED"), value, None
+
+
+_SYMMAP_HERB = {
+    "Mol": [{"MOL_id": "SMIT00013", "Molecule_name": "Quercetin", "PubChem_CID": "5280343",
+             "TCMSP_id": "MOL000098", "evidence": ""}],
+    "Gene": [{"Gene_symbol": "TNF", "Gene_name": "tumor necrosis factor", "Value": "0.2",
+              "P_value": "0.01", "FDR(BH)": "0.04", "Relationship": "By_ingredient"}],
+    "TCM_symptom": [{"TCM_symptom_id": "SMTS00001", "TCM_symptom_name": "心悸",
+                     "Type": "Summarized terms"}],
+    "MM_symptom": [{"UMLS_id": "C0030252", "MM_symptom_id": "SMMS00001",
+                    "MM_symptom_name": "Palpitations", "Value": "0.1", "P_value": "0.02",
+                    "FDR(BH)": "0.05", "Relationship": "By_TCM_symptom"}],
+    "Disease": [{"Disease_id": "SMDE00001", "Disease_name": "Arrhythmia", "Value": "0.1",
+                 "P_value": "0.03", "FDR(BH)": "0.06", "Relationship": "By_target"}],
+    "Syndrome": [{"Syndrome_id": "SMSY00003", "Syndrome_name": "中气下陷",
+                  "Syndrome_English": "sinking of the middle qi", "Type": "Summarized terms"}],
+}
+
+
+def test_a_per_entity_service_is_asked_for_a_herb_and_an_ingredient(tmp_path):
+    """SymMap's ingredient_target comes only from an ingredient's answer (the first live
+    run asked for a herb alone and the kind came back empty)."""
+    hub, asked = TCMDataHub(tmp_path / "hub"), []
+
+    def live(connector, operation, **kw):
+        asked.append((kw["entity_id"], kw["related"]))
+        if kw["entity_id"].startswith("SMIT"):
+            return _Answer({"data": [{"Gene_symbol": "PTGS2", "Gene_name": "COX-2",
+                                      "score": "1", "evidence": "PMID: 123"}]})
+        return _Answer({"data": _SYMMAP_HERB[kw["related"]]})
+    hub.live = live
+    rec = hub_datasets.validate_dataset(hub, "symmap_api", live=True, log=lambda m: None)
+    assert rec.status == PASS, rec.as_dict()
+    assert ("SMIT00013", "Gene") in asked and ("SMIT00013", "Mol") not in asked
+    assert set(rec.check("queries").evidence["relation_kinds"]) == {
+        "herb_ingredient", "herb_target", "herb_symptom", "herb_disease", "herb_syndrome",
+        "ingredient_target"}
+
+
+def test_an_empty_kind_names_what_the_answers_held(tmp_path):
+    hub = TCMDataHub(tmp_path / "hub")
+    hub.live = lambda connector, operation, **kw: _Answer(
+        {"data": [] if kw["entity_id"].startswith("SMIT") else _SYMMAP_HERB[kw["related"]]})
+    rec = hub_datasets.validate_dataset(hub, "symmap_api", live=True, log=lambda m: None)
+    queries = rec.check("queries")
+    assert queries.status == FAIL and queries.evidence["empty_kinds"] == ["ingredient_target"]
+    assert queries.evidence["answer_shapes"]["SMIT00013__Gene"] == {"data": 0}
+    assert "the answers hold" in queries.detail
+
+
+class _Hub:
+    """A built store, as far as the query check sees it."""
+
+    def __init__(self, kinds, tables):
+        self.kinds, self.tables = set(kinds), set(tables)
+
+    def relations(self, kind, sources, limit):
+        return [{}] if kind in self.kinds else []
+
+    def query(self, key, table, limit):
+        return [{}] if table in self.tables else []
+
+
+def test_a_kind_the_release_is_known_to_leave_empty_is_reported_not_failed():
+    from bioagent.tcmdb.datasets import dataset
+    spec = dataset("aopwiki")
+    assert "stressor_event" in spec.known_empty
+    report = {"tables": {"aop": 1, "key_event": 1, "key_event_stressor": 0}}
+    rec = hub_datasets.Record("tcmdb.aopwiki", "hub_dataset", "")
+    hub_datasets._queries(rec, _Hub(set(spec.relations) - {"stressor_event"},
+                                    {"aop", "key_event"}), spec, report)
+    check = rec.check("queries")
+    assert check.status == PASS and check.evidence["known_empty"] == [
+        "stressor_event", "key_event_stressor"]
+    assert "AOPWikiRDF" in check.detail, "with how it is known"
+    # without the spec's statement, the same store fails
+    bare = replace(spec, known_empty={})
+    rec = hub_datasets.Record("tcmdb.aopwiki", "hub_dataset", "")
+    hub_datasets._queries(rec, _Hub(set(spec.relations) - {"stressor_event"},
+                                    {"aop", "key_event"}), bare, report)
+    assert rec.check("queries").status == FAIL
+
+
+def _entity_fetch(hub, entities, *, build, log, **kw):
+    assert build is False
+    return [{"antigen": e, "file": f"{e}.tsv", "ok": True} for e in entities]
+
+
+def _entity_fetch_refused(hub, entities, *, build, log, **kw):
+    return [{"antigen": e, "ok": False, "error": f"no Target Genes table for {e!r}"}
+            for e in entities]
+
+
+def test_relations_fetched_per_entity_are_fetched_for_one_before_the_build(
+        served, tmp_path, monkeypatch):
+    monkeypatch.setitem(hub_datasets.ENTITY_TABLES, "npass",
+                        (__name__, "_entity_fetch", ("STAT3",), {}))
+    rec = hub_datasets.validate_dataset(TCMDataHub(tmp_path / "h1"), "npass", live=True,
+                                        log=lambda m: None)
+    assert rec.check("entity_tables").status == PASS and rec.status == PASS
+    monkeypatch.setitem(hub_datasets.ENTITY_TABLES, "npass",
+                        (__name__, "_entity_fetch_refused", ("STAT3",), {}))
+    rec = hub_datasets.validate_dataset(TCMDataHub(tmp_path / "h2"), "npass", live=True,
+                                        log=lambda m: None)
+    assert rec.check("entity_tables").status == FAIL
+    assert rec.check("build").status == SKIPPED
+    assert "STAT3" in rec.check("entity_tables").detail
+
+
+def test_the_hub_fetches_exactly_the_files_named(served, tmp_path):
+    from bioagent.tcmdb import HubError
+    hub = TCMDataHub(tmp_path / "hub")
+    name = "NPASSv2.0_download_naturalProducts_generalInfo.txt"
+    out = hub.fetch("npass", files=[name], log=lambda m: None)
+    assert [r["file"] for r in out] == [name] and out[0]["ok"]
+    with pytest.raises(HubError, match="no file"):
+        hub.fetch("npass", files=["nothing.txt"], log=lambda m: None)

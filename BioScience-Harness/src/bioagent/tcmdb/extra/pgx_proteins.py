@@ -414,6 +414,8 @@ def _gpcrdb(conn) -> Iterator[Row | None]:
 
 # ------------------------------------------------------------------------------ specs
 _CLINPGX = "https://api.clinpgx.org/v1/download/file/data/"
+#: the download URLs answer 303 with the file on ClinPGx's own S3 host
+_CLINPGX_HANDOFF = ("s3.pgkb.org",)
 
 #: PharmVar's GRCh38 single-nucleotide definitions: rsID -> the shared GRCh38 id the
 #: extractor writes (NC_0000NN.v -> chromosome NN, 23 -> X, 24 -> Y).
@@ -478,13 +480,14 @@ DATASETS: tuple[DatasetSpec, ...] = (
         "clinpgx", "ClinPGx (formerly PharmGKB) annotations", (111,),
         "https://www.clinpgx.org/", _CLINPGX_LICENSE,
         (FileSpec(_CLINPGX + "relationships.zip", "relationships.zip", "relationships",
-                  fmt="clinpgx:relationships.tsv"),
+                  fmt="clinpgx:relationships.tsv", redirects=_CLINPGX_HANDOFF),
          FileSpec(_CLINPGX + "summaryAnnotations.zip", "summaryAnnotations.zip",
-                  "summary_annotation", fmt="clinpgx:summary_annotations.tsv"),
+                  "summary_annotation", fmt="clinpgx:summary_annotations.tsv",
+                  redirects=_CLINPGX_HANDOFF),
          FileSpec(_CLINPGX + "chemicals.zip", "chemicals.zip", "chemical",
-                  fmt="clinpgx:chemicals.tsv"),
+                  fmt="clinpgx:chemicals.tsv", redirects=_CLINPGX_HANDOFF),
          FileSpec(_CLINPGX + "drugLabels.zip", "drugLabels.zip", "drug_label",
-                  fmt="clinpgx:drugLabels.tsv")),
+                  fmt="clinpgx:drugLabels.tsv", redirects=_CLINPGX_HANDOFF)),
         version="files of 2026-09-05",
         notes="relationships.tsv: ClinPGx's gene-drug and variant/haplotype-drug pairs "
               "with association (associated -> positive, not associated -> negative, "

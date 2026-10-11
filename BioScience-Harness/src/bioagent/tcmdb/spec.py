@@ -39,6 +39,11 @@ class FileSpec:
     #: file only if it hashes to it, and ``hub.import_raw`` accepts one only if it does;
     #: a file without one is verified by its size.
     checksum: str | None = None
+    #: The hosts the URL's server hands the download off to, reviewed with the URL: an
+    #: exact host (figshare's ``s3-eu-west-1.amazonaws.com``) or ``*.domain`` for any host
+    #: under a domain the source owns (Hugging Face's ``*.hf.co``). An answer from any
+    #: other host is refused, and a handed-off file is verified like any other.
+    redirects: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -72,6 +77,16 @@ class DatasetSpec:
     #: the least seconds between two download requests to this dataset's host (its
     #: robots.txt Crawl-delay); ``hub.fetch`` paces every request by it.
     min_interval_s: float = 0.0
+    #: relation kinds that only optional files yield -> those files' names (BioGRID's
+    #: genetic interactions are in its complete file, nSIDES's adverse events in
+    #: OFFSIDES). The live validation fetches them with the default files, so every
+    #: declared kind is shown from real files.
+    optional_relations: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    #: relation kinds or tables the pinned release leaves empty -> how that is known (the
+    #: 2026-10-01 AOP-Wiki export links no stressor to a key event). The extractor still
+    #: reads them should a later release fill them; the validation reports them as known
+    #: to be empty instead of failing on them.
+    known_empty: Mapping[str, str] = field(default_factory=dict)
 
     def file(self, name: str) -> FileSpec:
         for f in self.files:

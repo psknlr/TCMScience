@@ -73,3 +73,23 @@ run. Each revised skill would:
   writes the lockfile.
 - No remote data source inside a governed skill: acquisition stays in the data hub and the
   snapshot pipeline, where it is verified and recorded (`docs/validation.md`).
+
+## Shared code the next re-pin should carry (2026-10-11)
+
+Two files in the four skills' import closure carry behaviour the data hub now needs. They
+were not changed, so the pins still match (`scripts/check_lockfile.py`); the hub carries
+the behaviour outside the closure until a re-pin moves it where it belongs:
+
+- `acquisition/downloader.py`: a reviewed hand-off to another host, named next to a file's
+  URL (`FileSpec.redirects`: figshare to its S3 bucket, Hugging Face to its CDN under
+  hf.co, ClinPGx to s3.pgkb.org), and a body cut off mid-transfer
+  (`http.client.IncompleteRead`) retried like a reset connection. Both are in
+  `tcmdb/download.py` (`HubDownloader`), a subclass the hub fetches with; moved into the
+  downloader, the subclass goes away.
+- `policy.py`: the research profile's allowlist should list the hand-off hosts
+  (`s3-eu-west-1.amazonaws.com`, `hf.co`) beside the hosts that hand off to them, as it
+  already lists `s3.pgkb.org` and `maayanlab.cloud`. The hub's downloads do not consult the
+  profile, so nothing is refused meanwhile, but the allowlist is the record of where the
+  harness reaches.
+
+Neither changes what the skills compute; each changes their content hash.
