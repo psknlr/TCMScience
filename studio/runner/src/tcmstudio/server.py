@@ -202,6 +202,11 @@ class RunnerServer(ThreadingHTTPServer):
         return pairing_link(self.url, self.guard.token)
 
     def start_background(self) -> None:
+        # PSH's package imports its kernel, which imports back into the package. The
+        # first import of it from two threads at once (the warm-up building the skill
+        # entries, a request labelling its result) can end in the import system's
+        # _DeadlockError, so it is imported here, before either thread runs.
+        import psh  # noqa: F401
         self.jobs.start()
         threading.Thread(target=self._warm, name="tcmstudio-warm", daemon=True).start()
 
@@ -236,6 +241,8 @@ class RunnerServer(ThreadingHTTPServer):
                         entry["available"] = False
                         entry["missing"] = sorted(set(entry.get("missing") or []) |
                                                   set(info["missing"]))
+                if doc.get("problems"):
+                    return doc              # not kept: the next request builds it again
                 self._catalog = doc
             return self._catalog
 

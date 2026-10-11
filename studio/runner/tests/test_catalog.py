@@ -326,3 +326,52 @@ def test_catalog_cli_writes_the_document(tmp_path):
     assert "clinic.sign" in doc["never_offered"] and "system.shell" in doc["never_offered"]
     ids = {e["id"] for e in doc["entries"]} | {t["name"] for t in doc["core"]}
     assert not ids & set(doc["never_offered"])
+
+
+def test_a_section_that_failed_to_build_is_built_again_on_the_next_lookup(monkeypatch):
+    """A failure that passes (an import that raced another thread's) must not hide a section
+    for the life of the process: it is reported, not kept."""
+    from tcmstudio import catalog
+    calls = []
+    real = catalog._SECTION_BUILDERS["study"]
+
+    def flaky():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("deadlock detected by _ModuleLock('psh.kernel')")
+        return real()
+    monkeypatch.setitem(catalog._SECTION_BUILDERS, "study", flaky)
+    monkeypatch.setattr(catalog, "_SECTIONS", {k: v for k, v in catalog._SECTIONS.items()
+                                               if k != "study"})
+    monkeypatch.setattr(catalog, "_FAILED", {})
+    first = catalog._section("study")
+    assert first == [] and "deadlock" in catalog._FAILED["study"]
+    again = catalog._section("study")
+    assert again and len(calls) == 2 and "study" not in catalog._FAILED
+
+
+def test_the_runner_imports_psh_before_any_of_its_threads_runs(tmp_path):
+    """The first import of PSH from two threads at once can end in _DeadlockError (the
+    warm-up's skill entries and a request's labels both import it), so the runner imports
+    it before starting its job service and warm-up threads. A fresh interpreter shows it."""
+    script = f"""
+import sys, threading
+seen = []
+start = threading.Thread.start
+def recording(self):
+    seen.append("psh" in sys.modules)
+    return start(self)
+threading.Thread.start = recording
+from tcmstudio.server import RunnerServer, ServerConfig
+assert "psh" not in sys.modules, "nothing imported psh yet: the check would prove nothing"
+srv = RunnerServer(ServerConfig(home={str(tmp_path / 'home')!r}, port=0, web=None,
+                                torch_probe=False, local_servers=(),
+                                environ={{"PATH": "/usr/bin:/bin"}}))
+srv.start_background()
+srv.close()
+print(seen)
+assert seen and all(seen), seen
+"""
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                         timeout=120)
+    assert out.returncode == 0, out.stderr[-2000:]

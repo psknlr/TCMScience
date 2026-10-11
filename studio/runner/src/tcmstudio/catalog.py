@@ -1237,9 +1237,12 @@ def _section(kind: str) -> list[dict[str, Any]]:
             built = _SECTION_BUILDERS[kind]()
         except Exception as exc:                                # noqa: BLE001
             # One unreadable source (a missing optional manifest, a broken template) must not
-            # take the whole catalog with it; the failure is reported in the document.
+            # take the whole catalog with it; the failure is reported in the document. It is
+            # not kept: the next lookup builds the section again, so a failure that passes
+            # (an import that raced another thread's) does not hide the section for good.
             _FAILED[kind] = f"{type(exc).__name__}: {exc}"
-            built = []
+            return []
+        _FAILED.pop(kind, None)
         _SECTIONS[kind] = built
         for e in built:
             _INDEX[e["id"]] = e
