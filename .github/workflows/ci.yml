@@ -364,7 +364,7 @@ jobs:
         run: cat "$RUNNER_TEMP/llama.log"
 
   validation:
-    # Tier 2 of the validation plan (BioScience-Harness/docs/VALIDATION.md), offline: every
+    # Tier 2 of the validation plan (docs/validation.md), offline: every
     # registered capability enumerated and run through the dispatcher with its reference
     # output (tcmstudio validate), the optional scientific packages imported and used for a
     # calculation, every catalogued source's readiness, and the Guizhi Decoction benchmark as

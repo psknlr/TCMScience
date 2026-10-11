@@ -320,16 +320,18 @@ def _transcriptomics(x: _Run) -> None:
 def _literature(x: _Run) -> None:
     lit = x.step("literature_search", {"query": "\"Guizhi decoction\" palpitation", "source": "europepmc",
                                        "limit": 10}, network=True)
-    records = _result(lit).get("records") or _result(lit).get("results") or []
-    x.expect("records_identified", all(r.get("pmid") or r.get("doi") or r.get("id") for r in records),
-             f"{len(records)} records, each with an identifier" + (
-                 "; none matched, which is not evidence that none exists" if not records else ""))
+    res = _result(lit)
+    hits = res.get("hits")
+    x.expect("records_identified", isinstance(hits, list)
+             and all(h.get("pmid") or h.get("doi") or h.get("pmcid") for h in hits),
+             f"{len(hits or [])} of {res.get('total')} records returned, each with a PMID, PMCID or DOI"
+             + ("; none matched, which is not evidence that none exists" if not hits else ""))
     t = x.step("literature_search", {"query": "Guizhi", "source": "clinicaltrials", "limit": 10},
                network=True)
-    trials = _result(t).get("records") or _result(t).get("results") or []
-    x.expect("trials_identified", all(str(r.get("nct_id") or r.get("id") or "").startswith("NCT")
-                                      for r in trials),
-             f"{len(trials)} registered studies with NCT ids")
+    trials = _result(t).get("hits")
+    x.expect("trials_identified", isinstance(trials, list)
+             and all(str(h.get("nct") or "").startswith("NCT") for h in trials),
+             f"{len(trials or [])} registered studies, each with its NCT id")
 
 
 def _evidence_synthesis(x: _Run) -> None:

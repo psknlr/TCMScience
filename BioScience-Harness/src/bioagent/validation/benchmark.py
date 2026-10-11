@@ -624,7 +624,8 @@ def _literature(run: _Run, stage: Mapping[str, Any]) -> Record:
                      "%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "latency_s": round(time.perf_counter() - t0, 2)}
         if status == "SUCCEEDED":
             entry.update(_europepmc(res.value) if source == "europepmc" else _trials(res.value))
-            rec.add(f"query:{qid}", PASS, f"{source}: {entry['count']} record(s)", count=entry["count"])
+            rec.add(f"query:{qid}", PASS, f"{source}: {entry['returned']} record(s) returned, "
+                    f"{entry['count']} {entry['count_is']}", count=entry["count"])
         else:
             text = res.error or ""
             refused = re.search(r"403|407|proxy|policy|tunnel|forbidden|denied|resolve|timed out|"
@@ -639,19 +640,31 @@ def _literature(run: _Run, stage: Mapping[str, Any]) -> Record:
 
 
 def _europepmc(value: Any) -> dict[str, Any]:
+    """Europe PMC's answer: ``hitCount`` is the total; a record's publication types come as
+    ``pubTypeList`` (the core result type) or a ``;``-separated ``pubType`` (the lite one)."""
     value = value if isinstance(value, Mapping) else {}
     items = ((value.get("resultList") or {}).get("result")) or []
     records = []
     for r in items:
-        types = r.get("pubTypeList", {}).get("pubType") if isinstance(r.get("pubTypeList"), Mapping) else None
+        listed = (r.get("pubTypeList") or {}).get("pubType") if isinstance(r.get("pubTypeList"), Mapping) else None
+        if isinstance(listed, str):
+            types = [listed]
+        elif isinstance(listed, list):
+            types = [str(t) for t in listed]
+        else:
+            types = [t.strip() for t in str(r.get("pubType") or "").split(";") if t.strip()]
         records.append({"id": r.get("id"), "source": r.get("source"), "pmid": r.get("pmid"),
                         "pmcid": r.get("pmcid"), "doi": r.get("doi"), "title": r.get("title"),
                         "year": r.get("pubYear"), "journal": r.get("journalTitle"),
-                        "publication_types": types if isinstance(types, list) else ([types] if types else [])})
-    return {"count": int(value.get("hitCount") or len(records)), "records": records}
+                        "publication_types": types})
+    total = value.get("hitCount")
+    return {"count": int(total) if total is not None else len(records),
+            "count_is": "total" if total is not None else "returned", "returned": len(records),
+            "records": records}
 
 
 def _trials(value: Any) -> dict[str, Any]:
+    """ClinicalTrials.gov's answer: a page of studies; the total only when it was asked for."""
     value = value if isinstance(value, Mapping) else {}
     records = []
     for s in value.get("studies") or ():
@@ -661,7 +674,11 @@ def _trials(value: Any) -> dict[str, Any]:
                         "status": (p.get("statusModule") or {}).get("overallStatus"),
                         "phases": (p.get("designModule") or {}).get("phases") or [],
                         "conditions": (p.get("conditionsModule") or {}).get("conditions") or []})
-    return {"count": int(value.get("totalCount") or len(records)), "records": records}
+    total = value.get("totalCount")
+    return {"count": int(total) if total is not None else len(records),
+            "count_is": "total" if total is not None else "returned (more may exist)",
+            "returned": len(records), "more": bool(value.get("nextPageToken")),
+            "records": records}
 
 
 # --------------------------------------------------------------------------- 9. evidence

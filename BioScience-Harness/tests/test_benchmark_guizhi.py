@@ -244,10 +244,10 @@ def test_literature_is_recorded_as_answered_and_a_refused_host_is_blocked_never_
         {"id": "1", "source": "MED", "pmid": "1", "title": "t", "pubYear": "2020",
          "pubTypeList": {"pubType": ["research-article", "Journal Article"]}},
         {"id": "2", "source": "MED", "pmid": "2", "title": "u", "pubYear": "2021",
-         "pubTypeList": {"pubType": "Randomized Controlled Trial"}}]}}
+         "pubType": "Randomized Controlled Trial; journal article"}]}}   # the lite result type
     backend = _Backend([_Answer("SUCCEEDED", epmc, http=200), _Answer("SUCCEEDED", {"hitCount": 0}),
                         _Answer("FAILED", error="HTTP 403 Forbidden by the sandbox egress policy", http=403),
-                        _Answer("SUCCEEDED", {"totalCount": 1, "studies": [{"protocolSection": {
+                        _Answer("SUCCEEDED", {"nextPageToken": "x", "studies": [{"protocolSection": {
                             "identificationModule": {"nctId": "NCT0001", "briefTitle": "a trial"},
                             "statusModule": {"overallStatus": "COMPLETED"}}}]})])
     run = benchmark._Run(tmp_path, benchmark.definition(), live=True, raw=tmp_path, snapshot_root=None,
@@ -259,8 +259,12 @@ def test_literature_is_recorded_as_answered_and_a_refused_host_is_blocked_never_
     assert rec.status == BLOCKED
     content = run.outputs["literature"]["content"]
     first = content["queries"][0]
-    assert first["count"] == 2 and first["records"][1]["publication_types"] == ["Randomized Controlled Trial"]
-    assert content["queries"][3]["records"][0]["nct_id"] == "NCT0001"
+    assert first["count"] == 2 and first["count_is"] == "total"
+    assert first["records"][0]["publication_types"] == ["research-article", "Journal Article"]
+    assert first["records"][1]["publication_types"] == ["Randomized Controlled Trial", "journal article"]
+    trials = content["queries"][3]
+    assert trials["records"][0]["nct_id"] == "NCT0001"
+    assert trials["count_is"].startswith("returned") and trials["more"], "a page is not a total"
     assert [c[0] for c in backend.calls] == ["public.connector.europepmc"] * 3 + [
         "public.connector.clinicaltrials"]
 

@@ -1,6 +1,6 @@
 name: live-data
 
-# Tiers 3 and 4 of the validation plan (BioScience-Harness/docs/VALIDATION.md): the
+# Tiers 3 and 4 of the validation plan (docs/validation.md): the
 # reviewed research files are downloaded from their upstream servers (NPASS and CMAUP from
 # bidd.group, LOTUS from Zenodo, STRING, Reactome, UniProt), verified against their reviewed
 # checksums, built into the data hub and into research snapshots, queried, and rebuilt to
