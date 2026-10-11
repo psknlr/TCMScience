@@ -555,6 +555,27 @@ is `webgpu` only when GPU counts were used (§3). A failed call earns no acceler
 `tcmstudio.capabilities/1`: WebAssembly features, WebGPU adapter, features and limits, WebNN contexts as requested and
 reported, storage, timer resolution).
 
+**The complete formula workbook.** `tcm_formula` and `tcm_lookup` add `repository_records` (the workbook's source
+versions); `tcm_herb` adds `repository_formulas` `{herb: {term, searched, field, not_within, materia?}, total, count,
+offset, next_offset, corpus_rows, records: [{id, row, name, source, composition}], scope, more?: {tool, arguments}}`
+(formulas named after the herb first, then workbook order) and, for a seed herb, `formulas_scope`; `tcm_syndrome` adds
+`repository_formulas` `{indication: {terms, field, not_searched}, total, count, offset, next_offset, corpus_rows, records:
+[{id, row, name, source, actions}], scope, more?}`, the workbook formulas whose recorded 功效 (`actions`) mentions the
+syndrome's names without their closing 证 (脾胃气虚证 as 脾胃气虚; never matched in the 注意 `cautions`), beside the seed's
+curated `formulas`; a syndrome outside the seed stays `not_found`, its summary and hint saying how many workbook formulas
+mention it and how to list them; `tcm_compatibility`
+adds `expanded_formulas` `[{formula, row, name, source, composition, herbs}]` for a formula outside the seed that the
+workbook holds once and `ambiguous_formulas` `[{formula, versions, hint}]` for one it holds several times (a name the
+materia table knows is checked as that herb, never as a workbook formula of the same name); `tcmdb.formulas` takes
+`herb` and `indication` (space-separated terms, any of them in the 功效 text). When the workbook cannot be read,
+`repository_records` (`tcm_formula`, `tcm_lookup`) or `repository_formulas` (`tcm_herb`, `tcm_syndrome`,
+`tcm_compatibility`) is `{status: "unavailable", reason, fix}`, the first limitation says only the seed was searched,
+and the summary says so. `system.capabilities.formulas`
+is `{seed: {formulas, scope}, workbook: {status: "loaded" | "available" | "on_demand" | "unavailable", rows?, fix?}}`.
+In the browser the Worker loads the asset before the five lookups that always read it, and otherwise when
+`tcmstudio.repository_data.take_formula_store_wanted()` reports, after a call, that the call wanted it: the Worker loads
+it and runs the call once more (only calls that do not change state).
+
 **The kernel boundary.** At boot the Worker calls `tcmstudio.browser_compute.install_js_kernels(js)` with
 `compute/bridge.js pythonKernels()`: one method, `call(name, payload_json) -> result_json`, returning `"null"` to
 decline. `sequence.counts` → `{counts: [u32 …], backend}`; `align.nw_linear` / `align.sw_linear` →

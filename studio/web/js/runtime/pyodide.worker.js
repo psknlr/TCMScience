@@ -42,12 +42,18 @@ from tcmstudio.envelope import runtime_string as _runtime_string, versions as _v
 from tcmstudio.browser_http import install as _install_source_transport
 from tcmstudio.browser_compute import call_json as _browser_compute_call
 from tcmstudio.browser_compute import install_js_kernels as _install_js_kernels
+from tcmstudio.repository_data import take_formula_store_wanted as _take_formula_store_wanted
 _install_source_transport(SOURCE_TRANSPORT)
 _install_js_kernels(JS_KERNELS)
 
 
 def tcms_call(tool, arguments_json, context_json, acceleration_json="null", options_json="{}"):
+    _take_formula_store_wanted()
     return _browser_compute_call(tool, arguments_json, context_json, acceleration_json, options_json)
+
+
+def tcms_formula_store_wanted():
+    return _take_formula_store_wanted()
 
 
 def tcms_modules():
@@ -229,7 +235,10 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   ns.set("SOURCE_TRANSPORT", createSourceTransport(site));
   ns.set("JS_KERNELS", jsKernels);
   py.runPython(BOOT_PY, { globals: ns });
-  api = { call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"), pycacheTar: ns.get("tcms_pycache_tar") };
+  api = {
+    call: ns.get("tcms_call"), info: ns.get("tcms_info"), modules: ns.get("tcms_modules"),
+    pycacheTar: ns.get("tcms_pycache_tar"), formulaStoreWanted: ns.get("tcms_formula_store_wanted"),
+  };
   if (pycache.restored) pycache.modules = api.modules();
   mark("import");
 
@@ -461,7 +470,11 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
     return JSON.stringify(envelope);
   };
   if (!stateful || state.persist.mode !== "idbfs") {
-    return { text: run(state.persist.durable), persist: { mode: state.persist.mode, durable: state.persist.durable } };
+    let text = run(state.persist.durable);
+    // a lookup that turned out to need the complete formula workbook (a formula name in a compatibility check): load
+    // it and run the call once more; such calls only read
+    if (api.formulaStoreWanted?.() && await loadFormulaAsset()) text = run(state.persist.durable);
+    return { text, persist: { mode: state.persist.mode, durable: state.persist.durable } };
   }
   return withPersistLock(async () => {
     let durable = true;
@@ -483,13 +496,23 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
   });
 }
 
+// the lookups that always read the complete formula workbook (tcmstudio.repository_data): it is loaded before they
+// run. Others that need it only sometimes (tcm_compatibility, for a formula outside the seed) ask for it as they go.
+const FORMULA_TOOLS = new Set(["tcm_formula", "tcm_lookup", "tcm_herb", "tcm_syndrome", "tcmdb.formulas",
+  "native.tcm_formula", "native.tcm_lookup", "native.tcm_herb", "native.tcm_syndrome"]);
+
 async function ensureDataAssets(tool, args) {
   const target = tool === "call_tool" ? String(args?.tool || "") : String(tool);
   const input = tool === "call_tool" ? args?.arguments || {} : args;
   if (["tcm_lookup", "native.tcm_lookup"].includes(target) && input.kind && input.kind !== "formula") return;
-  if (!["tcm_formula", "tcm_lookup", "native.tcm_formula", "native.tcm_lookup", "tcmdb.formulas"].includes(target)) return;
+  if (!FORMULA_TOOLS.has(target)) return;
+  await loadFormulaAsset();
+}
+
+/** Load the complete formula workbook (once, verified by SHA-256). → whether it was loaded now. */
+async function loadFormulaAsset() {
   const asset = state.boot?.data_assets?.find((x) => x.key === "repository_formulas");
-  if (!asset || state.dataAssets.has(asset.sha256)) return;
+  if (!asset || state.dataAssets.has(asset.sha256)) return false;
   if (!/^[a-f0-9]{64}$/.test(asset.sha256) || !asset.path || asset.bytes > 25 * 1024 * 1024) {
     throw codeError("bad_boot", "The full formula asset manifest is invalid");
   }
@@ -502,6 +525,7 @@ async function ensureDataAssets(tool, args) {
   py.runPython(`import os as _asset_os\n_asset_os.environ["BIOAGENT_FORMULA_SQLITE"] = ${JSON.stringify(asset.mount_path)}`);
   state.dataAssets.add(asset.sha256);
   progress(100, "ready");
+  return true;
 }
 
 async function ensurePackages(names) {

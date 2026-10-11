@@ -223,8 +223,8 @@ def test_bad_arguments_carry_did_you_mean_hints(runner_ctx):
     assert "Did you mean 'names'" in e["error"]["hint"]
     e = call("tcm_evidence", {"subject": "黄芪", "claim_kind": "efficacyy"}, runner_ctx)
     assert e["error"]["type"] == "bad_arguments" and "'efficacy'" in e["error"]["hint"]
-    e = call("tcm_compatibility", {"herbs": ["甘草"]}, runner_ctx)
-    assert e["error"]["type"] == "bad_arguments" and "at least 2" in e["error"]["message"]
+    e = call("tcm_compatibility", {"herbs": []}, runner_ctx)   # one name is a formula's check
+    assert e["error"]["type"] == "bad_arguments" and "at least 1" in e["error"]["message"]
     e = call("native.egfr_ckd_epi_2021", {"creatinine_mg_dl": 1.0, "age_years": 50,
                                           "sex": "x"}, runner_ctx)
     # The tool's own refusal of a value is reported as a bad argument, with the signature.

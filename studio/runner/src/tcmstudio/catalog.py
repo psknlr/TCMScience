@@ -777,6 +777,10 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                obj({"query": S(), "exact": B(default=False), "source": S(),
                     "rank": B("split the query into terms and order rows by relevance", default=False),
                     "aliases": B("with rank: also search a herb under its other names", default=True),
+                    "herb": S("only formulas whose composition names this herb (under its other "
+                              "names; other drugs whose names contain it excluded)"),
+                    "indication": S("only formulas whose recorded 功效 mentions any of these terms, "
+                                    "as written (e.g. 脾胃气虚); never matched in the 注意 cautions"),
                     "limit": I(minimum=1, maximum=100, default=25),
                     "offset": I(minimum=0, default=0)}), example={"query": "黄芪 当归", "rank": True},
                tags=(*tags, "方剂", "方剂全库", "配方", "84294", "出处", "排序", "别名")),
