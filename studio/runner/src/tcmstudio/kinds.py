@@ -752,6 +752,56 @@ def _research_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     return argv
 
 
+# ----------------------------------------------------------------------------- env.provision
+
+def _provision_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    from bioagent.validation.dependencies import load_environments
+
+    groups = load_environments().get("groups") or {}
+    group = _enum("group", p.get("group"), sorted(groups), "")
+    if not group:
+        raise BadParams(f"group: one of {', '.join(sorted(groups))}")
+    spec = groups[group]
+    unpinned = [n for n, v in (spec.get("packages") or {}).items() if not v]
+    if unpinned:
+        raise BadParams(f"group: {group} has packages no CI run has pinned ({', '.join(unpinned)}); "
+                        "it is installed by hand, after review")
+    return {"group": group, "packages": dict(spec["packages"]),
+            "index_urls": sorted(set((spec.get("index_url") or {}).values()))}
+
+
+def _provision_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    # Wheels only: an sdist would run its build script, which a reviewed pin does not cover.
+    argv = [ctx.python, "-I", "-m", "pip", "install", "--disable-pip-version-check",
+            "--no-input", "--only-binary=:all:"]
+    for url in r["index_urls"]:
+        argv += ["--extra-index-url", url]
+    return argv + [f"{name}=={version}" for name, version in r["packages"].items()]
+
+
+def _provision_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[str]:
+    del data_env
+    import importlib
+
+    from bioagent.validation.dependencies import load_environments, readiness
+
+    importlib.invalidate_caches()
+    group = (load_environments().get("groups") or {}).get(r["group"]) or {}
+    [record] = readiness({"groups": {r["group"]: group}})
+    return [f"{c.name}: {c.status}: {c.detail}" for c in record.checks
+            if c.status in ("FAIL", "BLOCKED")]
+
+
+def _provision_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    del job_dir
+    from bioagent.validation.dependencies import load_environments, readiness
+
+    group = (load_environments().get("groups") or {}).get(r["group"]) or {}
+    [record] = readiness({"groups": {r["group"]: group}})
+    return {"group": r["group"], "status": record.status,
+            "checks": {c.name: c.status for c in record.checks}}
+
+
 # ------------------------------------------------------------------------------ skill.run
 
 #: File arguments of the governed skills that run as jobs: how each is resolved.
@@ -1013,6 +1063,9 @@ def default_kinds() -> dict[str, Kind]:
              # reason and next step (the last line the command writes), and the report stays
              network=True, timeout_s=12 * 3600.0, verify=_snapshot_verify,
              result=_snapshot_result),
+        Kind("env.provision", ("安装科学计算环境", "Install a scientific environment"), "minutes",
+             _provision_prepare, _provision_command, network=True, timeout_s=3600.0,
+             verify=_provision_verify, result=_provision_result),
         Kind("skill.run", ("受治理 Skill 后台运行", "Governed skill (background)"), "minutes",
              _skill_prepare, _skill_command,
              artefacts=(("envelope", "envelope.json", True),),

@@ -1076,6 +1076,18 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
         "hosts": ["bidd.group", "zenodo.org", "stringdb-downloads.org", "reactome.org",
                   "rest.uniprot.org"],
         "tags": ("快照", "数据下载", "研究闭环", "NPASS", "CMAUP", "LOTUS", "snapshot")},
+    "env.provision": {
+        "title": ("安装科学计算环境", "Install a scientific environment"), "category": "system",
+        "summary": "Install one group of optional scientific packages (docking, admet, "
+                   "transcriptomics, …) at the versions CI tested "
+                   "(registry/scientific_environments.json), as wheels only, into the runner's "
+                   "Python; then import each package and run a calculation with a known answer. "
+                   "Runs only when the user approves it; nothing installs itself.",
+        "parameters": obj({"group": S("the environment group, e.g. docking")},
+                          required=("group",)),
+        "network": True, "duration": "minutes", "hosts": ["pypi.org", "files.pythonhosted.org",
+                                                          "download.pytorch.org"],
+        "tags": ("安装", "依赖", "环境", "install", "dependencies", "environment")},
     "skill.run": {
         "title": ("受治理 Skill 后台运行", "Governed skill (background)"), "category": "system",
         "summary": "Run any governed skill as a background job on the runner, with the project's "
@@ -1101,6 +1113,14 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
 }
 
 
+def _environment_groups() -> list[str]:
+    try:
+        from bioagent.validation.dependencies import load_environments
+        return sorted(load_environments().get("groups") or {})
+    except Exception:                                           # noqa: BLE001
+        return []
+
+
 def _job_entries() -> list[dict[str, Any]]:
     _, keys, fetchable = _tcmdb_vocab()
     out = []
@@ -1114,6 +1134,10 @@ def _job_entries() -> list[dict[str, Any]]:
             ids = [s["id"] for s in skill_specs()]
             if ids:
                 params["properties"]["skill_id"]["enum"] = ids
+        if kind == "env.provision":
+            groups = _environment_groups()
+            if groups:
+                params["properties"]["group"]["enum"] = groups
         zh, en = spec["title"]
         out.append(_entry(
             f"job.{kind}", "job", zh, en, spec["category"], spec["summary"], params,

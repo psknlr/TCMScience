@@ -4,6 +4,7 @@
     tcmstudio call TOOL --args JSON [--where browser|runner] [--no-network] [--project ID]
     tcmstudio serve …        the local runner (tcmstudio.server)
     tcmstudio webbuild …     the static site build (tcmstudio.webbuild)
+    tcmstudio validate …     every capability validated, the reports written (tcmstudio.validate)
 
 ``serve`` and ``webbuild`` belong to their own modules; this file only hands them their
 arguments, importing them when asked so the other commands never load them.
@@ -25,7 +26,9 @@ __all__ = ["main", "build_parser"]
 _DELEGATED = {"serve": ("tcmstudio.server", "run the local runner on 127.0.0.1 (CPU/GPU jobs, "
                                             "connectors, data hub)"),
               "webbuild": ("tcmstudio.webbuild", "build the static web app with the catalog "
-                                                 "and the Python bundle")}
+                                                 "and the Python bundle"),
+              "validate": ("tcmstudio.validate", "validate every capability: inventory, twelve "
+                                                 "checks per entry, readiness reports")}
 
 
 def build_parser() -> argparse.ArgumentParser:
