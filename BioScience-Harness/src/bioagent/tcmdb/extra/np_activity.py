@@ -25,8 +25,10 @@ Relations:
   exact repeats of a row (87,882 of NPASS 2.0's 958,866 activity rows) are read once.
 
 NPASS and CMAUP state no licence (bidd.group, read 2026-10-07): commercial use unknown.
-LOTUS is CC-BY-4.0. The checks after a build (``CHECKS``) compare every raw file with its
-reviewed checksum: a file that differs is a problem, since the upstream file has changed.
+LOTUS is CC-BY-4.0. ``hub.fetch`` keeps a file only if it hashes to its reviewed checksum,
+and the checks after a build (``CHECKS``) compare every raw file with it again, so a file
+replaced after its download is caught too: a file that differs is a problem, since the
+upstream file has changed.
 """
 
 from __future__ import annotations
@@ -72,7 +74,7 @@ def _files(tables: dict[str, str], *, fmt: str = "tsv", optional: tuple[str, ...
         a = _ACQUIRED[name]                       # a KeyError here: the acquisition table moved
         out.append(FileSpec(a.url, name, table, fmt=fmt, optional=table in optional,
                             expected_bytes=a.expected_bytes, columns=_HEADERLESS.get(name, ()),
-                            note=a.description, license=license))
+                            note=a.description, license=license, checksum=a.checksum))
     return tuple(out)
 
 
@@ -281,10 +283,9 @@ def _checksums(key: str):
         problems: list[str] = []
         for f in spec.files:
             path = Path(raw) / f.name
-            reviewed = _ACQUIRED[f.name].checksum
-            if not path.is_file() or not reviewed:
+            if not path.is_file() or not f.checksum:
                 continue
-            algorithm, want = reviewed.split(":", 1)
+            algorithm, want = f.checksum.split(":", 1)
             if _digest(path, algorithm) != want:
                 problems.append(f"{f.name}: its {algorithm} differs from the reviewed file's "
                                 "(the upstream file has changed; review it before use)")

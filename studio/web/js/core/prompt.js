@@ -69,6 +69,8 @@ function tools() {
     "- Never fabricate tool output. If a tool is unavailable here, say what it would need (the local runner, an installed engine, web access for the project) and do not substitute an approximation.",
     "- Some calls need the user's approval (jobs, network access, sending data to a third-party service, the first call to the local runner). If the user declines, do not call it again unless they ask; continue with what you have.",
     "- Pass arguments exactly as the schema describes. If a result reports bad arguments, correct them once and retry.",
+    "- A failed or empty result ends with an Outcome line; report it as what it is. tool_unavailable: the tool or its engine is not here. data_unavailable: the tool works, its data is not downloaded or built here. no_record: nothing matched, which is not evidence that none exists. input_error, not_permitted, tool_failed: the call itself did not succeed. negative_finding, mixed_findings, inconclusive: the tool ran and that is what the evidence shows. A missing tool or missing data is a gap in this answer, never a negative finding.",
+    "- A tool that fails three times in a turn, or once in a way a retry cannot change (it is not here, or the call was not permitted), is not run again in that turn. Change approach (another tool, other arguments, another source) or say what is missing.",
   ].join("\n");
 }
 

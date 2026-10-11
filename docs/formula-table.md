@@ -151,6 +151,45 @@ The question is refused, with the reason, in three cases:
 - **Unresolved ingredient.** The formula has an ingredient the materia table cannot
   resolve. The refusal names the ingredient.
 - **Book title only.** A book title, such as 普济方, is never read as a formula name.
+- **A book no version cites.** 桂枝甘草汤《金匮》 is refused, with the books the name's
+  versions do cite (here 《伤寒论》). Before, a name with a single version resolved to it
+  whatever book was written, so a question about one source studied another's formula.
+
+Studio's `tcm_formula` and `tcm_compatibility` read a name written with its book the same
+way (`sources.formulas.split_source`, `source_matches`): 桂枝汤《伤寒论》 is the 伤寒论
+version and carries the curated annotations (roles, passages) that belong to it, and
+桂枝汤《圣济总录》 lists that book's versions without them.
+
+## Errata (`data/formula_errata.json`)
+
+A few records are mis-written in the workbook. 桂枝甘草汤《伤寒论》 lists
+`桂枝4两（去皮），草2两（炙）。`: 草 is 甘草 with its first character lost, as
+《伤寒论》第64条 gives 甘草二两（炙）. Read as written, 草 resolves to no crude drug, so the
+record could not be studied or compared with 桂枝汤 (which records no palpitations: the
+心下悸 of §64 is 桂枝甘草汤's).
+
+An erratum names one record exactly (name, source and the composition as written) and
+gives the corrected reading, the reason and the text it follows. `sources.formulas`
+applies it when the table is read:
+
+- the workbook is not edited, and the record keeps its text, row and id (a digest of the
+  text as written);
+- only its components are parsed from the corrected text, and each keeps the name the
+  workbook wrote (`FormulaRecord.written_components`; the herb layer's composition edges
+  carry it as `raw.written`);
+- the record carries the erratum, and every output that uses it names it: Studio's
+  `tcm_formula` adds a limitation line, the benchmark's artifacts include it, and a
+  herb-layer snapshot built from the table hashes `formula_errata.json` as a raw file.
+
+Status: `proposed` is applied and labelled as awaiting a maintainer's review, `accepted`
+has been reviewed (`reviewed_by`), `rejected` is not applied. An erratum whose record no
+longer reads exactly as `written` does not apply. `BIOAGENT_FORMULA_ERRATA` points to
+another file, or `none` turns errata off. The loader refuses an erratum without an
+authority, one whose formula id does not match its text, and one that would add or remove
+an ingredient: an erratum corrects names, it does not change what a formula contains.
+
+The other 23 bare 草 in the workbook are left as they are: in abbreviated recipes
+(参、苓、术、草) 草 usually is 甘草, but that is a reading of each text, not a rule.
 
 ## Building the snapshots
 

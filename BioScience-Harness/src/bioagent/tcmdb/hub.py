@@ -167,6 +167,10 @@ class TCMDataHub:
 
     # ------------------------------------------------------------------- status
     def status(self, key: str | None = None) -> list[dict[str, Any]]:
+        """What is downloaded and built, per dataset. ``verification`` says, for each file
+        present, how it was verified when it was kept (``tcmdb.acquire.verification``):
+        ``checksum``, ``size``, ``mismatch`` (not the reviewed file) or ``unverified``."""
+        from .acquire import verification
         out = []
         for spec in (dataset(key),) if key else DATASETS:
             raw = self.raw_dir(spec.key)
@@ -179,6 +183,9 @@ class TCMDataHub:
                 "missing_default": [f.name for f in spec.files
                                     if not f.optional and not files[f.name]],
                 "built": self.db_path(spec.key).exists()}
+            if spec.access != "live" and entry["files_present"]:
+                entry["verification"] = {f.name: verification(raw, f.name, f.checksum)
+                                         for f in spec.files if files[f.name]}
             if entry["built"]:
                 with closing(connect(self.db_path(spec.key))) as conn:
                     entry["tables"] = {r["tbl"]: r["rows"] for r in
@@ -191,8 +198,21 @@ class TCMDataHub:
     # ------------------------------------------------------------------- fetch
     def fetch(self, key: str, *, include_optional: bool = False, confirm: bool = False,
               log=print) -> list[dict[str, Any]]:
-        """Download a dataset's files. Manual datasets raise with their instructions."""
-        from ..acquisition.downloader import Downloader, DownloadError
+        """Download a dataset's files, each kept only once verified, every attempt recorded.
+
+        * A file with a reviewed checksum (``FileSpec.checksum``) is kept only if it hashes
+          to it; one without, only if its size is the declared or the server's size.
+        * A host the network policy here refuses, or whose name does not resolve, is
+          learnt from its first refused request: the dataset's other files on it are
+          reported ``BLOCKED`` with that reason, not requested again file after file.
+        * Nothing is started that the disk cannot hold.
+        * Every attempt — kept, refused, blocked — is appended to ``audit/downloads.jsonl``
+          (``tcmdb.acquire``), and each result says ``status`` (PASS, FAIL, BLOCKED, or
+          UNVERIFIED for a file kept with neither checksum nor size to check) and why.
+
+        Manual datasets raise with their instructions.
+        """
+        from ..acquisition.downloader import Downloader
         spec = dataset(key)
         if spec.access == "manual":
             raise HubError(f"{spec.name} cannot be downloaded by a program. "
@@ -202,23 +222,115 @@ class TCMDataHub:
                            f"hub.enrich_{'symmap' if key == 'symmap_api' else 'herb'}([...])")
         dl = Downloader(self.raw_dir(key), timeout_s=120, log=log,
                         min_interval_s=spec.min_interval_s)
-        results = []
-        for f in spec.files:
-            if f.optional and not include_optional:
-                continue
+        refused: dict[str, str] = {}
+        return [self._fetch_file(key, f, dl, refused, confirm=confirm, log=log)
+                for f in spec.files if include_optional or not f.optional]
+
+    def _fetch_file(self, key: str, f: Any, dl: Any, refused: dict[str, str], *,
+                    confirm: bool, log) -> dict[str, Any]:
+        import urllib.parse
+
+        from . import acquire
+        from ..validation import BLOCKED, PASS, UNVERIFIED
+
+        raw = self.raw_dir(key)
+        host = urllib.parse.urlsplit(f.url).hostname or ""
+        t0 = time.perf_counter()
+        entry: dict[str, Any] = {"dataset": key, "file": f.name, "url": f.url, "host": host,
+                                 "route": "download", "expected_bytes": f.expected_bytes,
+                                 "reviewed_checksum": f.checksum}
+        status, reason, out = BLOCKED, "", {"file": f.name, "ok": False}
+        if not (raw / f.name).exists():
+            if host in refused:
+                reason = f"{refused[host]} (learnt from an earlier file; not requested again)"
+            else:
+                reason = acquire.disk_shortfall(raw, f.expected_bytes) or ""
+        if not reason:
             try:
-                r = dl.fetch(f.url, f.name, expected_bytes=f.expected_bytes, confirm=confirm)
-                if not f.html_ok and _looks_like_html(self.raw_dir(key) / f.name):
-                    (self.raw_dir(key) / f.name).unlink(missing_ok=True)
+                r = dl.fetch(f.url, f.name, checksum=f.checksum, expected_bytes=f.expected_bytes,
+                             confirm=confirm)
+                if not f.html_ok and _looks_like_html(raw / f.name):
+                    (raw / f.name).unlink(missing_ok=True)
                     raise HubError(f"{f.url} returned an HTML page (a login, challenge or "
                                    "error page), not the file; it was not kept")
-                results.append({"file": f.name, "bytes": r.bytes, "checksum": r.checksum,
-                                "cached": r.from_cache, "ok": True})
-                log(f"{key}: {f.name} {r.bytes} bytes{' (cached)' if r.from_cache else ''}")
-            except (DownloadError, OSError, HubError) as exc:
-                results.append({"file": f.name, "ok": False, "error": str(exc)[:300]})
-                log(f"{key}: {f.name} FAILED {exc}")
-        return results
+                verified = "checksum" if f.checksum else ("size" if r.verified else "none")
+                status = PASS if verified != "none" else UNVERIFIED
+                reason = {"checksum": f"hashes to the reviewed {f.checksum.split(':')[0]}"
+                          if f.checksum else "",
+                          "size": f"{r.bytes} bytes, the declared or the server's size",
+                          "none": "kept with no checksum and no size to verify it against"
+                          }[verified]
+                entry.update(route="cache" if r.from_cache else "download", bytes=r.bytes,
+                             checksum=r.checksum, verified=verified)
+                out = {"file": f.name, "bytes": r.bytes, "checksum": r.checksum,
+                       "cached": r.from_cache, "ok": True, "verified": verified}
+                log(f"{key}: {f.name} {r.bytes} bytes{' (cached)' if r.from_cache else ''}, "
+                    f"verified by {verified}")
+            except HubError as exc:
+                status, reason = BLOCKED, str(exc)
+            except Exception as exc:                                # noqa: BLE001
+                status, reason = acquire.outcome_of_error(exc, host)
+                if status == BLOCKED and ("policy" in reason or "resolve" in reason):
+                    refused[host] = reason
+        if status not in (PASS, UNVERIFIED):
+            out["error"] = reason[:300]
+            log(f"{key}: {f.name} {status}: {reason}")
+        out["status"], out["reason"] = status, reason
+        entry.update(status=status, reason=reason,
+                     duration_s=round(time.perf_counter() - t0, 3))
+        acquire.append_audit(self.root, entry)
+        return out
+
+    def import_raw(self, key: str, path: str | Path, *, name: str | None = None,
+                   log=print) -> dict[str, Any]:
+        """Put a file a person obtained into ``raw/<key>/``, verified as a download would be.
+
+        The route for a file the network here cannot reach (or a server that wants a
+        person): the file must be one of the dataset's (by its file name or table, or
+        ``name``), and it is accepted only if it hashes to the reviewed checksum — or, with
+        none, has the declared size — so an import cannot bring in a different file than a
+        download would. Recorded in the audit log with the route ``import``; nothing about
+        the source of the copy is trusted beyond what its bytes show.
+        """
+        from . import acquire
+        from ..validation import PASS, UNVERIFIED
+
+        spec = dataset(key)
+        src = Path(path)
+        if not src.is_file():
+            raise HubError(f"no file at {src}")
+        try:
+            f = spec.file(name or src.name)
+        except KeyError:
+            raise HubError(f"{src.name} is not one of {spec.name}'s files "
+                           f"({', '.join(x.name for x in spec.files)}); pass name=") from None
+        size = src.stat().st_size
+        observed = acquire.digest(src, (f.checksum or "sha256:").split(":", 1)[0])
+        if f.checksum and observed.lower() != f.checksum.lower():
+            acquire.append_audit(self.root, {
+                "dataset": key, "file": f.name, "url": f.url, "route": "import",
+                "status": "FAIL", "bytes": size, "checksum": observed,
+                "reviewed_checksum": f.checksum,
+                "reason": "the copy is not the reviewed file (checksum differs)"})
+            raise HubError(f"{src} is not the reviewed {f.name}: {observed[:23]}… where the "
+                           f"reviewed file is {f.checksum[:23]}…; it was not imported")
+        if not f.checksum and f.expected_bytes is not None and size != f.expected_bytes:
+            raise HubError(f"{src} has {size} bytes where the reviewed {f.name} has "
+                           f"{f.expected_bytes}; it was not imported")
+        verified = ("checksum" if f.checksum else
+                    "size" if f.expected_bytes is not None else "none")
+        acquire.copy_verified(src, self.raw_dir(key) / f.name)
+        acquire.record_manifest(self.raw_dir(key), f.name, {
+            "url": f.url, "bytes": size, "checksum": observed,
+            "verified": verified != "none", "fetched_at": time.time(), "route": "import"})
+        status = PASS if verified != "none" else UNVERIFIED
+        acquire.append_audit(self.root, {
+            "dataset": key, "file": f.name, "url": f.url, "route": "import", "status": status,
+            "verified": verified, "bytes": size, "checksum": observed,
+            "reviewed_checksum": f.checksum})
+        log(f"{key}: imported {f.name} ({size} bytes, verified by {verified})")
+        return {"file": f.name, "bytes": size, "checksum": observed, "verified": verified,
+                "status": status, "ok": True}
 
     # ------------------------------------------------------------------- build
     def build(self, key: str, *, log=print) -> dict[str, Any]:

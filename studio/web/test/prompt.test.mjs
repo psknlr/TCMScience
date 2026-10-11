@@ -108,3 +108,14 @@ test("research questions go past the curated corpus, and a mechanism answer is g
   assert.match(part, /A classical record alone licenses no mechanism hypothesis/);
   assert.match(part, /桂枝汤《伤寒论》/);
 });
+
+test("tools: the model is told what each outcome means and that a tool failing three times is not run again", () => {
+  const p = buildSystemPrompt({ lang: "en" });
+  const part = p.slice(p.indexOf("# Tools"), p.indexOf("# Research questions"));
+  for (const code of ["tool_unavailable", "data_unavailable", "no_record", "negative_finding", "mixed_findings", "inconclusive"]) {
+    assert.ok(part.includes(code), code);
+  }
+  assert.match(part, /not evidence that none exists/);
+  assert.match(part, /never a negative finding/);
+  assert.match(part, /fails three times in a turn/);
+});

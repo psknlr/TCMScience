@@ -693,6 +693,50 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     return out
 
 
+_SNAPSHOT_SOURCES = ("npass", "cmaup", "lotus")
+
+
+def _snapshot_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    root, ledger = snapshot_paths(ctx.data_env)
+    sources = [_enum("sources", s, _SNAPSHOT_SOURCES, "npass") for s in p.get("sources") or ()]
+    formulas = [_text("formulas", f, max_len=100) for f in p.get("formulas") or ()]
+    if len(formulas) > 20:
+        raise BadParams("formulas: at most 20 per build")
+    for f in formulas:
+        ambiguous = formula_ambiguity(f)
+        if ambiguous:
+            raise BadParams(f"formulas: {ambiguous}")
+    return {"sources": list(dict.fromkeys(sources)) or list(_SNAPSHOT_SOURCES),
+            "network": bool(p.get("network", True)), "formulas": formulas,
+            "raw": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "raw"),
+            "snapshots": str(root), "ledger": str(ledger)}
+
+
+def _snapshot_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    argv = _cli(ctx, "snapshots", "build", _opt("raw", r["raw"]), _opt("out", r["snapshots"]),
+                _opt("ledger", r["ledger"]), _opt("report", f"{OUTPUT_TOKEN}/snapshot_report.json"),
+                "--sources", *r["sources"])
+    if not r["network"]:
+        argv.append("--no-network")
+    return argv + [_opt("formula", f) for f in r["formulas"]]
+
+
+def _snapshot_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[str]:
+    del data_env
+    return [] if Path(r["ledger"]).is_file() else [f"no ledger at {r['ledger']} after the build"]
+
+
+def _snapshot_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    del r
+    path = job_dir / "out" / "snapshot_report.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    from bioagent.sources.pipeline import summary
+    return summary(doc)
+
+
 def _research_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "research", r["question"], _opt("snapshots", r["snapshots"]),
                 _opt("ledger", r["ledger"]), _opt("state-dir", r["state_dir"]),
@@ -706,6 +750,56 @@ def _research_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     if r["accept_review"]:
         argv.append("--accept-review")
     return argv
+
+
+# ----------------------------------------------------------------------------- env.provision
+
+def _provision_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    from bioagent.validation.dependencies import load_environments
+
+    groups = load_environments().get("groups") or {}
+    group = _enum("group", p.get("group"), sorted(groups), "")
+    if not group:
+        raise BadParams(f"group: one of {', '.join(sorted(groups))}")
+    spec = groups[group]
+    unpinned = [n for n, v in (spec.get("packages") or {}).items() if not v]
+    if unpinned:
+        raise BadParams(f"group: {group} has packages no CI run has pinned ({', '.join(unpinned)}); "
+                        "it is installed by hand, after review")
+    return {"group": group, "packages": dict(spec["packages"]),
+            "index_urls": sorted(set((spec.get("index_url") or {}).values()))}
+
+
+def _provision_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    # Wheels only: an sdist would run its build script, which a reviewed pin does not cover.
+    argv = [ctx.python, "-I", "-m", "pip", "install", "--disable-pip-version-check",
+            "--no-input", "--only-binary=:all:"]
+    for url in r["index_urls"]:
+        argv += ["--extra-index-url", url]
+    return argv + [f"{name}=={version}" for name, version in r["packages"].items()]
+
+
+def _provision_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[str]:
+    del data_env
+    import importlib
+
+    from bioagent.validation.dependencies import load_environments, readiness
+
+    importlib.invalidate_caches()
+    group = (load_environments().get("groups") or {}).get(r["group"]) or {}
+    [record] = readiness({"groups": {r["group"]: group}})
+    return [f"{c.name}: {c.status}: {c.detail}" for c in record.checks
+            if c.status in ("FAIL", "BLOCKED")]
+
+
+def _provision_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    del job_dir
+    from bioagent.validation.dependencies import load_environments, readiness
+
+    group = (load_environments().get("groups") or {}).get(r["group"]) or {}
+    [record] = readiness({"groups": {r["group"]: group}})
+    return {"group": r["group"], "status": record.status,
+            "checks": {c.name: c.status for c in record.checks}}
 
 
 # ------------------------------------------------------------------------------ skill.run
@@ -961,6 +1055,17 @@ def default_kinds() -> dict[str, Kind]:
              # exit 1: the loop ran to the end and release was not authorised — a result
              ok_exit_codes=frozenset({0, 1}), timeout_s=12 * 3600.0,
              requirements=_research_requirements, result=_stdout_result),
+        Kind("research.snapshot", ("构建研究数据快照", "Build the research snapshots"), "minutes",
+             _snapshot_prepare, _snapshot_command,
+             artefacts=(("report", "snapshot_report.json", True),),
+             validators={"report": _json_file},
+             # exit 1 is a stage that failed or was blocked: the job fails with the stage's
+             # reason and next step (the last line the command writes), and the report stays
+             network=True, timeout_s=12 * 3600.0, verify=_snapshot_verify,
+             result=_snapshot_result),
+        Kind("env.provision", ("安装科学计算环境", "Install a scientific environment"), "minutes",
+             _provision_prepare, _provision_command, network=True, timeout_s=3600.0,
+             verify=_provision_verify, result=_provision_result),
         Kind("skill.run", ("受治理 Skill 后台运行", "Governed skill (background)"), "minutes",
              _skill_prepare, _skill_command,
              artefacts=(("envelope", "envelope.json", True),),

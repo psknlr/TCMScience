@@ -1,0 +1,66 @@
+"""env.provision: one group of optional packages installed at the versions CI tested.
+
+Nothing installs itself: the job runs only when a person approves it (every job entry asks),
+installs wheels only (an sdist's build script is not covered by a reviewed pin), and is
+verified afterwards by importing each package and running a calculation with a known answer.
+"""
+from __future__ import annotations
+
+import pytest
+
+from bioagent.validation.dependencies import install_command, load_environments
+from tcmstudio.catalog import get_entry
+from tcmstudio.kinds import KINDS, BadParams, StartContext
+from test_research_snapshot_job import _ctx
+from test_server_support import running_server
+
+
+def test_it_installs_the_tested_pins_as_wheels_only(tmp_path):
+    kind = KINDS["env.provision"]
+    prepared = kind.prepare({"group": "docking"}, _ctx(tmp_path))
+    pins = load_environments()["groups"]["docking"]["packages"]
+    assert prepared["packages"] == pins
+    start = StartContext(job_id="j", job_dir=tmp_path, project_id="p", paths={}, data_env={},
+                         settings={}, device="cpu", threads=1, python="/usr/bin/python3")
+    argv = kind.command(prepared, start)
+    assert argv[:5] == ["/usr/bin/python3", "-I", "-m", "pip", "install"]
+    assert "--only-binary=:all:" in argv
+    assert {a for a in argv if "==" in a} == {f"{n}=={v}" for n, v in pins.items()}
+    assert kind.needs_network(prepared)
+    entry = get_entry("job.env.provision")
+    assert entry["confirm"] and entry["job"], "a person approves every install"
+    assert "docking" in entry["parameters"]["properties"]["group"]["enum"]
+
+
+def test_a_group_without_tested_pins_is_refused(tmp_path):
+    kind = KINDS["env.provision"]
+    with pytest.raises(BadParams, match="installed by hand"):
+        kind.prepare({"group": "structure_prediction"}, _ctx(tmp_path))
+    with pytest.raises(BadParams):
+        kind.prepare({"group": "everything"}, _ctx(tmp_path))
+    torch = kind.prepare({"group": "machine_learning"}, _ctx(tmp_path))
+    assert torch["index_urls"] == ["https://download.pytorch.org/whl/cpu"]
+    assert "--extra-index-url https://download.pytorch.org/whl/cpu" in install_command(
+        load_environments()["groups"]["machine_learning"])
+
+
+def test_the_check_after_the_install_is_the_readiness_check(tmp_path, monkeypatch):
+    # Not what this machine happens to have installed: numpy and scipy are bioagent's own
+    # dependencies, and the other package exists nowhere.
+    from bioagent.validation import dependencies
+    groups = {"groups": {"present": {"packages": {"numpy": "0", "scipy": "0"}},
+                         "absent": {"packages": {"tcmscience-no-such-package": "1.0"}}}}
+    monkeypatch.setattr(dependencies, "load_environments", lambda path=None: groups)
+    kind = KINDS["env.provision"]
+    assert kind.verify(kind.prepare({"group": "present"}, _ctx(tmp_path)), {}) == []
+    checks = kind.result(tmp_path, {"group": "present"})["checks"]
+    assert checks["numpy:calculation"] == "PASS" and checks["scipy:calculation"] == "PASS"
+    assert checks["numpy:version"] == "UNVERIFIED", "not the tested pin: reported, not hidden"
+    problems = kind.verify(kind.prepare({"group": "absent"}, _ctx(tmp_path)), {})
+    assert len(problems) == 1 and problems[0].startswith("tcmscience-no-such-package:import: BLOCKED")
+
+
+def test_with_the_runner_offline_it_is_refused(tmp_path):
+    with running_server(tmp_path / "home", network=False) as (_, c):
+        status, body = c.post("/api/jobs", {"kind": "env.provision", "params": {"group": "admet"}})
+        assert status == 422 and body["error"]["type"] == "network_off"

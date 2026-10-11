@@ -1,7 +1,7 @@
 import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DANGLING_TEXT, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, prepareWire, renumberCitations, reusePolicy, runTurn } from "../js/core/agent.js";
+import { DANGLING_TEXT, FAILURE_BUDGET, MAX_RETRY_AFTER_S, answerDangling, buildWireHistory, citationsUsed, outcomeOf, prepareWire, renumberCitations, reusePolicy, runTurn } from "../js/core/agent.js";
 import { Catalog } from "../js/core/catalog.js";
 import { ProviderError } from "../js/core/llm/sse.js";
 import { activeProvider } from "../js/core/providers.js";
@@ -516,4 +516,70 @@ test("citations are numbered across the conversation: a later turn's E1 never re
   const oldAnth = { role: "assistant", wire: [{ role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "[E3] z" }] }] };
   assert.equal(citationsUsed([u1, old, oldAnth]), 7);
   assert.equal(citationsUsed([u1]), 0);
+});
+
+const failed = (tool, type, message) => ({ ...envelopeFor(tool, "browser"), ok: false, status: "failed", result: null, error: { type, message, hint: "" } });
+
+test("a result says what it means: a missing tool or data, nothing matched, a tested negative, inconclusive", () => {
+  assert.equal(outcomeOf(failed("x", "not_found", "unknown tool: tcmdb_stat"))[0], "tool_unavailable");
+  assert.equal(outcomeOf(failed("x", "unavailable", "Docking needs rdkit, which is not installed on this runner."))[0], "tool_unavailable");
+  assert.equal(outcomeOf(failed("x", "unavailable", "npass is not built; run fetch('npass')"))[0], "data_unavailable");
+  assert.equal(outcomeOf(failed("x", "network_off", "Web access is off"))[0], "data_unavailable");
+  assert.equal(outcomeOf(failed("x", "not_found", "'桂枝汤《伤寒论》' names nothing in this knowledge base"))[0], "no_record");
+  assert.equal(outcomeOf(failed("x", "bad_arguments", "arguments.name must be a string"))[0], "input_error");
+  const rows = (...outcomes) => envelopeFor("tcmdb_relations", "browser", { result: { relations: outcomes.map((outcome) => ({ outcome })) } });
+  assert.equal(outcomeOf(rows("negative", "negative"))[0], "negative_finding");
+  assert.equal(outcomeOf(rows("positive", "negative"))[0], "mixed_findings");
+  assert.equal(outcomeOf(rows("inconclusive"))[0], "inconclusive");
+  assert.equal(outcomeOf(envelopeFor("tcmdb_relations", "browser", { result: { relations: [] } }))[0], "no_record");
+  assert.equal(outcomeOf(rows("positive")), null, "an ordinary result gets no line");
+  assert.equal(outcomeOf(envelopeFor("tcm_herb")), null);
+});
+
+// what the model reads: the tool results of the turn's wire (OpenAI format), by call id
+const readByModel = (res) => Object.fromEntries(res.assistant.wire.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m.content]));
+
+test("the model reads the outcome under the result", async () => {
+  const answer = (tool) => (tool === "tcm_compatibility" ? envelopeFor(tool, "browser", { result: { relations: [] } }) : envelopeFor(tool, "browser"));
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcm_compatibility", args: { herbs: ["甘草", "甘遂"] } }, { id: "b", name: "tcm_herb", args: { name: "黄连" } }] }),
+    openaiStep({ text: "done" }),
+  ]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter({ answer }).router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  const read = readByModel(res);
+  assert.match(read.a, /\nOutcome: no_record — the query ran and matched nothing; that is not evidence that none exists\.$/);
+  assert.doesNotMatch(read.b, /Outcome:/);
+});
+
+test("a tool that keeps failing is not called again in the turn, and the model is told to change approach", async () => {
+  let n = 0;
+  const answer = (tool) => (tool === "tcm_herb" ? failed(tool, "runtime_error", `worker crashed ${++n}`) : envelopeFor(tool, "browser"));
+  const llm = scriptedLLM([1, 2, 3, 4].map((i) => openaiStep({ calls: [{ id: `c${i}`, name: "tcm_herb", args: { name: `药${i}` } }] }))
+    .concat([openaiStep({ calls: [{ id: "ok", name: "tcm_compatibility", args: { herbs: ["桂枝", "白芍"] } }] }), openaiStep({ text: "done" })]));
+  const { router, runtimes } = makeRouter({ answer });
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  assert.equal(runtimes.browser.calls.filter((c) => c.tool === "tcm_herb").length, FAILURE_BUDGET, "the fourth is not run");
+  const read = readByModel(res);
+  assert.match(read.c1, /Outcome: tool_failed/);
+  assert.match(read.c2, /tcm_herb has now failed 2 times in this turn; one more failure and it is not called again/);
+  assert.match(read.c3, /failed 3 times in this turn and is not called again in it/);
+  const fourth = res.toolMessages.find((m) => m.toolCallId === "c4");
+  assert.equal(fourth.envelope.status, "refused");
+  assert.match(read.c4, /Not run: tcm_herb has failed 3 times in this turn .*Change approach/);
+  assert.match(fourth.envelope.error.message, /failure budget/);
+  assert.equal(res.toolMessages.find((m) => m.toolCallId === "ok").envelope.status, "succeeded", "another tool still runs");
+});
+
+test("a failure a retry cannot change stops the tool at once: a tool that does not exist", async () => {
+  const llm = scriptedLLM([
+    openaiStep({ calls: [{ id: "a", name: "tcmdb_stat", args: { dataset: "npass" } }] }),
+    openaiStep({ calls: [{ id: "b", name: "tcmdb_stat", args: { dataset: "cmaup" } }] }),
+    openaiStep({ text: "done" }),
+  ]);
+  const res = await runTurn({ provider: deepseek, system: "", history: [user("x")], router: makeRouter().router, catalog, settings: {}, llm: { openai: llm }, onEvent: () => {} });
+  const read = readByModel(res);
+  assert.match(read.a, /Outcome: tool_unavailable/);
+  assert.match(read.a, /will not change on a retry/);
+  assert.equal(res.toolMessages[1].envelope.status, "refused");
+  assert.match(read.b, /in a way a retry cannot change/);
 });

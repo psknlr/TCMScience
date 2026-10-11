@@ -19,6 +19,11 @@ requires-python = ">=3.11"
 # reading pyproject.toml.
 dependencies = ["pandas>=2.0", "pyarrow>=14.0", "pyyaml>=6.0", "scipy>=1.10"]
 
+# The command the docs and every report's reproduce line use (`bioagent validate …`,
+# `bioagent snapshots build …`); `python -m bioagent.cli` is the same program.
+[project.scripts]
+bioagent = "bioagent.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "build>=1.0", "openpyxl>=3.1"]
 # Reading the formula table (中医方剂数据表.xlsx).

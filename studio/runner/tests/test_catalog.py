@@ -115,7 +115,7 @@ def test_counts(runner_catalog):
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
-    assert kinds["job"] == 9 and kinds["system"] >= 5
+    assert kinds["job"] == 11 and kinds["system"] >= 5
     assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"])
 
 
@@ -242,8 +242,9 @@ def test_human_acts_are_not_entries(runner_catalog):
 
 def test_job_kinds_are_the_runner_kinds():
     assert set(JOB_KINDS) == {"pipeline.rnaseq", "pipeline.scrna", "pipeline.fold",
-                              "pipeline.dock", "pipeline.admet", "research.run", "skill.run",
-                              "tcmdb.fetch", "tcmdb.build"}
+                              "pipeline.dock", "pipeline.admet", "research.run",
+                              "research.snapshot", "env.provision", "skill.run", "tcmdb.fetch",
+                              "tcmdb.build"}
     for kind in JOB_KINDS:
         e = get_entry(f"job.{kind}")
         assert e["job"] and e["confirm"] and e["exec"] == ["runner"]

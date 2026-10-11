@@ -726,8 +726,10 @@ class JobService:
     @staticmethod
     def _missing_hint(kind: Kind, missing: list[str]) -> str:
         if kind.kind == "research.run" and any(m.startswith("snapshots") for m in missing):
-            return ("Build the data snapshots and their ledger first (BioScience-Harness "
-                    "scripts/build_source_snapshots.py … --ledger <data>/snapshots/ledger.jsonl).")
+            return ("Build the data snapshots and their ledger first: the research.snapshot job "
+                    "(job.research.snapshot) downloads NPASS, CMAUP, LOTUS, STRING and Reactome "
+                    "from their reviewed URLs, verifies, builds and records them; add the formula "
+                    "to study with its source book (formulas: [\"桂枝汤《伤寒论》\"]).")
         return "Install it on the runner machine (Settings → Compute lists the commands)."
 
     def _gate(self, kind: Kind, prepared: dict[str, Any], settings: Mapping[str, Any]) -> None:

@@ -35,6 +35,10 @@ class FileSpec:
     #: Some files are served as HTML (a page a person reads). For every other file an HTML
     #: answer is a login, challenge or error page, and the hub refuses to keep it.
     html_ok: bool = False
+    #: The reviewed checksum (``sha256:<hex>`` or ``md5:<hex>``). ``hub.fetch`` keeps a
+    #: file only if it hashes to it, and ``hub.import_raw`` accepts one only if it does;
+    #: a file without one is verified by its size.
+    checksum: str | None = None
 
 
 @dataclass(frozen=True)

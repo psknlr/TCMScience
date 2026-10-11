@@ -147,17 +147,22 @@ def formula_store() -> Path:
 
 
 def _record(row: sqlite3.Row, metadata: Mapping[str, str]) -> dict[str, Any]:
-    from bioagent.sources.formulas import FormulaRecord, parse_composition
+    from bioagent.sources.formulas import FormulaRecord, apply_erratum, parse_composition
 
-    rec = FormulaRecord(row["row"], row["name"], row["clean_name"], row["source"],
-                        row["composition"], parse_composition(row["composition"]),
-                        row["preparation"], row["actions"], row["usage"], row["cautions"])
-    return {"id": rec.id, "row": rec.row, "name": rec.name,
-            "written_name": rec.written_name, "source": rec.source,
-            **{c: row[c] for c in FORMULA_COLUMNS if c != "name"},
-            "components": [asdict(c) for c in rec.components],
-            "resolved": rec.resolved, "unresolved": list(rec.unresolved),
-            "license": metadata["license"], "clinical_validation": "not assessed"}
+    rec = apply_erratum(FormulaRecord(
+        row["row"], row["name"], row["clean_name"], row["source"], row["composition"],
+        parse_composition(row["composition"]), row["preparation"], row["actions"],
+        row["usage"], row["cautions"]))
+    out = {"id": rec.id, "row": rec.row, "name": rec.name,
+           "written_name": rec.written_name, "source": rec.source,
+           **{c: row[c] for c in FORMULA_COLUMNS if c != "name"},
+           "components": [asdict(c) for c in rec.components],
+           "resolved": rec.resolved, "unresolved": list(rec.unresolved),
+           "license": metadata["license"], "clinical_validation": "not assessed"}
+    if rec.erratum is not None:
+        # the composition stays as the workbook writes it; the components were read through this
+        out["erratum"] = rec.erratum.as_dict()
+    return out
 
 
 def _open_store() -> sqlite3.Connection:

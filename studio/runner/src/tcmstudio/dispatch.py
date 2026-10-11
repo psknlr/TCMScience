@@ -22,6 +22,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import difflib
+import functools
 import json
 import re
 import secrets
@@ -1005,6 +1006,8 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         o.summary_en = (f"{en}{entry['title']['en']}: "
                         + (f"{what} not found" if what else "not found")
                         + " (which is not absence)")
+    if name == "tcm_formula" and (o.error or {}).get("type") == "not_found":
+        o = _seed_for_book(rt, entry, args, ctx, licences, domain, o)
     if name in ("tcm_formula", "tcm_lookup", "tcm_herb"):
         o = _repository_native(name, args, o)
     if name == "tcm_herb":
@@ -1012,7 +1015,7 @@ def _exec_native(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
     elif name == "tcm_syndrome":
         o = _syndrome_formulas(args, o)
     elif name == "tcm_compatibility":
-        o = _compatibility_formulas(entry, args, ctx, o, licences)
+        o = _compatibility_rules(args, _compatibility_formulas(entry, args, ctx, o, licences))
     return o
 
 
@@ -1148,7 +1151,7 @@ def _compatibility_formulas(entry: dict[str, Any], args: Mapping[str, Any], ctx:
     knows is a herb, never a formula: the workbook has formulas called 雷丸 or 麝香 whose
     herbs are others."""
     from bioagent.sources.materia import resolve_name
-    from .repository_data import FORMULA_LICENSE, formula_search
+    from .repository_data import FORMULA_LICENSE
     if o.status != "succeeded" or not isinstance(o.result, Mapping):
         return o
     names = [str(u.get("name")) for u in o.result.get("unresolved") or []
@@ -1159,7 +1162,7 @@ def _compatibility_formulas(entry: dict[str, Any], args: Mapping[str, Any], ctx:
     versions: dict[str, int] = {}
     try:
         for name in names:
-            found = formula_search(name, exact=True, limit=2)
+            found = _workbook_versions(name, 2)
             if found["total"] == 1:
                 row = found["records"][0]
                 herbs = list(dict.fromkeys(c["name"] for c in row["components"] if c.get("name")))
@@ -1215,11 +1218,64 @@ def _compatibility_formulas(entry: dict[str, Any], args: Mapping[str, Any], ctx:
     return out
 
 
+def _seed_for_book(rt: Any, entry: dict[str, Any], args: Mapping[str, Any], ctx: Context,
+                   licences: list[dict[str, Any]], domain: str, o: Outcome) -> Outcome:
+    """桂枝汤《伤寒论》: the curated formula under its bare name, when it is that book's
+    version. Its annotations (roles, passages, indications) apply only to its own source
+    formula, so 桂枝汤《圣济总录》 does not get them; the workbook answers for that one."""
+    from bioagent.sources.formulas import source_matches, split_source
+    bare, books = split_source(str(args.get("name") or ""))
+    if not books or not bare:
+        return o
+    res = rt.invoke("native.tool.tcm_formula", spec=_spec(ctx), name=bare)
+    seed = getattr(res, "value", None)
+    source = ((seed or {}).get("formula") or {}).get("source", "") if isinstance(seed, Mapping) else ""
+    if not source or not source_matches(source, books):
+        return o
+    found = _call_result(res, entry, ctx, kind="native", licences=licences,
+                         limits=_native_limits("tcm_formula", domain, seed, {"name": bare}))
+    if found.status != "succeeded":
+        return o
+    found.summary, found.summary_en = _native_summary("tcm_formula", entry["title"], {"name": bare},
+                                                      found.result)
+    return found
+
+
+def _workbook_versions(query: str, limit: int) -> dict[str, Any]:
+    """The workbook rows named ``query``; a name written with its book (桂枝汤《伤寒论》) keeps
+    the versions that cite it, and when none does, says which books its versions cite."""
+    from bioagent.sources.formulas import source_matches, split_source
+    from .repository_data import formula_search
+    bare, books = split_source(query)
+    if not books:
+        return formula_search(query, exact=True, limit=limit)
+    found = formula_search(bare, exact=True, limit=500)
+    kept = [r for r in found["records"] if source_matches(r["source"], books)]
+    out = {**found, "query": query, "name": bare, "books": list(books), "records": kept[:limit],
+           "count": len(kept[:limit]), "total": len(kept), "offset": 0, "next_offset": None}
+    if not kept and found["total"]:
+        out["versions"] = found["total"]
+        out["versions_cite"] = sorted({r["source"] or "(no source)" for r in found["records"]})
+    return out
+
+
+def _errata_limits(records: list[Mapping[str, Any]]) -> list[str]:
+    """One line per record read through an erratum, naming it and what the workbook wrote."""
+    out = []
+    for r in records:
+        e = r.get("erratum")
+        if e:
+            out.append(f"{r['name']}（{r['source']}）: composition read through {e['id']} "
+                       f"({e['note']}); the workbook writes 「{e['written']}」, read as "
+                       f"「{e['corrected']}」 after {e['authority'].split('：', 1)[0]}.")
+    return out
+
+
 def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Outcome:
     """Broaden identity/formula lookups without inferring missing clinical annotations."""
     from dataclasses import asdict
     from bioagent.sources.materia import MATERIA, resolve_name
-    from .repository_data import FORMULA_LICENSE, formula_search
+    from .repository_data import FORMULA_LICENSE
     if base.status != "succeeded" and (base.error or {}).get("type") != "not_found":
         return base
     query = str(args.get("name") or "")
@@ -1247,13 +1303,25 @@ def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Out
     if name == "tcm_herb" or (name == "tcm_lookup" and args.get("kind") not in (None, "", "formula")):
         return base
     try:
-        records = formula_search(query, exact=True, limit=100)
+        records = _workbook_versions(query, 100)
     except FileNotFoundError as exc:
         if base.status == "succeeded" and (name != "tcm_lookup" or base.result.get("found")):
             return _workbook_unavailable(base, "repository_records", exc)
         return _failure("native", "unavailable", str(exc), "Load the complete repository formula asset.",
                         limitations=[_LIMIT_NO_WORKBOOK])
     if not records["total"]:
+        if records.get("versions") and base.status != "succeeded":
+            cited = records["versions_cite"]
+            books = "".join(f"《{b}》" for b in records["books"])
+            return _failure(
+                "native", "not_found",
+                f"no version of {records['name']} in the formula workbook cites {books}; its "
+                f"{records['versions']} version(s) cite: {'; '.join(cited[:12])}"
+                + (" …" if len(cited) > 12 else ""),
+                f"Name one of those books, e.g. {records['name']}{cited[0] if cited[0].startswith('《') else '《' + cited[0] + '》'}.",
+                summary=f"完整方剂库：{records['name']} 无出自{books}的版本（共 {records['versions']} 个版本）",
+                summary_en=f"Complete formula workbook: no version of {records['name']} cites {books} "
+                           f"({records['versions']} versions)")
         return base
     g = dict(base.governance) if name == "tcm_formula" and base.status == "succeeded" else gv.empty("native")
     g["licences"] = [*(g.get("licences") or []),
@@ -1261,7 +1329,8 @@ def _repository_native(name: str, args: Mapping[str, Any], base: Outcome) -> Out
                                       note="workbook data licence is unstated")]
     g["limitations"] = ["Workbook records are not clinically validated; historical doses, "
                         "actions and cautions are kept as recorded. Duplicate names identify "
-                        "different source versions and are not silently merged."]
+                        "different source versions and are not silently merged.",
+                        *_errata_limits(records["records"])]
     if name == "tcm_formula":
         result = dict(base.result) if base.status == "succeeded" and isinstance(base.result, Mapping) else {}
         result["repository_records"] = records
@@ -1751,6 +1820,8 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
     passed = sum(1 for v in states.values() if v)
     tail, tail_en = _release_tail(run.released, passed, len(states) or 6)
     summary, summary_en = _skill_summary(sid, entry["title"], args, outputs)
+    if sid == "assess-tcm-safety":
+        summary, summary_en = _safety_rule_table(args, outputs, result, g, summary, summary_en)
     summary, summary_en = summary + tail, summary_en + tail_en
     governed = (doc.get("provenance") or {}).get("governed") or {}
     return Outcome(result=result, model_view=view_model, summary=summary, summary_en=summary_en,
@@ -1761,6 +1832,133 @@ def _exec_skill(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Ou
                    receipt={"durable": project.durable, "run_id": run_id,
                             "run_anchor": governed.get("run_anchor"),
                             "skill_pinned": bool(run.lockfile)})
+
+
+# ------------------------------------------------------------------ 十八反 / 十九畏
+
+@functools.lru_cache(maxsize=1)
+def _rule_pairs() -> tuple[dict[str, dict[tuple[str, str], dict[str, str]]], str, str]:
+    """The clinic pack's 十八反 and 十九畏 table by crude drug: drug -> {(other drug, rule):
+    {name, source}}, with the table's review status and version. The seed corpus records
+    only the pairs among its 23 herbs (甘草 against 甘遂, not 大戟, 海藻 or 芫花); the rule
+    table has them all. It is outside the pinned skills, so their runs are unchanged and the
+    table is added beside them, labelled as what it is."""
+    from bioagent.clinic.pack import load_pack
+    from bioagent.sources.materia import resolve_name
+
+    pack = load_pack()
+    by: dict[str, dict[tuple[str, str], dict[str, str]]] = {}
+    for a, b, rule in pack.incompatible:
+        da, db = resolve_name(a) or a, resolve_name(b) or b
+        source = pack.incompatible_sources.get(rule, "")
+        by.setdefault(da, {}).setdefault((db, rule), {"name": b, "source": source})
+        by.setdefault(db, {}).setdefault((da, rule), {"name": a, "source": source})
+    return by, pack.review_status, pack.version
+
+
+def _rule_label(status: str) -> tuple[str, str]:
+    reviewed = status.lower().startswith("reviewed")
+    return (("规则表已审核" if reviewed else "规则表为草稿，未经执业中医师审核"),
+            ("the rule table is reviewed" if reviewed else
+             "the rule table is a draft, not reviewed by a licensed TCM practitioner"))
+
+
+def _safety_rule_table(args: Mapping[str, Any], outputs: Mapping[str, Any], result: dict[str, Any],
+                       g: dict[str, Any], summary: str, summary_en: str) -> tuple[str, str]:
+    """A safety report on a herb, with every pair the 十八反/十九畏 table names for it."""
+    from bioagent.sources.materia import resolve_name
+    try:
+        by, status, version = _rule_pairs()
+    except (OSError, ValueError, KeyError):
+        return summary, summary_en
+    subject = str(args.get("subject") or "")
+    drug = resolve_name(subject.strip())
+    pairs = by.get(drug or "", {})
+    if not pairs:
+        return summary, summary_en
+    seed = {str(r.get("counterpart") or "").split(".", 1)[-1]
+            for r in (outputs.get("safety.json") or {}).get("records") or ()
+            if r.get("kind") == "incompatibility"}
+    rows = [{"herb": v["name"], "drug": other, "rule": rule, "source": v["source"],
+             "in_seed_corpus": other in seed}
+            for (other, rule), v in sorted(pairs.items(), key=lambda kv: (kv[0][1], kv[1]["name"]))]
+    zh, en = _rule_label(status)
+    result["rule_table"] = {
+        "table": "十八反 / 十九畏", "version": version, "review_status": status,
+        "incompatible_with": rows,
+        "note": "a rule that the pair is not to be combined, not a record of harm in a patient"}
+    names = "、".join(r["herb"] for r in rows)
+    g["limitations"] = [*(g.get("limitations") or []),
+                        f"The 十八反/十九畏 rule table ({en}) lists {subject} as not to be combined "
+                        f"with {names}; the seed corpus records "
+                        f"{sum(r['in_seed_corpus'] for r in rows)} of these pairs."]
+    co = [str(x) for x in args.get("co_administered") or ()]
+    hit = [r for r in rows for c in co if resolve_name(c.strip()) == r["drug"]]
+    if hit:
+        # the seed's "no incompatibility recorded" for this combination is not the answer
+        result["rule_table"]["co_administered_conflicts"] = hit
+        with_ = "、".join(r["herb"] for r in hit)
+        summary = summary.replace("未见配伍禁忌记录（不等于可以合用）",
+                                  f"种子语料未见此配伍禁忌，规则表记载{subject}与{with_}不宜同用")
+        summary_en = summary_en.replace(
+            "no incompatibility recorded (which is not safety to combine)",
+            f"the seed corpus records no incompatibility, but the rule table names {subject} "
+            f"with {with_} as not to be combined")
+    return (summary + f"；十八反/十九畏规则表：{subject}不宜与{names}同用（{zh}）",
+            summary_en + f"; the 十八反/十九畏 rule table: {subject} is not to be combined with "
+                         f"{names} ({en})")
+
+
+def _compatibility_rules(args: Mapping[str, Any], o: Outcome) -> Outcome:
+    """A compatibility check with the pairs the 十八反/十九畏 table forbids that the seed
+    corpus cannot see (its 23 herbs do not include 海藻, 大戟 or 芫花)."""
+    from bioagent.sources.materia import resolve_name
+    if o.status != "succeeded" or not isinstance(o.result, Mapping):
+        return o
+    try:
+        by, status, version = _rule_pairs()
+    except (OSError, ValueError, KeyError):
+        return o
+    expanded = {e["formula"]: e["herbs"] for e in o.result.get("expanded_formulas") or ()}
+    names: list[str] = []
+    for h in args.get("herbs") or ():
+        names.extend(expanded.get(str(h), [str(h)]))
+    drugs = {}
+    for n in dict.fromkeys(names):
+        d = resolve_name(n.strip())
+        if d:
+            drugs.setdefault(d, n)
+    seen = {frozenset(str(c.get(k) or "").split(".", 1)[-1] for k in ("first_id", "second_id"))
+            for c in o.result.get("conflicts") or ()}
+    found = []
+    ids = sorted(drugs)
+    for i, a in enumerate(ids):
+        for b in ids[i + 1:]:
+            for (other, rule), v in by.get(a, {}).items():
+                if other == b:
+                    found.append({"pair": [drugs[a], drugs[b]], "rule": rule, "source": v["source"],
+                                  "in_seed_corpus": frozenset((a, b)) in seen})
+    if not found:
+        return o
+    zh, en = _rule_label(status)
+    result = dict(o.result)
+    result["rule_table_conflicts"] = found
+    result["rule_table"] = {"table": "十八反 / 十九畏", "version": version, "review_status": status}
+    result["compatible"] = False
+    o.result = result
+    new = [p for p in found if not p["in_seed_corpus"]]
+    if not new:
+        return o
+    pairs = "；".join(f"{p['pair'][0]}与{p['pair'][1]}（{p['rule']}）" for p in new)
+    pairs_en = "; ".join(f"{p['pair'][0]} with {p['pair'][1]} ({p['rule']})" for p in new)
+    o.summary += f"；规则表：{pairs}不宜同用（{zh}）"
+    o.summary_en += f"; the rule table: {pairs_en} not to be combined ({en})"
+    g = dict(o.governance or gv.empty("native"))
+    g["limitations"] = [*(g.get("limitations") or []),
+                        f"Pairs named by the 十八反/十九畏 rule table ({en}), beyond the seed "
+                        f"corpus's own records: {pairs_en}."]
+    o.governance = g
+    return o
 
 
 def _release_tail(released: Any, passed: int, total: int) -> tuple[str, str]:

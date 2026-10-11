@@ -232,6 +232,9 @@ def _cmd_tcmdb(a) -> int:
         if a.tcmdb_cmd == "fetch":
             results = hub.fetch(a.dataset, include_optional=a.all, confirm=a.confirm)
             return 0 if all(r["ok"] for r in results) else 1
+        if a.tcmdb_cmd == "import-raw":
+            show([hub.import_raw(a.dataset, path, name=a.name) for path in a.files])
+            return 0
         if a.tcmdb_cmd == "build":
             keys = [d.key for d in DATASETS if hub.raw_dir(d.key).exists()] \
                 if a.dataset == "all" else [a.dataset]
@@ -369,6 +372,42 @@ def _cmd_research(a) -> int:
                "output_dir": run.output_dir}
     print(_json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if run.released else 1
+
+
+def _cmd_snapshots(a) -> int:
+    """The research snapshots in one recorded run (``bioagent.sources.pipeline``).
+
+    Exit 0 when every stage passed or is only unverified (a file with no reviewed checksum
+    yet), 1 when a stage failed or was blocked; the report says which and what to do."""
+    from .config import data_lake_dir
+    from .sources import pipeline
+
+    lake = data_lake_dir(a.dest)
+    raw = Path(a.raw) if a.raw else lake / "raw"
+    if a.snap_cmd == "plan":
+        print(json.dumps(pipeline.plan(raw, a.sources, network=not a.no_network),
+                         indent=1, ensure_ascii=False))
+        return 0
+    if a.snap_cmd == "import":
+        try:
+            rows = pipeline.import_files(raw, a.files)
+        except (OSError, ValueError) as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps(rows, indent=1, ensure_ascii=False))
+        return 0
+    out = Path(a.out) if a.out else lake / "snapshots"
+    ledger = Path(a.ledger) if a.ledger else out / "ledger.jsonl"
+    doc = pipeline.build_research_snapshots(
+        raw, out, ledger, sources=a.sources, network=not a.no_network, formulas=a.formula,
+        formula_table=a.formula_table or None, confirm=a.confirm, offline=a.offline,
+        report_path=a.report or None, log=lambda m: print(m, file=sys.stderr))
+    print(json.dumps(pipeline.summary(doc), indent=1, ensure_ascii=False))
+    if doc["status"] in ("PASS", "UNVERIFIED"):
+        return 0
+    # the last line of stderr is what a job's error shows: the reason and the next step
+    print(f"{doc['status']}: {doc.get('next_step') or 'see the report'}", file=sys.stderr)
+    return 1
 
 
 def _cmd_scout(a) -> int:
@@ -558,6 +597,42 @@ def main(argv: list[str] | None = None) -> int:
                     choices=("trusted_local", "restricted_research", "sensitive_data"),
                     help="PSH deployment profile the analysis executes under")
 
+    va = sub.add_parser("validate", add_help=False,
+                        help="validation reports: real data, dependencies, databases "
+                             "(bioagent validate --help)")
+    va.add_argument("rest", nargs=argparse.REMAINDER)
+    sn = sub.add_parser("snapshots", help="build the research loop's source snapshots in one "
+                                          "recorded run: acquire, verify, build, ledger")
+    snsub = sn.add_subparsers(dest="snap_cmd", required=True)
+    for name, text in (("plan", "the raw files the sources need, and which are here"),
+                       ("build", "acquire, verify, build and record the snapshots"),
+                       ("import", "add raw files a person obtained, held to the reviewed "
+                                  "checksums")):
+        x = snsub.add_parser(name, help=text)
+        x.add_argument("--raw", default="", help="raw file directory (default: <data lake>/raw)")
+        if name == "import":
+            x.add_argument("files", nargs="+")
+            continue
+        x.add_argument("--sources", nargs="+", default=["npass", "cmaup", "lotus"],
+                       choices=("npass", "cmaup", "lotus"))
+        x.add_argument("--no-network", action="store_true",
+                       help="leave out STRING and Reactome (no enrichment or network)")
+        if name == "plan":
+            continue
+        x.add_argument("--out", default="", help="snapshot root (default: <data lake>/snapshots)")
+        x.add_argument("--ledger", default="", help="the ledger (default: <out>/ledger.jsonl, "
+                                                    "where the research job reads it)")
+        x.add_argument("--formula", action="append", default=[],
+                       help="add this formula to the herb layer: an id or a name with its "
+                            "source book, e.g. 桂枝汤《伤寒论》 (repeatable)")
+        x.add_argument("--formula-table", default="",
+                       help="the formula table; alone, every fully resolved formula of it "
+                            "joins the herb layer")
+        x.add_argument("--confirm", action="store_true", help="allow files above the size gate")
+        x.add_argument("--offline", action="store_true",
+                       help="download nothing: build from the files already here")
+        x.add_argument("--report", default="", help="write the full report (JSON) here")
+
     tc = sub.add_parser("tcmdb", help="the TCM data hub: 66 catalogued sources, local "
                                       "stores, cross-source relations, live connectors")
     tc.add_argument("--root", default="", help="hub directory (default: $BIOAGENT_TCMDB "
@@ -575,6 +650,12 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("dataset")
     t.add_argument("--all", action="store_true", help="include optional (large) files")
     t.add_argument("--confirm", action="store_true", help="allow files above the size gate")
+    t = tsub.add_parser("import-raw", help="add files a person obtained, verified against the "
+                                           "reviewed checksum or size as a download would be")
+    t.add_argument("dataset")
+    t.add_argument("files", nargs="+")
+    t.add_argument("--name", default=None, help="the dataset file a single FILE is (default: "
+                                                 "its own name)")
     t = tsub.add_parser("build", help="load downloaded files into the local store")
     t.add_argument("dataset", help="a dataset key, or 'all'")
     t = tsub.add_parser("check", help="acceptance checks: files, rebuild digest, row "
@@ -671,6 +752,11 @@ def main(argv: list[str] | None = None) -> int:
         return admet_commands.dispatch(a)
     if a.cmd == "research":
         return _cmd_research(a)
+    if a.cmd == "snapshots":
+        return _cmd_snapshots(a)
+    if a.cmd == "validate":
+        from .validation.cli import main as validate
+        return validate(a.rest)
     if a.cmd == "tcmdb":
         return _cmd_tcmdb(a)
 

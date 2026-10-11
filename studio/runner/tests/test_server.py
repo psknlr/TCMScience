@@ -78,8 +78,8 @@ def test_kinds_carry_schemas_and_availability(server):
     assert status == 200
     by = {k["kind"]: k for k in kinds}
     assert set(by) == {"pipeline.rnaseq", "pipeline.scrna", "pipeline.fold", "pipeline.dock",
-                       "pipeline.admet", "research.run", "skill.run", "tcmdb.fetch",
-                       "tcmdb.build"}
+                       "pipeline.admet", "research.run", "research.snapshot", "env.provision",
+                       "skill.run", "tcmdb.fetch", "tcmdb.build"}
     for k in kinds:
         assert k["parameters"]["type"] == "object"
         assert k["duration"] in ("seconds", "minutes", "hours")

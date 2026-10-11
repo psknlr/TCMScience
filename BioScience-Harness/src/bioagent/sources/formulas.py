@@ -36,24 +36,36 @@ The table's origin and licence are not stated. Its rows are read at run time fro
 file the user supplied; nothing derived from them is redistributed beyond the snapshot a
 run builds locally, and every edge built from them carries the licence
 ``LicenseRef-user-supplied-unstated``.
+
+A record whose composition is known to be mis-written (桂枝甘草汤《伤寒论》 lists 草 for
+甘草) is read through an erratum (``data/formula_errata.json``, :func:`load_errata`). The
+workbook is not edited and the record keeps its text, row and id; only its components are
+parsed from the corrected text, each keeps the name the workbook wrote, and the record
+carries the erratum so every output can name it.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Iterator, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from .materia import MATERIA, normalise_name, resolve_name
 
-__all__ = ["TABLE_FILE", "TABLE_LICENSE", "Component", "Dose", "FormulaRecord", "FormulaTable",
-           "parse_composition", "parse_dose", "load_formula_table"]
+__all__ = ["TABLE_FILE", "TABLE_LICENSE", "ERRATA_FILE", "BOOK_ABBREVIATIONS", "Component",
+           "Dose", "Erratum", "FormulaRecord", "FormulaTable", "apply_erratum", "load_errata",
+           "parse_composition", "parse_dose", "load_formula_table", "source_matches",
+           "split_source"]
 
 TABLE_FILE = Path(__file__).resolve().parents[4] / "中医方剂数据表.xlsx"
+ERRATA_FILE = Path(__file__).resolve().parents[1] / "data" / "formula_errata.json"
+ERRATA_STATUSES = ("proposed", "accepted", "rejected")
 TABLE_LICENSE = "LicenseRef-user-supplied-unstated"
 COLUMNS = ("名称", "配方", "出处", "炮制", "功效", "使用方法", "注意")
 
@@ -198,6 +210,32 @@ class Component:
 
 
 @dataclass(frozen=True)
+class Erratum:
+    """One correction to how a record's composition is read, and the text it follows."""
+
+    id: str
+    name: str
+    source: str
+    written: str                      # the composition exactly as the workbook writes it
+    corrected: str                    # the reading applied instead
+    reason: str
+    authority: str                    # the text the correction follows, quoted
+    status: str                       # proposed | accepted | rejected
+    formula_id: str = ""
+    row: int | None = None
+    proposed: str = ""
+    reviewed_by: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "formula_id": self.formula_id, "status": self.status,
+                "written": self.written, "corrected": self.corrected, "reason": self.reason,
+                "authority": self.authority, "reviewed_by": self.reviewed_by,
+                "note": ("proposed: applied and awaiting a maintainer's review"
+                         if self.status == "proposed" else f"{self.status} by {self.reviewed_by}"
+                         if self.reviewed_by else self.status)}
+
+
+@dataclass(frozen=True)
 class FormulaRecord:
     row: int
     written_name: str
@@ -209,6 +247,8 @@ class FormulaRecord:
     actions: str = ""
     usage: str = ""
     cautions: str = ""
+    #: The correction its components were parsed through, or None (``apply_erratum``).
+    erratum: Erratum | None = None
 
     @property
     def id(self) -> str:
@@ -229,15 +269,23 @@ class FormulaRecord:
         """(name, kind) of each unresolved ingredient: 黄连素 is a compound, not 黄连."""
         return tuple((c.name or c.written, c.kind) for c in self.components if not c.resolved)
 
+    @property
+    def written_components(self) -> tuple[Component, ...]:
+        """The components as the workbook writes them, before any erratum."""
+        return parse_composition(self.composition) if self.erratum else self.components
+
     def version(self):
-        """This record as a ``herbs.FormulaVersion`` (resolved records only)."""
+        """This record as a ``herbs.FormulaVersion`` (resolved records only). A record read
+        through an erratum keeps the names the workbook wrote on its components."""
         from .herbs import FormulaVersion
         if not self.resolved:
             raise ValueError(f"{self.name}: unresolved ingredients {list(self.unresolved)}")
+        written = (tuple(c.name or c.written for c in self.written_components)
+                   if self.erratum else ())
         return FormulaVersion(
             self.id, self.name, self.source or "未注明出处",
             tuple((f"tcm:herb.{c.drug}", "", c.dose, c.processing) for c in self.components),
-            license=TABLE_LICENSE)
+            license=TABLE_LICENSE, written=written)
 
 
 def _split_outside_parens(text: str) -> list[str]:
@@ -335,6 +383,95 @@ def _clean_name(written: str) -> str:
     return _NAME_SOURCE.sub("", (written or "").strip()).strip()
 
 
+#: Full titles a name may be written with for the abbreviations the table cites.
+BOOK_ABBREVIATIONS = {
+    "太平惠民和剂局方": "局方", "和剂局方": "局方", "太平圣惠方": "圣惠", "千金要方": "千金",
+    "备急千金要方": "千金", "千金翼方": "千金翼", "外台秘要": "外台", "肘后备急方": "肘后",
+    "小儿药证直诀": "小儿药证直诀", "普济本事方": "本事", "妇人大全良方": "妇人良方",
+    "景岳全书": "景岳全书", "证治准绳": "准绳", "医方考": "医方考", "鸡峰普济方": "鸡峰",
+}
+_BOOK = re.compile(r"《([^》]+)》")
+
+
+def split_source(text: str) -> tuple[str, tuple[str, ...]]:
+    """A formula name and the source books written with it, as the table cites them:
+    ``桂枝汤《伤寒论》`` → ``("桂枝汤", ("伤寒论",))``; a full title becomes the table's
+    abbreviation (太平惠民和剂局方 → 局方)."""
+    books = tuple(BOOK_ABBREVIATIONS.get(b.strip(), b.strip())
+                  for b in _BOOK.findall(text or "") if b.strip())
+    return _BOOK.sub("", text or "").strip(), books
+
+
+def source_matches(source: str, books: Iterable[str]) -> bool:
+    """Whether a record's 出处 is one of ``books``: a book the record cites names the
+    other or is named by it (伤寒论 / 《伤寒论》卷二). A record that cites no source matches
+    no book."""
+    cited = [s.strip() for s in (_BOOK.findall(source or "") or [source or ""]) if s.strip()]
+    return any(b == s or b in s or s in b for b in books if b for s in cited)
+
+
+# --------------------------------------------------------------------------- errata
+
+def _errata_path() -> Path | None:
+    value = os.environ.get("BIOAGENT_FORMULA_ERRATA", "")
+    if value.strip().lower() == "none":
+        return None
+    return Path(value) if value.strip() else ERRATA_FILE
+
+
+@lru_cache(maxsize=4)
+def _errata_from(path: str) -> tuple[Erratum, ...]:
+    p = Path(path)
+    if not p.is_file():
+        return ()
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    out = []
+    for item in doc.get("errata") or ():
+        e = Erratum(id=str(item["id"]), name=str(item["name"]), source=str(item["source"]),
+                    written=str(item["written"]), corrected=str(item["corrected"]),
+                    reason=str(item.get("reason") or ""),
+                    authority=str(item.get("authority") or ""),
+                    status=str(item.get("status") or ""),
+                    formula_id=str(item.get("formula_id") or ""), row=item.get("row"),
+                    proposed=str(item.get("proposed") or ""),
+                    reviewed_by=str(item.get("reviewed_by") or ""))
+        if e.status not in ERRATA_STATUSES:
+            raise ValueError(f"{p}: {e.id} has status {e.status!r}; one of {ERRATA_STATUSES}")
+        if not e.authority:
+            raise ValueError(f"{p}: {e.id} quotes no authority for its correction")
+        written, corrected = parse_composition(e.written), parse_composition(e.corrected)
+        if len(written) != len(corrected):
+            raise ValueError(f"{p}: {e.id} reads {len(written)} components as "
+                             f"{len(corrected)}; an erratum corrects names, it does not add "
+                             "or remove ingredients")
+        blob = "\x1f".join((e.name, e.source, e.written))
+        digest = "tcm:formula.fx" + hashlib.sha1(blob.encode("utf-8")).hexdigest()[:12]
+        if e.formula_id and e.formula_id != digest:
+            raise ValueError(f"{p}: {e.id} names {e.formula_id}, but its name, source and "
+                             f"written text give {digest}")
+        out.append(e)
+    return tuple(out)
+
+
+def load_errata(path: str | Path | None = None) -> tuple[Erratum, ...]:
+    """The errata: ``$BIOAGENT_FORMULA_ERRATA`` (``none`` disables them), else
+    ``data/formula_errata.json``. Rejected ones are included; :func:`apply_erratum` skips
+    them."""
+    p = Path(path) if path is not None else _errata_path()
+    return _errata_from(str(p)) if p is not None else ()
+
+
+def apply_erratum(record: FormulaRecord,
+                  errata: Sequence[Erratum] | None = None) -> FormulaRecord:
+    """``record`` read through the erratum that names it exactly (name, source and the
+    composition as written), or unchanged. A rejected erratum is never applied."""
+    for e in (load_errata() if errata is None else errata):
+        if (e.status != "rejected" and e.name == record.name and e.source == record.source
+                and e.written == record.composition):
+            return replace(record, components=parse_composition(e.corrected), erratum=e)
+    return record
+
+
 @dataclass
 class FormulaTable:
     records: list[FormulaRecord]
@@ -384,21 +521,30 @@ class FormulaTable:
 
 
 def records_from_rows(rows: Iterable[Sequence[object]]) -> list[FormulaRecord]:
+    errata = load_errata()
     out = []
     for i, row in enumerate(rows, start=2):                 # spreadsheet row numbers
         cells = [str(c).strip() if c is not None else "" for c in (list(row) + [None] * 7)[:7]]
         if not cells[0] and not cells[1]:
             continue
-        out.append(FormulaRecord(
+        out.append(apply_erratum(FormulaRecord(
             row=i, written_name=cells[0], name=_clean_name(cells[0]), source=cells[2],
             composition=cells[1], components=parse_composition(cells[1]),
-            preparation=cells[3], actions=cells[4], usage=cells[5], cautions=cells[6]))
+            preparation=cells[3], actions=cells[4], usage=cells[5], cautions=cells[6]),
+            errata))
     return out
 
 
-@lru_cache(maxsize=2)
 def load_formula_table(path: str | Path = TABLE_FILE) -> FormulaTable:
-    """Read and parse the table. Needs ``openpyxl`` (``pip install bioagent[formulas]``)."""
+    """Read and parse the table, through the errata in force (:func:`load_errata`). Needs
+    ``openpyxl`` (``pip install bioagent[formulas]``). Cached per file and errata file."""
+    errata = _errata_path()
+    return _load_formula_table(str(path), str(errata) if errata is not None else "")
+
+
+
+@lru_cache(maxsize=2)
+def _load_formula_table(path: str | Path, errata: str) -> FormulaTable:
     try:
         import openpyxl
     except ImportError as exc:                              # pragma: no cover

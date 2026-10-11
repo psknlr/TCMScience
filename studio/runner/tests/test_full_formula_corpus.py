@@ -230,3 +230,50 @@ def test_governed_seed_runs_point_to_the_complete_corpus(browser_ctx):
     assert net["status"] == "succeeded" and "tcm_formula" in net["summary"]
     norm = call("tcm_normalize", {"names": ["葛根芩连汤", "黄芪"]}, browser_ctx)
     assert "tcm_lookup" in norm["summary"]
+
+
+# ------------------------------------------------------------------------- a formula and its book
+
+def test_a_formula_named_with_its_book_is_that_books_version(browser_ctx):
+    # the research tools ask for 桂枝汤《伤寒论》; tcm_formula refused it as a partial match
+    e = call("tcm_formula", {"name": "桂枝汤《伤寒论》"}, browser_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    records = e["result"]["repository_records"]
+    assert records["total"] == 1 and "伤寒论" in records["records"][0]["source"]
+    assert records["records"][0]["id"] == "tcm:formula.fx559d1e07f05c"
+    assert e["result"]["formula"]["id"] == "formula.guizhitang", "the curated 伤寒论 formula"
+
+
+def test_the_curated_annotations_stay_with_their_own_book(browser_ctx):
+    e = call("tcm_formula", {"name": "桂枝汤《圣济总录》"}, browser_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    assert "formula" not in e["result"], "the 伤寒论 roles and passages are not this version's"
+    assert all("圣济总录" in r["source"] for r in e["result"]["repository_records"]["records"])
+    assert e["result"]["repository_records"]["total"] == len(
+        _rows("clean_name = '桂枝汤' AND instr(source, '圣济总录') > 0"))
+
+
+def test_a_book_no_version_cites_is_not_found_with_the_books_they_cite(browser_ctx):
+    e = call("tcm_formula", {"name": "桂枝甘草汤《金匮》"}, browser_ctx)
+    assert e["status"] == "failed" and e["error"]["type"] == "not_found"
+    assert "《伤寒论》" in e["error"]["message"] and "cites 《金匮》" in e["error"]["message"]
+
+
+def test_a_misread_composition_is_read_through_its_erratum_and_says_so(browser_ctx):
+    # the workbook writes 草2两（炙） for 甘草; 《伤寒论》第64条 gives 甘草二两（炙）
+    e = call("tcm_formula", {"name": "桂枝甘草汤《伤寒论》"}, browser_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    row, = e["result"]["repository_records"]["records"]
+    assert row["composition"] == "桂枝4两（去皮），草2两（炙）。", "the workbook text is kept"
+    assert [c["drug"] for c in row["components"]] == ["guizhi", "gancao"] and row["resolved"]
+    assert row["erratum"]["id"] == "erratum.0001" and row["erratum"]["status"] == "proposed"
+    assert "第64条" in row["erratum"]["authority"]
+    assert any("erratum.0001" in x and "awaiting a maintainer's review" in x
+               for x in e["governance"]["limitations"])
+
+
+def test_a_formula_written_with_its_book_is_expanded_into_that_versions_herbs(browser_ctx):
+    e = call("tcm_compatibility", {"herbs": ["桂枝甘草汤《伤寒论》"]}, browser_ctx)
+    assert e["status"] == "succeeded", e["error"]
+    expanded, = e["result"]["expanded_formulas"]
+    assert expanded["herbs"] == ["桂枝", "甘草"]

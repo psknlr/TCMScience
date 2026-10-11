@@ -1,0 +1,42 @@
+{
+ "schema": "tcmscience.environments/1",
+ "note": "Version-locked groups of the optional scientific packages. Each pin is the version CI installed and tested in run 38112219558 (2026-10-11, Python 3.12.15, ubuntu-latest x86_64), except where 'verified_by' says otherwise. Readiness (bioagent validate deps) imports every package and runs a calculation whose answer is known; a version other than the pin is reported UNVERIFIED, a missing package BLOCKED. Nothing installs itself: a group is installed with its command, after a person reads it, or through Studio's env.provision job, which asks first.",
+ "verified": {"ci_run": "https://github.com/psknlr/TCMScience/actions/runs/38112219558",
+              "python": "3.12.15", "platform": "linux x86_64", "on": "2026-10-11"},
+ "groups": {
+  "cheminformatics": {
+   "purpose": "structures, descriptors, substructure alerts",
+   "packages": {"rdkit": "2026.9.1"}},
+  "docking": {
+   "purpose": "AutoDock Vina docking with meeko preparation (pipeline.dock, skill.dock-ligands)",
+   "packages": {"rdkit": "2026.9.1", "meeko": "0.8.0", "vina": "1.2.7", "gemmi": "0.7.5"}},
+  "admet": {
+   "purpose": "descriptors, rule filters, alerts and the trained endpoints (pipeline.admet)",
+   "packages": {"rdkit": "2026.9.1", "scikit-learn": "1.9.1"}},
+  "structural_biology": {
+   "purpose": "mmCIF/PDB reading and TM-score superposition",
+   "packages": {"gemmi": "0.7.5", "tmtools": "0.3.0"},
+   "separate": {"openmm": {"version": "8.6.1", "note": "in an environment of its own named by the reviewed environments file (docs/compute-tasks.md)"}}},
+  "statistics": {
+   "purpose": "the numerical core and model fitting",
+   "packages": {"numpy": "2.5.4", "scipy": "1.18.1", "pandas": "3.0.6", "statsmodels": "0.15.0"}},
+  "transcriptomics": {
+   "purpose": "RNA-seq differential expression and single-cell analysis (pipeline.rnaseq, pipeline.scrna)",
+   "packages": {"pydeseq2": "0.5.4", "scanpy": "1.12.4", "anndata": "0.13.4", "leidenalg": "0.12.0",
+                "igraph": "1.0.0", "harmonypy": "2.1.0", "umap-learn": "0.5.12", "h5py": "3.16.0",
+                "gseapy": "1.3.1"},
+   "binaries": ["fastp", "salmon", "kallisto", "hisat2"]},
+  "machine_learning": {
+   "purpose": "scVI integration on the CPU",
+   "packages": {"torch": "2.14.1", "scvi-tools": "1.5.1"},
+   "index_url": {"torch": "https://download.pytorch.org/whl/cpu"}},
+  "structure_prediction": {
+   "purpose": "local ESMFold (pipeline.fold method esmfold)",
+   "packages": {"torch": "2.14.1", "transformers": null},
+   "verified_by": "not installed by CI: the model weights are gigabytes and the run is by hand; transformers has no tested pin",
+   "binaries": ["colabfold_batch"]},
+  "data_files": {
+   "purpose": "the formula workbook and Parquet tables",
+   "packages": {"openpyxl": "3.1.5", "pyarrow": "26.0.0"}}
+ }
+}

@@ -106,6 +106,7 @@ REQUIRED_PACKAGES = (
     "bioagent.tcm",
     "bioagent.tcmdb",
     "bioagent.tcmdb.extra",
+    "bioagent.validation",
     "bioagent.workspace",
 )
 
