@@ -119,7 +119,7 @@ tcmstudio serve
 - **测试范围。** 自动测试用的是 Chromium 的手机模拟（Android 视口、触控、降速 CPU），还没有在真机上测过 iOS Safari；
   iPhone 上的 Safari 也支持 WebAssembly，内存较小的机型首次加载可能较慢。
 
-## 隐私：什么不会到达服务器
+## 隐私：什么会、什么不会到达服务器
 
 - **保存在本地的**：项目、会话、上传的文件（下一条所说的小文本文件除外）、本地工具结果、审计链、你的模型
   API 密钥。它们保存在浏览器的 IndexedDB / localStorage 里，或在你电脑上的 Runner 主目录里。清除网站数据会删除浏览器里的
@@ -134,6 +134,12 @@ tcmstudio serve
 - 联网数据源只在你为项目打开「联网」并批准后才访问，访问的主机会在批准卡片上列出。
 - 浏览器数据库查询的 URL、查询正文和必要的数据库请求头会经 science.impf.ai 网关转发到对应数据源，返回数据也经过网关。
   网关不保存查询或响应，不接收环境 Cookie，不将数据库请求转发给模型；模型读取的工具结果仍按所选模型路径发送。
+- **对话记录（需要你同意）**：第一次提问时，网页询问能否记录对话以测试和改进 Studio；默认不记录，不同意也照常使用。同意后，
+  每轮的问答（证件号、电话、邮箱、密钥等已隐去）与工具名、耗时、token 等统计保存在 science.impf.ai，只有站点管理员能看，
+  90 天后自动删除。含上传文件或项目文件、用到临床工具、或含可识别个人信息的对话从不记录。可随时在「设置 → 隐私」撤回并删除。
+- **匿名使用统计**：访问量、所用功能、工具与模型的调用次数、耗时与出错情况、所在国家或地区；不含对话内容，访客按天以每天更换的
+  随机盐去重，无法跨日认出你。可在「设置 → 隐私」关闭；浏览器开启「请勿追踪」或 GPC 时自动关闭。
+- 详细字段、保存期限与管理方式见 [docs/TELEMETRY.md](docs/TELEMETRY.md)。
 
 ## Studio 不声称什么
 
@@ -205,7 +211,8 @@ kernel authorized the release. Refusals are shown as results.
 
 The server serves the page, relays Tao-S1 and forwards approved database queries. **Computation runs on your machine**: in the
 browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). Conversations, projects, files and keys stay in
-your browser.
+your browser; the server keeps a conversation only if you agree to the recording notice (and never one with files, a
+clinical tool or identifying details), and counts anonymous usage you can switch off ([docs/TELEMETRY.md](docs/TELEMETRY.md)).
 
 - **Just open** science.impf.ai: Tao-S1, Python tools in the browser, nothing to install.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
@@ -221,8 +228,10 @@ your browser.
 
 Privacy: project state and files remain local. Approved browser database queries, request bodies, supported database
 headers and responses pass through science.impf.ai to the registered source; the gateway does not retain these payloads.
-With Tao-S1, what the model reads is relayed to the upstream model service and not stored; with your own API it goes to
-that provider; with a local model it stays on your computer. Studio gives no clinical advice: clinic outputs are drafts for a licensed practitioner, no record
+With Tao-S1, what the model reads is relayed to the upstream model service and not stored by the relay; with your own API it
+goes to that provider; with a local model it stays on your computer. Conversation records are opt-in (off until you agree,
+withdrawable with deletion under Settings → Privacy, kept 90 days, readable only by the site's administrators); anonymous
+usage statistics hold no conversation content and cannot follow a visitor from one day to the next. Studio gives no clinical advice: clinic outputs are drafts for a licensed practitioner, no record
 is not evidence of safety, and predicted is not measured.
 
 Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/runner/tests`, `cd studio && npm test`,

@@ -1,7 +1,7 @@
-# 教程：上线 science.impf.ai（网页 + Tao-S1 中继 + 数据库网关）
+# 教程：上线 science.impf.ai（网页 + Tao-S1 中继 + 数据库网关 + 统计与管理后台）
 
 TCMScience Studio 的一次性配置，约 20 分钟。完成后，访客打开 <https://science.impf.ai> 就能使用 Studio，默认模型 Tao-S1
-不用填 API Key。Worker 本身的说明见 [README.md](README.md)。
+不用填 API Key。Worker 本身的说明见 [README.md](README.md)；使用统计、对话记录与管理后台见 [docs/TELEMETRY.md](../docs/TELEMETRY.md)。
 
 **密钥放在哪里**：MiniMax 密钥只存在两处加密的地方——GitHub 仓库的 Actions Secrets，和 Cloudflare Worker 的机密（secret）。
 部署时 GitHub Actions 把它从前者写入后者。它不进任何文件、网页或日志，保存后两边都无法再查看。
@@ -27,6 +27,8 @@ MiniMax 控制台 → 复制密钥 → GitHub 仓库 Secrets → studio 工作�
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账户编号 | 第 3 步 |
 | `MINIMAX_API_KEY` | MiniMax 密钥（没有它网站照常上线，只是 Tao-S1 不开放） | 第 1 步 |
 | `VISITOR_SALT`（可选） | 访客计数用的盐，16 位以上随机串 | 第 4 步 |
+| `ADMIN_TOKEN`（可选） | 管理后台 `/admin/` 的登录令牌，至少 32 个字符；不设则后台关闭 | 第 4 步 |
+| `EXPORT_TOKEN`（可选） | 只读的导出令牌（汇总数据，不含对话），至少 32 个字符 | 第 4 步 |
 
 取得的值先暂存在密码管理器或本机的临时记事里，存进 GitHub 后就删掉。**不要**把它们发到聊天、Issue、PR 里，也不要提交进仓库。
 
@@ -76,7 +78,7 @@ Containers 权限，只是多余，不碍事）。但 GitHub 的 Secret 存进�
 
 Account ID 是 32 位十六进制字符串。它不算机密，但也不必公开。
 
-## 第 4 步（可选）　生成 VISITOR_SALT
+## 第 4 步（可选）　生成 VISITOR_SALT 与管理后台的令牌
 
 中继按“IP + 日期”的哈希给访客计数，IP 本身不保存。加一个只有 Worker 知道的盐，别人就无法由哈希反推 IPv4 地址。任选一种方法生成：
 
@@ -92,6 +94,13 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 
 不设也能运行。以后更换它，当天的访客计数会从零开始（对访客只有好处）。
 
+**管理后台的令牌**（要用 <https://science.impf.ai/admin/> 看统计、导出或删除记录时才需要）：用同样的命令再生成一串作为
+`ADMIN_TOKEN`；需要把只读的汇总导出交给别人或程序时，再生成一串作为 `EXPORT_TOKEN`。三串必须互不相同。`openssl rand -hex 32`
+得到 64 个字符，满足「至少 32 个字符」；更短的令牌部署时会被忽略（工作流给出黄色警告），后台保持关闭。
+
+`ADMIN_TOKEN` 能看到访客同意记录的对话，能删除记录：只存进密码管理器，**不要**发给任何人，也不要写进脚本或命令行
+（导出脚本只从环境变量读取）。更换它会让所有已登录的后台会话立即失效。
+
 ## 第 5 步　把这些值存为 GitHub 仓库 Secrets
 
 1. 打开 <https://github.com/psknlr/TCMScience/settings/secrets/actions>，
@@ -105,6 +114,8 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
    | `CLOUDFLARE_ACCOUNT_ID` | 第 3 步的 Account ID |
    | `MINIMAX_API_KEY` | 第 1 步的 MiniMax 密钥 |
    | `VISITOR_SALT`（可选） | 第 4 步的随机串 |
+   | `ADMIN_TOKEN`（可选） | 第 4 步的管理后台令牌 |
+   | `EXPORT_TOKEN`（可选） | 第 4 步的只读导出令牌 |
 
 4. 完成后，**Repository secrets** 列表里应有这几项，只显示名称和更新时间。
 
@@ -159,8 +170,8 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 步骤 | 正常时 |
 |---|---|
 | Are the secrets set? | 没有输出。缺了 Cloudflare 的 Secret，这里出现黄色警告并列出名称，后面的步骤被跳过：运行仍显示成功，但**什么也没部署**。只缺 `MINIMAX_API_KEY` 时，网站照常部署，Tao-S1 保持关闭 |
-| Deploy the Worker with the app, then give it its secrets | 出现 `Uploaded tcmscience-studio`、`Deployed tcmscience-studio triggers`、`science.impf.ai (custom domain)`，以及 `Success! Uploaded secret MINIMAX_API_KEY`（设了盐还有 `VISITOR_SALT`） |
-| Check the site, its headers, and one tiny Tao-S1 call | 最多等 10 分钟让新域名和证书生效（期间每 10 秒一行 `waiting for …`），再检查首页的响应头，并用 Tao-S1 做一次极小的调用（最多 8 个 token）。成功时最后一行类似 `{"url":"https://science.impf.ai","model":"Tao-S1",…,"headers":"ok","call":"ok",…}` |
+| Deploy the Worker with the app, then give it its secrets | 出现 `Uploaded tcmscience-studio`、`Deployed tcmscience-studio triggers`、`science.impf.ai (custom domain)`，以及 `Success! Uploaded secret MINIMAX_API_KEY`（设了盐还有 `VISITOR_SALT`，设了令牌还有 `ADMIN_TOKEN`、`EXPORT_TOKEN`）。没设 `ADMIN_TOKEN` 时有一条提示：后台保持关闭 |
+| Check the site, source gateway, telemetry and admin gate, and one tiny Tao-S1 call | 最多等 10 分钟让新域名和证书生效（期间每 10 秒一行 `waiting for …`），再检查首页的响应头、数据库网关、统计接口，确认管理后台对未登录者不开放，并用 Tao-S1 做一次极小的调用（最多 8 个 token）。成功时最后一行类似 `{"url":"https://science.impf.ai","model":"Tao-S1",…,"headers":"ok",…,"telemetry":{"status":"ok","analytics":true,"conversations":true,"consent_version":1,"admin":"on"},"call":"ok",…}` |
 
 ## 第 9 步　验证
 
@@ -184,6 +195,10 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
    浏览器 Network 中应看到同源的 `/api/sources/request`，查询解析和工具执行仍在浏览器。
    `runtime/source-gateway.json` 必须与网页一起构建并部署；若网关返回 `not_configured`，重新运行完整 studio 工作流。
    网关默认响应上限为 8 MiB、时限 30 秒；大型查询请缩小范围或导入文件。六个仅提供 HTTP 的旧源在目录中保留 HTTP 标记，网关不会向它们转发授权密钥。
+5. 统计与记录：打开 <https://science.impf.ai/api/telemetry/health>，应看到 `"ok":true`、`"analytics":true`、`"conversations":true`。
+   在网页里问第一个问题时会弹出「对话记录说明」；选哪一项都能照常得到回答。
+6. 管理后台（设了 `ADMIN_TOKEN` 时）：打开 <https://science.impf.ai/admin/>，粘贴令牌登录，应看到刚才的访问与对话计数；
+   右上角「退出登录」。未登录时 <https://science.impf.ai/admin/dashboard.js> 应是 401。
 
 ## 日常维护
 
@@ -196,6 +211,12 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 暂停 Tao-S1（持久） | 把 `wrangler.toml` 的 `RELAY` 改为 `"off"`，合入 main。部署后的检查会显示 `skipped (RELAY off)`，照常通过。恢复时改回 `"on"` |
 | 调整或暂停数据库网关 | 修改 `wrangler.toml` 的 `SOURCE_PER_MINUTE`、`SOURCE_PER_DAY`、`SOURCE_TOTAL_PER_DAY`；必须保留正数限额。`SOURCES = "off"` 暂停数据库网关，网页和模型中继照常。恢复时改回 `"on"` |
 | 看用量 | MiniMax 控制台的用量或账单页；Cloudflare 里 Worker 的 **Metrics** |
+| 看统计、导出 | <https://science.impf.ai/admin/> 登录后选 7/30/90 天、筛选、导出 CSV 或 JSON。要定期留存，在自己电脑上运行 `TCMS_EXPORT_TOKEN=… node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports`（只写到仓库之外；见 TELEMETRY.md「导出与私有保存」）。**不要**把导出放进这个仓库或任何公开位置 |
+| 访客请求删除对话记录 | 请访客在「设置 → 隐私」里自己删除；做不到时请他提供「记录编号」，在后台「已同意记录的对话」里按编号查找后删除（TELEMETRY.md「删除请求」） |
+| 更换 `ADMIN_TOKEN` / `EXPORT_TOKEN` | 按第 4 步生成新串 → 更新仓库 Secret → 重跑 studio。旧令牌随即失效，所有后台会话退出 |
+| 暂停统计或记录 | `wrangler.toml` 的 `TELEMETRY = "off"`（使用统计）、`TELEMETRY_CONVERSATIONS = "off"`（对话记录），合入 main。已存的记录照常保留到期，访客仍可删除 |
+| 调整保留期限 | 改 `RETENTION_EVENTS_DAYS`、`RETENTION_AGGREGATES_DAYS`、`RETENTION_CONVERSATIONS_DAYS`、`RETENTION_SECURITY_DAYS`，合入 main；下一次每日清理（03:17 UTC）即按新期限删除，也可在后台点「立即清理过期数据」。网页的记录说明会显示新的天数 |
+| 关闭管理后台 | Cloudflare → tcmscience-studio → **Settings → Variables and Secrets** 删除 `ADMIN_TOKEN`，并删除同名仓库 Secret（否则下次部署会写回） |
 | 网页的内容安全策略 | 目前是“只报告”（`Content-Security-Policy-Report-Only`，见 `_headers`）。在浏览器 Console 里确认长期没有违规报告后，可以把这一行的名字改为 `Content-Security-Policy` 使其生效，同时改 `src/site.js` |
 
 ## 常见问题
@@ -221,7 +242,11 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
 | 访客看到“请求太频繁”或“今天的 Tao-S1 免费额度已用完” | 触发了中继的限额（同一出口 IP 的访客共用） | 这是正常的保护，北京时间 8:00 重置。需要时调高 `PER_MINUTE`、`PER_DAY`、`TOTAL_PER_DAY`；“（按用量计）”的是 token 额度 `TOKENS_PER_DAY`、`TOTAL_TOKENS_PER_DAY` |
 | 访客看到“Tao-S1 暂时不可用” | 限额计数（Durable Object）暂时连不上，中继宁可拒绝也不放出不计数的调用 | 通常几秒内恢复；持续出现时看 Worker 的 **Logs** |
 | 访客看到 Cloudflare Error 1102（CPU 超时） | 很长的对话超出免费计划每次请求 10 ms 的 CPU 时间 | 升级 Workers 付费计划（每月 5 美元）；或调低 `MAX_BODY_BYTES` |
-| 访问网站得到 Cloudflare Error 1027 | Workers 免费计划每天 10 万次请求用完了（UTC 零点重置）。`/v1`、`/api/sources` 和找不到文件的请求计数，网页文件不计 | 默认每天最多 20 000 次模型调用、50 000 次数据库查询；还需为健康检查、拒绝的请求和资源缺失保留余量。可调低限额或升级付费计划 |
+| 访问网站得到 Cloudflare Error 1027 | Workers 免费计划每天 10 万次请求用完了（UTC 零点重置）。`/v1`、`/api/sources`、`/api/telemetry`、`/admin` 和找不到文件的请求计数，网页文件不计 | 默认每天最多 20 000 次模型调用、50 000 次数据库查询；使用统计按批发送（每次访问通常几次），还需为健康检查、拒绝的请求和资源缺失保留余量。可调低限额、关闭统计（`TELEMETRY = "off"`）或升级付费计划 |
+| 检查步骤报 `/admin/dashboard.js answered 200 to a visitor who is not signed in` | 后台的文件没有经过 Worker（`wrangler.toml` 的 `run_worker_first` 少了 `/admin/*`） | 恢复 `run_worker_first` 后重跑 studio；在此之前后台页面虽然不含数据，但不应公开 |
+| 检查步骤报 `/api/telemetry/health answered 200 text/html` | 统计接口没有随这个 Worker 部署（`run_worker_first` 少了 `/api/telemetry/*`） | 同上 |
+| 打开 `/admin/` 显示「管理后台未启用」 | Worker 上没有 `ADMIN_TOKEN`，或它短于 32 个字符 | 按第 4、5 步设置后重跑 studio |
+| 后台登录提示「失败次数过多」 | 同一地址 15 分钟内输错 8 次，暂停登录 15 分钟 | 等 15 分钟；后台「管理操作记录」里能看到这些失败 |
 
 ## 安全须知
 
@@ -231,4 +256,7 @@ $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create
   在 MiniMax 控制台删除它，再按“更换 MiniMax 密钥”换新。
 - 中继限制了来源、模型、输出长度和每人、全体的调用次数与 token 用量，这些限定的是被滥用时最多能花多少；`Origin` 检查只防浏览器里的盗用，
   脚本可以伪造它。真正的费用上限是 MiniMax 账户余额。
-- 中继不保存访客的 IP 和对话内容：计数只用哈希，Worker 的调用日志已关闭，错误日志只记状态码。
+- 中继不保存访客的 IP 和对话内容：计数只用哈希，Worker 的调用日志已关闭，错误日志只记状态码或错误名。对话内容只在访客于
+  「对话记录说明」中同意后才保存（含文件、临床工具或可识别个人信息的对话从不保存），只有持 `ADMIN_TOKEN` 的人能看，
+  到期自动删除；使用统计不含任何文字（docs/TELEMETRY.md）。
+- `ADMIN_TOKEN` 泄露时，立即按“更换 `ADMIN_TOKEN`”换掉：旧令牌和所有会话随即失效。后台「管理操作记录」列出每次登录、查看、导出与删除。

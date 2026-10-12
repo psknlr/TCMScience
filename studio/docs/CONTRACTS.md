@@ -15,7 +15,7 @@ Same origin as the app. OpenAI-compatible. The browser never sends a key.
 
 | Method | Path | Answer |
 |---|---|---|
-| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}}`. `ok:false` when `MINIMAX_API_KEY` is not set. |
+| GET | `/v1/health` | `{ok, service:"tcmscience-studio", version, model:"Tao-S1", models:["Tao-S1"], max_output_tokens, limits:{per_minute, per_day, tokens_per_day}, telemetry:{analytics, conversations, consent_version, geo, retention_days:{conversations, events, aggregates, security}}}`. `ok:false` when `MINIMAX_API_KEY` is not set. `telemetry` says what the site takes (`docs/TELEMETRY.md`); a page sends usage events and asks for consent only when the health of its **own** origin says so (the runner's health has no `telemetry`: nothing is sent). |
 | GET | `/v1/models` | `{object:"list", data:[{id:"Tao-S1", object:"model", owned_by:"impf"}]}` |
 | POST | `/v1/chat/completions` | OpenAI chat-completions request/stream. `model` must be `"Tao-S1"` (or absent). Write `model` as the **first** JSON key (the relay edits the text). Streaming SSE is returned with `model` renamed to `Tao-S1`, reasoning formats `MiniMax-…` → `Tao-…`, and vendor-only fields removed. `thinking:{type:"disabled"}` in the request removes all reasoning from the answer; the relay sets it itself when the last user message asks about the assistant's identity or model (the page's own detector, run again as defence in depth). |
 
@@ -27,6 +27,11 @@ carries `Retry-After` (exposed to other allowed origins). An error the upstream 
 event `data: {"error":{message, type}}`; the client treats it as a model error. The upstream's own model names are
 refused like any other (`model_not_allowed`). `RELAY = "off"` (a var) stops Tao-S1: `health.ok:false`, chat `503
 not_configured`. `/v1/health` answers `200` in every state, with `ok` saying whether Tao-S1 can be used.
+
+Telemetry and the admin API live beside the relay on the same origin: `/api/telemetry/{health,events,conversations,
+conversations/delete}` (same-origin pages only) and `/api/admin/*` with the dashboard at `/admin/` (the owner's
+`ADMIN_TOKEN`); their shapes, the record's fields and the event types are in `docs/TELEMETRY.md`, and the shared
+contract both sides read is `web/js/core/telemetry-contract.js`.
 
 Allowed origins (env `ALLOWED_ORIGINS`): `https://science.impf.ai`, `http://127.0.0.1:8765`,
 `http://localhost:8765` (the app as served by the local runner). Output tokens are capped at

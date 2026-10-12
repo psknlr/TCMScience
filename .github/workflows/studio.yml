@@ -4,7 +4,9 @@ name: studio
 # Worker "tcmscience-studio" at https://science.impf.ai (studio/edge/README.md, studio/edge/SETUP.md).
 # Deploys only from main, and only when the repository has the Cloudflare secrets: CLOUDFLARE_API_TOKEN,
 # CLOUDFLARE_ACCOUNT_ID; with MINIMAX_API_KEY Tao-S1 is on (without it the site is deployed and Tao-S1 stays off);
-# optional VISITOR_SALT. The secrets become the Worker's own; none is printed or written into the repository or the site.
+# optional VISITOR_SALT, ADMIN_TOKEN (the analytics dashboard /admin/; off without it) and EXPORT_TOKEN (read-only
+# aggregated exports). The secrets become the Worker's own; none is printed or written into the repository or the site.
+# No telemetry, record or export is ever collected by this workflow or kept in its artifacts (studio/docs/TELEMETRY.md).
 # The site bundles PSH-Harness and BioScience-Harness (src, skills, registry) into its Python runtime, and tcmstudio
 # imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data).
 on:
@@ -191,6 +193,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           VISITOR_SALT: ${{ secrets.VISITOR_SALT }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          EXPORT_TOKEN: ${{ secrets.EXPORT_TOKEN }}
           MODEL: ${{ steps.secrets.outputs.model }}
         # a space or line break pasted with a secret is not part of it; secrets go in on stdin, never as arguments
         run: |
@@ -214,7 +218,21 @@ jobs:
           if [ -n "$salt" ]; then
             printf '%s' "$salt" | npx --yes "$WRANGLER" secret put VISITOR_SALT
           fi
-      - name: Check the site, source gateway, and one tiny Tao-S1 call
+          # the analytics dashboard and the read-only export token: given to the Worker only when set and at least 32
+          # characters (the Worker ignores a shorter one); removing a repository secret does not remove the Worker's own
+          for name in ADMIN_TOKEN EXPORT_TOKEN; do
+            value="$(printf '%s' "${!name}" | tr -d '[:space:]')"
+            if [ -z "$value" ]; then
+              if [ "$name" = "ADMIN_TOKEN" ]; then echo "::notice::no ADMIN_TOKEN secret: the analytics dashboard (/admin/) keeps whatever token the Worker already has (none on a first deployment: off) (studio/edge/SETUP.md)"; fi
+              continue
+            fi
+            if [ "${#value}" -lt 32 ]; then
+              echo "::warning::the $name secret is shorter than 32 characters and was not given to the Worker (studio/edge/SETUP.md)"
+              continue
+            fi
+            printf '%s' "$value" | npx --yes "$WRANGLER" secret put "$name"
+          done
+      - name: Check the site, source gateway, telemetry and admin gate, and one tiny Tao-S1 call
         if: steps.secrets.outputs.ready == '1'
         env:
           MODEL: ${{ steps.secrets.outputs.model }}
@@ -226,7 +244,7 @@ jobs:
         # ago takes a little while to reach the edge (check.mjs waits for both); Tao-S1 is required to answer only
         # when its key was put and it is not paused (RELAY = "off": health ok:false is then expected)
         run: |
-          source_check_args=()
+          source_check_args=(--require-telemetry)
           if [ "$SOURCES_OFF" != "1" ]; then source_check_args+=(--require-sources); fi
           if [ "$MODEL" = "1" ] && [ "$RELAY_OFF" != "1" ]; then
             node studio/edge/scripts/check.mjs --url "$SITE_URL" --wait 600 --require-model "${source_check_args[@]}"

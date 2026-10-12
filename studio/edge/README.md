@@ -1,6 +1,6 @@
 # science.impf.ai 的 Cloudflare Worker（edge）
 
-TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcmscience-studio`）。它做三件事：
+TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcmscience-studio`）。它做五件事：
 
 1. **提供网页本身**：`studio/_site`（由 `python3 studio/scripts/build_web.py --out studio/_site` 生成）作为 Workers 静态资源，
    由 Cloudflare 直接发送，不经过 Worker 代码、不计入 Worker 请求数。响应头来自本目录的 [`_headers`](_headers)。
@@ -8,13 +8,18 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
    不进网页、不进仓库、不进日志；浏览器发来的请求不带任何密钥。
 3. **数据库访问网关**：`/api/sources/*` 转发注册数据库的只读查询，解决公共 API 的浏览器 CORS 限制。
    请求模板由与网页相同的连接器注册表生成；数据库解析、缓存和分析继续在浏览器中执行。
+4. **使用统计与对话记录**：`/api/telemetry/*` 收匿名的使用统计（计数与耗时，不含文字），以及**访客同意后**的对话记录；
+   与安全日志分别存在三个 SQLite Durable Object 里。详见 **[docs/TELEMETRY.md](../docs/TELEMETRY.md)**。
+5. **管理后台**：`/admin/` 与 `/api/admin/*`，只对持有 `ADMIN_TOKEN` 的站点所有者开放：仪表板、导出、查看与删除记录。
 
-对话、文件、工具运行在访客自己的浏览器或本机 Runner 里；Worker 提供文件、模型中继和数据库查询传输。
+对话、文件、工具运行在访客自己的浏览器或本机 Runner 里；Worker 提供文件、模型中继、数据库查询传输，并只在访客同意后保存对话记录。
 
 ```
 浏览器（science.impf.ai 的网页）──同源，无密钥──▶ /v1/chat/completions（本 Worker：来源检查、改名、限额、加密钥）──▶ 上游模型服务
                                 └────────────▶ 其余路径：静态文件（Cloudflare 直接发送，带 _headers）
                                 └────────────▶ /api/sources/request（模板检查、限流）──▶ 注册的公共数据库 API
+                                └────────────▶ /api/telemetry/*（同源、限额）──▶ UsageLog · ConversationLog（SecurityLog 记异常请求）
+站点所有者 ──ADMIN_TOKEN 登录──▶ /admin/ · /api/admin/*（汇总、导出、记录；每次操作写入审计）
 ```
 
 ## 接口（CONTRACTS.md §1）
@@ -26,11 +31,18 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
 | POST | `/v1/chat/completions` | OpenAI 格式（流式或非流式）。`model` 只能是 `Tao-S1` 或不写；网页把 `model` 写成 JSON 的**第一个键**，中继就只改这一段文本、不重新序列化整段对话 |
 | GET | `/api/sources/health` | 网关状态、已注册数据库及操作数量、数据大小与调用频率上限；不要求模型密钥 |
 | POST | `/api/sources/request` | `{url, method, headers, body_base64, allowed_hosts, timeout_s?}` → `{status, headers, body_base64, url, transport}`；上游 4xx/5xx 作为 `status` 保留，由浏览器后端处理 |
+| GET | `/api/telemetry/health` | `{ok:true, service:"tcmscience-telemetry", version:1, analytics, conversations, consent_version, geo, retention_days}`（`/v1/health` 的 `telemetry` 字段相同） |
+| POST | `/api/telemetry/events` | 一批使用事件 → 204 |
+| POST | `/api/telemetry/conversations` | 一条已同意的对话记录 → 201 / 200 `{stored:false}` / 409 `consent_outdated` |
+| POST | `/api/telemetry/conversations/delete` | `{key}`：删除这个删除密钥的全部记录 → `{deleted}` |
+| POST/GET | `/api/admin/*`、`/admin/` | 管理后台与其接口（登录、汇总、导出、记录、删除、清理），见 TELEMETRY.md「管理后台」 |
 
 错误一律是 `{"error":{"message","type"}}`，`message` 是告诉访客怎么办的中文，`type` 是：
 `forbidden_origin`、`not_configured`、`bad_request`、`too_large`、`model_not_allowed`、`rate_limited`、`daily_limit`、
 `total_limit`、`unavailable`、`upstream_auth`、`upstream_rate`、`upstream_quota`、`upstream_error`、`upstream_rejected`、
 `upstream_unreachable`、`relay_error`，以及 `https_required`、`not_found`、`method_not_allowed`。每个 429 都带 `Retry-After`。
+统计与后台另有 `too_large`、`consent_outdated`、`analytics_off`、`records_off`、`bad_key`、`admin_off`、`unauthorized`、`forbidden`、
+`admin_locked`、`bad_token`、`cross_site`、`bad_dataset`。
 
 ## 中继保证什么
 
@@ -53,7 +65,8 @@ TCMScience Studio 在 <https://science.impf.ai> 上只有这一个 Worker（`tcm
   「每天」按 UTC 计，北京时间 8:00 重置。另有 `BURST`（Cloudflare 速率限制绑定）：每位访客 10 秒 40 次，在读请求体之前就检查。
   智能体每轮工具调用都要调用一次模型（一个问题最多 16 次），所以这些数比聊天页面需要的高。
 - **访客不留地址**：计数用 `sha256(VISITOR_SALT | IP（IPv6 取 /64）| UTC 日期)` 的前 24 位，IP 本身不存；Worker 的调用日志
-  （invocation logs）关闭，只保留它自己的一行错误（状态码）。同一出口 IP 后的访客（例如一个实验室）共用限额。
+  （invocation logs）关闭，只保留它自己的一行错误（状态码或错误名）。同一出口 IP 后的访客（例如一个实验室）共用限额。
+  使用统计的每日访客数另用每天更换、次日删除的随机盐，安全日志只存月度哈希与网段（TELEMETRY.md「IP 地址」）。
 - **失败时关闭**：Durable Object 不可达时拒绝调用（503 `unavailable`），绝不放出不计数的调用；`BURST` 绑定本身出错时放行到
   Durable Object（它仍然计数）。
 - **取消**：访客停止回答或关掉页面时，上游调用随之中止（`enable_request_signal`），不再继续计费。
@@ -81,7 +94,9 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 
 ## 网页文件与响应头
 
-- `run_worker_first = ["/v1/*", "/api/sources/*"]`：模型和数据库网关运行 Worker；其余文件由 Cloudflare 直接发送（免费，不计数）。
+- `run_worker_first = ["/v1/*", "/api/sources/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]`：模型、数据库网关、
+  统计与管理后台运行 Worker；`/admin/*` 的文件也由 Worker 把关（仪表板的代码只给已登录的管理员，页面强制 CSP）。
+  其余文件由 Cloudflare 直接发送（免费，不计数）。
 - `not_found_handling = "none"`：找不到文件的路径交给 Worker——浏览器**导航**到它（应用自己的路由，如 `/p/<项目>/c/<会话>`）
   时返回 `index.html`，其他请求（脚本、网页要的 JSON）返回真正的 404，而不是把网页 HTML 当成那个文件。若用 History API 路由，
   网页必须用绝对路径引用自己的文件（`/js/…`）。
@@ -114,7 +129,8 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `SOURCE_TIMEOUT_MS` | `30000` | 数据库查询和响应读取总时限；最大 30 秒 |
 | `SOURCE_PER_MINUTE` / `SOURCE_PER_DAY` / `SOURCE_TOTAL_PER_DAY` | `120` / `3000` / `50000` | 数据库查询次数：每人每分钟、每人每天、全站每天；必须大于零 |
 
-数字写错（例如 `"lots"`）时回到默认值，而不是变成不限。机密：`MINIMAX_API_KEY`（必需），`VISITOR_SALT`（可选，16 位以上随机串）。
+数字写错（例如 `"lots"`）时回到默认值，而不是变成不限。机密：`MINIMAX_API_KEY`（必需），`VISITOR_SALT`（可选，16 位以上随机串），
+`ADMIN_TOKEN`（管理后台；至少 32 个字符，不设则后台关闭），`EXPORT_TOKEN`（可选，只读的汇总导出；至少 32 个字符）。
 在 Cloudflare 控制台里改的变量会在下次部署时被 `wrangler.toml` 覆盖：长期的改动请改文件。
 
 改 `[vars]` 只需改这个文件：`src/relay.js` 的 `DEFAULTS` 是变量缺失或写错时的后备，不必跟着改。`test/config.test.js`
@@ -127,6 +143,28 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 `wrangler.toml`、`src/relay.js` 的 `DEFAULTS`、机密名 `MINIMAX_API_KEY`、部署检查与工作流、文档；公开的 Actions 日志里，
 `wrangler deploy` 也会列出 `[vars]` 的值。这是有意的取舍，不必为此改动。
 
+## 遥测配置
+
+统计、记录与安全日志的变量也在 `[vars]` 里（含义与理由见 [TELEMETRY.md](../docs/TELEMETRY.md)「配置」）。写错或越界时回到默认值：
+
+| 变量 | 默认 | 含义 |
+|---|---|---|
+| `TELEMETRY` | `on` | `off`：不收使用统计，网页不再发送 |
+| `TELEMETRY_CONVERSATIONS` | `on` | `off`：不收对话记录，网页不再询问；已存的照常保留、可删除 |
+| `TELEMETRY_GEO` | `country` | `off`：不记国家或地区（不提供更细的位置：说明里只写了「国家或地区」） |
+| `TELEMETRY_UTC_OFFSET` | `8` | 报告日的时区 |
+| `TELEMETRY_MAX_BODY_BYTES` / `CONVERSATION_MAX_BODY_BYTES` | `32768` / `65536` | 一批事件、一条记录的字节上限 |
+| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `60` / `3000` | 每位访客的事件批数 |
+| `CONVERSATIONS_PER_MINUTE` / `CONVERSATIONS_PER_DAY` | `20` / `500` | 每位访客的记录条数 |
+| `RETENTION_EVENTS_DAYS` / `RETENTION_AGGREGATES_DAYS` | `90` / `400` | 每轮、每次工具的明细 / 每日计数的保留天数 |
+| `RETENTION_CONVERSATIONS_DAYS` / `RETENTION_SECURITY_DAYS` | `90` / `30` | 对话记录 / 安全事件的保留天数 |
+| `CONVERSATION_MAX_RECORDS` | `50000` | 对话记录的条数上限（超过时最旧的先删） |
+| `SECURITY_RAW_IP` | `off` | `flagged`：高危安全事件保存完整地址（默认只存网段） |
+| `ADMIN_SESSION_SECONDS` | `3600` | 管理后台登录的有效期 |
+
+三个 Durable Object（`USAGE` → `UsageLog`、`CONVERSATIONS` → `ConversationLog`、`SECURITY` → `SecurityLog`）由 `[[migrations]]`
+的 `v2` 建立；每个每天 03:17（UTC）按保留期限自行清理。
+
 ## 停用开关
 
 - **立即**：Cloudflare → Workers & Pages → `tcmscience-studio` → Settings → Variables and Secrets，删除 `MINIMAX_API_KEY`。
@@ -134,13 +172,17 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 - **持久**：把 `wrangler.toml` 的 `RELAY` 改为 `"off"` 并合入 main。部署后的检查读到这个设置，把 health 的 `ok:false`
   当作暂停而不是失败。恢复时改回 `"on"`（或重新放回密钥后重跑工作流）。
 - 真正的费用上限是上游账户的余额：建议为这个网站单独建一把按量付费的密钥。
+- **统计与记录**：`TELEMETRY = "off"`、`TELEMETRY_CONVERSATIONS = "off"`（合入 main）；**管理后台**：在 Cloudflare 删除 Worker 机密
+  `ADMIN_TOKEN`，并删除同名仓库 Secret，否则下次部署会写回。
 
 ## 部署
 
 `.github/workflows/studio.yml`：每次推送和 PR，只要改动了 `studio/**`、这个工作流本身，或网站打包、tcmstudio 导入的那部分
 （`PSH-Harness/src/**`、`PSH-Harness/pyproject.toml`、`BioScience-Harness/{src,skills,registry}/**`、
 `BioScience-Harness/pyproject.toml`、`BioScience-Harness/setup.py`），都跑全部测试并构建网页；只在 main 上（推送或手动运行）部署：
-`wrangler deploy` → 写入机密 → `scripts/check.mjs` 检查 health、首页的响应头，并用 Tao-S1 做一次极小的调用。
+`wrangler deploy` → 写入机密 → `scripts/check.mjs` 检查 health、首页的响应头、数据库网关、统计接口，确认管理后台对未登录者
+返回 401（未设 `ADMIN_TOKEN` 时 503）而不是 200，并用 Tao-S1 做一次极小的调用。工作流不读取、不保存任何统计或记录；
+需要留存时用 `scripts/export-telemetry.mjs` 导出到仓库之外的私有位置（TELEMETRY.md「导出与私有保存」）。
 一次性的配置步骤见 **[SETUP.md](SETUP.md)**。
 
 ## 本地
@@ -151,7 +193,8 @@ npm test                                   # node --test（Node 22），不需�
 npm run mock                               # 另开终端：模拟上游 http://127.0.0.1:8790/v1
 cp .dev.vars.example .dev.vars             # 本地密钥与上游地址（已被 .gitignore）
 python3 ../scripts/build_web.py --out ../_site && cp _headers ../_site/_headers
-npm run dev                                # https://localhost:8787（自签名证书）：网页 + 中继
+npm run dev                                # https://localhost:8787（自签名证书）：网页 + 中继 + 统计；.dev.vars 里加
+                                           # ADMIN_TOKEN=（32 个以上字符）后 https://localhost:8787/admin/ 是管理后台
 npm run dry-run                            # 检查配置与打包，不需要 Cloudflare 账户
 node scripts/check.mjs --url https://science.impf.ai   # 部署后的检查（工作流也用它）
 ```
@@ -163,12 +206,18 @@ Durable Object 的本地数据在 `.wrangler/state`；改了表结构后删掉�
 
 | 文件 | 内容 |
 |---|---|
-| `src/index.js` | Worker 入口：模型与数据库网关路由、资源缺失时的导航回退；`Limiter` Durable Object |
+| `src/index.js` | Worker 入口：模型、数据库网关、统计与后台的路由，资源缺失时的导航回退；`Limiter`、`UsageLog`、`ConversationLog`、`SecurityLog` Durable Object |
+| `src/telemetry/routes.js` | `/api/telemetry/*`：来源、大小、限额检查，记录在 Worker 端的敏感内容复查 |
+| `src/telemetry/usage.js`、`conversations.js`、`security.js` | 三个存储：计数与明细、对话记录与删除墓碑、安全事件与登录锁定 |
+| `src/telemetry/config.js` | 统计、记录与后台的变量和机密的读取 |
+| `src/admin.js` | 管理后台：登录与会话、汇总、导出（CSV 防公式）、记录的查看与删除、强制 CSP |
+| `src/http.js` | 统计与后台共用的小工具（JSON 回答、常数时间比较、来源检查） |
 | `src/sources.js` | 注册数据库模板验证、受限转发、重定向与响应大小检查 |
 | `src/relay.js` | 中继：来源、改名、过滤、上限、限额、错误改写（移植自 TaoChronos `relay/src/relay.js`） |
 | `src/limiter.js` | 限额计数（Durable Object 的 SQLite） |
 | `src/site.js` | Worker 自己回答的安全响应头，与 `_headers` 一致 |
 | `_headers` | 静态文件的响应头 |
 | `scripts/check.mjs` | 部署后的检查 |
+| `scripts/export-telemetry.mjs` | 把统计（或在管理员令牌下的记录）导出到仓库之外的私有位置，带保留期限 |
 | `scripts/mock-upstream.mjs` | 本地用的模拟上游 |
-| `test/*.test.js` | `node --test`：中继、限额、响应头、Worker 入口、`wrangler.toml` 的配置齐全且写法正确、部署检查 |
+| `test/*.test.js` | `node --test`：中继、限额、响应头、Worker 入口、`wrangler.toml` 的配置齐全且写法正确、部署检查、统计与记录的存储和接口、管理后台、导出脚本 |
