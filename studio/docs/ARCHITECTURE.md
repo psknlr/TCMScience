@@ -29,15 +29,17 @@ The server stays thin by design: **the computation runs on the user's own machin
 
 | What | Where | Why |
 |---|---|---|
-| UI, conversation state, projects, files, API keys | the browser (IndexedDB / localStorage) | nothing personal is kept on the server |
+| UI, conversation state, projects, files, API keys | the browser (IndexedDB / localStorage) | nothing personal is kept on the server unless the visitor agrees to the recording notice |
+| Usage statistics, consented conversation records, security events | three Durable Objects of the Worker (`docs/TELEMETRY.md`) | counts without text; a record only with consent, never with files, clinical tools or identifiers; readable by the site's administrators at `/admin/` |
 | Default model **Tao-S1** | the Worker relay on the same origin | the upstream key stays a Worker secret; the page never names the upstream vendor |
 | User's own model APIs | browser → provider directly, or via the runner's `/api/llm` proxy when the provider blocks browser calls (CORS) | keys never pass through science.impf.ai |
 | Local models | browser → local server directly (needs CORS on that server), or via the runner | inference on the user's GPU/CPU |
 | Pure-Python tools and pinned governed skills | **browser** (Pyodide) when no runner is connected, otherwise the runner | no install needed; same code, same content hashes |
 | Network connectors, the TCM data hub, long jobs, GPU | **runner** only | CORS, files, subprocesses, devices |
 
-**The server never computes.** The Worker relays model calls and serves files. It does not store
-conversations, receive tool calls, or see uploaded data.
+**The server never computes.** The Worker relays model calls and serves files. It does not receive tool calls or see
+uploaded data, and it stores a conversation only when its visitor agreed to the recording notice (`docs/TELEMETRY.md`):
+the page sends the record of each finished turn, without files, tool arguments or identifiers, and anonymous usage counts.
 
 ## Components (directories)
 
@@ -45,7 +47,8 @@ conversations, receive tool calls, or see uploaded data.
 |---|---|---|
 | `studio/web/` | the single-page app: no framework, no build step (ES modules) | JS / CSS |
 | `studio/runner/` | `tcmstudio`: the shared tool catalog and dispatcher (pure Python, also runs in Pyodide) plus the local runner service (`tcmstudio serve`) | Python ≥ 3.11 |
-| `studio/edge/` | the Cloudflare Worker for science.impf.ai: the static assets and the Tao-S1 relay | JS (Workers) |
+| `studio/edge/` | the Cloudflare Worker for science.impf.ai: the static assets, the Tao-S1 relay, the database gateway, telemetry and the admin API | JS (Workers) |
+| `studio/web/admin/` | the owner's analytics dashboard, served by the Worker to a signed-in administrator only | JS / CSS |
 | `studio/scripts/` | `build_web.py`: assembles `_site/` from `studio/web` plus the generated runtime files (catalog, Python bundle) | Python |
 | `studio/e2e/` | Playwright end-to-end tests with a scripted mock model, the real runner, and Pyodide | JS |
 | `.github/workflows/studio.yml` | test, build and deploy (deploy only when the Cloudflare secrets exist) | YAML |

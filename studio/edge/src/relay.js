@@ -1,5 +1,6 @@
 // The Tao-S1 relay under https://science.impf.ai/v1/* (CONTRACTS.md §1). A port of TaoChronos relay/src/relay.js
-// without its sentinel, usage statistics and conversation records.
+// without its sentinel; the usage statistics and conversation records are the telemetry's (src/telemetry/, /api/telemetry/*):
+// here a call's outcome and tokens are counted (deps.metric), and health tells the page what is recorded.
 //   GET  /v1/health            {ok, service, version, model, models, max_output_tokens, limits}
 //   GET  /v1/models            the public model only
 //   POST /v1/chat/completions  forwarded (streamed) to the upstream with the key, which only this Worker holds
@@ -9,6 +10,7 @@
 
 import { asksIdentity } from "./identity.js";
 import { day } from "./limiter.js";
+import { telemetryPublic } from "./telemetry/config.js";
 
 export const VERSION = "1";
 export const SERVICE = "tcmscience-studio";
@@ -120,8 +122,9 @@ const ROUTES = { "/v1/health": "GET", "/v1/models": "GET", "/v1/chat/completions
 
 /**
  * deps: {gate({who, kind, limits, reserve}) → {ok, reason?, retry?, remaining?, reserved?}, spend(who, kind, tokens),
- * burst(key) → boolean, defer(promise), fetch(url, init), now() → ms}. The Worker (index.js) binds them to the Durable
- * Object, the ratelimit binding and ctx.waitUntil; the tests bind them to fakes.
+ * burst(key) → boolean, defer(promise), fetch(url, init), now() → ms, and optionally metric(list, request) and
+ * securityEvent(kind, request, facts) for the telemetry}. The Worker (index.js) binds them to the Durable Objects, the
+ * ratelimit binding and ctx.waitUntil; the tests bind them to fakes.
  */
 export async function handle(request, env, deps) {
   const cfg = config(env);
@@ -153,7 +156,9 @@ export async function handle(request, env, deps) {
     }
     if (url.pathname === "/v1/health") return health(env, cfg, cors);
     if (url.pathname === "/v1/models") return json({ object: "list", data: [{ id: cfg.publicModel, object: "model", owned_by: "impf" }] }, 200, cors);
-    return await chat(request, env, cfg, cors, allowed, deps);
+    const res = await chat(request, env, cfg, cors, allowed, deps);
+    observe(res, request, deps);
+    return res;
   } catch (err) {
     console.error("relay error", err?.name || "Error"); // never the request: it carries what a visitor wrote
     return error(500, MSG.relay_error, "relay_error", cors);
@@ -164,7 +169,21 @@ export async function handle(request, env, deps) {
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), {
   status, headers: { ...headers, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
 });
-const error = (status, message, type, headers = {}) => json({ error: { message, type } }, status, headers);
+const error = (status, message, type, headers = {}) => {
+  const res = json({ error: { message, type } }, status, headers);
+  res.relayType = type; // read by observe() for the counts; not a header, never sent
+  return res;
+};
+
+/** A model call's outcome, counted for the owner's statistics (src/telemetry/usage.js: relay_call), and a call from
+ * another site's page or one over the rate limit noted as a security event. Deferred: never in the answer's way. */
+function observe(res, request, deps) {
+  try {
+    const type = res.relayType || (res.status < 400 ? "ok" : `http_${res.status}`);
+    deps.metric?.([{ metric: "relay_call", a: type, b: "", n: 1 }], request);
+    if (type === "forbidden_origin" || type === "rate_limited") deps.securityEvent?.(type, request, { route: "relay", status: res.status });
+  } catch { /* a count is never the visitor's concern */ }
+}
 const encoder = new TextEncoder();
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
@@ -245,6 +264,8 @@ function health(env, cfg, cors) {
     service: SERVICE, version: VERSION, model: cfg.publicModel, models: [cfg.publicModel],
     max_output_tokens: cfg.maxTokens,
     limits: { per_minute: cfg.chat.perMinute, per_day: cfg.chat.perDay, tokens_per_day: cfg.chat.tokensPerDay },
+    // what this site records, so its page knows whether to ask (src/telemetry/config.js telemetryPublic)
+    telemetry: telemetryPublic(env),
   }, 200, cors);
 }
 
@@ -322,8 +343,21 @@ async function chat(request, env, cfg, cors, allowed, deps) {
 
   const counting = cfg.chat.tokensPerDay > 0 || cfg.chat.totalTokens > 0;
   let charged = Number(gate.reserved) || 0;
+  // the tokens an answer cost, for the owner's statistics: the growth of the reported usage, so each token once
+  let seenIn = 0;
+  let seenOut = 0;
+  const tally = (usage) => {
+    if (!deps.metric) return;
+    const tin = Number(usage?.prompt_tokens) || 0;
+    const tout = Number(usage?.completion_tokens) || 0;
+    const add = [{ metric: "relay_tokens", a: "in", b: "", n: Math.max(0, tin - seenIn) }, { metric: "relay_tokens", a: "out", b: "", n: Math.max(0, tout - seenOut) }];
+    seenIn = Math.max(seenIn, tin);
+    seenOut = Math.max(seenOut, tout);
+    if (add[0].n || add[1].n) deps.metric(add, request);
+  };
   // usage is the answer's whole cost so far; charging the difference counts it once however often it is reported
   const spend = (usage) => {
+    tally(usage);
     if (!counting) return;
     const tokens = (Number(usage?.prompt_tokens) || 0) + (Number(usage?.completion_tokens) || 0);
     if (tokens <= 0 || tokens === charged) return;

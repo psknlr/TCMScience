@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="same-origin">
+  <meta name="color-scheme" content="light dark">
+  <title>TCMScience Studio · 管理员登录</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script type="module" src="/admin/login.js"></script>
+</head>
+<body>
+  <main class="login">
+    <form class="login__card" id="login" method="post" action="/api/admin/session">
+      <h1 class="login__title" data-t="title">管理员登录</h1>
+      <p class="login__note" data-t="note">运营统计只对持有管理令牌的人开放。令牌在服务器端核对，这个页面不保存它；登录后浏览器只保留一个会过期的会话（默认一小时）。</p>
+      <label class="login__label" for="token" data-t="label">管理令牌</label>
+      <input class="input" id="token" name="token" type="password" required minlength="32" maxlength="512"
+        autocomplete="current-password" autocapitalize="off" spellcheck="false">
+      <p class="login__error" id="error" role="alert" hidden></p>
+      <button class="btn btn--primary" type="submit" data-t="submit">登录</button>
+      <button class="btn btn--small" type="button" id="lang" lang="en">English</button>
+    </form>
+  </main>
+</body>
+</html>

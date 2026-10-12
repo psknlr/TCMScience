@@ -202,6 +202,9 @@ def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site)
     assert "/index.html" not in paths, "the page is kept as / (Workers may redirect /index.html)"
     assert not any(p.endswith((".tar.gz", ".xlsx")) or p in ("/sw.js", "/_headers") for p in paths), \
         "content-addressed data stays with the runtime Worker's own cache"
+    assert (out / "admin" / "index.html").is_file() and (out / "admin" / "dashboard.js").is_file(), "the dashboard ships"
+    assert not any(p.startswith("/admin/") for p in paths), \
+        "but the shell never fetches it ahead: the edge Worker serves it to a signed-in administrator only"
     for f in manifest["files"]:
         disk = out / ("index.html" if f["path"] == "/" else f["path"].lstrip("/"))
         assert hashlib.sha256(disk.read_bytes()).hexdigest() == f["sha256"], f["path"]

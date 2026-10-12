@@ -451,8 +451,9 @@ def _copy_web(web: Path, dest: Path, *, dev: bool) -> int:
 
 _SW_MARKER = "const PRECACHE = null; // filled by the build: {version, index_url, files: [{path, sha256}]}"
 # what the service worker does not keep in the shell: content-addressed data the runtime Worker keeps itself,
-# the test and design pages of a --dev build, and the worker script and edge headers themselves
-_SW_SKIP_PREFIXES = ("test/", "dev/")
+# the test and design pages of a --dev build, the admin dashboard (the edge Worker serves it only to a signed-in
+# administrator, so it is never fetched ahead), and the worker script and edge headers themselves
+_SW_SKIP_PREFIXES = ("test/", "dev/", "admin/")
 _SW_SKIP_SUFFIXES = (".tar.gz", ".xlsx", ".wat")   # .wat: the readable source of an embedded WebAssembly module
 _SW_SKIP_NAMES = {"sw.js", "_headers"}
 

@@ -5,6 +5,7 @@
 
 import { CLAIM_SUPPORT, DESIGNS, FAMILIES, STATES, TIERS, claimKindInfo, codeInfo, qualityLabel, tierOf } from "./glossary.js";
 import { lang as currentLang, t } from "./i18n.js";
+import { isProjectUrl, scrubProjectRefs } from "./publiclinks.js";
 
 export const RELEASE_STATES = ["schema_valid", "evidence_verified", "outputs_verified", "execution_declared", "execution_attested", "release_authorized"];
 
@@ -67,7 +68,7 @@ export function citationsOf(envelope) {
     const ev = c.evidence_ref ? byRef.get(c.evidence_ref) : null;
     const url = safeUrl(c.url) || (ev ? ev.url : "");
     out.push({
-      id: String(c.id), kind: c.kind || (ev ? kindOfIdentifier(ev.identifier_type) : "source"), label: c.label || ev?.citation || c.id,
+      id: String(c.id), kind: c.kind || (ev ? kindOfIdentifier(ev.identifier_type) : "source"), label: scrubProjectRefs(c.label || ev?.citation || c.id),
       url, evidence_ref: c.evidence_ref || null, family: ev?.family || null, predicted: ev?.predicted || false,
       quote_verified: ev ? ev.quote_verified : null,
     });
@@ -88,6 +89,7 @@ function kindOfIdentifier(type) {
 
 export function safeUrl(u) {
   if (typeof u !== "string" || !u.trim()) return "";
+  if (isProjectUrl(u)) return ""; // the project's own pages are not linked from Studio (publiclinks.js)
   try {
     const url = new URL(u.trim());
     return url.protocol === "https:" || url.protocol === "http:" ? url.href : "";
@@ -117,7 +119,7 @@ export function evidenceOf(envelope) {
       tier_rank: tierRec ? tierRec.rank : null,
       tier_label: tierRec ? L(tierRec) : "",
       predicted,
-      citation: e.citation || "",
+      citation: scrubProjectRefs(e.citation || ""),
       title: e.title || "",
       identifier: e.identifier || "",
       identifier_type: e.identifier_type || "",
@@ -156,7 +158,7 @@ export function sourceView(s) {
     id: s.id, name: s.name || s.id, kind: s.kind || "", licence: s.license_spdx || "", licence_note: s.license_note || "",
     licensed: s.licensed ?? Boolean(s.license_spdx), pinned: s.pinned ?? Boolean(s.snapshot_hash),
     snapshot_hash: s.snapshot_hash || "", snapshot_at: s.snapshot_at || "", access_method: s.access_method || "",
-    offline_capable: Boolean(s.offline_capable), known_limits: s.known_limits || [], citation: s.citation || "",
+    offline_capable: Boolean(s.offline_capable), known_limits: s.known_limits || [], citation: scrubProjectRefs(s.citation || ""),
     home_url: safeUrl(s.home_url), version: s.version || "",
   };
 }

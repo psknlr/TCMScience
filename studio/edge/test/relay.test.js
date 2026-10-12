@@ -231,7 +231,13 @@ test("health and models say only what the page needs (CONTRACTS.md §1), nothing
   assert.deepEqual(h, {
     ok: true, service: "tcmscience-studio", version: "1", model: "Tao-S1", models: ["Tao-S1"], max_output_tokens: 8192,
     limits: { per_minute: 40, per_day: 1200, tokens_per_day: 10000000 },
+    // what the site records (off here: these fakes have no telemetry bindings); never anything of the admin side
+    telemetry: {
+      analytics: false, conversations: false, consent_version: 1, geo: "country",
+      retention_days: { conversations: 90, events: 90, aggregates: 400, security: 30 },
+    },
   });
+  assert.doesNotMatch(JSON.stringify(h), /admin|token_hash|export/i);
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), PAGE);
   assert.doesNotMatch(JSON.stringify(h), /MiniMax|minimax/);
   assert.ok(!JSON.stringify(h).includes(KEY));

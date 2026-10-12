@@ -6,7 +6,9 @@ import { createServer } from "node:http";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { check, checkSources, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
+import { check, checkSources, checkTelemetry, diagnose, relayIn, upstreamFrom, varIn } from "../scripts/check.mjs";
+import { handleAdmin } from "../src/admin.js";
+import { handleTelemetry } from "../src/telemetry/routes.js";
 import { CSP_REPORT_ONLY, secure } from "../src/site.js";
 import { jsonReply, relay } from "./helpers.js";
 
@@ -244,4 +246,32 @@ test("the upstream settings for the direct call are read from wrangler.toml, and
   assert.equal(upstreamFrom(text, undefined), null);
   assert.equal(varIn('UPSTREAM_FIELDS = "{\\"a\\":1}"', "UPSTREAM_FIELDS"), '{"a":1}');
   assert.equal(varIn("X = 5", "Y"), undefined);
+});
+
+test("telemetry: its routes answer and the admin side is shut to a visitor not signed in; a dashboard served openly fails", async () => {
+  const ADMIN = "admin-token-for-check-tests-0123456789abcdef";
+  // the real handlers, as a deployment with run_worker_first sends them these paths
+  const deployed = ({ adminToken = ADMIN, openDashboard = false } = {}) => async (url, init = {}) => {
+    const request = new Request(url, { method: init.method || "GET", headers: init.headers });
+    const path = new URL(url).pathname;
+    if (path.startsWith("/api/telemetry/")) return handleTelemetry(request, {}, { now: () => Date.now() });
+    if (openDashboard && path.startsWith("/admin/")) return new Response("export function start() {}", { headers: { "Content-Type": "text/javascript" } });
+    if (path.startsWith("/admin/") || path.startsWith("/api/admin/")) {
+      return handleAdmin(request, adminToken ? { ADMIN_TOKEN: adminToken } : {}, { now: () => Date.now(), security: null, assets: null });
+    }
+    return new Response(HTML, { headers: { "Content-Type": "text/html" } });
+  };
+  assert.deepEqual(await checkTelemetry("https://science.impf.ai", deployed()),
+    { status: "ok", analytics: false, conversations: false, consent_version: 1, admin: "on" });
+  assert.equal((await checkTelemetry("https://science.impf.ai", deployed({ adminToken: "" }))).admin, "off (no ADMIN_TOKEN)");
+  await assert.rejects(checkTelemetry("https://science.impf.ai", deployed({ openDashboard: true })), /dashboard\.js answered 200.*run_worker_first/);
+  // a deployment without the telemetry routes: its fallback answers the app's page
+  await assert.rejects(checkTelemetry("https://science.impf.ai", async () => new Response(HTML, { headers: { "Content-Type": "text/html" } })),
+    /telemetry\/health answered 200 text\/html: the telemetry routes were not deployed/);
+  // as part of the whole check
+  const s = site();
+  const whole = async (url, init) => (new URL(url).pathname.match(/^\/(api\/telemetry|admin|api\/admin)\//) ? deployed()(url, init) : s.fetch(url, init));
+  const out = await check({ requireTelemetry: true }, { ...io(s), fetch: whole });
+  assert.equal(out.telemetry.admin, "on");
+  assert.equal(out.call, "ok");
 });

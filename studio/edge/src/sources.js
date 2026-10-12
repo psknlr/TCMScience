@@ -237,7 +237,36 @@ function wait(ms, signal) {
   });
 }
 
+/** The gateway, with each database request counted for the owner's statistics by host and outcome (2xx … 5xx as the
+ * database answered, refused:<type>, timeout, unreachable, rate_limited, cancelled) and its duration, and a refused
+ * request noted as a security event. Only the host is counted: never the query. */
 export async function handleSources(request, env = {}, deps = {}) {
+  const started = Date.now();
+  const meta = { host: "", upstream: 0 };
+  const res = await serveSources(request, env, deps, meta);
+  if (request.method === "POST" && new URL(request.url).pathname === "/api/sources/request") {
+    try {
+      const type = res.sourceType || "";
+      const outcome = res.status === 200 && meta.upstream ? `${Math.floor(meta.upstream / 100)}xx`
+        : type === "timeout" || type === "rate_limited" || type === "cancelled" || type === "unavailable" ? type
+          : type === "upstream_unreachable" ? "unreachable" : `refused:${type || res.status}`;
+      const host = meta.host || "-";
+      deps.metric?.([{ metric: "connector", a: host, b: outcome, n: 1 }, { metric: "connector_ms", a: host, b: "", n: Math.max(1, Date.now() - started) }], request);
+      if (["forbidden_origin", "source_not_allowed", "redirect_refused"].includes(type)) {
+        deps.securityEvent?.(type === "forbidden_origin" ? "forbidden_origin" : "source_refused", request, { route: "sources", status: res.status, detail: type });
+      } else if (type === "rate_limited") deps.securityEvent?.("rate_limited", request, { route: "sources", status: res.status });
+    } catch { /* a count is never the visitor's concern */ }
+  }
+  return res;
+}
+
+const failed = (type, message, status, headers) => {
+  const res = json({ error: { type, message } }, status, headers);
+  res.sourceType = type; // read by handleSources() for the counts; never sent
+  return res;
+};
+
+async function serveSources(request, env, deps, meta) {
   const cfg = sourceConfig(env);
   const url = new URL(request.url);
   const origin = request.headers.get("Origin") || "";
@@ -279,6 +308,7 @@ export async function handleSources(request, env = {}, deps = {}) {
     }
     let target = safeURL(packet.url);
     const allowedHosts = new Set(packet.allowed_hosts.map((h) => h.toLowerCase()));
+    if (target) meta.host = target.hostname;
     if (!target || !allowedHosts.has(target.hostname)) refuse(403, "source_not_allowed", "查询地址不在本次获准的数据库主机内");
     let method = packet.method || "GET";
     if (!["GET", "POST"].includes(method)) refuse(403, "source_not_allowed", "只允许已注册的只读数据库查询");
@@ -297,14 +327,14 @@ export async function handleSources(request, env = {}, deps = {}) {
     let gate;
     try { gate = await deps.gate({ who: await caller(request, env, (deps.now || Date.now)()), kind: "sources", limits: cfg.limits, reserve: 0 }); }
     catch { refuse(503, "unavailable", "数据库网关限流服务暂时不可用，请稍后重试"); }
-    if (!gate?.ok) return json({ error: { type: "rate_limited", message: "数据库网关额度暂时用完，请稍后重试" } }, 429, { ...cors, "Retry-After": String(Math.max(1, gate?.retry || 60)) });
+    if (!gate?.ok) return failed("rate_limited", "数据库网关额度暂时用完，请稍后重试", 429, { ...cors, "Retry-After": String(Math.max(1, gate?.retry || 60)) });
     for (let hop = 0; hop <= 3; hop++) {
       let slot;
       const prefixes = Object.fromEntries(Object.entries(route.source.rate_paths || {})
         .filter(([prefix, value]) => target.pathname.startsWith(prefix) && Number(value) > 0));
       try { slot = await deps.pace(target.hostname, Number(route.source.rate_rps) || 2, prefixes); }
       catch { refuse(503, "unavailable", "数据库网关限流服务暂时不可用，请稍后重试"); }
-      if (!slot?.ok) return json({ error: { type: "rate_limited", message: "数据库服务查询队列已满，请稍后重试" } }, 429, { ...cors, "Retry-After": String(Math.max(1, slot?.retry || 10)) });
+      if (!slot?.ok) return failed("rate_limited", "数据库服务查询队列已满，请稍后重试", 429, { ...cors, "Retry-After": String(Math.max(1, slot?.retry || 10)) });
       await (deps.wait || wait)(slot.delay || 0, controller.signal);
       if (controller.signal.aborted) throw controller.signal.reason;
       const response = await (deps.fetch || fetch)(target.href, { method, headers, body: method === "POST" && body.byteLength ? body : undefined, redirect: "manual", signal: controller.signal });
@@ -323,6 +353,8 @@ export async function handleSources(request, env = {}, deps = {}) {
         continue;
       }
       const bytes = await readLimited(response, cfg.maxResponse, controller.signal);
+      meta.host = target.hostname;
+      meta.upstream = response.status;
       const responseHeaders = {};
       for (const key of REPLY_HEADERS) if (response.headers.has(key)) responseHeaders[key] = response.headers.get(key);
       return json({ status: response.status, headers: responseHeaders, body_base64: base64(bytes), url: target.href, transport: target.protocol.slice(0, -1) }, 200, cors);
@@ -330,6 +362,6 @@ export async function handleSources(request, env = {}, deps = {}) {
   } catch (err) {
     if (controller.signal.aborted) err = controller.signal.reason;
     const known = err instanceof Refused;
-    return json({ error: { type: known ? err.type : "upstream_unreachable", message: known ? err.message : "数据库服务暂时无法连接，请稍后重试" } }, known ? err.status : 502, { ...cors, ...(err?.status === 429 ? { "Retry-After": "10" } : {}) });
+    return failed(known ? err.type : "upstream_unreachable", known ? err.message : "数据库服务暂时无法连接，请稍后重试", known ? err.status : 502, { ...cors, ...(err?.status === 429 ? { "Retry-After": "10" } : {}) });
   } finally { clearTimeout(timer); request.signal.removeEventListener("abort", abort); }
 }

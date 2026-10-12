@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // After a deployment: does science.impf.ai answer, with its headers, and does Tao-S1 work? (stdlib only; Node 22)
 //   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--settle 120] [--require-model] [--require-sources]
-//                          [--relay on|off]
+//                          [--require-telemetry] [--relay on|off]
 // 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds), and — when Tao-S1
 //    is required — while a key put a moment ago reaches the edge (--settle seconds: health says ok:false until then);
 // 2. GET / is the app, with the headers from _headers (cross-origin isolation, the content policy);
 // 3. one tiny non-streaming model call (max_tokens 8) with the page's Origin, unless the relay has no key — then a
 //    warning, or a failure with --require-model — or is paused: RELAY = "off" in wrangler.toml (read next to this
 //    script unless --relay says otherwise) is the owner's choice, not a failure.
+// With --require-telemetry: the telemetry routes answer, and the admin side is closed to anyone not signed in (the
+// dashboard's code and its API answer 401, or 503 while no ADMIN_TOKEN is set — never 200).
 // When the model call fails and MINIMAX_API_KEY is in the environment (the deploy workflow passes it), the upstream is
 // called once directly with the settings in wrangler.toml, and its own status, code and message (the key redacted) are
 // added to the reason: the relay never shows them, by design, so this is where the owner learns what the upstream said.
@@ -51,6 +53,36 @@ export async function checkSources(url, fetcher = fetch) {
     throw new Error(`${url}: source gateway health counts (${health.sources}/${health.operations}) differ from the deployed registry (${registry.sources}/${registry.routes.length}); redeploy the Worker and site together`);
   }
   return { status: "ok", sources: health.sources, operations: health.operations };
+}
+
+/**
+ * The telemetry endpoints of this deployment answer, and its admin side is shut to a visitor who is not signed in:
+ * /admin/dashboard.js and /api/admin/telemetry/summary must answer 401 (503 while ADMIN_TOKEN is not set), never 200 —
+ * a 200 means the files are served without the Worker (run_worker_first). Sends nothing a visitor would; counts nothing.
+ */
+export async function checkTelemetry(url, fetcher = fetch) {
+  const get = (path, accept) => fetcher(`${url}${path}`, { headers: { "User-Agent": UA, Accept: accept }, redirect: "manual", signal: AbortSignal.timeout(30000) });
+  const res = await get("/api/telemetry/health", "application/json");
+  const type = res.headers.get("Content-Type") || "";
+  let health = null;
+  if (res.status === 200 && type.toLowerCase().includes("json")) {
+    try { health = await res.json(); } catch { health = null; }
+  } else await res.body?.cancel();
+  if (health?.ok !== true || health.service !== "tcmscience-telemetry" || health.version !== 1
+      || typeof health.analytics !== "boolean" || typeof health.conversations !== "boolean" || !Number.isInteger(health.consent_version)) {
+    throw new Error(`${url}/api/telemetry/health answered ${res.status} ${type}: the telemetry routes were not deployed with this Worker (run_worker_first in wrangler.toml)`);
+  }
+  const shut = {};
+  for (const path of ["/admin/dashboard.js", "/api/admin/telemetry/summary"]) {
+    const r = await get(path, "*/*");
+    await r.body?.cancel();
+    if (r.status !== 401 && r.status !== 503) {
+      throw new Error(`${url}${path} answered ${r.status} to a visitor who is not signed in: it must be 401 (503 while ADMIN_TOKEN is not set); /admin/* and /api/admin/* must be in run_worker_first`);
+    }
+    shut[path] = r.status;
+  }
+  return { status: "ok", analytics: health.analytics, conversations: health.conversations, consent_version: health.consent_version,
+    admin: shut["/api/admin/telemetry/summary"] === 401 ? "on" : "off (no ADMIN_TOKEN)" };
 }
 
 /** RELAY as a wrangler.toml sets it ("on" when the file does not say), or null when there is no such file. */
@@ -190,6 +222,7 @@ export async function check(options = {}, io = {}) {
 
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
   if (options.requireSources) summary.sources = await checkSources(url, fetcher);
+  if (options.requireTelemetry) summary.telemetry = await checkTelemetry(url, fetcher);
   if (!health.ok) {
     if (paused) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
@@ -240,6 +273,7 @@ function parse(argv) {
     else if (a === "--settle") options.settle = Number(argv[++i]);
     else if (a === "--require-model") options.requireModel = true;
     else if (a === "--require-sources") options.requireSources = true;
+    else if (a === "--require-telemetry") options.requireTelemetry = true;
     else if (a === "--relay") options.relay = argv[++i];
     else if (a === "-h" || a === "--help") options.help = true;
     else throw new Error(`unknown argument ${a}`);
@@ -257,7 +291,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     if (options.relay === undefined) options.relay = relayIn(text);
     options.upstream = upstreamFrom(text, process.env.MINIMAX_API_KEY);
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--require-sources] [--relay on|off]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--require-sources] [--require-telemetry] [--relay on|off]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }

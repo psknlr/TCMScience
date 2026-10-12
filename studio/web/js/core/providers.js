@@ -244,6 +244,8 @@ export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl
     return {
       ok: Boolean(r.ok && j.ok), model: j.model || "Tao-S1", models: j.models || ["Tao-S1"], limits: j.limits || null,
       max_output_tokens: Number(j.max_output_tokens) || null, version: j.version || null,
+      // what the site records (src/telemetry/config.js telemetryPublic); a server that says nothing records nothing
+      ...(j.telemetry && typeof j.telemetry === "object" && !Array.isArray(j.telemetry) ? { telemetry: j.telemetry } : {}),
       ...(r.ok ? {} : { status: r.status, ...told(`HTTP ${r.status}`) }),
       ...(r.ok && !j.ok ? told(t("core.relay.off")) : {}),
     };

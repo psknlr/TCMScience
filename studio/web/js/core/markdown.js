@@ -8,6 +8,7 @@
 // citations [E1] · [E1, E2] · 【E1】 turned into chips by opts.onCitation(id) (a default chip otherwise).
 
 import { t } from "./i18n.js";
+import { isProjectUrl } from "./publiclinks.js";
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})[ \t]*([^\s`]*)[^`]*$/;
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
@@ -300,6 +301,7 @@ export function safeHref(raw) {
   if (!s || /[\s<>"]/.test(s)) return null;
   if (/^mailto:/i.test(s)) return /^mailto:[^@\s/:]+@[^@\s/:]+\.[^@\s/:]+$/i.test(s) ? s : null;
   if (!/^https?:\/\//i.test(s)) return null;
+  if (isProjectUrl(s)) return null; // never a link to the project's own pages: its text stays, without the link
   try {
     const u = new URL(s);
     return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
@@ -360,6 +362,7 @@ function parseInline(s, parent, ctx, depth) {
     if (c === "<") {
       if ((m = /^<br\s*\/?>/i.exec(rest))) { push(el(ctx, "br")); i += m[0].length; continue; }
       if ((m = /^<((?:https?:\/\/|mailto:)[^\s<>]+)>/i.exec(rest))) {
+        if (isProjectUrl(m[1])) { i += m[0].length; continue; } // the project's own pages are not shown (publiclinks.js)
         const href = safeHref(m[1]);
         if (href) { push(link(href, m[1], ctx)); i += m[0].length; continue; }
       }
@@ -385,7 +388,7 @@ function parseInline(s, parent, ctx, depth) {
     if (c === "!" && s[i + 1] === "[" && (m = linkAt(s, i + 1, noClose))) {
       // an image is shown as a link to it, never loaded: no requests from model output
       const href = safeHref(m.url);
-      const label = m.text || m.url;
+      const label = m.text || (isProjectUrl(m.url) ? "" : m.url);
       push(href ? link(href, label, ctx, "md-image-link") : ctx.doc.createTextNode(label));
       i = m.end;
       continue;
@@ -410,6 +413,7 @@ function parseInline(s, parent, ctx, depth) {
         if (cut.startsWith(")") && (url.match(/\(/g) || []).length > (url.slice(0, -cut.length).match(/\)/g) || []).length) cut = cut.slice(1);
         if (cut) url = url.slice(0, -cut.length);
       }
+      if (isProjectUrl(url)) { i += url.length; continue; }
       const href = safeHref(url);
       if (href) { push(link(href, url, ctx)); i += url.length; continue; }
     }

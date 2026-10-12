@@ -102,7 +102,7 @@ test("a change to anything the site bundles or tcmstudio imports runs the workfl
 
 test("the check after a deployment requires Tao-S1 only when its key was put and RELAY is not off", async () => {
   const secrets = runOf("Are the secrets set?");
-  const check = runOf("Check the site, source gateway, and one tiny Tao-S1 call");
+  const check = runOf("Check the site, source gateway, telemetry and admin gate, and one tiny Tao-S1 call");
   const toml = readFileSync(path.join(STUDIO, "edge", "wrangler.toml"), "utf8");
   expect(toml).toMatch(/^RELAY = .*$/m);
   // the relay's own reading of RELAY decides what "off" is
@@ -117,6 +117,8 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
     const c = runStep(check, { cwd, env: { MODEL: s.outputs.model, RELAY_OFF: s.outputs.relay_off, SOURCES_OFF: s.outputs.sources_off, SITE_URL: "https://science.impf.ai" }, record: ["node"] });
     expect(c.calls, "check.mjs runs once").toHaveLength(1);
     expect(c.calls[0]).toMatch(/^node studio\/edge\/scripts\/check\.mjs --url https:\/\/science\.impf\.ai /);
+    // the telemetry routes and the admin gate are checked on every deployment, whatever is paused
+    expect(c.calls[0]).toMatch(/ --require-telemetry\b/);
     return { ...s.outputs, required: / --require-model\b/.test(c.calls[0]), requiredSources: / --require-sources\b/.test(c.calls[0]), stdout: s.stdout };
   };
 
@@ -150,6 +152,38 @@ test("the check after a deployment requires Tao-S1 only when its key was put and
     }
   }
   expect(deploy('"on"', "sk-test", '"off" # maintenance').requiredSources).toBe(false);
+});
+
+test("the admin tokens reach the Worker only when set and long enough, on stdin, and are never printed", () => {
+  const deploy = runOf("Deploy the Worker with the app, then give it its secrets");
+  const run = (env) => {
+    const root = scratch("tcmstudio-ci-deploy");
+    const cwd = path.join(root, "studio", "edge");
+    mkdirSync(path.join(root, "studio", "_site"), { recursive: true });
+    mkdirSync(cwd, { recursive: true });
+    writeFileSync(path.join(root, "studio", "_site", "index.html"), "<!doctype html>");
+    writeFileSync(path.join(root, "studio", "_site", "_headers"), "/*\n");
+    // npx recorded with what it reads on stdin (a secret put): what the Worker would be given
+    mkdirSync(path.join(cwd, ".bin"), { recursive: true });
+    const calls = path.join(cwd, ".calls");
+    writeFileSync(path.join(cwd, ".bin", "npx"), `#!/bin/sh\nprintf 'npx' >> "${calls}"\nfor a in "$@"; do printf ' %s' "$a" >> "${calls}"; done\ncase "$*" in *"secret put"*) printf ' <' >> "${calls}"; cat >> "${calls}"; printf '>' >> "${calls}";; esac\necho >> "${calls}"\n`);
+    chmodSync(path.join(cwd, ".bin", "npx"), 0o755);
+    return runStep(deploy, { cwd, env: { WRANGLER: "wrangler@4.148.0", RUNNER_TEMP: root, MODEL: "1", MINIMAX_API_KEY: "sk-test", VISITOR_SALT: "", ...env } });
+  };
+  const admin = "a".repeat(20) + "B".repeat(20);
+  const put = run({ ADMIN_TOKEN: ` ${admin.slice(0, 20)}\n${admin.slice(20)} `, EXPORT_TOKEN: "too-short" });
+  expect(put.calls).toEqual([
+    "npx --yes wrangler@4.148.0 deploy",
+    "npx --yes wrangler@4.148.0 secret put MINIMAX_API_KEY <sk-test>",
+    `npx --yes wrangler@4.148.0 secret put ADMIN_TOKEN <${admin}>`,
+  ]);
+  expect(put.stdout).toMatch(/::warning::the EXPORT_TOKEN secret is shorter than 32 characters/);
+  expect(put.stdout).not.toContain(admin);
+  const none = run({ ADMIN_TOKEN: "", EXPORT_TOKEN: "" });
+  expect(none.calls).toHaveLength(2);
+  expect(none.stdout).toMatch(/::notice::no ADMIN_TOKEN secret: the analytics dashboard/);
+  const both = run({ ADMIN_TOKEN: admin, EXPORT_TOKEN: "e".repeat(32) });
+  expect(both.calls.slice(2)).toEqual([`npx --yes wrangler@4.148.0 secret put ADMIN_TOKEN <${admin}>`, `npx --yes wrangler@4.148.0 secret put EXPORT_TOKEN <${"e".repeat(32)}>`]);
 });
 
 test("the deployment claims no DNS safeguard that wrangler in CI does not give", () => {

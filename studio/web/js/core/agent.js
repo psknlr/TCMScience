@@ -19,6 +19,7 @@ import { stripThink } from "./llm/openai.js";
 import { toProviderTools } from "./catalog.js";
 import { t } from "./i18n.js";
 import { isIdentityQuestion } from "./prompt.js";
+import { scrubProjectRefs } from "./publiclinks.js";
 import { synthEnvelope } from "./router.js";
 import { canonicalJson, clip, isAbort, isPlainObject, sleep as defaultSleep, uuid } from "./util.js";
 
@@ -422,7 +423,8 @@ export async function runTurn({
   function resultOf({ c, envelope }) {
     const outcome = envelope.reused || envelope.budget ? null : outcomeOf(envelope);
     const lines = [outcome ? `Outcome: ${outcome[0]} — ${outcome[1]}.` : "", notes.get(c.id) || ""].filter(Boolean);
-    const body = envelope.text || (envelope.ok ? envelope.summary || "{}" : `Failed: ${envelope.error?.message || envelope.summary || "no result"}`);
+    // the project's own repository and pages are not shown in Studio (publiclinks.js): the model is not given them to repeat
+    const body = scrubProjectRefs(envelope.text || (envelope.ok ? envelope.summary || "{}" : `Failed: ${envelope.error?.message || envelope.summary || "no result"}`));
     const tail = lines.length ? `\n${lines.join("\n")}` : "";
     const text = clip(body, RESULT_CHARS - tail.length) + tail;
     return { id: c.id, text, isError: envelope.status === "failed" || envelope.status === "cancelled" };

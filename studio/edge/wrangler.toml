@@ -1,6 +1,8 @@
-# TCMScience Studio — one Worker: static app, Tao-S1 relay /v1/* and data gateway /api/sources/*.
+# TCMScience Studio — one Worker: static app, Tao-S1 relay /v1/*, data gateway /api/sources/*, telemetry
+# /api/telemetry/* and the owner's analytics dashboard /admin/ with its API /api/admin/* (docs/TELEMETRY.md).
 # Deployed by .github/workflows/studio.yml (SETUP.md). Its secrets are never written here or anywhere in the repository:
-# MINIMAX_API_KEY (required for Tao-S1) and VISITOR_SALT (optional) are set from the repository's Actions secrets.
+# MINIMAX_API_KEY (required for Tao-S1), VISITOR_SALT (optional), ADMIN_TOKEN (the dashboard; without it /admin is off)
+# and EXPORT_TOKEN (optional, read-only aggregated exports) are set from the repository's Actions secrets.
 name = "tcmscience-studio"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
@@ -19,8 +21,9 @@ custom_domain = true
 [assets]
 directory = "../_site"
 binding = "ASSETS"
-# the model relay and registered-source gateway run the Worker first; files are served directly (free, not counted)
-run_worker_first = ["/v1/*", "/api/sources/*"]
+# the model relay, the registered-source gateway, the telemetry and the admin pages run the Worker first; files are
+# served directly (free, not counted). /admin/* is the Worker's to gate: the dashboard's code only to a signed-in admin.
+run_worker_first = ["/v1/*", "/api/sources/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"]
 # a path that matches no file goes to the Worker, which answers a browser's navigation with index.html (the app's own
 # routes) and anything else with 404. "single-page-application" would answer index.html, with 200, to every miss,
 # including a missing script or JSON file the app asked for.
@@ -63,6 +66,36 @@ SOURCE_TIMEOUT_MS = "30000"
 SOURCE_PER_MINUTE = "120"
 SOURCE_PER_DAY = "3000"
 SOURCE_TOTAL_PER_DAY = "50000"
+# Telemetry (docs/TELEMETRY.md). Usage statistics: counts and timings, no text, no identifier that outlives a day;
+# a visitor can switch them off, and Do Not Track / Global Privacy Control do. Conversation records: only after the
+# visitor agrees to the notice, never for conversations with uploaded or project files, clinical tools or identifying
+# text. "off" stops taking either (deletion requests still work).
+TELEMETRY = "on"
+TELEMETRY_CONVERSATIONS = "on"
+# where a visitor is, as Cloudflare places the request: country (or territory, the notice's "country or region") | off
+TELEMETRY_GEO = "country"
+# the reporting day, hours from UTC (8: Beijing)
+TELEMETRY_UTC_OFFSET = "8"
+# bytes of one batch of usage events, of one conversation record
+TELEMETRY_MAX_BODY_BYTES = "32768"
+CONVERSATION_MAX_BODY_BYTES = "65536"
+# per visitor (hashed address of the UTC day): batches of usage events, conversation records
+TELEMETRY_PER_MINUTE = "60"
+TELEMETRY_PER_DAY = "3000"
+CONVERSATIONS_PER_MINUTE = "20"
+CONVERSATIONS_PER_DAY = "500"
+# retention, in days: per-turn and per-tool rows, daily counts, conversation records, security events; and the most
+# conversation records held. Each Durable Object deletes what is older once a day (its alarm), and on demand.
+RETENTION_EVENTS_DAYS = "90"
+RETENTION_AGGREGATES_DAYS = "400"
+RETENTION_CONVERSATIONS_DAYS = "90"
+RETENTION_SECURITY_DAYS = "30"
+CONVERSATION_MAX_RECORDS = "50000"
+# a security event keeps a network prefix (IPv4 /24, IPv6 /48) and a monthly-keyed hash of the address; "flagged" also
+# keeps the full address of a high-severity event (a scanner probe, a failed admin sign-in), for an investigation
+SECURITY_RAW_IP = "off"
+# how long a dashboard sign-in lasts (seconds)
+ADMIN_SESSION_SECONDS = "3600"
 
 # per visitor (IPv6 by /64) and Cloudflare location over ten seconds: checked before the body is read and before the
 # Durable Object is asked. namespace_id is unique in the account (TaoChronos uses 7311, 7312, 7313).
@@ -75,11 +108,28 @@ simple = { limit = 40, period = 10 }
 name = "LIMITER"
 class_name = "Limiter"
 
-# SQLite-backed (the Durable Object storage of the Workers Free plan). Renaming or deleting the class needs a new
-# migration entry; never edit this one.
+# the telemetry, each kind in its own object and its own storage: usage statistics, conversation records, security events
+[[durable_objects.bindings]]
+name = "USAGE"
+class_name = "UsageLog"
+
+[[durable_objects.bindings]]
+name = "CONVERSATIONS"
+class_name = "ConversationLog"
+
+[[durable_objects.bindings]]
+name = "SECURITY"
+class_name = "SecurityLog"
+
+# SQLite-backed (the Durable Object storage of the Workers Free plan). Renaming or deleting a class needs a new
+# migration entry; never edit one that has been deployed.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Limiter"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["UsageLog", "ConversationLog", "SecurityLog"]
 
 # metrics and the Worker's own one-line errors; not the per-request logs, which would keep visitors' addresses
 [observability]

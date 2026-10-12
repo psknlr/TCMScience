@@ -593,6 +593,19 @@ details.json[open] { display: block; }
 .data-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 14px 0; border-top: 1px solid var(--rule-2); }
 .data-row > .field { flex: 1; }
 .data-row--danger .field__label { color: var(--danger); }
+/* conversation-record notice and Settings → Privacy (ui/privacy.js) */
+.consent { display: grid; gap: 12px; font-size: var(--text-sm); line-height: 1.7; color: var(--ink-2); }
+.consent__lede { color: var(--ink); }
+.consent__list { display: grid; gap: 4px; margin: 0; }
+.consent__list dt { font-weight: var(--weight-semibold); color: var(--ink); }
+.consent__list dd { margin: 0 0 8px; }
+.consent__note { font-size: var(--text-xs); color: var(--ink-3); }
+.dialog--consent .dialog__foot { justify-content: flex-end; flex-wrap: wrap; }
+.privacy .data-row { flex-wrap: wrap; align-items: center; }
+.privacy__notice { border-top: 1px solid var(--rule-2); padding-top: 12px; }
+.privacy__notice > summary { cursor: pointer; font-size: var(--text-sm); color: var(--ink-2); }
+.privacy__notice[open] > summary { margin-bottom: 12px; }
+.privacy__ref { font-family: var(--font-mono); }
 .shortcut-table td { font-size: var(--text-sm); }
 .shortcut-table__keys { white-space: nowrap; }
 .shortcut-table__keys .kbd + .kbd { margin-left: 4px; }
@@ -606,13 +619,6 @@ details.json[open] { display: block; }
 .about__list { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; color: var(--ink-2); line-height: 1.7; }
 .about__list li::marker { color: var(--ink-4); }
 .about__sec--claims .about__list li::marker { content: "✕  "; color: var(--vermilion); font-size: 12px; }
-.about__links { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.about__link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-lg); border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
-.about__link:hover { text-decoration: none; border-color: var(--control-border); }
-.about__link svg { color: var(--ink-3); flex: none; }
-.about__link > span { display: grid; }
-.about__link-title { font-weight: var(--weight-medium); }
-.about__link-url { font-size: var(--text-xs); color: var(--ink-3); font-family: var(--font-mono); }
 .about__motto { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--rule); font-size: var(--text-xl); color: var(--ink-2); line-height: 1.6; }
 
 /* catalog */

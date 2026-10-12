@@ -11,7 +11,8 @@
 //   modules lazily. A new version installs in the background and waits; the page offers to reload into it.
 // - Installing checks every file against its SHA-256: a deploy that lands while files are being fetched fails the
 //   install (retried on the next visit) instead of caching a mixture.
-// - Never cached: the model relay (/v1/*), the database gateway (/api/*), anything that is not a GET.
+// - Never cached: the model relay (/v1/*), the database gateway and the telemetry (/api/*), the admin dashboard
+//   (/admin/*, which the Worker serves only to a signed-in administrator), anything that is not a GET.
 // - Pyodide comes from versioned URLs (immutable): kept once fetched, under the index the build names. The Python
 //   bundle and data files are content-addressed and already kept, hash-checked, by the runtime Worker itself.
 
@@ -64,6 +65,7 @@ function route(req, url) {
   if (req.headers.has("range")) return null; // a part of a file: the network answers ranges
   if (url.origin === self.location.origin) {
     if (url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return null;
+    if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return null;
     // the app is one page (its routes are in the hash); other pages of the site are not the app
     if (req.mode === "navigate") return url.pathname === "/" || url.pathname === "/index.html" ? fromShell("/", req) : null;
     const path = url.pathname === "/index.html" ? "/" : url.pathname;
