@@ -3,10 +3,10 @@
 //   #/                           home: the last conversation, or a new one
 //   #/p/:projectId               project overview (and a new conversation in it)
 //   #/p/:projectId/c/:convId     conversation workspace
-//   #/settings/:tab              models | compute | general | shortcuts
+//   #/settings/:tab              models | compute | general | privacy | shortcuts
 //   #/about  ·  #/catalog  ·  #/catalog/:entryId
 
-export const SETTINGS_TABS = ["models", "compute", "general", "shortcuts"];
+export const SETTINGS_TABS = ["models", "compute", "general", "privacy", "shortcuts"];
 
 /** Parse a location hash into a route object. Unknown paths are {name: "notfound"}. */
 export function parseRoute(hash) {

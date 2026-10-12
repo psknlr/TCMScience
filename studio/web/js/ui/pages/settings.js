@@ -1,5 +1,6 @@
-// Settings (DESIGN §3.6–3.8, §4.5): 模型 Models · 计算 Compute · 通用 General · 快捷键 Shortcuts.
-// Keys are stored only in this browser and never sent to science.impf.ai; Tao-S1 needs none.
+// Settings (DESIGN §3.6–3.8, §4.5): 模型 Models · 计算 Compute · 通用 General · 隐私 Privacy · 快捷键 Shortcuts.
+// Keys are stored only in this browser and never sent to science.impf.ai; Tao-S1 needs none. Privacy (ui/privacy.js):
+// what this site records, and the visitor's choices about it.
 
 import { lang, setLang, t } from "../../core/i18n.js";
 import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
@@ -13,8 +14,10 @@ import { SETTINGS_TABS } from "../router.js";
 import { shortcutTable } from "../palette.js";
 import { exportProject } from "./project.js";
 import { jobCard } from "../toolcards.js";
+import { privacyTab } from "../privacy.js";
+import { forgetConsent } from "../../core/consent.js";
 
-const TAB_ICON = { models: "sparkles", compute: "cpu", general: "sliders", shortcuts: "keyboard" };
+const TAB_ICON = { models: "sparkles", compute: "cpu", general: "sliders", privacy: "shield", shortcuts: "keyboard" };
 
 export function mountSettings(app, main) {
   const page = h("div.page.page--settings");
@@ -36,14 +39,15 @@ export function mountSettings(app, main) {
     const nav = h("nav.settings-nav", { "aria-label": t("ui.nav.settings") }, SETTINGS_TABS.map((id) => h("a", {
       href: `#/settings/${id}`, class: ["settings-nav__item", id === tab && "is-on"], "aria-current": id === tab ? "page" : null,
     }, icon(TAB_ICON[id], { size: 16 }), h("span", t(`ui.settings.tab.${id}`)))));
-    const body = { models: modelsTab, compute: computeTab, general: generalTab, shortcuts: shortcutsTab }[tab](app, render);
+    const body = { models: modelsTab, compute: computeTab, general: generalTab, privacy: privacyTab, shortcuts: shortcutsTab }[tab](app, render);
     fill(page, h("div.settings",
       h("header.settings__head", h("h1.settings__title.serif", t("ui.nav.settings"))),
       h("div.settings__grid", nav, h("div.settings__body", { id: `settings-${tab}` }, body))));
   }
   offs = [
-    app.on("relay", () => { if (app.state.route.tab === "models") render(); }),
+    app.on("relay", () => { if (app.state.route.tab === "models" || app.state.route.tab === "privacy") render(); }),
     app.on("runtime", () => { if (app.state.route.tab === "compute") render(); }),
+    app.on("privacy", () => { if (app.state.route.tab === "privacy") render(); }),
   ];
   build();
   return { el: page, update: () => { build(); page.scrollTop = 0; }, destroy: () => offs.forEach((off) => off()) };
@@ -378,6 +382,9 @@ function generalTab(app, rerender) {
             if (!ok) return;
             await store.clearAll();
             try { localStorage.removeItem("tcmstudio.settings"); sessionStorage.removeItem("tcmstudio.keys"); } catch { /* storage unavailable */ }
+            // the privacy choices and the deletion key, and anything the telemetry still held to send
+            forgetConsent();
+            try { for (const k of Object.keys(localStorage)) if (k.startsWith("tcmstudio.telemetry")) localStorage.removeItem(k); } catch { /* storage unavailable */ }
             try { for (const k of await caches.keys()) await caches.delete(k); } catch { /* no Cache Storage */ }
             location.hash = "#/";
             location.reload();

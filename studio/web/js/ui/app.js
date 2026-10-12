@@ -2,18 +2,27 @@
 // pages) render from `app.state` and call `app` actions; they subscribe to `app.on(type)` for the parts that change.
 //
 // Events: route · projects · conversations · conversation · messages · turn (live updates) · inspector · runtime ·
-// settings · catalog · relay · lang · layout.
+// settings · catalog · relay · lang · layout · privacy.
+//
+// Telemetry (core/telemetry.js, studio/docs/TELEMETRY.md): usage events as the app works (routes, turns, tools, research
+// workflows, availability, errors), and — only while the visitor agrees, and only for conversations that may be
+// recorded at all (core/turnrecord.js) — one record per finished turn. None of it is ever awaited by a turn: a
+// telemetry failure leaves the conversation exactly as it would have been.
 
 import { runTurn } from "../core/agent.js";
 import { loadCatalog } from "../core/catalog.js";
 import { Emitter } from "../core/events.js";
 import { lang, onLangChange, setLang, t } from "../core/i18n.js";
 import { buildSystemPrompt } from "../core/prompt.js";
-import { activeProvider, relayHealth } from "../core/providers.js";
+import { ownerHash } from "../core/consent.js";
+import { activeProvider, relayBaseUrl, relayHealth } from "../core/providers.js";
+import { Telemetry, STALE_TURN_MS } from "../core/telemetry.js";
+import { WORKFLOW_KINDS, token } from "../core/telemetry-contract.js";
+import { buildRecord, exclusionOf, turnEndEvent, turnStatus } from "../core/turnrecord.js";
 import { ToolRouter } from "../core/router.js";
 import { loadSettings, onSettingsChange, updateSettings } from "../core/settings.js";
 import { latestLeaf, openStore, siblingsOf, threadPath } from "../core/store.js";
-import { uuid } from "../core/util.js";
+import { sha256Hex, sleep, uuid } from "../core/util.js";
 import { copyText, debounce, h, throttle } from "./dom.js";
 import { announce, closeTopOverlay, hasOverlay, installTooltips, toast } from "./overlay.js";
 import { inlinedInPrompt } from "./files.js";
@@ -34,9 +43,13 @@ export class App {
   #peers = null;
   #sending = false;
   #capsP = null;
+  #relayCheck = null;
+  #toolNames = new Set();
+  #jobsReported = new Set();
 
   constructor() {
     this.bus = new Emitter();
+    this.telemetry = new Telemetry();
     this.store = null;
     this.runtimes = { browser: null, runner: null };
     this.catalog = null;
@@ -73,6 +86,7 @@ export class App {
   async boot(root) {
     registerUiStrings();
     installTooltips();
+    this.telemetry.start();
     this.root = root;
     applyTheme(this.state.settings.theme);
     document.documentElement.lang = lang() === "zh" ? "zh-Hans" : "en";
@@ -108,7 +122,12 @@ export class App {
     }
     this.#watchRuntimes();
     this.catalog = await loadCatalog(this.runtimes).catch(() => null);
+    this.#toolNames = toolNamesOf(this.catalog);
     this.toolRouter = new ToolRouter({ catalog: this.catalog, runtimes: this.runtimes, settings: this.state.settings, store: this.store });
+    this.telemetry.track("app_init", {
+      layout: this.state.layout, lang: lang(), app: this.catalog?.versions?.tcmstudio, persistent: Boolean(this.store.persistent), ...clientFacts(),
+    });
+    if (!this.store.persistent) this.telemetry.track("availability", { service: "storage", ok: false, detail: "memory" });
 
     onSettingsChange(({ settings, changed }) => this.#onSettings(settings, changed));
     translateStatic();
@@ -162,7 +181,13 @@ export class App {
 
     if (pairing) this.#afterPairing(pairing);
     else if (!this.state.settings.onboarded) import("./onboarding.js").then((m) => m.openOnboarding(this));
-    this.checkRelay();
+    // the relay's health also says what this site records; a turn cut off by the last page load is reported then, and
+    // looked for again a little later (a page that went away a moment ago beat a moment ago) and, for browsers without
+    // Web Locks, once its heartbeat would certainly have come (core/telemetry.js staleTurns)
+    this.checkRelay().then(() => this.#recoverTurns());
+    setTimeout(() => this.#recoverTurns(), 15000);
+    setTimeout(() => this.#recoverTurns(), STALE_TURN_MS + 5000);
+    this.on("job", (job) => this.#jobEvent(job));
     this.#watchConnectivity();
     this.#offline();
   }
@@ -237,7 +262,11 @@ export class App {
   async checkRelay() {
     this.state.relay = { ...(this.state.relay || {}), checking: true };
     this.emit("relay", this.state.relay);
-    this.state.relay = await relayHealth();
+    this.#relayCheck = relayHealth();
+    this.state.relay = await this.#relayCheck;
+    // what this site records comes with the relay's health, when the relay is this page's own site
+    this.telemetry.configure(this.state.relay, { relayBase: relayBaseUrl() });
+    this.telemetry.track("availability", { service: "relay", ok: Boolean(this.state.relay.ok), detail: this.state.relay.error_type });
     this.emit("relay", this.state.relay);
     return this.state.relay;
   }
@@ -250,6 +279,7 @@ export class App {
       this.state.runner.status = runner.status;
       runner.onStatus?.(async (ev) => {
         const st = typeof ev === "string" ? { status: ev } : ev || {};
+        this.#availability("runner", this.state.runner.status, st.status);
         this.state.runner = { ...this.state.runner, status: st.status || runner.status, error: st.error || null, info: st.info || runner._info || this.state.runner.info };
         this.emit("runtime", { kind: "runner" });
         if (st.status === "ready") {
@@ -261,6 +291,7 @@ export class App {
       this.state.browser.status = browser.status;
       browser.onStatus?.((ev) => {
         const st = typeof ev === "string" ? { status: ev } : ev || {};
+        this.#availability("browser_runtime", this.state.browser.status, st.status);
         this.state.browser = {
           ...this.state.browser, status: st.status || browser.status,
           progress: typeof st.progress === "number" ? st.progress : st.status === "ready" ? 100 : this.state.browser.progress,
@@ -271,6 +302,12 @@ export class App {
     }
   }
 
+  /** A runtime that became ready, or failed: one availability event per change (not the steps in between). */
+  #availability(service, before, after) {
+    if (!after || after === before || !["ready", "error"].includes(after)) return;
+    this.telemetry.track("availability", { service, ok: after === "ready" });
+  }
+
   async #afterRunnerReady() {
     const runner = this.runtimes.runner;
     try { this.state.runner.info = await runner.info(); } catch { /* keep what the status gave */ }
@@ -279,6 +316,7 @@ export class App {
     // the runner knows what it can run: merge its catalog
     try {
       this.catalog = await loadCatalog(this.runtimes);
+      this.#toolNames = toolNamesOf(this.catalog);
       this.toolRouter.setCatalog(this.catalog);
       this.emit("catalog", this.catalog);
     } catch { /* keep the built catalog */ }
@@ -475,6 +513,7 @@ export class App {
     }
     this.state.route = route;
     this.emit("route", route);
+    this.telemetry.route(route);
   }
 
   // ----------------------------------------------------------------------------------------------- projects
@@ -595,6 +634,8 @@ export class App {
   }
 
   async deleteProject(id) {
+    // a record of one of its conversations that has not been sent yet is not sent
+    for (const c of await this.store.conversations.list(id).catch(() => [])) this.telemetry.purgeRecords(c.id);
     const turn = this.state.turn;
     if (turn && turn.projectId === id) await this.#discardTurn(turn);
     await this.store.projects.remove(id);
@@ -614,6 +655,7 @@ export class App {
   }
 
   async deleteConversation(id) {
+    this.telemetry.purgeRecords(id); // a record of it that has not been sent yet is not sent
     const conv = await this.store.conversations.get(id);
     const turn = this.state.turn;
     if (turn && turn.conversationId === id) await this.#discardTurn(turn);
@@ -761,6 +803,8 @@ export class App {
   async #send(content, { files, editOf }) {
     // typed in a composer that is about to be replaced (the project page → the conversation): its successor takes focus
     const typing = document.activeElement?.id === "composer-input";
+    // the conversation-record notice, once, before the first question (only on a site that takes records)
+    await this.#consentGate();
     // web access (or compute) just switched: the turn starts once that is stored, so its tools see what the switch shows
     await this.webSettled();
     let project = this.state.project;
@@ -845,6 +889,16 @@ export class App {
     return true;
   }
 
+  /** Ask the visitor about conversation records when the site takes them and they have not answered this notice. */
+  async #consentGate() {
+    try {
+      if (!this.telemetry.config && this.#relayCheck) await Promise.race([this.#relayCheck, sleep(2500)]);
+      if (!this.telemetry.needsConsent()) return;
+      const { askConsent } = await import("./privacy.js");
+      await askConsent(this);
+    } catch { /* recording stays off */ }
+  }
+
   async #knowledge(projectId) {
     const files = await this.store.files.list(projectId);
     const out = [];
@@ -881,6 +935,12 @@ export class App {
     let saving = Promise.resolve();
     const turn = { conversationId: conv.id, projectId: conv.projectId || project?.id, userId: user.id, live, abort, discarded: false, saving: () => saving };
     this.state.turn = turn;
+    // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
+    // can tell one that was cut off (core/telemetry.js staleTurns)
+    turn.first = threadPath(this.state.messages, user.id).filter((m) => m.role === "user").length <= 1;
+    this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
+    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, startedAt: live.startedAt });
+    turn.beat = setInterval(() => this.telemetry.turnBeat(draftId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
 
@@ -923,7 +983,9 @@ export class App {
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("pagehide", onPageHide);
 
-    const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge: await this.#knowledge(project.id), env: this.#env() });
+    const knowledge = await this.#knowledge(project.id);
+    turn.projectFiles = knowledge.length;
+    const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge, env: this.#env() });
     const history = threadPath(await this.store.messages.list(conv.id), user.id);
     let result = null;
     try {
@@ -942,6 +1004,7 @@ export class App {
         }),
         onEvent: (ev) => {
           applyEvent(live, ev);
+          if (ev.type === "tool.start" || ev.type === "tool.end") this.#toolEvent(ev, live);
           if (ev.type === "tool.end") this.#announceTool(ev.envelope);
           if (ev.type === "tool.start" && !this.state.inspector.open && this.state.layout === "wide" && !this.state.inspector.autoOpened) {
             // the inspector opens on the first tool result of a conversation (DESIGN §4.2)
@@ -980,6 +1043,7 @@ export class App {
     }
     assistant.ui = { thinkingMs: live.thinkingMs, approvals: live.approvals, startedAt: live.startedAt, endedAt: Date.now() };
     delete assistant.draft;
+    if (turn?.beat) clearInterval(turn.beat);
     // a turn whose conversation was deleted while it ran writes nothing back (the person deleted that data)
     const discarded = Boolean(turn?.discarded) || !(await store.conversations.get(conv.id).catch(() => null));
     if (!discarded) {
@@ -997,6 +1061,8 @@ export class App {
       }
     }
     this.state.turn = null;
+    // counted, and recorded when it may be: after the answer is stored and shown, never in its way
+    this.#reportTurn({ conv, user, assistant, toolMessages, live, discarded, turn });
     if (this.state.conversation?.id === conv.id) await this.loadMessages();
     await this.refreshConversations();
     this.emit("turn", { type: "end", live });
@@ -1005,6 +1071,126 @@ export class App {
     else if (assistant.status === "error") announce(t("ui.turn.failed_announce"), { assertive: true });
     else if (assistant.status === "stopped") announce(t("core.agent.stopped"));
     else announce(n ? t("ui.turn.done_tools", { n }) : t("ui.turn.done"));
+  }
+
+  // ----------------------------------------------------------------------------------------------- telemetry
+
+  /**
+   * A finished (or cut-off) turn for the telemetry: the usage event always, the conversation record when the visitor
+   * agrees and the conversation may be recorded. Never throws, never awaited by the turn.
+   */
+  async #reportTurn({ conv, user, assistant, toolMessages = [], live, discarded = false, turn = null, interrupted = false, endedAt }) {
+    const tel = this.telemetry;
+    try {
+      const all = discarded ? [] : await this.store.messages.list(conv.id).catch(() => []);
+      const path = threadPath(all.some((m) => m.id === user.id) ? all : [user], user.id);
+      const seen = new Set();
+      const known = [...all.filter((m) => m.role === "tool"), ...toolMessages].filter((m) => !seen.has(m.id) && seen.add(m.id));
+      const projectFiles = turn?.projectFiles ?? (await this.store.files.list(conv.projectId).catch(() => [])).length;
+      const reason = exclusionOf({ path, tools: known, projectFiles, discarded });
+      const tools = toolMessages.map((m) => this.#namedTool(m));
+      const base = {
+        id: assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
+        first: turn?.first ?? path.filter((m) => m.role === "user").length <= 1, startedAt: live?.startedAt,
+        endedAt: endedAt ?? assistant.ui?.endedAt ?? Date.now(), firstAt: live?.firstAt, calls: live?.calls, assistant, tools,
+        known: known.map((m) => this.#namedTool(m)),
+      };
+      const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !tel.contentOn ? "no_consent" : null);
+      let recorded = false;
+      if (!excluded) {
+        const owner = await ownerHash();
+        const record = owner && buildRecord({
+          ...base, conversation: conv.id, index: path.filter((m) => m.role === "user").length, owner, question: user.content,
+          app: this.catalog?.versions || null, runtime: this.#runtimeFacts(),
+        });
+        if (record) {
+          tel.sendRecord(record, { conversationId: conv.id });
+          recorded = true;
+        }
+      }
+      tel.track("turn_end", turnEndEvent({ ...base, excluded: excluded || undefined, recorded }));
+    } catch { /* never the conversation's concern */ } finally {
+      tel.turnEnded(live?.id || assistant?.id);
+    }
+  }
+
+  /** A tool message with a name the catalog knows, else "unknown" (a model may invent a name; it is never sent). */
+  #namedTool(m) {
+    const name = String(m?.envelope?.via || m?.name || "");
+    return this.#toolNames.has(name) ? m : { ...m, name: "unknown", envelope: m?.envelope ? { ...m.envelope, via: "unknown" } : m?.envelope };
+  }
+
+  #runtimeFacts() {
+    return {
+      compute: this.compute(), browser: this.state.browser.status, runner: this.state.runner.info?.version || undefined,
+      layout: this.state.layout, lang: lang(),
+    };
+  }
+
+  /** A tool run (and a research workflow's start and end: a governed skill, a study design, a job). */
+  #toolEvent(ev, live) {
+    try {
+      const tool = live.tools.get(ev.callId);
+      const call = tool?.call || {};
+      let r = null;
+      try { r = this.toolRouter?.resolve?.(ev.name || call.name, ev.args || call.args || {}) ?? null; } catch { r = null; }
+      const raw = String(ev.envelope?.via || r?.entry?.id || r?.core?.name || ev.name || call.name || "");
+      const name = this.#toolNames.has(raw) ? raw : "unknown";
+      const kind = ev.envelope?.governance?.kind || r?.entry?.kind || r?.target?.kind || "unknown";
+      const key = `${live.id}:${String(ev.callId || "").replace(/[^A-Za-z0-9_.:-]/g, "_")}`.slice(0, 100);
+      const workflow = WORKFLOW_KINDS.includes(kind);
+      if (ev.type === "tool.start") {
+        if (workflow) this.telemetry.track("workflow", { key, kind, name, phase: "started" });
+        return;
+      }
+      const env = ev.envelope || {};
+      const where = env.receipt?.decided_by === "router" ? "page" : env.receipt?.where || call.where;
+      const ms = Number(env.duration_ms) || (call.endedAt && call.startedAt ? call.endedAt - call.startedAt : undefined);
+      this.telemetry.track("tool_end", { call: key, tool: name, kind, place: where, status: env.status, ms, error_type: env.error?.type });
+      if (workflow) this.telemetry.track("workflow", { key, kind, name, phase: WORKFLOW_PHASE[env.status] || "failed" });
+    } catch { /* never the turn's concern */ }
+  }
+
+  /** A runner job the thread follows reached its end: the workflow's completion or failure, once per job and state. */
+  #jobEvent(job) {
+    try {
+      if (!job?.id || !["succeeded", "failed", "cancelled"].includes(job.state)) return;
+      const k = `${job.id}|${job.state}`;
+      if (this.#jobsReported.has(k)) return;
+      this.#jobsReported.add(k);
+      // the job's id itself is not sent: a digest of it says the same job twice is one
+      sha256Hex(String(job.id)).then((hash) => this.telemetry.track("workflow", {
+        key: `job:${hash.slice(0, 32)}`, kind: "job", name: token(String(job.kind || ""), 80) || "job",
+        phase: job.state === "succeeded" ? "completed" : job.state,
+      })).catch(() => {});
+    } catch { /* never the thread's concern */ }
+  }
+
+  /**
+   * Turns cut off by a reload, a crash or a closed tab (their heartbeat stopped): reported as interrupted, with what
+   * the draft kept, and recorded when they may be. Each is taken off the list first, so two pages do not both report it.
+   */
+  async #recoverTurns() {
+    for (const m of await this.telemetry.staleTurns()) {
+      if (this.state.turn?.live?.id === m.id) continue;
+      this.telemetry.turnEnded(m.id);
+      try {
+        const draft = await this.store.messages.get(m.id).catch(() => null);
+        const conv = await this.store.conversations.get(m.conversationId || draft?.conversationId).catch(() => null);
+        const all = conv ? await this.store.messages.list(conv.id).catch(() => []) : [];
+        const user = draft ? all.find((x) => x.id === draft.parentId) : null;
+        const tools = all.filter((x) => x.role === "tool" && x.parentId === m.id);
+        const steps = Math.max(0, ...(draft?.segments || []).map((sg) => Number(sg.step) || 0));
+        const assistant = { id: m.id, provider: m.provider, model: m.model, content: draft?.content || "", segments: draft?.segments || [], steps, status: "stopped" };
+        const live = { id: m.id, startedAt: m.startedAt };
+        if (!conv || !user) {
+          this.telemetry.track("turn_end", turnEndEvent({ id: m.id, provider: m.provider, model: m.model, status: "interrupted", first: m.first,
+            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: "discarded" }));
+          continue;
+        }
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first }, interrupted: true, endedAt: m.beat });
+      } catch { /* the next page load tries no more: it was taken off the list */ }
+    }
   }
 
   #announceTool(env) {
@@ -1122,8 +1308,32 @@ function newLive(id, userId, provider) {
   return {
     id, userId, provider: provider.id, model: provider.model, providerLabel: provider.label, relay: Boolean(provider.relay),
     startedAt: Date.now(), segments: [], tools: new Map(), pending: new Map(), thinkingMs: {}, thinkingStart: {}, stepStart: {},
-    approvals: {}, status: "streaming", error: null, usage: null, notice: "", retry: null, step: 0,
+    approvals: {}, status: "streaming", error: null, usage: null, notice: "", retry: null, step: 0, calls: 0, firstAt: null,
   };
+}
+
+/** How a research workflow's tool run ended, as a phase (telemetry-contract.js WORKFLOW_PHASES). */
+const WORKFLOW_PHASE = { succeeded: "completed", job_submitted: "submitted", failed: "failed", refused: "refused", cancelled: "cancelled" };
+
+/** Every tool name the catalog knows: core tools and entries (anything else is reported as "unknown"). */
+function toolNamesOf(catalog) {
+  const out = new Set();
+  for (const c of catalog?.core || []) if (c?.name) out.add(c.name);
+  for (const e of catalog?.entries || []) if (e?.id) out.add(e.id);
+  return out;
+}
+
+/** The browser, coarsely: its engine family, whether it is a phone or tablet, whether installed as an app. */
+function clientFacts() {
+  const nav = globalThis.navigator || {};
+  const ua = String(nav.userAgent || "");
+  const brands = (nav.userAgentData?.brands || []).map((b) => b.brand).join(" ");
+  const ios = /iPhone|iPad|iPod/.test(ua);
+  const browser = ios ? "safari" : /Firefox\//.test(ua) ? "firefox" : /Chrom(?:e|ium)|Edg\//.test(`${brands} ${ua}`) ? "chromium" : /Safari\//.test(ua) ? "safari" : "other";
+  const mobile = typeof nav.userAgentData?.mobile === "boolean" ? nav.userAgentData.mobile : /Mobi|Android|iPhone|iPad|iPod/.test(ua);
+  let standalone = false;
+  try { standalone = Boolean(globalThis.matchMedia?.("(display-mode: standalone)")?.matches); } catch { standalone = false; }
+  return { browser, mobile, standalone };
 }
 
 /** Fold one agent event into the live model (the thread re-renders from it). */
@@ -1136,9 +1346,11 @@ export function applyEvent(live, ev) {
     case "model.start":
       live.step = ev.step;
       live.retry = null;
+      live.calls = (live.calls || 0) + 1; // one request to the model (a retry, below, is another)
       (live.stepStart ||= {})[ev.step] = Date.now();
       break;
     case "reasoning": {
+      live.firstAt ||= Date.now();
       const seg = lastSeg();
       if (seg && seg.type === "reasoning" && seg.step === ev.step) seg.text += ev.delta;
       else {
@@ -1149,6 +1361,7 @@ export function applyEvent(live, ev) {
       break;
     }
     case "text": {
+      live.firstAt ||= Date.now();
       endThinking(ev.step);
       const seg = lastSeg();
       if (seg && seg.type === "text" && seg.step === ev.step) seg.text += ev.delta;
@@ -1187,6 +1400,7 @@ export function applyEvent(live, ev) {
       live.usage = { input: ev.input, output: ev.output };
       break;
     case "model.retry":
+      live.calls = (live.calls || 0) + 1;
       live.segments = live.segments.filter((s) => !(s.step === ev.step && (s.type === "text" || s.type === "reasoning")));
       live.retry = ev.notice || ev.message;
       break;

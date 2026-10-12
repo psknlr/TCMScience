@@ -16,7 +16,8 @@ export function mountAbout(app, main) {
     h("section.about__sec", h("h2.about__h", t("ui.about.what")), list("what", 4)),
     h("section.about__sec", h("h2.about__h", t("ui.about.where")), list("where", 4)),
     h("section.about__sec.about__sec--claims", h("h2.about__h", t("ui.about.not")), list("not", 5)),
-    h("section.about__sec", h("h2.about__h", t("ui.about.privacy")), h("p", t("ui.about.privacy_text"))),
+    h("section.about__sec", h("h2.about__h", t("ui.about.privacy")), h("p", t("ui.about.privacy_text")),
+      h("p", t("ui.about.privacy_records"), " ", h("a", { href: "#/settings/privacy" }, t("ui.about.privacy_settings")))),
     h("section.about__sec", h("h2.about__h", t("ui.about.versions")),
       keyValue([
         ["tcmstudio", v.tcmstudio || "—"], ["bioagent", v.bioagent || "—"], ["psh", v.psh || "—"],
