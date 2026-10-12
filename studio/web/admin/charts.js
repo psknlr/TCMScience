@@ -383,6 +383,22 @@ export function hbars(rows, { format = String, label = "" } = {}) {
   }));
 }
 
+/** A table wider than its card scrolls sideways; then (only then) it takes the focus, as a named region, so the keyboard
+ * can scroll it too. */
+function scrollable(wrap, label) {
+  watch(wrap, () => {
+    if (wrap.scrollWidth > wrap.clientWidth + 1) {
+      wrap.tabIndex = 0;
+      wrap.setAttribute("role", "region");
+      wrap.setAttribute("aria-label", label);
+    } else {
+      wrap.removeAttribute("tabindex");
+      wrap.removeAttribute("role");
+      wrap.removeAttribute("aria-label");
+    }
+  });
+}
+
 /**
  * A table: columns [{key, label, num, mono, format(value, row) → text or a node}], rows of objects. Empty cells show "—".
  */
@@ -397,5 +413,7 @@ export function dataTable(columns, rows, { caption = "" } = {}) {
       else cell.textContent = v === null || v === undefined || v === "" ? "—" : String(v);
       return cell;
     })))));
-  return el("div", { class: "table-wrap" }, table);
+  const wrap = el("div", { class: "table-wrap" }, table);
+  scrollable(wrap, caption || columns.map((c) => c.label).join(" · "));
+  return wrap;
 }

@@ -15,6 +15,8 @@
   --axis: #c3c2b7;
   --border: rgba(11, 11, 11, 0.1);
   --accent: #2a78d6;
+  --link: #1f5fae;      /* 6.0:1 on the page */
+  --button: #1f63b8;    /* white text 5.9:1 */
   --focus: #2a78d6;
   --up: #006300;
   --down: #b42727;
@@ -43,6 +45,8 @@
     --axis: #383835;
     --border: rgba(255, 255, 255, 0.1);
     --accent: #3987e5;
+    --link: #6da7ec;
+    --button: #1f63b8;
     --focus: #6da7ec;
     --up: #0ca30c;
     --down: #e66767;
@@ -63,6 +67,8 @@
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.1);
   --accent: #3987e5;
+  --link: #6da7ec;
+  --button: #1f63b8;
   --focus: #6da7ec;
   --up: #0ca30c;
   --down: #e66767;
@@ -74,7 +80,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.55 var(--font); }
-a { color: var(--accent); }
+a { color: var(--link); }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -85,8 +91,8 @@ button, input, select { font: inherit; color: inherit; }
   border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; text-decoration: none;
 }
 .btn:hover { background: var(--surface-2); }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn--primary:hover { filter: brightness(1.05); background: var(--accent); }
+.btn--primary { background: var(--button); border-color: var(--button); color: #fff; }
+.btn--primary:hover { filter: brightness(1.08); background: var(--button); }
 .btn--danger { color: var(--down); }
 .btn--small { min-height: 30px; padding: 0 10px; font-size: 13px; }
 .btn[disabled] { opacity: 0.5; cursor: default; }
@@ -153,6 +159,7 @@ button, input, select { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------------------- tables */
 .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-wrap:focus-visible { outline-offset: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
 th { font-weight: 600; color: var(--ink-2); white-space: nowrap; }

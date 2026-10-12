@@ -52,6 +52,8 @@ test("the default model Tao-S1 answers through the relay and the page never name
 
   await page.evaluate(() => globalThis.__studio.createProject({ name: "E2E Tao-S1" }));
   await send(page, "你好");
+  // the site takes conversation records (docs/TELEMETRY.md): the notice comes first; declined, the question goes all the same
+  await page.locator('dialog.dialog--consent [data-consent="decline"]').click();
   let answer = await waitForAnswers(page, 1);
   await expect(answer).toContainText("测试模型的回答");
   await expect(answer).toContainText("Tao-S1");

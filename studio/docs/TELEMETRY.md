@@ -306,4 +306,5 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 | `edge/test/telemetry.test.js` | 接口：来源检查、正文上限、限额、敏感内容在 Worker 端被拒、登录与锁定、会话、CSRF、导出权限、CSV 防公式、定时清理 |
 | `edge/test/export.test.js` | 导出脚本：只写到仓库之外、令牌只从环境读、权限、保留 |
 | `edge/test/check.test.js`、`e2e/pipeline.spec.mjs` | 部署后的检查（后台不对未登录者开放）；工作流只在令牌够长时写入机密且从不打印 |
-| `e2e/telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）上的完整流程：中英文、桌面与手机、同意与拒绝、记录可在后台看到、删除、刷新中断、并发访客、管理员登录与导出 |
+| `e2e/telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）上的完整流程：中英文、桌面与手机、同意与拒绝、记录可在后台看到、删除、统计中断时对话照常、刷新中断、两位访客同时使用、管理员登录与导出、登录页与仪表板的 axe 无障碍检查（浅色与深色） |
+| `e2e/a11y.spec.mjs` | 主界面的 axe 检查，含「设置 → 隐私」 |
