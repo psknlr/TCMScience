@@ -1,15 +1,10 @@
-// About (DESIGN §4.1, §9.5): what Studio is, where the computation and the data are, what it does not claim, links.
+// About (DESIGN §4.1, §9.5): what Studio is, where the computation and the data are, what it does not claim, privacy.
+// It links nowhere: the project's homepage, the Arena and the repository are not part of the Studio's interface
+// (core/publiclinks.js keeps them out of runtime text too).
 
 import { t } from "../../core/i18n.js";
 import { fill, h } from "../dom.js";
-import { icon } from "../icons.js";
 import { keyValue } from "../primitives.js";
-
-const LINKS = [
-  ["project", "https://psknlr.github.io/TCMScience/", "bookOpen"],
-  ["arena", "https://psknlr.github.io/TCMScience/arena/", "scale"],
-  ["github", "https://github.com/psknlr/TCMScience", "external"],
-];
 
 export function mountAbout(app, main) {
   const v = app.catalog?.versions || {};
@@ -22,9 +17,6 @@ export function mountAbout(app, main) {
     h("section.about__sec", h("h2.about__h", t("ui.about.where")), list("where", 4)),
     h("section.about__sec.about__sec--claims", h("h2.about__h", t("ui.about.not")), list("not", 5)),
     h("section.about__sec", h("h2.about__h", t("ui.about.privacy")), h("p", t("ui.about.privacy_text"))),
-    h("section.about__sec", h("h2.about__h", t("ui.about.links")),
-      h("ul.about__links", { role: "list" }, LINKS.map(([id, href, ic]) => h("li", h("a.about__link", { href, target: "_blank", rel: "noopener noreferrer" },
-        icon(ic, { size: 16 }), h("span", h("span.about__link-title", t(`ui.about.link.${id}`)), h("span.about__link-url", href.replace(/^https:\/\//, "")))))))),
     h("section.about__sec", h("h2.about__h", t("ui.about.versions")),
       keyValue([
         ["tcmstudio", v.tcmstudio || "—"], ["bioagent", v.bioagent || "—"], ["psh", v.psh || "—"],

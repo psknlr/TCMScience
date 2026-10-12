@@ -606,13 +606,6 @@ details.json[open] { display: block; }
 .about__list { margin: 0; padding-left: 1.2em; display: grid; gap: 8px; color: var(--ink-2); line-height: 1.7; }
 .about__list li::marker { color: var(--ink-4); }
 .about__sec--claims .about__list li::marker { content: "✕  "; color: var(--vermilion); font-size: 12px; }
-.about__links { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.about__link { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--radius-lg); border: 1px solid var(--rule); background: var(--surface); color: var(--ink); }
-.about__link:hover { text-decoration: none; border-color: var(--control-border); }
-.about__link svg { color: var(--ink-3); flex: none; }
-.about__link > span { display: grid; }
-.about__link-title { font-weight: var(--weight-medium); }
-.about__link-url { font-size: var(--text-xs); color: var(--ink-3); font-family: var(--font-mono); }
 .about__motto { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--rule); font-size: var(--text-xl); color: var(--ink-2); line-height: 1.6; }
 
 /* catalog */

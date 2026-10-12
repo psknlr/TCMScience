@@ -4,6 +4,7 @@
 
 import { refusalsOf, releaseOf, claimsOf } from "../core/governance.js";
 import { glossary, lang, t } from "../core/i18n.js";
+import { scrubProjectRefs } from "../core/publiclinks.js";
 import { fill, formatBytes, formatDateTime, formatDuration, guessLang, h, uid } from "./dom.js";
 import { candidateChip, hashBadge, reasonList, verdictPill } from "./governance.js";
 import { icon } from "./icons.js";
@@ -16,7 +17,7 @@ import { button, chip, disclosure, progressBar, spinner } from "./primitives.js"
  */
 export function envelopeSummary(envelope) {
   const en = typeof envelope?.summary_en === "string" ? envelope.summary_en.trim() : "";
-  const text = lang() === "en" && en ? en : String(envelope?.summary || "");
+  const text = scrubProjectRefs(lang() === "en" && en ? en : String(envelope?.summary || ""));
   return { text, lang: text ? guessLang(text) || null : null };
 }
 
@@ -149,7 +150,7 @@ function prettyJson(v) {
 
 /** The first lines of a result: the envelope text (pretty when it is JSON), cut to `lines`. */
 export function resultPreview(envelope, lines = 10) {
-  let text = envelope?.text || "";
+  let text = scrubProjectRefs(envelope?.text || "");
   let json = false;
   try {
     const j = JSON.parse(text);
