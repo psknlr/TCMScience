@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { DEFAULTS, config } from "../src/relay.js";
 import { SOURCE_DEFAULTS, sourceConfig } from "../src/sources.js";
+import { TELEMETRY_DEFAULTS, TELEMETRY_RANGES, telemetryConfig } from "../src/telemetry/config.js";
 
 /** The subset of TOML that wrangler.toml uses: [table], [[array of tables]], key = string | number | bool | array |
  * inline table, comments. Enough to read the file, not a general parser. */
@@ -71,7 +72,7 @@ const AGENT_CALLS = 16;
 function problems(vars) {
   const out = [];
   const say = (k, why) => out.push(`${k}: ${why}`);
-  const known = [...Object.keys(DEFAULTS), ...Object.keys(SOURCE_DEFAULTS), "HSTS_MAX_AGE"];
+  const known = [...Object.keys(DEFAULTS), ...Object.keys(SOURCE_DEFAULTS), ...Object.keys(TELEMETRY_DEFAULTS), "HSTS_MAX_AGE"];
   for (const k of known) if (!(k in vars)) say(k, "missing from [vars]");
   for (const k of Object.keys(vars)) if (!known.includes(k)) say(k, "not a variable the Worker reads (a typo?)");
   const text = {};
@@ -84,6 +85,14 @@ function problems(vars) {
   const has = (k) => k in text;
   if (has("RELAY") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.RELAY)) say("RELAY", `"${text.RELAY}" is neither "on" nor "off"`);
   if (has("SOURCES") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.SOURCES)) say("SOURCES", "must be on or off");
+  for (const k of ["TELEMETRY", "TELEMETRY_CONVERSATIONS"]) if (has(k) && !/^(on|off)$/i.test(text[k])) say(k, "must be on or off");
+  if (has("TELEMETRY_GEO") && !/^(country|region|off)$/.test(text.TELEMETRY_GEO)) say("TELEMETRY_GEO", "must be country, region or off");
+  if (has("SECURITY_RAW_IP") && !/^(off|flagged)$/.test(text.SECURITY_RAW_IP)) say("SECURITY_RAW_IP", "must be off or flagged");
+  for (const [key, [min, max]] of Object.entries(TELEMETRY_RANGES)) {
+    if (!has(key)) continue;
+    const n = Number(text[key]);
+    if (!Number.isInteger(n) || n < min || n > max) say(key, `"${text[key]}" is not a whole number from ${min} to ${max}`);
+  }
   for (const [key, maximum] of [["SOURCE_MAX_BODY_BYTES", 1048576], ["SOURCE_MAX_RESPONSE_BYTES", 16777216], ["SOURCE_TIMEOUT_MS", 30000], ["SOURCE_PER_MINUTE", 10000], ["SOURCE_PER_DAY", 100000], ["SOURCE_TOTAL_PER_DAY", 1000000]]) {
     if (has(key) && Number(text[key]) > maximum) say(key, `must be at most ${maximum}`);
   }
@@ -165,12 +174,31 @@ test("every [vars] change the docs tell the owner to make passes, and takes effe
     ["ALLOWED_ORIGINS", `"${SITE},http://127.0.0.1:9000"`, (c) => assert.deepEqual(c.origins, [SITE, "http://127.0.0.1:9000"])],
     ["HSTS_MAX_AGE", '"31536000"', () => {}],
   ];
+  // the telemetry's switches and periods (docs/TELEMETRY.md, README 遥测配置)
+  const telemetry = [
+    ["TELEMETRY", '"off"', (c) => assert.equal(c.analytics, false)],
+    ["TELEMETRY_CONVERSATIONS", '"off"', (c) => assert.equal(c.conversations, false)],
+    ["TELEMETRY_GEO", '"region"', (c) => assert.equal(c.geo, "region")],
+    ["TELEMETRY_GEO", '"off"', (c) => assert.equal(c.geo, "off")],
+    ["TELEMETRY_UTC_OFFSET", '"0"', (c) => assert.equal(c.offset, 0)],
+    ["RETENTION_CONVERSATIONS_DAYS", '"30"', (c) => assert.equal(c.retention.conversations, 30)],
+    ["RETENTION_SECURITY_DAYS", '"7"', (c) => assert.equal(c.retention.security, 7)],
+    ["RETENTION_EVENTS_DAYS", '"365"', (c) => assert.equal(c.retention.events, 365)],
+    ["SECURITY_RAW_IP", '"flagged"', (c) => assert.equal(c.rawIp, "flagged")],
+    ["CONVERSATIONS_PER_DAY", '"100"', (c) => assert.equal(c.recordLimits.perDay, 100)],
+    ["ADMIN_SESSION_SECONDS", '"1800"', (c) => assert.equal(c.sessionSeconds, 1800)],
+  ];
   // only what is said of the changed variable: a mistake elsewhere in the file is the first test's to report
   const about = (key, vars) => problems(vars).filter((p) => p.startsWith(`${key}: `));
   for (const [key, raw, effect] of changes) {
     const vars = edited(key, raw);
     assert.deepEqual(about(key, vars), [], `${key} = ${raw}`);
     effect(config(vars));
+  }
+  for (const [key, raw, effect] of telemetry) {
+    const vars = edited(key, raw);
+    assert.deepEqual(about(key, vars), [], `${key} = ${raw}`);
+    effect(telemetryConfig(vars));
   }
 });
 
@@ -184,6 +212,8 @@ test("a mistake in [vars] is named, with the variable", () => {
     ["PER_MINUTE", '"10"'], ["PER_DAY", '"8"'], ["TOTAL_PER_DAY", '"15"'], ["MAX_OUTPUT_TOKENS", '"0"'], ["HSTS_MAX_AGE", '"half a year"'],
     ["ALLOWED_ORIGINS", '"http://127.0.0.1:8765"'], ["ALLOWED_ORIGINS", `"${SITE}/,http://localhost:8765"`],
     ["ALLOWED_ORIGINS", `"${SITE},localhost:8765"`],
+    ["TELEMETRY", '"maybe"'], ["TELEMETRY_GEO", '"city"'], ["SECURITY_RAW_IP", '"always"'], ["RETENTION_CONVERSATIONS_DAYS", '"0"'],
+    ["RETENTION_SECURITY_DAYS", '"forever"'], ["TELEMETRY_UTC_OFFSET", '"24"'], ["ADMIN_SESSION_SECONDS", '"60"'], ["TELEMETRY_MAX_BODY_BYTES", '"100"'],
   ];
   for (const [key, raw] of mistakes) {
     assert.ok(problems(edited(key, raw)).some((p) => p.startsWith(`${key}: `)), `${key} = ${raw} is not reported`);
@@ -202,16 +232,27 @@ test("the Worker: one hostname, the app's files first, the relay under /v1/*, it
   assert.equal(toml.workers_dev, false);
   assert.equal(toml.preview_urls, false);
   assert.deepEqual(toml.routes, [{ pattern: "science.impf.ai", custom_domain: true }]);
-  assert.deepEqual(toml.assets, { directory: "../_site", binding: "ASSETS", run_worker_first: ["/v1/*", "/api/sources/*"], not_found_handling: "none" });
+  assert.deepEqual(toml.assets, {
+    directory: "../_site", binding: "ASSETS", not_found_handling: "none",
+    run_worker_first: ["/v1/*", "/api/sources/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"],
+  });
   assert.deepEqual(toml.ratelimits, [{ name: "BURST", namespace_id: "7321", simple: { limit: 40, period: 10 } }]);
   assert.ok(!["7311", "7312", "7313"].includes(toml.ratelimits[0].namespace_id)); // TaoChronos's: their counters would be shared
-  assert.deepEqual(toml.durable_objects.bindings, [{ name: "LIMITER", class_name: "Limiter" }]);
-  assert.deepEqual(toml.migrations, [{ tag: "v1", new_sqlite_classes: ["Limiter"] }]);
+  // the telemetry in objects of its own, apart from the rate limits: usage, conversation records, security events
+  assert.deepEqual(toml.durable_objects.bindings, [
+    { name: "LIMITER", class_name: "Limiter" }, { name: "USAGE", class_name: "UsageLog" },
+    { name: "CONVERSATIONS", class_name: "ConversationLog" }, { name: "SECURITY", class_name: "SecurityLog" },
+  ]);
+  // v1 as it was deployed (never edited); v2 adds the telemetry's SQLite classes
+  assert.deepEqual(toml.migrations, [
+    { tag: "v1", new_sqlite_classes: ["Limiter"] },
+    { tag: "v2", new_sqlite_classes: ["UsageLog", "ConversationLog", "SecurityLog"] },
+  ]);
   assert.equal(toml.observability.enabled, true);
   assert.equal(toml.observability.logs.invocation_logs, false);
 });
 
 test("no secret is written in the configuration", () => {
   const text = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
-  assert.doesNotMatch(text, /MINIMAX_API_KEY\s*=|VISITOR_SALT\s*=|sk-[A-Za-z0-9]{8,}|eyJ[A-Za-z0-9_-]{20,}/);
+  assert.doesNotMatch(text, /MINIMAX_API_KEY\s*=|VISITOR_SALT\s*=|ADMIN_TOKEN\s*=|EXPORT_TOKEN\s*=|sk-[A-Za-z0-9]{8,}|eyJ[A-Za-z0-9_-]{20,}/);
 });
