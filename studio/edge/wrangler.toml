@@ -72,7 +72,7 @@ SOURCE_TOTAL_PER_DAY = "50000"
 # text. "off" stops taking either (deletion requests still work).
 TELEMETRY = "on"
 TELEMETRY_CONVERSATIONS = "on"
-# where a visitor is, as Cloudflare places the request: country | region (first-level, e.g. CN-GD) | off
+# where a visitor is, as Cloudflare places the request: country (or territory, the notice's "country or region") | off
 TELEMETRY_GEO = "country"
 # the reporting day, hours from UTC (8: Beijing)
 TELEMETRY_UTC_OFFSET = "8"

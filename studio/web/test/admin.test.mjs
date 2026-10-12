@@ -156,6 +156,8 @@ async function stores() {
   });
   assert.ok(record, "a record as the contract keeps it");
   conversations.add(record, { received: new Date(NOW).toISOString(), day: DAY });
+  // the same visitor, forty days earlier: outside a 7-day view, found by their record reference
+  conversations.add({ ...record, id: "rec-0", question: "黄芪的研究证据？", answer: "见文献。" }, { received: "2026-09-01T04:00:00.000Z", day: "2026-09-01" });
   await security.record({ kind: "scanner", route: "missing", status: 404, detail: "honeypot",
     facts: { ip: "203.0.113.9", country: "US", method: "GET", path: "/wp-login.php", uaClass: "bot" }, day: DAY }, { now: NOW });
   return { usage, conversations, security };
@@ -245,6 +247,24 @@ test("the dashboard draws the real API's summary, and shows a visitor's words as
   assert.ok(calls.includes("POST /api/admin/telemetry/conversations/delete"));
   assert.equal(s.conversations.list({ from: DAY, to: DAY }).items.length, 0);
   assert.ok((await s.security.summary(DAY, DAY)).audit.some((a) => a.kind === "admin_delete" && a.detail === "ids:1"));
+
+  // a visitor's deletion request: their record reference finds their records on any day, and all of them go at once
+  const owner = (await ownerOf("k".repeat(43)));
+  const ref = document.querySelector('input[type="search"][placeholder="按记录编号查找"]');
+  ref.value = "not-hex";
+  ref.dispatchEvent(new window.Event("change"));
+  assert.match(document.querySelector("#status").textContent, /十六进制/);
+  ref.value = owner.slice(0, 12).toUpperCase();
+  ref.dispatchEvent(new window.Event("change"));
+  await until(() => document.querySelector(".record"), "the visitor's older record");
+  assert.ok(calls.includes(`GET /api/admin/telemetry/conversations?days=7&limit=25&owner=${owner.slice(0, 12)}`));
+  assert.deepEqual([...document.querySelectorAll(".record__q")].map((x) => x.textContent), ["黄芪的研究证据？"]);
+  assert.ok([...document.querySelectorAll(".record__facts li")].some((li) => li.textContent === `记录编号 ${owner.slice(0, 12)}`));
+  click(window, button(document, "删除此访客的全部记录"));
+  await until(() => /已删除 1 条/.test(document.querySelector("#status").textContent), "the deletion");
+  assert.equal(s.conversations.list({ from: "2026-01-01", to: DAY, owner }).items.length, 0);
+  assert.ok((await s.security.summary(DAY, DAY)).audit.some((a) => a.kind === "admin_delete" && a.detail === "owner:1"));
+  assert.equal(button(document, "删除此访客的全部记录").hidden, true);
 
   // another period, kept in the address; another language, from what was loaded
   click(window, button(document, "30 天"));

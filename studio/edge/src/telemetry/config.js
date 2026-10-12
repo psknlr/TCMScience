@@ -11,7 +11,9 @@ import { CONSENT_VERSION } from "../../../web/js/core/telemetry-contract.js";
 export const TELEMETRY_DEFAULTS = {
   TELEMETRY: "on", // usage statistics (off: none are taken; health says analytics:false)
   TELEMETRY_CONVERSATIONS: "on", // conversation records of visitors who agreed (off: none are taken)
-  TELEMETRY_GEO: "country", // country | region | off: where a request comes from, as Cloudflare places it
+  // country | off: where a request comes from, as Cloudflare places it. Nothing finer: the notice visitors read says
+  // "country or region" (a territory), and a setting must never collect more than the notice discloses
+  TELEMETRY_GEO: "country",
   TELEMETRY_UTC_OFFSET: "8", // the reporting day, hours from UTC (8: Beijing)
   TELEMETRY_MAX_BODY_BYTES: "32768", // one batch of usage events
   CONVERSATION_MAX_BODY_BYTES: "65536", // one conversation record
@@ -54,7 +56,7 @@ export function telemetryConfig(env = {}) {
   return {
     analytics: !OFF.test(get("TELEMETRY")),
     conversations: !OFF.test(get("TELEMETRY_CONVERSATIONS")),
-    geo: ["country", "region", "off"].includes(geo) ? geo : "country",
+    geo: geo === "off" ? "off" : "country",
     offset: num("TELEMETRY_UTC_OFFSET"),
     maxEventBytes: num("TELEMETRY_MAX_BODY_BYTES"),
     maxRecordBytes: num("CONVERSATION_MAX_BODY_BYTES"),

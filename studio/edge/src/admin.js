@@ -6,7 +6,8 @@
 //   GET  /api/admin/session                       whether the session is valid, and until when
 //   GET  /api/admin/telemetry/summary?days=7|30|90[&provider=&model=&country=]    everything the dashboard shows
 //   GET  /api/admin/telemetry/export?dataset=…&format=csv|json&days=…            a download (see EXPORTS)
-//   GET  /api/admin/telemetry/conversations?days=&status=&provider=&before=&limit=  consented records, with their text
+//   GET  /api/admin/telemetry/conversations?days=&status=&provider=&owner=&before=&limit=  consented records, with their
+//                                                 text (owner: a visitor's record reference, 12+ hex characters)
 //   POST /api/admin/telemetry/conversations/delete  {ids:[…]} or {owner}
 //   POST /api/admin/telemetry/prune               apply the retention periods now
 //   GET  /admin/                                  the dashboard when signed in, else the sign-in page
@@ -308,7 +309,7 @@ async function conversations(cfg, deps, url, now, who, audit) {
   const p = periodOf(url, cfg, now);
   const q = url.searchParams;
   const status = ["completed", "cancelled", "failed", "interrupted"].includes(q.get("status")) ? q.get("status") : "";
-  const owner = /^[0-9a-f]{64}$/.test(q.get("owner") || "") ? q.get("owner") : "";
+  const owner = /^[0-9a-f]{12,64}$/.test(q.get("owner") || "") ? q.get("owner") : "";
   const res = await deps.conversations().list({
     from: p.from, to: p.to, status, provider: filterValue(q.get("provider")), owner,
     before: Math.max(0, Math.floor(Number(q.get("before")) || 0)), limit: Math.min(100, Math.max(1, Math.floor(Number(q.get("limit")) || 25))),

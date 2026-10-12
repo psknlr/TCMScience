@@ -21,7 +21,8 @@ const FILTER = /^[A-Za-z0-9_.:@/+-]{1,80}$/;
 
 const state = { days: 7, provider: "", model: "", country: "", seq: 0, data: null };
 // the conversation records on screen, kept across a redraw (a change of language) but not across a change of period
-const records = { key: "", items: [], next: null, status: "", loaded: false };
+const records = { key: "", items: [], next: null, status: "", owner: "", loaded: false };
+const REFERENCE = /^[0-9a-f]{12,64}$/;
 const $ = (id) => document.getElementById(id);
 
 class Expired extends Error {}
@@ -588,6 +589,7 @@ function recordItem(item) {
     r.error ? t("record_error", { kind: r.error.kind || "—", type: r.error.type || "—" }) : "",
     r.app ? t("record_versions", { v: `TCMStudio ${r.app.tcmstudio || "—"} · BioAgent ${r.app.bioagent || "—"} · PSH ${r.app.psh || "—"}` }) : "",
     r.runtime ? t("record_runtime", { v: [r.runtime.compute, r.runtime.browser, r.runtime.runner, r.runtime.layout, r.runtime.lang].filter(Boolean).join(" · ") }) : "",
+    r.owner ? t("record_owner", { ref: String(r.owner).slice(0, 12) }) : "",
     `${t("record_id")} ${r.id || "—"}`,
   ].filter(Boolean);
   const tools = (r.tools || []).map((x) => ({ ...x, args: (x.arg_keys || []).join(", ") }));
@@ -631,10 +633,16 @@ function recordsCard(data) {
     ["", ...STATUSES].map((s) => el("option", { value: s, text: s ? t(s) : t("all"), selected: s === records.status })));
   const show = el("button", { class: "btn btn--small", type: "button", text: records.loaded ? t("records_reload") : t("records_show") });
   const more = el("button", { class: "btn btn--small", type: "button", text: t("load_more"), hidden: !records.next });
+  // a visitor's deletion request: their record reference (Settings → Privacy) finds every record of theirs, on any day
+  const ref = el("input", { class: "input", type: "search", placeholder: t("records_ref"), "aria-label": t("records_ref"), value: records.owner || null,
+    spellcheck: "false", autocomplete: "off" });
+  const removeAll = el("button", { class: "btn btn--small btn--danger", type: "button", text: t("delete_owner"), hidden: true });
   const paint = () => {
     box.replaceChildren(...records.items.map(recordItem));
     if (records.loaded && !records.items.length) box.append(empty("no_records"));
     more.hidden = !records.next;
+    const owners = new Set(records.items.map((it) => it.record?.owner).filter(Boolean));
+    removeAll.hidden = !(records.owner && owners.size === 1);
   };
   let busy = false;
   const fetchPage = async (reset) => {
@@ -646,6 +654,7 @@ function recordsCard(data) {
       const q = new URLSearchParams({ days: String(state.days), limit: "25" });
       if (records.status) q.set("status", records.status);
       if (state.provider) q.set("provider", state.provider);
+      if (records.owner) q.set("owner", records.owner);
       if (!reset && records.next) q.set("before", String(records.next));
       const res = await api(`/api/admin/telemetry/conversations?${q}`);
       records.items = reset ? res.items || [] : [...records.items, ...(res.items || [])];
@@ -667,9 +676,35 @@ function recordsCard(data) {
     records.status = STATUSES.includes(status.value) ? status.value : "";
     if (records.loaded) fetchPage(true);
   });
+  ref.addEventListener("change", () => {
+    const value = String(ref.value || "").trim().toLowerCase();
+    if (value && !REFERENCE.test(value)) {
+      say(t("records_ref_bad"), true);
+      return;
+    }
+    say("");
+    records.owner = value;
+    fetchPage(true);
+  });
+  removeAll.addEventListener("click", async () => {
+    const owner = records.items[0]?.record?.owner;
+    if (!owner || !window.confirm(t("delete_owner_confirm"))) return;
+    removeAll.disabled = true;
+    try {
+      const res = await api("/api/admin/telemetry/conversations/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner }) });
+      records.items = [];
+      records.next = null;
+      paint();
+      say(t("deleted_owner", { n: fmt.int(res?.deleted ?? 0) }));
+    } catch (err) {
+      if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
+    } finally {
+      removeAll.disabled = false;
+    }
+  });
   paint();
   const off = data.config && !data.config.conversations ? facts(t("records_off")) : null;
-  return card(t("records"), { wide: true, note: t("records_note"), tools: [status, show] }, off, box, more);
+  return card(t("records"), { wide: true, note: t("records_note"), tools: [ref, status, show] }, off, box, el("div", { class: "card__tools" }, more, removeAll));
 }
 
 // ------------------------------------------------------------------------------------------------- exports and settings

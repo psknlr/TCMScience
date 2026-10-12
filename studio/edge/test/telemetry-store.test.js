@@ -170,15 +170,23 @@ test("conversations: a record once, a deletion by owner with a tombstone, retent
   const listed = c.list({ from: DAY, to: DAY });
   assert.deepEqual(listed.items.map((i) => i.record.id), ["m3", "m2", "m1"]);
   assert.deepEqual(c.list({ from: DAY, to: DAY, status: "failed" }).items.map((i) => i.record.id), ["m3"]);
+  // a visitor's record reference (the digest's first 12 characters, as their settings show it) finds their records on
+  // any day; anything shorter, or not hex, is not an owner filter
+  c.accept(rec("m0", ownerA), { received: "x", day: shiftDay(DAY, -40) });
+  assert.deepEqual(c.list({ from: DAY, to: DAY, owner: ownerA.slice(0, 12) }).items.map((i) => i.record.id), ["m0", "m2", "m1"]);
+  assert.deepEqual(c.list({ from: DAY, to: DAY, owner: ownerA }).items.length, 3);
+  assert.deepEqual(c.list({ from: DAY, to: DAY, owner: ownerA.slice(0, 11) }).items.map((i) => i.record.id), ["m3", "m2", "m1"]);
+  assert.deepEqual(c.list({ from: DAY, to: DAY, owner: "%" }).items.length, 3);
+  assert.equal(c.deleteIds(["m0"], { day: DAY }).deleted, 1);
   const page = c.list({ from: DAY, to: DAY, limit: 2 });
   assert.deepEqual([page.items.length, c.list({ from: DAY, to: DAY, before: page.next }).items.map((i) => i.record.id)], [2, ["m1"]]);
   assert.deepEqual(c.forget(ownerA, { day: DAY, now: NOW }), { ok: true, deleted: 2 });
   assert.deepEqual(c.list({ from: DAY, to: DAY }).items.map((i) => i.record.id), ["m3"]);
   const tomb = rows(c, "conv_deletions");
-  assert.deepEqual(tomb.map((t) => [t.owner, t.n, t.by]), [[ownerA, 2, "visitor"]]);
+  assert.deepEqual(tomb.map((t) => [t.owner, t.n, t.by]), [[ownerA, 1, "admin"], [ownerA, 2, "visitor"]]);
   assert.doesNotMatch(JSON.stringify(tomb), /q m1/); // a tombstone holds no content
   const s = c.stats(DAY, DAY);
-  assert.deepEqual([s.totals.stored, s.totals.duplicate, s.totals["excluded:identifier"], s.totals.deleted, s.held, s.deletion_requests], [3, 1, 1, 2, 1, 1]);
+  assert.deepEqual([s.totals.stored, s.totals.duplicate, s.totals["excluded:identifier"], s.totals.deleted, s.held, s.deletion_requests], [3, 1, 1, 3, 1, 2]);
   assert.deepEqual(c.deleteIds(["m3", "nope"], { day: DAY }), { deleted: 1 });
   // retention: older than the period goes; a cap keeps the newest
   c.accept(rec("old", ownerB), { received: "x", day: shiftDay(DAY, -91) });

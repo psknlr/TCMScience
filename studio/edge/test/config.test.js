@@ -86,7 +86,7 @@ function problems(vars) {
   if (has("RELAY") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.RELAY)) say("RELAY", `"${text.RELAY}" is neither "on" nor "off"`);
   if (has("SOURCES") && !/^(on|off|true|false|yes|no|1|0)$/i.test(text.SOURCES)) say("SOURCES", "must be on or off");
   for (const k of ["TELEMETRY", "TELEMETRY_CONVERSATIONS"]) if (has(k) && !/^(on|off)$/i.test(text[k])) say(k, "must be on or off");
-  if (has("TELEMETRY_GEO") && !/^(country|region|off)$/.test(text.TELEMETRY_GEO)) say("TELEMETRY_GEO", "must be country, region or off");
+  if (has("TELEMETRY_GEO") && !/^(country|off)$/.test(text.TELEMETRY_GEO)) say("TELEMETRY_GEO", "must be country or off (nothing finer than the notice discloses)");
   if (has("SECURITY_RAW_IP") && !/^(off|flagged)$/.test(text.SECURITY_RAW_IP)) say("SECURITY_RAW_IP", "must be off or flagged");
   for (const [key, [min, max]] of Object.entries(TELEMETRY_RANGES)) {
     if (!has(key)) continue;
@@ -178,7 +178,6 @@ test("every [vars] change the docs tell the owner to make passes, and takes effe
   const telemetry = [
     ["TELEMETRY", '"off"', (c) => assert.equal(c.analytics, false)],
     ["TELEMETRY_CONVERSATIONS", '"off"', (c) => assert.equal(c.conversations, false)],
-    ["TELEMETRY_GEO", '"region"', (c) => assert.equal(c.geo, "region")],
     ["TELEMETRY_GEO", '"off"', (c) => assert.equal(c.geo, "off")],
     ["TELEMETRY_UTC_OFFSET", '"0"', (c) => assert.equal(c.offset, 0)],
     ["RETENTION_CONVERSATIONS_DAYS", '"30"', (c) => assert.equal(c.retention.conversations, 30)],
@@ -212,12 +211,14 @@ test("a mistake in [vars] is named, with the variable", () => {
     ["PER_MINUTE", '"10"'], ["PER_DAY", '"8"'], ["TOTAL_PER_DAY", '"15"'], ["MAX_OUTPUT_TOKENS", '"0"'], ["HSTS_MAX_AGE", '"half a year"'],
     ["ALLOWED_ORIGINS", '"http://127.0.0.1:8765"'], ["ALLOWED_ORIGINS", `"${SITE}/,http://localhost:8765"`],
     ["ALLOWED_ORIGINS", `"${SITE},localhost:8765"`],
-    ["TELEMETRY", '"maybe"'], ["TELEMETRY_GEO", '"city"'], ["SECURITY_RAW_IP", '"always"'], ["RETENTION_CONVERSATIONS_DAYS", '"0"'],
+    ["TELEMETRY", '"maybe"'], ["TELEMETRY_GEO", '"city"'], ["TELEMETRY_GEO", '"region"'], ["SECURITY_RAW_IP", '"always"'], ["RETENTION_CONVERSATIONS_DAYS", '"0"'],
     ["RETENTION_SECURITY_DAYS", '"forever"'], ["TELEMETRY_UTC_OFFSET", '"24"'], ["ADMIN_SESSION_SECONDS", '"60"'], ["TELEMETRY_MAX_BODY_BYTES", '"100"'],
   ];
   for (const [key, raw] of mistakes) {
     assert.ok(problems(edited(key, raw)).some((p) => p.startsWith(`${key}: `)), `${key} = ${raw} is not reported`);
   }
+  // and the Worker reads a place finer than the notice discloses as the country, never finer
+  assert.equal(telemetryConfig({ TELEMETRY_GEO: "region" }).geo, "country");
   const { PER_DAY, ...missing } = toml.vars;
   assert.ok(problems(missing).includes("PER_DAY: missing from [vars]"));
   assert.match(problems({ ...toml.vars, PER_DAYS: "3000" }).join("\n"), /^PER_DAYS: not a variable the Worker reads/m);

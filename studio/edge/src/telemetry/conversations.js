@@ -127,14 +127,18 @@ export class ConversationCore {
 
   /**
    * Records from..to, newest first, `limit` at a time after the cursor `before` (a seq). Filters: status, provider,
-   * owner. → {items: [{seq, received, record}], next}.
+   * owner — the whole digest, or its first 12 or more characters as the visitor's settings show it ("record
+   * reference"); with an owner, every day is searched (a deletion request reaches all of a visitor's records).
+   * → {items: [{seq, received, record}], next}.
    */
   list({ from, to, status = "", provider = "", owner = "", before = 0, limit = 50 } = {}) {
-    const where = ["day >= ?", "day <= ?"];
-    const args = [from, to];
+    const where = [];
+    const args = [];
+    if (/^[0-9a-f]{64}$/.test(owner)) { where.push("owner = ?"); args.push(owner); }
+    else if (/^[0-9a-f]{12,63}$/.test(owner)) { where.push("owner LIKE ?"); args.push(`${owner}%`); }
+    else { where.push("day >= ?", "day <= ?"); args.push(from, to); }
     if (status) { where.push("status = ?"); args.push(status); }
     if (provider) { where.push("provider = ?"); args.push(provider); }
-    if (owner) { where.push("owner = ?"); args.push(owner); }
     if (before > 0) { where.push("seq < ?"); args.push(before); }
     const n = Math.min(200, Math.max(1, Math.floor(Number(limit)) || 50));
     const rows = this.sql.exec(`SELECT seq, received, record FROM conv_records WHERE ${where.join(" AND ")} ORDER BY seq DESC LIMIT ?`, ...args, n + 1).toArray();

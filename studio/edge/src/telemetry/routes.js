@@ -42,13 +42,9 @@ const MSG = {
   unavailable: "记录服务暂时不可用，请稍后再试",
 };
 
-/** Where a request comes from, as coarse as TELEMETRY_GEO says: a country (CN), a first-level region (CN-GD), or XX. */
+/** Where a request comes from, as coarse as TELEMETRY_GEO says: a country or territory code (CN), or XX (off, unknown). */
 export function placeOf(request, geo) {
-  if (geo === "off") return "XX";
-  const facts = requestFacts(request);
-  if (geo !== "region" || facts.country === "XX") return facts.country;
-  const region = String(request.cf?.regionCode || "").toUpperCase();
-  return /^[A-Z0-9]{1,3}$/.test(region) ? `${facts.country}-${region}` : facts.country;
+  return geo === "off" ? "XX" : requestFacts(request).country;
 }
 
 /**
