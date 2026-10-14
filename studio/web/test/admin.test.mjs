@@ -282,6 +282,24 @@ test("the dashboard draws the real API's summary, and shows a visitor's words as
   setLang("zh");
 });
 
+test("a visitor's records found by reference: deleting one keeps the delete-all for the rest, deleting the last shows none", async () => {
+  const { window, document } = await mount();
+  const owner = await ownerOf("k".repeat(43));
+  const ref = await until(() => document.querySelector('input[type="search"][placeholder="按记录编号查找"]'), "the reference field");
+  ref.value = owner.slice(0, 12);
+  ref.dispatchEvent(new window.Event("change"));
+  await until(() => document.querySelectorAll(".record").length === 2, "both of this visitor's records");
+  const removeAll = button(document, "删除此访客的全部记录");
+  assert.equal(removeAll.hidden, false);
+  click(window, document.querySelector(".record .btn--danger"));
+  await until(() => document.querySelectorAll(".record").length === 1, "one deleted");
+  assert.equal(removeAll.hidden, false, "the other record is still this visitor's");
+  click(window, document.querySelector(".record .btn--danger"));
+  await until(() => document.querySelectorAll(".record").length === 0, "both deleted");
+  assert.equal(removeAll.hidden, true);
+  assert.ok(document.querySelector(".records .empty"), "says there are none");
+});
+
 test("an export button takes every page of the export and saves them as one file", async () => {
   const { s, window, document, calls } = await mount();
   s.usage.observe(Array.from({ length: 1500 }, (_, i) => ({ metric: "connector", a: `h${String(i).padStart(4, "0")}.example.org`, b: "2xx", n: 1 })), { day: DAY });

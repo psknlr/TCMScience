@@ -574,7 +574,7 @@ function securityCard(sec, days) {
 
 // ------------------------------------------------------------------------------------------------- conversation records
 
-function recordItem(item) {
+function recordItem(item, { onDeleted } = {}) {
   const r = item.record || {};
   const meta = [
     fmt.time(r.finished || item.received), t(r.status), [r.provider, r.model].filter(Boolean).join(" · "),
@@ -616,6 +616,7 @@ function recordItem(item) {
       await api("/api/admin/telemetry/conversations/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [r.id] }) });
       records.items = records.items.filter((it) => it.record?.id !== r.id);
       node.replaceWith(el("p", { class: "record__meta", role: "status", text: t("deleted") }));
+      onDeleted?.();
     } catch (err) {
       del.disabled = false;
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
@@ -636,13 +637,20 @@ function recordsCard(data) {
   const ref = el("input", { class: "input", type: "search", placeholder: t("records_ref"), "aria-label": t("records_ref"), value: records.owner || null,
     spellcheck: "false", autocomplete: "off" });
   const removeAll = el("button", { class: "btn btn--small btn--danger", type: "button", text: t("delete_owner"), hidden: true });
-  const paint = () => {
-    box.replaceChildren(...records.items.map(recordItem));
-    if (records.loaded && !records.items.length) box.append(empty("no_records"));
+  // the card's controls after a change of the list (a record deleted keeps its "deleted" line in place)
+  const controls = () => {
     more.hidden = !records.next;
+    show.textContent = records.loaded ? t("records_reload") : t("records_show");
     const owners = new Set(records.items.map((it) => it.record?.owner).filter(Boolean));
     removeAll.hidden = !(records.owner && owners.size === 1);
+    if (records.loaded && !records.items.length && !box.querySelector(".empty")) box.append(empty("no_records"));
   };
+  const paint = () => {
+    box.replaceChildren(...records.items.map((it) => recordItem(it, { onDeleted: controls })));
+    controls();
+  };
+  // a page fetched while the dashboard was drawn again (another language, another period) goes to the card shown now
+  records.paint = paint;
   let busy = false;
   const fetchPage = async (reset) => {
     if (busy) return;
@@ -659,8 +667,7 @@ function recordsCard(data) {
       records.items = reset ? res.items || [] : [...records.items, ...(res.items || [])];
       records.next = res.next || null;
       records.loaded = true;
-      show.textContent = t("records_reload");
-      paint();
+      (box.isConnected ? paint : records.paint || paint)();
     } catch (err) {
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
     } finally {
@@ -693,7 +700,7 @@ function recordsCard(data) {
       const res = await api("/api/admin/telemetry/conversations/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner }) });
       records.items = [];
       records.next = null;
-      paint();
+      (box.isConnected ? paint : records.paint || paint)();
       say(t("deleted_owner", { n: fmt.int(res?.deleted ?? 0) }));
     } catch (err) {
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
