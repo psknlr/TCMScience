@@ -161,7 +161,7 @@ Object 的额度」。管理操作的审计记录不经过汇总，当场写入�
 | POST | `/api/admin/session/logout` | 退出 |
 | GET | `/api/admin/session` | 会话是否有效、到何时 |
 | GET | `/api/admin/telemetry/summary?days=7\|30\|90&provider=&model=&country=` | 仪表板的全部数字 |
-| GET | `/api/admin/telemetry/export?dataset=…&format=csv\|json&days=…` | 下载（见下表） |
+| GET | `/api/admin/telemetry/export?dataset=…&format=csv\|json&days=…&cursor=…` | 下载一页（见下表与「导出与私有保存」） |
 | GET | `/api/admin/telemetry/conversations?days=&status=&provider=&owner=&before=&limit=` | 对话记录（只有管理员；每次查看写入审计）；`owner` 可以是记录编号（12 位以上） |
 | POST | `/api/admin/telemetry/conversations/delete` | `{ids:[…]}` 或 `{owner}` → `{deleted}` |
 | POST | `/api/admin/telemetry/prune` | 立即按保留期限清理 |
@@ -245,7 +245,8 @@ Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的�
 脚本用法（令牌放在环境变量里，不要写进命令行历史或文件）：
 
 ```bash
-curl -fsS -H "Authorization: Bearer $EXPORT_TOKEN" \
+# 一页（最多 1000 行）；还有下一页时，响应头 X-Next-Cursor 给出 cursor，加 &cursor=… 再取。整份导出请用下面的导出脚本。
+curl -fsS -D headers.txt -H "Authorization: Bearer $EXPORT_TOKEN" \
   "https://science.impf.ai/api/admin/telemetry/export?dataset=daily&format=csv&days=30" -o daily.csv
 ```
 
@@ -267,6 +268,9 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 - **只写到仓库之外**：目标在本仓库内时直接拒绝；在其他 git 仓库里时，只有加 `--private-repo`（确认该仓库私有、访问受限）才写。
 - 文件只有所有者可读（0600，目录 0700），按日期分目录；`--keep-days`（默认 180）删除更早的、由这个脚本建立的日期目录，其他文件不动。
 - 令牌只从环境变量读取，不接受命令行参数，从不打印；只发往 `--url`（必须是 https）。
+- **分页**：导出接口每次只给一页（1000 行；对话记录 100 条），JSON 的 `next`、CSV 的 `X-Next-Cursor` 与 `Link` 响应头指向下一页
+  （带 `&cursor=…` 再请求），CSV 只有第一页带表头与 BOM，列固定，各页依次拼接就是完整文件。脚本取完所有页才写文件，中途失败
+  则什么也不写；仪表板的导出按钮同样取完所有页再保存为一个文件。每次导出只在第一页记一条审计。
 
 导出的对话仍受访客的删除请求约束：访客删除后，已导出的副本请一并删除（墓碑表 `conv_deletions` 记录何时、删了谁的几条，可据此核对）。
 
