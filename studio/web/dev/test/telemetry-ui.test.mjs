@@ -7,7 +7,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { IDBFactory } from "fake-indexeddb";
 
+import { Catalog } from "../../js/core/catalog.js";
 import { consentState, setContentConsent } from "../../js/core/consent.js";
+import { activeProvider } from "../../js/core/providers.js";
+import { envelopeFor, fakeRuntime, memoryApprovals, openaiStep, scriptedLLM, testCatalogDoc } from "../../test/fixtures/fakes.mjs";
 import { setLang } from "../../js/core/i18n.js";
 import { openStore } from "../../js/core/store.js";
 import { ToolRouter } from "../../js/core/router.js";
@@ -252,6 +255,49 @@ test("agreeing while an answer streams does not reach back to the question asked
   await app.send("麻黄汤呢？"); // asked after agreeing: recorded
   await finished(app);
   assert.deepEqual(records(requests).map((r) => r.question), ["麻黄汤呢？"]);
+});
+
+test("the workflow funnel joins up: a governed skill started, submitted and completed under one name; a repeated call is no new run", async () => {
+  resetChoices();
+  setContentConsent(false);
+  const doc = testCatalogDoc();
+  doc.entries.push({ id: "skill.scrna-cell-atlas", kind: "skill", title: { zh: "单细胞图谱", en: "Cell atlas" }, summary: "x", category: "omics",
+    parameters: { type: "object", properties: { source: { type: "string" } }, required: ["source"] }, example: null, exec: ["browser", "runner"],
+    network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [] });
+  const answer = (tool, args) => (tool === "call_tool" && args?.tool === "skill.scrna-cell-atlas"
+    ? { ...envelopeFor("skill.scrna-cell-atlas"), via: "skill.scrna-cell-atlas", status: "job_submitted", governance: { ...envelopeFor("x").governance, kind: "job" }, job: { id: "job-1", kind: "skill.run", state: "queued" } }
+    : envelopeFor(tool));
+  const app = new App();
+  app.store = await openStore({ indexedDB: new IDBFactory() });
+  app.catalog = new Catalog(doc);
+  app.runtimes = { browser: fakeRuntime("browser", { answer }), runner: fakeRuntime("runner", { status: "offline" }) };
+  app.toolRouter = new ToolRouter({ catalog: app.catalog, runtimes: app.runtimes, settings: { compute: "browser" }, approvals: memoryApprovals() });
+  const provider = { ...activeProvider({ provider: "tao" }), fetch: undefined };
+  app.provider = () => provider;
+  app.llm = { openai: scriptedLLM([
+    openaiStep({ calls: [
+      { id: "c1", name: "call_tool", args: { tool: "skill.scrna-cell-atlas", arguments: { source: "pbmc.h5ad" } } },
+      { id: "c2", name: "tcm_herb", args: { name: "甘草" } },
+    ] }),
+    openaiStep({ calls: [{ id: "c3", name: "tcm_herb", args: { name: "甘草" } }] }), // the same lookup again: answered from the first
+    openaiStep({ text: "已提交，完成后可查看结果。" }),
+  ]) };
+  app.router = { navigate: (route) => { app.state.route = route; } };
+  const t = telemetry();
+  app.telemetry = t.tel;
+  const project = await app.store.projects.create({ name: "组学" });
+  app.state.project = project;
+  app.state.projects = [project];
+  await app.send("给我的单细胞数据做细胞注释");
+  await finished(app);
+  app.emit("job", { id: "job-1", kind: "skill.run", state: "succeeded", params: { skill_id: "scrna-cell-atlas" } });
+  await delay(30);
+  await app.telemetry.flush();
+  const flows = events(t.requests, "workflow").map((e) => `${e.kind}:${e.name}:${e.phase}`);
+  assert.deepEqual(flows, ["skill:skill.scrna-cell-atlas:started", "skill:skill.scrna-cell-atlas:submitted", "skill:skill.scrna-cell-atlas:completed"]);
+  const runs = events(t.requests, "tool_end").map((e) => `${e.tool}:${e.kind}:${e.status}`);
+  assert.deepEqual(runs.sort(), ["native.tcm_herb:native:succeeded", "skill.scrna-cell-atlas:skill:job_submitted"].sort(), "the repeated lookup is no second run");
+  assert.equal(events(t.requests, "turn_end")[0].tool_failures, 0);
 });
 
 test("the telemetry failing changes nothing in the conversation: the answer is stored and shown, the record waits", async () => {

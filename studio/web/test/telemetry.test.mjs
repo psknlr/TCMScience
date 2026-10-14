@@ -17,7 +17,10 @@ import {
 } from "../js/core/telemetry-contract.js";
 import { PRESETS, newCustomProvider } from "../js/core/providers.js";
 import { OUTBOX_PREFIX, RECORDS_KEY, STALE_TURN_MS, TURNS_KEY, Telemetry, VISIT_IDLE_MS } from "../js/core/telemetry.js";
-import { SKILL_FILES, buildRecord, citedIds, evidenceStats, exclusionOf, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { SKILL_FILES, buildRecord, callName, citedIds, evidenceStats, exclusionOf, jobWorkflow, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { Catalog } from "../js/core/catalog.js";
+import { ToolRouter } from "../js/core/router.js";
+import { fakeRuntime, testCatalogDoc } from "./fixtures/fakes.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIX = (name) => JSON.parse(fs.readFileSync(path.join(here, "fixtures", name), "utf8"));
@@ -214,6 +217,46 @@ test("exclusion: the governed skills that run as jobs on the visitor's files, ho
   assert.equal(out(via("native.allele_frequencies", { genotypes: "./." })), null);
   assert.equal(out(via("connector.uniprot.entry", { accession: "P04637" })), null);
   assert.equal(out(via("native.x", { note: "a=b, c=d" })), null);
+});
+
+test("a call is named as the catalog resolves it at its start; its end and its job under that name, so the funnel joins", () => {
+  const doc = testCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props, required: [] });
+  const entry = (id, kind) => ({ id, kind, title: { zh: id, en: id }, summary: id, category: "omics", parameters: obj(), example: null, exec: ["runner"], network: false, confirm: false, job: kind === "job", gpu: false, heavy: [], tags: [] });
+  doc.entries.push(entry("skill.scrna-cell-atlas", "skill"), entry("job.pipeline.rnaseq", "job"), entry("system.job_status", "system"), entry("connector.uniprot.entry", "connector"), entry("job.skill.run", "job"));
+  doc.core.push(
+    { name: "connector_call", title: { zh: "数据库", en: "Database" }, description: "x", parameters: obj({ connector: { type: "string" }, operation: { type: "string" } }), category: "literature", exec: ["browser", "runner"], network: true, confirm: false, job: false, maps_to: "connector.*" },
+    { name: "job_status", title: { zh: "任务", en: "Job" }, description: "x", parameters: obj({ job_id: { type: "string" } }), category: "system", exec: ["runner"], network: false, confirm: false, job: false, maps_to: "system.job_status" },
+  );
+  const catalog = new Catalog(doc);
+  const router = new ToolRouter({ catalog, runtimes: { runner: fakeRuntime("runner") }, settings: { compute: "auto", web: true } });
+  const known = new Set([...doc.core.map((c) => c.name), ...doc.entries.map((e) => e.id)]);
+  const ctx = (envelope = null) => ({ resolve: (n, a) => router.resolve(n, a), byId: catalog.byId, known, envelope });
+  // a governed skill: named and kinded by its entry, whatever kind the envelope of its submission reports
+  const skill = callName("call_tool", { tool: "skill.scrna-cell-atlas", arguments: { source: "u_0123456789abcdef" } }, ctx());
+  assert.deepEqual(skill, { name: "skill.scrna-cell-atlas", kind: "skill", workflow: true });
+  // run_pipeline and connector_call name their entry in their arguments
+  assert.deepEqual(callName("run_pipeline", { pipeline: "rnaseq", arguments: {} }, ctx()), { name: "job.pipeline.rnaseq", kind: "job", workflow: true });
+  assert.deepEqual(callName("connector_call", { connector: "uniprot", operation: "entry" }, ctx()), { name: "connector.uniprot.entry", kind: "connector", workflow: false });
+  // a job's status is a lookup, not the workflow (its envelope may say "skill" for a finished skill run)
+  assert.deepEqual(callName("job_status", { job_id: "j1" }, ctx({ via: "system.job_status", governance: { kind: "skill" } })), { name: "system.job_status", kind: "system", workflow: false });
+  // arguments as JSON text read as the object; a name the catalog does not know is never sent
+  assert.equal(callName("call_tool", { tool: "skill.scrna-cell-atlas", arguments: '{"source":"x"}' }, ctx()).name, "skill.scrna-cell-atlas");
+  assert.deepEqual(callName("made_up_tool", {}, ctx()), { name: "unknown", kind: "unknown", workflow: false });
+  // the job's end: under the call that submitted it on this page; on another page, from the job itself
+  assert.deepEqual(jobWorkflow({ id: "j1", kind: "skill.run", params: { skill_id: "scrna-cell-atlas" } }, { kind: "skill", name: "skill.scrna-cell-atlas" }, known), { kind: "skill", name: "skill.scrna-cell-atlas" });
+  assert.deepEqual(jobWorkflow({ id: "j2", kind: "skill.run", params: { skill_id: "scrna-cell-atlas" } }, null, known), { kind: "skill", name: "skill.scrna-cell-atlas" });
+  assert.deepEqual(jobWorkflow({ id: "j3", kind: "pipeline.rnaseq" }, null, known), { kind: "job", name: "job.pipeline.rnaseq" });
+  assert.deepEqual(jobWorkflow({ id: "j4", kind: "made.up" }, null, known), { kind: "job", name: "unknown" });
+});
+
+test("a turn's tool failures: not the visitor's own no, nor a call answered from an earlier identical one", () => {
+  const tool = (status, extra = {}) => ({ role: "tool", envelope: { status, ...extra } });
+  const ev = turnEndEvent({ id: "t", status: "completed", assistant: { steps: 2 }, tools: [
+    tool("failed"), tool("refused", { error: { type: "declined" } }), tool("refused", { error: { type: "refused" } }), tool("failed", { reused: { step: 1, callId: "c1" } }), tool("succeeded"),
+  ] });
+  assert.equal(ev.tools, 5);
+  assert.equal(ev.tool_failures, 2);
 });
 
 test("the page's table of skills that take files is the runner's (kinds.py _SKILL_FILES)", () => {

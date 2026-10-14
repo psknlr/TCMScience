@@ -12,7 +12,7 @@
 
 import { citationsOf, claimsOf, evidenceOf, releaseOf } from "./governance.js";
 import { redactText, sensitiveAny } from "./sensitive.js";
-import { CONSENT_VERSION, LIMITS, PLACES, RECORD_VERSION, TOOL_KINDS, normalizeRecord, token } from "./telemetry-contract.js";
+import { CONSENT_VERSION, LIMITS, PLACES, RECORD_VERSION, TOOL_KINDS, WORKFLOW_KINDS, normalizeRecord, token } from "./telemetry-contract.js";
 import { objectArgument } from "./util.js";
 
 // tools that take the visitor's own data: an imported store, a pipeline over their files, the clinic's case records
@@ -38,6 +38,39 @@ export const SKILL_FILES = {
   "predict-protein-structure": ["sequences", "reference"],
   "retrieve-literature-evidence": ["corpus"],
 };
+
+/**
+ * A call as the telemetry names it, from its start: the catalog entry it reaches (call_tool's target, a core tool's
+ * entry; run_pipeline and connector_call name theirs in their arguments), else what its envelope says; and that entry's
+ * kind. A name the catalog does not know is "unknown" (a model may invent one; it is never sent). `resolve(name, args)`:
+ * the router's resolution; `byId`: the catalog's entries; `known`: every name the catalog knows. → {name, kind,
+ * workflow} (workflow: a research workflow's kind, counted as one).
+ */
+export function callName(name, args = {}, { resolve = null, byId = {}, known = new Set(), envelope = null } = {}) {
+  let r = null;
+  try { r = resolve?.(name, args) ?? null; } catch { r = null; }
+  const a = objectArgument(args) || {};
+  const inner = name === "call_tool" ? objectArgument(a.arguments) || {} : a;
+  const core = r?.core?.name || (name === "call_tool" ? String(a.tool || "") : String(name || ""));
+  // the entry a generic core tool reaches, named in its arguments (over a catch-all entry it maps to)
+  const named = core === "run_pipeline" && typeof inner.pipeline === "string" ? `job.pipeline.${inner.pipeline}`
+    : core === "connector_call" && typeof inner.connector === "string" ? `connector.${inner.connector}.${inner.operation || ""}` : "";
+  const id = (named && Object.hasOwn(byId || {}, named) ? named : "") || r?.entry?.id || named;
+  const entry = (id && Object.hasOwn(byId || {}, id) ? byId[id] : null) || r?.entry || null;
+  const raw = String(entry?.id || id || envelope?.via || core || name || "");
+  const kind = entry?.kind || r?.target?.kind || envelope?.governance?.kind || "unknown";
+  const sent = known.has(raw) ? raw : "unknown";
+  return { name: sent, kind: TOOL_KINDS.includes(kind) ? kind : "unknown", workflow: WORKFLOW_KINDS.includes(kind) && sent !== "unknown" };
+}
+
+/** The workflow a runner job's end belongs to: the call that submitted it on this page ({kind, name}), else named
+ * from the job — skill.<id> for a governed skill's run, job.<kind> for any other job. */
+export function jobWorkflow(job, submitted = null, known = new Set()) {
+  const kind = String(job?.kind || "");
+  const sid = kind === "skill.run" && typeof job?.params?.skill_id === "string" ? job.params.skill_id : "";
+  const named = submitted || (sid ? { kind: "skill", name: `skill.${sid}` } : { kind: "job", name: `job.${kind}` });
+  return { kind: named.kind, name: known.has(named.name) ? named.name : "unknown" };
+}
 
 /** The tool a stored tool message ran: its catalog entry (envelope.via) when it resolved, else the name the model gave. */
 export function toolName(t) {
@@ -214,7 +247,10 @@ export function turnEndEvent(turn) {
   return {
     type: "turn_end", turn: turn.id, provider: turn.provider, model: turn.model, status: turn.status, first: Boolean(turn.first),
     steps: a.steps, tool_rounds: toolRounds(a), calls: turn.calls || a.steps, tools: tools.length,
-    tool_failures: tools.filter((t) => ["failed", "refused"].includes(t?.envelope?.status || t?.status)).length,
+    // tools that failed or were refused — not the visitor's own "no" to a call (declined), nor a call answered from an
+    // earlier identical one (the agent's reuse: its first run is counted)
+    tool_failures: tools.filter((t) => ["failed", "refused"].includes(t?.envelope?.status || t?.status)
+      && t?.envelope?.error?.type !== "declined" && !t?.envelope?.reused).length,
     ms: turn.endedAt && turn.startedAt ? turn.endedAt - turn.startedAt : undefined,
     first_ms: turn.firstAt && turn.startedAt ? turn.firstAt - turn.startedAt : undefined,
     tokens_in: a.usage?.input, tokens_out: a.usage?.output,
