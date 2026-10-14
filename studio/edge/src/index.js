@@ -139,6 +139,10 @@ export class SecurityLog extends TelemetryObject {
 
   authFailed(ip, now) { return this.core.authFailed(ip, now); }
 
+  sessionEpoch() { return this.core.sessionEpoch(); }
+
+  endSessions(now) { return this.core.endSessions(now); }
+
   authSucceeded(ip, now) { return this.core.authSucceeded(ip, now); }
 
   summary(from, to, budget) { return this.core.summary(from, to, budget); }

@@ -98,6 +98,8 @@ export class SecurityCore {
     sql.exec("CREATE TABLE IF NOT EXISTS sec_counts (day TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, kind)) WITHOUT ROWID");
     sql.exec("CREATE TABLE IF NOT EXISTS sec_keys (month TEXT PRIMARY KEY, key TEXT NOT NULL) WITHOUT ROWID");
     sql.exec("CREATE TABLE IF NOT EXISTS sec_auth (who TEXT PRIMARY KEY, since INTEGER NOT NULL, n INTEGER NOT NULL, locked_until INTEGER NOT NULL) WITHOUT ROWID");
+    // the admin sessions' epoch: every session is signed with it, and signing out moves it on, which ends them all
+    sql.exec("CREATE TABLE IF NOT EXISTS sec_meta (k TEXT PRIMARY KEY, v INTEGER NOT NULL) WITHOUT ROWID");
     this.recent = new Map(); // `${who}|${kind}` → when an event of it was last stored
     this.keys = new Map();
     // the day's rows: every event is counted whatever the budget; one is stored in full only within it, but the
@@ -193,12 +195,28 @@ export class SecurityCore {
 
   // ----------------------------------------------------------------------------------------------- admin sign-in
 
-  /** Is this source refused now (too many failed admin attempts)? → {locked, retry (seconds)}. */
+  /** Is this source refused now (too many failed admin attempts)? → {locked, retry (seconds), epoch (the sessions')}. */
   async authState(ip, now = Date.now()) {
     const who = await this.who(ip, now);
     const row = this.sql.exec("SELECT locked_until FROM sec_auth WHERE who = ?", who).toArray()[0];
     const until = Number(row?.locked_until) || 0;
-    return until > now ? { locked: true, retry: Math.ceil((until - now) / 1000), who } : { locked: false, who };
+    const epoch = this.sessionEpoch();
+    return until > now ? { locked: true, retry: Math.ceil((until - now) / 1000), who, epoch } : { locked: false, who, epoch };
+  }
+
+  /** The epoch admin sessions are signed with now. */
+  sessionEpoch() {
+    if (this.epoch === undefined) this.epoch = Number(this.sql.exec("SELECT v FROM sec_meta WHERE k = 'session_epoch'").toArray()[0]?.v) || 0;
+    return this.epoch;
+  }
+
+  /** Sign out everywhere: every session signed so far is no longer one. → {epoch}. */
+  endSessions(now = Date.now()) {
+    const epoch = this.sessionEpoch() + 1;
+    this.sql.exec("INSERT INTO sec_meta (k, v) VALUES ('session_epoch', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", epoch);
+    this.epoch = epoch;
+    this.#wrote(1, now);
+    return { epoch };
   }
 
   /** A failed attempt; the LOCK.failures-th within the window locks the source for LOCK.lockMs. → {locked, retry}. */

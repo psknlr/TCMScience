@@ -342,6 +342,30 @@ test("admin sign-in: an HttpOnly, Secure, SameSite=Strict session; changes only 
   assert.equal(s.security.audit.filter((a) => a.kind === "admin_login").length, 2);
 });
 
+test("signing out ends every session on the server: a copy of the cookie, or another browser's, is no longer one", async () => {
+  const w = setup();
+  const signIn = async (ip) => {
+    const res = await w.call("/api/admin/session", { method: "POST", body: JSON.stringify({ token: ADMIN }), headers: { Origin: PAGE, "Content-Type": "application/json", "CF-Connecting-IP": ip } });
+    return res.headers.get("Set-Cookie").split(";")[0];
+  };
+  const here = await signIn("198.51.100.20");
+  const elsewhere = await signIn("198.51.100.21"); // the same admin in another browser
+  const asks = (cookie) => w.call("/api/admin/telemetry/summary", { headers: { Cookie: cookie, "CF-Connecting-IP": "198.51.100.20" } });
+  assert.equal((await asks(here)).status, 200);
+  assert.equal((await asks(elsewhere)).status, 200);
+  const out = await w.call("/api/admin/session/logout", { method: "POST", headers: { Cookie: here, Origin: PAGE, "CF-Connecting-IP": "198.51.100.20" } });
+  assert.equal(out.status, 200);
+  assert.equal((await asks(here)).status, 401, "a copy of the cookie kept after signing out");
+  assert.equal((await asks(elsewhere)).status, 401, "every session ends");
+  const page = await w.call("/admin/", { headers: { Cookie: here, Accept: "text/html" } });
+  assert.doesNotMatch(await page.text(), /dashboard\.js/); // the sign-in page, not the dashboard
+  const again = await signIn("198.51.100.20");
+  assert.equal((await asks(again)).status, 200, "a new sign-in works");
+  // a sign-out without a session ends nothing (anyone can post to it from this site's page)
+  assert.equal((await w.call("/api/admin/session/logout", { method: "POST", headers: { Origin: PAGE, "CF-Connecting-IP": "203.0.113.5" } })).status, 200);
+  assert.equal((await asks(again)).status, 200);
+});
+
 test("the dashboard: sign-in page or dashboard, its code only with a session, strict headers, never cached", async () => {
   const w = setup();
   const r308 = await w.call("/admin");

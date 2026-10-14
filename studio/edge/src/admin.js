@@ -92,21 +92,26 @@ async function sessionKey(token) {
 }
 
 /** A new session: "v1.<expiry seconds>.<nonce>.<HMAC>". */
-export async function makeSession(cfg, now = Date.now()) {
+// what a session's signature covers: its body, and the sessions' epoch when it has moved on (signing out moves it:
+// every session signed before is then no longer one)
+const signed = (body, epoch) => enc.encode(epoch ? `${body}.e${epoch}` : body);
+
+export async function makeSession(cfg, now = Date.now(), epoch = 0) {
   const exp = Math.floor(now / 1000) + cfg.sessionSeconds;
   const body = `v1.${exp}.${b64url(crypto.getRandomValues(new Uint8Array(18)))}`;
-  const sig = b64url(await crypto.subtle.sign("HMAC", await sessionKey(cfg.adminToken), enc.encode(body)));
+  const sig = b64url(await crypto.subtle.sign("HMAC", await sessionKey(cfg.adminToken), signed(body, epoch)));
   return { value: `${body}.${sig}`, exp };
 }
 
-/** The session's expiry (seconds) when it is genuine, unexpired and within the configured lifetime; else 0. */
-export async function verifySession(value, cfg, now = Date.now()) {
+/** The session's expiry (seconds) when it is genuine, of the current epoch, unexpired and within the configured
+ * lifetime; else 0. */
+export async function verifySession(value, cfg, now = Date.now(), epoch = 0) {
   const m = /^v1\.(\d{1,12})\.([A-Za-z0-9_-]{16,64})\.([A-Za-z0-9_-]{20,100})$/.exec(String(value || ""));
   if (!m || !cfg.adminToken) return 0;
   const exp = Number(m[1]);
   if (exp * 1000 <= now || exp * 1000 > now + (cfg.sessionSeconds + 60) * 1000) return 0;
   try {
-    return (await crypto.subtle.verify("HMAC", await sessionKey(cfg.adminToken), unb64url(m[3]), enc.encode(`v1.${m[1]}.${m[2]}`))) ? exp : 0;
+    return (await crypto.subtle.verify("HMAC", await sessionKey(cfg.adminToken), unb64url(m[3]), signed(`v1.${m[1]}.${m[2]}`, epoch))) ? exp : 0;
   } catch {
     return 0;
   }
@@ -115,7 +120,7 @@ export async function verifySession(value, cfg, now = Date.now()) {
 const setCookie = (value, maxAge) => `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`;
 
 /** Who is asking: {scope: "admin"|"export", via} or {scope: null, attempted} (attempted: a token was presented and wrong). */
-export async function authenticate(request, cfg, now = Date.now()) {
+export async function authenticate(request, cfg, now = Date.now(), epoch = 0) {
   const auth = request.headers.get("Authorization") || "";
   if (/^Bearer\s+/i.test(auth)) {
     const given = auth.replace(/^Bearer\s+/i, "").trim();
@@ -124,7 +129,7 @@ export async function authenticate(request, cfg, now = Date.now()) {
     return { scope: null, attempted: true };
   }
   const value = cookie(request, SESSION_COOKIE);
-  const exp = value ? await verifySession(value, cfg, now) : 0;
+  const exp = value ? await verifySession(value, cfg, now, epoch) : 0;
   return exp ? { scope: "admin", via: "session", exp } : { scope: null, attempted: false };
 }
 
@@ -197,21 +202,23 @@ export async function handleAdmin(request, env, deps) {
     if (path === "/admin") return new Response(null, { status: 308, headers: { Location: "/admin/" } });
     if (isPage) return await page(request, cfg, deps, url, now);
     const signIn = path === "/api/admin/session" && request.method === "POST";
-    const who = signIn ? { scope: null } : await authenticate(request, cfg, now);
+    // the lock-out of this source, and the epoch sessions are signed with (one call)
+    const state = await sec()?.authState(clientIp(request), now);
+    const epoch = Number(state?.epoch) || 0;
+    const who = signIn ? { scope: null } : await authenticate(request, cfg, now, epoch);
     // a source refused for failing too often is refused whatever it presents — except an admin already signed in: a
     // session this Worker signed is not a guess, and others failing from the same address (a shared IPv4, a /64) must
     // not lock the admin out. A token is checked, but while locked even the right one is refused (no answer tells
     // a guess from the token).
-    if (who.via !== "session") {
-      const state = await sec()?.authState(clientIp(request), now);
-      if (state?.locked) {
-        if (signIn && isForm(request)) return new Response(null, { status: 303, headers: { Location: "/admin/?e=locked" } });
-        return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
-      }
+    if (who.via !== "session" && state?.locked) {
+      if (signIn && isForm(request)) return new Response(null, { status: 303, headers: { Location: "/admin/?e=locked" } });
+      return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
     }
-    if (signIn) return await login(request, cfg, deps, url, now, audit);
+    if (signIn) return await login(request, cfg, deps, url, now, audit, epoch);
     if (path === "/api/admin/session/logout" && request.method === "POST") {
       if (!sameSite(request, url, [url.origin])) return fail(403, "cross_site", MSG.cross_site);
+      // signing out ends every session, on the server too: a copy of the cookie is no longer one
+      if (who.via === "session") await sec()?.endSessions(now);
       const res = isForm(request) ? new Response(null, { status: 303, headers: { Location: "/admin/" } }) : json({ ok: true });
       res.headers.append("Set-Cookie", setCookie("", 0));
       return res;
@@ -251,7 +258,7 @@ async function failed(request, deps, now, audit) {
   return state;
 }
 
-async function login(request, cfg, deps, url, now, audit) {
+async function login(request, cfg, deps, url, now, audit, epoch = 0) {
   if (!sameSite(request, url, [url.origin])) return fail(403, "cross_site", MSG.cross_site);
   const form = isForm(request);
   const raw = await readText(request, 4096);
@@ -272,7 +279,7 @@ async function login(request, cfg, deps, url, now, audit) {
   }
   await deps.security?.()?.authSucceeded(clientIp(request), now);
   await audit("admin_login", form ? "form" : "json");
-  const session = await makeSession(cfg, now);
+  const session = await makeSession(cfg, now, epoch);
   const res = form ? new Response(null, { status: 303, headers: { Location: "/admin/" } }) : json({ ok: true, expires: new Date(session.exp * 1000).toISOString() });
   res.headers.append("Set-Cookie", setCookie(session.value, cfg.sessionSeconds));
   return res;
@@ -284,7 +291,8 @@ async function page(request, cfg, deps, url, now) {
     return new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" } });
   }
   const path = url.pathname;
-  const signedIn = Boolean(await verifySession(cookie(request, SESSION_COOKIE), cfg, now));
+  const epoch = Number(await deps.security?.()?.sessionEpoch?.()) || 0;
+  const signedIn = Boolean(await verifySession(cookie(request, SESSION_COOKIE), cfg, now, epoch));
   let asset = null;
   if (PUBLIC_ASSETS.has(path)) asset = path;
   else if (path === "/admin/") asset = signedIn ? "/admin/" : "/admin/login";
