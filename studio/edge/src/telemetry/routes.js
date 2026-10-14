@@ -66,11 +66,8 @@ export async function handleTelemetry(request, env, deps) {
   }
   const now = deps.now();
   const day = reportDay(now, cfg.offset);
-  const facts = requestFacts(request);
-  const note = (kind, status, detail) => {
-    if (!deps.security) return;
-    deps.defer(Promise.resolve().then(() => deps.security().record({ kind, route: "telemetry", status, detail, facts, day }, { rawIp: cfg.rawIp, now })));
-  };
+  // refused requests are security events, summed in memory and sent with the Worker's next flush (index.js)
+  const note = (kind, status, detail) => deps.securityEvent?.(kind, request, { route: "telemetry", status, detail });
   try {
     if (!sameSite(request, url, relayConfig(env).origins)) {
       note("forbidden_origin", 403, url.pathname.slice(15));

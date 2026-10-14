@@ -122,9 +122,9 @@ export class SecurityCore {
    * and kind every ten seconds (a scanner knocks thousands of times), with the full address only for a high-severity
    * event when `rawIp` is "flagged". → {stored, who}.
    */
-  async record({ kind, route = "", status = null, detail = "", facts = {}, day }, { rawIp = "off", now = Date.now() } = {}) {
+  async record({ kind, route = "", status = null, detail = "", facts = {}, day }, { rawIp = "off", now = Date.now(), count = true } = {}) {
     if (!SECURITY_KINDS.includes(kind) || !/^\d{4}-\d{2}-\d{2}$/.test(String(day))) return { stored: false };
-    this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, 1) ON CONFLICT(day, kind) DO UPDATE SET n = n + 1", day, kind);
+    if (count) this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, 1) ON CONFLICT(day, kind) DO UPDATE SET n = n + 1", day, kind);
     const who = await this.who(facts.ip, now);
     const k = `${who}|${kind}`;
     const last = this.recent.get(k) || 0;
@@ -138,6 +138,28 @@ export class SecurityCore {
     keepIp, String(facts.country || "XX").slice(0, 2), Number.isInteger(facts.asn) ? facts.asn : null, String(facts.uaClass || "other").slice(0, 12),
     String(facts.method || "").slice(0, 8), String(facts.path || "").slice(0, 200), String(detail).slice(0, 80));
     return { stored: true, who };
+  }
+
+  /**
+   * What the Worker summed in memory between flushes (telemetry/buffer.js SecurityBuffer): {counts: [{day, kind, n}],
+   * events} — the counts added as they are, the events stored as record() stores them (throttled) without being counted
+   * a second time, each at the time it happened (`at`; the flush's own time when that is missing or not plausible).
+   * → {stored}.
+   */
+  async recordBatch({ counts = [], events = [] } = {}, opts = {}) {
+    for (const c of Array.isArray(counts) ? counts.slice(0, 200) : []) {
+      const n = Math.floor(Number(c?.n));
+      if (!SECURITY_KINDS.includes(c?.kind) || !/^\d{4}-\d{2}-\d{2}$/.test(String(c?.day)) || !(n > 0)) continue;
+      this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, ?) ON CONFLICT(day, kind) DO UPDATE SET n = n + excluded.n", c.day, c.kind, n);
+    }
+    const flushed = Number.isFinite(opts.now) ? opts.now : Date.now();
+    let stored = 0;
+    for (const ev of Array.isArray(events) ? events.slice(0, 50) : []) {
+      const at = Number(ev?.at);
+      const now = Number.isFinite(at) && at <= flushed && at > flushed - 3600000 ? at : flushed;
+      if ((await this.record(ev, { ...opts, now, count: false })).stored) stored++;
+    }
+    return { stored };
   }
 
   // ----------------------------------------------------------------------------------------------- admin sign-in

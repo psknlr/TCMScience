@@ -203,11 +203,12 @@ export class UsageCore {
     return { ok: true, accepted: b.events.length, dropped: b.dropped };
   }
 
-  /** Counts the Worker took itself: [{metric, a, b, n}] on `day` (only known metrics, whole positive numbers). */
+  /** Counts the Worker took itself, summed in its memory between flushes (telemetry/buffer.js): [{metric, a, b, n}] on
+   * `day` (only known metrics, whole positive numbers). */
   observe(list, { day } = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day)) || !Array.isArray(list)) return { ok: false };
     const counts = new Map();
-    for (const m of list.slice(0, 20)) {
+    for (const m of list.slice(0, 2000)) {
       const n = m?.n === undefined ? 1 : Math.floor(Number(m.n));
       if (!METRICS.includes(m?.metric) || !(n > 0)) continue;
       const k = [day, m.metric, String(m.a ?? "").slice(0, 120), String(m.b ?? "").slice(0, 120)].join("\u0000");

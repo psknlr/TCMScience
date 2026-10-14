@@ -238,6 +238,27 @@ test("security: addresses as a network prefix and a monthly-keyed hash; the full
   assert.deepEqual(rows(s, "sec_keys").map((r) => r.month), ["2026-11"]);
 });
 
+test("security: a flush's batch adds its counts once and stores its events at the time each happened", async () => {
+  const s = new SecurityCore(sqlStore());
+  const facts = { ip: "203.0.113.9", country: "US", method: "GET", path: "/wp-1.php", uaClass: "tool" };
+  const flushed = NOW + 30000;
+  const res = await s.recordBatch({
+    counts: [{ day: DAY, kind: "scanner", n: 4 }, { day: DAY, kind: "not_a_kind", n: 9 }, { day: "bad", kind: "scanner", n: 1 }, { day: DAY, kind: "rate_limited", n: 0 }],
+    events: [
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-1.php", facts, day: DAY, at: NOW },
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-2.php", facts, day: DAY, at: NOW + 5000 }, // same source within ten seconds
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-3.php", facts, day: DAY, at: NOW + 12000 },
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-4.php", facts: { ...facts, ip: "198.51.100.1" }, day: DAY, at: flushed + 60000 }, // not plausible
+    ],
+  }, { now: flushed });
+  assert.equal(res.stored, 3);
+  const ev = s.exportRows(DAY, DAY);
+  assert.deepEqual(ev.map((e) => [e.detail, e.ts]), [
+    ["/wp-1.php", new Date(NOW).toISOString()], ["/wp-3.php", new Date(NOW + 12000).toISOString()], ["/wp-4.php", new Date(flushed).toISOString()],
+  ]);
+  assert.deepEqual(s.summary(DAY, DAY).by_kind, { scanner: 4 }); // the counts as summed by the Worker, the events not again
+});
+
 test("security: failed admin attempts lock a source for a while, a success clears it", async () => {
   const s = new SecurityCore(sqlStore());
   for (let i = 1; i < LOCK.failures; i++) assert.equal((await s.authFailed("198.51.100.5", NOW + i)).locked, false);

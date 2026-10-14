@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { CONSENT_VERSION, ownerOf } from "../../web/js/core/telemetry-contract.js";
 import { csvCell, toCsv, verifySession } from "../src/admin.js";
+import { FLUSH_MS } from "../src/telemetry/buffer.js";
 import { telemetryConfig } from "../src/telemetry/config.js";
 import { KEY, PAGE, quiet, sqlStore, tidy } from "./helpers.js";
 
@@ -17,7 +18,7 @@ export async function resolve(specifier, context, next) {
   if (specifier === "cloudflare:workers") return { url: ${JSON.stringify(STUB)}, shortCircuit: true };
   return next(specifier, context);
 }`)}`);
-const { default: worker, ConversationLog, Limiter, SecurityLog, UsageLog, nextPrune } = await import("../src/index.js");
+const { default: worker, ConversationLog, Limiter, SecurityLog, UsageLog, flushTelemetry, nextPrune, resetTelemetryBuffers } = await import("../src/index.js");
 
 const ADMIN = "admin-token-for-tests-0123456789abcdef";
 const EXPORT = "export-token-for-tests-0123456789abcdef";
@@ -30,6 +31,7 @@ function fakeCtx() {
 
 /** The Worker with every binding faked; `env` overrides variables and secrets. */
 function setup({ env = {}, burst = () => ({ success: true }), assets, failing = [] } = {}) {
+  resetTelemetryBuffers(); // the Worker's in-memory counts are this isolate's: none of an earlier test's reach this one
   const ctxs = { usage: fakeCtx(), conversations: fakeCtx(), security: fakeCtx(), limiter: fakeCtx() };
   const fullEnv = { MINIMAX_API_KEY: KEY, ADMIN_TOKEN: ADMIN, EXPORT_TOKEN: EXPORT, ...env };
   const objects = {
@@ -64,8 +66,15 @@ function setup({ env = {}, burst = () => ({ success: true }), assets, failing = 
     const res = await worker.fetch(new Request(`https://science.impf.ai${path}`, init), fullEnv, ctx);
     return res;
   };
-  const settle = async () => { while (waits.length) await Promise.all(waits.splice(0)); };
-  return { call, settle, objects, env: fullEnv, assetCalls, ctxs };
+  // what the Worker holds in memory is sent at its next flush; a test asks for it now
+  const drain = async () => {
+    while (waits.length) await Promise.all(waits.splice(0));
+  };
+  const settle = async () => {
+    flushTelemetry(fullEnv, ctx, { force: true });
+    await drain();
+  };
+  return { call, settle, drain, objects, env: fullEnv, assetCalls, ctxs };
 }
 
 const page = (body, headers = {}) => ({
@@ -153,6 +162,11 @@ test("events: only this site's page, within size, as JSON, by the contract, with
   assert.equal((await w.call("/api/telemetry/events", { method: "GET" })).status, 405);
   assert.equal((await w.call("/api/telemetry/events", { method: "OPTIONS", headers: { Origin: "https://evil.example.org" } })).status, 403);
   assert.equal((await w.call("/api/telemetry/nope", page(ok))).status, 404);
+  // http (not loopback) is refused outright
+  assert.equal((await worker.fetch(new Request("http://science.impf.ai/api/telemetry/events", page(ok)), w.env, { waitUntil() {} })).status, 403);
+  // the refusals are security events (one Worker's counts are its isolate's: settled before the next setup)
+  await w.settle();
+  assert.deepEqual((await summary(w)).security.by_kind, { forbidden_origin: 4, oversized: 1, invalid_payload: 3 });
   // per visitor per minute (every request counts, a malformed one too)
   const lim = setup({ env: { TELEMETRY_PER_MINUTE: "2" } });
   assert.equal((await lim.call("/api/telemetry/events", page(batch([{ type: "pageview", route: "home" }])))).status, 204);
@@ -161,15 +175,12 @@ test("events: only this site's page, within size, as JSON, by the contract, with
   assert.equal(limited.status, 429);
   assert.ok(Number(limited.headers.get("Retry-After")) > 0);
   assert.equal((await lim.call("/api/telemetry/events", page(batch([{ type: "pageview", route: "home" }]), { "CF-Connecting-IP": "198.51.100.99" }))).status, 204);
-  const burst = setup({ burst: () => ({ success: false }) });
-  assert.equal((await burst.call("/api/telemetry/events", page(ok))).status, 429);
-  // http (not loopback) is refused outright
-  assert.equal((await worker.fetch(new Request("http://science.impf.ai/api/telemetry/events", page(ok)), w.env, { waitUntil() {} })).status, 403);
-  await w.settle();
-  const s = await summary(w);
-  assert.deepEqual(s.security.by_kind, { forbidden_origin: 4, oversized: 1, invalid_payload: 3 });
   await lim.settle();
   assert.deepEqual((await summary(lim)).security.by_kind, { rate_limited: 1 });
+  const burst = setup({ burst: () => ({ success: false }) });
+  assert.equal((await burst.call("/api/telemetry/events", page(ok))).status, 429);
+  await burst.settle();
+  assert.deepEqual((await summary(burst)).security.by_kind, { rate_limited: 1 });
   // off: refused, and nothing taken
   const off = setup({ env: { TELEMETRY: "off" } });
   assert.deepEqual((await (await off.call("/api/telemetry/events", page(ok))).json()).error.type, "analytics_off");
@@ -395,6 +406,62 @@ test("the relay's calls and tokens, a gateway's request by host and outcome, and
   assert.equal(s.security.by_kind.scanner, 2);
   assert.equal(s.security.by_kind.forbidden_origin, 1);
   assert.deepEqual(s.security.sources.map((x) => x.net), ["203.0.113.0/24"]);
+});
+
+test("a flood costs each telemetry object a call per flush, not one per request (the shared Durable Object budget)", async () => {
+  const w = setup();
+  const calls = { security: 0, usage: 0 };
+  for (const [name, method] of [["security", "recordBatch"], ["usage", "observe"]]) {
+    const obj = w.objects[name];
+    const original = obj[method].bind(obj);
+    obj[method] = (...a) => {
+      calls[name]++;
+      return original(...a);
+    };
+  }
+  for (let i = 0; i < 300; i++) assert.equal((await w.call(`/wp-content/${i}.php`, { headers: { "CF-Connecting-IP": "203.0.113.4" } })).status, 404);
+  for (let i = 0; i < 100; i++) {
+    const res = await w.call("/v1/chat/completions", { method: "POST", body: JSON.stringify(tidy), headers: { Origin: "https://evil.example.org", "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.5" } });
+    assert.equal(res.status, 403);
+  }
+  // the first of each went at once (nothing had been sent before), everything after it with the one flush asked for here
+  await w.settle();
+  assert.deepEqual(calls, { security: 2, usage: 2 });
+  const s = await summary(w);
+  assert.equal(s.security.by_kind.scanner, 300);
+  assert.equal(s.security.by_kind.forbidden_origin, 100);
+  assert.deepEqual(s.usage.relay.outcomes, [{ outcome: "forbidden_origin", n: 100 }]);
+  assert.deepEqual(s.security.sources.map((x) => x.net).sort(), ["203.0.113.0/24"]);
+});
+
+test("what is still held after a flush goes when the window ends, though no request comes by to send it", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.parse("2026-10-14T04:00:00Z") });
+  const w = setup();
+  const sent = [];
+  const obj = w.objects.security;
+  const original = obj.recordBatch.bind(obj);
+  obj.recordBatch = (batch, opts) => {
+    sent.push(batch.counts.reduce((n, c) => n + c.n, 0));
+    return original(batch, opts);
+  };
+  const probe = async (i) => assert.equal((await w.call(`/wp-${i}.php`, { headers: { "CF-Connecting-IP": "203.0.113.4" } })).status, 404);
+  await probe(0); // the first after a quiet spell: at once
+  t.mock.timers.tick(5000);
+  await probe(1);
+  await probe(2); // held: the window is not over
+  assert.deepEqual(sent, [1]);
+  t.mock.timers.tick(FLUSH_MS - 5000 - 1);
+  assert.deepEqual(sent, [1]);
+  t.mock.timers.tick(1); // the window ends: the trailing flush sends them, within the request's waitUntil
+  await w.drain();
+  assert.deepEqual(sent, [1, 2]);
+  t.mock.timers.tick(10 * FLUSH_MS); // nothing held: no flush, no timer
+  assert.deepEqual(sent, [1, 2]);
+  const s = await summary(w);
+  assert.equal(s.security.by_kind.scanner, 3);
+  // stored at the time each happened, one a source every ten seconds (probe 1 came 5 s after probe 0 and is counted only)
+  const stored = w.objects.security.exportRows("2026-10-01", "2026-10-31").map((e) => [e.path, e.ts]);
+  assert.deepEqual(stored, [["/wp-0.php", "2026-10-14T04:00:00.000Z"]]);
 });
 
 test("the telemetry never stands in a conversation's way: its objects failing, the relay still answers", async () => {

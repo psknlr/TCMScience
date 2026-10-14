@@ -30,7 +30,9 @@ const MAX_QUEUE = 200;
 const MAX_PENDING = 100;
 const MAX_RECORDS = 10;
 const MAX_ERRORS = 10; // error events per page load
-const FLUSH_MS = 4000;
+// events wait this long for company before they are sent (and go at once when the page is hidden or closed): each batch
+// is one Durable Object request on the Worker, from a budget its limiter shares (edge/src/telemetry/buffer.js)
+const FLUSH_MS = 15000;
 const ABANDONED_MS = 10 * 60000; // another tab's outbox not touched this long is taken over
 
 const emptyBox = () => ({ queue: [], batches: [], saved: 0 });
