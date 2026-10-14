@@ -87,10 +87,29 @@ test("sensitive content: identifiers and patient cases keep a turn out; scientif
     "女性更年期常用方有哪些", "Which formula treats a patient's spleen deficiency in general?", "RNA-seq 流程", "数值 120 340 560 的均值", ""]) {
     assert.equal(sensitiveReason(text), null, text);
   }
-  const r = redactText("key sk-proj-abcdefghijklmnopqrstu, Bearer abcdefghijklmnopqrstu, mail x@y.org, tel 13800138000, 010-12345678, https://u:p@h.org/x?token=abc, 192.168.0.1, 密码：hunter2pass");
+  const r = redactText("key sk-proj-abcdefghijklmnopqrstu, Bearer abcdefgh1234ijklmnop, mail x@y.org, tel 13800138000, 010-12345678, https://u:p@h.org/x?token=abc, 192.168.0.1, 密码：hunter2pass");
   assert.equal(r.text, "key [redacted:api_key], Bearer [redacted:bearer], mail [redacted:email], tel [redacted:mobile], [redacted:phone], https://[redacted:url_credentials]@h.org/x?token=[redacted:url_secret], [redacted:ip_address], 密码：[redacted:secret]");
   assert.equal(r.hits, 9);
   assert.deepEqual(redactText("桂枝汤 3 剂，每剂 9 g"), { text: "桂枝汤 3 剂，每剂 9 g", hits: 0 });
+  // typed with a Chinese input method's full-width forms, or with the groups a phone number is written in: still
+  // found; what is kept has those digits and letters in ASCII, and the Chinese punctuation as written
+  const wide = {
+    "电话１３８００１３８０００": "电话[redacted:mobile]", "ａｂｃ＠ｅｘａｍｐｌｅ．ｃｏｍ": "[redacted:email]", "０１０-１２３４５６７８": "[redacted:phone]",
+    "１９２．１６８．１．１": "[redacted:ip_address]", "138-0013-8000": "[redacted:mobile]", "+86 138 0013 8000": "[redacted:mobile]",
+    "服务器是 10.0.0.1.": "服务器是 [redacted:ip_address].", "Authorization: Bearer abcdefghijklmnop": "Authorization: Bearer [redacted:bearer]",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==": "Authorization: Basic [redacted:bearer]",
+    "桂枝汤，主治：太阳中风（表虚证）？～１０％": "桂枝汤，主治：太阳中风（表虚证）？～10％", "ＴＰ５３ 的 ＧＣ 含量": "TP53 的 GC 含量",
+    "电话：１３８　００１３　８０００": "电话：[redacted:mobile]", "　　首行缩进": "　　首行缩进",
+  };
+  for (const [text, kept] of Object.entries(wide)) assert.equal(redactText(text).text, kept, text);
+  // prose is not a credential, nor a version number an address
+  for (const text of ["a basic understanding of 本草", "Basic Understanding of herbs", "the bearer of the formula", "version 1.10.0.0.1 build"]) {
+    assert.deepEqual(redactText(text), { text, hits: 0 }, text);
+  }
+  // "patient notes" is not a patient number: the label is a whole word
+  for (const text of ["patient notes on 桂枝汤", "Patient identification in TCM practice", "hospital notes"]) assert.equal(sensitiveReason(text), null, text);
+  for (const text of ["patient id: A12345", "patient no. 778899", "hospital number 55667"]) assert.equal(sensitiveReason(text), "identifier", text);
+  assert.equal(sensitiveReason("身份证号 １１０１０１１９９００３０７７７７７"), "identifier"); // full-width digits
 });
 
 // ------------------------------------------------------------------------------------------------- the contract
