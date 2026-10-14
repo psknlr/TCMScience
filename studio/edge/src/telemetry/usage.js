@@ -306,8 +306,16 @@ export class UsageCore {
     };
     const unfilterable = new Set([...(country ? ["turns_started", "conversations_started"] : []), ...(model ? ["conversations_started"] : [])]);
     const series = Object.fromEntries(SERIES.map((m) => [m, zeros()]));
-    for (const r of this.sql.exec("SELECT day, metric, a, b, SUM(n) AS n FROM usage_counts WHERE day >= ? AND day <= ? GROUP BY day, metric, a, b", from, to).toArray()) {
-      if (series[r.metric] && idx.has(r.day) && kept(r)) series[r.metric][idx.get(r.day)] += Number(r.n) || 0;
+    // the period's counters, read once: the series (filtered) and every breakdown below (not filtered) come from it
+    // (each row read is one of the account's daily rows read, which every Durable Object shares)
+    const groups = new Map(); // metric → `${a}\u0000${b}` → n
+    for (const r of this.sql.exec("SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ?", from, to).toArray()) {
+      const n = Number(r.n) || 0;
+      if (series[r.metric] && idx.has(r.day) && kept(r)) series[r.metric][idx.get(r.day)] += n;
+      if (!groups.has(r.metric)) groups.set(r.metric, new Map());
+      const g = groups.get(r.metric);
+      const k = `${r.a}\u0000${r.b}`;
+      g.set(k, (g.get(k) || 0) + n);
     }
     const totals = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, sum(v)]));
     const previous = Object.fromEntries(SERIES.map((m) => [m, 0]));
@@ -315,7 +323,9 @@ export class UsageCore {
       if (r.metric in previous && kept(r)) previous[r.metric] += Number(r.n) || 0;
     }
 
-    // ---- turns (rows, every filter applies): status by day, success rate, latency, models, calls and tokens
+    // ---- turns (rows, every filter applies): status by day, success rate, latency, models, calls and tokens. One
+    // grouped read of the period serves them all (and, unfiltered, the filters' choices and the geography); the
+    // latency percentiles read the completed turns' times; the period before is one aggregate
     const turnsWhere = (a, z) => {
       const where = ["day >= ?", "day <= ?"];
       const args = [a, z];
@@ -327,17 +337,64 @@ export class UsageCore {
     const [W, args] = turnsWhere(from, to);
     const statuses = ["completed", "cancelled", "failed", "interrupted"];
     const turnsDaily = Object.fromEntries(statuses.map((s) => [s, zeros()]));
-    for (const r of this.sql.exec(`SELECT day, status, COUNT(*) AS n FROM usage_turns WHERE ${W} GROUP BY day, status`, ...args).toArray()) {
-      if (turnsDaily[r.status] && idx.has(r.day)) turnsDaily[r.status][idx.get(r.day)] += Number(r.n);
+    const modelDaily = { calls: zeros(), tokens_in: zeros(), tokens_out: zeros() };
+    const byModel = new Map();
+    const errorCounts = new Map();
+    const agg = { n: 0, citations: 0, verified: 0, used: 0, claims: 0, refused: 0, recorded: 0, excluded: 0, limit_reached: 0, conversations: 0, steps: 0, stepsN: 0 };
+    const providerSet = new Set();
+    const modelSet = new Set();
+    const turnsByCountry = new Map();
+    const grouped = this.sql.exec(`SELECT day, provider, model, country, status, COALESCE(error_kind, '') AS ek, COALESCE(error_type, '') AS et,
+      COUNT(*) AS n, SUM(first) AS first, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
+      SUM(COALESCE(tokens_out, 0)) AS tokens_out, SUM(CASE WHEN status = 'completed' THEN ms END) AS ms_sum,
+      SUM(CASE WHEN status = 'completed' AND ms IS NOT NULL THEN 1 ELSE 0 END) AS ms_n, SUM(steps) AS steps_sum, COUNT(steps) AS steps_n,
+      SUM(COALESCE(citations, 0)) AS citations, SUM(COALESCE(citations_verified, 0)) AS verified, SUM(COALESCE(citations_used, 0)) AS used,
+      SUM(COALESCE(claims, 0)) AS claims, SUM(COALESCE(claims_refused, 0)) AS refused, SUM(recorded) AS recorded,
+      SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached
+      FROM usage_turns WHERE day >= ? AND day <= ? GROUP BY day, provider, model, country, status, ek, et`, from, to).toArray();
+    for (const r of grouped) {
+      const n = Number(r.n) || 0;
+      // unfiltered: what the filters may choose, and the turns of each place
+      providerSet.add(r.provider);
+      if (r.model) modelSet.add(r.model);
+      turnsByCountry.set(r.country, (turnsByCountry.get(r.country) || 0) + n);
+      if ((provider && r.provider !== provider) || (model && r.model !== model) || (country && r.country !== country)) continue;
+      const i = idx.get(r.day);
+      if (i !== undefined && turnsDaily[r.status]) turnsDaily[r.status][i] += n;
+      if (i !== undefined) {
+        modelDaily.calls[i] += Number(r.calls) || 0;
+        modelDaily.tokens_in[i] += Number(r.tokens_in) || 0;
+        modelDaily.tokens_out[i] += Number(r.tokens_out) || 0;
+      }
+      const mk = `${r.provider}\u0000${r.model}`;
+      const m = byModel.get(mk) || { provider: r.provider, model: r.model, turns: 0, completed: 0, failed: 0, calls: 0, tokens_in: 0, tokens_out: 0, ms_sum: 0, ms_n: 0 };
+      m.turns += n;
+      if (r.status === "completed") m.completed += n;
+      if (r.status === "failed") m.failed += n;
+      m.calls += Number(r.calls) || 0;
+      m.tokens_in += Number(r.tokens_in) || 0;
+      m.tokens_out += Number(r.tokens_out) || 0;
+      m.ms_sum += Number(r.ms_sum) || 0;
+      m.ms_n += Number(r.ms_n) || 0;
+      byModel.set(mk, m);
+      if (r.status === "failed") {
+        const ek = `${r.ek}\u0000${r.et}`;
+        errorCounts.set(ek, (errorCounts.get(ek) || 0) + n);
+      }
+      agg.n += n;
+      agg.conversations += Number(r.first) || 0;
+      agg.steps += Number(r.steps_sum) || 0;
+      agg.stepsN += Number(r.steps_n) || 0;
+      for (const k of ["citations", "verified", "used", "claims", "refused", "recorded", "excluded", "limit_reached"]) agg[k] += Number(r[k]) || 0;
     }
     const turnTotals = Object.fromEntries(statuses.map((s) => [s, sum(turnsDaily[s])]));
     const finished = sum(Object.values(turnTotals));
-    const modelDaily = { calls: zeros(), tokens_in: zeros(), tokens_out: zeros() };
-    for (const r of this.sql.exec(`SELECT day, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
-      SUM(COALESCE(tokens_out, 0)) AS tokens_out FROM usage_turns WHERE ${W} GROUP BY day`, ...args).toArray()) {
-      if (!idx.has(r.day)) continue;
-      for (const k of ["calls", "tokens_in", "tokens_out"]) modelDaily[k][idx.get(r.day)] = Number(r[k]) || 0;
-    }
+    const models = [...byModel.values()].sort((a, b) => b.turns - a.turns).slice(0, 100)
+      .map(({ ms_sum: msSum, ms_n: msN, ...m }) => ({ ...m, avg_ms: msN ? Math.round(msSum / msN) : null }));
+    const errorsByType = [...errorCounts].map(([k, n]) => {
+      const [kind, type] = k.split("\u0000");
+      return { kind, type, n };
+    }).sort((a, b) => b.n - a.n).slice(0, 30);
     const [PW, pargs] = turnsWhere(prevFrom, prevTo);
     const before = this.sql.exec(`SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed, SUM(first) AS conversations,
       SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in, SUM(COALESCE(tokens_out, 0)) AS tokens_out
@@ -345,18 +402,6 @@ export class UsageCore {
     const toolsBefore = this.sql.exec("SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed FROM usage_tools WHERE day >= ? AND day <= ?",
       prevFrom, prevTo).one();
     const latencyRows = this.sql.exec(`SELECT ms, first_ms FROM usage_turns WHERE ${W} AND status = 'completed' ORDER BY ts DESC LIMIT ?`, ...args, MAX_ROWS).toArray();
-    const models = this.sql.exec(`SELECT provider, model, COUNT(*) AS turns, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
-      SUM(COALESCE(tokens_out, 0)) AS tokens_out, AVG(CASE WHEN status = 'completed' THEN ms END) AS avg_ms
-      FROM usage_turns WHERE ${W} GROUP BY provider, model ORDER BY turns DESC LIMIT 100`, ...args).toArray()
-      .map((r) => ({ provider: r.provider, model: r.model, turns: Number(r.turns), completed: Number(r.completed), failed: Number(r.failed),
-        calls: Number(r.calls), tokens_in: Number(r.tokens_in), tokens_out: Number(r.tokens_out), avg_ms: r.avg_ms === null ? null : Math.round(Number(r.avg_ms)) }));
-    const agg = this.sql.exec(`SELECT COUNT(*) AS n, SUM(COALESCE(citations, 0)) AS citations, SUM(COALESCE(citations_verified, 0)) AS verified,
-      SUM(COALESCE(citations_used, 0)) AS used, SUM(COALESCE(claims, 0)) AS claims, SUM(COALESCE(claims_refused, 0)) AS refused,
-      SUM(recorded) AS recorded, SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached,
-      SUM(first) AS conversations, AVG(steps) AS avg_steps FROM usage_turns WHERE ${W}`, ...args).one();
-    const errorsByType = this.sql.exec(`SELECT COALESCE(error_kind, '') AS kind, COALESCE(error_type, '') AS type, COUNT(*) AS n FROM usage_turns
-      WHERE ${W} AND status = 'failed' GROUP BY kind, type ORDER BY n DESC LIMIT 30`, ...args).toArray().map((r) => ({ kind: r.kind, type: r.type, n: Number(r.n) }));
 
     // ---- tools (rows): runs, failures, durations
     const toolRows = this.sql.exec("SELECT tool, kind, status, ms FROM usage_tools WHERE day >= ? AND day <= ? ORDER BY ts DESC LIMIT ?", from, to, MAX_ROWS).toArray();
@@ -383,8 +428,10 @@ export class UsageCore {
     // ---- breakdowns from the counters
     // the largest thousand of each breakdown (a page's events name what they name: their number is not the store's to
     // bound, and a summary must stay small enough for one answer)
-    const group = (metric) => this.sql.exec("SELECT a, b, SUM(n) AS n FROM usage_counts WHERE metric = ? AND day >= ? AND day <= ? GROUP BY a, b ORDER BY n DESC LIMIT 1000",
-      metric, from, to).toArray().map((r) => ({ a: r.a, b: r.b, n: Number(r.n) }));
+    const group = (metric) => [...(groups.get(metric) || new Map())].map(([k, n]) => {
+      const [a, b] = k.split("\u0000");
+      return { a, b, n };
+    }).sort((x, y) => y.n - x.n).slice(0, 1000);
     // by database (the registry's source key), "-" for what the gateway refused before it matched one
     const connectors = new Map();
     for (const r of group("connector")) {
@@ -422,7 +469,7 @@ export class UsageCore {
     for (const r of group("pageview")) place(r.b).pageviews += r.n;
     for (const r of group("visit")) place(r.b).visits += r.n;
     for (const r of group("visitor")) place(r.a).visitors += r.n;
-    for (const r of this.sql.exec("SELECT country, COUNT(*) AS n FROM usage_turns WHERE day >= ? AND day <= ? GROUP BY country", from, to).toArray()) place(r.country).turns += Number(r.n);
+    for (const [c, n] of turnsByCountry) place(c).turns += n;
     const availability = new Map();
     for (const r of group("availability")) {
       const s = availability.get(r.a) || { service: r.a, checks: 0, up: 0, down: 0 };
@@ -449,13 +496,12 @@ export class UsageCore {
         previous: { turns_started: unfilterable.has("turns_started") ? null : previous.turn_start, finished: Number(before.n) || 0, completed: Number(before.completed) || 0,
           conversations: Number(before.conversations) || 0 },
         success_rate: finished ? turnTotals.completed / finished : null,
-        conversations: Number(agg.conversations) || 0, recorded: Number(agg.recorded) || 0, excluded: Number(agg.excluded) || 0,
+        conversations: agg.conversations, recorded: agg.recorded, excluded: agg.excluded,
         excluded_by: byKey("turn_excluded").map((r) => ({ reason: r.a, n: r.n })),
-        limit_reached: Number(agg.limit_reached) || 0, avg_steps: agg.avg_steps === null ? null : Math.round(Number(agg.avg_steps) * 10) / 10,
+        limit_reached: agg.limit_reached, avg_steps: agg.stepsN ? Math.round((agg.steps / agg.stepsN) * 10) / 10 : null,
         errors: errorsByType,
       },
-      evidence: { citations: Number(agg.citations) || 0, verified: Number(agg.verified) || 0, used: Number(agg.used) || 0,
-        claims: Number(agg.claims) || 0, claims_refused: Number(agg.refused) || 0 },
+      evidence: { citations: agg.citations, verified: agg.verified, used: agg.used, claims: agg.claims, claims_refused: agg.refused },
       models: { daily: modelDaily, totals: { calls: sum(modelDaily.calls), tokens_in: sum(modelDaily.tokens_in), tokens_out: sum(modelDaily.tokens_out) },
         previous: { calls: Number(before.calls) || 0, tokens_in: Number(before.tokens_in) || 0, tokens_out: Number(before.tokens_out) || 0 }, list: models },
       latency: { total: spread(latencyRows.map((r) => (r.ms === null ? NaN : Number(r.ms)))), first_token: spread(latencyRows.map((r) => (r.first_ms === null ? NaN : Number(r.first_ms)))) },
@@ -471,11 +517,7 @@ export class UsageCore {
         tokens: byKey("relay_tokens").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}) },
       consent: byKey("consent").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}),
       rejected: byKey("telemetry_rejected").map((r) => ({ reason: r.a, n: r.n })),
-      filters: {
-        providers: this.sql.exec("SELECT DISTINCT provider FROM usage_turns WHERE day >= ? AND day <= ? ORDER BY provider", from, to).toArray().map((r) => r.provider),
-        models: this.sql.exec("SELECT DISTINCT model FROM usage_turns WHERE day >= ? AND day <= ? AND model <> '' ORDER BY model", from, to).toArray().map((r) => r.model),
-        countries: [...geo.keys()].sort(),
-      },
+      filters: { providers: [...providerSet].sort(), models: [...modelSet].sort(), countries: [...geo.keys()].sort() },
     };
   }
 

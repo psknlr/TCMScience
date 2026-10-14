@@ -137,6 +137,19 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
   assert.deepEqual([model.conversations.totals.turns_started, model.conversations.totals.conversations_started], [1, null]);
 });
 
+test("usage: a summary reads each table a few times, not once per number (rows read are the account's, daily)", async () => {
+  const store = sqlStore();
+  const reads = [];
+  const sql = { exec: (q, ...a) => { if (/^\s*select/i.test(q)) reads.push(/FROM (usage_\w+)/.exec(q)?.[1]); return store.exec(q, ...a); } };
+  const u = new UsageCore(sql);
+  await u.ingest(batch([{ type: "pageview", route: "home" }, { type: "turn_end", turn: "t1", provider: "tao", status: "completed", ms: 10 },
+    { type: "tool_end", call: "t1:c1", tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }]), { day: DAY, visitor: "v", now: NOW });
+  reads.length = 0;
+  u.stats({ from: shiftDay(DAY, -89), to: DAY });
+  const per = reads.filter(Boolean).reduce((m, t) => ((m[t] = (m[t] || 0) + 1), m), {}); // (and the day's budget row)
+  assert.deepEqual(per, { usage_counts: 2, usage_turns: 3, usage_tools: 3 }); // the period and the one before; latency; per tool
+});
+
 test("usage: a summary's lists stay bounded whatever names the pages sent", async () => {
   const u = new UsageCore(sqlStore());
   const events = (i) => Array.from({ length: 50 }, (_, j) => ({ type: "workflow", key: `k${i}-${j}`, kind: "skill", name: `skill.made-up-${i}-${j}`, phase: "started" }));
