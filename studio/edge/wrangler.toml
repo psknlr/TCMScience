@@ -80,8 +80,8 @@ TELEMETRY_UTC_OFFSET = "8"
 TELEMETRY_MAX_BODY_BYTES = "32768"
 CONVERSATION_MAX_BODY_BYTES = "65536"
 # per visitor (hashed address of the UTC day): batches of usage events, conversation records
-TELEMETRY_PER_MINUTE = "60"
-TELEMETRY_PER_DAY = "3000"
+TELEMETRY_PER_MINUTE = "30"
+TELEMETRY_PER_DAY = "1500"
 CONVERSATIONS_PER_MINUTE = "20"
 CONVERSATIONS_PER_DAY = "500"
 # retention, in days: per-turn and per-tool rows, daily counts, conversation records, security events; and the most
@@ -96,6 +96,10 @@ CONVERSATION_MAX_RECORDS = "50000"
 SECURITY_RAW_IP = "off"
 # how long a dashboard sign-in lasts (seconds)
 ADMIN_SESSION_SECONDS = "3600"
+# rows the telemetry may write a day, its three Durable Objects together (60 % usage, 25 % records, 15 % security
+# events); "0" lifts the budget (a paid plan). The Workers Free plan allows 100,000 a day for the whole account, the
+# relay's and the gateway's limiter included, and that limiter refuses service once they are spent
+TELEMETRY_DAILY_ROWS = "40000"
 
 # per visitor (IPv6 by /64) and Cloudflare location over ten seconds: checked before the body is read and before the
 # Durable Object is asked. namespace_id is unique in the account (TaoChronos uses 7311, 7312, 7313).

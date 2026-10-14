@@ -122,7 +122,7 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 **地理位置**：只记 Cloudflare 判定的国家或地区代码（`TELEMETRY_GEO = "country"`；不明或 Tor 记 `XX`），不记城市或省份；
 `"off"` 则一律 `XX`。配置**不能**比说明更细：其他值按 `country` 处理，配置测试会报错。
 
-**限额**：一批 ≤50 个事件、正文 ≤32 KiB；每位访客每分钟 60 批、每天 3000 批；另与中继共用 `BURST`（每 10 秒 40 次）。
+**限额**：一批 ≤50 个事件、正文 ≤32 KiB；每位访客每分钟 30 批、每天 1500 批；另与中继共用 `BURST`（每 10 秒 40 次）。
 
 ## 安全日志
 
@@ -195,8 +195,16 @@ Object 的额度」。管理操作的审计记录不经过汇总，当场写入�
   20 秒各送一次（安静一段时间后的第一个当场送出，其余在这 20 秒结束时送出，即使之后没有请求）；扫描器敲几千下、别的网站刷
   几千次，也只是每 20 秒一次请求。代价：实例在送出之前被回收时，还没送出的计数会丢失，这几项数字因此是近似的。
 - **对话记录**：一轮一条，只在访客同意时发送，有每分钟、每天的上限。
+- **每天的写入上限**（`TELEMETRY_DAILY_ROWS`，默认 40000 行，按 UTC 日计，与 Cloudflare 的额度同一天切换）：使用统计 60 %、
+  对话记录 25 %、安全事件 15 %；一位访客（按地址）最多用其中的十分之一。到了上限，统计与记录接口回 503 `budget_spent`
+  （`Retry-After` 到 00:00 UTC），Worker 在那之前不再调用这个对象；网页把没发出的留着、按 `Retry-After` 等待；Worker 自己的
+  计数在那之前丢弃。安全事件照常计数，只是不再逐条保存（管理操作的审计记录除外）。**从不因额度拒绝**：访客的删除请求、
+  按保留期限的清理、管理员登录状态与审计记录。仪表板「设置」里显示三个对象今天已写入的行数与上限。付费版可设为 `0`（不设上限）。
+- 表结构尽量省写入：以文本为键的表用 `WITHOUT ROWID`（普通表还要多写一份键的索引）。
 
 用量大时请改用付费版（额度按用量计费，不会到点停用），或在 Cloudflare 的用量页面留意 Durable Object 的请求与写入行数。
+大量恶意请求本身（不论打到中继还是统计接口）都会消耗免费版每天 10 万次的 Durable Object 请求额度；正式运营建议在
+Cloudflare 上为 `/v1/*`、`/api/*` 加 WAF 速率限制规则，或使用付费版。
 
 ## 管理后台
 
@@ -282,11 +290,12 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 | `TELEMETRY_GEO` | `country` | `off`：不记国家或地区 |
 | `TELEMETRY_UTC_OFFSET` | `8` | 报告日的时区（小时，-14…14） |
 | `TELEMETRY_MAX_BODY_BYTES` / `CONVERSATION_MAX_BODY_BYTES` | `32768` / `65536` | 一批事件 / 一条记录的字节上限 |
-| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `60` / `3000` | 每位访客每分钟、每天的事件批数 |
+| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `30` / `1500` | 每位访客每分钟、每天的事件批数 |
 | `CONVERSATIONS_PER_MINUTE` / `CONVERSATIONS_PER_DAY` | `20` / `500` | 每位访客每分钟、每天的记录条数 |
 | `RETENTION_*_DAYS`、`CONVERSATION_MAX_RECORDS` | 见上 | 保留期限（1…3650 天）与记录条数上限 |
 | `SECURITY_RAW_IP` | `off` | `flagged`：高危安全事件保存完整地址 |
 | `ADMIN_SESSION_SECONDS` | `3600` | 后台会话时长（300…86400 秒） |
+| `TELEMETRY_DAILY_ROWS` | `40000` | 三个统计 Durable Object 每天合计可写的行数（使用统计 60 %、对话记录 25 %、安全事件 15 %）；`0` 不设上限（付费版） |
 
 机密（GitHub 仓库 Secrets，部署时写入 Worker；不进任何文件）：
 

@@ -13,9 +13,12 @@
 //   model_call   one request to a model: a turn makes one per round of tool use, and one per retry
 //   tool_run     one tool execution, by tool and status
 //   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests)
-// Counters are written once per batch (summed first) to keep the number of rows written small.
+// Counters are written once per batch (summed first) to keep the number of rows written small; the tables keyed by text
+// are WITHOUT ROWID (a rowid table keyed by text keeps a second index of the key: one more row written per insert); and
+// what a day may write at all is the object's share of TELEMETRY_DAILY_ROWS (telemetry/budget.js).
 
 import { normalizeBatch } from "../../../web/js/core/telemetry-contract.js";
+import { RowBudget } from "./budget.js";
 import { daysBetween, shiftDay } from "./config.js";
 
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -44,23 +47,29 @@ export function spread(values) {
 export class UsageCore {
   constructor(sql) {
     this.sql = sql;
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_counts (day TEXT NOT NULL, metric TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric, a, b))");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_seen (day TEXT NOT NULL, kind TEXT NOT NULL, who TEXT NOT NULL, PRIMARY KEY (day, kind, who))");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_salts (day TEXT PRIMARY KEY, salt TEXT NOT NULL)");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_once (id TEXT PRIMARY KEY, day TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_counts (day TEXT NOT NULL, metric TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric, a, b)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_seen (day TEXT NOT NULL, kind TEXT NOT NULL, who TEXT NOT NULL, PRIMARY KEY (day, kind, who)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_salts (day TEXT PRIMARY KEY, salt TEXT NOT NULL) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_once (id TEXT PRIMARY KEY, day TEXT NOT NULL) WITHOUT ROWID");
     sql.exec(`CREATE TABLE IF NOT EXISTS usage_turns (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, provider TEXT NOT NULL,
       model TEXT NOT NULL, status TEXT NOT NULL, first INTEGER NOT NULL, steps INTEGER, tool_rounds INTEGER, calls INTEGER, tools INTEGER,
       tool_failures INTEGER, ms INTEGER, first_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, citations INTEGER, citations_verified INTEGER,
       citations_used INTEGER, claims INTEGER, claims_refused INTEGER, recorded INTEGER, excluded TEXT, error_kind TEXT, error_type TEXT,
-      limit_reached INTEGER, country TEXT NOT NULL)`);
+      limit_reached INTEGER, country TEXT NOT NULL) WITHOUT ROWID`);
     sql.exec("CREATE INDEX IF NOT EXISTS usage_turns_day ON usage_turns (day)");
     sql.exec(`CREATE TABLE IF NOT EXISTS usage_tools (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, tool TEXT NOT NULL,
-      kind TEXT NOT NULL, place TEXT NOT NULL, status TEXT NOT NULL, ms INTEGER, error_type TEXT)`);
+      kind TEXT NOT NULL, place TEXT NOT NULL, status TEXT NOT NULL, ms INTEGER, error_type TEXT) WITHOUT ROWID`);
     sql.exec("CREATE INDEX IF NOT EXISTS usage_tools_day ON usage_tools (day)");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL) WITHOUT ROWID");
     this.minute = new Map();
     this.currentMinute = -1;
     this.limitDay = null;
+    this.budget = new RowBudget(sql);
+    this.written = 0; // rows written so far (each insert, update or delete, and each index entry it changes)
+  }
+
+  #wrote(n) {
+    this.written += n;
   }
 
   // ----------------------------------------------------------------------------------------------- limits
@@ -70,7 +79,7 @@ export class UsageCore {
   limit(caller, kind, limits, now = Date.now()) {
     const today = new Date(now).toISOString().slice(0, 10);
     if (today !== this.limitDay) {
-      this.sql.exec("DELETE FROM usage_limits WHERE day <> ?", today);
+      this.#wrote(this.sql.exec("DELETE FROM usage_limits WHERE day <> ? RETURNING k", today).toArray().length);
       this.limitDay = today;
     }
     const minute = Math.floor(now / 60000);
@@ -86,6 +95,7 @@ export class UsageCore {
     if (limits.perDay && d >= limits.perDay) return { ok: false, reason: "day", retry: Math.ceil((86400000 - (now % 86400000)) / 1000) };
     this.minute.set(mk, m + 1);
     this.sql.exec("INSERT INTO usage_limits (k, n, day) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1", dk, today);
+    this.#wrote(1);
     return { ok: true };
   }
 
@@ -96,9 +106,10 @@ export class UsageCore {
   salt(day) {
     let row = this.sql.exec("SELECT salt FROM usage_salts WHERE day = ?", day).toArray()[0];
     if (!row) {
-      this.sql.exec("DELETE FROM usage_salts WHERE day < ?", day);
-      this.sql.exec("DELETE FROM usage_seen WHERE day < ?", day);
-      this.sql.exec("INSERT INTO usage_salts (day, salt) VALUES (?, ?) ON CONFLICT(day) DO NOTHING", day, hex(crypto.getRandomValues(new Uint8Array(32))));
+      this.#wrote(this.sql.exec("DELETE FROM usage_salts WHERE day < ? RETURNING day", day).toArray().length);
+      this.#wrote(this.sql.exec("DELETE FROM usage_seen WHERE day < ? RETURNING day", day).toArray().length);
+      this.#wrote(this.sql.exec("INSERT INTO usage_salts (day, salt) VALUES (?, ?) ON CONFLICT(day) DO NOTHING RETURNING day", day,
+        hex(crypto.getRandomValues(new Uint8Array(32)))).toArray().length);
       row = this.sql.exec("SELECT salt FROM usage_salts WHERE day = ?", day).toArray()[0];
     }
     return row.salt;
@@ -108,12 +119,16 @@ export class UsageCore {
   async firstSeen(day, kind, visitor) {
     if (!visitor) return false;
     const who = hex(await crypto.subtle.digest("SHA-256", enc.encode(`${this.salt(day)}|${visitor}`))).slice(0, 32);
-    return this.sql.exec("INSERT INTO usage_seen (day, kind, who) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING who", day, kind, who).toArray().length > 0;
+    const fresh = this.sql.exec("INSERT INTO usage_seen (day, kind, who) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING who", day, kind, who).toArray().length > 0;
+    if (fresh) this.#wrote(1);
+    return fresh;
   }
 
   /** Has this id been taken before (a retried batch, a turn reported twice, a job's end seen in two tabs)? */
   once(id, day) {
-    return this.sql.exec("INSERT INTO usage_once (id, day) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id", id, day).toArray().length > 0;
+    const fresh = this.sql.exec("INSERT INTO usage_once (id, day) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id", id, day).toArray().length > 0;
+    if (fresh) this.#wrote(1);
+    return fresh;
   }
 
   bump(counts) {
@@ -122,16 +137,29 @@ export class UsageCore {
       const [day, metric, a, b] = key.split("\u0000");
       this.sql.exec("INSERT INTO usage_counts (day, metric, a, b, n) VALUES (?, ?, ?, ?, ?) ON CONFLICT(day, metric, a, b) DO UPDATE SET n = n + excluded.n",
         day, metric, a, b, n);
+      this.#wrote(1);
     }
   }
 
   /**
    * One batch from a page: {v, batch, events}, read through the contract (telemetry-contract.js normalizeBatch).
-   * ctx: {day, country, visitor (the Worker's digest of address and browser; never stored as given), now, and the
-   * per-visitor limits {caller, limits}, checked first in the same call}. → {ok, accepted, duplicate?, dropped} |
-   * {ok:false, reason: "rate_limited" (with retry) | "bad_batch"}.
+   * ctx: {day, country, visitor (the Worker's digest of address and browser; never stored as given), now, the
+   * per-visitor limits {caller, limits}, checked first in the same call, and `budget`: the rows this object may write
+   * today (0: no budget)}. → {ok, accepted, duplicate?, dropped} | {ok:false, reason: "rate_limited" (with retry) |
+   * "budget" (with retry: the day's rows are written, or this visitor's share of them) | "bad_batch"}.
    */
-  async ingest(body, { day, country = "XX", visitor = "", now = Date.now(), caller = "", limits = null } = {}) {
+  async ingest(body, { day, country = "XX", visitor = "", now = Date.now(), caller = "", limits = null, budget = 0 } = {}) {
+    const room = this.budget.check(budget, { caller, now });
+    if (!room.ok) return { ok: false, reason: "budget", retry: room.retry, scope: room.reason };
+    const start = this.written;
+    try {
+      return await this.#ingest(body, { day, country, visitor, now, caller, limits });
+    } finally {
+      this.budget.charge(this.written - start, { caller, now });
+    }
+  }
+
+  async #ingest(body, { day, country, visitor, now, caller, limits }) {
     if (caller && limits) {
       const gate = this.limit(caller, "events", limits, now);
       if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
@@ -172,6 +200,7 @@ export class UsageCore {
           e.citations ?? null, e.citations_verified ?? null, e.citations_used ?? null, e.claims ?? null, e.claims_refused ?? null,
           e.recorded ? 1 : 0, e.excluded ?? null, e.error_kind ?? null, e.error_type ?? null, e.limit_reached ? 1 : 0, country).toArray().length > 0;
           if (!fresh) break;
+          this.#wrote(2); // the row and its day index
           const provider = e.provider || "unknown";
           add("turn_end", e.status, provider);
           add("model_call", provider, e.model || "", e.calls ?? e.steps ?? 0);
@@ -185,6 +214,7 @@ export class UsageCore {
           const fresh = this.sql.exec(`INSERT INTO usage_tools (id, day, ts, tool, kind, place, status, ms, error_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT DO NOTHING RETURNING id`, e.call, day, now, e.tool, e.kind, e.place, e.status, e.ms ?? null, e.error_type ?? null).toArray().length > 0;
           if (!fresh) break;
+          this.#wrote(2);
           add("tool_run", e.tool, e.status);
           add("tool_kind", e.kind, e.status);
           add("tool_place", e.place, e.status);
@@ -204,9 +234,13 @@ export class UsageCore {
   }
 
   /** Counts the Worker took itself, summed in its memory between flushes (telemetry/buffer.js): [{metric, a, b, n}] on
-   * `day` (only known metrics, whole positive numbers). */
-  observe(list, { day } = {}) {
+   * `day` (only known metrics, whole positive numbers), within the day's `budget` of rows (0: none). → {ok} |
+   * {ok:false, reason: "budget", retry} | {ok:false}. */
+  observe(list, { day, budget = 0, now = Date.now() } = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day)) || !Array.isArray(list)) return { ok: false };
+    const room = this.budget.check(budget, { now });
+    if (!room.ok) return { ok: false, reason: "budget", retry: room.retry };
+    const start = this.written;
     const counts = new Map();
     for (const m of list.slice(0, 2000)) {
       const n = m?.n === undefined ? 1 : Math.floor(Number(m.n));
@@ -215,7 +249,13 @@ export class UsageCore {
       counts.set(k, (counts.get(k) || 0) + n);
     }
     this.bump(counts);
+    this.budget.charge(this.written - start, { now });
     return { ok: true };
+  }
+
+  /** Today's rows written by this object, and its budget (for the dashboard). */
+  budgetState(budget = 0, now = Date.now()) {
+    return this.budget.state(budget, now);
   }
 
   // ----------------------------------------------------------------------------------------------- reading
@@ -225,7 +265,7 @@ export class UsageCore {
    * {provider, model, country} narrow the turns (and with country, the traffic). Never reads anything a visitor wrote:
    * there is none here.
    */
-  stats({ from, to, provider = "", model = "", country = "" } = {}) {
+  stats({ from, to, provider = "", model = "", country = "", budget = 0 } = {}) {
     const days = daysBetween(from, to);
     const span = days.length;
     const prevFrom = shiftDay(from, -span);
@@ -372,6 +412,7 @@ export class UsageCore {
     const byKey = (metric) => group(metric).sort((a, b) => b.n - a.n);
     return {
       days,
+      budget: this.budget.state(budget),
       traffic: { daily: { pageviews: series.pageview, visits: series.visit, visitors: series.visitor, askers: series.asker, app_inits: series.app_init },
         totals: { pageviews: totals.pageview, visits: totals.visit, visitor_days: totals.visitor, asker_days: totals.asker, app_inits: totals.app_init },
         previous: { pageviews: previous.pageview, visits: previous.visit, visitor_days: previous.visitor },

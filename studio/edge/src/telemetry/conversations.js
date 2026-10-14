@@ -8,9 +8,14 @@
 //   deletions  a deletion request leaves a tombstone (when, how many, the owner digest) so an export taken before it can
 //              be reconciled; the records themselves are gone at once
 // Retention: records older than RETENTION_CONVERSATIONS_DAYS are deleted (daily, by the object's alarm); beyond
-// CONVERSATION_MAX_RECORDS the oldest go first.
+// CONVERSATION_MAX_RECORDS the oldest go first. A day takes new records only within the object's share of
+// TELEMETRY_DAILY_ROWS (telemetry/budget.js); a deletion request is never refused for it.
 
+import { RowBudget } from "./budget.js";
 import { shiftDay } from "./config.js";
+
+// rows one stored record writes: the row, its sequence, and its id, owner and day indexes
+const RECORD_ROWS = 5;
 
 export class ConversationCore {
   constructor(sql) {
@@ -22,22 +27,35 @@ export class ConversationCore {
     sql.exec("CREATE INDEX IF NOT EXISTS conv_records_day ON conv_records (day)");
     sql.exec(`CREATE TABLE IF NOT EXISTS conv_deletions (seq INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, day TEXT NOT NULL,
       owner TEXT NOT NULL, n INTEGER NOT NULL, by TEXT NOT NULL)`);
-    sql.exec("CREATE TABLE IF NOT EXISTS conv_counts (day TEXT NOT NULL, metric TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric))");
-    sql.exec("CREATE TABLE IF NOT EXISTS conv_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS conv_counts (day TEXT NOT NULL, metric TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS conv_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL) WITHOUT ROWID");
     this.minute = new Map();
     this.currentMinute = -1;
     this.limitDay = null;
+    this.budget = new RowBudget(sql);
+    this.written = 0;
   }
 
   count(day, metric, n = 1) {
     this.sql.exec("INSERT INTO conv_counts (day, metric, n) VALUES (?, ?, ?) ON CONFLICT(day, metric) DO UPDATE SET n = n + excluded.n", day, metric, n);
+    this.written += 1;
+  }
+
+  /** Run `fn`, charging what it wrote to the day's budget (for `caller`, when a visitor asked). */
+  #charged(fn, { caller = "", now = Date.now() } = {}) {
+    const start = this.written;
+    try {
+      return fn();
+    } finally {
+      this.budget.charge(this.written - start, { caller, now });
+    }
   }
 
   /** Per-visitor limits (the same shape as UsageCore.limit). */
   limit(caller, kind, limits, now = Date.now()) {
     const today = new Date(now).toISOString().slice(0, 10);
     if (today !== this.limitDay) {
-      this.sql.exec("DELETE FROM conv_limits WHERE day <> ?", today);
+      this.written += this.sql.exec("DELETE FROM conv_limits WHERE day <> ? RETURNING k", today).toArray().length;
       this.limitDay = today;
     }
     const minute = Math.floor(now / 60000);
@@ -53,6 +71,7 @@ export class ConversationCore {
     if (limits.perDay && d >= limits.perDay) return { ok: false, reason: "day", retry: Math.ceil((86400000 - (now % 86400000)) / 1000) };
     this.minute.set(mk, m + 1);
     this.sql.exec("INSERT INTO conv_limits (k, n, day) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1", dk, today);
+    this.written += 1;
     return { ok: true };
   }
 
@@ -66,36 +85,48 @@ export class ConversationCore {
       this.count(day, "duplicate");
       return { stored: false, reason: "duplicate" };
     }
+    this.written += RECORD_ROWS;
     this.count(day, "stored");
     const seq = Number(rows[0].seq);
-    if (keep && seq % 100 === 0) this.sql.exec("DELETE FROM conv_records WHERE seq <= (SELECT MAX(seq) FROM conv_records) - ?", keep);
+    if (keep && seq % 100 === 0) {
+      const gone = this.sql.exec("DELETE FROM conv_records WHERE seq <= (SELECT MAX(seq) FROM conv_records) - ? RETURNING seq", keep).toArray().length;
+      this.written += gone * (RECORD_ROWS - 1);
+    }
     return { stored: true };
   }
 
   /**
-   * One record from a page, in one call: the visitor's limits {caller, limits}, then either the count of a record
-   * judged sensitive (`excluded`: its reason; nothing of it is kept) or the record stored. → {ok, stored, reason?} |
-   * {ok:false, reason:"rate_limited", retry}.
+   * One record from a page, in one call: the day's budget of rows (`budget`, 0: none) and the visitor's share of it,
+   * the visitor's limits {caller, limits}, then either the count of a record judged sensitive (`excluded`: its reason;
+   * nothing of it is kept) or the record stored. → {ok, stored, reason?} | {ok:false, reason: "rate_limited" |
+   * "budget", retry}.
    */
-  accept(record, { now = Date.now(), caller = "", limits = null, received = new Date(now).toISOString(), day = received.slice(0, 10), keep = 50000, excluded = null } = {}) {
-    if (caller && limits) {
-      const gate = this.limit(caller, "records", limits, now);
-      if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
-    }
-    if (excluded) {
-      this.excluded(day, excluded);
-      return { ok: true, stored: false, reason: "excluded" };
-    }
-    return { ok: true, ...this.add(record, { received, day, keep }) };
+  accept(record, { now = Date.now(), caller = "", limits = null, received = new Date(now).toISOString(), day = received.slice(0, 10), keep = 50000, excluded = null, budget = 0 } = {}) {
+    const room = this.budget.check(budget, { caller, now });
+    if (!room.ok) return { ok: false, reason: "budget", retry: room.retry, scope: room.reason };
+    return this.#charged(() => {
+      if (caller && limits) {
+        const gate = this.limit(caller, "records", limits, now);
+        if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
+      }
+      if (excluded) {
+        this.excluded(day, excluded);
+        return { ok: true, stored: false, reason: "excluded" };
+      }
+      return { ok: true, ...this.add(record, { received, day, keep }) };
+    }, { caller, now });
   }
 
-  /** A visitor's own deletion request (their key's digest), limited to ten a minute per address. → {ok, deleted}. */
+  /** A visitor's own deletion request (their key's digest), limited to ten a minute per address; never refused for the
+   * budget (what was kept can always be taken back). → {ok, deleted}. */
   forget(owner, { caller = "", day, now = Date.now() } = {}) {
-    if (caller) {
-      const gate = this.limit(caller, "forget", { perMinute: 10, perDay: 200 }, now);
-      if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
-    }
-    return { ok: true, ...this.deleteOwner(owner, { by: "visitor", at: new Date(now).toISOString(), day }) };
+    return this.#charged(() => {
+      if (caller) {
+        const gate = this.limit(caller, "forget", { perMinute: 10, perDay: 200 }, now);
+        if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
+      }
+      return { ok: true, ...this.#deleteOwner(owner, { by: "visitor", at: new Date(now).toISOString(), day }) };
+    }, { now });
   }
 
   /** A turn the routes refused to store (its content judged sensitive there): counted, nothing kept. */
@@ -104,25 +135,37 @@ export class ConversationCore {
   }
 
   /** Every record of `owner` deleted; a tombstone says when and how many. → {deleted}. */
-  deleteOwner(owner, { by = "visitor", at = new Date().toISOString(), day } = {}) {
-    const n = Number(this.sql.exec("SELECT COUNT(*) AS n FROM conv_records WHERE owner = ?", owner).one().n);
-    this.sql.exec("DELETE FROM conv_records WHERE owner = ?", owner);
+  deleteOwner(owner, opts = {}) {
+    return this.#charged(() => this.#deleteOwner(owner, opts));
+  }
+
+  #deleteOwner(owner, { by = "visitor", at = new Date().toISOString(), day } = {}) {
+    const n = this.sql.exec("DELETE FROM conv_records WHERE owner = ? RETURNING seq", owner).toArray().length;
     this.sql.exec("INSERT INTO conv_deletions (at, day, owner, n, by) VALUES (?, ?, ?, ?, ?)", at, day || at.slice(0, 10), owner, n, by);
+    this.written += n * (RECORD_ROWS - 1) + 2;
     if (n) this.count(day || at.slice(0, 10), "deleted", n);
     return { deleted: n };
   }
 
   /** The records with these ids deleted (an admin's choice). → {deleted}. */
   deleteIds(ids, { by = "admin", at = new Date().toISOString(), day } = {}) {
-    let n = 0;
-    for (const id of (Array.isArray(ids) ? ids : []).slice(0, 500)) {
-      const row = this.sql.exec("DELETE FROM conv_records WHERE id = ? RETURNING owner", String(id)).toArray()[0];
-      if (!row) continue;
-      n++;
-      this.sql.exec("INSERT INTO conv_deletions (at, day, owner, n, by) VALUES (?, ?, ?, 1, ?)", at, day || at.slice(0, 10), row.owner, by);
-    }
-    if (n) this.count(day || at.slice(0, 10), "deleted", n);
-    return { deleted: n };
+    return this.#charged(() => {
+      let n = 0;
+      for (const id of (Array.isArray(ids) ? ids : []).slice(0, 500)) {
+        const row = this.sql.exec("DELETE FROM conv_records WHERE id = ? RETURNING owner", String(id)).toArray()[0];
+        if (!row) continue;
+        n++;
+        this.sql.exec("INSERT INTO conv_deletions (at, day, owner, n, by) VALUES (?, ?, ?, 1, ?)", at, day || at.slice(0, 10), row.owner, by);
+        this.written += RECORD_ROWS - 1 + 2;
+      }
+      if (n) this.count(day || at.slice(0, 10), "deleted", n);
+      return { deleted: n };
+    });
+  }
+
+  /** Today's rows written by this object, and its budget (for the dashboard). */
+  budgetState(budget = 0, now = Date.now()) {
+    return this.budget.state(budget, now);
   }
 
   /**
@@ -153,7 +196,7 @@ export class ConversationCore {
   }
 
   /** Counts for the dashboard: stored, duplicate, excluded (by reason), deleted, by day; what is held now. */
-  stats(from, to) {
+  stats(from, to, budget = 0) {
     const daily = this.sql.exec("SELECT day, metric, n FROM conv_counts WHERE day >= ? AND day <= ? ORDER BY day", from, to).toArray()
       .map((r) => ({ day: r.day, metric: r.metric, n: Number(r.n) }));
     const totals = {};
@@ -162,7 +205,7 @@ export class ConversationCore {
     const byStatus = this.sql.exec("SELECT status, COUNT(*) AS n FROM conv_records WHERE day >= ? AND day <= ? GROUP BY status", from, to).toArray()
       .reduce((m, r) => ((m[r.status] = Number(r.n)), m), {});
     const deletions = Number(this.sql.exec("SELECT COUNT(*) AS n FROM conv_deletions WHERE day >= ? AND day <= ?", from, to).one().n);
-    return { daily, totals, held: Number(held.n), oldest: held.oldest || null, by_status: byStatus, deletion_requests: deletions };
+    return { daily, totals, held: Number(held.n), oldest: held.oldest || null, by_status: byStatus, deletion_requests: deletions, budget: this.budget.state(budget) };
   }
 
   /** Delete records older than `days` days before `today`, and tombstones and counts older than the longer of that and

@@ -12,6 +12,7 @@
 // Nothing here ever holds what a visitor wrote; `detail` is a short label of the app's own (never a request body).
 
 import { ipKey } from "../relay.js";
+import { RowBudget } from "./budget.js";
 import { shiftDay } from "./config.js";
 
 const enc = new TextEncoder();
@@ -90,11 +91,18 @@ export class SecurityCore {
       kind TEXT NOT NULL, route TEXT NOT NULL, status INTEGER, who TEXT NOT NULL, net TEXT NOT NULL, ip TEXT, country TEXT NOT NULL,
       asn INTEGER, ua_class TEXT NOT NULL, method TEXT NOT NULL, path TEXT NOT NULL, detail TEXT NOT NULL)`);
     sql.exec("CREATE INDEX IF NOT EXISTS sec_events_day ON sec_events (day)");
-    sql.exec("CREATE TABLE IF NOT EXISTS sec_counts (day TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, kind))");
-    sql.exec("CREATE TABLE IF NOT EXISTS sec_keys (month TEXT PRIMARY KEY, key TEXT NOT NULL)");
-    sql.exec("CREATE TABLE IF NOT EXISTS sec_auth (who TEXT PRIMARY KEY, since INTEGER NOT NULL, n INTEGER NOT NULL, locked_until INTEGER NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS sec_counts (day TEXT NOT NULL, kind TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, kind)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS sec_keys (month TEXT PRIMARY KEY, key TEXT NOT NULL) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS sec_auth (who TEXT PRIMARY KEY, since INTEGER NOT NULL, n INTEGER NOT NULL, locked_until INTEGER NOT NULL) WITHOUT ROWID");
     this.recent = new Map(); // `${who}|${kind}` → when an event of it was last stored
     this.keys = new Map();
+    // the day's rows: every event is counted whatever the budget; one is stored in full only within it, but the
+    // admin's own actions always are (an audit trail is not refused), and so is the sign-in state
+    this.budget = new RowBudget(sql);
+  }
+
+  #wrote(n, now = Date.now()) {
+    this.budget.charge(n, { now });
   }
 
   /** The month's key for `who` (random, made on first use, deleted with the month's events). */
@@ -104,6 +112,7 @@ export class SecurityCore {
     if (!row) {
       const key = hex(crypto.getRandomValues(new Uint8Array(32)));
       this.sql.exec("INSERT INTO sec_keys (month, key) VALUES (?, ?) ON CONFLICT(month) DO NOTHING", month, key);
+      this.#wrote(1);
       row = this.sql.exec("SELECT key FROM sec_keys WHERE month = ?", month).toArray()[0];
     }
     this.keys.set(month, row.key);
@@ -119,16 +128,25 @@ export class SecurityCore {
 
   /**
    * One event: {kind, route, status, detail, facts: requestFacts(), day}. Counted always; stored at most once per source
-   * and kind every ten seconds (a scanner knocks thousands of times), with the full address only for a high-severity
-   * event when `rawIp` is "flagged". → {stored, who}.
+   * and kind every ten seconds (a scanner knocks thousands of times) and within the day's `budget` of rows (an admin's
+   * action always), with the full address only for a high-severity event when `rawIp` is "flagged". → {stored, who}.
    */
-  async record({ kind, route = "", status = null, detail = "", facts = {}, day }, { rawIp = "off", now = Date.now(), count = true } = {}) {
+  record(ev, opts = {}) {
+    return this.#record(ev, opts);
+  }
+
+  async #record({ kind, route = "", status = null, detail = "", facts = {}, day }, { rawIp = "off", now = Date.now(), count = true, budget = 0 } = {}) {
     if (!SECURITY_KINDS.includes(kind) || !/^\d{4}-\d{2}-\d{2}$/.test(String(day))) return { stored: false };
-    if (count) this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, 1) ON CONFLICT(day, kind) DO UPDATE SET n = n + 1", day, kind);
+    if (count) {
+      this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, 1) ON CONFLICT(day, kind) DO UPDATE SET n = n + 1", day, kind);
+      this.#wrote(1, now);
+    }
+    const audit = kind.startsWith("admin_");
+    if (!audit && !this.budget.check(budget, { now }).ok) return { stored: false };
     const who = await this.who(facts.ip, now);
     const k = `${who}|${kind}`;
     const last = this.recent.get(k) || 0;
-    if (now - last < THROTTLE_MS && !kind.startsWith("admin_")) return { stored: false, who };
+    if (now - last < THROTTLE_MS && !audit) return { stored: false, who };
     this.recent.set(k, now);
     if (this.recent.size > 5000) this.recent.clear();
     const keepIp = rawIp === "flagged" && HIGH.has(kind) && facts.ip ? String(facts.ip).slice(0, 64) : null;
@@ -137,6 +155,7 @@ export class SecurityCore {
     new Date(now).toISOString(), day, kind, String(route).slice(0, 40), Number.isInteger(status) ? status : null, who, netPrefix(facts.ip),
     keepIp, String(facts.country || "XX").slice(0, 2), Number.isInteger(facts.asn) ? facts.asn : null, String(facts.uaClass || "other").slice(0, 12),
     String(facts.method || "").slice(0, 8), String(facts.path || "").slice(0, 200), String(detail).slice(0, 80));
+    this.#wrote(3, now); // the row, its sequence and its day index
     return { stored: true, who };
   }
 
@@ -147,19 +166,25 @@ export class SecurityCore {
    * → {stored}.
    */
   async recordBatch({ counts = [], events = [] } = {}, opts = {}) {
+    const flushed = Number.isFinite(opts.now) ? opts.now : Date.now();
     for (const c of Array.isArray(counts) ? counts.slice(0, 200) : []) {
       const n = Math.floor(Number(c?.n));
       if (!SECURITY_KINDS.includes(c?.kind) || !/^\d{4}-\d{2}-\d{2}$/.test(String(c?.day)) || !(n > 0)) continue;
       this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, ?) ON CONFLICT(day, kind) DO UPDATE SET n = n + excluded.n", c.day, c.kind, n);
+      this.#wrote(1, flushed);
     }
-    const flushed = Number.isFinite(opts.now) ? opts.now : Date.now();
     let stored = 0;
     for (const ev of Array.isArray(events) ? events.slice(0, 50) : []) {
       const at = Number(ev?.at);
       const now = Number.isFinite(at) && at <= flushed && at > flushed - 3600000 ? at : flushed;
-      if ((await this.record(ev, { ...opts, now, count: false })).stored) stored++;
+      if ((await this.#record(ev, { ...opts, now, count: false })).stored) stored++;
     }
     return { stored };
+  }
+
+  /** Today's rows written by this object, and its budget (for the dashboard). */
+  budgetState(budget = 0, now = Date.now()) {
+    return this.budget.state(budget, now);
   }
 
   // ----------------------------------------------------------------------------------------------- admin sign-in
@@ -182,18 +207,19 @@ export class SecurityCore {
     this.sql.exec(`INSERT INTO sec_auth (who, since, n, locked_until) VALUES (?, ?, ?, ?)
       ON CONFLICT(who) DO UPDATE SET since = excluded.since, n = excluded.n, locked_until = excluded.locked_until`,
     who, fresh ? now : Number(row.since), n, until);
+    this.#wrote(1, now);
     return until ? { locked: true, retry: Math.ceil(LOCK.lockMs / 1000), who } : { locked: false, who };
   }
 
   async authSucceeded(ip, now = Date.now()) {
     const who = await this.who(ip, now);
-    this.sql.exec("DELETE FROM sec_auth WHERE who = ?", who);
+    this.#wrote(this.sql.exec("DELETE FROM sec_auth WHERE who = ? RETURNING who", who).toArray().length, now);
   }
 
   // ----------------------------------------------------------------------------------------------- reading
 
   /** Events by day and kind, by kind, and the sources with the most events (by their monthly key) from..to. */
-  summary(from, to) {
+  summary(from, to, budget = 0) {
     const daily = this.sql.exec("SELECT day, kind, n FROM sec_counts WHERE day >= ? AND day <= ? ORDER BY day", from, to).toArray()
       .map((r) => ({ day: r.day, kind: r.kind, n: Number(r.n) }));
     const byKind = {};
@@ -204,7 +230,7 @@ export class SecurityCore {
       .map((r) => ({ who: r.who, net: r.net, country: r.country, n: Number(r.n), kinds: String(r.kinds || "").split(",").filter(Boolean), last: r.last, with_ip: Number(r.with_ip) > 0 }));
     const audit = this.sql.exec("SELECT ts, kind, detail, who, net FROM sec_events WHERE day >= ? AND day <= ? AND kind LIKE 'admin_%' ORDER BY seq DESC LIMIT 50", from, to)
       .toArray().map((r) => ({ ts: r.ts, kind: r.kind, detail: r.detail, who: r.who, net: r.net }));
-    return { daily, by_kind: byKind, sources, audit };
+    return { daily, by_kind: byKind, sources, audit, budget: this.budget.state(budget) };
   }
 
   /** The stored events from..to (for an authorized export), oldest first, at most `limit`. */

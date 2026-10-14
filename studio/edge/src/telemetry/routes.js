@@ -15,6 +15,7 @@ import { CONSENT_VERSION, OWNER_KEY, RECORD_VERSION, normalizeRecord, ownerOf } 
 import { redactText, sensitiveAny } from "../../../web/js/core/sensitive.js";
 import { callerKey, clientIp, fail, json, LOCAL, readText, sameSite, sha256Hex } from "../http.js";
 import { config as relayConfig, ipKey } from "../relay.js";
+import { markSpent, spentFor } from "./budget.js";
 import { reportDay, telemetryConfig, telemetryPublic } from "./config.js";
 import { requestFacts } from "./security.js";
 
@@ -40,6 +41,9 @@ const MSG = {
   consent_outdated: "对话记录说明已更新：请重新阅读并选择是否同意后再发送",
   bad_key: "删除密钥的格式不对",
   unavailable: "记录服务暂时不可用，请稍后再试",
+  events_spent: "本站今天的使用统计已满，明天再继续",
+  records_spent: "本站今天的对话记录已满，明天再继续",
+  visitor_spent: "今天从这里发来的记录已经很多，明天再继续",
 };
 
 /** Where a request comes from, as coarse as TELEMETRY_GEO says: a country or territory code (CN), or XX (off, unknown). */
@@ -101,9 +105,20 @@ async function readJson(request, max, note, label) {
 }
 
 const limited = (res) => fail(429, "rate_limited", MSG.rate_limited, { "Retry-After": String(Math.max(1, Math.ceil(Number(res.retry) || 60))) });
+const after = (seconds) => ({ "Retry-After": String(Math.max(1, Math.ceil(Number(seconds) || 60))) });
+
+/** The object's day of rows is written (budget.js): refused until 00:00 UTC, here and without asking it again; one
+ * visitor's share of it: that visitor only (a 429, like their other limits). */
+function spent(name, res, msg, now) {
+  if (res.scope === "visitor") return fail(429, "rate_limited", MSG.visitor_spent, after(res.retry));
+  markSpent(name, res.retry, now);
+  return fail(503, "budget_spent", msg, after(res.retry));
+}
 
 async function events(request, env, cfg, deps, { now, day, note }) {
   if (!cfg.analytics || !deps.usage) return fail(503, "analytics_off", MSG.analytics_off);
+  const wait = spentFor("usage", now);
+  if (wait) return fail(503, "budget_spent", MSG.events_spent, after(wait));
   const { body, error } = await readJson(request, cfg.maxEventBytes, note, "events");
   if (error) return error;
   // the visitor, for the day's distinct count: a digest of address and browser, salted again (and then forgotten) in
@@ -111,7 +126,9 @@ async function events(request, env, cfg, deps, { now, day, note }) {
   const visitor = await sha256Hex(`${ipKey(clientIp(request))}|${request.headers.get("User-Agent") || ""}`);
   const res = await deps.usage().ingest(body, {
     day, now, country: placeOf(request, cfg.geo), visitor, caller: await callerKey(request, env, now), limits: cfg.eventLimits,
+    budget: cfg.budgets.usage,
   });
+  if (!res.ok && res.reason === "budget") return spent("usage", res, MSG.events_spent, now);
   if (!res.ok && res.reason === "rate_limited") {
     note("rate_limited", 429, "events");
     return limited(res);
@@ -125,6 +142,8 @@ async function events(request, env, cfg, deps, { now, day, note }) {
 
 async function conversations(request, env, cfg, deps, { now, day, note }) {
   if (!cfg.conversations || !deps.conversations) return fail(503, "records_off", MSG.records_off);
+  const wait = spentFor("conversations", now);
+  if (wait) return fail(503, "budget_spent", MSG.records_spent, after(wait));
   const { body, error } = await readJson(request, cfg.maxRecordBytes, note, "record");
   if (error) return error;
   const record = normalizeRecord(body, { consentVersion: CONSENT_VERSION });
@@ -147,8 +166,9 @@ async function conversations(request, env, cfg, deps, { now, day, note }) {
   }
   const res = await deps.conversations().accept(excluded ? null : record, {
     caller: await callerKey(request, env, now), limits: cfg.recordLimits, received: new Date(now).toISOString(), day, keep: cfg.maxRecords,
-    excluded, now,
+    excluded, now, budget: cfg.budgets.conversations,
   });
+  if (!res.ok && res.reason === "budget") return spent("conversations", res, MSG.records_spent, now);
   if (!res.ok) {
     note("rate_limited", 429, "records");
     return limited(res);

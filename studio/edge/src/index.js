@@ -22,6 +22,7 @@ import { LimiterCore } from "./limiter.js";
 import { handle } from "./relay.js";
 import { redirectHttps, secure } from "./site.js";
 import { handleSources } from "./sources.js";
+import { markSpent, resetSpent, spentFor } from "./telemetry/budget.js";
 import { FLUSH_MS, MetricBuffer, SecurityBuffer } from "./telemetry/buffer.js";
 import { reportDay, telemetryConfig } from "./telemetry/config.js";
 import { ConversationCore } from "./telemetry/conversations.js";
@@ -117,7 +118,7 @@ export class ConversationLog extends TelemetryObject {
 
   deleteOwner(owner, opts) { return this.core.deleteOwner(owner, opts); }
 
-  stats(from, to) { return this.core.stats(from, to); }
+  stats(from, to, budget) { return this.core.stats(from, to, budget); }
 
   prune(today, opts) { return this.core.prune(today, opts); }
 }
@@ -140,7 +141,7 @@ export class SecurityLog extends TelemetryObject {
 
   authSucceeded(ip, now) { return this.core.authSucceeded(ip, now); }
 
-  summary(from, to) { return this.core.summary(from, to); }
+  summary(from, to, budget) { return this.core.summary(from, to, budget); }
 
   exportRows(from, to) { return this.core.exportRows(from, to); }
 
@@ -171,12 +172,20 @@ function sendHeld(env, now, force) {
   if (metricBuffer.counts.size && (force || metricBuffer.due(now))) {
     const batches = metricBuffer.take(now);
     const usage = objectOf(env, "USAGE", "usage");
-    if (usage && cfg.analytics) for (const { day, list } of batches) send(() => usage().observe(list, { day }));
+    // the usage object's day of rows written: its counts are dropped here, not sent, until 00:00 UTC
+    if (usage && cfg.analytics && !spentFor("usage", now)) {
+      for (const { day, list } of batches) {
+        send(() => Promise.resolve(usage().observe(list, { day, budget: cfg.budgets.usage, now })).then((res) => {
+          if (res?.reason === "budget") markSpent("usage", res.retry);
+        }));
+      }
+    }
   }
   if (securityBuffer.counts.size && (force || securityBuffer.due(now))) {
     const batch = securityBuffer.take(now);
     const security = objectOf(env, "SECURITY", "security");
-    if (security) send(() => security().recordBatch(batch, { rawIp: cfg.rawIp, now }));
+    // every event counted whatever the budget (the object stores them in full only within it)
+    if (security) send(() => security().recordBatch(batch, { rawIp: cfg.rawIp, now, budget: cfg.budgets.security }));
   }
   return sends;
 }
@@ -221,6 +230,7 @@ export function flushTelemetry(env, ctx, { force = false } = {}) {
 /** For tests: forget what the buffers hold (one test's counts never reach another's objects). */
 export function resetTelemetryBuffers() {
   cancelTrailing();
+  resetSpent();
   metricBuffer.take(0);
   metricBuffer.last = -Infinity;
   securityBuffer.take(0);

@@ -271,6 +271,60 @@ test("security: failed admin attempts lock a source for a while, a success clear
   assert.equal(rows(s, "sec_auth").filter((r) => r.n > 0).length, 1);
 });
 
+test("budget: each object stops taking what visitors send once its day of rows is written; deletions and the audit trail never wait", async () => {
+  const at = Date.parse("2026-10-11T04:00:00Z");
+  const u = new UsageCore(sqlStore());
+  const batch = (i, events) => ({ v: 1, batch: `b${i}`, events });
+  const tools = (i) => Array.from({ length: 10 }, (_, j) => ({ type: "tool_end", call: `c${i}-${j}`, tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }));
+  let refused = null;
+  for (let i = 0; i < 40 && !refused; i++) {
+    const res = await u.ingest(batch(i, tools(i)), { day: DAY, visitor: `v${i}`, caller: `k${i % 20}`, now: at, budget: 600 });
+    if (!res.ok) refused = { i, res };
+  }
+  assert.ok(refused, "refused once the day's rows were written");
+  assert.deepEqual([refused.res.reason, refused.res.scope], ["budget", "budget"]);
+  assert.equal(refused.res.retry, 20 * 3600); // seconds to 00:00 UTC
+  const state = u.budgetState(600, at);
+  assert.ok(state.rows >= 600 && state.rows < 700, String(state.rows)); // the batch that crossed the line is the last
+  // the Worker's own counts too
+  assert.deepEqual(u.observe([{ metric: "relay_call", a: "ok" }], { day: DAY, budget: 600, now: at }).reason, "budget");
+  assert.equal(u.observe([{ metric: "relay_call", a: "ok" }], { day: DAY, budget: 0, now: at }).ok, true); // no budget: taken
+
+  // one visitor's share of the day (a tenth) is theirs only
+  const v = new UsageCore(sqlStore());
+  let mine = null;
+  for (let i = 0; i < 40 && !mine; i++) {
+    const res = await v.ingest(batch(i, tools(i)), { day: DAY, visitor: "same", caller: "one", now: at, budget: 5000 });
+    if (!res.ok) mine = res;
+  }
+  assert.deepEqual([mine.reason, mine.scope], ["budget", "visitor"]);
+  assert.equal((await v.ingest(batch(99, tools(99)), { day: DAY, visitor: "other", caller: "two", now: at, budget: 5000 })).ok, true);
+
+  // records: refused beyond the day's rows; a deletion request still works
+  const c = new ConversationCore(sqlStore());
+  const owner = await ownerOf("d".repeat(43));
+  const rec = (id) => ({ v: 1, id, owner, consent: CONSENT_VERSION, status: "completed", question: "q" });
+  let full = null;
+  for (let i = 0; i < 20 && !full; i++) {
+    const res = c.accept(rec(`r${i}`), { caller: `k${i}`, day: DAY, now: at, budget: 40 });
+    if (!res.ok) full = res;
+  }
+  assert.equal(full.reason, "budget");
+  assert.ok(c.list({ from: DAY, to: DAY }).items.length > 0);
+  assert.deepEqual(c.forget(owner, { caller: "k1", day: DAY, now: at }), { ok: true, deleted: c.stats(DAY, DAY).totals.stored });
+  assert.equal(c.list({ from: DAY, to: DAY }).items.length, 0);
+
+  // security: every event counted; stored within the day's rows, the admin's own actions always
+  const s = new SecurityCore(sqlStore());
+  const ev = (i, kind = "scanner") => ({ kind, route: "page", status: 404, detail: `/x${i}.php`, facts: { ip: `203.0.113.${i}` }, day: DAY, at: at + i * 20000 });
+  await s.recordBatch({ counts: [{ day: DAY, kind: "scanner", n: 30 }], events: Array.from({ length: 30 }, (_, i) => ev(i)) }, { now: at + 30 * 20000, budget: 20 });
+  const stored = s.exportRows(DAY, DAY).length;
+  assert.ok(stored > 0 && stored < 30, String(stored));
+  assert.equal(s.summary(DAY, DAY).by_kind.scanner, 30);
+  assert.equal((await s.record({ kind: "admin_login", route: "admin", facts: { ip: "198.51.100.1" }, day: DAY }, { now: at + 700000, budget: 20 })).stored, true);
+  assert.equal((await s.authFailed("198.51.100.2", at + 700000)).locked, false); // the sign-in state is kept whatever the budget
+});
+
 test("scanner paths, user agents", () => {
   for (const p of ["/wp-login.php", "/.env", "/.git/config", "/phpmyadmin/index.php", "/backup.sql", "/x.aspx"]) assert.ok(isHoneypot(p), p);
   for (const p of ["/", "/js/main.js", "/runtime/tcms-py.abc.tar.gz", "/runtime/formulas-source.0ddb7ad8a00c.xlsx", "/assets/icon-192.png", "/sw.js", "/admin/", "/manifest.webmanifest"]) {

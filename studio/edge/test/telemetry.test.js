@@ -256,7 +256,8 @@ test("admin: off without a strong ADMIN_TOKEN; bearer tokens by scope; failures 
   // the export token: the summary (without security sources) and aggregated exports, nothing with text or addresses
   const ex = await summary(w, "days=30", EXPORT);
   assert.equal(ex.scope, "export");
-  assert.deepEqual(Object.keys(ex.security).sort(), ["by_kind", "daily"]);
+  assert.deepEqual(Object.keys(ex.security).sort(), ["budget", "by_kind", "daily"]); // counts only: no source, no audit trail
+  assert.deepEqual(Object.keys(ex.security.budget).sort(), ["day", "limit", "rows"]);
   assert.equal((await w.call("/api/admin/telemetry/export?dataset=daily&format=csv", bearer(EXPORT))).status, 200);
   for (const ds of ["conversations", "security"]) assert.equal((await w.call(`/api/admin/telemetry/export?dataset=${ds}`, bearer(EXPORT))).status, 403);
   assert.equal((await w.call("/api/admin/telemetry/conversations", bearer(EXPORT))).status, 403);
@@ -462,6 +463,47 @@ test("what is still held after a flush goes when the window ends, though no requ
   // stored at the time each happened, one a source every ten seconds (probe 1 came 5 s after probe 0 and is counted only)
   const stored = w.objects.security.exportRows("2026-10-01", "2026-10-31").map((e) => [e.path, e.ts]);
   assert.deepEqual(stored, [["/wp-0.php", "2026-10-14T04:00:00.000Z"]]);
+});
+
+test("a day's rows spent: events and records refused until 00:00 UTC without asking the objects again; deletion still works", async () => {
+  const w = setup({ env: { TELEMETRY_DAILY_ROWS: "200" } }); // usage 120 rows, records 50, security 30
+  const calls = { ingest: 0, accept: 0 };
+  for (const [name, method] of [["usage", "ingest"], ["conversations", "accept"]]) {
+    const obj = w.objects[name];
+    const original = obj[method].bind(obj);
+    obj[method] = (...a) => { calls[method]++; return original(...a); };
+  }
+  const tools = (i) => Array.from({ length: 10 }, (_, j) => ({ type: "tool_end", call: `t${i}-${j}`, tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }));
+  const statuses = [];
+  for (let i = 0; i < 6; i++) {
+    const res = await w.call("/api/telemetry/events", page(batch(tools(i)), { "CF-Connecting-IP": `198.51.100.${i}` }));
+    statuses.push(res.status);
+    if (res.status === 503) {
+      const body = await res.json();
+      assert.equal(body.error.type, "budget_spent");
+      assert.ok(Number(res.headers.get("Retry-After")) > 0);
+    }
+  }
+  const first = statuses.indexOf(503);
+  assert.ok(first > 0, statuses.join(","));
+  assert.ok(statuses.slice(first).every((x) => x === 503), statuses.join(","));
+  assert.equal(calls.ingest, first + 1, "after the object said its day is spent, it is not asked again");
+  // records the same way; a deletion request is never refused for it
+  let refused = 0;
+  for (let i = 0; i < 12; i++) {
+    const res = await w.call("/api/telemetry/conversations", page(await record(`b${i}`, KEY_A), { "CF-Connecting-IP": `198.51.100.${20 + i}` }));
+    if (res.status === 503) refused++;
+  }
+  assert.ok(refused > 0 && calls.accept < 12, `${refused} refused, ${calls.accept} asked`);
+  const del = await w.call("/api/telemetry/conversations/delete", page({ key: KEY_A }));
+  assert.equal(del.status, 200);
+  assert.ok((await del.json()).deleted > 0);
+  // the dashboard shows each object's rows today against its budget
+  const s = await summary(w);
+  assert.equal(s.usage.budget.limit, 120);
+  assert.ok(s.usage.budget.rows >= 120);
+  assert.equal(s.conversations.budget.limit, 50);
+  assert.equal(s.security.budget.limit, 30);
 });
 
 test("the telemetry never stands in a conversation's way: its objects failing, the relay still answers", async () => {

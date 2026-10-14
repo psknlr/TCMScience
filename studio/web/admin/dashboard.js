@@ -719,6 +719,12 @@ function exportsCard(data) {
   return card(t("exports"), { wide: true, note: t("exports_note", { n: state.days }) }, el("div", { class: "exports" }, groups));
 }
 
+/** Today's rows written by one telemetry object, and its daily budget (Durable Object rows: docs/TELEMETRY.md). */
+function rowsToday(kind, b) {
+  if (!b) return t("rows_none", { k: t(`rows_${kind}`) });
+  return b.limit ? t("rows_of", { k: t(`rows_${kind}`), n: fmt.int(b.rows ?? 0), max: fmt.int(b.limit) }) : t("rows_free", { k: t(`rows_${kind}`), n: fmt.int(b.rows ?? 0) });
+}
+
 function configCard(data) {
   const c = data.config || {};
   const r = c.retention || {};
@@ -730,6 +736,7 @@ function configCard(data) {
     t("cfg_geo", { v: c.geo === "off" ? t("geo_off") : t("geo_country") }),
     t("cfg_ip", { v: c.raw_ip === "flagged" ? t("ip_flagged") : t("ip_off") }),
     t("cfg_retention", { e: r.events ?? "—", a: r.aggregates ?? "—", c: r.conversations ?? "—", s: r.security ?? "—" }),
+    t("cfg_rows", { v: ["usage", "conversations", "security"].map((k) => rowsToday(k, data[k]?.budget)).join(" · ") }),
   ];
   let prune = null;
   if (data.scope === "admin") {

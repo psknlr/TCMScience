@@ -270,16 +270,16 @@ async function summary(env, cfg, deps, url, now, who) {
     }
   };
   const [usage, conversations, security] = await Promise.all([
-    deps.usage ? settle(() => deps.usage().stats({ from: p.from, to: p.to, ...filters })) : { unavailable: true },
-    deps.conversations ? settle(() => deps.conversations().stats(p.from, p.to)) : { unavailable: true },
-    deps.security ? settle(() => deps.security().summary(p.from, p.to)) : { unavailable: true },
+    deps.usage ? settle(() => deps.usage().stats({ from: p.from, to: p.to, ...filters, budget: cfg.budgets.usage })) : { unavailable: true },
+    deps.conversations ? settle(() => deps.conversations().stats(p.from, p.to, cfg.budgets.conversations)) : { unavailable: true },
+    deps.security ? settle(() => deps.security().summary(p.from, p.to, cfg.budgets.security)) : { unavailable: true },
   ]);
   return json({
     ok: true, generated: new Date(now).toISOString(), scope: who.scope, period: p, filters,
     config: { ...telemetryPublic(env), retention: cfg.retention, raw_ip: cfg.rawIp, utc_offset: cfg.offset, consent_version: CONSENT_VERSION },
     usage, conversations,
     // the export token sees how many security events there were, never their sources
-    security: who.scope === "admin" || security.unavailable ? security : { daily: security.daily, by_kind: security.by_kind },
+    security: who.scope === "admin" || security.unavailable ? security : { daily: security.daily, by_kind: security.by_kind, budget: security.budget },
   });
 }
 
