@@ -134,7 +134,7 @@ export function compileRegistry(document) {
     }
   }
   if (!routes.length) throw new Error("empty source registry");
-  return { routes, sources: document.sources.length };
+  return { routes, sources: document.sources.length, hosts: new Set(document.sources.map((source) => source.host)) };
 }
 
 export function matchRequest(registry, url, method, body, headers, redirect = false) {
@@ -308,7 +308,9 @@ async function serveSources(request, env, deps, meta) {
     }
     let target = safeURL(packet.url);
     const allowedHosts = new Set(packet.allowed_hosts.map((h) => h.toLowerCase()));
-    if (target) meta.host = target.hostname;
+    // counted by host only when the host is a registered database's: a refused request never names a host of its own
+    // choosing in the owner's statistics (nor adds a row for it)
+    if (target && registry.hosts.has(target.hostname)) meta.host = target.hostname;
     if (!target || !allowedHosts.has(target.hostname)) refuse(403, "source_not_allowed", "查询地址不在本次获准的数据库主机内");
     let method = packet.method || "GET";
     if (!["GET", "POST"].includes(method)) refuse(403, "source_not_allowed", "只允许已注册的只读数据库查询");

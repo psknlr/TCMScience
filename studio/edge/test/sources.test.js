@@ -55,6 +55,21 @@ test("read queries preserve upstream bytes/status/selected headers and use separ
   assert.match(w.calls[0].init.headers.get("User-Agent"), /TCMScience/);
 });
 
+test("the owner's counts name a registered database's host only: a refused request for any other host is counted under -", async () => {
+  const w = setup();
+  const counted = [];
+  w.deps.metric = (list) => counted.push(...list.filter((m) => m.metric === "connector").map((m) => `${m.a} ${m.b}`));
+  assert.equal((await w.call()).status, 200);
+  for (let i = 0; i < 3; i++) {
+    // a script can send any Origin header: a host of its own making must not become a counter of its own
+    const host = `made-up-${i}.example.net`;
+    assert.equal((await w.call({ ...standard, url: `https://${host}/v1/lookup/1?format=json&q=a`, allowed_hosts: [host] })).status, 403);
+  }
+  assert.equal((await w.call({ ...standard, url: "https://api.example.org/v1/admin?format=json&q=a" })).status, 403); // registered, no such operation
+  assert.deepEqual(counted, ["api.example.org 2xx", ...Array(3).fill("- refused:source_not_allowed"), "api.example.org refused:source_not_allowed"]);
+  assert.equal(w.calls.length, 1);
+});
+
 test("requires an allowed Origin; health is public; preflight exposes only JSON", async () => {
   const w = setup();
   for (const origin of ["", "null", "https://evil.example.org"]) assert.equal((await w.call(standard, { Origin: origin })).status, 403);
