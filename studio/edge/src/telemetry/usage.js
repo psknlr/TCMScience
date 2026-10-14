@@ -12,7 +12,7 @@
 //   turn_end     a turn finished, by status (completed / cancelled / failed / interrupted)
 //   model_call   one request to a model: a turn makes one per round of tool use, and one per retry
 //   tool_run     one tool execution, by tool and status
-//   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests)
+//   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests by database)
 // Counters are written once per batch (summed first) to keep the number of rows written small; the tables keyed by text
 // are WITHOUT ROWID (a rowid table keyed by text keeps a second index of the key: one more row written per insert); and
 // what a day may write at all is the object's share of TELEMETRY_DAILY_ROWS (telemetry/budget.js).
@@ -35,7 +35,7 @@ const EXPORT_SPECS = {
       FROM usage_turns WHERE day >= ? AND day <= ?`,
   },
   tools: { key: ["day", "id"], sql: "SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ?" },
-  connectors: { key: ["day", "host", "outcome"], sql: "SELECT day, a AS host, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ?" },
+  connectors: { key: ["day", "source", "outcome"], sql: "SELECT day, a AS source, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ?" },
   geo: {
     key: ["day", "metric", "country"],
     sql: `SELECT day, metric, CASE WHEN metric = 'visitor' THEN a ELSE b END AS country, SUM(n) AS n FROM usage_counts
@@ -385,27 +385,28 @@ export class UsageCore {
     // bound, and a summary must stay small enough for one answer)
     const group = (metric) => this.sql.exec("SELECT a, b, SUM(n) AS n FROM usage_counts WHERE metric = ? AND day >= ? AND day <= ? GROUP BY a, b ORDER BY n DESC LIMIT 1000",
       metric, from, to).toArray().map((r) => ({ a: r.a, b: r.b, n: Number(r.n) }));
+    // by database (the registry's source key), "-" for what the gateway refused before it matched one
     const connectors = new Map();
     for (const r of group("connector")) {
-      const c = connectors.get(r.a) || { host: r.a, requests: 0, ok: 0, client_errors: 0, server_errors: 0, refused: 0, failed: 0, cancelled: 0, ms_total: 0 };
+      const c = connectors.get(r.a) || { source: r.a, requests: 0, ok: 0, client_errors: 0, server_errors: 0, refused: 0, failed: 0, cancelled: 0, ms_total: 0 };
       c.requests += r.n;
       if (/^[123]xx$/.test(r.b)) c.ok += r.n;
       else if (r.b === "4xx") c.client_errors += r.n;
       else if (r.b === "5xx") c.server_errors += r.n;
-      else if (r.b.startsWith("refused")) c.refused += r.n;
+      else if (r.b.startsWith("refused")) c.refused += r.n; // the gateway's own: its limits, its failures — never sent
       else if (r.b === "cancelled") c.cancelled += r.n; // the visitor stopped it: says nothing of the database
-      else c.failed += r.n; // timeout, unreachable, rate_limited, unavailable
+      else c.failed += r.n; // sent, and no answer: timeout, unreachable
       connectors.set(r.a, c);
     }
     for (const r of group("connector_ms")) {
       const c = connectors.get(r.a);
       if (c) c.ms_total += r.n;
     }
-    // availability: of the requests that reached the database or should have, the share it answered without a
-    // server error (a 4xx is the query's fault, not the database's; a refusal of the gateway never left it)
+    // availability: of the requests sent to the database, the share it answered without a server error (a 4xx is the
+    // query's fault, not the database's; a refusal of the gateway never left it); the time, of those sent too
     const connectorList = [...connectors.values()].map(({ ms_total: total, ...c }) => {
       const tried = c.ok + c.client_errors + c.server_errors + c.failed;
-      return { ...c, availability: tried ? (c.ok + c.client_errors) / tried : null, avg_ms: c.requests ? Math.round(total / c.requests) : null };
+      return { ...c, availability: tried ? (c.ok + c.client_errors) / tried : null, avg_ms: tried ? Math.round(total / tried) : null };
     }).sort((a, b) => b.requests - a.requests).slice(0, 200);
     const workflows = new Map();
     for (const r of group("workflow")) {

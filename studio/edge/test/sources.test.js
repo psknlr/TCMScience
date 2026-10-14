@@ -55,19 +55,47 @@ test("read queries preserve upstream bytes/status/selected headers and use separ
   assert.match(w.calls[0].init.headers.get("User-Agent"), /TCMScience/);
 });
 
-test("the owner's counts name a registered database's host only: a refused request for any other host is counted under -", async () => {
-  const w = setup();
+test("the owner's counts: by the registered database a query matched, its own limits never against the database", async () => {
+  let gate = { ok: true };
+  let pace = { ok: true, delay: 0 };
+  const w = setup({ gate: () => gate, pace: () => pace });
   const counted = [];
-  w.deps.metric = (list) => counted.push(...list.filter((m) => m.metric === "connector").map((m) => `${m.a} ${m.b}`));
+  const timed = [];
+  const events = [];
+  w.deps.metric = (list) => {
+    counted.push(...list.filter((m) => m.metric === "connector").map((m) => `${m.a} ${m.b}`));
+    timed.push(...list.filter((m) => m.metric === "connector_ms").map((m) => m.a));
+  };
+  w.deps.securityEvent = (kind) => events.push(kind);
   assert.equal((await w.call()).status, 200);
   for (let i = 0; i < 3; i++) {
     // a script can send any Origin header: a host of its own making must not become a counter of its own
     const host = `made-up-${i}.example.net`;
     assert.equal((await w.call({ ...standard, url: `https://${host}/v1/lookup/1?format=json&q=a`, allowed_hosts: [host] })).status, 403);
   }
-  assert.equal((await w.call({ ...standard, url: "https://api.example.org/v1/admin?format=json&q=a" })).status, 403); // registered, no such operation
-  assert.deepEqual(counted, ["api.example.org 2xx", ...Array(3).fill("- refused:source_not_allowed"), "api.example.org refused:source_not_allowed"]);
+  assert.equal((await w.call({ ...standard, url: "https://api.example.org/v1/admin?format=json&q=a" })).status, 403); // registered host, no such operation
+  // the visitor's quota, the database's queue full: the gateway's refusals, never sent
+  gate = { ok: false, retry: 30 };
+  assert.equal((await w.call()).status, 429);
+  gate = { ok: true };
+  pace = { ok: false, retry: 5 };
+  assert.equal((await w.call()).status, 429);
+  assert.deepEqual(counted, ["rest 2xx", ...Array(4).fill("- refused:source_not_allowed"), "rest refused:rate_limited", "rest refused:rate_limited"]);
+  assert.deepEqual(timed, ["rest"], "only a request sent has a time");
   assert.equal(w.calls.length, 1);
+  assert.deepEqual(events, [...Array(4).fill("source_refused"), "rate_limited", "rate_limited"]);
+});
+
+test("a database's redirect outside the allowed hosts is refused and counted, never a security event of the visitor's", async () => {
+  const w = setup({ upstream: () => new Response(null, { status: 302, headers: { Location: "https://elsewhere.example.net/x" } }) });
+  const counted = [];
+  const events = [];
+  w.deps.metric = (list) => counted.push(...list.filter((m) => m.metric === "connector").map((m) => `${m.a} ${m.b}`));
+  w.deps.securityEvent = (kind) => events.push(kind);
+  const res = await w.call();
+  assert.equal(res.status, 403);
+  assert.deepEqual(counted, ["rest refused:redirect_refused"]);
+  assert.deepEqual(events, []);
 });
 
 test("requires an allowed Origin; health is public; preflight exposes only JSON", async () => {

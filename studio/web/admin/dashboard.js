@@ -443,7 +443,7 @@ function connectorsCard(u) {
   const rows = u.connectors || [];
   return card(t("connectors"), { note: t("connectors_note") },
     rows.length ? dataTable([
-      { key: "host", label: t("col_host"), mono: true },
+      { key: "source", label: t("col_database"), mono: true },
       { key: "requests", label: t("col_requests"), num: true, format: fmt.int },
       { key: "ok", label: t("col_ok"), num: true, format: fmt.int },
       { key: "client_errors", label: t("col_4xx"), num: true, format: fmt.int },

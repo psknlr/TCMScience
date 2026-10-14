@@ -429,7 +429,7 @@ test("exports come in pages: every row once, the CSV's header once, the export a
   const text = csv.join("");
   assert.equal(text.split("\ufeff").length, 2, "one BOM, at the start");
   const lines = text.replace(/^\ufeff/, "").trim().split("\r\n");
-  assert.equal(lines[0], "day,host,outcome,n");
+  assert.equal(lines[0], "day,source,outcome,n");
   assert.equal(lines.length, 2346);
   assert.equal(new Set(lines.slice(1)).size, 2345, "no row twice");
   const json = await pages("json");

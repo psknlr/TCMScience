@@ -99,8 +99,9 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
     await u.ingest(batch([{ type: "turn_end", turn: `t-${day}-${provider}`, provider, model, status, ms, calls: 1, error_kind: status === "failed" ? "model" : undefined, error_type: status === "failed" ? "rate_limited" : undefined }]), { day, country: "CN", visitor: "x", now: NOW });
   }
   u.observe([{ metric: "relay_call", a: "ok", n: 2 }, { metric: "relay_call", a: "forbidden_origin" }, { metric: "relay_tokens", a: "in", n: 500 },
-    { metric: "connector", a: "rest.uniprot.org", b: "2xx", n: 3 }, { metric: "connector", a: "rest.uniprot.org", b: "5xx" },
-    { metric: "connector", a: "rest.uniprot.org", b: "cancelled" }, { metric: "connector_ms", a: "rest.uniprot.org", n: 1000 },
+    { metric: "connector", a: "uniprot", b: "2xx", n: 3 }, { metric: "connector", a: "uniprot", b: "5xx" },
+    { metric: "connector", a: "uniprot", b: "cancelled" }, { metric: "connector", a: "uniprot", b: "refused:rate_limited", n: 4 },
+    { metric: "connector_ms", a: "uniprot", n: 1000 },
     { metric: "not_a_metric", a: "x", n: 5 }, { metric: "relay_call", a: "ok", n: -3 }], { day: DAY });
   const week = u.stats({ from: shiftDay(DAY, -6), to: DAY });
   assert.equal(week.days.length, 7);
@@ -117,8 +118,9 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
   assert.equal(month.conversations.totals.cancelled, 1);
   assert.deepEqual(week.relay.outcomes, [{ outcome: "ok", n: 2 }, { outcome: "forbidden_origin", n: 1 }]);
   assert.deepEqual(week.relay.tokens, { in: 500 });
-  // availability: a cancelled query says nothing of the database; a 5xx counts against it
-  assert.deepEqual(week.connectors, [{ host: "rest.uniprot.org", requests: 5, ok: 3, client_errors: 0, server_errors: 1, refused: 0, failed: 0, cancelled: 1, availability: 0.75, avg_ms: 200 }]);
+  // availability: a cancelled query says nothing of the database, nor do the gateway's own refusals (its limits); a 5xx
+  // counts against it. The time is of the four requests sent.
+  assert.deepEqual(week.connectors, [{ source: "uniprot", requests: 9, ok: 3, client_errors: 0, server_errors: 1, refused: 4, failed: 0, cancelled: 1, availability: 0.75, avg_ms: 250 }]);
   assert.deepEqual(week.filters.providers, ["openai", "tao"]);
   assert.equal(week.previous ?? null, null); // previous lives under each section
   assert.equal(month.traffic.previous.pageviews, 0);

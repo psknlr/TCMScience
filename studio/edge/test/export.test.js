@@ -117,7 +117,7 @@ test("a long export: every page fetched and written as one file; a page failing 
     if (format === "csv") {
       assert.equal(text.split("\ufeff").length, 2);
       const lines = text.replace(/^\ufeff/, "").trim().split("\r\n");
-      assert.equal(lines[0], "day,host,outcome,n");
+      assert.equal(lines[0], "day,source,outcome,n");
       assert.equal(new Set(lines.slice(1)).size, 2400);
     } else {
       const json = JSON.parse(text);

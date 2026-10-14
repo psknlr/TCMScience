@@ -104,8 +104,10 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 | `availability` | 服务（relay / runner / browser_runtime / storage）、是否可用 | 服务可用性 |
 | `consent` | 同意 / 拒绝 / 撤回 / 删除，说明版本 | 同意情况 |
 
-Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和 token（`relay_tokens`）；数据库网关按**数据库主机**计请求数、
-结果类别（2xx/4xx/5xx、超时、拒绝、取消）和耗时（`connector`），从不记查询本身。
+Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和 token（`relay_tokens`）；数据库网关按**数据库**（注册表里的名称，
+如 `chembl`、`europepmc`：同在 www.ebi.ac.uk 的 18 个数据库分开计）计请求数、结果类别（2xx/4xx/5xx、超时、无法连接、取消，
+以及网关自己的拒绝 `refused:*`：限额、排队已满、限额服务不可用、不在注册表内）和已发出请求的耗时（`connector`），从不记查询
+本身。网关自己的拒绝从不算作数据库不可用；在匹配到某个数据库之前就被拒绝的请求记在 `-` 下。
 
 **这些数怎样区分**（仪表板也这样写）：页面浏览是每进入一个页面一次；访问是一段连续使用；访客按天去重；轮次是访客的一个问题；
 一轮可以有多次模型调用（每轮工具调用一次，加上重试）和多次工具执行。
@@ -237,7 +239,7 @@ Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的�
 | `daily` | 每日计数（`day, metric, a, b, n`） | 是 |
 | `turns` | 每轮一行的数字（无文字） | 是 |
 | `tools` | 每次工具执行一行 | 是 |
-| `connectors` | 数据库网关按主机、结果的每日计数 | 是 |
+| `connectors` | 数据库网关按数据库、结果的每日计数（`source` 列是注册表里的名称） | 是 |
 | `geo` | 按国家或地区的每日浏览、访问、访客 | 是 |
 | `security` | 安全事件（含网段） | 否，只有 `ADMIN_TOKEN` |
 | `conversations` | 对话记录（含问答） | 否，只有 `ADMIN_TOKEN` |

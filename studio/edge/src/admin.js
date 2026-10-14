@@ -35,7 +35,7 @@ export const EXPORT_COLUMNS = {
     "tokens_in", "tokens_out", "citations", "citations_verified", "citations_used", "claims", "claims_refused", "recorded", "excluded", "error_kind",
     "error_type", "limit_reached", "country"],
   tools: ["id", "day", "ts", "tool", "kind", "place", "status", "ms", "error_type"],
-  connectors: ["day", "host", "outcome", "n"],
+  connectors: ["day", "source", "outcome", "n"],
   geo: ["day", "metric", "country", "n"],
   security: ["seq", "ts", "day", "kind", "route", "status", "who", "net", "ip", "country", "asn", "ua_class", "method", "path", "detail"],
   conversations: ["seq", "received", "v", "id", "conversation", "turn", "owner", "consent", "started", "finished", "ms", "first_ms", "status",

@@ -301,9 +301,9 @@ test("an export button takes every page of the export and saves them as one file
     const bytes = new Uint8Array(await files[0].blob.arrayBuffer());
     assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
     const lines = new TextDecoder("utf-8").decode(bytes).trim().split("\r\n");
-    assert.equal(lines[0], "day,host,outcome,n");
+    assert.equal(lines[0], "day,source,outcome,n");
     assert.equal(lines.length, 1 + 1500 + 1); // the header, these 1,500 and the fixtures' rest.uniprot.org
-    assert.equal(lines.filter((l) => l.startsWith("\ufeff") || l === "day,host,outcome,n").length, 1, "one header, one BOM");
+    assert.equal(lines.filter((l) => l.startsWith("\ufeff") || l === "day,source,outcome,n").length, 1, "one header, one BOM");
     assert.equal(calls.filter((c) => c.startsWith("GET /api/admin/telemetry/export?dataset=connectors&format=csv")).length, 2, "two pages");
   } finally {
     URL.createObjectURL = createObjectURL;
