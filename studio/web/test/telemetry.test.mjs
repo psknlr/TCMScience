@@ -13,10 +13,11 @@ import {
 } from "../js/core/consent.js";
 import { redactText, sensitiveReason } from "../js/core/sensitive.js";
 import {
-  CONSENT_VERSION, LIMITS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
+  CONSENT_VERSION, LIMITS, PROVIDER_MODELS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
 } from "../js/core/telemetry-contract.js";
+import { PRESETS, newCustomProvider } from "../js/core/providers.js";
 import { OUTBOX_PREFIX, RECORDS_KEY, STALE_TURN_MS, TURNS_KEY, Telemetry, VISIT_IDLE_MS } from "../js/core/telemetry.js";
-import { buildRecord, citedIds, evidenceStats, exclusionOf, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { SKILL_FILES, buildRecord, citedIds, evidenceStats, exclusionOf, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIX = (name) => JSON.parse(fs.readFileSync(path.join(here, "fixtures", name), "utf8"));
@@ -106,6 +107,26 @@ test("contract: events keep only known fields within bounds; a route is a name, 
   assert.equal(normalizeBatch({ v: 1, batch: "b", events: Array.from({ length: LIMITS.events + 1 }, () => ({ type: "pageview", route: "home" })) }), null);
 });
 
+test("contract: a provider by its preset's id or \"custom\", a model the preset lists or \"other\" — never an id or a path of the visitor's", async () => {
+  // the page's presets and the contract's list are the same (a preset added later must be listed here too)
+  assert.deepEqual(PROVIDER_MODELS, Object.fromEntries(PRESETS.map((p) => [p.id, p.models])));
+  const mine = newCustomProvider("openai", 1); // custom-<the time it was added>: the same for this browser every day
+  assert.match(mine.id, /^custom-/);
+  const ev = (provider, model) => normalizeEvent({ type: "turn_start", provider, model });
+  assert.deepEqual(ev(mine.id, "ft:gpt-4o-mini:acme-hospital:triage:abc123"), { type: "turn_start", provider: "custom", model: "other" });
+  assert.deepEqual(ev("vllm", "/data/zhangsan/Qwen2.5-72B-Instruct"), { type: "turn_start", provider: "vllm", model: "other" });
+  assert.deepEqual(ev("ollama", "/Users/alice.wang/models/qwen.gguf"), { type: "turn_start", provider: "ollama", model: "other" });
+  assert.deepEqual(ev("ollama", "qwen3:8b"), { type: "turn_start", provider: "ollama", model: "qwen3:8b" });
+  assert.deepEqual(ev("siliconflow", "Qwen/Qwen3-235B-A22B-Instruct-2507").model, "Qwen/Qwen3-235B-A22B-Instruct-2507");
+  assert.deepEqual(ev("tao", "Tao-S1"), { type: "turn_start", provider: "tao", model: "Tao-S1" });
+  assert.equal(ev("constructor", "x").provider, "custom");
+  const end = normalizeEvent({ type: "turn_end", turn: "t1", status: "completed", provider: mine.id, model: "my-model" });
+  assert.deepEqual([end.provider, end.model], ["custom", "other"]);
+  const owner = await ownerOf("p".repeat(43));
+  const rec = normalizeRecord({ v: 1, id: "m1", owner, consent: CONSENT_VERSION, question: "q", status: "completed", provider: mine.id, model: "/home/li/m.gguf" });
+  assert.deepEqual([rec.provider, rec.model], ["custom", "other"]);
+});
+
 test("contract: a record needs the current notice, an owner digest and a question; text is cut to its limit", async () => {
   const owner = await ownerOf("k".repeat(43));
   const base = { v: 1, id: "m1", owner, consent: CONSENT_VERSION, question: "q", status: "completed" };
@@ -117,7 +138,9 @@ test("contract: a record needs the current notice, an owner digest and a questio
   const long = normalizeRecord({ ...base, question: "问".repeat(5000), answer: "答".repeat(20000) });
   assert.equal(long.question.length, LIMITS.question);
   assert.equal(long.answer.length, LIMITS.answer);
-  assert.equal(normalizeRecord({ ...base, tools: [{ name: "tcm_herb", args: { name: "甘草" }, arg_keys: ["name"] }] }).tools[0].args, undefined);
+  // a tool run keeps neither its arguments nor their names
+  assert.deepEqual(normalizeRecord({ ...base, tools: [{ name: "tcm_herb", args: { name: "甘草" }, arg_keys: ["name"] }] }).tools[0],
+    { name: "tcm_herb", kind: "unknown", where: "unknown", status: "unknown" });
 });
 
 // ------------------------------------------------------------------------------------------------- what a turn may record
@@ -135,6 +158,53 @@ test("exclusion: uploads, project files, clinical and user-data tools, identifyi
   assert.equal(exclusionOf({ path: [q("x")], tools: [tool("literature_search", { query: "TP53" })] }), null);
   assert.equal(exclusionOf({ path: [q("患者，男，60岁"), q("桂枝汤呢？")] }), "sensitive_text"); // an earlier question
   assert.equal(exclusionOf({ path: [q("x")], discarded: true }), "discarded");
+  // an earlier turn's reason, kept on the conversation, holds for every later turn (a project file removed since)
+  assert.equal(exclusionOf({ path: [q("桂枝汤")], projectFiles: 0, before: "project_files" }), "project_files");
+  assert.equal(exclusionOf({ path: [q("桂枝汤")], before: null }), null);
+});
+
+test("exclusion: the governed skills that run as jobs on the visitor's files, however the file is named", () => {
+  const q = (content) => ({ id: content, role: "user", content });
+  const via = (tool, args, envelope = {}) => ({ role: "tool", name: "call_tool", args: { tool, arguments: args }, envelope: { via: tool, governance: { kind: "skill" }, status: "succeeded", ...envelope } });
+  const out = (t) => exclusionOf({ path: [q("x")], tools: [t] });
+  // every file argument of every such skill, given an upload's id, its bare name, a Windows or relative path, a literal
+  for (const [tool, args] of [
+    ["skill.dock-ligands", { receptor: "PDB:3PTB", ligands: "D:/lab/x.sdf" }],
+    ["skill.dock-ligands", { receptor: "R1=/home/me/ref.pdb", ligands: "CCO" }],
+    ["skill.predict-admet", { molecules: "u_0123456789abcdef" }],
+    ["skill.retrieve-literature-evidence", { question: "黄芩苷", corpus: "lab/notes.txt" }],
+    ["skill.scrna-cell-atlas", { source: "C:/Users/li/pbmc.h5ad" }],
+    ["skill.scrna-cell-atlas", { source: "pbmc_counts.h5ad" }],
+    ["skill.predict-protein-structure", { sequences: "MKTAYIAKQR" }],
+    ["skill.rnaseq-differential-expression", { sample_sheet: "u_00000000000000aa" }],
+  ]) assert.equal(out(via(tool, args)), "user_data_tool", `${tool} ${JSON.stringify(args)}`);
+  // called by name, or with its arguments as JSON text (the runner's dispatcher parses it)
+  assert.equal(out({ role: "tool", name: "skill.predict-admet", args: { molecules: "my.smi" }, envelope: { via: "skill.predict-admet" } }), "user_data_tool");
+  assert.equal(out({ role: "tool", name: "call_tool", args: { tool: "native.x", arguments: JSON.stringify({ data: "/home/me/a.csv" }) }, envelope: { via: "native.x" } }), "user_data_tool");
+  assert.equal(out({ role: "tool", name: "call_tool", args: { tool: "skill.predict-admet", arguments: '{"molecules":"CCO"}' }, envelope: { via: "skill.predict-admet" } }), "user_data_tool");
+  // an upload's id in any argument of any tool is that file; so is NAME=<a path> in a list
+  assert.equal(out(via("native.blast", { query: "u_0123456789abcdef" })), "user_data_tool");
+  assert.equal(out(via("native.align", { inputs: "R1=/data/a.fq, R2=/data/b.fq" })), "user_data_tool");
+  // a job's status brings in what the job ran on: a pipeline, a governed skill run, a store's build or import
+  const status = (kind) => ({ role: "tool", name: "job_status", args: { job_id: "j_1" }, envelope: { via: "system.job_status", governance: { kind: "system" }, job: { id: "j_1", kind, state: "succeeded" } } });
+  for (const kind of ["skill.run", "pipeline.rnaseq", "tcmdb.import"]) assert.equal(out(status(kind)), "user_data_tool", kind);
+  assert.equal(out(status("provision")), null);
+  // not the visitor's data: a flag left off, a number, an empty value, a genotype call, an accession
+  assert.equal(out(via("native.x", { input_file: false, upload: 0, files: [], path: "" })), null);
+  assert.equal(out(via("native.allele_frequencies", { genotypes: ["0/1", "./.", "1|1"] })), null);
+  assert.equal(out(via("native.allele_frequencies", { genotypes: "./." })), null);
+  assert.equal(out(via("connector.uniprot.entry", { accession: "P04637" })), null);
+  assert.equal(out(via("native.x", { note: "a=b, c=d" })), null);
+});
+
+test("the page's table of skills that take files is the runner's (kinds.py _SKILL_FILES)", () => {
+  const source = fs.readFileSync(new URL("../../runner/src/tcmstudio/kinds.py", import.meta.url), "utf8");
+  const block = /_SKILL_FILES:[^=]*=\s*\{([\s\S]*?)\n\}/.exec(source);
+  assert.ok(block, "kinds.py has _SKILL_FILES");
+  const runner = {};
+  for (const m of block[1].matchAll(/"([a-z0-9-]+)":\s*\{([^}]*)\}/g)) runner[m[1]] = [...m[2].matchAll(/"([a-z_]+)":/g)].map((x) => x[1]);
+  assert.ok(Object.keys(runner).length >= 6);
+  assert.deepEqual(SKILL_FILES, runner);
 });
 
 test("a turn's record and usage event from a real kernel envelope: citations, claims, tools without arguments", async () => {
@@ -146,8 +216,8 @@ test("a turn's record and usage event from a real kernel envelope: citations, cl
   assert.ok(stats.citations.unresolved >= 1, "E9 names no citation the tools gave");
   assert.ok(stats.evidence.released + stats.evidence.withheld >= 1);
   const runs = toolRuns(tools);
-  assert.deepEqual(runs[0].arg_keys, ["subject", "co_administered"]);
-  assert.doesNotMatch(JSON.stringify(runs), /甘草|甘遂/);
+  assert.equal(runs[0].arg_keys, undefined);
+  assert.doesNotMatch(JSON.stringify(runs), /甘草|甘遂|subject|co_administered/);
   const assistant = { id: "a1", content: "甘草反甘遂 [E1]。联系 a@b.org", status: "ok", steps: 2, segments: [{ type: "tools", step: 1 }], usage: { input: 900, output: 80 }, provider: "tao", model: "Tao-S1" };
   const owner = await ownerOf("z".repeat(43));
   const record = buildRecord({ id: "a1", conversation: "c1", index: 1, owner, question: "甘草与甘遂同用，有哪些记载？", assistant, tools, status: turnStatus(assistant),
@@ -156,7 +226,7 @@ test("a turn's record and usage event from a real kernel envelope: citations, cl
   assert.equal(record.answer, "甘草反甘遂 [E1]。联系 [redacted:email]");
   assert.deepEqual([record.ms, record.first_ms, record.calls, record.tool_rounds, record.redacted], [8000, 500, 3, 1, 1]);
   assert.deepEqual(record.usage, { input: 900, output: 80 });
-  assert.doesNotMatch(JSON.stringify(record), /co_administered":\[/); // argument names only
+  assert.doesNotMatch(JSON.stringify(record), /co_administered|subject/); // no argument, nor its name
   const ev = normalizeEvent(turnEndEvent({ id: "a1", provider: "tao", model: "Tao-S1", status: "completed", first: true, startedAt: 1_000, endedAt: 9_000, calls: 3, assistant, tools, recorded: true }));
   assert.deepEqual([ev.type, ev.ms, ev.calls, ev.tools, ev.tokens_in, ev.recorded, ev.first], ["turn_end", 8000, 3, 1, 900, true, true]);
   assert.equal(JSON.stringify(ev).includes("甘草"), false, "a usage event holds no text");

@@ -170,6 +170,26 @@ test("sending data to a third party (allow_remote) is its own approval", async (
   assert.deepEqual(req.reasons, ["remote_upload"]);
 });
 
+test("allow_remote as the dispatcher reads it: in arguments given as JSON text, or as the text \"true\", it still asks", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
+  const { r, runtimes } = router({ runner: "ready", approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q.reasons); return "deny"; };
+  const text = JSON.stringify({ allow_remote: true, data: "x" });
+  const declined = await r.call("call_tool", { tool: "native.scrna_cluster", arguments: text }, { projectId: "p", onApproval });
+  assert.equal(declined.status, "refused");
+  await r.call("call_tool", { tool: "native.scrna_cluster", arguments: { allow_remote: "TRUE" } }, { projectId: "p", onApproval });
+  await r.call("call_tool", { tool: "native.scrna_cluster", arguments: ' {"allow_remote": "true"}' }, { projectId: "p", onApproval });
+  assert.deepEqual(asked, [["remote_upload"], ["remote_upload"], ["remote_upload"]]);
+  assert.equal(runtimes.runner.calls.length, 0); // declined: nothing ran
+  // approved, the runtime gets the object the text spells, as the dispatcher would have read it
+  await r.call("call_tool", { tool: "native.scrna_cluster", arguments: text }, { projectId: "p", onApproval: async () => "once" });
+  assert.deepEqual(runtimes.runner.calls[0].args, { tool: "native.scrna_cluster", arguments: { allow_remote: true, data: "x" } });
+  // anything else stays as it was given (the dispatcher refuses what is not an object)
+  await r.call("call_tool", { tool: "native.scrna_cluster", arguments: "[1, 2]" }, { projectId: "p", onApproval: async () => "once" });
+  assert.equal(runtimes.runner.calls[1].args.arguments, "[1, 2]");
+});
+
 test("parallel calls that need the same approval ask once", async () => {
   const { r } = router({ runner: "ready" });
   let asked = 0;

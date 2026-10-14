@@ -45,13 +45,18 @@ function telemetry({ fail = false } = {}) {
   return { tel, requests };
 }
 
-/** A scripted model in the agent's library shape: one answer per call, from `reply(messages)`. */
-function scriptedModel(reply = () => "桂枝汤主治太阳中风表虚证。") {
+/** A scripted model in the agent's library shape: one answer per call, from `reply(messages)`; `slowMs` holds the
+ * answer back after its first characters (a turn under way). */
+function scriptedModel(reply = () => "桂枝汤主治太阳中风表虚证。", { slowMs = 0 } = {}) {
   return {
     openai: {
       async *streamChat({ messages }) {
         const text = reply(messages);
-        yield { type: "text", delta: text };
+        if (slowMs) {
+          yield { type: "text", delta: text.slice(0, 2) };
+          await delay(slowMs);
+          yield { type: "text", delta: text.slice(2) };
+        } else yield { type: "text", delta: text };
         yield { type: "usage", input: 120, output: 30 };
         yield { type: "done", finish_reason: "stop", wire: { role: "assistant", content: text } };
       },
@@ -60,12 +65,12 @@ function scriptedModel(reply = () => "桂枝汤主治太阳中风表虚证。") 
   };
 }
 
-async function makeApp({ fail = false, reply } = {}) {
+async function makeApp({ fail = false, reply, slowMs = 0 } = {}) {
   const app = new App();
   app.store = await openStore({ indexedDB: new IDBFactory() });
   app.toolRouter = new ToolRouter({ catalog: null, runtimes: {}, settings: app.state.settings, store: app.store });
   app.router = { navigate: (route) => { app.state.route = route; } };
-  app.llm = scriptedModel(reply);
+  app.llm = scriptedModel(reply, { slowMs });
   const t = telemetry({ fail });
   app.telemetry = t.tel;
   const p = await app.store.projects.create({ name: "伤寒论", web: false });
@@ -207,6 +212,46 @@ test("agreed, but never recorded: an uploaded file, a patient's case — and the
   await finished(second.app);
   assert.deepEqual(records(second.requests), []);
   assert.equal(events(second.requests, "turn_end")[0].excluded, "sensitive_text");
+});
+
+test("a project file the model was given keeps the conversation out, even once the file is removed", async () => {
+  resetChoices();
+  setContentConsent(true);
+  // the model repeats what it was given: the project's note in the first turn, its own earlier answer in the second
+  const { app, requests, project } = await makeApp({ reply: (messages) => (/150\/95/.test(JSON.stringify(messages.slice(1))) ? "再说一遍：血压 150/95。" : "笔记：血压 150/95。") });
+  const note = new window.Blob(["我的私人笔记：血压 150/95，夜寐不安。"], { type: "text/plain" });
+  const f = await app.store.files.add(project.id, note, { name: "notes.txt", source: "upload" });
+  await app.send("总结一下项目里的笔记");
+  await finished(app);
+  await app.store.files.remove(f.id); // the visitor removes it from the project
+  await app.send("把你上面说的再说一遍");
+  await finished(app);
+  assert.deepEqual(records(requests), []);
+  assert.deepEqual(events(requests, "turn_end").map((e) => [e.recorded, e.excluded]), [[false, "project_files"], [false, "project_files"]]);
+  const conv = await app.store.conversations.get(app.state.conversation.id);
+  assert.equal(conv.recordExcluded, "project_files");
+  // a new conversation in the same project, now without files, may be recorded
+  app.state.conversation = null;
+  await app.send("桂枝汤主治什么？");
+  await finished(app);
+  assert.equal(records(requests).length, 1);
+  assert.equal(records(requests)[0].question, "桂枝汤主治什么？");
+});
+
+test("agreeing while an answer streams does not reach back to the question asked before", async () => {
+  resetChoices();
+  setContentConsent(false); // declined
+  const { app, requests } = await makeApp({ slowMs: 150 });
+  const sent = app.send("桂枝汤主治什么？");
+  await delay(60); // the answer is under way...
+  setContentConsent(true); // ...when the visitor turns records on (Settings → Privacy, another tab)
+  await sent;
+  await finished(app);
+  assert.deepEqual(records(requests), []);
+  assert.deepEqual(events(requests, "turn_end").map((e) => e.excluded), ["no_consent"]);
+  await app.send("麻黄汤呢？"); // asked after agreeing: recorded
+  await finished(app);
+  assert.deepEqual(records(requests).map((r) => r.question), ["麻黄汤呢？"]);
 });
 
 test("the telemetry failing changes nothing in the conversation: the answer is stored and shown, the record waits", async () => {

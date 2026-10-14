@@ -75,6 +75,22 @@ export function isPlainObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
+/** An object argument of a tool call as the runner's dispatcher reads it: an object, or the JSON text of one (the
+ * dispatcher parses a string that starts with "{" given for an object). → the object, or null. */
+export function objectArgument(value) {
+  if (isPlainObject(value)) return value;
+  if (typeof value !== "string" || !value.trim().startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return isPlainObject(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A boolean argument as the dispatcher reads it: true, or the text "true" in any case. */
+export const flagArgument = (value) => value === true || (typeof value === "string" && value.trim().toLowerCase() === "true");
+
 /** A loopback host name: what the runner and local model servers bind to. */
 export function isLoopbackHost(host) {
   const h = String(host || "").toLowerCase().replace(/^\[|\]$/g, "");

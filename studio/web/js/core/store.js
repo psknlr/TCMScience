@@ -353,6 +353,15 @@ export class Store {
         if (!next) throw new Error(`no conversation ${id}`);
         return next;
       },
+      /** Note something about a conversation without it counting as activity (updatedAt and its place in the lists
+       * stay). → the conversation, or null when there is none. */
+      async note(id, fields = {}) {
+        const [next] = await b.bulk([{
+          store: "conversations", patch: id,
+          fn: (cur) => ({ ...cur, ...fields, id: cur.id, projectId: cur.projectId, createdAt: cur.createdAt, updatedAt: cur.updatedAt }),
+        }]);
+        return next || null;
+      },
       async remove(id) {
         const ops = (await b.byIndex("messages", "conversationId", id)).map((m) => ({ store: "messages", delete: m.id }));
         ops.push({ store: "conversations", delete: id });

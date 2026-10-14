@@ -5,21 +5,39 @@
 //
 // Never recorded, whatever the visitor agreed to (exclusionOf): a conversation with an uploaded file, in a project that
 // holds files (small text files go to the model with every message), one that used a clinical tool or a tool given the
-// visitor's own data (a file, a path, an upload, an imported store), and one whose questions read as a person's medical
-// record or carry an identifier (sensitive.js). A conversation is judged whole: once it touched any of these, none of its
-// later turns is recorded either. A tool's arguments are never recorded: their names only.
+// visitor's own data (a file, a path, an upload, an imported store, a job run on them), and one whose questions read as
+// a person's medical record or carry an identifier (sensitive.js). A conversation is judged whole: once it touched any of
+// these, none of its later turns is recorded either (the app keeps that on the conversation: a project file removed
+// later, or a branch without the upload, does not make it recordable). A tool's arguments are never recorded.
 
 import { citationsOf, claimsOf, evidenceOf, releaseOf } from "./governance.js";
 import { redactText, sensitiveAny } from "./sensitive.js";
 import { CONSENT_VERSION, LIMITS, PLACES, RECORD_VERSION, TOOL_KINDS, normalizeRecord, token } from "./telemetry-contract.js";
+import { objectArgument } from "./util.js";
 
 // tools that take the visitor's own data: an imported store, a pipeline over their files, the clinic's case records
 const USER_DATA_TOOL = /^(?:tcmdb\.import|tcmdb_import|job\.pipeline\.|job\.tcmdb\.|run_pipeline\b|job\.skill\.run|uploads?\b|files?\.)/;
 const CLINICAL_TOOL = /^(?:clinic[._]|skill\.draft-tcm-prescription)/;
+// jobs on the runner that run on the visitor's files (a job's status, asked for in any conversation, brings them in)
+const USER_DATA_JOB = /^(?:pipeline\.|skill\.run$|tcmdb\.)/;
 // argument names that hand a tool a file of the visitor's (a public dataset's accession is not one, nor numbers typed
 // into the question, which the record holds anyway)
 const DATA_ARG = /(?:^|_)(?:file|files|path|paths|filename|upload|uploads|upload_id|upload_ids|data_file|input_file|input_files|sample_sheet|fastq|fastqs|bam|store_path|local_path)$/i;
-const LOCAL_VALUE = /^(?:\/|\.{1,2}\/|~\/|[A-Za-z]:\\|file:|upload:|uploads\/|blob:)/;
+const LOCAL_VALUE = /^(?:\/|\.{1,2}\/|~\/|[A-Za-z]:[\\/]|\\\\|file:|upload:|uploads\/|blob:)/;
+const UPLOAD_ID = /^u_[0-9a-f]{16}$/; // the runner's upload ids: any argument holding one is given that file
+const GENOTYPE = /^[.\d]+(?:[/|][.\d]+)+$/; // a VCF genotype call (0/1, ./., 1|0) is not a path
+
+// The governed skills that run as jobs on files, and their file arguments (the runner's kinds.py _SKILL_FILES; a test
+// keeps the two equal). Each takes an upload's id or name, a path, or a literal the runner looks up as a file name
+// first: a call that gives any of them a value is given the visitor's data, however the value reads.
+export const SKILL_FILES = {
+  "rnaseq-differential-expression": ["sample_sheet", "transcripts", "annotation", "genome"],
+  "scrna-cell-atlas": ["source", "markers"],
+  "dock-ligands": ["receptor", "ligands"],
+  "predict-admet": ["molecules"],
+  "predict-protein-structure": ["sequences", "reference"],
+  "retrieve-literature-evidence": ["corpus"],
+};
 
 /** The tool a stored tool message ran: its catalog entry (envelope.via) when it resolved, else the name the model gave. */
 export function toolName(t) {
@@ -28,28 +46,63 @@ export function toolName(t) {
 
 function argsOf(t) {
   const a = t?.args && typeof t.args === "object" ? t.args : {};
-  // call_tool / catalog calls carry the real tool and its arguments one level down
-  return a.tool && a.arguments && typeof a.arguments === "object" ? { name: String(a.tool), args: a.arguments } : { name: "", args: a };
+  // call_tool / catalog calls carry the real tool and its arguments one level down: an object, or the JSON text of one
+  // (the runner's dispatcher parses it, so it is read here as the object it spells)
+  if (typeof a.tool !== "string" || !a.tool) return { name: "", args: a };
+  return { name: a.tool, args: objectArgument(a.arguments) || a };
 }
 
-/** Does a call hand a tool the visitor's own files or data (by an argument's name or a local path for its value)? */
+/** A value that names something of the visitor's: a local path, an upload, or NAME=<one of those> pairs. */
+function localValue(s, depth = 0) {
+  const v = s.trim();
+  if (!v || GENOTYPE.test(v)) return false;
+  if (LOCAL_VALUE.test(v) || UPLOAD_ID.test(v)) return true;
+  // R1=/data/ref.pdb, a list of such pairs (comma-, semicolon- or space-separated)
+  return depth < 1 && v.split(/[\s,;]+/).some((part) => {
+    const m = /^[A-Za-z0-9_.+-]{1,64}=(.+)$/.exec(part);
+    return Boolean(m) && localValue(m[1], depth + 1);
+  });
+}
+
+/** A value an argument actually gives: text, a list or an object with something in it (not false, 0 or a gap). */
+const given = (v) => (typeof v === "string" ? v.trim() !== "" : Array.isArray(v) ? v.length > 0 : v !== null && typeof v === "object" ? Object.keys(v).length > 0 : false);
+
+/** Does a call hand a tool the visitor's own files or data (by an argument's name, or a local path or upload for its value)? */
 export function touchesUserData(args, depth = 0) {
   if (!args || typeof args !== "object" || depth > 4) return false;
   for (const [k, v] of Object.entries(args)) {
-    if (DATA_ARG.test(k) && v !== null && v !== "" && !(Array.isArray(v) && !v.length)) return true;
-    if (typeof v === "string" && LOCAL_VALUE.test(v.trim())) return true;
+    if (DATA_ARG.test(k) && given(v)) return true;
+    if (typeof v === "string" && localValue(v)) return true;
     if (v && typeof v === "object" && touchesUserData(v, depth + 1)) return true;
   }
   return false;
 }
 
+/** A governed skill run as a job on files (SKILL_FILES), given one of its file arguments. */
+function givesSkillFiles(names, args) {
+  for (const n of names) {
+    const files = /^skill\.([a-z0-9-]+)$/.exec(n) && SKILL_FILES[n.slice(6)];
+    if (files && files.some((k) => given(args?.[k]))) return true;
+  }
+  return false;
+}
+
+/** A tool message that reports a job of the visitor's files (its status, its results): by the job's kind. */
+function reportsUserDataJob(t) {
+  const env = t?.envelope;
+  const kinds = [env?.job?.kind, env?.result?.kind].filter((k) => typeof k === "string");
+  return kinds.some((k) => USER_DATA_JOB.test(k));
+}
+
 /**
  * Why this conversation's turns are not recorded, or null. path: the branch's user and assistant messages up to and
  * including this turn's question; tools: every tool message of the conversation (earlier turns' too); projectFiles:
- * how many files the project holds; discarded: the conversation was deleted while the turn ran.
+ * how many files the project holds; discarded: the conversation was deleted while the turn ran; before: the reason an
+ * earlier turn of this conversation was not recorded (kept on the conversation), which holds for every later one.
  */
-export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded = false } = {}) {
+export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded = false, before = null } = {}) {
   if (discarded) return "discarded";
+  if (typeof before === "string" && before) return before;
   if (path.some((m) => m?.role === "user" && Array.isArray(m.attachments) && m.attachments.length)) return "uploaded_file";
   if (projectFiles > 0) return "project_files";
   for (const t of tools) {
@@ -57,11 +110,16 @@ export function exclusionOf({ path = [], tools = [], projectFiles = 0, discarded
     const inner = argsOf(t);
     const names = [toolName(t), String(t?.name || ""), inner.name];
     if (kind === "clinic" || names.some((n) => CLINICAL_TOOL.test(n))) return "clinical_tool";
-    if (names.some((n) => USER_DATA_TOOL.test(n)) || touchesUserData(inner.args)) return "user_data_tool";
+    if (names.some((n) => USER_DATA_TOOL.test(n)) || touchesUserData(inner.args) || givesSkillFiles(names, inner.args) || reportsUserDataJob(t)) {
+      return "user_data_tool";
+    }
   }
   if (sensitiveAny(path.filter((m) => m?.role === "user").map((m) => m.content))) return "sensitive_text";
   return null;
 }
+
+/** The reasons that hold for a whole conversation once one turn had them (all but a deleted conversation's). */
+export const STICKY_EXCLUSIONS = ["uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text"];
 
 const CITE = /[[【]\s*(E\d+(?:\s*[,，、;；]\s*E\d+)*)\s*[\]】]/g;
 
@@ -112,7 +170,8 @@ function safe(fn, fallback) {
   try { return fn() ?? fallback; } catch { return fallback; }
 }
 
-/** The tool runs of a turn as a record lists them: name, kind, where, status, time, error type, argument names. */
+/** The tool runs of a turn as a record lists them: name, kind, where, status, time, error type (never its arguments,
+ * nor their names: the notice says a tool is recorded without them). */
 export function toolRuns(tools = []) {
   return tools.slice(0, LIMITS.tools).map((t) => {
     const env = t?.envelope || {};
@@ -124,7 +183,6 @@ export function toolRuns(tools = []) {
       status: env.status || t?.status || "unknown",
       ms: Number.isFinite(Number(env.duration_ms)) ? Number(env.duration_ms) : undefined,
       error_type: env.error?.type || undefined,
-      arg_keys: Object.keys(argsOf(t).args).slice(0, LIMITS.argKeys),
     };
   });
 }

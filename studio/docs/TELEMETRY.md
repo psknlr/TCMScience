@@ -54,7 +54,7 @@ Worker 自己：Tao-S1 中继与数据库网关的次数和结果 ─▶ UsageLo
 | `question`、`answer` | 问题（≤4000 字）与回答（Markdown，≤12000 字）；已隐去的内容换成 `[redacted:类别]`，`redacted` 是隐去的处数 |
 | `provider`、`model` | 模型服务与模型名（如 `tao` / `Tao-S1`） |
 | `steps`、`tool_rounds`、`calls`、`limit_reached` | 智能体步数、调用工具的轮数、模型请求次数（含重试）、是否达到步数上限 |
-| `tools[]` | 每次工具执行：`name`、`kind`、`where`（browser / runner / gateway / page）、`status`、`ms`、`error_type`、`arg_keys`（**参数名**，不含值；≤12 个）；一轮最多 40 个 |
+| `tools[]` | 每次工具执行：`name`、`kind`、`where`（browser / runner / gateway / page）、`status`、`ms`、`error_type`（不含工具参数：既无参数值，也无参数名）；一轮最多 40 个 |
 | `citations` | 引文：工具给出的 `total`、原文已核对的 `verified`、回答中引用的 `used`、引用了却查不到的 `unresolved` |
 | `claims`、`evidence` | 内核的主张检查（`allowed` / `refused` / `unchecked`）；证据条目、预测、结果的发布与扣留数 |
 | `usage` | token：`input` / `output` |

@@ -18,7 +18,7 @@ import { ownerHash } from "../core/consent.js";
 import { activeProvider, relayBaseUrl, relayHealth } from "../core/providers.js";
 import { Telemetry, STALE_TURN_MS } from "../core/telemetry.js";
 import { WORKFLOW_KINDS, token } from "../core/telemetry-contract.js";
-import { buildRecord, exclusionOf, turnEndEvent, turnStatus } from "../core/turnrecord.js";
+import { STICKY_EXCLUSIONS, buildRecord, exclusionOf, turnEndEvent, turnStatus } from "../core/turnrecord.js";
 import { ToolRouter } from "../core/router.js";
 import { loadSettings, onSettingsChange, updateSettings } from "../core/settings.js";
 import { latestLeaf, openStore, siblingsOf, threadPath } from "../core/store.js";
@@ -938,8 +938,11 @@ export class App {
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
     turn.first = threadPath(this.state.messages, user.id).filter((m) => m.role === "user").length <= 1;
+    // the visitor's agreement as the question is sent: a record needs it then and still at the end (agreeing while an
+    // answer streams, or after a reload cut one off, does not reach back to it)
+    turn.consent = this.telemetry.contentOn;
     this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
-    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, startedAt: live.startedAt });
+    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt });
     turn.beat = setInterval(() => this.telemetry.turnBeat(draftId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
@@ -985,6 +988,11 @@ export class App {
 
     const knowledge = await this.#knowledge(project.id);
     turn.projectFiles = knowledge.length;
+    // what keeps this conversation out is known before the model sees anything (an upload, the project's files, which
+    // go to the model with every question, identifying text): noted now, so that it holds even once the files are
+    // removed, and so that a page cut off mid-answer still knows
+    const early = exclusionOf({ path: threadPath(this.state.messages, user.id), projectFiles: turn.projectFiles });
+    if (STICKY_EXCLUSIONS.includes(early)) await this.#keepOut(conv.id, early);
     const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge, env: this.#env() });
     const history = threadPath(await this.store.messages.list(conv.id), user.id);
     let result = null;
@@ -1087,7 +1095,10 @@ export class App {
       const seen = new Set();
       const known = [...all.filter((m) => m.role === "tool"), ...toolMessages].filter((m) => !seen.has(m.id) && seen.add(m.id));
       const projectFiles = turn?.projectFiles ?? (await this.store.files.list(conv.projectId).catch(() => [])).length;
-      const reason = exclusionOf({ path, tools: known, projectFiles, discarded });
+      const before = discarded ? null : (await this.store.conversations.get(conv.id).catch(() => null))?.recordExcluded;
+      const reason = exclusionOf({ path, tools: known, projectFiles, discarded, before });
+      // judged whole: once a turn may not be recorded, no later turn of the conversation is
+      if (reason && reason !== before && STICKY_EXCLUSIONS.includes(reason)) await this.#keepOut(conv.id, reason);
       const tools = toolMessages.map((m) => this.#namedTool(m));
       const base = {
         id: assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
@@ -1095,7 +1106,8 @@ export class App {
         endedAt: endedAt ?? assistant.ui?.endedAt ?? Date.now(), firstAt: live?.firstAt, calls: live?.calls, assistant, tools,
         known: known.map((m) => this.#namedTool(m)),
       };
-      const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !tel.contentOn ? "no_consent" : null);
+      const agreed = tel.contentOn && turn?.consent === true;
+      const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !agreed ? "no_consent" : null);
       let recorded = false;
       if (!excluded) {
         const owner = await ownerHash();
@@ -1112,6 +1124,14 @@ export class App {
     } catch { /* never the conversation's concern */ } finally {
       tel.turnEnded(live?.id || assistant?.id);
     }
+  }
+
+  /** A conversation that may never be recorded again, and why (kept with it: exclusionOf's `before`). */
+  async #keepOut(conversationId, reason) {
+    try {
+      const cur = await this.store.conversations.get(conversationId);
+      if (cur && !cur.recordExcluded) await this.store.conversations.note(conversationId, { recordExcluded: reason });
+    } catch { /* the next turn judges again */ }
   }
 
   /** A tool message with a name the catalog knows, else "unknown" (a model may invent a name; it is never sent). */
@@ -1188,7 +1208,7 @@ export class App {
             startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: "discarded" }));
           continue;
         }
-        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first }, interrupted: true, endedAt: m.beat });
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true }, interrupted: true, endedAt: m.beat });
       } catch { /* the next page load tries no more: it was taken off the list */ }
     }
   }

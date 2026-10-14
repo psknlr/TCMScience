@@ -592,7 +592,7 @@ function recordItem(item) {
     r.owner ? t("record_owner", { ref: String(r.owner).slice(0, 12) }) : "",
     `${t("record_id")} ${r.id || "—"}`,
   ].filter(Boolean);
-  const tools = (r.tools || []).map((x) => ({ ...x, args: (x.arg_keys || []).join(", ") }));
+  const tools = r.tools || [];
   const del = el("button", { class: "btn btn--small btn--danger", type: "button", text: t("delete") });
   const node = el("details", { class: "record" },
     el("summary", {}, el("span", { class: "record__q", text: clip(r.question, 140) }), el("span", { class: "record__meta", text: meta })),
@@ -606,7 +606,6 @@ function recordItem(item) {
         { key: "status", label: t("col_status"), format: (v) => t(`tool_statuses.${v}`) },
         { key: "ms", label: t("col_time"), num: true, format: fmt.ms },
         { key: "error_type", label: t("col_error"), mono: true },
-        { key: "args", label: t("col_args"), mono: true },
       ], tools) : null,
       el("ul", { class: "record__facts" }, lines.map((x) => el("li", { text: x }))),
       el("div", {}, del)));
