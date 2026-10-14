@@ -857,7 +857,8 @@ export class App {
   }
 
   async regenerate(assistantId) {
-    if (this.state.turn) return;
+    // a question being sent (the notice may be open before it) is a turn about to start
+    if (this.state.turn || this.#sending) return;
     const a = this.state.messages.find((m) => m.id === assistantId);
     const user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user) return;
@@ -937,7 +938,11 @@ export class App {
     this.state.turn = turn;
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
-    turn.first = threadPath(this.state.messages, user.id).filter((m) => m.role === "user").length <= 1;
+    // a conversation's first question: nothing answered in it yet (a regenerated first answer, or an edited first
+    // question, is the same conversation again, not a new one)
+    turn.first = !this.state.messages.some((m) => m.role === "assistant") && this.state.messages.filter((m) => m.role === "user").length <= 1;
+    // a question is activity: a visit begins when it is the first in half an hour, route change or not
+    this.telemetry.active(this.state.route?.name);
     // the visitor's agreement as the question is sent: a record needs it then and still at the end (agreeing while an
     // answer streams, or after a reload cut one off, does not reach back to it)
     turn.consent = this.telemetry.contentOn;
@@ -1191,6 +1196,12 @@ export class App {
    * the draft kept, and recorded when they may be. Each is taken off the list first, so two pages do not both report it.
    */
   async #recoverTurns() {
+    // only once the site has said what it takes (a page opened offline tries again later), and in one tab at a time
+    if (!this.telemetry.config) return;
+    await this.telemetry.exclusive(() => this.#recoverStale());
+  }
+
+  async #recoverStale() {
     for (const m of await this.telemetry.staleTurns()) {
       if (this.state.turn?.live?.id === m.id) continue;
       this.telemetry.turnEnded(m.id);
@@ -1204,8 +1215,9 @@ export class App {
         const assistant = { id: m.id, provider: m.provider, model: m.model, content: draft?.content || "", segments: draft?.segments || [], steps, status: "stopped" };
         const live = { id: m.id, startedAt: m.startedAt };
         if (!conv || !user) {
+          // the conversation deleted since, or cut off before anything of the turn was saved
           this.telemetry.track("turn_end", turnEndEvent({ id: m.id, provider: m.provider, model: m.model, status: "interrupted", first: m.first,
-            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: "discarded" }));
+            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded" }));
           continue;
         }
         await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true }, interrupted: true, endedAt: m.beat });

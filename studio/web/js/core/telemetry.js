@@ -6,9 +6,11 @@
 // Where it sends: to /api/telemetry/* on the page's own origin, and only when that origin's /v1/health says the site
 // takes them (configure()); a page served by the local runner or a plain file server sends nothing.
 //
-// What survives a reload: unsent events (per tab: sessionStorage names the tab, so a reload finds its own), unsent
-// records (shared; the Worker keeps one copy of a turn whatever arrives twice), and the turns under way (so the next page
-// can tell a turn that was cut off by a reload or a crash, and report it as interrupted).
+// What survives a reload: unsent events (per tab: sessionStorage names the tab's last page, whose outbox a reload takes
+// over once that page has left; a duplicated tab, which copies sessionStorage while the first is still open, starts its
+// own), unsent records (shared; the Worker keeps one copy of a turn whatever arrives twice), and the turns under way (so
+// the next page can tell a turn that was cut off by a reload or a crash, and report it as interrupted). When storage is
+// blocked or full, the page keeps them in memory for as long as it is open.
 
 import { analyticsAllowed, contentConsent, deletionKey } from "./consent.js";
 import { CONSENT_VERSION, EVENTS_VERSION, LIMITS, ROUTES, normalizeEvent, token } from "./telemetry-contract.js";
@@ -35,7 +37,10 @@ const MAX_ERRORS = 10; // error events per page load
 const FLUSH_MS = 15000;
 const ABANDONED_MS = 10 * 60000; // another tab's outbox not touched this long is taken over
 
-const emptyBox = () => ({ queue: [], batches: [], saved: 0 });
+const emptyBox = () => ({ queue: [], batches: [], saved: 0, left: false });
+const MAX_HOLD_S = 24 * 3600; // the longest a Retry-After is honoured
+/** A record waiting to be sent, as kept: one with an id and a body (anything else in storage is dropped). */
+const queuedRecord = (r) => r !== null && typeof r === "object" && typeof r.id === "string" && r.id !== "" && r.body !== null && typeof r.body === "object";
 
 export class Telemetry {
   /** deps (for tests): fetch, beacon(url, body) → boolean, origin, now, setTimer, clearTimer, nav (for DNT/GPC). */
@@ -55,9 +60,14 @@ export class Telemetry {
     this.timer = null;
     this.errors = 0;
     this.flushing = null;
-    this.tab = storage.get(TAB_KEY, "session") || uuid();
+    this.hold = { events: 0, records: 0 }; // until when the site asked to wait (Retry-After), per endpoint
+    this.memory = { records: null, visit: null }; // what storage would not keep
+    this.endedTurns = new Set();
+    // each page its own tab id; the last page of this tab (sessionStorage) is whose outbox it may take over
+    const previous = storage.get(TAB_KEY, "session");
+    this.tab = uuid();
     storage.set(TAB_KEY, this.tab, "session");
-    this.box = this.#adopt();
+    this.box = this.#adopt(previous);
   }
 
   get base() {
@@ -95,6 +105,10 @@ export class Telemetry {
     try {
       let same = false;
       try { same = Boolean(relayBase) && new URL(relayBase, this.origin || undefined).origin === this.origin; } catch { same = false; }
+      // no answer at all (offline, a timeout, the site's server failing): nothing is known, so nothing changes — what
+      // waits is kept, not sent, until a health that says (the app asks again when the browser is back online)
+      const unknown = !health || health.unreachable === true || (!health.telemetry && Number(health.status) >= 500);
+      if (same && unknown) return this.config;
       const t = same && health && typeof health.telemetry === "object" && health.telemetry ? health.telemetry : null;
       this.config = {
         here: Boolean(t), analytics: t?.analytics === true,
@@ -149,10 +163,18 @@ export class Telemetry {
   /** Activity in this tab; true when it begins a new visit. */
   touch() {
     const now = this.now();
-    const v = storage.getJSON(VISIT_KEY, "session");
+    const v = storage.getJSON(VISIT_KEY, "session") || this.memory.visit;
     const fresh = !v || !(Number(v.last) > 0) || now - Number(v.last) > VISIT_IDLE_MS;
+    this.memory.visit = { last: now };
     storage.setJSON(VISIT_KEY, { last: now }, "session");
     return fresh;
+  }
+
+  /** Activity that is not a route change (a question sent): a visit begins when it is the first in half an hour. */
+  active(route) {
+    try {
+      if (this.touch()) this.track("visit", { route: ROUTES.includes(route) ? route : "notfound" });
+    } catch { /* never the app's concern */ }
   }
 
   schedule(ms = FLUSH_MS) {
@@ -175,29 +197,35 @@ export class Telemetry {
       return this.flushing;
     }
     const run = (async () => {
+      await null; // known as running (this.flushing) before any of it happens
       let sent = 0;
-      do {
-        this.again = false;
-        const r = await this.#send(false);
-        sent += r.sent;
-        if (r.stuck) break; // the network or the Worker must recover first: the next flush tries again
-      } while (this.again);
+      try {
+        do {
+          this.again = false;
+          const r = await this.#send(false);
+          sent += r.sent;
+          if (r.stuck) break; // the network or the Worker must recover first: the next flush tries again
+        } while (this.again);
+      } finally {
+        // in the same step as the last look at `again`: a flush asked for after it starts a run of its own
+        this.flushing = null;
+      }
       return { sent };
     })();
     this.flushing = run;
-    run.finally(() => { if (this.flushing === run) this.flushing = null; });
     return run;
   }
 
   async #send(beacon) {
     try {
       if (this.timer) { this.clearTimer(this.timer); this.timer = null; }
-      if (!this.config || !this.analyticsOn) return { sent: 0 };
+      if (!this.config || !this.analyticsOn || this.stopped) return { sent: 0 };
       this.#batch();
+      if (this.#held("events")) return { sent: 0, stuck: true }; // the site asked to wait: kept until then
       let sent = 0;
       for (const b of [...this.box.batches]) {
         const body = JSON.stringify({ v: EVENTS_VERSION, batch: b.id, events: b.events });
-        const res = beacon ? this.#beacon(`${this.base}/events`, body) : await this.#post(`${this.base}/events`, body);
+        const res = beacon ? this.#beacon(`${this.base}/events`, body) : await this.#post(`${this.base}/events`, body, "events");
         if (res === "retry") return { sent, stuck: true };
         // sent, or refused for good (a malformed batch never becomes a good one): not sent again
         this.box.batches = this.box.batches.filter((x) => x.id !== b.id);
@@ -216,7 +244,17 @@ export class Telemetry {
     this.started = true;
     try {
       doc?.addEventListener?.("visibilitychange", () => { if (doc.visibilityState === "hidden") this.flush({ beacon: true }); });
-      win.addEventListener?.("pagehide", () => this.flush({ beacon: true }));
+      win.addEventListener?.("pagehide", () => {
+        this.flush({ beacon: true });
+        this.left();
+      });
+      // back from the back/forward cache: this page is open again, its outbox its own
+      win.addEventListener?.("pageshow", (e) => {
+        if (e?.persisted && this.box.left) {
+          this.box.left = false;
+          this.#save();
+        }
+      });
       win.addEventListener?.("error", (e) => {
         // a script, image or style that failed to load is not the app's error (the boot handler says what to do)
         if (e?.target && e.target !== win && e.target.tagName) return;
@@ -290,27 +328,53 @@ export class Telemetry {
   }
 
   #save() {
+    if (this.stopped) return;
     this.box.saved = this.now();
     storage.setJSON(`${OUTBOX_PREFIX}${this.tab}`, this.box);
   }
 
-  /** This tab's outbox from before a reload, and any other tab's that was abandoned (closed with events unsent). */
-  #adopt() {
+  /** This page is going away (pagehide): what it did not send is for the next page of this tab to take over. */
+  left() {
+    try {
+      this.box.left = true;
+      this.#save();
+    } catch { /* nothing kept */ }
+  }
+
+  /** Everything this page held, dropped, and nothing more kept or sent ("clear all data", before the reload). */
+  stop() {
+    this.stopped = true;
+    this.pending = [];
+    this.box = emptyBox();
+    this.memory = { records: null, visit: null };
+    if (this.timer) { this.clearTimer(this.timer); this.timer = null; }
+  }
+
+  /** The outbox of this tab's last page once it has left (a reload), and any other tab's that was abandoned (closed
+   * with events unsent). A page still open under the same tab id (this one is its duplicate) keeps its own. */
+  #adopt(previous) {
     const box = emptyBox();
     try {
-      const own = storage.getJSON(`${OUTBOX_PREFIX}${this.tab}`);
       const take = (b) => {
         if (!b || typeof b !== "object") return;
         if (Array.isArray(b.queue)) box.queue.push(...b.queue.filter((e) => normalizeEvent(e)));
         if (Array.isArray(b.batches)) box.batches.push(...b.batches.filter((x) => x && typeof x.id === "string" && Array.isArray(x.events)));
       };
-      take(own);
+      const abandoned = (b) => !b || this.now() - Number(b.saved || 0) > ABANDONED_MS;
+      if (previous) {
+        const k = `${OUTBOX_PREFIX}${previous}`;
+        const own = storage.getJSON(k);
+        if (own && (own.left === true || abandoned(own))) {
+          take(own);
+          storage.remove(k);
+        }
+      }
       const ls = globalThis.localStorage;
       for (let i = 0; ls && i < ls.length; i++) {
         const k = ls.key(i);
         if (!k || !k.startsWith(OUTBOX_PREFIX) || k === `${OUTBOX_PREFIX}${this.tab}`) continue;
         const b = storage.getJSON(k);
-        if (!b || this.now() - Number(b.saved || 0) > ABANDONED_MS) {
+        if (abandoned(b)) {
           take(b);
           storage.remove(k);
           i--;
@@ -322,18 +386,27 @@ export class Telemetry {
     return box;
   }
 
-  async #post(url, body) {
+  async #post(url, body, kind) {
     try {
       const r = await this.fetch(url, {
         method: "POST", body, keepalive: body.length < 60000, credentials: "same-origin",
         headers: { "Content-Type": "text/plain;charset=UTF-8" },
       });
       if (r.ok) return "sent";
-      if (r.status === 429 || r.status >= 500) return "retry";
+      if (r.status === 429 || r.status >= 500) {
+        // asked to wait (a limit, the site's day of rows written): nothing more is sent there until then
+        const wait = Number(r.headers?.get?.("Retry-After"));
+        if (kind && Number.isFinite(wait) && wait > 0) this.hold[kind] = this.now() + Math.min(wait, MAX_HOLD_S) * 1000;
+        return "retry";
+      }
       return r.status === 409 ? "outdated" : "refused";
     } catch {
       return "retry";
     }
+  }
+
+  #held(kind) {
+    return this.hold[kind] > this.now();
   }
 
   #beacon(url, body) {
@@ -349,7 +422,7 @@ export class Telemetry {
   /** Send one record (buildRecord's), kept until the Worker has it. Only while the visitor agrees. */
   sendRecord(record, { conversationId } = {}) {
     try {
-      if (!record || !this.contentOn) return Promise.resolve({ sent: 0 });
+      if (!record || !this.contentOn || this.stopped) return Promise.resolve({ sent: 0 });
       this.#records((list) => [...list.filter((r) => r.id !== record.id), { id: record.id, conversation: conversationId || record.conversation || "", body: record }]);
       return this.flushRecords();
     } catch {
@@ -357,50 +430,80 @@ export class Telemetry {
     }
   }
 
-  /** Send the records waiting (from this page or one before it). Stops at the first that must wait. */
-  async flushRecords() {
-    let sent = 0;
-    try {
-      if (this.flushingRecords) return { sent: 0 };
-      this.flushingRecords = true;
-      for (const item of this.#records()) {
-        // agreement withdrawn, or a record made under another notice: never sent
-        if (!this.contentOn || item?.body?.consent !== CONSENT_VERSION) {
-          if (!this.contentOn) break;
-          this.#records((list) => list.filter((r) => r.id !== item.id));
-          continue;
-        }
-        const res = await this.#post(`${this.base}/conversations`, JSON.stringify(item.body));
-        if (res === "retry") break;
-        this.#records((list) => list.filter((r) => r.id !== item.id));
-        if (res === "sent") sent++;
-      }
-    } catch { /* kept for the next time */ } finally {
-      this.flushingRecords = false;
+  /**
+   * Send the records waiting (from this page or one before it), one at a time, each read again from the queue just
+   * before it goes (one dropped meanwhile — its conversation deleted here or in another tab, the agreement withdrawn —
+   * is not sent). A call made while one runs makes it go round again, so a record added meanwhile is not left waiting.
+   * Stops at the first that must wait.
+   */
+  flushRecords() {
+    if (this.recordsRun) {
+      this.recordsAgain = true;
+      return this.recordsRun;
     }
-    return { sent };
+    const run = (async () => {
+      await null; // known as running (this.recordsRun) before any of it happens
+      let sent = 0;
+      const tried = new Set();
+      try {
+        do {
+          this.recordsAgain = false;
+          for (;;) {
+            if (!this.contentOn || this.stopped || this.#held("records")) return { sent };
+            const item = this.#records().find((r) => !tried.has(r.id));
+            if (!item) break;
+            tried.add(item.id);
+            // a record made under another notice: never sent
+            if (item.body.consent !== CONSENT_VERSION) {
+              this.#records((list) => list.filter((r) => r.id !== item.id));
+              continue;
+            }
+            const res = await this.#post(`${this.base}/conversations`, JSON.stringify(item.body), "records");
+            if (res === "retry") return { sent };
+            this.#records((list) => list.filter((r) => r.id !== item.id));
+            if (res === "sent") sent++;
+          }
+        } while (this.recordsAgain);
+      } catch { /* kept for the next time */ } finally {
+        this.recordsRun = null; // in the same step as the last look at `recordsAgain`
+      }
+      return { sent };
+    })();
+    this.recordsRun = run;
+    return run;
   }
 
-  /** Records not yet sent, dropped: all of them (consent withdrawn), or one conversation's (it was deleted). */
+  /** Records not yet sent, dropped: all of them (consent withdrawn, or before a deletion), or one conversation's. */
   purgeRecords(conversationId = null) {
     try {
       this.#records((list) => (conversationId ? list.filter((r) => r.conversation !== conversationId) : []));
     } catch { /* nothing to drop */ }
   }
 
+  /** Once a record being sent now has its answer (a deletion is asked only after it, so that it reaches it). */
+  async settleRecords() {
+    try { await this.recordsRun; } catch { /* nothing more to wait for */ }
+  }
+
   #records(change) {
-    const list = Array.isArray(storage.getJSON(RECORDS_KEY)) ? storage.getJSON(RECORDS_KEY) : [];
+    const stored = storage.getJSON(RECORDS_KEY);
+    const list = (Array.isArray(stored) ? stored : this.memory.records || []).filter(queuedRecord);
     if (!change) return list;
-    const next = change(list).slice(-MAX_RECORDS);
-    if (next.length) storage.setJSON(RECORDS_KEY, next);
-    else storage.remove(RECORDS_KEY);
+    const next = change(list).filter(queuedRecord).slice(-MAX_RECORDS);
+    const kept = next.length ? storage.setJSON(RECORDS_KEY, next) : (storage.remove(RECORDS_KEY), true);
+    // storage blocked or full: the queue lives in this page's memory instead (sent while the page is open)
+    this.memory.records = kept === false ? next : null;
     return next;
   }
 
-  /** Ask the site to delete every record made with this browser's deletion key. → {ok, deleted} | {ok:false, …}. */
+  /** Ask the site to delete every record made with this browser's deletion key: what waits to be sent is dropped first,
+   * and a record on its way is let arrive, so that none reaches the site after the deletion. → {ok, deleted} |
+   * {ok:false, …}. */
   async deleteMine() {
     const key = deletionKey();
     if (!key) return { ok: true, deleted: 0 };
+    this.purgeRecords();
+    await this.settleRecords();
     if (!this.here) return { ok: false, reason: "unavailable" };
     try {
       const r = await this.fetch(`${this.base}/conversations/delete`, {
@@ -432,7 +535,11 @@ export class Telemetry {
       const locks = this.#lockApi();
       if (locks) {
         this.locks ||= new Map();
-        locks.request(`${LOCK_PREFIX}${marker.id}`, () => new Promise((release) => this.locks.set(marker.id, release))).catch(() => {});
+        locks.request(`${LOCK_PREFIX}${marker.id}`, () => new Promise((release) => {
+          // the turn may have ended before the lock was granted: let it go at once
+          if (this.endedTurns.has(marker.id)) release();
+          else this.locks.set(marker.id, release);
+        })).catch(() => {});
       }
     } catch { /* not tracked */ }
   }
@@ -444,9 +551,19 @@ export class Telemetry {
   turnEnded(id) {
     try {
       this.#turns((m) => { delete m[id]; return m; });
+      this.endedTurns.add(id);
+      if (this.endedTurns.size > 500) this.endedTurns.clear();
       this.locks?.get(id)?.();
       this.locks?.delete(id);
     } catch { /* not tracked */ }
+  }
+
+  /** Run `fn` (the recovery of cut-off turns) in one tab at a time, so that two pages restored together do not both
+   * report the same turn. Without the lock API, it simply runs. */
+  async exclusive(fn) {
+    const locks = this.#lockApi();
+    if (!locks) return fn();
+    return locks.request("tcmstudio-recover", { ifAvailable: true }, (lock) => (lock ? fn() : undefined));
   }
 
   #lockApi() {

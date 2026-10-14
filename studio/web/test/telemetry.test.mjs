@@ -325,14 +325,24 @@ test("client: a failed send is kept and sent after a reload of the same tab; a r
   assert.deepEqual(await c.tel.flush(), { sent: 0 }); // never throws
   const tab = sessionStorage.getItem("tcmstudio.tab");
   assert.ok(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`)).batches.length === 1);
-  // the page reloads (same tab): a new client finds the batch and sends it, under the same batch id
+  // the tab is duplicated while this page is open (sessionStorage is copied): the copy starts its own outbox
+  const copy = client();
+  copy.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(copy.tel.box.batches.length, 0);
+  assert.notEqual(copy.tel.tab, tab);
+  assert.ok(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`), "the open page keeps its own");
+  // the page reloads (pagehide, then a new page in the same tab): the new page takes the outbox over and sends the
+  // batch under the same batch id
+  sessionStorage.setItem("tcmstudio.tab", tab);
+  c.tel.left();
   down = false;
   const firstId = c.requests[0].body.batch;
   const again = client();
   again.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
   await again.tel.flush();
   assert.equal(again.requests[0].body.batch, firstId, "the Worker counts a batch once, whatever arrives twice");
-  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`)).batches.length, 0);
+  assert.equal(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`), null);
+  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${again.tel.tab}`)).batches.length, 0);
   // a malformed batch (400) is not tried again; 429 and 5xx are
   resetStorage();
   let status = 400;
@@ -384,6 +394,146 @@ test("client: records only while agreed; dropped on withdrawal or the conversati
   const failing = client({ answer: () => Promise.reject(new TypeError("offline")) });
   failing.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
   assert.deepEqual(await failing.tel.deleteMine(), { ok: false, reason: "network" });
+});
+
+test("client: no answer from the site's health keeps what waits (sent once the site answers); a Retry-After is waited out", async () => {
+  resetStorage();
+  let status = 503;
+  const c = client({ answer: () => new Response(null, { status, headers: status === 503 ? { "Retry-After": "120" } : {} }) });
+  c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  c.tel.route({ name: "home" });
+  await c.tel.flush(); // the site's day of rows is spent: it says to come back in two minutes
+  assert.equal(c.requests.length, 1);
+  assert.equal(c.tel.box.batches.length, 1);
+  status = 204;
+  c.tick(60000);
+  c.tel.route({ name: "about" });
+  await c.tel.flush();
+  assert.equal(c.requests.length, 1, "not asked again before the time it gave");
+  c.tick(61000);
+  await c.tel.flush();
+  assert.equal(c.tel.box.batches.length, 0);
+  assert.deepEqual(c.requests.slice(1).map((r) => r.body.events.map((e) => e.route)).flat(), ["home", "home", "about"]);
+  // the page reloads offline: the health check gets no answer, and what waited is neither sent nor dropped
+  resetStorage();
+  const before = client({ answer: () => Promise.reject(new TypeError("offline")) });
+  before.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  before.tel.route({ name: "home" });
+  await before.tel.flush();
+  before.tel.left();
+  const offline = client();
+  offline.tel.configure({ ok: false, unreachable: true, error: "Failed to fetch" }, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(offline.tel.config, null);
+  assert.equal(offline.tel.box.batches.length, 1);
+  await offline.tel.flush();
+  assert.equal(offline.requests.length, 0);
+  offline.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` }); // back online: the app asks again
+  await offline.tel.flush();
+  assert.equal(offline.requests.length, 1);
+  assert.equal(offline.tel.box.batches.length, 0);
+  // a site that answers without telemetry (a page served by the local runner) does drop it
+  const runnerPage = client();
+  runnerPage.tel.configure({ ok: true }, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(runnerPage.tel.here, false);
+});
+
+test("client: the record queue is read again before each send; a deletion drops what waits and lets what is on its way arrive first", async () => {
+  resetStorage();
+  setContentConsent(true);
+  const owner = await ownerOf("w".repeat(43));
+  const record = (id, conversation = "c1") => ({ v: 1, id, conversation, owner, consent: CONSENT_VERSION, question: "q", status: "completed" });
+  let release;
+  const order = [];
+  const c = client({
+    answer: async (url, init) => {
+      const body = JSON.parse(init.body);
+      order.push(url.endsWith("/delete") ? "delete" : body.id);
+      if (body.id === "r1") await new Promise((r) => { release = r; }); // r1 is slow to arrive
+      return url.endsWith("/delete") ? new Response(JSON.stringify({ ok: true, deleted: 1 }), { status: 200 }) : new Response(null, { status: 201 });
+    },
+  });
+  c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  const first = c.tel.sendRecord(record("r1"));
+  await new Promise((r) => setTimeout(r, 5));
+  c.tel.sendRecord(record("r2", "c2")); // queued while r1 is on its way
+  c.tel.sendRecord(record("r3", "c3"));
+  c.tel.purgeRecords("c3"); // its conversation deleted meanwhile: never sent
+  release();
+  assert.deepEqual(await first, { sent: 2 });
+  assert.deepEqual(order, ["r1", "r2"]);
+  // a deletion: what waits is dropped, and the one on its way arrives before the deletion is asked
+  order.length = 0;
+  const slow = c.tel.sendRecord(record("r4"));
+  await new Promise((r) => setTimeout(r, 5));
+  c.tel.sendRecord(record("r5")); // waiting: dropped, never sent after the deletion
+  const deleted = c.tel.deleteMine();
+  release();
+  await slow;
+  assert.deepEqual(await deleted, { ok: true, deleted: 1 });
+  assert.deepEqual(order, ["r4", "delete"]); // r5 was never sent
+  assert.equal(localStorage.getItem(RECORDS_KEY), null);
+  // something that is not a record in the queue (a hand edit, an old page) is dropped, not a reason to stop
+  localStorage.setItem(RECORDS_KEY, JSON.stringify([null, 5, { id: 7 }]));
+  const later = client();
+  later.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.deepEqual(await later.tel.sendRecord(record("r6")), { sent: 1 });
+});
+
+test("client: with storage blocked, the answer to the notice and the records are kept for the page", async () => {
+  resetStorage();
+  const ls = globalThis.localStorage;
+  const blocked = { getItem: () => null, setItem: () => { throw new DOMException("blocked", "SecurityError"); }, removeItem: () => {}, key: () => null, length: 0, clear: () => {} };
+  Object.defineProperty(globalThis, "localStorage", { value: blocked, configurable: true, writable: true });
+  try {
+    const c = client();
+    c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+    assert.equal(c.tel.needsConsent(), true);
+    setContentConsent(true);
+    assert.equal(c.tel.needsConsent(), false, "asked once, not before every question");
+    assert.equal(c.tel.contentOn, true);
+    const owner = await ownerOf("m".repeat(43));
+    assert.deepEqual(await c.tel.sendRecord({ v: 1, id: "x1", conversation: "c", owner, consent: CONSENT_VERSION, question: "q", status: "completed" }), { sent: 1 });
+    assert.equal(c.tel.touch(), true);
+    assert.equal(c.tel.touch(), false, "the same visit, not a new one at every page view");
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { value: ls, configurable: true, writable: true });
+    forgetConsent();
+  }
+});
+
+test("client: a turn that ends before its lock is granted lets the lock go; recovery runs in one tab at a time", async () => {
+  resetStorage();
+  const granted = [];
+  const held = new Set();
+  let pending = null;
+  const locks = {
+    request: (name, a, b) => {
+      const fn = typeof a === "function" ? a : b;
+      const opts = typeof a === "function" ? {} : a;
+      if (opts.ifAvailable && held.has(name)) return Promise.resolve(fn(null));
+      return new Promise((resolve) => {
+        pending = () => {
+          held.add(name);
+          granted.push(name);
+          Promise.resolve(fn({ name })).then((v) => { held.delete(name); resolve(v); });
+        };
+        if (opts.ifAvailable) pending();
+      });
+    },
+    query: async () => ({ held: [...held].map((name) => ({ name })) }),
+  };
+  const c = client({ nav: { locks } });
+  c.tel.turnBegan({ id: "t1", conversationId: "c1", startedAt: 1 });
+  c.tel.turnEnded("t1"); // before the lock was granted
+  pending(); // granted now
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.has("tcmstudio-turn-t1"), false, "released at once");
+  // two pages recovering at the same moment: the second finds the lock taken and does nothing
+  let runs = 0;
+  const one = c.tel.exclusive(async () => { runs++; await new Promise((r) => setTimeout(r, 10)); });
+  const two = c.tel.exclusive(async () => { runs++; });
+  await Promise.all([one, two]);
+  assert.equal(runs, 1);
 });
 
 test("client: a page under an older or newer notice neither asks nor records", () => {
