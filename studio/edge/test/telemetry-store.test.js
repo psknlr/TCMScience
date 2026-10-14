@@ -122,6 +122,27 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
   assert.deepEqual(week.filters.providers, ["openai", "tao"]);
   assert.equal(week.previous ?? null, null); // previous lives under each section
   assert.equal(month.traffic.previous.pageviews, 0);
+  // what a filter cannot narrow is null, never the unfiltered number: questions sent carry no country, a
+  // conversation's start neither a country nor a model
+  await u.ingest(batch([{ type: "turn_start", provider: "tao", model: "Tao-S1", first: true }, { type: "turn_start", provider: "openai", model: "gpt-5", first: true }]), { day: DAY, country: "US", visitor: "y", now: NOW });
+  const all = u.stats({ from: shiftDay(DAY, -6), to: DAY });
+  assert.deepEqual([all.conversations.totals.turns_started, all.conversations.totals.conversations_started, all.conversations.unfiltered], [2, 2, []]);
+  const cn = u.stats({ from: shiftDay(DAY, -6), to: DAY, country: "CN" });
+  assert.deepEqual([cn.conversations.totals.turns_started, cn.conversations.totals.conversations_started, cn.conversations.daily.started], [null, null, null]);
+  assert.deepEqual(cn.conversations.unfiltered.sort(), ["conversations_started", "turns_started"]);
+  assert.equal(cn.conversations.totals.finished, 3); // the turn rows are filtered (all three of the week are from CN)
+  const model = u.stats({ from: shiftDay(DAY, -6), to: DAY, model: "Tao-S1" });
+  assert.deepEqual([model.conversations.totals.turns_started, model.conversations.totals.conversations_started], [1, null]);
+});
+
+test("usage: a summary's lists stay bounded whatever names the pages sent", async () => {
+  const u = new UsageCore(sqlStore());
+  const events = (i) => Array.from({ length: 50 }, (_, j) => ({ type: "workflow", key: `k${i}-${j}`, kind: "skill", name: `skill.made-up-${i}-${j}`, phase: "started" }));
+  for (let i = 0; i < 6; i++) await u.ingest(batch(events(i)), { day: DAY, visitor: `v${i}`, now: NOW });
+  u.observe(Array.from({ length: 300 }, (_, i) => ({ metric: "connector", a: `h${i}.example.org`, b: "2xx" })), { day: DAY });
+  const s = u.stats({ from: DAY, to: DAY });
+  assert.equal(s.workflows.length, 100);
+  assert.equal(s.connectors.length, 200);
 });
 
 test("usage: limits per visitor, then exports and retention", async () => {
@@ -135,7 +156,7 @@ test("usage: limits per visitor, then exports and retention", async () => {
   assert.ok(third.retry > 0 && third.retry <= 60);
   assert.equal((await go(NOW + 61000)).ok, true);
   assert.equal((await go(NOW + 122000)).reason, "rate_limited"); // the day's three are used
-  assert.deepEqual(u.exportRows("daily", DAY, DAY).map((r) => [r.metric, r.a, r.n]).filter((r) => r[0] === "pageview"), [["pageview", "home", 3]]);
+  assert.deepEqual(u.exportRows("daily", DAY, DAY).rows.map((r) => [r.metric, r.a, r.n]).filter((r) => r[0] === "pageview"), [["pageview", "home", 3]]);
   assert.equal(u.exportRows("nope", DAY, DAY), null);
   await u.ingest(batch([{ type: "turn_end", turn: "old", status: "completed", provider: "tao" }]), { day: shiftDay(DAY, -100), country: "CN", visitor: "v", now: NOW });
   await u.ingest(batch([{ type: "turn_end", turn: "new", status: "completed", provider: "tao" }]), { day: DAY, country: "CN", visitor: "v", now: NOW });
@@ -218,7 +239,7 @@ test("security: addresses as a network prefix and a monthly-keyed hash; the full
   await s.record({ kind: "scanner", route: "page", status: 404, detail: "/.env", facts, day: DAY }, { rawIp: "flagged", now: NOW + 20000 });
   await s.record({ kind: "forbidden_origin", route: "relay", status: 403, facts, day: DAY }, { rawIp: "flagged", now: NOW + 30000 });
   await s.record({ kind: "not_a_kind", facts, day: DAY }, { now: NOW });
-  const ev = s.exportRows(DAY, DAY);
+  const ev = s.exportRows(DAY, DAY).rows;
   assert.equal(ev.length, 3);
   assert.ok(ev.every((e) => e.net === "203.0.113.0/24" && /^[0-9a-f]{16}$/.test(e.who) && e.who === ev[0].who));
   assert.deepEqual(ev.map((e) => e.ip), [null, "203.0.113.77", null]); // only the flagged high-severity event
@@ -252,7 +273,7 @@ test("security: a flush's batch adds its counts once and stores its events at th
     ],
   }, { now: flushed });
   assert.equal(res.stored, 3);
-  const ev = s.exportRows(DAY, DAY);
+  const ev = s.exportRows(DAY, DAY).rows;
   assert.deepEqual(ev.map((e) => [e.detail, e.ts]), [
     ["/wp-1.php", new Date(NOW).toISOString()], ["/wp-3.php", new Date(NOW + 12000).toISOString()], ["/wp-4.php", new Date(flushed).toISOString()],
   ]);
@@ -318,7 +339,7 @@ test("budget: each object stops taking what visitors send once its day of rows i
   const s = new SecurityCore(sqlStore());
   const ev = (i, kind = "scanner") => ({ kind, route: "page", status: 404, detail: `/x${i}.php`, facts: { ip: `203.0.113.${i}` }, day: DAY, at: at + i * 20000 });
   await s.recordBatch({ counts: [{ day: DAY, kind: "scanner", n: 30 }], events: Array.from({ length: 30 }, (_, i) => ev(i)) }, { now: at + 30 * 20000, budget: 20 });
-  const stored = s.exportRows(DAY, DAY).length;
+  const stored = s.exportRows(DAY, DAY).rows.length;
   assert.ok(stored > 0 && stored < 30, String(stored));
   assert.equal(s.summary(DAY, DAY).by_kind.scanner, 30);
   assert.equal((await s.record({ kind: "admin_login", route: "admin", facts: { ip: "198.51.100.1" }, day: DAY }, { now: at + 700000, budget: 20 })).stored, true);

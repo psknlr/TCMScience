@@ -93,6 +93,48 @@ test("a run writes owner-only files of the datasets asked for; visitors' words n
   assert.doesNotMatch(err.message, new RegExp(wrong));
 });
 
+test("a long export: every page fetched and written as one file; a page failing on the way writes nothing", async () => {
+  const { fetcher } = await deployment();
+  const usage = new UsageCore(sqlStore());
+  const list = Array.from({ length: 2400 }, (_, i) => ({ metric: "connector", a: `h${String(i).padStart(4, "0")}.example.org`, b: "2xx", n: 1 }));
+  usage.observe(list.slice(0, 1200), { day: DAY });
+  usage.observe(list.slice(1200), { day: DAY });
+  const env = { ADMIN_TOKEN: ADMIN, EXPORT_TOKEN: EXPORT };
+  const deps = { usage: () => usage, conversations: () => null, security: () => null, assets: null, now: () => NOW };
+  let calls = 0;
+  let failAt = 0;
+  const paged = async (url, init = {}) => {
+    calls++;
+    if (failAt && calls === failAt) return new Response(JSON.stringify({ error: { type: "unavailable" } }), { status: 503 });
+    return handleAdmin(new Request(url, { headers: init.headers }), env, deps);
+  };
+  const out = path.join(tmp(), "exports");
+  for (const format of ["csv", "json"]) {
+    calls = 0;
+    const r = await run(parse(["--out", out, "--datasets", "connectors", "--format", format, "--days", "7"]), { env: { TCMS_EXPORT_TOKEN: EXPORT }, fetcher: paged, now: NOW });
+    assert.equal(r.files[0].pages, 3, format);
+    const text = readFileSync(r.files[0].file, "utf8");
+    if (format === "csv") {
+      assert.equal(text.split("\ufeff").length, 2);
+      const lines = text.replace(/^\ufeff/, "").trim().split("\r\n");
+      assert.equal(lines[0], "day,host,outcome,n");
+      assert.equal(new Set(lines.slice(1)).size, 2400);
+    } else {
+      const json = JSON.parse(text);
+      assert.equal(json.rows.length, 2400);
+      assert.equal(json.pages, 3);
+    }
+  }
+  // the second page fails: an error, and no file that would look like the whole export
+  const elsewhere = path.join(tmp(), "exports");
+  calls = 0;
+  failAt = 2;
+  await assert.rejects(run(parse(["--out", elsewhere, "--datasets", "connectors", "--days", "7"]), { env: { TCMS_EXPORT_TOKEN: EXPORT }, fetcher: paged, now: NOW }),
+    /HTTP 503 .* at page 2; nothing written/);
+  assert.deepEqual(readdirSync(path.join(elsewhere, DAY)).filter((f) => f.endsWith(".csv")), []);
+  void fetcher;
+});
+
 test("retention: only the dated folders this script made, and only those older than --keep-days, are deleted", () => {
   const out = tmp();
   const made = (name, mark = true) => {

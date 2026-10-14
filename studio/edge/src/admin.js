@@ -28,6 +28,20 @@ export const SESSION_COOKIE = "__Host-tcms_admin";
 export const PERIODS = [7, 30, 90];
 /** Datasets: the aggregated ones (EXPORT_TOKEN may take them) and those only an admin may (text, network data). */
 export const EXPORTS = { daily: "export", turns: "export", tools: "export", connectors: "export", geo: "export", security: "admin", conversations: "admin" };
+// each export's columns, in order: every page of a CSV the same, whichever fields its rows happen to have
+export const EXPORT_COLUMNS = {
+  daily: ["day", "metric", "a", "b", "n"],
+  turns: ["id", "day", "ts", "provider", "model", "status", "first", "steps", "tool_rounds", "calls", "tools", "tool_failures", "ms", "first_ms",
+    "tokens_in", "tokens_out", "citations", "citations_verified", "citations_used", "claims", "claims_refused", "recorded", "excluded", "error_kind",
+    "error_type", "limit_reached", "country"],
+  tools: ["id", "day", "ts", "tool", "kind", "place", "status", "ms", "error_type"],
+  connectors: ["day", "host", "outcome", "n"],
+  geo: ["day", "metric", "country", "n"],
+  security: ["seq", "ts", "day", "kind", "route", "status", "who", "net", "ip", "country", "asn", "ua_class", "method", "path", "detail"],
+  conversations: ["seq", "received", "v", "id", "conversation", "turn", "owner", "consent", "started", "finished", "ms", "first_ms", "status",
+    "limit_reached", "question", "answer", "redacted", "provider", "model", "steps", "tool_rounds", "calls", "tools", "citations", "claims", "evidence",
+    "usage", "error", "app", "runtime"],
+};
 const PUBLIC_ASSETS = new Set(["/admin/login.js", "/admin/admin.css"]);
 const SESSION_ASSETS = new Set(["/admin/dashboard.js", "/admin/charts.js", "/admin/i18n.js"]);
 const enc = new TextEncoder();
@@ -40,6 +54,7 @@ export const ADMIN_CSP = [
 
 const MSG = {
   https_required: "请使用 https 访问",
+  bad_cursor: "导出的分页位置无效，请从头重新导出",
   admin_off: "管理后台未启用：请先设置 ADMIN_TOKEN 机密（至少 32 个字符）",
   not_found: "没有这个接口",
   method_not_allowed: "这个接口不接受这种请求方法",
@@ -123,13 +138,27 @@ export function csvCell(v) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Rows (objects) as CSV with a header of their keys, in first-seen order; UTF-8 with a BOM for spreadsheet programs. */
-export function toCsv(rows) {
-  const cols = [];
-  for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
-  const lines = [cols.map(csvCell).join(",")];
+/** Rows (objects) as CSV: `columns` in order (else their keys in first-seen order). The first page of an export has
+ * the header, after a BOM for spreadsheet programs (UTF-8); a later page (`header: false`) only its rows, so that the
+ * pages put one after another are the whole file. */
+export function toCsv(rows, { columns = null, header = true } = {}) {
+  const cols = columns ? [...columns] : [];
+  if (!columns) for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+  const lines = header ? [cols.map(csvCell).join(",")] : [];
   for (const r of rows) lines.push(cols.map((c) => csvCell(r[c])).join(","));
-  return `﻿${lines.join("\r\n")}\r\n`;
+  if (!lines.length) return "";
+  return `${header ? "﻿" : ""}${lines.join("\r\n")}\r\n`;
+}
+
+const encodeCursor = (v) => btoa(JSON.stringify(v)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function decodeCursor(s) {
+  if (!s) return { ok: true, value: null };
+  if (!/^[A-Za-z0-9_-]{1,2000}$/.test(s)) return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(atob(s.replace(/-/g, "+").replace(/_/g, "/"))) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- the handler
@@ -167,17 +196,26 @@ export async function handleAdmin(request, env, deps) {
   try {
     if (path === "/admin") return new Response(null, { status: 308, headers: { Location: "/admin/" } });
     if (isPage) return await page(request, cfg, deps, url, now);
-    // a source refused for failing too often is refused before anything is checked
-    const state = await sec()?.authState(clientIp(request), now);
-    if (state?.locked) return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
-    if (path === "/api/admin/session" && request.method === "POST") return await login(request, cfg, deps, url, now, audit);
+    const signIn = path === "/api/admin/session" && request.method === "POST";
+    const who = signIn ? { scope: null } : await authenticate(request, cfg, now);
+    // a source refused for failing too often is refused whatever it presents — except an admin already signed in: a
+    // session this Worker signed is not a guess, and others failing from the same address (a shared IPv4, a /64) must
+    // not lock the admin out. A token is checked, but while locked even the right one is refused (no answer tells
+    // a guess from the token).
+    if (who.via !== "session") {
+      const state = await sec()?.authState(clientIp(request), now);
+      if (state?.locked) {
+        if (signIn && isForm(request)) return new Response(null, { status: 303, headers: { Location: "/admin/?e=locked" } });
+        return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
+      }
+    }
+    if (signIn) return await login(request, cfg, deps, url, now, audit);
     if (path === "/api/admin/session/logout" && request.method === "POST") {
       if (!sameSite(request, url, [url.origin])) return fail(403, "cross_site", MSG.cross_site);
       const res = isForm(request) ? new Response(null, { status: 303, headers: { Location: "/admin/" } }) : json({ ok: true });
       res.headers.append("Set-Cookie", setCookie("", 0));
       return res;
     }
-    const who = await authenticate(request, cfg, now);
     if (!who.scope) {
       if (who.attempted) await failed(request, deps, now, audit);
       return fail(401, "unauthorized", MSG.unauthorized, { "WWW-Authenticate": 'Bearer realm="tcmscience-admin"' });
@@ -283,22 +321,40 @@ async function summary(env, cfg, deps, url, now, who) {
   });
 }
 
+/**
+ * One page of an export (a page is one request to one Durable Object, small enough for the Worker's CPU and the RPC's
+ * size): `cursor` is the previous page's `next`. JSON: {dataset, period, generated, rows, next}; CSV: the rows, with the
+ * header on the first page only, and the next page in X-Next-Cursor and a Link header. The export is audited once, at
+ * its first page.
+ */
 async function exportData(cfg, deps, url, now, who, audit) {
   const dataset = url.searchParams.get("dataset") || "";
   const format = url.searchParams.get("format") === "csv" ? "csv" : "json";
-  const need = EXPORTS[dataset];
+  const need = Object.hasOwn(EXPORTS, dataset) ? EXPORTS[dataset] : null; // never a property of every object
   if (!need) return fail(400, "bad_dataset", MSG.bad_dataset);
   if (need === "admin" && who.scope !== "admin") return fail(403, "forbidden", MSG.forbidden);
+  const cursor = decodeCursor(url.searchParams.get("cursor") || "");
+  if (!cursor.ok) return fail(400, "bad_cursor", MSG.bad_cursor);
   const p = periodOf(url, cfg, now);
-  let rows;
-  if (dataset === "conversations") rows = deps.conversations ? await deps.conversations().exportRows(p.from, p.to) : [];
-  else if (dataset === "security") rows = deps.security ? await deps.security().exportRows(p.from, p.to) : [];
-  else rows = deps.usage ? await deps.usage().exportRows(dataset, p.from, p.to) : [];
-  await audit("admin_export", `${dataset}.${format}:${p.days}d:${rows.length}`);
+  const page = { after: cursor.value ?? undefined };
+  let res;
+  if (dataset === "conversations") res = deps.conversations ? await deps.conversations().exportRows(p.from, p.to, page) : { rows: [], next: null };
+  else if (dataset === "security") res = deps.security ? await deps.security().exportRows(p.from, p.to, page) : { rows: [], next: null };
+  else res = deps.usage ? await deps.usage().exportRows(dataset, p.from, p.to, page) : { rows: [], next: null };
+  if (!res) return fail(400, "bad_cursor", MSG.bad_cursor);
+  const first = cursor.value === null;
+  if (first) await audit("admin_export", `${dataset}.${format}:${p.days}d`);
+  const next = res.next === null || res.next === undefined ? null : encodeCursor(res.next);
   const name = `tcmscience-${dataset}-${p.from}_${p.to}.${format}`;
   const headers = { "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" };
-  if (format === "csv") return new Response(toCsv(rows), { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8" } });
-  return new Response(JSON.stringify({ dataset, period: p, generated: new Date(now).toISOString(), rows }), {
+  if (next) {
+    const q = new URLSearchParams({ dataset, format, days: String(p.days), cursor: next });
+    Object.assign(headers, { "X-Next-Cursor": next, Link: `</api/admin/telemetry/export?${q}>; rel="next"` });
+  }
+  if (format === "csv") {
+    return new Response(toCsv(res.rows, { columns: EXPORT_COLUMNS[dataset], header: first }), { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8" } });
+  }
+  return new Response(JSON.stringify({ dataset, period: p, generated: new Date(now).toISOString(), rows: res.rows, next }), {
     headers: { ...headers, "Content-Type": "application/json; charset=utf-8" },
   });
 }

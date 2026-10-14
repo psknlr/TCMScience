@@ -708,14 +708,78 @@ function recordsCard(data) {
 
 // ------------------------------------------------------------------------------------------------- exports and settings
 
+const MAX_EXPORT_PAGES = 2000; // an export comes in pages of up to a thousand rows (a hundred records)
+
+/** Every page of an export (each one request: the Worker's limits per request are small), put together and saved as
+ * one file, the same file the export script writes. */
+async function downloadExport(dataset, format, days) {
+  const parts = [];
+  const rows = [];
+  let meta = null;
+  let name = `tcmscience-${dataset}.${format}`;
+  let cursor = "";
+  for (let page = 1; page <= MAX_EXPORT_PAGES; page++) {
+    const q = new URLSearchParams({ dataset, format, days: String(days), ...(cursor ? { cursor } : {}) });
+    const res = await fetch(`/api/admin/telemetry/export?${q}`, { credentials: "same-origin", cache: "no-store" });
+    if (res.status === 401) {
+      expired();
+      throw new Expired("expired");
+    }
+    if (!res.ok) {
+      let e = null;
+      try { e = (await res.json())?.error; } catch { e = null; }
+      throw new Error((lang() === "zh" ? e?.message : e?.type) || `HTTP ${res.status}`);
+    }
+    if (page === 1) name = /filename="([A-Za-z0-9_.-]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || name;
+    if (format === "csv") {
+      parts.push(await res.text()); // text() drops the first page's BOM: it is put back once, below
+      cursor = res.headers.get("X-Next-Cursor") || "";
+    } else {
+      const body = await res.json();
+      meta ||= { dataset: body.dataset, period: body.period, generated: body.generated };
+      rows.push(...(body.rows || []));
+      cursor = body.next || "";
+    }
+    if (!cursor) break;
+    say(t("exporting", { n: fmt.int(page) }));
+  }
+  if (cursor) throw new Error(t("export_too_large"));
+  const blob = format === "csv" ? new Blob(["\ufeff", ...parts], { type: "text/csv;charset=utf-8" })
+    : new Blob([JSON.stringify({ ...meta, rows })], { type: "application/json;charset=utf-8" });
+  const href = URL.createObjectURL(blob);
+  const a = el("a", { href, download: name, hidden: "" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+  say(t("exported", { name }));
+}
+
 function exportsCard(data) {
   const admin = data.scope === "admin";
   const groups = DATASETS.filter((d) => admin || !ADMIN_ONLY.has(d)).map((d) => el("span", { class: "exports__group" },
     el("span", { text: t(`datasets.${d}`) }),
-    ["csv", "json"].map((f) => el("a", {
-      class: "btn btn--small", download: "", text: f.toUpperCase(), "aria-label": `${t(`datasets.${d}`)} · ${f.toUpperCase()}`,
-      href: `/api/admin/telemetry/export?${new URLSearchParams({ dataset: d, format: f, days: String(state.days) })}`,
-    }))));
+    ["csv", "json"].map((f) => {
+      // the link is the export's first page (enough for most periods, and what a browser without script gets); a
+      // click takes every page and saves them as one file
+      const link = el("a", {
+        class: "btn btn--small", download: "", text: f.toUpperCase(), "aria-label": `${t(`datasets.${d}`)} · ${f.toUpperCase()}`,
+        href: `/api/admin/telemetry/export?${new URLSearchParams({ dataset: d, format: f, days: String(state.days) })}`,
+      });
+      link.addEventListener("click", async (e) => {
+        e.preventDefault();
+        if (link.getAttribute("aria-busy") === "true") return;
+        link.setAttribute("aria-busy", "true");
+        try {
+          await downloadExport(d, f, state.days);
+        } catch (err) {
+          if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
+        } finally {
+          link.removeAttribute("aria-busy");
+        }
+      });
+      return link;
+    })));
   return card(t("exports"), { wide: true, note: t("exports_note", { n: state.days }) }, el("div", { class: "exports" }, groups));
 }
 

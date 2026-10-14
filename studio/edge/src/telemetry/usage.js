@@ -23,7 +23,25 @@ import { daysBetween, shiftDay } from "./config.js";
 
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 const enc = new TextEncoder();
-const MAX_ROWS = 50000; // rows read for a percentile or an export at most (the newest)
+const MAX_ROWS = 50000; // rows read for a percentile at most (the newest)
+export const PAGE_ROWS = 1000; // rows of an export a page (each page one request: the Worker's CPU per request is small)
+// each export: its rows from..to (two parameters), and the columns that order them and resume after a page
+const EXPORT_SPECS = {
+  daily: { key: ["day", "metric", "a", "b"], sql: "SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ?" },
+  turns: {
+    key: ["day", "id"], // the day index's own order: a page seeks, never sorts the period
+    sql: `SELECT id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools, tool_failures, ms, first_ms, tokens_in,
+      tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country
+      FROM usage_turns WHERE day >= ? AND day <= ?`,
+  },
+  tools: { key: ["day", "id"], sql: "SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ?" },
+  connectors: { key: ["day", "host", "outcome"], sql: "SELECT day, a AS host, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ?" },
+  geo: {
+    key: ["day", "metric", "country"],
+    sql: `SELECT day, metric, CASE WHEN metric = 'visitor' THEN a ELSE b END AS country, SUM(n) AS n FROM usage_counts
+      WHERE metric IN ('pageview', 'visit', 'visitor') AND day >= ? AND day <= ? GROUP BY day, metric, country`,
+  },
+};
 export const METRICS = [
   "app_init", "app_browser", "visit", "pageview", "pageview_tab", "visitor", "asker", "turn_start", "conversation_start", "turn_end",
   "turn_recorded", "turn_excluded", "model_call", "tokens_in", "tokens_out", "tool_run", "tool_kind", "tool_place", "workflow",
@@ -286,6 +304,7 @@ export class UsageCore {
       if (model && modelMetrics.includes(r.metric) && r.b !== model) return false;
       return true;
     };
+    const unfilterable = new Set([...(country ? ["turns_started", "conversations_started"] : []), ...(model ? ["conversations_started"] : [])]);
     const series = Object.fromEntries(SERIES.map((m) => [m, zeros()]));
     for (const r of this.sql.exec("SELECT day, metric, a, b, SUM(n) AS n FROM usage_counts WHERE day >= ? AND day <= ? GROUP BY day, metric, a, b", from, to).toArray()) {
       if (series[r.metric] && idx.has(r.day) && kept(r)) series[r.metric][idx.get(r.day)] += Number(r.n) || 0;
@@ -362,8 +381,10 @@ export class UsageCore {
     }
 
     // ---- breakdowns from the counters
-    const group = (metric) => this.sql.exec("SELECT a, b, SUM(n) AS n FROM usage_counts WHERE metric = ? AND day >= ? AND day <= ? GROUP BY a, b", metric, from, to)
-      .toArray().map((r) => ({ a: r.a, b: r.b, n: Number(r.n) }));
+    // the largest thousand of each breakdown (a page's events name what they name: their number is not the store's to
+    // bound, and a summary must stay small enough for one answer)
+    const group = (metric) => this.sql.exec("SELECT a, b, SUM(n) AS n FROM usage_counts WHERE metric = ? AND day >= ? AND day <= ? GROUP BY a, b ORDER BY n DESC LIMIT 1000",
+      metric, from, to).toArray().map((r) => ({ a: r.a, b: r.b, n: Number(r.n) }));
     const connectors = new Map();
     for (const r of group("connector")) {
       const c = connectors.get(r.a) || { host: r.a, requests: 0, ok: 0, client_errors: 0, server_errors: 0, refused: 0, failed: 0, cancelled: 0, ms_total: 0 };
@@ -385,7 +406,7 @@ export class UsageCore {
     const connectorList = [...connectors.values()].map(({ ms_total: total, ...c }) => {
       const tried = c.ok + c.client_errors + c.server_errors + c.failed;
       return { ...c, availability: tried ? (c.ok + c.client_errors) / tried : null, avg_ms: c.requests ? Math.round(total / c.requests) : null };
-    }).sort((a, b) => b.requests - a.requests);
+    }).sort((a, b) => b.requests - a.requests).slice(0, 200);
     const workflows = new Map();
     for (const r of group("workflow")) {
       const w = workflows.get(r.a) || { workflow: r.a, started: 0, submitted: 0, completed: 0, failed: 0, refused: 0, cancelled: 0 };
@@ -419,9 +440,12 @@ export class UsageCore {
         routes: byKey("pageview").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}),
         clients: { layouts: byKey("app_init"), browsers: byKey("app_browser") } },
       conversations: {
-        daily: { started: series.turn_start, conversations: series.conversation_start, ...turnsDaily },
-        totals: { turns_started: totals.turn_start, conversations_started: totals.conversation_start, finished, ...turnTotals },
-        previous: { turns_started: previous.turn_start, finished: Number(before.n) || 0, completed: Number(before.completed) || 0,
+        // a question sent is counted by provider and model only, a conversation's start by provider only: under a filter
+        // they cannot be narrowed by, they are null, never the unfiltered numbers (the turn rows below are filtered)
+        unfiltered: [...unfilterable],
+        daily: { started: unfilterable.has("turns_started") ? null : series.turn_start, conversations: unfilterable.has("conversations_started") ? null : series.conversation_start, ...turnsDaily },
+        totals: { turns_started: unfilterable.has("turns_started") ? null : totals.turn_start, conversations_started: unfilterable.has("conversations_started") ? null : totals.conversation_start, finished, ...turnTotals },
+        previous: { turns_started: unfilterable.has("turns_started") ? null : previous.turn_start, finished: Number(before.n) || 0, completed: Number(before.completed) || 0,
           conversations: Number(before.conversations) || 0 },
         success_rate: finished ? turnTotals.completed / finished : null,
         conversations: Number(agg.conversations) || 0, recorded: Number(agg.recorded) || 0, excluded: Number(agg.excluded) || 0,
@@ -438,7 +462,7 @@ export class UsageCore {
         previous: { runs: Number(toolsBefore.n) || 0, failed: Number(toolsBefore.failed) || 0 }, list: tools,
         by_kind: byKey("tool_kind").map((r) => ({ kind: r.a, status: r.b, n: r.n })), by_place: byKey("tool_place").map((r) => ({ place: r.a, status: r.b, n: r.n })) },
       connectors: connectorList,
-      workflows: [...workflows.values()].sort((a, b) => (b.started + b.submitted) - (a.started + a.submitted)),
+      workflows: [...workflows.values()].sort((a, b) => (b.started + b.submitted) - (a.started + a.submitted)).slice(0, 100),
       geography: [...geo.values()].sort((a, b) => (b.pageviews - a.pageviews) || (b.turns - a.turns)).slice(0, 250),
       errors: { daily: series.app_error, total: totals.app_error, previous: previous.app_error, list: byKey("app_error").map((r) => ({ category: r.a, name: r.b, n: r.n })).slice(0, 50) },
       availability: [...availability.values()],
@@ -454,25 +478,25 @@ export class UsageCore {
     };
   }
 
-  /** Rows for an export: daily (the counters), turns, tools, connectors, geo; at most MAX_ROWS, oldest first. */
-  exportRows(dataset, from, to) {
-    switch (dataset) {
-      case "daily":
-        return this.sql.exec("SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ? ORDER BY day, metric, a, b LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "turns":
-        return this.sql.exec(`SELECT id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools, tool_failures, ms, first_ms, tokens_in,
-          tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country
-          FROM usage_turns WHERE day >= ? AND day <= ? ORDER BY ts LIMIT ?`, from, to, MAX_ROWS).toArray();
-      case "tools":
-        return this.sql.exec("SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ? ORDER BY ts LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "connectors":
-        return this.sql.exec("SELECT day, a AS host, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ? ORDER BY day, a, b LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "geo":
-        return this.sql.exec(`SELECT day, metric, CASE WHEN metric = 'visitor' THEN a ELSE b END AS country, SUM(n) AS n FROM usage_counts
-          WHERE metric IN ('pageview', 'visit', 'visitor') AND day >= ? AND day <= ? GROUP BY day, metric, country ORDER BY day, metric, country LIMIT ?`, from, to, MAX_ROWS).toArray();
-      default:
-        return null;
-    }
+  /**
+   * One page of an export, oldest first: daily (the counters), turns, tools, connectors, geo. `after`: the previous
+   * page's last row's key (the `next` it returned), `limit`: rows a page (at most PAGE_ROWS). → {rows, next} (next:
+   * null on the last page), or null for an unknown dataset or a malformed key.
+   */
+  exportRows(dataset, from, to, { after = null, limit = PAGE_ROWS } = {}) {
+    const n = Math.min(PAGE_ROWS, Math.max(1, Math.floor(Number(limit)) || PAGE_ROWS));
+    const spec = EXPORT_SPECS[dataset];
+    if (!spec) return null;
+    const key = after === null || after === undefined ? null : after;
+    if (key !== null && !(Array.isArray(key) && key.length === spec.key.length && key.every((v) => typeof v === "string" || Number.isFinite(v)))) return null;
+    const keyCols = spec.key.join(", ");
+    const where = key ? ` AND (${keyCols}) > (${spec.key.map(() => "?").join(", ")})` : "";
+    // every key starts with the day: a later page begins its scan at the day it stopped in, not at the period's start
+    const lo = key && String(key[0]) > from ? String(key[0]) : from;
+    const rows = this.sql.exec(`SELECT * FROM (${spec.sql}) WHERE 1${where} ORDER BY ${keyCols} LIMIT ?`, lo, to, ...(key || []), n + 1).toArray();
+    const page = rows.slice(0, n);
+    const last = page[page.length - 1];
+    return { rows: page, next: rows.length > n ? spec.key.map((k) => last[k]) : null };
   }
 
   /** Delete what is past its retention: rows after `events` days, counts after `aggregates`, the salts and seen-sets

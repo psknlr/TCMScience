@@ -282,6 +282,37 @@ test("the dashboard draws the real API's summary, and shows a visitor's words as
   setLang("zh");
 });
 
+test("an export button takes every page of the export and saves them as one file", async () => {
+  const { s, window, document, calls } = await mount();
+  s.usage.observe(Array.from({ length: 1500 }, (_, i) => ({ metric: "connector", a: `h${String(i).padStart(4, "0")}.example.org`, b: "2xx", n: 1 })), { day: DAY });
+  const files = [];
+  const created = new Map();
+  const { createObjectURL, revokeObjectURL } = URL;
+  URL.createObjectURL = (blob) => { const href = `blob:${SITE}/${created.size}`; created.set(href, blob); return href; };
+  URL.revokeObjectURL = () => {};
+  const proto = window.HTMLElement.prototype;
+  const own = Object.getOwnPropertyDescriptor(proto, "click");
+  proto.click = function click() { if (this.getAttribute("download")) files.push({ name: this.getAttribute("download"), blob: created.get(this.getAttribute("href")) }); };
+  try {
+    const link = await until(() => [...document.querySelectorAll(".exports a")].find((a) => a.getAttribute("href").includes("dataset=connectors&format=csv")), "the export link");
+    click(window, link);
+    await until(() => files.length, "the saved file");
+    assert.match(files[0].name, /^tcmscience-connectors-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.csv$/);
+    const bytes = new Uint8Array(await files[0].blob.arrayBuffer());
+    assert.deepEqual([...bytes.slice(0, 3)], [0xef, 0xbb, 0xbf]);
+    const lines = new TextDecoder("utf-8").decode(bytes).trim().split("\r\n");
+    assert.equal(lines[0], "day,host,outcome,n");
+    assert.equal(lines.length, 1 + 1500 + 1); // the header, these 1,500 and the fixtures' rest.uniprot.org
+    assert.equal(lines.filter((l) => l.startsWith("\ufeff") || l === "day,host,outcome,n").length, 1, "one header, one BOM");
+    assert.equal(calls.filter((c) => c.startsWith("GET /api/admin/telemetry/export?dataset=connectors&format=csv")).length, 2, "two pages");
+  } finally {
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = revokeObjectURL;
+    if (own) Object.defineProperty(proto, "click", own);
+    else delete proto.click;
+  }
+});
+
 test("a lapsed session says so and links to the sign-in page; nothing else is shown", async () => {
   const { document } = await mount({ expire: true });
   await until(() => document.querySelector("#status a"), "the sign-in link");

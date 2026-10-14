@@ -23,6 +23,10 @@ export const SECURITY_KINDS = [
   "admin_auth_failed", "admin_locked", "admin_login", "admin_export", "admin_view", "admin_delete", "admin_prune",
 ];
 const HIGH = new Set(["scanner", "admin_auth_failed", "admin_locked"]);
+// the admin's own actions: each one stored (an audit trail), whatever the sampling or the budget; failed sign-ins are
+// events like the others (counted, stored one a source every ten seconds), so a flood of them cannot push the admin's
+// actions out of the audit list
+const AUDIT = ["admin_login", "admin_view", "admin_export", "admin_delete", "admin_prune"];
 // a source keeps being refused this long after this many failed admin attempts within the window
 export const LOCK = { failures: 8, windowMs: 15 * 60000, lockMs: 15 * 60000 };
 const THROTTLE_MS = 10000; // one stored event per source and kind every ten seconds (every one is still counted)
@@ -141,7 +145,7 @@ export class SecurityCore {
       this.sql.exec("INSERT INTO sec_counts (day, kind, n) VALUES (?, ?, 1) ON CONFLICT(day, kind) DO UPDATE SET n = n + 1", day, kind);
       this.#wrote(1, now);
     }
-    const audit = kind.startsWith("admin_");
+    const audit = AUDIT.includes(kind);
     if (!audit && !this.budget.check(budget, { now }).ok) return { stored: false };
     const who = await this.who(facts.ip, now);
     const k = `${who}|${kind}`;
@@ -224,19 +228,25 @@ export class SecurityCore {
       .map((r) => ({ day: r.day, kind: r.kind, n: Number(r.n) }));
     const byKind = {};
     for (const r of daily) byKind[r.kind] = (byKind[r.kind] || 0) + r.n;
+    const actions = AUDIT.map(() => "?").join(", ");
+    // sources: every event but the admin's own actions (failed sign-ins included: they are where an attack shows)
     const sources = this.sql.exec(`SELECT who, net, country, COUNT(*) AS n, GROUP_CONCAT(DISTINCT kind) AS kinds, MAX(ts) AS last,
-      SUM(CASE WHEN ip IS NOT NULL THEN 1 ELSE 0 END) AS with_ip FROM sec_events WHERE day >= ? AND day <= ? AND kind NOT LIKE 'admin_%'
-      GROUP BY who ORDER BY n DESC LIMIT 20`, from, to).toArray()
+      SUM(CASE WHEN ip IS NOT NULL THEN 1 ELSE 0 END) AS with_ip FROM sec_events WHERE day >= ? AND day <= ? AND kind NOT IN (${actions})
+      GROUP BY who ORDER BY n DESC LIMIT 20`, from, to, ...AUDIT).toArray()
       .map((r) => ({ who: r.who, net: r.net, country: r.country, n: Number(r.n), kinds: String(r.kinds || "").split(",").filter(Boolean), last: r.last, with_ip: Number(r.with_ip) > 0 }));
-    const audit = this.sql.exec("SELECT ts, kind, detail, who, net FROM sec_events WHERE day >= ? AND day <= ? AND kind LIKE 'admin_%' ORDER BY seq DESC LIMIT 50", from, to)
+    const audit = this.sql.exec(`SELECT ts, kind, detail, who, net FROM sec_events WHERE day >= ? AND day <= ? AND kind IN (${actions}) ORDER BY seq DESC LIMIT 50`, from, to, ...AUDIT)
       .toArray().map((r) => ({ ts: r.ts, kind: r.kind, detail: r.detail, who: r.who, net: r.net }));
     return { daily, by_kind: byKind, sources, audit, budget: this.budget.state(budget) };
   }
 
-  /** The stored events from..to (for an authorized export), oldest first, at most `limit`. */
-  exportRows(from, to, limit = 50000) {
-    return this.sql.exec(`SELECT seq, ts, day, kind, route, status, who, net, ip, country, asn, ua_class, method, path, detail
-      FROM sec_events WHERE day >= ? AND day <= ? ORDER BY seq LIMIT ?`, from, to, limit).toArray();
+  /** One page of the stored events from..to (an authorized export), oldest first, after the event `after` (a seq).
+   * → {rows, next}. */
+  exportRows(from, to, { after = 0, limit = 1000 } = {}) {
+    const n = Math.min(1000, Math.max(1, Math.floor(Number(limit)) || 1000));
+    const rows = this.sql.exec(`SELECT seq, ts, day, kind, route, status, who, net, ip, country, asn, ua_class, method, path, detail
+      FROM sec_events WHERE day >= ? AND day <= ? AND seq > ? ORDER BY seq LIMIT ?`, from, to, Math.max(0, Math.floor(Number(after)) || 0), n + 1).toArray();
+    const page = rows.slice(0, n);
+    return { rows: page, next: rows.length > n ? Number(page[page.length - 1].seq) : null };
   }
 
   /** Delete what is older than `days` days before `today` (events, counts, sign-in state, and the keys of months that

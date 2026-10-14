@@ -93,7 +93,7 @@ export class UsageLog extends TelemetryObject {
 
   stats(q) { return this.core.stats(q); }
 
-  exportRows(dataset, from, to) { return this.core.exportRows(dataset, from, to); }
+  exportRows(dataset, from, to, page) { return this.core.exportRows(dataset, from, to, page); }
 
   prune(today, retention) { return this.core.prune(today, retention); }
 }
@@ -112,7 +112,7 @@ export class ConversationLog extends TelemetryObject {
 
   list(q) { return this.core.list(q); }
 
-  exportRows(from, to) { return this.core.exportRows(from, to); }
+  exportRows(from, to, page) { return this.core.exportRows(from, to, page); }
 
   deleteIds(ids, opts) { return this.core.deleteIds(ids, opts); }
 
@@ -143,7 +143,7 @@ export class SecurityLog extends TelemetryObject {
 
   summary(from, to, budget) { return this.core.summary(from, to, budget); }
 
-  exportRows(from, to) { return this.core.exportRows(from, to); }
+  exportRows(from, to, page) { return this.core.exportRows(from, to, page); }
 
   prune(today, days) { return this.core.prune(today, days); }
 }

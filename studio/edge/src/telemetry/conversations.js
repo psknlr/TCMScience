@@ -189,10 +189,14 @@ export class ConversationCore {
     return { items, next: rows.length > n ? items[items.length - 1].seq : null };
   }
 
-  /** All records from..to, oldest first (an authorized export), at most `limit`. */
-  exportRows(from, to, limit = 20000) {
-    return this.sql.exec("SELECT seq, received, record FROM conv_records WHERE day >= ? AND day <= ? ORDER BY seq LIMIT ?", from, to, limit).toArray()
-      .map((r) => ({ seq: Number(r.seq), received: r.received, ...JSON.parse(r.record) }));
+  /** One page of the records from..to (an authorized export), oldest first, after the record `after` (a seq): a
+   * hundred at most, a record being up to tens of kilobytes. → {rows, next}. */
+  exportRows(from, to, { after = 0, limit = 100 } = {}) {
+    const n = Math.min(100, Math.max(1, Math.floor(Number(limit)) || 100));
+    const rows = this.sql.exec("SELECT seq, received, record FROM conv_records WHERE day >= ? AND day <= ? AND seq > ? ORDER BY seq LIMIT ?",
+      from, to, Math.max(0, Math.floor(Number(after)) || 0), n + 1).toArray();
+    const page = rows.slice(0, n).map((r) => ({ seq: Number(r.seq), received: r.received, ...JSON.parse(r.record) }));
+    return { rows: page, next: rows.length > n ? page[page.length - 1].seq : null };
   }
 
   /** Counts for the dashboard: stored, duplicate, excluded (by reason), deleted, by day; what is held now. */

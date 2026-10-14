@@ -276,6 +276,33 @@ test("admin: off without a strong ADMIN_TOKEN; bearer tokens by scope; failures 
   assert.doesNotMatch(JSON.stringify(audit), /wrong-token|192\.0\.2\.66/);
 });
 
+test("admin lock-out: a signed-in admin is not locked out by others failing from the same address; failures never crowd the audit list", async () => {
+  const w = setup();
+  const ip = "192.0.2.80"; // a shared address (carrier NAT, a campus): the admin and someone guessing
+  const res = await w.call("/api/admin/session", { method: "POST", body: JSON.stringify({ token: ADMIN }), headers: { Origin: PAGE, "Content-Type": "application/json", "CF-Connecting-IP": ip } });
+  const cookie = res.headers.get("Set-Cookie").split(";")[0];
+  // 72 failures from eight rotating /64s and the shared address
+  for (let i = 0; i < 72; i++) {
+    const from = i % 9 === 8 ? ip : `2001:db8:${i % 8}::${i}`;
+    await w.call("/api/admin/telemetry/summary", bearer(`wrong-token-${i}-wrong-token-wrong-token`, { "CF-Connecting-IP": from }));
+  }
+  const locked = await w.call("/api/admin/telemetry/summary", bearer(ADMIN, { "CF-Connecting-IP": ip }));
+  assert.equal(locked.status, 429, "a token is still refused from a locked address, the right one included");
+  // the admin's session goes on, from the same address: viewing and signing out
+  const mine = await w.call("/api/admin/telemetry/summary?days=7", { headers: { Cookie: cookie, "CF-Connecting-IP": ip } });
+  assert.equal(mine.status, 200);
+  const s = await mine.json();
+  assert.ok(s.security.audit.some((a) => a.kind === "admin_login"), "the sign-in is still in the audit list");
+  assert.ok(s.security.audit.every((a) => !a.kind.startsWith("admin_auth") && a.kind !== "admin_locked"), "failures are not actions");
+  assert.ok(s.security.sources.some((x) => x.kinds.includes("admin_auth_failed")), "failures show among the sources");
+  assert.equal(s.security.by_kind.admin_auth_failed + (s.security.by_kind.admin_locked || 0), 72, "every failure counted");
+  const out = await w.call("/api/admin/session/logout", { method: "POST", headers: { Cookie: cookie, Origin: PAGE, "CF-Connecting-IP": ip } });
+  assert.equal(out.status, 200);
+  // a form sign-in while locked goes back to the sign-in page with the reason, not to a JSON error
+  const form = await w.call("/api/admin/session", { method: "POST", body: `token=${encodeURIComponent(ADMIN)}`, headers: { Origin: PAGE, "Content-Type": "application/x-www-form-urlencoded", "CF-Connecting-IP": ip } });
+  assert.deepEqual([form.status, form.headers.get("Location")], [303, "/admin/?e=locked"]);
+});
+
 test("admin sign-in: an HttpOnly, Secure, SameSite=Strict session; changes only from this site; sign-out; rotation", async () => {
   const w = setup();
   const signIn = (token, headers = {}) => w.call("/api/admin/session", {
@@ -352,16 +379,68 @@ test("exports: aggregated or full by scope, CSV safe for spreadsheets, JSON with
   const js = await (await w.call("/api/admin/telemetry/export?dataset=turns&format=json&days=90", bearer())).json();
   assert.deepEqual([js.dataset, js.period.days, js.rows.length, js.rows[0].status], ["turns", 90, 1, "completed"]);
   assert.equal((await w.call("/api/admin/telemetry/export?dataset=passwords", bearer())).status, 400);
+  // a name every object has is not a dataset (400, not a failed call to the store)
+  for (const ds of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const res = await w.call(`/api/admin/telemetry/export?dataset=${ds}`, bearer());
+    assert.deepEqual([res.status, (await res.json()).error.type], [400, "bad_dataset"], ds);
+  }
+  assert.equal((await w.call("/api/admin/telemetry/export?dataset=daily&cursor=%%%", bearer())).status, 400);
   // a period other than 7, 30 or 90 days is read as 7
   assert.equal((await (await w.call("/api/admin/telemetry/export?dataset=daily&days=3650", bearer())).json()).period.days, 7);
   const s = await summary(w);
-  assert.deepEqual(s.security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail).sort(), ["conversations.csv:30d:1", "daily.json:7d:3", "turns.json:90d:1"]);
+  assert.deepEqual(s.security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail).sort(), ["conversations.csv:30d", "daily.json:7d", "turns.json:90d"]); // a refused cursor is no export
   assert.equal(csvCell("+1"), "'+1");
   assert.equal(csvCell("-sum"), "'-sum");
   assert.equal(csvCell("@cmd"), "'@cmd");
   assert.equal(csvCell("a,b"), '"a,b"');
   assert.equal(csvCell({ x: 1 }), '"{""x"":1}"');
   assert.equal(toCsv([{ a: 1 }, { b: "x\ny" }]), '﻿a,b\r\n1,\r\n,"x\ny"\r\n');
+});
+
+test("exports come in pages: every row once, the CSV's header once, the export audited once", async () => {
+  const w = setup();
+  // 2,345 counters of one day (more than two pages of a thousand)
+  const day = (await summary(w)).period.to;
+  const list = Array.from({ length: 2345 }, (_, i) => ({ metric: "connector", a: `host-${String(i).padStart(4, "0")}.example.org`, b: "2xx", n: i + 1 }));
+  w.objects.usage.observe(list.slice(0, 1500), { day }); // a flush sends 2,000 counters at most
+  w.objects.usage.observe(list.slice(1500), { day });
+  const pages = async (format) => {
+    const out = [];
+    let cursor = "";
+    for (let i = 0; i < 10; i++) {
+      const res = await w.call(`/api/admin/telemetry/export?dataset=connectors&format=${format}&days=7${cursor ? `&cursor=${cursor}` : ""}`, bearer());
+      assert.equal(res.status, 200);
+      const next = format === "csv" ? res.headers.get("X-Next-Cursor") : null;
+      if (format === "csv") {
+        out.push(new TextDecoder("utf-8", { ignoreBOM: true }).decode(await res.arrayBuffer())); // text() would drop the BOM
+        if (next) assert.match(res.headers.get("Link"), /^<\/api\/admin\/telemetry\/export\?dataset=connectors&format=csv&days=7&cursor=[\w-]+>; rel="next"$/);
+        cursor = next || "";
+      } else {
+        const body = await res.json();
+        out.push(body);
+        cursor = body.next || "";
+      }
+      if (!cursor) break;
+    }
+    return out;
+  };
+  const csv = await pages("csv");
+  assert.equal(csv.length, 3);
+  const text = csv.join("");
+  assert.equal(text.split("\ufeff").length, 2, "one BOM, at the start");
+  const lines = text.replace(/^\ufeff/, "").trim().split("\r\n");
+  assert.equal(lines[0], "day,host,outcome,n");
+  assert.equal(lines.length, 2346);
+  assert.equal(new Set(lines.slice(1)).size, 2345, "no row twice");
+  const json = await pages("json");
+  assert.deepEqual(json.map((p) => p.rows.length), [1000, 1000, 345]);
+  assert.equal(json[2].next, null);
+  assert.equal(json.flatMap((p) => p.rows).reduce((a, r) => a + r.n, 0), (2345 * 2346) / 2);
+  const audit = (await summary(w)).security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail);
+  assert.deepEqual(audit, ["connectors.json:7d", "connectors.csv:7d"]); // newest first: once each, not once a page
+  // a cursor for another dataset's rows is refused, not read as something else
+  const other = await w.call(`/api/admin/telemetry/export?dataset=daily&format=json&days=7&cursor=${json[0].next}`, bearer());
+  assert.equal(other.status, 400);
 });
 
 test("admin: retention on demand, and each object's daily alarm", async () => {
@@ -461,7 +540,7 @@ test("what is still held after a flush goes when the window ends, though no requ
   const s = await summary(w);
   assert.equal(s.security.by_kind.scanner, 3);
   // stored at the time each happened, one a source every ten seconds (probe 1 came 5 s after probe 0 and is counted only)
-  const stored = w.objects.security.exportRows("2026-10-01", "2026-10-31").map((e) => [e.path, e.ts]);
+  const stored = w.objects.security.exportRows("2026-10-01", "2026-10-31").rows.map((e) => [e.path, e.ts]);
   assert.deepEqual(stored, [["/wp-0.php", "2026-10-14T04:00:00.000Z"]]);
 });
 
