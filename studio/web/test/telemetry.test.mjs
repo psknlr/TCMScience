@@ -341,6 +341,48 @@ test("client: page views and a visit, batched; a visit again only after half an 
   assert.ok(c.requests.every((r) => r.body.v === 1 && typeof r.body.batch === "string"));
 });
 
+test("client: two pages that take the same outbox over at once send it under the same batch ids", async () => {
+  resetStorage();
+  // a page that left with events it could not send: what it held is put in a batch as it leaves
+  const early = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  early.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  early.tel.route({ name: "home" });
+  assert.equal(early.tel.box.queue.length, 2);
+  early.tel.left();
+  const left = JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${early.tel.tab}`));
+  assert.deepEqual([left.left, left.queue.length, left.batches.length], [true, 0, 1]);
+  // an outbox abandoned with events not in a batch (a page that crashed without a pagehide)
+  const crashed = "0f1e2d3c-0000-4000-8000-000000000000";
+  const stale = { queue: left.batches[0].events, batches: [], saved: early.at() - 11 * 60000, left: false };
+  localStorage.setItem(`${OUTBOX_PREFIX}${crashed}`, JSON.stringify(stale));
+  const outboxes = () => {
+    const o = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith(OUTBOX_PREFIX)) o[k] = localStorage.getItem(k);
+    }
+    return o;
+  };
+  const before = outboxes();
+  sessionStorage.removeItem("tcmstudio.tab");
+  const one = client();
+  assert.deepEqual(Object.keys(outboxes()).filter((k) => before[k]), [], "taken over: removed");
+  // the other page read the same before this one's removal reached it (two tabs restored at once)
+  for (const [k, v] of Object.entries(before)) localStorage.setItem(k, v);
+  sessionStorage.removeItem("tcmstudio.tab");
+  const two = client();
+  const ids = (c) => c.tel.box.batches.map((b) => b.id).sort();
+  assert.equal(ids(one).length, 2);
+  assert.deepEqual(ids(two), ids(one));
+  assert.ok(ids(one).includes(`${crashed}.${stale.saved}.0`));
+  assert.deepEqual(one.tel.box.batches.map((b) => b.events.length), [2, 2]);
+  for (const c of [one, two]) {
+    c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+    await c.tel.flush();
+  }
+  assert.deepEqual(two.requests.map((r) => r.body.batch).sort(), one.requests.map((r) => r.body.batch).sort());
+});
+
 test("client: opted out (by switch, Do Not Track or GPC), nothing is sent and what waited is dropped", async () => {
   resetStorage();
   const dnt = client({ nav: { doNotTrack: "1" } });
@@ -386,6 +428,33 @@ test("client: a failed send is kept and sent after a reload of the same tab; a r
   assert.equal(again.requests[0].body.batch, firstId, "the Worker counts a batch once, whatever arrives twice");
   assert.equal(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`), null);
   assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${again.tel.tab}`)).batches.length, 0);
+  // a tab closed with events unsent (its pagehide marked them): the next page of any tab takes them over at once
+  sessionStorage.removeItem("tcmstudio.tab");
+  const closing = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  closing.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  closing.tel.route({ name: "about" });
+  await closing.tel.flush();
+  assert.equal(closing.tel.box.batches.length, 1);
+  closing.tel.left();
+  sessionStorage.removeItem("tcmstudio.tab"); // the next page is another tab's
+  const next = client();
+  next.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(next.tel.box.batches.length, 1);
+  assert.equal(localStorage.getItem(`${OUTBOX_PREFIX}${closing.tel.tab}`), null);
+  await next.tel.flush();
+  assert.equal(next.requests[0].body.batch, closing.requests[0].body.batch);
+  assert.equal(next.tel.box.batches.length, 0);
+  // an open page's outbox, not marked, is left to it
+  sessionStorage.removeItem("tcmstudio.tab");
+  const open = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  open.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  open.tel.route({ name: "home" });
+  await open.tel.flush();
+  sessionStorage.removeItem("tcmstudio.tab");
+  const beside = client();
+  beside.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(beside.tel.box.batches.length, 0);
+  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${open.tel.tab}`)).batches.length, 1);
   // a malformed batch (400) is not tried again; 429 and 5xx are
   resetStorage();
   let status = 400;

@@ -42,6 +42,23 @@ const MAX_HOLD_S = 24 * 3600; // the longest a Retry-After is honoured
 /** A record waiting to be sent, as kept: one with an id and a body (anything else in storage is dropped). */
 const queuedRecord = (r) => r !== null && typeof r === "object" && typeof r.id === "string" && r.id !== "" && r.body !== null && typeof r.body === "object";
 
+/** `queue`'s events (taken from it) cut into batches within the contract's limits, the n-th named `idOf(n)`. */
+function cut(queue, idOf) {
+  const batches = [];
+  while (queue.length) {
+    const events = [];
+    let bytes = 60;
+    while (queue.length && events.length < LIMITS.events) {
+      const n = JSON.stringify(queue[0]).length + 1;
+      if (events.length && bytes + n > LIMITS.batchBytes) break;
+      events.push(queue.shift());
+      bytes += n;
+    }
+    batches.push({ id: idOf(batches.length), events });
+  }
+  return batches;
+}
+
 export class Telemetry {
   /** deps (for tests): fetch, beacon(url, body) → boolean, origin, now, setTimer, clearTimer, nav (for DNT/GPC). */
   constructor({ fetch: f, beacon, origin, now, setTimer, clearTimer, nav } = {}) {
@@ -307,17 +324,7 @@ export class Telemetry {
 
   /** The queue, cut into batches within the contract's limits. */
   #batch() {
-    while (this.box.queue.length) {
-      const events = [];
-      let bytes = 60;
-      while (this.box.queue.length && events.length < LIMITS.events) {
-        const n = JSON.stringify(this.box.queue[0]).length + 1;
-        if (events.length && bytes + n > LIMITS.batchBytes) break;
-        events.push(this.box.queue.shift());
-        bytes += n;
-      }
-      this.box.batches.push({ id: uuid(), events });
-    }
+    this.box.batches.push(...cut(this.box.queue, () => uuid()));
     if (this.box.batches.length > MAX_BATCHES) this.box.batches.splice(0, this.box.batches.length - MAX_BATCHES);
     this.#save();
   }
@@ -333,11 +340,12 @@ export class Telemetry {
     storage.setJSON(`${OUTBOX_PREFIX}${this.tab}`, this.box);
   }
 
-  /** This page is going away (pagehide): what it did not send is for the next page of this tab to take over. */
+  /** This page is going away (pagehide): what it did not send is for the next page to take over, in batches already
+   * named, so that two pages taking it over at once are still counted once (the Worker counts a batch id once). */
   left() {
     try {
       this.box.left = true;
-      this.#save();
+      this.#batch();
     } catch { /* nothing kept */ }
   }
 
@@ -350,38 +358,45 @@ export class Telemetry {
     if (this.timer) { this.clearTimer(this.timer); this.timer = null; }
   }
 
-  /** The outbox of this tab's last page once it has left (a reload), and any other tab's that was abandoned (closed
-   * with events unsent). A page still open under the same tab id (this one is its duplicate) keeps its own. */
+  /** The outbox of this tab's last page once it has left (a reload), and any other page's that has left (a closed tab)
+   * or was abandoned (gone quiet, closed without a pagehide). A page still open — under the same tab id when this one is
+   * its duplicate — keeps its own. */
   #adopt(previous) {
     const box = emptyBox();
     try {
-      const take = (b) => {
+      // another page's events not yet in a batch go into batches named after that outbox (its tab id and when it was
+      // saved), so that two pages taking the same outbox over send the same batch ids
+      const take = (b, from) => {
         if (!b || typeof b !== "object") return;
-        if (Array.isArray(b.queue)) box.queue.push(...b.queue.filter((e) => normalizeEvent(e)));
         if (Array.isArray(b.batches)) box.batches.push(...b.batches.filter((x) => x && typeof x.id === "string" && Array.isArray(x.events)));
+        if (Array.isArray(b.queue)) {
+          const queue = b.queue.filter((e) => normalizeEvent(e));
+          const named = /^[A-Za-z0-9-]{1,40}$/.test(from) && Number.isSafeInteger(b.saved);
+          box.batches.push(...cut(queue, (n) => (named ? `${from}.${b.saved}.${n}` : uuid())));
+        }
       };
       const abandoned = (b) => !b || this.now() - Number(b.saved || 0) > ABANDONED_MS;
       if (previous) {
         const k = `${OUTBOX_PREFIX}${previous}`;
         const own = storage.getJSON(k);
         if (own && (own.left === true || abandoned(own))) {
-          take(own);
+          take(own, previous);
           storage.remove(k);
         }
       }
+      // any other page's that has left (closed, or reloaded in another tab), or that went quiet long ago
       const ls = globalThis.localStorage;
       for (let i = 0; ls && i < ls.length; i++) {
         const k = ls.key(i);
         if (!k || !k.startsWith(OUTBOX_PREFIX) || k === `${OUTBOX_PREFIX}${this.tab}`) continue;
         const b = storage.getJSON(k);
-        if (abandoned(b)) {
-          take(b);
+        if (b?.left === true || abandoned(b)) {
+          take(b, k.slice(OUTBOX_PREFIX.length));
           storage.remove(k);
           i--;
         }
       }
     } catch { /* storage unavailable: start empty */ }
-    box.queue = box.queue.slice(-MAX_QUEUE);
     box.batches = box.batches.slice(-MAX_BATCHES);
     return box;
   }
