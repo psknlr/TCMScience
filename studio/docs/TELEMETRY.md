@@ -210,7 +210,8 @@ Cloudflare 上为 `/v1/*`、`/api/*` 加 WAF 速率限制规则，或使用付�
 
 ## 管理后台
 
-**登录**：`ADMIN_TOKEN`（Worker 机密，至少 32 个字符；没设置时 `/admin` 与 `/api/admin/*` 一律 503，后台关闭）。登录页是普通表单，
+**登录**：`ADMIN_TOKEN`（Worker 机密，至少 32 个字符；没设置时 `/admin` 与 `/api/admin/*` 一律 503，后台关闭）。后台只在本站的
+Worker 上：本机 Runner 不存统计与记录，它对 `/admin` 回 404。登录页是普通表单，
 令牌只在服务器端比较（先各自哈希再按固定时间比较）；成功后浏览器得到会话 Cookie `__Host-tcms_admin`（`HttpOnly; Secure;
 SameSite=Strict; Path=/`），内容是到期时间与随机数，用由 `ADMIN_TOKEN` 派生的密钥签名：**更换 `ADMIN_TOKEN` 即让所有会话失效**。
 有效期 `ADMIN_SESSION_SECONDS`（默认 1 小时）。同一来源 15 分钟内失败 8 次后锁定 15 分钟。
