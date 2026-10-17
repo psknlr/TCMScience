@@ -1,76 +1,85 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 560" width="1200" height="560" role="img" aria-labelledby="t d">
-<title id="t">TCMScience architecture</title>
-<desc id="d">A research question enters the trusted kernel, which labels data, checks authority, runs a compiled plan through a gateway into the capability plane, and releases results only through a verification gate into a hash-chained audit. The governance layer constrains the kernel from above.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 580" width="1200" height="580" role="img" aria-labelledby="t d">
+<title id="t">Fig. 1. TCMScience architecture</title>
+<desc id="d">(a) The governance layer (skill manifests, data contracts, a registry and lockfile with human promotion only, and a governance regression of 121 mutants in 26 error classes) constrains the kernel and never executes. (b) A research question enters the trusted kernel, PSH, which labels data at entry, narrows authority through a policy lattice, compiles a typed and bounded plan, calls models and tools only through its gateway, and releases results only through a quarantine-and-verify gate into a hash-chained audit log. (c) The capability plane (117 public connectors with 444 typed operations, 150 native tools in 12 domains, bioagent.tcm, and content-hashed source snapshots) is reached only through the gateway and never trusted.</desc>
 <style>
-  svg { --ink:#17202c; --muted:#5a6573; --rule:#d5dbe3; --paper:#ffffff;
-         --k:#2d4a7a; --k-bg:#eaf0f8; --g:#9a6428; --g-bg:#f8f0e4;
-         --c:#2c7560; --c-bg:#e7f3ee; --x:#b3402d; --x-bg:#fbe9e5; --dot:#2d4a7a; }
-  @media (prefers-color-scheme: dark) {
-    svg { --ink:#e6edf3; --muted:#9aa6b4; --rule:#34404e; --paper:#0d1117;
-           --k:#8fb2ec; --k-bg:#16233a; --g:#e0ab6a; --g-bg:#2b2114;
-           --c:#79c9ad; --c-bg:#132a23; --x:#f08a76; --x-bg:#35191385; --dot:#8fb2ec; }
-  }
-  text { font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; fill:var(--ink); }
-  .mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  .muted { fill:var(--muted); }
-  .rule { stroke:var(--rule); }
+  text { font-family:'Times New Roman', Times, 'Nimbus Roman', 'Nimbus Roman No9 L', 'TeX Gyre Termes', 'Liberation Serif', serif; fill:#000; }
+  .it { font-style:italic; }
+  .mono { font-family:'Courier New', Courier, 'Nimbus Mono PS', 'Liberation Mono', monospace; font-style:normal; font-size:.92em; }
 </style>
-<defs><marker id="a-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink)"/></marker><marker id="a-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--g)"/></marker><marker id="a-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--k)"/></marker><marker id="a-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--c)"/></marker></defs>
-<rect x="150" y="16" width="880" height="124" rx="12" style="fill:none;stroke:var(--g);stroke-width:1.4;stroke-dasharray:0"/><text x="168" y="42" font-size="14.5" font-weight="700" style="fill:var(--g);letter-spacing:.06em">GOVERNANCE LAYER</text><text x="1012" y="42" font-size="14" text-anchor="end" class="muted">constrains the kernel · never executes</text>
-<rect x="168.0" y="50" width="197.5" height="74" rx="8" style="fill:var(--g-bg);stroke:var(--g);stroke-width:1.2"/>
-<text x="266.75" y="78.0" text-anchor="middle" font-size="17" font-weight="600">Skill manifests</text>
-<text x="266.75" y="101.0" text-anchor="middle" font-size="14" class="muted">skill.yaml → program</text>
-<line x1="266.75" y1="142" x2="266.75" y2="196" style="stroke:var(--g);stroke-width:1.3;stroke-dasharray:5 4" marker-end="url(#a-g)"/>
-<rect x="383.5" y="50" width="197.5" height="74" rx="8" style="fill:var(--g-bg);stroke:var(--g);stroke-width:1.2"/>
-<text x="482.25" y="78.0" text-anchor="middle" font-size="17" font-weight="600">Data contracts</text>
-<text x="482.25" y="101.0" text-anchor="middle" font-size="14" class="muted">evidence · claim · artifact</text>
-<line x1="482.25" y1="142" x2="482.25" y2="196" style="stroke:var(--g);stroke-width:1.3;stroke-dasharray:5 4" marker-end="url(#a-g)"/>
-<rect x="599.0" y="50" width="197.5" height="74" rx="8" style="fill:var(--g-bg);stroke:var(--g);stroke-width:1.2"/>
-<text x="697.75" y="78.0" text-anchor="middle" font-size="17" font-weight="600">Registry + lockfile</text>
-<text x="697.75" y="101.0" text-anchor="middle" font-size="14" class="muted">human promotion only</text>
-<line x1="697.75" y1="142" x2="697.75" y2="196" style="stroke:var(--g);stroke-width:1.3;stroke-dasharray:5 4" marker-end="url(#a-g)"/>
-<rect x="814.5" y="50" width="197.5" height="74" rx="8" style="fill:var(--g-bg);stroke:var(--g);stroke-width:1.2"/>
-<text x="913.25" y="78.0" text-anchor="middle" font-size="17" font-weight="600">Benchmarks</text>
-<text x="913.25" y="101.0" text-anchor="middle" font-size="14" class="muted">6 tracks · 8 dimensions</text>
-<line x1="913.25" y1="142" x2="913.25" y2="196" style="stroke:var(--g);stroke-width:1.3;stroke-dasharray:5 4" marker-end="url(#a-g)"/>
-<rect x="150" y="198" width="880" height="140" rx="12" style="fill:none;stroke:var(--k);stroke-width:1.4;stroke-dasharray:0"/><text x="168" y="224" font-size="14.5" font-weight="700" style="fill:var(--k);letter-spacing:.06em">TRUSTED KERNEL · PSH</text><text x="1012" y="224" font-size="14" text-anchor="end" class="muted">the model cannot rewrite these rules</text>
-<rect x="168.0" y="238" width="151.2" height="76" rx="8" style="fill:var(--k-bg);stroke:var(--k);stroke-width:1.2"/>
-<text x="243.6" y="267.0" text-anchor="middle" font-size="17" font-weight="600">Ingress</text>
-<text x="243.6" y="290.0" text-anchor="middle" font-size="14" class="muted">labels at entry</text>
-<rect x="341.2" y="238" width="151.2" height="76" rx="8" style="fill:var(--k-bg);stroke:var(--k);stroke-width:1.2"/>
-<text x="416.79999999999995" y="267.0" text-anchor="middle" font-size="17" font-weight="600">Authority</text>
-<text x="416.79999999999995" y="290.0" text-anchor="middle" font-size="14" class="muted">policy lattice</text>
-<line x1="321.2" y1="276" x2="339.2" y2="276" style="stroke:var(--k);stroke-width:2" marker-end="url(#a-k)"/>
-<rect x="514.4" y="238" width="151.2" height="76" rx="8" style="fill:var(--k-bg);stroke:var(--k);stroke-width:1.2"/>
-<text x="590.0" y="267.0" text-anchor="middle" font-size="17" font-weight="600">Compiled plan</text>
-<text x="590.0" y="290.0" text-anchor="middle" font-size="14" class="muted">typed · bounded</text>
-<line x1="494.4" y1="276" x2="512.4" y2="276" style="stroke:var(--k);stroke-width:2" marker-end="url(#a-k)"/>
-<rect x="687.5999999999999" y="238" width="151.2" height="76" rx="8" style="fill:var(--k-bg);stroke:var(--k);stroke-width:1.2"/>
-<text x="763.1999999999999" y="267.0" text-anchor="middle" font-size="17" font-weight="600">Gateway</text>
-<text x="763.1999999999999" y="290.0" text-anchor="middle" font-size="14" class="muted">models · tools</text>
-<line x1="667.5999999999999" y1="276" x2="685.5999999999999" y2="276" style="stroke:var(--k);stroke-width:2" marker-end="url(#a-k)"/>
-<rect x="860.8" y="238" width="151.2" height="76" rx="8" style="fill:var(--k-bg);stroke:var(--k);stroke-width:1.2"/>
-<text x="936.4" y="267.0" text-anchor="middle" font-size="17" font-weight="600">Release gate</text>
-<text x="936.4" y="290.0" text-anchor="middle" font-size="14" class="muted">quarantine · verify</text>
-<line x1="840.8" y1="276" x2="858.8" y2="276" style="stroke:var(--k);stroke-width:2" marker-end="url(#a-k)"/>
-<rect x="14" y="242" width="118" height="68" rx="34" style="fill:var(--k);stroke:none"/><text x="73" y="272" text-anchor="middle" font-size="15.5" font-weight="700" style="fill:var(--paper)">Research</text><text x="73" y="292" text-anchor="middle" font-size="15.5" font-weight="700" style="fill:var(--paper)">question</text>
-<line x1="128" y1="276" x2="166.0" y2="276" style="stroke:var(--k);stroke-width:2.2" marker-end="url(#a-k)"/>
-<rect x="1054" y="240" width="132" height="72" rx="8" style="fill:var(--paper);stroke:var(--ink);stroke-width:1.2"/><text x="1120.0" y="272" text-anchor="middle" font-size="16" font-weight="600">Audit</text><text x="1120.0" y="293" text-anchor="middle" font-size="13.5" class="muted">hash-chained</text>
-<line x1="1014.0" y1="276" x2="1052" y2="276" style="stroke:var(--ink);stroke-width:2" marker-end="url(#a-ink)"/>
-<rect x="150" y="386" width="880" height="124" rx="12" style="fill:none;stroke:var(--c);stroke-width:1.4;stroke-dasharray:0"/><text x="168" y="412" font-size="14.5" font-weight="700" style="fill:var(--c);letter-spacing:.06em">CAPABILITY PLANE · BIOSCIENCE-HARNESS</text><text x="1012" y="412" font-size="14" text-anchor="end" class="muted">called, never trusted</text>
-<rect x="168.0" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="266.75" y="448.0" text-anchor="middle" font-size="17" font-weight="600">58 public sources</text>
-<text x="266.75" y="471.0" text-anchor="middle" font-size="14" class="muted">153 typed operations</text>
-<rect x="383.5" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="482.25" y="448.0" text-anchor="middle" font-size="17" font-weight="600">147 native tools</text>
-<text x="482.25" y="471.0" text-anchor="middle" font-size="14" class="muted">12 domains</text>
-<rect x="599.0" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="697.75" y="448.0" text-anchor="middle" font-size="17" font-weight="600">bioagent.tcm</text>
-<text x="697.75" y="471.0" text-anchor="middle" font-size="14" class="muted">herbs · formulas · classics</text>
-<rect x="814.5" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="913.25" y="448.0" text-anchor="middle" font-size="17" font-weight="600">Source snapshots</text>
-<text x="913.25" y="471.0" text-anchor="middle" font-size="14" class="muted">content-hashed · ledger</text>
-<line x1="763.1999999999999" y1="316" x2="763.1999999999999" y2="384" style="stroke:var(--c);stroke-width:2" marker-end="url(#a-c)"/>
-<text x="771.1999999999999" y="358" font-size="14" class="muted">calls</text>
-<text x="150" y="542" font-size="14" class="muted">Solid arrows: execution. Dashed: where governance constrains the kernel. The capability plane is reached only through the gateway.</text>
+<defs><marker id="head" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#000"/></marker></defs>
+<rect width="1200" height="580" fill="#fff"/>
+<rect x="156" y="14" width="880" height="124" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="170" y="40" font-size="18" font-weight="700">(a) Governance layer</text>
+<text x="1022" y="40" font-size="16.5" text-anchor="end" class="it">Constrains the kernel; never executes</text>
+<rect x="174.0" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<text x="272.75" y="82.0" text-anchor="middle" font-size="19">Skill manifests</text>
+<text x="272.75" y="104.0" text-anchor="middle" font-size="16" class="it"><tspan class="mono">skill.yaml</tspan> → program</text>
+<line x1="272.75" y1="140" x2="272.75" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<rect x="389.5" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<text x="488.25" y="82.0" text-anchor="middle" font-size="19">Data contracts</text>
+<text x="488.25" y="104.0" text-anchor="middle" font-size="16" class="it">evidence, claim, artifact</text>
+<line x1="488.25" y1="140" x2="488.25" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<rect x="605.0" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<text x="703.75" y="82.0" text-anchor="middle" font-size="19">Registry + lockfile</text>
+<text x="703.75" y="104.0" text-anchor="middle" font-size="16" class="it">human promotion only</text>
+<line x1="703.75" y1="140" x2="703.75" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<rect x="820.5" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<text x="919.25" y="82.0" text-anchor="middle" font-size="19">Governance regression</text>
+<text x="919.25" y="104.0" text-anchor="middle" font-size="16" class="it">121 mutants, 26 classes</text>
+<line x1="919.25" y1="140" x2="919.25" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<rect x="156" y="196" width="880" height="142" fill="#f3f3f3" stroke="#000" stroke-width="2.4"/>
+<text x="170" y="222" font-size="18" font-weight="700">(b) Trusted kernel (PSH)</text>
+<text x="1022" y="222" font-size="16.5" text-anchor="end" class="it">The model cannot rewrite these rules</text>
+<rect x="174.0" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="249.6" y="269.0" text-anchor="middle" font-size="19">Ingress</text>
+<text x="249.6" y="291.0" text-anchor="middle" font-size="16" class="it">labels at entry</text>
+<rect x="347.2" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="422.79999999999995" y="269.0" text-anchor="middle" font-size="19">Authority</text>
+<text x="422.79999999999995" y="291.0" text-anchor="middle" font-size="16" class="it">policy lattice</text>
+<line x1="325.2" y1="274" x2="346.2" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="520.4" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="596.0" y="269.0" text-anchor="middle" font-size="19">Compiled plan</text>
+<text x="596.0" y="291.0" text-anchor="middle" font-size="16" class="it">typed, bounded</text>
+<line x1="498.4" y1="274" x2="519.4" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="693.5999999999999" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="769.1999999999999" y="269.0" text-anchor="middle" font-size="19">Gateway</text>
+<text x="769.1999999999999" y="291.0" text-anchor="middle" font-size="16" class="it">models, tools</text>
+<line x1="671.5999999999999" y1="274" x2="692.5999999999999" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="866.8" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="942.4" y="269.0" text-anchor="middle" font-size="19">Release gate</text>
+<text x="942.4" y="291.0" text-anchor="middle" font-size="16" class="it">quarantine, verify</text>
+<line x1="844.8" y1="274" x2="865.8" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="12" y="242" width="124" height="64" rx="32" fill="#fff" stroke="#000" stroke-width="1.4"/><text x="74" y="269" text-anchor="middle" font-size="19">Research</text><text x="74" y="291" text-anchor="middle" font-size="19">question</text>
+<line x1="136" y1="274" x2="173.0" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<path d="M1060,237 V313 A63.0,9 0 0 0 1186,313 V237 Z" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<ellipse cx="1123.0" cy="237" rx="63.0" ry="9" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="1123.0" y="279.0" text-anchor="middle" font-size="19">Audit log</text>
+<text x="1123.0" y="301.0" text-anchor="middle" font-size="16" class="it">hash-chained</text>
+<line x1="1018.0" y1="274" x2="1059" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="156" y="392" width="880" height="124" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="8 5"/>
+<text x="170" y="418" font-size="18" font-weight="700">(c) Capability plane (BioScience-Harness)</text>
+<text x="1022" y="418" font-size="16.5" text-anchor="end" class="it">Called, never trusted</text>
+<rect x="174.0" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="272.75" y="460.0" text-anchor="middle" font-size="19">117 public connectors</text>
+<text x="272.75" y="482.0" text-anchor="middle" font-size="16" class="it">444 typed operations</text>
+<rect x="389.5" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="488.25" y="460.0" text-anchor="middle" font-size="19">150 native tools</text>
+<text x="488.25" y="482.0" text-anchor="middle" font-size="16" class="it">12 domains</text>
+<rect x="605.0" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="703.75" y="460.0" text-anchor="middle" font-size="19"><tspan class="mono">bioagent.tcm</tspan></text>
+<text x="703.75" y="482.0" text-anchor="middle" font-size="16" class="it">herbs, formulas, classics</text>
+<rect x="820.5" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<text x="919.25" y="460.0" text-anchor="middle" font-size="19">Source snapshots</text>
+<text x="919.25" y="482.0" text-anchor="middle" font-size="16" class="it">content-hashed, ledger</text>
+<line x1="769.1999999999999" y1="312" x2="769.1999999999999" y2="391" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="779.1999999999999" y="369" font-size="16.5" class="it">calls</text>
+<rect x="156" y="534" width="880" height="34" fill="#fff" stroke="#000" stroke-width="0.8"/>
+<line x1="207.328" y1="551.0" x2="247.328" y2="551.0" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<text x="259.328" y="556.5" font-size="16">Execution</text>
+<line x1="374.01599999999996" y1="551.0" x2="414.01599999999996" y2="551.0" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<text x="426.01599999999996" y="556.5" font-size="16">Governance constraint</text>
+<rect x="625.184" y="543.0" width="40" height="16" fill="#f3f3f3" stroke="#000" stroke-width="2.4"/>
+<text x="677.184" y="556.5" font-size="16">Trust boundary</text>
+<rect x="827.0719999999999" y="543.0" width="40" height="16" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="8 5"/>
+<text x="879.0719999999999" y="556.5" font-size="16">Untrusted plane</text>
 </svg>

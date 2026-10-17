@@ -46,6 +46,7 @@
 <p align="center">
   <img src="docs/assets/overview.svg" width="100%" alt="TCMScience 架构：治理层约束可信内核；内核只经网关调用能力平面，只经核验门发布结果。">
 </p>
+<p><sub><b>图 1.</b> TCMScience 架构。(a) 治理层约束内核，自身从不执行。(b) 可信内核 PSH 在入口给数据打标签，经策略格收窄权限，把计划编译成有类型、有边界的程序，所有模型和工具调用都经过同一个网关，结果只经发布门进入哈希链审计记录；模型不能改写这些规则。(c) 能力平面只能经由网关调用，从不被信任。实线箭头：执行；虚线箭头：治理约束。图中计数在绘图时从代码读取（<a href="docs/assets/make_figures.py">生成脚本</a>）。</sub></p>
 
 ## 摘要
 
@@ -249,7 +250,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 
 ## 架构
 
-大语言模型不应同时是自己的规划器、执行器、安全策略、证据裁判和发布权威。因此 TCMScience 分为三个平面（见上图）：
+大语言模型不应同时是自己的规划器、执行器、安全策略、证据裁判和发布权威。因此 TCMScience 分为三个平面（见图 1）：
 
 - **可信内核（[PSH-Harness](PSH-Harness)）**：在入口给数据打标签，每个请求都与策略格求交，把计划编译成有类型、有边界的程序，所有模型、工具和委派调用都经过同一个网关，输出在发布前隔离。审计记录是哈希链。
 - **科学家平面（[psh.scientist](PSH-Harness/src/psh/scientist)）**：

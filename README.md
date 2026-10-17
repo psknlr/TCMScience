@@ -46,6 +46,7 @@
 <p align="center">
   <img src="docs/assets/overview.svg" width="100%" alt="TCMScience architecture: a governance layer constrains a trusted kernel, which reaches the capability plane only through a gateway and releases results only through a verification gate.">
 </p>
+<p><sub><b>Fig. 1.</b> Architecture of TCMScience. (a) The governance layer constrains the kernel and never executes. (b) The trusted kernel, PSH, labels data at entry, narrows authority through a policy lattice, compiles a typed and bounded plan, makes every model and tool call through its gateway, and releases results only through the release gate into a hash-chained audit log; the model cannot rewrite these rules. (c) The capability plane is reached only through the gateway and is never trusted. Solid arrows: execution; dashed arrows: governance constraints. The counts are read from the code when the figure is drawn (<a href="docs/assets/make_figures.py">generator</a>).</sub></p>
 
 ## Abstract
 
@@ -232,7 +233,7 @@ More in [INSTALL.md](INSTALL.md) and [USAGE.md](USAGE.md).
 
 ## Architecture
 
-An LLM should not be its own planner, executor, security policy, evidence judge and publication authority all at once. TCMScience therefore separates three planes (figure above):
+An LLM should not be its own planner, executor, security policy, evidence judge and publication authority all at once. TCMScience therefore separates three planes (Fig. 1):
 
 - **Trusted kernel ([PSH-Harness](PSH-Harness)).** Labels data at entry, intersects every request with a policy lattice, compiles plans into typed and bounded programs, routes every model, tool and delegation call through one gateway, and quarantines output before release. Its audit is hash-chained.
 - **Scientific compiler ([PSH-Harness](PSH-Harness/docs/V6_SCIENTIFIC_COMPILER.md)).** In front of the kernel, not beside it: a research programme is typed and refused *before* it spends anything. An animal study cannot license a human efficacy claim, an analysis that does not depend on its protocol node is not preregistered, and a claim reaching beyond its source's population is an error with both populations named. 71 diagnostic codes, each with a remedy.
