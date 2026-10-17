@@ -46,7 +46,7 @@
 <p align="center">
   <img src="docs/assets/overview.svg" width="100%" alt="TCMScience architecture: a governance layer constrains a trusted kernel, which reaches the capability plane only through a gateway and releases results only through a verification gate.">
 </p>
-<p><sub><b>Fig. 1.</b> Architecture of TCMScience. (a) The governance layer constrains the kernel and never executes. (b) The trusted kernel, PSH, labels data at entry, narrows authority through a policy lattice, compiles a typed and bounded plan, makes every model and tool call through its gateway, and releases results only through the release gate into a hash-chained audit log; the model cannot rewrite these rules. (c) The capability plane is reached only through the gateway and is never trusted. Solid arrows: execution; dashed arrows: governance constraints. The counts are read from the code when the figure is drawn (<a href="docs/assets/make_figures.py">generator</a>).</sub></p>
+<p><sub><b>Fig. 1.</b> Architecture of TCMScience. (a) The governance layer constrains the kernel and never executes. (b) The trusted kernel, PSH, labels data at entry, narrows authority through a policy lattice, compiles a typed and bounded plan, makes every model and tool call through its gateway, and releases results only through the release gate into a hash-chained audit log; the model cannot rewrite these rules. (c) The capability plane is reached only through the gateway and is never trusted. Solid arrows: execution; dashed arrows: governance constraints. The counts are read from the code when the figure is drawn (<a href="docs/assets/make_figures.py">generator</a>; <a href="docs/assets/overview-print.svg">greyscale version for print</a>).</sub></p>
 
 ## Abstract
 

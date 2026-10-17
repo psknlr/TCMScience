@@ -2,84 +2,84 @@
 <title id="t">Fig. 1. TCMScience architecture</title>
 <desc id="d">(a) The governance layer (skill manifests, data contracts, a registry and lockfile with human promotion only, and a governance regression of 121 mutants in 26 error classes) constrains the kernel and never executes. (b) A research question enters the trusted kernel, PSH, which labels data at entry, narrows authority through a policy lattice, compiles a typed and bounded plan, calls models and tools only through its gateway, and releases results only through a quarantine-and-verify gate into a hash-chained audit log. (c) The capability plane (117 public connectors with 444 typed operations, 150 native tools in 12 domains, bioagent.tcm, and content-hashed source snapshots) is reached only through the gateway and never trusted.</desc>
 <style>
-  text { font-family:'Times New Roman', Times, 'Nimbus Roman', 'Nimbus Roman No9 L', 'TeX Gyre Termes', 'Liberation Serif', serif; fill:#000; }
-  .it { font-style:italic; }
+  text { font-family:'Times New Roman', Times, 'Nimbus Roman', 'Nimbus Roman No9 L', 'TeX Gyre Termes', 'Liberation Serif', serif; fill:#141b24; }
+  .it { font-style:italic; fill:#3b4451; }
   .mono { font-family:'Courier New', Courier, 'Nimbus Mono PS', 'Liberation Mono', monospace; font-style:normal; font-size:.92em; }
 </style>
-<defs><marker id="head" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#000"/></marker></defs>
+<defs><marker id="head-gov" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#9a6428"/></marker><marker id="head-ker" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2d4a7a"/></marker><marker id="head-cap" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2c7560"/></marker><marker id="head-store" viewBox="0 0 10 8" refX="8" refY="4" markerWidth="11" markerHeight="8.8" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#4a5361"/></marker></defs>
 <rect width="1200" height="580" fill="#fff"/>
-<rect x="156" y="14" width="880" height="124" fill="#fff" stroke="#000" stroke-width="1.2"/>
-<text x="170" y="40" font-size="18" font-weight="700">(a) Governance layer</text>
+<rect x="156" y="14" width="880" height="124" fill="#fffaf3" stroke="#9a6428" stroke-width="1.2"/>
+<text x="170" y="40" font-size="18" font-weight="700" style="fill:#9a6428">(a) Governance layer</text>
 <text x="1022" y="40" font-size="16.5" text-anchor="end" class="it">Constrains the kernel; never executes</text>
-<rect x="174.0" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<rect x="174.0" y="52" width="197.5" height="70" fill="#f6e6cf" stroke="#9a6428" stroke-width="1.2"/>
 <text x="272.75" y="82.0" text-anchor="middle" font-size="19">Skill manifests</text>
 <text x="272.75" y="104.0" text-anchor="middle" font-size="16" class="it"><tspan class="mono">skill.yaml</tspan> → program</text>
-<line x1="272.75" y1="140" x2="272.75" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
-<rect x="389.5" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<line x1="272.75" y1="140" x2="272.75" y2="194" stroke="#9a6428" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head-gov)"/>
+<rect x="389.5" y="52" width="197.5" height="70" fill="#f6e6cf" stroke="#9a6428" stroke-width="1.2"/>
 <text x="488.25" y="82.0" text-anchor="middle" font-size="19">Data contracts</text>
 <text x="488.25" y="104.0" text-anchor="middle" font-size="16" class="it">evidence, claim, artifact</text>
-<line x1="488.25" y1="140" x2="488.25" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
-<rect x="605.0" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<line x1="488.25" y1="140" x2="488.25" y2="194" stroke="#9a6428" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head-gov)"/>
+<rect x="605.0" y="52" width="197.5" height="70" fill="#f6e6cf" stroke="#9a6428" stroke-width="1.2"/>
 <text x="703.75" y="82.0" text-anchor="middle" font-size="19">Registry + lockfile</text>
 <text x="703.75" y="104.0" text-anchor="middle" font-size="16" class="it">human promotion only</text>
-<line x1="703.75" y1="140" x2="703.75" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
-<rect x="820.5" y="52" width="197.5" height="70" fill="#e3e3e3" stroke="#000" stroke-width="1.2"/>
+<line x1="703.75" y1="140" x2="703.75" y2="194" stroke="#9a6428" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head-gov)"/>
+<rect x="820.5" y="52" width="197.5" height="70" fill="#f6e6cf" stroke="#9a6428" stroke-width="1.2"/>
 <text x="919.25" y="82.0" text-anchor="middle" font-size="19">Governance regression</text>
 <text x="919.25" y="104.0" text-anchor="middle" font-size="16" class="it">121 mutants, 26 classes</text>
-<line x1="919.25" y1="140" x2="919.25" y2="194" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
-<rect x="156" y="196" width="880" height="142" fill="#f3f3f3" stroke="#000" stroke-width="2.4"/>
-<text x="170" y="222" font-size="18" font-weight="700">(b) Trusted kernel (PSH)</text>
+<line x1="919.25" y1="140" x2="919.25" y2="194" stroke="#9a6428" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head-gov)"/>
+<rect x="156" y="196" width="880" height="142" fill="#f2f6fb" stroke="#2d4a7a" stroke-width="2.4"/>
+<text x="170" y="222" font-size="18" font-weight="700" style="fill:#2d4a7a">(b) Trusted kernel (PSH)</text>
 <text x="1022" y="222" font-size="16.5" text-anchor="end" class="it">The model cannot rewrite these rules</text>
-<rect x="174.0" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="174.0" y="236" width="151.2" height="76" fill="#dde7f5" stroke="#2d4a7a" stroke-width="1.2"/>
 <text x="249.6" y="269.0" text-anchor="middle" font-size="19">Ingress</text>
 <text x="249.6" y="291.0" text-anchor="middle" font-size="16" class="it">labels at entry</text>
-<rect x="347.2" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="347.2" y="236" width="151.2" height="76" fill="#dde7f5" stroke="#2d4a7a" stroke-width="1.2"/>
 <text x="422.79999999999995" y="269.0" text-anchor="middle" font-size="19">Authority</text>
 <text x="422.79999999999995" y="291.0" text-anchor="middle" font-size="16" class="it">policy lattice</text>
-<line x1="325.2" y1="274" x2="346.2" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<rect x="520.4" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<line x1="325.2" y1="274" x2="346.2" y2="274" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
+<rect x="520.4" y="236" width="151.2" height="76" fill="#dde7f5" stroke="#2d4a7a" stroke-width="1.2"/>
 <text x="596.0" y="269.0" text-anchor="middle" font-size="19">Compiled plan</text>
 <text x="596.0" y="291.0" text-anchor="middle" font-size="16" class="it">typed, bounded</text>
-<line x1="498.4" y1="274" x2="519.4" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<rect x="693.5999999999999" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<line x1="498.4" y1="274" x2="519.4" y2="274" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
+<rect x="693.5999999999999" y="236" width="151.2" height="76" fill="#dde7f5" stroke="#2d4a7a" stroke-width="1.2"/>
 <text x="769.1999999999999" y="269.0" text-anchor="middle" font-size="19">Gateway</text>
 <text x="769.1999999999999" y="291.0" text-anchor="middle" font-size="16" class="it">models, tools</text>
-<line x1="671.5999999999999" y1="274" x2="692.5999999999999" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<rect x="866.8" y="236" width="151.2" height="76" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<line x1="671.5999999999999" y1="274" x2="692.5999999999999" y2="274" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
+<rect x="866.8" y="236" width="151.2" height="76" fill="#dde7f5" stroke="#2d4a7a" stroke-width="1.2"/>
 <text x="942.4" y="269.0" text-anchor="middle" font-size="19">Release gate</text>
 <text x="942.4" y="291.0" text-anchor="middle" font-size="16" class="it">quarantine, verify</text>
-<line x1="844.8" y1="274" x2="865.8" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<rect x="12" y="242" width="124" height="64" rx="32" fill="#fff" stroke="#000" stroke-width="1.4"/><text x="74" y="269" text-anchor="middle" font-size="19">Research</text><text x="74" y="291" text-anchor="middle" font-size="19">question</text>
-<line x1="136" y1="274" x2="173.0" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<path d="M1060,237 V313 A63.0,9 0 0 0 1186,313 V237 Z" fill="#fff" stroke="#000" stroke-width="1.2"/>
-<ellipse cx="1123.0" cy="237" rx="63.0" ry="9" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<line x1="844.8" y1="274" x2="865.8" y2="274" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
+<rect x="12" y="242" width="124" height="64" rx="32" fill="#2d4a7a" stroke="#2d4a7a" stroke-width="1.4"/><text x="74" y="269" text-anchor="middle" font-size="19" style="fill:#ffffff">Research</text><text x="74" y="291" text-anchor="middle" font-size="19" style="fill:#ffffff">question</text>
+<line x1="136" y1="274" x2="173.0" y2="274" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
+<path d="M1060,237 V313 A63.0,9 0 0 0 1186,313 V237 Z" fill="#eceff3" stroke="#4a5361" stroke-width="1.2"/>
+<ellipse cx="1123.0" cy="237" rx="63.0" ry="9" fill="#ffffff" stroke="#4a5361" stroke-width="1.2"/>
 <text x="1123.0" y="279.0" text-anchor="middle" font-size="19">Audit log</text>
 <text x="1123.0" y="301.0" text-anchor="middle" font-size="16" class="it">hash-chained</text>
-<line x1="1018.0" y1="274" x2="1059" y2="274" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
-<rect x="156" y="392" width="880" height="124" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="8 5"/>
-<text x="170" y="418" font-size="18" font-weight="700">(c) Capability plane (BioScience-Harness)</text>
+<line x1="1018.0" y1="274" x2="1059" y2="274" stroke="#4a5361" stroke-width="1.4" marker-end="url(#head-store)"/>
+<rect x="156" y="392" width="880" height="124" fill="#f4faf7" stroke="#2c7560" stroke-width="1.2" stroke-dasharray="8 5"/>
+<text x="170" y="418" font-size="18" font-weight="700" style="fill:#2c7560">(c) Capability plane (BioScience-Harness)</text>
 <text x="1022" y="418" font-size="16.5" text-anchor="end" class="it">Called, never trusted</text>
-<rect x="174.0" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="174.0" y="430" width="197.5" height="70" fill="#d9eee4" stroke="#2c7560" stroke-width="1.2"/>
 <text x="272.75" y="460.0" text-anchor="middle" font-size="19">117 public connectors</text>
 <text x="272.75" y="482.0" text-anchor="middle" font-size="16" class="it">444 typed operations</text>
-<rect x="389.5" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="389.5" y="430" width="197.5" height="70" fill="#d9eee4" stroke="#2c7560" stroke-width="1.2"/>
 <text x="488.25" y="460.0" text-anchor="middle" font-size="19">150 native tools</text>
 <text x="488.25" y="482.0" text-anchor="middle" font-size="16" class="it">12 domains</text>
-<rect x="605.0" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="605.0" y="430" width="197.5" height="70" fill="#d9eee4" stroke="#2c7560" stroke-width="1.2"/>
 <text x="703.75" y="460.0" text-anchor="middle" font-size="19"><tspan class="mono">bioagent.tcm</tspan></text>
 <text x="703.75" y="482.0" text-anchor="middle" font-size="16" class="it">herbs, formulas, classics</text>
-<rect x="820.5" y="430" width="197.5" height="70" fill="#fff" stroke="#000" stroke-width="1.2"/>
+<rect x="820.5" y="430" width="197.5" height="70" fill="#d9eee4" stroke="#2c7560" stroke-width="1.2"/>
 <text x="919.25" y="460.0" text-anchor="middle" font-size="19">Source snapshots</text>
 <text x="919.25" y="482.0" text-anchor="middle" font-size="16" class="it">content-hashed, ledger</text>
-<line x1="769.1999999999999" y1="312" x2="769.1999999999999" y2="391" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<line x1="769.1999999999999" y1="312" x2="769.1999999999999" y2="391" stroke="#2c7560" stroke-width="1.4" marker-end="url(#head-cap)"/>
 <text x="779.1999999999999" y="369" font-size="16.5" class="it">calls</text>
-<rect x="156" y="534" width="880" height="34" fill="#fff" stroke="#000" stroke-width="0.8"/>
-<line x1="207.328" y1="551.0" x2="247.328" y2="551.0" stroke="#000" stroke-width="1.4" marker-end="url(#head)"/>
+<rect x="156" y="534" width="880" height="34" fill="#fff" stroke="#4a5361" stroke-width="0.8"/>
+<line x1="207.328" y1="551.0" x2="247.328" y2="551.0" stroke="#2d4a7a" stroke-width="1.4" marker-end="url(#head-ker)"/>
 <text x="259.328" y="556.5" font-size="16">Execution</text>
-<line x1="374.01599999999996" y1="551.0" x2="414.01599999999996" y2="551.0" stroke="#000" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head)"/>
+<line x1="374.01599999999996" y1="551.0" x2="414.01599999999996" y2="551.0" stroke="#9a6428" stroke-width="1.2" stroke-dasharray="6 4" marker-end="url(#head-gov)"/>
 <text x="426.01599999999996" y="556.5" font-size="16">Governance constraint</text>
-<rect x="625.184" y="543.0" width="40" height="16" fill="#f3f3f3" stroke="#000" stroke-width="2.4"/>
+<rect x="625.184" y="543.0" width="40" height="16" fill="#f2f6fb" stroke="#2d4a7a" stroke-width="2.4"/>
 <text x="677.184" y="556.5" font-size="16">Trust boundary</text>
-<rect x="827.0719999999999" y="543.0" width="40" height="16" fill="none" stroke="#000" stroke-width="1.2" stroke-dasharray="8 5"/>
+<rect x="827.0719999999999" y="543.0" width="40" height="16" fill="#f4faf7" stroke="#2c7560" stroke-width="1.2" stroke-dasharray="8 5"/>
 <text x="879.0719999999999" y="556.5" font-size="16">Untrusted plane</text>
 </svg>
