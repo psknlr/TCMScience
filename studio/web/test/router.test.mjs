@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { indexedDB } from "fake-indexeddb";
 import { Catalog } from "../js/core/catalog.js";
-import { HUMAN_ONLY, ToolRouter, normalizeEnvelope, storeApprovals } from "../js/core/router.js";
+import { HUMAN_ONLY, PLACEMENT_REASONS, ToolRouter, hostsDigest, hostsOf, normalizeEnvelope, storeApprovals, synthEnvelope } from "../js/core/router.js";
+import { RECEIPT_SCHEMA } from "../js/core/receipt.js";
+import { t } from "../js/core/i18n.js";
 import { openStore } from "../js/core/store.js";
 import { refusalsOf } from "../js/core/governance.js";
 import { envelopeFor, fakeRuntime, memoryApprovals, testCatalogDoc } from "./fixtures/fakes.mjs";
@@ -159,7 +161,11 @@ test("network tools need the project's web access, then an approval naming the h
   assert.equal(on.status, "succeeded");
   assert.deepEqual(req.reasons, ["network"]);
   assert.deepEqual(req.hosts, ["www.ebi.ac.uk"]);
-  assert.equal(approvals.projects.on.approvals["connector.europepmc.search:network"], "project");
+  // the grant is for the hosts the call reaches
+  const key = `connector.europepmc.search:network@${await hostsDigest(["www.ebi.ac.uk"])}`;
+  assert.match(key, /:network@[0-9a-f]{12}$/);
+  assert.equal(approvals.projects.on.approvals[key], "project");
+  assert.equal(approvals.projects.on.approvals["connector.europepmc.search:network"], undefined);
 });
 
 test("sending data to a third party (allow_remote) is its own approval", async () => {
@@ -187,7 +193,7 @@ test("approvals persist in the Store's project record", async () => {
   await r.call("literature_search", { query: "x" }, { projectId: p.id, onApproval: async () => "project" });
   const saved = await store.projects.get(p.id);
   assert.equal(saved.approvals.runner, "project");
-  assert.equal(saved.approvals["connector.europepmc.search:network"], "project");
+  assert.equal(saved.approvals[`connector.europepmc.search:network@${await hostsDigest(["www.ebi.ac.uk"])}`], "project");
   const adapter = storeApprovals(store);
   assert.equal((await adapter.get(p.id)).web, true);
 });
@@ -204,6 +210,10 @@ test("catalog_search and capabilities_status are answered in the page when no ru
   const caps = await r.call("capabilities_status", {});
   assert.equal(caps.result.runner.connected, false);
   assert.equal(caps.result.web_access, false);
+  assert.deepEqual(caps.result.remote_compute, { configured: false, reason: "no remote compute backend is registered; calls run in this browser or on the paired runner (runner.loopback says whether that runner is this computer)" });
+  assert.equal(caps.receipt.schema, RECEIPT_SCHEMA);
+  assert.deepEqual(caps.receipt.result, { kind: "system", outcome: "succeeded", assurance: "none" });
+  assert.equal(caps.receipt.execution.placement.chosen, "page", "answered by the page itself");
   const ready = router({ browser: "ready", runner: "offline" });
   await ready.r.call("catalog_search", { query: "x" });
   assert.equal(ready.runtimes.browser.calls.length, 1, "a ready runtime answers itself");
@@ -227,6 +237,8 @@ test("a runtime that throws gives a runtime_error envelope; an abort gives cance
   setTimeout(() => ctl2.abort(), 10);
   const pending = await asking.call("run_pipeline", { pipeline: "fold" }, { signal: ctl2.signal, onApproval: () => new Promise(() => {}) });
   assert.equal(pending.status, "cancelled", "a stop while the approval card is open cancels the call");
+  assert.equal(pending.receipt.result.outcome, "not_executed", "it never reached a runtime");
+  assert.equal(cancelled.receipt.result.outcome, "cancelled", "the runtime had it");
 });
 
 test("normalizeEnvelope fills the shape and caps text", async () => {
@@ -266,4 +278,504 @@ test("acts reserved for a person are refused with HUMAN_ONLY, by name or through
   const order = await withList.call("call_tool", { tool: "lab.order" }, {});
   assert.equal(order.status, "refused");
   assert.match(order.governance.refusals[0].message, /clinician's act/);
+});
+
+// ------------------------------------------------------------------------------------------------- requirements and reasons
+
+const TORCH = { need: "dependency", names: ["torch", "transformers"], detail: "install: torch, transformers", remedy: "Install it on the runner machine (pip install …, or the tool's own installer)." };
+
+/** The test catalog with extra entries (a size limit, engines with runner readiness, hosts by argument). */
+function richDoc() {
+  const doc = testCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props });
+  doc.core.push({ name: "run_fold", title: { zh: "流程", en: "Pipeline" }, description: "", parameters: obj(), category: "omics", exec: ["runner"], network: false, confirm: true, job: true, maps_to: "job.pipeline.*" });
+  doc.core.find((c) => c.name === "run_pipeline").maps_to = "job.pipeline.*";
+  doc.entries.push(
+    { id: "native.big_align", kind: "native", title: { zh: "比对", en: "Align" }, summary: "Align.", category: "seq_genomics", parameters: obj({ sequence: { type: "string" } }), example: null, exec: ["browser", "runner"], network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [], limits: { max_request_bytes: { runner: 8388608, browser: 200 } } },
+    { id: "native.big_align_browser", kind: "native", title: { zh: "比对", en: "Align" }, summary: "Align.", category: "seq_genomics", parameters: obj({ sequence: { type: "string" } }), example: null, exec: ["browser"], network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [], limits: { max_request_bytes: { browser: 200 } } },
+    {
+      id: "system.provider_call", kind: "system", title: { zh: "调用工具提供方", en: "Provider call" }, summary: "Call a provider tool.", category: "system",
+      parameters: obj({ provider: { type: "string" }, tool: { type: "string" }, arguments: { type: "object" } }), example: null, exec: ["runner"], network: true, confirm: false, job: false, gpu: false, heavy: [], tags: [],
+      hosts: ["static.example.org"],
+      hosts_by: { tool: { ChEMBL_search_activities: ["www.ebi.ac.uk"], PubChem_get_CID_by_compound_name: ["pubchem.ncbi.nlm.nih.gov"] } },
+    },
+    {
+      id: "job.pipeline.fold", kind: "job", title: { zh: "结构预测", en: "Fold" }, summary: "Fold.", category: "omics",
+      parameters: obj({ method: { type: "string", enum: ["esmatlas", "esmfold", "colabfold"], default: "esmatlas" } }), example: null,
+      exec: ["runner"], network: false, confirm: true, job: true, gpu: true, heavy: [], tags: [], hosts: ["api.esmatlas.com"],
+      execution: { engines: [
+        // as tcmstudio.catalog writes them: static requires, and on a probing runner readiness.runner per engine
+        { id: "esmatlas", selected_by: { arg: "method", value: "esmatlas" }, requires: [], device: "remote", readiness: { runner: { state: "ready", requires: [] } } },
+        { id: "esmfold", selected_by: { arg: "method", value: "esmfold" }, requires: [TORCH], device: "gpu", readiness: { runner: { state: "missing_dependency", requires: [TORCH] } } },
+        // an engine that says only available/missing (another runner's way of saying it)
+        { id: "colabfold", selected_by: { arg: "method", value: "colabfold" }, requires: [], device: "gpu", available: false, missing: ["colabfold_batch"] },
+        // chosen by two arguments at once (selected_by.with)
+        { id: "esmfold-relax", selected_by: { arg: "method", value: "esmfold", with: { relax: "amber" } }, requires: [], device: "gpu", readiness: { runner: { state: "missing_dependency", requires: [{ need: "dependency", names: ["openmm"], detail: "install: openmm", remedy: "Install it." }] } } },
+      ] },
+    },
+    {
+      id: "job.tcmdb.fetch", kind: "job", title: { zh: "下载数据集", en: "Fetch a dataset" }, summary: "Download.", category: "tcm_data",
+      parameters: obj({ dataset: { type: "string", enum: ["herb2", "npass"] } }), example: null, exec: ["runner"], network: true, confirm: true, job: true, gpu: false, heavy: [], tags: [],
+      hosts_by: { dataset: { herb2: ["herb.ac.cn"], npass: ["bidd.group", "BIDD.group"] } },
+    },
+  );
+  return doc;
+}
+
+function richRouter({ browser = "idle", runner = "ready", compute = "auto", approvals, runnerUrl, answer } = {}) {
+  const runtimes = {
+    browser: browser === null ? undefined : fakeRuntime("browser", { status: browser, answer }),
+    runner: runner === null ? undefined : fakeRuntime("runner", { status: runner, answer }),
+  };
+  if (runnerUrl && runtimes.runner) runtimes.runner.url = runnerUrl;
+  return { r: new ToolRouter({ catalog: new Catalog(richDoc()), runtimes, settings: { compute, web: true }, approvals: approvals || memoryApprovals() }), runtimes };
+}
+
+test("every placement that finds no place says what it would need; the hint is the first remedy, error.reason the code", async () => {
+  const cases = [
+    [router({ runner: "offline" }).r, "literature_search", { query: "x" }, "needs_runner", "runner"],
+    [router({ runner: "ready" }).r, "call_tool", { tool: "native.dock" }, "missing_deps", "dependency"],
+    [router({ compute: "browser", runner: "ready" }).r, "literature_search", { query: "x" }, "compute_browser", "compute_setting"],
+    [router({ compute: "runner", runner: "offline" }).r, "tcm_herb", { name: "甘草" }, "runner_offline", "runner"],
+    [router({ compute: "browser", browser: "offline", runner: "ready" }).r, "tcm_herb", { name: "甘草" }, "no_runtime", "browser_runtime"],
+  ];
+  for (const [r, name, args, reason, need] of cases) {
+    const env = await r.call(name, args, { projectId: "p" });
+    assert.equal(env.status, "failed", reason);
+    assert.equal(env.error.type, "unavailable");
+    assert.equal(env.error.reason, reason);
+    assert.equal(env.error.requires[0].need, need);
+    for (const q of env.error.requires) assert.ok(q.detail && q.remedy, `${reason}: detail and remedy`);
+    assert.equal(env.error.hint, env.error.requires[0].remedy, "the hint is a remedy, not a reason code");
+    assert.ok(!PLACEMENT_REASONS.includes(env.error.hint));
+    assert.match(env.text, new RegExp(`Hint: ${env.error.hint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+    assert.match(env.text, /Needs: /);
+    assert.equal(env.receipt.execution.placement.reason, reason);
+    assert.equal(env.receipt.execution.placement.chosen, null);
+  }
+  const dock = await router({ runner: "ready" }).r.call("call_tool", { tool: "native.dock" });
+  assert.deepEqual(dock.error.requires[0].names, ["vina", "meeko"]);
+  assert.equal(dock.error.requires[0].detail, "install: vina, meeko");
+  const p = router({ runner: "offline" }).r.placement("literature_search");
+  assert.deepEqual(Object.keys(p).sort(), ["message", "reason", "requires", "where"]);
+  assert.equal(router({ runner: "ready" }).r.placement("tcm_herb").requires.length, 0);
+});
+
+test("an unknown compute preference is reported (unknown_compute), never run as auto; the page still answers its two tools", async () => {
+  for (const compute of ["gpu", "local", "Auto"]) {
+    const { r, runtimes } = router({ compute, runner: "ready", browser: "ready" });
+    const p = r.placement("tcm_herb");
+    assert.equal(p.where, null, compute);
+    assert.equal(p.reason, "unknown_compute");
+    assert.equal(p.requires[0].need, "compute_setting");
+    assert.match(p.requires[0].detail, new RegExp(`"${compute}"`));
+    const env = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async () => "once" });
+    assert.equal(env.error.reason, "unknown_compute");
+    assert.match(env.summary, new RegExp(compute));
+    assert.equal(runtimes.runner.calls.length + runtimes.browser.calls.length, 0);
+    assert.equal(env.receipt.execution.placement.requested, compute);
+  }
+  // a project default this page does not know is the same
+  const { r } = router({ compute: "auto", runner: "ready" });
+  r.setSettings({ compute: "cluster" });
+  assert.equal(r.placement("native.reverse_complement").reason, "unknown_compute");
+  const local = await r.call("catalog_search", { query: "配伍" });
+  assert.equal(local.status, "succeeded");
+  assert.equal(local.receipt.local, true);
+  const needs = JSON.parse(local.text).matched.flatMap((m) => m.needs || []);
+  assert.ok(needs.some((n) => /does not know/.test(n)), "catalog_search says why nothing runs");
+});
+
+test("compute 'remote': every call is unavailable (remote_not_configured) and nothing falls back to the runner or the browser", async () => {
+  const { r, runtimes } = router({ compute: "remote", runner: "ready", browser: "ready" });
+  // even with something that looks like a remote runtime: no remote backend is implemented
+  runtimes.remote = fakeRuntime("remote", { status: "ready" });
+  r.setRuntimes(runtimes);
+  let asked = 0;
+  for (const [name, args] of [["tcm_herb", { name: "甘草" }], ["literature_search", { query: "x" }], ["call_tool", { tool: "native.reverse_complement", arguments: { sequence: "ATGC" } }], ["run_pipeline", { pipeline: "fold", arguments: {} }]]) {
+    const p = r.placement(r.resolve(name, args).target);
+    assert.equal(p.where, null, name);
+    assert.equal(p.reason, "remote_not_configured");
+    assert.deepEqual(p.requires.map((q) => q.need), ["remote_backend"]);
+    const env = await r.call(name, args, { projectId: "p", onApproval: async () => { asked++; return "once"; } });
+    assert.equal(env.status, "failed");
+    assert.equal(env.error.reason, "remote_not_configured");
+    assert.equal(env.receipt.where, "page");
+    assert.equal(env.receipt.result.outcome, "not_executed");
+  }
+  assert.equal(asked, 0, "no approval is asked for a call that cannot run");
+  assert.equal(runtimes.runner.calls.length + runtimes.browser.calls.length + runtimes.remote.calls.length, 0);
+  // the page's own tools: answered by the page itself, not the ready browser runtime (whose answer does not know the
+  // preference and would list entries as runnable that the router refuses)
+  assert.equal(r.where("catalog_search"), "page");
+  const local = await r.call("catalog_search", { query: "配伍" });
+  assert.equal(local.status, "succeeded");
+  assert.equal(local.receipt.local, true);
+  assert.equal(local.receipt.execution.placement.chosen, "page");
+  assert.equal(runtimes.runner.calls.length + runtimes.browser.calls.length + runtimes.remote.calls.length, 0);
+  const matched = JSON.parse(local.text).matched;
+  assert.ok(matched.length && matched.every((m) => m.runnable_now === false), "nothing is listed as runnable");
+  assert.ok(matched.every((m) => m.needs.includes("a remote compute backend (none is configured)")), "each says what it would need");
+  const caps = await r.call("capabilities_status", {});
+  assert.equal(caps.receipt.local, true);
+  assert.equal(caps.result.counts.runnable_now, 0);
+  assert.equal(runtimes.browser.calls.length, 0);
+  // the same for a value this page does not know, with the browser runtime ready
+  const unknown = router({ compute: "gpu", runner: "ready", browser: "ready" });
+  const u = await unknown.r.call("catalog_search", { query: "配伍" });
+  assert.equal(u.receipt.local, true);
+  assert.equal(unknown.runtimes.browser.calls.length + unknown.runtimes.runner.calls.length, 0);
+  assert.equal(t("core.router.remote_not_configured", { name: "x" }, "zh").includes("本机 Runner 上运行"), true, "it says it is not moved there");
+});
+
+test("bug fix: under compute 'browser' the page's own tools are never sent to a connected runner, and ask nothing", async () => {
+  const { r, runtimes } = router({ compute: "browser", runner: "ready", browser: "idle" });
+  let asked = 0;
+  const onApproval = async () => { asked++; return "once"; };
+  for (const name of ["catalog_search", "capabilities_status"]) {
+    const env = await r.call(name, {}, { projectId: "p", onApproval });
+    assert.equal(env.status, "succeeded");
+    assert.equal(env.receipt.local, true);
+    assert.equal(env.receipt.where, "browser");
+  }
+  assert.equal(runtimes.runner.calls.length, 0);
+  assert.equal(asked, 0);
+  assert.equal(r.where("catalog_search"), "browser");
+  // compute "runner" or "auto" may still send them to the runner
+  assert.equal(router({ compute: "runner", runner: "ready" }).r.where("catalog_search"), "runner");
+  assert.equal(router({ compute: "auto", runner: "ready", browser: "idle" }).r.where("catalog_search"), "runner");
+});
+
+test("too_large_for_browser: a request above the entry's browser limit is not sent to the browser; the runner takes it under auto", async () => {
+  const big = { sequence: "A".repeat(500) };
+  const off = richRouter({ runner: "offline" });
+  const p = off.r.placement("native.big_align", big);
+  assert.equal(p.reason, "too_large_for_browser");
+  assert.deepEqual(p.requires.map((q) => q.need), ["memory", "runner"]);
+  assert.match(p.requires[0].detail, /at most 200 B in the browser runtime \(this one is 515 B/);
+  const env = await off.r.call("call_tool", { tool: "native.big_align", arguments: big });
+  assert.equal(env.error.reason, "too_large_for_browser");
+  assert.equal(off.runtimes.browser.calls.length, 0);
+  assert.equal(off.r.placement("native.big_align", { sequence: "ACGT" }).where, "browser", "a small request runs");
+  assert.equal(richRouter({ runner: "ready" }).r.whereCall("call_tool", { tool: "native.big_align", arguments: big }), "runner");
+  const strict = richRouter({ compute: "browser", runner: "ready" }).r.placement("native.big_align", big);
+  assert.equal(strict.reason, "too_large_for_browser", "compute browser refuses it too, and says what would run it");
+  assert.deepEqual(strict.requires.map((q) => q.need), ["memory", "compute_setting"]);
+  // the catalog document's limit holds for an entry without its own; without either nothing is checked here
+  const doc = { ...testCatalogDoc(), limits: { max_request_bytes: { runner: 8388608, browser: 64 } } };
+  const docLimit = new ToolRouter({ catalog: new Catalog(doc), runtimes: router({ runner: "offline" }).runtimes, settings: {} });
+  assert.equal(docLimit.placement("native.reverse_complement", { sequence: "A".repeat(100) }).reason, "too_large_for_browser");
+  assert.equal(router({ runner: "offline" }).r.placement("native.reverse_complement", { sequence: "A".repeat(100000) }).where, "browser");
+  // an entry only the browser runs: a smaller input is the one remedy, and the message does not send it to the runner
+  const only = richRouter({ runner: "ready" }).r.placement("native.big_align_browser", big);
+  assert.equal(only.reason, "too_large_for_browser");
+  assert.deepEqual(only.requires.map((q) => q.need), ["memory"]);
+  assert.match(only.requires[0].remedy, /smaller input/);
+  assert.doesNotMatch(only.requires[0].remedy, /runner/);
+  assert.doesNotMatch(t("core.router.too_large_for_browser_only", { name: "x", size: "1 MB", limit: "1 KB" }, "zh"), /Runner/);
+  assert.doesNotMatch(only.message, /runner|Runner/);
+});
+
+test("missing_engine: the engine the arguments select lacks dependencies on the runner — refused before any approval", async () => {
+  const { r, runtimes } = richRouter({ runner: "ready" });
+  let asked = 0;
+  const onApproval = async () => { asked++; return "once"; };
+  const env = await r.call("run_pipeline", { pipeline: "fold", arguments: { method: "esmfold" } }, { projectId: "p", onApproval });
+  assert.equal(env.status, "failed");
+  assert.equal(env.error.reason, "missing_engine");
+  assert.deepEqual(env.error.requires, [TORCH]);
+  assert.match(env.summary, /esmfold/);
+  const relax = r.placement(r.resolve("call_tool", { tool: "job.pipeline.fold" }).target, { method: "esmfold", relax: "amber" });
+  assert.deepEqual(relax.requires.flatMap((q) => q.names), ["torch", "transformers", "openmm"], "every engine the arguments choose");
+  assert.equal(asked, 0);
+  assert.equal(runtimes.runner.calls.length, 0);
+  const viaCallTool = await r.call("call_tool", { tool: "job.pipeline.fold", arguments: { method: "colabfold" } }, { projectId: "p", onApproval });
+  assert.equal(viaCallTool.error.reason, "missing_engine", "an older catalog's available:false on the engine counts too");
+  assert.deepEqual(viaCallTool.error.requires[0].names, ["colabfold_batch"]);
+  // the default engine (method absent: its schema default) is ready: the job is asked about as usual
+  const ok = await r.call("call_tool", { tool: "job.pipeline.fold", arguments: {} }, { projectId: "p", onApproval });
+  assert.equal(ok.status, "succeeded");
+  assert.equal(asked, 1);
+  // a runner catalog without engine readiness: nothing is decided here (the runner refuses with the packages named)
+  const doc = richDoc();
+  for (const g of doc.entries.find((e) => e.id === "job.pipeline.fold").execution.engines) { delete g.readiness; delete g.available; }
+  const plain = new ToolRouter({ catalog: new Catalog(doc), runtimes: richRouter().runtimes, settings: {} });
+  assert.equal(plain.whereCall("call_tool", { tool: "job.pipeline.fold", arguments: { method: "esmfold" } }), "runner");
+});
+
+// ------------------------------------------------------------------------------------------------- hosts and approvals
+
+test("network approvals are for the hosts a call reaches: hosts_by by argument, keyed by their digest", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
+  const { r } = richRouter({ runner: "ready", approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q); return "project"; };
+  await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "herb2" } }, { projectId: "p", onApproval });
+  assert.deepEqual(asked[0].reasons, ["job", "network"]);
+  assert.deepEqual(asked[0].hosts, ["herb.ac.cn"], "the real hosts, not every dataset's");
+  assert.deepEqual(asked[0].needs.find((n) => n.reason === "network").hosts, ["herb.ac.cn"]);
+  assert.match(asked[0].text, /herb\.ac\.cn/);
+  const herbKey = `job.tcmdb.fetch:network@${await hostsDigest(["herb.ac.cn"])}`;
+  assert.equal(approvals.projects.p.approvals[herbKey], "project");
+  // another dataset reaches other hosts: the grant does not carry over
+  await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "npass" } }, { projectId: "p", onApproval });
+  assert.deepEqual(asked[1].reasons, ["network"], "the job approval (keyed by the entry) stands; the network one is new");
+  assert.deepEqual(asked[1].hosts, ["bidd.group"]);
+  // the same dataset again: nothing asked
+  await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "herb2" } }, { projectId: "p", onApproval });
+  assert.equal(asked.length, 2);
+  assert.deepEqual(hostsOf({ hosts: ["B.org", "a.org", "b.org"] }), ["a.org", "b.org"]);
+  assert.equal(await hostsDigest(["b.org", "A.org"]), await hostsDigest(["a.org", "b.org"]), "order and case do not matter");
+});
+
+test("an approval stored before host-scoped keys (<entry>:network) stands only for the entry's own static hosts", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project", "connector.europepmc.search:network": "project", "job.tcmdb.fetch:network": "project", "job.tcmdb.fetch": "project" } } });
+  const { r } = richRouter({ runner: "ready", approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q); return "once"; };
+  const env = await r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "p", onApproval });
+  assert.equal(asked.length, 0, "www.ebi.ac.uk is the entry's own host: the old grant stands");
+  const net = env.receipt.execution.approvals.find((a) => a.reason === "network");
+  assert.deepEqual(net, { reason: "network", scope: "standing", hosts: ["www.ebi.ac.uk"], legacy: true });
+  // hosts the old grant never named (job.tcmdb.fetch had no static hosts): asked, with the hosts
+  await r.call("call_tool", { tool: "job.tcmdb.fetch", arguments: { dataset: "herb2" } }, { projectId: "p", onApproval });
+  assert.equal(asked.length, 1);
+  assert.deepEqual(asked[0].reasons, ["network"]);
+  assert.deepEqual(asked[0].hosts, ["herb.ac.cn"]);
+});
+
+test("a call whose hosts are not known in advance (hosts_by does not map its argument) is asked about every time; no grant stands for it", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project", "system.provider_call:network": "project" } } });
+  const { r, runtimes } = richRouter({ runner: "ready", approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q); return "project"; };
+  const unmapped = { tool: "call_tool", arguments: { tool: "system.provider_call", arguments: { provider: "tooluniverse", tool: "Some_unlisted_tool", arguments: {} } } };
+  const env = await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval });
+  assert.equal(env.status, "succeeded");
+  assert.equal(asked.length, 1, "the entry-wide grant from before does not stand for hosts nobody named");
+  assert.deepEqual(asked[0].reasons, ["network"]);
+  assert.deepEqual(asked[0].hosts, [], "the static hosts are not this call's");
+  assert.deepEqual(asked[0].needs, [{ reason: "network", hosts: [], per_call: true }]);
+  assert.match(asked[0].text, /无法事先确定/);
+  assert.doesNotMatch(asked[0].text, /—/);
+  assert.deepEqual(Object.keys(approvals.projects.p.approvals).sort(), ["runner", "system.provider_call:network"], "'project' stored nothing");
+  assert.deepEqual(env.receipt.execution.approvals, [{ reason: "network", scope: "once", hosts: [] }, { reason: "first_runner_call", scope: "standing", hosts: [] }]);
+  await r.call(unmapped.tool, unmapped.arguments, { projectId: "p", onApproval });
+  assert.equal(asked.length, 2, "and again for the next call");
+  // a tool hosts_by maps: scoped to its hosts as usual, and stored
+  await r.call("call_tool", { tool: "system.provider_call", arguments: { provider: "tooluniverse", tool: "ChEMBL_search_activities", arguments: {} } }, { projectId: "p", onApproval });
+  assert.deepEqual(asked[2].hosts, ["www.ebi.ac.uk"]);
+  assert.equal(approvals.projects.p.approvals[`system.provider_call:network@${await hostsDigest(["www.ebi.ac.uk"])}`], "project");
+  assert.equal(runtimes.runner.calls.length, 3);
+  assert.equal(t("core.approval.network_unknown", { what: "x" }, "en").includes("not known in advance"), true);
+});
+
+test("without Web Crypto (an http page on another address) the router still never throws", async () => {
+  const subtle = Object.getOwnPropertyDescriptor(globalThis.crypto, "subtle");
+  Object.defineProperty(globalThis.crypto, "subtle", { value: undefined, configurable: true });
+  try {
+    const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
+    const { r } = router({ runner: "ready", approvals });
+    const env = await r.call("call_tool", { tool: "connector.europepmc.search", arguments: { query: "x" } }, { projectId: "p", onApproval: async () => "project" });
+    assert.equal(env.status, "succeeded");
+    assert.equal(env.receipt.execution.approvals[0].reason, "network");
+    // the grant is still for these hosts only: keyed by the hosts themselves
+    assert.equal(approvals.projects.p.approvals["connector.europepmc.search:network@www.ebi.ac.uk"], "project");
+    const un = await router({ runner: "offline" }).r.call("literature_search", { query: "x" });
+    assert.equal(un.error.reason, "needs_runner");
+    assert.equal(un.receipt.input_sha256, null);
+    const local = await router({ runner: "offline" }).r.call("catalog_search", { query: "配伍" });
+    assert.equal(local.status, "succeeded");
+    assert.equal(local.receipt.input_sha256, null);
+  } finally {
+    if (subtle) Object.defineProperty(globalThis.crypto, "subtle", subtle);
+    else delete globalThis.crypto.subtle;
+  }
+  assert.match(await hostsDigest(["a.org"]), /^[0-9a-f]{12}$/, "restored");
+});
+
+test("a fault in the page itself still gives an envelope, never a rejection", async () => {
+  const { r } = router({ runner: "ready" });
+  r.setCatalog({ coreTool() { throw new Error("broken catalog"); } });
+  const env = await r.call("tcm_herb", { name: "甘草" });
+  assert.equal(env.status, "failed");
+  assert.equal(env.error.type, "runtime_error");
+  assert.match(env.text, /broken catalog/);
+  assert.equal(env.receipt.decided_by, "router");
+  assert.equal(env.receipt.execution.placement.chosen, null);
+});
+
+test("a runner on another machine is a remote runner: its own approval (runner@host), never the local one's, never called local", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: { runner: "project" } } });
+  const { r } = router({ runner: "ready", approvals });
+  r.runtimes.runner.url = "https://lab.example.org:8765";
+  const asked = [];
+  const env = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
+  assert.equal(env.status, "succeeded");
+  assert.equal(asked.length, 1, "the loopback runner's standing approval does not cover it");
+  assert.deepEqual(asked[0].reasons, ["remote_runner"]);
+  assert.deepEqual(asked[0].hosts, ["lab.example.org:8765"]);
+  assert.match(asked[0].text, /远程 Runner/);
+  assert.doesNotMatch(asked[0].text, /本机/);
+  assert.equal(approvals.projects.p.approvals["runner@lab.example.org:8765"], "project");
+  assert.deepEqual(env.receipt.execution.placement.runner, { host: "lab.example.org:8765", loopback: false });
+  assert.match(t("core.approval.remote_runner", { hosts: "h" }, "en"), /leaves this computer/);
+  // a job on it is started there: the prompt names that runner, in both languages, and never says local
+  let job;
+  await r.call("run_pipeline", { pipeline: "fold" }, { projectId: "p", onApproval: async (q) => { job = q; return "once"; } });
+  assert.deepEqual(job.reasons, ["job"]);
+  assert.match(job.text, /远程 Runner（lab\.example\.org:8765）上启动任务/);
+  assert.doesNotMatch(job.text, /本机/);
+  const en = t("core.approval.job_remote", { runner: "lab.example.org:8765", what: "x" }, "en");
+  assert.match(en, /remote runner \(lab\.example\.org:8765\)/);
+  assert.doesNotMatch(en, /local/);
+  // a missing dependency there is the remote runner's
+  const dock = r.placement("native.dock");
+  assert.equal(dock.reason, "missing_deps");
+  assert.doesNotMatch(dock.message, /本机|local/);
+  assert.match(t("core.router.missing_deps_remote", { name: "x", missing: "y" }, "en"), /remote runner/);
+  // the loopback runner: as before
+  const local = router({ runner: "ready" });
+  local.r.runtimes.runner.url = "http://127.0.0.1:8765";
+  let req;
+  const env2 = await local.r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { req = q; return "once"; } });
+  assert.deepEqual(req.reasons, ["first_runner_call"]);
+  assert.deepEqual(env2.receipt.execution.placement.runner, { host: "127.0.0.1:8765", loopback: true });
+});
+
+// ------------------------------------------------------------------------------------------------- receipts
+
+test("every envelope records its placement and the approvals it ran under, with their scope", async () => {
+  const approvals = memoryApprovals({ p: { web: true, approvals: {} } });
+  const { r } = router({ runner: "ready", approvals });
+  const first = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async () => "once" });
+  assert.deepEqual(first.receipt.execution.placement, { requested: "auto", chosen: "runner", reason: "ok", runner: null });
+  assert.deepEqual(first.receipt.execution.approvals, [{ reason: "first_runner_call", scope: "once", hosts: [] }]);
+  const second = await r.call("tcm_herb", { name: "甘草" }, { projectId: "p" });
+  assert.deepEqual(second.receipt.execution.approvals, [{ reason: "first_runner_call", scope: "page", hosts: [] }]);
+  await r.call("literature_search", { query: "x" }, { projectId: "p", onApproval: async () => "project" });
+  // a new page: the network grant stands in the project record; the first runner call was approved only once
+  const fresh = new ToolRouter({ catalog: catalog(), runtimes: r.runtimes, settings: {}, approvals });
+  const third = await fresh.call("literature_search", { query: "y" }, { projectId: "p" });
+  assert.equal(third.status, "needs_approval");
+  assert.deepEqual(third.receipt.execution.approvals.map((a) => [a.reason, a.scope]), [["network", "standing"]], "only what stands is listed");
+  approvals.projects.p.approvals.runner = "project";
+  const fourth = await fresh.call("literature_search", { query: "y" }, { projectId: "p" });
+  assert.equal(fourth.status, "succeeded");
+  assert.deepEqual(fourth.receipt.execution.approvals.map((a) => [a.reason, a.scope]), [["network", "standing"], ["first_runner_call", "standing"]]);
+  assert.deepEqual(r.runtimes.runner.calls.at(-1).ctx.approvals, ["network", "first_runner_call"], "the runtime gets the reasons, in order");
+  const browser = await router({ runner: "offline" }).r.call("tcm_herb", { name: "甘草" });
+  assert.equal(browser.receipt.execution.placement.chosen, "browser");
+  assert.deepEqual(browser.receipt.execution.approvals, []);
+  const none = await router({ runner: "offline" }).r.call("literature_search", { query: "x" });
+  assert.deepEqual(none.receipt.execution.placement, { requested: "auto", chosen: null, reason: "needs_runner", runner: null });
+  // "project" with no project to store it in: held for this page's life, and said so (never "project")
+  const noProject = router({ runner: "ready" });
+  const np = await noProject.r.call("tcm_herb", { name: "甘草" }, { onApproval: async () => "project" });
+  assert.deepEqual(np.receipt.execution.approvals, [{ reason: "first_runner_call", scope: "page", hosts: [] }]);
+  const noStore = new ToolRouter({ catalog: catalog(), runtimes: router({ runner: "ready" }).runtimes, settings: {} });
+  const ns = await noStore.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async () => "project" });
+  assert.deepEqual(ns.receipt.execution.approvals.map((a) => a.scope), ["page"]);
+});
+
+test("a runtime's receipt is kept as it wrote it: no schema or result is made up, only the placement is added", async () => {
+  const { r } = router({ runner: "offline" });
+  const legacy = await r.call("tcm_herb", { name: "甘草" });
+  assert.equal(legacy.receipt.runtime, "test");
+  assert.equal(legacy.receipt.schema, undefined);
+  assert.equal(legacy.receipt.result, undefined);
+  assert.deepEqual(Object.keys(legacy.receipt.execution).sort(), ["approvals", "placement"]);
+  const modern = router({
+    runner: "offline",
+    answer: (tool) => envelopeFor(tool, "browser", { receipt: { where: "browser", schema: RECEIPT_SCHEMA, execution: { runtime: "pyodide", kernel: null }, result: { kind: "record", outcome: "succeeded", assurance: "none" } } }),
+  });
+  const env = await modern.r.call("tcm_herb", { name: "甘草" });
+  assert.equal(env.receipt.execution.runtime, "pyodide", "the runtime's execution fields stay");
+  assert.equal(env.receipt.execution.placement.chosen, "browser");
+  assert.deepEqual(env.receipt.result, { kind: "record", outcome: "succeeded", assurance: "none" });
+  const bare = await normalizeEnvelope(envelopeFor("tcm_herb", "runner"), { tool: "tcm_herb", where: "runner" });
+  assert.equal(bare.receipt.schema, undefined);
+  assert.equal(bare.receipt.execution, undefined, "normalizeEnvelope itself adds nothing to the receipt but where");
+});
+
+test("envelopes decided in the page: where 'page', decided_by router, the receipt schema, not executed (failed when a runtime threw)", async () => {
+  const outcomes = [];
+  const check = (env, outcome) => {
+    assert.equal(env.receipt.schema, RECEIPT_SCHEMA);
+    assert.equal(env.receipt.where, "page");
+    assert.equal(env.receipt.decided_by, "router");
+    assert.equal(env.receipt.output_sha256, null);
+    assert.match(env.receipt.input_sha256, /^[0-9a-f]{64}$/);
+    assert.ok(env.receipt.finished_at >= env.receipt.started_at);
+    assert.deepEqual(env.receipt.result, { kind: null, outcome, assurance: "none" });
+    assert.equal(env.receipt.execution.runtime, "page");
+    outcomes.push(outcome);
+  };
+  const { r } = router({ runner: "ready" });
+  check(await r.call("tcm_herbs", {}), "not_executed");                                               // not_found
+  check(await r.call("clinic.sign", {}), "not_executed");                                             // HUMAN_ONLY
+  check(await router({ runner: "offline" }).r.call("literature_search", { query: "x" }), "not_executed"); // unavailable
+  check(await r.call("literature_search", { query: "x" }, { projectId: "p" }), "not_executed");        // network_off (web off)
+  check(await r.call("run_pipeline", { pipeline: "fold" }, { projectId: "p" }), "not_executed");        // needs_approval
+  check(await r.call("run_pipeline", { pipeline: "fold" }, { projectId: "p", onApproval: async () => "deny" }), "not_executed"); // declined
+  const threw = router({ runner: "offline", answer: () => { throw new Error("worker crashed"); } }).r;
+  check(await threw.call("tcm_herb", { name: "甘草" }), "failed");
+  const notFound = await r.call("tcm_herbs", {});
+  assert.equal(notFound.error.reason, "not_found");
+  const off = await r.call("literature_search", { query: "x" }, { projectId: "p" });
+  assert.deepEqual(off.error.requires.map((q) => q.need), ["network"]);
+  const stopped = await synthEnvelope({ tool: "x", status: "cancelled" });
+  assert.equal(stopped.receipt.result.outcome, "cancelled");
+  assert.equal(outcomes.length, 7);
+});
+
+test("patient data goes to a remote runner only with a yes to that very call; nothing stands for it", async () => {
+  const doc = testCatalogDoc();
+  doc.entries.push({ id: "clinic.assess", kind: "clinic", phi: true, title: { zh: "辨证", en: "Assess" }, summary: "Assess.", category: "tcm_knowledge", parameters: { type: "object", properties: {} }, example: null, exec: ["browser", "runner"], network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [] });
+  const approvals = memoryApprovals({ p: { web: true, approvals: { "runner@lab.example.org:8765": "project" } } });
+  const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: "ready" }) };
+  runtimes.runner.url = "https://lab.example.org:8765";
+  const r = new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: {}, approvals });
+  // an ordinary call: the standing grant for that runner covers it
+  let asked = [];
+  await r.call("tcm_herb", { name: "甘草" }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "project"; } });
+  assert.equal(asked.length, 0);
+  const ask = async (q) => { asked.push(q); return "project"; };
+  const first = await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 40 } } }, { projectId: "p", onApproval: ask });
+  assert.equal(first.status, "succeeded");
+  assert.equal(asked.length, 1, "asked although the runner stands approved");
+  assert.equal(asked[0].needs[0].per_call, true);
+  assert.match(asked[0].text, /患者资料/);
+  assert.deepEqual(first.receipt.execution.approvals, [{ reason: "remote_runner", scope: "once", hosts: ["lab.example.org:8765"] }]);
+  assert.doesNotMatch(JSON.stringify(first.receipt), /"age"/, "no argument value goes into the receipt");
+  await r.call("call_tool", { tool: "clinic.assess", arguments: { intake: { age: 41 } } }, { projectId: "p", onApproval: ask });
+  assert.equal(asked.length, 2, "and again for the next call, even after 'project'");
+  const denied = await r.call("call_tool", { tool: "clinic.assess", arguments: {} }, { projectId: "p", onApproval: async () => "deny" });
+  assert.equal(denied.status, "refused");
+  assert.equal(runtimes.runner.calls.filter((c) => c.args?.tool === "clinic.assess").length, 2);
+});
+
+test("the new router and approval messages exist in zh and en, with the same placeholders", () => {
+  const keys = ["unknown_compute", "remote_not_configured", "too_large_for_browser", "too_large_for_browser_only", "missing_engine", "missing_deps_remote"].map((k) => `core.router.${k}`)
+    .concat(["core.approval.remote_runner", "core.approval.remote_runner_phi", "core.approval.job_remote", "core.approval.network_unknown", "core.runner.label_remote"])
+    .concat(["core.runner.not_running_remote", "core.runner.timeout_remote", "core.runner.http_remote", "core.local.capabilities_remote"]);
+  const ph = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+  for (const k of keys) {
+    const zh = t(k, undefined, "zh");
+    const en = t(k, undefined, "en");
+    assert.notEqual(zh, k, `${k} exists`);
+    assert.notEqual(zh, en, `${k} has its own zh and en (a missing one falls back to the other)`);
+    assert.match(zh, /[一-鿿]/, `${k} zh is Chinese`);
+    assert.deepEqual(ph(zh), ph(en), `${k} placeholders`);
+    assert.doesNotMatch(`${zh} ${en}`, /[!！]/);
+  }
+  for (const k of ["core.approval.remote_runner", "core.approval.remote_runner_phi", "core.runner.label_remote", "core.router.remote_not_configured"]) {
+    assert.doesNotMatch(t(k, { hosts: "h", name: "n" }, "zh").split("，")[0], /本机/, `${k}: a remote target is never 本机`);
+  }
+  // the strings that stand for a remote runner say so, whole, in both languages
+  for (const k of ["core.approval.job_remote", "core.router.missing_deps_remote", "core.runner.not_running_remote", "core.runner.timeout_remote", "core.runner.http_remote", "core.local.capabilities_remote"]) {
+    assert.doesNotMatch(t(k, {}, "zh"), /本机/, k);
+    assert.doesNotMatch(t(k, {}, "en"), /\blocal\b/i, k);
+    assert.match(`${t(k, {}, "zh")} ${t(k, {}, "en")}`, /远程 Runner.*remote runner/, k);
+  }
 });

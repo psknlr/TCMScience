@@ -4,18 +4,42 @@
 //
 // Placement: settings.compute "browser" or "runner" is honoured strictly (a tool that cannot run there is unavailable,
 // with the reason). "auto" sends everything the runner has to the runner while it is connected (one place per project:
-// native speed, the durable audit chain, the user's devices), and what the browser can run to the browser otherwise.
+// native speed, the durable audit chain, the user's devices), and what the browser can run to the browser otherwise:
+// a project's skill and clinic runs write one audit chain, and a project split across two runtimes would fork it.
+// "remote" is a preference no backend serves yet: every call is unavailable (remote_not_configured) and nothing falls
+// back to the browser or the runner. A value this page does not know is reported (unknown_compute), never read as auto.
+// A placement that finds no place says why with Requirements {need, detail, remedy, names?} (core/catalog.js).
 //
 // Approvals (DESIGN §3.3, ARCHITECTURE decision 5): entries marked confirm (jobs among them), network entries (which
-// also need the project's web access on), sending data to a third party (allow_remote), and the first runner call of
-// each project. The answer is "once", "project" (remembered in the project record) or "deny".
+// also need the project's web access on; the grant is for the hosts the call reaches, and a call whose hosts are not
+// known in advance is asked about every time), sending data to a third party (allow_remote), and the first runner
+// call of each project, or of each remote runner. The answer is "once", "project" (remembered in the project record)
+// or "deny".
+//
+// Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
+// one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
 
-import { localCall, isLocalTool } from "./catalog.js";
+import { COMPUTE_VALUES, isLocalTool, localCall, requirement, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
-import { canonicalJson, clip, isAbort, isPlainObject, nowIso, sha256Hex } from "./util.js";
+import { baseReceipt, pageOutcome } from "./receipt.js";
+import { canonicalJson, clip, isAbort, isLoopbackUrl, isPlainObject, sha256Hex, utf8Bytes } from "./util.js";
 
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
+/**
+ * The reasons a placement gives (error.reason of an unavailable envelope; receipt.execution.placement.reason).
+ * human_only is provenance only: a HUMAN_ONLY refusal is decided before any placement and is never "unavailable".
+ */
+export const PLACEMENT_REASONS = Object.freeze([
+  "ok", "not_found", "missing_deps", "compute_browser", "no_runtime", "runner_offline", "needs_runner",
+  "unknown_compute", "remote_not_configured", "too_large_for_browser", "missing_engine", "human_only",
+]);
+const MESSAGE = {
+  not_found: "core.router.unknown_tool", missing_deps: "core.router.missing_deps", compute_browser: "core.router.browser_only_setting",
+  no_runtime: "core.router.no_runtime", runner_offline: "core.router.runner_setting_offline", needs_runner: "core.router.needs_runner",
+  unknown_compute: "core.router.unknown_compute", remote_not_configured: "core.router.remote_not_configured",
+  too_large_for_browser: "core.router.too_large_for_browser", missing_engine: "core.router.missing_engine",
+};
 
 const SIGN = "Signing a clinic draft is the licensed practitioner's own act; it is never done by a tool call.";
 const REGISTRY = "Registry releases and skill promotion are reviewed acts of the maintainers, not tool calls.";
@@ -79,53 +103,142 @@ export class ToolRouter {
   setSettings(settings) { this.settings = settings; }
   setRuntimes(runtimes) { this.runtimes = runtimes; }
 
-  /** "browser" | "runner" | null. */
-  where(toolOrEntry) {
-    return this.placement(toolOrEntry).where;
+  /** "browser" | "runner" | null; "page" for catalog_search/capabilities_status when only the page may answer them. */
+  where(toolOrEntry, args) {
+    return this.placement(toolOrEntry, args).where;
   }
 
   /** Where a call would run, resolving call_tool to the entry it names. */
   whereCall(name, args = {}) {
-    const r = this.resolve(name, isPlainObject(args) ? args : {});
-    return r.error ? null : this.placement(r.target).where;
+    const input = isPlainObject(args) ? args : {};
+    const r = this.resolve(name, input);
+    return r.error ? null : this.placement(r.target, entryArgs(name, input)).where;
   }
 
-  /** {where, reason, message}: the choice and, when there is none, why. */
-  placement(toolOrEntry) {
-    const target = this.#target(toolOrEntry);
-    if (!target) return { where: null, reason: "not_found", message: t("core.router.unknown_tool", { name: String(toolOrEntry?.name || toolOrEntry?.id || toolOrEntry) }) };
+  /**
+   * {where, reason, message, requires}: the choice and, when there is none, why (message in the UI's language) and
+   * what it would need (Requirements, English). args: the arguments the entry receives, when known (the size check,
+   * the engine they select).
+   */
+  placement(toolOrEntry, args) {
+    const p = this.#place(this.#target(toolOrEntry), args, toolOrEntry);
+    return { where: p.where, reason: p.reason, message: p.key ? t(p.key, p.vars) : "", requires: p.requires };
+  }
+
+  /** The compute preference as set ("auto" when unset): it may be one this page does not know. */
+  #compute() {
+    const c = this.settings?.compute;
+    return c === undefined || c === null || c === "" ? "auto" : String(c);
+  }
+
+  #place(target, args, asked) {
+    const none = (reason, vars, requires, key = MESSAGE[reason]) => ({ where: null, reason, key, vars, requires });
+    if (!target) return none("not_found", { name: String(asked?.name || asked?.id || asked) }, []);
     const name = target.name || target.id;
+    const label = { name };
     const exec = Array.isArray(target.exec) ? target.exec : [];
     const browserUp = this.#browserUp();
     const runnerUp = this.#runnerUp();
     const canB = exec.includes("browser") && browserUp;
     const runnerHasIt = exec.includes("runner") && target.available !== false;
     const canR = runnerHasIt && runnerUp;
-    const compute = this.settings?.compute || "auto";
+    const compute = this.#compute();
+    const ok = (where) => ({ where, reason: "ok", key: null, vars: null, requires: [] });
     if (isLocalTool(target.name)) {
-      // the page can always answer these two; a ready runtime answers with more detail
-      const w = compute === "runner" && canR ? "runner" : canB && this.runtimes.browser?.status === "ready" ? "browser" : canR ? "runner" : "browser";
-      return { where: w, reason: "ok", message: "" };
+      // the page can always answer these two (nothing leaves it); a ready runtime answers with more detail. Only
+      // compute "runner" or "auto" may send them to the runner; under "browser" they stay here, answered in the page
+      // until Pyodide is ready. Under "remote" or a value this page does not know nothing runs anywhere, and a
+      // runtime's answer (which does not know the preference) would list as runnable what the router refuses: the
+      // page answers them itself ("page"), with the need that preference has
+      if (compute === "runner") return ok(canR ? "runner" : "browser");
+      if (compute === "auto") return ok(canB && this.runtimes.browser?.status === "ready" ? "browser" : canR ? "runner" : "browser");
+      if (compute === "browser") return ok("browser");
+      return ok("page");
     }
+    if (!COMPUTE_VALUES.includes(compute)) return none("unknown_compute", { ...label, value: compute }, [unknownCompute(compute)]);
+    // no remote backend exists: unavailable, and never moved to the runner or the browser instead
+    if (compute === "remote") return none("remote_not_configured", label, [requirement("remote_backend")]);
+    // a runner on another machine is never called the local one
     const missing = () => (target.available === false && exec.includes("runner") && runnerUp
-      ? { where: null, reason: "missing_deps", message: t("core.router.missing_deps", { name, missing: (target.missing || []).join(", ") || "?" }) }
+      ? none("missing_deps", { ...label, missing: (target.missing || []).join(", ") || "?" }, [requirement("dependency", { names: target.missing || [] })],
+        this.#runnerRemote() ? "core.router.missing_deps_remote" : MESSAGE.missing_deps)
       : null);
+    const inBrowser = () => this.#tooLarge(target, args, label, compute, exec) || ok("browser");
+    const onRunner = () => this.#engineMissing(target, args, label) || ok("runner");
     if (compute === "browser") {
-      if (canB) return { where: "browser", reason: "ok", message: "" };
-      if (!exec.includes("browser")) return { where: null, reason: "compute_browser", message: t("core.router.browser_only_setting", { name }) };
-      return { where: null, reason: "no_runtime", message: t("core.router.no_runtime", { name }) };
+      if (canB) return inBrowser();
+      if (!exec.includes("browser")) return none("compute_browser", label, [requirement("compute_setting")]);
+      return none("no_runtime", label, [requirement("browser_runtime")]);
     }
     if (compute === "runner") {
-      if (canR) return { where: "runner", reason: "ok", message: "" };
-      if (!runnerUp) return { where: null, reason: "runner_offline", message: t("core.router.runner_setting_offline") };
-      return missing() || { where: null, reason: "no_runtime", message: t("core.router.no_runtime", { name }) };
+      if (canR) return onRunner();
+      if (!runnerUp) return none("runner_offline", label, [requirement("runner")]);
+      return missing() || none("no_runtime", label, [requirement("browser_runtime", { remedy: "It runs only in the browser runtime: set compute to Auto or Browser." })]);
     }
     // auto: a connected runner first (native CPython, the project's durable audit chain, the user's own devices),
     // the browser otherwise (ARCHITECTURE, placement rules)
-    if (canR) return { where: "runner", reason: "ok", message: "" };
-    if (canB) return { where: "browser", reason: "ok", message: "" };
-    if (exec.includes("runner") && !runnerUp) return { where: null, reason: "needs_runner", message: t("core.router.needs_runner", { name }) };
-    return missing() || { where: null, reason: "no_runtime", message: t("core.router.no_runtime", { name }) };
+    if (canR) return onRunner();
+    if (canB) return inBrowser();
+    if (exec.includes("runner") && !runnerUp) return none("needs_runner", label, [requirement("runner")]);
+    return missing() || none("no_runtime", label, [requirement("browser_runtime")]);
+  }
+
+  /** too_large_for_browser when the entry's browser request limit is set and the canonical arguments exceed it. */
+  #tooLarge(target, args, label, compute, exec) {
+    const { entry, args: a } = this.#effective(target, args);
+    // the entry's own limit, else the catalog document's (one per runtime)
+    const limit = Number(entry?.limits?.max_request_bytes?.browser ?? target?.limits?.max_request_bytes?.browser ?? this.catalog?.limits?.max_request_bytes?.browser);
+    if (!Number.isFinite(limit) || limit <= 0 || !isPlainObject(a)) return null;
+    let bytes;
+    try { bytes = utf8Bytes(canonicalJson(a)); } catch { return null; }
+    if (bytes <= limit) return null;
+    // an entry the runner cannot run has one remedy: a smaller input
+    const onRunner = exec.includes("runner");
+    const requires = [requirement("memory", {
+      detail: `a request of at most ${formatBytes(limit)} in the browser runtime (this one is ${formatBytes(bytes)} of canonical JSON)`,
+      remedy: onRunner ? "Run it on the local runner, or pass a smaller input." : "Pass a smaller input: this entry runs only in the browser runtime.",
+    })];
+    if (onRunner) requires.push(compute === "browser" ? requirement("compute_setting") : requirement("runner"));
+    return {
+      where: null, reason: "too_large_for_browser", key: onRunner ? MESSAGE.too_large_for_browser : "core.router.too_large_for_browser_only",
+      vars: { ...label, size: formatBytes(bytes), limit: formatBytes(limit) }, requires,
+    };
+  }
+
+  /**
+   * missing_engine when the runner's catalog says the engine these arguments select (execution.engines[].selected_by)
+   * lacks what it needs; null when it is ready, or when the catalog does not say (an older runner): the runner itself
+   * then refuses the job with the missing packages named.
+   */
+  #engineMissing(target, args, label) {
+    const { entry, args: a } = this.#effective(target, args);
+    const engines = Array.isArray(entry?.execution?.engines) ? entry.execution.engines.filter(isPlainObject) : [];
+    if (!engines.length) return null;
+    const lacking = chosenEngines(entry, engines, isPlainObject(a) ? a : {})
+      .map((g) => [g, engineReadiness(g)]).filter(([, q]) => q && q.state !== "ready");
+    if (!lacking.length) return null;
+    const requires = lacking.flatMap(([g, q]) => (q.requires.length ? q.requires : [requirement("dependency", { names: Array.isArray(g.missing) ? g.missing : [] })]));
+    const names = [...new Set(requires.flatMap((q) => q.names || []))];
+    return {
+      where: null, reason: "missing_engine", key: MESSAGE.missing_engine,
+      vars: { ...label, engine: lacking.map(([g]) => String(g.id || "?")).join(", "), missing: names.join(", ") || requires.map((q) => q.detail).join("; ") || "?" }, requires,
+    };
+  }
+
+  /**
+   * The entry a call reaches and the arguments it gets: a core tool that maps to a family (run_pipeline → job.pipeline.*
+   * by `pipeline`, connector_call → connector.* by `connector` and `operation`) reaches the one its arguments name.
+   */
+  #effective(target, args) {
+    const a = isPlainObject(args) ? args : {};
+    const maps = typeof target?.maps_to === "string" ? target.maps_to : "";
+    if (!maps.endsWith(".*")) return { entry: target, args: a };
+    const prefix = maps.slice(0, -1);
+    let id = null;
+    if (prefix === "job.pipeline." && typeof a.pipeline === "string") id = `${prefix}${a.pipeline}`;
+    else if (prefix === "connector." && typeof a.connector === "string" && typeof a.operation === "string") id = `${prefix}${a.connector}.${a.operation}`;
+    const entry = id ? this.catalog?.byId?.[id] : null;
+    return entry ? { entry, args: isPlainObject(a.arguments) ? a.arguments : {} } : { entry: target, args: a };
   }
 
   /** What a call resolves to: the core tool, the entry it reaches (call_tool → arguments.tool), and its flags. */
@@ -168,9 +281,25 @@ export class ToolRouter {
 
   /**
    * Run a call. ctx: {projectId, conversationId, signal, onApproval(request) → "once"|"project"|"deny", callId}.
-   * Always resolves to an envelope.
+   * Always resolves to an envelope: a fault in the page itself (not in a runtime, whose faults #call turns into
+   * envelopes) gives a failed one that says so, never a rejection.
    */
   async call(name, args, ctx = {}) {
+    try {
+      return await this.#call(name, args, ctx);
+    } catch (err) {
+      const message = err?.message || String(err);
+      const tool = String(name || "tool");
+      return stamp(await synthEnvelope({
+        tool, args: isPlainObject(args) ? args : {}, status: "failed",
+        summary: t("core.router.runtime_error", { name: tool, message }),
+        text: `The page could not complete this call (${message}). There is no result.`,
+        error: { type: "runtime_error", message, hint: "" },
+      }), this.#provenance({ where: null, reason: null }));
+    }
+  }
+
+  async #call(name, args, ctx = {}) {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
     const input = isPlainObject(args) ? args : {};
     const r = this.resolve(name, input);
@@ -181,94 +310,130 @@ export class ToolRouter {
     }
     if (r.error === "human_only") {
       // a refusal, shown as one with its code: nothing here or anywhere else can do it for the model
-      return synthEnvelope({
+      return stamp(await synthEnvelope({
         tool: name, via: r.name, args: input, status: "refused", kind: r.name.startsWith("clinic") ? "clinic" : "system",
         summary: t("core.router.human_only", { name: r.name }),
         text: `Refused (HUMAN_ONLY): ${r.message} It is not offered as a tool and no tool can do it; tell the user it is a person's act, and do not look for another tool to do it.`,
         error: { type: "refused", message: r.message, hint: HUMAN_ONLY_REMEDY },
         refusals: [{ code: "HUMAN_ONLY", message: r.message, remedy: HUMAN_ONLY_REMEDY }],
-      });
+      }), this.#provenance({ where: null, reason: "human_only" }));
     }
     if (r.error) {
       const hint = r.suggestions.length ? `Did you mean: ${r.suggestions.join(", ")}? ` : "";
-      return synthEnvelope({
+      return stamp(await synthEnvelope({
         tool: name, args: input, status: "failed",
         summary: t("core.router.unknown_tool", { name: r.name }),
         text: `There is no tool named '${r.name}'. ${hint}Use catalog_search to find tools, then call_tool with an entry id.`,
-        error: { type: "not_found", message: `unknown tool: ${r.name}`, hint: hint.trim() || "use catalog_search" },
-      });
+        error: { type: "not_found", message: `unknown tool: ${r.name}`, hint: hint.trim() || "use catalog_search", reason: "not_found" },
+      }), this.#provenance({ where: null, reason: "not_found" }));
     }
-    const place = this.placement(r.target);
+    const callArgs = entryArgs(name, input);
+    const place = this.#place(r.target, callArgs, r.target);
 
     if (isLocalTool(r.target.name)) {
-      const rt = place.where && this.runtimes[place.where];
+      const rt = place.where && place.where !== "page" ? this.runtimes[place.where] : null;
       if (!rt || rt.status !== "ready") {
-        return localCall(r.target.name, input, {
+        const env = await localCall(r.target.name, input, {
           catalog: this.catalog, where: (e) => this.where(e), t,
           status: this.#status(await this.#webOn(projectId)),
         });
+        return stamp(env, this.#provenance({ where: "page", reason: place.reason }));
       }
     }
     if (!place.where) {
-      return synthEnvelope({
+      // what it would need, in English for the model (the first remedy is the hint), the message in the UI's language
+      const requires = place.requires || [];
+      const needs = requires.map((q) => q.detail).join("; ");
+      return stamp(await synthEnvelope({
         tool: name, via: r.entry?.id, args: input, status: "failed", kind: r.entry?.kind,
-        summary: place.message,
-        text: `Not run: ${t(...messageKey(place, r), "en")} Say what it would need; do not substitute an approximation.`,
-        error: { type: "unavailable", message: place.message, hint: place.reason },
-      });
+        summary: t(place.key, place.vars),
+        text: `Not run: ${t(place.key, place.vars, "en")}${needs ? ` Needs: ${needs}.` : ""} Say what it would need; do not substitute an approximation.`,
+        error: { type: "unavailable", message: t(place.key, place.vars), hint: requires[0]?.remedy || "", reason: place.reason, requires },
+      }), this.#provenance(place));
     }
 
     const flags = { network: Boolean(r.target.network), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
     if (flags.network && !(await this.#webOn(projectId))) {
-      return synthEnvelope({
+      const requires = [requirement("network")];
+      return stamp(await synthEnvelope({
         tool: name, via: r.entry?.id, args: input, status: "failed", kind: r.entry?.kind,
         summary: t("core.router.network_off", { name: r.label }),
         text: "Not run: web access is off for this project and this tool reaches the network. Ask the user to turn on web access for the project if the result is needed.",
-        error: { type: "network_off", message: t("core.router.network_off", { name: r.label }), hint: "turn on web access for this project" },
-      });
+        error: { type: "network_off", message: t("core.router.network_off", { name: r.label }), hint: "turn on web access for this project", requires },
+      }), this.#provenance(place));
     }
 
-    const needs = this.#reasons(r, flags, place.where, input);
-    const granted = [];
+    const needs = await this.#reasons(r, flags, place.where, input, callArgs);
+    let granted = [];
     if (needs.length) {
       const outcome = await this.#approve({ needs, r, name, projectId, callId, signal, onApproval, input });
-      if (outcome.envelope) return outcome.envelope;
-      granted.push(...needs.map((n) => n.reason));
+      if (outcome.envelope) return stamp(outcome.envelope, this.#provenance(place, outcome.approvals));
+      granted = outcome.approvals;
     }
+    const prov = this.#provenance(place, granted);
 
     const rt = this.runtimes[place.where];
-    if (signal?.aborted) return cancelled(name, r, input);
+    if (signal?.aborted) return stamp(await cancelled(name, r, input, "not_executed"), prov);
     try {
       const env = await raceAbort(rt.call(name, input, {
-        project_id: projectId, conversation_id: conversationId, approvals: granted, signal,
+        project_id: projectId, conversation_id: conversationId, approvals: granted.map((g) => g.reason), signal,
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
       }), signal);
-      return normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry });
+      return stamp(await normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry }), prov);
     } catch (err) {
-      if (isAbort(err) || signal?.aborted) return cancelled(name, r, input);
+      if (isAbort(err) || signal?.aborted) return stamp(await cancelled(name, r, input), prov);
       const message = err?.message || String(err);
-      return synthEnvelope({
-        tool: name, via: r.entry?.id, args: input, status: "failed", kind: r.entry?.kind, where: place.where,
+      return stamp(await synthEnvelope({
+        tool: name, via: r.entry?.id, args: input, status: "failed", kind: r.entry?.kind,
         summary: t("core.router.runtime_error", { name: r.label, message }),
         text: `The tool failed to run: ${message}. There is no result.`,
         error: { type: "runtime_error", message, hint: "" },
-      });
+      }), prov);
     }
+  }
+
+  /** receipt.execution additions: how the call was placed and which approvals it ran under. */
+  #provenance(place, approvals = []) {
+    return {
+      placement: { requested: this.#compute(), chosen: place?.where ?? null, reason: place?.reason ?? null, runner: this.#runnerIdentity() },
+      approvals: approvals.map((a) => ({ reason: a.reason, scope: a.scope, hosts: [...(a.hosts || [])], ...(a.legacy ? { legacy: true } : {}) })),
+    };
+  }
+
+  /** The paired runner: {host, loopback}, or null when there is none (or its address cannot be read). */
+  #runnerIdentity() {
+    const url = this.runtimes.runner?.url;
+    if (!url) return null;
+    try { return { host: new URL(url).host, loopback: isLoopbackUrl(url) }; } catch { return null; }
+  }
+
+  /** Is the paired runner on another machine? Its calls are a remote runner's (own approval, never called local). */
+  #runnerRemote() {
+    const id = this.#runnerIdentity();
+    return Boolean(id && !id.loopback);
   }
 
   async #approve({ needs, r, name, projectId, callId, signal, onApproval, input }) {
     const run = async () => {
-      const pending = await this.#pending(projectId, needs);
-      if (!pending.length) return {};
+      const held = await this.#held(projectId, needs);
+      const pending = needs.filter((n) => !held.has(n));
+      // in the order the call needs them; scope: how each stands (asked now: the answer)
+      const approvals = (decision) => needs.filter((n) => held.has(n) || decision)
+        .map((n) => ({ reason: n.reason, hosts: n.hosts || [], scope: held.get(n)?.scope || (n.perCall ? "once" : decision), legacy: Boolean(held.get(n)?.legacy) }));
+      const standing = approvals(null);
+      if (!pending.length) return { approvals: standing };
       const hosts = [...new Set(pending.flatMap((n) => n.hosts || []))];
       const what = whatOf(r);
       const request = {
         callId, tool: name, entry: r.entry?.id || null, reason: pending[0].reason, reasons: pending.map((n) => n.reason),
         what, hosts, args: input, projectId,
-        text: pending.map((n) => t(`core.approval.${n.reason}`, { what, hosts: hosts.join(", ") || "—" })).join("；"),
+        needs: pending.map((n) => ({ reason: n.reason, hosts: [...(n.hosts || [])], ...(n.perCall ? { per_call: true } : {}) })),
+        // each reason names its own hosts (a network approval its call's hosts, a remote runner its address)
+        text: pending.map((n) => t(n.text || `core.approval.${n.reason}`, { what, hosts: (n.hosts || []).join(", ") || "—", ...(n.vars || {}) })).join("；"),
       };
       if (typeof onApproval !== "function") {
         return {
+          approvals: standing,
           envelope: await synthEnvelope({
             tool: name, via: r.entry?.id, args: input, status: "needs_approval", kind: r.entry?.kind,
             summary: t("core.router.needs_approval", { name: r.label }),
@@ -281,11 +446,12 @@ export class ToolRouter {
       try {
         decision = await raceAbort(Promise.resolve(onApproval(request)), signal);
       } catch (err) {
-        if (isAbort(err) || signal?.aborted) return { envelope: await cancelled(name, r, input) };
+        if (isAbort(err) || signal?.aborted) return { approvals: standing, envelope: await cancelled(name, r, input, "not_executed") };
         decision = "deny";
       }
       if (decision !== "once" && decision !== "project") {
         return {
+          approvals: standing,
           envelope: await synthEnvelope({
             tool: name, via: r.entry?.id, args: input, status: "refused", kind: r.entry?.kind,
             summary: t("core.router.denied", { name: r.label }),
@@ -296,37 +462,80 @@ export class ToolRouter {
           }),
         };
       }
-      if (decision === "project" && projectId && this.approvals) {
-        try { await this.approvals.grant(projectId, pending.map((n) => n.key)); } catch { /* the call still runs once */ }
+      const keep = pending.filter((n) => !n.perCall);
+      let stored = false;
+      if (decision === "project" && projectId && this.approvals && keep.length) {
+        try { await this.approvals.grant(projectId, keep.map((n) => n.key)); stored = true; } catch { /* the call still runs once */ }
       }
-      // "once" on the first runner call: the first call has now been approved for this page's life
+      // "once" on the first call of a runner: approved for this page's life (that runner's, when it is remote); a
+      // "project" that could not be stored (no project, no store) holds for this page's life too, and says so
       const session = this.#grants(projectId);
-      for (const n of pending) if (n.reason === "first_runner_call" || decision === "project") session.add(n.key);
-      return {};
+      for (const n of keep) if (n.reason === "first_runner_call" || n.reason === "remote_runner" || decision === "project") session.add(n.key);
+      return { approvals: approvals(decision === "project" && !stored ? "page" : decision) };
     };
     const p = this.queue.then(run, run);
     this.queue = p.then(() => undefined, () => undefined);
     return p;
   }
 
-  #reasons(r, flags, where, input) {
+  /**
+   * The approvals a call needs: {reason, key, hosts?, legacy?, perCall?}. A network approval is for the hosts this
+   * call reaches (key `<entry>:network@<sha12 of the sorted hosts>`), so a project grant never carries over to other
+   * hosts; the key of the version before it (`<entry>:network`) still counts when the hosts are among the entry's own
+   * static hosts. A call whose hosts are not known in advance (an argument value hosts_by does not map, or no hosts at
+   * all) is asked about every time: no grant can be scoped to hosts nobody named. A runner on another machine needs
+   * its own approval (remote_runner, key runner@<host>), never the local one's.
+   */
+  async #reasons(r, flags, where, input, callArgs) {
     const key = r.key;
-    const hosts = hostsOf(r.target);
+    const { entry, args } = this.#effective(r.target, callArgs);
+    let reach = callHosts(entry, args);
+    // an entry that names no hosts of its own takes the core tool's (literature_search's); one with hosts_by never does
+    if (!reach.hosts.length && !isPlainObject(entry?.hosts_by) && entry !== r.target) reach = callHosts(r.target, callArgs);
+    // the hosts a grant can be scoped to: none when the call's are not known (static ones would not be its own)
+    const hosts = reach.known ? reach.hosts : [];
+    const remote = where === "runner" && this.#runnerRemote();
+    const runnerHost = remote ? this.#runnerIdentity().host : null;
     const out = [];
-    if (flags.confirm) out.push({ reason: flags.job ? "job" : "confirm", key });
-    if (flags.network) out.push({ reason: "network", key: `${key}:network`, hosts });
+    if (flags.confirm) {
+      // a job on a runner on another machine is started there, not on this computer
+      out.push({ reason: flags.job ? "job" : "confirm", key, ...(flags.job && remote ? { text: "core.approval.job_remote", vars: { runner: runnerHost } } : {}) });
+    }
+    if (flags.network) {
+      if (!reach.known) {
+        out.push({ reason: "network", key: `${key}:network`, hosts, perCall: true, text: "core.approval.network_unknown" });
+      } else {
+        const own = hostsOf(this.catalog?.byId?.[key] || r.target);
+        const legacy = hosts.every((h) => own.includes(h)) ? `${key}:network` : null;
+        out.push({ reason: "network", key: await networkKey(key, hosts), hosts, ...(legacy ? { legacy } : {}) });
+      }
+    }
     if (input.allow_remote === true || input.arguments?.allow_remote === true) out.push({ reason: "remote_upload", key: `${key}:remote_upload`, hosts });
-    if (where === "runner") out.push({ reason: "first_runner_call", key: RUNNER_KEY });
+    if (where === "runner") {
+      const id = this.#runnerIdentity();
+      if (!remote) out.push({ reason: "first_runner_call", key: RUNNER_KEY });
+      // patient data (phi entries: the clinic) goes to another machine only with the person's yes to this call
+      else if (isPhi(r)) out.push({ reason: "remote_runner", key: `${RUNNER_KEY}@${id.host}`, hosts: [id.host], perCall: true, text: "core.approval.remote_runner_phi" });
+      else out.push({ reason: "remote_runner", key: `${RUNNER_KEY}@${id.host}`, hosts: [id.host] });
+    }
     return out;
   }
 
-  async #pending(projectId, needs) {
+  /** The needs that already stand: need → {scope: "standing" (the project record) | "page" (this page), legacy?}. */
+  async #held(projectId, needs) {
     let standing = {};
     if (projectId && this.approvals) {
       try { standing = (await this.approvals.get(projectId))?.approvals || {}; } catch { standing = {}; }
     }
     const session = this.#grants(projectId);
-    return needs.filter((n) => standing[n.key] !== "project" && !session.has(n.key));
+    const out = new Map();
+    for (const n of needs) {
+      if (n.perCall) continue; // asked every time: no grant stands for it
+      if (standing[n.key] === "project") out.set(n, { scope: "standing" });
+      else if (n.legacy && standing[n.legacy] === "project") out.set(n, { scope: "standing", legacy: true });
+      else if (session.has(n.key)) out.set(n, { scope: "page" });
+    }
+    return out;
   }
 
   #grants(projectId) {
@@ -373,12 +582,9 @@ export class ToolRouter {
   }
 }
 
-function messageKey(place, r) {
-  const keys = {
-    needs_runner: "core.router.needs_runner", compute_browser: "core.router.browser_only_setting",
-    runner_offline: "core.router.runner_setting_offline", missing_deps: "core.router.missing_deps",
-  };
-  return [keys[place.reason] || "core.router.no_runtime", { name: r.label, missing: (r.target.missing || []).join(", ") }];
+/** Does the call carry patient data (an entry marked phi, or a clinic entry)? */
+function isPhi(r) {
+  return r.target?.phi === true || r.entry?.phi === true || r.entry?.kind === "clinic" || r.target?.kind === "clinic";
 }
 
 function labelOf(x) {
@@ -392,17 +598,108 @@ function whatOf(r) {
   return label && label !== id ? `${label} (${id})` : id;
 }
 
-function hostsOf(target) {
-  const h = target?.hosts || target?.skill?.network || [];
-  return Array.isArray(h) ? h.filter((x) => typeof x === "string") : [];
+/**
+ * The hosts a call reaches: the entry's hosts for the argument values it names (hosts_by: {<param>: {<value>:
+ * [hosts]}}, e.g. job.tcmdb.fetch by dataset), else its static hosts (hosts, or a skill's network list). Lower-cased,
+ * sorted, without repeats.
+ */
+export function hostsOf(target, args = {}) {
+  return callHosts(target, args).hosts;
 }
 
-function cancelled(name, r, input) {
+/**
+ * hostsOf, and whether those are the call's hosts: known when hosts_by maps the call's argument value, or, for an
+ * entry without hosts_by, when it names static hosts. An entry with hosts_by whose argument value it does not map
+ * (system.provider_call's free-text `tool`) reaches hosts nobody named: unknown, whatever its static hosts say.
+ */
+function callHosts(target, args = {}) {
+  const out = new Set();
+  const by = isPlainObject(target?.hosts_by) ? target.hosts_by : null;
+  if (by && isPlainObject(args)) {
+    for (const [param, map] of Object.entries(by)) {
+      const v = args[param];
+      const list = isPlainObject(map) && (typeof v === "string" || typeof v === "number") && Object.hasOwn(map, String(v)) ? map[String(v)] : null;
+      if (Array.isArray(list)) for (const h of list) if (typeof h === "string" && h.trim()) out.add(h.trim().toLowerCase());
+    }
+  }
+  if (out.size) return { hosts: [...out].sort(), known: true };
+  const h = target?.hosts || target?.skill?.network || [];
+  if (Array.isArray(h)) for (const x of h) if (typeof x === "string" && x.trim()) out.add(x.trim().toLowerCase());
+  return { hosts: [...out].sort(), known: !by && out.size > 0 };
+}
+
+const normalHosts = (hosts) => [...new Set((hosts || []).map((h) => String(h).trim().toLowerCase()).filter(Boolean))].sort();
+
+/** The first 12 hex digits of the sha256 of the canonical JSON array of the hosts (sorted, lower-cased). */
+export async function hostsDigest(hosts) {
+  return (await sha256Hex(canonicalJson(normalHosts(hosts)))).slice(0, 12);
+}
+
+/**
+ * The key of a network grant for exactly these hosts: `<entry>:network@<sha12>`. A page without Web Crypto (an http
+ * page opened at an address other than localhost has no crypto.subtle) keys it by the sorted hosts themselves,
+ * comma-joined: still for these hosts only, and the call never fails for want of a hash.
+ */
+async function networkKey(key, hosts) {
+  try { return `${key}:network@${await hostsDigest(hosts)}`; } catch { return `${key}:network@${normalHosts(hosts).join(",")}`; }
+}
+
+/** The arguments the entry itself receives: call_tool's `arguments`, otherwise the call's own. */
+function entryArgs(name, input) {
+  if (name !== "call_tool") return input;
+  return isPlainObject(input?.arguments) ? input.arguments : {};
+}
+
+/**
+ * The engines these arguments select (tcmstudio.capability.selected_engines): each whose selected_by {arg, value,
+ * with?} matches the arguments, an argument left out (or empty) counting as its schema default; an engine selected by
+ * nothing is always in use.
+ */
+function chosenEngines(entry, engines, args) {
+  const props = isPlainObject(entry?.parameters?.properties) ? entry.parameters.properties : {};
+  const valueOf = (name) => (args[name] !== undefined && args[name] !== null && args[name] !== "" ? args[name] : props[name]?.default);
+  return engines.filter((g) => {
+    const sel = isPlainObject(g.selected_by) ? g.selected_by : null;
+    if (!sel) return true;
+    if (valueOf(sel.arg) !== sel.value) return false;
+    return Object.entries(isPlainObject(sel.with) ? sel.with : {}).every(([k, v]) => valueOf(k) === v);
+  });
+}
+
+/** An engine's readiness on the runner as its catalog says it ({state, requires}), or null when it does not say. */
+function engineReadiness(g) {
+  const r = isPlainObject(g.readiness?.runner) ? g.readiness.runner : isPlainObject(g.readiness) && typeof g.readiness.state === "string" ? g.readiness : null;
+  const fromList = (list) => (Array.isArray(list) ? list.filter((q) => isPlainObject(q) && typeof q.need === "string" && typeof q.detail === "string") : []);
+  if (r) return { state: r.state, requires: fromList(r.requires) };
+  if (g.available === false) {
+    const names = Array.isArray(g.missing) ? g.missing.map(String) : [];
+    return { state: "missing_dependency", requires: names.length ? [requirement("dependency", { names })] : [] };
+  }
+  return null;
+}
+
+/** 1.5 MB, 800 KB, 512 B: sizes in a message. */
+function formatBytes(n) {
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+/** The envelope with the router's placement and approvals added to receipt.execution (nothing else is touched). */
+function stamp(env, prov) {
+  if (!isPlainObject(env)) return env;
+  const receipt = isPlainObject(env.receipt) ? env.receipt : {};
+  const execution = isPlainObject(receipt.execution) ? receipt.execution : {};
+  return { ...env, receipt: { ...receipt, execution: { ...execution, placement: prov.placement, approvals: prov.approvals } } };
+}
+
+/** A stop: outcome "cancelled" while the runtime had the call, "not_executed" when it was stopped before it got it. */
+function cancelled(name, r, input, outcome = "cancelled") {
   return synthEnvelope({
     tool: name, via: r.entry?.id, args: input, status: "cancelled", kind: r.entry?.kind,
     summary: t("core.router.cancelled", { name: r.label }),
     text: "The call was stopped before it finished; there is no result.",
-    error: null,
+    error: null, outcome,
   });
 }
 
@@ -426,9 +723,11 @@ function abort() {
 
 /**
  * An envelope for an outcome decided in the page (CONTRACTS §3): nothing ran, so there is no result, no governance
- * verdict and no output hash; the receipt says where it was decided.
+ * verdict and no output hash; the receipt (core/receipt.js) says it was decided here (where "page", decided_by) and
+ * that it was not executed — or "failed" when a runtime threw, "cancelled" for a stop. error may carry reason and
+ * requires (an unavailable placement).
  */
-export async function synthEnvelope({ tool, via = null, args = {}, status, summary = "", text = "", error = null, approval = null, kind, where = "browser", result = null, refusals = [] }) {
+export async function synthEnvelope({ tool, via = null, args = {}, status, summary = "", text = "", error = null, approval = null, kind, where = "page", result = null, refusals = [], decided_by = "router", outcome }) {
   // the same first line as the Python envelopes ("tool → via: status"), so the model reads every outcome alike
   // and the error's type (its message is in the UI's language; the model gets the English hint)
   const head = `${tool} → ${via || tool}: ${status}${error?.type ? `\nError (${error.type})${error.hint ? `. Hint: ${error.hint}` : ""}` : ""}`;
@@ -438,10 +737,10 @@ export async function synthEnvelope({ tool, via = null, args = {}, status, summa
     tool, via: via || tool, status, duration_ms: 0, summary, text: clip(body.startsWith(head) ? body : `${head}\n${body}`.trim(), TEXT_LIMIT), result,
     citations: [],
     governance: { kind: kind || "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: Array.isArray(refusals) ? refusals : [], labels: [], licences: [], limitations: [], outputs: [] },
-    receipt: {
-      where, runtime: "studio-router", device: "cpu", versions: {}, composite_version: null, content_hash: null,
-      audit_head: null, input_sha256: await inputSha256(args), output_sha256: null, started_at: nowIso(), decided_by: "router",
-    },
+    receipt: baseReceipt({
+      where, runtime: "studio-router", device: null, versions: {}, decided_by,
+      input_sha256: await inputSha256(args), outcome: outcome || pageOutcome(status, error),
+    }),
     job: null, approval, error,
   };
 }
@@ -451,10 +750,13 @@ export async function inputSha256(args) {
   try { return await sha256Hex(canonicalJson(args || {})); } catch { return null; }
 }
 
-/** Fill the fields a runtime left out, cap `text`, and record where the call ran. */
+/**
+ * Fill the fields a runtime left out, cap `text`, and record where the call ran. The runtime's receipt is kept as it
+ * wrote it: no schema, result or execution is made up for it (an envelope without receipt.schema is a legacy one).
+ */
 export async function normalizeEnvelope(env, { tool, where, entry } = {}) {
   if (!isPlainObject(env)) {
-    return synthEnvelope({ tool, via: entry?.id, status: "failed", where, summary: "invalid result", text: "The runtime returned no envelope; there is no result.", error: { type: "runtime_error", message: "the runtime returned no envelope", hint: "" } });
+    return synthEnvelope({ tool, via: entry?.id, status: "failed", summary: "invalid result", text: "The runtime returned no envelope; there is no result.", error: { type: "runtime_error", message: "the runtime returned no envelope", hint: "" } });
   }
   const status = env.status || (env.ok ? "succeeded" : "failed");
   const out = {

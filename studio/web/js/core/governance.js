@@ -443,6 +443,63 @@ export function compositeVersionOf(envelope) {
   return ["runtime", "skill", "source", "benchmark"].map((axis) => ({ axis, value: cv[axis] ?? "", unversioned: (cv[axis] ?? "") === "unversioned" || !cv[axis] }));
 }
 
+// ------------------------------------------------------------------------------------------------- result
+
+const DECIDED = new Set(["router", "browser-runtime", "runner-client", "unavailable-runtime"]);
+const OUTCOME_VALUES = new Set(["not_executed", "queued", "running", "succeeded", "validated", "failed", "cancelled"]);
+// the limitation sentences of tcmstudio.governance (LIMIT_*), by their opening words
+const LIMIT_KIND = [[/^Predicted ≠ measured/, "prediction"], [/^This is a draft for a licensed/, "draft"], [/^Live third-party data/, "record"], [/^Rows keep their source's evidence kind/, "record"]];
+
+/**
+ * What became of a call and what its result is: receipt.result {kind, outcome, assurance, …} as the runtime (receipt
+ * schema tcmstudio.receipt/1) or the page recorded it. An envelope stored before receipts had it (no receipt.result)
+ * gets one derived here from its status, who decided it and its limitations, marked `derived: true`, so a view never
+ * presents it as recorded. The derivation is conservative: a kind only from a sign the envelope itself carries
+ * (a prediction or draft limitation, a connector, data hub or system call), else null; assurance release_authorized
+ * only when all six release states passed, outputs_verified only for a collected job; validated ⇔ succeeded and an
+ * assurance other than none.
+ */
+export function resultOf(envelope) {
+  const r = envelope?.receipt?.result;
+  if (r && typeof r === "object" && OUTCOME_VALUES.has(r.outcome)) return r;
+  const g = gov(envelope);
+  const receipt = envelope?.receipt && typeof envelope.receipt === "object" ? envelope.receipt : {};
+  const status = envelope?.status;
+  const error = envelope?.error || null;
+  const job = envelope?.job && typeof envelope.job === "object" ? envelope.job : null;
+  let outcome;
+  if (DECIDED.has(receipt.decided_by)) {
+    outcome = status === "cancelled" ? "cancelled" : error && ["runtime_error", "timeout"].includes(error.type) ? "failed" : "not_executed";
+  } else if (status === "failed") outcome = "failed";
+  else if (status === "cancelled") outcome = "cancelled";
+  else if (status === "refused" || status === "needs_approval") outcome = "not_executed";
+  else if (status === "job_submitted") outcome = "queued";
+  else if (status === "succeeded") {
+    const state = job?.state;
+    outcome = state === "queued" || state === "running" ? state : state === "failed" ? "failed" : state === "cancelled" ? "cancelled" : "succeeded";
+  } else outcome = "not_executed";
+  const states = verdictOf(envelope)?.states || {};
+  let assurance = "none";
+  if (outcome === "succeeded") {
+    if (g.released === true && RELEASE_STATES.every((id) => states[id] === true)) assurance = "release_authorized";
+    else if (job?.state === "succeeded") assurance = "outputs_verified";
+  }
+  let kind = null;
+  if (outcome === "succeeded") {
+    const limits = Array.isArray(g.limitations) ? g.limitations.map(String) : [];
+    for (const [re, k] of LIMIT_KIND) if (!kind && limits.some((l) => re.test(l))) kind = k;
+    if (!kind && g.kind === "clinic") kind = "draft";
+    if (!kind && (g.kind === "connector" || g.kind === "tcmdb")) kind = "record";
+    if (!kind && g.kind === "system" && !job) kind = "system";
+  }
+  return { kind, outcome: outcome === "succeeded" && assurance !== "none" ? "validated" : outcome, assurance, derived: true };
+}
+
+/** The result kind alone (receipt.result.kind, or derived for a legacy envelope; null when it cannot be told). */
+export function resultKindOf(envelope) {
+  return resultOf(envelope).kind;
+}
+
 /** The family record (zh/en names) for a family id. */
 export function familyInfo(id) {
   return FAMILIES[id] || null;

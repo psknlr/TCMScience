@@ -14,7 +14,8 @@
 
 import { Emitter } from "../core/events.js";
 import { t } from "../core/i18n.js";
-import { fetchWithTimeout, fromBase64Url, isLoopbackUrl, trimSlash } from "../core/util.js";
+import { baseReceipt } from "../core/receipt.js";
+import { canonicalJson, fetchWithTimeout, fromBase64Url, isLoopbackUrl, sha256Hex, trimSlash } from "../core/util.js";
 
 export const DEFAULT_RUNNER_URL = "http://127.0.0.1:8765";
 const DEFAULT_ORIGINS = ["https://science.impf.ai"];
@@ -91,7 +92,8 @@ export class RunnerRuntime {
   get label() {
     let host = this.url;
     try { host = new URL(this.url).host; } catch { /* keep the raw url */ }
-    return `${t("core.runner.label")} @${host}`;
+    // a runner on another machine is never called the local one
+    return `${t(isLoopbackUrl(this.url) ? "core.runner.label" : "core.runner.label_remote")} @${host}`;
   }
 
   onStatus(fn) {
@@ -128,7 +130,7 @@ export class RunnerRuntime {
       const r = await fetchWithTimeout(this._fetch, `${this.url}/api/health`, { headers: { Accept: "application/json" } }, timeout);
       health = await r.json().catch(() => ({}));
       if (!r.ok || health.name !== "tcmstudio") {
-        throw new RunnerError(t("core.runner.not_running", { url: this.url }), { code: "not_runner", status: r.status });
+        throw new RunnerError(t(runnerKey("core.runner.not_running", this.url), { url: this.url }), { code: "not_runner", status: r.status });
       }
     } catch (err) {
       const e = err instanceof RunnerError ? err : await this.describe(err);
@@ -170,7 +172,12 @@ export class RunnerRuntime {
 
   /**
    * POST /api/call → the envelope. Never throws: a runner that cannot be reached or answers with an error gives a
-   * failed envelope (error.type "unavailable" or "runtime_error") with the reason.
+   * failed envelope (error.type "unavailable" or "runtime_error") with the reason, made here (receipt.where "runner",
+   * the runtime it stands for; decided_by "runner-client"). Its outcome is not_executed only when the call provably
+   * never reached the dispatcher: the browser would not send it (mixed content, the local-network permission, an
+   * origin the runner does not allow) or the runner turned it away with a 4xx before calling anything (token, origin,
+   * size, a malformed body). A timeout or a dropped connection can come after the runner took the call, and a 5xx
+   * after it began: whether it ran is not known, so those are failed, and not called "not run".
    */
   async call(tool, args = {}, ctx = {}) {
     const context = {};
@@ -188,14 +195,32 @@ export class RunnerRuntime {
     } catch (err) {
       if (err?.name === "AbortError") throw err;
       const unavailable = ["not_running", "lna_denied", "mixed_content", "cors", "timeout", "token"].includes(err.code);
+      const local = isLoopbackUrl(this.url);
+      const which = local ? "local" : "remote";
+      const turnedAway = err.status >= 400 && err.status < 500;
+      const notSent = ["mixed_content", "lna_denied", "cors"].includes(err.code);
+      const text = notSent ? `Not run: the ${which} runner could not be reached (${err.message}).`
+        : turnedAway ? `Not run: the ${which} runner refused the request before running it (${err.message}).`
+          : unavailable ? `The call to the ${which} runner did not complete (${err.message}). Whether the runner started it is not known; there is no result.`
+            : `The ${which} runner returned an error (${err.message}); there is no result.`;
+      let input_sha256 = null;
+      try { input_sha256 = await sha256Hex(canonicalJson(args || {})); } catch { input_sha256 = null; }
+      let host = this.url;
+      try { host = new URL(this.url).host; } catch { /* keep the raw url */ }
       return {
         ok: false, tool, via: tool, status: "failed", duration_ms: Date.now() - started,
-        summary: err.message, text: `Not run: the local runner ${unavailable ? "is not reachable" : "returned an error"} (${err.message}).`,
+        summary: err.message, text,
         result: null, citations: [],
         governance: { kind: "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: [], outputs: [] },
-        receipt: { where: "runner", runtime: "tcmstudio", device: null, versions: {}, composite_version: null, content_hash: null, audit_head: null, input_sha256: null, output_sha256: null, started_at: new Date(started).toISOString() },
+        receipt: baseReceipt({
+          where: "runner", runtime: "studio-runner-client", decided_by: "runner-client", input_sha256,
+          started_at: new Date(started).toISOString().replace(/\.\d{3}Z$/, "Z"), outcome: notSent || turnedAway ? "not_executed" : "failed",
+        }),
         job: null, approval: null,
-        error: { type: unavailable ? "unavailable" : "runtime_error", message: err.message, hint: unavailable ? "connect the local runner" : "" },
+        error: {
+          type: unavailable ? "unavailable" : "runtime_error", message: err.message,
+          hint: unavailable ? (local ? "connect the local runner" : `check that the remote runner at ${host} is running and reachable, then connect it again`) : "",
+        },
       };
     }
   }
@@ -227,9 +252,9 @@ export class RunnerRuntime {
         let body = null;
         try { body = JSON.parse(xhr.responseText || "null"); } catch { body = null; }
         if (xhr.status >= 200 && xhr.status < 300 && body) { onProgress?.({ loaded: file.size || 0, total: file.size || 0, fraction: 1 }); resolve(body); }
-        else reject(httpError(xhr.status, body, xhr.responseText));
+        else reject(httpError(xhr.status, body, xhr.responseText, this.url));
       };
-      xhr.onerror = () => reject(new RunnerError(t("core.runner.not_running", { url: this.url }), { code: "not_running" }));
+      xhr.onerror = () => reject(new RunnerError(t(runnerKey("core.runner.not_running", this.url), { url: this.url }), { code: "not_running" }));
       xhr.onabort = () => reject(abortError());
       if (signal) {
         if (signal.aborted) { reject(abortError()); return; }
@@ -261,7 +286,7 @@ export class RunnerRuntime {
     let j = null;
     try { j = text ? JSON.parse(text) : null; } catch { j = null; }
     if (!r.ok) {
-      const e = httpError(r.status, j, text);
+      const e = httpError(r.status, j, text, this.url);
       if (e.code === "token" && !keepStatus) this.#set("error", { error: e });
       throw e;
     }
@@ -324,7 +349,7 @@ export class RunnerRuntime {
     es.onerror = () => {
       // EventSource reconnects by itself; tell the caller only when it gave up
       if (es.readyState === 2 && f.es === es && !f.closed) {
-        this.#deliver(f, "error", { message: t("core.runner.not_running", { url: this.url }) });
+        this.#deliver(f, "error", { message: t(runnerKey("core.runner.not_running", this.url), { url: this.url }) });
         f.close();
       }
     };
@@ -385,7 +410,12 @@ function abortError() {
   try { return new DOMException("aborted", "AbortError"); } catch { const e = new Error("aborted"); e.name = "AbortError"; return e; }
 }
 
-function httpError(status, body, text) {
+/** The string for a runner at this address: a runner on another machine has its own wording, never 本机 / local. */
+function runnerKey(key, url) {
+  return isLoopbackUrl(url) ? key : `${key}_remote`;
+}
+
+function httpError(status, body, text, url = DEFAULT_RUNNER_URL) {
   const e = body?.error;
   const message = (typeof e === "string" ? e : e?.message) || body?.message || String(text || "").slice(0, 300) || `HTTP ${status}`;
   const type = (typeof e === "object" && e?.type) || "";
@@ -393,7 +423,7 @@ function httpError(status, body, text) {
     return new RunnerError(t("core.runner.token"), { code: "token", status, type });
   }
   if (status === 403) return new RunnerError(message, { code: "forbidden", status, type });
-  return new RunnerError(t("core.runner.http", { status, message }), { code: "http", status, type });
+  return new RunnerError(t(runnerKey("core.runner.http", url), { status, message }), { code: "http", status, type });
 }
 
 // ------------------------------------------------------------------------------------------------- pairing
@@ -452,10 +482,10 @@ export function describeConnectError(err, { url = DEFAULT_RUNNER_URL, location =
     return new RunnerError(t("core.runner.mixed_content"), { code: "mixed_content" });
   }
   if (permission === "denied") return new RunnerError(t("core.runner.lna_denied"), { code: "lna_denied" });
-  if (err?.name === "TimeoutError") return new RunnerError(t("core.runner.timeout", { url }), { code: "timeout" });
+  if (err?.name === "TimeoutError") return new RunnerError(t(runnerKey("core.runner.timeout", url), { url }), { code: "timeout" });
   const known = !origin || origin === "null" || DEFAULT_ORIGINS.includes(origin) || isLoopbackUrl(origin) || (target && origin === target.origin);
-  if (!known) return new RunnerError(`${t("core.runner.not_running", { url })} ${t("core.runner.cors", { origin })}`, { code: "cors" });
-  return new RunnerError(t("core.runner.not_running", { url }), { code: "not_running" });
+  if (!known) return new RunnerError(`${t(runnerKey("core.runner.not_running", url), { url })} ${t("core.runner.cors", { origin })}`, { code: "cors" });
+  return new RunnerError(t(runnerKey("core.runner.not_running", url), { url }), { code: "not_running" });
 }
 
 /** The sentence to show before the first connect from an https page, which triggers the browser's prompt. */

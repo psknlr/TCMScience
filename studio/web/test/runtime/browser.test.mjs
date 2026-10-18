@@ -258,7 +258,11 @@ test("a queued call that is aborted is cancelled and never sent", async () => {
   ac.abort();
   const env = await second;
   assert.equal(env.status, "cancelled");
+  // made in the page by the browser runtime, which never sent it to the worker
   assert.equal(env.receipt.where, "browser");
+  assert.equal(env.receipt.decided_by, "browser-runtime");
+  assert.equal(env.receipt.schema, "tcmstudio.receipt/1");
+  assert.deepEqual(env.receipt.result, { kind: null, outcome: "not_executed", assurance: "none" });
   assert.match(env.receipt.input_sha256, /^[0-9a-f]{64}$/);
   assert.equal((await first).status, "succeeded");
   assert.equal(Worker.instances[0].received.filter((m) => m.op === "call").length, 1);

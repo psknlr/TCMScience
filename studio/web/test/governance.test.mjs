@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   citationsOf, claimsOf, compositeVersionOf, evidenceOf, familyOfTier, identifierUrl, isPredicted, licensingLadder, refusalsOf,
-  releaseOf, shortHash, stateOfUnverified, verdictBadge,
+  releaseOf, resultKindOf, resultOf, shortHash, stateOfUnverified, verdictBadge,
 } from "../js/core/governance.js";
 import { glossary as glossaryOf } from "../js/core/i18n.js";
 import { loadFixture } from "./fixtures/fakes.mjs";
@@ -220,4 +220,36 @@ test("the tradition family's short name is 传统: expert consensus is not label
   assert.equal(glossaryOf.familyShort("tradition"), "传统");
   assert.equal(glossaryOf.familyShort("tradition", "en"), "Tradition");
   assert.equal(glossaryOf.family("tradition"), "经典与经验");
+});
+
+test("resultOf: receipt.result as recorded; derived (and marked so) for an envelope stored before receipts had one", () => {
+  const recorded = { ...released, receipt: { ...released.receipt, schema: "tcmstudio.receipt/1", result: { kind: "record", outcome: "validated", assurance: "release_authorized", checks: [] } } };
+  assert.deepEqual(resultOf(recorded), recorded.receipt.result);
+  assert.equal(resultOf(recorded).derived, undefined);
+  // the six release states all passed: validated, release_authorized — a claim about the checks, not about truth
+  assert.deepEqual(resultOf(released), { kind: null, outcome: "validated", assurance: "release_authorized", derived: true });
+  assert.deepEqual(resultOf(unreleased), { kind: null, outcome: "succeeded", assurance: "none", derived: true });
+  assert.equal(resultOf(refused).assurance, "none");
+  const base = { governance: { kind: "native", limitations: [] }, receipt: {}, job: null, error: null };
+  const legacy = (over) => resultOf({ ...base, ...over, governance: { ...base.governance, ...(over.governance || {}) } });
+  // decided in the page: not executed, failed when a runtime threw, cancelled for a stop
+  assert.equal(legacy({ status: "failed", receipt: { decided_by: "router" }, error: { type: "unavailable" } }).outcome, "not_executed");
+  assert.equal(legacy({ status: "failed", receipt: { decided_by: "router" }, error: { type: "runtime_error" } }).outcome, "failed");
+  assert.equal(legacy({ status: "cancelled", receipt: { decided_by: "browser-runtime" } }).outcome, "cancelled");
+  assert.equal(legacy({ status: "needs_approval", receipt: { decided_by: "router" } }).outcome, "not_executed");
+  assert.equal(legacy({ status: "refused", error: { type: "refused" } }).outcome, "not_executed");
+  assert.equal(legacy({ status: "failed", error: { type: "bad_arguments" } }).outcome, "failed");
+  // jobs: queued and running are not results; a collected job's outputs were hash-checked, nothing more
+  assert.equal(legacy({ status: "job_submitted", job: { state: "queued" } }).outcome, "queued");
+  assert.equal(legacy({ status: "succeeded", job: { state: "running" }, governance: { kind: "system" } }).outcome, "running");
+  const fold = legacy({ status: "succeeded", job: { state: "succeeded" }, governance: { kind: "job", limitations: ["Predicted ≠ measured: a computational prediction or network inference supports a mechanism hypothesis at most, never a mechanism or efficacy."] } });
+  assert.deepEqual(fold, { kind: "prediction", outcome: "validated", assurance: "outputs_verified", derived: true });
+  // a kind only from a sign the envelope carries
+  assert.equal(legacy({ status: "succeeded", governance: { kind: "connector" } }).kind, "record");
+  assert.equal(legacy({ status: "succeeded", governance: { kind: "clinic" } }).kind, "draft");
+  assert.equal(legacy({ status: "succeeded", governance: { kind: "system" } }).kind, "system");
+  assert.equal(legacy({ status: "succeeded" }).kind, null, "a native computation is not guessed");
+  assert.equal(legacy({ status: "failed", governance: { kind: "connector" } }).kind, null, "no result, no kind");
+  assert.equal(resultKindOf({ ...base, status: "succeeded", governance: { kind: "tcmdb" } }), "record");
+  assert.equal(resultOf(null).outcome, "not_executed");
 });

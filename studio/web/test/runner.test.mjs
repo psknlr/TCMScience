@@ -101,6 +101,70 @@ test("call never throws: an unreachable runner or an HTTP error is a failed enve
   assert.equal(ready.status, "offline", "a ready runner that stops answering goes offline");
 });
 
+test("a failure the runner client makes up is its own: decided_by runner-client, not executed only when the call provably never reached the dispatcher", async () => {
+  // the browser would not send it (the local-network permission is off): not executed
+  const denied = { query: async ({ name }) => ({ state: name === "local-network-access" ? "denied" : undefined }) };
+  const blocked = new RunnerRuntime({ token: "tok", fetch: fakeFetch(() => { throw new TypeError("Failed to fetch"); }), permissions: denied });
+  const env = await blocked.call("tcm_herb", { name: "甘草" });
+  assert.equal(env.receipt.schema, "tcmstudio.receipt/1");
+  assert.equal(env.receipt.where, "runner", "the runtime it stands for (decided_by says the runner did not answer)");
+  assert.equal(env.receipt.decided_by, "runner-client");
+  assert.deepEqual(env.receipt.result, { kind: null, outcome: "not_executed", assurance: "none" });
+  assert.match(env.text, /^Not run: the local runner could not be reached/);
+  assert.match(env.receipt.input_sha256, /^[0-9a-f]{64}$/);
+  assert.equal(env.receipt.output_sha256, null);
+  assert.match(env.receipt.started_at, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+  // a dropped connection or a timeout may come after the runner took the call: failed, and not called "not run"
+  const dropped = new RunnerRuntime({ token: "tok", fetch: fakeFetch(() => { throw new TypeError("Failed to fetch"); }), permissions: null });
+  const e1 = await dropped.call("tcm_herb", {});
+  assert.equal(e1.error.type, "unavailable");
+  assert.equal(e1.receipt.result.outcome, "failed");
+  assert.doesNotMatch(e1.text, /Not run/);
+  assert.match(e1.text, /Whether the runner started it is not known/);
+  const slow = new RunnerRuntime({ token: "tok", fetch: fakeFetch(() => { throw new DOMException("t", "TimeoutError"); }), permissions: null });
+  assert.equal((await slow.call("tcm_herb", {})).receipt.result.outcome, "failed");
+  // an answer from the runner: a 4xx turned it away before anything ran; a 5xx came after it began
+  const r500 = new RunnerRuntime({ token: "tok", fetch: runnerServer({ routes: { "POST /api/call": () => json({ error: { message: "boom" } }, 500) } }) });
+  const e2 = await r500.call("tcm_herb", {});
+  assert.equal(e2.receipt.decided_by, "runner-client");
+  assert.equal(e2.receipt.result.outcome, "failed");
+  for (const status of [400, 403, 413]) {
+    const r4 = new RunnerRuntime({ token: "tok", fetch: runnerServer({ routes: { "POST /api/call": () => json({ error: { type: "too_large", message: "no" } }, status) } }) });
+    const e4 = await r4.call("tcm_herb", {});
+    assert.equal(e4.receipt.result.outcome, "not_executed", String(status));
+    assert.match(e4.text, /^Not run: the local runner refused the request/);
+  }
+  const wrongToken = new RunnerRuntime({ token: "nope", fetch: runnerServer() });
+  assert.equal((await wrongToken.call("tcm_herb", {})).receipt.result.outcome, "not_executed");
+  // an envelope the runner wrote keeps its receipt (only where is filled in)
+  const ok = new RunnerRuntime({ token: "tok", fetch: runnerServer({ routes: { "POST /api/call": () => json(envelopeFor("tcm_herb", undefined, { receipt: { device: "cpu", runtime: "CPython 3.12" } })) } }) });
+  const e3 = await ok.call("tcm_herb", {});
+  assert.equal(e3.receipt.where, "runner");
+  assert.equal(e3.receipt.decided_by, undefined);
+  assert.equal(e3.receipt.schema, undefined);
+});
+
+test("a runner on another machine is labelled remote, never local", async () => {
+  assert.match(new RunnerRuntime({ url: "http://127.0.0.1:8765" }).label, /^本机 Runner @127\.0\.0\.1:8765$/);
+  const remote = new RunnerRuntime({ url: "https://lab.example.org:8765" });
+  assert.match(remote.label, /^远程 Runner @lab\.example\.org:8765$/);
+  assert.doesNotMatch(remote.label, /本机/);
+  // and so are its failures: the message, the text and the hint
+  const page = { protocol: "https:", origin: "https://science.impf.ai" };
+  const down = new RunnerRuntime({ url: "https://lab.example.org:8765", token: "tok", fetch: fakeFetch(() => { throw new TypeError("Failed to fetch"); }), permissions: null, location: page });
+  const env = await down.call("tcm_herb", {});
+  assert.match(env.summary, /远程 Runner（https:\/\/lab\.example\.org:8765）/);
+  assert.doesNotMatch(`${env.summary} ${env.text} ${env.error.hint}`, /本机|local/);
+  assert.match(env.text, /remote runner/);
+  assert.match(env.error.hint, /remote runner at lab\.example\.org:8765/);
+  const r500 = new RunnerRuntime({ url: "https://lab.example.org:8765", token: "tok", fetch: runnerServer({ routes: { "POST /api/call": () => json({ error: { message: "boom" } }, 500) } }) });
+  const e2 = await r500.call("tcm_herb", {});
+  assert.match(e2.summary, /^远程 Runner 返回 500/);
+  assert.equal(describeConnectError(new DOMException("t", "TimeoutError"), { url: "https://lab.example.org:8765", location: page }).message, "连接远程 Runner 超时（https://lab.example.org:8765）。");
+  // the loopback runner keeps its words
+  assert.match(describeConnectError(new TypeError("x"), { url: "http://127.0.0.1:8765", location: page }).message, /本机 Runner/);
+});
+
 test("jobs: submit, get, list with filters, cancel, files; the methods and paths of §4", async () => {
   const job = { id: "j_1", kind: "pipeline.fold", state: "queued" };
   const f = runnerServer({
@@ -214,6 +278,10 @@ test("createRuntimes: the browser runtime when its module loads, an unavailable 
   assert.equal(missing.browser.status, "offline");
   const env = await missing.browser.call("tcm_herb", {});
   assert.equal(env.error.type, "unavailable");
+  assert.equal(env.receipt.where, "browser", "the runtime it stands for");
+  assert.equal(env.receipt.decided_by, "unavailable-runtime");
+  assert.deepEqual(env.receipt.result, { kind: null, outcome: "not_executed", assurance: "none" });
+  assert.match(env.receipt.input_sha256, /^[0-9a-f]{64}$/);
 });
 
 test("the runner is probed in the background only when it cannot surprise the user", () => {

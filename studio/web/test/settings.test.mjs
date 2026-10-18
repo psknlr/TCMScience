@@ -1,7 +1,7 @@
 import { resetStorage } from "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, WEB_DEFAULT_VERSION, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
+import { COMPUTE_TARGETS, DEFAULTS, LANG_KEY, SESSION_KEYS_KEY, SETTINGS_KEY, WEB_DEFAULT_VERSION, clearKeys, loadSettings, onSettingsChange, saveSettings, updateSettings } from "../js/core/settings.js";
 
 beforeEach(() => resetStorage());
 
@@ -31,11 +31,11 @@ test("an off saved before web access was on by default was that default, not a c
 });
 
 test("save, load, update; invalid values fall back; the language is mirrored", () => {
-  saveSettings({ ...loadSettings(), lang: "en", theme: "neon", compute: "gpu", maxSteps: "abc", temperature: "0.7", models: { deepseek: "deepseek-chat" } });
+  saveSettings({ ...loadSettings(), lang: "en", theme: "neon", compute: 7, maxSteps: "abc", temperature: "0.7", models: { deepseek: "deepseek-chat" } });
   const s = loadSettings();
   assert.equal(s.lang, "en");
   assert.equal(s.theme, "system");
-  assert.equal(s.compute, "auto");
+  assert.equal(s.compute, "auto", "a compute value that is not text is the default");
   assert.equal(s.maxSteps, 16);
   assert.equal(s.temperature, 0.7);
   assert.equal(globalThis.localStorage.getItem(LANG_KEY), "en");
@@ -66,4 +66,18 @@ test("listeners hear what changed", () => {
   off();
   updateSettings({ compute: "runner" });
   assert.deepEqual(seen, [["compute"]]);
+});
+
+test("compute: remote is a value of its own; one this version does not know is kept for the router to report", () => {
+  assert.deepEqual(COMPUTE_TARGETS, ["auto", "browser", "runner", "remote"]);
+  updateSettings({ compute: "remote" });
+  assert.equal(loadSettings().compute, "remote");
+  assert.equal(JSON.parse(localStorage.getItem(SETTINGS_KEY)).compute, "remote");
+  // saved by a newer version, or by hand: not quietly read as auto (core/router.js answers unknown_compute)
+  saveSettings({ ...loadSettings(), compute: "gpu" });
+  assert.equal(loadSettings().compute, "gpu");
+  saveSettings({ ...loadSettings(), compute: "  " });
+  assert.equal(loadSettings().compute, "auto", "an empty value is the default");
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({ compute: null, webDefault: WEB_DEFAULT_VERSION }));
+  assert.equal(loadSettings().compute, "auto");
 });

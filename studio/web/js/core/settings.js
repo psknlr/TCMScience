@@ -41,9 +41,22 @@ const ENUMS = {
   lang: ["zh", "en"],
   theme: ["system", "light", "dark"],
   route: ["auto", "direct", "runner"],
-  compute: ["auto", "browser", "runner"],
   browserAcceleration: ["auto", "cpu", "reference"],
 };
+
+/**
+ * Where tool calls run (core/router.js): auto | browser | runner | remote. "remote" is valid but served by nothing yet
+ * (every call is unavailable, never moved elsewhere). A compute value this version does not know (one saved by a
+ * newer version, or edited by hand) is kept as it was, so the router can say so (unknown_compute) instead of quietly
+ * running everything as auto; only a missing or non-text value becomes the default.
+ */
+export const COMPUTE_TARGETS = Object.freeze(["auto", "browser", "runner", "remote"]);
+
+function computeOf(v) {
+  if (typeof v !== "string") return DEFAULTS.compute;
+  const s = v.trim().slice(0, 40);
+  return s || DEFAULTS.compute;
+}
 
 const bus = new Emitter();
 
@@ -104,6 +117,7 @@ function normalize(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
   const s = { ...clone(DEFAULTS), ...clone(src) };
   for (const [k, allowed] of Object.entries(ENUMS)) if (!allowed.includes(s[k])) s[k] = DEFAULTS[k];
+  s.compute = computeOf(s.compute);
   for (const k of ["models", "baseUrls", "keys"]) if (!s[k] || typeof s[k] !== "object" || Array.isArray(s[k])) s[k] = {};
   if (!Array.isArray(s.customProviders)) s.customProviders = [];
   s.runner = { ...DEFAULTS.runner, ...(s.runner && typeof s.runner === "object" ? s.runner : {}) };
