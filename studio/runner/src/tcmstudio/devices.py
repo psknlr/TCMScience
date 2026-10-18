@@ -6,7 +6,15 @@ Nothing in bioagent detects devices, so the runner does it here:
 * NVIDIA GPUs from ``nvidia-smi --query-gpu``, AMD GPUs from ``rocm-smi``, and the Apple GPU
   (Metal, ``mps``) on Apple Silicon;
 * what PyTorch sees (CUDA, ROCm, MPS), probed in a child interpreter so torch is never
-  imported into the runner, and only once something asks.
+  imported into the runner, and only once something asks;
+* the accelerator runtimes that are installed (OpenVINO, ONNX Runtime and its execution
+  providers, Core ML tools, DirectML), detection only: what each says it could use is
+  reported, none of it is a job device, and no tool uses any of them.
+
+Every device carries ``evidence`` on the ladder of CONTRACTS §3 (selected < reported <
+dispatched < validated < verified < accelerated) and ``reported_by``. What this module
+finds is ``reported``: an operating system, a driver tool or PyTorch says the device
+exists. Nothing here runs a kernel on a device, so no device is ``dispatched`` or above.
 
 Results are cached; ``refresh`` probes again. The device the user selects (``auto``, ``cpu``,
 ``cuda:N``, ``rocm:N``, ``mps``) becomes environment variables for a job
@@ -32,8 +40,11 @@ import time
 from typing import Any, Callable
 
 __all__ = ["DeviceProbe", "cpu_info", "memory_gb", "memory_available_gb", "nvidia_gpus",
-           "rocm_gpus", "apple_gpu", "torch_probe", "resolve", "job_env", "engine_options",
-           "engines", "THREAD_VARS"]
+           "rocm_gpus", "apple_gpu", "torch_probe", "accelerator_runtimes", "resolve", "job_env",
+           "engine_options", "engines", "THREAD_VARS", "EVIDENCE"]
+
+#: The evidence ladder, lowest first (the words of tcmstudio.envelope.EVIDENCE).
+EVIDENCE = ("selected", "reported", "dispatched", "validated", "verified", "accelerated")
 
 THREAD_VARS = ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
                "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "OPENMM_CPU_THREADS")
@@ -151,7 +162,7 @@ def nvidia_gpus(run: Runner = _run, which: Callable[[str], str | None] = shutil.
             continue
         devices.append({"id": f"cuda:{row[0]}", "kind": "cuda", "name": row[1],
                         "memory_gb": _gb_from_mib(row[2]), "driver": row[3] or None,
-                        "available": True})
+                        "available": True, "evidence": "reported", "reported_by": "nvidia-smi"})
     return devices, None
 
 
@@ -187,7 +198,8 @@ def rocm_gpus(run: Runner = _run, which: Callable[[str], str | None] = shutil.wh
         except (TypeError, ValueError):
             mem = None
         devices.append({"id": f"rocm:{index}", "kind": "rocm", "name": name, "memory_gb": mem,
-                        "driver": driver, "available": True})
+                        "driver": driver, "available": True, "evidence": "reported",
+                        "reported_by": "rocm-smi"})
     return devices, None
 
 
@@ -197,9 +209,11 @@ def apple_gpu(run: Runner = _run) -> dict[str, Any] | None:
     chip = None
     with contextlib.suppress(OSError, subprocess.SubprocessError):
         chip = run(["sysctl", "-n", "machdep.cpu.brand_string"], timeout=3).stdout.strip()
+    # every Apple Silicon Mac has this GPU: the platform reports it, no driver tool is asked
     return {"id": "mps", "kind": "mps", "name": f"{chip or 'Apple Silicon'} GPU (Metal)",
             "memory_gb": memory_gb(run), "available": True,
-            "note": "unified memory, shared with the CPU"}
+            "note": "unified memory, shared with the CPU", "evidence": "reported",
+            "reported_by": "platform (Apple Silicon)"}
 
 
 _TORCH_PROBE = r"""
@@ -245,6 +259,154 @@ def torch_probe(timeout: float = 90.0, run: Runner = _run) -> dict[str, Any] | N
         return {"torch": None, "error": f"the PyTorch probe failed: {exc}"}
 
 
+# ------------------------------------------------------------------ accelerator runtimes
+
+#: Runtimes that can drive an NPU or another accelerator, detected only: ``module`` is the
+#: import name looked up with importlib.util.find_spec (nothing is imported into the
+#: runner), ``dists`` the distributions whose version is read. No tool or job uses any of
+#: them, so what they report is never a job device and never evidence of execution.
+_ACCELERATOR_RUNTIMES: tuple[dict[str, Any], ...] = (
+    {"id": "openvino", "name": "OpenVINO", "module": "openvino", "dists": ("openvino",)},
+    {"id": "onnxruntime", "name": "ONNX Runtime", "module": "onnxruntime",
+     "dists": ("onnxruntime", "onnxruntime-gpu", "onnxruntime-directml", "onnxruntime-qnn",
+               "onnxruntime-openvino", "onnxruntime-silicon")},
+    {"id": "coreml", "name": "Core ML (coremltools)", "module": "coremltools",
+     "dists": ("coremltools",)},
+    {"id": "directml", "name": "DirectML (torch-directml)", "module": "torch_directml",
+     "dists": ("torch-directml",)},
+)
+RUNTIME_LABEL = "detected, not used by any tool"
+
+_RUNTIME_PROBE = r"""
+import json, sys
+want = set(sys.argv[1:])
+out = {}
+
+def fail(exc):
+    return {"error": "%s: %s" % (type(exc).__name__, str(exc)[:200])}
+
+if "openvino" in want:
+    try:
+        import openvino as ov
+        core = ov.Core()
+        devices = []
+        for d in core.available_devices:
+            try:
+                name = str(core.get_property(d, "FULL_DEVICE_NAME"))
+            except Exception:
+                name = None
+            devices.append({"id": str(d), "name": name})
+        version = getattr(ov, "__version__", None)
+        if version is None and hasattr(ov, "get_version"):
+            version = str(ov.get_version())
+        out["openvino"] = {"version": version, "devices": devices}
+    except Exception as exc:
+        out["openvino"] = fail(exc)
+if "onnxruntime" in want:
+    try:
+        import onnxruntime as ort
+        out["onnxruntime"] = {"version": getattr(ort, "__version__", None),
+                              "providers": [str(p) for p in ort.get_available_providers()],
+                              "device": str(ort.get_device())}
+    except Exception as exc:
+        out["onnxruntime"] = fail(exc)
+if "coreml" in want:
+    try:
+        import coremltools as ct
+        out["coreml"] = {"version": getattr(ct, "__version__", None),
+                         "compute_units": [u.name for u in getattr(ct, "ComputeUnit", [])]}
+    except Exception as exc:
+        out["coreml"] = fail(exc)
+if "directml" in want:
+    try:
+        import torch_directml as dml
+        n = int(dml.device_count())
+        out["directml"] = {"version": None,
+                           "devices": [{"id": "dml:%d" % i, "name": str(dml.device_name(i))}
+                                       for i in range(n)]}
+    except Exception as exc:
+        out["directml"] = fail(exc)
+print(json.dumps(out))
+"""
+
+
+def _runtime_version(dists: tuple[str, ...]) -> str | None:
+    for dist in dists:
+        try:
+            version = _dist_version(dist)
+        except Exception:                      # noqa: BLE001 - broken metadata: no version, not a crash
+            version = None
+        if version:
+            return version
+    return None
+
+
+def _runtime_rows(find_spec: Callable[[str], Any] | None = None) -> list[dict[str, Any]]:
+    """Which accelerator runtimes this Python could import (find_spec only: nothing is
+    imported, nothing is started)."""
+    find = find_spec or importlib.util.find_spec
+    out: list[dict[str, Any]] = []
+    for spec in _ACCELERATOR_RUNTIMES:
+        try:
+            installed = find(spec["module"]) is not None
+        except Exception:                      # noqa: BLE001 - a broken finder is not an installed runtime
+            installed = False
+        item: dict[str, Any] = {"id": spec["id"], "name": spec["name"], "module": spec["module"],
+                                "installed": installed, "used_by": [], "execution": "unverified",
+                                "evidence": None}
+        if installed:
+            item.update(status="detected", label=RUNTIME_LABEL,
+                        version=_runtime_version(spec["dists"]))
+        else:
+            item.update(status="not_installed", label="not installed")
+        out.append(item)
+    return out
+
+
+def _probe_runtimes(rows: list[dict[str, Any]], run: Runner, timeout: float) -> None:
+    """Ask the installed runtimes, in one child interpreter (``python -I``), what they list."""
+    wanted = [i["id"] for i in rows if i["installed"]]
+    if not wanted:
+        return
+    try:
+        res = run([sys.executable, "-I", "-c", _RUNTIME_PROBE, *wanted], timeout=timeout)
+        reported = json.loads(res.stdout.strip().splitlines()[-1])
+        if not isinstance(reported, dict):
+            raise ValueError("the probe did not answer with an object")
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as exc:
+        reported = {i: {"error": f"the runtime probe failed: {exc}"} for i in wanted}
+    for item in rows:
+        if not item["installed"]:
+            continue
+        got = reported.get(item["id"])
+        if not isinstance(got, dict) or got.get("error"):
+            item.update(status="probe_failed",
+                        error=str((got or {}).get("error") if isinstance(got, dict) else "no answer")[:300])
+            continue
+        if got.get("version") and not item.get("version"):
+            item["version"] = str(got["version"])
+        item["reported"] = {k: got[k] for k in ("devices", "providers", "device", "compute_units")
+                            if k in got}
+        # the runtime's own list of what it could use: a report, not an execution
+        item["evidence"] = "reported"
+
+
+def accelerator_runtimes(run: Runner = _run, timeout: float = 60.0,
+                         find_spec: Callable[[str], Any] | None = None) -> list[dict[str, Any]]:
+    """The accelerator runtimes this Python could import, and what each says it could use.
+
+    Detection only, labelled ``detected, not used by any tool``. A runtime that is not
+    installed is listed as such and nothing is started for it; the installed ones are asked
+    in one child interpreter, so none is imported into the runner. What a runtime lists
+    (OpenVINO's devices, ONNX Runtime's execution providers, Core ML's compute units,
+    DirectML's adapters) is its own report: ``evidence`` is ``reported`` at most, and
+    ``execution`` is ``unverified`` because nothing here runs on them. None of it is a job
+    device: ``resolve`` never sees it."""
+    rows = _runtime_rows(find_spec)
+    _probe_runtimes(rows, run, timeout)
+    return rows
+
+
 # ------------------------------------------------------------------------------ the probe
 
 def _merge_torch(devices: list[dict[str, Any]], info: dict[str, Any] | None) -> None:
@@ -258,7 +420,9 @@ def _merge_torch(devices: list[dict[str, Any]], info: dict[str, Any] | None) -> 
             if dev_id not in have:
                 devices.append({"id": dev_id, "kind": kind, "name": d.get("name"),
                                 "memory_gb": d.get("memory_gb"), "available": True,
-                                "note": f"seen by PyTorch {info['torch']}"})
+                                "note": f"seen by PyTorch {info['torch']}",
+                                "evidence": "reported",
+                                "reported_by": f"PyTorch {info['torch']}"})
     else:
         for d in devices:
             if d["kind"] in ("cuda", "rocm") and "note" not in d:
@@ -278,10 +442,15 @@ class DeviceProbe:
     use; the PyTorch part runs in the background, once, and is merged when it is ready."""
 
     def __init__(self, *, run: Runner = _run, which: Callable[[str], str | None] = shutil.which,
-                 torch: bool = True) -> None:
+                 torch: bool = True, runtimes: bool = True,
+                 find_spec: Callable[[str], Any] | None = None) -> None:
         self._run = run
         self._which = which
         self._torch_enabled = torch
+        self._runtimes_enabled = runtimes
+        self._find_spec = find_spec
+        self._runtimes: list[dict[str, Any]] | None = None
+        self._runtimes_state = "idle"            # idle | running | done
         self._lock = threading.Lock()
         self._quick: dict[str, Any] | None = None
         self._torch: dict[str, Any] | None = None
@@ -321,6 +490,51 @@ class DeviceProbe:
 
         threading.Thread(target=work, name="tcmstudio-torch-probe", daemon=True).start()
 
+    def _accelerator_runtimes(self, refresh: bool) -> list[dict[str, Any]] | None:
+        """Detection only (accelerator_runtimes): without an installed runtime the answer is
+        immediate and starts nothing; with one, its child probe runs in the background once,
+        and until it is done the installed rows say ``probing``."""
+        if not self._runtimes_enabled:
+            return None
+        with self._lock:
+            if refresh and self._runtimes_state == "done":
+                self._runtimes, self._runtimes_state = None, "idle"
+            if self._runtimes_state != "idle":
+                return json.loads(json.dumps(self._runtimes))
+            # found before the lock is let go (find_spec and package metadata only: quick, and
+            # nothing is imported or started), so no caller ever sees the probe running without rows
+            rows = _runtime_rows(self._find_spec)
+            if not any(i["installed"] for i in rows):
+                self._runtimes, self._runtimes_state = rows, "done"
+                return json.loads(json.dumps(rows))
+            pending = json.loads(json.dumps(rows))
+            for item in pending:
+                if item["installed"]:
+                    item["status"] = "probing"
+            self._runtimes, self._runtimes_state = pending, "running"
+
+        def work() -> None:
+            found = json.loads(json.dumps(rows))
+            try:
+                _probe_runtimes(found, self._run, 60.0)
+            except Exception as exc:               # noqa: BLE001 - said in the rows, never a stuck "probing"
+                for item in found:
+                    if item["installed"] and item.get("evidence") is None:
+                        item.update(status="probe_failed", error=f"the runtime probe failed: {exc}"[:300])
+            finally:
+                with self._lock:
+                    self._runtimes, self._runtimes_state = found, "done"
+
+        try:
+            threading.Thread(target=work, name="tcmstudio-runtime-probe", daemon=True).start()
+        except RuntimeError as exc:                # no thread to be had: say so rather than probe forever
+            for item in pending:
+                if item["installed"]:
+                    item.update(status="probe_failed", error=f"the runtime probe could not start: {exc}"[:300])
+            with self._lock:
+                self._runtimes, self._runtimes_state = pending, "done"
+        return json.loads(json.dumps(pending))
+
     def facts(self, refresh: bool = False) -> dict[str, Any]:
         with self._lock:
             if self._quick is None or refresh:
@@ -335,11 +549,15 @@ class DeviceProbe:
         cpu = quick["cpu"]
         devices = [{"id": "cpu", "kind": "cpu", "name": cpu.get("model") or "CPU",
                     "memory_gb": quick["memory_gb"], "cores": cpu.get("cores"),
-                    "available": True}]
+                    "available": True, "evidence": "reported",
+                    "reported_by": "operating system"}]
         gpus = quick["gpus"]
         _merge_torch(gpus, torch_info)
         devices += gpus
+        runtimes = self._accelerator_runtimes(refresh)
         return {"cpu": cpu, "memory_gb": quick["memory_gb"], "devices": devices,
+                # never job devices: detection only, and no tool uses them
+                **({"accelerator_runtimes": runtimes} if runtimes is not None else {}),
                 "torch": (torch_info or {}).get("torch") if torch_info else None,
                 "torch_probe": torch_state if torch_info is None else "done",
                 "notes": quick["notes"] + ([torch_info["error"]] if torch_info and

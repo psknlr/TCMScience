@@ -11,7 +11,10 @@
 //   that an exact one then re-scores);
 // - sensitive inputs never go to a remote backend unless the task carries the person's consent for it;
 // - a cancelled task stops: it is not retried on another backend;
-// - a backend that fails repeatedly (a lost GPU device, a broken driver) is set aside for the rest of the session.
+// - a backend that fails repeatedly (a lost GPU device, a broken driver) is set aside for the rest of the session, and
+//   one whose device failed its known-answer test at once;
+// - "faster" is only ever a measurement: compare() answers from what this device measured for both backends at the same
+//   operation and size class, never from a cost model.
 
 export const BACKEND_KINDS = Object.freeze(["webnn", "webgpu", "wasm-simd", "wasm", "js", "python", "native", "runner", "remote"]);
 const LOCAL = new Set(["webnn", "webgpu", "wasm-simd", "wasm", "js", "python", "native"]);
@@ -153,6 +156,39 @@ export class ComputeScheduler {
     });
   }
 
+  /**
+   * Whether backend `id` is faster here than the best of `baselines`, for `units` of `op`: only from what this device
+   * measured for both in the same size class (log₂ bucket), as recorded (each backend's measurement must include the
+   * same steps, transfers and readback among them; the caller records them so). Never from cost(): an estimate is not
+   * evidence. → {measured: false, reason} or {measured: true, bucket, ms, baseline: {id, ms}, faster}.
+   */
+  compare(op, units, id, baselines = []) {
+    const u = Number(units) || 0;
+    if (!(u > 0)) return { measured: false, reason: "no workload size to compare at" };
+    const mine = this.measured(id, op, u);
+    const base = this.baseline(op, u, baselines);
+    if (mine === null) return { measured: false, reason: `${id} has not been measured at this size on this device` };
+    if (!base) return { measured: false, reason: `no baseline (${baselines.join(", ")}) has been measured at this size on this device` };
+    return { measured: true, bucket: bucket(u), ms: round(mine), baseline: { id: base.id, ms: round(base.ms) }, faster: mine < base.ms };
+  }
+
+  /** What `units` of `op` cost on backend `id` by this device's measurements at that size class (ms), or null. */
+  measured(id, op, units) {
+    const u = Number(units) || 0;
+    const per = u > 0 ? this.#history.get(`${id}|${op}|${bucket(u)}`) : undefined;
+    return per === undefined ? null : per * u;
+  }
+
+  /** The cheapest of `ids` measured here for `units` of `op`: {id, ms}, or null when none has been measured. */
+  baseline(op, units, ids = []) {
+    let best = null;
+    for (const id of ids) {
+      const ms = this.measured(id, op, units);
+      if (ms !== null && (!best || ms < best.ms)) best = { id, ms };
+    }
+    return best;
+  }
+
   #excluded(b, task, pref) {
     const h = this.#healthOf(b.id);
     if (h.setAside) return `set aside for this session: ${h.reason}`;
@@ -187,9 +223,10 @@ export class ComputeScheduler {
   #failed(b, err) {
     const h = this.#healthOf(b.id);
     h.failures += 1;
-    if (err?.code === "device_lost" || h.failures >= FAILURES_TO_SET_ASIDE) {
+    if (err?.code === "device_lost" || err?.code === "known_answer_failed" || h.failures >= FAILURES_TO_SET_ASIDE) {
       h.setAside = true;
-      h.reason = err?.code === "device_lost" ? `device lost: ${message(err)}` : `failed ${h.failures} times: ${message(err)}`;
+      h.reason = err?.code === "device_lost" ? `device lost: ${message(err)}`
+        : err?.code === "known_answer_failed" ? message(err) : `failed ${h.failures} times: ${message(err)}`;
     }
   }
 

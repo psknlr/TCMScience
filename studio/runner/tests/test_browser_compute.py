@@ -16,6 +16,8 @@ import pytest
 from tcmstudio import browser_compute
 
 BRIDGE = Path(__file__).resolve().parents[2] / "web" / "js" / "compute" / "bridge.js"
+ACCELERATOR = BRIDGE.with_name("accelerator.js")
+WEBGPU = BRIDGE.parents[1] / "runtime" / "webgpu.js"
 CTX = json.dumps({"where": "browser"})
 
 
@@ -63,6 +65,37 @@ def test_bound_gpu_counts_give_the_original_result_and_a_webgpu_receipt(model):
     assert cpu["receipt"]["execution"]["kernel"] == cpu["receipt"]["compute"]["backend"] == "pyodide"
     assert cpu["receipt"]["execution"]["device"]["used"] == "cpu"
     assert gpu["receipt"]["result"]["fallbacks"] == []
+    # the evidence ladder: Python's own recount makes GPU counts "validated", never more; the CPU stays "selected"
+    assert gpu["receipt"]["execution"]["device"]["evidence"] == "validated"
+    assert cpu["receipt"]["execution"]["device"]["evidence"] == "selected"
+    g = gpu["receipt"]["compute"]["gpu"]
+    assert set(g) == {"validated", "handoff_ms"} and g["validated"] is True and g["handoff_ms"] >= 0
+    assert "gpu" not in cpu["receipt"]["compute"], "no packet, no GPU evidence"
+
+
+def test_the_packets_crossing_into_python_counts_in_handoff_ms(monkeypatch):
+    """The Worker marks its clock just before the call; Python, on the same clock, counts the
+    crossing as part of the GPU path's hand-off. Without a mark, or outside a Worker, nothing
+    is added; a mark without a packet is ignored."""
+    args = json.loads(json.dumps(DIST))
+    args["arguments"]["model"] = "p"
+    p = json.dumps(packet("native.distance_matrix", DIST_SEQS, DIST_COUNTS))
+
+    def call(options, pkt=p):
+        return json.loads(browser_compute.call_json("call_tool", json.dumps(args), CTX, pkt, json.dumps(options)))
+
+    monkeypatch.setattr(browser_compute, "_worker_clock", lambda: 1250.0)
+    marked = call({"kernels": True, "sent_at": 1000.0})["receipt"]["compute"]["gpu"]
+    assert marked["validated"] is True and 250.0 <= marked["handoff_ms"] < 260.0
+    for bad in (None, "1000", True, float("nan"), 2000.0, -1e9):        # unknown, or a mark from another clock
+        assert call({"kernels": True, "sent_at": bad})["receipt"]["compute"]["gpu"]["handoff_ms"] < 10.0, bad
+    assert "gpu" not in call({"kernels": True, "sent_at": 1000.0}, pkt="null")["receipt"]["compute"]
+    monkeypatch.setattr(browser_compute, "_worker_clock", lambda: None)  # CPython: no Worker clock
+    assert call({"kernels": True, "sent_at": 1000.0})["receipt"]["compute"]["gpu"]["handoff_ms"] < 10.0
+    monkeypatch.undo()
+    assert browser_compute._worker_clock() is None, "outside Pyodide there is no Worker clock"
+    gpu = call({"kernels": True, "sent_at": 1000.0})
+    assert gpu["result"] == call({"kernels": False}, pkt="null")["result"], "the result never depends on the timing"
 
 
 def test_gc_windows_include_s_ambiguity_and_match_python():
@@ -104,6 +137,8 @@ def test_a_packet_that_does_not_belong_or_check_out_is_not_used_and_the_call_sti
     fallback = got["receipt"]["result"]["fallbacks"]
     assert [f["what"] for f in fallback] == ["compute"], why
     assert got["receipt"]["compute"]["gpu_rejected"] in fallback[0]["reason"], why
+    assert got["receipt"]["compute"]["gpu"]["validated"] is False, why
+    assert got["receipt"]["execution"]["device"]["evidence"] == "selected", why
 
 
 def test_well_formed_but_wrong_counts_with_the_right_digest_are_caught_by_python_s_own_recount():
@@ -148,6 +183,56 @@ def test_a_failed_call_s_kernel_is_pyodide_whatever_helped(monkeypatch):
     assert got["receipt"]["compute"]["backend"] == got["receipt"]["execution"]["kernel"] == "pyodide"
     assert got["receipt"]["device"] == "cpu"
     assert got["receipt"]["execution"]["device"]["used"] != "webgpu"
+    assert "gpu" not in got["receipt"]["compute"]
+    assert got["receipt"]["execution"]["device"]["evidence"] not in ("validated", "verified", "accelerated")
+
+
+# ------------------------------------------------------------------------- the Worker's real packets, bound in Python
+
+PREPARE = """
+import { SequenceAccelerator } from %s;
+import { planSequenceCompute, referenceCounts } from %s;
+const [tool, argsJson] = process.argv.slice(1);
+const args = JSON.parse(argsJson);
+// a GPU double that counts with the CPU reference: what a working device returns
+const gpu = { adapter: null, knownAnswer: { ok: true }, lastRun: null, fallbackReason: null, allowsSoftware: false,
+  async prepare(t, a) { const p = planSequenceCompute(t, a); this.lastRun = { dispatched: true, checked: true, cold: false, setup_ms: 0, work_ms: 1 };
+    return { tool: t, width: p.width, n: p.n, window: p.window, counts: Array.from(referenceCounts(p)), backend: "webgpu", precision: "uint32 exact counts; Python float64 transforms" }; },
+  stop() {} };
+const acc = new SequenceAccelerator({ gpu, simd: () => ({ available: false, reason: "test" }) });
+// this device measured the CPU paths as slow at this size, so the scheduler gives the work to the GPU
+acc.learn(tool, args, "js", 1e9); acc.learn(tool, args, "python", 1e9);
+const out = await acc.prepare(tool, args);
+process.stdout.write(JSON.stringify(out.packet));
+"""
+
+
+def worker_packet(tool, args):
+    script = PREPARE % (json.dumps(ACCELERATOR.as_uri()), json.dumps(WEBGPU.as_uri()))
+    out = subprocess.run(["node", "--input-type=module", "-e", script, tool, json.dumps(args)],
+                         capture_output=True, text=True, encoding="utf-8", timeout=60, check=True)
+    return json.loads(out.stdout)
+
+
+@pytest.mark.parametrize("tool, args", [
+    ("native.distance_matrix", {"sequences": {"a": "acgu nRY-" * 4000, "b": "AGGTTTCA" * 4000, "c": "ac-t nacg" * 4000}}),
+    ("native.distance_matrix", {"sequences": ["ACGT" * 9000, "GGTA" * 9000], "model": "k2p"}),
+    ("native.hamming_distance", {"a": "acgturysn" * 4000, "b": "GCSNTTCNA" * 4000}),
+    ("native.gc_content", {"sequence": "ACGTURYSN" * 4000, "window": 300}),
+])
+def test_the_workers_own_packet_binds_in_python_byte_for_byte(tool, args):
+    """accelerator.js's digest and normalisation are browser_compute's: a packet the Worker
+    prepares for a call is used by Python for that call, and the result is the reference's."""
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed: the Worker's JavaScript cannot be run here")
+    packet = worker_packet(tool, args)
+    assert packet and packet["backend"] == "webgpu", "the scheduler gave the work to the GPU"
+    call = {"tool": tool, "arguments": args}
+    got, reference = run(call, packet), run(call, kernels=False)
+    assert got["receipt"]["compute"]["backend"] == "webgpu", got["receipt"]["compute"].get("gpu_rejected")
+    assert got["receipt"]["compute"]["gpu"]["validated"] is True
+    assert got["result"] == reference["result"]
+    assert got["receipt"]["output_sha256"] == reference["receipt"]["output_sha256"]
 
 
 # ------------------------------------------------------------------------------------------- the real JS kernels

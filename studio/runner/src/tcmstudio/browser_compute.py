@@ -18,8 +18,13 @@ CPU kernels the tools call synchronously (in the Worker)
     JavaScript; the alignments and the edit distance are JavaScript.
 
 ``receipt.compute`` names the backend that produced the numbers and what each kernel did;
-``receipt.device`` is ``webgpu`` only when GPU counts were used (CONTRACTS §3). Python keeps
-every model transform, rounding, error and verdict.
+``receipt.device`` is ``webgpu`` only when GPU counts were used (CONTRACTS §3). When a packet
+arrived, ``receipt.compute.gpu`` says whether its counts were used (``validated``: bound to
+this input and recounted here) and what handing them over cost (``handoff_ms``: the call's
+crossing from the Worker into Python when the Worker marked it, parsing the packet and binding
+it to the input; not the recount the CPU kernels' counts get too); the Worker adds the rest of
+the GPU's evidence (compute/accelerator.js). Python keeps every model transform, rounding,
+error and verdict.
 """
 from __future__ import annotations
 
@@ -150,11 +155,12 @@ def _sample_check(name: str, counts: list, sequences, window: int) -> str | None
 class _Call:
     """What happened to local compute during one call, for its receipt."""
 
-    def __init__(self, packet: Any, kernels_on: bool):
+    def __init__(self, packet: Any, kernels_on: bool, parse_ms: float = 0.0):
         self.packet = packet if isinstance(packet, dict) else None
         self.kernels_on = kernels_on and _js is not None
         self.gpu_used = False
         self.gpu_rejected: str | None = None
+        self.handoff_ms = parse_ms if self.packet is not None else 0.0
         self.timings: dict[str, float] = {}
         self.events: list[dict[str, Any]] = []
 
@@ -165,11 +171,14 @@ class _Call:
         if p is None or p.get("tool") != _TOOL_OF.get(name):
             return None
         reason = None
+        t0 = time.perf_counter()
         if p.get("input_sha256") != input_digest(p["tool"], sequences, window):
             reason = "the prepared counts were computed from a different input"
         elif p.get("n") != len(sequences) or p.get("width") != len(sequences[0]) or p.get("window", 0) != window:
             reason = "the prepared counts have other dimensions than this input"
-        else:
+        # binding the packet to this input is the GPU path's own cost; the recount below is not (CPU counts get it too)
+        self.handoff_ms += (time.perf_counter() - t0) * 1000
+        if reason is None:
             reason = check_counts(name, p.get("counts"), sequences, window)
         if reason:
             self.gpu_rejected = reason
@@ -257,22 +266,53 @@ class _Call:
                               for e in self.events]
         if self.gpu_rejected:
             out["gpu_rejected"] = self.gpu_rejected
+        if self.packet is not None:
+            out["gpu"] = {"validated": self.gpu_used, "handoff_ms": round(self.handoff_ms, 3)}
         return out
+
+
+def _worker_clock() -> float | None:
+    """The Worker's ``performance.now()`` in ms, in Pyodide; None elsewhere (CPython has none)."""
+    try:
+        from js import performance  # type: ignore[import-not-found]  # Pyodide's bridge to the Worker
+        return float(performance.now())
+    except Exception:                              # noqa: BLE001 - not in a browser, or no clock
+        return None
+
+
+def _crossing_ms(sent_at: Any) -> float:
+    """How long the call took to cross from the Worker into Python since the Worker's mark
+    ``sent_at`` (its ``performance.now()`` just before the call), or 0 when unknown. It
+    includes the other arguments' crossing too, which a CPU kernel's call also pays, so it
+    can only overstate the GPU path's cost, never understate it."""
+    if type(sent_at) not in (int, float) or sent_at != sent_at:
+        return 0.0
+    now = _worker_clock()
+    if now is None:
+        return 0.0
+    took = now - float(sent_at)
+    return took if 0.0 <= took < 600_000.0 else 0.0
 
 
 def call_json(tool, arguments_json, context_json, acceleration_json="null", options_json="{}"):
     """dispatch.call_json with the Worker's local compute available to this one call.
 
     ``acceleration_json``: the WebGPU packet prepared for it (or null). ``options_json``:
-    ``{"kernels": bool}``, whether the CPU kernels may run (off when the page asked for
-    the Python reference)."""
+    ``{"kernels": bool, "sent_at"?: ms}``: whether the CPU kernels may run (off when the
+    page asked for the Python reference), and, with a packet, the Worker's clock just
+    before the call, so the packet's crossing into Python counts in ``handoff_ms``."""
     from . import dispatch
     started = time.perf_counter()
     try:
         options = json.loads(options_json or "{}")
     except ValueError:
         options = {}
-    call = _Call(json.loads(acceleration_json or "null"), bool(options.get("kernels", True)))
+    if not isinstance(options, dict):
+        options = {}
+    crossing = _crossing_ms(options.get("sent_at")) if acceleration_json not in (None, "", "null") else 0.0
+    t0 = time.perf_counter()
+    packet = json.loads(acceleration_json or "null")
+    call = _Call(packet, bool(options.get("kernels", True)), crossing + (time.perf_counter() - t0) * 1000)
     tokens = (COUNTS_SOURCE.set(call.source if call.packet else None), KERNELS.set(call.kernels()),
               KERNEL_EVENTS.set(call.events))
     try:
@@ -311,7 +351,12 @@ def _mirror(receipt: dict) -> None:
     page's acceleration preference, which Python is not told: compute.requested when the
     receipt has it, else null (the worker fills it in), never the CPU the Python context
     names. A GPU packet Python rejected is a compute fallback. receipt.compute stays the
-    authority on the kernels; a receipt without receipt/1 (no execution) is left as it is."""
+    authority on the kernels; a receipt without receipt/1 (no execution) is left as it is.
+
+    On the evidence ladder, GPU counts Python used are ``validated`` (the packet was bound
+    to this input and its records recounted here); Python knows no more than that. The
+    Worker raises it further only from what it saw itself (a known-answer test on the
+    device, a measured comparison with the CPU kernel); nothing here says ``accelerated``."""
     compute = receipt.get("compute")
     execution = receipt.get("execution")
     if not isinstance(compute, dict) or not isinstance(execution, dict):
@@ -324,6 +369,8 @@ def _mirror(receipt: dict) -> None:
         device["requested"] = requested if isinstance(requested, str) else None
     if receipt.get("device") == "webgpu" and isinstance(device, dict):
         device["assigned"] = device["used"] = "webgpu"
+        if (compute.get("gpu") or {}).get("validated") is True:
+            device["evidence"] = "validated"
     result = receipt.get("result")
     if compute.get("gpu_rejected") and isinstance(result, dict):
         result.setdefault("fallbacks", []).append(

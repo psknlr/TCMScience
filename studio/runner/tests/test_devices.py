@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -36,9 +38,11 @@ def test_nvidia_smi_is_parsed():
     assert note is None
     assert gpus == [
         {"id": "cuda:0", "kind": "cuda", "name": "NVIDIA GeForce RTX 4090", "memory_gb": 24.0,
-         "driver": "550.54.14", "available": True},
+         "driver": "550.54.14", "available": True, "evidence": "reported",
+         "reported_by": "nvidia-smi"},
         {"id": "cuda:1", "kind": "cuda", "name": "NVIDIA A100-SXM4-80GB", "memory_gb": 80.0,
-         "driver": "550.54.14", "available": True}]
+         "driver": "550.54.14", "available": True, "evidence": "reported",
+         "reported_by": "nvidia-smi"}]
     assert "--query-gpu=index,name,memory.total,driver_version" in run.calls[0]
 
 
@@ -56,7 +60,8 @@ def test_rocm_smi_is_parsed():
     gpus, note = dev.rocm_gpus(runner_for({"rocm-smi": json.dumps(doc)}), which_for("rocm-smi"))
     assert note is None
     assert gpus[0] == {"id": "rocm:0", "kind": "rocm", "name": "Radeon RX 7900 XTX",
-                       "memory_gb": 24.0, "driver": "6.7.0", "available": True}
+                       "memory_gb": 24.0, "driver": "6.7.0", "available": True,
+                       "evidence": "reported", "reported_by": "rocm-smi"}
     assert gpus[1]["id"] == "rocm:1" and gpus[1]["memory_gb"] is None
 
 
@@ -72,6 +77,135 @@ def test_probe_lists_the_cpu_first_and_caches():
     assert len(run.calls) == calls                      # cached
     probe.devices(refresh=True)
     assert len(run.calls) > calls
+
+
+def test_every_device_says_what_reported_it_and_none_is_claimed_beyond_reported():
+    run = runner_for({"nvidia-smi": "0, NVIDIA L4, 23034, 535.1\n"})
+    devices = dev.DeviceProbe(run=run, which=which_for("nvidia-smi"), torch=False,
+                              find_spec=lambda name: None).devices()
+    assert [(d["id"], d["evidence"], d["reported_by"]) for d in devices] == [
+        ("cpu", "reported", "operating system"), ("cuda:0", "reported", "nvidia-smi")]
+    assert all(d["evidence"] in dev.EVIDENCE for d in devices)
+    from tcmstudio.envelope import EVIDENCE
+    assert dev.EVIDENCE == EVIDENCE, "one ladder, the same words as the receipts"
+    gpus = []
+    dev._merge_torch(gpus, {"torch": "2.5.0", "cuda": True, "hip": None, "mps": False,
+                            "devices": [{"index": 0, "name": "T4", "memory_gb": 14.6}]})
+    assert gpus[0]["evidence"] == "reported" and gpus[0]["reported_by"] == "PyTorch 2.5.0"
+
+
+# ---------------------------------------------------------------- accelerator runtimes
+
+def _installed(*modules):
+    return lambda name: object() if name in modules else None
+
+
+_REPORT = {"openvino": {"version": "2025.3.0", "devices": [{"id": "CPU", "name": "Intel Core Ultra 7"},
+                                                            {"id": "NPU", "name": "Intel(R) AI Boost"}]},
+           "onnxruntime": {"version": "1.22.0", "device": "CPU",
+                           "providers": ["QNNExecutionProvider", "CPUExecutionProvider"]}}
+
+
+def _runtime_run(report=_REPORT, calls=None):
+    """Answers the runtime probe (an isolated child interpreter); any other command (sysctl,
+    nvidia-smi, … for the rest of DeviceProbe) goes to a stand-in that has none of them."""
+    others = runner_for({})
+
+    def run(cmd, timeout=5.0):
+        if cmd[0] != sys.executable:
+            return others(cmd, timeout)
+        if calls is not None:
+            calls.append(cmd)
+        assert cmd[1] == "-I", "a child interpreter, isolated"
+        wanted = cmd[4:]
+        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({k: report[k] for k in wanted if k in report}),
+                                           stderr="")
+    return run
+
+
+def test_accelerator_runtimes_are_detected_and_labelled_never_used():
+    calls = []
+    rows = dev.accelerator_runtimes(run=_runtime_run(calls=calls), find_spec=_installed("openvino", "onnxruntime"))
+    by = {r["id"]: r for r in rows}
+    assert set(by) == {"openvino", "onnxruntime", "coreml", "directml"}
+    assert calls and calls[0][4:] == ["openvino", "onnxruntime"], "only the installed ones are asked"
+    for rid in ("openvino", "onnxruntime"):
+        r = by[rid]
+        assert r["installed"] is True and r["status"] == "detected"
+        assert r["label"] == "detected, not used by any tool"
+        assert r["used_by"] == [] and r["execution"] == "unverified" and r["evidence"] == "reported"
+    assert by["openvino"]["reported"]["devices"][1] == {"id": "NPU", "name": "Intel(R) AI Boost"}
+    assert by["onnxruntime"]["reported"]["providers"] == ["QNNExecutionProvider", "CPUExecutionProvider"]
+    assert by["onnxruntime"]["version"] == "1.22.0"
+    for rid in ("coreml", "directml"):
+        assert by[rid]["installed"] is False and by[rid]["status"] == "not_installed" and by[rid]["evidence"] is None
+    assert all(r["evidence"] in (None, "reported") for r in rows), "a runtime's list is a report, never more"
+    assert "accelerated" not in json.dumps(rows).lower()
+
+
+def test_runtime_probe_is_skipped_when_nothing_is_installed_and_a_failure_is_said():
+    called = []
+    rows = dev.accelerator_runtimes(run=lambda *a, **k: called.append(a), find_spec=_installed())
+    assert called == [] and all(r["status"] == "not_installed" for r in rows)
+
+    def broken(cmd, timeout=5.0):
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    rows = dev.accelerator_runtimes(run=broken, find_spec=_installed("openvino"))
+    ov = next(r for r in rows if r["id"] == "openvino")
+    assert ov["status"] == "probe_failed" and "probe failed" in ov["error"] and ov["evidence"] is None
+    rows = dev.accelerator_runtimes(run=_runtime_run(report={"openvino": {"error": "RuntimeError: no plugins"}}),
+                                    find_spec=_installed("openvino"))
+    assert next(r for r in rows if r["id"] == "openvino")["error"] == "RuntimeError: no plugins"
+
+
+def test_an_npu_a_runtime_reports_is_never_a_job_device():
+    probe = dev.DeviceProbe(run=_runtime_run(), which=which_for(), torch=False,
+                            find_spec=_installed("openvino", "onnxruntime"))
+    facts = probe.facts()
+    deadline = time.monotonic() + 10
+    while any(r["status"] == "probing" for r in facts["accelerator_runtimes"]) and time.monotonic() < deadline:
+        time.sleep(0.02)
+        facts = probe.facts()
+    assert [d["id"] for d in facts["devices"]] == ["cpu"], "an NPU or provider is never a device"
+    assert not any("npu" in json.dumps(d).lower() for d in facts["devices"])
+    ov = next(r for r in facts["accelerator_runtimes"] if r["id"] == "openvino")
+    assert ov["status"] == "detected" and ov["reported"]["devices"][1]["id"] == "NPU"
+    for selected in ("auto", "NPU", "openvino", "npu:0"):
+        assert dev.resolve(selected, facts["devices"])[0] == "cpu", selected
+    assert "accelerator_runtimes" not in dev.DeviceProbe(torch=False, runtimes=False, which=which_for(),
+                                                         run=runner_for({})).facts()
+
+
+def test_the_runtime_rows_exist_before_the_probe_runs_and_a_crash_ends_it():
+    import threading
+    gate = threading.Event()
+
+    def crashing(cmd, timeout=5.0):
+        if cmd[0] != sys.executable:
+            return runner_for({})(cmd, timeout)
+        gate.wait(5)
+        raise AttributeError("a broken runtime module")   # nothing _probe_runtimes expects
+    probe = dev.DeviceProbe(run=crashing, which=which_for(), torch=False, find_spec=_installed("openvino"))
+    first = probe.facts()["accelerator_runtimes"]
+    # while the child probe is still running, every caller sees the rows, never nothing
+    assert next(r for r in first if r["id"] == "openvino")["status"] == "probing"
+    assert isinstance(probe.facts()["accelerator_runtimes"], list)
+    gate.set()
+    deadline = time.monotonic() + 10
+    rows = probe.facts()["accelerator_runtimes"]
+    while any(r["status"] == "probing" for r in rows) and time.monotonic() < deadline:
+        time.sleep(0.02)
+        rows = probe.facts()["accelerator_runtimes"]
+    ov = next(r for r in rows if r["id"] == "openvino")
+    assert ov["status"] == "probe_failed" and "a broken runtime module" in ov["error"] and ov["evidence"] is None
+    assert probe._runtimes_state == "done", "not stuck running"
+
+    def broken_finder(name):
+        if name == "openvino":
+            raise AttributeError("a finder that breaks")
+        return None
+    rows = dev.accelerator_runtimes(run=lambda *a, **k: None, find_spec=broken_finder)
+    assert all(r["status"] == "not_installed" for r in rows), "a broken finder is not an installed runtime"
 
 
 def test_torch_facts_are_merged():

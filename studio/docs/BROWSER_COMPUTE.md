@@ -2,8 +2,10 @@
 
 What runs where when Studio (<https://science.impf.ai>) computes in a visitor's browser: which backends exist, how one is
 chosen, how its results are checked, what was measured, and what is still only a plan. Written on 2026-10-10 against
-branch `claude/keen-einstein-2l36a3`. Every number here was measured on the machine named in [§9](#9-performance);
-anything not measured says so.
+branch `claude/keen-einstein-2l36a3`, and brought up to date on 2026-10-18 with the evidence ladder for devices
+([§5.1](#51-the-evidence-ladder)). Every number here was measured on the machine named in [§9](#9-performance);
+anything not measured says so. Every WebGPU figure in this document comes from a **software adapter** (SwiftShader, a
+CPU emulator): no hardware GPU was available for any documented run.
 
 Status words used throughout:
 
@@ -149,14 +151,16 @@ reference, plus randomized end-to-end runs against it), not by the check.
 
 | File | What it does |
 |---|---|
-| [`web/js/compute/capabilities.js`](../web/js/compute/capabilities.js) | Probes by trying, never by browser name: WebAssembly SIMD, relaxed SIMD, threads, bulk memory (validated modules); WebGPU adapter, features, limits, software renderers named; WebNN contexts per requested device with operator-limit fingerprints; storage quota, persistence, OPFS, Cache API; timer resolution. Schema `tcmstudio.capabilities/1`. |
+| [`web/js/compute/capabilities.js`](../web/js/compute/capabilities.js) | Probes by trying, never by browser name: WebAssembly SIMD, relaxed SIMD, threads, bulk memory (validated modules); WebGPU adapter (classified software / physical / unidentified), features, limits, and its rung on the evidence ladder; WebNN contexts per requested device with operator-limit fingerprints, and the NPU status (always unverified); storage quota, persistence, OPFS, Cache API; timer resolution. Schema `tcmstudio.capabilities/1` (the additions are additive). Also the ladder itself (`EVIDENCE`, `evidenceLevel`, `webgpuEvidence`). |
 | [`web/js/compute/scheduler.js`](../web/js/compute/scheduler.js) | The adaptive scheduler of [§3](#3-architecture) and [§5](#5-the-hardware-aware-runtime). |
 | [`web/js/compute/kernels.js`](../web/js/compute/kernels.js) | Needleman–Wunsch and Smith–Waterman (linear gap, any score table), Levenshtein, sequence counts, in JavaScript, with Python's semantics; each polls the Worker's interrupt flag. |
 | [`web/js/compute/wasm/seqcount.wat`](../web/js/compute/wasm/seqcount.wat) → `seqcount.wasm.js` | The SIMD count kernel (691 bytes), compiled with wabt by `studio/scripts/build_wasm.mjs`; a test fails if the committed binary is not what the text compiles to. |
 | [`web/js/compute/simd.js`](../web/js/compute/simd.js) | Instantiates it synchronously from the embedded bytes; copies letters in with `TextEncoder.encodeInto`; lets go of a memory grown past 16 MB. |
 | [`web/js/compute/bridge.js`](../web/js/compute/bridge.js) | The one function Python calls (`call(name, json) → json`): SIMD counts, else JavaScript; declines on any error. |
-| [`web/js/compute/accelerator.js`](../web/js/compute/accelerator.js) | The Worker's decision before a sequence tool runs (GPU packet or not), and learning from what ran. |
-| [`runner/src/tcmstudio/browser_compute.py`](../runner/src/tcmstudio/browser_compute.py) | The Python side: binds packets to inputs, decides when a kernel is worth calling, checks results, writes `receipt.compute`. |
+| [`web/js/compute/accelerator.js`](../web/js/compute/accelerator.js) | The Worker's decision before a sequence tool runs (GPU packet or not), learning from what ran, the GPU's evidence for each call (`settle`) and what the Worker adds to the receipt (`decorateReceipt`). |
+| [`web/js/runtime/webgpu.js`](../web/js/runtime/webgpu.js) | The WGSL count kernel, its known-answer test, and `classifyAdapter`, the classifier of WebGPU adapters that the probe, the runtime, the Worker's device report, the benchmark and the smoke harness use. The page's own device report (`runtime/browser.js` `detectDevice`, `ui/app.js` `detectBrowserDevice`) still applies an older software-name rule; see [§5.1](#51-the-evidence-ladder). |
+| [`runner/src/tcmstudio/browser_compute.py`](../runner/src/tcmstudio/browser_compute.py) | The Python side: binds packets to inputs, decides when a kernel is worth calling, checks results, writes `receipt.compute` and mirrors it into `receipt.execution`. |
+| [`runner/src/tcmstudio/devices.py`](../runner/src/tcmstudio/devices.py) | The runner's devices, each with its rung on the ladder (`reported`) and what reported it, and the detection-only report of accelerator runtimes ([§6](#6-webgpu-webassembly-and-webnn)). |
 | `BioScience-Harness/src/bioagent/tools/{_compute,align,sequence}.py` | Call-scoped kernel hooks (ContextVars), each tool's fast path and its check. |
 | [`web/sw.js`](../web/sw.js), [`web/js/core/offline.js`](../web/js/core/offline.js) | The service worker of [§7](#7-offline-storage-and-caching). |
 | [`web/test/runtime/bench.mjs`](../web/test/runtime/bench.mjs) | The benchmark of [§9](#9-performance). |
@@ -180,15 +184,17 @@ Measured in Chromium 141 on a Linux VM with no GPU and no NPU, with WebNN enable
 request, including `deviceType: "npu"`, and every context reported identical operator limits. A created "npu" context is
 therefore not evidence of an NPU, and Studio does not claim one: Settings says "an NPU is unverified; no tool uses
 WebNN yet". The only WebGPU adapter there was SwiftShader, a CPU emulator. The probe names it as a software renderer and
-the runtime refuses it for real work (the counts then run on the CPU).
+the runtime refuses it for real work (the counts then run on the CPU). Chromium chose SwiftShader there even without
+`--use-angle=swiftshader`, and the classifier labelled it software either way (2026-10-18 runs).
 
 **Choosing a backend.** For each sequence-count task the scheduler orders the supported backends by estimated cost.
 At first the estimate comes from a cost model: per-operation costs, a fixed GPU dispatch cost, and the cost of handing
-the counts to Python. Once this device has measured a backend at a given size (log₂ buckets, exponentially weighted,
-α = 0.3), the measurement is used instead. The model's constants are estimates. The CPU ones were measured here (SIMD
-about 2–4 × 10⁻⁷ ms per comparison, JavaScript about 3–6 × 10⁻⁶); the GPU ones could not be, because no hardware GPU
-was available. With these estimates the GPU wins only past roughly 3 × 10⁷ comparisons, and SIMD takes everything
-below. A device with a fast GPU learns otherwise after its first runs.
+the counts to Python. Once this device has measured a backend for a tool at a given size (log₂ buckets, exponentially weighted,
+α = 0.3), the measurement is used instead, like for like ([§5.1](#51-the-evidence-ladder)). The model's constants are
+estimates. The CPU ones were measured here (SIMD about 2–4 × 10⁻⁷ ms per comparison, JavaScript about 3–6 × 10⁻⁶);
+the GPU ones could not be, because no hardware GPU was available. With these estimates the GPU wins only past roughly
+3 × 10⁷ comparisons, and SIMD takes everything below. A device with a fast GPU learns otherwise after its first warm
+runs. An estimate is never evidence: the receipt's `accelerated` comes only from measurements.
 
 **Memory and limits.** The GPU kernel takes up to 128 M comparisons, 64 MB of input and 8 MB of counts. The SIMD kernel
 takes up to 256 MB of working memory, and a memory grown past 16 MB is released after the call. Python decides whether
@@ -203,6 +209,79 @@ with no Worker restart. Without isolation the Worker is terminated and restarted
 **Device loss and errors.** A WebGPU `device lost` sets the GPU aside for the session. A kernel that throws declines and
 Python computes. A result that fails its check is not used, and the receipt says why (`gpu_rejected`, or a kernel event
 `rejected` with its reason). No accelerator failure fails a call.
+
+### 5.1 The evidence ladder
+
+What can be shown about a device is ordered, with the same words for the browser's GPU, the runner's devices and
+`receipt.execution.device.evidence` (CONTRACTS §3):
+
+| Rung | Means | Where it comes from in the browser |
+|---|---|---|
+| `selected` | chosen by a setting or the scheduler; nothing shown | the scheduler tried the GPU for a call |
+| `reported` | an API or driver says it exists | `navigator.gpu` returned an adapter |
+| `dispatched` | a kernel was submitted to it | `queue.submit` of the call's own count kernel (`SequenceCompute.lastRun.dispatched`) |
+| `validated` | that kernel's output passed its parity / recount check | the JavaScript sample check, then Python's binding and recount (`browser_compute`) used the counts |
+| `verified` | a known-answer test passed on it | the device computed the three fixed inputs of `KNOWN_ANSWERS` (one per shader mode) count for count, once per device, before any of its counts were used |
+| `accelerated` | measured faster than the CPU baseline on this device | this call's GPU time against a CPU kernel's time measured here for the same tool and size class (below) |
+
+Every rung above `reported` needs all the rungs below it; `reported` does not need `selected` (the probe reports an
+adapter nobody chose). **Adapter kind** comes from `classifyAdapter` in `runtime/webgpu.js`, which the probe, the
+runtime, the Worker's device report, the benchmark and the smoke harness use:
+
+- `software`: a CPU renderer named as such (SwiftShader, llvmpipe, lavapipe, softpipe, WARP, the Microsoft Basic
+  Render Driver, anything calling itself software), or an adapter the browser marks as a fallback adapter. It is never
+  GPU acceleration, and the runtime refuses it (only the smoke harness and the benchmark may use it, explicitly).
+- `physical`: an adapter that names a hardware GPU vendor or product line (NVIDIA, AMD, Intel, Apple, Qualcomm, Arm,
+  Imagination, Samsung, Broadcom, Vivante). That is the browser's own report, not a measurement.
+- `unidentified`: no names at all (browsers may withhold them) or names the list does not know. The classifier never
+  calls it a GPU or physical. The runtime may still use it, because its counts are checked like any other, but it can
+  never reach `accelerated`.
+
+**Not yet on the classifier: the page's own device report.** `runtime/browser.js` `detectDevice` and `ui/app.js`
+`detectBrowserDevice`, which the Settings panel shows, still apply an older rule (a software renderer's name, else a
+GPU). There an adapter that names nothing gets `software: false` and `compute.webgpu_adapter: true`, so the panel can
+present an unidentified adapter as a GPU the sequence statistics can use. Moving both onto `classifyAdapter` (and the
+panel onto `adapter.kind`) is open work; until then the panel's GPU line is the browser's report, not this ladder.
+
+The probe (`caps.webgpu.evidence`) reaches `reported` at most; the Worker's session evidence (its device report's
+`compute_evidence`) counts the calls that were dispatched, validated and rejected, the known-answer test, and how many
+calls were measured faster. A device that computes a known answer wrong is set aside for the session at once. A test
+that could not run (a timeout, a lost device, a failed readback) keeps no verdict: that call falls back to the CPU and
+the next one runs the test again, and the scheduler sets the GPU aside only if such failures repeat.
+
+**Like for like.** The GPU backend is timed after the call, not around its preparation: the GPU's work (packing,
+upload, dispatch, readback, the sample check), the input digest, the packet's JSON, the call's crossing from the
+Worker into Python, and Python's parse and binding of the packet. The crossing is timed from a mark the Worker passes
+(`sent_at`, its `performance.now()` just before the call), read on the same clock in Python; it also includes the
+call's other arguments crossing, which the CPU path pays too, so it can only overstate the GPU's time. That is what a
+CPU kernel's recorded time already includes (its input and its counts cross into and out of JavaScript as JSON).
+Python's recount is left out of both, since both get it. A cold call (device, pipeline, known-answer test) and a
+packet Python did not use are not recorded. Measurements are kept per tool (`sequence.counts:<tool>`): a CPU kernel
+timed on `gc_content` never stands for `distance_matrix` at the same size, whose comparisons cost differently.
+`accelerated` is true only when the adapter is physical, the device passed its known-answer test, Python used the
+counts, and a CPU kernel's measured time for the same tool and size class is longer than this call's GPU time;
+`scheduler.compare()` answers only from measurements. The cost model's
+GPU constants are guesses that order the first tries; they never make anything "accelerated". If no CPU kernel has
+been measured at that size on this device, the receipt says so and claims nothing. None of this has been observed
+on a hardware GPU yet: on this VM the only adapter is software, which the runtime refuses.
+
+### 5.2 What a receipt says about the computation
+
+`receipt.compute` (CONTRACT_NOTES, browser-compute) names the backend that produced the numbers (`webgpu`,
+`wasm-simd`, `js`, `pyodide`), and for the three count tools it now carries `gpu`: the adapter's kind, vendor and
+architecture; `dispatched`; `validated`; `verified`; `gpu_ms` (this call's GPU path, set-up included when cold);
+`cold`; `cpu_baseline_ms` and `cpu_baseline_backend` when a CPU kernel was measured here for that tool at that size; `accelerated`
+with its `basis`; `fallback_reason` when the GPU's counts were not used; and `evidence`, the rung this call reached.
+`receipt.execution.kernel` mirrors `receipt.compute.backend` verbatim (`browser_compute._mirror`, and the Worker again
+whenever it writes `compute`). `receipt.execution.device.requested` is the acceleration preference (Auto, CPU only,
+Python reference). Its `evidence` is `validated` when Python used GPU counts, raised to `verified` or `accelerated` by
+the Worker only from what that call showed; the CPU stays `selected`. Only a degradation also becomes a
+`{what: "compute"}` entry of `receipt.result.fallbacks` (`accelerator.gpuDegradation`): the GPU was tried and failed (a
+lost device, a known answer computed wrong, a timeout), was set aside after such a failure, or computed counts Python
+rejected. A routine CPU path is not one and stays `compute.fallback_reason` only: CPU only or the reference asked for,
+a workload too small for the GPU, an input its kernel does not take, a CPU kernel estimated cheaper, and a software
+adapter (a machine whose only adapter is a CPU renderer has no GPU to fall back from). `receipt.device` is still
+`webgpu` only when Python used GPU counts. None of this enters the result or its hashes: the receipt is completed after the output was hashed.
 
 ---
 
@@ -221,13 +300,31 @@ Threads are available (the site is isolated) but not used yet: Python in Pyodide
 are synchronous calls from Python, so parallel kernels would need a pool of Workers and an asynchronous boundary
 (proposed, [§11](#11-roadmap)).
 
-**WebNN** is a progressive enhancement that no tool needs. The intended use is a packaged ONNX model (term embeddings,
+**WebNN** is a progressive enhancement that no tool needs. WebNN capability detection is available. Actual NPU
+acceleration is supported only for workloads with a verified execution provider and hardware-backed execution
+evidence; no workload has either, so no NPU is ever reported as used. The probe's `webnn` says what was asked and
+answered (`api`, `context_created`, `device_type_requested`) and carries `npu: {status: "unverified", label_en,
+label_zh}`: "WebNN detected; NPU execution unverified" (检测到 WebNN；NPU 执行未经验证) where the API exists, and "No
+verified NPU backend is available" (没有可用的已验证 NPU 后端) where it does not, or where WebNN was not probed (its
+`reason` then says "WebNN was not probed", not that the API is missing). Even a correct graph on a context
+created for `deviceType: "npu"` leaves the status unverified, because the page cannot see which processor ran it.
+The intended use is a packaged ONNX model (term embeddings,
 a classifier) run through ONNX Runtime Web with the execution providers tried in order WebNN → WebGPU → WASM. The
 order would not be fixed: the scheduler would demote a provider that is slower here or fails a check. The checks would
 be: unsupported operators found before running (`opSupportLimits`), and every provider's output compared with the WASM
 provider's on a fixed probe input, within a stated tolerance, before it is trusted. Its results would be marked
 approximate, so exact work could never route to it. **Proposed**: no model is packaged, and the model hubs and CDNs
 needed to fetch one are unreachable from this build environment, so nothing of it could be verified here.
+
+**Accelerator runtimes on the runner: detection only (implemented in `DeviceProbe.facts()`; not yet passed on by the
+runner's `/devices` or `system.capabilities`, which copy selected keys only: a server change still to make).** The
+runner's device facts carry `accelerator_runtimes`: OpenVINO, ONNX Runtime (its execution providers, such as QNN, DirectML, CoreML or OpenVINO),
+Core ML tools and DirectML, each `installed` or not (found with `importlib.util.find_spec`, nothing imported into the
+runner), and for an installed one what it lists, asked in a child interpreter: OpenVINO's devices, ONNX Runtime's
+providers, Core ML's compute units, DirectML's adapters. Each is labelled "detected, not used by any tool", with
+`used_by: []`, `execution: "unverified"` and `evidence` at most `reported`. None of it is a job device: `resolve()`
+never sees it, so a job is never placed on an NPU. None of these runtimes was installed where this was written, so
+the listings were exercised only with a stand-in for the child interpreter.
 
 **A native NPU layer** is **proposed, not implemented**, and would stay optional. A web page cannot reach NPU drivers,
 local services or executables by itself, and Studio does not try. If it is ever built, it should be a capability of the
@@ -289,7 +386,9 @@ All figures are from [`benchmarks/2026-10-10-chromium-141-linux.md`](benchmarks/
 served locally. The native comparison used CPython 3.13.16 on the same machine.
 
 Each figure is the median of 3 runs. A local result counted only after it was checked identical to the reference (the
-same output hash). Reproduce with `node studio/web/test/runtime/bench.mjs --pyodide-dir DIR --reps 3 --gpu-flags`.
+same output hash). Reproduce with `node studio/web/test/runtime/bench.mjs --pyodide-dir DIR --reps 3 --software-gpu
+--webnn` (what `--gpu-flags` did in that run; `--gpu-flags` now leaves the adapter to the browser, see the
+[benchmarks README](benchmarks/README.md)).
 Two full runs ten minutes apart differed by under 10% for the slow pure-Python references, and by up to 1.7× for single
 kernel timings (JIT and garbage collection on a shared VM). Read the small figures as orders of magnitude.
 
@@ -362,6 +461,12 @@ calls with small results are unaffected.
 
 WebGPU ran only on SwiftShader, a CPU emulation, so its timings (131 ms for 60 × 1000, 2.1 s for 250 × 1000) say
 nothing about a GPU. They do show that the WGSL kernel's counts are exact. A hardware GPU's speed is **unmeasured**.
+A second run on 2026-10-18 ([report](benchmarks/2026-10-18-chromium-141-linux-webgpu-software.md), `--no-tools
+--software-gpu --webnn`, same kind of VM, with other test processes sharing its four cores: load average about 3,
+recorded in the report, so its timings are inflated) recorded the new row dimensions: workload size, the CPU baseline
+on the same input, the GPU's first call on a fresh device, its warm end-to-end time and its kernel time from GPU
+timestamps, memory, the known-answer test and the adapter's classification. Every row is classified `software`, and
+none carries a speed-up or an `accelerated` verdict, by design.
 WebNN accepted every context request, including `npu`, and computed a small graph correctly on each. All of them
 reported the same operator limits, so this shows nothing about which processor ran them. Pyodide was ready 3.8 s
 after the page asked, 2.2 s of it loading Pyodide and 1.2 s importing the packages. Here the files came from loopback;
@@ -370,6 +475,12 @@ a first visit downloads about 11 MB from jsDelivr, and later visits read them fr
 ---
 
 ## 10. Validation
+
+The results below are those of the 2026-10-10 report. The 2026-10-18 additions are covered by
+`web/test/compute.test.mjs` and `web/test/runtime/webgpu.test.mjs` (the classifier, the ladder, the known-answer test,
+like-for-like timing, the receipt), `runner/tests/test_browser_compute.py` (the Worker's own packets bound in Python,
+the evidence Python writes) and `runner/tests/test_devices.py` (device evidence, the runtime report), and by
+`webgpu.browser.mjs --software` in Chromium 141 on SwiftShader.
 
 | Suite | What it proves | Result |
 |---|---|---|
@@ -454,7 +565,12 @@ skill's code no longer matches its pin.
 **Implemented, partly verified**
 
 - The WebGPU path: exact on SwiftShader; never run on a hardware GPU here, so its speed is unknown.
+- The evidence ladder ([§5.1](#51-the-evidence-ladder)): one adapter classifier, a known-answer test per device,
+  like-for-like GPU timing, and `receipt.compute.gpu`. Unit-tested with doubles, and the classifier, the known-answer
+  test and the GPU timestamps ran in Chromium on SwiftShader (`webgpu.browser.mjs --software`). The rungs above
+  `reported` were never reached on a hardware GPU, so `accelerated` has never been observed.
 - WebNN probing: contexts and a small graph checked in Chromium; which processor ran them cannot be known from the page.
+- The runner's accelerator-runtime report: detection only; no such runtime was installed here.
 
 **Proposed, not implemented** (nothing in the app claims these): WebNN or WebGPU model inference (embeddings,
 classifiers, local chat models), WASM-threaded kernels, the MT19937-exact permutation port, semantic (embedding)
@@ -463,4 +579,6 @@ Firefox, Safari, on phones, GPUs and NPUs.
 
 **What Studio may say about itself, then**: tools run locally in the browser, on the CPU, with exact kernels for
 alignment, edit distance and sequence counts, and on the GPU for large count workloads where a hardware adapter
-exists (its speed unmeasured here). Model calls are remote unless the person runs a local model. No NPU is used.
+exists (its speed unmeasured here; a receipt says `accelerated` only from a measurement on that device). Model calls
+are remote unless the person runs a local model. WebNN capability detection is available; no NPU is used, and none is
+claimed.
