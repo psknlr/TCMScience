@@ -237,22 +237,28 @@ function wait(ms, signal) {
   });
 }
 
-/** The gateway, with each database request counted for the owner's statistics by host and outcome (2xx … 5xx as the
- * database answered, refused:<type>, timeout, unreachable, rate_limited, cancelled) and its duration, and a refused
- * request noted as a security event. Only the host is counted: never the query. */
+/** The gateway, with each database request counted for the owner's statistics by database (the registry's source key:
+ * the 18 databases of www.ebi.ac.uk apart) and outcome — 2xx … 5xx as the database answered; timeout, unreachable for a
+ * request sent that got no answer; cancelled; refused:<type> for one the gateway itself refused or could not send (its
+ * limits, its own failures: nothing the database did) — with the time of the requests that were sent, and a refused
+ * request noted as a security event. Only the database is counted: never the query. */
 export async function handleSources(request, env = {}, deps = {}) {
   const started = Date.now();
-  const meta = { host: "", upstream: 0 };
+  const meta = { source: "", upstream: 0, sent: false };
   const res = await serveSources(request, env, deps, meta);
   if (request.method === "POST" && new URL(request.url).pathname === "/api/sources/request") {
     try {
       const type = res.sourceType || "";
       const outcome = res.status === 200 && meta.upstream ? `${Math.floor(meta.upstream / 100)}xx`
-        : type === "timeout" || type === "rate_limited" || type === "cancelled" || type === "unavailable" ? type
-          : type === "upstream_unreachable" ? "unreachable" : `refused:${type || res.status}`;
-      const host = meta.host || "-";
-      deps.metric?.([{ metric: "connector", a: host, b: outcome, n: 1 }, { metric: "connector_ms", a: host, b: "", n: Math.max(1, Date.now() - started) }], request);
-      if (["forbidden_origin", "source_not_allowed", "redirect_refused"].includes(type)) {
+        : type === "cancelled" ? "cancelled"
+          : !meta.sent ? `refused:${type || res.status}`
+            : type === "timeout" ? "timeout" : type === "upstream_unreachable" ? "unreachable" : `refused:${type || res.status}`;
+      const source = meta.source || "-";
+      const counts = [{ metric: "connector", a: source, b: outcome, n: 1 }];
+      if (meta.sent) counts.push({ metric: "connector_ms", a: source, b: "", n: Math.max(1, Date.now() - started) });
+      deps.metric?.(counts, request);
+      // the visitor's own doing: another site's page, a query outside the registry (a redirect is the database's)
+      if (["forbidden_origin", "source_not_allowed"].includes(type)) {
         deps.securityEvent?.(type === "forbidden_origin" ? "forbidden_origin" : "source_refused", request, { route: "sources", status: res.status, detail: type });
       } else if (type === "rate_limited") deps.securityEvent?.("rate_limited", request, { route: "sources", status: res.status });
     } catch { /* a count is never the visitor's concern */ }
@@ -308,7 +314,6 @@ async function serveSources(request, env, deps, meta) {
     }
     let target = safeURL(packet.url);
     const allowedHosts = new Set(packet.allowed_hosts.map((h) => h.toLowerCase()));
-    if (target) meta.host = target.hostname;
     if (!target || !allowedHosts.has(target.hostname)) refuse(403, "source_not_allowed", "查询地址不在本次获准的数据库主机内");
     let method = packet.method || "GET";
     if (!["GET", "POST"].includes(method)) refuse(403, "source_not_allowed", "只允许已注册的只读数据库查询");
@@ -322,6 +327,9 @@ async function serveSources(request, env, deps, meta) {
     headers.set("User-Agent", "bioagent-harness/studio (+https://github.com/psknlr/TCMScience; research use)");
     let route = matchRequest(registry, target, method, body, headers);
     if (!route) refuse(403, "source_not_allowed", "查询不匹配已注册的数据库操作模板");
+    // counted by the registered database the query matched (never a name the request chose: refused before this, it is
+    // counted under "-", and adds no row of its own)
+    meta.source = String(route.source.key || route.source.host || "-").slice(0, 80);
     const initialScheme = target.protocol;
     if (initialScheme === "http:") { headers.delete("Authorization"); headers.delete("X-API-Key"); headers.delete("Api-Key"); }
     let gate;
@@ -337,6 +345,7 @@ async function serveSources(request, env, deps, meta) {
       if (!slot?.ok) return failed("rate_limited", "数据库服务查询队列已满，请稍后重试", 429, { ...cors, "Retry-After": String(Math.max(1, slot?.retry || 10)) });
       await (deps.wait || wait)(slot.delay || 0, controller.signal);
       if (controller.signal.aborted) throw controller.signal.reason;
+      meta.sent = true;
       const response = await (deps.fetch || fetch)(target.href, { method, headers, body: method === "POST" && body.byteLength ? body : undefined, redirect: "manual", signal: controller.signal });
       if ([301, 302, 303, 307, 308].includes(response.status) && response.headers.has("Location")) {
         const location = response.headers.get("Location");
@@ -349,11 +358,11 @@ async function serveSources(request, env, deps, meta) {
         if (response.status === 303 || (method === "POST" && [301, 302].includes(response.status))) { method = "GET"; body = new Uint8Array(); headers.delete("Content-Type"); }
         route = matchRequest(registry, next, method, body, headers, true);
         if (!route) refuse(403, "redirect_refused", "数据库重定向不匹配已注册的查询模板");
+        meta.source = String(route.source.key || route.source.host || "-").slice(0, 80);
         target = next;
         continue;
       }
       const bytes = await readLimited(response, cfg.maxResponse, controller.signal);
-      meta.host = target.hostname;
       meta.upstream = response.status;
       const responseHeaders = {};
       for (const key of REPLY_HEADERS) if (response.headers.has(key)) responseHeaders[key] = response.headers.get(key);

@@ -13,15 +13,20 @@
 //     ConversationLog  conversation records of visitors who agreed (telemetry/conversations.js)
 //     SecurityLog      security events and the admin audit trail (telemetry/security.js)
 //   Each telemetry object deletes what is past its retention period once a day (its own alarm), and on demand.
+//   What the Worker counts itself (relay calls, gateway requests, refused requests) is summed in memory and sent to
+//   those objects at most every 20 seconds (telemetry/buffer.js), never once per request: on the Free plan they share
+//   one daily budget with the Limiter, which refuses service once it is spent.
 import { DurableObject } from "cloudflare:workers";
 import { adminSecure, handleAdmin } from "./admin.js";
 import { LimiterCore } from "./limiter.js";
 import { handle } from "./relay.js";
 import { redirectHttps, secure } from "./site.js";
 import { handleSources } from "./sources.js";
+import { markSpent, resetSpent, spentFor } from "./telemetry/budget.js";
+import { FLUSH_MS, MetricBuffer, SecurityBuffer } from "./telemetry/buffer.js";
 import { reportDay, telemetryConfig } from "./telemetry/config.js";
 import { ConversationCore } from "./telemetry/conversations.js";
-import { handleTelemetry, placeOf } from "./telemetry/routes.js";
+import { handleTelemetry } from "./telemetry/routes.js";
 import { isHoneypot, requestFacts, SecurityCore } from "./telemetry/security.js";
 import { UsageCore } from "./telemetry/usage.js";
 
@@ -88,7 +93,7 @@ export class UsageLog extends TelemetryObject {
 
   stats(q) { return this.core.stats(q); }
 
-  exportRows(dataset, from, to) { return this.core.exportRows(dataset, from, to); }
+  exportRows(dataset, from, to, page) { return this.core.exportRows(dataset, from, to, page); }
 
   prune(today, retention) { return this.core.prune(today, retention); }
 }
@@ -107,13 +112,13 @@ export class ConversationLog extends TelemetryObject {
 
   list(q) { return this.core.list(q); }
 
-  exportRows(from, to) { return this.core.exportRows(from, to); }
+  exportRows(from, to, page) { return this.core.exportRows(from, to, page); }
 
   deleteIds(ids, opts) { return this.core.deleteIds(ids, opts); }
 
   deleteOwner(owner, opts) { return this.core.deleteOwner(owner, opts); }
 
-  stats(from, to) { return this.core.stats(from, to); }
+  stats(from, to, budget) { return this.core.stats(from, to, budget); }
 
   prune(today, opts) { return this.core.prune(today, opts); }
 }
@@ -128,15 +133,21 @@ export class SecurityLog extends TelemetryObject {
 
   async record(ev, opts) { await this.ensureAlarm(); return this.core.record(ev, opts); }
 
+  async recordBatch(batch, opts) { await this.ensureAlarm(); return this.core.recordBatch(batch, opts); }
+
   authState(ip, now) { return this.core.authState(ip, now); }
 
   authFailed(ip, now) { return this.core.authFailed(ip, now); }
 
+  sessionEpoch() { return this.core.sessionEpoch(); }
+
+  endSessions(now) { return this.core.endSessions(now); }
+
   authSucceeded(ip, now) { return this.core.authSucceeded(ip, now); }
 
-  summary(from, to) { return this.core.summary(from, to); }
+  summary(from, to, budget) { return this.core.summary(from, to, budget); }
 
-  exportRows(from, to) { return this.core.exportRows(from, to); }
+  exportRows(from, to, page) { return this.core.exportRows(from, to, page); }
 
   prune(today, days) { return this.core.prune(today, days); }
 }
@@ -144,12 +155,108 @@ export class SecurityLog extends TelemetryObject {
 /** A binding's single object, by name, as a function (null when the binding is missing: that part is then off). */
 const objectOf = (env, binding, name) => (env[binding] ? () => env[binding].get(env[binding].idFromName(name)) : null);
 
+// this isolate's own counts, between flushes (one isolate serves one Worker's bindings), and its one pending trailing
+// flush: what is still held after a flush goes when the window ends, even if no request comes by to send it (an
+// isolate with no requests is soon retired, and what it held with it)
+const metricBuffer = new MetricBuffer();
+const securityBuffer = new SecurityBuffer();
+let trailing = null; // {timer, done}
+
+/** Send what the buffers hold when it is due (or everything, with force) → the calls, as promises that never reject. */
+function sendHeld(env, now, force) {
+  const sends = [];
+  const send = (call) => {
+    try {
+      sends.push(Promise.resolve(call()).catch((err) => console.error("flush", err?.name || "Error")));
+    } catch (err) {
+      console.error("flush", err?.name || "Error"); // a binding that cannot even give a stub: the counts are lost
+    }
+  };
+  const cfg = telemetryConfig(env);
+  if (metricBuffer.counts.size && (force || metricBuffer.due(now))) {
+    const batches = metricBuffer.take(now);
+    const usage = objectOf(env, "USAGE", "usage");
+    // the usage object's day of rows written: its counts are dropped here, not sent, until 00:00 UTC
+    if (usage && cfg.analytics && !spentFor("usage", now)) {
+      for (const { day, list } of batches) {
+        send(() => Promise.resolve(usage().observe(list, { day, budget: cfg.budgets.usage, now })).then((res) => {
+          if (res?.reason === "budget") markSpent("usage", res.retry);
+        }));
+      }
+    }
+  }
+  if (securityBuffer.counts.size && (force || securityBuffer.due(now))) {
+    const batch = securityBuffer.take(now);
+    const security = objectOf(env, "SECURITY", "security");
+    // every event counted whatever the budget (the object stores them in full only within it)
+    if (security) send(() => security().recordBatch(batch, { rawIp: cfg.rawIp, now, budget: cfg.budgets.security }));
+  }
+  return sends;
+}
+
+function cancelTrailing() {
+  if (!trailing) return;
+  clearTimeout(trailing.timer);
+  trailing.done();
+  trailing = null;
+}
+
+/** One flush when the current window ends, kept alive by this request's waitUntil (which allows 30 seconds after the
+ * answer: the window, FLUSH_MS, is shorter). */
+function armTrailing(env, ctx, now) {
+  if (trailing) return;
+  const ends = [metricBuffer, securityBuffer].filter((b) => b.counts.size).map((b) => b.last + FLUSH_MS);
+  const t = { timer: null, done: null };
+  const finished = new Promise((resolve) => { t.done = resolve; });
+  t.timer = setTimeout(() => {
+    if (trailing !== t) return;
+    trailing = null;
+    t.done(Promise.all(sendHeld(env, Date.now(), true)));
+  }, Math.min(FLUSH_MS, Math.max(0, Math.min(...ends) - now)));
+  trailing = t;
+  deferOf(ctx)(finished);
+}
+
+/** Send what the buffers hold when it is due (or everything, with force): one call per object, after the answer; what
+ * is left goes with the trailing flush. */
+export function flushTelemetry(env, ctx, { force = false } = {}) {
+  try {
+    const now = Date.now();
+    const defer = deferOf(ctx);
+    for (const p of sendHeld(env, now, force)) defer(p);
+    if (!metricBuffer.counts.size && !securityBuffer.counts.size) cancelTrailing();
+    else armTrailing(env, ctx, now);
+  } catch (err) {
+    console.error("flush", err?.name || "Error");
+  }
+}
+
+/** For tests: forget what the buffers hold (one test's counts never reach another's objects). */
+export function resetTelemetryBuffers() {
+  cancelTrailing();
+  resetSpent();
+  metricBuffer.take(0);
+  metricBuffer.last = -Infinity;
+  securityBuffer.take(0);
+  securityBuffer.last = -Infinity;
+}
+
+/** A security event, summed in memory and sent with the next flush (index.js flushTelemetry). */
+const securityEventOf = (env, ctx, cfg) => (env.SECURITY
+  ? (kind, request, { route = "", status = null, detail = "" } = {}) => {
+    const at = Date.now();
+    securityBuffer.add({ kind, route, status, detail, facts: requestFacts(request), day: reportDay(at, cfg.offset), at });
+    flushTelemetry(env, ctx);
+  }
+  : null);
+
 /** The dependencies the telemetry and admin handlers use. */
 export function telemetryDeps(env, ctx) {
   return {
     usage: objectOf(env, "USAGE", "usage"),
     conversations: objectOf(env, "CONVERSATIONS", "conversations"),
     security: objectOf(env, "SECURITY", "security"),
+    securityEvent: securityEventOf(env, ctx, telemetryConfig(env)),
     assets: env.ASSETS || null,
     burst: burstOf(env),
     defer: deferOf(ctx),
@@ -177,8 +284,6 @@ const deferOf = (ctx) => (promise) => ctx.waitUntil(Promise.resolve(promise).cat
 export function relayDeps(env, ctx) {
   const limiter = () => env.LIMITER.get(env.LIMITER.idFromName("limits")); // one object: exact counts for everyone
   const defer = deferOf(ctx);
-  const usage = objectOf(env, "USAGE", "usage");
-  const security = objectOf(env, "SECURITY", "security");
   const cfg = telemetryConfig(env);
   return {
     // throws when the object cannot be reached: the relay then refuses the call (fail closed)
@@ -189,11 +294,13 @@ export function relayDeps(env, ctx) {
     defer,
     fetch: (input, init) => fetch(input, init),
     now: () => Date.now(),
-    // counts the Worker takes itself (Tao-S1 calls and tokens, database gateway requests), after the answer has gone:
-    // never in a call's way, never with anything a visitor wrote
-    metric: usage && cfg.analytics ? (list, request) => defer(Promise.resolve().then(() => usage().observe(list, { day: reportDay(Date.now(), cfg.offset), country: placeOf(request, cfg.geo) }))) : null,
-    securityEvent: security ? (kind, request, { route = "", status = null, detail = "" } = {}) => defer(Promise.resolve().then(() => security().record(
-      { kind, route, status, detail, facts: requestFacts(request), day: reportDay(Date.now(), cfg.offset) }, { rawIp: cfg.rawIp, now: Date.now() }))) : null,
+    // counts the Worker takes itself (Tao-S1 calls and tokens, database gateway requests): summed in memory and sent
+    // with the next flush, never in a call's way, never with anything a visitor wrote
+    metric: env.USAGE && cfg.analytics ? (list) => {
+      metricBuffer.add(list, reportDay(Date.now(), cfg.offset));
+      flushTelemetry(env, ctx);
+    } : null,
+    securityEvent: securityEventOf(env, ctx, cfg),
   };
 }
 
@@ -228,14 +335,20 @@ async function missing(request, env, url, deps) {
 
 const under = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);
 
+async function route(request, env, ctx) {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  if (under(path, "/v1")) return secure(await handle(request, env, relayDeps(env, ctx)), env);
+  if (under(path, "/api/sources")) return secure(await handleSources(request, env, relayDeps(env, ctx)), env);
+  if (under(path, "/api/telemetry")) return secure(await handleTelemetry(request, env, telemetryDeps(env, ctx)), env);
+  if (under(path, "/api/admin") || under(path, "/admin")) return adminSecure(secure(await handleAdmin(request, env, telemetryDeps(env, ctx)), env));
+  return secure(await missing(request, env, url, relayDeps(env, ctx)), env);
+}
+
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    if (under(path, "/v1")) return secure(await handle(request, env, relayDeps(env, ctx)), env);
-    if (under(path, "/api/sources")) return secure(await handleSources(request, env, relayDeps(env, ctx)), env);
-    if (under(path, "/api/telemetry")) return secure(await handleTelemetry(request, env, telemetryDeps(env, ctx)), env);
-    if (under(path, "/api/admin") || under(path, "/admin")) return adminSecure(secure(await handleAdmin(request, env, telemetryDeps(env, ctx)), env));
-    return secure(await missing(request, env, url, relayDeps(env, ctx)), env);
+    const res = await route(request, env, ctx);
+    flushTelemetry(env, ctx); // what earlier requests left in memory, once it is due
+    return res;
   },
 };

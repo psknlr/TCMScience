@@ -9,7 +9,7 @@
 // recorded at all (core/turnrecord.js) — one record per finished turn. None of it is ever awaited by a turn: a
 // telemetry failure leaves the conversation exactly as it would have been.
 
-import { runTurn } from "../core/agent.js";
+import { reusePolicy, runTurn } from "../core/agent.js";
 import { loadCatalog } from "../core/catalog.js";
 import { Emitter } from "../core/events.js";
 import { lang, onLangChange, setLang, t } from "../core/i18n.js";
@@ -17,8 +17,7 @@ import { buildSystemPrompt } from "../core/prompt.js";
 import { ownerHash } from "../core/consent.js";
 import { activeProvider, relayBaseUrl, relayHealth } from "../core/providers.js";
 import { Telemetry, STALE_TURN_MS } from "../core/telemetry.js";
-import { WORKFLOW_KINDS, token } from "../core/telemetry-contract.js";
-import { buildRecord, exclusionOf, turnEndEvent, turnStatus } from "../core/turnrecord.js";
+import { STICKY_EXCLUSIONS, buildRecord, callName, exclusionOf, jobWorkflow, turnEndEvent, turnStatus } from "../core/turnrecord.js";
 import { ToolRouter } from "../core/router.js";
 import { loadSettings, onSettingsChange, updateSettings } from "../core/settings.js";
 import { latestLeaf, openStore, siblingsOf, threadPath } from "../core/store.js";
@@ -44,12 +43,26 @@ export class App {
   #sending = false;
   #capsP = null;
   #relayCheck = null;
-  #toolNames = new Set();
+  #namesFor = undefined; // the catalog #toolNames was read from
+  #names = new Set();
   #jobsReported = new Set();
+  #calls = new Map(); // a tool call under way → its catalog name and kind, from its start (the telemetry's)
+  #jobWorkflows = new Map(); // a job submitted on this page → the workflow that submitted it
+
+  /** Every tool name the catalog knows (read again whenever the catalog is another). */
+  get #toolNames() {
+    if (this.#namesFor !== this.catalog) {
+      this.#namesFor = this.catalog;
+      this.#names = toolNamesOf(this.catalog);
+    }
+    return this.#names;
+  }
 
   constructor() {
     this.bus = new Emitter();
     this.telemetry = new Telemetry();
+    // a runner job the thread follows reached its end: its workflow's end, for the telemetry
+    this.on("job", (job) => this.#jobEvent(job));
     this.store = null;
     this.runtimes = { browser: null, runner: null };
     this.catalog = null;
@@ -122,7 +135,6 @@ export class App {
     }
     this.#watchRuntimes();
     this.catalog = await loadCatalog(this.runtimes).catch(() => null);
-    this.#toolNames = toolNamesOf(this.catalog);
     this.toolRouter = new ToolRouter({ catalog: this.catalog, runtimes: this.runtimes, settings: this.state.settings, store: this.store });
     this.telemetry.track("app_init", {
       layout: this.state.layout, lang: lang(), app: this.catalog?.versions?.tcmstudio, persistent: Boolean(this.store.persistent), ...clientFacts(),
@@ -187,7 +199,6 @@ export class App {
     this.checkRelay().then(() => this.#recoverTurns());
     setTimeout(() => this.#recoverTurns(), 15000);
     setTimeout(() => this.#recoverTurns(), STALE_TURN_MS + 5000);
-    this.on("job", (job) => this.#jobEvent(job));
     this.#watchConnectivity();
     this.#offline();
   }
@@ -316,8 +327,7 @@ export class App {
     // the runner knows what it can run: merge its catalog
     try {
       this.catalog = await loadCatalog(this.runtimes);
-      this.#toolNames = toolNamesOf(this.catalog);
-      this.toolRouter.setCatalog(this.catalog);
+        this.toolRouter.setCatalog(this.catalog);
       this.emit("catalog", this.catalog);
     } catch { /* keep the built catalog */ }
     this.emit("runtime", { kind: "runner" });
@@ -857,7 +867,8 @@ export class App {
   }
 
   async regenerate(assistantId) {
-    if (this.state.turn) return;
+    // a question being sent (the notice may be open before it) is a turn about to start
+    if (this.state.turn || this.#sending) return;
     const a = this.state.messages.find((m) => m.id === assistantId);
     const user = a && this.state.messages.find((m) => m.id === a.parentId);
     if (!user) return;
@@ -937,9 +948,16 @@ export class App {
     this.state.turn = turn;
     // a question, and the first of its conversation or not; the turn beats while it runs, so that the next page load
     // can tell one that was cut off (core/telemetry.js staleTurns)
-    turn.first = threadPath(this.state.messages, user.id).filter((m) => m.role === "user").length <= 1;
+    // a conversation's first question: nothing answered in it yet (a regenerated first answer, or an edited first
+    // question, is the same conversation again, not a new one)
+    turn.first = !this.state.messages.some((m) => m.role === "assistant") && this.state.messages.filter((m) => m.role === "user").length <= 1;
+    // a question is activity: a visit begins when it is the first in half an hour, route change or not
+    this.telemetry.active(this.state.route?.name);
+    // the visitor's agreement as the question is sent: a record needs it then and still at the end (agreeing while an
+    // answer streams, or after a reload cut one off, does not reach back to it)
+    turn.consent = this.telemetry.contentOn;
     this.telemetry.track("turn_start", { provider: provider.id, model: provider.model, first: turn.first });
-    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, startedAt: live.startedAt });
+    this.telemetry.turnBegan({ id: draftId, conversationId: conv.id, projectId: turn.projectId, provider: provider.id, model: provider.model, first: turn.first, consent: turn.consent, startedAt: live.startedAt });
     turn.beat = setInterval(() => this.telemetry.turnBeat(draftId), 5000);
     this.state.inspector = { ...this.state.inspector, messageId: draftId, selection: null };
     this.emit("turn", { type: "start", live });
@@ -985,6 +1003,11 @@ export class App {
 
     const knowledge = await this.#knowledge(project.id);
     turn.projectFiles = knowledge.length;
+    // what keeps this conversation out is known before the model sees anything (an upload, the project's files, which
+    // go to the model with every question, identifying text): noted now, so that it holds even once the files are
+    // removed, and so that a page cut off mid-answer still knows
+    const early = exclusionOf({ path: threadPath(this.state.messages, user.id), projectFiles: turn.projectFiles });
+    if (STICKY_EXCLUSIONS.includes(early)) await this.#keepOut(conv.id, early);
     const system = buildSystemPrompt({ lang: lang(), provider, project, knowledge, env: this.#env() });
     const history = threadPath(await this.store.messages.list(conv.id), user.id);
     let result = null;
@@ -1087,7 +1110,10 @@ export class App {
       const seen = new Set();
       const known = [...all.filter((m) => m.role === "tool"), ...toolMessages].filter((m) => !seen.has(m.id) && seen.add(m.id));
       const projectFiles = turn?.projectFiles ?? (await this.store.files.list(conv.projectId).catch(() => [])).length;
-      const reason = exclusionOf({ path, tools: known, projectFiles, discarded });
+      const before = discarded ? null : (await this.store.conversations.get(conv.id).catch(() => null))?.recordExcluded;
+      const reason = exclusionOf({ path, tools: known, projectFiles, discarded, before });
+      // judged whole: once a turn may not be recorded, no later turn of the conversation is
+      if (reason && reason !== before && STICKY_EXCLUSIONS.includes(reason)) await this.#keepOut(conv.id, reason);
       const tools = toolMessages.map((m) => this.#namedTool(m));
       const base = {
         id: assistant.id, provider: assistant.provider, model: assistant.model, status: turnStatus(assistant, { interrupted }),
@@ -1095,7 +1121,8 @@ export class App {
         endedAt: endedAt ?? assistant.ui?.endedAt ?? Date.now(), firstAt: live?.firstAt, calls: live?.calls, assistant, tools,
         known: known.map((m) => this.#namedTool(m)),
       };
-      const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !tel.contentOn ? "no_consent" : null);
+      const agreed = tel.contentOn && turn?.consent === true;
+      const excluded = reason || (!tel.conversationsAvailable ? "unavailable" : !agreed ? "no_consent" : null);
       let recorded = false;
       if (!excluded) {
         const owner = await ownerHash();
@@ -1114,6 +1141,14 @@ export class App {
     }
   }
 
+  /** A conversation that may never be recorded again, and why (kept with it: exclusionOf's `before`). */
+  async #keepOut(conversationId, reason) {
+    try {
+      const cur = await this.store.conversations.get(conversationId);
+      if (cur && !cur.recordExcluded) await this.store.conversations.note(conversationId, { recordExcluded: reason });
+    } catch { /* the next turn judges again */ }
+  }
+
   /** A tool message with a name the catalog knows, else "unknown" (a model may invent a name; it is never sent). */
   #namedTool(m) {
     const name = String(m?.envelope?.via || m?.name || "");
@@ -1127,41 +1162,65 @@ export class App {
     };
   }
 
-  /** A tool run (and a research workflow's start and end: a governed skill, a study design, a job). */
+  /**
+   * A tool run, and a research workflow's start and end (a governed skill, a study design, a job), named as the catalog
+   * resolves the call when it starts: its end — whatever envelope the runtime, the router or the agent made of it (an
+   * unreachable runner, a failure budget, a step limit) — and the job it submitted are counted under the same name and
+   * kind, so the funnel joins up. A call answered from an earlier identical one (the agent's reuse) is not a run.
+   */
   #toolEvent(ev, live) {
     try {
       const tool = live.tools.get(ev.callId);
       const call = tool?.call || {};
-      let r = null;
-      try { r = this.toolRouter?.resolve?.(ev.name || call.name, ev.args || call.args || {}) ?? null; } catch { r = null; }
-      const raw = String(ev.envelope?.via || r?.entry?.id || r?.core?.name || ev.name || call.name || "");
-      const name = this.#toolNames.has(raw) ? raw : "unknown";
-      const kind = ev.envelope?.governance?.kind || r?.entry?.kind || r?.target?.kind || "unknown";
       const key = `${live.id}:${String(ev.callId || "").replace(/[^A-Za-z0-9_.:-]/g, "_")}`.slice(0, 100);
-      const workflow = WORKFLOW_KINDS.includes(kind);
       if (ev.type === "tool.start") {
-        if (workflow) this.telemetry.track("workflow", { key, kind, name, phase: "started" });
+        const named = this.#nameCall(ev.name || call.name, ev.args || call.args || {});
+        // a call the agent may answer from an earlier identical one has its start counted with its end, once it ran
+        let reusable = false;
+        try { reusable = Boolean(reusePolicy(this.toolRouter, { name: ev.name || call.name, arguments: ev.args || call.args || {} }).key); } catch { reusable = false; }
+        this.#calls.set(key, { ...named, deferred: named.workflow && reusable });
+        if (this.#calls.size > 500) this.#calls.delete(this.#calls.keys().next().value);
+        if (named.workflow && !reusable) this.telemetry.track("workflow", { key, kind: named.kind, name: named.name, phase: "started" });
         return;
       }
       const env = ev.envelope || {};
-      const where = env.receipt?.decided_by === "router" ? "page" : env.receipt?.where || call.where;
+      const named = this.#calls.get(key) || this.#nameCall(ev.name || call.name, ev.args || call.args || {}, env);
+      this.#calls.delete(key);
+      if (env.reused) return; // the first call's outcome, given again: counted when that one ran
+      if (named.deferred) this.telemetry.track("workflow", { key, kind: named.kind, name: named.name, phase: "started" });
+      // answered by the page itself (the catalog, a refusal of the router); a database query from the browser goes
+      // through the site's gateway
+      let where = env.receipt?.local === true || env.receipt?.decided_by === "router" ? "page" : env.receipt?.where || call.where;
+      if (where === "browser" && named.kind === "connector") where = "gateway";
       const ms = Number(env.duration_ms) || (call.endedAt && call.startedAt ? call.endedAt - call.startedAt : undefined);
-      this.telemetry.track("tool_end", { call: key, tool: name, kind, place: where, status: env.status, ms, error_type: env.error?.type });
-      if (workflow) this.telemetry.track("workflow", { key, kind, name, phase: WORKFLOW_PHASE[env.status] || "failed" });
+      this.telemetry.track("tool_end", { call: key, tool: named.name, kind: named.kind, place: where, status: env.status, ms, error_type: env.error?.type });
+      if (!named.workflow) return;
+      this.telemetry.track("workflow", { key, kind: named.kind, name: named.name, phase: WORKFLOW_PHASE[env.status] || "failed" });
+      // the job it submitted ends this workflow too (#jobEvent)
+      if (env.status === "job_submitted" && env.job?.id) {
+        this.#jobWorkflows.set(String(env.job.id), { kind: named.kind, name: named.name });
+        if (this.#jobWorkflows.size > 500) this.#jobWorkflows.delete(this.#jobWorkflows.keys().next().value);
+      }
     } catch { /* never the turn's concern */ }
   }
 
-  /** A runner job the thread follows reached its end: the workflow's completion or failure, once per job and state. */
+  #nameCall(name, args = {}, env = null) {
+    return callName(name, args, { resolve: (n, a) => this.toolRouter?.resolve?.(n, a), byId: this.catalog?.byId || {}, known: this.#toolNames, envelope: env });
+  }
+
+  /** A runner job the thread follows reached its end: the end of the workflow that submitted it (under that call's
+   * name and kind), once per job and state. A job submitted on another page is named from its kind: skill.<id> for a
+   * governed skill's run, job.<kind> for any other. */
   #jobEvent(job) {
     try {
       if (!job?.id || !["succeeded", "failed", "cancelled"].includes(job.state)) return;
       const k = `${job.id}|${job.state}`;
       if (this.#jobsReported.has(k)) return;
       this.#jobsReported.add(k);
+      const { kind, name } = jobWorkflow(job, this.#jobWorkflows.get(String(job.id)), this.#toolNames);
       // the job's id itself is not sent: a digest of it says the same job twice is one
       sha256Hex(String(job.id)).then((hash) => this.telemetry.track("workflow", {
-        key: `job:${hash.slice(0, 32)}`, kind: "job", name: token(String(job.kind || ""), 80) || "job",
-        phase: job.state === "succeeded" ? "completed" : job.state,
+        key: `job:${hash.slice(0, 32)}`, kind, name, phase: job.state === "succeeded" ? "completed" : job.state,
       })).catch(() => {});
     } catch { /* never the thread's concern */ }
   }
@@ -1171,6 +1230,12 @@ export class App {
    * the draft kept, and recorded when they may be. Each is taken off the list first, so two pages do not both report it.
    */
   async #recoverTurns() {
+    // only once the site has said what it takes (a page opened offline tries again later), and in one tab at a time
+    if (!this.telemetry.config) return;
+    await this.telemetry.exclusive(() => this.#recoverStale());
+  }
+
+  async #recoverStale() {
     for (const m of await this.telemetry.staleTurns()) {
       if (this.state.turn?.live?.id === m.id) continue;
       this.telemetry.turnEnded(m.id);
@@ -1184,11 +1249,12 @@ export class App {
         const assistant = { id: m.id, provider: m.provider, model: m.model, content: draft?.content || "", segments: draft?.segments || [], steps, status: "stopped" };
         const live = { id: m.id, startedAt: m.startedAt };
         if (!conv || !user) {
+          // the conversation deleted since, or cut off before anything of the turn was saved
           this.telemetry.track("turn_end", turnEndEvent({ id: m.id, provider: m.provider, model: m.model, status: "interrupted", first: m.first,
-            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: "discarded" }));
+            startedAt: m.startedAt, endedAt: m.beat, assistant, tools: [], excluded: conv ? "unavailable" : "discarded" }));
           continue;
         }
-        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first }, interrupted: true, endedAt: m.beat });
+        await this.#reportTurn({ conv, user, assistant, toolMessages: tools, live, turn: { first: m.first, consent: m.consent === true }, interrupted: true, endedAt: m.beat });
       } catch { /* the next page load tries no more: it was taken off the list */ }
     }
   }

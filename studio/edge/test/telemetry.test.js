@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { CONSENT_VERSION, ownerOf } from "../../web/js/core/telemetry-contract.js";
 import { csvCell, toCsv, verifySession } from "../src/admin.js";
+import { FLUSH_MS } from "../src/telemetry/buffer.js";
 import { telemetryConfig } from "../src/telemetry/config.js";
 import { KEY, PAGE, quiet, sqlStore, tidy } from "./helpers.js";
 
@@ -17,7 +18,7 @@ export async function resolve(specifier, context, next) {
   if (specifier === "cloudflare:workers") return { url: ${JSON.stringify(STUB)}, shortCircuit: true };
   return next(specifier, context);
 }`)}`);
-const { default: worker, ConversationLog, Limiter, SecurityLog, UsageLog, nextPrune } = await import("../src/index.js");
+const { default: worker, ConversationLog, Limiter, SecurityLog, UsageLog, flushTelemetry, nextPrune, resetTelemetryBuffers } = await import("../src/index.js");
 
 const ADMIN = "admin-token-for-tests-0123456789abcdef";
 const EXPORT = "export-token-for-tests-0123456789abcdef";
@@ -30,6 +31,7 @@ function fakeCtx() {
 
 /** The Worker with every binding faked; `env` overrides variables and secrets. */
 function setup({ env = {}, burst = () => ({ success: true }), assets, failing = [] } = {}) {
+  resetTelemetryBuffers(); // the Worker's in-memory counts are this isolate's: none of an earlier test's reach this one
   const ctxs = { usage: fakeCtx(), conversations: fakeCtx(), security: fakeCtx(), limiter: fakeCtx() };
   const fullEnv = { MINIMAX_API_KEY: KEY, ADMIN_TOKEN: ADMIN, EXPORT_TOKEN: EXPORT, ...env };
   const objects = {
@@ -64,8 +66,15 @@ function setup({ env = {}, burst = () => ({ success: true }), assets, failing = 
     const res = await worker.fetch(new Request(`https://science.impf.ai${path}`, init), fullEnv, ctx);
     return res;
   };
-  const settle = async () => { while (waits.length) await Promise.all(waits.splice(0)); };
-  return { call, settle, objects, env: fullEnv, assetCalls, ctxs };
+  // what the Worker holds in memory is sent at its next flush; a test asks for it now
+  const drain = async () => {
+    while (waits.length) await Promise.all(waits.splice(0));
+  };
+  const settle = async () => {
+    flushTelemetry(fullEnv, ctx, { force: true });
+    await drain();
+  };
+  return { call, settle, drain, objects, env: fullEnv, assetCalls, ctxs };
 }
 
 const page = (body, headers = {}) => ({
@@ -153,6 +162,11 @@ test("events: only this site's page, within size, as JSON, by the contract, with
   assert.equal((await w.call("/api/telemetry/events", { method: "GET" })).status, 405);
   assert.equal((await w.call("/api/telemetry/events", { method: "OPTIONS", headers: { Origin: "https://evil.example.org" } })).status, 403);
   assert.equal((await w.call("/api/telemetry/nope", page(ok))).status, 404);
+  // http (not loopback) is refused outright
+  assert.equal((await worker.fetch(new Request("http://science.impf.ai/api/telemetry/events", page(ok)), w.env, { waitUntil() {} })).status, 403);
+  // the refusals are security events (one Worker's counts are its isolate's: settled before the next setup)
+  await w.settle();
+  assert.deepEqual((await summary(w)).security.by_kind, { forbidden_origin: 4, oversized: 1, invalid_payload: 3 });
   // per visitor per minute (every request counts, a malformed one too)
   const lim = setup({ env: { TELEMETRY_PER_MINUTE: "2" } });
   assert.equal((await lim.call("/api/telemetry/events", page(batch([{ type: "pageview", route: "home" }])))).status, 204);
@@ -161,15 +175,12 @@ test("events: only this site's page, within size, as JSON, by the contract, with
   assert.equal(limited.status, 429);
   assert.ok(Number(limited.headers.get("Retry-After")) > 0);
   assert.equal((await lim.call("/api/telemetry/events", page(batch([{ type: "pageview", route: "home" }]), { "CF-Connecting-IP": "198.51.100.99" }))).status, 204);
-  const burst = setup({ burst: () => ({ success: false }) });
-  assert.equal((await burst.call("/api/telemetry/events", page(ok))).status, 429);
-  // http (not loopback) is refused outright
-  assert.equal((await worker.fetch(new Request("http://science.impf.ai/api/telemetry/events", page(ok)), w.env, { waitUntil() {} })).status, 403);
-  await w.settle();
-  const s = await summary(w);
-  assert.deepEqual(s.security.by_kind, { forbidden_origin: 4, oversized: 1, invalid_payload: 3 });
   await lim.settle();
   assert.deepEqual((await summary(lim)).security.by_kind, { rate_limited: 1 });
+  const burst = setup({ burst: () => ({ success: false }) });
+  assert.equal((await burst.call("/api/telemetry/events", page(ok))).status, 429);
+  await burst.settle();
+  assert.deepEqual((await summary(burst)).security.by_kind, { rate_limited: 1 });
   // off: refused, and nothing taken
   const off = setup({ env: { TELEMETRY: "off" } });
   assert.deepEqual((await (await off.call("/api/telemetry/events", page(ok))).json()).error.type, "analytics_off");
@@ -245,7 +256,8 @@ test("admin: off without a strong ADMIN_TOKEN; bearer tokens by scope; failures 
   // the export token: the summary (without security sources) and aggregated exports, nothing with text or addresses
   const ex = await summary(w, "days=30", EXPORT);
   assert.equal(ex.scope, "export");
-  assert.deepEqual(Object.keys(ex.security).sort(), ["by_kind", "daily"]);
+  assert.deepEqual(Object.keys(ex.security).sort(), ["budget", "by_kind", "daily"]); // counts only: no source, no audit trail
+  assert.deepEqual(Object.keys(ex.security.budget).sort(), ["day", "limit", "rows"]);
   assert.equal((await w.call("/api/admin/telemetry/export?dataset=daily&format=csv", bearer(EXPORT))).status, 200);
   for (const ds of ["conversations", "security"]) assert.equal((await w.call(`/api/admin/telemetry/export?dataset=${ds}`, bearer(EXPORT))).status, 403);
   assert.equal((await w.call("/api/admin/telemetry/conversations", bearer(EXPORT))).status, 403);
@@ -262,6 +274,33 @@ test("admin: off without a strong ADMIN_TOKEN; bearer tokens by scope; failures 
   assert.equal(audit.security.by_kind.admin_auth_failed, 7);
   assert.equal(audit.security.by_kind.admin_locked, 1);
   assert.doesNotMatch(JSON.stringify(audit), /wrong-token|192\.0\.2\.66/);
+});
+
+test("admin lock-out: a signed-in admin is not locked out by others failing from the same address; failures never crowd the audit list", async () => {
+  const w = setup();
+  const ip = "192.0.2.80"; // a shared address (carrier NAT, a campus): the admin and someone guessing
+  const res = await w.call("/api/admin/session", { method: "POST", body: JSON.stringify({ token: ADMIN }), headers: { Origin: PAGE, "Content-Type": "application/json", "CF-Connecting-IP": ip } });
+  const cookie = res.headers.get("Set-Cookie").split(";")[0];
+  // 72 failures from eight rotating /64s and the shared address
+  for (let i = 0; i < 72; i++) {
+    const from = i % 9 === 8 ? ip : `2001:db8:${i % 8}::${i}`;
+    await w.call("/api/admin/telemetry/summary", bearer(`wrong-token-${i}-wrong-token-wrong-token`, { "CF-Connecting-IP": from }));
+  }
+  const locked = await w.call("/api/admin/telemetry/summary", bearer(ADMIN, { "CF-Connecting-IP": ip }));
+  assert.equal(locked.status, 429, "a token is still refused from a locked address, the right one included");
+  // the admin's session goes on, from the same address: viewing and signing out
+  const mine = await w.call("/api/admin/telemetry/summary?days=7", { headers: { Cookie: cookie, "CF-Connecting-IP": ip } });
+  assert.equal(mine.status, 200);
+  const s = await mine.json();
+  assert.ok(s.security.audit.some((a) => a.kind === "admin_login"), "the sign-in is still in the audit list");
+  assert.ok(s.security.audit.every((a) => !a.kind.startsWith("admin_auth") && a.kind !== "admin_locked"), "failures are not actions");
+  assert.ok(s.security.sources.some((x) => x.kinds.includes("admin_auth_failed")), "failures show among the sources");
+  assert.equal(s.security.by_kind.admin_auth_failed + (s.security.by_kind.admin_locked || 0), 72, "every failure counted");
+  const out = await w.call("/api/admin/session/logout", { method: "POST", headers: { Cookie: cookie, Origin: PAGE, "CF-Connecting-IP": ip } });
+  assert.equal(out.status, 200);
+  // a form sign-in while locked goes back to the sign-in page with the reason, not to a JSON error
+  const form = await w.call("/api/admin/session", { method: "POST", body: `token=${encodeURIComponent(ADMIN)}`, headers: { Origin: PAGE, "Content-Type": "application/x-www-form-urlencoded", "CF-Connecting-IP": ip } });
+  assert.deepEqual([form.status, form.headers.get("Location")], [303, "/admin/?e=locked"]);
 });
 
 test("admin sign-in: an HttpOnly, Secure, SameSite=Strict session; changes only from this site; sign-out; rotation", async () => {
@@ -303,6 +342,30 @@ test("admin sign-in: an HttpOnly, Secure, SameSite=Strict session; changes only 
   assert.equal(s.security.audit.filter((a) => a.kind === "admin_login").length, 2);
 });
 
+test("signing out ends every session on the server: a copy of the cookie, or another browser's, is no longer one", async () => {
+  const w = setup();
+  const signIn = async (ip) => {
+    const res = await w.call("/api/admin/session", { method: "POST", body: JSON.stringify({ token: ADMIN }), headers: { Origin: PAGE, "Content-Type": "application/json", "CF-Connecting-IP": ip } });
+    return res.headers.get("Set-Cookie").split(";")[0];
+  };
+  const here = await signIn("198.51.100.20");
+  const elsewhere = await signIn("198.51.100.21"); // the same admin in another browser
+  const asks = (cookie) => w.call("/api/admin/telemetry/summary", { headers: { Cookie: cookie, "CF-Connecting-IP": "198.51.100.20" } });
+  assert.equal((await asks(here)).status, 200);
+  assert.equal((await asks(elsewhere)).status, 200);
+  const out = await w.call("/api/admin/session/logout", { method: "POST", headers: { Cookie: here, Origin: PAGE, "CF-Connecting-IP": "198.51.100.20" } });
+  assert.equal(out.status, 200);
+  assert.equal((await asks(here)).status, 401, "a copy of the cookie kept after signing out");
+  assert.equal((await asks(elsewhere)).status, 401, "every session ends");
+  const page = await w.call("/admin/", { headers: { Cookie: here, Accept: "text/html" } });
+  assert.doesNotMatch(await page.text(), /dashboard\.js/); // the sign-in page, not the dashboard
+  const again = await signIn("198.51.100.20");
+  assert.equal((await asks(again)).status, 200, "a new sign-in works");
+  // a sign-out without a session ends nothing (anyone can post to it from this site's page)
+  assert.equal((await w.call("/api/admin/session/logout", { method: "POST", headers: { Origin: PAGE, "CF-Connecting-IP": "203.0.113.5" } })).status, 200);
+  assert.equal((await asks(again)).status, 200);
+});
+
 test("the dashboard: sign-in page or dashboard, its code only with a session, strict headers, never cached", async () => {
   const w = setup();
   const r308 = await w.call("/admin");
@@ -340,16 +403,68 @@ test("exports: aggregated or full by scope, CSV safe for spreadsheets, JSON with
   const js = await (await w.call("/api/admin/telemetry/export?dataset=turns&format=json&days=90", bearer())).json();
   assert.deepEqual([js.dataset, js.period.days, js.rows.length, js.rows[0].status], ["turns", 90, 1, "completed"]);
   assert.equal((await w.call("/api/admin/telemetry/export?dataset=passwords", bearer())).status, 400);
+  // a name every object has is not a dataset (400, not a failed call to the store)
+  for (const ds of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const res = await w.call(`/api/admin/telemetry/export?dataset=${ds}`, bearer());
+    assert.deepEqual([res.status, (await res.json()).error.type], [400, "bad_dataset"], ds);
+  }
+  assert.equal((await w.call("/api/admin/telemetry/export?dataset=daily&cursor=%%%", bearer())).status, 400);
   // a period other than 7, 30 or 90 days is read as 7
   assert.equal((await (await w.call("/api/admin/telemetry/export?dataset=daily&days=3650", bearer())).json()).period.days, 7);
   const s = await summary(w);
-  assert.deepEqual(s.security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail).sort(), ["conversations.csv:30d:1", "daily.json:7d:3", "turns.json:90d:1"]);
+  assert.deepEqual(s.security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail).sort(), ["conversations.csv:30d", "daily.json:7d", "turns.json:90d"]); // a refused cursor is no export
   assert.equal(csvCell("+1"), "'+1");
   assert.equal(csvCell("-sum"), "'-sum");
   assert.equal(csvCell("@cmd"), "'@cmd");
   assert.equal(csvCell("a,b"), '"a,b"');
   assert.equal(csvCell({ x: 1 }), '"{""x"":1}"');
   assert.equal(toCsv([{ a: 1 }, { b: "x\ny" }]), '﻿a,b\r\n1,\r\n,"x\ny"\r\n');
+});
+
+test("exports come in pages: every row once, the CSV's header once, the export audited once", async () => {
+  const w = setup();
+  // 2,345 counters of one day (more than two pages of a thousand)
+  const day = (await summary(w)).period.to;
+  const list = Array.from({ length: 2345 }, (_, i) => ({ metric: "connector", a: `host-${String(i).padStart(4, "0")}.example.org`, b: "2xx", n: i + 1 }));
+  w.objects.usage.observe(list.slice(0, 1500), { day }); // a flush sends 2,000 counters at most
+  w.objects.usage.observe(list.slice(1500), { day });
+  const pages = async (format) => {
+    const out = [];
+    let cursor = "";
+    for (let i = 0; i < 10; i++) {
+      const res = await w.call(`/api/admin/telemetry/export?dataset=connectors&format=${format}&days=7${cursor ? `&cursor=${cursor}` : ""}`, bearer());
+      assert.equal(res.status, 200);
+      const next = format === "csv" ? res.headers.get("X-Next-Cursor") : null;
+      if (format === "csv") {
+        out.push(new TextDecoder("utf-8", { ignoreBOM: true }).decode(await res.arrayBuffer())); // text() would drop the BOM
+        if (next) assert.match(res.headers.get("Link"), /^<\/api\/admin\/telemetry\/export\?dataset=connectors&format=csv&days=7&cursor=[\w-]+>; rel="next"$/);
+        cursor = next || "";
+      } else {
+        const body = await res.json();
+        out.push(body);
+        cursor = body.next || "";
+      }
+      if (!cursor) break;
+    }
+    return out;
+  };
+  const csv = await pages("csv");
+  assert.equal(csv.length, 3);
+  const text = csv.join("");
+  assert.equal(text.split("\ufeff").length, 2, "one BOM, at the start");
+  const lines = text.replace(/^\ufeff/, "").trim().split("\r\n");
+  assert.equal(lines[0], "day,source,outcome,n");
+  assert.equal(lines.length, 2346);
+  assert.equal(new Set(lines.slice(1)).size, 2345, "no row twice");
+  const json = await pages("json");
+  assert.deepEqual(json.map((p) => p.rows.length), [1000, 1000, 345]);
+  assert.equal(json[2].next, null);
+  assert.equal(json.flatMap((p) => p.rows).reduce((a, r) => a + r.n, 0), (2345 * 2346) / 2);
+  const audit = (await summary(w)).security.audit.filter((a) => a.kind === "admin_export").map((a) => a.detail);
+  assert.deepEqual(audit, ["connectors.json:7d", "connectors.csv:7d"]); // newest first: once each, not once a page
+  // a cursor for another dataset's rows is refused, not read as something else
+  const other = await w.call(`/api/admin/telemetry/export?dataset=daily&format=json&days=7&cursor=${json[0].next}`, bearer());
+  assert.equal(other.status, 400);
 });
 
 test("admin: retention on demand, and each object's daily alarm", async () => {
@@ -395,6 +510,103 @@ test("the relay's calls and tokens, a gateway's request by host and outcome, and
   assert.equal(s.security.by_kind.scanner, 2);
   assert.equal(s.security.by_kind.forbidden_origin, 1);
   assert.deepEqual(s.security.sources.map((x) => x.net), ["203.0.113.0/24"]);
+});
+
+test("a flood costs each telemetry object a call per flush, not one per request (the shared Durable Object budget)", async () => {
+  const w = setup();
+  const calls = { security: 0, usage: 0 };
+  for (const [name, method] of [["security", "recordBatch"], ["usage", "observe"]]) {
+    const obj = w.objects[name];
+    const original = obj[method].bind(obj);
+    obj[method] = (...a) => {
+      calls[name]++;
+      return original(...a);
+    };
+  }
+  for (let i = 0; i < 300; i++) assert.equal((await w.call(`/wp-content/${i}.php`, { headers: { "CF-Connecting-IP": "203.0.113.4" } })).status, 404);
+  for (let i = 0; i < 100; i++) {
+    const res = await w.call("/v1/chat/completions", { method: "POST", body: JSON.stringify(tidy), headers: { Origin: "https://evil.example.org", "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.5" } });
+    assert.equal(res.status, 403);
+  }
+  // the first of each went at once (nothing had been sent before), everything after it with the one flush asked for here
+  await w.settle();
+  assert.deepEqual(calls, { security: 2, usage: 2 });
+  const s = await summary(w);
+  assert.equal(s.security.by_kind.scanner, 300);
+  assert.equal(s.security.by_kind.forbidden_origin, 100);
+  assert.deepEqual(s.usage.relay.outcomes, [{ outcome: "forbidden_origin", n: 100 }]);
+  assert.deepEqual(s.security.sources.map((x) => x.net).sort(), ["203.0.113.0/24"]);
+});
+
+test("what is still held after a flush goes when the window ends, though no request comes by to send it", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: Date.parse("2026-10-14T04:00:00Z") });
+  const w = setup();
+  const sent = [];
+  const obj = w.objects.security;
+  const original = obj.recordBatch.bind(obj);
+  obj.recordBatch = (batch, opts) => {
+    sent.push(batch.counts.reduce((n, c) => n + c.n, 0));
+    return original(batch, opts);
+  };
+  const probe = async (i) => assert.equal((await w.call(`/wp-${i}.php`, { headers: { "CF-Connecting-IP": "203.0.113.4" } })).status, 404);
+  await probe(0); // the first after a quiet spell: at once
+  t.mock.timers.tick(5000);
+  await probe(1);
+  await probe(2); // held: the window is not over
+  assert.deepEqual(sent, [1]);
+  t.mock.timers.tick(FLUSH_MS - 5000 - 1);
+  assert.deepEqual(sent, [1]);
+  t.mock.timers.tick(1); // the window ends: the trailing flush sends them, within the request's waitUntil
+  await w.drain();
+  assert.deepEqual(sent, [1, 2]);
+  t.mock.timers.tick(10 * FLUSH_MS); // nothing held: no flush, no timer
+  assert.deepEqual(sent, [1, 2]);
+  const s = await summary(w);
+  assert.equal(s.security.by_kind.scanner, 3);
+  // stored at the time each happened, one a source every ten seconds (probe 1 came 5 s after probe 0 and is counted only)
+  const stored = w.objects.security.exportRows("2026-10-01", "2026-10-31").rows.map((e) => [e.path, e.ts]);
+  assert.deepEqual(stored, [["/wp-0.php", "2026-10-14T04:00:00.000Z"]]);
+});
+
+test("a day's rows spent: events and records refused until 00:00 UTC without asking the objects again; deletion still works", async () => {
+  const w = setup({ env: { TELEMETRY_DAILY_ROWS: "200" } }); // usage 120 rows, records 50, security 30
+  const calls = { ingest: 0, accept: 0 };
+  for (const [name, method] of [["usage", "ingest"], ["conversations", "accept"]]) {
+    const obj = w.objects[name];
+    const original = obj[method].bind(obj);
+    obj[method] = (...a) => { calls[method]++; return original(...a); };
+  }
+  const tools = (i) => Array.from({ length: 10 }, (_, j) => ({ type: "tool_end", call: `t${i}-${j}`, tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }));
+  const statuses = [];
+  for (let i = 0; i < 6; i++) {
+    const res = await w.call("/api/telemetry/events", page(batch(tools(i)), { "CF-Connecting-IP": `198.51.100.${i}` }));
+    statuses.push(res.status);
+    if (res.status === 503) {
+      const body = await res.json();
+      assert.equal(body.error.type, "budget_spent");
+      assert.ok(Number(res.headers.get("Retry-After")) > 0);
+    }
+  }
+  const first = statuses.indexOf(503);
+  assert.ok(first > 0, statuses.join(","));
+  assert.ok(statuses.slice(first).every((x) => x === 503), statuses.join(","));
+  assert.equal(calls.ingest, first + 1, "after the object said its day is spent, it is not asked again");
+  // records the same way; a deletion request is never refused for it
+  let refused = 0;
+  for (let i = 0; i < 12; i++) {
+    const res = await w.call("/api/telemetry/conversations", page(await record(`b${i}`, KEY_A), { "CF-Connecting-IP": `198.51.100.${20 + i}` }));
+    if (res.status === 503) refused++;
+  }
+  assert.ok(refused > 0 && calls.accept < 12, `${refused} refused, ${calls.accept} asked`);
+  const del = await w.call("/api/telemetry/conversations/delete", page({ key: KEY_A }));
+  assert.equal(del.status, 200);
+  assert.ok((await del.json()).deleted > 0);
+  // the dashboard shows each object's rows today against its budget
+  const s = await summary(w);
+  assert.equal(s.usage.budget.limit, 120);
+  assert.ok(s.usage.budget.rows >= 120);
+  assert.equal(s.conversations.budget.limit, 50);
+  assert.equal(s.security.budget.limit, 30);
 });
 
 test("the telemetry never stands in a conversation's way: its objects failing, the relay still answers", async () => {

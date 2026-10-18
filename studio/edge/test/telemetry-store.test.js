@@ -99,8 +99,9 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
     await u.ingest(batch([{ type: "turn_end", turn: `t-${day}-${provider}`, provider, model, status, ms, calls: 1, error_kind: status === "failed" ? "model" : undefined, error_type: status === "failed" ? "rate_limited" : undefined }]), { day, country: "CN", visitor: "x", now: NOW });
   }
   u.observe([{ metric: "relay_call", a: "ok", n: 2 }, { metric: "relay_call", a: "forbidden_origin" }, { metric: "relay_tokens", a: "in", n: 500 },
-    { metric: "connector", a: "rest.uniprot.org", b: "2xx", n: 3 }, { metric: "connector", a: "rest.uniprot.org", b: "5xx" },
-    { metric: "connector", a: "rest.uniprot.org", b: "cancelled" }, { metric: "connector_ms", a: "rest.uniprot.org", n: 1000 },
+    { metric: "connector", a: "uniprot", b: "2xx", n: 3 }, { metric: "connector", a: "uniprot", b: "5xx" },
+    { metric: "connector", a: "uniprot", b: "cancelled" }, { metric: "connector", a: "uniprot", b: "refused:rate_limited", n: 4 },
+    { metric: "connector_ms", a: "uniprot", n: 1000 },
     { metric: "not_a_metric", a: "x", n: 5 }, { metric: "relay_call", a: "ok", n: -3 }], { day: DAY });
   const week = u.stats({ from: shiftDay(DAY, -6), to: DAY });
   assert.equal(week.days.length, 7);
@@ -117,11 +118,46 @@ test("usage: filters, periods, the previous period, and the Worker's own counts"
   assert.equal(month.conversations.totals.cancelled, 1);
   assert.deepEqual(week.relay.outcomes, [{ outcome: "ok", n: 2 }, { outcome: "forbidden_origin", n: 1 }]);
   assert.deepEqual(week.relay.tokens, { in: 500 });
-  // availability: a cancelled query says nothing of the database; a 5xx counts against it
-  assert.deepEqual(week.connectors, [{ host: "rest.uniprot.org", requests: 5, ok: 3, client_errors: 0, server_errors: 1, refused: 0, failed: 0, cancelled: 1, availability: 0.75, avg_ms: 200 }]);
+  // availability: a cancelled query says nothing of the database, nor do the gateway's own refusals (its limits); a 5xx
+  // counts against it. The time is of the four requests sent.
+  assert.deepEqual(week.connectors, [{ source: "uniprot", requests: 9, ok: 3, client_errors: 0, server_errors: 1, refused: 4, failed: 0, cancelled: 1, availability: 0.75, avg_ms: 250 }]);
   assert.deepEqual(week.filters.providers, ["openai", "tao"]);
   assert.equal(week.previous ?? null, null); // previous lives under each section
   assert.equal(month.traffic.previous.pageviews, 0);
+  // what a filter cannot narrow is null, never the unfiltered number: questions sent carry no country, a
+  // conversation's start neither a country nor a model
+  await u.ingest(batch([{ type: "turn_start", provider: "tao", model: "Tao-S1", first: true }, { type: "turn_start", provider: "openai", model: "gpt-5", first: true }]), { day: DAY, country: "US", visitor: "y", now: NOW });
+  const all = u.stats({ from: shiftDay(DAY, -6), to: DAY });
+  assert.deepEqual([all.conversations.totals.turns_started, all.conversations.totals.conversations_started, all.conversations.unfiltered], [2, 2, []]);
+  const cn = u.stats({ from: shiftDay(DAY, -6), to: DAY, country: "CN" });
+  assert.deepEqual([cn.conversations.totals.turns_started, cn.conversations.totals.conversations_started, cn.conversations.daily.started], [null, null, null]);
+  assert.deepEqual(cn.conversations.unfiltered.sort(), ["conversations_started", "turns_started"]);
+  assert.equal(cn.conversations.totals.finished, 3); // the turn rows are filtered (all three of the week are from CN)
+  const model = u.stats({ from: shiftDay(DAY, -6), to: DAY, model: "Tao-S1" });
+  assert.deepEqual([model.conversations.totals.turns_started, model.conversations.totals.conversations_started], [1, null]);
+});
+
+test("usage: a summary reads each table a few times, not once per number (rows read are the account's, daily)", async () => {
+  const store = sqlStore();
+  const reads = [];
+  const sql = { exec: (q, ...a) => { if (/^\s*select/i.test(q)) reads.push(/FROM (usage_\w+)/.exec(q)?.[1]); return store.exec(q, ...a); } };
+  const u = new UsageCore(sql);
+  await u.ingest(batch([{ type: "pageview", route: "home" }, { type: "turn_end", turn: "t1", provider: "tao", status: "completed", ms: 10 },
+    { type: "tool_end", call: "t1:c1", tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }]), { day: DAY, visitor: "v", now: NOW });
+  reads.length = 0;
+  u.stats({ from: shiftDay(DAY, -89), to: DAY });
+  const per = reads.filter(Boolean).reduce((m, t) => ((m[t] = (m[t] || 0) + 1), m), {}); // (and the day's budget row)
+  assert.deepEqual(per, { usage_counts: 2, usage_turns: 3, usage_tools: 3 }); // the period and the one before; latency; per tool
+});
+
+test("usage: a summary's lists stay bounded whatever names the pages sent", async () => {
+  const u = new UsageCore(sqlStore());
+  const events = (i) => Array.from({ length: 50 }, (_, j) => ({ type: "workflow", key: `k${i}-${j}`, kind: "skill", name: `skill.made-up-${i}-${j}`, phase: "started" }));
+  for (let i = 0; i < 6; i++) await u.ingest(batch(events(i)), { day: DAY, visitor: `v${i}`, now: NOW });
+  u.observe(Array.from({ length: 300 }, (_, i) => ({ metric: "connector", a: `h${i}.example.org`, b: "2xx" })), { day: DAY });
+  const s = u.stats({ from: DAY, to: DAY });
+  assert.equal(s.workflows.length, 100);
+  assert.equal(s.connectors.length, 200);
 });
 
 test("usage: limits per visitor, then exports and retention", async () => {
@@ -135,7 +171,7 @@ test("usage: limits per visitor, then exports and retention", async () => {
   assert.ok(third.retry > 0 && third.retry <= 60);
   assert.equal((await go(NOW + 61000)).ok, true);
   assert.equal((await go(NOW + 122000)).reason, "rate_limited"); // the day's three are used
-  assert.deepEqual(u.exportRows("daily", DAY, DAY).map((r) => [r.metric, r.a, r.n]).filter((r) => r[0] === "pageview"), [["pageview", "home", 3]]);
+  assert.deepEqual(u.exportRows("daily", DAY, DAY).rows.map((r) => [r.metric, r.a, r.n]).filter((r) => r[0] === "pageview"), [["pageview", "home", 3]]);
   assert.equal(u.exportRows("nope", DAY, DAY), null);
   await u.ingest(batch([{ type: "turn_end", turn: "old", status: "completed", provider: "tao" }]), { day: shiftDay(DAY, -100), country: "CN", visitor: "v", now: NOW });
   await u.ingest(batch([{ type: "turn_end", turn: "new", status: "completed", provider: "tao" }]), { day: DAY, country: "CN", visitor: "v", now: NOW });
@@ -218,7 +254,7 @@ test("security: addresses as a network prefix and a monthly-keyed hash; the full
   await s.record({ kind: "scanner", route: "page", status: 404, detail: "/.env", facts, day: DAY }, { rawIp: "flagged", now: NOW + 20000 });
   await s.record({ kind: "forbidden_origin", route: "relay", status: 403, facts, day: DAY }, { rawIp: "flagged", now: NOW + 30000 });
   await s.record({ kind: "not_a_kind", facts, day: DAY }, { now: NOW });
-  const ev = s.exportRows(DAY, DAY);
+  const ev = s.exportRows(DAY, DAY).rows;
   assert.equal(ev.length, 3);
   assert.ok(ev.every((e) => e.net === "203.0.113.0/24" && /^[0-9a-f]{16}$/.test(e.who) && e.who === ev[0].who));
   assert.deepEqual(ev.map((e) => e.ip), [null, "203.0.113.77", null]); // only the flagged high-severity event
@@ -238,6 +274,27 @@ test("security: addresses as a network prefix and a monthly-keyed hash; the full
   assert.deepEqual(rows(s, "sec_keys").map((r) => r.month), ["2026-11"]);
 });
 
+test("security: a flush's batch adds its counts once and stores its events at the time each happened", async () => {
+  const s = new SecurityCore(sqlStore());
+  const facts = { ip: "203.0.113.9", country: "US", method: "GET", path: "/wp-1.php", uaClass: "tool" };
+  const flushed = NOW + 30000;
+  const res = await s.recordBatch({
+    counts: [{ day: DAY, kind: "scanner", n: 4 }, { day: DAY, kind: "not_a_kind", n: 9 }, { day: "bad", kind: "scanner", n: 1 }, { day: DAY, kind: "rate_limited", n: 0 }],
+    events: [
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-1.php", facts, day: DAY, at: NOW },
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-2.php", facts, day: DAY, at: NOW + 5000 }, // same source within ten seconds
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-3.php", facts, day: DAY, at: NOW + 12000 },
+      { kind: "scanner", route: "page", status: 404, detail: "/wp-4.php", facts: { ...facts, ip: "198.51.100.1" }, day: DAY, at: flushed + 60000 }, // not plausible
+    ],
+  }, { now: flushed });
+  assert.equal(res.stored, 3);
+  const ev = s.exportRows(DAY, DAY).rows;
+  assert.deepEqual(ev.map((e) => [e.detail, e.ts]), [
+    ["/wp-1.php", new Date(NOW).toISOString()], ["/wp-3.php", new Date(NOW + 12000).toISOString()], ["/wp-4.php", new Date(flushed).toISOString()],
+  ]);
+  assert.deepEqual(s.summary(DAY, DAY).by_kind, { scanner: 4 }); // the counts as summed by the Worker, the events not again
+});
+
 test("security: failed admin attempts lock a source for a while, a success clears it", async () => {
   const s = new SecurityCore(sqlStore());
   for (let i = 1; i < LOCK.failures; i++) assert.equal((await s.authFailed("198.51.100.5", NOW + i)).locked, false);
@@ -248,6 +305,60 @@ test("security: failed admin attempts lock a source for a while, a success clear
   await s.authFailed("198.51.100.7", NOW);
   await s.authSucceeded("198.51.100.7", NOW);
   assert.equal(rows(s, "sec_auth").filter((r) => r.n > 0).length, 1);
+});
+
+test("budget: each object stops taking what visitors send once its day of rows is written; deletions and the audit trail never wait", async () => {
+  const at = Date.parse("2026-10-11T04:00:00Z");
+  const u = new UsageCore(sqlStore());
+  const batch = (i, events) => ({ v: 1, batch: `b${i}`, events });
+  const tools = (i) => Array.from({ length: 10 }, (_, j) => ({ type: "tool_end", call: `c${i}-${j}`, tool: "tcm_herb", kind: "native", place: "browser", status: "succeeded", ms: 5 }));
+  let refused = null;
+  for (let i = 0; i < 40 && !refused; i++) {
+    const res = await u.ingest(batch(i, tools(i)), { day: DAY, visitor: `v${i}`, caller: `k${i % 20}`, now: at, budget: 600 });
+    if (!res.ok) refused = { i, res };
+  }
+  assert.ok(refused, "refused once the day's rows were written");
+  assert.deepEqual([refused.res.reason, refused.res.scope], ["budget", "budget"]);
+  assert.equal(refused.res.retry, 20 * 3600); // seconds to 00:00 UTC
+  const state = u.budgetState(600, at);
+  assert.ok(state.rows >= 600 && state.rows < 700, String(state.rows)); // the batch that crossed the line is the last
+  // the Worker's own counts too
+  assert.deepEqual(u.observe([{ metric: "relay_call", a: "ok" }], { day: DAY, budget: 600, now: at }).reason, "budget");
+  assert.equal(u.observe([{ metric: "relay_call", a: "ok" }], { day: DAY, budget: 0, now: at }).ok, true); // no budget: taken
+
+  // one visitor's share of the day (a tenth) is theirs only
+  const v = new UsageCore(sqlStore());
+  let mine = null;
+  for (let i = 0; i < 40 && !mine; i++) {
+    const res = await v.ingest(batch(i, tools(i)), { day: DAY, visitor: "same", caller: "one", now: at, budget: 5000 });
+    if (!res.ok) mine = res;
+  }
+  assert.deepEqual([mine.reason, mine.scope], ["budget", "visitor"]);
+  assert.equal((await v.ingest(batch(99, tools(99)), { day: DAY, visitor: "other", caller: "two", now: at, budget: 5000 })).ok, true);
+
+  // records: refused beyond the day's rows; a deletion request still works
+  const c = new ConversationCore(sqlStore());
+  const owner = await ownerOf("d".repeat(43));
+  const rec = (id) => ({ v: 1, id, owner, consent: CONSENT_VERSION, status: "completed", question: "q" });
+  let full = null;
+  for (let i = 0; i < 20 && !full; i++) {
+    const res = c.accept(rec(`r${i}`), { caller: `k${i}`, day: DAY, now: at, budget: 40 });
+    if (!res.ok) full = res;
+  }
+  assert.equal(full.reason, "budget");
+  assert.ok(c.list({ from: DAY, to: DAY }).items.length > 0);
+  assert.deepEqual(c.forget(owner, { caller: "k1", day: DAY, now: at }), { ok: true, deleted: c.stats(DAY, DAY).totals.stored });
+  assert.equal(c.list({ from: DAY, to: DAY }).items.length, 0);
+
+  // security: every event counted; stored within the day's rows, the admin's own actions always
+  const s = new SecurityCore(sqlStore());
+  const ev = (i, kind = "scanner") => ({ kind, route: "page", status: 404, detail: `/x${i}.php`, facts: { ip: `203.0.113.${i}` }, day: DAY, at: at + i * 20000 });
+  await s.recordBatch({ counts: [{ day: DAY, kind: "scanner", n: 30 }], events: Array.from({ length: 30 }, (_, i) => ev(i)) }, { now: at + 30 * 20000, budget: 20 });
+  const stored = s.exportRows(DAY, DAY).rows.length;
+  assert.ok(stored > 0 && stored < 30, String(stored));
+  assert.equal(s.summary(DAY, DAY).by_kind.scanner, 30);
+  assert.equal((await s.record({ kind: "admin_login", route: "admin", facts: { ip: "198.51.100.1" }, day: DAY }, { now: at + 700000, budget: 20 })).stored, true);
+  assert.equal((await s.authFailed("198.51.100.2", at + 700000)).locked, false); // the sign-in state is kept whatever the budget
 });
 
 test("scanner paths, user agents", () => {

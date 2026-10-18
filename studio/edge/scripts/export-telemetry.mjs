@@ -25,6 +25,7 @@ export const ADMIN_ONLY = ["security", "conversations"];
 const DATASETS = [...AGGREGATED, ...ROWS, ...ADMIN_ONLY];
 const MARK = ".tcmscience-export"; // in each dated folder this script made: only those are ever pruned
 const UA = "tcmscience-export/1";
+const MAX_PAGES = 10000; // a thousand rows a page (a hundred conversation records)
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPOSITORY = path.resolve(HERE, "..", "..", "..");
 
@@ -120,22 +121,43 @@ export async function run(options, { env = process.env, fetcher = fetch, now = D
   writeFileSync(path.join(folder, MARK), "exports written by studio/edge/scripts/export-telemetry.mjs; folders older than --keep-days are deleted\n", { mode: 0o600 });
   const files = [];
   for (const dataset of options.datasets) {
-    const q = new URLSearchParams({ dataset, format: options.format, days: String(options.days) });
-    const res = await fetcher(`${options.url}/api/admin/telemetry/export?${q}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: options.format === "csv" ? "text/csv" : "application/json", "User-Agent": UA },
-      redirect: "error",
-    });
-    if (res.status !== 200) {
-      await res.body?.cancel();
-      const why = res.status === 401 ? "the token was refused" : res.status === 403 ? "this token may not take it" : res.status === 503 ? "the dashboard is off or the store is unavailable" : "unexpected answer";
-      throw new Error(`${dataset}: HTTP ${res.status} (${why})`);
-    }
-    const name = /filename="([A-Za-z0-9_.-]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || `tcmscience-${dataset}.${options.format}`;
-    const body = new Uint8Array(await res.arrayBuffer());
+    // an export comes in pages (each one request to the Worker): every page is fetched, and the file is written only
+    // once all of them have arrived, so a file is never part of an export that looks like the whole of it
+    const csv = options.format === "csv";
+    const parts = [];
+    const rows = [];
+    let meta = null;
+    let name = `tcmscience-${dataset}.${options.format}`;
+    let cursor = "";
+    let pages = 0;
+    do {
+      if (++pages > MAX_PAGES) throw new Error(`${dataset}: more than ${MAX_PAGES} pages; take a shorter period`);
+      const q = new URLSearchParams({ dataset, format: options.format, days: String(options.days), ...(cursor ? { cursor } : {}) });
+      const res = await fetcher(`${options.url}/api/admin/telemetry/export?${q}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: csv ? "text/csv" : "application/json", "User-Agent": UA },
+        redirect: "error",
+      });
+      if (res.status !== 200) {
+        await res.body?.cancel();
+        const why = res.status === 401 ? "the token was refused" : res.status === 403 ? "this token may not take it" : res.status === 503 ? "the dashboard is off or the store is unavailable" : "unexpected answer";
+        throw new Error(`${dataset}: HTTP ${res.status} (${why})${pages > 1 ? ` at page ${pages}; nothing written` : ""}`);
+      }
+      if (pages === 1) name = /filename="([A-Za-z0-9_.-]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || name;
+      if (csv) {
+        parts.push(new Uint8Array(await res.arrayBuffer())); // the first page starts with the BOM and the header
+        cursor = res.headers.get("X-Next-Cursor") || "";
+      } else {
+        const body = JSON.parse(new TextDecoder().decode(await res.arrayBuffer()));
+        meta ||= { dataset: body.dataset, period: body.period, generated: body.generated };
+        rows.push(...(Array.isArray(body.rows) ? body.rows : []));
+        cursor = typeof body.next === "string" ? body.next : "";
+      }
+    } while (cursor);
+    const body = csv ? Buffer.concat(parts) : Buffer.from(JSON.stringify({ ...meta, rows, pages }));
     const file = path.join(folder, name);
     writeFileSync(file, body, { mode: 0o600 });
     chmodSync(file, 0o600);
-    files.push({ dataset, file, bytes: body.length });
+    files.push({ dataset, file, bytes: body.length, pages });
   }
   return { folder, files, pruned: prune(out, options.keepDays, now) };
 }

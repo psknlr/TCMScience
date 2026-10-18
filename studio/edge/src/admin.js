@@ -28,6 +28,20 @@ export const SESSION_COOKIE = "__Host-tcms_admin";
 export const PERIODS = [7, 30, 90];
 /** Datasets: the aggregated ones (EXPORT_TOKEN may take them) and those only an admin may (text, network data). */
 export const EXPORTS = { daily: "export", turns: "export", tools: "export", connectors: "export", geo: "export", security: "admin", conversations: "admin" };
+// each export's columns, in order: every page of a CSV the same, whichever fields its rows happen to have
+export const EXPORT_COLUMNS = {
+  daily: ["day", "metric", "a", "b", "n"],
+  turns: ["id", "day", "ts", "provider", "model", "status", "first", "steps", "tool_rounds", "calls", "tools", "tool_failures", "ms", "first_ms",
+    "tokens_in", "tokens_out", "citations", "citations_verified", "citations_used", "claims", "claims_refused", "recorded", "excluded", "error_kind",
+    "error_type", "limit_reached", "country"],
+  tools: ["id", "day", "ts", "tool", "kind", "place", "status", "ms", "error_type"],
+  connectors: ["day", "source", "outcome", "n"],
+  geo: ["day", "metric", "country", "n"],
+  security: ["seq", "ts", "day", "kind", "route", "status", "who", "net", "ip", "country", "asn", "ua_class", "method", "path", "detail"],
+  conversations: ["seq", "received", "v", "id", "conversation", "turn", "owner", "consent", "started", "finished", "ms", "first_ms", "status",
+    "limit_reached", "question", "answer", "redacted", "provider", "model", "steps", "tool_rounds", "calls", "tools", "citations", "claims", "evidence",
+    "usage", "error", "app", "runtime"],
+};
 const PUBLIC_ASSETS = new Set(["/admin/login.js", "/admin/admin.css"]);
 const SESSION_ASSETS = new Set(["/admin/dashboard.js", "/admin/charts.js", "/admin/i18n.js"]);
 const enc = new TextEncoder();
@@ -40,6 +54,7 @@ export const ADMIN_CSP = [
 
 const MSG = {
   https_required: "请使用 https 访问",
+  bad_cursor: "导出的分页位置无效，请从头重新导出",
   admin_off: "管理后台未启用：请先设置 ADMIN_TOKEN 机密（至少 32 个字符）",
   not_found: "没有这个接口",
   method_not_allowed: "这个接口不接受这种请求方法",
@@ -77,21 +92,26 @@ async function sessionKey(token) {
 }
 
 /** A new session: "v1.<expiry seconds>.<nonce>.<HMAC>". */
-export async function makeSession(cfg, now = Date.now()) {
+// what a session's signature covers: its body, and the sessions' epoch when it has moved on (signing out moves it:
+// every session signed before is then no longer one)
+const signed = (body, epoch) => enc.encode(epoch ? `${body}.e${epoch}` : body);
+
+export async function makeSession(cfg, now = Date.now(), epoch = 0) {
   const exp = Math.floor(now / 1000) + cfg.sessionSeconds;
   const body = `v1.${exp}.${b64url(crypto.getRandomValues(new Uint8Array(18)))}`;
-  const sig = b64url(await crypto.subtle.sign("HMAC", await sessionKey(cfg.adminToken), enc.encode(body)));
+  const sig = b64url(await crypto.subtle.sign("HMAC", await sessionKey(cfg.adminToken), signed(body, epoch)));
   return { value: `${body}.${sig}`, exp };
 }
 
-/** The session's expiry (seconds) when it is genuine, unexpired and within the configured lifetime; else 0. */
-export async function verifySession(value, cfg, now = Date.now()) {
+/** The session's expiry (seconds) when it is genuine, of the current epoch, unexpired and within the configured
+ * lifetime; else 0. */
+export async function verifySession(value, cfg, now = Date.now(), epoch = 0) {
   const m = /^v1\.(\d{1,12})\.([A-Za-z0-9_-]{16,64})\.([A-Za-z0-9_-]{20,100})$/.exec(String(value || ""));
   if (!m || !cfg.adminToken) return 0;
   const exp = Number(m[1]);
   if (exp * 1000 <= now || exp * 1000 > now + (cfg.sessionSeconds + 60) * 1000) return 0;
   try {
-    return (await crypto.subtle.verify("HMAC", await sessionKey(cfg.adminToken), unb64url(m[3]), enc.encode(`v1.${m[1]}.${m[2]}`))) ? exp : 0;
+    return (await crypto.subtle.verify("HMAC", await sessionKey(cfg.adminToken), unb64url(m[3]), signed(`v1.${m[1]}.${m[2]}`, epoch))) ? exp : 0;
   } catch {
     return 0;
   }
@@ -100,7 +120,7 @@ export async function verifySession(value, cfg, now = Date.now()) {
 const setCookie = (value, maxAge) => `${SESSION_COOKIE}=${value}; Path=/; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Strict`;
 
 /** Who is asking: {scope: "admin"|"export", via} or {scope: null, attempted} (attempted: a token was presented and wrong). */
-export async function authenticate(request, cfg, now = Date.now()) {
+export async function authenticate(request, cfg, now = Date.now(), epoch = 0) {
   const auth = request.headers.get("Authorization") || "";
   if (/^Bearer\s+/i.test(auth)) {
     const given = auth.replace(/^Bearer\s+/i, "").trim();
@@ -109,7 +129,7 @@ export async function authenticate(request, cfg, now = Date.now()) {
     return { scope: null, attempted: true };
   }
   const value = cookie(request, SESSION_COOKIE);
-  const exp = value ? await verifySession(value, cfg, now) : 0;
+  const exp = value ? await verifySession(value, cfg, now, epoch) : 0;
   return exp ? { scope: "admin", via: "session", exp } : { scope: null, attempted: false };
 }
 
@@ -123,13 +143,27 @@ export function csvCell(v) {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Rows (objects) as CSV with a header of their keys, in first-seen order; UTF-8 with a BOM for spreadsheet programs. */
-export function toCsv(rows) {
-  const cols = [];
-  for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
-  const lines = [cols.map(csvCell).join(",")];
+/** Rows (objects) as CSV: `columns` in order (else their keys in first-seen order). The first page of an export has
+ * the header, after a BOM for spreadsheet programs (UTF-8); a later page (`header: false`) only its rows, so that the
+ * pages put one after another are the whole file. */
+export function toCsv(rows, { columns = null, header = true } = {}) {
+  const cols = columns ? [...columns] : [];
+  if (!columns) for (const r of rows) for (const k of Object.keys(r)) if (!cols.includes(k)) cols.push(k);
+  const lines = header ? [cols.map(csvCell).join(",")] : [];
   for (const r of rows) lines.push(cols.map((c) => csvCell(r[c])).join(","));
-  return `﻿${lines.join("\r\n")}\r\n`;
+  if (!lines.length) return "";
+  return `${header ? "﻿" : ""}${lines.join("\r\n")}\r\n`;
+}
+
+const encodeCursor = (v) => btoa(JSON.stringify(v)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+function decodeCursor(s) {
+  if (!s) return { ok: true, value: null };
+  if (!/^[A-Za-z0-9_-]{1,2000}$/.test(s)) return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(atob(s.replace(/-/g, "+").replace(/_/g, "/"))) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // ------------------------------------------------------------------------------------------------- the handler
@@ -167,17 +201,28 @@ export async function handleAdmin(request, env, deps) {
   try {
     if (path === "/admin") return new Response(null, { status: 308, headers: { Location: "/admin/" } });
     if (isPage) return await page(request, cfg, deps, url, now);
-    // a source refused for failing too often is refused before anything is checked
+    const signIn = path === "/api/admin/session" && request.method === "POST";
+    // the lock-out of this source, and the epoch sessions are signed with (one call)
     const state = await sec()?.authState(clientIp(request), now);
-    if (state?.locked) return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
-    if (path === "/api/admin/session" && request.method === "POST") return await login(request, cfg, deps, url, now, audit);
+    const epoch = Number(state?.epoch) || 0;
+    const who = signIn ? { scope: null } : await authenticate(request, cfg, now, epoch);
+    // a source refused for failing too often is refused whatever it presents — except an admin already signed in: a
+    // session this Worker signed is not a guess, and others failing from the same address (a shared IPv4, a /64) must
+    // not lock the admin out. A token is checked, but while locked even the right one is refused (no answer tells
+    // a guess from the token).
+    if (who.via !== "session" && state?.locked) {
+      if (signIn && isForm(request)) return new Response(null, { status: 303, headers: { Location: "/admin/?e=locked" } });
+      return fail(429, "admin_locked", MSG.locked, { "Retry-After": String(state.retry) });
+    }
+    if (signIn) return await login(request, cfg, deps, url, now, audit, epoch);
     if (path === "/api/admin/session/logout" && request.method === "POST") {
       if (!sameSite(request, url, [url.origin])) return fail(403, "cross_site", MSG.cross_site);
+      // signing out ends every session, on the server too: a copy of the cookie is no longer one
+      if (who.via === "session") await sec()?.endSessions(now);
       const res = isForm(request) ? new Response(null, { status: 303, headers: { Location: "/admin/" } }) : json({ ok: true });
       res.headers.append("Set-Cookie", setCookie("", 0));
       return res;
     }
-    const who = await authenticate(request, cfg, now);
     if (!who.scope) {
       if (who.attempted) await failed(request, deps, now, audit);
       return fail(401, "unauthorized", MSG.unauthorized, { "WWW-Authenticate": 'Bearer realm="tcmscience-admin"' });
@@ -213,7 +258,7 @@ async function failed(request, deps, now, audit) {
   return state;
 }
 
-async function login(request, cfg, deps, url, now, audit) {
+async function login(request, cfg, deps, url, now, audit, epoch = 0) {
   if (!sameSite(request, url, [url.origin])) return fail(403, "cross_site", MSG.cross_site);
   const form = isForm(request);
   const raw = await readText(request, 4096);
@@ -234,7 +279,7 @@ async function login(request, cfg, deps, url, now, audit) {
   }
   await deps.security?.()?.authSucceeded(clientIp(request), now);
   await audit("admin_login", form ? "form" : "json");
-  const session = await makeSession(cfg, now);
+  const session = await makeSession(cfg, now, epoch);
   const res = form ? new Response(null, { status: 303, headers: { Location: "/admin/" } }) : json({ ok: true, expires: new Date(session.exp * 1000).toISOString() });
   res.headers.append("Set-Cookie", setCookie(session.value, cfg.sessionSeconds));
   return res;
@@ -246,7 +291,8 @@ async function page(request, cfg, deps, url, now) {
     return new Response("Method Not Allowed\n", { status: 405, headers: { Allow: "GET, HEAD", "Content-Type": "text/plain; charset=utf-8" } });
   }
   const path = url.pathname;
-  const signedIn = Boolean(await verifySession(cookie(request, SESSION_COOKIE), cfg, now));
+  const epoch = Number(await deps.security?.()?.sessionEpoch?.()) || 0;
+  const signedIn = Boolean(await verifySession(cookie(request, SESSION_COOKIE), cfg, now, epoch));
   let asset = null;
   if (PUBLIC_ASSETS.has(path)) asset = path;
   else if (path === "/admin/") asset = signedIn ? "/admin/" : "/admin/login";
@@ -270,35 +316,53 @@ async function summary(env, cfg, deps, url, now, who) {
     }
   };
   const [usage, conversations, security] = await Promise.all([
-    deps.usage ? settle(() => deps.usage().stats({ from: p.from, to: p.to, ...filters })) : { unavailable: true },
-    deps.conversations ? settle(() => deps.conversations().stats(p.from, p.to)) : { unavailable: true },
-    deps.security ? settle(() => deps.security().summary(p.from, p.to)) : { unavailable: true },
+    deps.usage ? settle(() => deps.usage().stats({ from: p.from, to: p.to, ...filters, budget: cfg.budgets.usage })) : { unavailable: true },
+    deps.conversations ? settle(() => deps.conversations().stats(p.from, p.to, cfg.budgets.conversations)) : { unavailable: true },
+    deps.security ? settle(() => deps.security().summary(p.from, p.to, cfg.budgets.security)) : { unavailable: true },
   ]);
   return json({
     ok: true, generated: new Date(now).toISOString(), scope: who.scope, period: p, filters,
     config: { ...telemetryPublic(env), retention: cfg.retention, raw_ip: cfg.rawIp, utc_offset: cfg.offset, consent_version: CONSENT_VERSION },
     usage, conversations,
     // the export token sees how many security events there were, never their sources
-    security: who.scope === "admin" || security.unavailable ? security : { daily: security.daily, by_kind: security.by_kind },
+    security: who.scope === "admin" || security.unavailable ? security : { daily: security.daily, by_kind: security.by_kind, budget: security.budget },
   });
 }
 
+/**
+ * One page of an export (a page is one request to one Durable Object, small enough for the Worker's CPU and the RPC's
+ * size): `cursor` is the previous page's `next`. JSON: {dataset, period, generated, rows, next}; CSV: the rows, with the
+ * header on the first page only, and the next page in X-Next-Cursor and a Link header. The export is audited once, at
+ * its first page.
+ */
 async function exportData(cfg, deps, url, now, who, audit) {
   const dataset = url.searchParams.get("dataset") || "";
   const format = url.searchParams.get("format") === "csv" ? "csv" : "json";
-  const need = EXPORTS[dataset];
+  const need = Object.hasOwn(EXPORTS, dataset) ? EXPORTS[dataset] : null; // never a property of every object
   if (!need) return fail(400, "bad_dataset", MSG.bad_dataset);
   if (need === "admin" && who.scope !== "admin") return fail(403, "forbidden", MSG.forbidden);
+  const cursor = decodeCursor(url.searchParams.get("cursor") || "");
+  if (!cursor.ok) return fail(400, "bad_cursor", MSG.bad_cursor);
   const p = periodOf(url, cfg, now);
-  let rows;
-  if (dataset === "conversations") rows = deps.conversations ? await deps.conversations().exportRows(p.from, p.to) : [];
-  else if (dataset === "security") rows = deps.security ? await deps.security().exportRows(p.from, p.to) : [];
-  else rows = deps.usage ? await deps.usage().exportRows(dataset, p.from, p.to) : [];
-  await audit("admin_export", `${dataset}.${format}:${p.days}d:${rows.length}`);
+  const page = { after: cursor.value ?? undefined };
+  let res;
+  if (dataset === "conversations") res = deps.conversations ? await deps.conversations().exportRows(p.from, p.to, page) : { rows: [], next: null };
+  else if (dataset === "security") res = deps.security ? await deps.security().exportRows(p.from, p.to, page) : { rows: [], next: null };
+  else res = deps.usage ? await deps.usage().exportRows(dataset, p.from, p.to, page) : { rows: [], next: null };
+  if (!res) return fail(400, "bad_cursor", MSG.bad_cursor);
+  const first = cursor.value === null;
+  if (first) await audit("admin_export", `${dataset}.${format}:${p.days}d`);
+  const next = res.next === null || res.next === undefined ? null : encodeCursor(res.next);
   const name = `tcmscience-${dataset}-${p.from}_${p.to}.${format}`;
   const headers = { "Content-Disposition": `attachment; filename="${name}"`, "Cache-Control": "no-store" };
-  if (format === "csv") return new Response(toCsv(rows), { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8" } });
-  return new Response(JSON.stringify({ dataset, period: p, generated: new Date(now).toISOString(), rows }), {
+  if (next) {
+    const q = new URLSearchParams({ dataset, format, days: String(p.days), cursor: next });
+    Object.assign(headers, { "X-Next-Cursor": next, Link: `</api/admin/telemetry/export?${q}>; rel="next"` });
+  }
+  if (format === "csv") {
+    return new Response(toCsv(res.rows, { columns: EXPORT_COLUMNS[dataset], header: first }), { headers: { ...headers, "Content-Type": "text/csv; charset=utf-8" } });
+  }
+  return new Response(JSON.stringify({ dataset, period: p, generated: new Date(now).toISOString(), rows: res.rows, next }), {
     headers: { ...headers, "Content-Type": "application/json; charset=utf-8" },
   });
 }

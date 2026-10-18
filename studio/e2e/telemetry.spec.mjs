@@ -379,12 +379,17 @@ test("the dashboard: a wrong token refused; signed in, the numbers, a visitor's 
   phoneWatch.expectClean();
   await phone.close();
 
-  // sign out: the sign-in page again, the dashboard's code closed again; every step is in the audit trail
+  // sign out: the sign-in page again, the dashboard's code closed again; every step of the admin's is in the audit
+  // trail, and the wrong token among the sources' events (a flood of those cannot push the admin's steps out)
   await page.click("#signout");
   await expect(page.locator("#token")).toBeVisible();
   expect((await page.request.get(`${worker.url}/admin/dashboard.js`)).status()).toBe(401);
-  const audit = (await summary(request)).security.audit.map((a) => a.kind);
-  for (const kind of ["admin_login", "admin_auth_failed", "admin_view", "admin_delete", "admin_export"]) expect(audit, kind).toContain(kind);
+  const security = (await summary(request)).security;
+  const audit = security.audit.map((a) => a.kind);
+  for (const kind of ["admin_login", "admin_view", "admin_delete", "admin_export"]) expect(audit, kind).toContain(kind);
+  expect(audit).not.toContain("admin_auth_failed");
+  expect(security.by_kind.admin_auth_failed).toBeGreaterThan(0);
+  expect(security.sources.flatMap((s) => s.kinds)).toContain("admin_auth_failed");
   watch.expectClean();
   await context.close();
 });
