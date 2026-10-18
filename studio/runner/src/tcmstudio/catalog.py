@@ -24,16 +24,17 @@ import shutil
 import types
 import typing
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
+from . import capability
 from .core_tools import (B, B_R, CATEGORY_IDS, CLAIM_KINDS, CORE_TOOLS, ENTRY_KINDS,
                          HERB_LINE_SCHEMA, I, INTAKE_SCHEMA, MODIFICATION_SCHEMA, N, R,
                          VISIT_SCHEMA, S, arr, obj)
 
-__all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "build_catalog",
+__all__ = ["SCHEMA_ID", "CATEGORIES", "JOB_KINDS", "NEVER_OFFERED", "DEPRECATED", "build_catalog",
            "catalog_search", "entries", "get_entry", "entry_ids", "suggest", "canonical_name",
-           "schema_for",
-           "fn_schema", "skill_specs", "skill_lockfile"]
+           "schema_for", "runnable_here",
+           "fn_schema", "skill_specs", "skill_lockfile", "verification_records"]
 
 SCHEMA_ID = "tcmstudio.catalog/1"
 
@@ -412,8 +413,240 @@ def _unique(items: Iterable[str]) -> list[str]:
     return out
 
 
+# ---------------------------------------------------- implementation, evidence, execution
+
+#: Entries retired in favour of another ({id: what replaces it, in a sentence}). An entry
+#: listed here keeps working and reads 'deprecated'. Nothing is deprecated today.
+DEPRECATED: dict[str, str] = {}
+
+#: The committed record each verification level is read from (paths from the repository
+#: root); the document lists them once (``verification_records``) and a level names its own
+#: ``record`` only when it rests on another. Nothing else counts: a fixture is not a live
+#: run, and no level is ever dated by the clock.
+_RECORDS = {
+    "live_upstream": "BioScience-Harness/data/connector_live_verification.csv",
+    "reference_output": "BioScience-Harness/src/bioagent/validation/references.py",
+    "kernel_parity": "studio/web/test/fixtures/kernel_cases.json",
+    "lock_pin": "BioScience-Harness/registry/skills.lock.yaml",
+}
+# verify_connectors.py writes the call's ExecutionStatus; anything else is not a pass
+_LIVE_STATUS = {"SUCCEEDED": "PASS", "FAILED": "FAIL", "BLOCKED": "BLOCKED"}
+_CONNECTOR_ROWS: dict[tuple[str, str], dict[str, str]] | None = None
+
+
+def _connector_rows() -> dict[tuple[str, str], dict[str, str]]:
+    """The committed live verification, by (source, operation). Empty where the record is not
+    shipped (the browser runtime's bundle carries no BioScience-Harness/data): the site's
+    catalog.json is built on the build machine, where it is read."""
+    global _CONNECTOR_ROWS
+    if _CONNECTOR_ROWS is None:
+        try:
+            from bioagent.validation.databases import connector_record
+            _CONNECTOR_ROWS = {(src, row.get("operation", "")): row
+                               for src, rows in connector_record().items() for row in rows}
+        except Exception:                                       # noqa: BLE001
+            _CONNECTOR_ROWS = {}
+    return _CONNECTOR_ROWS
+
+
+def verification_records() -> dict[str, bool]:
+    """Which committed records this runtime could read (the connector record is not shipped
+    to the browser runtime)."""
+    return {"live_upstream": bool(_connector_rows())}
+
+
+def _verification(levels: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    if not levels:
+        return {"status": "UNVERIFIED", "levels": {}}
+    try:
+        from bioagent.validation import aggregate
+        status = aggregate(lv["status"] for lv in levels.values())
+    except Exception:                                           # noqa: BLE001
+        statuses = {lv["status"] for lv in levels.values()}
+        status = "PASS" if statuses == {"PASS"} else "UNVERIFIED"
+    return {"status": status, "levels": {k: dict(v) for k, v in levels.items()}}
+
+
+_VERSIONS: dict[str, str] | None = None
+
+
+def _version(package: str) -> str:
+    global _VERSIONS
+    if _VERSIONS is None:
+        from .envelope import versions
+        _VERSIONS = versions()
+    return _VERSIONS.get(package, "unknown")
+
+
+def _resolves(ref: str) -> bool:
+    """Whether ``module:attribute[#key]`` names code that exists here: the attribute, and the
+    key in it when it is a registry; for a dispatcher function (``_exec_<kind>#<op>``), the
+    op among those it handles (its module's ``HANDLED_OPS``, which test_capability_state
+    checks against the function's own code)."""
+    module, _, rest = ref.partition(":")
+    attr, _, key = rest.partition("#")
+    try:
+        import importlib
+        mod = importlib.import_module(module)
+        target = getattr(mod, attr, None)
+    except Exception:                                           # noqa: BLE001
+        return False
+    if target is None:
+        return False
+    if not key:
+        return True
+    if isinstance(target, Mapping):
+        return key in target
+    handled = getattr(mod, "HANDLED_OPS", None)
+    return isinstance(handled, Mapping) and key in (handled.get(attr) or ())
+
+
+def _evidence(e: dict[str, Any], ref: str, version: str, *, resolved: bool | None = None,
+              levels: Mapping[str, Mapping[str, Any]] | None = None, **impl: Any) -> None:
+    """Set an entry's implementation reference, verification and implementation state."""
+    e["implementation"] = {"ref": ref, "version": version, **impl}
+    e["verification"] = _verification({
+        name: {k: v for k, v in lv.items() if not (k == "record" and v == _RECORDS.get(name))}
+        for name, lv in (levels or {}).items()})
+    ok = _resolves(ref) if resolved is None else resolved
+    passed = any(lv.get("status") == "PASS" for lv in (levels or {}).values())
+    e["state"] = {"implementation": "deprecated" if e["id"] in DEPRECATED else
+                  "tested" if ok and passed else "implemented" if ok else "registered"}
+    if e["id"] in DEPRECATED:
+        e["deprecated"] = DEPRECATED[e["id"]]
+
+
+# the kernels' workloads, in words (the kernel names are browser_compute._KERNEL_TOOLS')
+_KERNEL_WORKLOAD = {"align.nw_linear": "global-alignment dynamic programme",
+                    "align.sw_linear": "local-alignment dynamic programme",
+                    "align.*": "protein-alignment dynamic programme (global or local)",
+                    "sequence.levenshtein": "edit-distance dynamic programme"}
+
+
+def _browser_compute(entry_id: str) -> dict[str, Any] | None:
+    """execution.browser_compute of a kernel tool, read from tcmstudio.browser_compute (the
+    one list of them): WebGPU counts prepared before the call for its three count tools,
+    else the Worker's synchronous CPU kernels (WebAssembly SIMD where the engine has it, else
+    JavaScript, for the counts; JavaScript for the alignments and the edit distance)."""
+    try:
+        from .browser_compute import _KERNEL_TOOLS, _TOOLS, CPU_PRECISION, GPU_PRECISION
+    except Exception:                                           # noqa: BLE001
+        return None
+    kernel = _KERNEL_TOOLS.get(entry_id)
+    if kernel is None:
+        return None
+    if entry_id in _TOOLS:
+        return {"backends": ["webgpu", "wasm-simd", "js"], "kernel": kernel,
+                "precision": GPU_PRECISION,
+                "workload": "pairwise aligned nucleotide distance matrix"
+                            if _TOOLS[entry_id] == "distance_matrix" else "nucleotide site counts"}
+    return {"backends": ["js"], "kernel": kernel,
+            "precision": CPU_PRECISION.get(kernel) or CPU_PRECISION["align.nw_linear"],
+            "workload": _KERNEL_WORKLOAD.get(kernel, kernel)}
+
+
+def _engine(id_: str, arg: str, value: str, requires: Iterable[str] = (), device: str = "cpu",
+            **with_: str) -> dict[str, Any]:
+    names = list(requires)
+    sel: dict[str, Any] = {"arg": arg, "value": value}
+    if with_:
+        sel["with"] = dict(with_)
+    return {"id": id_, "selected_by": sel, "device": device,
+            "requires": [capability.requirement(
+                "dependency", "install: " + ", ".join(names),
+                "Install it on the runner machine (pip install …, or the tool's own installer).",
+                names)] if names else []}
+
+
+def _rnaseq_engines(de: str = "de_backend") -> list[dict[str, Any]]:
+    return [_engine("builtin-quant", "engine", "builtin"),
+            _engine("salmon", "engine", "salmon", ["salmon"]),
+            _engine("kallisto", "engine", "kallisto", ["kallisto"]),
+            _engine("hisat2", "engine", "hisat2", ["hisat2", "hisat2-build", "samtools", "featureCounts"]),
+            _engine("builtin-trim", "trimmer", "builtin"),
+            _engine("fastp", "trimmer", "fastp", ["fastp"]),
+            _engine("builtin-de", de, "builtin"),
+            _engine("pydeseq2", de, "pydeseq2", ["pydeseq2"])]
+
+
+def _scrna_engines(integration: str) -> list[dict[str, Any]]:
+    # bioagent.omics.sc.analysis._needs: what each combination imports; scVI trains on the CPU
+    return [_engine("builtin", "analysis_backend", "builtin"),
+            _engine("scanpy", "analysis_backend", "scanpy", ["scanpy", "anndata", "leidenalg", "umap-learn"]),
+            _engine("builtin-harmony", integration, "harmony", analysis_backend="builtin"),
+            _engine("harmonypy", integration, "harmony", ["harmonypy"], analysis_backend="scanpy"),
+            _engine("scvi", integration, "scvi", ["scvi-tools", "torch", "anndata"])]
+
+
+def _fold_engines() -> list[dict[str, Any]]:
+    # bioagent.structure.predict; the runner assigns a GPU to esmfold only (kinds.pipeline.fold)
+    return [_engine("esmatlas", "method", "esmatlas", device="remote"),
+            _engine("esmfold", "method", "esmfold", ["torch", "transformers"], device="gpu"),
+            _engine("colabfold", "method", "colabfold", ["colabfold_batch"])]
+
+
+#: Engines an argument chooses, for the jobs and the pipeline skills that have them. The
+#: built-in engine of each choice needs nothing optional; an entry is ready when its defaults
+#: are, and a chosen engine that is not installed is refused before anything is submitted.
+_ENGINES: dict[str, Callable[[], list[dict[str, Any]]]] = {
+    "job.pipeline.rnaseq": _rnaseq_engines,
+    "skill.rnaseq-differential-expression": _rnaseq_engines,
+    "job.pipeline.scrna": lambda: _scrna_engines("integration"),
+    "skill.scrna-cell-atlas": lambda: [*_scrna_engines("integration_method"),
+                                       _engine("builtin-de", "de_backend", "builtin"),
+                                       _engine("pydeseq2", "de_backend", "pydeseq2", ["pydeseq2"])],
+    "job.pipeline.fold": _fold_engines,
+    "skill.predict-protein-structure": _fold_engines,
+}
+
+
+def _approvals(e: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """What a call may ask the user for (the page's approval reasons): each call or the
+    project (confirm, or job for a runner job), web access to the entry's hosts (network;
+    the hosts are ``hosts`` or, for the argument, ``hosts_by``), and sending data to a third
+    party (remote_upload, when ``network_if`` is set)."""
+    out = []
+    if e.get("confirm"):
+        out.append({"reason": "job" if e.get("job") else "confirm"})
+    if e.get("network"):
+        out.append({"reason": "network"})
+    if e.get("network_if"):
+        out.append({"reason": "remote_upload"})
+    return out
+
+
+def _annotate(kind: str, e: dict[str, Any]) -> None:
+    """What every entry carries besides its own section's fields: the hand-written ops'
+    implementation reference, the approvals, the request limit and the engines."""
+    if "implementation" not in e:
+        op = e["id"].split(".", 1)[1]
+        if kind == "job":
+            _evidence(e, f"tcmstudio.kinds:KINDS#{op}", _version("tcmstudio"))
+        else:
+            _evidence(e, f"tcmstudio.dispatch:_exec_{kind}#{op}", _version("tcmstudio"))
+    e["approvals"] = _approvals(e)
+    if e["id"] in _LIMITS:
+        # the document's ``limits`` hold for every other entry
+        e["limits"] = {"max_request_bytes": dict(_LIMITS[e["id"]])}
+    if e["id"] in _ENGINES:
+        e.setdefault("execution", {})["engines"] = _ENGINES[e["id"]]()
+
+
+#: Entries whose own code bounds a request differently from the runtime's limit.
+_LIMITS: dict[str, dict[str, int]] = {
+    # the import checks its own 90 MiB of base64 (64 MiB of SQLite); the request around it is
+    # a little larger. Through the runner's HTTP API the 8 MiB body limit still applies.
+    "tcmdb.import_store": {"runner": capability.MAX_REQUEST_BYTES["runner"], "browser": 96 * 2**20},
+}
+
+
 def _native_entries() -> list[dict[str, Any]]:
     from bioagent.tools import DOMAINS, TOOLS
+    try:
+        from bioagent.validation.references import references_for
+    except Exception:                                           # noqa: BLE001
+        def references_for(name: str) -> list[Any]:
+            return []
 
     out = []
     for t in TOOLS:
@@ -428,18 +661,26 @@ def _native_entries() -> list[dict[str, Any]]:
         if data:
             extra["data"] = data
             extra["needs"] = ["a tcmdb store built or imported in this runtime"]
-        if t.name in ("gc_content", "hamming_distance", "distance_matrix"):
-            extra["execution"] = {"browser_compute": {
-                "backends": ["webgpu", "cpu"],
-                "precision": "Exact uint32 counts; original Python output transforms",
-                "workload": "pairwise aligned nucleotide distance matrix" if t.name == "distance_matrix"
-                            else "nucleotide site counts"}}
-        out.append(_entry(
+        compute = _browser_compute(f"native.{t.name}")
+        if compute:
+            extra["execution"] = {"browser_compute": compute}
+        e = _entry(
             f"native.{t.name}", "native", zh, en, _native_category(t.name, t.domain),
             summary, fn_schema(t.fn, t.example),
             example=dict(t.example), exec_=B_R,
             tags=[t.name, *t.tags, *_DOMAIN_TAGS.get(t.domain, ()), DOMAINS.get(t.domain, ""),
-                  *_NATIVE_EXTRA_TAGS.get(t.name, ())], **extra))
+                  *_NATIVE_EXTRA_TAGS.get(t.name, ())], **extra)
+        levels: dict[str, dict[str, Any]] = {}
+        if references_for(t.name):
+            # an expected output established independently of the tool's code; `tcmstudio
+            # validate` (studio/runner/tests/test_validate.py) holds the tool to it
+            levels["reference_output"] = {"status": "PASS", "record": _RECORDS["reference_output"]}
+        if compute:
+            # the browser kernel's answers are the Python implementation's (test_kernel_fixtures,
+            # web/test/kernels.test.mjs)
+            levels["kernel_parity"] = {"status": "PASS", "record": _RECORDS["kernel_parity"]}
+        _evidence(e, t.entrypoint, _version("bioagent"), resolved=True, levels=levels)
+        out.append(e)
     return out
 
 
@@ -483,8 +724,10 @@ _SKILL_META: dict[str, dict[str, Any]] = {
                                        "category": "omics",
                                        "optional": ["pydeseq2", "salmon", "kallisto", "fastp"],
                                        "tags": ("转录组", "差异表达", "DESeq2")},
+    # CPU only: the builtin path is numpy/scipy, and bioagent trains scVI on the CPU by design
+    # (omics/sc/analysis.py: accelerator "cpu"); the runner gives its job no GPU either
     "scrna-cell-atlas": {"title": ("单细胞图谱", "Single-cell atlas"), "category": "omics",
-                         "gpu": True, "optional": ["scanpy", "harmonypy", "leidenalg", "scvi-tools"],
+                         "optional": ["scanpy", "harmonypy", "leidenalg", "scvi-tools"],
                          "tags": ("单细胞", "聚类", "细胞注释", "scRNA")},
 }
 _SKILL_INTERNAL_ARGS = ("run_id", "out_dir", "cache_dir", "index_dir")
@@ -579,7 +822,7 @@ def _skill_entries() -> list[dict[str, Any]]:
         browser = spec["set"] == "tcm" or sid == "draft-tcm-prescription"
         risky = spec["risk"] not in (None, "r1_routine") or spec["min_autonomy"] not in (
             None, "observe")
-        out.append(_entry(
+        e = _entry(
             f"skill.{sid}", "skill", zh, en, meta.get("category", "system"),
             spec["summary"], params, example=meta.get("example"),
             exec_=B_R if (in_process and browser) else R,
@@ -596,7 +839,14 @@ def _skill_entries() -> list[dict[str, Any]]:
                    "forbidden_claims": spec["forbidden_claims"],
                    "max_evidence_tier": spec["max_evidence_tier"], "network": spec["network"],
                    "content_hash": spec["content_hash"], "risk": spec["risk"],
-                   "min_autonomy": spec["min_autonomy"], "set": spec["set"]}))
+                   "min_autonomy": spec["min_autonomy"], "set": spec["set"]})
+        # a pinned skill's code is checked against the lockfile's content hash when it runs;
+        # an unpinned candidate runs only as a development run, never released
+        levels = ({"lock_pin": {"status": "PASS", "record": _RECORDS["lock_pin"]}}
+                  if spec["pinned"] else {})
+        _evidence(e, spec["entrypoint"], spec["version"], resolved=True, levels=levels,
+                  content_hash=spec["content_hash"])
+        out.append(e)
     return out
 
 
@@ -666,13 +916,14 @@ def _connector_entries() -> list[dict[str, Any]]:
     from bioagent.providers.public_apis import SOURCES
 
     out = []
+    rows = _connector_rows()
     for s in SOURCES:
         category = ("literature" if s.domain == "literature"
                     else "tcm_data" if s.key in _TCM_CONNECTORS else "live_sources")
         for op in s.operations:
             example = dict(op.example) if all(a in op.example for a in op.args) else None
             title = f"{s.name} · {op.name}"
-            out.append(_entry(
+            e = _entry(
                 f"connector.{s.key}.{op.name}", "connector", title, title, category,
                 f"{op.description} ({s.name}, {s.host})", op_schema(op), example=example,
                 exec_=B_R, network=True,
@@ -682,7 +933,16 @@ def _connector_entries() -> list[dict[str, Any]]:
                 connector={"key": s.key, "name": s.name, "operation": op.name,
                            "method": op.method, "host": s.host, "license": s.license,
                            "transport": "https" if s.base_url.startswith("https://") else "http",
-                           "rate_note": s.rate_note, "docs": s.docs, "domain": s.domain}))
+                           "rate_note": s.rate_note, "docs": s.docs, "domain": s.domain})
+            # the real upstream answered a real request (scripts/verify_connectors.py, by
+            # hand); the gateway and fixture tests are not live evidence and are not listed
+            row = rows.get((s.key, op.name))
+            levels = ({"live_upstream": {"status": _LIVE_STATUS.get(row.get("status", ""), "UNVERIFIED"),
+                                         "at": row.get("verified_at") or None,
+                                         "record": _RECORDS["live_upstream"]}} if row else {})
+            _evidence(e, f"bioagent.providers.public_apis:{s.key}.{op.name}", _version("bioagent"),
+                      resolved=True, levels=levels)
+            out.append(e)
     return out
 
 
@@ -773,6 +1033,9 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                "mentioned", "predicted", "signal", "tested_negative", "inconclusive"]
     tags = ("中医药数据", "数据枢纽", "数据库", "tcmdb", "TCM data")
     hub_note = "Needs a dataset store built on the runner or imported into this browser; unavailable stores are reported explicitly."
+    # data: the stores an entry reads ('*' = any built store); data_from: the argument that
+    # names it (capability.datasets_for). Readiness is needs_dataset until one is built here.
+    from_arg = {"param": "dataset"}
     return [
         _entry("tcmdb.formulas", "tcmdb", "完整方剂库检索", "Complete formula workbook", "tcm_data",
                "Search every row and all seven source fields of the repository formula workbook. "
@@ -834,7 +1097,7 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
         _entry("tcmdb.tables", "tcmdb", "数据表结构", "Tables of a dataset", "tcm_data",
                f"Tables and columns of a built dataset. {hub_note}",
                obj({"dataset": dataset_s}, required=("dataset",)), exec_=B_R,
-               tags=(*tags, "表", "字段")),
+               tags=(*tags, "表", "字段"), data_from=from_arg),
         _entry("tcmdb.query", "tcmdb", "数据表查询", "Query a table", "tcm_data",
                "Rows of one source table: where = exact equality, contains = case-insensitive "
                f"substring, both parameterised; column names are checked. {hub_note}",
@@ -842,7 +1105,7 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "where": obj({}, additional=True), "contains": obj({}, additional=S()),
                     "columns": arr(S()), "limit": I(minimum=1, maximum=10000, default=50),
                     "offset": I(minimum=0, default=0)}, required=("dataset", "table")),
-               exec_=B_R, tags=(*tags, "查询", "SQL")),
+               exec_=B_R, tags=(*tags, "查询", "SQL"), data_from=from_arg),
         _entry("tcmdb.relations", "tcmdb", "数据枢纽关系查询", "Hub relations", "tcm_data",
                "Relations of one shape across every built store, each row with its source, "
                "evidence kind, reference and licence; limit is per source. Predicted, "
@@ -852,7 +1115,8 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "outcomes": arr(S(enum=["positive", "negative", "inconclusive"])),
                     "sources": arr(S()), "commercial": B(default=False),
                     "limit": I("per source", minimum=1, maximum=500, default=50)}),
-               exec_=B_R, tags=(*tags, "关系", "成分", "靶点", "药物相互作用", "herb_ingredient")),
+               exec_=B_R, tags=(*tags, "关系", "成分", "靶点", "药物相互作用", "herb_ingredient"),
+               data=["*"]),
         _entry("tcmdb.consensus", "tcmdb", "多源一致性", "Cross-source consensus", "tcm_data",
                "One relation kind reconciled across sources: ids unified, copies counted once, "
                f"evidence kinds kept apart, contradictions and silence reported. {hub_note}",
@@ -860,18 +1124,19 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
                     "contains": B(default=False), "min_support": S(enum=support),
                     "merge_processed": B(default=False),
                     "limit": I("items returned", minimum=1, maximum=500, default=50)},
-                   required=("kind",)), exec_=B_R, tags=(*tags, "一致性", "独立来源", "共识")),
+                   required=("kind",)), exec_=B_R, tags=(*tags, "一致性", "独立来源", "共识"),
+               data=["*"]),
         _entry("tcmdb.compare", "tcmdb", "来源比较", "Compare sources", "tcm_data",
                f"Per-source object sets of one subject: shared, source-only, overlaps. {hub_note}",
                obj({"kind": kind_s, "subject": S(), "sources": arr(S()),
                     "merge_processed": B(default=False)}, required=("kind", "subject")),
-               exec_=B_R, tags=(*tags, "比较", "重叠")),
+               exec_=B_R, tags=(*tags, "比较", "重叠"), data=["*"]),
         _entry("tcmdb.evidence_for", "tcmdb", "临床试验与文献记录", "Trials and papers recorded",
                "tcm_data", "Clinical trials, meta-analyses and papers recorded for a herb, formula "
                f"or ingredient across the built stores. {hub_note}",
                obj({"subject": S(), "limit": I("per source", minimum=1, maximum=500, default=50),
                     "contains": B(default=False)}, required=("subject",)),
-               exec_=B_R, tags=(*tags, "临床试验", "文献", "荟萃分析")),
+               exec_=B_R, tags=(*tags, "临床试验", "文献", "荟萃分析"), data=["*"]),
         _entry("tcmdb.licences", "tcmdb", "数据许可", "Licences of built data", "tcm_data",
                "Each built dataset's relation kinds with their licence text, reuse class and "
                "whether commercial reuse is allowed.", obj({}), exec_=B_R,
@@ -879,7 +1144,7 @@ def _tcmdb_entries() -> list[dict[str, Any]]:
         _entry("tcmdb.unresolved", "tcmdb", "未解析记录", "Unresolved rows", "tcm_data",
                f"Rows a source gave whose object it could not identify. {hub_note}",
                obj({"dataset": dataset_s, "limit": I(minimum=1, maximum=1000, default=50)},
-                   required=("dataset",)), exec_=B_R, tags=(*tags, "未解析")),
+                   required=("dataset",)), exec_=B_R, tags=(*tags, "未解析"), data_from=from_arg),
     ]
 
 
@@ -1121,13 +1386,27 @@ def _environment_groups() -> list[str]:
         return []
 
 
+def _dataset_hosts(keys: Iterable[str]) -> dict[str, list[str]]:
+    """The hosts each dataset's files are downloaded from (as tcmdb.datasets lists them):
+    a fetch is approved for these, not for every host of every dataset."""
+    try:
+        from bioagent.tcmdb import DATASETS
+    except Exception:                                           # noqa: BLE001
+        return {}
+    wanted = set(keys)
+    return {d.key: sorted({f.url.split("/")[2] for f in d.files if "://" in f.url})
+            for d in DATASETS if d.key in wanted}
+
+
 def _job_entries() -> list[dict[str, Any]]:
     _, keys, fetchable = _tcmdb_vocab()
     out = []
     for kind, spec in JOB_KINDS.items():
         params = copy.deepcopy(spec["parameters"])
+        hosts_by = None
         if kind == "tcmdb.fetch" and fetchable:
             params["properties"]["dataset"]["enum"] = fetchable
+            hosts_by = {"dataset": _dataset_hosts(fetchable)}
         if kind == "tcmdb.build" and keys:
             params["properties"]["dataset"]["enum"] = keys + ["all"]
         if kind == "skill.run":
@@ -1144,7 +1423,7 @@ def _job_entries() -> list[dict[str, Any]]:
             exec_=R, network=bool(spec.get("network")), confirm=True, job=True,
             gpu=bool(spec.get("gpu")), heavy=spec.get("heavy", ()),
             tags=[kind, "job", "任务", "后台任务", *spec.get("tags", ())],
-            hosts=spec.get("hosts"), optional=spec.get("optional"),
+            hosts=spec.get("hosts"), hosts_by=hosts_by, optional=spec.get("optional"),
             network_if=spec.get("network_if"), duration=spec.get("duration")))
     return out
 
@@ -1152,13 +1431,32 @@ def _job_entries() -> list[dict[str, Any]]:
 # ------------------------------------------------------------------------- system
 
 
+def _provider_hosts() -> dict[str, list[str]]:
+    """The hosts each reviewed ToolUniverse and BioMCP wrapper reaches, from the checked-in
+    allowlists (the same ones system.provider_call admits a tool from)."""
+    out: dict[str, list[str]] = {}
+    try:
+        from bioagent.providers.tooluniverse import load_allowlist
+        out.update({t.name: sorted(t.hosts) for t in load_allowlist().tools})
+    except Exception:                                           # noqa: BLE001
+        pass
+    try:
+        from bioagent.providers.biomcp import load_server_config
+        out.update({name: sorted(t.hosts) for name, t in load_server_config().tools.items()})
+    except Exception:                                           # noqa: BLE001
+        pass
+    return dict(sorted(out.items()))
+
+
 def _system_entries() -> list[dict[str, Any]]:
     tags = ("系统", "环境", "审计", "system")
+    provider_hosts = _provider_hosts()
     return [
         _entry("system.capabilities", "system", "运行能力", "Capabilities", "system",
                "What can run now and where: runtime, versions, network profile, purpose, "
                "optional dependencies, the project's audit-chain location, and counts of "
-               "runnable entries.", obj({}), example={}, tags=(*tags, "能力", "状态", "设备")),
+               "runnable entries and of entries by readiness state (system.capability_audit "
+               "lists them).", obj({}), example={}, tags=(*tags, "能力", "状态", "设备")),
         _entry("system.provider_catalog", "system", "第三方封装完整目录", "Complete third-party provider index", "system",
                "Search the complete bundled third-party capability catalogue and inspect every "
                "reviewed ToolUniverse and BioMCP wrapper, source hosts, package pins and explicit "
@@ -1177,7 +1475,8 @@ def _system_entries() -> list[dict[str, Any]]:
                "server may be supplied.",
                obj({"provider": S(enum=["tooluniverse", "biomcp"]), "tool": S(),
                     "arguments": obj({}, additional=True)}, required=("provider", "tool")),
-               exec_=R, network=True, tags=(*tags, "第三方", "ToolUniverse", "BioMCP", "封装")),
+               exec_=R, network=True, tags=(*tags, "第三方", "ToolUniverse", "BioMCP", "封装"),
+               hosts_by={"tool": provider_hosts} if provider_hosts else None),
         _entry("system.catalog_search", "system", "能力检索", "Search capabilities", "system",
                "Search the catalog by Chinese or English keywords, with filters by category, "
                "kind and what can run now.",
@@ -1209,6 +1508,20 @@ def _system_entries() -> list[dict[str, Any]]:
                "Verify the hash chain of this project's governed runs: record count, head hash, "
                "event types, and where it breaks if it does.", obj({}), example={},
                tags=(*tags, "审计链", "哈希链", "核验")),
+        _entry("system.capability_audit", "system", "能力审计", "Capability audit", "system",
+               "Every catalog entry against THIS runtime (the browser or this runner): its "
+               "implementation state, its readiness here (ready, needs_runner, "
+               "missing_dependency, needs_dataset, network_unavailable, …) with each missing "
+               "requirement and the step that supplies it, and its committed verification "
+               "status and date; counts by readiness and implementation state. It never claims "
+               "network reachability: no request is sent, and 'ready' for an entry that reaches "
+               "a host means only that web access is on.",
+               obj({"state": S("only entries in this readiness state", enum=list(capability.READINESS)),
+                    "kind": S(enum=list(ENTRY_KINDS)), "category": S(enum=list(CATEGORY_IDS)),
+                    "limit": I("entries listed (the counts cover all)", minimum=1, maximum=1000,
+                               default=100)}),
+               example={"kind": "job"},
+               tags=(*tags, "能力", "就绪", "依赖", "核验", "readiness", "audit", "verification")),
     ]
 
 
@@ -1227,6 +1540,8 @@ def _section(kind: str) -> list[dict[str, Any]]:
     if kind not in _SECTIONS:
         try:
             built = _SECTION_BUILDERS[kind]()
+            for e in built:
+                _annotate(kind, e)
         except Exception as exc:                                # noqa: BLE001
             # One unreadable source (a missing optional manifest, a broken template) must not
             # take the whole catalog with it; the failure is reported in the document.
@@ -1258,8 +1573,9 @@ _MODULES = {"rdkit": "rdkit", "meeko": "meeko", "vina": "vina", "gemmi": "gemmi"
             "scanpy": "scanpy", "harmonypy": "harmonypy", "leidenalg": "leidenalg",
             "scvi-tools": "scvi", "paper-qa": "paperqa", "pydeseq2": "pydeseq2",
             "pyarrow": "pyarrow", "numpy": "numpy", "scipy": "scipy", "pandas": "pandas",
-            "openpyxl": "openpyxl"}
-_BINARIES = {"salmon", "kallisto", "hisat2", "fastp", "colabfold_batch"}
+            "openpyxl": "openpyxl", "anndata": "anndata", "umap-learn": "umap"}
+_BINARIES = {"salmon", "kallisto", "hisat2", "hisat2-build", "samtools", "featureCounts", "fastp",
+             "colabfold_batch"}
 
 
 def dependency_present(name: str) -> bool:
@@ -1276,18 +1592,41 @@ def dependency_present(name: str) -> bool:
         return False
 
 
-def entries(where: str = "runner", probe: bool = True) -> list[dict[str, Any]]:
+def _default_built() -> list[str] | None:
+    """The datasets built in this machine's default data hub (BIOAGENT_TCMDB)."""
+    try:
+        from bioagent.tcmdb import TCMDataHub
+        return TCMDataHub().built()
+    except Exception:                                           # noqa: BLE001
+        return None
+
+
+def entries(where: str = "runner", probe: bool = True, *, network: bool | None = None,
+            jobs: bool | None = None, built: Iterable[str] | None = None) -> list[dict[str, Any]]:
     """Every entry (copies). On the runner, ``probe`` marks entries whose required optional
-    dependencies are missing with ``available: false`` and ``missing``; in the browser
-    nothing is probed (this machine is not the user's browser)."""
+    dependencies are missing with ``available: false`` and ``missing``, and adds each
+    engine's readiness. ``state.readiness.runner`` (capability.readiness) is added only when
+    the caller says what this runner's ``network`` switch is and whether it has a job
+    service (``jobs``), with the datasets ``built`` here (by default those of the default
+    data hub): readiness judged against a guess is not this runner's (the running runner
+    fills it in, server.py). In the browser nothing is probed (this machine is not the
+    user's browser)."""
     out = []
     cache: dict[str, bool] = {}
+
+    def present(name: str) -> bool:
+        return cache.setdefault(name, dependency_present(name))
+
+    probing = where == "runner" and probe
+    judged = probing and network is not None and jobs is not None
+    if judged and built is None:
+        built = _default_built()
+    built_list = list(built) if built is not None else None
     for kind in _SECTION_BUILDERS:
         for e in _section(kind):
             item = copy.deepcopy(e)
-            if where == "runner" and probe:
-                missing = [d for d in item.get("heavy") or ()
-                           if not cache.setdefault(d, dependency_present(d))]
+            if probing:
+                missing = [d for d in item.get("heavy") or () if not present(d)]
                 if missing:
                     item["available"] = False
                     item["missing"] = missing
@@ -1295,18 +1634,32 @@ def entries(where: str = "runner", probe: bool = True) -> list[dict[str, Any]]:
                     item["available"] = True
                 optional = item.get("optional") or ()
                 if optional:
-                    item["optional_present"] = [d for d in optional
-                                                if cache.setdefault(d, dependency_present(d))]
+                    item["optional_present"] = [d for d in optional if present(d)]
+                for engine in (item.get("execution") or {}).get("engines") or ():
+                    names = [n for r in engine.get("requires") or () for n in r.get("names") or ()
+                             if not present(n)]
+                    requires = [r for r in engine.get("requires") or ()
+                                if any(n in names for n in r.get("names") or ())]
+                    engine["readiness"] = {"runner": {
+                        "state": "missing_dependency" if names else "ready", "requires": requires}}
+            if judged:
+                item["state"]["readiness"] = {"runner": capability.readiness(
+                    item, where="runner", network=bool(network), jobs=bool(jobs),
+                    built=built_list)}
             out.append(item)
     return out
 
 
-def build_catalog(where: str = "runner", probe: bool = True) -> dict[str, Any]:
-    """The §2 catalog document for ``where`` ("runner" or "browser")."""
+def build_catalog(where: str = "runner", probe: bool = True, *, network: bool | None = None,
+                  jobs: bool | None = None, built: Iterable[str] | None = None) -> dict[str, Any]:
+    """The §2 catalog document for ``where`` ("runner" or "browser"). The browser's is built
+    with ``probe=False`` on the build machine: deterministic, no ``available``, no readiness
+    (the page decides the browser's readiness itself). The runner's carries readiness only
+    when ``network`` and ``jobs`` are given (entries)."""
     from .envelope import versions
 
     where = "browser" if where == "browser" else "runner"
-    items = entries(where, probe)
+    items = entries(where, probe, network=network, jobs=jobs, built=built)
     counts: dict[str, int] = {c: 0 for c in CATEGORY_IDS}
     for e in items:
         counts[e["category"]] = counts.get(e["category"], 0) + 1
@@ -1318,6 +1671,10 @@ def build_catalog(where: str = "runner", probe: bool = True) -> dict[str, Any]:
         "categories": [{"id": cid, "zh": zh, "en": en, "count": counts.get(cid, 0)}
                        for cid, zh, en in CATEGORIES],
         "core": copy.deepcopy(list(CORE_TOOLS)), "entries": items,
+        # the largest request one call takes, per runtime; an entry's own ``limits`` override it
+        "limits": {"max_request_bytes": dict(capability.MAX_REQUEST_BYTES)},
+        # the committed record each verification level rests on (unless a level names its own)
+        "verification_records": dict(_RECORDS),
         "counts": {"core": len(CORE_TOOLS), "entries": len(items),
                    "by_kind": {k: sum(1 for e in items if e["kind"] == k) for k in ENTRY_KINDS}},
         # acts reserved for a person ({name: message}): never entries; the page refuses them by name
@@ -1407,39 +1764,39 @@ def _score(e: Mapping[str, Any], tokens: list[str], full: str) -> float:
 
 
 def runnable_here(e: Mapping[str, Any], *, where: str, network: bool = False,
-                  jobs: bool = False) -> bool:
-    if where not in (e.get("exec") or ()):
-        return False
-    if e.get("available") is False:
-        return False
-    if e.get("job") and not jobs:
-        return False
-    return not (e.get("network") and not network)
+                  jobs: bool = False, built: Iterable[str] | None = None,
+                  kind_missing: Mapping[str, list[str]] | None = None) -> bool:
+    """Whether ``e`` is ready in ``where`` (capability.readiness)."""
+    return not _needs(e, where=where, network=network, jobs=jobs, built=built,
+                      kind_missing=kind_missing)
 
 
-def _needs(e: Mapping[str, Any], *, where: str, network: bool, jobs: bool) -> list[str]:
-    out = []
-    if where not in (e.get("exec") or ()):
-        out.append("the local runner (tcmstudio serve)" if "runner" in (e.get("exec") or ())
-                   else "the browser runtime")
-    if e.get("available") is False and e.get("missing"):
-        out.append("install: " + ", ".join(e["missing"]))
-    if e.get("network") and not network:
-        out.append("web access for this project")
-    if e.get("job") and not jobs:
-        out.append("the runner's job service")
-    return out
+def _needs(e: Mapping[str, Any], *, where: str, network: bool, jobs: bool,
+           built: Iterable[str] | None = None,
+           kind_missing: Mapping[str, list[str]] | None = None) -> list[str]:
+    """What the model reads for an entry that cannot run now: the details of its missing
+    requirements (unchanged words: 'the local runner (tcmstudio serve)', 'install: …',
+    'web access for this project', 'the runner's job service')."""
+    return [r["detail"] for _, r in capability.requirements(
+        e, where=where, network=network, jobs=jobs,
+        built=list(built) if built is not None else None,
+        kind_missing=(kind_missing or {}).get(e["id"]))]
 
 
 def catalog_search(query: str = "", category: str | None = None, kind: str | None = None,
                    runnable_now: bool = False, limit: int = 10, where: str = "runner", *,
                    network: bool = False, jobs: bool = False,
-                   items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+                   items: list[dict[str, Any]] | None = None,
+                   built: Iterable[str] | None = None,
+                   kind_missing: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
     """Ranked entries for a query (ids, titles, tags, summaries; Chinese substrings count),
-    each with its full parameter schema so the model can call it."""
+    each with its full parameter schema so the model can call it. ``built`` (the datasets
+    built here) and ``kind_missing`` (what the job service says a kind lacks, by entry id)
+    let runnable_now and needs count datasets and job-kind requirements too."""
     limit = max(1, min(int(limit or 10), 25))
     query = str(query or "").strip()
     pool = items if items is not None else [e for k in _SECTION_BUILDERS for e in _section(k)]
+    built = list(built) if built is not None else None
     tokens = _tokens(query)
     full = query.lower()
     scored = []
@@ -1448,7 +1805,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
             continue
         if kind and e["kind"] != kind:
             continue
-        if runnable_now and not runnable_here(e, where=where, network=network, jobs=jobs):
+        if runnable_now and not runnable_here(e, where=where, network=network, jobs=jobs,
+                                              built=built, kind_missing=kind_missing):
             continue
         s = _score(e, tokens, full) if tokens else 1.0
         # A lone shared character pair (a bigram such as 分析) is noise, not a match.
@@ -1457,13 +1815,15 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
     scored.sort(key=lambda x: (-x[0], _KIND_ORDER.get(x[1]["kind"], 9), x[1]["id"]))
     matched = []
     for s, e in scored[:limit]:
-        run = runnable_here(e, where=where, network=network, jobs=jobs)
+        needs = _needs(e, where=where, network=network, jobs=jobs, built=built,
+                       kind_missing=kind_missing)
+        run = not needs
         matched.append({"id": e["id"], "kind": e["kind"], "category": e["category"],
                         "title": dict(e["title"]), "summary": e["summary"],
                         "parameters": copy.deepcopy(e["parameters"]),
                         "example": copy.deepcopy(e.get("example")),
                         "exec": list(e.get("exec") or ()), "runnable_now": run,
-                        "needs": [] if run else _needs(e, where=where, network=network, jobs=jobs),
+                        "needs": needs,
                         "network": bool(e.get("network")), "confirm": bool(e.get("confirm")),
                         "job": bool(e.get("job")), "score": round(s, 2)})
     counts: dict[str, int] = {}

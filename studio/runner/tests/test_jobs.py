@@ -86,6 +86,41 @@ def test_rnaseq_job_lifecycle_with_events_files_and_verification(tmp_path, world
             assert hashlib.sha256((out / a["path"]).read_bytes()).hexdigest() == a["sha256"]
         de = final["result"]["differential_expression"]
         assert de["significant"] > 0 and de["tested"] == 30
+        # what the collection checked, and what the kind requires, are on the record
+        assert final["outcome"]["checks"] == ["controller_digests", "validator:run"]
+        assert final["outcome"]["expected"] == ["run", "report", "results"]
+        st = c.call("job_status", {"job_id": job["id"]})
+        res = st["receipt"]["result"]
+        assert (res["kind"], res["outcome"], res["assurance"]) == (
+            "computation", "validated", "outputs_verified")
+        assert [ch["id"] for ch in res["checks"]] == ["controller_digests", "validator:run",
+                                                      "run_manifest"]
+        assert res["artifacts"] == {"expected": ["run", "report", "results"], "missing": [],
+                                    "hash_mismatch": []}
+        impl = st["receipt"]["execution"]["implementation"]
+        assert impl["job_kind"] == "pipeline.rnaseq" and impl["pipeline"] == "bioagent.omics.rnaseq"
+        assert len(impl["code_digest"]) == 64
+        engine = st["receipt"]["execution"]["engine"]          # the run's own choice, not "auto"
+        assert engine["id"] == "builtin-quant" and engine["version"]
+        assert [e["id"] for e in engine["with"]] == ["builtin-trim", "builtin-de"]
+        inputs = {d["param"]: d for d in st["receipt"]["provenance"]["datasets"]
+                  if d.get("role") == "input"}
+        assert inputs["samples"]["sha256"] == final["inputs"]["samples"]["sha256"]
+        # run.json is read only at the digest recorded when the job was collected
+        manifest = srv.jobs.run_manifest(job["id"])
+        assert manifest["pipeline"] == "bioagent.omics.rnaseq"
+        run_json = srv.home / "jobs" / job["id"] / "out" / "run.json"
+        original = run_json.read_bytes()
+        run_json.write_text(json.dumps({**manifest, "code_digest": "0" * 64}))
+        with pytest.raises(LookupError, match="no longer has the digest"):
+            srv.jobs.run_manifest(job["id"])
+        st = c.call("job_status", {"job_id": job["id"]})
+        res = st["receipt"]["result"]
+        assert res["artifacts"]["hash_mismatch"] == ["run"] and res["assurance"] == "none"
+        assert {"id": "run_manifest", "ok": False} == {k: v for k, v in res["checks"][-1].items()
+                                                       if k != "detail"}
+        assert "code_digest" not in st["receipt"]["execution"]["implementation"]
+        run_json.write_bytes(original)
         assert "--threads=4" in " ".join(final["command"]) or "--threads=" in " ".join(final["command"])
         assert final["command"][1:4] == ["-I", "-m", "bioagent.cli"]
 
@@ -141,6 +176,9 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert env["status"] == "job_submitted", env
         job_id = env["job"]["id"]
         assert env["job"]["kind"] == "skill.run"
+        assert env["receipt"]["result"]["outcome"] in ("queued", "running")
+        assert env["receipt"]["result"]["kind"] is None, "no result yet"
+        assert env["receipt"]["execution"]["implementation"]["job_kind"] == "skill.run"
         # a safety-record lookup run as a job is pending work, not a prediction
         assert env["governance"]["limitations"] == [
             "A job that has not succeeded is pending work, not a result."]
@@ -178,12 +216,29 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert "已完成并核验" not in st["summary"]
         assert "release authorized" in st["summary_en"]
         assert "Release: released" in st["text"] and "Claims" in st["text"]
+        # receipt/1: the governed run's six states passed (a record, release authorized);
+        # the job's own checks follow them
+        res = st["receipt"]["result"]
+        assert (res["kind"], res["outcome"], res["assurance"]) == (
+            "record", "validated", "release_authorized")
+        ids = [ch["id"] for ch in res["checks"]]
+        assert ids[:8] == ["schema_valid", "evidence_verified", "outputs_verified",
+                           "execution_declared", "execution_attested", "release_authorized",
+                           "skill_pinned", "outputs_present"]
+        assert ids[8:] == ["controller_digests", "validator:envelope", "envelope_digest"]
+        impl = st["receipt"]["execution"]["implementation"]
+        assert impl["content_hash"] == envelope["receipt"]["content_hash"] and impl["pinned"] is True
+        assert impl["job_kind"] == "skill.run" and impl["job_id"] == job_id
+        assert any(d["id"] == "tcmscience.tcm.seed" for d in st["receipt"]["provenance"]["datasets"])
+        assert st["receipt"]["execution"]["device"]["assigned"] == "cpu"
         # read back only at the digest recorded when the job was collected
         (out / "envelope.json").write_text(json.dumps({**envelope, "summary": "edited"}))
         st = c.call("job_status", {"job_id": job_id})
         assert st["governance"]["released"] is False and not st["governance"]["claims"]
         assert "digest" in st["governance"]["limitations"][0]
         assert "未准予发布" in st["summary"]
+        res = st["receipt"]["result"]
+        assert res["artifacts"]["hash_mismatch"] == ["envelope"] and res["assurance"] == "none"
         # bad arguments are caught before anything runs
         env = c.call("run_pipeline", {"pipeline": "rnaseq", "arguments": {}})
         assert env["status"] == "failed" and env["error"]["type"] == "bad_arguments"
@@ -313,6 +368,52 @@ def test_a_job_whose_record_was_lost_is_found_in_the_trace(tmp_path):
         assert "trace" in final["device_note"]
 
 
+def test_job_receipts_follow_the_job(tmp_path):
+    with running_server(tmp_path / "home", kinds=test_kinds(), max_jobs=1) as (_, c):
+        slow = c.post("/api/jobs", {"kind": "test.sleep", "params": {"seconds": 3, "lines": 3}})[1]
+        _wait_state(c, slow["id"], ("running",))
+        running = c.call("job_status", {"job_id": slow["id"]})["receipt"]
+        assert running["result"]["outcome"] == "running" and running["result"]["kind"] is None
+        assert running["execution"]["device"]["assigned"] == "cpu"
+        done = c.wait_job(slow["id"])
+        assert done["outcome"]["checks"] == ["controller_digests"]
+        assert done["outcome"]["expected"] == ["result"]
+        r = c.call("job_status", {"job_id": slow["id"]})["receipt"]
+        assert (r["result"]["outcome"], r["result"]["assurance"]) == ("validated", "outputs_verified")
+        assert r["result"]["checks"] == [{"id": "controller_digests", "ok": True}]
+        assert r["result"]["artifacts"] == {"expected": ["result"], "missing": [], "hash_mismatch": []}
+        assert r["execution"]["device"] == {"requested": "auto", "assigned": "cpu", "used": "cpu",
+                                            "evidence": "selected"}
+        # an exit code that is a result: the runner digested the outputs itself
+        coded = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                "params": {"seconds": 0, "code": 1}})[1]["id"])
+        assert coded["outcome"]["checks"] == ["runner_digests", "required_artefacts"]
+        failed = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                 "params": {"seconds": 0, "code": 3}})[1]["id"])
+        assert "checks" not in failed["outcome"] and failed["outcome"]["expected"] == ["result"]
+        f = c.call("job_status", {"job_id": failed["id"]})["receipt"]["result"]
+        assert (f["outcome"], f["kind"], f["assurance"]) == ("failed", None, "none")
+
+
+def test_a_validator_is_listed_only_for_an_artefact_it_checked(tmp_path):
+    """The controller validates the artefacts it collected; an optional one that is absent
+    was never validated, and outcome.checks does not say it was."""
+    from test_server_support import Kind, _sleep_command, _sleep_prepare
+    base = test_kinds()["test.sleep"]
+    kinds = {"test.sleep": Kind("test.sleep", base.title, "seconds", _sleep_prepare, _sleep_command,
+                                artefacts=(("result", "result.txt", True), ("extra", "extra.txt", False)),
+                                validators={"result": lambda p: None, "extra": lambda p: None},
+                                ok_exit_codes=frozenset({0, 1}), parameters=base.parameters,
+                                heavy=(), timeout_s=120)}
+    with running_server(tmp_path / "home", kinds=kinds) as (_, c):
+        done = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep", "params": {"seconds": 0}})[1]["id"])
+        assert done["state"] == "succeeded"
+        assert done["outcome"]["checks"] == ["controller_digests", "validator:result"]
+        coded = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                "params": {"seconds": 0, "code": 1}})[1]["id"])
+        assert coded["outcome"]["checks"] == ["runner_digests", "required_artefacts", "validator:result"]
+
+
 def test_events_stream_progress_and_logs(tmp_path):
     with running_server(tmp_path / "home", kinds=test_kinds()) as (_, c):
         job = c.post("/api/jobs", {"kind": "test.sleep",
@@ -376,6 +477,13 @@ def test_gpu_jobs_run_one_at_a_time(tmp_path):
         assert second["started_at"] >= first["finished_at"]
         text = (srv.home / "jobs" / a["id"] / "out" / "result.txt").read_text()
         assert "cuda='0'" in text
+        # the poll's receipt names the GPU the runner assigned, never the CPU the poll ran on,
+        # and says no more than that it was selected
+        r = c.call("job_status", {"job_id": a["id"]})["receipt"]
+        assert r["device"] == "cuda:0"
+        device = r["execution"]["device"]
+        assert device["assigned"] == "cuda:0" and device["evidence"] == "selected"
+        assert device["used"] is None and device["note"]
 
 
 # --------------------------------------------------------------------- refusals
@@ -446,6 +554,9 @@ def test_a_refused_job_reaches_the_model_as_a_refusal(tmp_path):
         assert "Error (unavailable): Research loop" in env["text"]
         assert "Remedy: Build the data snapshots" in env["text"]
         assert "runtime_error" not in env["text"]
+        # nothing was queued: not executed, and no implementation named as run
+        assert env["receipt"]["result"]["outcome"] == "not_executed"
+        assert env["receipt"]["execution"]["implementation"] is None
 
 
 def test_paths_outside_the_home_are_not_inputs(tmp_path):

@@ -51,15 +51,19 @@ CLASS_LABELS = {
     "8": "local runner only",
 }
 
-# the tools whose hot loop has a JavaScript kernel (studio/web/js/compute/kernels.js)
+# Which tools have a browser kernel, and which backends it has, is read from the catalog
+# (entry.execution.browser_compute, which tcmstudio.catalog derives from tcmstudio.browser_compute):
+# class 3 when WebGPU is among the backends, class 2 otherwise. These two maps only hold the notes
+# a person wrote for them; a tool listed here without a kernel in the catalog stays in its class.
+# the notes for the tools whose hot loop has a JavaScript kernel (studio/web/js/compute/kernels.js)
 KERNEL = {
     "native.global_alignment": "Needleman–Wunsch",
     "native.local_alignment": "Smith–Waterman",
     "native.protein_alignment": "Needleman–Wunsch / Smith–Waterman (BLOSUM62)",
     "native.edit_distance": "Levenshtein",
 }
-# … and those whose integer counts also have the WebGPU kernel (studio/web/js/runtime/webgpu.js) and the
-# WebAssembly SIMD kernel (studio/web/js/compute/wasm/seqcount.wat)
+# … and for those whose integer counts also have the WebGPU kernel (studio/web/js/runtime/webgpu.js) and
+# the WebAssembly SIMD kernel (studio/web/js/compute/wasm/seqcount.wat)
 GPU = {
     "native.distance_matrix": "pairwise site/difference/transition counts",
     "native.hamming_distance": "mismatch count",
@@ -107,32 +111,43 @@ WEBNN_NOTE = ("No model ships with the site; a packaged ONNX model (embeddings f
               "could run here through ONNX Runtime Web's WebNN, WebGPU or WASM providers")
 
 
+def validation(e: dict) -> str:
+    """The entry's committed verification (entry.verification, from tcmstudio.catalog): each level
+    with its status and, for a dated record, its date. No record is UNVERIFIED, never a pass."""
+    levels = (e.get("verification") or {}).get("levels") or {}
+    if not levels:
+        return "UNVERIFIED: no committed verification record"
+    return "; ".join(f"{name} {lv.get('status', 'UNVERIFIED')}" + (f" ({str(lv['at'])[:10]})" if lv.get("at") else "")
+                     for name, lv in levels.items())
+
+
 def classify(e: dict) -> tuple[str, str, str, str, str]:
     """→ (class, local backends in order, fallback, validation, notes)."""
     eid, exec_ = e["id"], e.get("exec") or []
-    if eid in GPU:
-        return ("3", "webgpu | wasm-simd → js kernel → pyodide", "the CPU kernel, then the original Python",
-                "exact integer counts; packet bound to the input by SHA-256; Python recounts sampled records; "
-                "fixtures + randomized end-to-end parity (SIMD and JavaScript alike)", GPU[eid])
-    if eid in KERNEL:
-        return ("2", "js kernel → pyodide", "the original Python",
-                "byte-identical output (score bits and int/float type); Python re-checks every alignment; "
-                "fixtures + randomized end-to-end parity", KERNEL[eid])
+    checked = validation(e)
+    kernel = (e.get("execution") or {}).get("browser_compute")
+    if kernel and "browser" in exec_:
+        fast = [b for b in kernel.get("backends") or () if b in ("webgpu", "wasm-simd")]
+        if "webgpu" in fast:
+            return ("3", " | ".join(fast) + " → js kernel → pyodide", "the CPU kernel, then the original Python",
+                    checked, GPU.get(eid) or kernel.get("workload", ""))
+        return ("2", "js kernel → pyodide", "the original Python", checked,
+                KERNEL.get(eid) or kernel.get("workload", ""))
     if eid in RUNNER_REASONS:
         cls, why = RUNNER_REASONS[eid]
         return (cls, "runner (native CPython" + (", GPU" if e.get("gpu") else "") + ")",
-                "none in the browser: the call says what it needs", "runner tests", why)
+                "none in the browser: the call says what it needs", checked, why)
     if "browser" not in exec_:
-        return ("8", "runner (native CPython)", "none in the browser", "runner tests", "runner-only entry")
+        return ("8", "runner (native CPython)", "none in the browser", checked, "runner-only entry")
     if e.get("network"):
         hosts = ", ".join(e.get("hosts") or [])
         return ("1g", "pyodide + same-origin gateway", "unavailable offline or when the source is down; the runner",
-                "request templates reviewed; edge validates hosts, methods, sizes", hosts)
+                checked, hosts)
     if eid in WASM_CANDIDATES:
-        return ("5", "pyodide", "—", "byte-identical to native CPython (runtime check)", WASM_CANDIDATES[eid])
+        return ("5", "pyodide", "—", checked, WASM_CANDIDATES[eid])
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
-    return ("1", "pyodide", "—", "byte-identical to native CPython (runtime check)", note)
+    return ("1", "pyodide", "—", checked, note)
 
 
 def mobile(cls: str, e: dict) -> str:
@@ -144,9 +159,19 @@ def mobile(cls: str, e: dict) -> str:
     return "no: needs the local runner on a computer"
 
 
-def rows() -> list[dict]:
+def catalog() -> dict:
     from tcmstudio.catalog import build_catalog
-    doc = build_catalog("browser", probe=False)
+    return build_catalog("browser", probe=False)
+
+
+def connector_counts(doc: dict | None = None) -> tuple[int, int]:
+    """(sources, operations) of the connector entries."""
+    items = [e for e in (doc or catalog())["entries"] if e["kind"] == "connector"]
+    return len({e["connector"]["key"] for e in items}), len(items)
+
+
+def rows() -> list[dict]:
+    doc = catalog()
     out = []
     for e in sorted(doc["entries"], key=lambda x: x["id"]):
         cls, backends, fallback, validation, notes = classify(e)
@@ -194,7 +219,7 @@ FAMILIES = [
      "MB (formula SQLite 12 MB, loaded on demand)", "yes",
      "done; formula search ranked by relevance, a herb under all its names (rank: true)",
      "semantic retrieval with a packaged embedding model (P2)"),
-    ("Public database connectors (119 sources, 444 operations)", "connector.*", "1g",
+    ("Public database connectors ({sources} sources, {operations} operations)", "connector.*", "1g",
      "bounded responses", "yes (online)", "done: local parsing and policy, data via the gateway", "—"),
     ("Text embeddings, classification, reranking (none exist yet)", "—", "4", "20–120 MB models",
      "small models", "not started: no model is packaged", "P2: one ONNX embedding model, WebNN → WebGPU → WASM"),
@@ -210,12 +235,18 @@ FAMILIES = [
 def summary(table: list[dict]) -> str:
     counts = Counter(r["class"] for r in table)
     kinds = Counter((r["class"], r["kind"]) for r in table)
+    sources, operations = connector_counts()
+    checked = Counter("UNVERIFIED" if r["validation"].startswith("UNVERIFIED") else "a committed record"
+                      for r in table)
     lines = ["# Browser compatibility matrix", "",
              "Generated by `studio/scripts/compat_matrix.py` from the tool catalog; one row per entry in "
              "[`matrix.csv`](matrix.csv). `--check` keeps it current (studio/runner/tests).", "",
              f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 2, 3, 5): "
              f"{sum(counts[c] for c in ('1', '1g', '2', '3', '5'))}; with a local kernel (2, 3): "
              f"{counts['2'] + counts['3']}; on the local runner only (6, 7, 8): {sum(counts[c] for c in ('6', '7', '8'))}.", "",
+             f"Validation (the `validation` column) is each entry's committed verification record "
+             f"(`entry.verification` in the catalog): {checked['a committed record']} entries have one, "
+             f"{checked['UNVERIFIED']} are UNVERIFIED (no record, which is not a failure).", "",
              "| Class | Meaning | Entries | By kind |", "|---|---|---:|---|"]
     for cls, label in CLASS_LABELS.items():
         if not counts[cls]:
@@ -226,7 +257,7 @@ def summary(table: list[dict]) -> str:
               "## By family", "",
               "| Family | Entries | Class | Memory / compute | Phones | Status | Next |", "|---|---|---|---|---|---|---|"]
     for fam in FAMILIES:
-        lines.append("| " + " | ".join(fam) + " |")
+        lines.append("| " + " | ".join(f.format(sources=sources, operations=operations) for f in fam) + " |")
     lines += ["", "Rows of `matrix.csv`: " + ", ".join(f"`{f}`" for f in FIELDS) + ".", ""]
     return "\n".join(lines)
 

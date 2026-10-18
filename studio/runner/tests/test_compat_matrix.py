@@ -25,3 +25,30 @@ def test_every_entry_has_a_class_and_the_kernels_are_where_the_code_is():
     for r in table:
         if "browser" not in r["exec_now"]:
             assert r["class"] in ("6", "7", "8"), r["id"]
+
+
+def test_classes_backends_and_validation_come_from_the_catalog():
+    sys.path.insert(0, str(SCRIPT.parent))
+    import compat_matrix
+    doc = compat_matrix.catalog()
+    entries = {e["id"]: e for e in doc["entries"]}
+    by_id = {r["id"]: r for r in compat_matrix.rows()}
+    kernels = {i for i, e in entries.items() if (e.get("execution") or {}).get("browser_compute")}
+    gpu = {i for i in kernels if "webgpu" in entries[i]["execution"]["browser_compute"]["backends"]}
+    assert {i for i, r in by_id.items() if r["class"] == "3"} == gpu and len(gpu) == 3
+    assert {i for i, r in by_id.items() if r["class"] == "2"} == kernels - gpu and len(kernels - gpu) == 4
+    # the hand-written notes cover exactly the tools the catalog says have a kernel
+    assert set(compat_matrix.KERNEL) | set(compat_matrix.GPU) == kernels
+    for i, r in by_id.items():
+        levels = entries[i]["verification"]["levels"]
+        if not levels:
+            assert r["validation"] == "UNVERIFIED: no committed verification record", i
+        else:
+            for name, lv in levels.items():
+                assert f"{name} {lv['status']}" in r["validation"], i
+        assert "byte-identical to native CPython (runtime check)" not in r["validation"]
+    assert by_id["connector.uniprot.entry"]["validation"].startswith("live_upstream PASS (")
+    sources, operations = compat_matrix.connector_counts(doc)
+    text = compat_matrix.summary(compat_matrix.rows())
+    assert f"Public database connectors ({sources} sources, {operations} operations)" in text
+    assert sources == len({e["connector"]["key"] for e in entries.values() if e["kind"] == "connector"})

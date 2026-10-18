@@ -391,7 +391,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         explain why something is unavailable and what would make it available.""",
           obj({}), "system.capabilities", B_R),
     _core("catalog_search", "能力检索", "Search capabilities", "system", """
-        Search every TCMScience capability beyond these core tools (about 640: 150 native
+        Search every TCMScience capability beyond these core tools (about 650: 150 native
         tools — clinical calculators, statistics, sequences, phylogenetics …; 444 API
         operations; governed skills; TCM data hub, clinic, study-design and job operations)
         with Chinese or English keywords (十八反, eGFR, 生存分析). Returns ids with their full

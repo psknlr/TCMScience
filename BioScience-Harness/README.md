@@ -637,12 +637,12 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
         agentspec.py       AgentSpec (data) + Runtime (executes any spec)
       backends/            python | mcp | dataset | subprocess | container | none
       providers/           discovery from catalogue rows, SKILL.md trees (+ skill.yaml contracts)
-                           and 58 public sources
+                           and 117 public sources
       sources/             third-party databases as snapshots: source cards, KGX-style node/edge
                            schema with two evidence axes, quality gate, verified loads; parsers
                            for NPASS, CMAUP, LOTUS, BindingDB; herb -> species -> compound
                            composition (scripts/build_source_snapshots.py)
-      tools/               147 native bioinformatics, clinical and TCM tools (no dependencies)
+      tools/               150 native bioinformatics, clinical and TCM tools (no dependencies)
       tcm/                 typed TCM knowledge: herbs, processing, formulas, syndromes, classics,
                            evidence tiers, scope, 十八反
       doctor.py            readiness report with a remedy per problem (bioagent doctor)

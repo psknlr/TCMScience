@@ -115,10 +115,20 @@ one test.
   `<think>` always stripped; earlier tool results cut to 2 500 characters.
 
 **Router (`core/router.js`).**
-- Approval reasons: `network | job | confirm | remote_upload | first_runner_call` (`confirm` = a confirm entry that is
-  not a job). Keys stored in `project.approvals` as `"project"`: the entry id (confirm/job), `<entry id>:network`,
-  `<entry id>:remote_upload`, and `runner` (first runner call). Core tools are keyed by the entry they map to, so an
-  approval through `call_tool` covers the core tool too. "once" on the first runner call holds for the page's life.
+- Approval reasons: `network | job | confirm | remote_upload | first_runner_call | remote_runner` (`confirm` = a
+  confirm entry that is not a job; `remote_runner` = the first call on a runner whose address is not loopback).
+  Keys stored in `project.approvals` as `"project"`: the entry id (confirm/job), `<entry id>:network@<sha12>` (the
+  hosts of the call: CONTRACTS §6), `<entry id>:remote_upload`, `runner` (first call on the loopback runner) and
+  `runner@<host>` (a remote runner). A `<entry id>:network` key from before still stands, but only for calls whose
+  hosts are among the entry's static hosts. Core tools are keyed by the entry they map to, so an approval through
+  `call_tool` covers the core tool too. A family core tool (`run_pipeline` → `job.pipeline.*`, `connector_call` →
+  `connector.*`) is keyed by its own name. Its hosts, engines and limits are those of the entry its arguments name.
+  "once" on the first call of a runner holds for the page's life. That runner's, for a remote one. A clinic (`phi`)
+  call to a remote runner is asked about every time and is never stored, and so is a network call whose hosts are
+  not known in advance (`hosts_by` does not map its argument: `system.provider_call` with an unlisted `tool`); no
+  `<entry id>:network` key from before stands for it. Without Web Crypto the network key is
+  `<entry id>:network@<sorted hosts, comma-joined>`. A "project" answer that could not be stored (no project or no
+  store) is recorded with scope `page`, not `project`.
 - Network entries need `project.defaults.web` (else `settings.web` when there is no project; both on by default);
   off → `failed` / `network_off`, no prompt. On, each network entry still asks before its first call (`network`
   approval) unless the project stands approved for it. Hosts shown come from `entry.hosts` or `entry.skill.network`.
@@ -135,11 +145,35 @@ one test.
   the count again, and a first answer that did not settle (a runtime error, a stop) is run again.
 - `catalog_search` / `capabilities_status` are answered by the page when the placed runtime is not `ready`
   (`receipt: {where:"browser", runtime:"studio-js", local:true}`), so the model never waits for Pyodide to search.
-- Router-made envelopes: `receipt.runtime "studio-router"`, `decided_by: "router"`, `output_sha256: null`,
-  `input_sha256` = sha256 of canonical JSON (sorted keys, `(",",":")`, non-ASCII kept — the same bytes as Python's
-  `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` except for floats such as `1.0`).
-- Extras: `whereCall(name, args)`, `placement(x) → {where, reason, message}`, `resolve(name, args)`,
-  `storeApprovals(store)`, `normalizeEnvelope`, `synthEnvelope` (async).
+  Under compute `browser` (or `remote`, or an unknown value) they are never sent to a connected runner; under
+  `remote` or an unknown value the page answers them even when Pyodide is ready (`where()` → `"page"`), so the
+  entries it lists as not runnable, with that preference's need, are the ones the router refuses.
+- Router-made envelopes: `receipt.where "page"`, `runtime "studio-router"`, `decided_by: "router"`, `device: null`,
+  `output_sha256: null`, `input_sha256` = sha256 of canonical JSON (sorted keys, `(",",":")`, non-ASCII kept — the
+  same bytes as Python's `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` except for floats
+  such as `1.0`), plus `core/receipt.js baseReceipt`'s `schema`, `finished_at`, `execution.runtime "page"` and
+  `result {kind:null, outcome, assurance:"none"}`. The runtime clients' own envelopes use the same builder but keep
+  `where` = the runtime they stand for: `runtime "studio-runner-client"` (where `runner`, decided_by
+  `runner-client`), `"studio-unavailable-runtime"` (where its kind, decided_by `unavailable-runtime`), and the
+  worker's runtime string (where `browser`, decided_by `browser-runtime`). The UI's place badge reads `where`, and
+  only `decided_by: "router"` is shown as "not run" there today: a `where:"page"` on these would label a call that
+  targeted the runner 「浏览器」. A runner-client envelope is `not_executed` only for mixed content, the
+  local-network permission, an origin the runner refuses, or a 4xx; a timeout, a dropped connection or a 5xx is
+  `failed` (the runner may have started it), and its text does not say "Not run". `call()` never rejects.
+- Placement reasons beyond the first set: `unknown_compute`, `remote_not_configured`, `too_large_for_browser`,
+  `missing_engine` (CONTRACTS §6, with their requirements). Their messages are in `core/i18n.js`
+  (`core.router.<reason>`, zh and en), along with `core.approval.remote_runner`, `core.approval.remote_runner_phi` and
+  `core.runner.label_remote` (「远程 Runner」: a runner on another machine is never called 本机). Also
+  `core.approval.job_remote` (a job on a remote runner, its host named), `core.approval.network_unknown`,
+  `core.router.missing_deps_remote`, `core.router.too_large_for_browser_only` (an entry only the browser runs),
+  `core.runner.{not_running,timeout,http}_remote` and `core.local.capabilities_remote`. `PLACEMENT_REASONS` also
+  lists `human_only` (placement provenance of a HUMAN_ONLY refusal only).
+- Extras: `whereCall(name, args)`, `placement(x, args?) → {where, reason, message, requires}`, `resolve(name, args)`,
+  `storeApprovals(store)`, `normalizeEnvelope`, `synthEnvelope` (async; `where` default `"page"`, `decided_by`,
+  `outcome`), `hostsOf(entry, args)`, `hostsDigest(hosts)`, `PLACEMENT_REASONS`.
+- Settings (`core/settings.js`): `compute` accepts `remote`. Another text value is kept as saved (a newer version's,
+  or one edited by hand) so the router can report it as `unknown_compute`. Only a missing, empty or non-text value
+  becomes `auto`.
 
 **Model clients (`core/llm/*`).** `streamChat` also takes `toolChoice` ("none" on the last step); yields an extra
 `tool_call_delta {index, name}`; `tool_call` may carry `error` (bad JSON / not an object / cut off at max_tokens) and
@@ -284,10 +318,14 @@ section failed to load. Core tool `parameters` have `additionalProperties:false`
 (the entry reaches `hosts` only when that argument is true: `job.pipeline.fold|dock`, `skill.predict-protein-structure`,
 `skill.dock-ligands`; their `network` is false), `pyodide_packages` (see below), `optional` (optional engines) and on
 the runner `optional_present`, `available`/`missing` (runner + probe only; never in the browser catalog), `doc` (full
-docstring, native), `domain`, `data` + `needs` (the three hk* lookups, runner-only), `connector {key, name, operation,
-method, host, license, rate_note, docs, domain}`, `skill {…§2, risk, min_autonomy, set}`, `phi:true` (clinic entries
-that carry patient data), `duration` (jobs). 642 entries: native 150, skill 11, connector 444, clinic 5
-(template/assess/check/followup/verify), tcmdb 12, study 4, job 9, system 7. `clinic.sign`, `clinic.agreement`,
+docstring, native), `domain`, `data` + `needs` (the three hk* lookups, which run in both runtimes on a store built or
+imported there; `data: ["*"]` on the tcmdb queries that read any built store), `data_from {param}` (tcmdb.tables,
+query, unresolved: the `dataset` argument names the store), `connector {key, name, operation, method, host, license,
+transport, rate_note, docs, domain}`, `skill {…§2, risk, min_autonomy, set}`, `phi:true` (clinic entries that carry
+patient data), `duration` (jobs), and on every entry `implementation`, `state`, `verification` and `approvals`
+(CONTRACTS §2; with `execution.engines`, `hosts_by` and per-entry `limits` where they apply; the document adds
+`limits` and `verification_records`). 650 entries: native 150, skill 11, connector 444, clinic 5
+(template/assess/check/followup/verify), tcmdb 15, study 4, job 11, system 10. `clinic.sign`, `clinic.agreement`,
 registry release/promotion and any shell are not entries; called by name they are `refused` with code `HUMAN_ONLY`.
 
 **browser-runtime.**
@@ -612,6 +650,34 @@ research loop's own `parse_question` would refuse it after the job started. Turn
 (`network: {enabled: true}`, the switch, `--network`) lifts an `offline-analysis` profile; a profile asked for by name
 is kept.
 
+## receipt/1: what the Python side records, by executor (additions to §3 and §4)
+
+The schema, the precedence table and the meaning of each field are in CONTRACTS §3 (**Receipt
+`tcmstudio.receipt/1`**). This is where each value comes from in `tcmstudio`. `envelope.shape` adds `schema`,
+`finished_at` and the defaults to every receipt (`_fallback` too). `dispatch._finish` → `_receipt_parts` fills them
+from the catalog entry, the `Outcome` (`validation`, `executed_args`, `execution`, `provenance`, `result_info`) and
+the job record. Nothing is probed, and nothing is added to `result`. A failure in the receipt code leaves the defaults
+and keeps the call's envelope.
+
+| executor | implementation | provenance | result |
+|---|---|---|---|
+| native | entry `implementation` + registry manifest `{component, entrypoint, manifest_version, deterministic}` (read from a runtime already built, never built for it) | KB lookups: the seed corpus card (`seed_source_card`: id, version, snapshot hash); `bioagent.sources.materia` for an identity-only answer; the workbook (`source_sha256`, rows) when `repository_records`/`repository_formulas` were read; hub-backed lookups: their datasets | `record` for the KB lookups and hub-backed tools, else `computation`; `degraded` fallback from a DEGRADED call |
+| connector | `{key, operation, host}` | `{id: key, host, retrieved_at: request.fetched_at, licence, release: null}`, only when a request was made | `record`; a refusal offline is `not_executed` with no dataset |
+| skill | `{ref: entrypoint, version: skill version, content_hash, pinned}` | `artifact.sources` (snapshot hash as `sha256`, `snapshot_at`, licence, `release` = the card's version) | the six states + `skill_pinned` + `outputs_present`; `release_authorized` only when released with all six true |
+| clinic | `tcmstudio.dispatch:_exec_clinic#<op>` | none: no argument value is copied; validation repairs and problems name paths only | `draft` |
+| tcmdb | `_exec_tcmdb#<op>` | the `dataset` argument and every row's `source`, each with `bioagent.tcmdb.dataset(key).version` as `version`/`release`; the workbook for `tcmdb.formulas` | `record` (or `prediction` when the rows carry `LIMIT_PREDICTED`) |
+| study | `_exec_study#<op>` | seeds (`study.combination`'s `seed`, default 0) | `computation` |
+| job (submit) | the job kind's (or the skill's) + `job_kind`; the engine the arguments choose | inputs with SHA-256; seeds with the schema default (= kinds.py's) | `queued`, no kind; device `assigned: null` with a note |
+| `job_status` | the job kind's or, for `skill.run`, the skill's + `job_id`; a pipeline's `{pipeline, code_digest}` from run.json | inputs; run.json's config seeds, fold models (method, version, request/response digests) and ADMET model cards; a `skill.run` job's own receipt provenance | the job's state; checks from `outcome.checks`, `run_manifest`/`envelope_digest`; `artifacts.expected` from `outcome.expected`; `outputs_verified` when digested; the engine the run chose (run.json `engine`/`trimmer`, not the parameters' `auto`) |
+| system | `_exec_system#<op>`; `provider_call` adds `{provider, component}` | `provider_call`: the request's host and time | `system` (`provider_call`: `record`); `system.capabilities` adds `remote_compute {configured:false, reason}` |
+
+`receipt.device` (legacy) on a job envelope is the job's assigned device once it has one (the poll used to say `cpu`
+for a GPU job). `browser_compute._mirror` copies `compute.backend` into `execution.kernel`, the GPU device into
+`execution.device.assigned/used`, and a rejected packet into a `compute` fallback, whenever `call_json` writes
+`compute`. `jobs.JobService._collect_once` records `outcome.checks` (succeeded jobs) and `outcome.expected`.
+`JobService.run_manifest(job_id)` and `JobsHook.run_manifest` read `out/run.json` at its recorded digest. They share
+`_recorded_json` with `envelope(job_id)`, which now reads its artefact's recorded path.
+
 ## integration: how the notes above were resolved (CONTRACTS.md updated where the implementation is better)
 
 - **Placement (runner-core, web-core, web-ui).** CONTRACTS §2 said `exec` order is the preference (browser first);
@@ -651,8 +717,9 @@ is kept.
   matching Chromium); `npm run test:runtime` runs browser-runtime's Chromium check. `wrangler dev` presents requests to the
   Worker as `https://science.impf.ai` only with `--local-protocol https` (plain http gets `https_required`), so the e2e
   Worker listens with https and the page ignores the self-signed certificate.
-- **Not changed.** Envelopes decided in the page still carry `receipt.where: "browser"` with `decided_by: "router"` (the
-  UI shows "not run" for them). `--dev` publishing of `dev/gallery.html` stays the lead's call.
+- **Not changed (then).** Envelopes decided in the page still carried `receipt.where: "browser"` with `decided_by:
+  "router"` (the UI shows "not run" for them). Since receipt/1 they carry `receipt.where: "page"` (web-core Router
+  above). `--dev` publishing of `dev/gallery.html` stays the lead's call.
 
 ## integration (review round): what changed across parts after the review fixes
 

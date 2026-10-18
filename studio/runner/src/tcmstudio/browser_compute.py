@@ -299,5 +299,32 @@ def call_json(tool, arguments_json, context_json, acceleration_json="null", opti
     elif call.gpu_used or any(e["outcome"] == "used" for e in call.events):
         # a failed call earns no accelerator receipt, whatever helped along the way
         receipt["compute"] = {"backend": "pyodide", "operation": target, "precision": "Python float64"}
+    _mirror(receipt)
     envelope["duration_ms"] = round((time.perf_counter() - started) * 1000)
     return json.dumps(envelope, ensure_ascii=False, separators=(",", ":"))
+
+
+def _mirror(receipt: dict) -> None:
+    """receipt/1 says what receipt.compute says, never more: execution.kernel is
+    compute.backend verbatim (pyodide for a failed call), the runtime is Pyodide, and the
+    device the GPU counts came from is the one the call ran on. What was requested is the
+    page's acceleration preference, which Python is not told: compute.requested when the
+    receipt has it, else null (the worker fills it in), never the CPU the Python context
+    names. A GPU packet Python rejected is a compute fallback. receipt.compute stays the
+    authority on the kernels; a receipt without receipt/1 (no execution) is left as it is."""
+    compute = receipt.get("compute")
+    execution = receipt.get("execution")
+    if not isinstance(compute, dict) or not isinstance(execution, dict):
+        return
+    execution["kernel"] = compute.get("backend")
+    execution["runtime"] = "pyodide"
+    device = execution.get("device")
+    if isinstance(device, dict):
+        requested = compute.get("requested")
+        device["requested"] = requested if isinstance(requested, str) else None
+    if receipt.get("device") == "webgpu" and isinstance(device, dict):
+        device["assigned"] = device["used"] = "webgpu"
+    result = receipt.get("result")
+    if compute.get("gpu_rejected") and isinstance(result, dict):
+        result.setdefault("fallbacks", []).append(
+            {"what": "compute", "reason": f"the WebGPU counts were not used: {compute['gpu_rejected']}"[:600]})

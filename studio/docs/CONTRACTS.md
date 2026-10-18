@@ -98,9 +98,61 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
   "skill": {                                     // only for kind=skill
     "version": "0.2.0", "pinned": true, "claim_kinds": [...], "forbidden_claims": [...],
     "max_evidence_tier": "...", "network": [...hosts], "content_hash": "e525e3ab…"
-  }
+  },
+  "implementation": {"ref": "bioagent.tools.sequence:reverse_complement", "version": "0.2.7"},
+                                                 // natives: the tool's entrypoint; skills: entrypoint + skill version
+                                                 // + content_hash (null unpinned); connectors:
+                                                 // bioagent.providers.public_apis:<key>.<op>; clinic/tcmdb/study/system:
+                                                 // tcmstudio.dispatch:_exec_<kind>#<op>; jobs: tcmstudio.kinds:KINDS#<kind>
+  "state": {"implementation": "tested",          // registered | implemented (the ref resolves; a hand-written op only if
+                                                 // dispatch.HANDLED_OPS lists it) | tested (a verification level is
+                                                 // PASS) | deprecated (catalog.DEPRECATED; "deprecated": why)
+            "readiness": {"runner": {"state": "ready", "requires": []}}},
+                                                 // the running runner's catalog only (/api/catalog), see below; never
+                                                 // in the browser catalog, nor in a probed build that is not told the
+                                                 // runner's network switch and job service (catalog.entries)
+  "verification": {"status": "PASS",             // bioagent.validation: PASS|FAIL|BLOCKED|UNVERIFIED|SKIPPED|NOT_APPLICABLE
+                   "levels": {"reference_output": {"status": "PASS"}}},
+                                                 // levels ⊂ live_upstream {status, at} (connectors) | reference_output
+                                                 // (natives with an independent reference) | kernel_parity (the 7 kernel
+                                                 // tools) | lock_pin (pinned skills); none → UNVERIFIED, levels {}
+  "approvals": [{"reason": "network"}],          // what a call may ask for: confirm | job | network | remote_upload
+                                                 // (hosts: `hosts`, or `hosts_by` for the argument)
+  "execution": {                                 // only where it applies
+    "browser_compute": {"backends": ["webgpu", "wasm-simd", "js"], "kernel": "sequence.counts",
+                        "precision": "…", "workload": "…"},     // the 7 kernel tools (tcmstudio.browser_compute)
+    "engines": [{"id": "esmfold", "selected_by": {"arg": "method", "value": "esmfold", "with": {…}?},
+                 "requires": [Requirement], "device": "cpu|gpu|remote",
+                 "readiness": {"runner": R}}]                   // pipeline jobs and skills; readiness on the runner only
+  },
+  "hosts_by": {"dataset": {"herb2": ["47.92.70.12"]}},           // job.tcmdb.fetch (per dataset), system.provider_call
+                                                 // ({tool: hosts}, the reviewed allowlists): the hosts of one call
+  "data": ["*"], "data_from": {"param": "dataset"},              // the stores read: keys, '*' = any built store;
+                                                 // data_from: the argument that names it (tcmdb.tables/query/unresolved)
+  "limits": {"max_request_bytes": {"runner": 8388608, "browser": 100663296}}
+                                                 // only where an entry differs from the document's `limits`
 }
 ```
+
+The document also carries `limits: {max_request_bytes: {runner: 8388608, browser: 33554432}}` (the runner's HTTP body
+limit; a conservative estimate for one call in the browser worker, not a measurement) and `verification_records:
+{<level>: <committed file>}` (a level names its own `record` only when it rests on another file). Verification comes
+from committed records only, joined when the catalog is built (the browser runtime's bundle carries no
+`BioScience-Harness/data`, so its in-worker catalog reads connectors as UNVERIFIED; catalog.json carries the join);
+nothing from a fixture is labelled live, and no level is dated by the clock.
+
+**Readiness** (`tcmstudio.capability`, one function for the preflight, `catalog_search`, `system.capabilities`, the
+runner catalog and the audit): `R = {state, requires: [Requirement]}`, `Requirement = {need, detail, remedy, names?}`
+(§3 `error.requires`). `state` is the first that applies of `needs_runner` (runner, job_service) · `missing_dependency`
+· `needs_dataset` (a declared dataset not built in that runtime's data hub, or the research snapshots) ·
+`network_unavailable` · `needs_authentication` · `unsupported`, else `ready`. An optional engine that is missing does
+not make its entry unready; the engine's own readiness says so, and a call that chooses it is refused before submit.
+`ready` for an entry that reaches a host means web access is on, never that the host answers. The browser's
+readiness is decided by the page (§6 `entryState`). **`system.capability_audit`** `{state?, kind?, category?,
+limit≤1000 (100)}` (B R) returns every entry against the runtime that answers: `{where, network, jobs,
+datasets_built, counts:{entries, by_readiness, by_implementation, by_verification}, filters, matched,
+entries:[{id, kind, category, implementation, readiness, requires, verification:{status, at}}], note}`; the runner
+serves the same at `GET /api/capabilities/audit` (§4).
 
 **The core tools** (names are fixed. `exec` uses B = browser and R = runner, and a ★ marks `confirm: true`):
 
@@ -128,7 +180,7 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
 | `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | R ★ | job; snapshot pipeline |
 | `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | R ★ | job; GPU-capable kinds honour the device setting |
 | `job_status` {job_id, wait_s≤60} | runner jobs | R | |
-| `capabilities_status` {} | system.capabilities | B R | what can run where, now |
+| `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
 | `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
 | `call_tool` {tool, arguments} | any Entry id | per entry | the entry's own `confirm`/`network` apply |
 
@@ -168,20 +220,66 @@ Every tool call returns this, in both runtimes. A call **never raises**: failure
     "outputs": [ {"path":"safety.json","sha256":"…","bytes":1234,"media_type":"application/json","content": <json|null>} ]
   },
   "receipt": {
-    "where": "browser",                 // browser | runner
+    "where": "browser",                 // browser | runner | page (page only in JS: decided by the router, nothing ran; §6)
     "runtime": "pyodide-314.0.7 / CPython 3.14",
-    "device": "cpu",                    // cpu | cuda:0 | mps | rocm:0 | webgpu (only for a JS/ONNX path)
+    "device": "cpu",                    // cpu | cuda:0 | mps | rocm:0 | webgpu (only for a JS/ONNX path);
+                                        // a job's envelope: the device the runner assigned the job, once it has
     "versions": {"tcmstudio":"0.1.0","bioagent":"0.2.7","psh":"0.6.0"},
     "composite_version": "...",         // artifact.composite_version_string when present
     "content_hash": "e525e3ab…",        // skill content hash when present
     "audit_head": "…" | null,
     "input_sha256": "…",                // sha256 of canonical JSON arguments
     "output_sha256": "…",               // sha256 of canonical JSON result
-    "started_at": "2026-10-07T12:00:00Z"
+    "started_at": "2026-10-07T12:00:00Z",
+    // receipt/1 (additive; rules below). Absent `schema` = a legacy receipt, read as it was.
+    "schema": "tcmstudio.receipt/1",
+    "finished_at": "2026-10-07T12:00:01Z",   // ≥ started_at, same second-truncated UTC form
+    "execution": {
+      "runtime": "pyodide",             // cpython (runner) | pyodide (browser) | page (JS-made, §6)
+      "kernel": "webgpu" | null,        // receipt.compute.backend verbatim (the 7 kernel tools), else null
+      "engine": {"id":"salmon","version":"1.10.3"|null,"selected_by":{"arg":"engine","value":"salmon"},
+                 "device":"cpu|gpu|remote","with"?:[…]} | null,   // the engine the arguments (or the run) chose
+      "implementation": {"ref":"bioagent.tools.sequence:gc_content","version":"0.2.7", …} | null,
+                                        // §2 entry.implementation + natives {component, entrypoint,
+                                        // manifest_version, deterministic}; skills {content_hash, pinned};
+                                        // connectors {key, operation, host}; jobs {job_kind, job_id?, pipeline?,
+                                        // code_digest?}; null when nothing ran
+      "validation": {"ok":true,"schema":"entry|core","repairs":["…"],"normalized_sha256":"…"}
+                    | {"ok":false,"schema":"…","repairs":[…],"problems":["…"]} | null,
+      "device": {"requested":"cpu","assigned":"cpu","used":"cpu"|null,
+                 "evidence":"selected|reported|dispatched|validated|verified|accelerated"|null,"note"?:"…"}
+      // JS only (router): "placement": {…}, "approvals": [{reason, scope, hosts}]   (§6)
+    },
+    "provenance": {
+      "datasets": [{"id":"tcmscience.tcm.seed","version"?:"0.2.6","sha256"?:"…","retrieved_at"?:"…",
+                    "licence"?:"MIT","release":"0.2.6"|null, …}],   // release null when the source states none
+      "seeds": {"seed": 42},
+      "models": [{"id":"esmfold","version":"…","requests":[{name, request_sha256, response_sha256}]}]
+    },
+    "result": {
+      "kind": "record|computation|prediction|draft|fixture|system" | null,
+      "outcome": "not_executed|queued|running|succeeded|validated|failed|cancelled",
+      "assurance": "release_authorized|outputs_verified|none",
+      "checks": [{"id":"schema_valid","ok":true,"detail"?:"…"}],
+      "artifacts": {"expected":["…"],"missing":["…"],"hash_mismatch":["…"]},
+      "fallbacks": [{"what":"device|compute|degraded","reason":"…"}],
+      "reference": {…} | null           // only a comparison the call itself made against a reference
+    }
   },
   "job": null | {"id":"j_…","kind":"pipeline.rnaseq","state":"queued"},
-  "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call","what":"…","hosts":["…"],"decision"?:"deny"},
-  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off","message":"…","hint":"…"}
+  "approval": null | {"reason":"network|job|confirm|remote_upload|first_runner_call|remote_runner","what":"…","hosts":["…"],"decision"?:"deny"},
+  "error": null | {"type":"bad_arguments|unavailable|not_found|refused|declined|runtime_error|timeout|network_off","message":"…","hint":"…",
+                   "requires"?: [Requirement], "reason"?: "needs_runner|no_runtime|missing_deps|missing_engine|too_large_for_browser|network_off|needs_dataset|needs_job_service|remote_upload_off"}
+                                        // additive: the dispatcher's preflight names every missing requirement
+                                        // (§2 Readiness) and the reason code; hint is the first remedy.
+                                        // A job the runner's job service refuses keeps error.missing and mirrors it
+                                        // in requires, in the words of the runner's catalog (packages: dependency;
+                                        // the research snapshots: dataset, needs_dataset; any other sentence:
+                                        // job_service, needs_job_service); allow_remote off is compute_setting
+                                        // (remote_upload_off). The job service's own hint, when it gives one, stays.
+                                        // shape() keeps them only when well formed (a list of {need: str, …}; a code)
+                                        // the page's router adds its own codes: compute_browser, runner_offline,
+                                        // unknown_compute, remote_not_configured, not_found (§6 PLACEMENT_REASONS)
 }
 ```
 
@@ -216,6 +314,71 @@ Rules:
   `network` tool is called without a standing approval. The UI then shows the PermissionRequestCard.
   After approval, the call is retried with the approval attached.
 
+**Receipt `tcmstudio.receipt/1`** (`envelope.RECEIPT_SCHEMA`; built by `envelope.shape` from what `dispatch._finish`
+gives it, so the runner and the browser runtime write the same fields with the same code):
+- **Additive.** Every older receipt field keeps its meaning (`device`, `compute`, `kernel`, `adapter`, `request`,
+  …). Nothing in it is hashed: `result`, `governance.outputs` and `output_sha256` are byte for byte what they were. A
+  receipt without `schema` is a legacy one (stored before this version); nothing is derived for it as if recorded.
+  `shape` keeps a given `execution`/`provenance`/`result` only where well formed, and it replaces an outcome the
+  status does not admit with the status's own. That means `refused`/`needs_approval` → `not_executed`,
+  `job_submitted` → `queued`, `cancelled` → `cancelled`, and `failed` → `failed` or `not_executed`. A `succeeded`
+  `job_status` poll may report any job state.
+- **`execution.validation`** is the check of the arguments against the entry's schema (`schema:"entry"`), or the core
+  tool's when it failed there (`"core"`). `repairs` are the harmless slips it fixed. `normalized_sha256` is the SHA-256
+  of the canonical JSON of the arguments the executor was given, so it is equal across key orders and repairs, unlike
+  `input_sha256` (the raw call). For an entry that carries patient data (`phi`, or one that takes a clinic `intake`)
+  repairs and problems name the argument's path only, never its value. No receipt field copies such an argument.
+- **`execution.device` and the evidence ladder** `selected < reported < dispatched < validated < verified <
+  accelerated`. An in-process call has the CPU it ran on, `selected`. When the browser used the GPU counts, `assigned` and
+  `used` are `webgpu`, as `receipt.device` says. A job has `requested` (the runner's device setting), `assigned`
+  (`job.device`, set when it starts; `null` and a note while queued) and `evidence:"selected"`. `used` is `cpu` only
+  for a CPU job, and `null` for a GPU job: hiding the other GPUs is a selection, and no job reports the device its
+  engine used. `receipt.device` of a job envelope is that assigned device, so a GPU job is never reported as `cpu`.
+- **`execution.kernel`** mirrors `receipt.compute.backend` (`browser_compute._mirror`): `pyodide` for a call that
+  failed whatever helped it, `null` where no compute receipt was written. `receipt.compute` stays the authority on
+  the kernels.
+- **`provenance`** comes only from what the call holds: a governed run's source cards (`artifact.sources`, with
+  `snapshot_hash` as `sha256`); the seed corpus card for the knowledge-base lookups, with the formula workbook's
+  `source_sha256` when its records were read; a live source's `host` and `retrieved_at` (`request.fetched_at`)
+  with `release: null`, because the APIs state none. It also takes the dataset (and its version) of each data-hub row,
+  a job's `inputs` with their SHA-256 (`role:"input"`), and seeds (arguments named `seed`, `random_seed`,
+  `random_state`, `*_seed`, with the schema default the code uses). From a succeeded pipeline's `run.json` it takes
+  the seeds of its configuration, its fold models (method, version, request and response digests) or ADMET model-card
+  digests. That record is read through `context.jobs.run_manifest(job_id)`, only at the digest recorded when the job
+  was collected (§4 `outcome.checks`/`expected`).
+- **`result.kind`**, set only when the call produced a result (`succeeded`/`validated`), by precedence:
+
+  | kind | when |
+  |---|---|
+  | `fixture` | a source declares itself one: a version with `+planted` or `+fx` (bioagent.research.planted) |
+  | `draft` | the clinic, or `LIMIT_DRAFT` in the limitations (the prescription draft skill) |
+  | `prediction` | `LIMIT_PREDICTED` in the limitations, or a predictive job (fold, dock, ADMET, a predictive skill) |
+  | `record` | connectors, literature search, `system.provider_call`, the data hub, the knowledge-base lookups and hub-backed natives, record skills (normalize, evidence, safety), the data jobs (`tcmdb.fetch`/`build`, `research.snapshot`) |
+  | `system` | system operations other than `job_status` (which takes its job's kind), `env.provision` |
+  | `computation` | everything else |
+
+- **`result.outcome`**: `not_executed` for a call no executor ran: refused, awaiting approval, arguments that failed
+  validation (or that the job service refused before queuing anything), or not runnable here (`unavailable`,
+  `network_off`, an unknown tool), as the page's own envelopes say (`pageOutcome`); a job's own state for a job
+  (`queued`, `running`, …); `failed` for one that ran and failed (an executor's own `bad_arguments` or `not_found`
+  included); `validated` ⇔ `succeeded` and an assurance other than `none`.
+- **`result.assurance`** is never "verified" alone. `release_authorized` means the governed verdict says released and
+  all six states (`schema_valid` … `release_authorized`) are true: the kernel licensed the claims as stated. It is not
+  a statement that the conclusion is true: a prediction stays a prediction. `outputs_verified` means a succeeded
+  job's declared outputs were digested at collection (`outcome.checks` names `controller_digests` or
+  `runner_digests`), none it requires is missing, and none is known to have changed since: `run.json` and a
+  `skill.run` job's `envelope.json` are read back at their recorded digests when the job is polled; other artefacts
+  are not re-hashed then (a mismatch at collection already fails the job). That covers hashes only, not the science.
+  Anything else is `none`.
+- **`result.checks`**: a governed skill's six verdict states, then `skill_pinned` and `outputs_present`. A job adds
+  the checks its collection passed (`outcome.checks`: `controller_digests`, `validator:<artefact>`, `kind.verify`,
+  …), or one `collection` failure per problem. It may also add `run_manifest` or `envelope_digest` (read back at the
+  recorded digest, or not). **`artifacts`**: `expected` (the governed outputs, the kind's required artefacts), `missing`,
+  `hash_mismatch` (an output whose digest no longer matches). **`fallbacks`**: `device` (a job's `device_note`
+  when the selected device was not available), `compute` (WebGPU counts Python rejected, `compute.gpu_rejected`),
+  `degraded` (a kernel call that succeeded in a degraded mode). **`reference`**: only a comparison the call made
+  against a reference (a fold compared with a given structure), never filled in otherwise.
+
 ---
 
 ## 4. Runner HTTP API (`tcmstudio serve`, default `http://127.0.0.1:8765`)
@@ -248,7 +411,8 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 |---|---|---|
 | GET | `/api/health` | `{name:"tcmstudio", version, token_required:bool, paired:bool}` (no token needed) |
 | GET | `/api/info` | `{name, version, versions:{tcmstudio,bioagent,psh,python}, home, platform, cpu:{cores, model}, memory_gb, devices:[Device], engines:[Engine], settings:Settings, network:{enabled, profile}, purpose, counts:{core, entries}}` |
-| GET | `/api/catalog` | the catalog (§2), with `exec` reflecting this runner (heavy deps probed: `available:false` + `missing:[…]` per entry) |
+| GET | `/api/catalog` | the catalog (§2), with `exec` reflecting this runner (heavy deps probed: `available:false` + `missing:[…]` per entry) and each entry's `state.readiness.runner` and engines' `readiness.runner`, brought up to date on every read (this runner's network switch; its job service and what each kind lacks, and the datasets built in its data hub, re-read every few seconds). A change makes a new document; one already being sent is never changed |
+| GET | `/api/capabilities/audit` | `?state=&kind=&category=&limit=` (≤ 1000) → `{where:"runner", network:{enabled}, jobs, datasets_built, counts:{entries, by_readiness, by_implementation, by_verification}, filters, matched, entries:[{id, kind, category, implementation, readiness, requires:[Requirement], verification:{status, at}}], note, versions}`: the same function as `system.capability_audit` (§2), over this runner's catalog. Filters narrow `entries`, never `counts`. No request is made to any host: `ready` for an entry that reaches one means web access is on. `400` for an unknown `state` or a bad `limit` |
 | POST | `/api/call` | `{tool, arguments, context:{project_id?, conversation_id?, approvals?:[…]}}` → envelope (§3) |
 | GET | `/api/devices` | `{devices:[Device], selected:"auto"}` where `Device = {id:"cpu"|"cuda:0"|"mps"|"rocm:0", kind, name, memory_gb?, driver?, available:bool, note?}` |
 | GET | `/api/settings` / PUT | `Settings = {device:"auto"|id, threads:int, max_jobs:int, network:{enabled:bool, profile:"offline-analysis"|"biomedical-research"}, purpose:"academic"|"commercial", allow_remote:bool}` |
@@ -268,9 +432,15 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", code:"runner_no_relay", port:8765, message, message_en}}`: the runner never relays Tao-S1 (`message` is Chinese, `message_en` English; the page localises by `type`). A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay` with the same `code`, `port` and `message_en`. |
 
 `Job = {id, kind, state:"queued"|"running"|"succeeded"|"failed"|"cancelled", params, project_id,
-created_at, started_at, finished_at, progress:{fraction?, message?}|null, device, outcome:{status, error?, problems?}|null,
-artefacts:[{name, sha256, bytes}], files_url}`. A job is `succeeded` only after its outputs are
+created_at, started_at, finished_at, progress:{fraction?, message?}|null, device, outcome:{status, error?, problems?,
+checks?, expected?}|null, artefacts:[{name, sha256, bytes}], files_url}`. A job is `succeeded` only after its outputs are
 collected and verified (digest + pipeline `verify_run`). Until then it is pending, and its result is never shown as an answer.
+`outcome.checks` (succeeded jobs) lists what the collection passed, in order: `controller_digests` (every declared
+artefact digested by the controller; `controller_exit` for a kind that declares none), or `runner_digests` and
+`required_artefacts` for an exit code that is a result; then `validator:<artefact>` (only for an artefact that was
+there to validate: an absent optional one is not listed) and `kind.verify`.
+`outcome.expected` names the artefacts the kind requires. `JobService.run_manifest(job_id)` (and the hook's) reads a
+succeeded job's `run.json` only while it has the digest recorded at collection, like `envelope(job_id)` (§3 receipt/1).
 
 **Job kinds:** `pipeline.rnaseq`, `pipeline.scrna`, `pipeline.fold`, `pipeline.dock`, `pipeline.admet`,
 `research.run`, `skill.run` (any governed skill as a background run), `tcmdb.fetch`, `tcmdb.build`.
@@ -322,7 +492,7 @@ export function onLangChange(fn) → off;  export function registerStrings(lang,
 
 // core/settings.js  (localStorage "tcmstudio.settings"; see §8)
 export function loadSettings() → Settings; export function saveSettings(s); export const DEFAULTS;
-export function onSettingsChange(fn) → off;
+export function onSettingsChange(fn) → off;  export const COMPUTE_TARGETS  // ["auto","browser","runner","remote"]
 
 // core/store.js  (IndexedDB "tcmstudio", see §7; in-memory fallback when IndexedDB is unavailable)
 export async function openStore() → Store
@@ -348,14 +518,42 @@ export async function* streamChat({provider, system, messages, tools, signal, th
 // core/catalog.js
 export async function loadCatalog(runtimes) → Catalog   // merges runtime catalogs; Catalog.core, .entries, .byId, .search(q, opts)
 export function toProviderTools(coreTools, format) → []  // OpenAI functions or Anthropic tools
+Catalog.search(q, {category, kind, runnableNow, isRunnable, limit,
+                   where, readiness, needsDataset, verified, backend, context})   // filters for the catalog page:
+  // where "browser"|"runner" (exec has it); readiness: a state (or list) in `where`, else in either runtime, as
+  // entryState(e, context) decides; needsDataset true|false|<dataset key>; verified: a level that passed
+  // ("live_upstream") | a status ("PASS", "UNVERIFIED") | true/false; backend: a browser compute backend, an engine id
+  // or a device ("webgpu", "esmfold", "gpu")
+export function entryState(entry, ctx) → {implementation, readiness: {browser: R, runner: R}}   // R = {state, requires}
+  // ctx: {browser, runner (statuses), web, built (dataset keys known built in the browser), packages (Pyodide packages
+  // this browser can load, when known), args}. browser: decided in the page (a dataset counts only when known built;
+  // an unknown package list is not held against the entry); runner: the runner catalog's state.readiness.runner while
+  // it is connected (derived:true from available/missing for an older runner), needs_runner otherwise; both add the
+  // project's web access. implementation: state.implementation, else derived conservatively (registered/implemented/tested)
+export function requirement(need, {names?, detail?, remedy?}) → Requirement   // {need, detail, remedy, names?}, English
+export const NEEDS, READINESS, IMPLEMENTATION, COMPUTE_VALUES, REMOTE_COMPUTE   // REMOTE_COMPUTE = {configured:false, reason}
+export function mergeCatalogs(built, runner)   // the runner wins on exec/available/missing/…; never on the browser's
+  // readiness (state.readiness.browser), its compute backends (execution.browser_compute) or its request limit
+  // (limits.max_request_bytes.browser, per entry and for the document)
+
+// core/receipt.js — the receipt of every envelope made in the page (§3)
+export const RECEIPT_SCHEMA = "tcmstudio.receipt/1";  export const DECIDERS, OUTCOMES, ASSURANCES, RESULT_KINDS;
+export function baseReceipt({where, runtime, device, versions, decided_by, input_sha256, started_at, output_sha256?,
+                            outcome?, kind?}) → receipt   // + schema, finished_at, execution {runtime:"page"}, result
+export function pageOutcome(status, error) → "not_executed"|"failed"|"cancelled"
 
 // core/router.js
 export class ToolRouter {
   constructor({catalog, runtimes, settings, approvals})
-  where(toolOrEntry) → "browser"|"runner"|null              // choice + why
-  async call(name, args, {projectId, conversationId, signal, onApproval}) → Envelope
+  where(toolOrEntry, args?) → "browser"|"runner"|"page"|null   // "page": the two catalog tools, answered by the page
+  placement(toolOrEntry, args?) → {where, reason, message, requires: [Requirement]}   // choice + why + what it needs
+    // reason: ok | not_found | missing_deps | compute_browser | no_runtime | runner_offline | needs_runner
+    //       | unknown_compute | remote_not_configured | too_large_for_browser | missing_engine   (PLACEMENT_REASONS,
+    //       which also lists human_only: placement provenance of a HUMAN_ONLY refusal, never an unavailable reason)
+  async call(name, args, {projectId, conversationId, signal, onApproval}) → Envelope   // never rejects
     // enforces confirm/network approvals: if needed, awaits onApproval(request) → "once"|"project"|"deny"
 }
+export function hostsOf(entry, args?) → [host]; export async function hostsDigest(hosts) → sha12
 
 // core/agent.js
 export async function runTurn({provider, system, history, router, catalog, settings, signal, onEvent, projectId, conversationId}) → TurnResult
@@ -375,6 +573,8 @@ export async function runTurn({provider, system, history, router, catalog, setti
 export function buildSystemPrompt({lang, provider, project, knowledge, env}) → string   // §9
 
 // core/governance.js — pure functions over envelopes
+export function resultOf(envelope) → receipt.result   // {kind, outcome, assurance, …}; derived:true for a legacy envelope
+export function resultKindOf(envelope) → kind|null
 export function citationsOf(envelope) → [Citation]
 export function claimsOf(envelope) → [ClaimView]          // {kind, text, allowed, codes, weakest_tier, caveats, extrapolations, falsified_by, family}
 export function evidenceOf(envelope) → [EvidenceView]     // {id, family:"tradition"|"bench"|"clinical"|"predicted", design, tier, citation, quote, quote_verified, quality, source}
@@ -393,6 +593,77 @@ export async function createRuntimes(settings) → {browser: BrowserRuntime, run
 // RunnerRuntime additionally: url, token, pair(url, token), async jobs.{submit,get,list,cancel,files}, jobs.events(id, onEvent) → close,
 //   fileUrl(jobId, path), async upload(file, {onProgress}), async localModels(), async settings.{get,put}
 ```
+
+Router rules (`core/router.js`):
+- **Placement.** `compute` `browser` and `runner` are strict. `auto` sends everything a connected runner can run to
+  the runner, and the rest to the browser. It is runner-first on purpose: a project's skill and clinic runs write one
+  durable audit chain, and splitting a project across two runtimes would fork that chain. It also keeps one set of
+  installed versions and one dataset store per project. `remote` is a valid preference that no backend serves yet:
+  every call is `unavailable` with reason `remote_not_configured` (need `remote_backend`). It never falls back to the
+  runner or the browser. A value the page does not know (for example `gpu`, or one saved by a newer version) gives
+  `unknown_compute` (need `compute_setting`); it is never read as `auto`. `catalog_search` and `capabilities_status`
+  are always answered in this browser under `browser`, `remote` or an unknown value (nothing leaves the page). Only
+  `runner` or `auto` may send them to a connected runner. Under `remote` or an unknown value the page answers them
+  itself even when the browser runtime is ready (`where:"page"`; that runtime does not know the preference and would
+  list entries as runnable that the router refuses), so `runnable_now` and `needs` agree with what the router does.
+  `call()` never rejects: a fault in the page itself gives a `failed`/`runtime_error` envelope that says so.
+- **Requirements.** A placement with no place carries `requires: [Requirement]`, where `Requirement = {need, detail,
+  remedy, names?}`. `detail` and `remedy` are English sentences. `need` is one of `runner | browser_runtime |
+  dependency | dataset | network | job_service | compute_setting | remote_backend | memory | authentication`. Each
+  reason maps to one need: `needs_runner`/`runner_offline` → runner; `missing_deps`/`missing_engine` → dependency;
+  `compute_browser`/`unknown_compute` → compute_setting; `no_runtime` → browser_runtime; `remote_not_configured` →
+  remote_backend; `too_large_for_browser` → memory. The unavailable envelope has `error = {type:"unavailable",
+  message, hint: <first remedy>, reason, requires}` and its `text` adds `Needs: <details>`. A `network_off` envelope
+  has `requires: [{need:"network"}]`. `catalog_search` `needs` are the details, byte for byte as before. `remote` and
+  an unknown value add their own.
+- **too_large_for_browser.** The router measures the UTF-8 length of the canonical JSON of the arguments the entry
+  receives. It compares that with `limits.max_request_bytes.browser` (the entry's own value, else the catalog
+  document's). A larger call is never sent to the browser. Under `auto` the runner, when connected, takes it as
+  before. Under `browser` it is unavailable, with the need for another compute setting. For an entry only the browser
+  runs, the one remedy is a smaller input (`core.router.too_large_for_browser_only`). Not yet one measure: the
+  Python `_preflight` counts `json.dumps(args, ensure_ascii=False)`, whose `", "`/`": "` separators make it a little
+  larger, so a request within that margin of the limit passes here and is refused in Pyodide (with its own size).
+- **missing_engine.** The engines the arguments select (`execution.engines[].selected_by {arg, value, with?}`; an
+  absent argument counts as its schema default) must not be marked not ready on the runner
+  (`engine.readiness.runner`, or `available:false`). If one is, the call is refused before any approval is asked,
+  with the missing packages named. A catalog that does not say leaves it to the runner's own refusal.
+- **Approval keys** (`project.approvals`, §7): the entry id (confirm/job); `<entry>:network@<sha12>`, where sha12 is
+  the first 12 hex digits of sha256 of the canonical JSON array of the call's hosts (sorted, lower-cased, from
+  `hosts_by[param][value]` for the argument value, else `hosts`/`skill.network`). So a grant never covers other
+  hosts. A key stored before this change, `<entry>:network`, still counts, but only while the call's hosts are among
+  the entry's static hosts. Other keys: `<entry>:remote_upload`; `runner` (the first call on a loopback runner); and
+  `runner@<host>` (reason `remote_runner`, the first call on a runner on another machine, which is never covered by
+  `runner` and never called local). A clinic or `phi` entry on a remote runner is asked about for every call
+  (`needs[].per_call`). Nothing stands for it, and "project" does not store it. The approval request lists each
+  reason with its own hosts (`request.needs: [{reason, hosts, per_call?}]`). A network call whose hosts are not known
+  in advance (an entry with `hosts_by` whose argument value it does not map, such as `system.provider_call` with an
+  unlisted `tool`, or a network entry that names no hosts) is asked about for every call too (`per_call`, hosts `[]`,
+  `core.approval.network_unknown`): no grant is stored for it, and no `<entry>:network` key from before stands for
+  it. A page without Web Crypto (an http page opened at another address) keys a network grant
+  `<entry>:network@<the sorted hosts, comma-joined>`: still for those hosts only. A job on a remote runner is asked
+  as `core.approval.job_remote` (that runner's host named, never 本机).
+- **Receipt additions.** Every envelope the router returns gets `receipt.execution.placement = {requested,
+  chosen: browser|runner|page|null, reason, runner: {host, loopback}|null}` and `receipt.execution.approvals =
+  [{reason, scope: once|project|standing|page, hosts, legacy?}]`. `standing` means a grant in the project record;
+  `page` means an earlier answer in this page, or a "project" answer that could not be stored (no project, no
+  store), which holds for this page's life; `project` only when the grant was stored. These are added to whatever
+  the runtime wrote, and the runtime's own fields are kept. The router never invents a `schema` or a `result` for a
+  runtime's envelope.
+- **Page-made envelopes** (`core/receipt.js baseReceipt`) have `decided_by`. The router's (needs_approval, declined,
+  unavailable, network_off, not_found, HUMAN_ONLY, a runtime that threw; `decided_by:"router"`) have
+  `receipt.where:"page"`: nothing ran anywhere. A runtime client's own keep `where` = the runtime it stands for, with
+  `decided_by` saying that runtime did not answer: `browser-runtime` (`where:"browser"`: a cancel, crash, timeout or
+  boot failure in the worker), `runner-client` (`where:"runner"`: a runner that could not be reached, or answered
+  with an HTTP error) or `unavailable-runtime` (`where` of its kind: a runtime module that never loaded). A
+  runner-client envelope is `not_executed` only when the call provably never reached the dispatcher (the browser would
+  not send it: mixed content, the local-network permission, an origin the runner does not allow; or a 4xx answer);
+  a timeout, a dropped connection or a 5xx is `failed`, since the runner may have started it. All of them
+  also carry `schema:"tcmstudio.receipt/1"`, `finished_at`, `execution.runtime:"page"` and `result: {kind:null,
+  outcome:"not_executed"|"failed"|"cancelled", assurance:"none"}`. The page's own answers (`catalog_search`,
+  `capabilities_status`) keep `where:"browser"`, `local:true`, and have `result.kind:"system"`,
+  `outcome:"succeeded"`. The capabilities answer includes `remote_compute: {configured:false, reason}` and
+  `runner.loopback`; its summary names a runner on another machine 远程 Runner / remote runner, as do the runner
+  client's messages (`core.runner.{not_running,timeout,http}_remote`) and `core.router.missing_deps_remote`.
 
 ---
 
@@ -427,7 +698,9 @@ debounced during streaming.
   "customProviders": [],                           // {id,label,format,base_url,model,headers,extra_body,max_tokens_param}
   "route": "auto",                                 // auto | direct | runner (for model calls)
   "thinking": true, "temperature": null, "maxTokens": 8192, "maxSteps": 16,
-  "compute": "auto",                               // auto | browser | runner
+  "compute": "auto",                               // auto | browser | runner | remote (no backend: every call
+                                                   //   unavailable); another text value is kept and reported
+                                                   //   (unknown_compute), never read as auto
   "runner": {"url": "http://127.0.0.1:8765", "token": ""},
   "web": true,                                     // default web access for new projects (on; each host still asks)
   "webDefault": 2,                                 // read without it, a saved "web": false is the old default: on

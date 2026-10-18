@@ -115,8 +115,22 @@ def test_counts(runner_catalog):
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
-    assert kinds["job"] == 11 and kinds["system"] >= 5
-    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"])
+    # system.capability_audit made the system entries ten (and the catalog 650): counted on purpose
+    assert kinds["job"] == 11 and kinds["system"] == 10
+    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 650
+
+
+def test_the_capability_audit_entry(runner_catalog):
+    e = get_entry("system.capability_audit")
+    assert e["kind"] == "system" and e["category"] == "system" and e["exec"] == ["browser", "runner"]
+    assert e["title"] == {"zh": "能力审计", "en": "Capability audit"}
+    assert "THIS runtime" in e["summary"] and "never claims network reachability" in e["summary"]
+    props = e["parameters"]["properties"]
+    from tcmstudio.capability import READINESS
+    assert props["state"]["enum"] == list(READINESS) and props["limit"]["maximum"] == 1000
+    assert not e["network"] and not e["confirm"] and not e["job"]
+    assert {"能力", "就绪"} <= set(e["tags"])
+    assert catalog_search("能力审计", limit=3)["matched"][0]["id"] == "system.capability_audit"
 
 
 def test_core_tools_match_the_contract(runner_catalog):

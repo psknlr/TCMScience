@@ -137,14 +137,18 @@ class UnknownJob(JobError, KeyError):           # ... and KeyError to not_found
 
 class JobRefused(JobError, RuntimeError):
     """The job cannot run here now: an engine is missing, or the runner's network or
-    allow_remote setting is off. A refusal, reported as such; nothing is approximated."""
+    allow_remote setting is off. A refusal, reported as such; nothing is approximated.
+    ``need`` says what a refusal that lists nothing ``missing`` lacks (capability.NEEDS:
+    the job service itself unless said otherwise); the runner restates the refusal with
+    capability.refusal_requirements."""
 
     status = 422
 
     def __init__(self, message: str, *, type: str = "unavailable", hint: str = "",
-                 **extra: Any) -> None:
+                 need: str = "job_service", **extra: Any) -> None:
         super().__init__(message, hint=hint, **extra)
         self.type = type
+        self.need = need
 
 
 class JobConflict(JobError):
@@ -559,27 +563,51 @@ class JobService:
         there is no such envelope to show."""
         job = self._job(job_id)
         with self._lock:
-            state, kind, artefacts = job.state, job.kind, [dict(a) for a in job.artefacts]
+            state, kind = job.state, job.kind
         if kind != "skill.run" or state != "succeeded":
             raise LookupError(f"job {job_id} is not a succeeded governed-skill job")
-        record = next((a for a in artefacts if a.get("name") == "envelope"), None)
-        if not record or not record.get("sha256"):
-            raise LookupError("no digest was recorded for envelope.json when the job was "
-                              "collected")
-        try:
-            data = (job.dir / "out" / "envelope.json").read_bytes()
-        except OSError as exc:
-            raise LookupError(f"envelope.json cannot be read: {exc}") from None
-        if hashlib.sha256(data).hexdigest() != str(record["sha256"]).removeprefix("sha256:"):
-            raise LookupError("envelope.json no longer has the digest recorded when the job "
-                              "was collected")
-        try:
-            doc = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise LookupError(f"envelope.json is not JSON: {exc}") from None
+        doc = self._recorded_json(job, "envelope")
         if not isinstance(doc, dict):
             raise LookupError("envelope.json is not an envelope")
         return doc
+
+    def run_manifest(self, job_id: str) -> dict[str, Any]:
+        """The ``run.json`` a succeeded pipeline job wrote (its pipeline, code digest,
+        configuration, tool versions, models, input and output digests), read back only
+        while it has the digest recorded when the job was collected, like ``envelope``.
+        Raises UnknownJob for no such job, and LookupError (with the reason) when there is no
+        such record to show: not succeeded, no run artefact, or changed since."""
+        job = self._job(job_id)
+        with self._lock:
+            state = job.state
+        if state != "succeeded":
+            raise LookupError(f"job {job_id} has not succeeded; its run record is not final")
+        doc = self._recorded_json(job, "run")
+        if not isinstance(doc, dict):
+            raise LookupError("run.json is not a run record")
+        return doc
+
+    def _recorded_json(self, job: _Job, name: str) -> Any:
+        """The JSON artefact ``name`` of a collected job, only while its bytes have the
+        SHA-256 recorded at collection."""
+        with self._lock:
+            artefacts = [dict(a) for a in job.artefacts]
+        record = next((a for a in artefacts if a.get("name") == name), None)
+        if not record or not record.get("sha256") or not record.get("path"):
+            raise LookupError(f"no digest was recorded for the {name} artefact when the job "
+                              "was collected")
+        rel = str(record["path"])
+        try:
+            data = (job.dir / "out" / rel).read_bytes()
+        except OSError as exc:
+            raise LookupError(f"{rel} cannot be read: {exc}") from None
+        if hashlib.sha256(data).hexdigest() != str(record["sha256"]).removeprefix("sha256:"):
+            raise LookupError(f"{rel} no longer has the digest recorded when the job was "
+                              "collected")
+        try:
+            return json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise LookupError(f"{rel} is not JSON: {exc}") from None
 
     def files(self, job_id: str) -> list[dict[str, Any]]:
         job = self._job(job_id)
@@ -742,7 +770,7 @@ class JobService:
                                   "the runner with --network.")
         if kind.sends_remote(prepared) and not settings.get("allow_remote"):
             raise JobRefused(f"{kind.title[1]} would send data to a third-party service, and "
-                             "this runner does not allow that.",
+                             "this runner does not allow that.", need="compute_setting",
                              hint="Turn on 'Allow sending sequences to third-party services' "
                                   "(Settings → Compute), or run it locally (e.g. method esmfold).")
 
@@ -1037,6 +1065,14 @@ class JobService:
         error = outcome.error or ""
         exit_code = st.exit_code
         note = None
+        # the checks this collection makes, in order (receipt/1 result.checks); the
+        # controller's digests and validators run on a clean exit only
+        declared = [n for n, _, _ in kind.artefacts] if kind is not None else []
+        collected = set(outcome.artefacts or {})        # the controller validates only these
+        checks = ([("controller_digests" if declared else "controller_exit"),
+                   *(f"validator:{n}" for n in (kind.validators if kind else {})
+                     if n in declared and n in collected)]
+                  if status is ExecutionStatus.SUCCEEDED else [])
         if (kind is not None and status is ExecutionStatus.FAILED and not st.timed_out
                 and exit_code is not None and exit_code != 0 and exit_code in kind.ok_exit_codes):
             # the process ended with a code that is a result (research: release not authorised)
@@ -1044,6 +1080,11 @@ class JobService:
             status = ExecutionStatus.SUCCEEDED if not problems else ExecutionStatus.FAILED
             error = "; ".join(problems)
             note = f"exit {exit_code}: a result, not a failure (see the outputs)"
+            # _check_artefacts validates an artefact only when its file is there and not empty
+            present = {n for n, rel, _ in kind.artefacts if (job.dir / "out" / rel).is_file()
+                       and (job.dir / "out" / rel).stat().st_size}
+            checks = ["required_artefacts", *(f"validator:{n}" for n in kind.validators
+                                              if n in declared and n in present)]
         if status is ExecutionStatus.SUCCEEDED and kind is not None and kind.verify is not None:
             try:
                 extra = kind.verify(job.prepared, self.data_env)
@@ -1051,6 +1092,8 @@ class JobService:
                 extra = [f"the check after the job failed: {type(exc).__name__}: {exc}"]
             if extra:
                 status, problems, error = ExecutionStatus.FAILED, extra, "; ".join(extra)
+            else:
+                checks.append("kind.verify")
         artefacts = []
         for name, art in sorted((outcome.artefacts or {}).items()):
             try:
@@ -1060,6 +1103,8 @@ class JobService:
             artefacts.append({"name": name, "path": rel, "sha256": art.sha256, "bytes": art.size})
         if not artefacts and status is ExecutionStatus.SUCCEEDED and kind is not None:
             artefacts = self._artefact_list(job, kind)
+            if artefacts and "controller_digests" not in checks:
+                checks.insert(0, "runner_digests")          # digested here, at collection
         state = ("succeeded" if status is ExecutionStatus.SUCCEEDED
                  else "cancelled" if status is ExecutionStatus.CANCELLED else "failed")
         result_doc = None
@@ -1073,6 +1118,10 @@ class JobService:
             out["error"] = error[:1500]
         if problems and state != "succeeded":
             out["problems"] = problems[:20]
+        if state == "succeeded":
+            out["checks"] = checks                  # every one of them passed
+        # the outputs the kind requires, by name, against which artefacts are compared
+        out["expected"] = [n for n, _, required in (kind.artefacts if kind else ()) if required]
         if exit_code is not None:
             out["exit_code"] = exit_code
         if st.timed_out:
@@ -1175,6 +1224,10 @@ class JobsHook:
     def envelope(self, job_id: str) -> dict[str, Any]:
         """A succeeded skill.run job's governed-run envelope (JobService.envelope)."""
         return self.service.envelope(job_id)
+
+    def run_manifest(self, job_id: str) -> dict[str, Any]:
+        """A succeeded pipeline job's run.json, at its recorded digest (JobService.run_manifest)."""
+        return self.service.run_manifest(job_id)
 
 
 def iter_events(service: JobService, job_id: str, *, keepalive_s: float = 15.0,

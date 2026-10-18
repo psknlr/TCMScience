@@ -164,8 +164,16 @@ class RunnerServer(ThreadingHTTPServer):
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tcmstudio-call")
         self.web_root = self._web_root(config.web)
         self.stopping = threading.Event()
+        # the probed catalog as built (never changed after), and the document served: a new
+        # one is made from it whenever the context changes, so a response being written never
+        # sees a document change under it
+        self._catalog_base: dict[str, Any] | None = None
         self._catalog: dict[str, Any] | None = None
+        self._catalog_ctx: dict[str, Any] | None = None
+        self._catalog_key: str | None = None
         self._catalog_lock = threading.Lock()
+        self._context_at = 0.0
+        self._context: dict[str, Any] | None = None
         self._runtime_lock = threading.Lock()
         self._facts_at = 0.0
         self._facts: dict[str, Any] | None = None
@@ -221,23 +229,71 @@ class RunnerServer(ThreadingHTTPServer):
 
     # ------------------------------------------------------------------ catalog
     def catalog(self, refresh: bool = False) -> dict[str, Any]:
+        """The runner's catalog: built (and its dependencies probed) once, then brought up to
+        date with what changes while the runner runs: the job service's requirements, this
+        runner's network switch and the datasets built in its data hub, which decide each
+        entry's state.readiness.runner (capability.readiness). The document returned is
+        never changed afterwards; a change in that context makes a new one."""
+        return self._catalog_and_context(refresh)[0]
+
+    def _catalog_and_context(self, refresh: bool = False) -> tuple[dict[str, Any], dict[str, Any]]:
         with self._catalog_lock:
-            if self._catalog is None or refresh:
+            if self._catalog_base is None or refresh:
                 from .catalog import build_catalog
-                doc = build_catalog("runner", probe=True)
-                # what the job service knows beyond the import system (e.g. the research
-                # loop's snapshots, a system without process groups)
-                kinds = {k["kind"]: k for k in self.jobs.kind_list()}
-                for entry in doc.get("entries", ()):
-                    if entry.get("kind") != "job":
-                        continue
-                    info = kinds.get(entry["id"].split(".", 1)[1])
-                    if info and info["missing"]:
-                        entry["available"] = False
-                        entry["missing"] = sorted(set(entry.get("missing") or []) |
-                                                  set(info["missing"]))
-                self._catalog = doc
-            return self._catalog
+                self._catalog_base = build_catalog("runner", probe=True)
+                self._catalog_key = None
+            ctx = self.capability_context(refresh)
+            key = json.dumps(ctx, sort_keys=True)
+            if self._catalog is None or key != self._catalog_key:
+                self._catalog = _overlaid(self._catalog_base, ctx)
+                self._catalog_ctx, self._catalog_key = ctx, key
+            return self._catalog, self._catalog_ctx or ctx
+
+    def capability_context(self, refresh: bool = False) -> dict[str, Any]:
+        """What this runner's readiness is judged against: its network switch, its job
+        service, the datasets built in its data hub, and what each job kind lacks. The
+        network switch is read each time; the data hub and the job kinds' requirements (which
+        look at the disk and the import system) are cached for a few seconds."""
+        settings = self.state.get()
+        net = settings["network"]
+        now = time.monotonic()
+        if refresh or self._context is None or now - self._context_at >= _CONTEXT_TTL_S:
+            try:
+                from bioagent.tcmdb import TCMDataHub
+                built: list[str] | None = sorted(
+                    TCMDataHub(self.data_env["BIOAGENT_TCMDB"]).built())
+            except Exception:                                   # noqa: BLE001
+                built = None
+            # what the job service knows beyond the import system (e.g. the research loop's
+            # snapshots, a system without process groups)
+            kind_missing = {f"job.{k['kind']}": list(k["missing"])
+                            for k in self.jobs.kind_list() if k["missing"]}
+            self._context = {"jobs": self.jobs.unavailable is None, "built": built,
+                             "kind_missing": kind_missing}
+            self._context_at = now
+        return {"network": bool(net.get("enabled")) and net.get("profile") != "offline-analysis",
+                **self._context}
+
+    def capability_audit(self, query: Mapping[str, str]) -> dict[str, Any]:
+        """GET /api/capabilities/audit: capability.audit over this runner's catalog, judged
+        exactly as system.capability_audit judges it here."""
+        from . import capability
+        doc, ctx = self._catalog_and_context()
+        try:
+            limit = max(1, min(int(query.get("limit") or 1000), 1000))
+        except ValueError:
+            raise _Refused(400, "bad_arguments", "limit: a whole number from 1 to 1000") from None
+        state = query.get("state") or None
+        if state and state not in capability.READINESS:
+            raise _Refused(400, "bad_arguments",
+                           f"state: one of {', '.join(capability.READINESS)}")
+        out = capability.audit(doc.get("entries", ()), where="runner", network=ctx["network"],
+                               jobs=ctx["jobs"], built=ctx["built"],
+                               kind_missing=ctx["kind_missing"], state=state,
+                               kind=query.get("kind") or None,
+                               category=query.get("category") or None, limit=limit)
+        out["versions"] = doc.get("versions")
+        return out
 
     # -------------------------------------------------------------- host facts
     def host_facts(self) -> dict[str, Any]:
@@ -377,6 +433,29 @@ class RunnerServer(ThreadingHTTPServer):
         return out
 
 
+#: How long the data hub's built datasets and the job kinds' requirements are reused.
+_CONTEXT_TTL_S = 5.0
+
+
+def _overlaid(base: Mapping[str, Any], ctx: Mapping[str, Any]) -> dict[str, Any]:
+    """A new catalog document: ``base`` (left as it is) with each entry's readiness on this
+    runner, and a job entry's ``available``/``missing`` with what its job service says it
+    lacks. Only the entries' own top level is copied; nothing shared with ``base`` is changed."""
+    from . import capability
+    entries = []
+    for entry in base.get("entries", ()):
+        e = dict(entry)
+        missing = ctx["kind_missing"].get(e["id"])
+        if e.get("kind") == "job" and missing:
+            e["available"] = False
+            e["missing"] = sorted(set(entry.get("missing") or ()) | set(missing))
+        e["state"] = {**(entry.get("state") or {}), "readiness": {"runner": capability.readiness(
+            e, where="runner", network=ctx["network"], jobs=ctx["jobs"], built=ctx["built"],
+            kind_missing=missing)}}
+        entries.append(e)
+    return {**base, "entries": entries}
+
+
 _REFUSED_ZH = {"unavailable": "此处不可运行", "network_off": "未联网"}
 _REFUSED_EN = {"unavailable": "cannot run here", "network_off": "web access is off"}
 
@@ -384,15 +463,24 @@ _REFUSED_EN = {"unavailable": "cannot run here", "network_off": "web access is o
 def _restate_refusal(envelope: dict[str, Any], refusal: Any) -> None:
     """The dispatcher reports any exception from the job service as ``runtime_error``; a job
     the runner refused (a missing engine or dataset, the network off) is a refusal, and the
-    envelope says so: its error type, message, remedy and summary."""
+    envelope says so: its error type, message, remedy and summary, every requirement it
+    names (error.requires, in the words of this runner's catalog: error.missing mirrored as
+    a dependency, the research snapshots as a dataset) and its reason code (error.reason).
+    The job service's own hint stays the remedy; without one, it is the first requirement's."""
+    from . import capability
     err = envelope.get("error")
     if not isinstance(err, dict) or err.get("type") != "runtime_error":
         return
     kind = refusal.type if refusal.type in _REFUSED_ZH else "unavailable"
     old_message, old_summary = str(err.get("message") or ""), str(envelope.get("summary") or "")
-    err.update(type=kind, message=refusal.message, hint=refusal.hint or err.get("hint") or "")
-    if refusal.extra.get("missing"):
-        err["missing"] = list(refusal.extra["missing"])
+    missing = [str(m) for m in refusal.extra.get("missing") or ()]
+    reason, requires = capability.refusal_requirements(
+        kind, missing, message=refusal.message, hint=refusal.hint,
+        need=getattr(refusal, "need", None))
+    hint = refusal.hint or requires[0]["remedy"]
+    err.update(type=kind, message=refusal.message, hint=hint, requires=requires, reason=reason)
+    if missing:
+        err["missing"] = missing
     title = old_summary.split("：", 1)[0] if "：" in old_summary else envelope.get("via", "")
     short = " ".join(refusal.message.split())
     short = short if len(short) <= 90 else short[:89] + "…"
@@ -404,7 +492,7 @@ def _restate_refusal(envelope: dict[str, Any], refusal: Any) -> None:
     text = text.replace(old_summary, envelope["summary"])
     text = text.replace(f"Error (runtime_error): {old_message}",
                         f"Error ({kind}): {refusal.message}"
-                        + (f"\nRemedy: {refusal.hint}" if refusal.hint else ""))
+                        + (f"\nRemedy: {hint}" if hint else ""))
     envelope["text"] = text[:16000]
 
 
@@ -690,6 +778,9 @@ class Handler(BaseHTTPRequestHandler):
         if head == "kinds" and len(parts) == 1:
             allow("GET")
             return self._json(srv.jobs.kind_list())
+        if head == "capabilities" and parts[1:] == ["audit"]:
+            allow("GET")
+            return self._json(srv.capability_audit(self._query()))
         if head == "call" and len(parts) == 1:
             allow("POST")
             return self._call()

@@ -54,6 +54,15 @@ def test_bound_gpu_counts_give_the_original_result_and_a_webgpu_receipt(model):
     assert gpu["receipt"]["device"] == "webgpu", "CONTRACTS §3: webgpu for a JS-side GPU path"
     assert gpu["receipt"]["compute"]["backend"] == "webgpu"
     assert run(args, kernels=False)["receipt"]["device"] == "cpu", "call-scoped counts must not leak"
+    # receipt/1 mirrors receipt.compute, and the device the counts came from
+    assert gpu["receipt"]["execution"]["kernel"] == "webgpu" == gpu["receipt"]["compute"]["backend"]
+    assert gpu["receipt"]["execution"]["runtime"] == cpu["receipt"]["execution"]["runtime"] == "pyodide"
+    assert gpu["receipt"]["execution"]["device"]["used"] == "webgpu"
+    # what was requested is the page's acceleration preference, which Python is not told
+    assert gpu["receipt"]["execution"]["device"]["requested"] is None
+    assert cpu["receipt"]["execution"]["kernel"] == cpu["receipt"]["compute"]["backend"] == "pyodide"
+    assert cpu["receipt"]["execution"]["device"]["used"] == "cpu"
+    assert gpu["receipt"]["result"]["fallbacks"] == []
 
 
 def test_gc_windows_include_s_ambiguity_and_match_python():
@@ -91,6 +100,10 @@ def test_a_packet_that_does_not_belong_or_check_out_is_not_used_and_the_call_sti
     assert got["receipt"]["device"] == "cpu", why
     assert got["receipt"]["compute"]["backend"] == "pyodide", why
     assert got["receipt"]["compute"]["gpu_rejected"], why
+    assert got["receipt"]["execution"]["kernel"] == "pyodide", why
+    fallback = got["receipt"]["result"]["fallbacks"]
+    assert [f["what"] for f in fallback] == ["compute"], why
+    assert got["receipt"]["compute"]["gpu_rejected"] in fallback[0]["reason"], why
 
 
 def test_well_formed_but_wrong_counts_with_the_right_digest_are_caught_by_python_s_own_recount():
@@ -114,6 +127,27 @@ def test_invalid_arguments_fail_as_before_with_or_without_a_packet():
     invalid = run(args, packet("native.distance_matrix", ["A", "G"], [0] * 16))
     assert invalid["error"]["type"] == "bad_arguments"
     assert invalid["receipt"]["device"] == "cpu"
+    assert "compute" not in invalid["receipt"] and invalid["receipt"]["execution"]["kernel"] is None
+
+
+def test_a_failed_call_s_kernel_is_pyodide_whatever_helped(monkeypatch):
+    """The GPU counts were used, and then the call failed: no accelerator is credited, in
+    receipt.compute or in receipt/1."""
+    from tcmstudio import dispatch
+    real = dispatch.call_json
+
+    def failing(tool, arguments_json, context_json):
+        e = json.loads(real(tool, arguments_json, context_json))
+        e.update(status="failed", ok=False, error={"type": "runtime_error", "message": "late", "hint": ""})
+        e["receipt"]["result"] = {**e["receipt"]["result"], "outcome": "failed", "kind": None}
+        return json.dumps(e)
+
+    monkeypatch.setattr(dispatch, "call_json", failing)
+    got = run(DIST, packet("native.distance_matrix", DIST_SEQS, DIST_COUNTS))
+    assert got["status"] == "failed"
+    assert got["receipt"]["compute"]["backend"] == got["receipt"]["execution"]["kernel"] == "pyodide"
+    assert got["receipt"]["device"] == "cpu"
+    assert got["receipt"]["execution"]["device"]["used"] != "webgpu"
 
 
 # ------------------------------------------------------------------------------------------- the real JS kernels
@@ -190,6 +224,7 @@ def test_alignment_kernels_match_python_on_random_inputs(js):
         fast, slow = both({"tool": kind, "arguments": {"a": a, "b": b, **params[trial % len(params)]}})
         same(fast, slow)
         used += fast["receipt"]["compute"]["backend"] == "js"
+        assert fast["receipt"]["execution"]["kernel"] == fast["receipt"]["compute"]["backend"]
         assert slow["receipt"]["compute"]["backend"] == "pyodide"
     assert used == 60, "every one of these is large enough for the kernel"
 
@@ -234,7 +269,8 @@ def test_count_kernels_match_python(js):
     fast, slow = both({"tool": "native.hamming_distance", "arguments": {"a": a, "b": b}})
     same(fast, slow)
     compute = fast["receipt"]["compute"]
-    assert compute["backend"] == js.counts_by
+    assert compute["backend"] == js.counts_by == fast["receipt"]["execution"]["kernel"]
+    assert slow["receipt"]["execution"]["kernel"] == "pyodide"
     assert compute["kernels"] == [{"kernel": "sequence.counts", "outcome": "used", "backend": js.counts_by,
                                    "ms": compute["kernels"][0]["ms"]}]
     assert ("WebAssembly SIMD" in compute["precision"]) == (js.counts_by == "wasm-simd")

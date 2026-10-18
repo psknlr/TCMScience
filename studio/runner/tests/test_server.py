@@ -72,6 +72,53 @@ def test_catalog_reflects_this_runner(server):
     assert plain["counts"] == doc["counts"]
 
 
+def test_the_catalog_says_what_is_ready_on_this_runner(server):
+    _, c = server
+    doc = c.get("/api/catalog")[1]
+    by = {e["id"]: e for e in doc["entries"]}
+    for e in doc["entries"]:
+        r = e["state"]["readiness"]["runner"]
+        assert r["state"] in ("ready", "needs_runner", "missing_dependency", "needs_dataset",
+                              "network_unavailable", "needs_authentication", "unsupported"), e["id"]
+        assert (r["state"] == "ready") is (not r["requires"]), e["id"]
+    # this fresh home has no research snapshots and no built dataset
+    research = by["job.research.run"]["state"]["readiness"]["runner"]
+    import importlib.util
+    assert research["state"] == ("needs_dataset" if importlib.util.find_spec("pyarrow")
+                                 else "missing_dependency")
+    assert research["requires"][-1]["names"] == ["research snapshots"]
+    assert "job.research.snapshot" in research["requires"][-1]["remedy"]
+    assert by["native.hkbu_formula_lookup"]["state"]["readiness"]["runner"]["state"] == "needs_dataset"
+    assert by["native.bmi"]["state"]["readiness"]["runner"] == {"state": "ready", "requires": []}
+
+
+def test_capability_audit_endpoint(server):
+    srv, c = server
+    status, _, _ = c.raw("GET", "/api/capabilities/audit", token=False)
+    assert status == 401                                   # token-gated like every /api/* route
+    status, audit = c.get("/api/capabilities/audit")
+    assert status == 200 and audit["where"] == "runner"
+    doc = c.get("/api/catalog")[1]
+    assert audit["counts"]["entries"] == len(doc["entries"]) == audit["matched"]
+    assert sum(audit["counts"]["by_readiness"].values()) == audit["counts"]["entries"]
+    by = {e["id"]: e["state"]["readiness"]["runner"]["state"] for e in doc["entries"]}
+    assert all(row["readiness"] == by[row["id"]] for row in audit["entries"])
+    assert "no request was sent" in audit["note"]
+    status, jobs = c.get("/api/capabilities/audit?kind=job&limit=2")
+    assert status == 200 and jobs["matched"] == 11 and len(jobs["entries"]) == 2
+    assert jobs["counts"] == audit["counts"]
+    status, ready = c.get("/api/capabilities/audit?state=needs_dataset")
+    assert status == 200 and all(r["readiness"] == "needs_dataset" for r in ready["entries"])
+    assert c.get("/api/capabilities/audit?state=bogus")[0] == 400
+    assert c.get("/api/capabilities/audit?limit=x")[0] == 400
+    assert c.raw("POST", "/api/capabilities/audit", b"{}")[0] == 405
+    # the same judgement as the dispatcher's system.capability_audit on this runner
+    status, env = c.post("/api/call", {"tool": "call_tool", "arguments": {
+        "tool": "system.capability_audit", "arguments": {"limit": 1000}}})
+    assert status == 200 and env["status"] == "succeeded"
+    assert env["result"]["counts"] == audit["counts"]
+
+
 def test_kinds_carry_schemas_and_availability(server):
     _, c = server
     status, kinds = c.get("/api/kinds")
@@ -149,6 +196,80 @@ def test_network_off_is_a_refusal_that_names_the_runner_switch(tmp_path):
     assert env["status"] == "failed"
     assert env["error"]["type"] == "network_off"
     assert "Runner network" in env["error"]["hint"] and "--network" in env["error"]["hint"]
+
+
+def test_a_job_the_runner_refuses_names_what_it_needs(server):
+    """A refusal of the job service keeps error.missing and mirrors it as error.requires, in
+    the words of this runner's catalog for the same entry, with its reason code (§3)."""
+    _, c = server
+    env = c.call("call_tool", {"tool": "job.research.run",
+                               "arguments": {"question": "Does Guizhi decoction act on IL6?"}})
+    err = env["error"]
+    assert env["status"] == "failed" and err["type"] == "unavailable"
+    assert env["receipt"]["result"]["outcome"] == "not_executed"
+    readiness = {e["id"]: e for e in c.get("/api/catalog")[1]["entries"]}[
+        "job.research.run"]["state"]["readiness"]["runner"]
+    import importlib.util
+    if importlib.util.find_spec("pyarrow") is None:       # the preflight refuses it first
+        assert err["reason"] == "missing_deps" and err["requires"][0]["names"] == ["pyarrow"]
+        return
+    assert [m.split(" ")[0] for m in err["missing"]] == ["snapshots"]
+    assert err["reason"] == "needs_dataset"
+    assert err["requires"] == readiness["requires"]
+    assert err["requires"][0]["need"] == "dataset" and err["requires"][0]["names"] == ["research snapshots"]
+    # the job service's own remedy stays the hint (it names the formulas argument too)
+    assert "job.research.snapshot" in err["hint"] and "Remedy: " + err["hint"] in env["text"]
+
+
+def test_a_job_refused_by_the_allow_remote_setting_names_that_setting(server):
+    srv, c = server
+    assert srv.state.get()["allow_remote"] is False
+    env = c.call("call_tool", {"tool": "job.pipeline.fold", "arguments": {
+        "source": "MKTAYIAKQRQISFVKSHFSRQ", "method": "esmatlas", "allow_remote": True}})
+    err = env["error"]
+    assert err["type"] == "unavailable" and err["reason"] == "remote_upload_off"
+    assert [r["need"] for r in err["requires"]] == ["compute_setting"]
+    assert "allow_remote" in err["requires"][0]["detail"]
+    assert err["hint"] == err["requires"][0]["remedy"] and "Settings → Compute" in err["hint"]
+    assert "missing" not in err
+
+
+def test_a_job_service_that_cannot_start_is_a_job_service_refusal(server):
+    srv, c = server
+    why = "jobs need a POSIX system (Linux or macOS; on Windows, run the runner in WSL): test"
+    srv.catalog()                                   # the warm-up has finished
+    srv.jobs.unavailable = why
+    srv.capability_context(refresh=True)            # (the job kinds' needs are cached briefly)
+    try:
+        env = c.call("call_tool", {"tool": "job.pipeline.rnaseq", "arguments": {"samples": "u"}})
+        audit = c.get("/api/capabilities/audit?kind=job&limit=50")[1]
+    finally:
+        srv.jobs.unavailable = None
+        srv.capability_context(refresh=True)
+    err = env["error"]
+    assert err["type"] == "unavailable" and err["reason"] == "needs_job_service"
+    assert err["requires"][0]["need"] == "job_service" and err["requires"][0]["detail"] == why
+    assert err["hint"] == err["requires"][0]["remedy"]
+    assert "tcmstudio serve" not in err["hint"], "the runner is running: the remedy is not to start one"
+    for row in audit["entries"]:
+        jobs = [r for r in row["requires"] if r["need"] == "job_service"]
+        assert [r["detail"] for r in jobs] == [why], row["id"]       # named once, in its own words
+
+
+def test_the_catalog_served_is_never_changed_under_a_reader(server):
+    srv, c = server
+    before = srv.catalog()
+    frozen = json.dumps(before, sort_keys=True)
+    assert srv.catalog() is before, "nothing changed: the same document"
+    srv.state.update({"network": {"enabled": False}})
+    after = srv.catalog()
+    assert after is not before and json.dumps(before, sort_keys=True) == frozen
+
+    def state(doc, entry_id):
+        return next(e for e in doc["entries"] if e["id"] == entry_id)["state"]["readiness"]["runner"]
+    assert state(before, "connector.uniprot.entry")["state"] == "ready"
+    assert state(after, "connector.uniprot.entry")["state"] == "network_unavailable"
+    assert c.get("/api/catalog")[1]["entries"] == json.loads(json.dumps(after["entries"]))
 
 
 def test_call_errors_are_envelopes_or_clear_http_errors(server):

@@ -34,6 +34,10 @@ export const PLACEMENT_REASONS = Object.freeze([
   "ok", "not_found", "missing_deps", "compute_browser", "no_runtime", "runner_offline", "needs_runner",
   "unknown_compute", "remote_not_configured", "too_large_for_browser", "missing_engine", "human_only",
 ]);
+/** The other error.reason codes a runtime's envelope can carry (decided by the Python dispatcher or the runner). */
+export const RUNTIME_REASONS = Object.freeze([
+  "needs_dataset", "needs_job_service", "remote_upload_off", "network_off", "needs_authentication",
+]);
 const MESSAGE = {
   not_found: "core.router.unknown_tool", missing_deps: "core.router.missing_deps", compute_browser: "core.router.browser_only_setting",
   no_runtime: "core.router.no_runtime", runner_offline: "core.router.runner_setting_offline", needs_runner: "core.router.needs_runner",
