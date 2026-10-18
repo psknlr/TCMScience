@@ -57,7 +57,7 @@ def dispatch(a: argparse.Namespace) -> int | None:
         return 1
     if a.json:
         print((Path(a.out) / "summary.json").read_text(encoding="utf-8"))
-        return 0
+        return _complete(Path(a.out))
     for r in results:
         cmp_ = r.comparison or {}
         tail = (f"; TM-score {cmp_['tm_score']} vs {cmp_['reference']}" if cmp_ else "")
@@ -66,4 +66,21 @@ def dispatch(a: argparse.Namespace) -> int | None:
         for w in r.warnings:
             print(f"  warning: {w}")
     print(f"report: {Path(a.out) / 'report.html'}")
+    return _complete(Path(a.out))
+
+
+def _complete(out: Path) -> int:
+    """0 when the run record says complete; else 1, saying why on stderr."""
+    import json
+
+    from ..runrecord import problems
+    try:
+        stages = json.loads((out / "run.json").read_text(encoding="utf-8")).get("stages") or []
+    except (OSError, ValueError) as exc:
+        print(f"incomplete: run.json cannot be read ({exc})", file=sys.stderr)
+        return 1
+    found = problems(stages) if stages else ["no stage was recorded"]
+    if found:
+        print("incomplete: " + "; ".join(found), file=sys.stderr)
+        return 1
     return 0

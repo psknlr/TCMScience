@@ -14,6 +14,28 @@ Each returns a :class:`Prediction` holding the model as PDB text, per-residue pL
 0-100 scale, the PAE matrix when the method gives one, and what produced it: method,
 version, whether it ran remotely, and digests of the request and the response.
 
+``Prediction.detail`` also says where it computed and from which weights, as far as this
+process can observe it:
+
+* ``device``: ``remote:api.esmatlas.com`` for the service; for local ESMFold the device
+  its parameters were on (``cuda:0`` or ``cpu``: it moves to a GPU only through CUDA, so
+  a job given Apple's MPS computes on the CPU and says so); for ColabFold what its own
+  log says (``gpu`` or ``cpu``; ``gpu`` is ColabFold's alone: its log reports a GPU
+  without naming one, and a note says so), else null;
+* ``checkpoint``: for local ESMFold the Hub model id, its revision and a SHA-256 of the
+  weights themselves (each tensor's name, dtype, shape and bytes), ``verifiable: true``;
+  for ColabFold its version, model type and the digest of the ``config.json`` it wrote,
+  ``verifiable: false`` with ``scope: config_only`` (the AlphaFold2 parameters it loaded
+  are not digested); for the ESM Atlas service ``verifiable: false``: the weights behind
+  it cannot be observed from here, and no digest is claimed for them. Only a checkpoint
+  with ``weights_sha256`` is verifiable;
+* ``resources``: the peak GPU memory torch allocated, for local ESMFold on CUDA. It
+  varies from run to run, so it goes into ``run.json`` (the predict stage and its
+  summary), never into ``summary.json``.
+
+Whatever the method, ``predict`` refuses a model whose sequence is not the one asked for
+(``PredictionError``); nothing else is put in its place.
+
 Every call that leaves this process — the fold request, a reference download, ColabFold
 with its MSA server, the ESMFold weights from the Hub — goes through
 :func:`bioagent.operations.operation`, so under a governed run it is checked against the
@@ -40,13 +62,21 @@ from ..operations import (ALPHAFOLD_MODEL, COLABFOLD_BATCH, ESMATLAS_FOLD, ESMFO
 from .pdbio import parse_pdb
 
 __all__ = ["Prediction", "PredictionError", "predict", "PREDICTORS", "validate_sequence",
-           "fetch_reference", "esmatlas_fold", "colabfold_batch", "load_esmfold"]
+           "fetch_reference", "esmatlas_fold", "colabfold_batch", "load_esmfold",
+           "require_sequence", "weights_digest", "ESMATLAS_DETAIL", "ESM_ATLAS_MAX"]
 
 AMINO = set("ACDEFGHIKLMNPQRSTVWY")
 PREDICTORS = ("esmatlas", "esmfold", "colabfold")
 ESM_ATLAS = "https://api.esmatlas.com/foldSequence/v1/pdb/"
 ESM_ATLAS_MAX = 400
 ESMFOLD_MODEL = "facebook/esmfold_v1"
+#: What can be said of a model the ESM Atlas service made: where, and that its weights
+#: cannot be observed (so no checkpoint digest is recorded for them).
+ESMATLAS_DETAIL = {
+    "device": "remote:api.esmatlas.com",
+    "checkpoint": {"model": "esmfold_v1", "verifiable": False,
+                   "reason": "the ESM Atlas service runs its own copy of the weights, and "
+                             "nothing it returns names or digests them"}}
 
 
 class PredictionError(RuntimeError):
@@ -126,7 +156,7 @@ def _esmatlas(name: str, seq: str, *, timeout: float) -> Prediction:
                       method="ESMFold (ESM Atlas service)", version="esmfold_v1",
                       remote=True, request_sha256=_sha(body), response_sha256=_sha(raw),
                       seconds=round(time.time() - t0, 2),
-                      detail={"endpoint": ESM_ATLAS})
+                      detail={"endpoint": ESM_ATLAS, **ESMATLAS_DETAIL})
 
 
 def load_esmfold(*, model_id: str = ESMFOLD_MODEL) -> tuple[Any, Any]:
@@ -152,20 +182,79 @@ def _esmfold_local(name: str, seq: str) -> Prediction:
     t0 = time.time()
     tok, model = operation(ESMFOLD_WEIGHTS, load_esmfold, model_id=ESMFOLD_MODEL)
     model.eval()
-    if torch.cuda.is_available():
+    # the weights as loaded, digested on the CPU before any move (equal weights, equal
+    # digest, whatever file or cache they came from)
+    revision = getattr(getattr(model, "config", None), "_commit_hash", None)
+    checkpoint = {"model_id": ESMFOLD_MODEL, "revision": revision,
+                  "weights_sha256": _esmfold_digest(model, revision), "verifiable": True}
+    cuda = torch.cuda.is_available()
+    if cuda:
         model = model.cuda()
+        torch.cuda.reset_peak_memory_stats()
     ids = tok([seq], return_tensors="pt", add_special_tokens=False)["input_ids"]
     with torch.no_grad():
         out = model(ids.to(model.device))
+    device = str(next(model.parameters()).device)
+    resources: dict[str, Any] = {"torch": torch.__version__}
+    if cuda:
+        resources.update({"cuda": torch.version.cuda,
+                          "gpu": torch.cuda.get_device_name(next(model.parameters()).device),
+                          "peak_gpu_memory_mb": round(torch.cuda.max_memory_allocated() / 2**20,
+                                                      1)})
     pdb = model.output_to_pdb(out)[0]
     parsed = parse_pdb(pdb, source=f"esmfold:{name}")
     pae = out["predicted_aligned_error"][0].cpu().numpy() if "predicted_aligned_error" in out \
         else None
+    detail: dict[str, Any] = {"device": device, "checkpoint": checkpoint,
+                              "resources": resources}
+    if not cuda:
+        detail["device_note"] = ("ESMFold moves to a GPU here only through CUDA, and no "
+                                 "CUDA device was visible, so it ran on the CPU")
     return Prediction(name=name, sequence=seq, pdb=pdb, plddt=parsed.plddt(),
                       method="ESMFold (local, transformers)",
                       version=f"esmfold_v1 / transformers {transformers.__version__}",
                       remote=False, pae=pae, request_sha256=_sha(seq.encode()),
-                      response_sha256=_sha(pdb.encode()), seconds=round(time.time() - t0, 2))
+                      response_sha256=_sha(pdb.encode()), seconds=round(time.time() - t0, 2),
+                      detail=detail)
+
+
+#: (model id, Hub revision) -> the weights digest, so that a run of many sequences digests
+#: several GB of weights once and not once per sequence
+_ESMFOLD_DIGESTS: dict[tuple[str, str], str] = {}
+
+
+def _esmfold_digest(model: Any, revision: str | None) -> str:
+    """The weights digest of the loaded ESMFold model, computed once per process for each
+    Hub revision (a revision is a commit of the model repository, so its weights are the
+    same bytes); a model without a known revision is digested on every load."""
+    if not revision:
+        return weights_digest(model.state_dict())
+    key = (ESMFOLD_MODEL, str(revision))
+    if key not in _ESMFOLD_DIGESTS:
+        _ESMFOLD_DIGESTS[key] = weights_digest(model.state_dict())
+    return _ESMFOLD_DIGESTS[key]
+
+
+def weights_digest(state: Any) -> str:
+    """SHA-256 of model weights alone: each tensor's name, dtype, shape and bytes, in name
+    order (as ``omics.sc.analysis`` digests scVI's)."""
+    h = hashlib.sha256()
+    for key in sorted(state):
+        a = np.ascontiguousarray(state[key].detach().cpu().numpy())
+        h.update(f"{key}\0{a.dtype.str}\0{a.shape}\0".encode())
+        h.update(a.tobytes())
+    return h.hexdigest()
+
+
+def _colabfold_device(out: Path) -> str | None:
+    """What colabfold_batch's own log says it ran on, or None when it does not say."""
+    for log in sorted(out.glob("log*.txt")):
+        text = log.read_text(encoding="utf-8", errors="replace").lower()
+        if "running on gpu" in text:
+            return "gpu"
+        if "no gpu detected" in text or "running on cpu" in text:
+            return "cpu"
+    return None
 
 
 def colabfold_batch(*, executable: str, fasta: str, out_dir: str) -> dict[str, Any]:
@@ -205,12 +294,37 @@ def _colabfold(name: str, seq: str, workdir: Path) -> Prediction:
         if "pae" in doc:
             pae = np.array(doc["pae"], dtype=float)
     version = subprocess.run([exe, "--version"], capture_output=True, text=True).stdout.strip()
+    config_file = work / "out" / "config.json"
+    checkpoint: dict[str, Any] = {"version": version or "unknown", "verifiable": False,
+                                  "reason": "colabfold_batch wrote no config.json"}
+    if config_file.is_file():
+        data = config_file.read_bytes()
+        try:
+            cfg = json.loads(data)
+        except ValueError:
+            cfg = {}
+        # the configuration names the model type, not the weights it loaded: the
+        # checkpoint stays unverifiable while the parameters themselves are not digested
+        checkpoint = {"version": version or "unknown", "config_sha256": _sha(data),
+                      "model_type": cfg.get("model_type"), "verifiable": False,
+                      "scope": "config_only",
+                      "reason": "the configuration colabfold_batch wrote is digested; the "
+                                "AlphaFold2 parameters are not"}
+    device = _colabfold_device(work / "out")
+    detail: dict[str, Any] = {"note": "ColabFold queries its MSA server unless configured "
+                                      "otherwise", "device": device, "checkpoint": checkpoint}
+    if device is None:
+        detail["device_note"] = "colabfold_batch's log does not say whether it used a GPU"
+    elif device == "gpu":
+        # ColabFold's log says "Running on GPU" without naming the device, so the value
+        # is 'gpu' (a ColabFold-only value), not a cuda index this process never saw
+        detail["device_note"] = ("colabfold_batch's log reports a GPU without naming it; "
+                                 "the device is as reported, not observed here")
     return Prediction(name=name, sequence=seq, pdb=text, plddt=parsed.plddt(),
                       method="AlphaFold2 (ColabFold)", version=version or "unknown",
                       remote=True, pae=pae, request_sha256=_sha(seq.encode()),
                       response_sha256=_sha(text.encode()), seconds=round(time.time() - t0, 2),
-                      detail={"note": "ColabFold queries its MSA server unless configured "
-                                      "otherwise"})
+                      detail=detail)
 
 
 def predict(name: str, sequence: str, *, method: str = "esmatlas", allow_remote: bool = False,
@@ -223,10 +337,25 @@ def predict(name: str, sequence: str, *, method: str = "esmatlas", allow_remote:
             f"{method} sends the sequence to a third-party service; pass allow_remote "
             "(--allow-remote) to permit it, or use method 'esmfold' to fold locally")
     if method == "esmatlas":
-        return _esmatlas(name, seq, timeout=timeout)
-    if method == "esmfold":
-        return _esmfold_local(name, seq)
-    return _colabfold(name, seq, Path(workdir))
+        pred = _esmatlas(name, seq, timeout=timeout)
+    elif method == "esmfold":
+        pred = _esmfold_local(name, seq)
+    else:
+        pred = _colabfold(name, seq, Path(workdir))
+    return require_sequence(pred, seq)
+
+
+def require_sequence(pred: Prediction, seq: str) -> Prediction:
+    """The prediction, if its model is of ``seq``; else PredictionError. A model of
+    another sequence (a service's mix-up, a ColabFold run on the wrong FASTA) is not a
+    model of this one, and nothing is substituted for it."""
+    got = parse_pdb(pred.pdb, source=pred.name).sequence()
+    if got != seq:
+        same = sum(a == b for a, b in zip(got, seq))
+        raise PredictionError(f"{pred.name}: {pred.method} returned a model of a different "
+                              f"sequence ({len(got)} residues, {same} of {len(seq)} "
+                              "positions identical); it is refused, not used")
+    return pred
 
 
 def fetch_reference(ref: str, *, allow_remote: bool, timeout: float = 120.0

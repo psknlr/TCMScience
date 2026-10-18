@@ -437,6 +437,150 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - A prediction is for the standardised parent structure, not for a salt or a prodrug as
   administered.
 
+## Run records: stages, completeness and limitations
+
+Every pipeline records its stages as it runs (`bioagent.runrecord`). A stage is
+`{name, required, status, check, reason, engine, version, device, seconds, outputs}`:
+
+- `status` is `succeeded`, `failed`, `skipped` (chosen not to run), `unavailable` (could
+  not run here: a model, package or tool is missing) or `not_applicable` (nothing to do);
+- `check` is a validation status (PASS, FAIL, …) when the stage tests something;
+- `device` is where the stage computed, as observed (below);
+- `outputs` are the files under the output directory that hold the stage's result.
+
+A run is **complete** only when every required stage succeeded and no check is FAIL.
+
+- `stages.json` in the output directory is rewritten atomically when a stage starts and
+  when it ends. A run that stops part way leaves its failed stage there, with the error.
+  The Studio runner reads it for a job's progress (the stage running, the share of
+  required stages done) and shows the stages on the job.
+- At the end, `run.json` gains `stages`, `complete` and `limitations`. Its file name and
+  existing keys are unchanged.
+- `limitations.md` has one limitation per line: what every result of the pipeline is
+  not, and what this run did not do (a stage skipped, not applicable or unavailable,
+  with its reason). Its lines equal `run.json`'s `limitations`. It holds no timestamp,
+  so a rerun gives the same bytes; timings are only in `stages.json` and `run.json`.
+- `verify_run` (`--verify`) re-hashes the inputs and outputs as before. For a `run.json`
+  with stages it also checks completeness and content:
+  - completeness: every required stage succeeded, no check failed, the run is recorded
+    as complete, and each stage's outputs are recorded outputs that exist;
+  - content: `deseq2_results.tsv`, `counts.tsv`, `tpm.tsv` and `vst.tsv` have their
+    columns and one row per gene the test saw; `cells.tsv` has one row per analysed
+    cell and `clusters.tsv` one per cluster; `scores.tsv` has one row per docked ligand
+    (at least one), each with its poses; `admet.tsv` has one row per molecule read and
+    the columns of the models recorded; `summary.json` has one entry and one model per
+    sequence.
+
+  A `run.json` written before stages were recorded gets the digest checks only.
+- **An incomplete run makes the command exit 1**, after writing its files so they can
+  be inspected. That happens when:
+  - no ligand docked, redocking missed 2 Å, or a ligand's best pose failed its checks;
+  - an ADMET run has no models, or none for an endpoint asked for by name;
+  - any check failed.
+
+  As a Studio job it then fails with the stages at fault as its problems. It never
+  becomes a clean `succeeded`. The candidate skills that wrap these pipelines draft no
+  claim from such a run, and their limitations name the stages at fault.
+
+| Pipeline | Stages, in order |
+|---|---|
+| RNA-seq | `validate_reference`, `ingest`, `validate_fastq`, `qc`, `trim` (skipped with `--trimmer none`), `quantify`, `summarize_genes`, `differential_expression`, `explore`, `report`, `verify` |
+| Single cell | `validate_input`, `qc`, `doublets` (skipped when off), `normalize`, `hvg`, `pca`, `integrate` (not applicable with one batch or `none`), `neighbors` (the kNN graph, UMAP connectivities and layout), `cluster` (Leiden, and PAGA's connectivity between the clusters), `markers`, `annotate`, `trajectory` (pseudotime; not applicable without a root), `pseudobulk_de` (not applicable without two conditions), `report`, `verify` |
+| Structure | `input_check`, `predict`, `sequence_identity`, `confidence`, `geometry`, `compare` (not applicable without a reference), `report`, `verify` |
+| Docking | `receptor_prep`, `ligand_prep`, `site`, `redock_validation` (skipped without a co-crystal ligand; FAIL beyond 2 Å), `dock`, `pose_checks`, `contacts`, `report`, `verify` |
+| ADMET | `standardize`, `descriptors`, `rules`, `alerts`, `models` (unavailable without them), `predictions`, `report`, `verify` |
+
+**RNA-seq input checks, before QC and trimming spend time.** `validate_reference`
+runs first, before the lanes of a sample are merged. It requires:
+- unique transcript identifiers, no empty sequence, nucleotide codes only;
+- at least one transcript of the FASTA in the annotation;
+- for `--engine hisat2`, a GTF annotation whose every sequence name is a contig of the
+  genome (a GTF on `chr1` and a genome on `1` would count nothing).
+
+`validate_fastq` then reads every record, not QC's sample of the first 200,000. It
+requires:
+- an `@` header with a name and a `+` separator;
+- as many quality values as bases;
+- bases A, C, G, T or N, and quality characters within Phred+offset;
+- the mates of a pair in step and of the same name;
+- a gzip stream that is complete.
+
+A failure stops the run and names the line. Both records go under `run.json`'s
+`validation`; `inputs` keeps its keys.
+
+**Devices, as observed.**
+- The built-in, Scanpy, Vina and command-line tool stages compute on the CPU and say
+  `cpu`.
+- scVI trains with accelerator `cpu` by design, so that its seed reproduces the model,
+  whatever device the job was given.
+- Local ESMFold records the device its parameters were on: `cuda:0`, or `cpu`. It moves
+  to a GPU only through CUDA, so a job given Apple's MPS computes on the CPU and says so.
+- The ESM Atlas service is `remote:api.esmatlas.com`.
+- ColabFold records what its own log says (`gpu` or `cpu`), and otherwise null with a
+  note. `gpu` is ColabFold's alone: its log reports a GPU without naming one, and a
+  note says the device is as reported, not observed.
+
+**Structure checkpoints.**
+- Local ESMFold records the Hub model id, its revision, a SHA-256 of the weights
+  themselves (computed once per revision in a process) and, on CUDA, the peak GPU
+  memory. The peak memory varies between runs, so it is in `run.json`, not in
+  `summary.json`.
+- ColabFold records its version, its model type and the digest of the `config.json` it
+  wrote. The AlphaFold2 parameters are not digested, so its checkpoint is recorded as
+  `verifiable: false` with `scope: config_only`. Only a checkpoint whose weights were
+  digested is verifiable.
+- The ESM Atlas service's weights cannot be observed from here. They are recorded as
+  `verifiable: false`, and no digest is claimed for them.
+
+Whatever the method, a model of a sequence other than the one asked for is refused
+(`predict` and the `sequence_identity` stage). A retrieved structure is only compared
+with; it never stands in for a prediction.
+
+**Docking pose checks.** Each pose is checked for:
+- finite coordinates;
+- every ligand heavy atom inside the box (within 0.5 Å);
+- no ligand–receptor heavy-atom pair closer than 2.2 Å, metal ions left out.
+
+The results go into `run.json`'s `results` and `scores.tsv` (`pose_check`,
+`min_receptor_distance`). Benzamidine's crystal pose in 3PTB sits 2.8 Å from its nearest
+receptor atom and passes. These are sanity checks, not PoseBusters, and passing them
+does not validate binding. Vina's ranking is kept as it is.
+
+`tests/test_docking.py` exercises the stages and checks with RDKit, meeko and a
+stand-in for Vina, and says so; real Vina runs in CI's molecular-modelling job. The
+`dock-ligands` skill drafts a hypothesis only from a complete run, and only for a ligand
+whose best pose passed these checks.
+
+**ADMET model identity.** `run.json`'s `models` keeps its six fields per endpoint and
+adds:
+- whether the archive is the pinned one, and the training set;
+- the model class and its iterations, and the features;
+- the applicability domain's digest and threshold;
+- the scikit-learn and RDKit versions, and the seed.
+
+With no model, the `models` and `predictions` stages are unavailable and the run is
+incomplete, though descriptors, rules and alerts are still written.
+
+### Reference datasets
+
+`bioagent/data/pipeline_references.json` (version 2026.10.1) names one reference
+dataset per pipeline: its content digests, the parameters it is run with, and the
+values expected from it. It also holds output digests, which are compared only under the
+numpy and scipy they were recorded with. `tests/test_pipeline_references.py` re-runs the
+references wherever their engines exist.
+
+| Pipeline | Reference | Kind | Where it is checked |
+|---|---|---|---|
+| RNA-seq | `omics_world` v1 (`tests/omics_world.py`, seed 1, 5% adapters) | simulated, known answer | here: the seven planted genes, at most one false discovery, 30 genes tested, outputs byte-identical |
+| Single cell | `sc_world` v1 (`tests/sc_world.py`, seed 0) | simulated, known answer | here: ARI above 0.9 (1.0), the four cell types named, at least 12 planted genes in B-cell pseudobulk |
+| Structure | PDB 1UBQ and the stored ESM Atlas model | public | here, offline: TM-score 0.958, RMSD 0.83 Å; a new prediction requires the network or torch and transformers |
+| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented) |
+| ADMET | the TDC ADMET group | public | requires RDKit, scikit-learn and the archive (`BIOAGENT_TDC_ARCHIVE`): held-out scores within 0.05 of the table above for scores on [0, 1], and within 5% for errors in the endpoint's unit |
+
+The two simulated references are not public data. A run on one of them is recognised by
+its content digests, and its `limitations.md` says "simulated, known answer … not public
+data".
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
@@ -530,3 +674,28 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 **适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
 
 所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。
+
+**运行记录：阶段、完整性与局限。** 每个流程在运行中逐阶段记录（`bioagent.runrecord`）。每个阶段记录以下字段：
+- 名称、是否必需、状态（成功 / 失败 / 跳过 / 不可用 / 不适用）；
+- 检查结果（PASS、FAIL 等）与原因；
+- 引擎与版本、实际计算设备、耗时和产出文件。
+
+只有全部必需阶段成功、且没有任何检查为 FAIL 时，运行才算完整。
+- `stages.json` 在每个阶段开始和结束时原子地重写；中途失败的运行会留下失败阶段及其错误。Studio 用它显示任务进度和各阶段。
+- 运行结束时，`run.json` 增加 `stages`、`complete` 和 `limitations`，文件名和原有键不变。
+- `limitations.md` 每行一条局限，与 `run.json` 的 `limitations` 一致，不含时间戳，重跑字节相同。
+- `--verify` 除复核摘要外，对带阶段的记录还检查完整性和表格内容（列名、行数与记录一致）。旧记录只做摘要复核。
+- 运行不完整时命令以退出码 1 结束，文件仍保留供查看。例如：没有配体对接成功、重对接超过 2 Å、最优构象未通过检查、ADMET 缺少模型。作为 Studio 任务，它会以失败告终，并列出出问题的阶段，绝不会显示为干净的「成功」。包装这些流程的候选 Skill 不会据此提出结论，并在局限中列出出问题的阶段。
+
+各流程的阶段见上表。补充几点：
+- **RNA-seq：** 在合并多泳道文件、质控和修剪之前先校验参考（转录本 ID 唯一、注释能对上；hisat2 时 GTF 序列名都在基因组中），再逐条校验全部 FASTQ 记录（而不只是质控抽样的前 20 万条），包括双端配对的读段名。
+- **设备按实际记录：** 内置、Scanpy、Vina 和命令行工具都在 CPU 上。scVI 按设计在 CPU 上训练。本地 ESMFold 记录参数所在设备，它只通过 CUDA 使用 GPU，分配到 MPS 时实际在 CPU 上运行，并如实记录。ESM Atlas 记为远程。ColabFold 按其日志记录 `gpu` 或 `cpu`；`gpu` 只用于 ColabFold，因为其日志只说用了 GPU、不说是哪一块，并附说明：设备是日志报告的，不是本地观察到的。
+- **结构预测检查点：** 本地 ESMFold 记录模型 ID、版本和权重本身的 SHA-256（同一进程中每个版本只计算一次），CUDA 上的峰值显存只写入 `run.json`、不写入 `summary.json`；ColabFold 记录版本与 `config.json` 摘要，AlphaFold2 参数本身未做摘要，因此其检查点记为「不可验证」（`verifiable: false`，`scope: config_only`）；只有对权重本身做了摘要的检查点才算可验证；ESM Atlas 的权重无法从本地观察，记为「不可验证」，不声称任何摘要。任何方法得到的模型，序列都必须与输入一致；检索到的结构只用于比较，绝不替代预测。
+- **对接构象检查：** 坐标有限、重原子都在对接盒内、配体与受体重原子间距不小于 2.2 Å。这只是合理性检查，不是 PoseBusters，也不验证结合。`tests/test_docking.py` 用 RDKit、meeko 和 Vina 的替身测试各阶段与检查（测试中已注明），真实的 Vina 运行在 CI 的分子建模任务中。`dock-ligands` Skill 只在运行完整时提出假说，且只针对最优构象通过这些检查的配体。
+- **ADMET：** 每个终点记录完整的模型身份：模型和归档的摘要、训练集、指标、适用域阈值与摘要、库版本。缺少模型时，模型与预测阶段为「不可用」，运行不完整。
+
+**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.1）：每个流程一份，记录内容摘要、参数和预期结果。
+- RNA-seq 与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
+- 结构参考为 PDB 1UBQ 与存档的 ESMFold 模型，离线核对。
+- 对接参考（3PTB）需要 Vina，在 CI 中核对。
+- ADMET 参考需要 TDC 归档，仅在提供归档时核对。

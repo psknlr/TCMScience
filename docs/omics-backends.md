@@ -22,6 +22,26 @@ preranked GSEA. Two rules hold for every choice:
 
 The defaults are what the pipelines did before, so an existing call gives the same result.
 
+Each choice is also recorded on the stage it runs. Every pipeline writes its stages to
+`stages.json` while it works and to `run.json`'s `stages` at the end
+([analysis-pipelines.md](analysis-pipelines.md#run-records-stages-completeness-and-limitations)),
+each with:
+- the engine, by the catalog's engine ids;
+- its version;
+- the device it computed on.
+
+| Stage | Engine ids |
+|---|---|
+| `differential_expression`, `explore` (RNA-seq) and `pseudobulk_de` (single cell) | `builtin-de` or `pydeseq2`, with the implementation's version |
+| `normalize`, `hvg`, `pca`, `neighbors`, `cluster`, `markers` | `builtin` or `scanpy` |
+| `integrate` | `builtin-harmony`, `harmonypy` or `scvi`; not applicable with one batch or with `none` |
+
+Every one of these stages computes on the CPU and records `cpu`. That includes scVI,
+which trains with accelerator `cpu` so that its seed reproduces the model, whatever
+device the job was given. Each run's `limitations.md` says that the built-in
+implementation, PyDESeq2 and R's DESeq2 do not give numerically identical results, and
+points here for where and why they differ.
+
 ## Differential expression: one design, one contrast, one contract
 
 `bioagent.omics.de_backends.run_de` is the single entry point. `run_rnaseq` calls it,
@@ -343,7 +363,7 @@ and alignment tests run there; scVI's record is checked there against stand-ins.
 
 ## 中文摘要
 
-**问题：** 流程默认使用本项目自己的实现。PyDESeq2、Scanpy 等成熟实现此前只用于对照测试。现在三个环节可以选择成熟实现，并新增预排序 GSEA。两条规则对每个选项都成立：未安装的实现会被拒绝并说明原因（`ExecutionStatus.UNAVAILABLE`），绝不静默改用内置实现；实际运行的实现及其版本写入结果和 `run.json`。默认值与原来一致。
+**问题：** 流程默认使用本项目自己的实现。PyDESeq2、Scanpy 等成熟实现此前只用于对照测试。现在三个环节可以选择成熟实现，并新增预排序 GSEA。两条规则对每个选项都成立：未安装的实现会被拒绝并说明原因（`ExecutionStatus.UNAVAILABLE`），绝不静默改用内置实现；实际运行的实现及其版本写入结果和 `run.json`。默认值与原来一致。每个选项也记录在它所运行的阶段上（`run.json` 的 `stages` 与运行中的 `stages.json`），包括引擎 ID（如 `builtin-de` / `pydeseq2`、`builtin` / `scanpy`、`builtin-harmony` / `harmonypy` / `scvi`）、版本和实际计算设备。这些阶段都在 CPU 上计算，scVI 也按设计在 CPU 上训练，以便种子能复现模型。每次运行的 `limitations.md` 都注明：内置实现、PyDESeq2 与 R 的 DESeq2 结果在数值上并不相同，差异见本文。
 
 **差异表达（`de_backend`：`builtin` / `pydeseq2`）：** 唯一入口是 `de_backends.run_de`，供 RNA-seq 流程和单细胞伪批量检验共用。两个实现可能在以下几处悄悄不一致，这里在运行前统一处理：
 - **矩阵方向：** 只转置一次，带着 ID 走，结果按基因 ID 读回。

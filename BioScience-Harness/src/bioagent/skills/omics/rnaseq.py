@@ -9,10 +9,12 @@ as a research artifact:
   evidence item whose quote is that gene's row of ``deseq2_results.tsv``, located in
   the table so the quote carries a receipt. The design is the experiment's, as the
   caller declares it: ``in_vitro``, ``animal`` or ``observational`` (human samples).
-* **The claim.** One claim, and only when some gene differs. Its kind follows from the
-  design: an observational study of human samples supports an ``association``; cells
-  or animals support a ``mechanism_hypothesis`` and nothing about people. Its text
-  states what was tested and found in these samples and nothing beyond.
+* **The claim.** One claim, and only when some gene differs and the run is complete
+  (``run.complete``: every required stage succeeded and no check failed; an incomplete
+  run's limitations say which stage is at fault). Its kind follows from the design: an
+  observational study of human samples supports an ``association``; cells or animals
+  support a ``mechanism_hypothesis`` and nothing about people. Its text states what was
+  tested and found in these samples and nothing beyond.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from typing import Any
 from ...contracts import (CandidateClaim, Directness, EvidenceItem, EvidenceQuality,
                           SourceCard, require_declared)
 from ...contracts.source_card import canonical_hash
+from ...runrecord import problems as stage_problems
 from ..base import artifact, file_of, json_file
 
 __all__ = ["rnaseq_differential_expression", "EXPERIMENT_DESIGNS"]
@@ -150,7 +153,7 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
     down = len(significant) - up
     kind = "association" if experiment_design == "observational" else "mechanism_hypothesis"
     claims: list[CandidateClaim] = []
-    if evidence:
+    if evidence and run.complete:
         tested = int(sum(1 for v in res.p_value if math.isfinite(v)))
         claims.append(CandidateClaim(
             id="rnaseq.differential_expression",
@@ -187,6 +190,10 @@ def rnaseq_differential_expression(sample_sheet: str, *, transcripts: str = "",
     ]
     if experiment_design != "observational":
         limitations.append("cells or animals: nothing here describes people")
+    if not run.complete:
+        limitations.append("the run is incomplete ("
+                           + "; ".join(stage_problems(run.stages) or ["not recorded why"])
+                           + "), so no claim is made")
     if not evidence:
         limitations.append("no gene differs at the FDR level, so no claim is made; this is "
                            "not evidence that expression is unchanged")

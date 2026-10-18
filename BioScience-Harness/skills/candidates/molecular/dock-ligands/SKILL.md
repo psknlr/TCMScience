@@ -17,9 +17,11 @@ The skill docks ligands into a receptor with AutoDock Vina:
   size.
 
 When the site comes from a co-crystal ligand, that ligand is redocked first. The setup
-counts as validated only if the top pose lands within 2 Å of the crystal pose, and only a
-validated setup supports a claim: a `mechanism_hypothesis` per ligand, with its row of
-`scores.tsv` as evidence. A score is the scoring function's estimate, not an affinity.
+counts as validated only if the top pose lands within 2 Å of the crystal pose. Only a
+validated setup in a complete run supports a claim: a `mechanism_hypothesis` per ligand
+whose best pose passed the pose checks (finite, inside the box, no clash with the
+receptor), with its row of `scores.tsv` as evidence. A score is the scoring function's
+estimate, not an affinity.
 
 <!-- zh -->
 本 Skill 用 AutoDock Vina 将配体对接到受体：
@@ -27,4 +29,4 @@ validated setup supports a claim: a `mechanism_hypothesis` per ligand, with its 
 - 配体由 RDKit 生成三维构象，再由 meeko 生成扭转树；
 - 对接盒可以围绕共晶配体、指定残基，或按给定中心与尺寸设定。
 
-若对接位点来自共晶配体，会先把该配体重新对接回去：最优构象与晶体构象的 RMSD 不超过 2 Å 才算验证通过。只有验证通过时才给出结论，即每个配体一条 `mechanism_hypothesis`（机制假说），证据为 `scores.tsv` 中该配体的行。打分只是打分函数的估计，不是亲和力。
+若对接位点来自共晶配体，会先把该配体重新对接回去：最优构象与晶体构象的 RMSD 不超过 2 Å 才算验证通过。只有验证通过且整个运行完整时才给出结论：最优构象通过构象检查（坐标有限、位于对接盒内、不与受体冲突）的配体各得一条 `mechanism_hypothesis`（机制假说），证据为 `scores.tsv` 中该配体的行。打分只是打分函数的估计，不是亲和力。

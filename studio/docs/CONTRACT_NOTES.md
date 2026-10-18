@@ -420,7 +420,8 @@ timed_out?, note?}`. `progress` only while running. `GET /api/jobs/{id}?wait_s=N
 POST `/api/jobs` answers 201 for a new job and 200 for an existing `submission_id`.
 
 **Events** (`/api/jobs/{id}/events`): `retry: 3000`, then `state` (Job), the recent `log` lines, `progress` if any;
-live: `state` (Job), `log` `{stream:"stdout"|"stderr", line}`, `progress` `{fraction?, message?}` (`{}` when cleared),
+live: `state` (Job), `log` `{stream:"stdout"|"stderr", line}`, `progress` `{fraction?, message?, stage?}` (`{}` when
+cleared; `stage` is a pipeline's stage from its `stages.json`, or `"verifying"` while the job is collected, §4),
 `artefact` `{path, bytes, media_type}` (a new file in the output directory, not yet verified), `done` (Job; the stream
 then closes); `: keep-alive` comments every 15 s. A finished job's stream is `state` + `done` at once.
 
@@ -590,19 +591,63 @@ run in the browser:
   "requested": "auto" | "cpu" | "reference",               // Settings → Compute → Browser acceleration
   "plan"?: {"considered": ["wasm-simd", "webgpu", "js", "python"], "passed_over": [{"id", "reason"}],
             "tried": [{"id", "outcome", "reason"?}], "chosen": "wasm-simd" | null},
-  "fallback_reason"?: "…"
+  "fallback_reason"?: "…",                                  // why the GPU did not compute (any reason; see below)
+  "gpu"?: {                                                 // the three count tools (compute/accelerator.js settle)
+    "adapter": {"kind": "software" | "physical" | "unidentified", "vendor", "architecture"} | null,
+    "dispatched": true, "validated": true,                  // the call's kernel was submitted; Python used its counts
+    "verified": true | false | null,                        // the device's known-answer test (null: not run)
+    "gpu_ms": 12.3 | null, "cold": false,                   // this call's GPU path, set-up included when cold
+    "kernel_ms"?: 0.4,                                      // GPU timestamps, only where asked for (benchmark)
+    "cpu_baseline_ms": 20.1 | null, "cpu_baseline_backend": "wasm-simd" | "js" | null,  // measured here, same tool and size class
+    "accelerated": false,                                   // true only from that measurement, on a physical adapter
+    "basis": "…",                                           // why accelerated is what it is
+    "fallback_reason": "…" | null,                          // why the GPU's counts were not used
+    "evidence": "selected" | "reported" | "dispatched" | "validated" | "verified" | "accelerated" | null,
+    "handoff_ms": 0.8                                       // written by Python: the crossing from the Worker's sent_at mark, parsing and binding the packet
+  }
 }
 ```
 
 `backend` is the fact and `plan` the scheduler's prediction made before the call (for a sequence tool). They can
 differ: the plan may choose a CPU kernel that Python then finds not worth calling for so small an input. `receipt.device`
-is `webgpu` only when GPU counts were used (§3). A failed call earns no accelerator credit: its `backend` is `pyodide`.
+is `webgpu` only when GPU counts were used (§3). A failed call earns no accelerator credit: its `backend` is `pyodide`,
+and it has no `gpu`. Python writes `gpu: {validated, handoff_ms}` whenever a packet arrived; the Worker completes it
+after Python returns (`decorateReceipt`), so none of it is in the result or its hashes. `receipt.execution.kernel`
+mirrors `compute.backend` (Python's `_mirror`, and the Worker whenever it writes `compute`); `execution.device.requested`
+is `compute.requested`; `execution.device.evidence` is `validated` when Python used GPU counts (its own recount), raised
+by the Worker to `verified` or `accelerated` only as far as `gpu.evidence` shows, and the CPU's stays `selected`. The
+ladder, the adapter classifier and the like-for-like timing are in BROWSER_COMPUTE §5.1. `result.fallbacks` gains a
+`{what: "compute", reason}` entry only for a degradation (`accelerator.gpuDegradation`): the GPU was tried and failed, set
+aside after a failure, or its counts were rejected by Python. A CPU path chosen by preference, size, input shape, a
+cheaper estimate or a software adapter has `compute.fallback_reason` only. With a packet, the Worker's `options_json` for
+`browser_compute.call_json` adds `sent_at` (its `performance.now()` just before the call) so Python can count the
+crossing in `handoff_ms`; it never affects the result.
 
 **Device report** (§5) additions: `python {device:"cpu", threads:1, note}` and `compute {webgpu_tools, webgpu_adapter
-(false for a software adapter), cpu_kernels {"wasm-simd": [tools], js: [tools]}, precision, fallback}`.
+(false for a software adapter; this page-side report still uses its older name rule, so an unidentified adapter counts
+as true there: BROWSER_COMPUTE §5.1), cpu_kernels {"wasm-simd": [tools], js: [tools]}, precision, fallback}`. The Worker's
+own device report (`op: "device"`) classifies its adapter with `classifyAdapter` (`adapter.kind`, `reason`, `device`;
+`software` true / false / null as in the probe) and adds `compute_evidence`, the session's `webgpuEvidence`.
 `system.capabilities` also carries `browser.compute`, the probe of `compute/capabilities.js` (schema
 `tcmstudio.capabilities/1`: WebAssembly features, WebGPU adapter, features and limits, WebNN contexts as requested and
-reported, storage, timer resolution).
+reported, storage, timer resolution). Additive in that schema (it stays `/1`): `webgpu.adapter` is `classifyAdapter`'s
+answer `{kind, vendor, architecture, device, description, fallback, reason}`; `webgpu.software` is `true` / `false` /
+`null` (unidentified, never "not software"); `webgpu.evidence` is `{ladder, level, api, adapter_reported,
+adapter_kind, dispatched, validated, rejected, verified, accelerated, reason}` (the probe alone reaches `reported`; the
+counts are `null` without a session); `webnn` adds `context_created`, `device_type_requested` and `npu: {status:
+"unverified", label_en, label_zh, reason}`, whose label is "WebNN detected; NPU execution unverified" (检测到 WebNN；NPU
+执行未经验证) with the API and "No verified NPU backend is available" (没有可用的已验证 NPU 后端) without it. Nothing
+reports an NPU as used. When WebNN is not probed (`probeCapabilities({webnn: false})`), `npu.reason` says "WebNN was not
+probed", never that the API is missing.
+
+**Runner devices.** Each entry of the runner's `devices` carries `evidence: "reported"` and `reported_by`
+(`operating system`, `nvidia-smi`, `rocm-smi`, `platform (Apple Silicon)`, `PyTorch <version>`): nothing in the runner
+runs a kernel on a device. `DeviceProbe.facts()` adds `accelerator_runtimes: [{id: openvino | onnxruntime | coreml |
+directml, name, module, installed, status: not_installed | detected | probing | probe_failed, label ("detected, not used
+by any tool"), version?, reported?: {devices | providers | device | compute_units}, evidence: "reported" | null,
+execution: "unverified", used_by: [], error?}]`, detection only, never part of `devices`, so `resolve()` cannot place a
+job on it. (The runner's `/devices` and host facts pass on `devices` only; carrying `accelerator_runtimes` there is a
+server change still to make.)
 
 **The complete formula workbook.** `tcm_formula` and `tcm_lookup` add `repository_records` (the workbook's source
 versions); `tcm_herb` adds `repository_formulas` `{herb: {term, searched, field, not_within, materia?}, total, count,

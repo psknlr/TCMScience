@@ -9,8 +9,13 @@ are passed as ``--name=value`` arguments or as checked positionals, and ``{outpu
 reserved for the job's output directory.
 
 A job is ``succeeded`` only after its required outputs are present, non-empty, and pass the
-pipeline's own ``verify_run`` (digests recorded in ``run.json`` checked again); the TCM data
-hub kinds are checked against the hub's status instead.
+pipeline's own ``verify_run`` (digests recorded in ``run.json`` checked again, and, for a
+record with stages, that every required stage succeeded and no check failed); the TCM data
+hub kinds are checked against the hub's status instead. A pipeline that finds its own run
+incomplete (no ligand docked, a redocking off by more than 2 Å, an ADMET run without its
+models) exits 1, so the job fails with the stages at fault as its problems. The pipeline
+kinds read their progress from the pipeline's ``stages.json`` and require its
+``limitations.md``.
 
 ``python -m tcmstudio.kinds skill-run --request FILE --out DIR`` is the worker behind
 ``skill.run``: it runs one governed skill through the dispatcher, in this process, on the
@@ -36,7 +41,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 __all__ = ["BadParams", "Kind", "PrepareContext", "StartContext", "KINDS", "default_kinds",
-           "OUTPUT_TOKEN", "safe_id", "stdout_json", "main"]
+           "OUTPUT_TOKEN", "safe_id", "stdout_json", "read_stages", "read_record",
+           "stage_summary", "RECORD_MAX_BYTES", "RUN_JSON_MAX_BYTES", "main"]
 
 OUTPUT_TOKEN = "{output}"
 _UPLOAD_ID = re.compile(r"^u_[0-9a-f]{16}$")
@@ -361,6 +367,79 @@ def _artifact_outputs(path: Path) -> str | None:
     return "; ".join(problems) or None
 
 
+#: The most the runner reads of a pipeline's own record in its output directory, which the
+#: job wrote and the runner reads on every poll (stages.json) or at collection (run.json,
+#: limitations.md): a file over its budget, or a symlink, is not read at all.
+RECORD_MAX_BYTES = 1 << 20                  # stages.json, limitations.md
+RUN_JSON_MAX_BYTES = 16 << 20               # run.json (every output's digest, the summary)
+
+
+def read_record(path: Path, limit: int = RECORD_MAX_BYTES) -> str | None:
+    """The text of ``path`` when it is a regular file, not a symlink, of at most ``limit``
+    bytes in UTF-8; else None. The job's output directory is written by the job, so the
+    runner neither follows a link out of it nor loads a file of any size into memory."""
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
+            return None
+        with path.open("rb") as fh:
+            data = fh.read(limit + 1)
+    except OSError:
+        return None
+    if len(data) > limit:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def read_stages(job_dir: Path) -> dict[str, Any] | None:
+    """The pipeline's live stage record, ``out/stages.json`` (bioagent.runrecord), or None
+    when it has written none (yet), it is not one, or it is not a regular file within
+    ``RECORD_MAX_BYTES``."""
+    text = read_record(job_dir / "out" / "stages.json")
+    if text is None:
+        return None
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return None
+    if not isinstance(doc, dict) or doc.get("schema") != "bioagent.stages/1" or \
+            not isinstance(doc.get("stages"), list):
+        return None
+    return doc
+
+
+def stage_summary(stages: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """name, required, status, check, device and seconds of each stage, as a job shows them."""
+    return [{k: s.get(k) for k in ("name", "required", "status", "check", "device", "seconds")}
+            for s in stages if isinstance(s, Mapping)]
+
+
+def _stage_progress(job_dir: Path, prepared: dict[str, Any]) -> dict[str, Any] | None:
+    """Progress from the pipeline's own stage record: the stage running now (else the last
+    one recorded), and the fraction of required stages finished. The planned stages whose
+    requiredness is not known yet count as required; one more step, the runner's own
+    verification of the outputs, is counted too, so a pipeline whose stages have all run
+    is not shown as done before it is verified."""
+    doc = read_stages(job_dir)
+    if doc is None:
+        return _last_line_progress(job_dir, prepared)
+    stages = [s for s in doc["stages"] if isinstance(s, Mapping)]
+    planned = [str(p) for p in doc.get("planned") or ()]
+    optional = {s.get("name") for s in stages if not s.get("required")}
+    total = len([p for p in planned if p not in optional]) or len(stages) or 1
+    done = sum(1 for s in stages if s.get("required"))
+    running = doc.get("running")
+    current = running or (stages[-1].get("name") if stages else None)
+    out: dict[str, Any] = {"fraction": round(min(done, total) / (total + 1), 3)}
+    if current:
+        out["stage"] = str(current)
+        out["message"] = (f"stage {current}" if running
+                          else f"stage {current} {stages[-1].get('status')}")
+    return out
+
+
 def _last_line_progress(job_dir: Path, prepared: dict[str, Any]) -> dict[str, Any] | None:
     del prepared
     for name in ("stderr.log", "stdout.log"):
@@ -447,6 +526,9 @@ def _rnaseq_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
 
 
 def _rnaseq_progress(job_dir: Path, r: dict[str, Any]) -> dict[str, Any] | None:
+    if read_stages(job_dir) is not None:
+        return _stage_progress(job_dir, r)
+    # an older pipeline that writes no stage record: the quantified samples
     out = job_dir / "out"
     if (out / "report.html").is_file():
         return {"fraction": 0.95, "message": "writing the report"}
@@ -1017,37 +1099,39 @@ def _table_result(name: str) -> Callable[[Path, dict[str, Any]], Any]:
 def default_kinds() -> dict[str, Kind]:
     run_json = ("run", "run.json", True)
     report = ("report", "report.html", True)
+    # one limitation per line, the run's own (bioagent.runrecord.write_limitations)
+    limits = ("limitations", "limitations.md", True)
     kinds = [
         Kind("pipeline.rnaseq", ("RNA-seq 差异表达流程", "RNA-seq pipeline"), "hours",
              _rnaseq_prepare, _rnaseq_command,
-             artefacts=(run_json, report, ("results", "deseq2_results.tsv", True)),
+             artefacts=(run_json, report, ("results", "deseq2_results.tsv", True), limits),
              validators={"run": _verifier("bioagent.omics.rnaseq")},
              timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress),
         Kind("pipeline.scrna", ("单细胞分析流程", "Single-cell pipeline"), "minutes",
              _scrna_prepare, _scrna_command,
              artefacts=(run_json, report, ("clusters", "clusters.tsv", True),
-                        ("cells", "cells.tsv", True)),
+                        ("cells", "cells.tsv", True), limits),
              validators={"run": _verifier("bioagent.omics.scrna")},
              # scVI is CPU-only by design (reproducible models); nothing else here uses a GPU
-             gpu=False, timeout_s=12 * 3600.0, result=_stdout_result),
+             gpu=False, timeout_s=12 * 3600.0, result=_stdout_result, progress=_stage_progress),
         Kind("pipeline.fold", ("蛋白结构预测流程", "Structure prediction"), "minutes",
              _fold_prepare, _fold_command,
-             artefacts=(run_json, ("summary", "summary.json", True), report),
+             artefacts=(run_json, ("summary", "summary.json", True), report, limits),
              validators={"run": _verifier("bioagent.structure.fold")},
              gpu=lambda r: r.get("method") == "esmfold",
              network=lambda r: bool(r.get("allow_remote")),
              remote=lambda r: bool(r.get("allow_remote")),
-             timeout_s=12 * 3600.0, result=_stdout_result),
+             timeout_s=12 * 3600.0, result=_stdout_result, progress=_stage_progress),
         Kind("pipeline.dock", ("分子对接流程", "Docking"), "minutes", _dock_prepare, _dock_command,
-             artefacts=(run_json, ("scores", "scores.tsv", True), report),
+             artefacts=(run_json, ("scores", "scores.tsv", True), report, limits),
              validators={"run": _verifier("bioagent.docking.pipeline")},
              network=lambda r: bool(r.get("allow_remote")),
              remote=lambda r: bool(r.get("allow_remote")), timeout_s=24 * 3600.0,
-             result=_table_result("scores.tsv")),
+             result=_table_result("scores.tsv"), progress=_stage_progress),
         Kind("pipeline.admet", ("ADMET 预测流程", "ADMET"), "minutes", _admet_prepare,
-             _admet_command, artefacts=(("table", "admet.tsv", True), run_json),
+             _admet_command, artefacts=(("table", "admet.tsv", True), run_json, limits),
              validators={"run": _verifier("bioagent.admet.pipeline")},
-             timeout_s=6 * 3600.0, result=_table_result("admet.tsv")),
+             timeout_s=6 * 3600.0, result=_table_result("admet.tsv"), progress=_stage_progress),
         Kind("research.run", ("研究闭环", "Research loop"), "minutes", _research_prepare,
              _research_command,
              artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True)),

@@ -330,7 +330,9 @@ gives it, so the runner and the browser runtime write the same fields with the s
   repairs and problems name the argument's path only, never its value. No receipt field copies such an argument.
 - **`execution.device` and the evidence ladder** `selected < reported < dispatched < validated < verified <
   accelerated`. An in-process call has the CPU it ran on, `selected`. When the browser used the GPU counts, `assigned` and
-  `used` are `webgpu`, as `receipt.device` says. A job has `requested` (the runner's device setting), `assigned`
+  `used` are `webgpu`, as `receipt.device` says, with `evidence:"validated"` (Python's recount), raised to `verified`
+  (the device's known-answer test) or `accelerated` (measured faster than a CPU kernel on that device, physical adapter
+  only) by the Worker from `receipt.compute.gpu`, never from an estimate (CONTRACT_NOTES, browser-compute). A job has `requested` (the runner's device setting), `assigned`
   (`job.device`, set when it starts; `null` and a note while queued) and `evidence:"selected"`. `used` is `cpu` only
   for a CPU job, and `null` for a GPU job: hiding the other GPUs is a selection, and no job reports the device its
   engine used. `receipt.device` of a job envelope is that assigned device, so a GPU job is never reported as `cpu`.
@@ -375,8 +377,9 @@ gives it, so the runner and the browser runtime write the same fields with the s
   …), or one `collection` failure per problem. It may also add `run_manifest` or `envelope_digest` (read back at the
   recorded digest, or not). **`artifacts`**: `expected` (the governed outputs, the kind's required artefacts), `missing`,
   `hash_mismatch` (an output whose digest no longer matches). **`fallbacks`**: `device` (a job's `device_note`
-  when the selected device was not available), `compute` (WebGPU counts Python rejected, `compute.gpu_rejected`),
-  `degraded` (a kernel call that succeeded in a degraded mode). **`reference`**: only a comparison the call made
+  when the selected device was not available), `compute` (WebGPU counts Python rejected, `compute.gpu_rejected`; and,
+  added by the browser Worker, a GPU that was tried and failed or set aside for the session; never a CPU path chosen
+  by preference, size, input shape or a software adapter), `degraded` (a kernel call that succeeded in a degraded mode). **`reference`**: only a comparison the call made
   against a reference (a fold compared with a given structure), never filled in otherwise.
 
 ---
@@ -432,9 +435,42 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", code:"runner_no_relay", port:8765, message, message_en}}`: the runner never relays Tao-S1 (`message` is Chinese, `message_en` English; the page localises by `type`). A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay` with the same `code`, `port` and `message_en`. |
 
 `Job = {id, kind, state:"queued"|"running"|"succeeded"|"failed"|"cancelled", params, project_id,
-created_at, started_at, finished_at, progress:{fraction?, message?}|null, device, outcome:{status, error?, problems?,
-checks?, expected?}|null, artefacts:[{name, sha256, bytes}], files_url}`. A job is `succeeded` only after its outputs are
-collected and verified (digest + pipeline `verify_run`). Until then it is pending, and its result is never shown as an answer.
+created_at, started_at, finished_at, progress:{fraction?, message?, stage?}|null, device, outcome:{status, error?, problems?,
+checks?, expected?, receipt?}|null, artefacts:[{name, sha256, bytes}], files_url, stages?, limitations?, receipt?}`. A job is
+`succeeded` only after its outputs are collected and verified (digest + pipeline `verify_run`). Until then it is pending, and
+its result is never shown as an answer.
+- **Pipeline stages.** A pipeline job (`pipeline.*`) records its stages in `out/stages.json` (bioagent.runrecord,
+  schema `bioagent.stages/1`). `stages:[{name, required, status, check, device, seconds}]` follows it while the job runs, and
+  comes from `run.json` once collected. `status` is `succeeded|failed|skipped|unavailable|not_applicable`; `check` is a
+  validation status or null.
+- **Progress.** `progress.stage` is the stage running, or `"verifying"` while the job is collected. `progress.fraction` is
+  the share of required stages finished, out of their number plus one: the runner's own verification counts as the last
+  step, so a fraction never reaches 1 before the job succeeds.
+- **Completeness.** A pipeline whose run is incomplete exits 1, or its `run.json` says `complete:false`, and the job is
+  `failed`. Incomplete means a required stage did not succeed or a check failed (no ligand docked, redocking beyond 2 Å,
+  ADMET models missing). `outcome.problems` then lists the stages at fault (`stage <name> …`).
+- **Limitations.** `limitations` holds the lines of the collected `out/limitations.md`, one limitation per line (at
+  most 100 lines of at most 1,000 characters; a longer line is cut with `…`, and a last line says how many more are in
+  the file). `system.job_status` appends them to `governance.limitations` for a succeeded pipeline job.
+- **Reading the job's own record.** The runner reads `out/stages.json`, `out/limitations.md` (at most 1 MB each) and
+  `out/run.json` (at most 16 MB) only as regular files: a symlink, or a file over its budget, is not read and counts as
+  absent. Hidden temporary files (`.<name>.tmp`, a writer's atomic rename) are not announced as `artefact` events. A
+  stage record that cannot be read (an entry that is not an object, a version that is not text) never stalls
+  collection: such entries are left out, and a receipt that still cannot be written fails the job with that as a
+  problem.
+- **Job receipt.** Collection writes `out/job_receipt.json` for every job that started, failed and cancelled ones too.
+  `outcome.receipt` and `Job.receipt` are `{path:"job_receipt.json", sha256}`. Its schema is `tcmstudio.job-receipt/1`
+  (never named `run_manifest.json`):
+
+  `{schema, job_id, kind, state, project_id, submission_id, params_sha256, inputs:{param:{sha256, bytes}}, engine:[{id,
+  version, stages}]|null, device:{assigned, evidence:"selected", note, stages:{stage: device}|null}, started_at,
+  finished_at, duration_s, exit_code, timed_out, artefacts:[{name, path, sha256, bytes}], expected, missing, checks,
+  problems, error, stages, complete, run_json_sha256, limitations, resources}`.
+
+  `resources` is `{peak_rss_mb, cpu_user_s, cpu_system_s, source, scope}`, from the job supervisor's
+  `getrusage(RUSAGE_CHILDREN)` (`exit.json`). The peak is that of the largest single process the job waited for, not the
+  sum over its process tree. Without that record it is `{peak_rss_mb:null, reason}`. `JobService.job_receipt(job_id)` (and
+  the hook's) reads it back only at its recorded digest.
 `outcome.checks` (succeeded jobs) lists what the collection passed, in order: `controller_digests` (every declared
 artefact digested by the controller; `controller_exit` for a kind that declares none), or `runner_digests` and
 `required_artefacts` for an exit code that is a result; then `validator:<artefact>` (only for an artefact that was

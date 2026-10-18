@@ -147,3 +147,77 @@ def test_pairs_out_of_step_are_refused(tmp_path):
     c = _write(tmp_path / "r3.fq", [("x/2", "ACGT" * 10, _q([38] * 40))] * 2)
     with pytest.raises(F.FastqError, match="more reads"):
         F.trim_fastq(a, tmp_path / "o1.fq", read2=c, out2=tmp_path / "o2.fq")
+
+
+# ---------------------------------------------------------------- full validation
+
+def _pair(tmp_path, n=50, name2=None, gz=True):
+    rng = random.Random(4)
+    ext = ".fq.gz" if gz else ".fq"
+    r1 = [(f"p{i}/1", _random_seq(rng, 30), _q([35] * 30)) for i in range(n)]
+    r2 = [(name2(i) if name2 else f"p{i}/2", _random_seq(rng, 30), _q([35] * 30))
+          for i in range(n)]
+    return _write(tmp_path / f"r1{ext}", r1), _write(tmp_path / f"r2{ext}", r2)
+
+
+def test_every_record_of_a_pair_is_validated(tmp_path):
+    a, b = _pair(tmp_path)
+    v = F.validate_fastq(a, b)
+    assert v["paired"] and v["offset"] == 33
+    assert v["R1"]["reads"] == v["R2"]["reads"] == 50
+    assert v["R1"]["min_length"] == v["R1"]["max_length"] == 30
+    # the content digest names the reads, not the gzip bytes that hold them
+    (tmp_path / "plain").mkdir()
+    plain_a, plain_b = _pair(tmp_path / "plain", gz=False)
+    assert F.validate_fastq(plain_a, plain_b)["R1"]["content_sha256"] == \
+        v["R1"]["content_sha256"]
+
+
+def test_validation_refuses_what_qc_would_not_see(tmp_path):
+    rng = random.Random(5)
+    good = [(f"r{i}", _random_seq(rng, 20), _q([30] * 20)) for i in range(300)]
+    bad = good[:250] + [("r250", "ACGTXACGTACGTACGTACG", _q([30] * 20))] + good[251:]
+    path = _write(tmp_path / "x.fq", bad)
+    F.quality_control(path, max_reads=100)              # QC's sample stops before it
+    with pytest.raises(F.FastqError, match=r"line 1001 holds 'X', not a base"):
+        F.validate_fastq(path)
+    nocall = _write(tmp_path / "dot.fq", [("r1", "ACG.T", _q([30] * 5))])
+    with pytest.raises(F.FastqError, match="not a base"):
+        F.validate_fastq(nocall)
+    lengths = tmp_path / "len.fq"
+    lengths.write_text("@r1\nACGT\n+\nIII\n")
+    with pytest.raises(F.FastqError, match="4 bases and 3 quality values"):
+        F.validate_fastq(lengths)
+    cut = tmp_path / "cut.fq"
+    cut.write_text("@r1\nACGT\n+\nIIII\n@r2\nACGT\n")
+    with pytest.raises(F.FastqError, match="ends inside the record at line 5"):
+        F.validate_fastq(cut)
+    low = _write(tmp_path / "low.fq", [("r1", "ACGT", "II\x1fI")])
+    with pytest.raises(F.FastqError, match="quality characters outside"):
+        F.validate_fastq(low, offset=33)
+    empty = tmp_path / "empty.fq"
+    empty.write_text("")
+    with pytest.raises(F.FastqError, match="holds no reads"):
+        F.validate_fastq(empty)
+
+
+def test_mates_out_of_step_are_refused(tmp_path):
+    a, b = _pair(tmp_path, name2=lambda i: f"p{i + 1 if i == 20 else i}/2")
+    with pytest.raises(F.FastqError, match="pair 21 is out of step: p20/1"):
+        F.validate_fastq(a, b)
+    rng = random.Random(6)
+    short = _write(tmp_path / "short.fq.gz",
+                   [(f"p{i}/2", _random_seq(rng, 30), _q([35] * 30)) for i in range(49)])
+    with pytest.raises(F.FastqError, match="fewer reads"):
+        F.validate_fastq(a, short)
+    with pytest.raises(F.FastqError, match="more reads"):
+        F.validate_fastq(short, a)
+
+
+def test_a_truncated_gzip_stream_is_refused(tmp_path):
+    a, _ = _pair(tmp_path)
+    data = a.read_bytes()
+    broken = tmp_path / "broken.fq.gz"
+    broken.write_bytes(data[: len(data) // 2])
+    with pytest.raises(F.FastqError, match="cannot be read to its end"):
+        F.validate_fastq(broken)

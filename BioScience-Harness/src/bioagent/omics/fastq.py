@@ -28,8 +28,11 @@ small libraries; it reads about 10^5 reads per second.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import io
 import math
+import re
+import zlib
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -39,7 +42,7 @@ import numpy as np
 
 __all__ = ["ADAPTERS", "FastqError", "FastqRecord", "QCReport", "TrimReport", "TrimSettings",
            "detect_offset", "open_text", "quality_control", "read_fastq", "trim_fastq",
-           "trim_read"]
+           "trim_read", "validate_fastq"]
 
 #: Adapter prefixes, as cutadapt and FastQC use them.
 ADAPTERS: Mapping[str, str] = {
@@ -92,6 +95,117 @@ def read_fastq(path: str | Path) -> Iterator[FastqRecord]:
                                  f"and {len(qual)} quality values")
             line_no += 3
             yield FastqRecord(head[1:].rstrip("\r\n").split()[0], seq.upper(), qual)
+
+
+_NOT_BASE = re.compile(r"[^ACGTN]")
+
+
+def _checked_records(path: Path, digest: Any, lo: str, hi: str
+                     ) -> Iterator[tuple[str, int]]:
+    """(name, length) of every record of ``path``, each checked in full, and every line
+    added to ``digest`` (the decompressed text, newlines as read)."""
+    try:
+        with open_text(path) as fh:
+            line_no = 0
+            while True:
+                head = fh.readline()
+                if not head:
+                    return
+                line_no += 1
+                digest.update(head.encode("ascii"))
+                if not head.strip():
+                    continue
+                seq, plus, qual = fh.readline(), fh.readline(), fh.readline()
+                for line in (seq, plus, qual):
+                    digest.update(line.encode("ascii"))
+                words = head[1:].split()
+                if not head.startswith("@") or not words:
+                    raise FastqError(f"{path}: line {line_no} does not start a record with "
+                                     "'@' and a read name")
+                if not qual:
+                    raise FastqError(f"{path}: the file ends inside the record at line "
+                                     f"{line_no}")
+                if not plus.startswith("+"):
+                    raise FastqError(f"{path}: the record at line {line_no} has no '+' "
+                                     "separator")
+                seq, qual = seq.rstrip("\r\n").upper(), qual.rstrip("\r\n")
+                if len(seq) != len(qual):
+                    raise FastqError(f"{path}: the record at line {line_no} has {len(seq)} "
+                                     f"bases and {len(qual)} quality values")
+                bad = _NOT_BASE.search(seq)
+                if bad:
+                    raise FastqError(f"{path}: the record at line {line_no} holds "
+                                     f"{bad.group()!r}, not a base (A, C, G, T or N)")
+                if qual and (min(qual) < lo or max(qual) > hi):
+                    raise FastqError(f"{path}: the record at line {line_no} has quality "
+                                     f"characters outside {lo!r}..{hi!r}")
+                line_no += 3
+                yield words[0], len(seq)
+    except (EOFError, OSError, UnicodeDecodeError, zlib.error) as exc:
+        raise FastqError(f"{path} cannot be read to its end ({type(exc).__name__}: "
+                         f"{exc})") from exc
+
+
+def validate_fastq(read1: str | Path, read2: str | Path | None = None, *,
+                   offset: int | None = None) -> dict[str, Any]:
+    """Every record of one file, or of a pair of files, checked in one streaming pass.
+
+    QC measures a sample of the reads (``quality_control``'s ``max_reads``); this reads
+    them all and refuses the file (``FastqError``, naming the line) at the first record
+    that is not well formed: a header without '@' and a name, a missing '+' separator,
+    a file that ends inside a record, bases and quality values of different lengths, a
+    character that is not A, C, G, T or N (an old Illumina '.' no-call is refused too:
+    convert it to N), or a quality character outside Phred+``offset``. For a pair, the
+    two files must hold the same number of records and each pair's mates the same name
+    (a trailing /1 and /2 aside), so a pipeline that does not trim can no longer count
+    out-of-step mates as pairs. A gzip stream that is truncated or corrupt is refused.
+
+    Returns per file the reads, bases, shortest and longest read, the quality offset
+    and ``content_sha256``: the SHA-256 of the decompressed text, which names the reads
+    whatever compression wrote them (gzip bytes vary with the compressor and its clock).
+    """
+    paths = [Path(read1)] + ([Path(read2)] if read2 is not None else [])
+    if offset is None:
+        try:
+            offset = detect_offset(paths[0])
+        except FastqError:
+            offset = 33               # a malformed record: the pass below names it
+        except (EOFError, OSError, UnicodeDecodeError, zlib.error) as exc:
+            raise FastqError(f"{paths[0]} cannot be read to its end ({type(exc).__name__}: "
+                             f"{exc})") from exc
+    lo, hi = chr(offset), chr(min(offset + MAX_QUAL, 126))
+    digests = [hashlib.sha256() for _ in paths]
+    stats = [{"file": p.name, "reads": 0, "bases": 0, "min_length": None, "max_length": 0}
+             for p in paths]
+    readers = [_checked_records(p, d, lo, hi) for p, d in zip(paths, digests)]
+
+    def count(k: int, length: int) -> None:
+        s = stats[k]
+        s["reads"] += 1
+        s["bases"] += length
+        s["min_length"] = length if s["min_length"] is None else min(s["min_length"], length)
+        s["max_length"] = max(s["max_length"], length)
+
+    for name, length in readers[0]:
+        count(0, length)
+        if len(readers) > 1:
+            mate = next(readers[1], None)
+            if mate is None:
+                raise FastqError(f"{paths[1]} has fewer reads than {paths[0]} (it ends after "
+                                 f"{stats[1]['reads']:,})")
+            if _pair_name(name) != _pair_name(mate[0]):
+                raise FastqError(f"pair {stats[0]['reads']:,} is out of step: {name} in "
+                                 f"{paths[0].name}, {mate[0]} in {paths[1].name}")
+            count(1, mate[1])
+    if len(readers) > 1 and next(readers[1], None) is not None:
+        raise FastqError(f"{paths[1]} has more reads than {paths[0]}")
+    for p, s in zip(paths, stats):
+        if not s["reads"]:
+            raise FastqError(f"{p} holds no reads")
+    out: dict[str, Any] = {"offset": offset, "paired": len(paths) > 1}
+    for mate, s, d in zip(("R1", "R2"), stats, digests):
+        out[mate] = {**s, "content_sha256": d.hexdigest()}
+    return out
 
 
 def detect_offset(path: str | Path, n: int = 10_000) -> int:

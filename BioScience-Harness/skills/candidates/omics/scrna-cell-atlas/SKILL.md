@@ -59,10 +59,11 @@ Clusters, labels and pseudotime are outputs, not claims. A cell-type label is an
 inference from marker expression, and pseudotime is an ordering by similarity.
 
 A claim is made only for a difference between conditions within a cell type, tested
-on samples (pseudobulk), never on cells. Human samples support an `association`;
+on samples (pseudobulk), never on cells, and only from a complete run (every required
+stage succeeded and no check failed). Human samples support an `association`;
 cells or animals support a `mechanism_hypothesis`.
 
 <!-- zh -->
 聚类、细胞类型标签和伪时间都是输出，而不是结论。细胞类型标签只是依据标记基因表达做出的推断，伪时间只是按相似度给细胞排序。
 
-只有同一细胞类型内、不同条件之间的差异才会形成结论，而且检验的单位是样本（伪批量），从不是单个细胞。人体样本支持 `association`（相关性）；细胞或动物实验支持 `mechanism_hypothesis`（机制假说）。
+只有同一细胞类型内、不同条件之间的差异才会形成结论，而且检验的单位是样本（伪批量），从不是单个细胞；结论只来自完整的运行（每个必需阶段都成功、没有检查失败）。人体样本支持 `association`（相关性）；细胞或动物实验支持 `mechanism_hypothesis`（机制假说）。

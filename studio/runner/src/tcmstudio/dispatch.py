@@ -3601,6 +3601,10 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
             g["limitations"] = ([gv.LIMIT_PREDICTED]
                                 if _predictive_job(str(job.get("kind")), job.get("params"))
                                 else [])
+            # and the pipeline's own, one per line of its limitations.md (jobs.py collects
+            # them with the stages, which the job itself carries)
+            g["limitations"] += [str(x) for x in job.get("limitations") or ()
+                                 if str(x) not in g["limitations"]]
         else:
             g["limitations"] = [gv.LIMIT_PENDING]
         progress = job.get("progress") or {}

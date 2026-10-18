@@ -82,4 +82,11 @@ def dispatch(a: argparse.Namespace) -> int | None:
     for w in run.warnings:
         print(f"warning: {w}")
     print(f"report: {Path(a.out) / 'report.html'}")
+    if not run.complete:
+        # no ligand docked, redocking missed 2 Å or a best pose failed its checks: the
+        # files stay for inspection, and the exit says the run is not a result
+        from ..runrecord import problems
+        print("incomplete: " + "; ".join(problems(run.stages) or ["no stage was recorded"]),
+              file=sys.stderr)
+        return 1
     return 0
