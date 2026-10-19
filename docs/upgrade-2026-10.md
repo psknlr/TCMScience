@@ -94,7 +94,7 @@ All in the development container (4 CPUs, Linux, Python 3.13, Node 22), on the f
 | Studio runner (`python -m pytest studio/runner/tests`) | 542 passed |
 | Studio web (`npm test`) | 456 passed, 1 skipped (the Python glossary comparison, which needs the system `python3` to import the packages) |
 | Edge Worker (`node --test studio/edge/test`) | 92 passed |
-| BioScience-Harness unit tier (`pytest -m unit`) | 2,691 passed, 139 skipped on the network-pharmacology and acquisition commit; re-run on the final commit as recorded in the session |
+| BioScience-Harness unit tier (`pytest -m unit`) | 2,698 passed, 139 skipped, 0 failed (the baseline before this branch: 2,586 passed) |
 | Pipeline, acquisition and research tests (BioScience-Harness, targeted) | 281 passed, 1 skipped (the TDC ADMET archive is not available) |
 | Checks | `compat_matrix --check`, `doc_facts --check`, `connector_coverage --check`, `make_figures --check`, `check_lockfile.py`: all pass |
 | Browser end-to-end | `pipeline.spec.mjs` 6 passed; the Pyodide specs cannot run here (the CDN is refused) and in CI they now fail rather than skip |
