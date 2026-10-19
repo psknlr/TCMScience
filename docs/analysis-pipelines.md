@@ -732,8 +732,10 @@ incomplete, though descriptors, rules and alerts are still written.
 
 `bioagent/data/pipeline_references.json` (version 2026.10.1) names one reference
 dataset per pipeline: its content digests, the parameters it is run with, and the
-values expected from it. It also holds output digests, which are compared only under the
-numpy and scipy they were recorded with. `tests/test_pipeline_references.py` re-runs the
+values expected from it. It also holds output digests, which are compared only in the
+environment they were recorded in (Python, numpy, scipy, CPU architecture and the CPU features
+numpy dispatches to): a table of floats can differ in its last digits on another machine with the
+same library versions, so elsewhere the expected values are the check. `tests/test_pipeline_references.py` re-runs the
 RNA-seq and single-cell references with the built-in backends and the structure reference
 offline, compares the docking reference's fixture digest (the redocking itself is in
 `tests/test_docking.py`, which needs Vina), and runs the ADMET reference only where its

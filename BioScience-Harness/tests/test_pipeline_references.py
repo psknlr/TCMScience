@@ -42,9 +42,23 @@ def _ref(ref_id: str) -> dict:
     return next(r for r in pipeline_references()["references"] if r["id"] == ref_id)
 
 
-def _same_numerics(recorded: dict) -> bool:
-    return recorded.get("numpy") == np.__version__ and recorded.get("scipy") in (
-        None, scipy.__version__)
+def _cpu_features() -> str:
+    """The CPU features numpy dispatches to on this machine, as a short digest: the same numpy
+    picks other kernels (and so other last bits) on another CPU."""
+    features = getattr(getattr(np, "_core", None), "_multiarray_umath", None)
+    on = sorted(k for k, v in (getattr(features, "__cpu_features__", None) or {}).items() if v)
+    return hashlib.sha256(",".join(on).encode()).hexdigest()[:16]
+
+
+def _same_environment(recorded: dict) -> bool:
+    """Whether this is the environment the output digests were recorded in. A float table's bytes
+    hold only there: CI's runners, with the same numpy and scipy but another Python and CPU, wrote
+    other last digits. Elsewhere the expected values above are the check."""
+    import platform
+    here = {"python": platform.python_version(), "numpy": np.__version__,
+            "scipy": scipy.__version__, "machine": platform.machine(),
+            "cpu_features": _cpu_features()}
+    return all(recorded.get(k) == v for k, v in here.items())
 
 
 def _sha(path: Path) -> str:
@@ -81,9 +95,9 @@ def test_the_rnaseq_reference_reruns_to_its_expected_result(tmp_path):
     assert min(q["mapping_rate"] for q in run.quantification.values()) >= \
         want["mapping_rate_at_least"]
     assert run.complete is want["complete"]
-    # the output digests depend on the numerics too (numpy and scipy): compared only under
-    # the versions they were recorded with
-    if _same_numerics(ref["expected"]["outputs_recorded_with"]):
+    # the output digests depend on the numerics too: compared only in the environment they were
+    # recorded in (Python, numpy, scipy, CPU architecture and the CPU features numpy uses)
+    if _same_environment(ref["expected"]["outputs_recorded_with"]):
         for name, digest in ref["expected"]["outputs"].items():
             assert _sha(tmp_path / "out" / name) == digest, name
 
@@ -126,9 +140,9 @@ def test_the_scrna_reference_reruns_to_its_expected_result(tmp_path):
             assert len(res.significant()) <= want["pseudobulk_other_cell_types_significant_at_most"]
     assert run.integration["mixing_after"] > want["batch_mixing_after_above"]
     assert run.complete is want["complete"]
-    # the output digests depend on the numerics too (numpy and scipy): compared only under
-    # the versions they were recorded with
-    if _same_numerics(ref["expected"]["outputs_recorded_with"]):
+    # the output digests depend on the numerics too: compared only in the environment they were
+    # recorded in (Python, numpy, scipy, CPU architecture and the CPU features numpy uses)
+    if _same_environment(ref["expected"]["outputs_recorded_with"]):
         for name, digest in ref["expected"]["outputs"].items():
             assert _sha(tmp_path / "out" / name) == digest, name
 

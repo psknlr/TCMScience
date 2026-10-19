@@ -45,7 +45,7 @@
         "outputs": {"deseq2_results.tsv": "bc94573ebfcbade46fcefa5e2e4688428a087a4ef1e36a25aa0c8243137092a4",
                     "counts.tsv": "11f84ff5cd95494faeba319fc04b286c9ecc9e934207556308e4eb22fc0ab793",
                     "report.md": "76c63d11894f319e84a1f5cfda69a95fe87cc3083785a6f60578235135a025e9"},
-        "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1"}
+        "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1", "machine": "x86_64", "cpu_features": "e905ca5f201dc121"}
       },
       "status": "checked here: built-in engines only, no optional package",
       "check": "BioScience-Harness/tests/test_pipeline_references.py"
@@ -82,7 +82,7 @@
         "outputs": {"cells.tsv": "6b992185f0b4d75f3f735ab5368836da24ee9263b547bba49f110c9d3937de05",
                     "clusters.tsv": "bd6bbc872ecda71e8e7a5e1b3646239beeb6757a16191813ad23a6456200117e",
                     "markers.tsv": "268210a89b6f5280b58a60ea8bd5a233caaa97fada318299872d3da87b934355"},
-        "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1"}
+        "outputs_recorded_with": {"python": "3.13.16", "numpy": "2.5.4", "scipy": "1.18.1", "machine": "x86_64", "cpu_features": "e905ca5f201dc121"}
       },
       "status": "checked here: built-in parts only, no optional package",
       "check": "BioScience-Harness/tests/test_pipeline_references.py"
