@@ -10,6 +10,7 @@ import csv
 import importlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -214,7 +215,9 @@ def test_browser_compute_is_derived_for_all_seven_kernel_tools(by_id):
         assert ("webgpu" in bc["backends"]) is (tool in _TOOLS), tool
         assert bc["kernel"] == _KERNEL_TOOLS[tool]
         assert by_id[tool]["exec"] == ["browser", "runner"]
-    assert not any("npu" in json.dumps(e.get("execution") or {}).lower() for e in by_id.values())
+    # (as a word: a browser job's "inputs" is not an NPU)
+    assert not any(re.search(r"\bnpus?\b", json.dumps(e.get("execution") or {}).lower())
+                   for e in by_id.values())
 
 
 def test_engines_hosts_data_approvals_and_limits(browser_doc, by_id):
@@ -365,7 +368,9 @@ def test_a_job_service_that_cannot_start_is_named_once_with_a_runner_remedy():
     jobs = [q for q in plain["requires"] if q["need"] == "job_service"]
     assert [q["detail"] for q in jobs] == ["the runner's job service"]
     assert "tcmstudio serve" not in jobs[0]["remedy"]
-    page = capability.readiness(e, where="browser", network=True, jobs=False)
+    # a kind the browser does not run (pipeline.rnaseq is a browser job now)
+    page = capability.readiness(get_entry("job.pipeline.fold"), where="browser", network=True,
+                                jobs=False)
     assert "tcmstudio serve" in page["requires"][0]["remedy"]          # the browser: start one
 
 
@@ -437,11 +442,19 @@ def test_ready_entries_are_not_refused_by_the_preflight(runner_ctx):
 # ------------------------------------------------------------------------------------- preflight
 
 def test_preflight_names_what_is_missing(runner_ctx, browser_ctx):
-    e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "x"}}, browser_ctx)
+    e = call("run_pipeline", {"pipeline": "dock", "arguments": {"receptor": "PDB:3ptb",
+                                                                "ligands": "CCO"}}, browser_ctx)
     err = e["error"]
     assert err["type"] == "unavailable" and err["reason"] == "needs_runner"
     assert err["requires"][0] == {"need": "runner", "detail": "the local runner (tcmstudio serve)",
                                   "remedy": err["hint"]}
+    # a browser job kind, with arguments only the runner runs: the runner, and why
+    e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "x"}}, browser_ctx)
+    err = e["error"]
+    assert err["type"] == "unavailable" and err["reason"] == "needs_runner"
+    assert err["requires"][0]["detail"].startswith("the local runner (tcmstudio serve): without "
+                                                   "counts this is the FASTQ run")
+    assert "these arguments need the local runner: without counts" in err["message"]
     off = call("call_tool", {"tool": "job.tcmdb.fetch", "arguments": {"dataset": "herb2"}}, runner_ctx)
     assert off["error"]["type"] == "network_off" and off["error"]["reason"] == "network_off"
     hosts = get_entry("job.tcmdb.fetch")["hosts_by"]["dataset"]["herb2"]
@@ -454,6 +467,31 @@ def test_preflight_names_what_is_missing(runner_ctx, browser_ctx):
         assert dock["error"]["reason"] == "missing_deps"
         assert dock["error"]["requires"][0]["need"] == "dependency"
         assert "rdkit" in dock["error"]["requires"][0]["names"]
+
+
+def test_run_pipeline_in_the_browser_says_which_calls_need_the_runner(browser_ctx):
+    """The browser's job service runs pipeline.rnaseq with counts and pipeline.scrna on count
+    tables with the built-in engines; any other call needs the runner, and says why."""
+    for args, why in (
+            ({"pipeline": "rnaseq", "arguments": {"samples": "sheet.csv", "transcripts": "tx.fa"}},
+             "without counts this is the FASTQ run"),
+            ({"pipeline": "rnaseq", "arguments": {"samples": "s.tsv", "counts": "c.tsv",
+                                                  "de_backend": "pydeseq2"}},
+             "PyDESeq2 is not in this browser's Python"),
+            ({"pipeline": "scrna", "arguments": {"source": "pbmc.h5"}}, "a 10x HDF5 or .h5ad source"),
+            ({"pipeline": "scrna", "arguments": {"source": "t.csv", "analysis_backend": "scanpy"}},
+             "Scanpy, anndata, leidenalg and umap-learn")):
+        err = call("run_pipeline", args, browser_ctx)["error"]
+        assert err["type"] == "unavailable" and err["reason"] == "needs_runner", err
+        assert "runs in the browser only in part" in err["message"] and why in err["message"]
+        assert err["requires"][0]["need"] == "runner" and why in err["requires"][0]["detail"]
+    # a pipeline the browser does not run at all
+    err = call("run_pipeline", {"pipeline": "fold", "arguments": {
+        "source": "MKTAYIAKQRQISFVKSHFSRQIEER"}}, browser_ctx)["error"]
+    assert err["reason"] == "needs_runner" and "it is not available in the browser" in err["message"]
+    # one the browser runs is not refused for the runner (the page's job service takes it)
+    ok = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "sheet.csv"}}, browser_ctx)
+    assert (ok.get("error") or {}).get("reason") != "needs_runner"
 
 
 def test_a_request_too_large_for_the_browser_is_refused_before_it_runs(browser_ctx):

@@ -1238,8 +1238,12 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
     "pipeline.rnaseq": {
         "title": ("RNA-seq 差异表达流程", "RNA-seq pipeline"), "category": "omics",
         "summary": "FASTQ + sample sheet → QC, trimming, quantification (built-in k-mer EM, "
-                   "salmon, kallisto or HISAT2), DESeq2-method differential expression, report.",
-        "parameters": obj({"samples": S(f"sample sheet CSV: {_UPLOAD}"),
+                   "salmon, kallisto or HISAT2), DESeq2-method differential expression, report; "
+                   "or a count matrix + sample table → the same test, tables and report.",
+        "parameters": obj({"samples": S(f"sample sheet CSV (FASTQ), or with counts the sample "
+                                        f"table (sample and the design columns): {_UPLOAD}"),
+                           "counts": S("a gene × sample count table (TSV/CSV; integers) — the "
+                                       "count-matrix mode, with `samples` as the sample table"),
                            "transcripts": S(f"transcriptome FASTA: {_UPLOAD}"),
                            "annotation": S(f"GTF or tx2gene table: {_UPLOAD}"),
                            "genome": S(f"genome FASTA (hisat2): {_UPLOAD}"),
@@ -1252,18 +1256,22 @@ JOB_KINDS: dict[str, dict[str, Any]] = {
                            "alpha": N(minimum=0.0001, maximum=0.5, default=0.05)},
                           required=("samples",)),
         "optional": ["pydeseq2", "salmon", "kallisto", "hisat2", "fastp"], "duration": "hours",
-        "tags": ("转录组", "差异表达", "RNA-seq", "FASTQ")},
+        "tags": ("转录组", "差异表达", "RNA-seq", "FASTQ", "计数矩阵", "count matrix")},
     "pipeline.scrna": {
         "title": ("单细胞分析流程", "Single-cell pipeline"), "category": "omics",
         "summary": "Count matrices → QC, doublets, integration (Harmony or scVI), Leiden "
                    "clusters, markers, annotation, PAGA, pseudotime, pseudobulk, report.",
-        "parameters": obj({"source": S(f"10x directory, .h5, .h5ad, CSV or sheet: {_UPLOAD}"),
+        "parameters": obj({"source": S("a count table (CSV/TSV/TXT, .gz or not; genes in rows), "
+                                       "a 10x .h5, an .h5ad, or a sample sheet (sample, path) "
+                                       f"of them: {_UPLOAD}"),
                            "doublets": S(enum=["remove", "flag", "off"], default="remove"),
                            "analysis_backend": S(enum=["builtin", "scanpy"], default="builtin"),
                            "integration": S(enum=["none", "harmony", "scvi"], default="harmony"),
                            "resolution": N(minimum=0.05, maximum=5, default=1.0),
                            "markers": S(f"marker table: {_UPLOAD}"), "root": S("root cell type"),
-                           "contrast": S("pseudobulk contrast"), "seed": I(default=0)},
+                           "contrast": S("pseudobulk contrast"), "seed": I(default=0),
+                           "n_top_genes": I("highly variable genes", minimum=50, maximum=10000,
+                                            default=2000)},
                           required=("source",)),
         # bioagent runs scVI on the CPU by design, and the runner gives this kind no GPU (/api/kinds says the same)
         "optional": ["scanpy", "harmonypy", "leidenalg", "scvi-tools"], "gpu": False,
@@ -1405,14 +1413,52 @@ def _dataset_hosts(keys: Iterable[str]) -> dict[str, list[str]]:
 #: job workers, with the files in the site's private storage; studio/docs/BROWSER_JOBS.md). Every other kind runs
 #: only on the runner's job service. A kind is listed here only once its browser handler exists and the browser
 #: parity tests run it (studio/web/test/runtime/science.mjs: research.snapshot as a job on fixture files, research.run
-#: as a job on the planted world; studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
-BROWSER_JOB_KINDS = ("research.snapshot", "research.run")
+#: as a job on the planted world, and with --mode omics pipeline.rnaseq on the count-matrix reference and
+#: pipeline.scrna on the single-cell reference as count tables, each compared with the native run;
+#: studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
+BROWSER_JOB_KINDS = ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna")
 
-#: How a browser job runs, as the catalog states it (entry.execution.browser_job).
-_BROWSER_JOB = {"service": "studio-jobs/1", "runtime": "pyodide",
-                "workers": ("one job worker per job, one job at a time in a tab (the pool is sized one "
-                            "per spare CPU core, at most one per 1.5 GB of device memory, at most 4)"),
-                "storage": "origin private file system", "pyodide_packages": ["pyarrow"]}
+_WORKERS = ("one job worker per job, one job at a time in a tab (the pool is sized one per spare CPU core, at "
+            "most one per 1.5 GB of device memory, at most 4)")
+
+
+def _browser_job(packages: list[str], **extra: Any) -> dict[str, Any]:
+    return {"service": "studio-jobs/1", "runtime": "pyodide", "workers": _WORKERS,
+            "storage": "origin private file system", "pyodide_packages": packages, **extra}
+
+
+#: How each browser job kind runs, as the catalog states it (entry.execution.browser_job). The pipelines run a
+#: subset of their kind in the browser: ``runner_only`` lists the arguments that take a call to the runner, each
+#: with the reason (capability.runner_only reads it, and the page's router may: {arg, absent: true | is: value |
+#: suffix: [...], why}).
+_BROWSER_JOBS: dict[str, dict[str, Any]] = {
+    "research.snapshot": _browser_job(["pyarrow"]),
+    "research.run": _browser_job(["pyarrow"]),
+    "pipeline.rnaseq": _browser_job(
+        ["numpy", "scipy"],
+        inputs="a count matrix and a sample table, from the project's files (FASTQ needs the runner)",
+        engines=["builtin"],
+        runner_only=[
+            {"arg": "counts", "absent": True,
+             "why": "without counts this is the FASTQ run (QC, trimming, quantification), which runs on the "
+                    "runner; this browser runs the count-matrix mode (counts and a sample table)"},
+            {"arg": "de_backend", "is": "pydeseq2",
+             "why": "PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is"}]),
+    "pipeline.scrna": _browser_job(
+        ["numpy", "scipy"],
+        inputs="count tables (CSV/TSV, .gz or not) or a sample sheet of them, from the project's files (10x "
+               "HDF5, .h5ad and directories need the runner)",
+        engines=["builtin", "builtin-harmony"],
+        runner_only=[
+            {"arg": "analysis_backend", "is": "scanpy",
+             "why": "Scanpy, anndata, leidenalg and umap-learn are not in this browser's Python; the built-in "
+                    "analysis is"},
+            {"arg": "integration", "is": "scvi",
+             "why": "scVI (scvi-tools and torch) is not in this browser's Python; built-in Harmony is"},
+            {"arg": "source", "suffix": [".h5", ".h5ad"],
+             "why": "a 10x HDF5 or .h5ad source is not yet supported in the browser (its readers, h5py and "
+                    "anndata, are not loaded by this job); count tables (CSV/TSV) run here"}]),
+}
 
 
 def _job_entries() -> list[dict[str, Any]]:
@@ -1443,7 +1489,7 @@ def _job_entries() -> list[dict[str, Any]]:
             tags=[kind, "job", "任务", "后台任务", *spec.get("tags", ())],
             hosts=spec.get("hosts"), hosts_by=hosts_by, optional=spec.get("optional"),
             network_if=spec.get("network_if"), duration=spec.get("duration"),
-            execution={"browser_job": copy.deepcopy(_BROWSER_JOB)} if browser else None))
+            execution={"browser_job": copy.deepcopy(_BROWSER_JOBS[kind])} if browser else None))
     return out
 
 

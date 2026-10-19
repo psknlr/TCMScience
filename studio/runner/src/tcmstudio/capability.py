@@ -23,7 +23,7 @@ from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 __all__ = ["IMPLEMENTATION", "READINESS", "OUTCOME", "NEEDS", "REASON_NEED", "STATE_OF_NEED",
            "MAX_REQUEST_BYTES", "requirement", "requirements", "readiness", "selected_engines",
-           "hosts_for", "datasets_for", "refusal_requirements", "audit"]
+           "runner_only", "hosts_for", "datasets_for", "refusal_requirements", "audit"]
 
 #: Implementation states. tested ⇔ some committed verification level is PASS; implemented ⇔
 #: the implementation reference resolves; deprecated only from an explicit mark.
@@ -135,6 +135,29 @@ def selected_engines(entry: Mapping[str, Any], args: Mapping[str, Any] | None = 
     return out
 
 
+def runner_only(entry: Mapping[str, Any], args: Mapping[str, Any] | None) -> list[str]:
+    """Why a browser job would not run these arguments in the browser: the reasons of the
+    entry's ``execution.browser_job.runner_only`` rules that they meet (an argument
+    ``absent``, one that ``is`` a value, a file name with one of the ``suffix``-es). A
+    kind runs only part of itself in the browser (the count-matrix RNA-seq, the built-in
+    single-cell analysis); the rest of it needs the runner. Empty without arguments."""
+    if args is None:
+        return []
+    out = []
+    for rule in ((entry.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ():
+        value = args.get(rule.get("arg", ""))
+        if "absent" in rule:
+            met = value in (None, "")
+        elif "is" in rule:
+            met = value == rule["is"]
+        else:
+            met = isinstance(value, str) and value.strip().lower().endswith(
+                tuple(str(x).lower() for x in rule.get("suffix") or ()))
+        if met:
+            out.append(str(rule.get("why") or f"{rule.get('arg')} needs the runner"))
+    return out
+
+
 def _dataset_access(key: str) -> str:
     try:
         from bioagent.tcmdb import DATASETS
@@ -212,9 +235,11 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
     this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON.
     ``browser_jobs``: in the browser, whether the page's job service is running (it runs the
     entries whose ``execution.browser_job`` says so; the page tells the worker in its context);
-    None when not known, which counts as not running. ``browser_snapshots``: whether the
-    research snapshots are built in this browser's private storage (``research.run`` there
-    reads only those); None when the page has not said, which is not judged."""
+    None when not known, which counts as not running. A browser job whose arguments only the
+    runner runs (:func:`runner_only`) needs the runner instead, with the reason.
+    ``browser_snapshots``: whether the research snapshots are built in this browser's private
+    storage (``research.run`` there reads only those); None when the page has not said, which
+    is not judged."""
     out: list[tuple[str, dict[str, Any]]] = []
     exec_ = entry.get("exec") or ()
     if where not in exec_:
@@ -223,6 +248,10 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         else:
             out.append(("no_runtime", requirement("browser_runtime", _BROWSER,
                                                   "Run it from the Studio page, in its browser runtime.")))
+    # a browser job kind that runs these arguments only on the runner (a FASTQ RNA-seq run, Scanpy)
+    beyond = runner_only(entry, args) if where == "browser" and where in exec_ else []
+    out += [("needs_runner", requirement("runner", f"{_RUNNER}: {why}", _remedy("NEEDS_RUNNER")))
+            for why in beyond]
     if probe is not None and where == "runner":
         missing = [d for d in entry.get("heavy") or () if not probe(d)]
     elif entry.get("available") is False:
@@ -272,7 +301,7 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         out.append(("network_off", requirement("network", _NETWORK, _remedy("NETWORK_OFF"),
                                                hosts_for(entry, args))))
     out += [("needs_job_service", r) for r in other]
-    in_page = where == "browser" and bool((entry.get("execution") or {}).get("browser_job"))
+    in_page = where == "browser" and bool((entry.get("execution") or {}).get("browser_job")) and not beyond
     if in_page and entry.get("job") and not browser_jobs and not other:
         out.append(("needs_job_service", requirement(
             "job_service", _BROWSER_JOBS,

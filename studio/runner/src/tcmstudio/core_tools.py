@@ -373,17 +373,20 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                    "optional": arr(S(), "optional sources, e.g. [string]")})},
               required=("formula",)), "job.research.run", B_R, confirm=True, job=True),
     _core("run_pipeline", "计算流程（任务）", "Run a pipeline (job)", "omics", """
-        Start a heavy pipeline as a job on the user's machine (local runner, CPU or GPU per
-        the device setting): rnaseq (FASTQ → differential expression), scrna (count matrices
-        → annotated clusters), fold (protein structure), dock (AutoDock Vina), admet
-        (descriptors, alerts, endpoints). arguments follow the job kind's schema
-        (catalog_search kind='job'); files are upload ids. The user approves each job, and
-        allow_remote (sending a sequence to a third-party service) separately. Returns a job
-        id; a pipeline that has not succeeded has no result. A missing engine is refused,
-        never approximated.""",
+        Start a heavy pipeline as a job: rnaseq (FASTQ, or with counts a count matrix and a
+        sample table → differential expression), scrna (count matrices → annotated
+        clusters), fold (protein structure), dock (AutoDock Vina), admet (descriptors,
+        alerts, endpoints). The local runner runs every one (CPU or GPU per the device
+        setting); this browser's job workers run rnaseq with counts and scrna on count
+        tables with the built-in engines, and say when a call needs the runner (FASTQ,
+        PyDESeq2, Scanpy, scVI, .h5/.h5ad, the other pipelines). arguments follow the job
+        kind's schema (catalog_search kind='job'); files are upload ids or file names. The
+        user approves each job, and allow_remote (sending a sequence to a third-party
+        service) separately. Returns a job id; a pipeline that has not succeeded has no
+        result. A missing engine is refused, never approximated.""",
           obj({"pipeline": S(enum=list(PIPELINES)),
                "arguments": obj({}, description="the job kind's parameters", additional=True)},
-              required=("pipeline", "arguments")), "job.pipeline.*", R, confirm=True, job=True),
+              required=("pipeline", "arguments")), "job.pipeline.*", B_R, confirm=True, job=True),
     _core("job_status", "任务状态", "Job status", "system", """
         Status of a job (a browser job's id starts with bj-; the others are the runner's):
         state (queued, running, succeeded, failed, cancelled, or interrupted when the page

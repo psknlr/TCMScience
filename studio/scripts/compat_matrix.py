@@ -95,10 +95,6 @@ PYODIDE_NOTES = {
 }
 # job and skill details: what blocks the browser, with the Pyodide 314 lockfile in mind
 RUNNER_REASONS = {
-    "job.pipeline.rnaseq": ("7", "salmon / kallisto / hisat2 / fastp are native binaries; the builtin engine is "
-                                 "numpy/scipy (in Pyodide) but a transcriptome index needs GBs of memory"),
-    "job.pipeline.scrna": ("6", "the builtin backend is numpy/scipy (in Pyodide) and could run small datasets; "
-                                "scanpy, harmony and scvi (torch) are not in Pyodide; files and hours-long runs need a job model"),
     "job.pipeline.fold": ("7", "ESMFold needs torch + transformers (not in Pyodide) and a GPU; ESM Atlas / ColabFold are "
                                "remote services (allow_remote)"),
     "job.pipeline.dock": ("7", "AutoDock Vina, meeko, gemmi and rdkit are native and not in Pyodide"),
@@ -110,8 +106,12 @@ RUNNER_REASONS = {
     "skill.dock-ligands": ("7", "the docking engines above"),
     "skill.predict-admet": ("7", "rdkit"),
     "skill.predict-protein-structure": ("7", "torch / transformers and a GPU, or a remote structure service"),
-    "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline above"),
-    "skill.scrna-cell-atlas": ("6", "the single-cell pipeline above"),
+    "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline from FASTQ (salmon / kallisto / hisat2 / "
+                                                  "fastp are native binaries; a transcriptome index needs GBs of "
+                                                  "memory); the count-matrix mode runs as job.pipeline.rnaseq in the "
+                                                  "browser"),
+    "skill.scrna-cell-atlas": ("6", "the single-cell pipeline as a governed skill, a skill.run job on the runner; its "
+                                    "built-in analysis of count tables runs as job.pipeline.scrna in the browser"),
     "system.provider_call": ("8", "ToolUniverse / BioMCP run as local MCP processes"),
     "system.doctor": ("8", "inspects the runner's Python environment"),
 }
@@ -123,6 +123,14 @@ BROWSER_JOB_NOTES = {
     "job.research.run": "the sixteen-stage workflow and nine exports over the snapshots in OPFS; the governed analysis "
                         "runs in-process through the PSH broker (a worker cannot start processes) and the artifact "
                         "says so",
+    "job.pipeline.rnaseq": "the count-matrix mode (a count table and a sample table from the project's files, copied "
+                           "into OPFS): the built-in DESeq2 implementation, VST, PCA and the report, as on the runner; "
+                           "FASTQ (QC, trimming, quantification) and PyDESeq2 need the runner",
+    "job.pipeline.scrna": "count tables (CSV/TSV, gzipped or not) or a sheet of them from the project's files: QC, "
+                          "doublets, built-in Harmony, Leiden, UMAP, markers, annotation, pseudobulk, as on the runner; "
+                          "Scanpy, scVI, 10x HDF5 and .h5ad need the runner, and so do more than 6,000 cells (a "
+                          "browser worker holds no more: wasm32, 4 GB); the UMAP layout amplifies last-digit "
+                          "differences and is not compared with the native run's",
 }
 PYODIDE_NOTES_JOBS = {
     "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
@@ -270,11 +278,20 @@ FAMILIES = [
      "every export was the native run's bytes in live-data #18 and #19 (2026-10-19), a comparison repeated on every "
      "live-data run",
      "parallel per-source snapshot builds across job workers"),
-    ("Single-cell", "job.pipeline.scrna", "6",
-     "100 MB–GBs; hours", "no", "runner",
-     "small-dataset browser job (numpy/scipy are in Pyodide; UMAP coordinates differ across numpy builds)"),
-    ("RNA-seq quantification, docking, ADMET, structure prediction", "job.pipeline.rnaseq/dock/admet/fold", "7",
-     "GBs; native binaries; GPU", "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
+    ("RNA-seq from a count matrix; single-cell from count tables", "job.pipeline.rnaseq (counts), job.pipeline.scrna",
+     "1j", "a count matrix of KB to MB (2,000 genes x 6 samples: under a second natively); count tables of MB (about "
+     "1,000 cells: seconds natively); tens of thousands of cells need GBs, so a browser job refuses more than 6,000 "
+     "cells, or 100,000 genes or 200 samples, for the runner (wasm32 caps a worker near 4 GB)", "not yet measured",
+     "browser jobs running the same Python as the runner with Pyodide's numpy and scipy (the built-in DESeq2 "
+     "implementation; the built-in single-cell analysis and Harmony); the comparison with the native run, table by "
+     "table to a stated tolerance and without the UMAP layout (studio/web/test/runtime/science.mjs --mode omics), "
+     "has not run yet",
+     "PyDESeq2, Scanpy, scVI, 10x HDF5 and .h5ad stay on the runner"),
+    ("Single-cell as a governed skill", "skill.scrna-cell-atlas", "6", "100 MB–GBs; hours", "no",
+     "runner (a skill.run job); on count tables job.pipeline.scrna runs the same pipeline in the browser", "—"),
+    ("RNA-seq from FASTQ (quantification), docking, ADMET, structure prediction",
+     "job.pipeline.rnaseq (FASTQ)/dock/admet/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
+     "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
      "runner", "—"),
 ]

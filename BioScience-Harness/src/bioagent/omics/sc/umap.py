@@ -12,6 +12,12 @@ One difference from umap-learn: the edges due in an epoch are updated together, 
 arrays, rather than one after another. The fixed points are the same; the path to them
 differs, so coordinates are not umap-learn's. A layout is a picture of the graph for
 reading the clusters, not a measurement, and distances in it are not quantitative.
+
+When the eigensolver fails (ARPACK does not converge on some graphs), the layout starts
+from uniform random positions instead, as umap-learn does. That is kept, and said:
+``umap_layout`` returns how the layout started with the layout, and the pipeline records
+it (``sc.analysis``, ``scrna``). Running out of memory is not such a failure: a
+``MemoryError`` is raised, not replaced by a random start.
 """
 
 from __future__ import annotations
@@ -31,7 +37,10 @@ def find_ab(spread: float = 1.0, min_dist: float = 0.5) -> tuple[float, float]:
     return float(a), float(b)
 
 
-def _spectral(graph: sparse.csr_matrix, dim: int, rng: np.random.Generator) -> np.ndarray:
+def _spectral(graph: sparse.csr_matrix, dim: int,
+              rng: np.random.Generator) -> tuple[np.ndarray, str]:
+    """The start of the layout, and how it was made: ``spectral``, or ``random: the
+    spectral start failed (<error>)``."""
     n = graph.shape[0]
     deg = np.asarray(graph.sum(axis=1)).ravel()
     d = sparse.diags(1.0 / np.sqrt(np.maximum(deg, 1e-12)))
@@ -42,16 +51,25 @@ def _spectral(graph: sparse.csr_matrix, dim: int, rng: np.random.Generator) -> n
                            maxiter=n * 5)
         order = np.argsort(vals)
         emb = vecs[:, order[1:k]]
-    except Exception:                                   # noqa: BLE001 - fall back
+        start = "spectral"
+    except MemoryError:
+        # not a failure of the eigensolver: the run has run out of memory, and says so
+        raise
+    except Exception as exc:                            # noqa: BLE001 - recorded, not hidden
         emb = rng.uniform(-10, 10, size=(n, dim))
+        why = " ".join(f"{type(exc).__name__}: {exc}".split())[:300]
+        start = f"random: the spectral start failed ({why})"
     span = emb.max(axis=0) - emb.min(axis=0)
     emb = 10.0 * (emb - emb.min(axis=0)) / np.where(span > 0, span, 1.0)
-    return emb + rng.normal(scale=1e-4, size=emb.shape)
+    return emb + rng.normal(scale=1e-4, size=emb.shape), start
 
 
 def umap_layout(graph: sparse.spmatrix, *, dim: int = 2, n_epochs: int | None = None,
                 min_dist: float = 0.5, spread: float = 1.0, negative_rate: int = 5,
-                gamma: float = 1.0, alpha: float = 1.0, seed: int = 0) -> np.ndarray:
+                gamma: float = 1.0, alpha: float = 1.0,
+                seed: int = 0) -> tuple[np.ndarray, str]:
+    """The layout (cells x ``dim``) and how it started: ``spectral``, or ``random: the
+    spectral start failed (<error>)`` when the eigensolver failed."""
     rng = np.random.default_rng(seed)
     g = sparse.coo_matrix(graph)
     n = g.shape[0]
@@ -59,7 +77,7 @@ def umap_layout(graph: sparse.spmatrix, *, dim: int = 2, n_epochs: int | None = 
     keep = g.data >= g.data.max() / epochs
     head, tail, w = g.row[keep], g.col[keep], g.data[keep]
     a, b = find_ab(spread, min_dist)
-    emb = _spectral(sparse.csr_matrix(graph), dim, rng)
+    emb, start = _spectral(sparse.csr_matrix(graph), dim, rng)
     n_samples = epochs * (w / w.max())
     eps = np.where(n_samples > 0, epochs / np.maximum(n_samples, 1e-12), -1.0)
     eps_neg = eps / negative_rate
@@ -93,4 +111,4 @@ def umap_layout(graph: sparse.spmatrix, *, dim: int = 2, n_epochs: int | None = 
             grad[src == dst] = 0.0
             np.add.at(emb, src, grad * lr)
         next_neg[due] += n_neg * eps_neg[due]
-    return emb
+    return emb, start

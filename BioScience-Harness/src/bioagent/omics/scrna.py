@@ -356,6 +356,9 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
     if integration.get("reached_iteration_limit"):
         warnings.append(f"harmonypy stopped at its limit of {integration['iterations']} "
                         "rounds; it may not have converged")
+    start = _layout_start(an.record)
+    if start.startswith("random"):
+        warnings.append(f"the UMAP layout started from random positions: {start[8:]}")
     if batch_values is not None:
         integration["mixing_before"] = _mixing(an.pcs, batch_values)
         integration["mixing_after"] = _mixing(an.embedding, batch_values)
@@ -503,8 +506,20 @@ def _tsv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]]) -> No
                                                        else str(v)) for v in r) + "\n")
 
 
+def _layout_start(record: Mapping[str, Any]) -> str:
+    """How the built-in UMAP layout started (``sc.umap``), or '' when the record does not
+    say (the Scanpy backend's umap-learn does not report it)."""
+    return str((record.get("layout") or {}).get("start") or "")
+
+
 def _limitations(run: ScRun, config: ScConfig, rec: StageRecorder) -> list[str]:
     lines = list(LIMITATIONS)
+    start = _layout_start(run.analysis)
+    if start.startswith("random"):
+        lines.append(f"The UMAP layout started from random positions: {start[8:]}. Only "
+                     "the UMAP coordinates (cells.tsv umap_1, umap_2) and the UMAP and PAGA "
+                     "figures depend on the start; the clusters and every other table do "
+                     "not.")
     if config.doublets != "off":
         lines.append("Scrublet scores cells in a continuous transition between two types as "
                      "it scores doublets, so a real intermediate state can be called a "

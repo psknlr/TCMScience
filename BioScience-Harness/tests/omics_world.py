@@ -106,6 +106,54 @@ def simulate_counts(n_genes: int = 300, *, seed: int = 0, numeric: bool = False)
     return np.column_stack(cols), [f"g{i}" for i in range(n_genes)], ids, meta
 
 
+#: The count-matrix world: genes, and how many are planted up (and as many down).
+COUNTS_GENES = 2000
+COUNTS_PLANTED = 40
+
+
+def make_counts_world(out_dir: Path, seed: int = 1) -> dict:
+    """A simulated count matrix with a known answer, for the RNA-seq count-matrix mode.
+
+    2,000 genes x 6 samples (ctrl1-3, trt1-3). Each gene's mean is log-normal (median
+    about 55, a long right tail, a few hundred genes below 5), times a per-sample size
+    factor (0.7 to 1.3). Counts are negative binomial with a dispersion trend
+    0.05 + 1 / mean, DESeq2's parametric form, times a per-gene log-normal factor. Forty
+    genes drawn from those with a mean of at least 50 are four-fold higher in the treated
+    samples and forty more four-fold lower.
+
+    Writes ``counts.tsv`` (gene_id, gene_name, then the samples) and ``samples.tsv``
+    (sample, condition); returns ``{root, counts, samples, up, down}``, the planted genes
+    sorted.
+    """
+    rng = np.random.default_rng(seed)
+    root = Path(out_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    genes = [f"G{g:04d}" for g in range(COUNTS_GENES)]
+    base = rng.lognormal(4.0, 1.6, COUNTS_GENES)
+    dispersion = (0.05 + 1.0 / base) * rng.lognormal(0.0, 0.3, COUNTS_GENES)
+    planted = rng.choice(np.flatnonzero(base >= 50), 2 * COUNTS_PLANTED, replace=False)
+    fold = np.ones(COUNTS_GENES)
+    fold[planted[:COUNTS_PLANTED]] = 4.0
+    fold[planted[COUNTS_PLANTED:]] = 0.25
+    names = [f"ctrl{i + 1}" for i in range(3)] + [f"trt{i + 1}" for i in range(3)]
+    columns = []
+    for name in names:
+        mu = base * float(rng.uniform(0.7, 1.3)) * (fold if name.startswith("trt") else 1.0)
+        size = 1.0 / dispersion
+        columns.append(rng.negative_binomial(size, size / (size + mu)))
+    counts = np.column_stack(columns)
+    lines = ["\t".join(("gene_id", "gene_name", *names))]
+    lines += ["\t".join((g, f"SIM{k:04d}", *map(str, counts[k].tolist())))
+              for k, g in enumerate(genes)]
+    (root / "counts.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (root / "samples.tsv").write_text(
+        "sample\tcondition\n" + "".join(f"{n}\t{'treated' if n.startswith('trt') else 'control'}\n"
+                                        for n in names), encoding="utf-8")
+    return {"root": root, "counts": root / "counts.tsv", "samples": root / "samples.tsv",
+            "up": sorted(genes[k] for k in planted[:COUNTS_PLANTED]),
+            "down": sorted(genes[k] for k in planted[COUNTS_PLANTED:])}
+
+
 def need_reviewed_engine(engine_cls):
     """(engine, probe) for a structure engine in the interpreter the reviewed environments
     file ($BIOAGENT_ENVIRONMENTS) names for its project; else a skip (a failure under

@@ -143,16 +143,21 @@ jobs:
           npm ci || npm install
           npx playwright install --with-deps chromium
           npm run test:e2e
-      - name: Browser research jobs (Pyodide and pyarrow from jsDelivr, no runner)
+      - name: Browser research jobs (Pyodide, its pyarrow, numpy and scipy from jsDelivr, no runner)
         # the site with its test pages. service: research.run and the self-test as jobs of the page's job service (job
         # workers, private storage, checkpoints, receipts), research.run's five tables the native bytes committed in
         # tcmstudio/data/browser_selftest.json. fixture: the snapshot build on raw files mounted read-only from OPFS
-        # (the parser tests' fixtures; pytest is what generates them), the snapshot ids equal to the native build's
+        # (the parser tests' fixtures; pytest is what generates them), the snapshot ids equal to the native build's.
+        # omics: pipeline.rnaseq (a count matrix) and pipeline.scrna (count tables) as jobs of the page's job service on
+        # the references omics_counts_world and sc_world, every output compared with the native command's on the same
+        # files at one BLAS thread (identical, within the stated tolerance, or not compared and said so; the genes
+        # called, clusters and cell types exactly), the receipts checked, the browser's files held to the known answer
         run: |
           pip install pytest
           python3 studio/scripts/build_web.py --out "$RUNNER_TEMP/site-dev" --dev
           node studio/web/test/runtime/science.mjs --mode service --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-service.json"
           node studio/web/test/runtime/science.mjs --mode fixture --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-fixture.json"
+          node studio/web/test/runtime/science.mjs --mode omics --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-omics.json"
       - uses: actions/upload-artifact@v4
         with:
           name: studio-site

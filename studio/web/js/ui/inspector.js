@@ -426,18 +426,23 @@ export function mountInspector(app, host) {
       if (!job || job.state !== "succeeded") { box.append(h("p.muted.small", t("ui.job.pending_note"))); return; }
       const files = await service.files(jobId);
       const open = async (f) => service.readFile(jobId, f.path);
-      box.append(h("ul.file-list", { role: "list" }, files.map((f) => fileRow({
-        // the page re-read each file from storage when the job ended and found the digest the job worker recorded;
-        // listed now only at the size it had then (service.files), not hashed again
-        name: f.name, bytes: f.bytes, sha256: f.sha256, digest: "browser", location: t("ui.files.loc_browser_job"), key: `${jobId}/${f.name}`,
-        onPreview: async () => { filePick = { key: `${jobId}/${f.name}`, source: { blob: await open(f) }, meta: { name: f.name } }; render(); },
-        onDownload: async () => {
-          const url = URL.createObjectURL(await open(f));
-          const a = h("a", { href: url, download: f.name.split("/").pop() });
-          document.body.append(a); a.click(); a.remove();
-          setTimeout(() => URL.revokeObjectURL(url), 30_000);
-        },
-      }))));
+      box.append(h("ul.file-list", { role: "list" }, files.map((f) => {
+        // a file by its path under the job's out/ ("run.json"), as the runner lists a job's files; the artefact name a
+        // kind requires it under ("run") is the job's own word for it
+        const file = f.file || f.name;
+        return fileRow({
+          // the page re-read each file from storage when the job ended and found the digest the job worker recorded;
+          // listed now only at the size it had then (service.files), not hashed again
+          name: file, bytes: f.bytes, sha256: f.sha256, digest: "browser", location: t("ui.files.loc_browser_job"), key: `${jobId}/${file}`,
+          onPreview: async () => { filePick = { key: `${jobId}/${file}`, source: { blob: await open(f) }, meta: { name: file } }; render(); },
+          onDownload: async () => {
+            const url = URL.createObjectURL(await open(f));
+            const a = h("a", { href: url, download: file.split("/").pop() });
+            document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 30_000);
+          },
+        });
+      })));
     }).catch((err) => box.append(h("p.muted.small", err?.message || String(err))));
     return box;
   }

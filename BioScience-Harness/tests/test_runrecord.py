@@ -136,8 +136,9 @@ def test_the_shipped_reference_manifest_is_well_formed():
     doc = RR.pipeline_references()
     assert doc["schema"] == "bioagent.pipeline-references/1" and doc["version"]
     pipelines = {r["pipeline"] for r in doc["references"]}
-    assert pipelines == {"bioagent.omics.rnaseq", "bioagent.omics.scrna", "bioagent.docking",
-                         "bioagent.structure.fold", "bioagent.admet"}
+    assert pipelines == {"bioagent.omics.rnaseq", "bioagent.omics.rnaseq_counts",
+                         "bioagent.omics.scrna", "bioagent.docking", "bioagent.structure.fold",
+                         "bioagent.admet"}
     for ref in doc["references"]:
         for key in ("id", "version", "kind", "label", "statement", "source", "licence",
                     "sha256", "inputs", "parameters", "expected", "status", "check"):

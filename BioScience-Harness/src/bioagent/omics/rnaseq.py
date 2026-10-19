@@ -37,6 +37,10 @@ Every stage is recorded with its status, check, engine, version, device and time
 the end, with ``complete`` (every required stage succeeded and no check failed) and
 ``limitations.md``, one limitation per line. The stages are ``STAGES``.
 
+For counts made elsewhere, the count-matrix mode (:mod:`.rnaseq_counts`, ``bioagent rnaseq
+--counts``) runs steps 5 to 7 on a count table by the same stage code (``_test``,
+``_explore``, ``_de_plots``), and ``verify_run`` checks a record of either mode.
+
 A result is a statistical association within the experiment analysed: which genes
 differ between the groups of these samples. It says nothing about why, and nothing
 clinical.

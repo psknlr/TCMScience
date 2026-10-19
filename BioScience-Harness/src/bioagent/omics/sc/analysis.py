@@ -43,7 +43,9 @@ With a single batch there is nothing to integrate, so no method is applied; the 
 says which was requested and why it did not run.
 
 Whichever backend runs, cluster 0 is the largest, the markers cover every gene, and
-the graph handed on to PAGA and pseudotime is the one the clusters were found on.
+the graph handed on to PAGA and pseudotime is the one the clusters were found on. The
+built-in layout says how it started (``record['layout']['start']``: ``spectral``, or
+``random: …`` when the eigensolver failed; :mod:`.umap`).
 
 Given a ``recorder`` (``bioagent.runrecord.StageRecorder``; ``run_scrna`` passes its own),
 each step is recorded as a stage with its engine, version and device: ``normalize``,
@@ -353,9 +355,11 @@ def _builtin(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
         idx, dist = sc_graph.knn(emb, s.n_neighbors)
         conn = sc_graph.umap_connectivities(idx, dist)
         # the layout reads the graph alone, so it is drawn here, before the clusters
-        layout = sc_umap.umap_layout(conn, min_dist=s.min_dist, seed=s.seed)
+        layout, start = sc_umap.umap_layout(conn, min_dist=s.min_dist, seed=s.seed)
         st.reason = (f"exact kNN, k = {s.n_neighbors}; UMAP connectivities and layout "
-                     f"(min_dist {s.min_dist:g})")
+                     f"(min_dist {s.min_dist:g}"
+                     + ("" if start == "spectral" else f"; the layout's start was {start}")
+                     + ")")
     with rec.stage("cluster", **own) as st:
         lres = sc_leiden.leiden(conn, resolution=s.resolution, seed=s.seed)
         adjacency = sc_graph.knn_graph(idx)
@@ -387,7 +391,7 @@ def _builtin(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
                     connectivities=conn, clusters=lres.membership, modularity=lres.quality,
                     umap=layout, markers=mk, integration=info,
                     record={"backend": "builtin", "versions": versions, "stages": stages,
-                            "settings": asdict(s)}, paga=paga)
+                            "settings": asdict(s), "layout": {"start": start}}, paga=paga)
 
 
 def _scanpy(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,

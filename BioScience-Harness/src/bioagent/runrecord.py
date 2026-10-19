@@ -34,7 +34,9 @@ even though every file was written.
 
 ``stages.json`` in the output directory is rewritten atomically (a temporary file, then
 ``os.replace``) when a stage starts and when it ends, so a reader polling it while the
-run works sees the stage in progress. An exception inside a stage marks it failed with
+run works sees the stage in progress. A caller that cannot poll (a browser job, whose
+worker runs one thing at a time) can watch the same documents as they are written
+(:func:`watching`). An exception inside a stage marks it failed with
 the exception's message, writes the file and is raised again. The final list goes into
 ``run.json`` as ``stages``, with ``complete``.
 
@@ -53,12 +55,12 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 from .validation import FAIL, STATUSES as CHECK_STATUSES
 
 __all__ = ["SCHEMA", "STATUSES", "STAGES_FILE", "LIMITATIONS_FILE", "REFERENCES_FILE", "Stage",
-           "StageRecorder", "NullRecorder", "complete", "problems", "summary",
+           "StageRecorder", "NullRecorder", "watching", "complete", "problems", "summary",
            "record_problems", "output_problems", "write_limitations", "read_limitations",
            "stage_limitations", "read_stages", "tsv_shape", "pipeline_references",
            "match_reference", "content_digest"]
@@ -73,6 +75,20 @@ _KEYS = ("name", "required", "status", "check", "reason", "engine", "version", "
          "seconds", "outputs")
 _WORDS = {"failed": "failed", "skipped": "not run", "unavailable": "unavailable here",
           "not_applicable": "not applicable"}
+#: Who sees each stages.json document as it is written (:func:`watching`).
+_WATCHERS: list[Callable[[dict[str, Any]], Any]] = []
+
+
+@contextmanager
+def watching(watcher: Callable[[dict[str, Any]], Any]) -> Iterator[None]:
+    """Within the block, ``watcher(doc)`` is called with every ``stages.json`` document a
+    recorder writes, after it is written. What the watcher does is not the run's: its
+    errors are dropped (an interruption, KeyboardInterrupt, still stops the run)."""
+    _WATCHERS.append(watcher)
+    try:
+        yield
+    finally:
+        _WATCHERS.remove(watcher)
 
 
 @dataclass
@@ -235,6 +251,11 @@ class StageRecorder:
         tmp = path.with_name(f".{STAGES_FILE}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(doc, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(tmp, path)
+        for watcher in list(_WATCHERS):
+            try:
+                watcher(doc)
+            except Exception:                                   # noqa: BLE001 - not the run's
+                pass
         return path
 
 

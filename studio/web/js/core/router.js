@@ -10,6 +10,12 @@
 // back to the browser or the runner. A value this page does not know is reported (unknown_compute), never read as auto.
 // A placement that finds no place says why with Requirements {need, detail, remedy, names?} (core/catalog.js).
 //
+// A job runs in the browser only through the page's job service, for a kind it runs (studio/web/js/scientific): the
+// kind is the call's own (job.pipeline.scrna), or the one its arguments reach (run_pipeline {pipeline: "scrna"}). A
+// call of such a kind that needs the runner for what its arguments ask (a FASTQ RNA-seq run, Scanpy, a 10x HDF5 file)
+// has no browser place: it goes to a connected runner, and is otherwise needs_runner with the reason the job service
+// gives.
+//
 // Approvals (DESIGN §3.3, ARCHITECTURE decision 5): entries marked confirm (jobs among them), network entries (which
 // also need the project's web access on; the grant is for the hosts the call reaches, and a call whose hosts are not
 // known in advance is asked about every time), sending data to a third party (allow_remote), and the first runner
@@ -157,12 +163,19 @@ export class ToolRouter {
     if (!target) return none("not_found", { name: String(asked?.name || asked?.id || asked) }, []);
     const name = target.name || target.id;
     const label = { name };
-    const exec = Array.isArray(target.exec) ? target.exec : [];
+    let exec = Array.isArray(target.exec) ? target.exec : [];
     const browserUp = this.#browserUp();
     const runnerUp = this.#runnerUp();
-    // a job runs in the browser only through the page's job service, and only a kind it implements
-    const jobsHere = !target.job || this.#jobsUp(target);
-    const canB = exec.includes("browser") && browserUp && jobsHere;
+    const reached = this.#effective(target, args);
+    // a job tool that reaches one entry of a family by its arguments (run_pipeline → job.pipeline.<pipeline>) runs
+    // only where that entry runs too
+    if (target.job && reached.entry !== target && Array.isArray(reached.entry?.exec)) exec = exec.filter((x) => reached.entry.exec.includes(x));
+    // a job runs in the browser only through the page's job service, and only a kind it implements; and not a call
+    // whose arguments need the runner (the job service says why)
+    const kind = target.job ? jobKind(target, reached.entry) : null;
+    const jobsHere = !target.job || this.#jobsUp(kind);
+    const tied = target.job && exec.includes("browser") ? this.#needsRunner(kind, reached.args) : null;
+    const canB = exec.includes("browser") && browserUp && jobsHere && !tied;
     const runnerHasIt = exec.includes("runner") && target.available !== false;
     const canR = runnerHasIt && runnerUp;
     const compute = this.#compute();
@@ -198,8 +211,13 @@ export class ToolRouter {
     const inBrowser = () => this.#tooLarge(target, args, label, compute, exec) || ok("browser");
     const onRunner = () => this.#engineMissing(target, args, label) || ok("runner");
     const noJobs = () => none("needs_job_service", label, [requirement("job_service", BROWSER_JOBS_NEED)], "core.router.needs_browser_jobs");
+    const runnerOnly = () => none("needs_runner", { ...label, reason: tied.detail }, [
+      requirement("runner", tied),
+      ...(compute === "browser" ? [requirement("compute_setting")] : []),
+    ], "core.router.needs_runner_args");
     if (compute === "browser") {
       if (canB) return inBrowser();
+      if (tied) return runnerOnly();
       if (!exec.includes("browser")) return none("compute_browser", label, [requirement("compute_setting")]);
       if (browserUp && !jobsHere) return noJobs();
       return none("no_runtime", label, [requirement("browser_runtime")]);
@@ -213,6 +231,8 @@ export class ToolRouter {
     // the browser otherwise (ARCHITECTURE, placement rules)
     if (canR) return onRunner();
     if (canB) return inBrowser();
+    // the runner it needs is connected but lacks what the entry needs there: that, not "connect the runner"
+    if (tied) return missing() || runnerOnly();
     if (exec.includes("browser") && browserUp && !jobsHere && !runnerUp) return noJobs();
     if (exec.includes("runner") && !runnerUp) return none("needs_runner", label, [requirement("runner")]);
     return missing() || none("no_runtime", label, [requirement("browser_runtime")]);
@@ -640,12 +660,27 @@ export class ToolRouter {
     return this.runtimes.runner?.status === "ready";
   }
 
-  /** Is the page's job service running, and does it run this job's kind? */
-  #jobsUp(target) {
+  /**
+   * Is the page's job service running, and does it run this kind? A family not narrowed yet ("pipeline.*": run_pipeline
+   * before its pipeline is named) has a place when the service runs any kind of it.
+   */
+  #jobsUp(kind) {
     const jobs = this.runtimes.jobs;
-    if (!jobs || jobs.status !== "ready") return false;
-    const id = String(target?.id || target?.maps_to || "");
-    return id.startsWith("job.") && typeof jobs.runs === "function" && jobs.runs(id.slice(4));
+    if (!jobs || jobs.status !== "ready" || !kind || typeof jobs.runs !== "function") return false;
+    if (kind.endsWith(".*")) {
+      const prefix = kind.slice(0, -1);
+      return typeof jobs.kinds === "function" && jobs.kinds().some((k) => String(k).startsWith(prefix));
+    }
+    return jobs.runs(kind);
+  }
+
+  /** What the job service says this call of `kind` needs the runner for ({detail, remedy}), or null. */
+  #needsRunner(kind, args) {
+    const jobs = this.runtimes.jobs;
+    if (!kind || kind.endsWith(".*") || typeof jobs?.needsRunner !== "function") return null;
+    let why = null;
+    try { why = jobs.needsRunner(kind, isPlainObject(args) ? args : {}); } catch { why = null; }
+    return why?.message ? { detail: String(why.message), remedy: String(why.hint || requirement("runner").remedy) } : null;
   }
 
   #target(x) {
@@ -671,6 +706,12 @@ function isPhi(r, entry, args, catalog) {
 
 function labelOf(x) {
   return x?.name || x?.id || "tool";
+}
+
+/** The job kind a job call runs: its entry's id without "job.", or the family it maps to ("pipeline.*"). */
+function jobKind(target, reached) {
+  const id = String(reached?.id || target?.id || target?.maps_to || "");
+  return id.startsWith("job.") ? id.slice(4) : null;
 }
 
 function whatOf(r) {

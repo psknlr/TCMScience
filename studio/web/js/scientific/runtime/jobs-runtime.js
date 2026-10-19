@@ -2,6 +2,10 @@
 // placed in the browser comes here instead of to the Pyodide tool worker, is submitted to the BrowserJobService
 // (./job-manager.js), and returns a "job_submitted" envelope at once; job_status for a browser job (an id starting
 // "bj-") is answered from the job's record. The model sees the same shapes a runner job gives it.
+//
+// A job reads the project's own files (the omics jobs' count tables): the page's file store (core/store.js) is given
+// to the service as a resolver, {find(projectId, ref)}, which names a file by its id or, as the runner resolves a bare
+// name among its uploads, by its name: the newest file of that name in the project.
 
 import { glossary, t } from "../../core/i18n.js";
 import { baseReceipt } from "../../core/receipt.js";
@@ -9,6 +13,7 @@ import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
 import { DatasetWorkspace } from "../data/datasets.js";
 import { OpfsStore } from "../data/opfs-store.js";
 import { HANDLERS } from "../pipelines/network-pharmacology.js";
+import { OMICS_HANDLERS } from "../pipelines/omics.js";
 import { SELFTEST_KIND, browserSelfTest } from "../pipelines/selftest.js";
 import { BrowserJobService, envelopeFor } from "./job-manager.js";
 import { ScienceWorkerPool, recommendedPoolSize } from "./worker-pool.js";
@@ -17,6 +22,8 @@ import { ScienceWorkerPool, recommendedPoolSize } from "./worker-pool.js";
 export const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
 
 const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
+/** The handlers this page has, by kind: what a call needs the runner for is asked of them before it is placed. */
+const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS].map((h) => [h.kind, h]));
 
 /** The job kind and parameters a call stands for, or null when it is not a job this service runs. */
 export function jobCall(tool, args = {}) {
@@ -30,10 +37,41 @@ export function jobCall(tool, args = {}) {
     for (const key of ["background", "hits", "permutations", "activity", "optional"]) if (key in params) job[key] = params[key];
     return { kind: "research.run", params: job };
   }
+  // as tcmstudio.core_tools.route maps it for the runner: job.pipeline.<pipeline> with the job kind's arguments
+  if (tool === "run_pipeline") {
+    const pipeline = typeof a.pipeline === "string" ? a.pipeline.trim() : "";
+    return pipeline ? { kind: `pipeline.${pipeline}`, params: isPlainObject(a.arguments) ? a.arguments : {} } : null;
+  }
   const id = tool === "call_tool" ? String(a.tool || "") : String(tool || "");
   const params = tool === "call_tool" ? (isPlainObject(a.arguments) ? a.arguments : {}) : a;
   if (id.startsWith("job.")) return { kind: id.slice(4), params };
+  if (id === "run_pipeline") return jobCall("run_pipeline", params);
   return null;
+}
+
+/**
+ * The page's project files as the job service reads them: files is core/store.js's `files` ({list(projectId),
+ * get(id)}). find(projectId, ref) → {id, name, bytes, sha256, blob} | null: the file with that id (in this project,
+ * when the job has one), else the newest file of the project with that name. A job of no project finds files by id
+ * only: a name means nothing outside a project.
+ */
+export function projectFilesResolver(files) {
+  if (!files || typeof files.get !== "function" || typeof files.list !== "function") return null;
+  const view = (r) => ({ id: r.id, name: r.name, bytes: r.bytes ?? r.blob?.size ?? null, sha256: r.sha256 ?? null, blob: r.blob ?? null, type: r.type ?? null });
+  return {
+    async find(projectId, ref) {
+      const key = typeof ref === "string" ? ref.trim() : "";
+      if (!key) return null;
+      const byId = await files.get(key).catch(() => null);
+      if (byId && (!projectId || byId.projectId === projectId)) return view(byId);
+      if (!projectId) return null;
+      const named = (await files.list(projectId)).filter((r) => r.name === key);
+      // oldest first (as list() gives them; the sort is stable): the newest of the name, as the runner takes the newest
+      // upload of a bare name
+      named.sort((x, y) => (Number(x.createdAt) || 0) - (Number(y.createdAt) || 0));
+      return named.length ? view(named[named.length - 1]) : null;
+    },
+  };
 }
 
 /** Is this a job_status call about a browser job? → its id, or null. */
@@ -76,6 +114,16 @@ export class BrowserJobsRuntime {
     return this.kinds().includes(kind);
   }
 
+  /**
+   * Why this call of `kind` needs the runner although the browser runs the kind (a FASTQ RNA-seq run, Scanpy, a 10x
+   * HDF5 file …), from its parameters alone → {message, hint}, or null. Known from the handlers themselves, so it is
+   * said even where the job service cannot start.
+   */
+  needsRunner(kind, params = {}) {
+    const h = BY_KIND.get(String(kind || ""));
+    return typeof h?.needsRunner === "function" ? h.needsRunner(isPlainObject(params) ? params : {}) : null;
+  }
+
   async call(tool, args = {}, ctx = {}) {
     const input_sha256 = await sha256Hex(canonicalJson(isPlainObject(args) ? args : {})).catch(() => null);
     const status = browserJobStatus(tool, args);
@@ -92,7 +140,10 @@ export class BrowserJobsRuntime {
       const type = err?.type === "bad_arguments" ? "bad_arguments" : "unavailable";
       const env = failed(tool, input_sha256, type, err?.message || String(err), err?.hint || "");
       if (err?.need) env.error.requires = [{ need: err.need, detail: err.message || String(err), remedy: err.hint || "" }];
+      // a call whose files only the runner reads (a FASTQ sheet, an .h5ad named by its id) needs the runner, not the
+      // job service: the reason is the need's, as the router's own needs_runner (tcmstudio.capability.REASON_NEED)
       if (err?.need === "dataset") env.error.reason = "needs_dataset";
+      else if (err?.need === "runner") env.error.reason = "needs_runner";
       else if (type === "unavailable") env.error.reason = "needs_job_service";
       return env;
     }
@@ -162,7 +213,8 @@ function failed(tool, input_sha256, type, message, hint) {
 /**
  * The page's job service, ready to take jobs, or one whose status says why it cannot: no Web Workers, no IndexedDB for
  * the job records, no private file storage (OPFS) for the files, or no boot.json. Nothing heavy starts here: Pyodide
- * boots in a job worker when the first job runs. opts: {bootUrl, siteUrl, Worker, indexedDB, storage, fetch}.
+ * boots in a job worker when the first job runs. opts: {bootUrl, siteUrl, Worker, indexedDB, storage, fetch, files:
+ * the page's project file store (core/store.js `files`), which the jobs that read project files find them in}.
  */
 export async function createJobsRuntime(opts = {}) {
   const site = opts.siteUrl || new URL("../../../", import.meta.url).href;
@@ -190,7 +242,10 @@ export async function createJobsRuntime(opts = {}) {
     store, siteUrl: site, Worker, registryUrl: new URL(boot.datasets?.path || "runtime/datasets.json", site).href,
     workerUrl: new URL("js/scientific/data/data.worker.js", site).href,
   });
-  const service = new BrowserJobService({ indexedDB: opts.indexedDB, pool, store, datasets, handlers: [...HANDLERS, browserSelfTest] });
+  const service = new BrowserJobService({
+    indexedDB: opts.indexedDB, pool, store, datasets, projectFiles: projectFilesResolver(opts.files),
+    handlers: [...HANDLERS, ...OMICS_HANDLERS, browserSelfTest],
+  });
   try {
     await service.start();
   } catch (err) {

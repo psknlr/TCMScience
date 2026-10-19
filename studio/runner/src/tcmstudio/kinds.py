@@ -56,6 +56,11 @@ _REMOTE_STRUCTURE = re.compile(r"^(PDB:[0-9A-Za-z]{4}(:[A-Za-z0-9]{1,26})?|UniPr
 _DISEASE = re.compile(r"^[A-Za-z]{2,12}[_:][A-Za-z0-9]{1,20}$")
 #: research.run's permutations, at least and at most (the browser's research job keeps the same bounds)
 PERMUTATIONS = (100, 100000)
+#: pipeline.rnaseq's FDR level, and pipeline.scrna's Leiden resolution and highly variable genes, at
+#: least and at most (the catalog's schemas state the same; the browser's jobs keep the same bounds)
+RNASEQ_ALPHA = (0.0001, 0.5)
+SCRNA_RESOLUTION = (0.05, 5.0)
+SCRNA_TOP_GENES = (50, 10000)
 _SOURCE_KEY = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
@@ -558,9 +563,11 @@ def _int(name: str, value: Any, low: int, high: int) -> int:
     return int(value)
 
 
-def _num(name: str, value: Any) -> float:
+def _num(name: str, value: Any, low: float | None = None, high: float | None = None) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise BadParams(f"{name}: a number is needed")
+    if low is not None and high is not None and not low <= value <= high:
+        raise BadParams(f"{name}: between {low:g} and {high:g}")
     return float(value)
 
 
@@ -573,7 +580,13 @@ def _enum(name: str, value: Any, allowed: Sequence[str], default: str) -> str:
 
 # ------------------------------------------------------------------------- pipeline.rnaseq
 
+#: What only a FASTQ run takes; a count-matrix run refuses each rather than ignore it.
+RNASEQ_FASTQ_ONLY = ("transcripts", "genome", "annotation", "engine", "trimmer")
+
+
 def _rnaseq_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    if p.get("counts"):
+        return _rnaseq_counts_prepare(p, ctx)
     sheet, samples = _stage_sheet(ctx, "samples", p.get("samples"), ("fastq_1", "fastq_2"))
     files = {k: str(ctx.file(k, p[k])) for k in ("transcripts", "annotation", "genome") if p.get(k)}
     engine = _enum("engine", p.get("engine"), ("auto", "builtin", "salmon", "kallisto", "hisat2"), "auto")
@@ -583,18 +596,45 @@ def _rnaseq_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         raise BadParams(f"engine: {engine} needs a transcriptome FASTA (transcripts)")
     if engine == "auto" and "transcripts" not in files and "genome" not in files:
         raise BadParams("give transcripts (a transcriptome FASTA), or a genome with engine hisat2")
-    out = {"sheet": str(sheet), "samples": samples, "files": files, "engine": engine,
-           "design": _text("design", p.get("design") or "~ condition", max_len=200),
-           "trimmer": _enum("trimmer", p.get("trimmer"), ("auto", "builtin", "fastp", "none"), "auto"),
+    return {"sheet": str(sheet), "samples": samples, "files": files, "engine": engine,
+            "trimmer": _enum("trimmer", p.get("trimmer"), ("auto", "builtin", "fastp", "none"), "auto"),
+            **_rnaseq_choices(p)}
+
+
+def _rnaseq_choices(p: dict[str, Any]) -> dict[str, Any]:
+    """The test's settings, the same in both modes: design, backend, alpha and contrast."""
+    out = {"design": _text("design", p.get("design") or "~ condition", max_len=200),
            "de_backend": _enum("de_backend", p.get("de_backend"), ("builtin", "pydeseq2"), "builtin"),
-           "alpha": _num("alpha", p.get("alpha", 0.05))}
+           "alpha": _num("alpha", p.get("alpha", 0.05), *RNASEQ_ALPHA)}
     if p.get("contrast"):
         out["contrast"] = _text("contrast", p["contrast"],
                                 pattern=re.compile(r"^[^,\s]+,[^,]+,[^,]+$"), max_len=200)
     return out
 
 
+def _rnaseq_counts_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    """The count-matrix mode (``bioagent rnaseq --counts``): a count table and a sample table,
+    each one file; nothing of the FASTQ run is taken."""
+    given = [k for k in RNASEQ_FASTQ_ONLY if p.get(k) not in (None, "")]
+    if given:
+        raise BadParams("a count-matrix run takes no FASTQ reference or engine: " + ", ".join(given)
+                        + " (leave them out with counts, or give a FASTQ sample sheet without counts)")
+    counts = ctx.file("counts", p.get("counts"))
+    table = ctx.file("samples", p.get("samples"))
+    if _is_sheet(table, "fastq_1") or _is_sheet(table, "fastq_2"):
+        raise BadParams("samples: with counts this is the sample table (sample and the design columns); "
+                        "a FASTQ sample sheet runs without counts")
+    return {"mode": "counts", "counts": str(counts), "sample_table": str(table), **_rnaseq_choices(p)}
+
+
 def _rnaseq_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    if r.get("mode") == "counts":
+        argv = _cli(ctx, "rnaseq", _opt("counts", r["counts"]), _opt("samples", r["sample_table"]),
+                    _opt("design", r["design"]), _opt("de-backend", r["de_backend"]),
+                    _opt("alpha", r["alpha"]), _opt("threads", ctx.threads))
+        if r.get("contrast"):
+            argv.append(_opt("contrast", r["contrast"]))
+        return argv + [_opt("out", OUTPUT_TOKEN), "--json"]
     argv = _cli(ctx, "rnaseq", _opt("samples", r["sheet"]))
     for key in ("transcripts", "annotation", "genome"):
         if key in r["files"]:
@@ -632,16 +672,23 @@ def _scrna_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     if _is_sheet(src, "path"):
         staged, samples = _stage_sheet(ctx, "source", p.get("source"), ("path",))
         src = staged
+    out: dict[str, Any] = {"source": str(src), "samples": samples, **_scrna_choices(p)}
+    if p.get("markers"):
+        out["markers"] = str(ctx.file("markers", p["markers"]))
+    return out
+
+
+def _scrna_choices(p: dict[str, Any]) -> dict[str, Any]:
+    """Every setting but the files: doublets, backend, integration, resolution, seed, highly
+    variable genes, and the root and contrast when given."""
     out: dict[str, Any] = {
-        "source": str(src), "samples": samples,
         "doublets": _enum("doublets", p.get("doublets"), ("remove", "flag", "off"), "remove"),
         "analysis_backend": _enum("analysis_backend", p.get("analysis_backend"),
                                   ("builtin", "scanpy"), "builtin"),
         "integration": _enum("integration", p.get("integration"), ("none", "harmony", "scvi"), "harmony"),
-        "resolution": _num("resolution", p.get("resolution", 1.0)),
-        "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1)}
-    if p.get("markers"):
-        out["markers"] = str(ctx.file("markers", p["markers"]))
+        "resolution": _num("resolution", p.get("resolution", 1.0), *SCRNA_RESOLUTION),
+        "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1),
+        "n_top_genes": _int("n_top_genes", p.get("n_top_genes", 2000), *SCRNA_TOP_GENES)}
     for key in ("root", "contrast"):
         if p.get(key):
             out[key] = _text(key, p[key], max_len=200)
@@ -652,7 +699,8 @@ def _scrna_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "scrna", r["source"], _opt("out", OUTPUT_TOKEN),
                 _opt("doublets", r["doublets"]), _opt("analysis-backend", r["analysis_backend"]),
                 _opt("integration", r["integration"]), _opt("resolution", r["resolution"]),
-                _opt("seed", r["seed"]), _opt("scvi-threads", ctx.threads))
+                _opt("seed", r["seed"]), _opt("n-top-genes", r.get("n_top_genes", 2000)),
+                _opt("scvi-threads", ctx.threads))
     for key in ("markers", "root", "contrast"):
         if r.get(key):
             argv.append(_opt(key, r[key]))

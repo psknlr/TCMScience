@@ -100,17 +100,90 @@ export function pycacheKey(site, bundleSha256, pyodideVersion) {
   return new URL(`runtime/.pycache/${bundleSha256.slice(0, 16)}-pyodide-${pyodideVersion}.tar`, site).href;
 }
 
-export function quietLoad() {
-  return { messageCallback: () => {}, errorCallback: (m) => console.warn(`[tcmstudio runtime] ${m}`) };
+export function quietLoad(reported = null) {
+  return {
+    messageCallback: () => {},
+    errorCallback: (m) => {
+      reported?.push(String(m));
+      console.warn(`[tcmstudio runtime] ${m}`);
+    },
+  };
 }
 
-export function lockNames(py) {
+function lockPackages(py) {
   try {
-    const pkgs = py.lockfile?.packages || py._api?.lockfile_packages;
-    return pkgs ? new Set(Object.keys(pkgs)) : null;
+    return py.lockfile?.packages || py._api?.lockfile_packages || null;
   } catch {
     return null;
   }
+}
+
+export function lockNames(py) {
+  const pkgs = lockPackages(py);
+  return pkgs ? new Set(Object.keys(pkgs)) : null;
+}
+
+/**
+ * The lockfile's key (what a request names: "pillow") of a name py.loadedPackages holds, which is the entry's own
+ * `name` field ("Pillow"); the two differ for some packages.
+ */
+function lockKeyOf(pkgs, name) {
+  if (Object.hasOwn(pkgs, name)) return name;
+  for (const [key, p] of Object.entries(pkgs)) if (p?.name === name) return key;
+  return null;
+}
+
+/**
+ * Load Pyodide packages (names as the lockfile writes them) → the names. Pyodide 314's loadPackage does not throw when
+ * a wheel cannot be fetched or installed: it returns what it did load and reports the rest through errorCallback. So
+ * every name asked for is looked up in py.loadedPackages afterwards (under the lockfile entry's own name, which is
+ * how Pyodide keys it), and one that is not there is an error ("unavailable") that says what Pyodide reported, never
+ * a package recorded as loaded.
+ */
+export async function loadPackages(py, names) {
+  const reported = [];
+  try {
+    await py.loadPackage(names, quietLoad(reported));
+  } catch (err) {
+    throw codeError("unavailable", `could not load ${names.join(", ")}: ${messageOf(err)}`);
+  }
+  const loaded = py.loadedPackages || {};
+  const pkgs = lockPackages(py) || {};
+  const missing = names.filter((n) => !Object.hasOwn(loaded, n) && !Object.hasOwn(loaded, pkgs[n]?.name ?? n));
+  if (missing.length) {
+    const why = reported.filter(Boolean).slice(-4).join(" ");
+    throw codeError("unavailable", `Pyodide ${py.version} could not load ${missing.join(", ")}${why ? `: ${why}` : ""}`);
+  }
+  return names;
+}
+
+/** {name: version} of every package this Pyodide has loaded, dependencies included, by their lockfile keys. */
+export function loadedVersions(py) {
+  const pkgs = lockPackages(py) || {};
+  return Object.fromEntries(Object.keys(py.loadedPackages || {}).map((n) => {
+    const key = lockKeyOf(pkgs, n);
+    return [key ?? n, key ? pkgs[key]?.version ?? null : null];
+  }).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+// scipy's Matrix Market reader starts a C++ thread pool; WebAssembly here has no threads, and the failed thread start
+// can abort the interpreter. One thread is what the browser has anyway.
+const SCIPY_PY = `
+try:
+    import scipy.io._fast_matrix_market as _fmm
+    _fmm.PARALLELISM = 1
+except Exception:
+    pass
+`;
+
+/**
+ * Hold scipy's Matrix Market reader to one thread once scipy is loaded, whether it was asked for or came in as another
+ * package's dependency (scikit-learn's, statsmodels') → whether it is loaded (and so held). Call after every load.
+ */
+export function pinScipyThreads(py) {
+  if (!Object.hasOwn(py.loadedPackages || {}, "scipy")) return false;
+  py.runPython(SCIPY_PY);
+  return true;
 }
 
 export function isFatalError(err) {

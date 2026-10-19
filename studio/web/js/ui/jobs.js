@@ -162,7 +162,7 @@ export class JobTracker {
       const service = this.app.runtimes.jobs?.service;
       if (!service) return;
       if (rec.job.state === "succeeded" && !rec.files) {
-        try { rec.files = (await service.files(id)).map((f) => ({ path: f.name, bytes: f.bytes, sha256: f.sha256 })); } catch { /* listed later */ }
+        try { rec.files = (await service.files(id)).map((f) => ({ path: f.file || f.name, bytes: f.bytes, sha256: f.sha256 })); } catch { /* listed later */ }
       }
       if (!rec.receipt && rec.job.receipt?.sha256) {
         try {
@@ -292,7 +292,8 @@ export function browserJobsApi(service) {
       else fn({ type: ev?.type || "state", data: job || data || {} });
     }),
     cancel: (id) => service.cancel(id),
-    files: async (id) => ({ files: (await service.files(id)).map((f) => ({ path: f.name, bytes: f.bytes, sha256: f.sha256 })) }),
+    // each file by its path under the job's out/ ("run.json"), as the runner lists them (the service reads it by that)
+    files: async (id) => ({ files: (await service.files(id)).map((f) => ({ path: f.file || f.name, bytes: f.bytes, sha256: f.sha256 })) }),
   };
 }
 

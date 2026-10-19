@@ -38,7 +38,7 @@ CONTRACT_CORE = {
     "connector_call": ("connector.*", ["browser", "runner"], False, False, True),
     "literature_search": ("connector.europepmc.search", ["browser", "runner"], False, False, True),
     "network_pharmacology_run": ("job.research.run", ["browser", "runner"], True, True, False),
-    "run_pipeline": ("job.pipeline.*", ["runner"], True, True, False),
+    "run_pipeline": ("job.pipeline.*", ["browser", "runner"], True, True, False),
     "job_status": ("system.job_status", ["browser", "runner"], False, False, False),
     "capabilities_status": ("system.capabilities", ["browser", "runner"], False, False, False),
     "catalog_search": ("system.catalog_search", ["browser", "runner"], False, False, False),
@@ -277,17 +277,76 @@ def test_job_kinds_are_the_runner_kinds():
                               "research.snapshot", "env.provision", "skill.run", "tcmdb.fetch",
                               "tcmdb.build"}
     # the browser's job service runs exactly these (studio/web/js/scientific/pipelines)
-    assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run")
+    assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna")
+    packages = {"research.snapshot": ["pyarrow"], "research.run": ["pyarrow"],
+                "pipeline.rnaseq": ["numpy", "scipy"], "pipeline.scrna": ["numpy", "scipy"]}
     for kind in JOB_KINDS:
         e = get_entry(f"job.{kind}")
         assert e["job"] and e["confirm"]
         if kind in BROWSER_JOB_KINDS:
             assert e["exec"] == ["browser", "runner"], kind
             browser_job = e["execution"]["browser_job"]
-            assert browser_job["runtime"] == "pyodide" and browser_job["pyodide_packages"] == ["pyarrow"]
+            assert browser_job["runtime"] == "pyodide" and browser_job["pyodide_packages"] == packages[kind]
+            assert browser_job["service"] == "studio-jobs/1"
+            assert browser_job["storage"] == "origin private file system"
         else:
             assert e["exec"] == ["runner"], kind
             assert "browser_job" not in (e.get("execution") or {}), kind
+    # each its own dict: the pipelines say what they read and with which engines, and what needs the runner
+    rnaseq = get_entry("job.pipeline.rnaseq")["execution"]
+    assert rnaseq["browser_job"]["engines"] == ["builtin"] and "FASTQ needs the runner" in rnaseq["browser_job"]["inputs"]
+    assert [r["arg"] for r in rnaseq["browser_job"]["runner_only"]] == ["counts", "de_backend"]
+    assert {e["id"] for e in rnaseq["engines"]} >= {"builtin-de", "pydeseq2"}   # the runner's engines stay
+    scrna = get_entry("job.pipeline.scrna")["execution"]["browser_job"]
+    assert scrna["engines"] == ["builtin", "builtin-harmony"]
+    assert "10x HDF5, .h5ad and directories need the runner" in scrna["inputs"]
+    assert [r["arg"] for r in scrna["runner_only"]] == ["analysis_backend", "integration", "source"]
+    assert "runner_only" not in get_entry("job.research.run")["execution"]["browser_job"]
+
+
+def test_the_pipeline_parameters_and_their_bounds_are_the_runners():
+    from tcmstudio import kinds
+    rnaseq = get_entry("job.pipeline.rnaseq")["parameters"]["properties"]
+    assert rnaseq["counts"]["description"].startswith("a gene × sample count table (TSV/CSV; integers)")
+    assert (rnaseq["alpha"]["minimum"], rnaseq["alpha"]["maximum"]) == kinds.RNASEQ_ALPHA
+    scrna = get_entry("job.pipeline.scrna")["parameters"]["properties"]
+    assert scrna["n_top_genes"]["default"] == 2000
+    assert (scrna["n_top_genes"]["minimum"], scrna["n_top_genes"]["maximum"]) == kinds.SCRNA_TOP_GENES
+    assert (scrna["resolution"]["minimum"], scrna["resolution"]["maximum"]) == kinds.SCRNA_RESOLUTION
+
+
+@pytest.mark.parametrize("kind, args, why", [
+    ("job.pipeline.rnaseq", {"samples": "sheet.csv", "transcripts": "tx.fa"}, "without counts this is the FASTQ run"),
+    ("job.pipeline.rnaseq", {"samples": "s.tsv", "counts": "c.tsv", "de_backend": "pydeseq2"}, "PyDESeq2 is not"),
+    ("job.pipeline.scrna", {"source": "s.csv", "analysis_backend": "scanpy"}, "Scanpy, anndata"),
+    ("job.pipeline.scrna", {"source": "s.csv", "integration": "scvi"}, "scVI (scvi-tools and torch)"),
+    ("job.pipeline.scrna", {"source": "pbmc.h5"}, "a 10x HDF5 or .h5ad source"),
+    ("job.pipeline.scrna", {"source": "atlas.H5AD"}, "a 10x HDF5 or .h5ad source"),
+])
+def test_a_browser_job_call_the_browser_runs_only_on_the_runner_needs_the_runner(kind, args, why):
+    from tcmstudio import capability
+    e = get_entry(kind)
+    found = capability.requirements(e, where="browser", args=args, browser_jobs=True)
+    assert [code for code, _ in found] == ["needs_runner"], found
+    assert found[0][1]["detail"].startswith("the local runner (tcmstudio serve): ") and why in found[0][1]["detail"]
+    assert capability.readiness(e, where="browser", args=args, browser_jobs=True)["state"] == "needs_runner"
+    # on the runner the same call is the runner's to judge
+    assert not [c for c, _ in capability.requirements(e, where="runner", args=args) if c == "needs_runner"]
+
+
+def test_a_browser_job_call_the_browser_runs_needs_only_its_job_service():
+    from tcmstudio import capability
+    for kind, args in (("job.pipeline.rnaseq", {"samples": "s.tsv", "counts": "c.tsv"}),
+                       ("job.pipeline.scrna", {"source": "sheet.csv", "integration": "harmony"}),
+                       ("job.pipeline.scrna", {"source": "ctrl.tsv.gz", "integration": "none"})):
+        e = get_entry(kind)
+        assert capability.requirements(e, where="browser", args=args, browser_jobs=True) == []
+        assert [c for c, _ in capability.requirements(e, where="browser", args=args, browser_jobs=False)] == \
+            ["needs_job_service"]
+        # without a call in view: ready only while the page's job service runs, as research.run
+        assert capability.readiness(e, where="browser", browser_jobs=True)["state"] == "ready"
+        assert capability.readiness(e, where="browser", browser_jobs=False)["state"] == "needs_runner"
+    assert capability.runner_only(get_entry("job.pipeline.fold"), {"source": "x.h5"}) == []
 
 
 def test_browser_research_run_readiness_follows_the_browsers_job_service_and_snapshots():
@@ -321,7 +380,7 @@ def test_browser_catalog(browser_catalog, runner_catalog):
         if e["kind"] == "job":
             # only the kinds the browser's job service implements
             assert ("browser" in e["exec"]) == (e["id"][4:] in BROWSER_JOB_KINDS), e["id"]
-    for runner_only in ("job.pipeline.rnaseq", "skill.dock-ligands"):
+    for runner_only in ("job.pipeline.fold", "skill.dock-ligands", "skill.rnaseq-differential-expression"):
         assert "browser" not in by_id[runner_only]["exec"]
     # browser job ids (bj-…) are answered by the page; the runner's by the runner
     assert by_id["system.job_status"]["exec"] == ["browser", "runner"]

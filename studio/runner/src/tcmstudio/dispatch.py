@@ -766,6 +766,16 @@ def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) 
     requires = [r for _, r in found]
     need = req["need"]
     common = {"requires": requires, "reason": reason}
+    beyond = (capability.runner_only(entry, args)
+              if ctx.where == "browser" and "browser" in (entry.get("exec") or ()) else [])
+    if need == "runner" and beyond:
+        # a browser job kind that runs these arguments only on the runner
+        return _failure(kind, "unavailable",
+                        f"{title} runs in the browser only in part; these arguments need the "
+                        f"local runner: {'; '.join(beyond)}.", req["remedy"],
+                        summary=f"{zh}：这些参数需要本机 Runner，浏览器中不可运行",
+                        summary_en=f"{title}: with these arguments it needs the local runner; "
+                                   "it cannot run them in the browser", **common)
     if need in ("runner", "browser_runtime"):
         runner = need == "runner"
         where = "the local runner" if runner else "the browser runtime"

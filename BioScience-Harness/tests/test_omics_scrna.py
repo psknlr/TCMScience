@@ -278,6 +278,66 @@ def test_a_single_batch_has_nothing_to_integrate(world, tmp_path):
     assert run.complete
 
 
+def test_the_layout_says_how_it_started(removed):
+    assert removed.analysis["layout"] == {"start": "spectral"}
+    assert removed.manifest["analysis"]["layout"] == {"start": "spectral"}
+    assert not any("random positions" in w for w in removed.warnings)
+    assert "random positions" not in (removed.out_dir / "limitations.md").read_text()
+
+
+def test_a_failed_spectral_start_is_recorded_not_hidden(world, tmp_path, monkeypatch):
+    """When ARPACK does not converge the layout still starts from random positions, as
+    umap-learn's does; the record, the warnings, the report and limitations.md say so."""
+    import csv
+    from scipy.sparse.linalg import ArpackNoConvergence
+
+    from bioagent.omics.sc import umap
+
+    def no_convergence(*args, **kwargs):
+        raise ArpackNoConvergence("No convergence (1201 iterations)", [], [])
+    monkeypatch.setattr(umap, "eigsh", no_convergence)
+    rows = list(csv.DictReader(open(world.sheet)))
+    sheet = tmp_path / "two.csv"
+    sheet.write_text("sample,path,condition,batch\n" + "".join(
+        f"{r['sample']},{world.root / r['path']},{r['condition']},{r['batch']}\n"
+        for r in rows[:2]))
+    run = S.run_scrna(sheet, S.ScConfig(n_top_genes=600), tmp_path / "out")
+    why = ("the spectral start failed (ArpackNoConvergence: ARPACK error -1: No convergence "
+           "(1201 iterations))")
+    assert run.manifest["analysis"]["layout"] == {"start": f"random: {why}"}
+    assert f"the UMAP layout started from random positions: {why}" in run.warnings
+    assert f"- the UMAP layout started from random positions: {why}" in \
+        (run.out_dir / "report.md").read_text()
+    lines = (run.out_dir / "limitations.md").read_text().splitlines()
+    assert any(line.startswith(f"The UMAP layout started from random positions: {why}. Only "
+                               "the UMAP coordinates") for line in lines)
+    neighbors = next(s for s in run.manifest["stages"] if s["name"] == "neighbors")
+    assert neighbors["status"] == "succeeded" and "start was random" in neighbors["reason"]
+    assert run.complete and S.verify_run(run.out_dir)[0]
+
+
+def test_running_out_of_memory_is_not_a_random_start(monkeypatch):
+    """A MemoryError in the eigensolver is the run's, raised as it is: a random start is only
+    for an eigensolver that failed (a browser worker turns it into a refusal for memory)."""
+    from scipy.sparse.linalg import ArpackNoConvergence
+
+    from bioagent.omics.sc import umap
+
+    ring = sparse.diags([np.ones(19), np.ones(19)], [1, -1], shape=(20, 20), format="csr")
+
+    def out_of_memory(*args, **kwargs):
+        raise MemoryError
+    monkeypatch.setattr(umap, "eigsh", out_of_memory)
+    with pytest.raises(MemoryError):
+        umap.umap_layout(ring, n_epochs=5)
+
+    def no_convergence(*args, **kwargs):
+        raise ArpackNoConvergence("No convergence (100 iterations)", [], [])
+    monkeypatch.setattr(umap, "eigsh", no_convergence)
+    layout, start = umap.umap_layout(ring, n_epochs=5)
+    assert layout.shape == (20, 2) and start.startswith("random: the spectral start failed")
+
+
 def test_verify_run_checks_the_tables_against_the_record(removed, tmp_path):
     import hashlib
     copy = tmp_path / "copy"

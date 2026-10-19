@@ -13,8 +13,8 @@
 // the same files from OPFS and compares, so a receipt's digests are two independent readings.
 
 import {
-  PYCACHE_ROOT, codeError, fetchBundle, isFatalError, lockNames, messageOf, pycacheKey, quietLoad, restorePycache,
-  sha256Hex, withSlash,
+  PYCACHE_ROOT, codeError, fetchBundle, isFatalError, loadPackages, loadedVersions, lockNames, messageOf, pinScipyThreads,
+  pycacheKey, restorePycache, sha256Hex, withSlash,
 } from "../../runtime/pyboot.js";
 
 const JOB_PY = `
@@ -53,15 +53,6 @@ def tcms_info():
                        ensure_ascii=False)
 `;
 
-// scipy's Matrix Market reader starts a C++ thread pool; WebAssembly here has no threads (see pyodide.worker.js)
-const SCIPY_PY = `
-try:
-    import scipy.io._fast_matrix_market as _fmm
-    _fmm.PARALLELISM = 1
-except Exception:
-    pass
-`;
-
 /** Without synchronous access handles a mounted file is copied into memory, up to this much in all. */
 const COPY_BUDGET_BYTES = 768 * 1024 * 1024;
 const EROFS = 69; // Emscripten's errno for a write to a read-only file system
@@ -74,6 +65,7 @@ let fatal = null;
 let bootInfo = null;
 const packages = new Set();
 let locked = null; // the lockfile's package names
+let scipyHeld = false; // scipy's Matrix Market reader held to one thread (pyboot.js pinScipyThreads)
 let debugOps = false; // the test pages' python op (init {debug: true}); never on in Studio
 const mounts = new Map(); // MEMFS root → {handles, files, bytes, mode}
 let chain = Promise.resolve();
@@ -157,8 +149,9 @@ async function init({ boot, siteUrl, indexUrl, debug = false }) {
   if (interrupt) py.setInterruptBuffer(interrupt);
   locked = lockNames(py);
   const wanted = (boot.pyodide.packages || []).filter((n) => !locked || locked.has(n));
-  if (wanted.length) await py.loadPackage(wanted, quietLoad());
+  if (wanted.length) await loadPackages(py, wanted);
   for (const n of wanted) packages.add(n);
+  scipyHeld = pinScipyThreads(py);
   py.unpackArchive(bundle.bytes, boot.bundle.format || "gztar", { extractDir: boot.bundle.extract_dir || "/opt/tcms/site" });
   const restored = await restorePycache(py, pycacheKey(site, boot.bundle.sha256, py.version));
   const ns = py.globals.get("dict")();
@@ -186,15 +179,13 @@ async function ensurePackages(names) {
   if (missing.length) {
     const unknown = locked ? missing.filter((n) => !locked.has(n)) : [];
     if (unknown.length) throw codeError("unavailable", `Pyodide ${py.version} has no package ${unknown.join(", ")}`);
-    try {
-      await py.loadPackage(missing, quietLoad());
-    } catch (err) {
-      throw codeError("unavailable", `could not load ${missing.join(", ")}: ${messageOf(err)}`);
-    }
+    // a wheel that could not be fetched is an error here, never a package recorded as loaded
+    await loadPackages(py, missing);
     for (const n of missing) packages.add(n);
-    if (missing.includes("scipy")) py.runPython(SCIPY_PY);
+    if (!scipyHeld) scipyHeld = pinScipyThreads(py);
   }
-  return { packages: [...packages] };
+  // versions: of everything loaded, dependencies included, from the lockfile (what a job's limitations name)
+  return { packages: [...packages], versions: loadedVersions(py) };
 }
 
 // ------------------------------------------------------------------------------------------------------------ files

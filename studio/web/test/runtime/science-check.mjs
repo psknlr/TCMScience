@@ -18,14 +18,24 @@
 //                 registry naming them with their own checksums) and research.snapshot runs as a job of the service,
 //                 down to its persisted snapshots and marker; science.mjs compares both builds' snapshot ids with the
 //                 same build run natively
+// ?mode=omics     the RNA-seq (count matrix) and single-cell jobs: the files the harness serves at /raw/ (omics_native.py
+//                 prepare) become a test project's files in the page's own project store, and the job service runs
+//                 pipeline.rnaseq and pipeline.scrna on them with omics-plan.mjs's parameters, exactly as Studio does;
+//                 each job's receipt must match its recorded digest with outputs_verified and device evidence verified,
+//                 its inputs recorded at the project files' digests; every output comes back with its digest and text
+//                 for science.mjs to compare with the native command's and to hold to the known answer
 // ?index=URL      where Pyodide is (default: boot.json's index_url)
 
+import { openStore } from "../../js/core/store.js";
 import { DatasetWorkspace } from "../../js/scientific/data/datasets.js";
 import { OpfsStore } from "../../js/scientific/data/opfs-store.js";
 import { BrowserJobService } from "../../js/scientific/runtime/job-manager.js";
+import { projectFilesResolver } from "../../js/scientific/runtime/jobs-runtime.js";
 import { ScienceWorkerPool, recommendedPoolSize } from "../../js/scientific/runtime/worker-pool.js";
 import { HANDLERS, RESEARCH_EXPORTS, RESEARCH_PATHS, SNAPSHOTS_BUILT_SCHEMA } from "../../js/scientific/pipelines/network-pharmacology.js";
+import { OMICS_HANDLERS } from "../../js/scientific/pipelines/omics.js";
 import { browserSelfTest } from "../../js/scientific/pipelines/selftest.js";
+import { OMICS_JOBS } from "./omics-plan.mjs";
 
 const q = new URLSearchParams(location.search);
 const mode = q.get("mode") || "selftest";
@@ -354,9 +364,89 @@ result = ",".join(patch("/work/patch/raw"))` });
   }
 }
 
+async function omics() {
+  const bootDoc = await boot();
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  // the served files become a test project's files in the page's project store (core/store.js, IndexedDB), as a
+  // person's attachments do, and the job service finds them as Studio's does (projectFilesResolver over that store)
+  const projects = await openStore({ name: "tcmstudio-science-check" });
+  const project = await projects.projects.create({ name: "science check: omics" });
+  const listed = await (await fetch("/raw/index.json")).json();
+  const t0 = performance.now();
+  const recorded = new Map();
+  for (const f of listed) {
+    const blob = await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).blob();
+    const rec = await projects.files.add(project.id, new File([blob], f.name), { name: f.name });
+    recorded.set(rec.id, rec);
+  }
+  out.project_files = [...recorded.values()].map((r) => ({ id: r.id, name: r.name, bytes: r.bytes, sha256: r.sha256 }));
+  check("the inputs are a project's files", recorded.size === listed.length && listed.length > 0,
+    `${out.project_files.map((r) => `${r.name} (${r.bytes} bytes)`).join(", ")}${projects.persistent ? "" : "; in memory (IndexedDB unavailable)"}`, performance.now() - t0);
+  const p = pool(bootDoc);
+  const svc = new BrowserJobService({ pool: p, store, projectFiles: projectFilesResolver(projects.files), handlers: OMICS_HANDLERS });
+  await svc.start();
+  check("job service started", svc.status === "ready", svc.reason || svc.status);
+  out.jobs = {};
+  try {
+    for (const plan of OMICS_JOBS) await omicsJob(svc, plan, project.id, recorded);
+  } finally {
+    p.terminateAll();
+  }
+}
+
+/** One omics job of the service, its receipt checked and every output read back (digest and text) into out.jobs. */
+async function omicsJob(svc, plan, projectId, recorded) {
+  const handler = OMICS_HANDLERS.find((h) => h.kind === plan.kind);
+  const t0 = performance.now();
+  let job = await svc.submit(plan.kind, plan.params, { project_id: projectId });
+  job = await waitFor(svc, job.id, 15 * 60_000);
+  const ms = performance.now() - t0;
+  const rec = {
+    kind: plan.kind, params: plan.params, state: job?.state, ms: Math.round(ms), error: job?.error || null,
+    stages: (job?.stages || []).map((x) => ({ id: x.id, status: x.status, seconds: x.seconds ?? null, worker: x.worker ?? null, reused: Boolean(x.reused), detail: x.detail || "" })),
+    limitations: job?.limitations || [], outcome: job?.outcome || null, logs: (job?.logs || []).map((l) => l.text).slice(-20),
+  };
+  out.jobs[plan.key] = rec;
+  if (!check(`${plan.kind} as a browser job`, job?.state === "succeeded", job?.error?.message || job?.state, ms)) return;
+  check(`${plan.kind}: its stages`, job.stages.every((x) => x.status === "succeeded"), rec.stages.map((x) => `${x.id}:${x.status} ${x.seconds ?? "?"} s${x.worker ? `@${x.worker}` : ""}`).join(", "));
+  const receipt = await svc.receipt(job.id);
+  const doc = receipt?.doc || null;
+  rec.receipt = doc;
+  check(`${plan.kind}: receipt at its recorded digest`, receipt?.matches === true, receipt?.sha256 || "no receipt");
+  check(`${plan.kind}: receipt says both digest readings agree (outputs_verified)`, doc?.assurance === "outputs_verified", String(doc?.assurance));
+  check(`${plan.kind}: receipt says the browser verified the outputs (device evidence verified)`, doc?.device?.evidence === "verified", JSON.stringify(doc?.device?.verify_stages ?? doc?.device?.evidence));
+  const runner = ["verify_run", "required_artefacts", "validator:run"];
+  check(`${plan.kind}: the runner's checks passed (${runner.join(", ")})`, runner.every((c) => (doc?.checks || []).includes(c)), (doc?.checks || []).join(", "));
+  check(`${plan.kind}: every output the runner requires is there`, JSON.stringify(doc?.expected) === JSON.stringify(handler.expected) && !(doc?.missing || []).length,
+    `expected ${(doc?.expected || []).join(", ")}; missing ${(doc?.missing || []).join(", ") || "none"}`);
+  // each input the receipt lists is a file of the project, at the digest the project recorded for it
+  const inputs = Object.entries(doc?.inputs || {}).flatMap(([k, v]) => (v && typeof v.sha256 === "string" ? [[k, v]] : Object.entries(v || {}).map(([kk, vv]) => [`${k} ${kk}`, vv])));
+  const wrong = inputs.filter(([, v]) => recorded.get(v?.source?.project_file)?.sha256 !== v?.sha256);
+  check(`${plan.kind}: inputs recorded at the project files' digests`, inputs.length > 0 && !wrong.length,
+    wrong.length ? `not the project's: ${wrong.map(([k]) => k).join(", ")}` : inputs.map(([k, v]) => `${k}: ${v.source?.name} ${String(v.sha256).slice(0, 12)}…`).join("; "));
+  const versions = (rec.limitations.find((l) => /^Computed in this browser with Pyodide's numpy /.test(l)) || "").match(/numpy (\S+) and scipy (\S+);/);
+  rec.packages = versions ? { numpy: versions[1], scipy: versions[2] } : null;
+  check(`${plan.kind}: the limitations say what computed it`, Boolean(versions) && !/not reported/.test(versions[0]), versions ? versions[0] : "no line naming numpy and scipy");
+  rec.memory = doc?.resources?.memory ?? null;
+  rec.files = {};
+  for (const a of job.artefacts || []) {
+    const file = await svc.readFile(job.id, a.path).catch(() => null);
+    if (!file) continue;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const sha = await sha256Hex(bytes);
+    rec.files[a.path.slice(1).join("/")] = { sha256: `sha256:${sha}`, recorded: a.sha256, bytes: bytes.byteLength, text: new TextDecoder().decode(bytes) };
+  }
+  const unread = (job.artefacts || []).filter((a) => !rec.files[a.path.slice(1).join("/")] || rec.files[a.path.slice(1).join("/")].sha256 !== `sha256:${String(a.sha256).replace(/^sha256:/, "")}`);
+  check(`${plan.kind}: every output read back at its recorded digest`, (job.artefacts || []).length > 0 && !unread.length,
+    unread.length ? `not read back as recorded: ${unread.map((a) => a.path.join("/")).join(", ")}` : `${Object.keys(rec.files).length} files`);
+}
+
 (async () => {
   try {
-    if (mode === "gqd") await gqd();
+    if (mode === "omics") await omics();
+    else if (mode === "gqd") await gqd();
     else if (mode === "fixture") await fixture();
     else if (mode === "service") await service();
     else await selftest();

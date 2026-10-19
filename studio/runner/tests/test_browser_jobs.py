@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.parse
@@ -423,6 +424,342 @@ def test_importing_the_module_loads_nothing_beyond_the_standard_library(tmp_path
     assert res.stdout.strip() == "[]"
 
 
+# ------------------------------------------------------------------ the omics pipelines
+
+PIPELINE_SKIP = ("run.json", "stages.json")
+
+
+def _harness(name: str):
+    """A helper module of BioScience-Harness/tests (the simulated worlds), or a skip."""
+    import importlib
+    if not (HARNESS_TESTS / f"{name}.py").is_file():
+        pytest.skip("BioScience-Harness tests are not beside this checkout")
+    sys.path.insert(0, str(HARNESS_TESTS))
+    try:
+        return importlib.import_module(name)
+    finally:
+        sys.path.remove(str(HARNESS_TESTS))
+
+
+def _outputs(out: Path) -> dict[str, bytes]:
+    """Every file a run wrote but its record and stage file (they hold times and paths)."""
+    return {p.relative_to(out).as_posix(): p.read_bytes() for p in sorted(out.rglob("*"))
+            if p.is_file() and p.name not in PIPELINE_SKIP}
+
+
+def _bioagent(tmp: Path, *argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, "-m", "bioagent.cli", *argv], capture_output=True,
+                          text=True, timeout=600, env=_env(), cwd=tmp)
+
+
+def _same_summary(result: dict, printed: dict) -> None:
+    a, b = dict(result["summary"]), dict(printed)
+    assert Path(a.pop("out_dir")).name and Path(b.pop("out_dir")).name
+    assert a == b
+
+
+@pytest.fixture(scope="module")
+def counts_runs(tmp_path_factory):
+    """The RNA-seq count-matrix reference, run by ``bioagent rnaseq --counts`` (a child
+    process) and by ``browser_jobs.run_rnaseq_counts``."""
+    tmp = tmp_path_factory.mktemp("counts")
+    world = _harness("omics_world").make_counts_world(tmp / "world", seed=1)
+    cli = _bioagent(tmp, "rnaseq", "--counts", str(world["counts"]), "--samples",
+                    str(world["samples"]), "--contrast", "condition,treated,control",
+                    "--out", str(tmp / "cli"), "--json")
+    events: list = []
+    result = _ok(call("run_rnaseq_counts", json.dumps({
+        "counts": str(world["counts"]), "samples": str(world["samples"]),
+        "contrast": "condition,treated,control", "out_dir": str(tmp / "fn")}),
+        lambda kind, data: events.append((kind, data))))
+    return {"tmp": tmp, "world": world, "cli": cli, "result": result, "events": events}
+
+
+@pytest.fixture(scope="module")
+def sc_tables(tmp_path_factory):
+    """A small single-cell world (sc_world, a fifth of the reference's cell types' cells) as
+    the browser reads one: a gzipped count table per sample (genes in rows) and a sheet of
+    them with the samples' condition and batch."""
+    import csv
+    import gzip
+
+    from bioagent.omics.sc import io as sc_io
+
+    tmp = tmp_path_factory.mktemp("sc-tables")
+    world = _harness("sc_world").make_sc_world(tmp / "world", seed=0, per_type=60, path_cells=80)
+    rows = list(csv.DictReader(open(world.sheet, encoding="utf-8")))
+    sheet = ["sample,path,condition,batch"]
+    for r in rows:
+        m = sc_io.read_counts(world.root / r["path"])
+        counts = m.counts.T.toarray().astype(int)
+        with gzip.GzipFile(tmp / f"{r['sample']}.tsv.gz", "wb", mtime=0) as fh:
+            fh.write(("gene\t" + "\t".join(m.cells) + "\n").encode())
+            for name, row in zip(m.gene_names, counts):
+                fh.write((name + "\t" + "\t".join(map(str, row)) + "\n").encode())
+        sheet.append(f"{r['sample']},{r['sample']}.tsv.gz,{r['condition']},{r['batch']}")
+    (tmp / "sheet.csv").write_text("\n".join(sheet) + "\n", encoding="utf-8")
+    return tmp
+
+
+@pytest.fixture(scope="module")
+def sc_runs(sc_tables):
+    cli = _bioagent(sc_tables, "scrna", str(sc_tables / "sheet.csv"), "--n-top-genes", "600",
+                    "--out", str(sc_tables / "cli"), "--json")
+    events: list = []
+    result = _ok(call("run_scrna", json.dumps({
+        "source": str(sc_tables / "sheet.csv"), "n_top_genes": 600,
+        "out_dir": str(sc_tables / "fn")}), lambda kind, data: events.append((kind, data))))
+    return {"tmp": sc_tables, "cli": cli, "result": result, "events": events}
+
+
+def test_run_rnaseq_counts_writes_the_bytes_the_command_writes(counts_runs):
+    tmp, cli, result = counts_runs["tmp"], counts_runs["cli"], counts_runs["result"]
+    assert cli.returncode == 0, cli.stderr[-2000:]
+    assert result["exit"] == 0 and result["failed"] == [] and result["refused"] is None
+    assert result["need"] is None
+    assert _outputs(tmp / "fn") == _outputs(tmp / "cli")
+    assert len(_outputs(tmp / "fn")) == 13              # 4 tables, 6 figures, 2 reports, limitations
+    _same_summary(result, json.loads(cli.stdout))
+    assert result["summary"]["input_kind"] == "counts"
+
+
+def test_run_scrna_writes_the_bytes_the_command_writes(sc_runs):
+    tmp, cli, result = sc_runs["tmp"], sc_runs["cli"], sc_runs["result"]
+    assert cli.returncode == 0, cli.stderr[-2000:]
+    assert result["exit"] == 0 and result["failed"] == [] and result["refused"] is None
+    produced = _outputs(tmp / "fn")
+    assert produced == _outputs(tmp / "cli")
+    assert {"cells.tsv", "clusters.tsv", "markers.tsv", "report.html", "limitations.md"} <= set(produced)
+    _same_summary(result, json.loads(cli.stdout))
+    assert result["summary"]["integration"] == "harmony"
+
+
+def test_the_pipelines_say_what_they_do_as_they_do_it(counts_runs, sc_runs):
+    from bioagent.omics import rnaseq_counts, scrna
+    for runs, stages in ((counts_runs, rnaseq_counts.STAGES), (sc_runs, scrna.STAGES)):
+        events = runs["events"]
+        logs = [data["text"] for kind, data in events if kind == "log"]
+        assert len(logs) >= 2 and logs[-1].endswith(": complete")
+        progress = [data for kind, data in events if kind == "progress"]
+        fractions = [p["fraction"] for p in progress]
+        assert fractions == sorted(fractions) and fractions[-1] == 1.0
+        ran = {s["name"] for s in json.loads((runs["tmp"] / "fn" / "run.json").read_text())["stages"]
+               if s["status"] == "succeeded"}
+        assert ran <= {p["stage"] for p in progress} <= set(stages) | {None}
+
+
+@pytest.mark.parametrize("kind, sub", [("pipeline.rnaseq", "counts_runs"), ("pipeline.scrna", "sc_runs")])
+def test_verify_pipeline_makes_the_runners_checks(kind, sub, request, tmp_path):
+    from types import SimpleNamespace
+
+    from tcmstudio.jobs import JobService
+    from tcmstudio.kinds import KINDS
+
+    runs = request.getfixturevalue(sub)
+    job = tmp_path / "job"
+    shutil.copytree(runs["tmp"] / "fn", job / "out")
+    events: list = []
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": kind, "out_dir": str(job / "out")}),
+                       lambda k, data: events.append((k, data))))
+    assert checked["status"] == "PASS" and checked["problems"] == []
+    assert [data["text"] for k, data in events if k == "log"] == [
+        f"verify {kind}: PASS, {len(checked['checks'])} checks"]
+    # the checks the runner's collection makes, by its names, after the pipeline's own
+    assert [c["name"] for c in checked["checks"]] == [
+        "verify_run", "required_artefacts", *(f"validator:{n}" for n in KINDS[kind].validators)]
+    report = checked["report"]
+    assert report["complete"] is True and report["verify_run"] == {"ok": True, "problems": []}
+    assert report["limitations"] == (job / "out" / "limitations.md").read_text().splitlines()
+    assert report["pipeline"] == ("bioagent.omics.rnaseq_counts" if kind == "pipeline.rnaseq"
+                                  else "bioagent.omics.scrna")
+    # a required output gone: the runner's own collection and this check say the same
+    required = next(rel for name, rel, need in KINDS[kind].artefacts if need and name != "run")
+    (job / "out" / required).unlink()
+    runner = JobService._check_artefacts(None, SimpleNamespace(dir=job), KINDS[kind])
+    assert runner and any("is missing or empty" in p for p in runner)
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": kind, "out_dir": str(job / "out")})))
+    assert checked["status"] == "FAIL"
+    status = {c["name"]: c["status"] for c in checked["checks"]}
+    assert status["verify_run"] == status["required_artefacts"] == status["validator:run"] == "FAIL"
+    assert all(p in checked["problems"] for p in runner)
+    assert f"output {required} is missing" in checked["problems"]
+
+
+def test_verify_pipeline_without_a_record_fails_and_says_why(tmp_path):
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": "pipeline.scrna",
+                                                      "out_dir": str(tmp_path)})))
+    assert checked["status"] == "FAIL" and checked["report"]["complete"] is None
+    assert checked["problems"][0].startswith("run.json cannot be read")
+    assert "required artefact 'run' (run.json) is missing or empty" in checked["problems"]
+    # a record the pipeline's check cannot read is a failed check, as the runner's validator says
+    (tmp_path / "run.json").write_text(json.dumps({"pipeline": "bioagent.omics.scrna"}))
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": "pipeline.scrna",
+                                                      "out_dir": str(tmp_path)})))
+    assert checked["status"] == "FAIL"
+    assert checked["problems"][0] == "the run could not be verified: KeyError: 'inputs'"
+
+
+@pytest.fixture
+def refusable(tmp_path):
+    """Sources the browser's single-cell job does not read: a 10x HDF5, an .h5ad, a
+    directory, and a sheet naming an HDF5 file; and a FASTQ sheet given as a sample table."""
+    (tmp_path / "pbmc.h5").write_bytes(b"\x89HDF\r\n\x1a\n")
+    (tmp_path / "atlas.H5AD").write_bytes(b"\x89HDF\r\n\x1a\n")
+    (tmp_path / "filtered_feature_bc_matrix").mkdir()
+    (tmp_path / "sheet.csv").write_text("sample,path\nctrl1,pbmc.h5\n")
+    (tmp_path / "fastq.csv").write_text("sample,fastq_1,condition\nctrl1,a.fq.gz,control\n")
+    (tmp_path / "counts.tsv").write_text("gene_id\ta\tb\ng1\t1\t2\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize("fn, args, needle, need", [
+    ("run_rnaseq_counts", {"de_backend": "pydeseq2"},
+     "PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is", "runner"),
+    ("run_rnaseq_counts", {"samples": "fastq.csv"},
+     "is a FASTQ sample sheet: the count-matrix mode takes a sample table; run the full "
+     "pipeline from FASTQ on the runner", "runner"),
+    ("run_scrna", {"analysis_backend": "scanpy"}, "Scanpy, anndata, leidenalg and umap-learn",
+     "runner"),
+    ("run_scrna", {"integration": "scvi"}, "scVI (scvi-tools and torch) is not in this browser's",
+     "runner"),
+    ("run_scrna", {"source": "pbmc.h5"}, "pbmc.h5: a 10x HDF5 file is not yet supported in the "
+                                         "browser", "runner"),
+    ("run_scrna", {"source": "atlas.H5AD"}, "atlas.H5AD: an .h5ad file is read with anndata",
+     "runner"),
+    ("run_scrna", {"source": "sheet.csv"}, "pbmc.h5: a 10x HDF5 file is not yet supported in the "
+                                           "browser", "runner"),
+    ("run_scrna", {"source": "filtered_feature_bc_matrix"}, "is a directory (a Cell Ranger output)",
+     "runner"),
+])
+def test_what_the_browser_does_not_run_is_refused_with_the_reason(refusable, fn, args, needle,
+                                                                  need):
+    base = ({"counts": "counts.tsv", "samples": "samples.tsv"} if fn == "run_rnaseq_counts"
+            else {"source": "x.tsv"})
+    full = {k: str(refusable / v) if k in ("counts", "samples", "source") else v
+            for k, v in {**base, **args}.items()}
+    events: list = []
+    result = _ok(call(fn, json.dumps({**full, "out_dir": str(refusable / "out")}),
+                      lambda kind, data: events.append((kind, data))))
+    assert result["exit"] == 2 and result["summary"] is None and result["failed"] == []
+    assert needle in result["refused"], result["refused"]
+    assert result["need"] == need
+    assert not (refusable / "out").exists(), "nothing is written for a refused call"
+    assert any(kind == "log" and data["text"].startswith("refused: ") for kind, data in events)
+
+
+@pytest.mark.parametrize("fn, args, needle", [
+    ("run_rnaseq_counts", {"samples": "s", "out_dir": "o"}, "counts: required"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "transcripts": "t"},
+     "unknown argument(s) transcripts"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "alpha": 0.9},
+     "alpha: between 0.0001 and 0.5"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "alpha": "low"},
+     "alpha: a number is needed"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "de_backend": "edger"},
+     "de_backend: one of builtin, pydeseq2"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "contrast": "condition"},
+     "contrast: 'condition' is not in the expected form"),
+    ("run_rnaseq_counts", {"counts": "c", "samples": "s", "out_dir": "o", "design": "-x"},
+     "design: a value cannot start with '-'"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "resolution": 9}, "resolution: between 0.05 and 5"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "seed": -1}, "seed: between 0 and 2147483647"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "n_top_genes": 10},
+     "n_top_genes: between 50 and 10000"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "doublets": "maybe"},
+     "doublets: one of remove, flag, off"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "contrast": "condition,treated"},
+     "contrast: factor,numerator,denominator"),
+    ("run_scrna", {"source": "s", "out_dir": "o", "de_backend": "builtin"},
+     "unknown argument(s) de_backend"),
+    ("verify_pipeline", {"kind": "pipeline.fold", "out_dir": "o"},
+     "kind: one of pipeline.rnaseq, pipeline.scrna"),
+])
+def test_pipeline_arguments_are_held_to_the_runners_checks(fn, args, needle):
+    error = _error(call(fn, json.dumps(args)))
+    assert error["type"] == "bad_arguments" and needle in error["message"], error
+
+
+def test_more_than_a_browser_worker_holds_is_refused_before_the_analysis(tmp_path, monkeypatch):
+    """wasm32 caps a worker near 4 GB: more cells, genes or samples than the measured limits
+    are refused for memory, counted from the tables (gzipped or not) before any is read in
+    full, and nothing is written."""
+    import gzip
+
+    from tcmstudio import browser_jobs
+
+    def refused(fn, args):
+        events: list = []
+        result = _ok(call(fn, json.dumps({**args, "out_dir": str(tmp_path / "out")}),
+                          lambda kind, data: events.append((kind, data))))
+        assert result["exit"] == 2 and result["need"] == "memory", result
+        assert not (tmp_path / "out").exists()
+        assert any(kind == "log" and data["text"].startswith("refused: ") for kind, data in events)
+        return result["refused"]
+
+    # single cell: 6,001 cells over two tables of a sheet, one gzipped (genes in rows)
+    def table(cells: int, prefix: str) -> str:
+        return "gene\t" + "\t".join(f"{prefix}{i}" for i in range(cells)) + "\nCD3E\t" + \
+            "\t".join("1" for _ in range(cells)) + "\n"
+    (tmp_path / "a.tsv").write_text(table(3000, "a"))
+    with gzip.open(tmp_path / "b.csv.gz", "wt") as fh:
+        fh.write(table(3001, "b").replace("\t", ","))
+    (tmp_path / "sheet.csv").write_text("sample,path\nA,a.tsv\nB,b.csv.gz\n")
+    assert refused("run_scrna", {"source": str(tmp_path / "sheet.csv")}) == (
+        "6,001 cells exceed the 6,000 a browser worker can hold (wasm32, 4 GB): run it on the "
+        "runner")
+    # RNA-seq: 201 samples, or (the limit lowered here) more genes than it allows
+    samples = [f"s{i}" for i in range(201)]
+    counts = tmp_path / "counts.tsv"
+    counts.write_text("gene_id\tgene_name\t" + "\t".join(samples) + "\n" + "".join(
+        f"g{g}\tG{g}\t" + "\t".join("5" for _ in samples) + "\n" for g in range(3)))
+    (tmp_path / "samples.tsv").write_text("sample\tcondition\n" + "".join(
+        f"{s}\t{'a' if i % 2 else 'b'}\n" for i, s in enumerate(samples)))
+    rna = {"counts": str(counts), "samples": str(tmp_path / "samples.tsv")}
+    assert refused("run_rnaseq_counts", rna) == (
+        "3 genes x 201 samples exceed the 100,000 genes x 200 samples a browser worker can hold "
+        "(wasm32, 4 GB): run it on the runner")
+    monkeypatch.setattr(browser_jobs, "RNASEQ_SAMPLES_MAX", 201)
+    monkeypatch.setattr(browser_jobs, "RNASEQ_GENES_MAX", 2)
+    assert refused("run_rnaseq_counts", rna).startswith("3 genes x 201 samples exceed the 2 genes")
+    # at the limit it runs (here: refused by the pipeline for what the table is, not for memory)
+    monkeypatch.setattr(browser_jobs, "RNASEQ_GENES_MAX", 3)
+    result = _ok(call("run_rnaseq_counts", json.dumps({**rna, "out_dir": str(tmp_path / "o")})))
+    assert result["need"] != "memory"
+
+
+def test_a_run_that_runs_out_of_memory_is_refused_for_memory(tmp_path, monkeypatch):
+    """A MemoryError in a pipeline, or in any function, comes back as a refusal that says
+    what would run it, never as a runtime error."""
+    from bioagent.omics import rnaseq_counts, scrna
+
+    from tcmstudio import browser_jobs
+
+    def out_of_memory(*args, **kwargs):
+        raise MemoryError
+    monkeypatch.setattr(scrna, "run_scrna", out_of_memory)
+    monkeypatch.setattr(rnaseq_counts, "run_rnaseq_counts", out_of_memory)
+    (tmp_path / "t.tsv").write_text("gene\tc1\tc2\nCD3E\t1\t2\n")
+    (tmp_path / "counts.tsv").write_text("gene_id\ta\tb\ng1\t1\t2\n")
+    result = _ok(call("run_scrna", json.dumps({"source": str(tmp_path / "t.tsv"),
+                                               "out_dir": str(tmp_path / "o")})))
+    assert (result["exit"], result["need"]) == (2, "memory")
+    assert result["refused"] == ("the run ran out of memory (MemoryError) on 2 cells: more than "
+                                 "a browser worker can hold (wasm32, 4 GB): run it on the runner")
+    result = _ok(call("run_rnaseq_counts", json.dumps({
+        "counts": str(tmp_path / "counts.tsv"), "samples": str(tmp_path / "s.tsv"),
+        "out_dir": str(tmp_path / "o")})))
+    assert (result["exit"], result["need"]) == (2, "memory")
+    assert result["refused"].startswith("the run ran out of memory (MemoryError) on 1 genes x 2 "
+                                        "samples")
+    # any other function: the failure is a refusal, with what would run it beside its message
+    monkeypatch.setitem(browser_jobs.FUNCTIONS, "self_test", lambda args, emit: out_of_memory())
+    doc = json.loads(call("self_test", "{}"))
+    assert doc["ok"] is False and doc["error"] == {
+        "type": "refused", "need": "memory",
+        "message": "self_test ran out of memory (MemoryError): more than this runtime holds (a "
+                   "browser worker, wasm32, at most 4 GB): run it on the runner"}
+
+
 # ------------------------------------------------------------------ the dataset registry
 
 def test_the_registry_lists_the_research_files_as_the_build_reads_them():
@@ -483,3 +820,12 @@ def test_the_published_registry_is_byte_stable_with_sorted_keys():
     assert text.endswith("\n") and json.loads(text)["groups"]["research"]["files"]
     first = json.loads(text)["groups"]["research"]["files"][0]
     assert list(first) == sorted(first)
+
+
+def test_a_count_table_the_csv_reader_cannot_parse_is_refused_not_a_runtime_error(tmp_path):
+    # an unclosed quote: the single-cell reader's csv module raises csv.Error
+    (tmp_path / "bad.csv").write_text('gene,c1,c2\n"g1,1,2\n')
+    result = _ok(call("run_scrna", json.dumps({"source": str(tmp_path / "bad.csv"),
+                                                "out_dir": str(tmp_path / "out")})))
+    assert result["exit"] == 2 and result["need"] is None, result
+    assert result["refused"]

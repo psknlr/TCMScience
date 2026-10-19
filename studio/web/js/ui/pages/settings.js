@@ -339,7 +339,8 @@ function computeTab(app, rerender, { jobs: tracker } = {}) {
   } else {
     jobsBox.append(h("p.muted.small", t("ui.jobs.needs_runner")));
   }
-  // this browser's own jobs (research.snapshot, research.run, the self-test): followed, cancelled and resumed here
+  // this browser's own jobs (research.snapshot, research.run, pipeline.rnaseq, pipeline.scrna, the self-test): followed,
+  // cancelled and resumed here
   const browserJobs = h("div.jobs-list");
   const service = app.runtimes.jobs?.status === "ready" ? app.runtimes.jobs.service : null;
   if (service) {

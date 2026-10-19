@@ -100,6 +100,8 @@ function blankStage(s) {
 function errorOf(err) {
   const out = { type: typeof err?.type === "string" && err.type ? err.type : "runtime_error", message: clip(err?.message || String(err), 1500) };
   if (err?.hint) out.hint = String(err.hint);
+  // what it would need to run (a refusal's: "memory" when the analysis is more than a browser worker holds)
+  if (typeof err?.need === "string" && err.need) out.need = err.need;
   return out;
 }
 
@@ -183,6 +185,7 @@ export class BrowserJobService {
   #pool;
   #store;
   #datasets;
+  #projectFiles;
   #handlers = new Map();
   #now;
   #max;
@@ -208,20 +211,23 @@ export class BrowserJobService {
 
   /**
    * indexedDB, locks (navigator.locks), pool (a ScienceWorkerPool), store (an OpfsStore), datasets (the dataset
-   * workspace), handlers ([{kind, title, stages, preflight?, run, expected?}]), now (→ Date), maxConcurrent (1),
-   * hashFile(path, algorithm) → hex (default: streamed from the store through data/digest.js), cancelGraceMs: how
-   * long a cancelled handler has to stop before its job is ended as cancelled without it (10 s).
+   * workspace), projectFiles (the page's project files: {async find(projectId, ref) → {id, name, bytes, sha256, blob}
+   * | null}, ref a file id or a file name — the newest file of that name in the project), handlers ([{kind, title,
+   * stages, preflight?, run, expected?}]), now (→ Date), maxConcurrent (1), hashFile(path, algorithm) → hex
+   * (default: streamed from the store through data/digest.js), cancelGraceMs: how long a cancelled handler has to stop
+   * before its job is ended as cancelled without it (10 s).
    */
   constructor({
     indexedDB = globalThis.indexedDB, locks = globalThis.navigator?.locks, pool = null, store = null, datasets = null,
-    handlers = [], now = () => new Date(), maxConcurrent = 1, hashFile = null, dbName = JOBS_DB, cancelGraceMs = 10_000,
-    navigator: nav = globalThis.navigator,
+    projectFiles = null, handlers = [], now = () => new Date(), maxConcurrent = 1, hashFile = null, dbName = JOBS_DB,
+    cancelGraceMs = 10_000, navigator: nav = globalThis.navigator,
   } = {}) {
     this.#idb = indexedDB || null;
     this.#locks = locks && typeof locks.request === "function" ? locks : null;
     this.#pool = pool;
     this.#store = store;
     this.#datasets = datasets;
+    this.#projectFiles = projectFiles && typeof projectFiles.find === "function" ? projectFiles : null;
     for (const h of handlers || []) if (h && typeof h.kind === "string" && typeof h.run === "function") this.#handlers.set(h.kind, h);
     this.#now = now;
     this.#max = Math.max(1, Math.floor(Number(maxConcurrent)) || 1);
@@ -231,10 +237,11 @@ export class BrowserJobService {
     this.#nav = nav || null;
   }
 
-  /** What a handler's preflight reads. */
+  /** What a handler's preflight reads (and, with the job's project_id, its third argument, the project's files). */
   get store() { return this.#store; }
   get datasets() { return this.#datasets; }
   get pool() { return this.#pool; }
+  get projectFiles() { return this.#projectFiles; }
 
   /** "idle" before start(), then "ready" or "unsupported" (with `reason`). */
   get status() { return this.#status; }
@@ -365,9 +372,9 @@ export class BrowserJobService {
   // ------------------------------------------------------------------------------------------------------ submit
 
   /**
-   * Queue a job of `kind` → its view. The kind's preflight runs first; a refusal throws an Error with type
-   * ("unavailable" | "bad_arguments"), need and hint, and nothing is queued. The same submission_id returns the job
-   * it already made.
+   * Queue a job of `kind` → its view. The kind's preflight(params, service, {project_id}) runs first; a refusal throws
+   * an Error with type ("unavailable" | "bad_arguments"), need and hint, and nothing is queued. The same submission_id
+   * returns the job it already made.
    */
   async submit(kind, params = {}, { project_id = null, submission_id = null } = {}) {
     await this.start();
@@ -410,7 +417,7 @@ export class BrowserJobService {
 
   async #create(handler, params, projectId, submissionId) {
     try {
-      if (typeof handler.preflight === "function") await handler.preflight(params, this);
+      if (typeof handler.preflight === "function") await handler.preflight(params, this, { project_id: projectId });
     } catch (err) {
       const e = err instanceof Error ? err : new Error(String(err));
       if (!e.type) e.type = "unavailable";
@@ -422,8 +429,8 @@ export class BrowserJobService {
       title: handler.title ? { ...handler.title } : { zh: handler.kind, en: handler.kind },
       created_at: this.#iso(), started_at: null, finished_at: null, progress: null,
       stages: (handler.stages || []).map(blankStage),
-      artefacts: [], device: "cpu", device_note: DEVICE_NOTE, outcome: null, result: null, receipt: null, error: null,
-      logs: [], attempts: 1,
+      artefacts: [], inputs: {}, device: "cpu", device_note: DEVICE_NOTE, outcome: null, result: null, receipt: null,
+      error: null, logs: [], attempts: 1,
     };
     const lock = await this.#hold(id);
     if (!lock) throw refusal("unavailable", `the lock of new job ${id} is taken`, "job_service");
@@ -760,6 +767,8 @@ export class BrowserJobService {
       pool: this.#leaser(job, run),
       store: this.#store,
       datasets: this.#datasets,
+      /** the page's project files ({find(projectId, ref)}); the job's project is job.project_id */
+      projectFiles: this.#projectFiles,
       dir: [...dir],
       /** scratch space shared by the handler's stages; never stored */
       state: {},
@@ -768,6 +777,11 @@ export class BrowserJobService {
       progress: live((fraction, message) => this.#progress(job, run, fraction, message)),
       log: live((level, text) => this.#log(job, level, text)),
       artefact: live((a) => this.#artefact(job, a)),
+      /** forget the artefacts recorded under `under` (segments under the job's directory): a stage that writes that
+       * directory afresh lists what it wrote, not what an earlier attempt wrote there */
+      forget: live((under) => this.#forget(job, under)),
+      /** an input file the job read: {name, sha256, bytes, source, group?} → job.inputs (and the receipt's inputs) */
+      input: live((i) => this.#input(job, i)),
       /** checks / problems / missing / limitations / complete the handler found, added to the job's outcome */
       outcome: live((o) => this.#mergeOutcome(run, o)),
       throwIfCancelled,
@@ -1008,6 +1022,34 @@ export class BrowserJobService {
     return rec;
   }
 
+  #forget(job, under) {
+    const prefix = Array.isArray(under) ? under.map(String) : String(under || "").split("/").filter(Boolean);
+    if (!prefix.length) return 0;
+    const before = job.artefacts.length;
+    job.artefacts = job.artefacts.filter((a) => !(a.path.length > prefix.length && prefix.every((seg, i) => a.path[i] === seg)));
+    if (job.artefacts.length !== before) this.#touch(job);
+    return before - job.artefacts.length;
+  }
+
+  /**
+   * Record an input: job.inputs[name] = {sha256, bytes, source} (or job.inputs[group][name], as the runner's receipt
+   * keeps a sample sheet's files under "<param>.files", each as "<column>:<line>"). sha256 is the digest of the bytes
+   * the job read; source says where they came from (the project file's id and name).
+   */
+  #input(job, i) {
+    if (!i || typeof i.name !== "string" || !i.name) throw typedError("bad_arguments", "an input needs a name");
+    const rec = { sha256: bareSha256(i.sha256), bytes: Number.isFinite(i.bytes) ? i.bytes : null, source: i.source === undefined ? null : jsonOnly(i.source) };
+    if (!isPlainObject(job.inputs)) job.inputs = {};
+    if (typeof i.group === "string" && i.group) {
+      if (!isPlainObject(job.inputs[i.group])) job.inputs[i.group] = {};
+      job.inputs[i.group][i.name] = rec;
+    } else {
+      job.inputs[i.name] = rec;
+    }
+    this.#touch(job);
+    return rec;
+  }
+
   // --------------------------------------------------------------------------------------------------- reading
 
   async get(id) {
@@ -1038,7 +1080,10 @@ export class BrowserJobService {
     return this.#bus.on(`job:${id}`, fn);
   }
 
-  /** The job's artefacts that are in storage at the size the worker wrote: [{name, path, bytes, sha256}]. */
+  /**
+   * The job's artefacts that are in storage at the size the worker wrote: [{name, path, bytes, sha256, file}]; file is
+   * what a person calls it, its path under the job's out/ ("run.json" for the artefact named "run"), else its name.
+   */
   async files(id) {
     const job = await this.get(id);
     if (!job) throw typedError("not_found", `no job '${id}' in this browser`);
@@ -1047,14 +1092,15 @@ export class BrowserJobService {
     for (const a of job.artefacts || []) {
       const st = await this.#store.stat(this.#resolve(id, a.path)).catch(() => null);
       if (!st || (Number.isFinite(a.bytes) && st.bytes !== a.bytes)) continue;
-      out.push({ name: a.name, path: [...a.path], bytes: st.bytes, sha256: a.sha256 });
+      out.push({ name: a.name, path: [...a.path], bytes: st.bytes, sha256: a.sha256, file: fileOf(a) });
     }
     return out;
   }
 
   /**
    * One of the job's files as a File: path in segments under the job's directory (["out", "x.tsv"]), an artefact's
-   * name, or a recorded artefact's own path. Nothing outside the job's directory is read but its recorded artefacts.
+   * name or file (files()), or a recorded artefact's own path. Nothing outside the job's directory is read but its
+   * recorded artefacts.
    */
   async readFile(id, path) {
     const job = await this.get(id);
@@ -1062,7 +1108,7 @@ export class BrowserJobService {
     if (!this.#store) throw typedError("unavailable", "this browser has no private file system for job files");
     let segs = null;
     if (typeof path === "string") {
-      const art = (job.artefacts || []).find((a) => a.name === path);
+      const art = (job.artefacts || []).find((a) => a.name === path) || (job.artefacts || []).find((a) => fileOf(a) === path);
       segs = art ? art.path : path === JOB_RECEIPT_FILE ? ["out", JOB_RECEIPT_FILE] : path.split("/").filter(Boolean);
     } else if (Array.isArray(path)) {
       segs = path.map(String);
@@ -1184,7 +1230,7 @@ export class BrowserJobService {
     if (!lock) throw typedError("conflict", `job ${id} is being resumed in another tab`);
     try {
       // what it needs may have gone since (its snapshots removed, storage full): refused now, it stays as it was
-      if (typeof handler.preflight === "function") await handler.preflight(rec.params || {}, this);
+      if (typeof handler.preflight === "function") await handler.preflight(rec.params || {}, this, { project_id: rec.project_id ?? null });
     } catch (err) {
       lock.release();
       const e = err instanceof Error ? err : new Error(String(err));
@@ -1198,6 +1244,8 @@ export class BrowserJobService {
       stages: (handler.stages || rec.stages || []).map(blankStage),
       // kept: a reused stage does not write its artefacts again, and every one is read back at the end
       artefacts: [...(rec.artefacts || [])],
+      // the next attempt stages its inputs again and records them as it finds them
+      inputs: {},
     };
     delete job.limitations; // the next attempt's own, if it finds any
     this.#appendLog(job, "info", `resumed (attempt ${job.attempts})`);
@@ -1288,6 +1336,12 @@ export class BrowserJobService {
   #touch(job) {
     this.#save(job).catch((err) => { this.persistError = err; });
   }
+}
+
+/** An artefact's file as a person calls it: its path under out/ when it is there, else its name. */
+function fileOf(a) {
+  const path = Array.isArray(a?.path) ? a.path : [];
+  return path.length > 1 && path[0] === "out" ? path.slice(1).join("/") : String(a?.name || "");
 }
 
 /**

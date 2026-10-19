@@ -9,6 +9,7 @@ import { t } from "../js/core/i18n.js";
 import { openStore } from "../js/core/store.js";
 import { refusalsOf } from "../js/core/governance.js";
 import { envelopeFor, fakeRuntime, memoryApprovals, testCatalogDoc } from "./fixtures/fakes.mjs";
+import { BrowserJobsRuntime } from "../js/scientific/runtime/jobs-runtime.js";
 
 const catalog = () => new Catalog(testCatalogDoc());
 
@@ -141,6 +142,90 @@ test("placement: a job kind the browser's job service runs goes to it, never to 
   assert.equal(both.runtimes.runner.calls.at(-1).tool, "job_status");
   const gone = await make({ jobs: null, runner: "ready" }).r.call("job_status", { job_id: "bj-0123456789abcdef" }, { projectId: "p" });
   assert.equal(gone.error.reason, "needs_job_service");
+});
+
+test("run_pipeline: placed by the kind its pipeline names; a call whose arguments need the runner says why, and a runner takes it", async () => {
+  const doc = testCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props });
+  const job = { kind: "job", category: "omics", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: [], tags: [] };
+  const browserJob = { service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy", "scipy"] };
+  // as tcmstudio.catalog / core_tools write them once the two kinds run in the browser
+  const run = doc.core.find((c) => c.name === "run_pipeline");
+  Object.assign(run, { exec: ["browser", "runner"], maps_to: "job.pipeline.*", parameters: obj({ pipeline: { type: "string", enum: ["rnaseq", "scrna", "fold"] }, arguments: { type: "object" } }) });
+  doc.entries.push(
+    { ...job, id: "job.pipeline.rnaseq", title: { zh: "RNA-seq", en: "RNA-seq" }, parameters: obj({ counts: { type: "string" }, samples: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob } },
+    { ...job, id: "job.pipeline.scrna", title: { zh: "单细胞", en: "Single-cell" }, parameters: obj({ source: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob } },
+    { ...job, id: "job.pipeline.fold", title: { zh: "结构", en: "Fold" }, parameters: obj({ method: { type: "string" } }), exec: ["runner"] },
+  );
+  const submitted = [];
+  const service = (status = "ready") => ({
+    status, reason: status === "ready" ? null : "no OPFS", events: () => () => {}, onStatus: () => () => {},
+    kinds: () => (status === "ready" ? [{ kind: "pipeline.rnaseq" }, { kind: "pipeline.scrna" }] : []),
+    submit: async (kind, params, opts) => {
+      submitted.push({ kind, params, opts });
+      return { id: "bj-0123456789abcdef", kind, state: "queued", title: { zh: "x", en: "x" }, stages: [] };
+    },
+  });
+  const make = ({ runner = "offline", compute = "auto", jobs = "ready" } = {}) => {
+    const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: runner }), jobs: new BrowserJobsRuntime({ service: service(jobs) }) };
+    return { r: new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: { compute }, approvals: memoryApprovals() }), runtimes };
+  };
+  const counts = { pipeline: "rnaseq", arguments: { counts: "counts.tsv", samples: "samples.tsv" } };
+  const fastq = { pipeline: "rnaseq", arguments: { samples: "sheet.csv", transcripts: "tx.fa" } };
+
+  // a count matrix: the browser's job service takes it, never the tool worker
+  const { r, runtimes } = make();
+  assert.equal(r.where("run_pipeline", counts), "browser");
+  const env = await r.call("run_pipeline", counts, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(env.status, "job_submitted");
+  assert.deepEqual(submitted.at(-1), { kind: "pipeline.rnaseq", params: counts.arguments, opts: { project_id: "p1", submission_id: null } });
+  assert.equal(runtimes.browser.calls.length, 0);
+  assert.equal(env.receipt.execution.placement.chosen, "browser");
+  assert.equal(r.whereCall("call_tool", { tool: "run_pipeline", arguments: counts }), "browser");
+  // not named yet: a place in the browser while its job service runs a pipeline
+  assert.equal(r.where("run_pipeline"), "browser");
+  assert.equal(make({ jobs: "unsupported" }).r.where("run_pipeline"), null);
+
+  // FASTQ, Scanpy, an .h5ad file: needs_runner with the job service's reason, under auto and under browser
+  for (const [args, why] of [[fastq, /from FASTQ/], [{ pipeline: "scrna", arguments: { source: "x.tsv", analysis_backend: "scanpy" } }, /Scanpy/]]) {
+    for (const compute of ["auto", "browser"]) {
+      const p = make({ compute }).r.placement("run_pipeline", args);
+      assert.equal(p.where, null, compute);
+      assert.equal(p.reason, "needs_runner", compute);
+      assert.equal(p.requires[0].need, "runner");
+      assert.match(p.requires[0].detail, why);
+      assert.match(p.requires[0].remedy, /Connect the local runner/);
+      assert.deepEqual(p.requires.map((q) => q.need), compute === "browser" ? ["runner", "compute_setting"] : ["runner"]);
+      assert.match(p.message, /只能在本机 Runner 上运行/);
+    }
+  }
+  const viaEntry = make().r.placement(make().r.resolve("call_tool", { tool: "job.pipeline.scrna" }).target, { source: "pbmc.h5ad" });
+  assert.equal(viaEntry.reason, "needs_runner");
+  assert.match(viaEntry.requires[0].detail, /AnnData/);
+  const refusedCall = await make().r.call("run_pipeline", fastq, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(refusedCall.status, "failed");
+  assert.equal(refusedCall.error.reason, "needs_runner");
+  assert.match(refusedCall.text, /Needs: an RNA-seq run from FASTQ/);
+  // said even where the job service cannot start: the reason is the call's, not the service's
+  assert.equal(make({ jobs: "unsupported" }).r.placement("run_pipeline", fastq).reason, "needs_runner");
+  assert.equal(make({ jobs: "unsupported" }).r.placement("run_pipeline", counts).reason, "needs_job_service");
+
+  // a connected runner takes them all under auto, FASTQ included; a pipeline the browser does not run is the runner's
+  const withRunner = make({ runner: "ready" });
+  assert.equal(withRunner.r.where("run_pipeline", fastq), "runner");
+  assert.equal(withRunner.r.where("run_pipeline", counts), "runner");
+  const fold = make().r.placement("run_pipeline", { pipeline: "fold", arguments: {} });
+  assert.deepEqual([fold.where, fold.reason], [null, "needs_runner"]);
+  assert.equal(make({ compute: "browser" }).r.placement("run_pipeline", { pipeline: "fold", arguments: {} }).reason, "compute_browser");
+  assert.equal(withRunner.r.where("run_pipeline", { pipeline: "fold", arguments: {} }), "runner");
+
+  // a runner that is connected but lacks what the kind needs there says that, not "connect the runner"
+  const scrnaEntry = doc.entries.find((e) => e.id === "job.pipeline.scrna");
+  Object.assign(scrnaEntry, { available: false, missing: ["scanpy"] });
+  const lacking = make({ runner: "ready" }).r.placement("job.pipeline.scrna", { source: "x.tsv", analysis_backend: "scanpy" });
+  assert.deepEqual([lacking.where, lacking.reason], [null, "missing_deps"]);
+  assert.match(lacking.message, /scanpy/);
+  assert.equal(make({ runner: "offline" }).r.placement("job.pipeline.scrna", { source: "x.tsv", analysis_backend: "scanpy" }).reason, "needs_runner");
 });
 
 test("a browser runtime that failed to load counts as absent", () => {

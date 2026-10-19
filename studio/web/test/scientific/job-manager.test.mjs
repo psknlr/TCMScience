@@ -321,6 +321,54 @@ test("a kind's preflight refusal throws with type, need and hint, and nothing is
   assert.equal((await svc.list()).length, 1);
 });
 
+test("project files and inputs: preflight and the handler see the resolver and the job's project; inputs go on the record and the receipt, and a resumed job records its own", async () => {
+  const seen = [];
+  const projectFiles = { find: async (projectId, ref) => (projectId === "p1" && ref === "a.tsv" ? { id: "f1", name: "a.tsv", bytes: 3, sha256: "b".repeat(64), blob: new Blob(["abc"]) } : null) };
+  let attempt = 0;
+  const handler = {
+    kind: "test.inputs",
+    title: { zh: "输入", en: "Inputs" },
+    stages: [{ id: "read", title: { zh: "读", en: "Read" } }],
+    async preflight(params, svc, job) {
+      seen.push({ preflight: job, has: svc.projectFiles === projectFiles });
+      if (!(await svc.projectFiles.find(job.project_id, params.file))) throw Object.assign(new Error(`no file named ${params.file}`), { type: "bad_arguments", need: "arguments" });
+    },
+    async run(ctx) {
+      attempt += 1;
+      await ctx.stage("read", async () => {
+        const f = await ctx.projectFiles.find(ctx.job.project_id, ctx.params.file);
+        if (attempt === 1) {
+          ctx.input({ name: "file", sha256: `sha256:${f.sha256}`, bytes: f.bytes, source: { project_file: f.id, name: f.name } });
+          ctx.input({ name: "path:2", group: "source.files", sha256: f.sha256, bytes: 3, source: null });
+          throw Object.assign(new Error("first attempt fails"), { type: "failed" });
+        }
+        ctx.input({ name: "file", sha256: f.sha256, bytes: f.bytes, source: "again" });
+        ctx.artefact(await written(ctx, "out.tsv", "x\n"));
+        return { verified: true };
+      });
+      return { result: null };
+    },
+  };
+  const { svc } = setup({ handlers: [handler], projectFiles });
+  await assert.rejects(svc.submit("test.inputs", { file: "a.tsv" }, { project_id: "p2" }), { type: "bad_arguments", message: "no file named a.tsv" });
+  const job = await svc.submit("test.inputs", { file: "a.tsv" }, { project_id: "p1" });
+  assert.deepEqual(job.inputs, {});
+  const failed = await settle(svc, job.id);
+  assert.equal(failed.state, "failed");
+  assert.deepEqual(failed.inputs, {
+    file: { sha256: "b".repeat(64), bytes: 3, source: { project_file: "f1", name: "a.tsv" } },
+    "source.files": { "path:2": { sha256: "b".repeat(64), bytes: 3, source: null } },
+  });
+  assert.deepEqual((await svc.receipt(job.id)).doc.inputs, failed.inputs);
+  await svc.resume(job.id);
+  const done = await settle(svc, job.id);
+  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+  assert.deepEqual(done.inputs, { file: { sha256: "b".repeat(64), bytes: 3, source: "again" } }, "the second attempt's inputs, not the first's");
+  assert.deepEqual((await svc.receipt(job.id)).doc.inputs, done.inputs);
+  assert.deepEqual(seen.map((x) => [x.preflight.project_id, x.has]), [["p2", true], ["p1", true], ["p1", true]], "preflight at submit and at resume");
+  assert.equal(svc.projectFiles, projectFiles);
+});
+
 test("no IndexedDB, or no job workers: the service is unsupported and says why", async () => {
   const none = new BrowserJobService({ indexedDB: null, pool: {} });
   const seen = [];
@@ -381,6 +429,9 @@ test("cancel a queued job: cancelled at once, never run; cancel a running one: i
   assert.equal(h.Worker.instances[0].terminated, true, "the lease's worker was stopped");
   assert.equal(done.stages[0].status, "cancelled");
   assert.equal(done.error, null);
+  // released as the job's end is put away, just after its record says cancelled (which settle() saw): under a loaded
+  // test run that can be a few ticks later
+  for (let i = 0; i < 100 && h.registry.size; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(h.registry.size, 0, "its Web Lock is released");
   const r = await h.svc.receipt(job.id);
   assert.equal(r.doc.state, "cancelled");

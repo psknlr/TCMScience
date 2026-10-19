@@ -132,7 +132,8 @@ export class App {
     if (pairing) this.state.settings = updateSettings({ runner: { url: pairing.url, token: pairing.token } });
 
     try {
-      this.runtimes = runtimeMod ? await runtimeMod.createRuntimes(this.state.settings) : stubRuntimes();
+      // the browser's job service reads the project's own files (an omics job's count tables) from this page's store
+      this.runtimes = runtimeMod ? await runtimeMod.createRuntimes(this.state.settings, { jobsOptions: { files: this.store.files } }) : stubRuntimes();
     } catch (err) {
       console.warn("createRuntimes failed", err);
       this.runtimes = stubRuntimes();

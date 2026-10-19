@@ -15,7 +15,8 @@ export { RunnerRuntime } from "./runner.js";
  * The runner is probed in the background only when that cannot surprise the user with the browser's local-network
  * prompt: the page is served by the runner itself, or it was paired before (a token is saved).
  * opts: {runner: RunnerRuntime options, browser: BrowserRuntime options, autoConnect: false to never probe,
- * importBrowser: () => module (tests)}.
+ * importBrowser: () => module (tests), jobs: false for no job service, jobsOptions: createJobsRuntime's options (files:
+ * the page's project file store)}.
  */
 export async function createRuntimes(settings = {}, opts = {}) {
   const browser = await createBrowserRuntime(settings, opts);

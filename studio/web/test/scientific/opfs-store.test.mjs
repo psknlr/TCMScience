@@ -184,6 +184,28 @@ test("move: a move() that does not take this form falls back to the copy; a lock
   }
 });
 
+test("writeBlob: a Blob streamed in pieces, each seen as it is written; a cancelled or failed write leaves nothing", async () => {
+  for (const options of [{ syncAccessHandles: false }, { writables: false }]) {
+    const { store, fs } = await opened(options);
+    const data = bytes(10_001, 9);
+    const seen = [];
+    const n = await store.writeBlob(["tcmstudio", "jobs", "j", "inputs", "c.tsv"], new Blob([data]), { chunk: 4096, onChunk: (b) => seen.push(b.length) });
+    assert.equal(n, data.length);
+    assert.deepEqual(seen, [4096, 4096, 1809], JSON.stringify(options));
+    assert.deepEqual(await store.readBytes(["tcmstudio", "jobs", "j", "inputs", "c.tsv"]), data);
+    assert.deepEqual(fs.openHandles(), []);
+    const ctl = new AbortController();
+    await assert.rejects(store.writeBlob(["tcmstudio", "x"], new Blob([data]), { chunk: 4096, signal: ctl.signal, onChunk: () => ctl.abort() }), { name: "AbortError" });
+    assert.equal(await store.exists(["tcmstudio", "x"]), false);
+    await assert.rejects(store.writeBlob(["tcmstudio", "y"], new Blob([data]), { onChunk: () => { throw new Error("hash failed"); } }), (e) => e.code === "storage" && /hash failed/.test(e.message));
+    assert.equal(await store.exists(["tcmstudio", "y"]), false);
+  }
+  const { store } = await opened();
+  await assert.rejects(store.writeBlob(["tcmstudio", "z"], "text"), (e) => e.code === "bad_input");
+  assert.equal(await store.writeBlob(["tcmstudio", "empty"], new Blob([])), 0);
+  assert.deepEqual(await store.readBytes(["tcmstudio", "empty"]), new Uint8Array(0));
+});
+
 test("a full quota is named as such, and the copy that hit it is removed", async () => {
   const { store } = await opened({ quota: 1500, move: false });
   await store.writeBytes(["tcmstudio", "a"], bytes(1000));

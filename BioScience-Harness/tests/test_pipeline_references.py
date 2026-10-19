@@ -4,7 +4,8 @@ Each reference names its data by content digest, the parameters it is run with a
 it must give. Here the built-in RNA-seq and single-cell references are generated again,
 their digests compared with the manifest's, the pipelines run on them and the results
 compared with the expected values (and, under the numpy and scipy the output digests
-were recorded with, with those digests too). The input digests and the reference's
+were recorded with, with those digests too); the RNA-seq count-matrix reference likewise,
+from its count table. The input digests and the reference's
 identity are compared under any numpy: they are stable across the versions tried (2.4.6
 and 2.5.4), and a change of numpy's random streams should fail here, not pass unseen. The
 structure reference runs offline from its stored model. The docking reference needs Vina
@@ -30,7 +31,7 @@ import pytest
 import scipy
 
 from bioagent.runrecord import content_digest, pipeline_references
-from omics_world import make_world, need_module
+from omics_world import make_counts_world, make_world, need_module
 from sc_world import EXPECTED, make_sc_world
 
 pytestmark = pytest.mark.unit
@@ -97,6 +98,37 @@ def test_the_rnaseq_reference_reruns_to_its_expected_result(tmp_path):
     assert run.complete is want["complete"]
     # the output digests depend on the numerics too: compared only in the environment they were
     # recorded in (Python, numpy, scipy, CPU architecture and the CPU features numpy uses)
+    if _same_environment(ref["expected"]["outputs_recorded_with"]):
+        for name, digest in ref["expected"]["outputs"].items():
+            assert _sha(tmp_path / "out" / name) == digest, name
+
+
+def test_the_rnaseq_counts_reference_reruns_to_its_expected_result(tmp_path):
+    from bioagent.omics import rnaseq_counts as C
+    ref = _ref("omics_counts_world")
+    assert ref["kind"] == "simulated" and ref["label"] == "simulated, known answer"
+    world = make_counts_world(tmp_path / "world", **ref["source"]["arguments"])
+    p = ref["parameters"]
+    run = C.run_rnaseq_counts(world["counts"], world["samples"], C.RNASeqCountsConfig(
+        de_backend=p["de_backend"], design=p["design"], contrast=tuple(p["contrast"]),
+        alpha=p["alpha"]), tmp_path / "out")
+    digests = {k: v["content_sha256"] for k, v in run.manifest["validation"].items()}
+    assert digests == ref["inputs"] and content_digest(digests) == ref["sha256"]
+    assert run.reference_dataset["id"] == "omics_counts_world"
+    want = ref["expected"]["values"]
+    res = run.result
+    called = {g: float(res.log2_fold_change[i]) for i, g in enumerate(res.genes)
+              if np.isfinite(res.p_adjusted[i]) and res.p_adjusted[i] < p["alpha"]}
+    assert sum(called.get(g, 0) > 1 for g in world["up"]) >= want["planted_up_found_at_least"]
+    assert sum(called.get(g, 0) < -1 for g in world["down"]) >= \
+        want["planted_down_found_at_least"]
+    wrong = [g for g in world["up"] if called.get(g, 0) < 0] + \
+        [g for g in world["down"] if called.get(g, 0) > 0]
+    assert len(wrong) == want["planted_in_the_wrong_direction"]
+    planted = set(world["up"]) | set(world["down"])
+    assert len(set(called) - planted) <= want["false_discoveries_at_most"]
+    assert res.summary()["tested"] == want["tested"]
+    assert run.complete is want["complete"]
     if _same_environment(ref["expected"]["outputs_recorded_with"]):
         for name, digest in ref["expected"]["outputs"].items():
             assert _sha(tmp_path / "out" / name) == digest, name

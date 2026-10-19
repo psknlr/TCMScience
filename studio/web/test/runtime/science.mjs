@@ -2,8 +2,8 @@
 // Runs browser research jobs (studio/docs/BROWSER_JOBS.md) in headless Chromium and compares what they wrote with
 // native CPython.
 //
-//   node studio/web/test/runtime/science.mjs [--mode selftest|gqd] [--site DIR] [--pyodide-dir DIR] [--chromium PATH]
-//        [--raw DIR --native-out DIR] [--json FILE] [--keep] [--timeout-min N]
+//   node studio/web/test/runtime/science.mjs [--mode selftest|service|fixture|omics|gqd] [--site DIR] [--pyodide-dir DIR]
+//        [--chromium PATH] [--raw DIR --native-out DIR] [--json FILE] [--keep] [--timeout-min N]
 //
 // selftest  the planted-world known answer (tcmstudio.browser_selftest) in a job worker: no download, a few
 //           seconds of CPU; its tables must equal the committed answer native CPython wrote
@@ -11,21 +11,31 @@
 //           checkpoints, receipts and their digests
 // fixture   the snapshot build on files mounted from OPFS: the parser tests' fixture files, built in a job worker and
 //           natively with the same checksums put in place of the reviewed ones; the snapshot ids must be equal
+// omics     the RNA-seq (count matrix) and single-cell jobs: omics_native.py writes their reference inputs (the
+//           omics_counts_world matrix; sc_world as gzipped count tables and a sample sheet) and runs the native command
+//           on each with one BLAS thread; the page adds the same files to a test project and runs pipeline.rnaseq and
+//           pipeline.scrna as browser jobs with the same parameters (omics-plan.mjs). Every output is compared with the
+//           native one (compare.mjs: identical, or within its stated tolerance, or not compared and said so; the
+//           significant genes, clusters and cell types exactly; the UMAP's structure), the receipts' inputs with the
+//           files' digests, and the browser's files are held to the known answer natively (omics_native.py values)
 // gqd       the 葛根芩连汤 research case on real files: the raw files in --raw (as the live-data workflow downloaded
 //           them) are imported into the page's private storage, research.snapshot builds the snapshots and
 //           research.run studies the formula, both through the browser job service; every export is then compared
 //           with the native run's exports in --native-out (`bioagent research … --out DIR` on the same files)
 //
 // Without --site the site is built first (build_web.py --dev). Pyodide comes from boot.json's index_url (jsDelivr)
-// unless --pyodide-dir serves a copy at /pyodide/. Exit 0 only when every check passed.
+// unless --pyodide-dir serves a copy at /pyodide/. $PYTHON (default python3) builds the site and runs the native side:
+// it needs bioagent and tcmstudio installed, and pytest for fixture and omics. Exit 0 only when every check passed.
 
 import { spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { compareExports } from "./compare.mjs";
+import { createHash } from "node:crypto";
+import { compareExports, compareOmics } from "./compare.mjs";
+import { OMICS_JOBS } from "./omics-plan.mjs";
 import { MIME, buildSite, headersFor, loadPlaywright, parseHeaders, runPage } from "./run.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,6 +77,75 @@ function compareFixture(browser, native, label = "") {
   return rows;
 }
 
+/** The omics jobs' inputs in a new directory and the native command run on each (omics_native.py prepare). */
+function nativeOmics() {
+  const dir = mkdtempSync(path.join(tmpdir(), "tcms-omics-"));
+  const r = spawnSync(PYTHON, [path.join(HERE, "omics_native.py"), "prepare", dir, JSON.stringify(OMICS_JOBS)], { encoding: "utf8", maxBuffer: 64 << 20 });
+  if (r.status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(`the native omics runs failed (${PYTHON}: it needs bioagent, tcmstudio and pytest; set $PYTHON): ${(r.stderr || r.error?.message || "").slice(-2000)}`);
+  }
+  return { dir, raw: path.join(dir, "raw"), report: JSON.parse(r.stdout.trim().split("\n").at(-1)), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+const sha256File = (file) => createHash("sha256").update(readFileSync(file)).digest("hex");
+
+/** Every file under `dir` → {relative path: Buffer}. */
+function readTree(dir, base = dir) {
+  const out = {};
+  for (const name of readdirSync(dir)) {
+    const p = path.join(dir, name);
+    if (statSync(p).isDirectory()) Object.assign(out, readTree(p, base));
+    else out[path.relative(base, p).split(path.sep).join("/")] = readFileSync(p);
+  }
+  return out;
+}
+
+/** The files a job's parameters name in `raw`, a sample sheet's path cells among them → [names]. */
+function namedInputs(params, raw) {
+  const names = ["counts", "samples", "source", "markers"].map((k) => params[k]).filter((v) => typeof v === "string" && v);
+  if (/\.(csv|tsv)$/i.test(params.source || "")) {
+    const [head, ...lines] = readFileSync(path.join(raw, params.source), "utf8").trim().split(/\r?\n/);
+    const sep = head.split("\t").length > head.split(",").length ? "\t" : ",";
+    const col = head.split(sep).indexOf("path");
+    if (col >= 0) names.push(...lines.map((l) => l.split(sep)[col]));
+  }
+  return names;
+}
+
+/**
+ * One omics job of the page against the native run: its receipt's inputs against the files' digests on disk, its
+ * outputs written out (WORK/browser/<key>, each at the digest the page read) and compared with the native command's,
+ * then held to the known answer natively, the native run's outputs too → {rows, values, native_values}.
+ */
+function checkOmicsJob(plan, job, om) {
+  const rows = [];
+  const flat = Object.entries(job?.receipt?.inputs || {}).flatMap(([k, v]) => (v && typeof v.sha256 === "string" ? [[k, v]] : Object.entries(v || {}).map(([kk, vv]) => [`${k} ${kk}`, vv])));
+  const named = namedInputs(plan.params, om.raw);
+  const unmatched = named.filter((name) => !flat.some(([, v]) => v?.source?.name === name && v.sha256 === sha256File(path.join(om.raw, name))));
+  rows.push({ name: "inputs: the served files, at their digests", status: !unmatched.length && flat.length === named.length ? "same" : "different", counted: true,
+    why: unmatched.length ? `not recorded at the file's digest: ${unmatched.join(", ")}` : flat.length !== named.length ? `${flat.length} inputs recorded for ${named.length} files` : `${named.length} inputs (${named.join(", ")}), each at the SHA-256 of the file served` });
+  const dir = path.join(om.dir, "browser", plan.key);
+  const files = job?.files || {};
+  const torn = [];
+  for (const [rel, f] of Object.entries(files)) {
+    const bytes = Buffer.from(f.text, "utf8");
+    if (`sha256:${createHash("sha256").update(bytes).digest("hex")}` !== f.sha256) torn.push(rel);
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), bytes);
+  }
+  if (torn.length) rows.push({ name: "outputs: their text", status: "different", counted: true, why: `not UTF-8 text that re-encodes to the bytes read: ${torn.join(", ")}` });
+  rows.push(...compareOmics(plan.kind, files, readTree(path.join(om.dir, "native", plan.key))));
+  for (const r of rows) r.ok = r.ok ?? !["different", "missing"].includes(r.status);
+  const values = (run) => {
+    const r = spawnSync(PYTHON, [path.join(HERE, "omics_native.py"), "values", om.dir, plan.key, run], { encoding: "utf8", maxBuffer: 16 << 20 });
+    if (r.status !== 0) return [{ label: "the known answer's checks ran", ok: false, detail: (r.stderr || "").slice(-1500) }];
+    return JSON.parse(r.stdout.trim().split("\n").at(-1)).checks;
+  };
+  return { rows, values: Object.keys(files).length ? values(dir) : [{ label: "the browser's outputs", ok: false, detail: "none came back" }], native_values: values(path.join(om.dir, "native", plan.key)) };
+}
+
+const TAG = { identical: "same  ", same: "same  ", same_apart_from_excluded: "same  ", same_apart_from_figures: "same  ", structure_held: "same  ", within_tolerance: "near  ", flips_near_alpha: "near  ", not_compared: "skip  " };
 
 function parseArgs(argv) {
   const a = { mode: "selftest", keep: false, timeoutMin: null };
@@ -82,10 +161,10 @@ function parseArgs(argv) {
     else if (k === "--json") a.json = v();
     else if (k === "--keep") a.keep = true;
     else if (k === "--timeout-min") a.timeoutMin = Number(v());
-    else if (k === "--help" || k === "-h") { console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").slice(1, 18).join("\n")); process.exit(0); }
+    else if (k === "--help" || k === "-h") { console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n\n")[0].split("\n").slice(1).join("\n")); process.exit(0); }
     else throw new Error(`unknown argument ${k}`);
   }
-  if (!["selftest", "service", "fixture", "gqd"].includes(a.mode)) throw new Error("--mode is selftest, service, fixture or gqd");
+  if (!["selftest", "service", "fixture", "omics", "gqd"].includes(a.mode)) throw new Error("--mode is selftest, service, fixture, omics or gqd");
   if (a.mode === "gqd" && (!a.raw || !a.nativeOut)) throw new Error("--mode gqd needs --raw DIR and --native-out DIR");
   return a;
 }
@@ -131,14 +210,15 @@ async function main() {
   const index = pyodideDir ? "/pyodide/" : "";
   const report = { mode: args.mode, site, ok: true, checks: [] };
   const fx = args.mode === "fixture" ? nativeFixture() : null;
-  const srv = await serve({ site, pyodideDir, raw: fx ? fx.raw : args.raw ? path.resolve(args.raw) : null });
+  const om = args.mode === "omics" ? nativeOmics() : null;
+  const srv = await serve({ site, pyodideDir, raw: fx ? fx.raw : om ? om.raw : args.raw ? path.resolve(args.raw) : null });
   const { chromium } = await loadPlaywright();
   const proxy = !pyodideDir && (process.env.HTTPS_PROXY || process.env.https_proxy);
   const browser = await chromium.launch({
     executablePath: args.chromium || process.env.CHROMIUM_PATH || undefined,
     args: proxy ? [`--proxy-server=${proxy}`, "--proxy-bypass-list=127.0.0.1;localhost"] : [],
   });
-  const timeout = (args.timeoutMin || (args.mode === "gqd" ? 90 : 10)) * 60_000;
+  const timeout = (args.timeoutMin || (args.mode === "gqd" ? 90 : args.mode === "omics" ? 20 : 10)) * 60_000;
   try {
     const ctx = await browser.newContext();
     const q = `?mode=${args.mode}${index ? `&index=${encodeURIComponent(index)}` : ""}`;
@@ -154,6 +234,43 @@ async function main() {
       }
       if (!res.report || !res.service_report) report.ok = false;
     }
+    if (om) {
+      report.native = om.report;
+      report.omics = {};
+      for (const plan of OMICS_JOBS) {
+        const job = res.jobs?.[plan.key];
+        const c = checkOmicsJob(plan, job, om);
+        report.omics[plan.key] = c;
+        for (const r of c.rows) {
+          console.error(`${TAG[r.status] || (r.ok ? "near  " : "DIFFER")} ${plan.key} ${r.name}: ${r.why}`);
+          if (!r.ok) report.ok = false;
+        }
+        for (const [who, list] of [["browser", c.values], ["native", c.native_values]]) {
+          for (const v of list) {
+            console.error(`${v.ok ? "ok    " : "FAILED"} ${plan.key} known answer (${who}'s files): ${v.label}: ${v.detail}`);
+            if (!v.ok) report.ok = false;
+          }
+        }
+        const nat = om.report.runs?.[plan.key];
+        const recorded = Object.entries(nat?.recorded_digests || {});
+        if (recorded.length) {
+          // for the record, not counted: the manifest's sc_world digests were taken at OpenBLAS's default thread count
+          const at = recorded.filter(([, v]) => v === "the recorded digest").map(([k]) => k);
+          const not = recorded.filter(([, v]) => v !== "the recorded digest").map(([k]) => k);
+          console.error(`info   ${plan.key} native outputs, in the environment the reference's digests were recorded in: ${at.length ? `${at.join(", ")} at them` : ""}${at.length && not.length ? "; " : ""}${not.length ? `${not.join(", ")} not${not.includes("cells.tsv") ? " (cells.tsv holds the UMAP layout, recorded at OpenBLAS's default thread count; here one thread)" : ""}` : ""}`);
+        }
+        const analysis = (job?.stages || []).find((x) => x.id === "analysis");
+        const memory = job?.memory?.wasm_peak_bytes;
+        const boot = (job?.receipt?.workers || []).map((w) => w.boot_ms).filter(Number.isFinite);
+        c.times = { browser_job_s: job?.receipt?.duration_s ?? null, browser_analysis_s: analysis?.seconds ?? null, worker_boot_ms: boot.length ? boot : null, native_s: nat?.seconds ?? null, wasm_peak_bytes: memory ?? null };
+        console.error(`time   ${plan.key}: browser job ${c.times.browser_job_s ?? "?"} s from start to end (analysis stage ${c.times.browser_analysis_s ?? "?"} s${boot.length ? `; its worker booted in ${boot.map((b) => `${(b / 1000).toFixed(1)} s`).join(", ")}` : ""}; worker memory ${memory ? `${(memory / 2 ** 20).toFixed(0)} MiB` : "not reported"}), native command ${c.times.native_s ?? "?"} s`);
+      }
+      // the texts were compared and written out (kept with --keep); the report keeps each file's digest and size
+      for (const job of Object.values(res.jobs || {})) for (const f of Object.values(job.files || {})) delete f.text;
+      const env = om.report.environment || {};
+      console.error(`native: Python ${env.python}, numpy ${env.numpy}, scipy ${env.scipy}, ${env.machine}, ${Object.entries(env.threads || {}).map(([k, v]) => `${k}=${v}`).join(" ")}`);
+      if (!res.jobs) report.ok = false;
+    }
     if (args.mode === "gqd") {
       const nativeOut = path.resolve(args.nativeOut);
       report.comparison = compareExports(res.files || {}, (name) => (existsSync(path.join(nativeOut, name)) ? readFileSync(path.join(nativeOut, name)) : null));
@@ -168,6 +285,8 @@ async function main() {
     srv.server.close();
   }
   fx?.cleanup();
+  if (om && args.keep) console.error(`the omics inputs, native runs and the browser's outputs are kept in ${om.dir}`);
+  else om?.cleanup();
   if (args.json) writeFileSync(args.json, JSON.stringify(report, null, 1));
   if (built && !args.keep) built.cleanup();
   console.error(report.ok ? `browser research jobs (${args.mode}): all checks passed` : `browser research jobs (${args.mode}): FAILED`);

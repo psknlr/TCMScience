@@ -22,6 +22,9 @@ export function unwrap(text, what) {
   if (doc && doc.ok === false) {
     const e = new Error(`${what}: ${doc.error?.message || "failed"}`);
     e.type = doc.error?.type || "runtime_error";
+    // what it would need (Python says "memory" when a worker ran out of it, "runner" for what only the runner runs)
+    if (typeof doc.error?.need === "string" && doc.error.need) e.need = doc.error.need;
+    if (typeof doc.error?.hint === "string" && doc.error.hint) e.hint = doc.error.hint;
     throw e;
   }
   return doc && "result" in doc ? doc.result : doc;

@@ -16,8 +16,8 @@ import { webgpuEvidence } from "../compute/capabilities.js";
 import { pythonKernels } from "../compute/bridge.js";
 import { classifyAdapter } from "./webgpu.js";
 import {
-  PYCACHE_RE, PYCACHE_ROOT, codeError, fetchBundle, isFatalError, lockNames as lockNamesOf, messageOf, openCache,
-  pycacheKey, quietLoad, restorePycache as restorePycacheFrom, sha256Hex, withSlash,
+  PYCACHE_RE, PYCACHE_ROOT, codeError, fetchBundle, isFatalError, loadPackages, lockNames as lockNamesOf, messageOf,
+  openCache, pinScipyThreads, pycacheKey, restorePycache as restorePycacheFrom, sha256Hex, withSlash,
 } from "./pyboot.js";
 const PERSIST_LOCK = "tcmstudio.persist";
 
@@ -78,16 +78,6 @@ def tcms_info():
                        ensure_ascii=False)
 `;
 
-// scipy's Matrix Market reader starts a C++ thread pool; WebAssembly here has no threads, and the failed thread start
-// can abort the interpreter. One thread is what the browser has anyway.
-const SCIPY_PY = `
-try:
-    import scipy.io._fast_matrix_market as _fmm
-    _fmm.PARALLELISM = 1
-except Exception:
-    pass
-`;
-
 let py = null;
 let api = null;
 let interrupt = null;
@@ -100,6 +90,7 @@ const state = {
   persist: { mode: "none", durable: false, error: null },
   packages: new Set(),
   lockNames: null,
+  scipyHeld: false, // scipy's Matrix Market reader held to one thread (pyboot.js pinScipyThreads)
   boot: null,
   site: null,
   dataAssets: new Set(),
@@ -215,8 +206,9 @@ async function init({ boot, siteUrl, indexUrl, debug: dbg = false, persist = tru
   state.lockNames = lockNames();
   const wanted = (boot.pyodide.packages || []).filter((n) => !state.lockNames || state.lockNames.has(n));
   progress(76, "packages", { names: wanted.join(", ") });
-  if (wanted.length) await py.loadPackage(wanted, quietLoad());
+  if (wanted.length) await loadPackages(py, wanted);
   for (const n of wanted) state.packages.add(n);
+  state.scipyHeld = pinScipyThreads(py);
   mark("packages");
 
   progress(84, "unpack");
@@ -450,13 +442,10 @@ async function ensurePackages(names) {
   const unknown = state.lockNames ? missing.filter((n) => !state.lockNames.has(n)) : [];
   if (unknown.length) throw codeError("unavailable", `Pyodide ${py.version} has no package ${unknown.join(", ")}`);
   progress(100, "packages_on_demand", { names: missing.join(", ") });
-  try {
-    await py.loadPackage(missing, quietLoad());
-  } catch (err) {
-    throw codeError("unavailable", `could not load ${missing.join(", ")}: ${messageOf(err)}`);
-  }
+  // a wheel that could not be fetched is an error here, never a package recorded as loaded
+  await loadPackages(py, missing);
   for (const n of missing) state.packages.add(n);
-  if (missing.includes("scipy")) py.runPython(SCIPY_PY);
+  if (!state.scipyHeld) state.scipyHeld = pinScipyThreads(py);
   progress(100, "ready");
 }
 
