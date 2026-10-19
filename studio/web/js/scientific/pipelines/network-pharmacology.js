@@ -245,6 +245,13 @@ export const researchRun = {
           throw e;
         }
         await ctx.store.writeJson(SUMMARY, summary);
+        // how the analysis ran, as the artifact itself records it: in this worker's process through the PSH broker
+        const execution = (await ctx.store.readJson([...ctx.dir, "out", "artifact.json"]).catch(() => null))?.provenance?.execution || {};
+        const isolation = Object.fromEntries(Object.entries(execution).map(([stage, r]) => [stage, r?.isolation || r?.mode || null]));
+        s.record({ isolation });
+        if (Object.values(isolation).includes("in_process")) {
+          ctx.outcome({ limitations: ["The governed analysis ran in this browser's job worker process, through the PSH broker and its audit chain (isolation: in_process): a browser worker cannot start the isolated child process the runner uses. The analysis code and its inputs are the same; the artifact records this per stage."] });
+        }
         return {
           detail: `${summary?.released ? "released" : "not released"}; ${summary?.stages?.length ?? 0} stages`, worker: lease.id,
           checkpoint: { inputs_digest: inputs, outputs: kept.files.map((f) => ({ path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 })) },

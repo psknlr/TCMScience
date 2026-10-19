@@ -109,6 +109,8 @@ required is missing; the device is `cpu` (WebAssembly), at evidence `verified` o
 | Check | What it shows | Where | Status |
 |---|---|---|---|
 | Known answer (planted world, 200 permutations) | a job worker's five tables equal native CPython's committed bytes; the exports recompute | `tcmstudio.browser_selftest`; `studio/e2e/science.spec.mjs` (CI, real Pyodide and pyarrow from jsDelivr); Settings → Data → *Check this browser* | implemented and tested: identical bytes in headless Chromium 141 (Pyodide 314.0.7, wasm32) |
+| The job service end to end | `research.run` and the self-test as jobs: stages, checkpoints, a receipt at its recorded digest with `outputs_verified` and device evidence `verified`, the five tables the committed answer | `studio/web/test/runtime/science.mjs --mode service` (CI build job) | implemented and tested in headless Chromium |
+| Snapshot build from files in OPFS | the parser tests' fixture files mounted read-only from OPFS and built in a job worker give the native build's six snapshot ids and stage statuses | `science.mjs --mode fixture` (CI build job) | implemented and tested in headless Chromium |
 | 葛根芩连汤 on the real files | `research.snapshot` + `research.run` as browser jobs, every export compared with the native run | live-data workflow, step "The same research in a browser" (`studio/web/test/runtime/science.mjs --mode gqd`) | implemented; runs on the next live-data run |
 | In-process governed analysis | the same bytes and result digest as the isolated child natively | `BioScience-Harness/tests/test_research_inprocess.py` | implemented and tested |
 | Data layer | downloads, resume, relay fallback, checksum refusal, import, cancel | `web/test/scientific/*.test.mjs` (in-memory OPFS) and a Chromium OPFS smoke run | implemented and tested |
@@ -129,6 +131,12 @@ required is missing; the device is `cpu` (WebAssembly), at evidence `verified` o
   and ADMET (RDKit) have no browser engine.
 - **Background work.** A browser job stops when its page closes; it is never presented as continuing.
 - **Phones.** Storage quota and memory for 418 MB of files have not been measured on a phone.
+- **Browsers.** Run in Chromium only. The page writes job records' files (receipts, checkpoints, the snapshot marker) with
+  `createWritable`; a browser whose main thread lacks it (older Safari) refuses those writes, and the job fails rather
+  than pretending to have kept them. Firefox and Safari have not been run.
+- **Archives without a checksum.** The runner reads a `.gz` through its CRC before keeping it; the browser does not, so a
+  truncated STRING aliases file (no reviewed checksum) is kept as UNVERIFIED and fails later, when Python parses it.
+- **Two tabs downloading the same file** do not corrupt it, but one finished download can be discarded and fetched again.
 
 ## 中文摘要
 
@@ -141,4 +149,7 @@ required is missing; the device is `cpu` (WebAssembly), at evidence `verified` o
 IndexedDB，可取消；页面关闭时任务中断，下次可从已核验的阶段继续。每个任务写出回执：运行位置、运行时、每个输出的两次
 独立哈希读取。验证：模拟世界（已知答案）在 Chromium 的任务工作线程中写出的五张表与原生 CPython 逐字节一致（CI）；
 葛根芩连汤真实数据在 live-data 流程中以浏览器任务运行，并与原生运行逐个导出文件比对。尚未实现：计算内的多线程
-WASM、GPU/NPU、其他流程（RNA-seq、单细胞为下一步；对接、ADMET 在浏览器中没有引擎）、手机端测量。
+WASM、GPU/NPU、其他流程（RNA-seq、单细胞为下一步；对接、ADMET 在浏览器中没有引擎）、手机端测量。目前只在 Chromium
+中运行过（Firefox、Safari 未运行；主线程缺少 `createWritable` 的浏览器写不了任务记录，任务会失败而不是假装已保存）；
+浏览器不像 Runner 那样在保存前校验 `.gz` 的 CRC，没有审核校验和的 STRING 别名文件若被截断，会标为 UNVERIFIED，并在
+Python 解析时失败。
