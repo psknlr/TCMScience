@@ -15,7 +15,11 @@ import { icon } from "./icons.js";
 import { toast } from "./overlay.js";
 import { button, iconButton, notice, spinner } from "./primitives.js";
 import { mountComposer } from "./composer.js";
-import { jobCard, permissionCard, thinkingBlock, toolCallCard } from "./toolcards.js";
+import { permissionCard, thinkingBlock, toolCallCard } from "./toolcards.js";
+import { JobTracker, mergeLogs } from "./jobs.js";
+
+// the job tracker lives in ui/jobs.js (Settings → Compute and → Data follow jobs too); mergeLogs is re-exported here
+export { mergeLogs };
 
 export function mountConversation(app, main) {
   // role=log with live announcements off: a streaming answer must not be read token by token (DESIGN §8.2)
@@ -33,7 +37,8 @@ export function mountConversation(app, main) {
   const workspace = h("div.workspace", scroller, jump, dock);
   fill(main, workspace);
 
-  const jobs = new JobTracker(app);
+  // a collected job's file opens in the inspector's Files tab
+  const jobs = new JobTracker(app, { onOpenFile: (job, path) => app.select({ tab: "files", kind: "jobfile", id: `${job.id}/${path}` }) });
   let liveView = null;
   let stick = true;
   let editing = null; // message id being edited
@@ -594,138 +599,4 @@ export function answerMarkdown(app, m) {
     return `- [${id}] ${c.label || ""}${c.url ? ` <${c.url}>` : ""}`;
   });
   return `${text}\n\n${lang() === "zh" ? "引用" : "Citations"}:\n${lines.join("\n")}`;
-}
-
-
-// ------------------------------------------------------------------------------------------------- jobs
-
-/** The most log lines the runner replays when a job's event stream (re)connects. */
-const LOG_BACKLOG = 80;
-
-/**
- * Lines shown + lines replayed after a reconnect: the replay is the tail of the same log, so it overlaps the end of
- * what is shown; only what follows the overlap is new.
- */
-export function mergeLogs(shown, replay) {
-  const max = Math.min(shown.length, replay.length);
-  for (let k = max; k > 0; k--) {
-    let same = true;
-    for (let i = 0; i < k; i++) if (shown[shown.length - k + i] !== replay[i]) { same = false; break; }
-    if (same) return [...shown, ...replay.slice(k)];
-  }
-  // no overlap: nothing was shown yet, or more than the backlog was missed while disconnected
-  return [...shown, ...replay];
-}
-
-function endReplay(rec) {
-  if (!rec.replay) return;
-  clearTimeout(rec.replayTimer);
-  rec.logs = mergeLogs(rec.logs, rec.replay);
-  rec.replay = null;
-}
-
-/** Follows runner jobs that the thread shows (events when connected); a job is pending until collected. */
-class JobTracker {
-  constructor(app) {
-    this.app = app;
-    this.jobs = new Map(); // id → {job, files, logs, close, fetched}
-    this.slots = new Map(); // id → Set of slot elements in the thread
-  }
-
-  /** A slot that shows the job's card and is re-filled whenever the job changes. */
-  node(stub) {
-    let rec = this.jobs.get(stub.id);
-    if (!rec) {
-      rec = { job: { ...stub }, files: null, logs: [], close: null, fetched: false };
-      this.jobs.set(stub.id, rec);
-      this.#follow(stub.id);
-    }
-    const slot = h("div.job-slot", { "data-job": stub.id });
-    if (!this.slots.has(stub.id)) this.slots.set(stub.id, new Set());
-    this.slots.get(stub.id).add(slot);
-    this.#fill(slot, rec);
-    return slot;
-  }
-
-  #fill(slot, rec) {
-    const runner = this.app.runtimes.runner;
-    const connected = this.app.state.runner.status === "ready";
-    const card = jobCard(rec.job, {
-      files: rec.files, logs: rec.logs,
-      onCancel: connected ? async (job) => {
-        try { rec.job = { ...rec.job, ...(await runner.jobs.cancel(job.id)) }; this.#changed(job.id); } catch (err) { toast(err?.message || String(err), { tone: "warn" }); }
-      } : null,
-      onOpenFile: (path) => this.app.select({ tab: "files", kind: "jobfile", id: `${rec.job.id}/${path}` }),
-    });
-    if (!connected && !["succeeded", "failed", "cancelled"].includes(rec.job.state)) {
-      card.append(h("p.job__pending", icon("plug", { size: 12 }), t("ui.job.connect_to_follow")));
-    }
-    fill(slot, card);
-  }
-
-  #changed(id) {
-    const rec = this.jobs.get(id);
-    for (const slot of [...(this.slots.get(id) || [])]) {
-      if (!slot.isConnected) { this.slots.get(id).delete(slot); continue; }
-      this.#fill(slot, rec);
-    }
-    this.app.emit("job", rec.job);
-  }
-
-  async #follow(id) {
-    const runner = this.app.runtimes.runner;
-    if (!runner || this.app.state.runner.status !== "ready") return;
-    const rec = this.jobs.get(id);
-    try {
-      rec.job = { ...rec.job, ...(await runner.jobs.get(id)) };
-      rec.fetched = true;
-      if (rec.job.state === "succeeded") rec.files = (await runner.jobs.files(id))?.files || null;
-      this.#changed(id);
-    } catch { return; }
-    if (["succeeded", "failed", "cancelled"].includes(rec.job.state) || rec.close) return;
-    rec.close = runner.jobs.events(id, async (ev) => {
-      const data = ev?.data || {};
-      if (ev.type === "error") {
-        // the stream gave up (runner gone, token changed): forget it, so refresh() or the next "ready" follows again
-        rec.close = null;
-        rec.fetched = false;
-        return;
-      }
-      // every (re)connection of the stream (EventSource reconnects by itself) starts with the job's state and then
-      // replays up to 80 recent log lines: those are merged with the lines already shown, not appended twice
-      if (ev.type === "log") {
-        const line = typeof data === "string" ? data : data.line || JSON.stringify(data);
-        if (rec.replay) {
-          rec.replay.push(line);
-          clearTimeout(rec.replayTimer);
-          if (rec.replay.length >= LOG_BACKLOG) endReplay(rec);
-          else rec.replayTimer = setTimeout(() => { endReplay(rec); this.#changed(id); }, 250);
-        } else rec.logs.push(line);
-      } else endReplay(rec);
-      if (ev.type === "state") { rec.replay = []; rec.replayTimer = setTimeout(() => endReplay(rec), 250); }
-      if (ev.type === "state" || ev.type === "done") rec.job = { ...rec.job, ...(data.job || data) };
-      else if (ev.type === "progress") rec.job = { ...rec.job, progress: data };
-      if (ev.type === "done" || ["succeeded", "failed", "cancelled"].includes(rec.job.state)) {
-        rec.close?.();
-        rec.close = null;
-        if (rec.job.state === "succeeded") {
-          try { rec.files = (await runner.jobs.files(id))?.files || null; } catch { /* listed later */ }
-        }
-      }
-      this.#changed(id);
-    });
-  }
-
-  refresh() {
-    for (const [id, rec] of this.jobs) {
-      if (!rec.fetched || (!rec.close && !["succeeded", "failed", "cancelled"].includes(rec.job.state))) this.#follow(id);
-      else this.#changed(id);
-    }
-  }
-
-  close() {
-    for (const rec of this.jobs.values()) rec.close?.();
-    this.jobs.clear();
-    this.slots.clear();
-  }
 }

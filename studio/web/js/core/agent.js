@@ -296,8 +296,10 @@ export async function runTurn({
         // the model asked for tools on the last call it was allowed: record them as not run, keep the history valid
         const results = [];
         for (const c of calls) {
+          // never handed to the router: not executed (a stop of a call that had started would be "cancelled")
           const envelope = await synthEnvelope({
             tool: c.name, args: c.arguments, status: "cancelled", summary: t("core.agent.max_steps", { n: maxSteps }), text: LIMIT_TEXT,
+            outcome: "not_executed",
           });
           emit({ type: "tool.start", callId: c.id, name: c.name, args: c.arguments, where: null, step });
           emit({ type: "tool.end", callId: c.id, envelope, step });

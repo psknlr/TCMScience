@@ -10,8 +10,10 @@ per raw file (:func:`validate_files`)
     connectivity   a real request to the reviewed URL (``validation.network.probe``)
     size           the server's size against the reviewed size
     resume         an interrupted download resumed with a byte range (the smallest file
-                   on each host): half the file fetched, the downloader continues it, the
-                   whole is verified
+                   on each host): half the file fetched and kept with its identity record,
+                   the transfer continues it with If-Range, the whole is verified;
+                   NOT_APPLICABLE where nothing could verify a resume (no strong validator
+                   from the server, no reviewed checksum)
     download       the downloader's own fetch, with its checksum or size verification
     integrity      SHA-256, and the reviewed algorithm, against the reviewed checksum
     decompression  a gzip or zip file read to its end (CRC and length checked)
@@ -43,7 +45,7 @@ import csv
 import gzip
 import time
 import urllib.request
-import zipfile
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Sequence
@@ -64,21 +66,23 @@ BERBERINE = "inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N"
 
 @contextmanager
 def _requests_seen() -> Iterator[list[tuple[str, str | None]]]:
-    """Record the URL and Range header of every request urllib sends meanwhile: evidence of
-    what the downloader actually asked for, nothing more (it changes no request)."""
+    """Record the URL and Range header of every request urllib sends meanwhile, through any
+    opener (``urlopen``'s, and the one ``acquisition.transfer`` builds to check each
+    redirect): evidence of what the downloader actually asked for, nothing more (it changes
+    no request)."""
     seen: list[tuple[str, str | None]] = []
-    real = urllib.request.urlopen
+    real = urllib.request.OpenerDirector.open
 
-    def recording(req, *args, **kwargs):
+    def recording(self, req, *args, **kwargs):
         if isinstance(req, urllib.request.Request):
             seen.append((req.full_url, req.get_header("Range")))
-        return real(req, *args, **kwargs)
+        return real(self, req, *args, **kwargs)
 
-    urllib.request.urlopen = recording
+    urllib.request.OpenerDirector.open = recording            # type: ignore[method-assign]
     try:
         yield seen
     finally:
-        urllib.request.urlopen = real
+        urllib.request.OpenerDirector.open = real             # type: ignore[method-assign]
 
 
 def _version_check(name: str, version: str) -> tuple[str, str]:
@@ -93,28 +97,13 @@ def _version_check(name: str, version: str) -> tuple[str, str]:
 
 
 def _decompression(path: Path) -> tuple[str, str, dict[str, Any]]:
-    name = path.name.lower()
-    try:
-        if name.endswith(".gz"):
-            total = 0
-            with gzip.open(path, "rb") as fh:
-                while True:
-                    block = fh.read(1 << 22)
-                    if not block:
-                        break
-                    total += len(block)
-            return PASS, "read to its end; the gzip CRC and length check passed", {
-                "uncompressed_bytes": total}
-        if name.endswith(".zip"):
-            with zipfile.ZipFile(path) as zf:
-                bad = zf.testzip()
-                members = len(zf.namelist())
-            if bad:
-                return FAIL, f"member {bad} fails its CRC", {}
-            return PASS, f"{members} members, every CRC checked", {"members": members}
-    except (OSError, EOFError, zipfile.BadZipFile) as exc:
-        return FAIL, f"{type(exc).__name__}: {exc}", {}
-    return NOT_APPLICABLE, "not compressed", {}
+    """The check a download now passes before it is kept (``acquisition.transfer``): a
+    gzip, bzip2 or xz stream read to its end, every zip member through its CRC. It used to
+    miss a deflate stream corrupted in the middle (``zlib.error`` is not an ``OSError``),
+    which raised instead of failing the check."""
+    from ..acquisition.transfer import check_archive
+
+    return check_archive(path)
 
 
 def _open_text(path: Path):
@@ -126,8 +115,11 @@ def _open_text(path: Path):
 def _format(path: Path, fmt: str) -> tuple[str, str, dict[str, Any]]:
     if fmt in ("zip", "raw") or path.suffix.lower() == ".zip":
         return NOT_APPLICABLE, "not a text table", {}
-    with _open_text(path) as fh:
-        head = fh.read(4096)
+    try:
+        with _open_text(path) as fh:
+            head = fh.read(4096)
+    except (OSError, EOFError, zlib.error) as exc:      # a stream that cannot be read is a FAIL
+        return FAIL, f"the file could not be read as text: {type(exc).__name__}: {exc}", {}
     if head.lstrip().lower().startswith(("<!doctype html", "<html")):
         return FAIL, "an HTML page, not the file", {}
     first = next((line for line in head.splitlines() if line.strip()), "")
@@ -142,10 +134,22 @@ def _format(path: Path, fmt: str) -> tuple[str, str, dict[str, Any]]:
     return PASS, f"{columns} columns in the first line", {"columns": columns}
 
 
+#: why a resume is not tested on a file nothing could verify a resume of
+_NO_VALIDATOR = ("a verified resume needs a validator or a reviewed checksum: the server sent "
+                 "no strong ETag, nor a Last-Modified date its Date shows to be strong, and the "
+                 "file has no reviewed checksum, so an interrupted download of it starts again "
+                 "from zero (acquisition.transfer)")
+
+
 def _first_half(a: Any, raw: Path, size: int) -> tuple[int, str]:
     """Fetch the first half of ``a`` into its ``.part`` file, as an interrupted download
-    would leave it. ``(bytes kept, why not)``: 0 and the reason when the server will not
-    serve a range."""
+    would leave it, with the identity record the transfer keeps beside a partial file
+    (``<name>.part.json``: the answer's strong ETag, Last-Modified, Date and the total size;
+    ``acquisition.transfer.identity_of``), so the resume is sent with ``If-Range`` and
+    checked as a real one is. ``(bytes kept, why not)``: 0 and the reason when the server
+    will not serve a range, or when nothing could verify a resume (no validator in its
+    answer and no reviewed checksum): the half is then not kept."""
+    from ..acquisition.transfer import identity_of, validator_of, write_sidecar
     from ..backends.http import user_agent
 
     half = size // 2
@@ -154,16 +158,21 @@ def _first_half(a: Any, raw: Path, size: int) -> tuple[int, str]:
     with urllib.request.urlopen(req, timeout=120) as resp:      # noqa: S310 - reviewed URL
         code = getattr(resp, "status", 200)
         body = resp.read() if code == 206 else b""
+        ident = identity_of(a.url, resp.headers, size, final_url=getattr(resp, "url", None))
     if code != 206 or len(body) != half:
         return 0, (f"the server answered a range with HTTP {code}: an interrupted download "
                    "starts again from zero")
+    if not validator_of(ident) and not a.checksum:
+        return 0, _NO_VALIDATOR
     (raw / (a.filename + ".part")).write_bytes(body)
+    write_sidecar(raw / (a.filename + ".part.json"), ident)
     return half, ""
 
 
 def _network_checks(rec: Record, a: Any, raw: Path, *, resume_here: bool, resume_on: str,
                     refused: dict[str, str], log: Callable[[str], None]) -> None:
-    from ..acquisition.downloader import Downloader
+    from ..acquisition.service import release_of
+    from ..acquisition.transfer import VerifiedTransfer
     from ..tcmdb.acquire import outcome_of_error
     from .network import probe
 
@@ -199,6 +208,9 @@ def _network_checks(rec: Record, a: Any, raw: Path, *, resume_here: bool, resume
     elif p.ranges is False or not p.size:
         rec.add("resume", NOT_APPLICABLE, "the server does not say it serves byte ranges: an "
                 "interrupted download starts again from zero")
+    elif not a.checksum and not p.headers.get("last-modified") and (
+            not p.headers.get("etag") or p.headers["etag"].strip().startswith(("W/", "w/"))):
+        rec.add("resume", NOT_APPLICABLE, _NO_VALIDATOR)        # nothing is fetched for it
     else:
         try:
             had, why = _first_half(a, raw, p.size)
@@ -207,11 +219,12 @@ def _network_checks(rec: Record, a: Any, raw: Path, *, resume_here: bool, resume
         except Exception as exc:                                # noqa: BLE001
             status, reason = outcome_of_error(exc, a.host)
             rec.add("resume", status, f"fetching the first half: {reason}")
-    dl = Downloader(raw, timeout_s=300, log=log,
-                    min_interval_s=1.0 if a.host == "bidd.group" else 0.0)
+    dl = VerifiedTransfer(raw, timeout_s=300, log=log,
+                          min_interval_s=1.0 if a.host == "bidd.group" else 0.0)
     try:
         with _requests_seen() as seen:
-            r = dl.fetch(a.url, a.filename, checksum=a.checksum, expected_bytes=a.expected_bytes)
+            r = dl.fetch(a.url, a.filename, checksum=a.checksum, expected_bytes=a.expected_bytes,
+                         release=release_of(a.version), fmt=a.fmt)
     except Exception as exc:                                    # noqa: BLE001
         status, reason = outcome_of_error(exc, a.host)
         rec.add("download", status, reason)
@@ -225,11 +238,12 @@ def _network_checks(rec: Record, a: Any, raw: Path, *, resume_here: bool, resume
             bytes=r.bytes, seconds=round(r.duration_s, 2), from_cache=r.from_cache)
     if had:
         ranged = [rng for _, rng in seen if rng and rng.startswith(f"bytes={had}-")]
-        ok = bool(ranged) and r.bytes == p.size
+        ok = bool(ranged) and r.bytes == p.size and r.resumed_from == had
         rec.add("resume", PASS if ok else FAIL,
                 f"resumed at byte {had} with a range request; the whole file verified" if ok
-                else "the partial file was not continued with a range request",
-                resumed_at=had, range_requests=ranged)
+                else "the partial file was not continued with a range request"
+                + (f" ({'; '.join(r.restarts)})" if r.restarts else ""),
+                resumed_at=had, range_requests=ranged, resumed_from=r.resumed_from)
 
 
 def validate_files(specs: Sequence[Any], raw_dir: str | Path, *, live: bool,
@@ -290,8 +304,13 @@ def validate_files(specs: Sequence[Any], raw_dir: str | Path, *, live: bool,
                         "is recorded here for a person to review and pin", sha256=sha)
             status, detail, ev = _decompression(path)
             rec.add("decompression", status, detail, **ev)
-            status, detail, ev = _format(path, a.fmt)
-            rec.add("format", status, detail, **ev)
+            if status == FAIL:
+                # its text cannot be trusted, and reading it again would only fail again
+                rec.add("format", SKIPPED, "the archive did not decompress, so its format "
+                        "was not read")
+            else:
+                status, detail, ev = _format(path, a.fmt)
+                rec.add("format", status, detail, **ev)
         rec.add("version", *_version_check(a.filename, a.version))
         rec.runtime_s = time.perf_counter() - t0
         log(f"{a.filename}: {rec.status}"

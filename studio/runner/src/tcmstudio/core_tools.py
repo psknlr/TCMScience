@@ -240,15 +240,17 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "co_administered": arr(S(), "other herbs or drugs taken with it", default=[]),
                "population": S("e.g. pregnancy, children", default="")},
               required=("subject",)), "skill.assess-tcm-safety", B_R),
-    _core("tcm_network_hypothesis", "网络药理假说（受治理）", "Network hypothesis (governed)",
-          "netpharm", """
-        Governed run of analyze-tcm-network-pharmacology on the seed corpus: a formula's
-        composition and recorded indications with predicted and measured edges kept apart.
-        On the seed corpus it returns no targets, and its claims are capped at
+    _core("tcm_network_hypothesis", "有限种子语料网络假说（受治理）",
+          "Limited seed-corpus network hypothesis (governed)", "netpharm", """
+        Governed run of analyze-tcm-network-pharmacology: a limited seed-corpus network
+        hypothesis, with no database coverage and no measured activity. It reads only the
+        curated seed corpus: a formula's composition and recorded indications, with predicted
+        and measured edges kept apart. On the seed corpus it returns no targets, draws no
+        permutation null and computes no topology, and its claims are capped at
         mechanism_hypothesis: predicted ≠ measured. A formula outside the seed's six is not
-        built; tcm_formula gives its composition from the complete workbook. For
-        measured-target network pharmacology on data snapshots, use network_pharmacology_run
-        (a runner job).""",
+        built; tcm_formula gives its composition from the complete workbook. The data-driven
+        workflow (measured targets from data snapshots, enrichment with a permutation null,
+        sixteen recorded stages, nine exports) is network_pharmacology_run, a runner job.""",
           obj({"formula_name": S("formula, e.g. 桂枝汤")}, required=("formula_name",)),
           "skill.analyze-tcm-network-pharmacology", B_R),
     _core("clinic_assess", "辨证与处方草案", "Differentiation & draft", "clinic", """
@@ -348,14 +350,18 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                  "clinicaltrials.gov"]),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """
-        Start the closed research loop as a job on the local runner: frozen protocol →
-        verified data snapshots (NPASS / CMAUP / LOTUS, STRING, Reactome, Open Targets) →
-        measured-target pathway enrichment with a degree-matched permutation null →
-        pre-registered rebuttals → attested release. Needs the snapshots built on the
-        runner, with the formula in their herb layer (the job.research.snapshot job builds
-        them: formulas ["桂枝汤《伤寒论》"]); the user approves each job. Returns a job id:
-        follow it with job_status.
-        Claims are capped at mechanism_hypothesis, and a refuted hypothesis is a result.""",
+        The data-driven network-pharmacology workflow, as a job on the local runner: frozen
+        protocol → verified snapshots (NPASS / CMAUP / LOTUS, STRING, Reactome, Open
+        Targets) → measured targets → Reactome enrichment against a stated background, BH
+        over every pathway tested, a degree-matched permutation null → pre-registered
+        rebuttals → attested release. It records sixteen workflow stages, each with a
+        validation status and its reason (GO skipped: no GO snapshot; KEGG blocked: licence
+        required), and writes nine exports: compound, target, disease-target, enrichment and
+        network-edge tables, provenance.json, run_manifest.json, limitations.md, report.html.
+        Needs the snapshots built on the runner with the formula in their herb layer
+        (job.research.snapshot: formulas ["桂枝汤《伤寒论》"]); the user approves each job.
+        Returns a job id for job_status. Claims are capped at mechanism_hypothesis; a refuted
+        hypothesis, or nothing testable, is a result.""",
           obj({"formula": S("formula name, e.g. 葛根芩连汤"),
                "disease": S("disease ontology id, e.g. MONDO_0005148"),
                "parameters": obj({
@@ -391,7 +397,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         explain why something is unavailable and what would make it available.""",
           obj({}), "system.capabilities", B_R),
     _core("catalog_search", "能力检索", "Search capabilities", "system", """
-        Search every TCMScience capability beyond these core tools (about 640: 150 native
+        Search every TCMScience capability beyond these core tools (about 650: 150 native
         tools — clinical calculators, statistics, sequences, phylogenetics …; 444 API
         operations; governed skills; TCM data hub, clinic, study-design and job operations)
         with Chinese or English keywords (十八反, eGFR, 生存分析). Returns ids with their full

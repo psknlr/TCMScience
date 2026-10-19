@@ -44,6 +44,14 @@ says which was requested and why it did not run.
 
 Whichever backend runs, cluster 0 is the largest, the markers cover every gene, and
 the graph handed on to PAGA and pseudotime is the one the clusters were found on.
+
+Given a ``recorder`` (``bioagent.runrecord.StageRecorder``; ``run_scrna`` passes its own),
+each step is recorded as a stage with its engine, version and device: ``normalize``,
+``hvg``, ``pca``, ``integrate`` (not applicable with one batch or ``none``),
+``neighbors`` (the kNN graph, its UMAP connectivities and the UMAP layout), ``cluster``
+(Leiden, and PAGA's connectivity between the clusters) and ``markers``. Every one of
+them computes on the CPU, scVI included: it is trained with accelerator 'cpu' so that its
+seed reproduces the model, whatever device the job was given.
 """
 
 from __future__ import annotations
@@ -58,6 +66,8 @@ from typing import Any
 import numpy as np
 from scipy import sparse
 
+from ... import __version__ as _VERSION
+from ...runrecord import NullRecorder
 from ..optional import require, version
 from . import graph as sc_graph
 from . import harmony as sc_harmony
@@ -65,6 +75,7 @@ from . import io as sc_io
 from . import leiden as sc_leiden
 from . import markers as sc_markers
 from . import preprocess as sc_pre
+from . import trajectory as sc_traj
 from . import umap as sc_umap
 
 __all__ = ["ANALYSIS_BACKENDS", "INTEGRATION_METHODS", "StageSettings", "Analysis",
@@ -107,6 +118,12 @@ class Analysis:
     markers: sc_markers.MarkerResult
     integration: dict[str, Any]
     record: dict[str, Any]
+    paga: Any = None                   # sc.trajectory.Paga between the clusters
+
+
+#: The scVI stage's device note: what was observed is the setting it trains with.
+SCVI_DEVICE = ("scVI trains with accelerator 'cpu' by design, so that its seed reproduces "
+               "the model, whatever device the job was given")
 
 
 def _needs(backend: str, integration: str) -> list[tuple[str, str, str, str]]:
@@ -157,6 +174,36 @@ def _defaults(fn: Any, skip: tuple[str, ...] = ()) -> dict[str, Any]:
 
 
 # ============================================================== integration
+
+def _integrate_stage(rec: Any, pcs: np.ndarray, m: sc_io.CellMatrix, hv: np.ndarray,
+                     batches: np.ndarray | None, batch_key: str, method: str, backend: str,
+                     s: StageSettings, out_dir: Path) -> tuple[np.ndarray, dict[str, Any]]:
+    """``_integrate`` as the ``integrate`` stage: not applicable when nothing is to be
+    integrated, else timed with the implementation that ran."""
+    if method == "none" or batches is None:
+        emb, info = _integrate(pcs, m, hv, batches, batch_key, method, backend, s, out_dir)
+        rec.not_applicable("integrate", "integration_method 'none'" if method == "none"
+                           else f"one {batch_key} only: nothing to integrate")
+        return emb, info
+    engine = ("scvi" if method == "scvi" else
+              "builtin-harmony" if backend == "builtin" else "harmonypy")
+    with rec.stage("integrate", engine=engine) as st:
+        emb, info = _integrate(pcs, m, hv, batches, batch_key, method, backend, s, out_dir)
+        st.version = info.get("version") or _VERSION
+        n = len(set(np.asarray(batches).tolist()))
+        if method == "scvi":
+            st.reason = f"{n} batches by {batch_key}; {SCVI_DEVICE}"
+        else:
+            if "converged" in info:             # the built-in implementation
+                done = (f"converged in {info.get('rounds')} rounds" if info["converged"]
+                        else f"did not converge in {info.get('rounds')} rounds")
+            else:                                 # harmonypy says how far it went
+                done = (f"ran {info.get('iterations')} iterations"
+                        + (", stopping at its limit" if info.get("reached_iteration_limit")
+                           else ""))
+            st.reason = f"{n} batches by {batch_key}; Harmony {done}"
+    return emb, info
+
 
 def _integrate(pcs: np.ndarray, m: sc_io.CellMatrix, hv: np.ndarray,
                batches: np.ndarray | None, batch_key: str, method: str, backend: str,
@@ -286,19 +333,39 @@ def _scvi(m: sc_io.CellMatrix, hv: np.ndarray, batches: np.ndarray, batch_key: s
 
 def _builtin(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
              integration: str, s: StageSettings, out_dir: Path,
-             versions: dict[str, str]) -> Analysis:
+             versions: dict[str, str], rec: Any) -> Analysis:
     name = "bioagent.omics.sc."
-    logx = sc_pre.normalize_log1p(m.counts, target_sum=s.target_sum)
-    hv = sc_pre.highly_variable_genes(logx, n_top=s.n_top_genes, batches=batches)
-    z = sc_pre.scale(logx[:, hv["highly_variable"]], max_value=s.max_value)
-    pcs, _, ratio = sc_pre.pca(z, s.n_pcs)
-    emb, info = _integrate(pcs, m, hv["highly_variable"], batches, batch_key, integration,
-                           "builtin", s, out_dir)
-    idx, dist = sc_graph.knn(emb, s.n_neighbors)
-    conn = sc_graph.umap_connectivities(idx, dist)
-    lres = sc_leiden.leiden(conn, resolution=s.resolution, seed=s.seed)
-    layout = sc_umap.umap_layout(conn, min_dist=s.min_dist, seed=s.seed)
-    mk = sc_markers.rank_genes_groups(logx, lres.membership, m.gene_names)
+    own = {"engine": "builtin", "version": _VERSION}
+    with rec.stage("normalize", **own) as st:
+        logx = sc_pre.normalize_log1p(m.counts, target_sum=s.target_sum)
+        st.reason = f"counts per cell to {s.target_sum:g}, log1p"
+    with rec.stage("hvg", **own) as st:
+        hv = sc_pre.highly_variable_genes(logx, n_top=s.n_top_genes, batches=batches)
+        st.reason = (f"{int(np.sum(hv['highly_variable']))} highly variable genes (Seurat "
+                     "method" + (", batch-aware)" if batches is not None else ")"))
+    with rec.stage("pca", **own) as st:
+        z = sc_pre.scale(logx[:, hv["highly_variable"]], max_value=s.max_value)
+        pcs, _, ratio = sc_pre.pca(z, s.n_pcs)
+        st.reason = f"scaled (clipped at {s.max_value:g}); {pcs.shape[1]} components"
+    emb, info = _integrate_stage(rec, pcs, m, hv["highly_variable"], batches, batch_key,
+                                 integration, "builtin", s, out_dir)
+    with rec.stage("neighbors", **own) as st:
+        idx, dist = sc_graph.knn(emb, s.n_neighbors)
+        conn = sc_graph.umap_connectivities(idx, dist)
+        # the layout reads the graph alone, so it is drawn here, before the clusters
+        layout = sc_umap.umap_layout(conn, min_dist=s.min_dist, seed=s.seed)
+        st.reason = (f"exact kNN, k = {s.n_neighbors}; UMAP connectivities and layout "
+                     f"(min_dist {s.min_dist:g})")
+    with rec.stage("cluster", **own) as st:
+        lres = sc_leiden.leiden(conn, resolution=s.resolution, seed=s.seed)
+        adjacency = sc_graph.knn_graph(idx)
+        paga = sc_traj.paga(adjacency, lres.membership)
+        st.reason = (f"Leiden at resolution {s.resolution:g}: "
+                     f"{len(np.unique(lres.membership))} clusters; PAGA connectivity between "
+                     "them")
+    with rec.stage("markers", **own) as st:
+        mk = sc_markers.rank_genes_groups(logx, lres.membership, m.gene_names)
+        st.reason = "Wilcoxon rank-sum with tie correction, Benjamini-Hochberg per cluster"
     batch = batch_key if batches is not None else None
     stages = [
         _stage("normalise and log1p", name + "preprocess.normalize_log1p",
@@ -316,47 +383,64 @@ def _builtin(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
         _stage("markers", name + "markers.rank_genes_groups", method="wilcoxon",
                tie_correct=True, corr_method="benjamini-hochberg")]
     return Analysis(logx=logx, highly_variable=hv["highly_variable"], pcs=pcs,
-                    variance_ratio=ratio, embedding=emb, adjacency=sc_graph.knn_graph(idx),
+                    variance_ratio=ratio, embedding=emb, adjacency=adjacency,
                     connectivities=conn, clusters=lres.membership, modularity=lres.quality,
                     umap=layout, markers=mk, integration=info,
                     record={"backend": "builtin", "versions": versions, "stages": stages,
-                            "settings": asdict(s)})
+                            "settings": asdict(s)}, paga=paga)
 
 
 def _scanpy(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
             integration: str, s: StageSettings, out_dir: Path,
-            versions: dict[str, str]) -> Analysis:
+            versions: dict[str, str], rec: Any) -> Analysis:
     sc = require("scanpy", backend="analysis_backend 'scanpy'")
     ad = sc_io.to_anndata(m)
     batch = batch_key if batches is not None else None
     search = "sklearn" if ad.n_obs < EXACT_NEIGHBOURS_BELOW else "pynndescent"
+    own = {"engine": "scanpy", "version": versions.get("scanpy")}
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        sc.pp.normalize_total(ad, target_sum=s.target_sum)
-        sc.pp.log1p(ad)
-        sc.pp.highly_variable_genes(ad, n_top_genes=s.n_top_genes, flavor="seurat",
-                                    batch_key=batch)
-        hv = ad.var["highly_variable"].to_numpy(dtype=bool)
-        sub = ad[:, hv].copy()
-        sc.pp.scale(sub, max_value=s.max_value)
-        n_comps = min(s.n_pcs, min(sub.shape) - 1)
-        sc.pp.pca(sub, n_comps=n_comps, random_state=s.seed, mask_var=None)
-        pcs = np.asarray(sub.obsm["X_pca"], dtype=float)
-        emb, info = _integrate(pcs, m, hv, batches, batch_key, integration, "scanpy", s,
-                               out_dir)
+        with rec.stage("normalize", **own) as st:
+            sc.pp.normalize_total(ad, target_sum=s.target_sum)
+            sc.pp.log1p(ad)
+            st.reason = f"pp.normalize_total ({s.target_sum:g}), pp.log1p"
+        with rec.stage("hvg", **own) as st:
+            sc.pp.highly_variable_genes(ad, n_top_genes=s.n_top_genes, flavor="seurat",
+                                        batch_key=batch)
+            hv = ad.var["highly_variable"].to_numpy(dtype=bool)
+            st.reason = f"pp.highly_variable_genes (seurat): {int(hv.sum())} genes"
+        with rec.stage("pca", **own) as st:
+            sub = ad[:, hv].copy()
+            sc.pp.scale(sub, max_value=s.max_value)
+            n_comps = min(s.n_pcs, min(sub.shape) - 1)
+            sc.pp.pca(sub, n_comps=n_comps, random_state=s.seed, mask_var=None)
+            pcs = np.asarray(sub.obsm["X_pca"], dtype=float)
+            st.reason = f"pp.scale, pp.pca: {n_comps} components"
+        emb, info = _integrate_stage(rec, pcs, m, hv, batches, batch_key, integration,
+                                     "scanpy", s, out_dir)
         ad.obsm["X_bioagent"] = emb
-        sc.pp.neighbors(ad, n_neighbors=s.n_neighbors, use_rep="X_bioagent",
-                        metric="euclidean", transformer=search, random_state=s.seed)
-        sc.tl.leiden(ad, resolution=s.resolution, random_state=s.seed, flavor="leidenalg",
-                     n_iterations=-1, key_added="leiden")
-        sc.tl.umap(ad, min_dist=s.min_dist, spread=1.0, random_state=s.seed)
-        sc.tl.rank_genes_groups(ad, "leiden", method="wilcoxon", tie_correct=True,
-                                pts=True, n_genes=ad.n_vars, use_raw=False,
-                                corr_method="benjamini-hochberg")
-    conn = sparse.csr_matrix(ad.obsp["connectivities"], dtype=float)
-    adjacency = conn.copy()
-    adjacency.data[:] = 1.0
-    clusters = ad.obs["leiden"].astype(int).to_numpy()
+        with rec.stage("neighbors", **own) as st:
+            sc.pp.neighbors(ad, n_neighbors=s.n_neighbors, use_rep="X_bioagent",
+                            metric="euclidean", transformer=search, random_state=s.seed)
+            # the layout reads the graph alone (init 'spectral'), so it is drawn before
+            # the clusters
+            sc.tl.umap(ad, min_dist=s.min_dist, spread=1.0, random_state=s.seed)
+            st.reason = f"pp.neighbors ({search}, k = {s.n_neighbors}), tl.umap"
+        with rec.stage("cluster", **own) as st:
+            sc.tl.leiden(ad, resolution=s.resolution, random_state=s.seed,
+                         flavor="leidenalg", n_iterations=-1, key_added="leiden")
+            conn = sparse.csr_matrix(ad.obsp["connectivities"], dtype=float)
+            adjacency = conn.copy()
+            adjacency.data[:] = 1.0
+            clusters = ad.obs["leiden"].astype(int).to_numpy()
+            paga = sc_traj.paga(adjacency, clusters)
+            st.reason = (f"tl.leiden (leidenalg) at resolution {s.resolution:g}: "
+                         f"{len(np.unique(clusters))} clusters; PAGA connectivity between them")
+        with rec.stage("markers", **own) as st:
+            sc.tl.rank_genes_groups(ad, "leiden", method="wilcoxon", tie_correct=True,
+                                    pts=True, n_genes=ad.n_vars, use_raw=False,
+                                    corr_method="benjamini-hochberg")
+            st.reason = "tl.rank_genes_groups (wilcoxon, tie-corrected, BH)"
     call = "scanpy."
     stages = [
         _stage("normalise", call + "pp.normalize_total", target_sum=s.target_sum),
@@ -383,7 +467,7 @@ def _scanpy(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str,
         record={"backend": "scanpy", "versions": versions, "stages": stages,
                 "settings": asdict(s),
                 "warnings": sorted({f"{w.category.__name__}: {w.message}"[:300]
-                                    for w in caught})})
+                                    for w in caught})}, paga=paga)
 
 
 def _markers(ad: Any, genes: np.ndarray, scanpy_version: str) -> sc_markers.MarkerResult:
@@ -413,8 +497,10 @@ def _markers(ad: Any, genes: np.ndarray, scanpy_version: str) -> sc_markers.Mark
 
 def run(m: sc_io.CellMatrix, batches: np.ndarray | None, batch_key: str, *,
         backend: str, integration: str, settings: StageSettings,
-        out_dir: str | Path) -> Analysis:
-    """Steps 3 to 6 on the QC-passed counts ``m``; ``batches`` per cell, or None."""
+        out_dir: str | Path, recorder: Any = None) -> Analysis:
+    """Steps 3 to 6 on the QC-passed counts ``m``; ``batches`` per cell, or None. Each
+    step is a stage of ``recorder`` when one is given."""
     versions = check(backend, integration)
     runner = _builtin if backend == "builtin" else _scanpy
-    return runner(m, batches, batch_key, integration, settings, Path(out_dir), versions)
+    return runner(m, batches, batch_key, integration, settings, Path(out_dir), versions,
+                  recorder if recorder is not None else NullRecorder())

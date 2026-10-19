@@ -239,7 +239,9 @@ a.crumb:hover, button.crumb:hover { background: var(--hover); color: var(--ink);
 }
 .filter-chip:hover { border-color: var(--control-border); color: var(--ink); }
 .filter-chip.is-on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
-.filter-chip__n { font-size: 11px; opacity: .7; }
+/* the count is metadata: --ink-3 at the metadata size (a faded 11 px fell below 4.5:1); on a pressed chip it follows the chip */
+.filter-chip__n { font-size: var(--text-xs); color: var(--ink-3); }
+.filter-chip.is-on .filter-chip__n { color: inherit; }
 
 .files-tab { display: grid; gap: 20px; }
 .files-sec__title { font-size: var(--text-sm); font-weight: var(--weight-semibold); margin-bottom: 8px; }
@@ -847,4 +849,95 @@ details.json[open] { display: block; }
   .status-dot { forced-color-adjust: none; border: 1px solid CanvasText; }
   .verdict, .chip, .code-chip, .fam, .cite { border: 1px solid CanvasText; }
   .inspector__tabs.is-overflowing { -webkit-mask-image: none; mask-image: none; }
+}
+
+/* ------------------------------------------------------------------------------------------------ capability state */
+/* The catalog's state row (DESIGN §4.5 StateRow), Settings → Data, the job card's details, the device evidence list.
+   Chips wrap, and a long one wraps its own words, so nothing scrolls sideways on a 320 px screen. */
+
+.state-row { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.state-row .chip { height: auto; min-height: 22px; padding: 3px 7px; white-space: normal; line-height: 1.35; text-align: left; }
+.state-row .chip__label { overflow: visible; overflow-wrap: anywhere; }
+.state-fields dt { padding-top: 3px; }
+.catalog__filters { display: grid; gap: 10px; min-width: 0; }
+.catalog__flags .filter-chip { height: auto; min-height: 26px; padding: 2px 9px; }
+.catalog__flags .filter-chip svg { flex: none; }
+.catalog__selects { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 12px; max-width: 760px; }
+.catalog__selects .field__label { font-size: var(--text-xs); }
+.catalog__selects .select { min-width: 0; width: 100%; }
+.needs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.need { display: flex; gap: 8px; align-items: flex-start; font-size: var(--text-xs); line-height: 1.55; }
+.need > svg { flex: none; margin-top: 2px; color: var(--ink-3); }
+.need__text { min-width: 0; }
+.need__label { color: var(--ink); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.need__remedy { color: var(--ink-2); overflow-wrap: anywhere; }
+.need__detail { overflow-wrap: anywhere; }
+.readiness__unchecked { font-size: var(--text-xs); line-height: 1.55; }
+.readiness__unchecked svg { vertical-align: -2px; color: var(--ink-3); }
+.state-fields__last { margin-top: 4px; overflow-wrap: anywhere; }
+.readiness { display: grid; gap: 6px; }
+.readiness__head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: var(--text-sm); }
+.readiness__head svg { color: var(--ink-3); flex: none; }
+.entry__placement, .entry__approvals { display: flex; gap: 6px; align-items: flex-start; font-size: var(--text-xs); color: var(--ink-2); line-height: 1.55; }
+.entry__placement svg, .entry__approvals svg { flex: none; margin-top: 1px; color: var(--ink-3); }
+.verify-levels, .engine-list, .prov-lines, .data-hosts, .job__partial-list, .job__repro-list, .job__stages { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; min-width: 0; }
+.verify-levels li, .engine-list li, .prov-lines li { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: var(--text-xs); color: var(--ink-2); overflow-wrap: anywhere; min-width: 0; }
+.verify-levels li > svg, .prov-lines li svg { flex: none; color: var(--ink-3); align-self: center; }
+.compute-remote { display: grid; gap: 8px; margin-top: 10px; }
+
+/* Settings → Data */
+.dataset-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.dataset-row { display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: var(--radius-lg); background: var(--surface); min-width: 0; }
+.dataset-row__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; }
+.dataset-row__title { display: grid; gap: 2px; min-width: 0; }
+.dataset-row__name { display: inline-flex; gap: 4px; align-items: center; font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.dataset-row__key { font-size: var(--text-xs); color: var(--ink-3); }
+.dataset-row__facts { font-size: var(--text-xs); }
+.dataset-row__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.data-licence__none, .data-redist { color: var(--ochre-ink); }
+/* a link inside a sentence is underlined, not told apart by its colour alone (WCAG 1.4.1) */
+.data-tab p a, .dataset-row__facts a { text-decoration: underline; text-underline-offset: 2px; }
+.data-files__table td, .data-files__table th { font-size: var(--text-xs); padding: 4px 8px; }
+.data-hosts code { font-size: var(--text-xs); }
+
+/* the job card's details: stage, counts, facts, stages, files written so far, the records to reproduce it */
+.job__stage { display: flex; gap: 6px; align-items: center; font-size: var(--text-xs); color: var(--ink-2); }
+.job__stage svg { color: var(--ink-3); flex: none; }
+.job__counts { font-size: var(--text-xs); color: var(--ink-2); }
+.job__msg-k { color: var(--ink-3); }
+.job__msg .mono { overflow-wrap: anywhere; }
+.job__facts { font-size: var(--text-xs); }
+.job__stage-row { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: var(--text-xs); color: var(--ink-2); }
+.job__stage-row svg { flex: none; align-self: center; color: var(--ink-3); }
+.job__stage-row.is-failed svg { color: var(--vermilion-ink); }
+.job__stage-name { color: var(--ink); }
+.job__partial-list li { font-size: var(--text-xs); overflow-wrap: anywhere; }
+.job__repro { display: grid; gap: 4px; }
+.job__repro-k { display: flex; gap: 6px; align-items: center; font-size: var(--text-xs); color: var(--ink-2); font-weight: var(--weight-medium); }
+.job__repro-k svg { color: var(--ink-3); }
+.job__repro-list li { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: var(--text-xs); overflow-wrap: anywhere; }
+
+/* device evidence (Settings → Compute) */
+.evidence__sub { white-space: normal; }
+.evidence__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.evidence__row { display: grid; gap: 2px; padding-top: 8px; border-top: 1px solid var(--rule-2); min-width: 0; }
+.evidence__row:first-child { border-top: 0; padding-top: 0; }
+.evidence__name { display: flex; gap: 6px; align-items: center; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--ink); }
+.evidence__name svg { color: var(--ink-3); flex: none; }
+.evidence__line { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 8px; font-size: var(--text-xs); color: var(--ink-2); line-height: 1.55; }
+.evidence__line > span:last-child { overflow-wrap: anywhere; }
+.evidence__k { color: var(--ink-3); }
+.evidence__row.is-muted .evidence__name { color: var(--ink-2); }
+
+/* the tool card: what the result is, and its assurance */
+.result-chip, .assurance-chip { flex: none; }
+
+/* phones: key/value lists stack, so a long label never pushes its value off the screen */
+@media (max-width: 520px) {
+  .state-fields, .job__facts, .dataset-row__facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .state-fields dt, .job__facts dt, .dataset-row__facts dt { white-space: normal; padding-top: 6px; }
+  .catalog__selects { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+@media (max-width: 359.98px) {
+  .catalog__selects { grid-template-columns: minmax(0, 1fr); }
 }

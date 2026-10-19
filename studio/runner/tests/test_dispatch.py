@@ -84,6 +84,18 @@ def check_envelope(e):
                                  "content_hash", "audit_head", "input_sha256", "output_sha256",
                                  "started_at"}
     assert len(e["receipt"]["input_sha256"]) == 64 and len(e["receipt"]["output_sha256"]) == 64
+    r = e["receipt"]
+    assert r["schema"] == "tcmstudio.receipt/1" and r["finished_at"] >= r["started_at"]
+    assert set(r["execution"]) >= {"runtime", "kernel", "engine", "implementation", "validation",
+                                   "device"}
+    assert set(r["provenance"]) == {"datasets", "seeds", "models"}
+    assert set(r["result"]) == {"kind", "outcome", "assurance", "checks", "artifacts",
+                                "fallbacks", "reference"}
+    assert r["result"]["outcome"] in ("not_executed", "queued", "running", "succeeded",
+                                      "validated", "failed", "cancelled")
+    assert r["result"]["assurance"] in ("release_authorized", "outputs_verified", "none")
+    assert r["result"]["kind"] in (None, "record", "computation", "prediction", "draft",
+                                   "fixture", "system")
     if e["error"]:
         assert e["error"]["type"] in ("bad_arguments", "unavailable", "not_found", "refused",
                                       "runtime_error", "timeout", "network_off")
@@ -674,3 +686,327 @@ def test_a_formula_the_research_loop_would_refuse_is_refused_before_a_job(runner
     assert formula_ambiguity("葛根芩连汤") is None, "a hand-checked formula"
     assert formula_ambiguity("桂枝汤《伤寒论》") is None, "a name with its book"
     assert formula_ambiguity("桂枝甘草汤") is None, "one composition"
+
+
+def test_capabilities_count_by_the_one_readiness(runner_ctx):
+    from tcmstudio import capability
+    r = call("capabilities_status", {}, runner_ctx)["result"]
+    by = r["counts"]["by_readiness"]
+    assert set(by) <= set(capability.READINESS)
+    assert sum(by.values()) == r["counts"]["entries"]
+    assert by.get("ready", 0) == r["counts"]["runnable_here"] == sum(r["counts"]["by_kind"].values())
+    assert by.get("network_unavailable", 0) >= 444          # web access is off in this context
+    assert by.get("needs_dataset", 0) >= 3                  # nothing is built in this tcmdb root
+
+
+def test_the_capability_audit_op_and_catalog_search_agree(runner_ctx):
+    audit = call("call_tool", {"tool": "system.capability_audit", "arguments": {"limit": 1000}},
+                 runner_ctx)["result"]
+    state = {row["id"]: row for row in audit["entries"]}
+    found = call("catalog_search", {"query": "十八反", "limit": 25}, runner_ctx)["result"]["matched"]
+    assert found
+    for m in found:
+        assert m["runnable_now"] is (state[m["id"]]["readiness"] == "ready")
+        assert m["needs"] == [q["detail"] for q in state[m["id"]]["requires"]]
+
+
+# ------------------------------------------------------------------------- receipt/1
+
+def test_validation_record_hashes_the_executed_arguments(runner_ctx):
+    from tcmstudio.envelope import sha256_json
+    a = call("call_tool", {"tool": "native.gc_content",
+                           "arguments": {"sequence": "ACGTACGT", "window": "3"}}, runner_ctx)
+    b = call("call_tool", {"arguments": {"window": 3, "sequence": "ACGTACGT"},
+                           "tool": "native.gc_content"}, runner_ctx)
+    va, vb = a["receipt"]["execution"]["validation"], b["receipt"]["execution"]["validation"]
+    assert va["ok"] is True and va["schema"] == "entry"
+    assert va["repairs"] == ['arguments.window: "3" was read as the integer 3'] and vb["repairs"] == []
+    # the arguments the tool ran on, canonical: equal across key orders and the repair
+    assert va["normalized_sha256"] == vb["normalized_sha256"] == sha256_json(
+        {"sequence": "ACGTACGT", "window": 3})
+    assert a["receipt"]["input_sha256"] != b["receipt"]["input_sha256"]     # the raw call differs
+    core = call("tcm_classical_search", {"query": "桂枝汤", "limit": "2"}, runner_ctx)
+    assert any("read as the integer 2" in x for x in core["receipt"]["execution"]["validation"]["repairs"])
+    bad = call("call_tool", {"tool": "native.gc_content", "arguments": {"sequense": "ACGT"}},
+               runner_ctx)["receipt"]["execution"]["validation"]
+    assert bad["ok"] is False and bad["schema"] == "entry" and "normalized_sha256" not in bad
+    assert any("sequense" in p for p in bad["problems"])
+    core_bad = call("tcm_safety_report", {"query": "甘草"}, runner_ctx)["receipt"]["execution"]
+    assert core_bad["validation"]["schema"] == "core" and core_bad["validation"]["ok"] is False
+    assert core_bad["implementation"] is None, "nothing ran"
+    garbage = call("tcm_herb", "{not json", runner_ctx)["receipt"]["execution"]["validation"]
+    assert garbage["ok"] is False and "not valid JSON" in garbage["problems"][0]
+
+
+def test_patient_data_never_reaches_the_receipt(runner_ctx, intake):
+    marker = "乏力纳差两月"
+    e = call("clinic_assess", {"intake": intake}, runner_ctx)
+    assert e["status"] == "succeeded"
+    r = e["receipt"]
+    assert marker not in json.dumps(r, ensure_ascii=False)
+    assert r["provenance"]["seeds"] == {} and len(r["execution"]["validation"]["normalized_sha256"]) == 64
+    slip = {**intake, "patient": {**intake["patient"], "age": "40"}}
+    v = call("clinic_assess", {"intake": slip}, runner_ctx)["receipt"]["execution"]["validation"]
+    assert v["ok"] is True and v["repairs"] == [
+        "arguments.intake.patient.age: (detail not recorded: patient data)"]
+    wrong = {**intake, "patient": {**intake["patient"], "age": 900}}
+    w = call("clinic_assess", {"intake": wrong}, runner_ctx)["receipt"]
+    assert w["execution"]["validation"]["ok"] is False
+    assert "900" not in json.dumps(w["execution"], ensure_ascii=False)
+
+
+def test_implementation_is_named(runner_ctx):
+    native = call("call_tool", {"tool": "native.gc_content", "arguments": {"sequence": "ACGT"}},
+                  runner_ctx)["receipt"]["execution"]["implementation"]
+    assert native["ref"] == native["entrypoint"] == "bioagent.tools.sequence:gc_content"
+    assert native["component"] == "native.tool.gc_content" and native["deterministic"] is True
+    assert native["version"] and native["manifest_version"]
+    for sid, (tool, args) in {"assess-tcm-safety": ("tcm_safety_report", {"subject": "甘草"}),
+                              "analyze-tcm-network-pharmacology": ("tcm_network_hypothesis",
+                                                                   {"formula_name": "桂枝汤"})}.items():
+        e = call(tool, args, runner_ctx)
+        impl = e["receipt"]["execution"]["implementation"]
+        spec = get_entry(f"skill.{sid}")["skill"]
+        assert impl["content_hash"] == LOCK_HASHES[sid] == e["receipt"]["content_hash"]
+        assert impl["version"] == spec["version"] and impl["pinned"] is True
+        assert impl["ref"] == get_entry(f"skill.{sid}")["implementation"]["ref"]
+    conn = call("connector_call", {"connector": "uniprot", "operation": "entry",
+                                   "arguments": {"accession": "P04637"}}, runner_ctx)
+    assert conn["receipt"]["execution"]["implementation"] is None, "refused offline: nothing ran"
+    assert conn["receipt"]["result"]["outcome"] == "not_executed"
+
+
+def test_result_kinds(runner_ctx, intake):
+    cases = [
+        ("tcm_herb", {"name": "黄芪"}, "record", "succeeded", "none"),
+        ("call_tool", {"tool": "native.reverse_complement", "arguments": {"sequence": "ACGT"}},
+         "computation", "succeeded", "none"),
+        ("call_tool", {"tool": "native.egfr_ckd_epi_2021", "arguments": {
+            "creatinine_mg_dl": 1.0, "age_years": 50, "sex": "female"}},
+         "computation", "succeeded", "none"),
+        ("tcm_safety_report", {"subject": "甘草", "co_administered": ["甘遂"]},
+         "record", "validated", "release_authorized"),
+        ("tcm_network_hypothesis", {"formula_name": "桂枝汤"},
+         "prediction", "validated", "release_authorized"),
+        ("clinic_assess", {"intake": intake}, "draft", "succeeded", "none"),
+        ("tcm_safety_report", {"query": "甘草"}, None, "not_executed", "none"),   # wrong arguments
+        ("clinic_sign", {}, None, "not_executed", "none"),
+        ("catalog_search", {"query": "十八反"}, "system", "succeeded", "none"),
+        ("tcmdb_relations", {"kind": "herb_ingredient", "subject": "黄芪"}, "record",
+         "succeeded", "none"),
+        ("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u"}}, None, "queued",
+         "none"),
+    ]
+    for tool, args, kind, outcome, assurance in cases:
+        e = call(tool, args, runner_ctx)
+        got = e["receipt"]["result"]
+        assert (got["kind"], got["outcome"], got["assurance"]) == (kind, outcome, assurance), (
+            tool, got, e["error"])
+    # release_authorized is the kernel's six states, never a claim that the result is true
+    safety = call("tcm_safety_report", {"subject": "甘草", "co_administered": ["甘遂"]},
+                  runner_ctx)["receipt"]["result"]
+    assert [c["id"] for c in safety["checks"]] == [
+        "schema_valid", "evidence_verified", "outputs_verified", "execution_declared",
+        "execution_attested", "release_authorized", "skill_pinned", "outputs_present"]
+    assert all(c["ok"] for c in safety["checks"])
+    assert safety["artifacts"] == {"expected": ["safety.json"], "missing": [], "hash_mismatch": []}
+    draft = call("call_tool", {"tool": "skill.draft-tcm-prescription",
+                               "arguments": {"intake": intake}}, runner_ctx)["receipt"]["result"]
+    assert (draft["kind"], draft["assurance"]) == ("draft", "none"), "an unpinned run is not released"
+    assert {"id": "skill_pinned", "ok": False} in draft["checks"]
+
+
+def test_only_a_call_an_executor_ran_can_fail():
+    """Arguments that fail validation ran nothing (not_executed, as the page's own envelopes
+    say); bad_arguments from an executor that ran is a failure of that run."""
+    from tcmstudio import dispatch
+    entry = get_entry("native.gc_content")
+    o = dispatch._failure("native", "bad_arguments", "sequence: a string is needed")
+    o.validation = {"ok": False, "schema": "entry", "repairs": [], "problems": ["sequence"]}
+    assert dispatch._outcome_of(o, entry, None) == "not_executed"
+    o.validation = {"ok": True, "schema": "entry", "repairs": [], "normalized_sha256": "0" * 64}
+    assert dispatch._outcome_of(o, entry, None) == "failed"
+    assert dispatch._outcome_of(dispatch._failure("native", "runtime_error", "boom"), entry, None) == "failed"
+
+
+def test_a_fixture_is_only_what_a_source_declares(runner_ctx):
+    from tcmstudio import dispatch
+    o = dispatch.Outcome(result={"x": 1}, governance=dispatch.gv.empty("job"))
+    planted = [{"id": "npass", "version": "demo+planted"}]
+    assert dispatch._result_kind(None, "system.job_status", "system", o.governance,
+                                 {"kind": "research.run", "params": {}}, planted) == "fixture"
+    seed = [{"id": "tcmscience.tcm.seed", "version": "0.2.6"}]
+    assert dispatch._result_kind(get_entry("native.tcm_herb"), "native.tcm_herb", "native",
+                                 o.governance, None, seed) == "record"
+
+
+def test_receipt_datasets(runner_ctx, tmp_path):
+    safety = call("tcm_safety_report", {"subject": "甘草", "co_administered": ["甘遂"]}, runner_ctx)
+    sources = safety["governance"]["artifact"]["sources"]
+    listed = {d["id"]: d for d in safety["receipt"]["provenance"]["datasets"]}
+    for s in sources:
+        assert listed[s["id"]]["sha256"] == s["snapshot_hash"] and listed[s["id"]]["version"] == s["version"]
+    formula = call("tcm_formula", {"name": "桂枝汤"}, runner_ctx)
+    books = [d for d in formula["receipt"]["provenance"]["datasets"] if d["id"] == "repository_formulas"]
+    assert books and books[0]["sha256"] == formula["result"]["repository_records"]["provenance"]["source_sha256"]
+    assert books[0]["release"] is None, "the workbook states no release"
+    seed = next(d for d in formula["receipt"]["provenance"]["datasets"] if d["id"] == "tcmscience.tcm.seed")
+    assert seed["version"] and len(seed["sha256"]) == 64
+    # a built store's rows name the datasets they came from, with the dataset's version
+    import base64
+    import sqlite3
+    from bioagent.tcmdb.rowkit import COLUMNS
+    path = tmp_path / "batman2.sqlite"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE _tcmdb_files (tbl TEXT, rows INTEGER, license TEXT, sha256 TEXT)")
+        conn.execute("INSERT INTO _tcmdb_files VALUES ('relations', 1, 'CC BY-NC 4.0', 'test')")
+        conn.execute("CREATE TABLE relations (" + ",".join(f'"{c}" TEXT' for c in COLUMNS) + ")")
+        row = {c: "" for c in COLUMNS}
+        row.update(kind="herb_ingredient", source="batman2", subject_type="herb",
+                   subject_name="黄芪", object_type="ingredient", object_name="astragaloside IV",
+                   evidence="curated", license="CC BY-NC 4.0")
+        conn.execute(f"INSERT INTO relations VALUES ({','.join('?' * len(COLUMNS))})",
+                     [row[c] for c in COLUMNS])
+    browser = {"where": "browser", "state_root": str(tmp_path / "persist"), "project_id": "p-hub",
+               "durable": False, "network": False}
+    imported = call("tcmdb.import_store", {"dataset": "batman2",
+                                           "content_base64": base64.b64encode(path.read_bytes()).decode()},
+                    browser)
+    assert imported["status"] == "succeeded", imported["error"]
+    rel = call("tcmdb_relations", {"kind": "herb_ingredient", "subject": "黄芪"}, browser)
+    assert rel["status"] == "succeeded" and rel["result"]["count"] == 1, rel["error"]
+    hub = {d["id"]: d for d in rel["receipt"]["provenance"]["datasets"]}
+    assert hub["batman2"]["version"] == hub["batman2"]["release"] == "2.0"
+    # a refused live call fetched nothing, so it names no source
+    off = call("connector_call", {"connector": "uniprot", "operation": "entry",
+                                  "arguments": {"accession": "P04637"}}, runner_ctx)
+    assert off["receipt"]["provenance"]["datasets"] == []
+
+
+def test_seeds_are_recorded_with_the_default_the_code_uses(runner_ctx, jobs):
+    given = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "u_9", "seed": 7}},
+                 runner_ctx)
+    default = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "u_9"}},
+                   runner_ctx)
+    assert given["status"] == default["status"] == "job_submitted"
+    assert given["receipt"]["provenance"]["seeds"] == {"seed": 7}
+    assert default["receipt"]["provenance"]["seeds"] == {"seed": 0}      # kinds.py's default too
+    cells = [{"dose_a": a, "dose_b": b, "effect": [eff, eff + 0.01, eff - 0.01]}
+             for (a, b, eff) in ((1, 0, 0.1), (3, 0, 0.25), (0, 1, 0.12), (0, 3, 0.3),
+                                 (1, 1, 0.2), (1, 3, 0.35), (3, 1, 0.33), (3, 3, 0.5))]
+    s = call("study.combination", {"cells": cells, "primary": "bliss", "boot": 20}, runner_ctx)
+    assert s["receipt"]["provenance"]["seeds"] == {"seed": 0}
+
+
+def test_a_queued_job_has_no_device_yet_and_a_gpu_job_is_never_called_cpu(runner_ctx, jobs):
+    e = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "u_9"}}, runner_ctx)
+    dev = e["receipt"]["execution"]["device"]
+    assert e["receipt"]["result"]["outcome"] == "queued"
+    assert dev["assigned"] is None and dev["used"] is None and dev["evidence"] is None
+    job_id = e["job"]["id"]
+    jobs.jobs[job_id].update(state="running", device="cuda:0")
+    st = call("job_status", {"job_id": job_id}, runner_ctx)
+    assert st["receipt"]["device"] == "cuda:0", "the poll names the job's device, not the CPU it ran on"
+    dev = st["receipt"]["execution"]["device"]
+    assert dev["assigned"] == "cuda:0" and dev["evidence"] == "selected" and dev["used"] is None
+    assert st["receipt"]["result"]["outcome"] == "running" and st["receipt"]["result"]["kind"] is None
+    jobs.jobs[job_id].update(state="succeeded", device="cpu",
+                             device_note="the selected device cuda:1 is not available here; "
+                                         "the job runs on the CPU")
+    st = call("job_status", {"job_id": job_id}, runner_ctx)
+    r = st["receipt"]
+    assert r["execution"]["device"]["used"] == "cpu"
+    assert r["result"]["fallbacks"] == [{"what": "device",
+                                         "reason": jobs.jobs[job_id]["device_note"]}]
+    # no artefact was digested: a succeeded job without outputs is not outputs_verified
+    assert r["result"]["outcome"] == "succeeded" and r["result"]["assurance"] == "none"
+
+
+def test_a_queued_gpu_job_names_no_device_in_its_legacy_field_either(runner_ctx, jobs):
+    # the dispatcher's own context is the CPU; a job not yet started has no device at all
+    runner_ctx["capabilities"] = {"device_setting": "cuda:0"}
+    # (any job: the device comes when it starts; scrna is one this runner can queue without optional engines)
+    e = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "u_9"}}, runner_ctx)
+    assert e["status"] == "job_submitted", e["error"]
+    assert e["receipt"]["device"] is None, "never the CPU the dispatcher runs on"
+    st = call("job_status", {"job_id": e["job"]["id"]}, runner_ctx)
+    assert st["receipt"]["device"] is None and st["receipt"]["execution"]["device"]["assigned"] is None
+    jobs.jobs[e["job"]["id"]].update(state="running", device="cuda:0")
+    assert call("job_status", {"job_id": e["job"]["id"]}, runner_ctx)["receipt"]["device"] == "cuda:0"
+
+
+def test_a_sample_sheet_s_files_each_reach_the_receipt_s_provenance(runner_ctx, jobs):
+    e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u_sheet"}}, runner_ctx)
+    job_id = e["job"]["id"]
+    fq = {f"fastq_{n}:{line}": {"upload": f"u_fq{n}{line}", "name": f"s{line}_R{n}.fq.gz",
+                                "sha256": f"{n}{line}" * 32, "bytes": 1000 + line}
+          for n in (1, 2) for line in (2, 3)}
+    jobs.jobs[job_id].update(inputs={"samples": {"upload": "u_sheet", "name": "sheet.csv",
+                                                 "sha256": "ab" * 32, "bytes": 90},
+                                     "samples.files": fq})
+    st = call("job_status", {"job_id": job_id}, runner_ctx)
+    got = {d["id"]: d for d in st["receipt"]["provenance"]["datasets"] if d.get("role") == "input"}
+    assert got["u_sheet"]["sha256"] == "ab" * 32
+    for key, rec in fq.items():
+        d = got[rec["upload"]]
+        assert (d["sha256"], d["bytes"], d["param"]) == (rec["sha256"], rec["bytes"], f"samples.files.{key}")
+    assert "samples.files" not in got, "the mapping itself is not an input"
+
+
+def test_a_degraded_call_records_its_fallback(runner_ctx, monkeypatch):
+    from types import SimpleNamespace
+    from tcmstudio import dispatch
+    res = SimpleNamespace(status=SimpleNamespace(value="DEGRADED"), value={"x": 1}, metadata={},
+                          adapter="python-backend", error="cache only")
+    o = dispatch._call_result(res, get_entry("native.gc_content"), Context(network=False),
+                              kind="native", licences=[], limits=[])
+    assert o.result_info["fallbacks"] == [{"what": "degraded", "reason": "cache only"}]
+
+
+def test_capabilities_say_remote_compute_is_not_configured(runner_ctx, browser_ctx):
+    for ctx in (runner_ctx, browser_ctx):
+        r = call("capabilities_status", {}, ctx)["result"]
+        assert r["remote_compute"] == {
+            "configured": False,
+            "reason": "no remote compute backend is registered; calls run in this browser or on "
+                      "the paired runner"}
+
+
+def test_remote_compute_reads_as_the_pages_answer():
+    """The page's capabilities answer (core/catalog.js REMOTE_COMPUTE) says the same; it adds
+    only a pointer to runner.loopback, a field of the page's own answer that Python's lacks
+    (a runner answering cannot tell whether the page reached it over loopback)."""
+    import re
+    from tcmstudio.dispatch import _REMOTE_COMPUTE
+    js = (Path(__file__).resolve().parents[2] / "web" / "js" / "core" / "catalog.js").read_text(encoding="utf-8")
+    found = re.search(r"REMOTE_COMPUTE = Object\.freeze\(\{\s*configured: false,\s*reason: \"([^\"]+)\"", js)
+    assert found, "core/catalog.js REMOTE_COMPUTE"
+    page, ours = found.group(1), _REMOTE_COMPUTE["reason"]
+    assert page == ours or (page.startswith(ours + " (") and "runner.loopback" in page[len(ours):]), page
+
+
+def test_receipt_code_never_touches_the_result(runner_ctx, monkeypatch):
+    """result, governance (its outputs too), text and output_sha256 are what they are without
+    receipt/1; and a failure in the receipt code leaves the defaults, never a lost envelope."""
+    from tcmstudio import dispatch
+    args = ("tcm_safety_report", {"subject": "甘草", "co_administered": ["甘遂"]})
+    native = ("call_tool", {"tool": "native.distance_matrix",
+                            "arguments": {"sequences": ["ACGT", "AGGT", "GGTT"]}})
+    with_receipt = [call(*a, runner_ctx) for a in (args, native)]
+
+    def broken(*_a, **_k):
+        raise RuntimeError("receipt code broke")
+    monkeypatch.setattr(dispatch, "_receipt_parts", broken)
+    without = [call(*a, runner_ctx) for a in (args, native)]
+    for a, b in zip(with_receipt, without):
+        assert a["status"] == b["status"] == "succeeded"
+        assert b["receipt"]["schema"] == "tcmstudio.receipt/1"
+        assert b["receipt"]["result"]["kind"] is None and b["receipt"]["result"]["outcome"] == "succeeded"
+    # the governed run's outputs are reproducible, and the same with or without receipt/1
+    assert [o["sha256"] for o in with_receipt[0]["governance"]["outputs"]] == [
+        o["sha256"] for o in without[0]["governance"]["outputs"]]
+    # a deterministic native: the same bytes either way
+    assert with_receipt[1]["result"] == without[1]["result"]
+    assert with_receipt[1]["receipt"]["output_sha256"] == without[1]["receipt"]["output_sha256"]
+    assert with_receipt[1]["text"] == without[1]["text"]
+    assert with_receipt[1]["governance"] == without[1]["governance"]

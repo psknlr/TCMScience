@@ -79,19 +79,97 @@ def test_rnaseq_job_lifecycle_with_events_files_and_verification(tmp_path, world
         assert final["device"] == "cpu" and final["started_at"] and final["finished_at"]
         assert final["outcome"]["status"] == "succeeded" and final["outcome"]["exit_code"] == 0
         names = {a["name"]: a for a in final["artefacts"]}
-        assert set(names) == {"run", "report", "results"}
+        assert set(names) == {"run", "report", "results", "limitations"}
         out = srv.home / "jobs" / job["id"] / "out"
         import hashlib
         for a in final["artefacts"]:
             assert hashlib.sha256((out / a["path"]).read_bytes()).hexdigest() == a["sha256"]
         de = final["result"]["differential_expression"]
         assert de["significant"] > 0 and de["tested"] == 30
+        # what the collection checked, and what the kind requires, are on the record
+        assert final["outcome"]["checks"] == ["controller_digests", "validator:run"]
+        assert final["outcome"]["expected"] == ["run", "report", "results", "limitations"]
+        # the pipeline's own stages: progress named them while it ran, then "verifying"
+        stage_names = [s["name"] for s in final["stages"]]
+        assert stage_names[:2] == ["validate_reference", "ingest"]
+        assert stage_names[-2:] == ["report", "verify"]
+        assert all(s["status"] == "succeeded" and s["device"] == "cpu"
+                   for s in final["stages"])
+        seen = [d.get("stage") for e, d in events if e == "progress" and d]
+        assert "verifying" in seen and set(seen) & set(stage_names), seen
+        assert all(d["fraction"] < 1 for e, d in events if e == "progress" and d.get("fraction"))
+        lines = (out / "limitations.md").read_text().splitlines()
+        assert final["limitations"] == lines and any("PyDESeq2" in x for x in lines)
+        # the job receipt, written at collection, its digest in the outcome
+        receipt = final["outcome"]["receipt"]
+        assert receipt["path"] == "job_receipt.json" == final["receipt"]["path"]
+        assert hashlib.sha256((out / "job_receipt.json").read_bytes()).hexdigest() == \
+            receipt["sha256"]
+        doc = srv.jobs.job_receipt(job["id"])
+        assert doc["schema"] == "tcmstudio.job-receipt/1" and doc["job_id"] == job["id"]
+        assert doc["kind"] == "pipeline.rnaseq" and doc["state"] == "succeeded"
+        assert len(doc["params_sha256"]) == 64 and doc["complete"] is True
+        assert doc["device"]["assigned"] == "cpu" and doc["device"]["evidence"] == "selected"
+        assert set(doc["device"]["stages"].values()) == {"cpu"}
+        assert doc["artefacts"] == final["artefacts"] and doc["missing"] == []
+        assert doc["checks"] == ["controller_digests", "validator:run"]
+        assert [s["name"] for s in doc["stages"]] == stage_names
+        assert doc["limitations"] == lines and doc["duration_s"] > 0
+        assert doc["run_json_sha256"] == names["run"]["sha256"]
+        assert doc["resources"]["peak_rss_mb"] > 10
+        assert "RUSAGE_CHILDREN" in doc["resources"]["source"]
+        assert {e["id"] for e in doc["engine"]} >= {"builtin-quant", "builtin-de"}
+        assert doc["inputs"]["samples"]["sha256"] == final["inputs"]["samples"]["sha256"]
+        assert "name" not in doc["inputs"]["samples"]               # digests only
+        st = c.call("job_status", {"job_id": job["id"]})
+        res = st["receipt"]["result"]
+        assert (res["kind"], res["outcome"], res["assurance"]) == (
+            "computation", "validated", "outputs_verified")
+        assert [ch["id"] for ch in res["checks"]] == ["controller_digests", "validator:run",
+                                                      "run_manifest"]
+        assert res["artifacts"] == {"expected": ["run", "report", "results", "limitations"],
+                                    "missing": [], "hash_mismatch": []}
+        # a succeeded pipeline job shows its own limitations and its stages
+        assert any("does not establish a mechanism" in x
+                   for x in st["governance"]["limitations"])
+        assert [s["name"] for s in st["result"]["stages"]] == stage_names
+        impl = st["receipt"]["execution"]["implementation"]
+        assert impl["job_kind"] == "pipeline.rnaseq" and impl["pipeline"] == "bioagent.omics.rnaseq"
+        assert len(impl["code_digest"]) == 64
+        engine = st["receipt"]["execution"]["engine"]          # the run's own choice, not "auto"
+        assert engine["id"] == "builtin-quant" and engine["version"]
+        assert [e["id"] for e in engine["with"]] == ["builtin-trim", "builtin-de"]
+        inputs = {d["param"]: d for d in st["receipt"]["provenance"]["datasets"]
+                  if d.get("role") == "input"}
+        assert inputs["samples"]["sha256"] == final["inputs"]["samples"]["sha256"]
+        # run.json is read only at the digest recorded when the job was collected
+        manifest = srv.jobs.run_manifest(job["id"])
+        assert manifest["pipeline"] == "bioagent.omics.rnaseq"
+        run_json = srv.home / "jobs" / job["id"] / "out" / "run.json"
+        original = run_json.read_bytes()
+        run_json.write_text(json.dumps({**manifest, "code_digest": "0" * 64}))
+        with pytest.raises(LookupError, match="no longer has the digest"):
+            srv.jobs.run_manifest(job["id"])
+        st = c.call("job_status", {"job_id": job["id"]})
+        res = st["receipt"]["result"]
+        assert res["artifacts"]["hash_mismatch"] == ["run"] and res["assurance"] == "none"
+        assert {"id": "run_manifest", "ok": False} == {k: v for k, v in res["checks"][-1].items()
+                                                       if k != "detail"}
+        assert "code_digest" not in st["receipt"]["execution"]["implementation"]
+        # one that can no longer be read (deleted since) is missing, and not verified either
+        run_json.unlink()
+        res = c.call("job_status", {"job_id": job["id"]})["receipt"]["result"]
+        assert (res["outcome"], res["assurance"]) == ("succeeded", "none")
+        assert "run" in res["artifacts"]["missing"] and res["artifacts"]["hash_mismatch"] == []
+        run_json.write_bytes(original)
         assert "--threads=4" in " ".join(final["command"]) or "--threads=" in " ".join(final["command"])
         assert final["command"][1:4] == ["-I", "-m", "bioagent.cli"]
 
         status, files = c.get(f"/api/jobs/{job['id']}/files")
         listed = {f["path"]: f for f in files["files"]}
-        assert {"run.json", "report.html", "deseq2_results.tsv"} <= set(listed)
+        assert {"run.json", "report.html", "deseq2_results.tsv", "job_receipt.json",
+                "stages.json", "limitations.md"} <= set(listed)
+        assert listed["job_receipt.json"]["sha256"] == receipt["sha256"]
         assert listed["report.html"]["media_type"] == "text/html"
         status, h, body = c.raw("GET", f"/api/jobs/{job['id']}/files/report.html",
                                 token=False, headers={})
@@ -141,6 +219,9 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert env["status"] == "job_submitted", env
         job_id = env["job"]["id"]
         assert env["job"]["kind"] == "skill.run"
+        assert env["receipt"]["result"]["outcome"] in ("queued", "running")
+        assert env["receipt"]["result"]["kind"] is None, "no result yet"
+        assert env["receipt"]["execution"]["implementation"]["job_kind"] == "skill.run"
         # a safety-record lookup run as a job is pending work, not a prediction
         assert env["governance"]["limitations"] == [
             "A job that has not succeeded is pending work, not a result."]
@@ -178,12 +259,36 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert "已完成并核验" not in st["summary"]
         assert "release authorized" in st["summary_en"]
         assert "Release: released" in st["text"] and "Claims" in st["text"]
+        # receipt/1: the governed run's six states passed (a record, release authorized);
+        # the job's own checks follow them
+        res = st["receipt"]["result"]
+        assert (res["kind"], res["outcome"], res["assurance"]) == (
+            "record", "validated", "release_authorized")
+        ids = [ch["id"] for ch in res["checks"]]
+        assert ids[:8] == ["schema_valid", "evidence_verified", "outputs_verified",
+                           "execution_declared", "execution_attested", "release_authorized",
+                           "skill_pinned", "outputs_present"]
+        assert ids[8:] == ["controller_digests", "validator:envelope", "envelope_digest"]
+        impl = st["receipt"]["execution"]["implementation"]
+        assert impl["content_hash"] == envelope["receipt"]["content_hash"] and impl["pinned"] is True
+        assert impl["job_kind"] == "skill.run" and impl["job_id"] == job_id
+        assert any(d["id"] == "tcmscience.tcm.seed" for d in st["receipt"]["provenance"]["datasets"])
+        assert st["receipt"]["execution"]["device"]["assigned"] == "cpu"
         # read back only at the digest recorded when the job was collected
         (out / "envelope.json").write_text(json.dumps({**envelope, "summary": "edited"}))
         st = c.call("job_status", {"job_id": job_id})
         assert st["governance"]["released"] is False and not st["governance"]["claims"]
         assert "digest" in st["governance"]["limitations"][0]
         assert "未准予发布" in st["summary"]
+        res = st["receipt"]["result"]
+        assert res["artifacts"]["hash_mismatch"] == ["envelope"] and res["assurance"] == "none"
+        # one that can no longer be read (deleted since the job was collected) is missing, and
+        # the job's outputs are not called verified
+        (out / "envelope.json").unlink()
+        res = c.call("job_status", {"job_id": job_id})["receipt"]["result"]
+        assert (res["outcome"], res["assurance"]) == ("succeeded", "none")
+        assert "envelope" in res["artifacts"]["missing"] and res["artifacts"]["hash_mismatch"] == []
+        assert [c_["ok"] for c_ in res["checks"] if c_["id"] == "envelope_digest"] == [False]
         # bad arguments are caught before anything runs
         env = c.call("run_pipeline", {"pipeline": "rnaseq", "arguments": {}})
         assert env["status"] == "failed" and env["error"]["type"] == "bad_arguments"
@@ -313,6 +418,230 @@ def test_a_job_whose_record_was_lost_is_found_in_the_trace(tmp_path):
         assert "trace" in final["device_note"]
 
 
+def test_job_receipts_follow_the_job(tmp_path):
+    with running_server(tmp_path / "home", kinds=test_kinds(), max_jobs=1) as (_, c):
+        slow = c.post("/api/jobs", {"kind": "test.sleep", "params": {"seconds": 3, "lines": 3}})[1]
+        _wait_state(c, slow["id"], ("running",))
+        running = c.call("job_status", {"job_id": slow["id"]})["receipt"]
+        assert running["result"]["outcome"] == "running" and running["result"]["kind"] is None
+        assert running["execution"]["device"]["assigned"] == "cpu"
+        done = c.wait_job(slow["id"])
+        assert done["outcome"]["checks"] == ["controller_digests"]
+        assert done["outcome"]["expected"] == ["result"]
+        r = c.call("job_status", {"job_id": slow["id"]})["receipt"]
+        assert (r["result"]["outcome"], r["result"]["assurance"]) == ("validated", "outputs_verified")
+        assert r["result"]["checks"] == [{"id": "controller_digests", "ok": True}]
+        assert r["result"]["artifacts"] == {"expected": ["result"], "missing": [], "hash_mismatch": []}
+        assert r["execution"]["device"] == {"requested": "auto", "assigned": "cpu", "used": "cpu",
+                                            "evidence": "selected"}
+        # an exit code that is a result: the runner digested the outputs itself
+        coded = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                "params": {"seconds": 0, "code": 1}})[1]["id"])
+        assert coded["outcome"]["checks"] == ["runner_digests", "required_artefacts"]
+        failed = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                 "params": {"seconds": 0, "code": 3}})[1]["id"])
+        assert "checks" not in failed["outcome"] and failed["outcome"]["expected"] == ["result"]
+        f = c.call("job_status", {"job_id": failed["id"]})["receipt"]["result"]
+        assert (f["outcome"], f["kind"], f["assurance"]) == ("failed", None, "none")
+
+
+def test_a_validator_is_listed_only_for_an_artefact_it_checked(tmp_path):
+    """The controller validates the artefacts it collected; an optional one that is absent
+    was never validated, and outcome.checks does not say it was."""
+    from test_server_support import Kind, _sleep_command, _sleep_prepare
+    base = test_kinds()["test.sleep"]
+    kinds = {"test.sleep": Kind("test.sleep", base.title, "seconds", _sleep_prepare, _sleep_command,
+                                artefacts=(("result", "result.txt", True), ("extra", "extra.txt", False)),
+                                validators={"result": lambda p: None, "extra": lambda p: None},
+                                ok_exit_codes=frozenset({0, 1}), parameters=base.parameters,
+                                heavy=(), timeout_s=120)}
+    with running_server(tmp_path / "home", kinds=kinds) as (_, c):
+        done = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep", "params": {"seconds": 0}})[1]["id"])
+        assert done["state"] == "succeeded"
+        assert done["outcome"]["checks"] == ["controller_digests", "validator:result"]
+        coded = c.wait_job(c.post("/api/jobs", {"kind": "test.sleep",
+                                                "params": {"seconds": 0, "code": 1}})[1]["id"])
+        assert coded["outcome"]["checks"] == ["runner_digests", "required_artefacts", "validator:result"]
+
+
+# A stand-in pipeline: records its stages with bioagent.runrecord, as the real ones do, and
+# writes run.json and limitations.md. Its third stage's check passes or fails on request,
+# and it exits 1 when the run is incomplete (as bioagent dock and admet do) unless told to
+# exit 0 regardless, which leaves the incompleteness to the run.json validator. Asked for a
+# malformed record, it rewrites run.json with a stage that is not a mapping and a version
+# that is a list, and leaves a hidden temporary file behind, as a crashed writer would.
+_STUB_PIPELINE = r"""
+import hashlib, json, os, sys, time
+from bioagent.runrecord import StageRecorder, write_limitations
+out, complete, honest = sys.argv[1], sys.argv[2] == "1", sys.argv[3] == "1"
+malformed = sys.argv[4] == "1"
+rec = StageRecorder(out, "test.pipeline", plan=("prepare", "compute", "check", "report"))
+for name in ("prepare", "compute"):
+    with rec.stage(name, engine="stub", version="1"):
+        time.sleep(0.8)
+with rec.stage("check", engine="stub", version="1") as st:
+    st.check = "PASS" if complete else "FAIL"
+    st.reason = "the planted check" + ("" if complete else ": 3.1 A from the crystal pose")
+with rec.stage("report", engine="stub", version="1") as st:
+    lines = write_limitations(out, ["A stub result is not a measurement."])
+    st.outputs = ["limitations.md"]
+data = open(os.path.join(out, "limitations.md"), "rb").read()
+doc = {"pipeline": "test.pipeline", "outputs": {"limitations.md": hashlib.sha256(data).hexdigest()},
+       "stages": rec.as_list(), "complete": rec.complete, "limitations": lines}
+json.dump(doc, open(os.path.join(out, "run.json"), "w"))
+rec.finish()
+if malformed:
+    doc["stages"] = ["not a stage", *doc["stages"]]
+    doc["stages"][1]["version"] = ["1", "2"]
+    json.dump(doc, open(os.path.join(out, "run.json"), "w"))
+    open(os.path.join(out, ".stages.json.999.tmp"), "w").write("{}")
+sys.exit(1 if honest and not rec.complete else 0)
+"""
+
+
+def _stub_pipeline_kinds():
+    from bioagent.runrecord import record_problems
+    from test_server_support import Kind
+    from tcmstudio import kinds as K
+
+    def prepare(p, ctx):
+        return {"complete": bool(p.get("complete", True)), "honest": bool(p.get("honest", True)),
+                "malformed": bool(p.get("malformed", False))}
+
+    def command(r, ctx):
+        return [ctx.python, "-I", "-c", _STUB_PIPELINE, "{output}",
+                "1" if r["complete"] else "0", "1" if r["honest"] else "0",
+                "1" if r["malformed"] else "0"]
+
+    def check_run(path):
+        # as kinds._verifier does: a record that cannot be checked is a problem, not a crash
+        try:
+            return "; ".join(record_problems(json.loads(path.read_text()), path.parent)) or None
+        except Exception as exc:                                # noqa: BLE001
+            return f"the run could not be verified: {type(exc).__name__}: {exc}"
+
+    params = {"type": "object", "properties": {"complete": {"type": "boolean"},
+                                               "honest": {"type": "boolean"},
+                                               "malformed": {"type": "boolean"}},
+              "additionalProperties": False}
+    return {"test.pipeline": Kind("test.pipeline", ("测试流程", "Test pipeline"), "seconds",
+                                  prepare, command,
+                                  artefacts=(("run", "run.json", True),
+                                             ("limitations", "limitations.md", True)),
+                                  validators={"run": check_run}, parameters=params, heavy=(),
+                                  timeout_s=120, progress=K._stage_progress)}
+
+
+def test_a_complete_pipeline_shows_its_stages_and_limitations(tmp_path):
+    with running_server(tmp_path / "home", kinds=_stub_pipeline_kinds()) as (srv, c):
+        job = c.post("/api/jobs", {"kind": "test.pipeline", "params": {}})[1]
+        events = c.events(job["id"])
+        progress = [d for e, d in events if e == "progress" and d]
+        stages_seen = [p.get("stage") for p in progress]
+        assert "compute" in stages_seen and stages_seen[-1] == "verifying", stages_seen
+        assert any(p.get("message") == "stage compute" for p in progress)
+        fractions = [p["fraction"] for p in progress if "fraction" in p]
+        assert fractions == sorted(fractions) and max(fractions) < 1
+        # the stage list itself follows the run (a progress event carries only the progress)
+        live = [d["stages"] for e, d in events if e == "stages"]
+        assert live and all(isinstance(x, list) for x in live), [e for e, _ in events]
+        names = [[x["name"] for x in stages] for stages in live]
+        assert any(names), f"the list never moved on while the job ran: {names}"
+        plan = ["prepare", "compute", "check", "report"]
+        assert all(n == plan[:len(n)] for n in names), names
+        final = c.wait_job(job["id"])
+        assert final["state"] == "succeeded", final["outcome"]
+        assert [s["name"] for s in final["stages"]] == ["prepare", "compute", "check", "report"]
+        assert final["limitations"] == ["A stub result is not a measurement."]
+        st = c.call("job_status", {"job_id": job["id"]})
+        assert "A stub result is not a measurement." in st["governance"]["limitations"]
+        assert [s["status"] for s in st["result"]["stages"]] == ["succeeded"] * 4
+        receipt = srv.jobs.job_receipt(job["id"])
+        assert receipt["state"] == "succeeded" and receipt["complete"] is True
+
+
+def test_an_incomplete_pipeline_is_a_failed_job_with_its_stages_as_problems(tmp_path):
+    with running_server(tmp_path / "home", kinds=_stub_pipeline_kinds()) as (srv, c):
+        honest = c.wait_job(c.post("/api/jobs", {"kind": "test.pipeline",
+                                                 "params": {"complete": False}})[1]["id"])
+        # the pipeline said so itself: exit 1
+        assert honest["state"] == "failed" and honest["outcome"]["exit_code"] == 1
+        why = "stage check: its check failed: the planted check: 3.1 A from the crystal pose"
+        assert why in honest["outcome"]["problems"]
+        assert honest["result"] is None and honest["stages"][2]["check"] == "FAIL"
+        receipt = srv.jobs.job_receipt(honest["id"])
+        assert receipt["state"] == "failed" and receipt["complete"] is False
+        assert why in receipt["problems"] and receipt["checks"] == []
+        # a pipeline that exited 0 all the same: its run.json validator catches it
+        quiet = c.wait_job(c.post("/api/jobs", {"kind": "test.pipeline",
+                                                "params": {"complete": False,
+                                                           "honest": False}})[1]["id"])
+        assert quiet["state"] == "failed" and quiet["outcome"]["exit_code"] == 0
+        assert why in quiet["outcome"]["problems"]
+        assert any("records the run as incomplete" in p for p in quiet["outcome"]["problems"])
+        f = c.call("job_status", {"job_id": quiet["id"]})["receipt"]["result"]
+        assert (f["outcome"], f["assurance"]) == ("failed", "none")
+        assert any(why in ch.get("detail", "") for ch in f["checks"])
+
+
+def test_a_malformed_stage_record_fails_the_job_instead_of_stalling_it(tmp_path):
+    """A run.json whose stages hold a non-mapping entry and a list for a version used to
+    raise inside collection, which was retried, and failed, on every poll: the job stayed
+    'running'. Now it is collected once, as a failed job with a receipt."""
+    with running_server(tmp_path / "home", kinds=_stub_pipeline_kinds()) as (srv, c):
+        job = c.post("/api/jobs", {"kind": "test.pipeline", "params": {"malformed": True}})[1]
+        events = c.events(job["id"])
+        final = c.wait_job(job["id"])
+        assert final["state"] == "failed", final
+        assert any("could not be verified" in p for p in final["outcome"]["problems"])
+        assert [s["name"] for s in final["stages"]] == ["prepare", "compute", "check", "report"]
+        receipt = srv.jobs.job_receipt(job["id"])
+        assert receipt["state"] == "failed"
+        assert {"id": "stub", "version": "['1', '2']", "stages": ["prepare"]} in receipt["engine"]
+        # the hidden temporary file is not announced as an output
+        seen = [d.get("path") for e, d in events if e == "artefact" and d]
+        assert "limitations.md" in seen and not any(p.endswith(".tmp") for p in seen), seen
+
+
+def test_the_runner_reads_a_jobs_own_record_only_as_a_bounded_regular_file(tmp_path):
+    from tcmstudio import kinds as K
+    out = tmp_path / "job" / "out"
+    out.mkdir(parents=True)
+    doc = {"schema": "bioagent.stages/1", "stages": [{"name": "a", "required": True}]}
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text(json.dumps(doc))
+    # a symlink out of the output directory is not followed
+    (out / "stages.json").symlink_to(elsewhere)
+    assert K.read_stages(tmp_path / "job") is None
+    (out / "stages.json").unlink()
+    (out / "stages.json").write_text(json.dumps(doc))
+    assert K.read_stages(tmp_path / "job")["stages"][0]["name"] == "a"
+    # a file over its budget is not loaded
+    (out / "stages.json").write_text(json.dumps(doc) + " " * K.RECORD_MAX_BYTES)
+    assert K.read_stages(tmp_path / "job") is None
+    assert K.read_record(out / "missing.md") is None
+    (out / "bad.md").write_bytes(b"\xff\xfe")
+    assert K.read_record(out / "bad.md") is None
+
+
+def test_limitations_reach_the_job_bounded(tmp_path):
+    from types import SimpleNamespace
+
+    from tcmstudio.jobs import JobService
+    out = tmp_path / "out"
+    out.mkdir()
+    lines = ["x" * 5000] + [f"limitation {i}" for i in range(150)]
+    (out / "limitations.md").write_text("\n".join(lines) + "\n")
+    (out / "run.json").write_text(json.dumps({"stages": [{"name": "a"}, 3, "b"]}))
+    run_doc, stages, got = JobService._pipeline_record(None, SimpleNamespace(dir=tmp_path))
+    assert stages == [{"name": "a"}] and run_doc is not None
+    assert got[0] == "x" * 999 + "…" and got[1:100] == lines[1:100] and len(got) == 101
+    assert got[-1] == "… and 51 more in limitations.md"
+    (out / "limitations.md").unlink()
+    (out / "limitations.md").symlink_to(tmp_path / "out" / "run.json")
+    assert JobService._pipeline_record(None, SimpleNamespace(dir=tmp_path))[2] is None
+
+
 def test_events_stream_progress_and_logs(tmp_path):
     with running_server(tmp_path / "home", kinds=test_kinds()) as (_, c):
         job = c.post("/api/jobs", {"kind": "test.sleep",
@@ -376,6 +705,13 @@ def test_gpu_jobs_run_one_at_a_time(tmp_path):
         assert second["started_at"] >= first["finished_at"]
         text = (srv.home / "jobs" / a["id"] / "out" / "result.txt").read_text()
         assert "cuda='0'" in text
+        # the poll's receipt names the GPU the runner assigned, never the CPU the poll ran on,
+        # and says no more than that it was selected
+        r = c.call("job_status", {"job_id": a["id"]})["receipt"]
+        assert r["device"] == "cuda:0"
+        device = r["execution"]["device"]
+        assert device["assigned"] == "cuda:0" and device["evidence"] == "selected"
+        assert device["used"] is None and device["note"]
 
 
 # --------------------------------------------------------------------- refusals
@@ -446,6 +782,188 @@ def test_a_refused_job_reaches_the_model_as_a_refusal(tmp_path):
         assert "Error (unavailable): Research loop" in env["text"]
         assert "Remedy: Build the data snapshots" in env["text"]
         assert "runtime_error" not in env["text"]
+        # nothing was queued: not executed, and no implementation named as run
+        assert env["receipt"]["result"]["outcome"] == "not_executed"
+        assert env["receipt"]["execution"]["implementation"] is None
+
+
+# ------------------------------------------------------------------- the research job
+
+def _planted_snapshots(home: Path) -> None:
+    """A planted world (bioagent.research.planted: fixtures, built under '+planted'
+    versions, not data) where the research job reads its snapshots."""
+    from bioagent.research.planted import build_world
+    from bioagent.sources.ledger import SnapshotLedger
+    root = home / "data" / "snapshots"
+    root.mkdir(parents=True, exist_ok=True)
+    build_world("selective", root, ledger=SnapshotLedger(root / "ledger.jsonl"))
+
+
+RESEARCH_EXPORTS = ("compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv",
+                    "network.tsv", "provenance.json", "run_manifest.json", "limitations.md",
+                    "report.html")
+
+
+def test_the_research_job_studies_the_formula_it_was_given_and_checks_its_exports(tmp_path):
+    from tcmstudio import kinds as K
+    home = tmp_path / "home"
+    _planted_snapshots(home)
+    # no formula workbook: the question below names no formula, so only the job's formula
+    # parameter can say which one to study (it was validated and then never passed on)
+    environ = {"PATH": "/usr/bin:/bin", "HOME": str(home), "BIOAGENT_FORMULA_TABLE": "none"}
+    with running_server(home, environ=environ) as (srv, c):
+        status, job = c.post("/api/jobs", {"kind": "research.run", "params": {
+            "question": "这些成分的实测靶点集中在哪些通路？", "formula": "葛根芩连汤",
+            "permutations": 200}})
+        assert status == 201, job
+        final = c.wait_job(job["id"], timeout=300)
+        assert final["state"] == "succeeded", final["outcome"]
+        out = srv.home / "jobs" / job["id"] / "out"
+        names = {a["name"]: a["path"] for a in final["artefacts"]}
+        for name, rel in K.RESEARCH_EXPORTS:
+            assert names.get(name) == rel, (name, sorted(names))
+        assert set(RESEARCH_EXPORTS) <= set(names.values())
+        assert {"validator:manifest", "validator:artifact"} <= set(final["outcome"]["checks"])
+        result = final["result"]
+        assert result["formula"] == "tcm:formula.gegen_qinlian_tang" and result["released"]
+        assert [s["id"] for s in result["stages"]][:2] == ["formula_identity", "herb_composition"]
+        assert len(result["stages"]) == 16 and result["coverage"]["herbs"]["total"] == 4
+        # the sixteen stages reach the job, and limitations.md is one limitation per line
+        assert [s["name"] for s in final["stages"]][-1] == "reproducible_export"
+        assert final["limitations"] == (out / "limitations.md").read_text(
+            encoding="utf-8").splitlines()
+        # a research run writes no run.json: its receipt takes completeness from the manifest
+        manifest_doc = json.loads((out / "run_manifest.json").read_text(encoding="utf-8"))
+        assert isinstance(manifest_doc["complete"], bool)
+        assert srv.jobs.job_receipt(job["id"])["complete"] is manifest_doc["complete"]
+        st = c.call("job_status", {"job_id": job["id"]})
+        assert "16 个工作流阶段" in st["summary"] and "16 workflow stages" in st["summary_en"]
+        assert "已准予发布" in st["summary"] and "release authorised" in st["summary_en"]
+        # the validator re-reads every digest: a table edited after the run is refused
+        manifest = out / "run_manifest.json"
+        assert K._manifest_outputs(manifest) is None
+        table = out / "enrichment.tsv"
+        original = table.read_bytes()
+        table.write_bytes(original.replace(b"reactome", b"Reactome", 1))
+        assert "enrichment.tsv: differs from the digest" in K._manifest_outputs(manifest)
+        assert "enrichment.tsv" in (K._artifact_outputs(out / "artifact.json") or "")
+        table.write_bytes(original)
+        doc = json.loads(manifest.read_text(encoding="utf-8"))
+        del doc["outputs"]["report.html"]
+        manifest.write_text(json.dumps(doc), encoding="utf-8")
+        assert "report.html: not listed" in K._manifest_outputs(manifest)
+        manifest.write_text(json.dumps({**doc, "schema": "other"}), encoding="utf-8")
+        assert "not a tcmscience.run-manifest/1 manifest" in K._manifest_outputs(manifest)
+
+
+def test_the_research_command_carries_the_formula():
+    from types import SimpleNamespace
+
+    from tcmstudio import kinds as K
+    r = {"question": "这些成分的实测靶点集中在哪些通路？", "snapshots": "S", "ledger": "L",
+         "state_dir": "T", "background": "assayed", "hits": "potency", "permutations": 1000,
+         "accept_review": False, "activity": [], "optional": [], "formula": "葛根芩连汤"}
+    argv = K._research_command(r, SimpleNamespace(python="python"))
+    assert "--formula=葛根芩连汤" in argv
+    assert not any(a.startswith("--formula") for a in K._research_command(
+        {**r, "formula": ""}, SimpleNamespace(python="python")))
+    required = {name for name, _, req in K.KINDS["research.run"].artefacts if req}
+    assert required >= {name for name, _ in K.RESEARCH_EXPORTS} | {"artifact", "result"}
+
+
+def _manifest_dir(tmp_path: Path, stages: list | None = None) -> Path:
+    """A run directory holding the eight exports and a run manifest that lists them with
+    their digests (the files are placeholders; the validator reads only digests)."""
+    import hashlib
+    from tcmstudio import kinds as K
+    out = tmp_path / "out"
+    out.mkdir()
+    outputs = {}
+    for _, rel in K.RESEARCH_EXPORTS:
+        if rel == "run_manifest.json":
+            continue
+        data = f"{rel}\n".encode()
+        (out / rel).write_bytes(data)
+        outputs[rel] = {"sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+                        "bytes": len(data)}
+    (out / "run_manifest.json").write_text(json.dumps(
+        {"schema": K.RUN_MANIFEST_SCHEMA, "outputs": outputs, "stages": stages or []}),
+        encoding="utf-8")
+    return out
+
+
+def test_the_manifest_validator_fails_a_run_whose_own_stage_check_failed(tmp_path):
+    """A FAIL stage is not a result: the job fails with the stage named, whatever the exit
+    code (the research command also exits 3 for it, which is not an ok exit code)."""
+    from tcmstudio import kinds as K
+    ok = [{"n": 5, "id": "compound_target", "status": "PASS", "reason": "9 targets"},
+          {"n": 13, "id": "permutation_sensitivity", "status": "NOT_APPLICABLE", "reason": "x"}]
+    out = _manifest_dir(tmp_path, ok)
+    assert K._manifest_outputs(out / "run_manifest.json") is None
+    bad = [*ok, {"n": 12, "id": "multiple_testing", "status": "FAIL",
+                 "reason": "the q-values do not recompute over the full family"}]
+    doc = json.loads((out / "run_manifest.json").read_text(encoding="utf-8"))
+    (out / "run_manifest.json").write_text(json.dumps({**doc, "stages": bad}), encoding="utf-8")
+    verdict = K._manifest_outputs(out / "run_manifest.json")
+    assert verdict.startswith("stage multiple_testing: FAIL: the q-values do not recompute")
+    assert 3 not in K.KINDS["research.run"].ok_exit_codes
+
+
+def test_the_manifest_validator_reads_no_symlink_and_no_fifo(tmp_path):
+    """read_record's rule for every listed file: a symlink is not followed (even one that
+    stays inside the run directory), and a FIFO is never opened (it would block)."""
+    import os
+    from tcmstudio import kinds as K
+    out = _manifest_dir(tmp_path)
+    manifest = out / "run_manifest.json"
+    assert K._manifest_outputs(manifest) is None
+    table = out / "targets.tsv"
+    data = table.read_bytes()
+    (out / "copy.tsv").write_bytes(data)
+    table.unlink()
+    table.symlink_to(out / "copy.tsv")
+    assert "targets.tsv: not a regular file" in K._manifest_outputs(manifest)
+    table.unlink()
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(table)
+        assert "targets.tsv: not a regular file" in K._manifest_outputs(manifest)
+        table.unlink()
+    table.write_bytes(data)
+    assert K._manifest_outputs(manifest) is None
+
+
+def test_a_question_naming_another_formula_is_refused_before_the_job_is_queued(tmp_path):
+    from tcmstudio import kinds as K
+    ctx = K.PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id="p",
+                           paths={"projects": tmp_path / "projects"},
+                           data_env={"BIOAGENT_DATA_LAKE": str(tmp_path / "lake")},
+                           find=lambda value: None, settings={})
+    prepare = K.KINDS["research.run"].prepare
+    with pytest.raises(K.BadParams, match="the question names tcm:formula.gegen_qinlian_tang "
+                                          "but the formula given is another formula"):
+        prepare({"question": "葛根芩连汤的实测靶点集中在哪些通路？",
+                 "formula": "桂枝汤《伤寒论》"}, ctx)
+    with pytest.raises(K.BadParams, match="but the formula given is tcm:formula.fx0123"):
+        prepare({"question": "葛根芩连汤的通路", "formula": "tcm:formula.fx0123"}, ctx)
+    # the same formula, a question naming none, or one only the workbook can read: queued
+    for question, formula in (("葛根芩连汤的通路", "葛根黄芩黄连汤"),
+                              ("这些成分的实测靶点集中在哪些通路？", "葛根芩连汤"),
+                              ("tcm:formula.fx0123 的通路", "葛根芩连汤"),
+                              ("桂枝汤《伤寒论》的实测靶点集中在哪些通路？", "桂枝汤《伤寒论》")):
+        assert prepare({"question": question, "formula": formula}, ctx)["formula"] == formula
+
+
+def test_the_research_summary_says_when_a_run_is_incomplete():
+    """Nothing could be tested: the job succeeded (the loop released an empty result), and
+    its summary says the run is incomplete, in both languages."""
+    from tcmstudio.dispatch import _research_tail
+    result = {"stages": [{"status": "PASS"}, {"status": "UNVERIFIED"}], "released": True,
+              "hypotheses": [], "complete": False, "problems": ["stage a", "stage b"]}
+    zh, en = _research_tail(result)
+    assert "运行不完整（2 个必需阶段未完成" in zh
+    assert "the run is incomplete (2 required stage(s) not done" in en
+    zh, en = _research_tail({**result, "complete": True, "problems": []})
+    assert "不完整" not in zh and "incomplete" not in en
 
 
 def test_paths_outside_the_home_are_not_inputs(tmp_path):

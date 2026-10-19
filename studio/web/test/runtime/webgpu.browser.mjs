@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Compiles and runs the real WGSL on a browser adapter, checking every integer count.
 // node studio/web/test/runtime/webgpu.browser.mjs [--chromium PATH] [--software]
-// --software explicitly permits software WebGPU for shader validation; production never uses it.
+// --software explicitly permits software WebGPU for shader validation; production never uses it, and this harness
+// checks that a production SequenceCompute refuses the software adapter it found. The adapter is classified by the
+// runtime's own classifyAdapter; a software run shows the WGSL is exact, never that a GPU is fast.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -24,12 +26,19 @@ try {
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   const report = await page.evaluate(async (allowSoftware) => {
-    const { SequenceCompute, planSequenceCompute, referenceCounts } = await import("/webgpu.js");
-    const adapter = await navigator.gpu?.requestAdapter();
+    const { SequenceCompute, classifyAdapter, planSequenceCompute, referenceCounts } = await import("/webgpu.js");
+    const adapter = await navigator.gpu?.requestAdapter({ powerPreference: "high-performance" });
     if (!adapter) return { ok: false, reason: "No WebGPU adapter; WGSL parity was not verified" };
-    const info = adapter.info;
-    const adapterInfo = { vendor: info?.vendor || "", architecture: info?.architecture || "", description: info?.description || "", software: Boolean(info?.isFallbackAdapter || adapter.isFallbackAdapter) || /swiftshader|llvmpipe|software/i.test(`${info?.vendor} ${info?.description} ${info?.architecture}`) };
-    const compute = new SequenceCompute({ allowSoftware });
+    const adapterInfo = classifyAdapter(adapter.info, adapter);
+    const probe = ["native.distance_matrix", { sequences: Array.from({ length: 8 }, (_, i) => "ACGT".repeat(2048).slice(i) + "A".repeat(i)) }];
+    // production never computes on a software adapter
+    let productionRefusesSoftware = null;
+    if (adapterInfo.kind === "software") {
+      const production = new SequenceCompute();
+      productionRefusesSoftware = (await production.prepare(...probe)) === null && /software/.test(production.fallbackReason || "");
+      production.stop();
+    }
+    const compute = new SequenceCompute({ allowSoftware, timestamps: true });
     const cases = [
       ...["p", "jc69", "k2p"].map((model) => ["native.distance_matrix", { model, sequences: { a: "ACGTURYN-".repeat(257), b: "GGTTTCAN-".repeat(257), c: "AC-TNACGR".repeat(257) } }]),
       ["native.hamming_distance", { a: "ACGTURYN".repeat(513), b: "GCSNTTCN".repeat(513) }],
@@ -41,16 +50,22 @@ try {
       const t0 = performance.now();
       const expected = Array.from(referenceCounts(planSequenceCompute(tool, input)));
       const result = await compute.prepare(tool, input, { force: true });
-      results.push({ tool, model: input.model || null, window: input.window || 0, counts: expected.length, backend: result?.backend || "cpu", same: Boolean(result) && JSON.stringify(result.counts) === JSON.stringify(expected), reason: compute.fallbackReason, ms: Math.round(performance.now() - t0) });
+      const run = compute.lastRun;
+      results.push({ tool, model: input.model || null, window: input.window || 0, counts: expected.length, backend: result?.backend || "cpu", same: Boolean(result) && JSON.stringify(result.counts) === JSON.stringify(expected), reason: compute.fallbackReason, ms: Math.round(performance.now() - t0),
+        dispatched: run?.dispatched ?? false, sample_checked: run?.checked ?? false, kernel_ms: run?.kernel_ms ?? null, ...(run?.kernel_note ? { kernel_note: run.kernel_note } : {}) });
     }
     // Rectangular dispatch (records exceed max x) and non-multiple-of-64 lengths exercise bounds.
     const long = { sequence: "GCASN".repeat(14001), window: 1 };
     const expected = Array.from(referenceCounts(planSequenceCompute("native.gc_content", long)));
     const result = await compute.prepare("native.gc_content", long, { force: true });
     results.push({ tool: "native.gc_content", window: 1, rectangular_dispatch: true, same: Boolean(result) && JSON.stringify(result.counts) === JSON.stringify(expected), reason: compute.fallbackReason });
+    const knownAnswer = compute.knownAnswer;
     compute.stop();
-    return { ok: results.every((r) => r.same), adapter: adapterInfo, allow_software: allowSoftware, results };
+    return { ok: results.every((r) => r.same), adapter: adapterInfo, known_answer: knownAnswer, production_refuses_software: productionRefusesSoftware,
+      allow_software: allowSoftware, accelerated: null, note: "parity only: nothing here is compared with the CPU, so nothing here is evidence of acceleration", results };
   }, software);
   console.log(JSON.stringify(report, null, 2));
   assert.equal(report.ok, true, "real WGSL execution must exactly match every CPU reference count");
+  assert.equal(report.known_answer?.ok, true, "the device passed the known-answer test");
+  assert.notEqual(report.production_refuses_software, false, "production must refuse a software adapter");
 } finally { await browser?.close(); await new Promise((resolve) => server.close(resolve)); }

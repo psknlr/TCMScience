@@ -10,8 +10,9 @@
 
 import { Emitter } from "../core/events.js";
 import { registerStrings, t } from "../core/i18n.js";
+import { baseReceipt, pageOutcome } from "../core/receipt.js";
 import { canonicalJson, nowIso, sha256Hex } from "../core/util.js";
-import { WEBGPU_TOOLS } from "./webgpu.js";
+import { WEBGPU_TOOLS, classifyAdapter } from "./webgpu.js";
 import { simdStatus } from "../compute/simd.js";
 
 // the tools whose hot loop has a CPU kernel in the Worker (compute/bridge.js): the counts with WebAssembly SIMD where
@@ -103,14 +104,12 @@ export async function detectDevice({ navigator: nav = globalThis.navigator, isol
       ]);
       if (adapter) {
         const i = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {}) || {};
-        const fallback = Boolean(adapter.isFallbackAdapter ?? i.isFallbackAdapter);
-        out.webgpu.adapter = {
-          vendor: i.vendor || "", architecture: i.architecture || "", description: i.description || "",
-          // SwiftShader, llvmpipe and friends are CPU emulators: not a GPU, whatever the API says
-          software: fallback || /swiftshader|llvmpipe|lavapipe|software|microsoft basic render/i.test(`${i.vendor} ${i.architecture} ${i.description}`),
-          fallback,
-        };
-        out.compute.webgpu_adapter = !out.webgpu.adapter.software;
+        // the one classifier (runtime/webgpu.js): SwiftShader, llvmpipe and friends are CPU renderers, not a GPU,
+        // whatever the API says; an adapter that names nothing is unidentified, never taken for a GPU
+        const c = classifyAdapter(i, adapter);
+        out.webgpu.adapter = { ...c, software: c.kind === "software" ? true : c.kind === "physical" ? false : null };
+        out.compute.webgpu_adapter = c.kind === "physical";
+        out.compute.webgpu_adapter_kind = c.kind;
       }
     } catch (err) {
       out.webgpu.error = String(err?.message || err);
@@ -257,9 +256,9 @@ export class BrowserRuntime {
     const input = args && typeof args === "object" && !Array.isArray(args) ? args : {};
     const { signal } = ctx;
     const entry = await this.#entryFor(name, input);
-    const fail = (status, error, summary, text) => this.#envelope({ tool: name, args: input, entry, status, error, summary, text, started, t0 });
+    const fail = (status, error, summary, text, outcome) => this.#envelope({ tool: name, args: input, entry, status, error, summary, text, started, t0, outcome });
 
-    if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.");
+    if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.", "not_executed");
     if (this.status === "offline" && !this.#bootP) {
       return fail("failed", { type: "unavailable", message: this.message, hint: "Start the local runner (tcmstudio serve) and connect it in Settings." }, this.message,
         `Not run: ${this.message} Say what this would need; do not substitute an approximation.`);
@@ -273,7 +272,7 @@ export class BrowserRuntime {
     const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network !== false };
     // only capabilities_status reports host facts; the WebGPU probe is not worth making for every call
     if (entry?.id === "system.capabilities") context.capabilities = await this.#capabilities();
-    if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.");
+    if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.", "not_executed");
     const payload = {
       tool: name,
       arguments: input,
@@ -515,7 +514,7 @@ export class BrowserRuntime {
     const queued = this.#queue.indexOf(job);
     if (queued >= 0) {
       this.#queue.splice(queued, 1);
-      job.resolve(this.#cancelled(job));
+      job.resolve(this.#cancelled(job, "not_executed")); // never sent to the worker
       return;
     }
     if (this.#running !== job || job.cancelRequested) return;
@@ -601,9 +600,9 @@ export class BrowserRuntime {
     });
   }
 
-  #cancelled(job) {
+  #cancelled(job, outcome = "cancelled") {
     return this.#envelope({
-      tool: job.name, args: job.input, entry: job.entry, status: "cancelled", started: job.started, t0: job.t0,
+      tool: job.name, args: job.input, entry: job.entry, status: "cancelled", started: job.started, t0: job.t0, outcome,
       summary: t("runtime.browser.cancelled"), text: "Not run to completion: the user stopped the call. There is no result.",
       error: { type: "runtime_error", message: "cancelled", hint: "" },
     });
@@ -616,21 +615,26 @@ export class BrowserRuntime {
     });
   }
 
-  /** An envelope (§3) for an outcome Python never produced: a cancel, a crash, a runtime that cannot start. */
-  #envelope({ tool, args, entry, status, error, summary, text, started, t0 }) {
+  /**
+   * An envelope (§3) for an outcome Python never produced: a cancel, a crash, a runtime that cannot start. It is made
+   * in the page by this runtime (receipt.where "browser", the runtime it stands for; decided_by "browser-runtime");
+   * outcome: not executed (it never ran or never started), failed (it crashed or timed out while running), cancelled
+   * (stopped while running).
+   */
+  #envelope({ tool, args, entry, status, error, summary, text, started, t0, outcome }) {
     const versions = this.#info?.versions || {};
     const via = tool === "call_tool" ? String(args?.tool || tool) : entry?.id || tool;
+    const receipt = (input_sha256) => baseReceipt({
+      where: "browser", runtime: this.#info?.runtime || null, device: "cpu", versions, decided_by: "browser-runtime",
+      input_sha256, started_at: started, outcome: outcome || pageOutcome(status, error),
+    });
     const base = {
       ok: false, tool, via, status, duration_ms: Math.round(now() - t0), summary, text, result: null, citations: [],
       governance: { kind: entry?.kind || "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: [], outputs: [] },
-      receipt: {
-        where: "browser", runtime: this.#info?.runtime || null, device: "cpu", versions,
-        composite_version: null, content_hash: null, audit_head: null, input_sha256: null, output_sha256: null,
-        started_at: started, decided_by: "browser-runtime",
-      },
+      receipt: receipt(null),
       job: null, approval: null, error,
     };
-    return sha256Hex(canonicalJson(args || {})).then((h) => { base.receipt.input_sha256 = h; return base; }, () => base);
+    return sha256Hex(canonicalJson(args || {})).then((h) => { base.receipt = receipt(h); return base; }, () => base);
   }
 
   #setStatus(status, { progress, message, error } = {}) {

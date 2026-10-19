@@ -1,0 +1,91 @@
+name: connectors-live
+
+# Every registered public-source operation (bioagent.providers.public_apis.SOURCES) run against its real upstream, once a
+# month and on demand: scripts/verify_connectors.py renders each operation from its own example and sends it through the
+# real HTTPBackend (rate limits, retries and size caps included). Other people's services, so never on a push.
+#
+# The run is a report, not a record. It writes its CSV to the runner's temporary directory, uploads it with the connector
+# coverage report built from it (studio/scripts/connector_coverage.py --live-record), and prints in the summary how it
+# differs from the committed record (BioScience-Harness/data/connector_live_verification.csv). It never commits: the
+# record changes only by a reviewed commit of such a run. A failed operation fails the job, after the reports are
+# uploaded. Nothing here goes through the deployed site's gateway, so it is the live_upstream level, never live_gateway
+# (studio/docs/compat/connectors.md).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 3 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectors-live
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Every connector operation against its real upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
+      - name: Every operation, live (the committed record is not touched)
+        id: live
+        working-directory: BioScience-Harness
+        shell: bash   # -eo pipefail: the script's exit code, not tee's
+        run: |
+          mkdir -p "$RUNNER_TEMP/connectors"
+          code=0
+          PYTHONPATH=src python scripts/verify_connectors.py --out "$RUNNER_TEMP/connectors/connector_live_verification.csv" \
+            | tee "$RUNNER_TEMP/connectors/verify.log" || code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+      - name: The coverage report for this run
+        if: always()
+        run: |
+          test -f "$RUNNER_TEMP/connectors/connector_live_verification.csv" || { echo "::error::the run wrote no CSV"; exit 1; }
+          python3 studio/scripts/connector_coverage.py --live-record "$RUNNER_TEMP/connectors/connector_live_verification.csv" \
+            --out "$RUNNER_TEMP/connectors/coverage"
+      - name: How this run differs from the committed record
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/connectors/connector_live_verification.csv" >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          import csv, sys
+          def read(path):
+              try:
+                  with open(path, encoding="utf-8", newline="") as fh:
+                      return {(r["source"], r["operation"]): r for r in csv.DictReader(fh)}
+              except FileNotFoundError:
+                  return {}
+          old = read("BioScience-Harness/data/connector_live_verification.csv")
+          new = read(sys.argv[1])
+          print("## Connector operations against their real upstreams\n")
+          print(f"This run: {sum(r['status'] == 'SUCCEEDED' for r in new.values())} of {len(new)} SUCCEEDED. "
+                f"Committed record: {sum(r['status'] == 'SUCCEEDED' for r in old.values())} of {len(old)}. "
+                "Nothing was committed; the record changes only by a reviewed commit.\n")
+          changed = sorted(k for k in old.keys() | new.keys()
+                           if (old.get(k) or {}).get("status") != (new.get(k) or {}).get("status"))
+          if changed:
+              print("| Operation | Committed | This run | Error |\n|---|---|---|---|")
+              for k in changed:
+                  o, n = old.get(k) or {}, new.get(k) or {}
+                  err = (n.get("error") or "").replace("|", "/")[:120]
+                  print(f"| {k[0]}.{k[1]} | {o.get('status', 'absent')} | {n.get('status', 'absent')} | {err} |")
+          else:
+              print("Every operation has the status the committed record gives it.")
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: connectors-live
+          path: ${{ runner.temp }}/connectors
+          retention-days: 90
+      - name: A failed operation fails the run
+        if: steps.live.outputs.code != '0'
+        run: |
+          echo "::error::verify_connectors.py reported failed operations (see the summary and the uploaded CSV)"
+          exit 1

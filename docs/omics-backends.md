@@ -22,6 +22,26 @@ preranked GSEA. Two rules hold for every choice:
 
 The defaults are what the pipelines did before, so an existing call gives the same result.
 
+Each choice is also recorded on the stage it runs. Every pipeline writes its stages to
+`stages.json` while it works and to `run.json`'s `stages` at the end
+([analysis-pipelines.md](analysis-pipelines.md#run-records-stages-completeness-and-limitations)),
+each with:
+- the engine, by the catalog's engine ids;
+- its version;
+- the device it computed on.
+
+| Stage | Engine ids |
+|---|---|
+| `differential_expression`, `explore` (RNA-seq) and `pseudobulk_de` (single cell) | `builtin-de` or `pydeseq2`, with the implementation's version |
+| `normalize`, `hvg`, `pca`, `neighbors`, `cluster`, `markers` | `builtin` or `scanpy` |
+| `integrate` | `builtin-harmony`, `harmonypy` or `scvi`; not applicable with one batch or with `none` |
+
+Every one of these stages computes on the CPU and records `cpu`. That includes scVI,
+which trains with accelerator `cpu` so that its seed reproduces the model, whatever
+device the job was given. Each run's `limitations.md` says that the built-in
+implementation, PyDESeq2 and R's DESeq2 do not give numerically identical results, and
+points here for where and why they differ.
+
 ## Differential expression: one design, one contrast, one contract
 
 `bioagent.omics.de_backends.run_de` is the single entry point. `run_rnaseq` calls it,
@@ -318,13 +338,24 @@ The tests:
   `tests/test_omics_gsea.py` need the analysis extra. In CI's job "Analysis pipelines
   with the standard tools", it is installed and `BIOAGENT_REQUIRE_TOOLS=1` turns a
   missing package into a failure, so all of them run.
-- `tests/test_omics_scvi.py` needs scvi-tools as well, and `tests/test_omics_deseq2_r.py`
-  needs `Rscript` with DESeq2 (and PyDESeq2 for its PyDESeq2 checks). Neither is in
-  that job's list.
+- `tests/test_omics_deseq2_r.py` needs `Rscript` with DESeq2 (and PyDESeq2 for its
+  PyDESeq2 checks). The same job installs R and Bioconductor's DESeq2 and runs it. It
+  also re-runs `tests/test_runrecord.py` and `tests/test_pipeline_references.py` (the
+  stages each run records, and the built-in reference datasets); those need no engine,
+  since the references pin the built-in backends, so the engine paths are checked by the
+  backend tests above and not by them.
+- `tests/test_omics_scvi.py` needs scvi-tools as well. It runs in its own CI job, "scVI,
+  trained on the CPU", on PyTorch's CPU wheel.
 
 A test that needs an optional package or tool skips without it, and fails instead
 under `BIOAGENT_REQUIRE_TOOLS=1`. The unit tier passes with skips, and its refusal
 and alignment tests run there; scVI's record is checked there against stand-ins.
+
+What each statement here rests on: the comparisons above (PyDESeq2, R's DESeq2, Scanpy,
+harmonypy, scVI, GSEApy) were run where this document was written, with the versions
+named, and are repeated by the CI jobs above wherever those jobs are given a runner.
+None of these backends runs in the browser, and none has a record from a deployed
+service: they are runner-side implementations.
 
 ## Limits
 
@@ -343,7 +374,7 @@ and alignment tests run there; scVI's record is checked there against stand-ins.
 
 ## 中文摘要
 
-**问题：** 流程默认使用本项目自己的实现。PyDESeq2、Scanpy 等成熟实现此前只用于对照测试。现在三个环节可以选择成熟实现，并新增预排序 GSEA。两条规则对每个选项都成立：未安装的实现会被拒绝并说明原因（`ExecutionStatus.UNAVAILABLE`），绝不静默改用内置实现；实际运行的实现及其版本写入结果和 `run.json`。默认值与原来一致。
+**问题：** 流程默认使用本项目自己的实现。PyDESeq2、Scanpy 等成熟实现此前只用于对照测试。现在三个环节可以选择成熟实现，并新增预排序 GSEA。两条规则对每个选项都成立：未安装的实现会被拒绝并说明原因（`ExecutionStatus.UNAVAILABLE`），绝不静默改用内置实现；实际运行的实现及其版本写入结果和 `run.json`。默认值与原来一致。每个选项也记录在它所运行的阶段上（`run.json` 的 `stages` 与运行中的 `stages.json`），包括引擎 ID（如 `builtin-de` / `pydeseq2`、`builtin` / `scanpy`、`builtin-harmony` / `harmonypy` / `scvi`）、版本和实际计算设备。这些阶段都在 CPU 上计算，scVI 也按设计在 CPU 上训练，以便种子能复现模型。每次运行的 `limitations.md` 都注明：内置实现、PyDESeq2 与 R 的 DESeq2 结果在数值上并不相同，差异见本文。
 
 **差异表达（`de_backend`：`builtin` / `pydeseq2`）：** 唯一入口是 `de_backends.run_de`，供 RNA-seq 流程和单细胞伪批量检验共用。两个实现可能在以下几处悄悄不一致，这里在运行前统一处理：
 - **矩阵方向：** 只转置一次，带着 ID 走，结果按基因 ID 读回。
@@ -385,4 +416,5 @@ GSEA 不作为 Skill 的一步：它需要第三方基因集来源及其许可�
 
 **安装与测试：**
 - **安装：** `bioagent[analysis]` 提供 GSEApy 与 harmonypy，下限为实测通过的版本：GSEApy 1.1.6（1.1.0 和 1.1.5 未通过，现在会被拒绝并说明原因），harmonypy 0.0.10。`bioagent[scvi]` 提供 scvi-tools 1.5.1 及以上；先从 PyTorch 的 CPU 源安装 torch，可避免从 PyPI 装入 CUDA 版。
-- **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_scvi.py` 还需要 scvi-tools，`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2，它们不在该作业的列表中。
+- **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2：同一作业安装了 R 与 Bioconductor 的 DESeq2 并运行它，并重跑 `tests/test_runrecord.py` 与 `tests/test_pipeline_references.py`（各流程记录的阶段，以及内置参考数据集）；这两个文件不需要任何引擎，参考数据集固定使用内置后端，所以引擎路径由上面的后端测试检查，而不是由它们检查。`tests/test_omics_scvi.py` 还需要 scvi-tools，在单独的 CI 作业「scVI, trained on the CPU」中用 PyTorch 的 CPU 版运行。
+- **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在分配到运行器时会重复这些比较。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。

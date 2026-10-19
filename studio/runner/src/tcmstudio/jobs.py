@@ -17,6 +17,13 @@ around every call to it. On top of it this module adds what a UI needs:
 
 A job is ``succeeded`` only after its required outputs were collected and verified (the
 controller's digest check plus the pipeline's ``verify_run``); until then it has no result.
+While it runs, a pipeline's own stage record (``out/stages.json``) gives its progress and
+its stages; while it is collected, its progress stage is ``verifying``. Collection writes
+``out/job_receipt.json`` (``tcmstudio.job-receipt/1``) for every job that started, failed and
+cancelled ones too: what ran, with which parameters' digest, on which assigned device, for
+how long and with what peak memory, which artefacts with which digests, which checks passed
+or failed, the pipeline's stages and its limitations. Its digest is recorded in the
+outcome.
 
 Uploads are streamed to ``<home>/uploads/<id>/<name>`` with their SHA-256, and job
 parameters refer to them by id.
@@ -41,7 +48,9 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping
 
 from . import devices as dev
-from .kinds import KINDS, BadParams, Kind, PrepareContext, StartContext, _no_output_token
+from .kinds import (KINDS, RUN_JSON_MAX_BYTES, RUN_MANIFEST_SCHEMA, BadParams, Kind,
+                    PrepareContext, StartContext, _no_output_token, read_record, read_stages,
+                    stage_summary)
 from .settings import RunnerState, data_environment, home_paths
 
 __all__ = ["JobError", "BadJobParams", "UnknownJob", "JobRefused", "JobConflict", "Uploads",
@@ -52,8 +61,14 @@ _FINISHED = frozenset({"succeeded", "failed", "cancelled"})
 _JOB_ID = re.compile(r"^j_[0-9a-f]{16}$")
 _UPLOAD_ID = re.compile(r"^u_[0-9a-f]{16}$")
 _SUBMISSION = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+RECEIPT_FILE = "job_receipt.json"
+RECEIPT_SCHEMA = "tcmstudio.job-receipt/1"
 _LOG_KEEP = 300
 _LOG_LINE = 2000
+#: A pipeline's limitations.md as a job carries it (job.limitations, the receipt, and
+#: job_status's governance): at most this many lines, each at most this long
+_LIMITATION_LINES = 100
+_LIMITATION_CHARS = 1000
 # variables a network job needs to reach the internet the way the runner does
 _NETWORK_ENV = ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "ALL_PROXY", "https_proxy",
                 "http_proxy", "no_proxy", "all_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR",
@@ -137,14 +152,18 @@ class UnknownJob(JobError, KeyError):           # ... and KeyError to not_found
 
 class JobRefused(JobError, RuntimeError):
     """The job cannot run here now: an engine is missing, or the runner's network or
-    allow_remote setting is off. A refusal, reported as such; nothing is approximated."""
+    allow_remote setting is off. A refusal, reported as such; nothing is approximated.
+    ``need`` says what a refusal that lists nothing ``missing`` lacks (capability.NEEDS:
+    the job service itself unless said otherwise); the runner restates the refusal with
+    capability.refusal_requirements."""
 
     status = 422
 
     def __init__(self, message: str, *, type: str = "unavailable", hint: str = "",
-                 **extra: Any) -> None:
+                 need: str = "job_service", **extra: Any) -> None:
         super().__init__(message, hint=hint, **extra)
         self.type = type
+        self.need = need
 
 
 class JobConflict(JobError):
@@ -311,6 +330,11 @@ class _Job:
         self.io_lock = threading.Lock()
         self.collecting = False
         self.version = 0
+        # a pipeline's stages (from out/stages.json while it runs, run.json once collected),
+        # its limitations.md lines and the digest of the job receipt, once collected
+        self.stages: list[dict[str, Any]] | None = None
+        self.limitations: list[str] | None = None
+        self.receipt: dict[str, Any] | None = None
 
     def request_doc(self) -> dict[str, Any]:
         return {"id": self.id, "kind": self.kind, "params": self.params,
@@ -338,6 +362,12 @@ class _Job:
             "command": self.command}
         if self.device_note:
             out["device_note"] = self.device_note
+        if self.stages is not None:
+            out["stages"] = self.stages
+        if self.limitations is not None:
+            out["limitations"] = self.limitations
+        if self.receipt:
+            out["receipt"] = self.receipt
         return out
 
 
@@ -438,6 +468,9 @@ class JobService:
                 job.artefacts = outcome.get("artefacts") or []
                 job.result = outcome.get("result")
                 job.finished_at = outcome.get("finished_at") or job.finished_at
+                job.stages = outcome.get("stages")
+                job.limitations = outcome.get("limitations")
+                job.receipt = outcome.get("receipt")
             elif job.state in _FINISHED:
                 pass                       # finished before it was ever started (cancelled queued)
             elif (d / "job.json").is_file():
@@ -559,27 +592,69 @@ class JobService:
         there is no such envelope to show."""
         job = self._job(job_id)
         with self._lock:
-            state, kind, artefacts = job.state, job.kind, [dict(a) for a in job.artefacts]
+            state, kind = job.state, job.kind
         if kind != "skill.run" or state != "succeeded":
             raise LookupError(f"job {job_id} is not a succeeded governed-skill job")
-        record = next((a for a in artefacts if a.get("name") == "envelope"), None)
-        if not record or not record.get("sha256"):
-            raise LookupError("no digest was recorded for envelope.json when the job was "
-                              "collected")
-        try:
-            data = (job.dir / "out" / "envelope.json").read_bytes()
-        except OSError as exc:
-            raise LookupError(f"envelope.json cannot be read: {exc}") from None
-        if hashlib.sha256(data).hexdigest() != str(record["sha256"]).removeprefix("sha256:"):
-            raise LookupError("envelope.json no longer has the digest recorded when the job "
-                              "was collected")
-        try:
-            doc = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise LookupError(f"envelope.json is not JSON: {exc}") from None
+        doc = self._recorded_json(job, "envelope")
         if not isinstance(doc, dict):
             raise LookupError("envelope.json is not an envelope")
         return doc
+
+    def run_manifest(self, job_id: str) -> dict[str, Any]:
+        """The ``run.json`` a succeeded pipeline job wrote (its pipeline, code digest,
+        configuration, tool versions, models, input and output digests), read back only
+        while it has the digest recorded when the job was collected, like ``envelope``.
+        Raises UnknownJob for no such job, and LookupError (with the reason) when there is no
+        such record to show: not succeeded, no run artefact, or changed since."""
+        job = self._job(job_id)
+        with self._lock:
+            state = job.state
+        if state != "succeeded":
+            raise LookupError(f"job {job_id} has not succeeded; its run record is not final")
+        doc = self._recorded_json(job, "run")
+        if not isinstance(doc, dict):
+            raise LookupError("run.json is not a run record")
+        return doc
+
+    def job_receipt(self, job_id: str) -> dict[str, Any]:
+        """``out/job_receipt.json`` of a collected job (any final state), read back only
+        while it has the digest recorded in its outcome. Raises UnknownJob for no such job
+        and LookupError when there is none or it changed since."""
+        job = self._job(job_id)
+        with self._lock:
+            receipt = dict(job.receipt or {})
+        if not receipt.get("sha256"):
+            raise LookupError(f"job {job_id} has no job receipt (it has not been collected)")
+        try:
+            data = (job.dir / "out" / RECEIPT_FILE).read_bytes()
+        except OSError as exc:
+            raise LookupError(f"{RECEIPT_FILE} cannot be read: {exc}") from None
+        if hashlib.sha256(data).hexdigest() != receipt["sha256"]:
+            raise LookupError(f"{RECEIPT_FILE} no longer has the digest recorded when the job "
+                              "was collected")
+        return json.loads(data.decode("utf-8"))
+
+    def _recorded_json(self, job: _Job, name: str) -> Any:
+        """The JSON artefact ``name`` of a collected job, only while its bytes have the
+        SHA-256 recorded at collection."""
+        with self._lock:
+            artefacts = [dict(a) for a in job.artefacts]
+        record = next((a for a in artefacts if a.get("name") == name), None)
+        if not record or not record.get("sha256") or not record.get("path"):
+            raise LookupError(f"no digest was recorded for the {name} artefact when the job "
+                              "was collected")
+        rel = str(record["path"])
+        try:
+            data = (job.dir / "out" / rel).read_bytes()
+        except OSError as exc:
+            raise LookupError(f"{rel} cannot be read: {exc}") from None
+        if hashlib.sha256(data).hexdigest() != str(record["sha256"]).removeprefix("sha256:"):
+            raise LookupError(f"{rel} no longer has the digest recorded when the job was "
+                              "collected")
+        try:
+            return json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise LookupError(f"{rel} is not JSON: {exc}") from None
 
     def files(self, job_id: str) -> list[dict[str, Any]]:
         job = self._job(job_id)
@@ -742,7 +817,7 @@ class JobService:
                                   "the runner with --network.")
         if kind.sends_remote(prepared) and not settings.get("allow_remote"):
             raise JobRefused(f"{kind.title[1]} would send data to a third-party service, and "
-                             "this runner does not allow that.",
+                             "this runner does not allow that.", need="compute_setting",
                              hint="Turn on 'Allow sending sequences to third-party services' "
                                   "(Settings → Compute), or run it locally (e.g. method esmfold).")
 
@@ -852,18 +927,32 @@ class JobService:
         self._tail(job)
         self._scan_files(job)
         kind = self.kinds.get(job.kind)
+        if not st.state.finished:
+            live = read_stages(job.dir)
+            if live is not None:
+                stages = stage_summary(live["stages"])
+                with self._lock:
+                    if stages != job.stages:
+                        job.stages = stages
+                        job.version += 1
+                        # a progress event carries only the progress: the stage list of a
+                        # card that follows the stream moves on with this one
+                        self._emit(job, "stages", {"stages": stages})
         if kind is not None and kind.progress is not None and not st.state.finished:
             try:
                 progress = kind.progress(job.dir, job.prepared)
             except Exception:                                   # noqa: BLE001
                 progress = None
-            if progress != job.progress:
-                with self._lock:
-                    job.progress = progress
-                    job.version += 1
-                    self._emit(job, "progress", progress or {})
+            self._set_progress(job, progress)
         if st.state.finished:
             self._collect(job)
+
+    def _set_progress(self, job: _Job, progress: dict[str, Any] | None) -> None:
+        with self._lock:
+            if progress != job.progress:
+                job.progress = progress
+                job.version += 1
+                self._emit(job, "progress", progress or {})
 
     def _tail(self, job: _Job) -> None:
         with job.io_lock:
@@ -914,12 +1003,20 @@ class JobService:
             for i, path in enumerate(out.rglob("*")):
                 if i > 5000:
                     break
-                if path.is_file():
-                    rel = path.relative_to(out).as_posix()
-                    if rel not in job.files_seen:
-                        job.files_seen.add(rel)
-                        new.append({"path": rel, "bytes": path.stat().st_size,
-                                    "media_type": media_type(rel)})
+                # a hidden temporary file (".stages.json.<pid>.tmp", written and renamed in
+                # place) is not an output, and may be gone before it is looked at
+                if path.name.startswith(".") and path.name.endswith(".tmp"):
+                    continue
+                try:
+                    if not path.is_file():
+                        continue
+                    size = path.stat().st_size
+                except OSError:
+                    continue
+                rel = path.relative_to(out).as_posix()
+                if rel not in job.files_seen:
+                    job.files_seen.add(rel)
+                    new.append({"path": rel, "bytes": size, "media_type": media_type(rel)})
         if new:
             with self._lock:
                 for item in new[:200]:
@@ -1029,14 +1126,30 @@ class JobService:
         self._scan_files(job)
         with self._ctl_lock:
             st = self.ctl.status(ref)
-            if not st.state.finished:
-                return
+        if not st.state.finished:
+            return
+        # the process has ended; its outputs are being checked, and it is not done yet
+        # what was measured stays (a download's bytes, files and verifications); only the
+        # stage and the message say that the outputs are now being checked
+        before = job.progress or {}
+        self._set_progress(job, {"stage": "verifying", "message": "verifying the outputs",
+                                 **{k: before[k] for k in ("fraction", "bytes", "files",
+                                                           "verified") if k in before}})
+        with self._ctl_lock:
             outcome = self.ctl.collect(ref, validators=dict(kind.validators) if kind else {})
         status = outcome.status
         problems = list(outcome.problems or [])
         error = outcome.error or ""
         exit_code = st.exit_code
         note = None
+        # the checks this collection makes, in order (receipt/1 result.checks); the
+        # controller's digests and validators run on a clean exit only
+        declared = [n for n, _, _ in kind.artefacts] if kind is not None else []
+        collected = set(outcome.artefacts or {})        # the controller validates only these
+        checks = ([("controller_digests" if declared else "controller_exit"),
+                   *(f"validator:{n}" for n in (kind.validators if kind else {})
+                     if n in declared and n in collected)]
+                  if status is ExecutionStatus.SUCCEEDED else [])
         if (kind is not None and status is ExecutionStatus.FAILED and not st.timed_out
                 and exit_code is not None and exit_code != 0 and exit_code in kind.ok_exit_codes):
             # the process ended with a code that is a result (research: release not authorised)
@@ -1044,6 +1157,11 @@ class JobService:
             status = ExecutionStatus.SUCCEEDED if not problems else ExecutionStatus.FAILED
             error = "; ".join(problems)
             note = f"exit {exit_code}: a result, not a failure (see the outputs)"
+            # _check_artefacts validates an artefact only when its file is there and not empty
+            present = {n for n, rel, _ in kind.artefacts if (job.dir / "out" / rel).is_file()
+                       and (job.dir / "out" / rel).stat().st_size}
+            checks = ["required_artefacts", *(f"validator:{n}" for n in kind.validators
+                                              if n in declared and n in present)]
         if status is ExecutionStatus.SUCCEEDED and kind is not None and kind.verify is not None:
             try:
                 extra = kind.verify(job.prepared, self.data_env)
@@ -1051,6 +1169,8 @@ class JobService:
                 extra = [f"the check after the job failed: {type(exc).__name__}: {exc}"]
             if extra:
                 status, problems, error = ExecutionStatus.FAILED, extra, "; ".join(extra)
+            else:
+                checks.append("kind.verify")
         artefacts = []
         for name, art in sorted((outcome.artefacts or {}).items()):
             try:
@@ -1060,8 +1180,22 @@ class JobService:
             artefacts.append({"name": name, "path": rel, "sha256": art.sha256, "bytes": art.size})
         if not artefacts and status is ExecutionStatus.SUCCEEDED and kind is not None:
             artefacts = self._artefact_list(job, kind)
+            if artefacts and "controller_digests" not in checks:
+                checks.insert(0, "runner_digests")          # digested here, at collection
         state = ("succeeded" if status is ExecutionStatus.SUCCEEDED
                  else "cancelled" if status is ExecutionStatus.CANCELLED else "failed")
+        run_doc, stages, limitations = self._pipeline_record(job)
+        if state == "failed" and stages:
+            # a pipeline that found its own run incomplete says which stages are at fault
+            try:
+                from bioagent.runrecord import problems as stage_problems
+                problems = list(dict.fromkeys([*stage_problems(stages), *problems]))
+            except ImportError:                                 # pragma: no cover
+                pass
+            except Exception:                                   # noqa: BLE001
+                # a stage record the pipeline wrote malformed names no stage
+                problems = list(dict.fromkeys(
+                    ["the pipeline's stage record could not be read", *problems]))
         result_doc = None
         if state == "succeeded" and kind is not None and kind.result is not None:
             try:
@@ -1073,21 +1207,148 @@ class JobService:
             out["error"] = error[:1500]
         if problems and state != "succeeded":
             out["problems"] = problems[:20]
+        if state == "succeeded":
+            out["checks"] = checks                  # every one of them passed
+        # the outputs the kind requires, by name, against which artefacts are compared
+        out["expected"] = [n for n, _, required in (kind.artefacts if kind else ()) if required]
         if exit_code is not None:
             out["exit_code"] = exit_code
         if st.timed_out:
             out["timed_out"] = True
         if note:
             out["note"] = note
+        finished = _now()
+        try:
+            receipt = self._write_receipt(job, kind, state, out, artefacts, run_doc, stages,
+                                          limitations, st, finished)
+        except Exception as exc:                                # noqa: BLE001
+            # a record the receipt cannot be made from must not leave the job running (it
+            # would be collected, and fail, again on every tick): the job fails and says why
+            why = f"the job receipt could not be written: {type(exc).__name__}: {exc}"[:500]
+            receipt, result_doc = None, None
+            if state == "succeeded":
+                state = "failed"
+                out["status"] = "failed"
+                out.pop("checks", None)
+            out["problems"] = [*(out.get("problems") or []), why][:20]
+            out["error"] = "; ".join(filter(None, (out.get("error"), why)))[:1500]
+        if receipt:
+            out["receipt"] = receipt
         with self._lock:
             if job.state in _FINISHED:
                 return
             job.state = state
-            job.finished_at = _now()
+            job.finished_at = finished
             job.outcome = out
             job.artefacts = artefacts
             job.result = result_doc
+            job.stages = stage_summary(stages) if stages is not None else job.stages
+            job.limitations = limitations
+            job.receipt = receipt
             self._finish_record(job)
+
+    def _pipeline_record(self, job: _Job) -> tuple[dict[str, Any] | None,
+                                                    list[dict[str, Any]] | None,
+                                                    list[str] | None]:
+        """(run.json, its stages, the limitations.md lines) of a pipeline job's output
+        directory; the stages come from stages.json when run.json was never written (a run
+        that stopped part way), and each is None when the job wrote none."""
+        out = job.dir / "out"
+        # the job wrote these files: none is read through a symlink or past its budget
+        text = read_record(out / "run.json", RUN_JSON_MAX_BYTES)
+        try:
+            run_doc = json.loads(text) if text is not None else None
+        except ValueError:
+            run_doc = None
+        run_doc = run_doc if isinstance(run_doc, dict) else None
+        stages = run_doc.get("stages") if run_doc is not None else None
+        if not isinstance(stages, list):
+            live = read_stages(job.dir)
+            stages = live["stages"] if live is not None else None
+        if stages is not None:
+            stages = [dict(s) for s in stages if isinstance(s, Mapping)]
+        limitations = None
+        text = read_record(out / "limitations.md")
+        if text is not None:
+            # what reaches job.limitations and the job's governance: at most
+            # _LIMITATION_LINES lines of at most _LIMITATION_CHARS characters each
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            limitations = [line if len(line) <= _LIMITATION_CHARS
+                           else line[:_LIMITATION_CHARS - 1] + "…"
+                           for line in lines[:_LIMITATION_LINES]]
+            if len(lines) > _LIMITATION_LINES:
+                limitations.append(f"… and {len(lines) - _LIMITATION_LINES} more in "
+                                   "limitations.md")
+        return run_doc, stages, limitations
+
+    def _write_receipt(self, job: _Job, kind: Kind | None, state: str, out: Mapping[str, Any],
+                       artefacts: list[dict[str, Any]], run_doc: Mapping[str, Any] | None,
+                       stages: list[dict[str, Any]] | None, limitations: list[str] | None,
+                       st: Any, finished: float) -> dict[str, Any] | None:
+        """``out/job_receipt.json`` for a job that started; returns {path, sha256}."""
+        out_dir = job.dir / "out"
+        if not out_dir.is_dir():
+            return None
+        names = {a["name"] for a in artefacts}
+        expected = list(out.get("expected") or ())
+        engines: dict[tuple[str, str | None], list[str]] = {}
+        for s in stages or ():
+            if isinstance(s, Mapping) and s.get("engine") and s.get("status") == "succeeded":
+                version = s.get("version")
+                engines.setdefault((str(s["engine"]), None if version is None else str(version)),
+                                   []).append(str(s.get("name")))
+        exit_doc = _read_json(job.dir / "exit.json")
+        usage = exit_doc.get("resources") if isinstance(exit_doc, dict) else None
+        if isinstance(usage, Mapping) and usage.get("peak_rss_mb") is not None:
+            resources = {"peak_rss_mb": usage.get("peak_rss_mb"),
+                         "cpu_user_s": usage.get("cpu_user_s"),
+                         "cpu_system_s": usage.get("cpu_system_s"),
+                         "source": usage.get("source"),
+                         "scope": "the peak resident memory of the largest single process of "
+                                  "the job that its supervisor waited for; not the sum over "
+                                  "its process tree"}
+        else:
+            resources = {"peak_rss_mb": None, "source": None,
+                         "reason": "the job's supervisor recorded no resource usage"}
+        run_json = out_dir / "run.json"
+        assigned = job.device or None
+        note = job.device_note or (
+            "assigned by the runner when it started the job; where each stage computed is "
+            "the pipeline's own record (device.stages)" if stages else
+            "assigned by the runner when it started the job")
+        doc = {
+            "schema": RECEIPT_SCHEMA, "job_id": job.id, "kind": job.kind, "state": state,
+            "project_id": job.project_id, "submission_id": job.submission_id,
+            "params_sha256": hashlib.sha256(json.dumps(
+                job.params, sort_keys=True, ensure_ascii=False, default=str).encode(
+                "utf-8")).hexdigest(),
+            "inputs": _input_digests(job.inputs),
+            "engine": [{"id": e, "version": v, "stages": n} for (e, v), n in engines.items()]
+                      or None,
+            "device": {"assigned": assigned, "evidence": "selected" if assigned else None,
+                       "note": note,
+                       "stages": ({str(s.get("name")): s.get("device") for s in stages
+                                   if isinstance(s, Mapping) and s.get("status") == "succeeded"}
+                                  if stages else None)},
+            "started_at": _iso(job.started_at), "finished_at": _iso(finished),
+            "duration_s": round(finished - job.started_at, 3) if job.started_at else None,
+            "exit_code": st.exit_code, "timed_out": bool(st.timed_out),
+            "artefacts": [dict(a) for a in artefacts],
+            "expected": expected, "missing": [n for n in expected if n not in names],
+            "checks": list(out.get("checks") or ()) if state == "succeeded" else [],
+            "problems": list(out.get("problems") or ()),
+            "error": out.get("error"),
+            "stages": stage_summary(stages) if stages is not None else None,
+            "complete": _completeness(run_doc, out_dir),
+            "run_json_sha256": self._sha256(run_json) if run_json.is_file() else None,
+            "limitations": list(limitations or ()),
+            "resources": resources}
+        path = out_dir / RECEIPT_FILE
+        try:
+            _write_json(path, doc)
+            return {"path": RECEIPT_FILE, "sha256": self._sha256(path)}
+        except OSError:
+            return None
 
     def _check_artefacts(self, job: _Job, kind: Kind) -> list[str]:
         problems = []
@@ -1121,11 +1382,48 @@ class JobService:
         job.save()
         _write_json(job.dir / "outcome.json",
                     {"state": job.state, "outcome": job.outcome, "artefacts": job.artefacts,
-                     "result": job.result, "finished_at": job.finished_at})
+                     "result": job.result, "finished_at": job.finished_at,
+                     "stages": job.stages, "limitations": job.limitations,
+                     "receipt": job.receipt})
         view = self._view(job)
         self._emit(job, "state", view)
         self._emit(job, "done", view)
         self._changed.notify_all()
+
+
+def _completeness(run_doc: Mapping[str, Any] | None, out_dir: Path) -> bool | None:
+    """Whether the job's own record calls its run complete: a pipeline's run.json, else a
+    research run's run_manifest.json (it writes no run.json); None when neither says."""
+    complete = run_doc.get("complete") if run_doc is not None else None
+    if isinstance(complete, bool):
+        return complete
+    text = read_record(out_dir / "run_manifest.json", RUN_JSON_MAX_BYTES)
+    try:
+        manifest = json.loads(text) if text is not None else None
+    except ValueError:
+        return None
+    if not isinstance(manifest, dict) or manifest.get("schema") != RUN_MANIFEST_SCHEMA:
+        return None
+    complete = manifest.get("complete")
+    return complete if isinstance(complete, bool) else None
+
+
+def _input_digests(inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The digests of a job's inputs (sha256 and bytes of each upload), without names or
+    paths."""
+    out: dict[str, Any] = {}
+    for key, value in inputs.items():
+        if not isinstance(value, Mapping):
+            continue
+        if value.get("sha256"):
+            out[key] = {"sha256": value.get("sha256"), "bytes": value.get("bytes")}
+        elif any(isinstance(v, Mapping) for v in value.values()):
+            nested = _input_digests(value)
+            if nested:
+                out[key] = nested
+        else:
+            out[key] = {"sha256": None, "bytes": None}
+    return out
 
 
 def _compact(value: Any, budget: int = 12000) -> Any:
@@ -1175,6 +1473,14 @@ class JobsHook:
     def envelope(self, job_id: str) -> dict[str, Any]:
         """A succeeded skill.run job's governed-run envelope (JobService.envelope)."""
         return self.service.envelope(job_id)
+
+    def run_manifest(self, job_id: str) -> dict[str, Any]:
+        """A succeeded pipeline job's run.json, at its recorded digest (JobService.run_manifest)."""
+        return self.service.run_manifest(job_id)
+
+    def job_receipt(self, job_id: str) -> dict[str, Any]:
+        """A collected job's job_receipt.json, at its recorded digest (JobService.job_receipt)."""
+        return self.service.job_receipt(job_id)
 
 
 def iter_events(service: JobService, job_id: str, *, keepalive_s: float = 15.0,

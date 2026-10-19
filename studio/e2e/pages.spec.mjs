@@ -46,6 +46,10 @@ async function unnamed(page) {
 
 test("first run, settings with a custom model, catalog and about", async ({ page }) => {
   const watch = watchConsole(page);
+  // Pyodide's own files: nothing on these pages may load them (Settings → Data reads the browser store on a press); the
+  // runtime's status says its Worker was never started
+  const pyodideRequests = [];
+  page.on("request", (r) => { if (/pyodide\.(mjs|asm\.(js|wasm))|python_stdlib\.zip|pyodide-lock\.json/.test(r.url())) pyodideRequests.push(r.url()); });
   await seedSettings(page, { onboarded: false });
   await page.goto(`${site.url}/`);
   await waitForApp(page);
@@ -84,9 +88,21 @@ test("first run, settings with a custom model, catalog and about", async ({ page
   expect(settings.provider).toBe(settings.customProviders[0].id);
   await shot(page, "settings-models-light");
 
-  for (const tab of ["compute", "general", "shortcuts"]) {
+  for (const tab of ["compute", "data", "general", "shortcuts"]) {
     await page.goto(`${site.url}/#/settings/${tab}`);
-    await expect(page.locator(`[aria-current="page"], .is-on, [aria-selected="true"]`).filter({ hasText: { compute: "计算", general: "通用", shortcuts: "快捷键" }[tab] }).first()).toBeVisible();
+    await expect(page.locator(`[aria-current="page"], .is-on, [aria-selected="true"]`).filter({ hasText: { compute: "计算", data: "数据", general: "通用", shortcuts: "快捷键" }[tab] }).first()).toBeVisible();
+    if (tab === "data") {
+      // no runner here: the tab says so, and reading this browser's store waits for a press (it loads Pyodide)
+      await expect(page.locator("#app")).toContainText("连接 Runner 后");
+      await expect(page.getByRole("button", { name: /在浏览器中检查/ })).toBeVisible();
+      expect(await page.evaluate(() => globalThis.__studio.state.browser.status)).toBe("idle");
+      expect(pyodideRequests).toEqual([]);
+    }
+    if (tab === "compute") {
+      // the device evidence beside what was reported; remote compute is a choice that says it is not configured
+      await expect(page.locator(".evidence")).toContainText("远程计算");
+      await expect(page.locator(".evidence")).toContainText("未配置");
+    }
     if (tab === "compute") {
       await page.getByLabel("浏览器加速", { exact: true }).selectOption("cpu");
       await page.reload();
@@ -107,7 +123,28 @@ test("first run, settings with a custom model, catalog and about", async ({ page
   await expect(page.locator("#app")).toContainText("native.reverse_complement");
   await page.goto(`${site.url}/#/catalog/native.reverse_complement`);
   await expect(page.locator("#app")).toContainText("IUPAC");
+  // the eight state fields, as words
+  for (const label of ["已注册", "可执行", "测试已验证", "已成功执行", "需要数据", "需要本机 Runner", "需要远程计算", "需要批准"]) {
+    await expect(page.locator(".entry__state")).toContainText(label);
+  }
   await shot(page, "catalog-light");
+
+  // the filters: a state chip (aria-pressed), the local backend select; counts from the live catalog; the address keeps them
+  await page.goto(`${site.url}/#/catalog`);
+  await search.fill("");
+  const runnerOnly = await page.evaluate(() => globalThis.__studio.catalog.entries.filter((e) => !(e.exec || []).includes("browser")).length);
+  const chip = page.locator('[data-flag="needs_runner"]');
+  await chip.click();
+  await expect(page.locator('[data-flag="needs_runner"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator(".catalog__count")).toContainText(`${runnerOnly} 项`);
+  await expect(page).toHaveURL(/f=needs_runner/);
+  await page.locator('[data-flag="needs_runner"]').click();
+  const gpu = await page.evaluate(() => globalThis.__studio.catalog.entries.filter((e) => (e.execution?.browser_compute?.backends || []).includes("webgpu")).length);
+  await page.getByLabel("本地计算后端").selectOption("webgpu");
+  await expect(page.locator(".catalog__count")).toContainText(`${gpu} 项`);
+  await expect(page).toHaveURL(/be=webgpu/);
+  await page.reload();
+  await expect(page.locator(".catalog__count")).toContainText(`${gpu} 项`);
 
   await page.goto(`${site.url}/#/about`);
   await expect(page.locator("#app")).toContainText("science.impf.ai");
@@ -165,6 +202,12 @@ test("the catalog fits a phone: no horizontal overflow at 390×844 and 320×800"
     const sizes = await catalog.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }));
     expect(sizes.scroll, `.page--catalog at ${viewport.width}px`).toBeLessThanOrEqual(sizes.client);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `the page at ${viewport.width}px`).toBeLessThanOrEqual(0);
+    // an entry's detail (the state fields, readiness, verification) and Settings → Data wrap too
+    for (const r of ["#/catalog/skill.dock-ligands?f=needs_runner", "#/settings/data", "#/settings/compute"]) {
+      await page.evaluate((h) => { location.hash = h; }, r);
+      await page.waitForTimeout(300);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${r} at ${viewport.width}px`).toBeLessThanOrEqual(0);
+    }
     watch.expectClean();
     await context.close();
   }
@@ -209,7 +252,7 @@ test("dark theme, keyboard focus and landmarks", async ({ browser }) => {
   const keys = /\b(ui|core|runtime)\.[a-z_]+\.[a-z_.]+\b/;
   for (const l of ["en", "zh"]) {
     await page.evaluate(async (x) => (await import("/js/core/i18n.js")).setLang(x), l);
-    for (const r of ["#/", "#/settings/models", "#/settings/compute", "#/settings/general", "#/catalog", "#/about"]) {
+    for (const r of ["#/", "#/settings/models", "#/settings/compute", "#/settings/data", "#/settings/general", "#/catalog", "#/catalog/connector.uniprot.search?f=verified", "#/about"]) {
       await page.evaluate((h) => { location.hash = h; }, r);
       await page.waitForTimeout(400);
       const text = await page.locator("body").innerText();

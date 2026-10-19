@@ -51,15 +51,19 @@ CLASS_LABELS = {
     "8": "local runner only",
 }
 
-# the tools whose hot loop has a JavaScript kernel (studio/web/js/compute/kernels.js)
+# Which tools have a browser kernel, and which backends it has, is read from the catalog
+# (entry.execution.browser_compute, which tcmstudio.catalog derives from tcmstudio.browser_compute):
+# class 3 when WebGPU is among the backends, class 2 otherwise. These two maps only hold the notes
+# a person wrote for them; a tool listed here without a kernel in the catalog stays in its class.
+# the notes for the tools whose hot loop has a JavaScript kernel (studio/web/js/compute/kernels.js)
 KERNEL = {
     "native.global_alignment": "Needleman–Wunsch",
     "native.local_alignment": "Smith–Waterman",
     "native.protein_alignment": "Needleman–Wunsch / Smith–Waterman (BLOSUM62)",
     "native.edit_distance": "Levenshtein",
 }
-# … and those whose integer counts also have the WebGPU kernel (studio/web/js/runtime/webgpu.js) and the
-# WebAssembly SIMD kernel (studio/web/js/compute/wasm/seqcount.wat)
+# … and for those whose integer counts also have the WebGPU kernel (studio/web/js/runtime/webgpu.js) and
+# the WebAssembly SIMD kernel (studio/web/js/compute/wasm/seqcount.wat)
 GPU = {
     "native.distance_matrix": "pairwise site/difference/transition counts",
     "native.hamming_distance": "mismatch count",
@@ -75,9 +79,16 @@ WASM_CANDIDATES = {
     "native.mann_whitney_u": "rank sums over large samples",
     "native.kruskal_wallis": "ranks over large samples",
     "native.enrichment_analysis": "many hypergeometric tests",
-    "skill.analyze-tcm-network-pharmacology": "seeded degree-matched permutation null (1000 per pathway): "
-                                              "the most data-parallel CPU work in the catalog; a port must "
-                                              "reproduce Python's Mersenne Twister draws exactly",
+}
+# Notes for entries that run in Pyodide as they are (class 1) and need one
+PYODIDE_NOTES = {
+    # The limited seed-corpus skill draws no permutation and computes no topology (skills/p0/netpharm.py:
+    # randomisation not performed), so no kernel would pay off: class 1, not a WASM candidate. The seeded
+    # degree-matched permutation null and Brandes betweenness are the research loop's
+    # (analysis/network_pharmacology.py, job.research.run, class 6), outside the pin.
+    "skill.analyze-tcm-network-pharmacology": "limited seed corpus: no permutation null, no topology; trivial "
+                                              "CPU. The seeded permutation null and betweenness run in "
+                                              "job.research.run",
 }
 # job and skill details: what blocks the browser, with the Pyodide 314 lockfile in mind
 RUNNER_REASONS = {
@@ -107,32 +118,43 @@ WEBNN_NOTE = ("No model ships with the site; a packaged ONNX model (embeddings f
               "could run here through ONNX Runtime Web's WebNN, WebGPU or WASM providers")
 
 
+def validation(e: dict) -> str:
+    """The entry's committed verification (entry.verification, from tcmstudio.catalog): each level
+    with its status and, for a dated record, its date. No record is UNVERIFIED, never a pass."""
+    levels = (e.get("verification") or {}).get("levels") or {}
+    if not levels:
+        return "UNVERIFIED: no committed verification record"
+    return "; ".join(f"{name} {lv.get('status', 'UNVERIFIED')}" + (f" ({str(lv['at'])[:10]})" if lv.get("at") else "")
+                     for name, lv in levels.items())
+
+
 def classify(e: dict) -> tuple[str, str, str, str, str]:
     """→ (class, local backends in order, fallback, validation, notes)."""
     eid, exec_ = e["id"], e.get("exec") or []
-    if eid in GPU:
-        return ("3", "webgpu | wasm-simd → js kernel → pyodide", "the CPU kernel, then the original Python",
-                "exact integer counts; packet bound to the input by SHA-256; Python recounts sampled records; "
-                "fixtures + randomized end-to-end parity (SIMD and JavaScript alike)", GPU[eid])
-    if eid in KERNEL:
-        return ("2", "js kernel → pyodide", "the original Python",
-                "byte-identical output (score bits and int/float type); Python re-checks every alignment; "
-                "fixtures + randomized end-to-end parity", KERNEL[eid])
+    checked = validation(e)
+    kernel = (e.get("execution") or {}).get("browser_compute")
+    if kernel and "browser" in exec_:
+        fast = [b for b in kernel.get("backends") or () if b in ("webgpu", "wasm-simd")]
+        if "webgpu" in fast:
+            return ("3", " | ".join(fast) + " → js kernel → pyodide", "the CPU kernel, then the original Python",
+                    checked, GPU.get(eid) or kernel.get("workload", ""))
+        return ("2", "js kernel → pyodide", "the original Python", checked,
+                KERNEL.get(eid) or kernel.get("workload", ""))
     if eid in RUNNER_REASONS:
         cls, why = RUNNER_REASONS[eid]
         return (cls, "runner (native CPython" + (", GPU" if e.get("gpu") else "") + ")",
-                "none in the browser: the call says what it needs", "runner tests", why)
+                "none in the browser: the call says what it needs", checked, why)
     if "browser" not in exec_:
-        return ("8", "runner (native CPython)", "none in the browser", "runner tests", "runner-only entry")
+        return ("8", "runner (native CPython)", "none in the browser", checked, "runner-only entry")
     if e.get("network"):
         hosts = ", ".join(e.get("hosts") or [])
         return ("1g", "pyodide + same-origin gateway", "unavailable offline or when the source is down; the runner",
-                "request templates reviewed; edge validates hosts, methods, sizes", hosts)
+                checked, hosts)
     if eid in WASM_CANDIDATES:
-        return ("5", "pyodide", "—", "byte-identical to native CPython (runtime check)", WASM_CANDIDATES[eid])
+        return ("5", "pyodide", "—", checked, WASM_CANDIDATES[eid])
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
-    return ("1", "pyodide", "—", "byte-identical to native CPython (runtime check)", note)
+    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or note)
 
 
 def mobile(cls: str, e: dict) -> str:
@@ -144,9 +166,19 @@ def mobile(cls: str, e: dict) -> str:
     return "no: needs the local runner on a computer"
 
 
-def rows() -> list[dict]:
+def catalog() -> dict:
     from tcmstudio.catalog import build_catalog
-    doc = build_catalog("browser", probe=False)
+    return build_catalog("browser", probe=False)
+
+
+def connector_counts(doc: dict | None = None) -> tuple[int, int]:
+    """(sources, operations) of the connector entries."""
+    items = [e for e in (doc or catalog())["entries"] if e["kind"] == "connector"]
+    return len({e["connector"]["key"] for e in items}), len(items)
+
+
+def rows() -> list[dict]:
+    doc = catalog()
     out = []
     for e in sorted(doc["entries"], key=lambda x: x["id"]):
         cls, backends, fallback, validation, notes = classify(e)
@@ -178,28 +210,41 @@ def to_csv(table: list[dict]) -> str:
 FAMILIES = [
     ("Native tools: clinical calculators, statistics, pharmacology, file formats, variants, survival",
      "native: clinical_calc, study_design, …", "1", "KB; microseconds to milliseconds", "yes",
-     "done (runs in Pyodide, outputs identical to native CPython)", "—"),
+     "runs in Pyodide, the same Python code as the runner; compared with native CPython in Pyodide only for "
+     "benjamini_hochberg, fisher_exact and the TCM lookups (the manual runtime check, [BROWSER_COMPUTE.md §10](../BROWSER_COMPUTE.md#10-validation))",
+     "the runtime check's comparisons for every browser entry, in CI"),
     ("Sequence alignment and edit distance", "native.global/local/protein_alignment, native.edit_distance", "2",
      "O(n·m) cells, ≤ 4 M (alignment); 1 byte of traceback per cell", "yes",
      "done, exact; speed-ups measured in docs/benchmarks", "WASM SIMD (anti-diagonal) for a further gain"),
     ("Sequence counts: distance matrices, Hamming, GC windows", "native.distance_matrix, hamming_distance, gc_content",
-     "3", "O(n²·w) comparisons; counts handed back are O(n²)", "yes (GPU where present)",
-     "done: WebGPU, WebAssembly SIMD and JavaScript kernels, all exact; handing the counts to Python now "
-     "dominates large matrices", "a compact count format across the Pyodide boundary"),
+     "3", "O(n²·w) comparisons; counts handed back are O(n²)",
+     "yes (WebGPU only on an adapter not identified as a software renderer)",
+     "WebAssembly SIMD and JavaScript kernels exact; WebGPU exact on a software adapter in tests, never run on a "
+     "hardware GPU; handing the counts to Python now dominates large matrices",
+     "a compact count format across the Pyodide boundary"),
     ("Phylogeny, k-mers, ORFs, rank statistics", "neighbor_joining, upgma, kmer_counts, …", "5",
      "O(n³) (trees), linear (scans)", "yes", "runs in Pyodide; candidates for kernels", "P2"),
-    ("Network pharmacology (permutation null)", "skill.analyze-tcm-network-pharmacology", "5",
-     "1000 permutations × pathways; Brandes betweenness", "yes", "runs in Pyodide", "P2: exact MT19937 port (pinned skill code: needs a reviewed re-pin)"),
+    ("Network pharmacology: the limited seed-corpus skill", "skill.analyze-tcm-network-pharmacology", "1",
+     "seed corpus only: no permutation null, no topology; trivial CPU", "yes",
+     "runs in Pyodide on the 6-formula seed corpus; no test has run it there yet",
+     "none needed here: the permutation null is the research loop's (below)"),
     ("Governed TCM skills, clinic, TCM data hub queries, studies", "skill.*(tcm), clinic.*, tcmdb.*, study.*", "1",
      "MB (formula SQLite 12 MB, loaded on demand)", "yes",
-     "done; formula search ranked by relevance, a herb under all its names (rank: true)",
+     "runs in Pyodide; the pinned safety, normalisation and evidence skills and ranked formula search compared "
+     "with native CPython (manual runtime check); hub queries over packaged or imported stores, while building "
+     "NPASS, CMAUP or LOTUS needs the runner",
      "semantic retrieval with a packaged embedding model (P2)"),
-    ("Public database connectors (119 sources, 444 operations)", "connector.*", "1g",
-     "bounded responses", "yes (online)", "done: local parsing and policy, data via the gateway", "—"),
+    ("Public database connectors ({sources} sources, {operations} operations)", "connector.*", "1g",
+     "bounded responses", "yes (online)",
+     "local parsing and policy, data via the gateway; levels per operation in [connectors.md](connectors.md) (none verified live "
+     "through the deployed gateway)", "—"),
     ("Text embeddings, classification, reranking (none exist yet)", "—", "4", "20–120 MB models",
      "small models", "not started: no model is packaged", "P2: one ONNX embedding model, WebNN → WebGPU → WASM"),
     ("Single-cell and research loop", "job.pipeline.scrna, job.research.run", "6",
-     "100 MB–GBs; hours", "no", "runner", "small-dataset browser mode (P3)"),
+     "100 MB–GBs; hours; the research loop's seeded degree-matched permutation null (1000 per pathway) and "
+     "Brandes betweenness", "no", "runner",
+     "small-dataset browser mode (P3); a browser port of the permutation null must draw exactly what "
+     "Python's MT19937 draws (research code, outside the skill pins) (P2)"),
     ("RNA-seq quantification, docking, ADMET, structure prediction", "job.pipeline.rnaseq/dock/admet/fold", "7",
      "GBs; native binaries; GPU", "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
@@ -210,12 +255,18 @@ FAMILIES = [
 def summary(table: list[dict]) -> str:
     counts = Counter(r["class"] for r in table)
     kinds = Counter((r["class"], r["kind"]) for r in table)
+    sources, operations = connector_counts()
+    checked = Counter("UNVERIFIED" if r["validation"].startswith("UNVERIFIED") else "a committed record"
+                      for r in table)
     lines = ["# Browser compatibility matrix", "",
              "Generated by `studio/scripts/compat_matrix.py` from the tool catalog; one row per entry in "
              "[`matrix.csv`](matrix.csv). `--check` keeps it current (studio/runner/tests).", "",
              f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 2, 3, 5): "
              f"{sum(counts[c] for c in ('1', '1g', '2', '3', '5'))}; with a local kernel (2, 3): "
              f"{counts['2'] + counts['3']}; on the local runner only (6, 7, 8): {sum(counts[c] for c in ('6', '7', '8'))}.", "",
+             f"Validation (the `validation` column) is each entry's committed verification record "
+             f"(`entry.verification` in the catalog): {checked['a committed record']} entries have one, "
+             f"{checked['UNVERIFIED']} are UNVERIFIED (no record, which is not a failure).", "",
              "| Class | Meaning | Entries | By kind |", "|---|---|---:|---|"]
     for cls, label in CLASS_LABELS.items():
         if not counts[cls]:
@@ -226,7 +277,7 @@ def summary(table: list[dict]) -> str:
               "## By family", "",
               "| Family | Entries | Class | Memory / compute | Phones | Status | Next |", "|---|---|---|---|---|---|---|"]
     for fam in FAMILIES:
-        lines.append("| " + " | ".join(fam) + " |")
+        lines.append("| " + " | ".join(f.format(sources=sources, operations=operations) for f in fam) + " |")
     lines += ["", "Rows of `matrix.csv`: " + ", ".join(f"`{f}`" for f in FIELDS) + ".", ""]
     return "\n".join(lines)
 

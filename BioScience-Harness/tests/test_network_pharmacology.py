@@ -244,9 +244,16 @@ def test_run_skill_end_to_end_writes_outputs_and_provenance(tmp_path):
                            ledger_path=ledger.path, out_dir=tmp_path / "run", params=FAST,
                            allowed={"npass", "string", "reactome"})
     out = tmp_path / "run"
-    for name in ("compounds.tsv", "targets.tsv", "enrichment.tsv", "network.tsv",
-                 "claims.json", "release.json", "provenance.json", "limitations.md"):
+    # the nine exports (bioagent.analysis.np_exports) and the skill run's own records
+    for name in ("compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv",
+                 "network.tsv", "provenance.json", "run_manifest.json", "limitations.md",
+                 "report.html", "claims.json", "release.json", "snapshot_lock.json"):
         assert (out / name).exists(), name
+    from bioagent.analysis.np_exports import COLUMNS
+    for name, columns in COLUMNS.items():
+        assert (out / name).read_text(encoding="utf-8").split("\n", 1)[0] == "\t".join(columns)
+    # network.tsv is the edge list, not the hubs
+    assert (out / "network.tsv").read_text(encoding="utf-8").startswith("a\tb\tscore\trecord\n")
     assert provenance["random_seed"] == FAST.seed
     assert provenance["source_allowance"] == ["npass", "reactome", "string"]
     assert set(provenance["dataset_hashes"]) == {"tcm_herbs", "npass", "reactome", "string"}

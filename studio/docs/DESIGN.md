@@ -424,7 +424,8 @@ Legend: **MVP** = first public release at science.impf.ai; **L1** = next; **L2**
 /p/:projectId/claims   → claims ledger (L1)
 /p/:projectId/sources  → source cards + snapshots (L1)
 /p/:projectId/audit    → audit chain (L1)
-/settings/models | /settings/compute | /settings/general (language, theme, data & privacy) | /settings/shortcuts
+/settings/models | /settings/compute | /settings/data | /settings/general (language, theme, data & privacy) | /settings/privacy | /settings/shortcuts
+/catalog[/:entryId][?q=&category=&f=&rt=&ds=&ver=&be=]  → tool catalog; the search and filters live in the address
 /about                 → what Studio is / what it does not claim / links to project page, Arena, GitHub
 ```
 
@@ -537,9 +538,67 @@ Settings:
   `KeyField` (masked, reveal, "stored locally" note), `RunnerPairing`, `DeviceSelector`,
   `EngineList`, `LanguageSwitch`, `ThemeSwitch` (系统 / 浅色 / 深色), `DataPrivacy` (export / clear
   local data), `ShortcutSheet`.
+- `RemoteChoice` (Settings → Compute): remote compute as a select under the three segments (a fourth segment
+  does not fit a phone), worded 「远程（未配置）」; chosen, every call is unavailable and nothing falls back.
+- `EvidenceList` (Settings → Compute, `ui/panels.js` `evidenceRows`): one row per device or backend in a fixed
+  order — 浏览器 CPU, WebAssembly SIMD, WebGPU (物理 / 软件模拟 GPU / 未识别的适配器), 本机 (or 远程) Runner GPU,
+  NPU (WebNN), 远程计算 — each with what it **reported** beside what this page's own calls **showed** (§6.6).
+- `DataTab` (Settings → 数据 Data, `ui/pages/data.js`) with one `DatasetRow` per registered dataset: name (homepage
+  link) and key, `ReadinessChip` (the six states), release (or 未注明版本), licence (or 未声明许可) with its reuse
+  class and commercial use, redistribution (unknown says 「未知——下载不等于获准再分发」), access, size (or 大小未知),
+  download status (required files present / expected and the missing names), file verification (checksum · size ·
+  mismatch · unverified, files with a reviewed checksum, the CI live-download record when the answer has one), the
+  next step, and the catalog entries that read it. Readiness filter chips (aria-pressed) with counts. The runner's
+  list is read when it is connected (read-only GETs) and a dataset's files when its row is opened; this browser's
+  store only on the button 「在浏览器中检查（加载 Python 运行环境）」, never on mount. 下载 opens a confirmation that
+  names the hosts and the expected size and says downloading is not permission to redistribute; the acquisition is
+  then a `JobCard` followed live.
 
 Onboarding:
 - `FirstRunStepper`, `EmptyProject` (+`ExamplePrompt` cards), `EmptyTab`.
+
+Catalog (`ui/pages/catalog.js`):
+- `StateRow`: the eight fields of an entry, always in this order, each a chip with icon + words — 已注册 Registered ·
+  可执行 Ready to execute (one chip per runtime the entry runs in; when not ready it names the reason) · 测试已验证
+  Verified by test (the most direct passing level and its date) · 已成功执行 Executed successfully (seen from this
+  browser: its own calls and the runner jobs it followed to their end; the detail names the last one's place, backend
+  and time)
+  · 需要数据 · 需要本机 Runner · 需要远程计算 (never required; 「可选（allow_remote）」 at most) · 需要批准 (the entry's
+  static approvals in words). A list row shows the first four always and the others when they apply; the detail shows
+  all eight with their values. Jade is for ready only. Readiness here adds what only the page knows to
+  `entryState`: the compute preference (a runtime it leaves out: 计算设置未选它; remote: 远程计算未配置) and whether this
+  project's browser store was read (until then a dataset is 数据未检查, never 需要数据集).
+- `CatalogFilters`: state chips (`role=group`, `aria-pressed`, counts from the catalog the page holds) and four
+  selects: runtime (any · 浏览器 · 仅 Runner · 经站点网关 · 任务), dataset (the keys entries name, connector keys
+  included), verification (a passing level, or 没有通过的测试), local backend (WebGPU · WebAssembly SIMD · JavaScript
+  内核 · Pyodide). They live in `app.state.catalogUI` and in the address; a link with other filters sets the view.
+- Entry detail sections: 状态, 就绪情况 (per runtime: state, each `Requirement` with its need in words, its detail when
+  it says more than the need's default, and its remedy — on a Chinese page the need's own words only for the default
+  remedy, else the requirement's own, marked English; where a call would run now, and "would not run" with the reason
+  when the router's choice is not ready here), 测试验证 (each level, status, date, the committed record), 实现 (ref, version), 后端
+  (browser compute backends, engines with their readiness on the runner), 限制 (request size per runtime), 数据源
+  (connectors: name, host, licence or 未声明许可, docs, how it is reached).
+
+Results and jobs:
+- `ResultKindChip` (tool card, Provenance): 检索到的记录 · 计算结果 · 预测（非实测）· 草稿 · 演示数据（非真实数据）·
+  系统 · 未运行 · 尚无结果（排队或运行中）; a legacy envelope's kind is derived and says so in its tooltip.
+  `AssuranceChip`: 输出哈希已核验 (a release is said by the verdict pill: 已准予发布).
+- `PageBadge`: an envelope the page made (any `receipt.decided_by`) is 未运行 — or 无结果 when a runtime may have
+  started it and gave no answer — never the browser's or the runner's badge.
+- `ProvenanceSections` (inspector, `provenanceSections`): 结果 (kind, outcome, assurance, checks, artifacts expected /
+  missing / hash mismatch, fallbacks), 执行 (runtime, kernel, engine, implementation, argument validation, device
+  requested → assigned with its evidence, placement, approvals with scope and hosts), 来源 (datasets with release or
+  未注明版本, seeds, models), 计算 (backend, precision, adapter kind, dispatched / validated, acceleration only when
+  measured on a physical adapter).
+- `JobCard` additions: the stage in words (`ui.job.stage.*`, the five pipelines', the research workflow's,
+  tcmdb.fetch's `transferring`/`verifying`; a stage nobody named shows as itself), 正在核验输出 while the runner
+  collects it (a download's own check of one file mid-transfer is 核验刚下载的文件, still the running step), files / bytes / how kept files were verified, the last log line (only a real log line: the runner's
+  own English progress messages are never shown), device with its evidence (`selected`, never "GPU accelerated"),
+  engine, duration (or elapsed), peak memory (job_receipt.json, the largest single process), exit code, the checks
+  passed at collection, the pipeline's stages, 已写出的文件（未核验，不是结果） (names and sizes, no open or download),
+  limitations, and 复现记录 (job_receipt.json, run_manifest.json, run.json). One `JobTracker` (`ui/jobs.js`) per view;
+  job_receipt.json is used only at the digest the job recorded for it, and a job a list shows already ended is drawn
+  from the list's view without further requests.
 
 Primitives:
 - `Button` (primary, secondary, ghost, danger; sm/md), `IconButton` (≥32px target), `Chip`
@@ -793,6 +852,28 @@ reads like: 「主张类型：疗效 —— 需要 随机对照试验 或 系统
 - `CompositeVersion`: four key-value rows (运行时 runtime / Skill / 数据源 source / 基准 benchmark).
   Show `unversioned` literally as 「未版本化」.
 
+### 6.6 Capability state, result kinds and device evidence
+
+Every one of these is icon + words; colour is never the only signal. In these state rows, jade is only for a state
+that is ready (an entry that can execute, a dataset that is built), as it is for a release elsewhere; no other state
+here is jade.
+
+| Thing | Ready / positive | Not (yet) | Tone |
+|---|---|---|---|
+| Ready to execute | 可执行 · 浏览器 | 浏览器：联网未开启 / 需要数据集 / 数据未检查 / 缺少依赖 / 需要连接 Runner / 计算设置未选它 | jade ✓ / slate dashed |
+| Verified by test | 测试已验证 · 实时上游 2026-09-17 | 未经测试验证 · 测试受阻 · 测试未通过 | navy shield / slate dashed (vermilion for a failure) |
+| Executed successfully | 已成功执行 3 次（本浏览器所见） | 本浏览器未见成功执行 | navy / slate dashed |
+| Data readiness | 可查询 (built) | 仅收录 · 在线可查 · 可下载 · 部分下载 · 已下载未构建 | jade / slate, navy, ochre |
+| Result kind | — | 预测（非实测）, 演示数据（非真实数据） are dashed | navy record, slate prediction, ochre fixture |
+
+The evidence ladder, in the same words everywhere (browser GPU, runner devices, `receipt.execution.device.evidence`):
+已选定 selected < 已报告 reported < 已调度 dispatched < 输出已核对 validated < 已通过已知答案测试 verified <
+实测比 CPU 内核快 accelerated. "Accelerated" needs a measured comparison on a physical adapter, and so does 「本设备实测不比
+CPU 内核快」: a CPU baseline the receipt carries is not a comparison (`ui/runlog.js` `gpuMeasured`), and without one the
+words are 「未测量（不声称加速）」 with the receipt's basis; a software adapter is
+「软件模拟 GPU」 and never acceleration; WebNN is 「检测到 WebNN；NPU 执行未经验证」 at most (「没有可用的已验证 NPU 后端」
+without it); a runner's GPU is reported or selected, never more; remote compute is 「未配置」.
+
 ---
 
 ## 7. Microcopy guidelines (中文)
@@ -830,6 +911,16 @@ reads like: 「主张类型：疗效 —— 需要 随机对照试验 或 系统
 | 未核验 | 有问题 | it is a state, not a judgment |
 | 内核判定 | AI 判断 | deterministic rules, not model opinion |
 | 本机 Runner | 服务器、云端 | compute is local; never imply upload |
+| 远程 Runner（主机名） | 本机 | a runner on another machine is never called local |
+| 远程（未配置） | 远程计算、云端加速 | no remote compute backend exists |
+| 软件模拟 GPU | GPU 加速 | a software adapter is a CPU renderer |
+| 检测到 WebNN；NPU 执行未经验证 | NPU 加速、已用 NPU | the page cannot see which processor runs a graph |
+| 已选定（实际使用未核实） | 已用 GPU、GPU 加速 | the runner assigning a device is a selection |
+| 输出哈希已核验 / 已准予发布 | 已核验、已验证 | say which check passed; never a bare "verified" |
+| 已提交任务 · 排队中 · 运行中 · 正在核验输出 | 完成 | a job is done only when collected and verified |
+| 未运行（由页面判定） | 失败 | a call the page decided never ran |
+| 预测（非实测） · 演示数据（非真实数据） | 结果、数据 | say what kind of result it is |
+| 未知——下载不等于获准再分发 | 可再分发 | unknown redistribution is not permission |
 | 引文已核对 | 引用可靠 | `quote_verified` only means the quote is in the source |
 
 ### 7.3 Templates

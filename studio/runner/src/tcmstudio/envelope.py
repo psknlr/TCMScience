@@ -24,7 +24,8 @@ from datetime import date, datetime, timezone
 from pathlib import PurePath
 from typing import Any, Iterable, Mapping
 
-__all__ = ["TEXT_LIMIT", "STATUSES", "ERROR_TYPES", "KINDS", "canonical_json", "jsonable",
+__all__ = ["TEXT_LIMIT", "STATUSES", "ERROR_TYPES", "KINDS", "RECEIPT_SCHEMA", "RESULT_KINDS",
+           "OUTCOMES", "ASSURANCE", "EVIDENCE", "canonical_json", "jsonable",
            "sha256_json", "sha256_bytes", "utc_now", "runtime_string", "versions",
            "package_version", "extract_citations", "identifier_url", "shape", "compose_text",
            "fit_json"]
@@ -34,6 +35,24 @@ STATUSES = ("succeeded", "failed", "refused", "needs_approval", "job_submitted",
 ERROR_TYPES = ("bad_arguments", "unavailable", "not_found", "refused", "runtime_error",
                "timeout", "network_off")
 KINDS = ("native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system")
+
+#: The receipt version every envelope built here carries (CONTRACTS §3). A receipt without
+#: ``schema`` is a legacy one: its fields keep the meaning they had, and nothing is derived
+#: for it here.
+RECEIPT_SCHEMA = "tcmstudio.receipt/1"
+#: receipt.result.kind: what the result is, when there is one (None when nothing came back).
+RESULT_KINDS = ("record", "computation", "prediction", "draft", "fixture", "system")
+#: receipt.result.outcome: what became of the call (a job's own state for a job).
+#: validated ⇔ succeeded and an assurance other than "none".
+OUTCOMES = ("not_executed", "queued", "running", "succeeded", "validated", "failed", "cancelled")
+#: receipt.result.assurance. release_authorized: the governed verdict's six states all
+#: passed (which licenses the claims as stated, never their truth); outputs_verified: a job's
+#: output digests were checked when it was collected (hashes, nothing more).
+ASSURANCE = ("release_authorized", "outputs_verified", "none")
+#: receipt.execution.device.evidence, weakest first: chosen by the settings; reported by a
+#: probe or driver; a kernel was submitted to it; its output passed a parity or recount check;
+#: a known-answer test passed on it; measured faster than the CPU on this device in this run.
+EVIDENCE = ("selected", "reported", "dispatched", "validated", "verified", "accelerated")
 
 _MAX_DEPTH = 48
 _MAX_CITATIONS = 40
@@ -552,7 +571,7 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
           error: Mapping[str, Any] | None = None, job: Mapping[str, Any] | None = None,
           approval: Mapping[str, Any] | None = None, arguments: Any = None,
           started_at: str | None = None, duration_ms: int | float | None = None,
-          where: str = "runner", device: str = "cpu", content_hash: str | None = None,
+          where: str = "runner", device: str | None = "cpu", content_hash: str | None = None,
           audit_head: str | None = None, composite_version: str | None = None,
           receipt_extra: Mapping[str, Any] | None = None, notes: Iterable[str] = (),
           text_limit: int = TEXT_LIMIT) -> dict[str, Any]:
@@ -571,6 +590,7 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
                    "hint": str(error.get("hint") or "")}
             if err["type"] not in ERROR_TYPES:
                 err["type"] = "runtime_error"
+            err.update(_error_extras(error))
         cites = extract_citations(result_j, gov, given=citations or ())
         job_j = jsonable(job) if job else None
         if not summary:
@@ -589,12 +609,15 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
         text = str(text)[:text_limit]
         receipt: dict[str, Any] = {
             "where": where if where in ("browser", "runner") else "runner",
-            "runtime": runtime_string(), "device": device or "cpu", "versions": versions(),
+            # None only for a job with no device assigned yet (dispatch._job_device)
+            "runtime": runtime_string(), "device": None if device is None else device or "cpu",
+            "versions": versions(),
             "composite_version": composite_version, "content_hash": content_hash,
             "audit_head": audit_head or None, "input_sha256": sha256_json(arguments or {}),
             "output_sha256": sha256_json(result_j), "started_at": started_at or utc_now()}
         for key, value in dict(receipt_extra or {}).items():
             receipt[key] = jsonable(value)
+        _receipt_v1(receipt, status, device or "cpu")
         return {"ok": status in ("succeeded", "job_submitted"), "tool": str(tool),
                 "via": via or str(tool), "status": status,
                 "duration_ms": int(duration_ms) if duration_ms is not None else 0,
@@ -605,12 +628,153 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
     except BaseException as exc:                                # noqa: BLE001
         if isinstance(exc, KeyboardInterrupt):
             raise
-        return _fallback(tool, via, kind, exc, started_at, where)
+        return _fallback(tool, via, kind, exc, started_at, where, error)
+
+
+def _error_extras(error: Mapping[str, Any]) -> dict[str, Any]:
+    """The additive error fields, kept only when well formed: ``requires`` (a list of
+    capability Requirements, each a mapping with a string ``need``) and ``reason`` (the
+    router's reason code). A malformed one is dropped, never repaired."""
+    out: dict[str, Any] = {}
+    try:
+        requires = error.get("requires")
+        if (isinstance(requires, (list, tuple)) and requires
+                and all(isinstance(r, Mapping) and isinstance(r.get("need"), str) for r in requires)):
+            out["requires"] = jsonable(list(requires))
+        reason = error.get("reason")
+        if isinstance(reason, str) and re.fullmatch(r"[a-z_]{1,64}", reason):
+            out["reason"] = reason
+    except Exception:                                           # noqa: BLE001
+        return {}
+    return out
+
+
+#: What a status says became of the call when the executor said nothing more, and the
+#: outcomes a status admits: a job_status poll succeeds whatever state its job is in.
+_STATUS_OUTCOME = {"succeeded": "succeeded", "failed": "failed", "refused": "not_executed",
+                   "needs_approval": "not_executed", "job_submitted": "queued",
+                   "cancelled": "cancelled"}
+_STATUS_ADMITS = {"succeeded": ("succeeded", "validated", "queued", "running", "failed",
+                                "cancelled"),
+                  "job_submitted": ("queued", "running"),
+                  "failed": ("failed", "not_executed"),
+                  "refused": ("not_executed",), "needs_approval": ("not_executed",),
+                  "cancelled": ("cancelled",)}
+_FALLBACK_WHAT = ("device", "compute", "degraded")
+
+
+def _finished_at(started: Any) -> str:
+    """Now, never before the start: both are second-truncated UTC in one format, which sorts
+    as text; a start written by another clock that reads later is kept as the finish."""
+    now = utc_now()
+    if isinstance(started, str) and len(started) == len(now) and started > now:
+        return started
+    return now
+
+
+def _strings(value: Any, limit: int = 64) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(x) for x in value[:limit] if isinstance(x, (str, int, float)) and str(x)]
+
+
+def _receipt_v1(receipt: dict[str, Any], status: str, device: str) -> None:
+    """Complete ``receipt`` to tcmstudio.receipt/1 in place: ``schema``, ``finished_at``,
+    and ``execution``, ``provenance`` and ``result`` with every key. What the caller gave
+    (receipt_extra) is kept where it is well formed; a malformed value is replaced by the
+    default, never repaired, and an outcome the status does not admit (a failed call that
+    says it succeeded) by the status's own. validated is succeeded with an assurance, and an
+    assurance or a result kind is only for a call that produced a result. Never raises."""
+    try:
+        receipt["schema"] = RECEIPT_SCHEMA
+        receipt["finished_at"] = _finished_at(receipt.get("started_at"))
+        status = status if status in _STATUS_OUTCOME else "failed"
+
+        given = receipt.get("result") if isinstance(receipt.get("result"), Mapping) else {}
+        outcome = given.get("outcome")
+        if outcome not in _STATUS_ADMITS[status]:
+            outcome = _STATUS_OUTCOME[status]
+        assurance = given.get("assurance") if given.get("assurance") in ASSURANCE else "none"
+        kind = given.get("kind") if given.get("kind") in RESULT_KINDS else None
+        if outcome in ("succeeded", "validated"):
+            outcome = "validated" if assurance != "none" else "succeeded"
+        else:
+            assurance, kind = "none", None
+        arts = given.get("artifacts") if isinstance(given.get("artifacts"), Mapping) else {}
+        result = {
+            "kind": kind, "outcome": outcome, "assurance": assurance,
+            "checks": [jsonable({k: c[k] for k in ("id", "ok", "detail") if k in c})
+                       for c in (given.get("checks") or ())[:64]
+                       if isinstance(c, Mapping) and isinstance(c.get("id"), str)]
+            if isinstance(given.get("checks"), (list, tuple)) else [],
+            "artifacts": {k: _strings(arts.get(k)) for k in ("expected", "missing",
+                                                             "hash_mismatch")},
+            "fallbacks": [{"what": f["what"], "reason": str(f.get("reason") or "")[:600]}
+                          for f in (given.get("fallbacks") or ())[:16]
+                          if isinstance(f, Mapping) and f.get("what") in _FALLBACK_WHAT]
+            if isinstance(given.get("fallbacks"), (list, tuple)) else [],
+            "reference": jsonable(given.get("reference")) if given.get("reference") else None}
+
+        ran = outcome not in ("not_executed", "queued")
+        execution: dict[str, Any] = {
+            "runtime": "pyodide" if receipt.get("where") == "browser" else "cpython",
+            "kernel": None, "engine": None, "implementation": None, "validation": None,
+            # in process: the CPU the call ran on, chosen, not checked by anything
+            "device": {"requested": device, "assigned": device, "used": device if ran else None,
+                       "evidence": "selected"}}
+        ex = receipt.get("execution") if isinstance(receipt.get("execution"), Mapping) else {}
+        for key, value in ex.items():
+            if key == "device" and isinstance(value, Mapping):
+                dev = {**execution["device"], **jsonable(dict(value))}
+                if dev.get("evidence") not in EVIDENCE:
+                    dev["evidence"] = None
+                execution["device"] = dev
+            elif key != "device":
+                execution[key] = jsonable(value)
+        if execution["runtime"] not in ("cpython", "pyodide", "page"):
+            execution["runtime"] = "pyodide" if receipt.get("where") == "browser" else "cpython"
+
+        prov = receipt.get("provenance") if isinstance(receipt.get("provenance"), Mapping) else {}
+        provenance = {
+            "datasets": [jsonable(d) for d in (prov.get("datasets") or ())[:200]
+                         if isinstance(d, Mapping) and d.get("id")]
+            if isinstance(prov.get("datasets"), (list, tuple)) else [],
+            "seeds": jsonable(dict(prov["seeds"])) if isinstance(prov.get("seeds"), Mapping) else {},
+            "models": [jsonable(m) for m in (prov.get("models") or ())[:200]
+                       if isinstance(m, Mapping)]
+            if isinstance(prov.get("models"), (list, tuple)) else []}
+        for d in provenance["datasets"]:
+            d.setdefault("release", None)          # unknown unless the source states one
+
+        receipt["execution"], receipt["provenance"], receipt["result"] = (
+            execution, provenance, result)
+    except Exception:                                           # noqa: BLE001
+        receipt["schema"] = RECEIPT_SCHEMA
+        receipt["finished_at"] = utc_now()
+        receipt["execution"] = {"runtime": "pyodide" if receipt.get("where") == "browser"
+                                else "cpython", "kernel": None, "engine": None,
+                                "implementation": None, "validation": None,
+                                "device": {"requested": None, "assigned": None, "used": None,
+                                           "evidence": None}}
+        receipt["provenance"] = {"datasets": [], "seeds": {}, "models": []}
+        receipt["result"] = {"kind": None,
+                             "outcome": _STATUS_OUTCOME.get(status, "failed"),
+                             "assurance": "none", "checks": [],
+                             "artifacts": {"expected": [], "missing": [], "hash_mismatch": []},
+                             "fallbacks": [], "reference": None}
 
 
 def _fallback(tool: Any, via: Any, kind: str, exc: BaseException, started_at: str | None,
-              where: str) -> dict[str, Any]:
+              where: str, error: Mapping[str, Any] | None = None) -> dict[str, Any]:
     message = f"the envelope could not be built: {type(exc).__name__}: {exc}"[:2000]
+    receipt: dict[str, Any] = {
+        "where": where if where in ("browser", "runner") else "runner",
+        "runtime": "unknown", "device": "cpu", "versions": {},
+        "composite_version": None, "content_hash": None, "audit_head": None,
+        "input_sha256": None, "output_sha256": None,
+        "started_at": started_at or utc_now()}
+    # nothing is known of what ran: the defaults, with the outcome failed
+    _receipt_v1(receipt, "failed", "cpu")
     return {"ok": False, "tool": str(tool), "via": str(via or tool), "status": "failed",
             "duration_ms": 0, "summary": "未完成：结果无法封装",
             "summary_en": "Not completed: the result could not be packaged",
@@ -620,10 +784,8 @@ def _fallback(tool: Any, via: Any, kind: str, exc: BaseException, started_at: st
                            "artifact": None, "verdict": None, "claims": [], "evidence": [],
                            "refusals": [], "labels": [], "licences": [], "limitations": [],
                            "outputs": []},
-            "receipt": {"where": where if where in ("browser", "runner") else "runner",
-                        "runtime": "unknown", "device": "cpu", "versions": {},
-                        "composite_version": None, "content_hash": None, "audit_head": None,
-                        "input_sha256": None, "output_sha256": None,
-                        "started_at": started_at or utc_now()},
+            "receipt": receipt,
             "job": None, "approval": None,
-            "error": {"type": "runtime_error", "message": message, "hint": ""}}
+            # what the call was refused for, when it was, survives the packaging failure
+            "error": {"type": "runtime_error", "message": message, "hint": "",
+                      **(_error_extras(error) if isinstance(error, Mapping) else {})}}

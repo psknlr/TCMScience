@@ -1,0 +1,727 @@
+{
+ "measured_at": "2026-10-18T21:30:31.770Z",
+ "reps": 3,
+ "chromium_flags": [
+  "--enable-unsafe-webgpu",
+  "--use-angle=swiftshader",
+  "--enable-features=Vulkan,WebMachineLearningNeuralNetwork"
+ ],
+ "software_gpu_forced": true,
+ "browser_version": "Chromium 141.0.7390.37",
+ "environment": {
+  "cpu": "Intel(R) Xeon(R) Processor",
+  "cores": 4,
+  "platform": "linux 6.18.44-fc-v139 x64",
+  "os": {
+   "type": "Linux",
+   "release": "6.18.44-fc-v139",
+   "version": "#1 SMP PREEMPT_DYNAMIC @0",
+   "arch": "x64"
+  },
+  "node": "v22.22.0",
+  "load_avg": {
+   "before": [
+    2.89,
+    3.04,
+    2.29
+   ],
+   "after": [
+    3.34,
+    3.12,
+    2.33
+   ]
+  }
+ },
+ "browser": {
+  "schema": "tcmstudio.browser-bench/2",
+  "ok": true,
+  "failures": [],
+  "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36",
+  "browser": {
+   "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36",
+   "brands": [
+    {
+     "brand": "Chromium",
+     "version": "141.0.7390.37"
+    },
+    {
+     "brand": "Not?A_Brand",
+     "version": "8.0.0.0"
+    }
+   ],
+   "platform": "Linux",
+   "platform_version": "6.18.44",
+   "architecture": "x86",
+   "model": null
+  },
+  "isolated": true,
+  "reps": 3,
+  "quick": false,
+  "tools_run": false,
+  "caps": {
+   "schema": "tcmstudio.capabilities/1",
+   "scope": "window",
+   "cpu": {
+    "logical_cores": 4,
+    "device_memory_gb": 8,
+    "form": "desktop"
+   },
+   "isolation": {
+    "cross_origin_isolated": true,
+    "shared_array_buffer": true
+   },
+   "wasm": {
+    "available": true,
+    "simd": true,
+    "relaxed_simd": true,
+    "threads": true,
+    "threads_usable": true,
+    "bulk_memory": true
+   },
+   "webgpu": {
+    "api": true,
+    "adapter": {
+     "kind": "software",
+     "vendor": "google",
+     "architecture": "swiftshader",
+     "device": "",
+     "description": "",
+     "fallback": true,
+     "reason": "the browser marks it a fallback adapter (isFallbackAdapter), which is typically a CPU renderer"
+    },
+    "software": true,
+    "features": [
+     "bgra8unorm-storage",
+     "chromium-experimental-timestamp-query-inside-passes",
+     "chromium-experimental-unorm16-texture-formats",
+     "clip-distances",
+     "core-features-and-limits",
+     "depth-clip-control",
+     "depth32float-stencil8",
+     "float32-blendable",
+     "float32-filterable",
+     "indirect-first-instance",
+     "rg11b10ufloat-renderable",
+     "subgroups",
+     "texture-component-swizzle",
+     "texture-compression-astc",
+     "texture-compression-astc-sliced-3d",
+     "texture-compression-bc",
+     "texture-compression-bc-sliced-3d",
+     "texture-compression-etc2",
+     "timestamp-query"
+    ],
+    "limits": {
+     "maxBufferSize": 1073741824,
+     "maxStorageBufferBindingSize": 1073741824,
+     "maxComputeWorkgroupStorageSize": 32768,
+     "maxComputeInvocationsPerWorkgroup": 256,
+     "maxComputeWorkgroupSizeX": 256,
+     "maxComputeWorkgroupsPerDimension": 65535,
+     "maxStorageBuffersPerShaderStage": 10
+    },
+    "error": null,
+    "evidence": {
+     "ladder": [
+      "selected",
+      "reported",
+      "dispatched",
+      "validated",
+      "verified",
+      "accelerated"
+     ],
+     "level": "reported",
+     "api": true,
+     "adapter_reported": true,
+     "adapter_kind": "software",
+     "dispatched": null,
+     "validated": null,
+     "rejected": null,
+     "verified": null,
+     "accelerated": null,
+     "reason": "a software renderer (the browser marks it a fallback adapter (isFallbackAdapter), which is typically a CPU renderer): never GPU acceleration, and the runtime does not use it"
+    }
+   },
+   "webnn": {
+    "api": true,
+    "context_created": true,
+    "device_type_requested": [
+     "cpu",
+     "gpu",
+     "npu"
+    ],
+    "npu": {
+     "status": "unverified",
+     "label_en": "WebNN detected; NPU execution unverified",
+     "label_zh": "检测到 WebNN；NPU 执行未经验证",
+     "reason": "the browser does not report which processor runs a WebNN graph, and no tool uses WebNN"
+    },
+    "contexts": [
+     {
+      "label": "default",
+      "requested": {},
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "cpu",
+      "requested": {
+       "deviceType": "cpu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "gpu",
+      "requested": {
+       "deviceType": "gpu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "npu",
+      "requested": {
+       "deviceType": "npu"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     },
+     {
+      "label": "low-power",
+      "requested": {
+       "powerPreference": "low-power"
+      },
+      "created": true,
+      "error": null,
+      "limits_fingerprint": "c01f2a68",
+      "float16_matmul": true,
+      "verified": {
+       "ok": true
+      }
+     }
+    ],
+    "note": "A created context shows that the browser accepted the request; it does not show which processor ran the graph.",
+    "distinct_backends_hint": 1
+   },
+   "storage": {
+    "quota_bytes": 889723301,
+    "usage_bytes": 0,
+    "persisted": false,
+    "opfs": true,
+    "cache_api": true,
+    "indexeddb": true,
+    "service_worker": true
+   },
+   "network": {
+    "online": true,
+    "effective_type": "4g",
+    "save_data": false
+   },
+   "timer": {
+    "resolution_ms": 0.005
+   },
+   "probe_ms": 141
+  },
+  "boot": null,
+  "tools": [],
+  "kernels": [
+   {
+    "kernel": "needleman-wunsch",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 18.73,
+    "ns_per_cell": 18.73
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 14.36,
+    "ns_per_cell": 14.36
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "1000×1000",
+    "cells": 1000000,
+    "ms": 6.33,
+    "ns_per_cell": 6.33
+   },
+   {
+    "kernel": "needleman-wunsch",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 97.2,
+    "ns_per_cell": 24.3
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 74.57,
+    "ns_per_cell": 18.643
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "2000×2000",
+    "cells": 4000000,
+    "ms": 25.48,
+    "ns_per_cell": 6.37
+   },
+   {
+    "kernel": "needleman-wunsch",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 299.36,
+    "ns_per_cell": 18.71
+   },
+   {
+    "kernel": "smith-waterman",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 161.12,
+    "ns_per_cell": 10.07
+   },
+   {
+    "kernel": "levenshtein",
+    "size": "4000×4000",
+    "cells": 16000000,
+    "ms": 97.64,
+    "ns_per_cell": 6.103
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "60 seqs × 1000",
+    "cells": 1770000,
+    "ms": 3.96,
+    "ns_per_cell": 2.237
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "60 seqs × 1000",
+    "cells": 1770000,
+    "exact": true,
+    "ms": 0.35,
+    "ns_per_cell": 0.198
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "120 seqs × 1000",
+    "cells": 7140000,
+    "ms": 44.42,
+    "ns_per_cell": 6.221
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "120 seqs × 1000",
+    "cells": 7140000,
+    "exact": true,
+    "ms": 1.13,
+    "ns_per_cell": 0.158
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "250 seqs × 1000",
+    "cells": 31125000,
+    "ms": 121.34,
+    "ns_per_cell": 3.898
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "250 seqs × 1000",
+    "cells": 31125000,
+    "exact": true,
+    "ms": 4.75,
+    "ns_per_cell": 0.153
+   },
+   {
+    "kernel": "distance counts (JavaScript)",
+    "size": "40 seqs × 8000",
+    "cells": 6240000,
+    "ms": 14.5,
+    "ns_per_cell": 2.324
+   },
+   {
+    "kernel": "distance counts (WebAssembly SIMD)",
+    "size": "40 seqs × 8000",
+    "cells": 6240000,
+    "exact": true,
+    "ms": 1.01,
+    "ns_per_cell": 0.162
+   },
+   {
+    "kernel": "hamming counts (JavaScript)",
+    "size": "2 × 1 000 000",
+    "cells": 1000000,
+    "ms": 15.57,
+    "ns_per_cell": 15.57
+   },
+   {
+    "kernel": "hamming counts (WebAssembly SIMD)",
+    "size": "2 × 1 000 000",
+    "cells": 1000000,
+    "exact": true,
+    "ms": 11.19,
+    "ns_per_cell": 11.19
+   },
+   {
+    "kernel": "GC count (JavaScript)",
+    "size": "1 000 000",
+    "cells": 1000000,
+    "ms": 35.46,
+    "ns_per_cell": 35.46
+   },
+   {
+    "kernel": "GC count (WebAssembly SIMD)",
+    "size": "1 000 000",
+    "cells": 1000000,
+    "exact": true,
+    "ms": 1,
+    "ns_per_cell": 1
+   }
+  ],
+  "webgpu": [
+   {
+    "size": "60 seqs × 1000",
+    "workload": {
+     "tool": "native.distance_matrix",
+     "n": 60,
+     "width": 1000,
+     "operations": 1770000,
+     "records": 3600,
+     "input_bytes": 240000,
+     "output_bytes": 57600,
+     "gpu_buffer_bytes": 355232
+    },
+    "exact": true,
+    "adapter": {
+     "kind": "software",
+     "vendor": "google",
+     "architecture": "swiftshader",
+     "device": "",
+     "description": "",
+     "fallback": true,
+     "reason": "the browser marks it a fallback adapter (isFallbackAdapter), which is typically a CPU renderer",
+     "features": [
+      "bgra8unorm-storage",
+      "chromium-experimental-timestamp-query-inside-passes",
+      "chromium-experimental-unorm16-texture-formats",
+      "clip-distances",
+      "core-features-and-limits",
+      "depth-clip-control",
+      "depth32float-stencil8",
+      "float32-blendable",
+      "float32-filterable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-component-swizzle",
+      "texture-compression-astc",
+      "texture-compression-astc-sliced-3d",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "texture-compression-etc2",
+      "timestamp-query"
+     ]
+    },
+    "software": true,
+    "known_answer": {
+     "ok": true,
+     "ms": 15.01
+    },
+    "cpu_baseline_ms": {
+     "wasm-simd": 0.32,
+     "js": 3.95
+    },
+    "cpu_e2e_ms": {
+     "wasm-simd": 0.7,
+     "js": 8.405
+    },
+    "gpu_cold_ms": 277.78,
+    "gpu_setup_ms": 132.395,
+    "gpu_cold_note": "a fresh device: adapter, device, pipeline and the known-answer test, then the call",
+    "gpu_e2e_ms": 120.56,
+    "gpu_work_ms": 119.82,
+    "gpu_transfer_ms": 118.015,
+    "gpu_kernel_ms": 112.26,
+    "gpu_kernel_note": "GPU timestamps (the browser may quantize them)",
+    "handoff_ms": 0.25,
+    "digest_ms": 0.32,
+    "peak_memory": {
+     "js_heap_bytes": 31881528,
+     "js_heap_before_bytes": 27216729,
+     "gpu_buffer_bytes": 355232,
+     "note": "Chromium's performance.memory (rounded by the browser); the GPU figure is what the kernel allocates"
+    },
+    "fallback_reason": null,
+    "accelerated": null,
+    "speedup": null,
+    "note": "software renderer: these timings are not a GPU's, and no speed-up is derived from them"
+   },
+   {
+    "size": "120 seqs × 1000",
+    "workload": {
+     "tool": "native.distance_matrix",
+     "n": 120,
+     "width": 1000,
+     "operations": 7140000,
+     "records": 14400,
+     "input_bytes": 480000,
+     "output_bytes": 230400,
+     "gpu_buffer_bytes": 940832
+    },
+    "exact": true,
+    "adapter": {
+     "kind": "software",
+     "vendor": "google",
+     "architecture": "swiftshader",
+     "device": "",
+     "description": "",
+     "fallback": true,
+     "reason": "the browser marks it a fallback adapter (isFallbackAdapter), which is typically a CPU renderer",
+     "features": [
+      "bgra8unorm-storage",
+      "chromium-experimental-timestamp-query-inside-passes",
+      "chromium-experimental-unorm16-texture-formats",
+      "clip-distances",
+      "core-features-and-limits",
+      "depth-clip-control",
+      "depth32float-stencil8",
+      "float32-blendable",
+      "float32-filterable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-component-swizzle",
+      "texture-compression-astc",
+      "texture-compression-astc-sliced-3d",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "texture-compression-etc2",
+      "timestamp-query"
+     ]
+    },
+    "software": true,
+    "known_answer": {
+     "ok": true,
+     "ms": 20.045
+    },
+    "cpu_baseline_ms": {
+     "wasm-simd": 1.14,
+     "js": 14.605
+    },
+    "cpu_e2e_ms": {
+     "wasm-simd": 3.05,
+     "js": 31.325
+    },
+    "gpu_cold_ms": 577.7,
+    "gpu_setup_ms": 96.845,
+    "gpu_cold_note": "a fresh device: adapter, device, pipeline and the known-answer test, then the call",
+    "gpu_e2e_ms": 473.96,
+    "gpu_work_ms": 472.27,
+    "gpu_transfer_ms": 469.865,
+    "gpu_kernel_ms": 467.155,
+    "gpu_kernel_note": "GPU timestamps (the browser may quantize them)",
+    "handoff_ms": 0.955,
+    "digest_ms": 0.735,
+    "peak_memory": {
+     "js_heap_bytes": 60615937,
+     "js_heap_before_bytes": 45569760,
+     "gpu_buffer_bytes": 940832,
+     "note": "Chromium's performance.memory (rounded by the browser); the GPU figure is what the kernel allocates"
+    },
+    "fallback_reason": null,
+    "accelerated": null,
+    "speedup": null,
+    "note": "software renderer: these timings are not a GPU's, and no speed-up is derived from them"
+   },
+   {
+    "size": "250 seqs × 1000",
+    "workload": {
+     "tool": "native.distance_matrix",
+     "n": 250,
+     "width": 1000,
+     "operations": 31125000,
+     "records": 62500,
+     "input_bytes": 1000000,
+     "output_bytes": 1000000,
+     "gpu_buffer_bytes": 3000032
+    },
+    "exact": true,
+    "adapter": {
+     "kind": "software",
+     "vendor": "google",
+     "architecture": "swiftshader",
+     "device": "",
+     "description": "",
+     "fallback": true,
+     "reason": "the browser marks it a fallback adapter (isFallbackAdapter), which is typically a CPU renderer",
+     "features": [
+      "bgra8unorm-storage",
+      "chromium-experimental-timestamp-query-inside-passes",
+      "chromium-experimental-unorm16-texture-formats",
+      "clip-distances",
+      "core-features-and-limits",
+      "depth-clip-control",
+      "depth32float-stencil8",
+      "float32-blendable",
+      "float32-filterable",
+      "indirect-first-instance",
+      "rg11b10ufloat-renderable",
+      "subgroups",
+      "texture-component-swizzle",
+      "texture-compression-astc",
+      "texture-compression-astc-sliced-3d",
+      "texture-compression-bc",
+      "texture-compression-bc-sliced-3d",
+      "texture-compression-etc2",
+      "timestamp-query"
+     ]
+    },
+    "software": true,
+    "known_answer": {
+     "ok": true,
+     "ms": 12.16
+    },
+    "cpu_baseline_ms": {
+     "wasm-simd": 4.905,
+     "js": 68.735
+    },
+    "cpu_e2e_ms": {
+     "wasm-simd": 13.83,
+     "js": 77.95
+    },
+    "gpu_cold_ms": 2272.5,
+    "gpu_setup_ms": 150.695,
+    "gpu_cold_note": "a fresh device: adapter, device, pipeline and the known-answer test, then the call",
+    "gpu_e2e_ms": 2349.42,
+    "gpu_work_ms": 2307.19,
+    "gpu_transfer_ms": 2296.295,
+    "gpu_kernel_ms": 2278.062,
+    "gpu_kernel_note": "GPU timestamps (the browser may quantize them)",
+    "handoff_ms": 29.25,
+    "digest_ms": 9.55,
+    "peak_memory": {
+     "js_heap_bytes": 90472505,
+     "js_heap_before_bytes": 90472505,
+     "gpu_buffer_bytes": 3000032,
+     "note": "Chromium's performance.memory (rounded by the browser); the GPU figure is what the kernel allocates"
+    },
+    "fallback_reason": null,
+    "accelerated": null,
+    "speedup": null,
+    "note": "software renderer: these timings are not a GPU's, and no speed-up is derived from them"
+   }
+  ],
+  "webnn": {
+   "api": true,
+   "context_created": true,
+   "device_type_requested": [
+    "cpu",
+    "gpu",
+    "npu"
+   ],
+   "npu": {
+    "status": "unverified",
+    "label_en": "WebNN detected; NPU execution unverified",
+    "label_zh": "检测到 WebNN；NPU 执行未经验证",
+    "reason": "the browser does not report which processor runs a WebNN graph, and no tool uses WebNN"
+   },
+   "contexts": [
+    {
+     "label": "default",
+     "requested": {},
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "cpu",
+     "requested": {
+      "deviceType": "cpu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "gpu",
+     "requested": {
+      "deviceType": "gpu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "npu",
+     "requested": {
+      "deviceType": "npu"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    },
+    {
+     "label": "low-power",
+     "requested": {
+      "powerPreference": "low-power"
+     },
+     "created": true,
+     "error": null,
+     "limits_fingerprint": "c01f2a68",
+     "float16_matmul": true,
+     "verified": {
+      "ok": true
+     }
+    }
+   ],
+   "note": "A created context shows that the browser accepted the request; it does not show which processor ran the graph.",
+   "distinct_backends_hint": 1
+  },
+  "page_ms": 19758,
+  "console": [
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status",
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status",
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status",
+   "info: WebGPU is experimental on this platform. See https://github.com/gpuweb/gpuweb/wiki/Implementation-Status#implementation-status"
+  ]
+ },
+ "native": null
+}

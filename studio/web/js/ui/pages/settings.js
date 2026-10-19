@@ -1,6 +1,7 @@
-// Settings (DESIGN §3.6–3.8, §4.5): 模型 Models · 计算 Compute · 通用 General · 隐私 Privacy · 快捷键 Shortcuts.
+// Settings (DESIGN §3.6–3.8, §4.5): 模型 Models · 计算 Compute · 数据 Data · 通用 General · 隐私 Privacy · 快捷键 Shortcuts.
 // Keys are stored only in this browser and never sent to science.impf.ai; Tao-S1 needs none. Privacy (ui/privacy.js):
-// what this site records, and the visitor's choices about it.
+// what this site records, and the visitor's choices about it. Data (pages/data.js): the data hub's datasets, their
+// licences, downloads, verification and readiness. Compute's job list follows the runner's jobs live (ui/jobs.js).
 
 import { lang, setLang, t } from "../../core/i18n.js";
 import { activeProvider, localFix, newCustomProvider, PRESETS, testConnection } from "../../core/providers.js";
@@ -13,16 +14,20 @@ import { button, chip, disclosure, iconButton, keyValue, notice, section, segmen
 import { SETTINGS_TABS } from "../router.js";
 import { shortcutTable } from "../palette.js";
 import { exportProject } from "./project.js";
-import { jobCard } from "../toolcards.js";
 import { privacyTab } from "../privacy.js";
 import { forgetConsent } from "../../core/consent.js";
+import { JobTracker } from "../jobs.js";
+import { clearRunlog } from "../runlog.js";
+import { dataTab } from "./data.js";
 
-const TAB_ICON = { models: "sparkles", compute: "cpu", general: "sliders", privacy: "shield", shortcuts: "keyboard" };
+const TAB_ICON = { models: "sparkles", compute: "cpu", data: "database", general: "sliders", privacy: "shield", shortcuts: "keyboard" };
 
 export function mountSettings(app, main) {
   const page = h("div.page.page--settings");
   fill(main, page);
   let offs = [];
+  // one job tracker for this page's job cards (Compute's list, Data's acquisitions): live while the page is open
+  const jobs = new JobTracker(app);
 
   // A re-render (set default, add an endpoint, a relay check landing) rebuilds the tab: what was typed is saved first,
   // and focus, the caret and the open provider cards come back to where they were.
@@ -39,18 +44,25 @@ export function mountSettings(app, main) {
     const nav = h("nav.settings-nav", { "aria-label": t("ui.nav.settings") }, SETTINGS_TABS.map((id) => h("a", {
       href: `#/settings/${id}`, class: ["settings-nav__item", id === tab && "is-on"], "aria-current": id === tab ? "page" : null,
     }, icon(TAB_ICON[id], { size: 16 }), h("span", t(`ui.settings.tab.${id}`)))));
-    const body = { models: modelsTab, compute: computeTab, general: generalTab, privacy: privacyTab, shortcuts: shortcutsTab }[tab](app, render);
+    const body = { models: modelsTab, compute: computeTab, data: dataTab, general: generalTab, privacy: privacyTab, shortcuts: shortcutsTab }[tab](app, render, { jobs });
     fill(page, h("div.settings",
       h("header.settings__head", h("h1.settings__title.serif", t("ui.nav.settings"))),
       h("div.settings__grid", nav, h("div.settings__body", { id: `settings-${tab}` }, body))));
   }
   offs = [
     app.on("relay", () => { if (app.state.route.tab === "models" || app.state.route.tab === "privacy") render(); }),
-    app.on("runtime", () => { if (app.state.route.tab === "compute") render(); }),
+    app.on("runtime", (e) => {
+      if (app.state.route.tab === "compute") render();
+      // a runner that connected or went away: the data tab reads its list again (pages/data.js)
+      if (app.state.route.tab === "data" && e?.kind !== "browser") render();
+      if (e?.kind === "runner") jobs.refresh();
+    }),
+    // a call or job that ran here: the evidence list says what it showed
+    app.on("evidence", () => { if (app.state.route.tab === "compute") render(); }),
     app.on("privacy", () => { if (app.state.route.tab === "privacy") render(); }),
   ];
   build();
-  return { el: page, update: () => { build(); page.scrollTop = 0; }, destroy: () => offs.forEach((off) => off()) };
+  return { el: page, update: () => { build(); page.scrollTop = 0; }, destroy: () => { offs.forEach((off) => off()); jobs.close(); } };
 }
 
 /** A key for a control that survives a re-render: data-key, else its kind, name and words (and which of equals). */
@@ -314,14 +326,15 @@ function advanced(app) {
 
 // ------------------------------------------------------------------------------------------------- compute
 
-function computeTab(app) {
+function computeTab(app, rerender, { jobs: tracker } = {}) {
   const jobsBox = h("div.jobs-list");
   const runner = app.runtimes.runner;
   if (app.state.runner.status === "ready" && runner?.jobs) {
     jobsBox.append(h("p.muted.small", spinner({ size: 12 }), " ", t("ui.files.loading")));
     runner.jobs.list({}).then((res) => {
-      const jobs = (res?.jobs || []).slice(0, 20);
-      fill(jobsBox, jobs.length ? h("div.stack", jobs.map((j) => jobCard(j, { onCancel: async (job) => { try { await runner.jobs.cancel(job.id); app.emit("runtime", { kind: "runner" }); } catch (err) { toast(err?.message || String(err), { tone: "warn" }); } } }))) : h("p.muted.small", t("ui.jobs.none")));
+      const list = (res?.jobs || []).slice(0, 20);
+      // each card follows its job while it is queued or running (stage, progress, files written so far, cancel)
+      fill(jobsBox, list.length ? h("div.stack", list.map((j) => (tracker ? tracker.node(j, { fresh: true }) : null))) : h("p.muted.small", t("ui.jobs.none")));
     }).catch((err) => fill(jobsBox, h("p.muted.small", err?.message || String(err))));
   } else {
     jobsBox.append(h("p.muted.small", t("ui.jobs.needs_runner")));
@@ -386,6 +399,8 @@ function generalTab(app, rerender) {
             // the privacy choices and the deletion key, and anything the telemetry still held to send
             forgetConsent();
             try { for (const k of Object.keys(localStorage)) if (k.startsWith("tcmstudio.telemetry")) localStorage.removeItem(k); } catch { /* storage unavailable */ }
+            // what ran in this browser (the catalog's executed-successfully counts)
+            clearRunlog();
             try { for (const k of await caches.keys()) await caches.delete(k); } catch { /* no Cache Storage */ }
             location.hash = "#/";
             location.reload();

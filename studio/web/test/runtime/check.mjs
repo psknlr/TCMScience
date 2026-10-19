@@ -73,7 +73,9 @@ async function run(label, tool, args, expect, { compare = false, signal, project
   try {
     problems = failuresOf([
       [env && typeof env === "object", "an envelope"],
-      [env?.receipt?.where === "browser", `receipt.where is browser (got ${env?.receipt?.where})`],
+      // Python's envelopes say browser, and so does one the runtime made itself (a cancel by restart, a crash), whose
+      // decided_by is browser-runtime
+      [env?.receipt?.where === "browser", `receipt.where is browser (got ${env?.receipt?.where}, decided_by ${env?.receipt?.decided_by})`],
       ...expect(env),
     ]);
   } catch (err) {
@@ -348,6 +350,7 @@ async function full() {
   await rt.debug("fatal");
   await run("call after a fatal error → runtime_error", "tcm_compatibility", { herbs: ["人参", "藜芦"] }, (e) => [
     [e.status === "failed" && e.error?.type === "runtime_error", `failed / runtime_error (got ${e.status} / ${e.error?.type})`],
+    [e.receipt?.decided_by === "browser-runtime" && e.receipt?.result?.outcome === "failed", `made by the runtime, outcome failed (got ${e.receipt?.decided_by} / ${e.receipt?.result?.outcome})`],
   ]);
   await run("call after the restart", "tcm_compatibility", { herbs: ["人参", "藜芦"] }, (e) => [
     [e.status === "succeeded", `succeeded (got ${e.status}: ${e.error?.message || ""})`],

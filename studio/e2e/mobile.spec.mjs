@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { startMockLLM } from "./mock-llm.mjs";
 import { readDb, seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
-import { PYTHON, REPO, startStatic } from "./lib/servers.mjs";
+import { PYTHON, REPO, requirePyodide, startStatic } from "./lib/servers.mjs";
 
 const PHONE = {
   viewport: { width: 390, height: 844 },
@@ -47,7 +47,7 @@ test("on a phone the governed skill runs in the browser, on the phone's CPU, wit
   const reachable = await page.evaluate(async (u) => {
     try { return (await fetch(`${u}pyodide-lock.json`, { method: "GET" })).ok; } catch { return false; }
   }, boot.pyodide.index_url);
-  test.skip(!reachable, `Pyodide's CDN (${boot.pyodide.index_url}) is not reachable from this browser: phone compute not tested`);
+  requirePyodide(test, reachable, boot.pyodide.index_url, "phone compute");   // a skip outside CI, a failure in CI
 
   // a phone cannot run the local runner: compute stays in the browser
   expect(await page.evaluate(() => globalThis.__studio.state.runner.status)).not.toBe("ready");

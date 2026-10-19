@@ -35,6 +35,17 @@ The pipeline for ``tcm.network-pharmacology`` (``skills/tcm/network-pharmacology
 
 Every parameter is explicit, the only randomness is seeded, and the result carries the
 snapshot ids and a digest of this code, so the same inputs reproduce the same outputs.
+
+What the result holds beyond the statistics, so every export can be traced and re-derived:
+each compound and target row lists the snapshot records it rests on (``records``); the
+network holds its edge list (``network["edge_list"]``: every STRING edge at or above the
+cut-off between two targets, with its record) and the snapshot it was read from
+(``ppi_source``, None when no STRING snapshot was given); the indication overlap holds the
+whole gene set (``disease["genes"]``); and ``coverage`` counts how far the data reached:
+herbs with a species and with a constituent, compounds with an InChIKey and with a
+measured target, targets in the background, pathways tested, and how compounds were
+identified (``coverage["identity"]``: by the source-supplied standard InChIKey only; keys
+that share a connectivity block are reported, not merged).
 """
 
 from __future__ import annotations
@@ -150,6 +161,8 @@ class NetworkPharmacologyResult:
     disease: dict[str, Any] = field(default_factory=dict)
     #: what the enrichment was tested against
     background: dict[str, Any] = field(default_factory=dict)
+    #: how far the data reached, stage by stage (see the module docstring)
+    coverage: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         out = asdict(self)
@@ -452,6 +465,104 @@ def _sources(paths: Sequence[tuple[Snapshot, Mapping[str, Any]]]) -> int:
     return group_sources([e.get("publications") or () for _, e in paths]).count
 
 
+def _records(paths: Iterable[tuple[Snapshot, Mapping[str, Any]]]) -> list[list[str]]:
+    """[snapshot id, source record id] of each edge, sorted and once each."""
+    return [list(p) for p in sorted({(s.snapshot_id, str(e.get("source_record_id")))
+                                     for s, e in paths})]
+
+
+def _gene_rows(snap: Snapshot, disease: str, genes: Mapping[str, float],
+               passing: Mapping[str, Mapping[str, float]], names: Mapping[str, str],
+               background: set[str], measured: set[str],
+               params: Parameters) -> list[dict[str, Any]]:
+    """The whole disease gene set, one row per gene: its best score in a stated datatype,
+    the stated datatypes in which it reaches the cut-off, whether it is a measured target
+    and in the background, and the association records it rests on."""
+    used = params.evidence_datatypes
+    records: dict[str, set[str]] = {}
+    for e in snap.edges:
+        if (e.get("predicate") == "associated_with" and e.get("object") == disease
+                and e.get("subject") in genes and str(e.get("score_name")) in used
+                and float(e.get("score") or 0) >= params.disease_min_score):
+            records.setdefault(e["subject"], set()).add(str(e.get("source_record_id")))
+    return [{"target": g, "name": names.get(g, g), "score": genes[g],
+             "datatypes": [k for k in used if g in (passing.get(k) or {})],
+             "is_measured_target": g in measured, "in_background": g in background,
+             "records": [[snap.snapshot_id, r] for r in sorted(records.get(g, ()))]}
+            for g in sorted(genes, key=lambda g: (-genes[g], g))]
+
+
+def _identity(compounds: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """How the compounds were identified and deduplicated.
+
+    Compounds are keyed by the standard InChIKey the source supplies
+    (``sources.parsers.common``), or by the source's own id when it gives none, and two
+    rows are one compound only when their full keys are identical. The snapshots carry no
+    structure (no SMILES or InChI), so nothing was re-standardised: keys that share the
+    first block (the connectivity) but differ in stereochemistry, isotopes or charge are
+    possibly one substance, and are reported here, not merged.
+    """
+    keyed = [c["compound"] for c in compounds if str(c["compound"]).startswith("inchikey:")]
+    blocks: dict[str, list[str]] = defaultdict(list)
+    for cid in keyed:
+        blocks[cid.split(":", 1)[1].split("-", 1)[0]].append(cid)
+    groups = [{"connectivity": block, "compounds": sorted(ids)}
+              for block, ids in sorted(blocks.items()) if len(ids) > 1]
+    return {
+        "rule": "identical source-supplied standard InChIKey (full key); no "
+                "re-standardisation: the snapshots carry no structure",
+        "with_inchikey": len(keyed), "source_local": len(compounds) - len(keyed),
+        "merged_across_sources": sum(1 for c in compounds if len(c.get("sources") or ()) > 1),
+        "connectivity_groups": len(groups),
+        "compounds_in_connectivity_groups": sum(len(g["compounds"]) for g in groups),
+        "groups": groups,
+    }
+
+
+def _identity_limitation(identity: Mapping[str, Any]) -> str:
+    groups = identity.get("connectivity_groups") or 0
+    return ("Deduplication is by the source-supplied standard InChIKey; structures were not "
+            "re-standardised because the snapshots carry no structure (SMILES or InChI). "
+            + (f"{groups} group(s) of distinct keys share a connectivity block (possible "
+               "stereo, isotope or charge variants) and are kept separate."
+               if groups else "No two distinct keys share a connectivity block.")
+            + (f" {identity['source_local']} compound(s) have no InChIKey and are keyed by "
+               "the source's own id, so they cannot be matched across sources."
+               if identity.get("source_local") else ""))
+
+
+def _coverage_limitations(coverage: Mapping[str, Any], screening: bool) -> list[str]:
+    """What could not be tested because the data did not reach it: an empty result is
+    reported as one, never as evidence that the constituents are inactive."""
+    herbs, compounds = coverage["herbs"], coverage["compounds"]
+    targets = coverage["targets"]
+    out = []
+    if herbs["with_species"] < herbs["total"]:
+        out.append(f"{herbs['total'] - herbs['with_species']} of the {herbs['total']} "
+                   "components have no verified source species and contribute no "
+                   "constituents.")
+    if herbs["with_compound"] < herbs["with_species"]:
+        out.append(f"{herbs['with_species'] - herbs['with_compound']} of the "
+                   f"{herbs['with_species']} components with a species have no constituent "
+                   "recorded in these snapshots; absence from a snapshot is not absence from "
+                   "the plant.")
+    what = "active screening result" if screening else "measured target"
+    if not compounds["total"]:
+        out.append("No constituent of the formula is recorded in these snapshots, so no "
+                   f"{what} could be looked for and no enrichment could be tested; {EMPTY_RESULT}.")
+    elif not targets["measured"]:
+        out.append(f"No {what} was found for the {compounds['total']} constituents in these "
+                   f"snapshots, so no enrichment could be tested; {EMPTY_RESULT}.")
+    elif not targets["annotated"]:
+        out.append(f"None of the {targets['measured']} {what}s is in the Reactome human "
+                   f"annotation, so no enrichment could be tested; {EMPTY_RESULT}.")
+    return out
+
+
+#: The words for a result that holds nothing because nothing could be tested.
+EMPTY_RESULT = "an empty result, not evidence of inactivity"
+
+
 # ------------------------------------------------------------------ the run
 def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                              formula: FormulaVersion = GEGEN_QINLIAN,
@@ -619,12 +730,19 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
 
     # 5. network topology (descriptive) ----------------------------------------------------
     adjacency: dict[str, set[str]] = {t: set() for t in query}
+    # each pair once (a <= b), at its highest score; on a tie, the lowest record id
+    pair_edges: dict[tuple[str, str], tuple[float, str]] = {}
     if "string" in by_key:
         for e in by_key["string"].edges:
             a, b = e.get("subject"), e.get("object")
             if a in adjacency and b in adjacency and (e.get("score") or 0) >= params.string_min_score:
                 adjacency[a].add(b)
                 adjacency[b].add(a)
+                pair = (a, b) if a <= b else (b, a)
+                score, record = float(e.get("score") or 0), str(e.get("source_record_id"))
+                kept = pair_edges.get(pair)
+                if kept is None or (-score, record) < (-kept[0], kept[1]):
+                    pair_edges[pair] = (score, record)
     betweenness = _brandes(adjacency) if adjacency else {}
     components = _components(adjacency) if adjacency else []
     network = {
@@ -632,9 +750,12 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         "largest_component": len(components[0]) if components else 0,
         "components": len(components),
         "string_min_score": params.string_min_score,
+        "ppi_source": by_key["string"].snapshot_id if "string" in by_key else None,
         "hubs": [{"target": t, "name": names.get(t, t), "degree": len(adjacency[t]),
                   "betweenness": betweenness.get(t, 0.0)}
                  for t in sorted(adjacency, key=lambda t: (-len(adjacency[t]), t))[:15]],
+        "edge_list": [{"a": a, "b": b, "score": score, "record": record}
+                      for (a, b), (score, record) in sorted(pair_edges.items())],
         "interpretation": "descriptive only; no significance is claimed for topology",
     }
 
@@ -682,6 +803,8 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
             **({k: rate[k] for k in ("tests", "active_tests", "active_rate") if k in rate}),
             **_by_datatype(passing, disease_genes, by_key["opentargets"], query, background,
                            params),
+            "genes": _gene_rows(by_key["opentargets"], disease_id, disease_genes, passing,
+                                names, background, set(target_paths), params),
             "interpretation": ("descriptive: the overlap between measured targets and the "
                                "disease gene set is reported, not claimed; it does not show "
                                "that the formula acts on the disease"),
@@ -734,26 +857,56 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
     verdict = check_release(claims, snaps, contract=contract)
 
     compounds = sorted(({**r, "herbs": sorted(r["herbs"]), "sources": sorted(r["sources"]),
-                         "name": names.get(r["compound"], r["compound"])}
+                         "name": names.get(r["compound"], r["compound"]),
+                         "records": _records(compound_paths[r["compound"]])}
                         for r in compound_rows.values()), key=lambda r: r["compound"])
-    targets = [{"target": t, "name": names.get(t, t),
-                "compounds": sorted({e["subject"] for _, e in target_paths[t]}),
-                "measurements": len(target_paths[t]), "sources": _sources(target_paths[t]),
-                "in_background": t in background, "disease_score": disease_genes.get(t)}
-               for t in sorted(target_paths)]
+    targets = []
+    for t in sorted(target_paths):
+        via = sorted({e["subject"] for _, e in target_paths[t]})
+        targets.append({
+            "target": t, "name": names.get(t, t), "compounds": via,
+            "measurements": len(target_paths[t]), "sources": _sources(target_paths[t]),
+            "in_background": t in background, "disease_score": disease_genes.get(t),
+            "herbs": sorted({h for c in via for h in compound_rows[c]["herbs"]}),
+            "degree": len(adjacency[t]) if t in adjacency else None,
+            "betweenness": betweenness.get(t) if t in adjacency else None,
+            "records": _records(target_paths[t])})
     hit_rate = len(set(query) & background) / len(background) if background else 0.0
     screen_tests = sum(len(tested_pairs[p]) for p in background) if screening else 0
     screen_active = sum(len(active_pairs.get(p, ())) for p in background) if screening else 0
+    identity = _identity(compounds)
+    coverage = {
+        "herbs": {"total": len(formula_edges),
+                  "with_species": len({h for hs in species_of.values() for h in hs}),
+                  "with_compound": len({h for r in compound_rows.values() for h in r["herbs"]})},
+        "compounds": {"total": len(compounds),
+                      "with_inchikey": identity["with_inchikey"],
+                      "with_measured_target": len({e["subject"] for t in target_paths
+                                                   for _, e in target_paths[t]})},
+        "targets": {"measured": len(target_paths),
+                    "annotated": sum(1 for t in target_paths if t in annotated),
+                    "in_background": len(set(query) & background)},
+        "pathways": {"tested": len(rows),
+                     "in_size_range": sum(1 for m in members.values()
+                                          if params.pathway_min_size <= len(m)
+                                          <= params.pathway_max_size)},
+        "identity": identity,
+    }
     limitations = [
         "Composition is species-level (C1/C2): no constituent is shown in the decoction "
         "itself (C3) or in plasma after dosing (C4), so every claim stops at a hypothesis.",
+        *_coverage_limitations(coverage, screening),
         *(_screening_limitations(params, len(background), screen_tests, screen_active)
-          if screening else _potency_limitations(params, hit_rate)),
+          if screening else _potency_limitations(params, hit_rate, len(background))),
         *(_disease_limitations(disease, params) if disease else [
             "No disease gene set is joined: the claims concern pathways, not the indication. "
             "Relevance to the indication needs a disease-association snapshot (e.g. Open "
             "Targets) and is not asserted here."]),
-        "Network topology is descriptive and depends on the STRING confidence cut-off.",
+        ("Network topology is descriptive and depends on the STRING confidence cut-off."
+         if network["ppi_source"] else
+         "No PPI snapshot was read: the network has no edges because none were read, not "
+         "because none exist."),
+        _identity_limitation(identity),
     ]
     return NetworkPharmacologyResult(
         formula=formula.id, parameters=params,
@@ -762,7 +915,7 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
         claims=claim_rows, release=verdict.as_dict(), excluded=dict(excluded),
         code_digest="sha256:" + hashlib.sha256(
             inspect.getsource(inspect.getmodule(run_network_pharmacology)).encode()).hexdigest(),
-        limitations=limitations, disease=disease,
+        limitations=limitations, disease=disease, coverage=coverage,
         background={"kind": "screening" if screening else params.background,
                     "proteins": len(background),
                     "annotated": len(annotated),
@@ -776,19 +929,33 @@ def run_network_pharmacology(snapshots: Iterable[Snapshot], *,
                         if screen_tests else 0.0} if screening else {})})
 
 
-def _potency_limitations(params: Parameters, hit_rate: float) -> list[str]:
+def _potency_limitations(params: Parameters, hit_rate: float,
+                         proteins: int | None = None) -> list[str]:
+    """``proteins`` is the background's size. With no protein in it, or none of them a
+    potent hit, there is no hit rate and no fold-enrichment bound to state: the sentence
+    that gives them would print 0% and an infinite bound."""
+    assayed = ("Enrichment is against the assayed proteins (every human protein the "
+               "compounds were measured against, potent or not), so it asks where the potent "
+               "results concentrate given what was tested. It says nothing about proteins "
+               "never assayed.")
+    if hit_rate:
+        assayed_text = (
+            f"{assayed} {hit_rate:.0%} of the assayed proteins are potent hits: databases "
+            "record active results far more often than inactive ones, so this background is "
+            "itself biased toward hits and the test has little power (no pathway can exceed "
+            f"a {1 / hit_rate:.2f}-fold enrichment). A pathway that is not enriched here is "
+            "not shown to be irrelevant.")
+    elif proteins:
+        assayed_text = (f"{assayed} None of the {proteins} assayed proteins in the annotation "
+                        "is a potent hit, so no pathway could be enriched.")
+    else:
+        assayed_text = (f"{assayed} No assayed protein is in the annotation, so there was "
+                        "nothing to test against.")
     return [
         "Targets are in-vitro potency measurements at or below the stated cut-off; "
         "predicted targets are not used, and absence of a measurement is not absence of "
         "activity.",
-        *([f"Enrichment is against the assayed proteins (every human protein the compounds "
-           "were measured against, potent or not), so it asks where the potent results "
-           "concentrate given what was tested. It says nothing about proteins never "
-           f"assayed. {hit_rate:.0%} of the assayed proteins are potent hits: databases "
-           "record active results far more often than inactive ones, so this background is "
-           "itself biased toward hits and the test has little power (no pathway can exceed "
-           f"a {1 / hit_rate if hit_rate else float('inf'):.2f}-fold enrichment). A pathway "
-           "that is not enriched here is not shown to be irrelevant."]
+        *([assayed_text]
           if params.background == "assayed" else [
            "Enrichment is against Reactome's whole human annotation, so a pathway can stand "
            "out because its proteins were tested, not because they were hit."]),

@@ -6,11 +6,24 @@
 //            local backends ("auto"), alternating, `reps` times each; the worker's own duration_ms is the timing.
 //   kernels: the JavaScript and WebAssembly SIMD kernels alone, in the page, on the same inputs (no Python, no JSON);
 //            each SIMD result is compared with the JavaScript one before it is timed.
-//   webgpu:  the WGSL count kernel, with exact parity against the CPU reference (a software adapter is labelled).
+//   webgpu:  the WGSL count kernel, with exact parity against the CPU reference, beside the CPU kernels on the same
+//            input: one row per workload with its dimensions, the CPU baseline (each kernel alone, and as Python calls
+//            it, with JSON both ways), the GPU's first call on a fresh device (device, pipeline, known-answer test:
+//            each workload gets its own SequenceCompute), its warm end-to-end time (packing, upload, dispatch,
+//            readback, the sample check, the digest and the packet's JSON), its kernel time from GPU timestamps where
+//            the device has them, memory, correctness, the adapter as the runtime's classifier sees it, and the reason
+//            when it fell back. A software or unidentified adapter's rows carry no speed-up and no "accelerated".
 //   webnn:   which contexts can be created here, and whether a small graph computes correctly on each.
+// ?tools=0 skips the tool calls (and Pyodide).
+//
+// Schema tcmstudio.browser-bench/2: a WebGPU row is the object built in webgpuBench (workload, adapter {kind, …},
+// cpu_baseline_ms, gpu_cold_ms, gpu_e2e_ms, …). /1 rows (2026-10-10) had {size, cells, adapter: "<name>", ms, exact,
+// software, note}; bench.mjs still renders both.
 
 import { BrowserRuntime } from "../../js/runtime/browser.js";
 import { probeCapabilities } from "../../js/compute/capabilities.js";
+import { inputDigest } from "../../js/compute/accelerator.js";
+import { pythonKernels } from "../../js/compute/bridge.js";
 import { levenshtein, needlemanWunsch, sequenceCounts, smithWaterman } from "../../js/compute/kernels.js";
 import { sequenceCountsSIMD, simdStatus } from "../../js/compute/simd.js";
 import { SequenceCompute, planSequenceCompute, referenceCounts } from "../../js/runtime/webgpu.js";
@@ -18,16 +31,35 @@ import { SequenceCompute, planSequenceCompute, referenceCounts } from "../../js/
 const q = new URLSearchParams(location.search);
 const REPS = Math.max(1, Number(q.get("reps") || 3));
 const QUICK = q.get("quick") === "1";
+const TOOLS = q.get("tools") !== "0";
 const indexUrl = q.get("index") || undefined;
 const bootUrl = new URL("/runtime/boot.json", location.href).href;
 const $status = document.getElementById("status");
 const say = (s) => { $status.textContent = s; };
 
 const out = {
-  schema: "tcmstudio.browser-bench/1", ok: true, failures: [], user_agent: navigator.userAgent,
-  isolated: Boolean(globalThis.crossOriginIsolated), reps: REPS, quick: QUICK,
+  schema: "tcmstudio.browser-bench/2", ok: true, failures: [], user_agent: navigator.userAgent, browser: null,
+  isolated: Boolean(globalThis.crossOriginIsolated), reps: REPS, quick: QUICK, tools_run: TOOLS,
   caps: null, boot: null, tools: [], kernels: [], webgpu: [], webnn: null,
 };
+
+/** What the browser says about itself and its OS, where it says more than its user-agent string (Chromium). */
+async function browserInfo() {
+  const info = { user_agent: navigator.userAgent, brands: null, platform: null, platform_version: null, architecture: null, model: null };
+  try {
+    const d = navigator.userAgentData;
+    if (d?.getHighEntropyValues) {
+      const v = await d.getHighEntropyValues(["platform", "platformVersion", "architecture", "model", "fullVersionList"]);
+      Object.assign(info, { brands: v.fullVersionList || d.brands || null, platform: v.platform || null, platform_version: v.platformVersion || null, architecture: v.architecture || null, model: v.model || null });
+    }
+  } catch { /* not offered here */ }
+  return info;
+}
+
+/** The JavaScript heap in use, where the browser reports it (Chromium's performance.memory), else null. */
+function heapBytes() {
+  try { return Number.isFinite(performance.memory?.usedJSHeapSize) ? performance.memory.usedJSHeapSize : null; } catch { return null; }
+}
 
 function fail(what) { out.ok = false; out.failures.push(what); }
 
@@ -131,48 +163,114 @@ function kernelBench() {
 
 // ------------------------------------------------------------------------------------------------- WebGPU
 
+/** The CPU baseline for one input: each count kernel alone, and through the bridge as Python calls it (JSON both ways). */
+function cpuBaseline(plan, expectedJson) {
+  const payload = JSON.stringify({ tool: plan.tool, sequences: plan.seqs, window: plan.window });
+  const row = { kernel_ms: {}, e2e_ms: {}, exact: {} };
+  for (const [id, simd] of [["wasm-simd", true], ["js", false]]) {
+    if (simd && !simdStatus().available) { row.kernel_ms[id] = row.e2e_ms[id] = row.exact[id] = null; continue; }
+    const kernel = simd ? () => sequenceCountsSIMD(plan.tool, plan.seqs, plan.window) : () => sequenceCounts(plan.tool, plan.seqs, plan.window);
+    const bridge = pythonKernels({ simd });
+    const same = JSON.stringify(Array.from(kernel())) === expectedJson && JSON.stringify(JSON.parse(bridge.call("sequence.counts", payload)).counts) === expectedJson;
+    row.exact[id] = same;
+    if (!same) { fail(`${id} counts for ${plan.n} × ${plan.width} differ from the CPU reference`); row.kernel_ms[id] = row.e2e_ms[id] = null; continue; }
+    row.kernel_ms[id] = round(time(kernel), 3);
+    row.e2e_ms[id] = round(time(() => JSON.parse(bridge.call("sequence.counts", payload))), 3);
+  }
+  return row;
+}
+
 async function webgpuBench() {
-  const adapter = out.caps?.webgpu?.adapter;
-  if (!adapter) { out.webgpu.push({ available: false, reason: out.caps?.webgpu?.error || "no WebGPU adapter in this browser" }); return; }
-  const software = out.caps.webgpu.software === true;
-  // the runtime refuses software adapters; this measures one only to check the WGSL, and says so
-  const gpu = new SequenceCompute({ allowSoftware: software });
-  for (const [n, w] of [[60, 1000], [120, 1000], [250, 1000]]) {
+  const caps = out.caps?.webgpu;
+  const adapter = caps?.adapter; // classifyAdapter()'s answer, through the probe
+  if (!adapter) { out.webgpu.push({ available: false, reason: caps?.error || "no WebGPU adapter in this browser" }); return; }
+  const kind = adapter.kind;
+  const sizes = QUICK ? [[60, 1000], [120, 1000]] : [[60, 1000], [120, 1000], [250, 1000]];
+  for (const [n, w] of sizes) {
+    // the runtime refuses software adapters; this runs one only to check the WGSL, and its rows say so. A fresh
+    // SequenceCompute per workload, so its first call pays the device, the pipeline and the known-answer test again
+    const gpu = new SequenceCompute({ allowSoftware: kind === "software", timestamps: true });
+    const tool = "native.distance_matrix";
     const args = { sequences: Array.from({ length: n }, (_, i) => dnaOf(w, 100 + i, "ACGTN-")), model: "p" };
-    const plan = planSequenceCompute("native.distance_matrix", args);
-    if (!plan) { out.webgpu.push({ size: `${n} seqs × ${w}`, available: false, reason: "beyond the kernel's limits" }); continue; }
-    const expected = JSON.stringify(Array.from(referenceCounts(plan)));
-    const ts = [];
-    let exact = true;
+    const plan = planSequenceCompute(tool, args);
+    const label = `${n} seqs × ${w}`;
+    if (!plan) { out.webgpu.push({ size: label, available: false, reason: "beyond the kernel's limits" }); gpu.stop(); continue; }
+    const workload = {
+      tool, n, width: w, operations: plan.operations, records: plan.records, input_bytes: plan.inputBytes, output_bytes: plan.outputBytes,
+      // input, counts, the uniform block and the readback copy: what the kernel allocates on the device for one call
+      gpu_buffer_bytes: plan.inputBytes + 2 * plan.outputBytes + 32,
+    };
+    const expectedJson = JSON.stringify(Array.from(referenceCounts(plan)));
+    const cpu = cpuBaseline(plan, expectedJson);
+    const heapBefore = heapBytes();
+    let heapPeak = heapBefore;
+    const warm = [];
+    let exact = true, fallback = null, cold = null;
     for (let i = 0; i < REPS + 1; i++) {
       const t0 = performance.now();
-      const res = await gpu.prepare("native.distance_matrix", args, { force: true });
-      const ms = performance.now() - t0;
-      if (!res) { out.webgpu.push({ size: `${n} seqs × ${w}`, available: false, reason: gpu.fallbackReason }); exact = null; break; }
-      if (JSON.stringify(res.counts) !== expected) exact = false;
-      if (i > 0) ts.push(ms); // the first includes device and pipeline creation
+      const res = await gpu.prepare(tool, args, { force: true });
+      if (!res) { fallback = gpu.fallbackReason; break; }
+      const d0 = performance.now();
+      const digest = await inputDigest(tool, plan.seqs, plan.window);
+      const d1 = performance.now();
+      // the packet's trip into Python, as the Worker makes it: its JSON written, and read back here in Python's place
+      JSON.parse(JSON.stringify({ ...res, input_sha256: digest }));
+      const d2 = performance.now();
+      const h = heapBytes();
+      if (h !== null && (heapPeak === null || h > heapPeak)) heapPeak = h;
+      if (JSON.stringify(res.counts) !== expectedJson) exact = false;
+      const run = gpu.lastRun;
+      const row = { ms: d0 - t0, work_ms: run.work_ms, transfer_ms: run.transfer_ms, kernel_ms: run.kernel_ms, digest_ms: d1 - d0, handoff_ms: d2 - d1, kernel_note: run.kernel_note || null };
+      // the first call is the cold one only when it really set something up (lastRun.cold); it is never a warm sample
+      if (i === 0) cold = run.cold ? { ...row, setup_ms: run.setup_ms } : null;
+      else warm.push(row);
     }
-    if (exact === null) continue;
-    if (!exact) fail(`WebGPU counts ${n}×${w} differ from the CPU reference`);
-    out.webgpu.push({ size: `${n} seqs × ${w}`, cells: plan.operations, exact, software, adapter: [adapter.vendor, adapter.architecture].filter(Boolean).join(" "), ms: round(median(ts), 2), note: software ? "software renderer (SwiftShader): these timings are not a GPU's" : "" });
+    if (!exact) fail(`WebGPU counts ${label} differ from the CPU reference`);
+    const med = (k) => (warm.length && warm.every((r) => Number.isFinite(r[k])) ? round(median(warm.map((r) => r[k])), 3) : null);
+    const e2e = warm.length ? round(median(warm.map((r) => r.work_ms + r.digest_ms + r.handoff_ms)), 3) : null;
+    const cpuE2e = Object.values(cpu.e2e_ms).filter(Number.isFinite);
+    const best = cpuE2e.length ? Math.min(...cpuE2e) : null;
+    // only a physical adapter's measurement may say "faster", and only against the CPU kernels measured on this input
+    const comparable = kind === "physical" && exact && e2e !== null && best !== null;
+    out.webgpu.push({
+      size: label, workload, exact: fallback ? null : exact,
+      adapter: { ...adapter, features: caps.features || [] },
+      software: kind === "software", known_answer: gpu.knownAnswer,
+      cpu_baseline_ms: cpu.kernel_ms, cpu_e2e_ms: cpu.e2e_ms,
+      gpu_cold_ms: cold ? round(cold.ms, 3) : null, gpu_setup_ms: cold?.setup_ms ?? null,
+      gpu_cold_note: cold ? "a fresh device: adapter, device, pipeline and the known-answer test, then the call" : "no cold call was measured",
+      gpu_e2e_ms: e2e, gpu_work_ms: med("work_ms"), gpu_transfer_ms: med("transfer_ms"), gpu_kernel_ms: med("kernel_ms"),
+      gpu_kernel_note: med("kernel_ms") === null ? (warm.find((r) => r.kernel_note)?.kernel_note || "no GPU timestamps") : "GPU timestamps (the browser may quantize them)",
+      handoff_ms: med("handoff_ms"), digest_ms: med("digest_ms"),
+      peak_memory: { js_heap_bytes: heapPeak, js_heap_before_bytes: heapBefore, gpu_buffer_bytes: workload.gpu_buffer_bytes,
+        note: heapPeak === null ? "this browser does not report its heap; the GPU figure is what the kernel allocates" : "Chromium's performance.memory (rounded by the browser); the GPU figure is what the kernel allocates" },
+      fallback_reason: fallback,
+      accelerated: comparable ? e2e < best : null,
+      speedup: comparable ? round(best / e2e, 2) : null,
+      note: kind === "software" ? "software renderer: these timings are not a GPU's, and no speed-up is derived from them"
+        : kind === "unidentified" ? "unidentified adapter: not counted as a GPU, so no speed-up is derived" : "",
+    });
+    gpu.stop();
   }
-  gpu.stop();
 }
 
 // ------------------------------------------------------------------------------------------------- main
 
 try {
   say("probing capabilities");
+  out.browser = await browserInfo();
   out.caps = await probeCapabilities({ deep: true, timeoutMs: 5000 });
   out.webnn = out.caps.webnn;
   kernelBench();
   await webgpuBench();
-  say("starting Pyodide");
-  const rt = new BrowserRuntime({ bootUrl, indexUrl });
-  const t0 = performance.now();
-  const info = await rt.start();
-  out.boot = { wall_ms: Math.round(performance.now() - t0), runtime: info?.runtime, timings: info?.timings, bundle_from_cache: info?.bundle?.from_cache };
-  await toolBench(rt);
+  if (TOOLS) {
+    say("starting Pyodide");
+    const rt = new BrowserRuntime({ bootUrl, indexUrl });
+    const t0 = performance.now();
+    const info = await rt.start();
+    out.boot = { wall_ms: Math.round(performance.now() - t0), runtime: info?.runtime, timings: info?.timings, bundle_from_cache: info?.bundle?.from_cache };
+    await toolBench(rt);
+  }
 } catch (err) {
   fail(`bench threw: ${err?.stack || err}`);
 }

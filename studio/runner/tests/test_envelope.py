@@ -133,6 +133,70 @@ def test_receipt_shape_and_versions():
     assert shape("t", where="mars")["receipt"]["where"] == "runner"
 
 
+def test_receipt_schema_and_finish_time():
+    started = "2026-10-07T12:00:00Z"
+    e = shape("t", result=1, started_at=started)
+    r = e["receipt"]
+    assert r["schema"] == env.RECEIPT_SCHEMA == "tcmstudio.receipt/1"
+    assert r["finished_at"] >= r["started_at"] == started
+    # a start another clock wrote later than this one's now is never after the finish
+    later = shape("t", result=1, started_at="2999-01-01T00:00:00Z")["receipt"]
+    assert later["finished_at"] == later["started_at"] == "2999-01-01T00:00:00Z"
+    assert set(r["execution"]) >= {"runtime", "kernel", "engine", "implementation",
+                                   "validation", "device"}
+    assert r["execution"]["runtime"] == "cpython" and r["execution"]["kernel"] is None
+    assert shape("t", where="browser")["receipt"]["execution"]["runtime"] == "pyodide"
+    assert r["provenance"] == {"datasets": [], "seeds": {}, "models": []}
+    assert r["result"] == {"kind": None, "outcome": "succeeded", "assurance": "none",
+                           "checks": [], "artifacts": {"expected": [], "missing": [],
+                                                       "hash_mismatch": []},
+                           "fallbacks": [], "reference": None}
+
+    # the packaging failure's own envelope carries them too
+    fallback = env._fallback("t", "v", "native", RuntimeError("x"), started, "browser")
+    f = fallback["receipt"]
+    assert f["schema"] == env.RECEIPT_SCHEMA and f["finished_at"] >= f["started_at"] == started
+    assert f["execution"]["runtime"] == "pyodide"
+    assert f["result"]["outcome"] == "failed" and f["result"]["kind"] is None
+    assert f["result"]["assurance"] == "none" and f["provenance"]["datasets"] == []
+    json.dumps(fallback, ensure_ascii=False, allow_nan=False)
+
+
+@pytest.mark.parametrize("status, outcome", [
+    ("succeeded", "succeeded"), ("failed", "failed"), ("refused", "not_executed"),
+    ("needs_approval", "not_executed"), ("job_submitted", "queued"), ("cancelled", "cancelled")])
+def test_receipt_result_follows_the_status_by_default(status, outcome):
+    assert shape("t", status=status)["receipt"]["result"]["outcome"] == outcome
+
+
+def test_receipt_result_is_kept_only_when_it_is_consistent():
+    def result(status, given):
+        return shape("t", status=status, receipt_extra={"result": given})["receipt"]["result"]
+    # an assurance makes a success validated; it never survives on a call without a result
+    assert result("succeeded", {"kind": "record", "assurance": "release_authorized"}) == {
+        **result("succeeded", {}), "kind": "record", "outcome": "validated",
+        "assurance": "release_authorized"}
+    assert result("succeeded", {"outcome": "validated"})["outcome"] == "succeeded"
+    failed = result("failed", {"outcome": "succeeded", "kind": "record",
+                               "assurance": "outputs_verified"})
+    assert (failed["outcome"], failed["kind"], failed["assurance"]) == ("failed", None, "none")
+    # a poll succeeds whatever its job is doing; a running job has no result to classify
+    running = result("succeeded", {"outcome": "running", "kind": "prediction"})
+    assert (running["outcome"], running["kind"]) == ("running", None)
+    assert result("refused", {"outcome": "queued"})["outcome"] == "not_executed"
+    odd = result("succeeded", {"kind": "verified", "assurance": "verified",
+                               "fallbacks": [{"what": "magic", "reason": "x"},
+                                             {"what": "device", "reason": "cpu"}],
+                               "checks": [{"ok": True}, {"id": "a", "ok": True}]})
+    assert odd["kind"] is None and odd["assurance"] == "none"
+    assert odd["fallbacks"] == [{"what": "device", "reason": "cpu"}]
+    assert odd["checks"] == [{"id": "a", "ok": True}]
+    device = shape("t", receipt_extra={"execution": {"device": {"evidence": "proven"}}})
+    assert device["receipt"]["execution"]["device"]["evidence"] is None
+    assert shape("t", receipt_extra={"execution": "garbage", "provenance": 3})["receipt"][
+        "provenance"] == {"datasets": [], "seeds": {}, "models": []}
+
+
 def test_runtime_string_detects_pyodide(monkeypatch):
     fake = types.ModuleType("pyodide")
     fake.__version__ = "314.0.7"

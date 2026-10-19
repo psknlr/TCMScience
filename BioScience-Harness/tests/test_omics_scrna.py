@@ -222,7 +222,7 @@ def test_the_report_and_its_digests(removed, tmp_path):
 
 def test_a_rerun_is_identical(world, removed, tmp_path):
     again = S.run_scrna(world.sheet, S.ScConfig(n_top_genes=600), tmp_path)
-    for name in ("cells.tsv", "markers.tsv", "clusters.tsv"):
+    for name in ("cells.tsv", "markers.tsv", "clusters.tsv", "report.md", "limitations.md"):
         assert (tmp_path / name).read_text() == (removed.out_dir / name).read_text()
     assert np.array_equal(again.clusters, removed.clusters)
 
@@ -230,6 +230,65 @@ def test_a_rerun_is_identical(world, removed, tmp_path):
 def test_an_unknown_root_is_refused(world, tmp_path):
     with pytest.raises(S.ScError, match="neither a cluster nor"):
         S.run_scrna(world.sheet, S.ScConfig(root="Hepatocyte", n_top_genes=600), tmp_path)
+
+
+# ---------------------------------------------------------------- the run record
+
+def test_every_stage_is_recorded_with_the_device_it_ran_on(removed):
+    manifest = json.loads((removed.out_dir / "run.json").read_text())
+    stages = {s["name"]: s for s in manifest["stages"]}
+    assert list(stages) == list(S.STAGES)
+    assert manifest["complete"] is True and removed.complete
+    assert stages["integrate"]["status"] == "succeeded"
+    assert stages["integrate"]["engine"] == "builtin-harmony"
+    assert stages["trajectory"]["status"] == "not_applicable"           # no root named
+    assert not stages["trajectory"]["required"]
+    assert stages["pseudobulk_de"]["status"] == "succeeded"
+    ran = [s for s in stages.values() if s["status"] == "succeeded"]
+    assert all(s["device"] == "cpu" for s in ran)                       # as computed
+    assert stages["validate_input"]["check"] == stages["verify"]["check"] == "PASS"
+    assert json.loads((removed.out_dir / "stages.json").read_text())["stages"] == \
+        manifest["stages"]
+    assert manifest["reference_dataset"]["id"] == "sc_world"
+
+
+def test_the_limitations_name_what_did_not_run(removed, flagged):
+    lines = (removed.out_dir / "limitations.md").read_text().splitlines()
+    assert lines == removed.manifest["limitations"]
+    text = " ".join(lines)
+    assert "inference from marker expression" in text and "not elapsed time" in text
+    assert "Stage trajectory was not applicable: no root" in text
+    assert "simulated, known answer" in text
+    rooted = {s["name"]: s for s in flagged.manifest["stages"]}
+    assert rooted["trajectory"]["status"] == "succeeded"
+    assert "Stage trajectory" not in (flagged.out_dir / "limitations.md").read_text()
+
+
+def test_a_single_batch_has_nothing_to_integrate(world, tmp_path):
+    import csv
+    rows = list(csv.DictReader(open(world.sheet)))
+    sheet = tmp_path / "one.csv"
+    sheet.write_text("sample,path,condition,batch\n" + "".join(
+        f"{r['sample']},{world.root / r['path']},{r['condition']},b1\n" for r in rows[:2]))
+    run = S.run_scrna(sheet, S.ScConfig(n_top_genes=600, batch_key="batch"), tmp_path / "out")
+    stages = {s["name"]: s for s in run.manifest["stages"]}
+    assert stages["integrate"]["status"] == "not_applicable"
+    assert "one batch only" in stages["integrate"]["reason"]
+    assert stages["pseudobulk_de"]["status"] == "not_applicable"       # one condition
+    assert run.complete
+
+
+def test_verify_run_checks_the_tables_against_the_record(removed, tmp_path):
+    import hashlib
+    copy = tmp_path / "copy"
+    shutil.copytree(removed.out_dir, copy)
+    manifest = json.loads((copy / "run.json").read_text())
+    cells = copy / "cells.tsv"
+    cells.write_text("\n".join(cells.read_text().splitlines()[:11]) + "\n")
+    manifest["outputs"]["cells.tsv"] = hashlib.sha256(cells.read_bytes()).hexdigest()
+    (copy / "run.json").write_text(json.dumps(manifest))
+    ok, problems = S.verify_run(copy)
+    assert not ok and any(p.startswith("cells.tsv: 10 rows") for p in problems), problems
 
 
 # ---------------------------------------------------------------- the governed skill
@@ -254,3 +313,26 @@ def test_the_candidate_skill_claims_only_the_condition_comparison(world, tmp_pat
     assert claims[0].claim_kind == "association"
     assert check_claim(claims[0], {e.id: e for e in run.artifact.evidence}).allowed
     assert "inferred from marker expression" in " ".join(run.artifact.limitations)
+
+
+def test_the_candidate_skill_makes_no_claim_from_an_incomplete_run(world, tmp_path,
+                                                                  monkeypatch):
+    """The run is made incomplete after it ran (its verify check marked FAIL, as a changed
+    output would): the skill must read the run's own verdict and claim nothing."""
+    from bioagent.skills.omics import scrna_cell_atlas
+    real = S.run_scrna
+
+    def incomplete(*args, **kwargs):
+        run = real(*args, **kwargs)
+        run.stages = [dict(s, check="FAIL", reason="an output has changed")
+                      if s["name"] == "verify" else s for s in run.stages]
+        run.complete = False
+        return run
+
+    monkeypatch.setattr(S, "run_scrna", incomplete)
+    art = scrna_cell_atlas(str(world.sheet), experiment_design="observational",
+                           out_dir=str(tmp_path / "run"))
+    assert not art.claims
+    text = " ".join(art.limitations)
+    assert ("the run is incomplete (stage verify: its check failed: an output has changed), "
+            "so no claim is made") in text

@@ -23,7 +23,7 @@ import json
 import sys
 from pathlib import Path
 
-from .acquisition import BulkDatasetProvider, Downloader, acquisition_for
+from .acquisition import BulkDatasetProvider, acquisition_for
 from .config import data_lake_dir, registry_dir, skills_dir
 from .runtime.registry import ComponentRegistry, Resolver
 
@@ -230,8 +230,33 @@ def _cmd_tcmdb(a) -> int:
             show(hub.status(a.dataset))
             return 0
         if a.tcmdb_cmd == "fetch":
-            results = hub.fetch(a.dataset, include_optional=a.all, confirm=a.confirm)
-            return 0 if all(r["ok"] for r in results) else 1
+            # the verified acquisition (acquisition.service): a resume only onto the same
+            # file, a lock per file, archives read through before a file is kept; SIGTERM (a
+            # Studio job's cancel) stops it at the next block and keeps the partial file
+            from .acquisition.service import acquire_dataset, cancel_on_signals
+            doc = acquire_dataset(hub, a.dataset, include_optional=a.all, confirm=a.confirm,
+                                  mirrors=a.mirror, cancel=cancel_on_signals(),
+                                  report_path=a.report or None,
+                                  log=lambda m: print(m, file=sys.stderr, flush=True))
+            print(json.dumps({k: doc[k] for k in ("dataset", "status", "kept", "bytes",
+                                                  "verified", "cancelled")},
+                             ensure_ascii=False))
+            if doc["cancelled"]:
+                print("cancelled: the partial file is kept and resumes, verified, on the next "
+                      "fetch", file=sys.stderr)
+                return 130
+            if not doc["files"]:
+                # nothing was asked for (every file of the dataset is optional): not a success
+                print(f"nothing fetched: every file of {a.dataset} is optional; pass --all to "
+                      "fetch them", file=sys.stderr)
+                return 1
+            if all(r["ok"] for r in doc["files"]):
+                return 0
+            bad = next(r for r in doc["files"] if not r["ok"])
+            # the last line of stderr is what a job's error shows
+            print(f"{bad['status']}: {bad['file']}: {bad.get('reason') or bad.get('error')}",
+                  file=sys.stderr)
+            return 1
         if a.tcmdb_cmd == "import-raw":
             show([hub.import_raw(a.dataset, path, name=a.name) for path in a.files])
             return 0
@@ -338,7 +363,11 @@ def _cmd_research(a) -> int:
 
     Exit 0 when the artifact may be released, including when every hypothesis was
     refuted and the negative result is what is released; 1 when release is not
-    authorised; 2 when the question or a stage was refused.
+    authorised; 2 when the question or a stage was refused; 3 when the run finished but one
+    of its sixteen workflow stages FAILed its own check (a target resting on no measured
+    edge, q-values that do not recompute, an export whose digest differs on disk), or its
+    run_manifest.json could not be read: whatever the release check said, such a run is not
+    a result (the research.run job counts 0 and 1 as results, 3 as a failure).
     """
     import json as _json
     from dataclasses import replace
@@ -346,9 +375,10 @@ def _cmd_research(a) -> int:
     from .analysis.network_pharmacology import Parameters
     from .research import (QuestionRefused, ResearchRefused, default_protocol,
                            parse_question, run_research)
+    from .research.workflow import failed_stages
 
     try:
-        question = parse_question(a.question, disease=a.disease)
+        question = parse_question(a.question, disease=a.disease, formula=a.formula)
         params = replace(Parameters(), background=a.background, hits=a.hits,
                          permutations=a.permutations)
         protocol = default_protocol(question, activity=tuple(a.activity or ["npass"]),
@@ -370,7 +400,29 @@ def _cmd_research(a) -> int:
                **{k: (run.artifact.provenance.get(k) if run.artifact else None)
                   for k in ("compiled_program", "governed_execution", "tool_calls")},
                "output_dir": run.output_dir}
+    # the sixteen workflow stages and how far the data reached, from the run's manifest
+    try:
+        manifest = _json.loads((Path(run.output_dir) / "run_manifest.json").read_text(
+            encoding="utf-8"))
+        unread = None
+    except (OSError, ValueError) as exc:
+        manifest, unread = {}, f"run_manifest.json could not be read ({exc})"
+    summary["formula"] = question.formula_id
+    summary["coverage"] = {k: ({n: x for n, x in v.items() if n not in ("groups", "rule")}
+                               if k == "identity" and isinstance(v, dict) else v)
+                           for k, v in (manifest.get("coverage") or {}).items()}
+    summary["stages"] = [{"n": s.get("n"), "id": s.get("id"), "status": s.get("status"),
+                          "reason": str(s.get("reason") or "")[:240]}
+                         for s in manifest.get("stages") or ()]
+    summary["exports"] = sorted(manifest.get("outputs") or ())
+    summary["complete"] = manifest.get("complete")
+    summary["problems"] = list(manifest.get("problems") or ())
+    failed = failed_stages(manifest.get("stages") or ()) or ([unread] if unread else [])
     print(_json.dumps(summary, indent=2, ensure_ascii=False))
+    if failed:
+        for line in failed:
+            print(f"failed: {line}", file=sys.stderr)
+        return 3
     return 0 if run.released else 1
 
 
@@ -401,7 +453,8 @@ def _cmd_snapshots(a) -> int:
     doc = pipeline.build_research_snapshots(
         raw, out, ledger, sources=a.sources, network=not a.no_network, formulas=a.formula,
         formula_table=a.formula_table or None, confirm=a.confirm, offline=a.offline,
-        report_path=a.report or None, log=lambda m: print(m, file=sys.stderr))
+        report_path=a.report or None, mirrors=a.mirror,
+        log=lambda m: print(m, file=sys.stderr))
     print(json.dumps(pipeline.summary(doc), indent=1, ensure_ascii=False))
     if doc["status"] in ("PASS", "UNVERIFIED"):
         return 0
@@ -579,6 +632,9 @@ def main(argv: list[str] | None = None) -> int:
     rs = sub.add_parser("research", help="run a question through the closed research loop")
     rs.add_argument("question", help="e.g. '葛根芩连汤的实测靶点是否集中在某条通路？'")
     rs.add_argument("--disease", default="", help="ontology id, e.g. MONDO_0005148")
+    rs.add_argument("--formula", default="",
+                    help="the formula to study (a name, a name with its source book, or an "
+                         "id); a question that names another formula is refused")
     rs.add_argument("--snapshots", required=True, help="snapshot root directory")
     rs.add_argument("--ledger", required=True, help="the snapshot ledger (jsonl)")
     rs.add_argument("--state-dir", required=True,
@@ -632,6 +688,10 @@ def main(argv: list[str] | None = None) -> int:
         x.add_argument("--offline", action="store_true",
                        help="download nothing: build from the files already here")
         x.add_argument("--report", default="", help="write the full report (JSON) here")
+        x.add_argument("--mirror", action="append", default=[],
+                       help="a directory that may hold the same raw files (the data hub's "
+                            "raw/npass, raw/cmaup, raw/lotus): a copy that hashes to its "
+                            "reviewed checksum is adopted as a hard link (repeatable)")
 
     tc = sub.add_parser("tcmdb", help="the TCM data hub: 66 catalogued sources, local "
                                       "stores, cross-source relations, live connectors")
@@ -646,10 +706,16 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--json", action="store_true")
     t = tsub.add_parser("status", help="what is downloaded and built")
     t.add_argument("dataset", nargs="?", default=None)
-    t = tsub.add_parser("fetch", help="download a dataset's files")
+    t = tsub.add_parser("fetch", help="download a dataset's files, each verified before it "
+                                      "is kept")
     t.add_argument("dataset")
     t.add_argument("--all", action="store_true", help="include optional (large) files")
     t.add_argument("--confirm", action="store_true", help="allow files above the size gate")
+    t.add_argument("--mirror", action="append", default=[],
+                   help="a directory that may hold the same files (the research snapshots' "
+                        "raw directory): a copy there that hashes to its reviewed checksum is "
+                        "adopted as a hard link instead of downloaded (repeatable)")
+    t.add_argument("--report", default="", help="write the acquisition report (JSON) here")
     t = tsub.add_parser("import-raw", help="add files a person obtained, verified against the "
                                            "reviewed checksum or size as a download would be")
     t.add_argument("dataset")
@@ -798,15 +864,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unknown dataset {a.target!r}; try `fetchable`", file=sys.stderr)
         return 2
     spec = acquisition_for(m)
-    dl = Downloader(dest, log=lambda s: print(s, file=sys.stderr))
+    from .acquisition.service import release_of
+    from .acquisition.transfer import VerifiedTransfer
+    dl = VerifiedTransfer(dest, log=lambda s: print(s, file=sys.stderr))
     try:
         out = dl.fetch(spec.url, spec.filename, checksum=spec.checksum,
-                       expected_bytes=spec.expected_bytes, confirm=a.confirm)
+                       expected_bytes=spec.expected_bytes, confirm=a.confirm,
+                       release=release_of(spec.version), fmt=spec.fmt)
     except Exception as exc:  # noqa: BLE001
         print(f"fetch failed: {exc}", file=sys.stderr)
         return 1
     print(json.dumps({"path": str(out.path), "bytes": out.bytes, "verified": out.verified,
-                      "checksum": out.checksum, "from_cache": out.from_cache}, indent=1))
+                      "checksum": out.checksum, "from_cache": out.from_cache,
+                      **out.record()}, indent=1))
     return 0
 
 

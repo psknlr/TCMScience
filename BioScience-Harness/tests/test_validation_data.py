@@ -182,6 +182,49 @@ def test_a_file_that_changed_upstream_fails_on_its_size_and_its_download(upstrea
     assert records["CMAUPv2.0_download_Plants.txt"].status == PASS
 
 
+def _truncated(upstream, name):
+    blob = (upstream / name).read_bytes()
+    (upstream / name).write_bytes(blob[: len(blob) // 2])
+    return blob[: len(blob) // 2]
+
+
+def test_a_truncated_gzip_is_refused_by_its_archive_check_and_not_kept(upstream, tmp_path):
+    """A truncated download fails before it is kept. The STRING alias file has no reviewed
+    checksum, so only reading the archive to its end can tell that the half served is not
+    the file; the record says so, and nothing is left on disk."""
+    name = "9606.protein.aliases.v12.0.txt.gz"
+    _truncated(upstream, name)
+    raw = tmp_path / "raw"
+    records = {r.component: r for r in data.validate_files(
+        _specs(), raw, live=True, resume_check=False, log=lambda m: None)}
+    r = records[name]
+    assert r.status == FAIL and r.check("download").status == FAIL
+    assert "the archive is not whole" in r.check("download").detail
+    assert r.check("decompression").status == SKIPPED and not (raw / name).exists()
+    assert records["9606.protein.links.v12.0.txt.gz"].check("decompression").status == PASS
+
+
+def test_a_corrupt_gzip_already_on_disk_fails_its_decompression_check(upstream, tmp_path):
+    """The decompression check's own FAIL branch, offline: a corrupt copy placed by hand."""
+    name = "9606.protein.aliases.v12.0.txt.gz"
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / name).write_bytes(_truncated(upstream, name))
+    records = {r.component: r for r in data.validate_files(_specs(), raw, live=False,
+                                                           log=lambda m: None)}
+    check = records[name].check("decompression")
+    assert check.status == FAIL and records[name].status == FAIL, check
+    # the format is not read from a stream that did not decompress (it used to raise EOFError)
+    assert records[name].check("format").status == SKIPPED
+
+
+def test_a_table_that_cannot_be_read_as_text_fails_its_format_check(tmp_path):
+    bad = tmp_path / "links.txt.gz"
+    bad.write_bytes(b"\x1f\x8b\x08\x00" + b"\x00" * 12)      # a gzip header and nothing usable
+    status, detail, _ = data._format(bad, "tsv")
+    assert status == FAIL and "could not be read as text" in detail
+
+
 def test_offline_nothing_is_requested_and_nothing_counts_as_passed(upstream, tmp_path):
     records = data.validate_files(_specs(), tmp_path / "raw", live=False, log=lambda m: None)
     assert not _Ranges.seen

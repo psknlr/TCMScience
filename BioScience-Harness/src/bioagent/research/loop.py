@@ -40,6 +40,16 @@ refusal point:
     its written outputs. ``released`` is true only when
     ``validate_artifact(...).release_authorized`` is true.
 
+The outputs are the run's own (``protocol.json``, ``result.json``, ``enrichment.jsonl``,
+``rebuttal.json``) and the nine exports of :mod:`bioagent.analysis.np_exports`: the
+compound, target, disease-gene, enrichment and network tables, ``provenance.json``,
+``limitations.md``, ``report.html`` and, written last, ``run_manifest.json``. The analysis
+is also read back as the sixteen stages of a network-pharmacology study
+(:mod:`bioagent.research.workflow`), each PASS, FAIL, BLOCKED, UNVERIFIED, SKIPPED or
+NOT_APPLICABLE with its reason; they go into the manifest, the report and ``stages.json``.
+Every output but the manifest is in the artifact, so ``validate_artifact`` checks it; the
+manifest records every output's digest and the artifact's, with the audit head.
+
 Every stage writes a checkpoint under ``state_dir``. Run the same question and protocol
 again and the completed stages are reused. A stage is reused only if its recorded
 inputs still match; the retrieved snapshot ids are compared on every resume. A run that
@@ -155,8 +165,25 @@ def _table() -> Any:
 _FORMULA_ID = re.compile(r"tcm:formula\.[A-Za-z0-9_]+")
 
 
-def parse_question(text: str, *, disease: str = "", table: Any = None) -> ResearchQuestion:
+def _disease_of(text: str, disease: str = "") -> str:
+    """The disease id a question names (an ontology id), checked against ``disease``."""
+    ids = _DISEASE_ID.findall(text)
+    if disease and ids and disease not in ids:
+        raise QuestionRefused(f"disease {disease!r} disagrees with the question's {ids}")
+    if len(set(ids)) > 1:
+        raise QuestionRefused(f"the question names more than one disease: {sorted(set(ids))}")
+    return disease or (ids[0] if ids else "")
+
+
+def parse_question(text: str, *, disease: str = "", table: Any = None,
+                   formula: str = "") -> ResearchQuestion:
     """Read the formula and (optional) disease id out of a question.
+
+    ``formula`` names the formula separately (a job's ``formula`` parameter): it is parsed
+    on its own, by the rules below, and decides which formula is studied. When the
+    question's own text also names one, the two must be the same formula, or the question
+    is refused: a protocol records the question text, and a run whose text names one
+    formula while it studies another would report the one it did not study.
 
     Deliberately literal. A formula is recognised by its id (``tcm:formula.fx…``), by a
     hand-checked name, or by a name in the formula table (中医方剂数据表). The table
@@ -168,12 +195,20 @@ def parse_question(text: str, *, disease: str = "", table: Any = None) -> Resear
     ingredient: studying the rest as if it were absent would study a different formula. A
     disease is recognised only by an ontology id (``MONDO_0005148``).
     """
-    ids = _DISEASE_ID.findall(text)
-    if disease and ids and disease not in ids:
-        raise QuestionRefused(f"disease {disease!r} disagrees with the question's {ids}")
-    if len(set(ids)) > 1:
-        raise QuestionRefused(f"the question names more than one disease: {sorted(set(ids))}")
-    disease = disease or (ids[0] if ids else "")
+    if formula:
+        named = parse_question(formula, table=table)
+        try:
+            stated: ResearchQuestion | None = parse_question(text, disease=disease, table=table)
+        except QuestionRefused:
+            stated = None                 # the text names no formula, or none on its own
+        if stated is not None and stated.formula_id != named.formula_id:
+            raise QuestionRefused(
+                f"the question names {stated.formula_id} but the formula given is "
+                f"{named.formula_id} ({formula}); name one formula")
+        return ResearchQuestion(text=text, formula_id=named.formula_id,
+                                disease=stated.disease if stated is not None
+                                else _disease_of(text, disease))
+    disease = _disease_of(text, disease)
 
     explicit = _FORMULA_ID.findall(text)
     if explicit:
@@ -501,7 +536,8 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
             ckpt.save("rebut", rebut_input, {**rebuttal, "execution": ran["rebut"]})
 
         # -- release ------------------------------------------------------------------
-        artifact = _artifact(run_id, protocol, snaps, result, rebuttal, deviations, out)
+        artifact, exports = _artifact(run_id, protocol, snaps, result, rebuttal, deviations,
+                                      out)
         # How the stages ran, as recorded when they ran: a resumed stage keeps its own
         # record, whatever this invocation is configured to do.
         artifact = replace(artifact, provenance={
@@ -531,9 +567,21 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
               policy_id=policy_id)
         verdict = validate_artifact(artifact, output_root=out, content_store=store,
                                     attestor=AuditChainAttestor(kernel.events))
-        (out / "artifact.json").write_text(json.dumps(
-            {**artifact.document(), "validation": verdict.as_dict()}, indent=2,
-            ensure_ascii=False, default=str) + "\n", encoding="utf-8")
+        document = (json.dumps({**artifact.document(), "validation": verdict.as_dict()},
+                               indent=2, ensure_ascii=False, default=str) + "\n").encode("utf-8")
+        (out / "artifact.json").write_bytes(document)
+        # Written last, so it can name the artifact and the audit head: the only part of it
+        # that differs between two runs of the same protocol (np_exports.write_manifest).
+        from ..analysis.np_exports import write_manifest
+        write_manifest(exports, outputs={
+            f.path: {"sha256": "sha256:" + f.sha256, "bytes": f.bytes}
+            for f in artifact.outputs if f.path not in exports.files},
+            execution={"audit_head": head, "policy_id": policy_id,
+                       "artifact": {"path": "artifact.json",
+                                    "sha256": "sha256:" + hashlib.sha256(document).hexdigest(),
+                                    "bytes": len(document)},
+                       "release_authorized": verdict.release_authorized,
+                       "governed_execution": artifact.provenance.get("governed_execution")})
         ckpt.save("release", _digest({"rebut": rebut_input, "artifact": artifact.digest}),
                   {"artifact_digest": artifact.digest, "states": verdict.states})
     finally:
@@ -753,9 +801,39 @@ def _rebut(analyse: Callable[..., Any], snaps: Sequence[Snapshot], protocol: Pro
             "survived": sorted(p for p, r in reasons.items() if not r)}
 
 
+#: Media types of the outputs, by extension.
+_MEDIA = {".json": "application/json", ".jsonl": "application/json", ".md": "text/markdown",
+          ".tsv": "text/tab-separated-values", ".html": "text/html"}
+
+
+def _reproduce(protocol: Protocol) -> tuple[list[str], bool]:
+    """The ``bioagent research`` command for this protocol (paths as placeholders), and
+    whether it gives exactly this protocol: the command carries the question, formula,
+    disease, sources, background, hits and permutations, and every other parameter at its
+    default; with one changed, the manifest's ``parameters`` are the record."""
+    q, p = protocol.question, protocol.parameters
+    activity = [k for k in protocol.required_sources if k in ACTIVITY_SOURCES]
+    argv = ["bioagent", "research", q.text, "--formula", q.formula_id,
+            "--snapshots", "SNAPSHOTS", "--ledger", "LEDGER", "--state-dir", "STATE",
+            "--out", "OUT2", "--background", p.background, "--hits", p.hits,
+            "--permutations", str(p.permutations)]
+    if q.disease:
+        argv += ["--disease", q.disease]
+    for key in activity:
+        argv += ["--activity", key]
+    for key in protocol.optional_sources:
+        argv += ["--optional", key]
+    again = default_protocol(q, activity=tuple(activity) or ("npass",),
+                             optional=tuple(protocol.optional_sources) or ("string",),
+                             parameters=replace(Parameters(), background=p.background,
+                                                hits=p.hits, permutations=p.permutations))
+    return argv, again.digest == protocol.digest
+
+
 def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
               result: Mapping[str, Any], rebuttal: Mapping[str, Any],
-              deviations: Sequence[Mapping[str, Any]], out: Path) -> ResearchArtifact:
+              deviations: Sequence[Mapping[str, Any]], out: Path) -> tuple[ResearchArtifact, Any]:
+    from ..analysis.np_exports import write_exports
     from ..skills.base import artifact as build
 
     by_id = {s.snapshot_id: s for s in snaps}
@@ -771,16 +849,31 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
         "result.json": _json({k: v for k, v in result.items()}),
         "enrichment.jsonl": enrichment_text,
         "rebuttal.json": _json(dict(rebuttal)),
-        "limitations.md": "# Limitations\n\n" + "".join(
-            f"- {line}\n" for line in _limitations(result, rebuttal, deviations, _no_organism(protocol))),
     }
     files = []
     for name, text in outputs.items():
         (out / name).write_text(text, encoding="utf-8")
         files.append(ArtifactFile(path=name, sha256=hashlib.sha256(
             text.encode("utf-8")).hexdigest(), bytes=len(text.encode("utf-8")),
-            media_type="application/json" if name.endswith(("json", "jsonl"))
-            else "text/markdown"))
+            media_type=_MEDIA[Path(name).suffix]))
+    no_organism = _no_organism(protocol)
+    argv, exact = _reproduce(protocol)
+    exports = write_exports(
+        result, out, formula=protocol.question.formula, snaps=snaps,
+        limitations=_limitations(result, rebuttal, deviations, no_organism),
+        disease=protocol.question.disease,
+        requested=(*protocol.required_sources, *protocol.optional_sources),
+        deviations=deviations, rebuttal=rebuttal, no_organism=no_organism, reproduce=argv,
+        question=protocol.question.text,
+        provenance={"protocol_digest": protocol.digest, "run_id": run_id,
+                    "deviations": list(deviations)},
+        manifest={"runner": "research", "run_id": run_id, "question": protocol.question.text,
+                  "protocol_digest": protocol.digest, "reproduce_exact": exact,
+                  "skill": {"id": SKILL_ID, "version": SKILL_VERSION},
+                  "deviations": list(deviations)})
+    files += [ArtifactFile(path=name, sha256=entry["sha256"].split(":", 1)[1],
+                           bytes=entry["bytes"], media_type=_MEDIA[Path(name).suffix])
+              for name, entry in exports.files.items()]
 
     evidence: dict[str, EvidenceItem] = {}
     claims: list[CandidateClaim] = []
@@ -848,14 +941,14 @@ def _artifact(run_id: str, protocol: Protocol, snaps: Sequence[Snapshot],
         question=protocol.question.text,
         sources=[*cards.values(), enrichment_card],
         evidence=list(evidence.values()), claims=claims, outputs=files,
-        limitations=_limitations(result, rebuttal, deviations, _no_organism(protocol)),
+        limitations=exports.limitations,
         assumptions=("the formula's composition is the one its source text records; "
                      "doses and processing are recorded but not modelled",),
         source_axis=_digest(sorted(cards)), created_at=_now(),
         provenance={"protocol_digest": protocol.digest, "snapshots": sorted(cards),
                     "environment": _environment(),
                     "result_digest": result["digest"], "deviations": list(deviations),
-                    "refuted": list(rebuttal["refuted"])})
+                    "refuted": list(rebuttal["refuted"])}), exports
 
 
 def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
@@ -872,7 +965,20 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
         out.append("components with no organism, which contribute no constituents to the "
                    f"analysis: {', '.join(no_organism)}")
     if not rebuttal.get("survived"):
-        out.append("no claim survived analysis and rebuttal; the run releases no hypothesis")
+        from .workflow import nothing_tested
+        if nothing_tested(result):
+            out.append("nothing could be tested, so the run releases no hypothesis: an empty "
+                       "result, not evidence of inactivity")
+        elif not result.get("claims"):
+            out.append("pathways were tested and none passed both BH and the permutation null, "
+                       "so the run releases no hypothesis: an absence of evidence for "
+                       "enrichment, not evidence that any pathway is uninvolved")
+        elif not rebuttal.get("primary"):
+            out.append("every candidate claim was refused at the release check; the run "
+                       "releases no hypothesis")
+        else:
+            out.append("every claim the analysis made was refuted at rebuttal; the run "
+                       "releases no hypothesis")
     return out or ["no limitation was recorded; treat that as a gap, not a guarantee"]
 
 

@@ -277,6 +277,19 @@ def test_a_local_job_that_writes_nothing_or_fails_is_not_a_success(tmp_path):
     assert "artefact 'runs': not a model" in rejected.error
 
 
+def test_a_local_job_records_its_peak_memory(tmp_path):
+    """exit.json holds the supervisor's getrusage(RUSAGE_CHILDREN): the peak resident
+    memory of the largest process the job waited for, not a sum over its tree."""
+    ctl = JobController(LocalSubprocessJobs(tmp_path / "jobs"))
+    outcome = ctl.run(local_spec("block = bytearray(80 * 2**20)\nblock[::4096] = b'x' * "
+                                 "len(block[::4096])"), timeout_s=30, poll_s=0.02)
+    assert outcome.status is ExecutionStatus.SUCCEEDED, outcome.error
+    exit_doc = json.loads((Path(outcome.ref.location) / "exit.json").read_text())
+    res = exit_doc["resources"]
+    assert res["peak_rss_mb"] >= 64 and res["cpu_user_s"] >= 0
+    assert res["source"] == "getrusage(RUSAGE_CHILDREN) in the job's supervisor"
+
+
 def test_the_executor_enforces_a_jobs_wall_clock_limit(tmp_path):
     ctl = JobController(LocalSubprocessJobs(tmp_path / "jobs"))
     outcome = ctl.run(local_spec("import time; time.sleep(60)", timeout_s=0.5),

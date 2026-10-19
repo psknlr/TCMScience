@@ -147,7 +147,8 @@ test("Settings → Privacy: the record switch, deletion with a reference, the us
   assert.equal(renders, 1);
   const after = privacyTab(app, () => {});
   assert.equal(after.querySelector('[data-key="privacy-delete"]').disabled, false);
-  await delay(10);
+  // the reference is a SHA-256 the page computes asynchronously (WebCrypto's first digest can take a while)
+  for (let i = 0; i < 200 && !after.querySelector(".privacy__ref").textContent; i++) await delay(10);
   assert.match(after.querySelector(".privacy__ref").textContent, /^记录编号：[0-9a-f]{12}/);
   // a page whose site takes nothing says so, and offers nothing to switch on
   const none = new Telemetry({ origin: ORIGIN, fetch: async () => new Response(null) });

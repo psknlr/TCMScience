@@ -10,7 +10,11 @@ variables (``condition``, ``batch``, ...). Rows sharing a sample name are lanes 
 library and are merged. Paths are relative to the sheet.
 
 Steps, each recorded with its tool, version, parameters and the digests of what it read
-and wrote:
+and wrote. Before any of them the reference is checked (``quant.validate_reference``:
+unique transcript ids, transcripts the annotation knows, GTF sequence names the genome
+has), before the lanes are even merged, and every FASTQ record is read in full
+(``fastq.validate_fastq``: structure, bases, quality range, mate names), so a bad input
+stops the run before QC and trimming spend time on it.
 
 1. **QC** of every FASTQ file (``fastq.quality_control``; FastQC's modules and limits).
 2. **Trimming**: fastp when installed, otherwise the built-in cutadapt-style trimmer.
@@ -27,6 +31,11 @@ and wrote:
 7. **Report**: ``report.md`` and ``report.html`` with tables and SVG figures, and
    ``run.json`` holding every parameter, version and digest; ``verify_run`` re-checks the
    digests.
+
+Every stage is recorded with its status, check, engine, version, device and time
+(``bioagent.runrecord``): ``stages.json`` while the run works, ``run.json['stages']`` at
+the end, with ``complete`` (every required stage succeeded and no check failed) and
+``limitations.md``, one limitation per line. The stages are ``STAGES``.
 
 A result is a statistical association within the experiment analysed: which genes
 differ between the groups of these samples. It says nothing about why, and nothing
@@ -50,10 +59,35 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from .. import __version__ as _VERSION
+from ..runrecord import (LIMITATIONS_FILE, STAGES_FILE, StageRecorder, match_reference,
+                         output_problems, record_problems, stage_limitations, tsv_shape,
+                         write_limitations)
 from . import backends, de_backends, fastq, quant, svgplot
 
 __all__ = ["RNASeqConfig", "RNASeqError", "RNASeqRun", "Sample", "read_sample_sheet",
-           "run_rnaseq", "verify_run", "ENGINES"]
+           "run_rnaseq", "verify_run", "ENGINES", "STAGES", "LIMITATIONS"]
+
+PIPELINE = "bioagent.omics.rnaseq"
+#: The stages of a run, in order; ``trim`` is the only one that may be left out (trimmer
+#: 'none'), and every other one is required.
+STAGES = ("validate_reference", "ingest", "validate_fastq", "qc", "trim", "quantify",
+          "summarize_genes", "differential_expression", "explore", "report", "verify")
+#: What every result of this pipeline is not, one line each (``limitations.md``); a run
+#: adds its own (the QC sample, the quantifier, a stage it did not run).
+LIMITATIONS = (
+    "A result is a statistical association within this experiment: which genes differ "
+    "between the groups of these samples, with this reference and these settings. It does "
+    "not establish a mechanism, a cause or any clinical effect.",
+    "Fold changes are maximum-likelihood estimates without shrinkage, so low-count genes "
+    "can show large, imprecise changes.",
+    "The built-in DESeq2-method implementation, PyDESeq2 and R's DESeq2 do not give "
+    "numerically identical results; with two replicates per group they call different "
+    "genes. docs/omics-backends.md traces where and why they differ.",
+)
+#: Files of the output directory that are not outputs: the record itself, and the live
+#: stage file rewritten after the record is sealed.
+_UNLISTED = {"run.json", STAGES_FILE}
 
 ENGINES = ("auto", "builtin", "salmon", "kallisto", "hisat2")
 TRIMMERS = ("auto", "builtin", "fastp", "none")
@@ -257,12 +291,17 @@ class RNASeqRun:
     pca: dict[str, Any]
     warnings: list[str]
     manifest: dict[str, Any] = field(default_factory=dict)
+    stages: list[dict[str, Any]] = field(default_factory=list)
+    complete: bool = False
+    limitations: list[str] = field(default_factory=list)
+    reference_dataset: dict[str, Any] | None = None
 
     def summary(self) -> dict[str, Any]:
         return {"samples": [s.name for s in self.samples], "engine": self.engine,
                 "trimmer": self.trimmer, "contrast": list(self.contrast),
                 "differential_expression": self.result.summary(),
-                "warnings": list(self.warnings), "out_dir": str(self.out_dir)}
+                "warnings": list(self.warnings), "out_dir": str(self.out_dir),
+                "complete": self.complete}
 
 
 def _concat(paths: Sequence[Path], out: Path) -> Path:
@@ -287,182 +326,340 @@ def _qc(path: Path, config: RNASeqConfig) -> dict[str, Any]:
     return d
 
 
+def _tool_version(name: str) -> str | None:
+    tool = backends.find_tool(name)
+    return tool.version if tool is not None else None
+
+
+def _quant_engine(engine: str) -> tuple[str, str | None]:
+    """(engine id, version) of the quantification stage, by the catalog's engine ids."""
+    if engine == "builtin":
+        return "builtin-quant", _VERSION
+    if engine == "hisat2":
+        return "hisat2", "; ".join(f"{t} {_tool_version(t) or '?'}"
+                                   for t in ("hisat2", "samtools", "featureCounts"))
+    return engine, _tool_version(engine)
+
+
+def _reference_digests(samples: Sequence[Sample], reads: Mapping[str, Mapping[str, Any]],
+                       reference: Mapping[str, Any]) -> dict[str, str]:
+    """The content digests that name this run's data: every FASTQ's decompressed text
+    and the reference files' (``runrecord.match_reference`` compares them)."""
+    out = {}
+    for s in samples:
+        for mate in ("R1", "R2"):
+            if mate in reads.get(s.name, {}):
+                out[f"{s.name}_{mate}"] = reads[s.name][mate]["content_sha256"]
+    for key in ("transcripts", "annotation", "genome"):
+        if key in reference:
+            out[key] = reference[key]["content_sha256"]
+    return out
+
+
 def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> RNASeqRun:
-    """Run every step and write the report; returns what was computed."""
+    """Run every stage and write the report; returns what was computed.
+
+    Each stage is recorded as it runs (``runrecord.StageRecorder``: ``stages.json`` while
+    the run works, ``run.json['stages']`` at the end). The run is complete when every
+    required stage succeeded and no check failed; ``RNASeqRun.complete`` says which."""
     samples = read_sample_sheet(sheet)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    # the choices first: one that cannot run here is refused before anything is written
     engine = _choose_engine(config)
     trimmer = _choose_trimmer(config)
     _check_de_backend(config)
     contrast = _infer_contrast(samples, config)
+    rec = StageRecorder(out, PIPELINE, plan=STAGES)
     warnings: list[str] = []
     steps: list[dict[str, Any]] = []
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    # 1-2: QC and trimming, per sample (lanes merged first)
+    # the reference first, before the lanes are merged: a mismatch costs nothing yet
+    with rec.stage("validate_reference", engine="bioagent.omics.quant",
+                   version=_VERSION) as st:
+        try:
+            reference = quant.validate_reference(
+                transcripts=config.transcripts if engine != "hisat2" else None,
+                annotation=config.annotation,
+                genome=config.genome if engine == "hisat2" else None)
+        except quant.QuantError as exc:
+            raise RNASeqError(f"the reference: {exc}") from exc
+        st.check = "PASS"
+        parts = []
+        if "transcripts" in reference:
+            parts.append(f"{reference['transcripts']['records']:,} transcripts, ids unique")
+        if "annotation" in reference:
+            a = reference["annotation"]
+            parts.append(f"annotation ({a['format']}) maps {a['genes']:,} genes"
+                         + (f"; {a['annotated']:,} transcripts annotated, "
+                            f"{a['unannotated']:,} not" if "annotated" in a else ""))
+        if "genome" in reference:
+            parts.append(f"every GTF sequence name is one of the genome's "
+                         f"{reference['genome']['contigs']:,} contigs")
+        st.reason = "; ".join(parts)
+
+    # ingest: the samples as the sheet gives them, lanes merged
+    with rec.stage("ingest", engine=PIPELINE, version=_VERSION) as st:
+        raw: dict[str, tuple[Path, Path | None]] = {}
+        merged_dir = out / "merged"
+        for s in samples:
+            r1 = s.fastq_1[0]
+            r2 = s.fastq_2[0] if s.paired else None
+            if len(s.fastq_1) > 1:
+                merged_dir.mkdir(exist_ok=True)
+                r1 = _concat(s.fastq_1, merged_dir / f"{s.name}_R1.fastq.gz")
+                r2 = (_concat(s.fastq_2, merged_dir / f"{s.name}_R2.fastq.gz")
+                      if s.paired else None)
+            raw[s.name] = (r1, r2)
+        lanes = sum(len(s.fastq_1) for s in samples)
+        st.reason = (f"{len(samples)} {'paired-end' if samples[0].paired else 'single-end'} "
+                     f"samples from {lanes} lane(s); quantification {engine}, trimming "
+                     f"{trimmer}, test {config.de_backend}")
+
+    # every record of every file, before QC and trimming spend time on them
+    with rec.stage("validate_fastq", engine="bioagent.omics.fastq", version=_VERSION) as st:
+        reads: dict[str, dict[str, Any]] = {}
+        for s in samples:
+            r1, r2 = raw[s.name]
+            try:
+                reads[s.name] = fastq.validate_fastq(r1, r2)
+            except fastq.FastqError as exc:
+                raise RNASeqError(f"sample {s.name}: {exc}") from exc
+        records = sum(v[m]["reads"] for v in reads.values() for m in ("R1", "R2") if m in v)
+        files = sum(1 for v in reads.values() for m in ("R1", "R2") if m in v)
+        st.check = "PASS"
+        st.reason = (f"{records:,} records in {files} files read in full: structure, bases, "
+                     "quality range" + (" and mate names" if samples[0].paired else ""))
+    reference_dataset = match_reference(PIPELINE, _reference_digests(samples, reads, reference))
+
+    # QC, per file
     qc: dict[str, dict[str, Any]] = {}
     qc_failed: dict[str, list[str]] = {}
+    with rec.stage("qc", engine="bioagent.omics.fastq", version=_VERSION) as st:
+        for s in samples:
+            r1, r2 = raw[s.name]
+            qc[s.name] = {"R1": _qc(r1, config)}
+            if r2 is not None:
+                qc[s.name]["R2"] = _qc(r2, config)
+            for mate, report in qc[s.name].items():
+                for module, verdict in report["flags"].items():
+                    if verdict == "fail":
+                        qc_failed.setdefault(module, []).append(f"{s.name} {mate}")
+        files = sum(len(v) for v in qc.values())
+        for module, where in sorted(qc_failed.items()):
+            warnings.append(f"QC module {module} failed in {len(where)} of {files} files: "
+                            + ", ".join(where))
+        st.reason = (f"FastQC's modules on at most the first {config.qc_reads:,} reads of "
+                     f"{files} files" + (f"; failed: {', '.join(sorted(qc_failed))}"
+                                         if qc_failed else "; no module failed"))
+
+    # trimming
     trimming: dict[str, dict[str, Any]] = {}
     reads_for: dict[str, tuple[Path, Path | None]] = {}
-    merged_dir = out / "merged"
-    for s in samples:
-        r1 = s.fastq_1[0]
-        r2 = s.fastq_2[0] if s.paired else None
-        if len(s.fastq_1) > 1:
-            merged_dir.mkdir(exist_ok=True)
-            r1 = _concat(s.fastq_1, merged_dir / f"{s.name}_R1.fastq.gz")
-            r2 = _concat(s.fastq_2, merged_dir / f"{s.name}_R2.fastq.gz") if s.paired else None
-        qc[s.name] = {"R1": _qc(r1, config)}
-        if r2 is not None:
-            qc[s.name]["R2"] = _qc(r2, config)
-        for mate, report in qc[s.name].items():
-            for module, verdict in report["flags"].items():
-                if verdict == "fail":
-                    qc_failed.setdefault(module, []).append(f"{s.name} {mate}")
-        if trimmer == "none":
-            reads_for[s.name] = (r1, r2)
-            continue
-        tdir = out / "trimmed"
-        tdir.mkdir(exist_ok=True)
-        o1 = tdir / f"{s.name}_R1.trimmed.fastq.gz"
-        o2 = tdir / f"{s.name}_R2.trimmed.fastq.gz" if r2 is not None else None
-        if trimmer == "fastp":
-            summary, step = backends.fastp(r1, o1, read2=r2, out2=o2, workdir=tdir / s.name,
-                                           quality=config.quality,
-                                           min_length=config.min_length,
-                                           threads=config.threads)
-            steps.append(step.as_dict())
-        else:
-            settings = fastq.TrimSettings(quality=config.quality,
-                                          min_length=config.min_length)
-            rep = fastq.trim_fastq(r1, o1, read2=r2, out2=o2, settings=settings)
-            summary = rep.as_dict()
-            summary["engine"] = "builtin (cutadapt-style)"
-        trimming[s.name] = summary
-        if summary["reads_in"] and summary["reads_out"] / summary["reads_in"] < 0.5:
-            warnings.append(f"{s.name}: trimming kept {summary['reads_out']} of "
-                            f"{summary['reads_in']} reads")
-        reads_for[s.name] = (o1, o2)
-
-    files = sum(len(v) for v in qc.values())
-    for module, where in sorted(qc_failed.items()):
-        warnings.append(f"QC module {module} failed in {len(where)} of {files} files: "
-                        + ", ".join(where))
-
-    # 3-4: quantification and gene totals
-    qdir = out / "quant"
-    qdir.mkdir(exist_ok=True)
-    quantification: dict[str, dict[str, Any]] = {}
-    if engine == "hisat2":
-        idx = out / "index" / "genome"
-        steps.append(backends.hisat2_index(config.genome, idx, threads=config.threads)
-                     .as_dict())
-        bams = []
-        for s in samples:
-            r1, r2 = reads_for[s.name]
-            stats, st = backends.hisat2_align(idx, r1, qdir / f"{s.name}.bam", read2=r2,
-                                              threads=config.threads)
-            steps += [x.as_dict() for x in st]
-            quantification[s.name] = {"method": "HISAT2 + featureCounts",
-                                      "mapping_rate": stats["overall_alignment_rate"]}
-            bams.append(qdir / f"{s.name}.bam")
-        matrix, st = backends.featurecounts(bams, [s.name for s in samples],
-                                            config.annotation, qdir / "featureCounts.txt",
-                                            paired=samples[0].paired, strand=config.strand,
-                                            threads=config.threads)
-        steps.append(st.as_dict())
-        names = _gene_names(config.annotation, matrix.genes)
-        lengths = np.repeat(matrix.lengths[:, None], len(samples), axis=1)
-        rate = matrix.counts / matrix.lengths[:, None]
-        tpm = rate / np.where(rate.sum(axis=0) > 0, rate.sum(axis=0), 1.0) * 1e6
-        genes = quant.GeneTable(genes=matrix.genes, names=names,
-                                samples=tuple(s.name for s in samples), counts=matrix.counts,
-                                tpm=tpm, length=lengths, counts_from_abundance="no",
-                                notes=["gene counts from featureCounts (-t exon -g gene_id)"])
-        for s in samples:
-            assigned = matrix.assigned.get(s.name, {})
-            total = sum(assigned.values())
-            quantification[s.name]["assigned_fraction"] = (
-                round(assigned.get("Assigned", 0) / total, 6) if total else 0.0)
+    if trimmer == "none":
+        reads_for = dict(raw)
+        rec.skip("trim", "trimmer 'none': the reads are quantified as given")
     else:
-        results = []
-        if engine == "builtin":
-            index_path = out / "index" / "kmer_index.npz"
-            index = quant.KmerIndex.from_fasta(config.transcripts, k=config.k)
-            index.save(index_path)
-            steps.append({"tool": "bioagent.omics.quant", "version": _code_digest()[:12],
-                          "command": ["KmerIndex.from_fasta", str(config.transcripts),
-                                      f"k={config.k}"],
-                          "inputs": {str(config.transcripts): _sha256(Path(config.transcripts))},
-                          "outputs": {str(index_path): _sha256(index_path)}})
-        elif engine == "salmon":
-            index_dir = out / "index" / "salmon"
-            steps.append(backends.salmon_index(config.transcripts, index_dir, k=config.k,
-                                               threads=config.threads).as_dict())
-        else:
-            index_file = out / "index" / "kallisto.idx"
-            steps.append(backends.kallisto_index(config.transcripts, index_file,
-                                                 k=config.k).as_dict())
-        for s in samples:
-            r1, r2 = reads_for[s.name]
-            sdir = qdir / s.name
-            if engine == "builtin":
-                res = quant.quantify(index, r1, r2, fragment_mean=config.fragment_mean,
-                                     fragment_sd=config.fragment_sd)
-                quant.write_abundance(res, sdir / "abundance.tsv")
-            elif engine == "salmon":
-                res, st = backends.salmon_quant(index_dir, r1, sdir, read2=r2,
-                                                threads=config.threads)
-                steps.append(st.as_dict())
-            else:
-                res, st = backends.kallisto_quant(index_file, r1, sdir, read2=r2,
-                                                  fragment_mean=config.fragment_mean,
-                                                  fragment_sd=config.fragment_sd,
+        with rec.stage("trim", engine="fastp" if trimmer == "fastp" else "builtin-trim",
+                       version=_tool_version("fastp") if trimmer == "fastp" else _VERSION
+                       ) as st:
+            tdir = out / "trimmed"
+            tdir.mkdir(exist_ok=True)
+            for s in samples:
+                r1, r2 = raw[s.name]
+                o1 = tdir / f"{s.name}_R1.trimmed.fastq.gz"
+                o2 = tdir / f"{s.name}_R2.trimmed.fastq.gz" if r2 is not None else None
+                if trimmer == "fastp":
+                    summary, step = backends.fastp(r1, o1, read2=r2, out2=o2,
+                                                   workdir=tdir / s.name,
+                                                   quality=config.quality,
+                                                   min_length=config.min_length,
+                                                   threads=config.threads)
+                    steps.append(step.as_dict())
+                else:
+                    settings = fastq.TrimSettings(quality=config.quality,
+                                                  min_length=config.min_length)
+                    rep = fastq.trim_fastq(r1, o1, read2=r2, out2=o2, settings=settings)
+                    summary = rep.as_dict()
+                    summary["engine"] = "builtin (cutadapt-style)"
+                trimming[s.name] = summary
+                if summary["reads_in"] and summary["reads_out"] / summary["reads_in"] < 0.5:
+                    warnings.append(f"{s.name}: trimming kept {summary['reads_out']} of "
+                                    f"{summary['reads_in']} reads")
+                reads_for[s.name] = (o1, o2)
+            kept = sum(t["reads_out"] for t in trimming.values())
+            total = sum(t["reads_in"] for t in trimming.values())
+            st.reason = f"kept {kept:,} of {total:,} reads"
+
+    # quantification
+    qdir = out / "quant"
+    quantification: dict[str, dict[str, Any]] = {}
+    qid, qversion = _quant_engine(engine)
+    matrix = None
+    results: list[quant.QuantResult] = []
+    with rec.stage("quantify", engine=qid, version=qversion) as st:
+        qdir.mkdir(exist_ok=True)
+        if engine == "hisat2":
+            idx = out / "index" / "genome"
+            steps.append(backends.hisat2_index(config.genome, idx, threads=config.threads)
+                         .as_dict())
+            bams = []
+            for s in samples:
+                r1, r2 = reads_for[s.name]
+                stats, sts = backends.hisat2_align(idx, r1, qdir / f"{s.name}.bam", read2=r2,
+                                                   threads=config.threads)
+                steps += [x.as_dict() for x in sts]
+                quantification[s.name] = {"method": "HISAT2 + featureCounts",
+                                          "mapping_rate": stats["overall_alignment_rate"]}
+                bams.append(qdir / f"{s.name}.bam")
+            matrix, step = backends.featurecounts(bams, [s.name for s in samples],
+                                                  config.annotation, qdir / "featureCounts.txt",
+                                                  paired=samples[0].paired,
+                                                  strand=config.strand,
                                                   threads=config.threads)
-                steps.append(st.as_dict())
-            results.append(res)
-            quantification[s.name] = dict(res.run)
-            quantification[s.name]["mapping_rate"] = res.run.get("pseudoaligned_fraction")
-        tx_ids = results[0].transcripts
-        if config.annotation:
-            tx2gene = quant.read_tx2gene(config.annotation)
+            steps.append(step.as_dict())
+            for s in samples:
+                assigned = matrix.assigned.get(s.name, {})
+                total = sum(assigned.values())
+                quantification[s.name]["assigned_fraction"] = (
+                    round(assigned.get("Assigned", 0) / total, 6) if total else 0.0)
         else:
-            tx2gene = {t: (t, t) for t in tx_ids}
-            warnings.append("no annotation: each transcript is analysed as its own gene")
-        genes = quant.summarize_to_gene(results, [s.name for s in samples], tx2gene,
-                                        counts_from_abundance=config.counts_from_abundance)
-    for s in samples:
-        rate = quantification[s.name].get("mapping_rate")
-        if rate is not None and rate < MIN_MAPPING:
-            warnings.append(f"{s.name}: only {rate:.1%} of reads mapped; check the "
-                            "reference and the organism")
+            if engine == "builtin":
+                index_path = out / "index" / "kmer_index.npz"
+                index = quant.KmerIndex.from_fasta(config.transcripts, k=config.k)
+                index.save(index_path)
+                steps.append({"tool": "bioagent.omics.quant", "version": _code_digest()[:12],
+                              "command": ["KmerIndex.from_fasta", str(config.transcripts),
+                                          f"k={config.k}"],
+                              "inputs": {str(config.transcripts):
+                                         _sha256(Path(config.transcripts))},
+                              "outputs": {str(index_path): _sha256(index_path)}})
+            elif engine == "salmon":
+                index_dir = out / "index" / "salmon"
+                steps.append(backends.salmon_index(config.transcripts, index_dir, k=config.k,
+                                                   threads=config.threads).as_dict())
+            else:
+                index_file = out / "index" / "kallisto.idx"
+                steps.append(backends.kallisto_index(config.transcripts, index_file,
+                                                     k=config.k).as_dict())
+            for s in samples:
+                r1, r2 = reads_for[s.name]
+                sdir = qdir / s.name
+                if engine == "builtin":
+                    res = quant.quantify(index, r1, r2, fragment_mean=config.fragment_mean,
+                                         fragment_sd=config.fragment_sd)
+                    quant.write_abundance(res, sdir / "abundance.tsv")
+                elif engine == "salmon":
+                    res, step = backends.salmon_quant(index_dir, r1, sdir, read2=r2,
+                                                      threads=config.threads)
+                    steps.append(step.as_dict())
+                else:
+                    res, step = backends.kallisto_quant(index_file, r1, sdir, read2=r2,
+                                                        fragment_mean=config.fragment_mean,
+                                                        fragment_sd=config.fragment_sd,
+                                                        threads=config.threads)
+                    steps.append(step.as_dict())
+                results.append(res)
+                quantification[s.name] = dict(res.run)
+                quantification[s.name]["mapping_rate"] = res.run.get("pseudoaligned_fraction")
+        for s in samples:
+            rate = quantification[s.name].get("mapping_rate")
+            if rate is not None and rate < MIN_MAPPING:
+                warnings.append(f"{s.name}: only {rate:.1%} of reads mapped; check the "
+                                "reference and the organism")
+        rates = [quantification[s.name].get("mapping_rate") for s in samples]
+        rates = [float(r) for r in rates if r is not None]
+        st.outputs = [p.relative_to(out).as_posix() for p in sorted(qdir.rglob("*"))
+                      if p.is_file()]
+        st.reason = (f"{len(samples)} samples; assigned fraction "
+                     f"{min(rates):.1%} to {max(rates):.1%}" if rates
+                     else f"{len(samples)} samples")
 
-    # 5: differential expression; the count columns and the sheet's rows meet by name
-    result = de_backends.run_de(np.round(genes.counts), list(genes.genes), genes.samples,
-                                {s.name: dict(s.attributes) for s in samples},
-                                design=config.design, contrast=contrast,
-                                backend=config.de_backend, alpha=config.alpha,
-                                covariates=config.covariates, vst=True,
-                                threads=config.threads)
-    factor = contrast[0]
-    per_level: dict[str, int] = {}
-    for s in samples:
-        per_level[s.attributes[factor]] = per_level.get(s.attributes[factor], 0) + 1
-    if min(per_level.values()) < 3:
-        warnings.append("fewer than three replicates in a group: Cook's distance outlier "
-                        "filtering is not applied there, and estimates are less stable")
+    # gene totals
+    with rec.stage("summarize_genes",
+                   engine="featureCounts" if engine == "hisat2" else "bioagent.omics.quant",
+                   version=_tool_version("featureCounts") if engine == "hisat2" else _VERSION
+                   ) as st:
+        if engine == "hisat2":
+            names = _gene_names(config.annotation, matrix.genes)
+            lengths = np.repeat(matrix.lengths[:, None], len(samples), axis=1)
+            rate = matrix.counts / matrix.lengths[:, None]
+            tpm = rate / np.where(rate.sum(axis=0) > 0, rate.sum(axis=0), 1.0) * 1e6
+            genes = quant.GeneTable(genes=matrix.genes, names=names,
+                                    samples=tuple(s.name for s in samples),
+                                    counts=matrix.counts, tpm=tpm, length=lengths,
+                                    counts_from_abundance="no",
+                                    notes=["gene counts from featureCounts (-t exon -g "
+                                           "gene_id)"])
+        else:
+            tx_ids = results[0].transcripts
+            if config.annotation:
+                tx2gene = quant.read_tx2gene(config.annotation)
+            else:
+                tx2gene = {t: (t, t) for t in tx_ids}
+                warnings.append("no annotation: each transcript is analysed as its own gene")
+            genes = quant.summarize_to_gene(results, [s.name for s in samples], tx2gene,
+                                            counts_from_abundance=config.counts_from_abundance)
+        genes.write(out / "counts.tsv", what="counts")
+        genes.write(out / "tpm.tsv", what="tpm")
+        st.outputs = ["counts.tsv", "tpm.tsv"]
+        st.reason = (f"{len(genes.genes):,} genes"
+                     + (f"; {genes.unmatched_transcripts} transcripts not in the annotation"
+                        if genes.unmatched_transcripts else "")
+                     + f"; counts {genes.counts_from_abundance}")
 
-    # 6: exploration, on the variance-stabilised matrix of the implementation that ran
-    vst = result.vst
-    pca = _pca(vst, list(result.samples))
-    dist = _distances(vst)
+    # differential expression; the count columns and the sheet's rows meet by name
+    de_engine = "builtin-de" if config.de_backend == "builtin" else "pydeseq2"
+    with rec.stage("differential_expression", engine=de_engine) as st:
+        result = de_backends.run_de(np.round(genes.counts), list(genes.genes), genes.samples,
+                                    {s.name: dict(s.attributes) for s in samples},
+                                    design=config.design, contrast=contrast,
+                                    backend=config.de_backend, alpha=config.alpha,
+                                    covariates=config.covariates, vst=True,
+                                    threads=config.threads)
+        st.version = result.version
+        factor = contrast[0]
+        per_level: dict[str, int] = {}
+        for s in samples:
+            per_level[s.attributes[factor]] = per_level.get(s.attributes[factor], 0) + 1
+        if min(per_level.values()) < 3:
+            warnings.append("fewer than three replicates in a group: Cook's distance outlier "
+                            "filtering is not applied there, and estimates are less stable")
+        names = dict(zip(genes.genes, genes.names))
+        contract = [attr for _, attr, _ in de_backends.CONTRACT]
+        _write_tsv(out / "deseq2_results.tsv", ["gene_id", "gene_name", *contract],
+                   [[r["gene"], names.get(r["gene"], r["gene"]), *(r[c] for c in contract)]
+                    for r in result.table()])
+        # ... and, apart from them, that implementation's own estimates
+        diagnostics = de_backends.GENE_DIAGNOSTICS
+        _write_tsv(out / "de_diagnostics.tsv", ["gene_id", *diagnostics],
+                   [[g, *(_value(result.gene_diagnostics[k][i]) for k in diagnostics)]
+                    for i, g in enumerate(result.genes)])
+        st.outputs = ["deseq2_results.tsv", "de_diagnostics.tsv"]
+        summ = result.summary()
+        st.reason = (f"{summ['significant']} of {summ['tested']} tested genes at FDR < "
+                     f"{result.alpha:g} (Wald test; Benjamini-Hochberg after independent "
+                     "filtering)")
+
+    # exploration, on the variance-stabilised matrix of the implementation that ran
+    with rec.stage("explore", engine=de_engine, version=result.version) as st:
+        vst = result.vst
+        pca = _pca(vst, list(result.samples))
+        dist = _distances(vst)
+        _write_tsv(out / "vst.tsv", ["gene_id", *result.samples],
+                   [[g, *map(float, vst[i])] for i, g in enumerate(result.genes)])
+        st.outputs = ["vst.tsv"]
+        st.reason = (f"VST; PCA of the {pca['genes']} most variable genes; sample-to-sample "
+                     "distances")
 
     run = RNASeqRun(out_dir=out, samples=samples, engine=engine, trimmer=trimmer,
                     contrast=contrast, qc=qc, trimming=trimming,
                     quantification=quantification, genes=genes, result=result, vst=vst,
                     pca=pca, warnings=warnings)
-    _write_outputs(run, config, dist, steps, started)
+    run.reference_dataset = reference_dataset
+    _write_outputs(run, config, dist, steps, started, rec,
+                   validation={"reference": reference, "reads": reads})
     return run
 
 
@@ -543,34 +740,37 @@ def _write_tsv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]])
     return path
 
 
+def _limitations(run: RNASeqRun, config: RNASeqConfig, rec: StageRecorder) -> list[str]:
+    lines = list(LIMITATIONS)
+    lines.append(f"QC statistics describe at most the first {config.qc_reads:,} reads of each "
+                 "file; every record was checked for structure, bases and quality range.")
+    if run.engine == "builtin":
+        lines.append("The built-in quantifier has no sequence- or GC-bias correction; for a "
+                     "mammalian transcriptome salmon or kallisto is the better choice.")
+    if run.reference_dataset:
+        ref = run.reference_dataset
+        lines.append(f"The input is the reference dataset {ref['id']} (version "
+                     f"{ref['version']}): {ref['label']}. {ref['statement']}")
+    lines += stage_limitations(rec.stages)
+    return lines
+
+
 def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
-                   steps: list[dict[str, Any]], started: str) -> None:
+                   steps: list[dict[str, Any]], started: str, rec: StageRecorder,
+                   validation: Mapping[str, Any]) -> None:
     out = run.out_dir
-    res = run.result
-    genes = run.genes
-    names = dict(zip(genes.genes, genes.names))
-    run.genes.write(out / "counts.tsv", what="counts")
-    run.genes.write(out / "tpm.tsv", what="tpm")
-    # the shared result columns, the same whichever implementation ran ...
-    contract = [attr for _, attr, _ in de_backends.CONTRACT]
-    _write_tsv(out / "deseq2_results.tsv", ["gene_id", "gene_name", *contract],
-               [[r["gene"], names.get(r["gene"], r["gene"]), *(r[c] for c in contract)]
-                for r in res.table()])
-    # ... and, apart from them, that implementation's own estimates
-    diagnostics = de_backends.GENE_DIAGNOSTICS
-    _write_tsv(out / "de_diagnostics.tsv", ["gene_id", *diagnostics],
-               [[g, *(_value(res.gene_diagnostics[k][i]) for k in diagnostics)]
-                for i, g in enumerate(res.genes)])
-    _write_tsv(out / "vst.tsv", ["gene_id", *res.samples],
-               [[g, *map(float, run.vst[i])] for i, g in enumerate(res.genes)])
-    plots = _plots(run, dist)
-    pdir = out / "plots"
-    pdir.mkdir(exist_ok=True)
-    for name, svg in plots.items():
-        (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
-    md = _markdown(run, config, steps)
-    (out / "report.md").write_text(md, encoding="utf-8")
-    (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
+    with rec.stage("report", engine=PIPELINE, version=_VERSION) as st:
+        plots = _plots(run, dist)
+        pdir = out / "plots"
+        pdir.mkdir(exist_ok=True)
+        for name, svg in plots.items():
+            (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
+        md = _markdown(run, config, steps)
+        (out / "report.md").write_text(md, encoding="utf-8")
+        (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
+        run.limitations = write_limitations(out, _limitations(run, config, rec))
+        st.outputs = ["report.md", "report.html", LIMITATIONS_FILE,
+                      *(f"plots/{name}.svg" for name in plots)]
     inputs = {}
     for s in run.samples:
         for p in (*s.fastq_1, *s.fastq_2):
@@ -578,32 +778,73 @@ def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
     for ref in (config.transcripts, config.annotation, config.genome):
         if ref:
             inputs[str(ref)] = _sha256(Path(ref))
-    outputs = {}
-    for p in sorted(out.rglob("*")):
-        if p.is_file() and p.name != "run.json" and "trimmed" not in p.parts \
-                and "merged" not in p.parts and "index" not in p.parts:
-            outputs[str(p.relative_to(out))] = _sha256(p)
-    manifest = {
-        "pipeline": "bioagent.omics.rnaseq", "code_digest": _code_digest(),
-        "started": started,
-        "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "python": platform.python_version(), "numpy": np.__version__,
-        "config": config.as_dict(), "engine": run.engine, "trimmer": run.trimmer,
-        "tools": backends.available_tools(),
-        "differential_expression": res.record(),
-        "contrast": list(run.contrast), "samples": [
-            {"name": s.name, "fastq_1": [str(p) for p in s.fastq_1],
-             "fastq_2": [str(p) for p in s.fastq_2], "attributes": dict(s.attributes)}
-            for s in run.samples],
-        "steps": steps, "inputs": inputs, "outputs": outputs,
-        "summary": run.summary(), "warnings": run.warnings}
+    manifest: dict[str, Any] = {}
+    with rec.stage("verify", engine=PIPELINE, version=_VERSION) as st:
+        outputs = {}
+        for p in sorted(out.rglob("*")):
+            if p.is_file() and p.name not in _UNLISTED and "trimmed" not in p.parts \
+                    and "merged" not in p.parts and "index" not in p.parts:
+                outputs[str(p.relative_to(out))] = _sha256(p)
+        manifest.update({
+            "pipeline": PIPELINE, "code_digest": _code_digest(),
+            "started": started,
+            "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "python": platform.python_version(), "numpy": np.__version__,
+            "config": config.as_dict(), "engine": run.engine, "trimmer": run.trimmer,
+            "tools": backends.available_tools(),
+            "differential_expression": run.result.record(),
+            "contrast": list(run.contrast), "samples": [
+                {"name": s.name, "fastq_1": [str(p) for p in s.fastq_1],
+                 "fastq_2": [str(p) for p in s.fastq_2], "attributes": dict(s.attributes)}
+                for s in run.samples],
+            "steps": steps, "inputs": inputs, "outputs": outputs,
+            "summary": run.summary(), "warnings": run.warnings})
+        found = _content_problems(out, manifest) + output_problems(rec.stages, outputs, out)
+        st.check = "FAIL" if found else "PASS"
+        st.reason = ("; ".join(found)[:600] if found else
+                     f"{len(outputs)} outputs digested; tables agree with the run record")
+    run.stages = rec.as_list()
+    run.complete = rec.complete
+    manifest["summary"] = run.summary()
+    manifest.update({"stages": run.stages, "complete": run.complete,
+                     "limitations": run.limitations, "validation": dict(validation),
+                     "reference_dataset": run.reference_dataset})
     run.manifest = manifest
     (out / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2,
                                              default=str), encoding="utf-8")
+    rec.finish()
+
+
+def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
+    """The tables against the run record: the result contract's columns, one row per gene
+    the test saw, one column per sample."""
+    found = []
+    de = (manifest.get("summary") or {}).get("differential_expression") or {}
+    genes = de.get("genes")
+    samples = [str(s.get("name")) for s in manifest.get("samples") or ()]
+    contract = [attr for _, attr, _ in de_backends.CONTRACT]
+    expect = {"deseq2_results.tsv": ["gene_id", "gene_name", *contract],
+              "counts.tsv": ["gene_id", "gene_name", *samples],
+              "tpm.tsv": ["gene_id", "gene_name", *samples],
+              "vst.tsv": ["gene_id", *samples]}
+    for name, header in expect.items():
+        path = out / name
+        if not path.is_file():
+            found.append(f"{name} is missing")
+            continue
+        got, rows = tsv_shape(path)
+        if got != header:
+            found.append(f"{name}: its columns are not {', '.join(header)}")
+        if genes is not None and rows != genes:
+            found.append(f"{name}: {rows} rows, where the run record has {genes} genes")
+    return found
 
 
 def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
-    """Re-hash every recorded input and output; (all match, the mismatches)."""
+    """Re-hash every recorded input and output; for a record with stages, also check that
+    the run is complete (``runrecord.record_problems``) and that its tables agree with it.
+    A run.json without ``stages`` (written before they were recorded) gets the digest
+    checks only. Returns (no problem, the problems)."""
     out = Path(out_dir)
     manifest = json.loads((out / "run.json").read_text(encoding="utf-8"))
     problems = []
@@ -619,6 +860,9 @@ def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
             problems.append(f"output {rel} is missing")
         elif _sha256(p) != digest:
             problems.append(f"output {rel} has changed")
+    if "stages" in manifest:
+        problems += record_problems(manifest, out)
+        problems += _content_problems(out, manifest)
     return not problems, problems
 
 
@@ -736,8 +980,9 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
                      f" | {total:,} | {kept} | "
                      f"{'NA' if rate is None else f'{rate:.1%}'} | "
                      f"{', '.join(fails) or '-'} | {', '.join(warns) or '-'} |")
-    lines += ["", f"QC measured at most the first {config.qc_reads:,} reads of each file.",
-              ""]
+    lines += ["", f"QC measured at most the first {config.qc_reads:,} reads of each file; "
+              "every record of every file was checked for structure, bases, quality range "
+              "and mate names before it.", ""]
     order = [i for i in np.argsort(np.where(np.isfinite(res.p_adjusted), res.p_adjusted,
                                             np.inf), kind="mergesort")
              if np.isfinite(res.p_adjusted[i])][:20]
@@ -805,8 +1050,10 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
               "without shrinkage, so low-count genes can show large, imprecise changes.", "",
               "## Reproducing it", "",
               "`run.json` records every input and output digest, each tool's version and "
-              "command, and the configuration. `bioagent rnaseq --verify <out>` re-checks the "
-              "digests.", ""]
+              "command, the configuration, and each stage's status, engine, device and time; "
+              "`limitations.md` lists this run's limitations. `bioagent rnaseq --verify <out>` "
+              "re-checks the digests, that every required stage succeeded and that the "
+              "tables agree with the record.", ""]
     return "\n".join(lines)
 
 

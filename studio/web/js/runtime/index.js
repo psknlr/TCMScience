@@ -3,7 +3,8 @@
 
 import { Emitter } from "../core/events.js";
 import { t } from "../core/i18n.js";
-import { isLoopbackUrl, nowIso, trimSlash } from "../core/util.js";
+import { baseReceipt } from "../core/receipt.js";
+import { canonicalJson, isLoopbackUrl, sha256Hex, trimSlash } from "../core/util.js";
 import { DEFAULT_RUNNER_URL, RunnerRuntime } from "./runner.js";
 
 export { RunnerRuntime } from "./runner.js";
@@ -52,7 +53,8 @@ async function createBrowserRuntime(settings, opts) {
 
 /**
  * A runtime that cannot run anything (its module failed to load). It keeps the RuntimeClient shape so the router
- * and the UI need no special case; every call is a failed envelope that says why.
+ * and the UI need no special case; every call is a failed envelope that says why, made here (receipt.where the
+ * runtime it stands for, decided_by "unavailable-runtime", not executed).
  */
 export class UnavailableRuntime {
   constructor(kind, message, cause = null) {
@@ -70,12 +72,14 @@ export class UnavailableRuntime {
   async catalog() { return null; }
   async device() { return null; }
 
-  async call(tool) {
+  async call(tool, args = {}) {
+    let input_sha256 = null;
+    try { input_sha256 = await sha256Hex(canonicalJson(args && typeof args === "object" ? args : {})); } catch { input_sha256 = null; }
     return {
       ok: false, tool, via: tool, status: "failed", duration_ms: 0, summary: this.message,
       text: `Not run: ${this.message}`, result: null, citations: [],
       governance: { kind: "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: [], outputs: [] },
-      receipt: { where: this.kind === "runner" ? "runner" : "browser", runtime: null, device: null, versions: {}, composite_version: null, content_hash: null, audit_head: null, input_sha256: null, output_sha256: null, started_at: nowIso() },
+      receipt: baseReceipt({ where: this.kind === "runner" ? "runner" : "browser", runtime: "studio-unavailable-runtime", decided_by: "unavailable-runtime", input_sha256 }),
       job: null, approval: null, error: { type: "unavailable", message: this.message, hint: "" },
     };
   }

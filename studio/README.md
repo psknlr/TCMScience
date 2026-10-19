@@ -5,14 +5,20 @@ TCMScience 的研究工作台，网址 <https://science.impf.ai>。它是一个�
 被拒绝的主张和调用会显示出来：拒绝是一种结果，不是故障。
 
 服务器提供网页、默认模型 Tao-S1 中继和受限的数据库网关。**计算在你自己的设备上进行**：Python 工具在浏览器里
-（Pyodide，WebAssembly）运行，或在你电脑上的本机 Runner 里运行（CPU 或 GPU，由你选择）。对话、项目、文件和密钥都保存在
+（Pyodide，WebAssembly）运行，或在你电脑上的本机 Runner 里运行（CPU 或 GPU，由你选择）。唯一的例外是你在 Runner 上打开
+`allow_remote` 并逐次批准的任务（如把序列发往 ESM Atlas 做结构预测）。没有部署任何远程计算环境：计算目标设为「远程」时，
+调用会失败（`unavailable`，原因 `remote_not_configured`；`catalog_search` 与 `capabilities_status` 仍由页面回答），
+不会改到别处运行（[docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md)：已设计，未部署）。对话、项目、文件和密钥都保存在
 你的浏览器里。
+
+TCMScience 通过浏览器提供对已登记科学能力的访问。轻量工具经 Pyodide、WebAssembly 和部分 WebGPU 内核在本地运行；资源密集的
+流程需要配置好的本机 Runner，或经授权的远程计算环境，而后者目前没有部署。
 
 ```
 浏览器 ──同源──▶ science.impf.ai：网页 + /v1 Tao-S1 中继 + /api/sources 数据库网关
    │
    ├── 模型：Tao-S1（经中继）· 你自己的模型 API · 本地模型（Ollama / LM Studio / vLLM / llama.cpp）
-   └── 工具：浏览器（Pyodide CPU / 兼容工具 WebGPU）· 本机 Runner（CPU / GPU）
+   └── 工具：浏览器（Pyodide CPU；7 个序列工具有精确的 WASM SIMD / JS 内核）· 本机 Runner（CPU / GPU）
 ```
 
 架构、接口与设计规范：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · [docs/CONTRACTS.md](docs/CONTRACTS.md) ·
@@ -22,14 +28,22 @@ TCMScience 的研究工作台，网址 <https://science.impf.ai>。它是一个�
 
 | | 怎么开始 | 模型 | 工具在哪里运行 | 需要安装 |
 |---|---|---|---|---|
-| **1. 直接打开** | 打开 <https://science.impf.ai> | Tao-S1（默认，无需密钥） | 浏览器（Pyodide CPU，兼容序列统计使用 WebGPU） | 无 |
-| **2. 加上本机 Runner** | `tcmstudio serve`，打开它打印的配对链接 | 同上，或你自己的 API | 本机 Runner：联网数据源、中医药数据枢纽、长任务、GPU | Python ≥ 3.11 |
+| **1. 直接打开** | 打开 <https://science.impf.ai> | Tao-S1（默认，无需密钥） | 浏览器（Pyodide CPU；序列统计有精确的 WebAssembly SIMD 内核，适配器未被识别为软件渲染器时可用 WebGPU，从未在硬件 GPU 上运行） | 无 |
+| **2. 加上本机 Runner** | `tcmstudio serve`，打开它打印的配对链接 | 同上，或你自己的 API | 本机 Runner：大文件与数据集构建、长任务、原生引擎、GPU；连接期间（计算目标为「自动」）工具与联网数据源都先由 Runner 运行，计算目标设为「浏览器」时联网数据源经网关调用 | Python ≥ 3.11 |
 | **3. 完全本地** | Runner 提供网页 `http://127.0.0.1:8765/`，模型选本地模型 | 本机的 Ollama / LM Studio / vLLM / llama.cpp | 本机 Runner | Python + 本地模型服务 |
 
 **1. 直接打开。** 第一次运行工具时，浏览器下载 Python 运行环境（Pyodide 314.0.7，来自 jsDelivr，约 9 MB，之后从缓存读取）
 和 TCMScience 的代码包（约 1.9 MB，按 SHA-256 核对）。150 个原生工具、4 个固定版本的受治理 Skill、临床辨证都能在浏览器里
-运行，结果与本机 Python 运行逐字节相同（同样的 Skill 内容哈希、同样的输出文件哈希）。注册的在线数据库可在批准联网后经
-同源网关调用；兼容的序列统计支持 WebGPU。大型流程和原生引擎仍显示各自的依赖。
+运行，运行的是与本机相同的 Python 代码（3 个香港数据查询工具需先导入其本地数据，临床辨证按需加载 numpy/scipy）。与本机
+Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjamini_hochberg`、`fisher_exact`、中医药查询工具、
+排序的方剂检索，以及 4 个固定 Skill 中的 3 个（安全、名称规范化、证据检索）。这些对比由手动运行的运行时核对完成；CI 的端到端
+测试另外核对一个受治理 Skill 的内容哈希与输出文件哈希。网络药理学种子 Skill 还没有被任何测试在 Pyodide 中运行过（逐条目的
+情况见 [docs/compat/summary.md](docs/compat/summary.md)，其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
+可在批准联网后经同源网关调用。大型流程和原生引擎仍显示各自的依赖。
+
+浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端
+（Runner 上的研究任务 `research.run`）。提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
+真正的 NPU 加速，目前没有任何工作负载具备这两者。
 
 **2. 加上本机 Runner。** Runner 连接后，工具都在它上面运行（`计算 → 自动`）：本机 CPython，项目各自的持久审计链，你的设备。
 它还能运行需本地 Python/MCP 进程的第三方封装、RNA-seq / 单细胞 / 结构预测等后台任务和原生 GPU 引擎。
@@ -96,13 +110,14 @@ tcmstudio serve
 手机浏览器打开 <https://science.impf.ai> 即可，界面按手机布局显示（侧栏、检查器都改为从边缘滑出的面板）。
 
 - **用手机自己的算力。** 没有本机 Runner 时，工具在手机浏览器里运行：Pyodide（WebAssembly）用手机的 CPU 执行真实的
-  TCMScience Python 代码。150 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，结果哈希与电脑上相同。
-  第一次运行要下载约 11 MB（之后从缓存读取）。在模拟中端手机（CPU 降速 4 倍）的测试里，冷启动后第一次受治理调用约 10 秒完成
-  （`e2e/mobile.spec.mjs`）。
+  TCMScience Python 代码。150 个原生工具、4 个固定版本的受治理 Skill 和临床辨证都可以运行，代码与电脑上相同。自动测试
+  （`e2e/mobile.spec.mjs`，Chromium 的手机模拟，CPU 降速 4 倍）核对的是一个受治理 Skill 的内容哈希与本机 Python 相同；
+  它记录冷启动后第一次调用的耗时，但只作注释，不作断言，也没有提交任何测量记录。第一次运行要下载约 11 MB（之后从缓存读取）。
 - **本机加速，结果不变。** 序列比对（全局、局部、蛋白）和编辑距离由 JavaScript 内核计算；序列距离矩阵、汉明距离和
-  GC 含量的整数计数由 WebAssembly SIMD 内核计算，调度器预计 GPU 更快时改用 WebGPU。原有 Python 继续处理公式、取整和
-  输出，并在使用前核对每个内核结果，输出与原始 Python 逐字节相同。实测序列比对和编辑距离比浏览器里的原始 Python 快
-  7–43 倍，也快于本机 CPython（[测量](docs/BROWSER_COMPUTE.md#9-performance)）。不支持、设备丢失或规模超限时回退到
+  GC 含量的整数计数由 WebAssembly SIMD 内核计算；只有适配器未被识别为软件渲染器（实体适配器，或无法识别的适配器，后者从不算作 GPU）、且调度器预计
+  GPU 更快时才改用 WebGPU（WebGPU 只在软件适配器上测试过，从未在硬件 GPU 上运行，速度未经测量）。原有 Python 继续处理公式、取整和输出，并在使用前核对每个内核
+  结果，输出与原始 Python 逐字节相同（374 个一致性用例，在 Studio 的 CI 中运行）。2026-10-10 的测量中，序列比对和编辑距离比浏览器里
+  的原始 Python 快 7–43 倍，也快于本机 CPython（[测量](docs/BROWSER_COMPUTE.md#9-performance)）。不支持、设备丢失或规模超限时回退到
   CPU 内核，再回退到 Python。「设置 → 计算」可选自动、仅 CPU 或仅原始 Python。普通访问不会启动计算。
 - **离线可用。** 第一次访问后，网页、Python 运行环境和字体由 Service Worker 按带 SHA-256 的清单缓存，断网时仍能打开页面、
   运行浏览器工具；用过的数据文件（如方剂表）也保存在本地并经校验。新版本下载好后提示重新载入，不会强制切换；网址加
@@ -148,8 +163,10 @@ tcmstudio serve
   机制**假说**。
 - 「已准予发布」只表示内核的六项发布检查通过，不表示结论正确；证据种类是类型，不是等级。
 - 浏览器里的 Python 在 CPU 上单线程运行；本机内核只覆盖 7 个序列工具（比对、编辑距离和三项整数计数），WebGPU 只用于
-  其中的整数计数，不代表所有 Python 引擎都能使用 GPU。浏览器能创建 WebNN 的「npu」上下文不等于有 NPU：Studio 不使用也
+  其中的整数计数，不代表所有 Python 引擎都能使用 GPU。提供 WebNN 能力检测，但浏览器能创建 WebNN 的「npu」上下文不等于有
+  NPU：只有具备经验证的执行提供程序和硬件执行证据的工作负载才支持真正的 NPU 加速，目前没有这样的工作负载，Studio 不使用也
   不声称 NPU 加速。
+- 浏览器模式的网络药理学只是有限的种子语料网络假说流程，不是完整的数据驱动分析；没有部署任何远程计算环境。
 - 完整方剂表是原始来源记录，授权状态未声明；不把这些记录自动升级为临床知识、安全判断或完整靶点网络。
 - 可复现的是输入哈希、Skill 内容哈希和每个输出文件的 SHA-256；整份结果的哈希含运行编号、时间和审计链位置，每次都不同。
 - 中继的来源检查只防止网页被别处盗用，不是身份认证；限额按 IP 计，同一出口的访客（如一个实验室）共用。
@@ -180,18 +197,22 @@ cd studio && npm install && npm run test:e2e
 | 用例 | 内容 |
 |---|---|
 | `runner.spec.mjs` | 真实 Runner 提供网页并配对；自定义模型（脚本化的模拟模型 `e2e/mock-llm.mjs`）调用 `tcm_safety_report`，Runner 执行受治理 Skill；工具卡片（本机 Runner）、主张与产物卡片、发布状态、引用、检查器五页、英文界面；刷新后对话仍在；编辑问题产生分支；中途停止；中文文件名的文件发送到 Runner，名称与哈希不变 |
-| `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时跳过并说明） |
+| `browser.spec.mjs` | 无 Runner：Pyodide 从 jsDelivr 启动，同一问题在浏览器中运行，Skill 内容哈希与输出文件哈希与本机 Python 相同（CDN 不可达时：在本地跳过并说明原因；在 CI 中失败） |
+| `browser-access.spec.mjs` | 浏览器中的 Python 读取完整方剂表；联网关闭时数据库调用被拒绝且不发出请求，开启后经同源网关（真实的网关代码，上游为模拟）调用 `connector.mygene.gene`；距离矩阵在 `auto` 加速（WebGPU 或 WebAssembly SIMD，由运行时选择；CI 的无头 Chromium 至多有软件适配器，运行时会拒绝它，因此在 CPU 上算）、CPU 内核与参考 Python 三者结果一致（CDN 不可达时同上） |
 | `approvals.spec.mjs` | `run_pipeline` 的批准卡片：拒绝 → 模型读到 refused；「本项目允许」写入项目并在刷新后仍然有效；后台任务的卡片跟随 Runner 事件直到收集完成，任务文件从 Runner 取来预览，模型用 `job_status` 跟进；联网：项目未开启时不调用也不询问，开启后批准卡片列出主机，再由 Runner 自己的联网开关决定 |
 | `relay.spec.mjs` | `wrangler dev` 运行 `studio/edge`，上游指向模拟服务：默认模型 Tao-S1 流式回答，思考格式往返改名，身份问题关闭思考，页面、存储和中继回复都不出现上游名称；Tao-S1 调用工具并在浏览器中运行。Worker 启动失败就是失败；只有在 CI 之外、npm 源不可达（取不到 wrangler）时才跳过 |
-| `mobile.spec.mjs` | 手机（390×844、触控、CPU 降速 4 倍）、无 Runner：受治理 Skill 在手机浏览器的 Pyodide 中运行，内容哈希与本机 Python 相同，页面无横向滚动 |
+| `mobile.spec.mjs` | 手机（390×844、触控、CPU 降速 4 倍）、无 Runner：受治理 Skill 在手机浏览器的 Pyodide 中运行，内容哈希与本机 Python 相同，页面无横向滚动（CDN 不可达时同上） |
 | `pages.spec.mjs` | 首次引导、设置（经表单添加并测试自定义模型）、工具目录、关于；手机视口 390×844；深色主题；无障碍基本检查（可访问名称、地标、焦点、未翻译的键） |
 | `a11y.spec.mjs` | 键盘与读屏：跳转链接按下后焦点到目标、路由不变；输入法组字时的 Enter 不发送、Esc 不停止回答；首次发送、停止、批准之后以及菜单、抽屉按 Esc 之后焦点的去向；实时区域的播报；axe-core 检查主要页面（浅色/深色、桌面/手机）与受治理的回答，严重（serious/critical）问题即失败 |
-| `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败不会被当作跳过 |
+| `pipeline.spec.mjs` | 不开浏览器，检查 `.github/workflows/studio.yml`：网页打包的 Harness 源码改动也会触发；`RELAY = "off"`（持久暂停）时部署后的检查不要求 Tao-S1 回答；CI 中 Worker 启动失败、Pyodide 的 CDN 不可达都不会被当作跳过 |
+| `telemetry.spec.mjs` | 真实 Worker（`wrangler dev`）的遥测：征询同意的流程、无论如何都不记录的内容、遥测故障不影响对话、管理员仪表板（登录、双语、手机、删除、导出、退出） |
 
 Chromium 依次取 `$CHROMIUM_PATH`、`$PLAYWRIGHT_BROWSERS_PATH`（或 `/opt/pw-browsers`）中的 `chromium-1194`、Playwright 自带的
 （`npx playwright install chromium`）。`$STUDIO_SITE` 指向已构建的网页时直接使用，否则先构建一次。截图保存在
 `$STUDIO_E2E_TMP/screens`（默认 `studio/e2e/test-results/screens`）。另有浏览器运行时的逐项核对：
-`npm run test:runtime`（与本机 Python 的结果逐个比较）。
+`npm run test:runtime`（真实 Pyodide 中约 20 个调用的信封与本机 Python 逐个比较，名单见
+[docs/BROWSER_COMPUTE.md §10](docs/BROWSER_COMPUTE.md#10-validation)）。它需要能访问 Pyodide 的 CDN（或用 `--pyodide-dir`
+提供本地副本），**只能手动运行，不在 CI 中**。
 
 ## 部署
 
@@ -210,11 +231,27 @@ every tool run shows where it ran, what evidence it used, which kinds of claim t
 kernel authorized the release. Refusals are shown as results.
 
 The server serves the page, relays Tao-S1 and forwards approved database queries. **Computation runs on your machine**: in the
-browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). Conversations, projects, files and keys stay in
+browser (Pyodide) or on the local runner (`tcmstudio serve`, CPU or GPU). The one exception is a runner job you allow to call
+a third-party service (`allow_remote`, approved per call, for example structure prediction on ESM Atlas). No remote compute
+environment is deployed: under compute set to Remote every call fails (`unavailable`, reason `remote_not_configured`; `catalog_search` and
+`capabilities_status` are still answered by the page) and is never run elsewhere
+([docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md): designed, not deployed). Conversations, projects, files and keys stay in
 your browser; the server keeps a conversation only if you agree to the recording notice (and never one with files, a
 clinical tool or identifying details), and counts anonymous usage you can switch off ([docs/TELEMETRY.md](docs/TELEMETRY.md)).
 
-- **Just open** science.impf.ai: Tao-S1, Python tools in the browser, nothing to install.
+- **Just open** science.impf.ai: Tao-S1, Python tools in the browser, nothing to install. TCMScience provides browser-based
+  access to its registered scientific capabilities. Lightweight tools execute locally through Pyodide, WebAssembly, and
+  selected WebGPU kernels. Resource-intensive pipelines require a configured local Runner or an authorized remote compute
+  environment, and none of the latter is deployed. The browser runs the same Python code as the runner; its outputs were
+  compared with native CPython for a named subset only (the seven kernel tools, `benjamini_hochberg`, `fisher_exact`, the
+  TCM lookups, ranked formula search and three of the four pinned skills, by the manual runtime check; CI's end-to-end specs
+  compare one governed skill's content and output hashes). Per entry: [docs/compat/summary.md](docs/compat/summary.md), whose
+  validation column is each entry's committed verification record.
+- **Network pharmacology in the browser.** Browser mode supports a limited seed-corpus network hypothesis workflow. Full
+  data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific
+  execution backend (the runner's `research.run` job).
+- **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
+  execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a
   system-wide `pip install` with `externally-managed-environment`; on Debian/Ubuntu `python3 -m venv` first needs
   `sudo apt install python3-venv`): `python3 -m venv ~/.tcmscience/venv && . ~/.tcmscience/venv/bin/activate`
@@ -235,9 +272,14 @@ usage statistics hold no conversation content and cannot follow a visitor from o
 is not evidence of safety, and predicted is not measured.
 
 Tests: `node --test studio/edge/test/*.test.js`, `python3 -m pytest -q studio/runner/tests`, `cd studio && npm test`,
-`cd studio && npm run test:e2e` (Playwright: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker).
+`cd studio && npm run test:e2e` (Playwright: the real runner, Pyodide from jsDelivr, `wrangler dev` of the Worker; the specs
+that need Pyodide skip with the reason when its CDN is unreachable, and fail in CI). `npm run test:runtime` compares about
+twenty envelopes from real Pyodide with native CPython; it is run by hand, not in CI.
 Deployment: [edge/SETUP.md](edge/SETUP.md).
 
-Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md). Local computation in the browser (exact
-JavaScript and WebAssembly SIMD kernels for seven sequence tools, WebGPU counts where a GPU is present, offline use, what
-was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
+Browser database access: [docs/BROWSER_ACCESS.md](docs/BROWSER_ACCESS.md), and each connector operation by verification level:
+[docs/compat/connectors.md](docs/compat/connectors.md). Local computation in the browser (exact JavaScript and WebAssembly SIMD
+kernels for seven sequence tools; WebGPU counts where the scheduler expects them to be faster, on any adapter not identified
+as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU), never yet run on a
+hardware GPU; offline use; what was measured and what is only planned): [docs/BROWSER_COMPUTE.md](docs/BROWSER_COMPUTE.md).
+Remote compute: [docs/REMOTE_COMPUTE.md](docs/REMOTE_COMPUTE.md) (designed, not deployed).

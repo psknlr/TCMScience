@@ -195,6 +195,19 @@ def test_the_pipeline_without_models_reports_rules_only(tmp_path):
     assert any("not built" in w for w in run.warnings)
     md = (tmp_path / "out" / "report.md").read_text()
     assert "## Properties and rules" in md and "## Model cards" not in md
+    # no model is not a quiet warning: the run is incomplete, and says which stage lacks one
+    stages = {s["name"]: s for s in run.stages}
+    assert stages["models"]["status"] == stages["predictions"]["status"] == "unavailable"
+    assert "--build-models" in stages["models"]["reason"]
+    assert stages["descriptors"]["status"] == "succeeded" and not run.complete
+    # the reason reaches limitations.md and a job's governance: no machine's path in it,
+    # which run.json keeps on its own
+    assert str(tmp_path) not in stages["models"]["reason"]
+    assert str(tmp_path) not in (tmp_path / "out" / "limitations.md").read_text()
+    assert run.manifest["model_cache"] == str(tmp_path / "empty" / "models")
+    from bioagent.admet.pipeline import verify_run
+    ok, problems = verify_run(tmp_path / "out")
+    assert not ok and any(p.startswith("stage models unavailable here") for p in problems)
 
 
 def test_the_pipeline_with_models_reports_and_verifies(built, tmp_path):
@@ -244,3 +257,44 @@ def test_when_no_molecule_can_be_read_the_run_says_so(built, tmp_path):
     assert not run.molecules and len(run.failures) == 2 and not run.cards
     assert any("nothing was predicted" in w for w in run.warnings)
     assert "## Warnings" in (tmp_path / "out" / "report.md").read_text()
+
+
+def test_the_cli_exits_1_without_the_models(tmp_path, capsys):
+    _tools()
+    from bioagent import cli
+    code = cli.main(["admet", "CC(=O)Oc1ccccc1C(=O)O", "--out", str(tmp_path / "out"),
+                     "--cache", str(tmp_path / "empty")])
+    assert code == 1
+    assert "incomplete: stage models unavailable here" in capsys.readouterr().err
+    assert (tmp_path / "out" / "admet.tsv").is_file()           # what was done is kept
+
+
+def test_a_run_with_models_records_their_identity_and_is_complete(built, tmp_path):
+    root, ms = built
+    from bioagent import cli
+    from bioagent.admet.pipeline import STAGES, AdmetConfig, run_admet
+    run = run_admet([("toluene", "Cc1ccccc1")], AdmetConfig(cache_dir=str(root / "cache")),
+                    tmp_path / "out")
+    assert [s["name"] for s in run.stages] == list(STAGES)
+    assert run.complete and run.manifest["complete"]
+    models = {s["name"]: s for s in run.stages}["models"]
+    assert models["check"] == "PASS" and "20 of the 22 TDC endpoints" in models["reason"]
+    ident = run.manifest["models"]["hia_hou"]
+    for key in ("model_sha256", "archive_sha256", "metric", "test_score", "train", "test",
+                "training_set", "domain_threshold", "domain_sha256", "archive_is_pinned",
+                "sklearn", "rdkit"):
+        assert key in ident, key
+    assert ident["model_sha256"] == ms.cards["hia_hou"]["model_sha256"]
+    assert ident["domain_threshold"] == 0.3 and ident["archive_is_pinned"] is False
+    lines = (tmp_path / "out" / "limitations.md").read_text().splitlines()
+    assert lines == run.manifest["limitations"]
+    assert any("model estimate" in x and "not a measurement" in x for x in lines)
+    assert any("not the pinned TDC ADMET group's" in x for x in lines)
+    assert any("20 of the 22 TDC endpoints have no model" in x for x in lines)
+    # an endpoint asked for by name that has no model: unavailable, and the CLI says so
+    code = cli.main(["admet", "Cc1ccccc1", "--out", str(tmp_path / "named"), "--cache",
+                     str(root / "cache"), "--endpoint", "hia_hou", "--endpoint", "herg"])
+    assert code == 1
+    named = json.loads((tmp_path / "named" / "run.json").read_text())
+    stage = {s["name"]: s for s in named["stages"]}["models"]
+    assert stage["status"] == "unavailable" and "herg" in stage["reason"]

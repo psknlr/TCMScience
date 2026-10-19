@@ -130,7 +130,7 @@ def _scrna(a: argparse.Namespace) -> int:
     summary = run.summary()
     if a.json:
         print(json.dumps(summary, indent=1, ensure_ascii=False, default=str))
-        return 0
+        return _complete(run.stages)
     print(f"{summary['cells']:,} cells, {summary['genes']:,} genes, "
           f"{len(summary['clusters'])} clusters")
     for c, t in summary["cell_types"].items():
@@ -138,7 +138,18 @@ def _scrna(a: argparse.Namespace) -> int:
     for w in run.warnings:
         print(f"warning: {w}")
     print(f"report: {Path(a.out) / 'report.html'}")
-    return 0
+    return _complete(run.stages)
+
+
+def _complete(stages: list) -> int:
+    """0 for a complete run; else 1, after saying on stderr which stages make it
+    incomplete (the run's files stay, so they can be inspected)."""
+    from ..runrecord import complete, problems
+    if complete(stages):
+        return 0
+    print("incomplete: " + "; ".join(problems(stages) or ["no stage was recorded"]),
+          file=sys.stderr)
+    return 1
 
 
 def _rnaseq(a: argparse.Namespace) -> int:
@@ -174,7 +185,7 @@ def _rnaseq(a: argparse.Namespace) -> int:
     summary = run.summary()
     if a.json:
         print(json.dumps(summary, indent=1, ensure_ascii=False, default=str))
-        return 0
+        return _complete(run.stages)
     de = summary["differential_expression"]
     print(f"{len(run.samples)} samples, engine {run.engine}, trimming {run.trimmer}, "
           f"test {de['backend']} ({de['version']})")
@@ -183,4 +194,4 @@ def _rnaseq(a: argparse.Namespace) -> int:
     for w in run.warnings:
         print(f"warning: {w}")
     print(f"report: {Path(a.out) / 'report.html'}")
-    return 0
+    return _complete(run.stages)

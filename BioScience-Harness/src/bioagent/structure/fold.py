@@ -20,6 +20,16 @@ For each sequence:
 5. **Report**: per-residue confidence and distance plots, the contact map, PAE,
    ``report.md`` / ``report.html`` and ``run.json`` with every digest.
 
+Every stage is recorded (``bioagent.runrecord``; the names are ``STAGES``) with its status,
+check, engine, version, device and time, in ``stages.json`` while the run works and in
+``run.json`` at the end, with ``complete`` and ``limitations.md``. Each model's entry in
+``summary.json`` names the device it was computed on and its checkpoint as far as they
+can be observed (``predict``: only local ESMFold's weights are digested; the ESM Atlas
+service's cannot be observed and ColabFold's parameters are not digested, so both are
+recorded as not verifiable), and ``sequence_identity`` checks that every model, whatever
+the method, is of the sequence that was folded. A reference is only compared with; it is
+never used in place of a prediction, and a failed prediction stops the run.
+
 What a model is: a computational prediction. pLDDT is the method's confidence in each
 residue's local structure, not a measurement, and says nothing about how domains sit
 relative to each other (PAE does). Regions below 70 should not be interpreted. A model
@@ -38,13 +48,32 @@ from typing import Any, Mapping
 
 import numpy as np
 
+from .. import __version__ as _VERSION
 from ..omics import svgplot
 from ..omics.rnaseq import _html, _sha256
+from ..runrecord import (LIMITATIONS_FILE, STAGES_FILE, StageRecorder, output_problems,
+                         record_problems, stage_limitations, write_limitations)
 from . import dssp, geometry as G
 from .pdbio import parse_pdb, read_pdb
-from .predict import Prediction, PredictionError, fetch_reference, predict
+from .predict import (ESM_ATLAS_MAX, ESMATLAS_DETAIL, PREDICTORS, Prediction, PredictionError,
+                      fetch_reference, predict, validate_sequence)
 
-__all__ = ["FoldConfig", "FoldResult", "read_sequences", "run_fold", "verify_run"]
+__all__ = ["FoldConfig", "FoldResult", "read_sequences", "run_fold", "verify_run", "STAGES",
+           "LIMITATIONS"]
+
+PIPELINE = "bioagent.structure.fold"
+#: The stages of a run, in order; ``compare`` is not applicable without a reference.
+STAGES = ("input_check", "predict", "sequence_identity", "confidence", "geometry", "compare",
+          "report", "verify")
+#: What every model of this pipeline is not, one line each (``limitations.md``).
+LIMITATIONS = (
+    "A model is a computational prediction, not an experimental structure: one chain "
+    "without ligands, cofactors, modifications or partners.",
+    "pLDDT is the method's confidence in each residue's local structure, not a "
+    "measurement; it does not say how domains sit relative to each other (the predicted "
+    "aligned error does), and regions below 70 should not be interpreted.",
+)
+_UNLISTED = {"run.json", STAGES_FILE}
 
 
 @dataclass(frozen=True)
@@ -142,56 +171,158 @@ def _geometry(model) -> dict[str, Any]:
             "dihedral_outlier_share": round(float((~allowed).mean()), 4)}
 
 
+def _observed(pred: Prediction, method: str) -> dict[str, Any]:
+    """The device and checkpoint a prediction records; the ESM Atlas service's are known
+    from the method itself (a remote device, a checkpoint that cannot be verified)."""
+    detail = dict(pred.detail or {})
+    if method == "esmatlas":
+        for key, value in ESMATLAS_DETAIL.items():
+            detail.setdefault(key, value)
+    return {"device": detail.get("device"), "device_note": detail.get("device_note"),
+            "checkpoint": detail.get("checkpoint"), "resources": detail.get("resources")}
+
+
 def run_fold(source: str | Path, config: FoldConfig, out_dir: str | Path) -> list[FoldResult]:
+    """Every stage, recorded as it runs (``runrecord.StageRecorder``); the run record is
+    complete when every sequence was predicted, its model is of that sequence, and its
+    confidence and geometry were computed."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    rec = StageRecorder(out, PIPELINE, plan=STAGES)
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    seqs = read_sequences(source)
+    inputs = {}
+    try:
+        if Path(str(source)).is_file():
+            inputs[str(source)] = _sha256(Path(str(source)))
+    except (OSError, ValueError):                     # a long sequence is no file name
+        pass
+
+    with rec.stage("input_check", engine=PIPELINE, version=_VERSION) as st:
+        seqs = [(name, validate_sequence(seq)) for name, seq in read_sequences(source)]
+        if not seqs:
+            raise PredictionError("no sequence to fold")
+        if config.method not in PREDICTORS:
+            raise PredictionError(f"method is one of {', '.join(PREDICTORS)}")
+        if config.method in ("esmatlas", "colabfold") and not config.allow_remote:
+            raise PredictionError(
+                f"{config.method} sends the sequence to a third-party service; pass "
+                "allow_remote (--allow-remote) to permit it, or use method 'esmfold' to "
+                "fold locally")
+        if config.method == "esmatlas":
+            long = [n for n, s in seqs if len(s) > ESM_ATLAS_MAX]
+            if long:
+                raise PredictionError(f"{', '.join(long)}: longer than the {ESM_ATLAS_MAX} "
+                                      "residues the ESM Atlas service folds; run ESMFold or "
+                                      "ColabFold locally")
+        st.check = "PASS"
+        st.reason = (f"{len(seqs)} sequences of standard amino acids "
+                     f"({min(len(s) for _, s in seqs)} to {max(len(s) for _, s in seqs)} "
+                     f"residues); method {config.method}")
+
+    preds: list[Prediction] = []
+    observed: list[dict[str, Any]] = []
+    mdir = out / "models"
+    with rec.stage("predict", engine=config.method) as st:
+        from .pdbio import write_pdb
+        mdir.mkdir(exist_ok=True)
+        for name, seq in seqs:
+            pred = predict(name, seq, method=config.method, allow_remote=config.allow_remote,
+                           workdir=out, timeout=config.timeout)
+            preds.append(pred)
+            observed.append(_observed(pred, config.method))
+            write_pdb(parse_pdb(pred.pdb, source=name), mdir / f"{name}.pdb",
+                      bfactors=pred.plddt)
+            st.outputs.append(f"models/{name}.pdb")
+        st.version = "; ".join(sorted({p.version for p in preds}))
+        devices = sorted({str(o["device"]) for o in observed if o["device"]})
+        st.device = ", ".join(devices) if devices else None
+        checkpoints = [o["checkpoint"] or {} for o in observed]
+        # verifiable only as far as the weights themselves were digested: a digested
+        # configuration (ColabFold's) does not say which parameters were loaded
+        digested = all(c.get("verifiable") and c.get("weights_sha256") for c in checkpoints)
+        notes = sorted({o["device_note"] for o in observed if o.get("device_note")})
+        st.reason = (f"{len(preds)} models by {preds[0].method}; checkpoint "
+                     + ("weights digested" if digested else "not verifiable: " + "; ".join(
+                         sorted({str(c.get('reason') or 'not recorded') for c in checkpoints
+                                 if not (c.get("verifiable") and c.get("weights_sha256"))})))
+                     + (f"; {'; '.join(notes)}" if notes else ""))
+
+    with rec.stage("sequence_identity", engine=PIPELINE, version=_VERSION) as st:
+        models = []
+        for pred, (name, seq) in zip(preds, seqs):
+            model = parse_pdb(pred.pdb, source=name)
+            if model.sequence() != seq:
+                st.check = "FAIL"
+                raise PredictionError(f"{name}: the model is not of the sequence folded")
+            models.append(model)
+        st.check = "PASS"
+        st.reason = (f"every model's sequence is the one folded ({len(models)} of "
+                     f"{len(seqs)}, 100% identical)")
+
+    with rec.stage("confidence", engine=PIPELINE, version=_VERSION) as st:
+        confidence = [_confidence(p.plddt, p.pae) for p in preds]
+        low = [n for (n, _), c in zip(seqs, confidence)
+               if c["mean_plddt"] is not None and c["mean_plddt"] < 70]
+        st.reason = (f"pLDDT bands of {len(preds)} models"
+                     + (f"; PAE of {sum(p.pae is not None for p in preds)}"
+                        if any(p.pae is not None for p in preds) else "; no PAE from the method")
+                     + (f"; mean pLDDT below 70: {', '.join(low)}" if low else ""))
+
+    with rec.stage("geometry", engine=PIPELINE, version=_VERSION) as st:
+        geometry, secondary = [], []
+        for model in models:
+            geometry.append(_geometry(model))
+            res = model.residues()
+            secondary.append(dssp.assign(model.backbone(), [r[3] for r in res]))
+        st.reason = ("DSSP, radius of gyration, CA-CA steps, heavy-atom clashes, backbone "
+                     f"dihedrals of {len(models)} models")
+
     results: list[FoldResult] = []
     references: dict[str, Any] = {}
-    for name, seq in seqs:
+    comparisons: list[dict[str, Any] | None] = [None] * len(seqs)
+    if any(config.references.get(name) for name, _ in seqs):
+        with rec.stage("compare", required=False, engine=PIPELINE, version=_VERSION) as st:
+            for k, ((name, _), model) in enumerate(zip(seqs, models)):
+                ref_name = config.references.get(name)
+                if not ref_name:
+                    continue
+                text, chain, prov = fetch_reference(ref_name, allow_remote=config.allow_remote,
+                                                    timeout=config.timeout)
+                ref = parse_pdb(text, source=prov["reference"])
+                chain = chain or ref.chains()[0]
+                rb = ref.backbone(chain)
+                cmp_ = G.compare(model.sequence(), model.backbone()["CA"], ref.sequence(chain),
+                                 rb["CA"])
+                comparisons[k] = {**asdict(cmp_), **prov, "chain": chain,
+                                  "per_residue_distance": _per_residue_distance(model, ref,
+                                                                                 chain)}
+                references[name] = prov
+            st.reason = (f"{len(references)} models against their reference (TM-score, RMSD, "
+                         "GDT-TS); a reference is compared with, never used as, a model")
+    else:
+        rec.not_applicable("compare", "no reference structure was named")
+
+    for k, ((name, seq), pred) in enumerate(zip(seqs, preds)):
         warnings: list[str] = []
-        pred = predict(name, seq, method=config.method, allow_remote=config.allow_remote,
-                       workdir=out, timeout=config.timeout)
-        model = parse_pdb(pred.pdb, source=name)
-        mdir = out / "models"
-        mdir.mkdir(exist_ok=True)
-        path = mdir / f"{name}.pdb"
-        from .pdbio import write_pdb
-        write_pdb(model, path, bfactors=pred.plddt)
-        conf = _confidence(pred.plddt, pred.pae)
-        geo = _geometry(model)
-        res = model.residues()
-        ss = dssp.assign(model.backbone(), [r[3] for r in res])
+        conf, cmp_ = confidence[k], comparisons[k]
         if conf["mean_plddt"] is not None and conf["mean_plddt"] < 70:
             warnings.append(f"{name}: mean pLDDT {conf['mean_plddt']:.0f}; the model as a whole "
                             "is low confidence")
-        comparison = None
-        ref_name = config.references.get(name)
-        if ref_name:
-            text, chain, prov = fetch_reference(ref_name, allow_remote=config.allow_remote,
-                                                timeout=config.timeout)
-            ref = parse_pdb(text, source=prov["reference"])
-            chain = chain or ref.chains()[0]
-            rb = ref.backbone(chain)
-            cmp_ = G.compare(model.sequence(), model.backbone()["CA"], ref.sequence(chain),
-                             rb["CA"])
-            per_res = _per_residue_distance(model, ref, chain)
-            comparison = {**asdict(cmp_), **prov, "chain": chain,
-                          "per_residue_distance": per_res}
-            references[name] = prov
-            if cmp_.identity < 0.9:
-                warnings.append(f"{name}: the reference's sequence is {cmp_.identity:.0%} "
+        if cmp_ is not None:
+            if cmp_["identity"] < 0.9:
+                warnings.append(f"{name}: the reference's sequence is {cmp_['identity']:.0%} "
                                 "identical; the comparison is between different proteins")
-            if cmp_.aligned < 0.8 * cmp_.reference_length:
-                warnings.append(f"{name}: the model pairs with {cmp_.aligned} of the reference's "
-                                f"{cmp_.reference_length} residues, so the TM-score by the "
-                                f"reference's length ({cmp_.tm_score}) is low by construction; "
-                                f"by the model's length it is {cmp_.tm_score_model}")
-        results.append(FoldResult(name=name, sequence=pred.sequence, model_path=path,
-                                  prediction=pred, confidence=conf, geometry=geo,
-                                  secondary=ss, comparison=comparison, warnings=warnings))
-    _write(results, config, out, started, references)
+            if cmp_["aligned"] < 0.8 * cmp_["reference_length"]:
+                warnings.append(f"{name}: the model pairs with {cmp_['aligned']} of the "
+                                f"reference's {cmp_['reference_length']} residues, so the "
+                                f"TM-score by the reference's length ({cmp_['tm_score']}) is "
+                                "low by construction; by the model's length it is "
+                                f"{cmp_['tm_score_model']}")
+        results.append(FoldResult(name=name, sequence=pred.sequence,
+                                  model_path=mdir / f"{name}.pdb", prediction=pred,
+                                  confidence=conf, geometry=geometry[k], secondary=secondary[k],
+                                  comparison=cmp_, warnings=warnings))
+    _write(results, config, out, started, references, rec, inputs, observed)
     return results
 
 
@@ -225,69 +356,107 @@ def _downsample(m: np.ndarray, size: int = 120) -> np.ndarray:
                       for j in range(size)] for i in range(size)])
 
 
+def _limitations(results: list[FoldResult], config: FoldConfig,
+                 rec: StageRecorder) -> list[str]:
+    lines = list(LIMITATIONS)
+    if config.method == "esmatlas":
+        lines.append("The ESM Atlas service ran its own copy of ESMFold; its weights cannot be "
+                     "observed from here, so no checkpoint digest is recorded for them.")
+    if config.method == "colabfold":
+        lines.append("ColabFold queries its MSA server unless configured otherwise; the MSA "
+                     "it used is not part of this record, and the AlphaFold2 parameters are "
+                     "not digested (only the configuration colabfold_batch wrote).")
+    if any(r.comparison for r in results):
+        lines.append("A reference structure is used only for comparison (TM-score, RMSD, "
+                     "GDT-TS); it never stands in for a prediction.")
+    lines += stage_limitations(rec.stages)
+    return lines
+
+
 def _write(results: list[FoldResult], config: FoldConfig, out: Path, started: str,
-           references: Mapping[str, Any]) -> None:
-    plots: dict[str, str] = {}
-    rows = []
-    for r in results:
-        pos = np.arange(1, len(r.sequence) + 1)
-        plots[f"plddt_{r.name}"] = svgplot.lines(
-            pos, {"pLDDT": list(r.prediction.plddt)}, hlines=(50, 70, 90), ylim=(0, 100),
-            title=f"{r.name}: per-residue confidence (pLDDT)", xlabel="residue",
-            ylabel="pLDDT")
-        bb = parse_pdb(r.prediction.pdb).backbone()
-        plots[f"contacts_{r.name}"] = svgplot.heatmap(
-            _downsample(G.contact_map(bb["CB"])), [""] * min(len(pos), 120),
-            [""] * min(len(pos), 120), title=f"{r.name}: contact map (CB within 8 Å)",
-            scale_label="contact")
-        if r.prediction.pae is not None:
-            plots[f"pae_{r.name}"] = svgplot.heatmap(
-                _downsample(r.prediction.pae), [""] * min(len(pos), 120),
-                [""] * min(len(pos), 120), title=f"{r.name}: predicted aligned error",
-                scale_label="Å", reverse=True)
-        if r.comparison:
-            d = [np.nan if v is None else v for v in r.comparison["per_residue_distance"]]
-            plots[f"distance_{r.name}"] = svgplot.lines(
-                pos, {"distance": d}, hlines=(2.0, 4.0),
-                title=f"{r.name}: distance to {r.comparison['reference']} after superposition",
-                xlabel="residue", ylabel="Å")
-        rows.append(r)
-    md = _markdown(results, config, plots)
-    (out / "report.md").write_text(md, encoding="utf-8")
-    (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
-    pdir = out / "plots"
-    pdir.mkdir(exist_ok=True)
-    for name, svg in plots.items():
-        (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
-    summary = []
-    for r in results:
-        summary.append({"name": r.name, "length": len(r.sequence), "method": r.prediction.method,
-                        "version": r.prediction.version, "remote": r.prediction.remote,
-                        "request_sha256": r.prediction.request_sha256,
-                        "response_sha256": r.prediction.response_sha256,
-                        "seconds": r.prediction.seconds, "confidence": r.confidence,
-                        "geometry": r.geometry, "secondary_structure": r.secondary,
-                        "secondary_summary": dssp.summary(r.secondary),
-                        "comparison": ({k: v for k, v in r.comparison.items()
-                                        if k != "per_residue_distance"}
-                                       if r.comparison else None),
-                        "warnings": r.warnings})
-    (out / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2),
-                                      encoding="utf-8")
-    outputs = {str(p.relative_to(out)): _sha256(p) for p in sorted(out.rglob("*"))
-               if p.is_file() and p.name != "run.json" and "colabfold_" not in str(p)}
+           references: Mapping[str, Any], rec: StageRecorder, inputs: Mapping[str, str],
+           observed: list[dict[str, Any]]) -> None:
+    with rec.stage("report", engine=PIPELINE, version=_VERSION) as st:
+        plots: dict[str, str] = {}
+        for r in results:
+            pos = np.arange(1, len(r.sequence) + 1)
+            plots[f"plddt_{r.name}"] = svgplot.lines(
+                pos, {"pLDDT": list(r.prediction.plddt)}, hlines=(50, 70, 90), ylim=(0, 100),
+                title=f"{r.name}: per-residue confidence (pLDDT)", xlabel="residue",
+                ylabel="pLDDT")
+            bb = parse_pdb(r.prediction.pdb).backbone()
+            plots[f"contacts_{r.name}"] = svgplot.heatmap(
+                _downsample(G.contact_map(bb["CB"])), [""] * min(len(pos), 120),
+                [""] * min(len(pos), 120), title=f"{r.name}: contact map (CB within 8 Å)",
+                scale_label="contact")
+            if r.prediction.pae is not None:
+                plots[f"pae_{r.name}"] = svgplot.heatmap(
+                    _downsample(r.prediction.pae), [""] * min(len(pos), 120),
+                    [""] * min(len(pos), 120), title=f"{r.name}: predicted aligned error",
+                    scale_label="Å", reverse=True)
+            if r.comparison:
+                d = [np.nan if v is None else v for v in r.comparison["per_residue_distance"]]
+                plots[f"distance_{r.name}"] = svgplot.lines(
+                    pos, {"distance": d}, hlines=(2.0, 4.0),
+                    title=f"{r.name}: distance to {r.comparison['reference']} after "
+                          "superposition", xlabel="residue", ylabel="Å")
+        md = _markdown(results, config, plots)
+        (out / "report.md").write_text(md, encoding="utf-8")
+        (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
+        pdir = out / "plots"
+        pdir.mkdir(exist_ok=True)
+        for name, svg in plots.items():
+            (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
+        summary = []
+        for r, o in zip(results, observed):
+            summary.append({"name": r.name, "length": len(r.sequence),
+                            "method": r.prediction.method,
+                            "version": r.prediction.version, "remote": r.prediction.remote,
+                            "request_sha256": r.prediction.request_sha256,
+                            "response_sha256": r.prediction.response_sha256,
+                            "seconds": r.prediction.seconds, "confidence": r.confidence,
+                            "geometry": r.geometry, "secondary_structure": r.secondary,
+                            "secondary_summary": dssp.summary(r.secondary),
+                            "comparison": ({k: v for k, v in r.comparison.items()
+                                            if k != "per_residue_distance"}
+                                           if r.comparison else None),
+                            "warnings": r.warnings, "device": o["device"],
+                            "checkpoint": o["checkpoint"], "sequence_identity": 1.0,
+                            **({"device_note": o["device_note"]} if o["device_note"] else {}),
+                            **({"resources": o["resources"]} if o["resources"] else {})})
+        # peak GPU memory varies between runs of the same input: it stays in run.json's
+        # summary and out of summary.json, a collected output
+        (out / "summary.json").write_text(json.dumps(
+            [{k: v for k, v in e.items() if k != "resources"} for e in summary],
+            ensure_ascii=False, indent=2), encoding="utf-8")
+        limitations = write_limitations(out, _limitations(results, config, rec))
+        st.outputs = ["report.md", "report.html", "summary.json", LIMITATIONS_FILE,
+                      *(f"plots/{name}.svg" for name in plots)]
     code = hashlib.sha256()
     for p in sorted(Path(__file__).parent.glob("*.py")):
         code.update(p.name.encode() + b"\0" + p.read_bytes())
-    manifest = {"pipeline": "bioagent.structure.fold", "code_digest": code.hexdigest(),
-                "started": started,
-                "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "python": platform.python_version(), "config": config.as_dict(),
-                "sequences": {r.name: hashlib.sha256(r.sequence.encode()).hexdigest()
-                              for r in results},
-                "references": dict(references), "outputs": outputs, "summary": summary}
+    manifest: dict[str, Any] = {}
+    with rec.stage("verify", engine=PIPELINE, version=_VERSION) as st:
+        outputs = {str(p.relative_to(out)): _sha256(p) for p in sorted(out.rglob("*"))
+                   if p.is_file() and p.name not in _UNLISTED and "colabfold_" not in str(p)}
+        manifest.update({
+            "pipeline": PIPELINE, "code_digest": code.hexdigest(), "started": started,
+            "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "python": platform.python_version(), "config": config.as_dict(),
+            "sequences": {r.name: hashlib.sha256(r.sequence.encode()).hexdigest()
+                          for r in results},
+            "references": dict(references), "outputs": outputs, "summary": summary,
+            "inputs": dict(inputs)})
+        found = (_content_problems(out, manifest) + _sequence_problems(out, manifest)
+                 + output_problems(rec.stages, outputs, out))
+        st.check = "FAIL" if found else "PASS"
+        st.reason = ("; ".join(found)[:600] if found else
+                     f"{len(outputs)} outputs digested; every model is of its sequence")
+    manifest.update({"stages": rec.as_list(), "complete": rec.complete,
+                     "limitations": limitations})
     (out / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2),
                                   encoding="utf-8")
+    rec.finish()
 
 
 def _markdown(results: list[FoldResult], config: FoldConfig,
@@ -343,27 +512,68 @@ def _markdown(results: list[FoldResult], config: FoldConfig,
               "be interpreted. The model is one chain without ligands, cofactors, "
               "modifications or partners, and is not an experimental structure.", "",
               "## Reproducing it", "",
-              "`run.json` holds the request and response digests of every prediction and the "
-              "digests of every output; `bioagent fold --verify <out>` re-checks the outputs.",
-              ""]
+              "`run.json` holds the request and response digests of every prediction, the "
+              "digests of every output and each stage's status, engine, device and time; "
+              "`summary.json` names each model's device and checkpoint where they can be "
+              "observed; `limitations.md` lists this run's limitations. "
+              "`bioagent fold --verify <out>` re-checks the outputs and that every model is of "
+              "its sequence.", ""]
     return "\n".join(lines)
 
 
+def _sequence_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
+    problems = []
+    for entry in manifest.get("summary") or ():
+        name = entry["name"]
+        model = out / "models" / f"{name}.pdb"
+        if model.is_file():
+            seq = read_pdb(model).sequence()
+            if hashlib.sha256(seq.encode()).hexdigest() != manifest["sequences"].get(name):
+                problems.append(f"model {name} is not of the sequence that was folded")
+    return problems
+
+
+def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
+    """summary.json and the models against the run record: one entry and one model per
+    sequence folded."""
+    found = []
+    names = [s.get("name") for s in manifest.get("summary") or ()]
+    if sorted(names) != sorted(manifest.get("sequences") or {}):
+        found.append("run.json's summary does not cover exactly the sequences folded")
+    try:
+        written = json.loads((out / "summary.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return found + ["summary.json is missing or not JSON"]
+    if [s.get("name") for s in written] != names:
+        found.append("summary.json does not list the models run.json records")
+    for name in names:
+        if not (out / "models" / f"{name}.pdb").is_file():
+            found.append(f"models/{name}.pdb is missing")
+    return found
+
+
 def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
+    """Re-hash every recorded output (and the input file, when the record lists it) and
+    check that every model is of the sequence that was folded; for a record with stages,
+    also that the run is complete and that summary.json agrees with it. A run.json
+    without stages gets the digest and sequence checks only."""
     out = Path(out_dir)
     manifest = json.loads((out / "run.json").read_text(encoding="utf-8"))
     problems = []
+    for path, digest in (manifest.get("inputs") or {}).items():
+        p = Path(path)
+        if not p.is_file():
+            problems.append(f"input {path} is missing")
+        elif _sha256(p) != digest:
+            problems.append(f"input {path} has changed")
     for rel, digest in manifest["outputs"].items():
         p = out / rel
         if not p.is_file():
             problems.append(f"output {rel} is missing")
         elif _sha256(p) != digest:
             problems.append(f"output {rel} has changed")
-    for name, entry in ((s["name"], s) for s in manifest["summary"]):
-        model = out / "models" / f"{name}.pdb"
-        if model.is_file():
-            seq = read_pdb(model).sequence()
-            if hashlib.sha256(seq.encode()).hexdigest() != manifest["sequences"].get(name):
-                problems.append(f"model {name} is not of the sequence that was folded")
-        del entry
+    problems += _sequence_problems(out, manifest)
+    if "stages" in manifest:
+        problems += record_problems(manifest, out)
+        problems += _content_problems(out, manifest)
     return not problems, problems

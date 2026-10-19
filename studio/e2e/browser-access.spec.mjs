@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { handleSources } from "../edge/src/sources.js";
 import { seedSettings, waitForApp } from "./lib/app.mjs";
-import { startStatic } from "./lib/servers.mjs";
+import { requirePyodide, startStatic } from "./lib/servers.mjs";
 
 let site;
 let upstreamCalls = [];
@@ -34,11 +34,12 @@ test("browser Python uses full formula rows and governed same-origin database ac
   await seedSettings(page, { web: false });
   await page.goto(`${site.url}/`);
   await waitForApp(page);
-  const reachable = await page.evaluate(async () => {
-    const boot = await (await fetch("/runtime/boot.json")).json();
-    try { return (await fetch(`${boot.pyodide.index_url}pyodide-lock.json`)).ok; } catch { return false; }
-  });
-  test.skip(!reachable, "Pyodide CDN unavailable; real browser integration remains unverified");
+  const boot = await page.evaluate(async () => (await fetch("/runtime/boot.json")).json());
+  const reachable = await page.evaluate(async (u) => {
+    try { return (await fetch(`${u}pyodide-lock.json`)).ok; } catch { return false; }
+  }, boot.pyodide.index_url);
+  // a skip outside CI, a failure in CI
+  requirePyodide(test, reachable, boot.pyodide.index_url, "browser Python with the full formula rows and the source gateway");
 
   const denied = await page.evaluate(() => globalThis.__studio.runtimes.browser.call(
     "call_tool", { tool: "connector.mygene.gene", arguments: { id: "7157" } }, { network: false }));
@@ -67,7 +68,8 @@ test("browser Python uses full formula rows and governed same-origin database ac
     return { gpu, cpu, reference, device: await browser.device() };
   });
   for (const k of ["gpu", "cpu", "reference"]) expect(compute[k].status, JSON.stringify(compute[k].error)).toBe("succeeded");
-  // the same numbers whatever computed them: the GPU, the CPU kernel, or the original Python
+  // the same numbers whatever computed them: acceleration "auto" (WebGPU or WebAssembly SIMD; headless Chromium has at
+  // most a software adapter, which the runtime refuses, so there it is the CPU), the CPU kernel, or the original Python
   expect(compute.gpu.result).toEqual(compute.reference.result);
   expect(compute.cpu.result).toEqual(compute.reference.result);
   expect(compute.gpu.receipt.output_sha256).toBe(compute.reference.receipt.output_sha256);

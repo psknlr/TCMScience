@@ -2,9 +2,13 @@
 
 Runs :func:`bioagent.docking.pipeline.run_docking`. A docked pose is a computational
 prediction (design ``docking``), so the most it can support is a ``mechanism_hypothesis``,
-and only from a validated setup: a claim is made per ligand only when redocking the
-co-crystal ligand reproduced its crystal pose within 2 Å. Each claim's evidence is the
-ligand's row of ``scores.tsv`` with a quote receipt.
+and only from a validated setup and a complete run: a claim is made per ligand only when
+redocking the co-crystal ligand reproduced its crystal pose within 2 Å, the run is
+complete (``run.complete``: every required stage succeeded and no check failed), and that
+ligand's best pose passed the pose checks (finite, inside the box, no clash with the
+receptor). A score of a pose that cannot be right supports nothing, so a ligand whose
+best pose failed them gets a limitation instead. Each claim's evidence is the ligand's
+row of ``scores.tsv`` with a quote receipt.
 """
 
 from __future__ import annotations
@@ -18,6 +22,7 @@ from typing import Any
 from ...contracts import (CandidateClaim, Directness, EvidenceItem, EvidenceQuality,
                           SourceCard, require_declared)
 from ...contracts.source_card import canonical_hash
+from ...runrecord import problems as stage_problems
 from ..base import artifact, file_of
 
 __all__ = ["dock_ligands"]
@@ -60,9 +65,13 @@ def dock_ligands(receptor: str, ligands: str, *, site_ligand: str = "",
     rows = {ln.split("\t", 1)[0]: ln for ln in table.splitlines()[1:]}
     evidence, claims = [], []
     site = run.box.source
-    if run.validated:
+    # the best pose of each ligand that failed the pose checks, with the checks it failed
+    bad_poses = {name: list((rep.get("best") or {}).get("failed") or ["no pose"])
+                 for name, rep in sorted(run.pose_checks.items())
+                 if not ((rep or {}).get("best") or {}).get("passed")}
+    if run.validated and run.complete:
         for r in run.results:
-            if r.best is None or r.ligand.name not in rows:
+            if r.best is None or r.ligand.name not in rows or r.ligand.name in bad_poses:
                 continue
             item = EvidenceItem(
                 id=f"dock.{r.ligand.name}", design="docking", quote=rows[r.ligand.name],
@@ -111,6 +120,13 @@ def dock_ligands(receptor: str, ligands: str, *, site_ligand: str = "",
     if not run.validated:
         limitations.append("the setup was not validated by redocking a co-crystal ligand, "
                            "so no claim is made")
+    if not run.complete:
+        limitations.append("the run is incomplete ("
+                           + "; ".join(stage_problems(run.stages) or ["not recorded why"])
+                           + "), so no claim is made")
+    for name, failed in bad_poses.items():
+        limitations.append(f"the best pose of {name} failed the pose checks "
+                           f"({', '.join(failed)}), so no claim is made for it")
     limitations += run.warnings
     return artifact(
         id=SKILL_ID, run_id=run_id, skill_id=SKILL_ID, skill_version=SKILL_VERSION,
@@ -119,4 +135,5 @@ def dock_ligands(receptor: str, ligands: str, *, site_ligand: str = "",
         outputs=outputs, limitations=limitations,
         assumptions=("the site is where the ligands act",), created_at=_now(),
         provenance={"pipeline": "bioagent.docking", "run_dir": str(out),
-                    "validated": run.validated, "validation": run.validation})
+                    "validated": run.validated, "validation": run.validation,
+                    "complete": run.complete})

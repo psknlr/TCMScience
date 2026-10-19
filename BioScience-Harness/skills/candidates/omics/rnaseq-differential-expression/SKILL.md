@@ -47,10 +47,11 @@ version, is named in `run.json`, the report, the provenance and the claim's basi
 
 ## What it may claim · 可以声称什么
 
-One claim, made only when some gene differs: in these samples, these genes differ
-between the two groups. An observational study of human samples supports an
+One claim, made only when some gene differs and the run is complete (every required
+stage succeeded and no check failed): in these samples, these genes differ between the
+two groups. An observational study of human samples supports an
 `association`; cells or animals support a `mechanism_hypothesis`, and nothing about
 people. It never claims a mechanism, an effect or a recommendation.
 
 <!-- zh -->
-只有存在差异基因时，才会给出唯一一条结论：在这些样本中，这些基因在两组之间存在差异。人体样本的观察性研究支持 `association`（相关性）；细胞或动物实验支持 `mechanism_hypothesis`（机制假说），且不涉及人。本 Skill 从不声称机制已确立、存在疗效，也不提供任何建议。
+只有存在差异基因且运行完整（每个必需阶段都成功、没有检查失败）时，才会给出唯一一条结论：在这些样本中，这些基因在两组之间存在差异。人体样本的观察性研究支持 `association`（相关性）；细胞或动物实验支持 `mechanism_hypothesis`（机制假说），且不涉及人。本 Skill 从不声称机制已确立、存在疗效，也不提供任何建议。

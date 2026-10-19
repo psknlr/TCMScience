@@ -8,7 +8,9 @@ name: studio
 # aggregated exports). The secrets become the Worker's own; none is printed or written into the repository or the site.
 # No telemetry, record or export is ever collected by this workflow or kept in its artifacts (studio/docs/TELEMETRY.md).
 # The site bundles PSH-Harness and BioScience-Harness (src, skills, registry) into its Python runtime, and tcmstudio
-# imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data).
+# imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data, except
+# the committed connector live-verification record, which the site's catalog.json and studio/docs/compat/matrix.csv
+# are built from). The READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they trigger it too.
 on:
   push:
     paths:
@@ -21,6 +23,11 @@ on:
       - "BioScience-Harness/registry/**"
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
+      - "BioScience-Harness/data/connector_live_verification.csv"
+      - "BioScience-Harness/README.md"
+      - "README.md"
+      - "README.zh-CN.md"
+      - "docs/**"
       - "中医方剂数据表.xlsx"
   pull_request:
     paths: # the same list
@@ -33,6 +40,11 @@ on:
       - "BioScience-Harness/registry/**"
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
+      - "BioScience-Harness/data/connector_live_verification.csv"
+      - "BioScience-Harness/README.md"
+      - "README.md"
+      - "README.zh-CN.md"
+      - "docs/**"
       - "中医方剂数据表.xlsx"
   workflow_dispatch:
 
@@ -66,12 +78,21 @@ jobs:
           fi
           python -m pip install --upgrade pip
           pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest
+          # every catalog number the READMEs and docs restate, against the catalog itself; the compatibility matrix
+          # and the connector coverage report, regenerated and compared (the runner tests below run them too)
+          python3 studio/scripts/doc_facts.py --check
+          python3 studio/scripts/compat_matrix.py --check
+          python3 studio/scripts/connector_coverage.py --check
           if [ -d studio/runner/tests ]; then
             python -m pytest -q studio/runner/tests
           else
             echo "::notice::studio/runner has no tests directory"
           fi
       - name: Web (core modules and UI)
+        # the Runner step installed tcmstudio into this job's Python: the tests that read a real runner's answers
+        # (Settings → Data against /api/datasets) run instead of skipping
+        env:
+          PYTHON: python
         run: |
           if [ ! -f studio/package.json ]; then
             echo "::notice::studio/package.json is not in this tree: no web tests"

@@ -11,8 +11,10 @@
 
 const STATE_ROOT_DEFAULT = "/persist";
 import { createSourceTransport } from "./source-gateway.js";
-import { SequenceAccelerator, kernelOptions, normalizePreference } from "../compute/accelerator.js";
+import { SequenceAccelerator, decorateReceipt, kernelOptions, normalizePreference } from "../compute/accelerator.js";
+import { webgpuEvidence } from "../compute/capabilities.js";
 import { pythonKernels } from "../compute/bridge.js";
+import { classifyAdapter } from "./webgpu.js";
 const PYCACHE_ROOT = "/pycache";
 const CACHE_NAME = "tcmstudio-runtime-v1";
 const BUNDLE_RE = /\/tcms-py\.[0-9a-f]{12}\.tar\.gz$/;
@@ -439,26 +441,31 @@ async function call({ tool, arguments: args = {}, context = {}, packages = [], s
   const target = tool === "call_tool" ? args?.tool : tool;
   const nativeArgs = tool === "call_tool" ? args?.arguments || {} : args;
   const preference = normalizePreference(acceleration);
-  const { packet, plan } = await accel.prepare(target, nativeArgs, {
+  const { packet, plan, gpu } = await accel.prepare(target, nativeArgs, {
     preference, isCancelled: () => Boolean(interrupt && Atomics.load(interrupt, 0)),
   });
   const argsJson = JSON.stringify(args ?? {});
   const options = JSON.stringify(kernelOptions(preference));
+  // the packet's JSON is part of the GPU path's cost (its hand-off into Python), so it is timed
+  const packedAt = performance.now();
+  const packetJson = JSON.stringify(packet);
+  const stringifyMs = performance.now() - packedAt;
   const run = (durable) => {
     kernelStats.length = 0;
     const started = performance.now();
-    const text = api.call(String(tool), argsJson, JSON.stringify({
-      ...context, where: "browser", state_root: state.stateRoot, durable,
-    }), JSON.stringify(packet), options);
+    const contextJson = JSON.stringify({ ...context, where: "browser", state_root: state.stateRoot, durable });
+    // with a packet, Python times the call's crossing into it from this mark (compute.gpu.handoff_ms), as a CPU
+    // kernel's recorded time includes its own crossings
+    const opts = packet ? JSON.stringify({ ...kernelOptions(preference), sent_at: performance.now() }) : options;
+    const text = api.call(String(tool), argsJson, contextJson, packetJson, opts);
     if (!COMPUTE_TOOLS.has(target)) return text;
     const envelope = JSON.parse(text);
     if (envelope.receipt) {
-      const c = envelope.receipt.compute ??= { backend: "pyodide", operation: target, precision: "Python float64" };
-      c.requested = preference;
-      if (plan) c.plan = planSummary(plan);
-      if (!packet && plan?.fallback_reason) c.fallback_reason = plan.fallback_reason;
-      else if (!packet && plan?.passed_over?.length) c.fallback_reason = plan.passed_over.find((r) => r.id === "webgpu")?.reason;
-      if (!c.fallback_reason) delete c.fallback_reason;
+      // receipt.compute gains requested, plan, fallback_reason and the GPU's evidence; receipt/1 follows it
+      // (execution.kernel = compute.backend, device.requested/evidence, a compute fallback): compute/accelerator.js
+      const settled = accel.settle(target, nativeArgs, { gpu, compute: envelope.receipt.compute, stringifyMs });
+      decorateReceipt(envelope.receipt, { tool: target, preference, plan, packet, gpu: settled });
+      const c = envelope.receipt.compute;
       // what ran inside Python teaches the scheduler about this device
       if (envelope.status === "succeeded" && !packet) {
         const k = (c.kernels || []).find((e) => e.kernel === "sequence.counts" && e.outcome === "used");
@@ -587,17 +594,20 @@ async function detectDevice() {
       ]);
       if (adapter) {
         const i = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {}) || {};
-        const fallback = Boolean(adapter.isFallbackAdapter ?? i.isFallbackAdapter);
+        // one classifier (runtime/webgpu.js); software is null for an unidentified adapter, as in the probe
+        const a = classifyAdapter(i, adapter);
         out.webgpu.adapter = {
-          vendor: i.vendor || "", architecture: i.architecture || "", description: i.description || "",
-          software: fallback || /swiftshader|llvmpipe|lavapipe|software|microsoft basic render/i.test(`${i.vendor} ${i.architecture} ${i.description}`),
-          fallback,
+          vendor: a.vendor, architecture: a.architecture, description: a.description,
+          software: a.kind === "software" ? true : a.kind === "physical" ? false : null,
+          fallback: a.fallback, kind: a.kind, device: a.device, reason: a.reason,
         };
       }
     } catch (err) {
       out.webgpu.error = messageOf(err);
     }
   }
+  // what this session's calls showed about the GPU, on the evidence ladder (compute/capabilities.js)
+  out.compute_evidence = webgpuEvidence(out.webgpu, accel.evidence());
   return out;
 }
 
@@ -628,16 +638,6 @@ function messageOf(err) {
   const s = String(err?.message || err || "error");
   // A Python traceback: the last line names the exception.
   return s.length > 2000 ? `…${s.slice(-2000)}` : s;
-}
-
-/** The scheduler's provenance, short enough for a receipt: what was considered, passed over, tried and run. */
-function planSummary(p) {
-  return {
-    considered: (p.considered || []).map((r) => r.id),
-    passed_over: (p.passed_over || []).map((r) => ({ id: r.id, reason: r.reason })),
-    tried: (p.tried || []).map((r) => ({ id: r.id, outcome: r.outcome, ...(r.reason ? { reason: r.reason } : {}) })),
-    chosen: p.executed?.id || null,
-  };
 }
 
 function withSlash(url) {

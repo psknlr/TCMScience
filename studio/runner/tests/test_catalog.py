@@ -115,8 +115,22 @@ def test_counts(runner_catalog):
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
-    assert kinds["job"] == 11 and kinds["system"] >= 5
-    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"])
+    # system.capability_audit made the system entries ten (and the catalog 650): counted on purpose
+    assert kinds["job"] == 11 and kinds["system"] == 10
+    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 650
+
+
+def test_the_capability_audit_entry(runner_catalog):
+    e = get_entry("system.capability_audit")
+    assert e["kind"] == "system" and e["category"] == "system" and e["exec"] == ["browser", "runner"]
+    assert e["title"] == {"zh": "能力审计", "en": "Capability audit"}
+    assert "THIS runtime" in e["summary"] and "never claims network reachability" in e["summary"]
+    props = e["parameters"]["properties"]
+    from tcmstudio.capability import READINESS
+    assert props["state"]["enum"] == list(READINESS) and props["limit"]["maximum"] == 1000
+    assert not e["network"] and not e["confirm"] and not e["job"]
+    assert {"能力", "就绪"} <= set(e["tags"])
+    assert catalog_search("能力审计", limit=3)["matched"][0]["id"] == "system.capability_audit"
 
 
 def test_core_tools_match_the_contract(runner_catalog):
@@ -145,6 +159,23 @@ def test_core_descriptions_state_limits():
     assert "predicted ≠ measured" in text["tcm_network_hypothesis"]
     assert "draft" in text["clinic_assess"] and "licensed" in text["clinic_assess"]
     assert "attribution" in text["tcm_classical_search"]
+
+
+def test_the_seed_skill_is_titled_as_the_limited_analysis_it_is(runner_catalog):
+    """The pinned seed-corpus skill builds no measured-target network (its corpus records no
+    target relation): its entry and its core tool say so in both languages, and the core
+    tool points to the research job that does build one."""
+    entry = get_entry("skill.analyze-tcm-network-pharmacology")
+    assert entry["title"] == {"zh": "有限种子语料网络假说分析",
+                              "en": "Limited seed-corpus network hypothesis analysis"}
+    listed = next(e for e in runner_catalog["entries"]
+                  if e["id"] == "skill.analyze-tcm-network-pharmacology")
+    assert listed["title"] == entry["title"]
+    core = next(c for c in CORE_TOOLS if c["name"] == "tcm_network_hypothesis")
+    assert core["title"] == {"zh": "有限种子语料网络假说（受治理）",
+                             "en": "Limited seed-corpus network hypothesis (governed)"}
+    assert "limited seed-corpus network hypothesis" in core["description"]
+    assert "network_pharmacology_run" in core["description"]
 
 
 def test_entries_are_well_formed(runner_catalog):

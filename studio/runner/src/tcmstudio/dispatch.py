@@ -33,8 +33,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
+from . import capability
 from . import governance as gv
 from .catalog import (NEVER_OFFERED, canonical_name, dependency_present,
                       entries as catalog_entries,
@@ -401,18 +402,33 @@ class Outcome:
     composite_version: str | None = None
     notes: list[str] = field(default_factory=list)
     receipt: dict[str, Any] = field(default_factory=dict)
+    # receipt/1 (CONTRACTS §3), filled in by _finish from these and the catalog entry:
+    #: execution.validation (the arguments' check; hashes and paths only, never phi values)
+    validation: dict[str, Any] | None = None
+    #: the arguments the executor was given after validation; read for the seeds and the
+    #: engines they choose, never copied into the receipt for a phi entry
+    executed_args: Mapping[str, Any] | None = None
+    #: what an executor knows beyond the entry: execution.* extras, provenance, result extras
+    execution: dict[str, Any] = field(default_factory=dict)
+    provenance: dict[str, Any] = field(default_factory=dict)
+    result_info: dict[str, Any] = field(default_factory=dict)
 
 
 def _failure(kind: str, error_type: str, message: str, hint: str = "", *,
              status: str = "failed", summary: str = "", summary_en: str = "",
              refusals: list[dict] | None = None,
-             limitations: list[str] | None = None) -> Outcome:
+             limitations: list[str] | None = None,
+             requires: list[dict[str, Any]] | None = None, reason: str | None = None) -> Outcome:
     g = gv.empty(kind)
     g["refusals"] = list(refusals or [])
     g["limitations"] = list(limitations or [])
+    error: dict[str, Any] = {"type": error_type, "message": message, "hint": hint}
+    if requires:
+        error["requires"] = list(requires)      # capability.Requirement: what is missing, and the remedy
+    if reason:
+        error["reason"] = reason                # the router's reason code (capability.REASON_NEED)
     return Outcome(status=status, result=None, model_view=None, summary=summary,
-                   summary_en=summary_en, governance=g,
-                   error={"type": error_type, "message": message, "hint": hint})
+                   summary_en=summary_en, governance=g, error=error)
 
 
 #: zh labels used in summaries (DESIGN §2.3 / §7.4 vocabulary).
@@ -561,6 +577,8 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
     if args is None:
         outcome = _failure("system", "bad_arguments", problem,
                            'Pass the arguments as a JSON object, e.g. {"name": "黄芪"}.')
+        outcome.validation = {"ok": False, "schema": "core", "repairs": [],
+                              "problems": [problem]}
         args = {}
     elif not name:
         outcome = _failure("system", "not_found", "no tool was named",
@@ -569,11 +587,14 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
         outcome = _refuse_human(name)
     else:
         target, target_args = name, args
+        repairs: list[str] = []                  # the core stage's, kept for the entry's record
         if name == "call_tool":
             v = validate(CORE_BY_NAME["call_tool"]["parameters"], args)
             notes += v.notes
+            repairs = list(v.notes)
             if not v.ok:
                 outcome = _bad(v, CORE_BY_NAME["call_tool"]["parameters"], "system")
+                outcome.validation = _validation_record(v, "core", False)
             else:
                 target = str(v.value.get("tool") or "").strip()
                 target_args = dict(v.value.get("arguments") or {})
@@ -596,15 +617,18 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                 title_zh, title_en = core["title"]["zh"], core["title"]["en"]
                 v = validate(core["parameters"], target_args)
                 notes += v.notes
+                phi = _is_phi(get_entry(core.get("maps_to") or ""))
                 if not v.ok:
                     entry = get_entry(core.get("maps_to") or "")
                     kind = entry["kind"] if entry else "system"
                     outcome = _bad(v, core["parameters"], kind)
+                    outcome.validation = _validation_record(v, "core", phi, repairs)
                     via = core.get("maps_to") or target
                 elif target == "literature_search":
                     entry = get_entry("connector.europepmc.search")
                     kind = "connector"
                     outcome, via = _literature_search(v.value, ctx)
+                    outcome.validation = _validation_record(v, "core", False, repairs)
                 elif (target == "network_pharmacology_run" and ctx.where == "runner"
                       and _formula_ambiguity(v.value.get("formula"))):
                     entry = get_entry("job.research.run")
@@ -612,6 +636,7 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                     outcome = _failure("job", "bad_arguments",
                                        _formula_ambiguity(v.value.get("formula")) or "",
                                        "Call it again with the formula's source book in the name.")
+                    outcome.validation = _validation_record(v, "core", False, repairs)
                 else:
                     entry_id, entry_args = route(target, v.value)
                     via = entry_id
@@ -621,7 +646,8 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                     else:
                         kind = entry["kind"]
                         title_zh, title_en = entry["title"]["zh"], entry["title"]["en"]
-                        outcome = _validate_and_run(entry, entry_args, ctx, notes)
+                        outcome = _validate_and_run(entry, entry_args, ctx, notes,
+                                                    [*repairs, *v.notes])
             else:
                 entry = get_entry(target)
                 via = target
@@ -630,7 +656,7 @@ def _call(name: str, arguments: Any, ctx: Context, notes: list[str], t0: float,
                 else:
                     kind = entry["kind"]
                     title_zh, title_en = entry["title"]["zh"], entry["title"]["en"]
-                    outcome = _validate_and_run(entry, target_args, ctx, notes)
+                    outcome = _validate_and_run(entry, target_args, ctx, notes, repairs)
     return _finish(called, via, kind, (title_zh, title_en), outcome, args, ctx, notes, t0,
                    started)
 
@@ -657,71 +683,136 @@ def _not_found_entry(entry_id: str, name: str) -> Outcome:
 
 
 def _validate_and_run(entry: dict[str, Any], args: dict[str, Any], ctx: Context,
-                      notes: list[str]) -> Outcome:
+                      notes: list[str], repairs: list[str] | tuple[str, ...] = ()) -> Outcome:
     v = validate(entry["parameters"], args)
     notes += v.notes
+    record = _validation_record(v, "entry", _is_phi(entry), repairs)
     if not v.ok:
-        return _bad(v, entry["parameters"], entry["kind"])
-    blocked = _preflight(entry, v.value, ctx)
-    if blocked is not None:
-        return blocked
-    executor = _EXECUTORS[entry["kind"]]
-    return executor(entry, v.value, ctx)
+        o = _bad(v, entry["parameters"], entry["kind"])
+    else:
+        o = _preflight(entry, v.value, ctx) or _EXECUTORS[entry["kind"]](entry, v.value, ctx)
+        o.executed_args = v.value
+    o.validation = record
+    return o
+
+
+def _is_phi(entry: Mapping[str, Any] | None) -> bool:
+    """Patient data: the clinic entries (phi), and anything that takes a clinic intake."""
+    if not entry:
+        return False
+    props = (entry.get("parameters") or {}).get("properties") or {}
+    return bool(entry.get("phi")) or "intake" in props
+
+
+_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[^\s:.\[]+|\[\d+\])*")
+
+
+def _withheld(text: str) -> str:
+    """A validation note or problem of a phi entry: where, never the value."""
+    m = _PATH.match(str(text))
+    return f"{m.group(0) if m else 'arguments'}: (detail not recorded: patient data)"
+
+
+def _validation_record(v: ValidationResult, schema: str, phi: bool,
+                       repairs: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+    """receipt.execution.validation: whether the arguments passed, against which schema
+    (the core tool's or the entry's), what was repaired, and the SHA-256 of the canonical
+    JSON of the arguments the executor was given (equal across key orders). For patient
+    data only where a repair or a problem was, never the values."""
+    from .envelope import sha256_json
+    notes = [*repairs, *v.notes]
+    out: dict[str, Any] = {"ok": v.ok, "schema": schema,
+                           "repairs": [_withheld(n) if phi else str(n) for n in notes][:32]}
+    if v.ok:
+        out["normalized_sha256"] = sha256_json(v.value)
+    else:
+        out["problems"] = [_withheld(p) if phi else str(p) for p in v.problems[:8]]
+    return out
 
 
 def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> Outcome | None:
-    """Can this entry run here, now? Missing runtime, dependency or web access is a plain
-    'unavailable' / 'network_off' with the remedy; nothing is approximated."""
+    """Can this entry run here, now? Missing runtime, dependency (the chosen engine's too) or
+    web access, or a request too large for the browser, is a plain 'unavailable' /
+    'network_off' with the remedy, every missing requirement (error.requires) and the reason
+    code (error.reason); nothing is approximated. capability.requirements decides; datasets
+    and the job service are left to the call itself (a lookup with no store says not_loaded,
+    a job without the service says so), and a connector reports web access itself."""
     kind = entry["kind"]
     title = entry["title"]["en"]
     zh = entry["title"]["zh"]
-    exec_ = entry.get("exec") or ()
-    if ctx.where not in exec_:
-        where = "the local runner" if "runner" in exec_ else "the browser runtime"
+    size = None
+    if ctx.where == "browser":
+        try:
+            size = len(json.dumps(args, ensure_ascii=False, default=str).encode("utf-8"))
+        except (TypeError, ValueError):
+            size = None
+    found = [(reason, req) for reason, req in capability.requirements(
+                 entry, where=ctx.where, network=ctx.network, jobs=True, args=args,
+                 probe=dependency_present, request_bytes=size)
+             if req["need"] not in ("dataset", "job_service")
+             and not (req["need"] == "network" and kind == "connector")]
+    if not found:
+        return None
+    reason, req = found[0]
+    requires = [r for _, r in found]
+    need = req["need"]
+    common = {"requires": requires, "reason": reason}
+    if need in ("runner", "browser_runtime"):
+        runner = need == "runner"
+        where = "the local runner" if runner else "the browser runtime"
         return _failure(kind, "unavailable",
                         f"{title} runs on {where}; it is not available in the {ctx.where}.",
-                        gv.remedy_for("NEEDS_RUNNER") if "runner" in exec_ else "",
-                        summary=f"{zh}：需要本机 Runner，浏览器中不可运行" if "runner" in exec_
+                        req["remedy"],
+                        summary=f"{zh}：需要本机 Runner，浏览器中不可运行" if runner
                         else f"{zh}：仅在浏览器运行时中可用",
                         summary_en=f"{title}: needs the local runner; it cannot run in the "
-                                   "browser" if "runner" in exec_
-                        else f"{title}: available only in the browser runtime")
-    if ctx.where == "runner":
-        missing = [d for d in entry.get("heavy") or () if not dependency_present(d)]
-        if missing:
-            return _failure(kind, "unavailable",
-                            f"{title} needs {', '.join(missing)}, which is not installed on "
-                            "this runner.", "Install it (pip install …) on the runner machine; "
-                            "Studio never substitutes an approximation.",
-                            summary=f"{zh}：缺少可选依赖 {'、'.join(missing)}（不以近似结果替代）",
-                            summary_en=f"{title}: missing optional dependency "
-                                       f"{', '.join(missing)} (never replaced by an "
-                                       "approximation)")
-    else:
-        missing = [p for p in entry.get("pyodide_packages") or () if not dependency_present(p)]
-        if missing:
-            return _failure(kind, "unavailable",
-                            f"{title} needs {', '.join(missing)} in the browser runtime, and it "
-                            "is not loaded.", "The browser runtime loads the Pyodide packages an "
-                            "entry lists in pyodide_packages before calling it; or run it on "
-                            "the local runner.",
-                            summary=f"{zh}：浏览器运行时尚未加载 {'、'.join(missing)}",
-                            summary_en=f"{title}: the browser runtime has not loaded "
-                                       f"{', '.join(missing)}")
-    if entry.get("network_if"):
-        # Reaches its hosts only when this argument is set (allow_remote: sending a sequence
-        # or fetching a structure from a third party).
-        needs_net = bool(args.get(entry["network_if"]))
-    else:
-        needs_net = bool(entry.get("network")) and kind != "connector"
-    if needs_net and not ctx.network:
-        hosts = ", ".join(entry.get("hosts") or (entry.get("skill") or {}).get("network") or ())
-        return _failure(kind, "network_off",
-                        f"Web access is off for this project; {title} would reach "
-                        f"{hosts or 'the network'}.", gv.remedy_for("NETWORK_OFF"),
-                        summary="未联网：本项目未开启网络访问",
-                        summary_en="Web access is off for this project")
-    return None
+                                   "browser" if runner
+                        else f"{title}: available only in the browser runtime", **common)
+    if need == "dependency" and reason == "missing_engine":
+        names = req["names"]
+        sel = next(e["selected_by"] for e in capability.selected_engines(entry, args)
+                   if any(n in names for r in e.get("requires") or () for n in r.get("names") or ()))
+        return _failure(kind, "unavailable",
+                        f"{title} with {sel['arg']} '{sel['value']}' needs {', '.join(names)}, "
+                        "which is not installed on this runner.", req["remedy"],
+                        summary=f"{zh}：{sel['arg']}={sel['value']} 缺少依赖 {'、'.join(names)}"
+                                "（不以其他方法替代）",
+                        summary_en=f"{title}: {sel['arg']} {sel['value']} is missing "
+                                   f"{', '.join(names)} (never replaced by another method)",
+                        **common)
+    if need == "dependency" and ctx.where == "runner":
+        missing = req["names"]
+        return _failure(kind, "unavailable",
+                        f"{title} needs {', '.join(missing)}, which is not installed on "
+                        "this runner.", req["remedy"],
+                        summary=f"{zh}：缺少可选依赖 {'、'.join(missing)}（不以近似结果替代）",
+                        summary_en=f"{title}: missing optional dependency "
+                                   f"{', '.join(missing)} (never replaced by an "
+                                   "approximation)", **common)
+    if need == "dependency":
+        missing = req["names"]
+        return _failure(kind, "unavailable",
+                        f"{title} needs {', '.join(missing)} in the browser runtime, and it "
+                        "is not loaded.", req["remedy"],
+                        summary=f"{zh}：浏览器运行时尚未加载 {'、'.join(missing)}",
+                        summary_en=f"{title}: the browser runtime has not loaded "
+                                   f"{', '.join(missing)}", **common)
+    if need == "memory":
+        limit = capability.MAX_REQUEST_BYTES["browser"]
+        limit = ((entry.get("limits") or {}).get("max_request_bytes") or {}).get("browser", limit)
+        mb, cap = (size or 0) / 2**20, limit / 2**20
+        return _failure(kind, "unavailable",
+                        f"{title}: the arguments are {mb:.1f} MB; the browser runtime takes at "
+                        f"most {cap:.0f} MB in one call.", req["remedy"],
+                        summary=f"{zh}：输入 {mb:.1f} MB，超过浏览器运行时单次上限 {cap:.0f} MB",
+                        summary_en=f"{title}: the input is {mb:.1f} MB, above the browser "
+                                   f"runtime's {cap:.0f} MB per call", **common)
+    hosts = ", ".join(req.get("names") or ())
+    return _failure(kind, "network_off",
+                    f"Web access is off for this project; {title} would reach "
+                    f"{hosts or 'the network'}.", req["remedy"],
+                    summary="未联网：本项目未开启网络访问",
+                    summary_en="Web access is off for this project", **common)
 
 
 # ============================================================================ finish
@@ -747,14 +838,486 @@ def _finish(called: str, via: str, kind: str, titles: tuple[str, str], o: Outcom
     if ctx.approvals:
         receipt["approvals"] = list(ctx.approvals)
     receipt.update(o.receipt)
+    device = ctx.device
+    try:
+        parts, device = _receipt_parts(via, kind, o, gov, ctx)
+        receipt.update(parts)
+    except Exception:                                           # noqa: BLE001
+        pass                    # the receipt's defaults stand; the call keeps its envelope
     return shape(called, via=via, kind=gov.get("kind") or kind, status=o.status,
                  result=o.result, model_view=view, summary=summary, summary_en=summary_en,
                  governance=gov,
                  citations=citations, error=o.error, job=o.job, arguments=args,
                  started_at=started, duration_ms=(time.perf_counter() - t0) * 1000,
-                 where=ctx.where, device=ctx.device, content_hash=o.content_hash,
+                 where=ctx.where, device=device, content_hash=o.content_hash,
                  audit_head=o.audit_head, composite_version=o.composite_version,
                  receipt_extra=receipt, notes=[*notes, *o.notes])
+
+
+# ========================================================================= receipt/1
+#
+# What the receipt says beyond where and on what the call ran (CONTRACTS §3,
+# tcmstudio.receipt/1): which implementation ran and with which arguments, on which device
+# and with what evidence for it, from which data, and what kind of result came back with
+# which assurance. Everything comes from what the call already holds (the catalog entry,
+# the executor's outcome, the job record); nothing is probed, and nothing here can change
+# the result, its hash or the governance.
+
+#: The governed verdict's six states; release_authorized needs every one of them.
+_VERDICT_STATES = ("schema_valid", "evidence_verified", "outputs_verified",
+                   "execution_declared", "execution_attested", "release_authorized")
+#: Skills whose result is a record looked up (the seed corpus's names, evidence and safety
+#: records), not a computation.
+_RECORD_SKILLS = frozenset({"normalize-tcm-entities", "retrieve-tcm-evidence",
+                            "assess-tcm-safety"})
+#: Job kinds that fetch, build or snapshot data; and the one that installs software.
+_RECORD_JOBS = frozenset({"tcmdb.fetch", "tcmdb.build", "research.snapshot"})
+_SYSTEM_JOBS = frozenset({"env.provision"})
+#: The version markers by which a source declares itself a fixture (bioagent.research.planted
+#: builds its snapshots under '+planted'). Nothing else makes a result a fixture: the seed
+#: corpus is real curated data, and a small input is not a fixture.
+_FIXTURE_MARKS = ("+planted", "+fx")
+_SEED_ARG = re.compile(r"^(seed|random_seed|random_state|[a-z_]+_seed)$")
+_JOB_OUTCOME = {"queued": "queued", "running": "running", "succeeded": "succeeded",
+                "failed": "failed", "cancelled": "cancelled"}
+
+
+def _receipt_parts(via: str, kind: str, o: Outcome, gov: Mapping[str, Any],
+                   ctx: Context) -> tuple[dict[str, Any], str]:
+    """receipt.execution, .provenance and .result for this outcome, and the device the
+    legacy receipt.device names (a job's assigned device, never 'cpu' for a GPU job)."""
+    entry = get_entry(via) if via else None
+    job = o.result if o.job and isinstance(o.result, Mapping) and o.result.get("id") else None
+    polled = job is not None and via == "system.job_status"
+    params = dict(job.get("params") or {}) if job is not None else {}
+    # the entry whose implementation and engines the job runs (a skill.run job: the skill's)
+    work = entry
+    if polled:
+        jk = str(job.get("kind") or "")
+        work = (get_entry(f"skill.{params.get('skill_id')}") if jk == "skill.run" else None) \
+            or get_entry(f"job.{jk}")
+    work_args = (params.get("arguments") if polled and str(job.get("kind")) == "skill.run"
+                 else params if polled else o.executed_args) or {}
+    if not isinstance(work_args, Mapping):
+        work_args = {}
+    if o.execution.get("resolved_args"):
+        work_args = {**work_args, **o.execution["resolved_args"]}    # what the run chose
+
+    outcome = _outcome_of(o, entry, job)
+    # the executor was reached (a queued job counts: it is recorded and will run as it says);
+    # a refusal, an unavailable entry or wrong arguments ran nothing, and name nothing as run
+    reached = outcome != "not_executed" and (o.validation or {}).get("ok", True) is not False
+    execution: dict[str, Any] = {
+        "implementation": _implementation(work, via, kind, o, job) if reached else None,
+        "validation": o.validation,
+        "engine": _engine_of(work, work_args, o) if reached else None}
+    device = ctx.device
+    if job is not None:
+        execution["device"], device = _job_device(job, ctx)
+    else:
+        execution["device"] = {"requested": ctx.device, "assigned": ctx.device if reached else None,
+                               "used": ctx.device if reached else None,
+                               "evidence": "selected" if reached else None}
+
+    datasets = [*(o.provenance.get("datasets") or ()), *_datasets(entry, via, kind, o, gov, job)]
+    seeds = ({} if _is_phi(work) or _is_phi(entry) or not reached
+             else _seeds(work, work_args))
+    seeds.update(o.provenance.get("seeds") or {})
+    provenance = {"datasets": _unique_datasets(datasets), "seeds": seeds,
+                  "models": list(o.provenance.get("models") or ())}
+
+    result = _result_record(entry, via, kind, o, gov, job, provenance["datasets"], outcome)
+    return {"execution": execution, "provenance": provenance, "result": result}, device
+
+
+def _outcome_of(o: Outcome, entry: Mapping[str, Any] | None,
+                job: Mapping[str, Any] | None) -> str:
+    """What became of the call: a job's own state for a job; not_executed for a call that no
+    executor ran (refused, not runnable here, or arguments that failed validation: the
+    page's own envelopes say the same, core/receipt.js pageOutcome); failed for one that
+    ran and failed (an executor's own bad_arguments or not_found included)."""
+    if job is not None and o.status in ("succeeded", "job_submitted"):
+        state = _JOB_OUTCOME.get(str(job.get("state") or ""), "queued")
+        return state if o.status == "succeeded" or state in ("queued", "running") else "queued"
+    if o.status in ("refused", "needs_approval") or (
+            o.status == "failed" and o.result_info.get("outcome") == "not_executed"):
+        return "not_executed"
+    if o.status in ("cancelled", "job_submitted"):
+        return "cancelled" if o.status == "cancelled" else "queued"
+    if o.status == "failed":
+        etype = (o.error or {}).get("type")
+        if etype in ("unavailable", "network_off", "refused") or (etype == "not_found"
+                                                                   and entry is None):
+            return "not_executed"
+        if (o.validation or {}).get("ok") is False:
+            return "not_executed"            # the arguments failed validation: nothing ran
+        return "failed"
+    return "succeeded"
+
+
+def _manifest_facts(component: str) -> dict[str, Any]:
+    """The bioagent registry manifest of a native tool: its entrypoint, its own version and
+    whether it is deterministic. Read only from a runtime already built (never built here)."""
+    if _RUNTIME is None:
+        return {}
+    try:
+        m = _RUNTIME.registry.get(component)
+        rt = m.runtime
+        return {"component": m.id, "entrypoint": rt.entrypoint, "manifest_version": m.version,
+                "deterministic": bool(rt.deterministic)}
+    except Exception:                                           # noqa: BLE001
+        return {}
+
+
+def _implementation(work: Mapping[str, Any] | None, via: str, kind: str, o: Outcome,
+                    job: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The code that ran: the catalog entry's implementation reference, with the native
+    tool's registry manifest, the skill's content hash and pin, the connector's key,
+    operation and host, or the job's kind (and its pipeline's code digest, from run.json)."""
+    impl: dict[str, Any] = dict((work or {}).get("implementation") or {})
+    wkind = (work or {}).get("kind")
+    if wkind == "native" and work is not None:
+        impl.update(_manifest_facts("native.tool." + work["id"].split(".", 1)[1]))
+    if wkind == "connector" and work is not None:
+        info = work.get("connector") or {}
+        impl.update({"key": info.get("key"), "operation": info.get("operation"),
+                     "host": info.get("host")})
+    if wkind == "skill" or (job is not None and str(job.get("kind")) == "skill.run"):
+        if o.content_hash:
+            impl["content_hash"] = o.content_hash
+        if o.receipt.get("skill_pinned") is not None:
+            impl["pinned"] = bool(o.receipt["skill_pinned"])
+    if via == "system.provider_call" and o.receipt.get("component_id"):
+        impl.update({"provider": o.receipt.get("provider"),
+                     "component": o.receipt.get("component_id")})
+    if job is not None:
+        impl["job_kind"] = job.get("kind")
+        if via == "system.job_status":
+            impl["job_id"] = job.get("id")
+    impl.update(o.execution.get("implementation") or {})
+    if not impl:
+        return None
+    impl.setdefault("ref", None)
+    impl.setdefault("version", None)
+    return impl
+
+
+def _engine_of(work: Mapping[str, Any] | None, args: Mapping[str, Any],
+               o: Outcome) -> dict[str, Any] | None:
+    """The engine the arguments chose (execution.engines; an argument left out counts as its
+    default), with its version when known: a built-in engine is bioagent's own code at its
+    version; another's version comes from the run's own record (run.json), else null."""
+    if o.execution.get("engine"):
+        return dict(o.execution["engine"])
+    if not work or not (work.get("execution") or {}).get("engines"):
+        return None
+    chosen = capability.selected_engines(work, args)
+    if not chosen:
+        return None
+    from .envelope import versions
+    known = o.execution.get("engine_versions") or {}
+
+    def one(e: Mapping[str, Any]) -> dict[str, Any]:
+        eid = str(e.get("id"))
+        version = known.get(eid) or (versions().get("bioagent") if eid.startswith("builtin")
+                                     else None)
+        return {"id": eid, "version": version, "selected_by": dict(e.get("selected_by") or {}),
+                "device": e.get("device")}
+    first, *rest = [one(e) for e in chosen]
+    if rest:
+        first["with"] = rest
+    return first
+
+
+def _job_device(job: Mapping[str, Any], ctx: Context) -> tuple[dict[str, Any], str | None]:
+    """A job's device: the setting asked for, the device the runner assigned when it started
+    the job (devices.resolve), and nothing more. Hiding the other GPUs is a selection, not
+    proof the engine used the one it was given, so the evidence is 'selected' and ``used`` is
+    known only for a CPU job (no GPU is visible to it). The legacy ``receipt.device`` is the
+    assigned device, and null until the job starts: never the dispatcher's own CPU, which a
+    queued GPU job will not run on."""
+    caps = ctx.capabilities if isinstance(ctx.capabilities, Mapping) else {}
+    assigned = job.get("device") or None
+    dev: dict[str, Any] = {"requested": caps.get("device_setting"), "assigned": assigned,
+                           "used": "cpu" if assigned == "cpu" else None,
+                           "evidence": "selected" if assigned else None}
+    if job.get("device_note"):
+        dev["note"] = str(job["device_note"])
+    elif not assigned:
+        dev["note"] = "not assigned yet: the runner gives a job its device when it starts it"
+    elif assigned != "cpu":
+        dev["note"] = ("assigned by the runner (the other GPUs hidden from the job); the job "
+                       "does not report which device its engine used")
+    return dev, (str(assigned) if assigned else None)
+
+
+def _seeds(entry: Mapping[str, Any] | None, args: Mapping[str, Any]) -> dict[str, Any]:
+    """The random seeds of a call: the arguments named seed, random_seed, random_state or
+    *_seed, and the schema's default where one was left out (the value the code uses)."""
+    props = ((entry or {}).get("parameters") or {}).get("properties") or {}
+    out: dict[str, Any] = {}
+    for key in sorted({*props, *args}):
+        if not _SEED_ARG.match(str(key)):
+            continue
+        value = args.get(key, (props.get(key) or {}).get("default"))
+        if isinstance(value, (int, str)) and not isinstance(value, bool):
+            out[str(key)] = value
+    return out
+
+
+@functools.lru_cache(maxsize=1)
+def _seed_card() -> dict[str, Any]:
+    """The shipped seed corpus as its own source card states it (id, version, snapshot hash)."""
+    try:
+        from bioagent.skills.p0.common import seed_source_card
+        c = seed_source_card()
+        return {"id": c.id, "version": c.version, "sha256": c.snapshot_hash,
+                "snapshot_at": c.snapshot_at, "licence": c.license_spdx, "release": c.version}
+    except Exception:                                           # noqa: BLE001
+        return {"id": _SEED_LICENCE["asset"], "licence": _SEED_LICENCE["licence"],
+                "release": None}
+
+
+def _card(s: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A provenance dataset from a ResearchArtifact source card."""
+    if not isinstance(s, Mapping) or not s.get("id"):
+        return None
+    out = {"id": str(s["id"]), "name": s.get("name"), "version": s.get("version") or None,
+           "sha256": s.get("snapshot_hash") or None, "snapshot_at": s.get("snapshot_at") or None,
+           "licence": s.get("license_spdx") or None, "release": s.get("version") or None}
+    return {k: v for k, v in out.items() if v is not None or k == "release"}
+
+
+def _workbook(value: Any) -> dict[str, Any] | None:
+    """The formula workbook a result read, from the provenance it carries."""
+    if not isinstance(value, Mapping):
+        return None
+    prov = value.get("provenance")
+    if isinstance(prov, Mapping) and prov.get("source_sha256"):
+        return {"id": "repository_formulas", "name": prov.get("source_name"),
+                "sha256": prov.get("source_sha256"), "licence": prov.get("license"),
+                "rows": prov.get("rows"), "release": None}
+    return None
+
+
+def _tcmdb_dataset(key: str) -> dict[str, Any]:
+    out: dict[str, Any] = {"id": key, "release": None}
+    try:
+        from bioagent.tcmdb.datasets import dataset
+        spec = dataset(key)
+        out.update({"name": spec.name, "version": spec.version or None,
+                    "licence": spec.license or None, "release": spec.version or None})
+    except Exception:                                           # noqa: BLE001
+        pass
+    return {k: v for k, v in out.items() if v is not None or k == "release"}
+
+
+def _datasets(entry: Mapping[str, Any] | None, via: str, kind: str, o: Outcome,
+              gov: Mapping[str, Any], job: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The data a call read, from what it holds: a governed run's source cards; the seed
+    corpus, the materia identities and the formula workbook for the knowledge-base lookups;
+    a live source's host and fetch time (its release is unknown: the APIs state none); the
+    datasets the hub's rows came from; a job's inputs with their SHA-256."""
+    out: list[dict[str, Any]] = []
+    result = o.result if isinstance(o.result, Mapping) else {}
+    artifact = gov.get("artifact") if isinstance(gov.get("artifact"), Mapping) else {}
+    for s in artifact.get("sources") or ():
+        card = _card(s)
+        if card:
+            out.append(card)
+    ran = o.status == "succeeded"
+    name = via.split(".", 1)[1] if via.startswith("native.") else ""
+    if ran and name in _KB_TOOLS:
+        out.append(dict(_seed_card()))
+    if ran and kind == "native" and (result.get("match") == "materia_identity"
+                                     or result.get("annotation_status") == "identity_only"):
+        from .envelope import versions
+        out.append({"id": "bioagent.sources.materia", "name": "materia identity table",
+                    "version": versions().get("bioagent"), "release": None})
+    if ran:
+        for value in (result, result.get("repository_records"), result.get("repository_formulas")):
+            book = _workbook(value)
+            if book:
+                out.append(book)
+    request = o.receipt.get("request")
+    if isinstance(request, Mapping) and (request.get("host") or request.get("fetched_at")):
+        info = (entry or {}).get("connector") or {}
+        out.append({"id": str(info.get("key") or o.receipt.get("component_id") or via),
+                    "host": request.get("host") or info.get("host"),
+                    "retrieved_at": request.get("fetched_at"), "licence": info.get("license"),
+                    "release": None})
+    if ran and kind in ("tcmdb", "native"):
+        keys: list[str] = []
+        args = o.executed_args or {}
+        if kind == "tcmdb" and isinstance(args.get("dataset"), str):
+            keys.append(args["dataset"])
+        keys += [k for k in (entry or {}).get("data") or () if k != "*"]
+        for r in (result.get("rows") or ())[:5000] if isinstance(result.get("rows"), list) else ():
+            if isinstance(r, Mapping) and isinstance(r.get("source"), str):
+                keys.append(r["source"])
+        out += [_tcmdb_dataset(k) for k in dict.fromkeys(keys)]
+    if job is not None:
+        inputs = job.get("inputs") if isinstance(job.get("inputs"), Mapping) else {}
+
+        def records(param: str, value: Any) -> Iterable[tuple[str, Mapping[str, Any]]]:
+            # an upload record, a list of them, or (a sample sheet's files) a mapping of
+            # them by column and line, read down as jobs._input_digests reads it
+            for inp in (value if isinstance(value, list) else [value]):
+                if not isinstance(inp, Mapping):
+                    continue
+                if (not inp.get("sha256") and not inp.get("upload")
+                        and any(isinstance(v, Mapping) for v in inp.values())):
+                    for sub, nested in inp.items():
+                        yield from records(f"{param}.{sub}", nested)
+                else:
+                    yield param, inp
+
+        for param, value in inputs.items():
+            for name, inp in records(str(param), value):
+                item = {"id": str(inp.get("upload") or inp.get("path") or name), "role": "input",
+                        "param": name, "name": inp.get("name"), "sha256": inp.get("sha256"),
+                        "bytes": inp.get("bytes"), "release": None}
+                out.append({k: v for k, v in item.items() if v is not None or k == "release"})
+        # a job's result may name its sources (a research run's snapshots)
+        jres = job.get("result") if isinstance(job.get("result"), Mapping) else {}
+        for s in jres.get("sources") or () if isinstance(jres.get("sources"), list) else ():
+            card = _card(s)
+            if card:
+                out.append(card)
+    return out
+
+
+def _unique_datasets(items: list[Any]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    out = []
+    for d in items:
+        if not isinstance(d, Mapping) or not d.get("id"):
+            continue
+        key = (d.get("id"), d.get("version"), d.get("sha256"), d.get("param"))
+        if key not in seen:
+            seen.add(key)
+            out.append(dict(d))
+    return out
+
+
+def _release_authorized(gov: Mapping[str, Any]) -> bool:
+    verdict = gov.get("verdict") if isinstance(gov.get("verdict"), Mapping) else {}
+    states = verdict.get("states") if isinstance(verdict.get("states"), Mapping) else {}
+    return gov.get("released") is True and all(states.get(k) is True for k in _VERDICT_STATES)
+
+
+def _result_kind(entry: Mapping[str, Any] | None, via: str, kind: str, gov: Mapping[str, Any],
+                 job: Mapping[str, Any] | None, datasets: list[Mapping[str, Any]]) -> str:
+    """What kind of thing the result is, by precedence: a fixture (only when a source
+    declares itself one) > a draft (the clinic, a draft limitation) > a prediction (a
+    prediction limitation, a predictive job) > a record (connectors, the data hub, the
+    knowledge-base lookups, record skills, literature) > system > computation."""
+    if any(m in str(d.get("version") or "") for d in datasets for m in _FIXTURE_MARKS):
+        return "fixture"
+    limits = [str(x) for x in gov.get("limitations") or ()]
+    if kind == "clinic" or gov.get("kind") == "clinic" or gv.LIMIT_DRAFT in limits:
+        return "draft"
+    if job is not None:
+        jk = str(job.get("kind") or "")
+        params = job.get("params") if isinstance(job.get("params"), Mapping) else {}
+        if gv.LIMIT_PREDICTED in limits or _predictive_job(jk, params):
+            return "prediction"
+        if jk == "skill.run":
+            return "record" if str(params.get("skill_id")) in _RECORD_SKILLS else "computation"
+        return ("record" if jk in _RECORD_JOBS else "system" if jk in _SYSTEM_JOBS
+                else "computation")
+    if gv.LIMIT_PREDICTED in limits:
+        return "prediction"
+    op = via.split(".", 1)[1] if "." in via else via
+    if kind in ("connector", "tcmdb") or via == "system.provider_call":
+        return "record"
+    if kind == "native" and (op in _KB_TOOLS or (entry or {}).get("data")
+                             or gv.LIMIT_HUB in limits):
+        return "record"
+    if kind == "skill" and op in _RECORD_SKILLS:
+        return "record"
+    if kind == "system":
+        return "system"
+    return "computation"
+
+
+def _outputs_verified(job: Mapping[str, Any], o: Outcome) -> bool:
+    """A succeeded job's outputs were digested when it was collected: it declared outputs,
+    each has its SHA-256, the collection names the digest check (older records predate the
+    list), none it expected is missing, none is known to have changed since, and none read
+    back for this receipt failed its check (an envelope or run.json that can no longer be
+    read is not verified, whatever was recorded of it)."""
+    arts = [a for a in job.get("artefacts") or () if isinstance(a, Mapping)]
+    jo = job.get("outcome") if isinstance(job.get("outcome"), Mapping) else {}
+    checks = jo.get("checks")
+    if not arts or not all(a.get("sha256") for a in arts):
+        return False
+    if isinstance(checks, list) and not {"controller_digests", "runner_digests"} & set(checks):
+        return False
+    names = {a.get("name") for a in arts}
+    if any(n not in names for n in jo.get("expected") or ()):
+        return False
+    info_arts = o.result_info.get("artifacts") or {}
+    if info_arts.get("hash_mismatch") or info_arts.get("missing"):
+        return False
+    return all(c.get("ok") is not False for c in o.result_info.get("checks") or ()
+               if isinstance(c, Mapping))
+
+
+def _result_record(entry: Mapping[str, Any] | None, via: str, kind: str, o: Outcome,
+                   gov: Mapping[str, Any], job: Mapping[str, Any] | None,
+                   datasets: list[Mapping[str, Any]], outcome: str) -> dict[str, Any]:
+    info = o.result_info
+    assurance = "none"
+    if outcome == "succeeded":
+        if _release_authorized(gov):
+            assurance = "release_authorized"
+        elif job is not None and job.get("state") == "succeeded" and _outputs_verified(job, o):
+            assurance = "outputs_verified"
+    checks: list[dict[str, Any]] = []
+    verdict = gov.get("verdict") if isinstance(gov.get("verdict"), Mapping) else {}
+    states = verdict.get("states") if isinstance(verdict.get("states"), Mapping) else {}
+    outputs = [x for x in gov.get("outputs") or () if isinstance(x, Mapping)]
+    expected = [str(x.get("path")) for x in outputs if x.get("path")]
+    missing = [str(x.get("path")) for x in outputs if x.get("missing")]
+    mismatch = [str(x.get("path")) for x in outputs if x.get("hash_mismatch")]
+    if states:
+        checks += [{"id": str(k), "ok": bool(v)} for k, v in states.items()]
+        if o.receipt.get("skill_pinned") is not None:
+            checks.append({"id": "skill_pinned", "ok": bool(o.receipt["skill_pinned"])})
+        bad = sorted({*missing, *mismatch})
+        present = {"id": "outputs_present", "ok": bool(outputs) and not bad}
+        if bad or not outputs:
+            present["detail"] = ("missing or changed: " + ", ".join(bad)) if bad else "no outputs"
+        checks.append(present)
+    if job is not None:
+        jo = job.get("outcome") if isinstance(job.get("outcome"), Mapping) else {}
+        state = str(job.get("state") or "")
+        if state == "succeeded":
+            checks += [{"id": str(c), "ok": True} for c in jo.get("checks") or ()]
+        elif state == "failed":
+            problems = list(jo.get("problems") or ()) or ([jo["error"]] if jo.get("error") else [])
+            checks += [{"id": "collection", "ok": False, "detail": str(p)[:300]}
+                       for p in problems[:8]]
+        if state in ("succeeded", "failed"):
+            names = {a.get("name") for a in job.get("artefacts") or () if isinstance(a, Mapping)}
+            wanted = [str(n) for n in jo.get("expected") or ()]
+            expected += wanted
+            missing += [n for n in wanted if n not in names]
+    checks += [dict(c) for c in info.get("checks") or () if isinstance(c, Mapping)]
+    mismatch += list((info.get("artifacts") or {}).get("hash_mismatch") or ())
+    missing += list((info.get("artifacts") or {}).get("missing") or ())
+    fallbacks = [dict(f) for f in info.get("fallbacks") or () if isinstance(f, Mapping)]
+    if job is not None and job.get("device_note") and job.get("device") == "cpu":
+        fallbacks.append({"what": "device", "reason": str(job["device_note"])})
+    return {"kind": _result_kind(entry, via, kind, gov, job, datasets)
+            if outcome == "succeeded" else None,
+            "outcome": "validated" if outcome == "succeeded" and assurance != "none" else outcome,
+            "assurance": assurance, "checks": checks,
+            "artifacts": {"expected": list(dict.fromkeys(expected)),
+                          "missing": list(dict.fromkeys(missing)),
+                          "hash_mismatch": list(dict.fromkeys(mismatch))},
+            "fallbacks": fallbacks, "reference": info.get("reference")}
 
 
 def _citations(result: Any, gov: Mapping[str, Any],
@@ -823,6 +1386,9 @@ def _call_result(res: Any, entry: Mapping[str, Any], ctx: Context, *, kind: str,
         if status == "DEGRADED":
             o.notes.append(f"the call succeeded in a degraded mode: {error}" if error
                            else "the call succeeded in a degraded mode")
+            o.result_info["fallbacks"] = [{"what": "degraded",
+                                           "reason": error or "the call succeeded in a "
+                                                              "degraded mode"}]
         return o
     if status == "DENIED":
         network = any(r["code"].startswith("perm.network") for r in g["refusals"])
@@ -1614,7 +2180,7 @@ def _literature_search(args: Mapping[str, Any], ctx: Context) -> tuple[Outcome, 
     result = {"source": source, "query": query, "total": total, "count": len(hits), "hits": hits}
     g = o.governance or gv.empty("connector")
     g["limitations"] = limits
-    out = Outcome(result=result, governance=g, receipt=o.receipt,
+    out = Outcome(result=result, governance=g, receipt=o.receipt, result_info=o.result_info,
                   summary=f"文献检索（{name}）：返回 {len(hits)} 条"
                           + (f"，共 {total} 条命中" if total not in (None, "") else "")
                           + "（命中不等于证据）",
@@ -2785,11 +3351,18 @@ def _submit_job(kind: str, params: Mapping[str, Any], ctx: Context,
     try:
         job = submit(kind, jsonable(dict(params)), ctx.project_id)
     except (ValueError, KeyError, TypeError) as exc:
-        return _failure("job", "bad_arguments", f"the job service refused the parameters: {exc}",
-                        _signature(entry["parameters"]))
+        o = _failure("job", "bad_arguments", f"the job service refused the parameters: {exc}",
+                     _signature(entry["parameters"]))
+        o.result_info["outcome"] = "not_executed"       # refused before anything was queued
+        return o
     except Exception as exc:                                    # noqa: BLE001
-        return _failure("job", "runtime_error", f"the job could not be submitted: "
-                                                f"{type(exc).__name__}: {exc}")
+        o = _failure("job", "runtime_error", f"the job could not be submitted: "
+                                             f"{type(exc).__name__}: {exc}")
+        if isinstance(exc, RuntimeError):
+            # the job service's refusal (cannot run here now: an engine, a dataset, the
+            # network); nothing was queued, and the runner restates the error as the refusal
+            o.result_info["outcome"] = "not_executed"
+        return o
     job = jsonable(job) if isinstance(job, Mapping) else {"id": str(job), "kind": kind,
                                                            "state": "queued"}
     g = gv.empty("job")
@@ -2842,10 +3415,15 @@ def _skill_job(job: Mapping[str, Any], ctx: Context) -> Outcome:
                  if k in receipt}
         inner_zh = str(inner.get("summary") or "")
         inner_en = str(inner.get("summary_en") or "")
+        # the run's own receipt/1 provenance (the job's process wrote it with this code)
+        prov = receipt.get("provenance") if isinstance(receipt.get("provenance"), Mapping) else {}
         return Outcome(result=job, governance=g, job=_job_view(job),
                        content_hash=receipt.get("content_hash"),
                        audit_head=receipt.get("audit_head") or None,
                        composite_version=receipt.get("composite_version"), receipt=extra,
+                       provenance={k: prov[k] for k in ("datasets", "seeds", "models")
+                                   if k in prov},
+                       result_info={"checks": [{"id": "envelope_digest", "ok": True}]},
                        summary=head + (f"；{inner_zh}" if inner_zh else ""),
                        summary_en=head_en + (f"; {inner_en}" if inner_en else ""))
     # The governed run's own record cannot be shown: say so, keep the skill's limits, and
@@ -2855,10 +3433,131 @@ def _skill_job(job: Mapping[str, Any], ctx: Context) -> Outcome:
     g["limitations"] = [f"The governed run's envelope could not be read back ({problem}); its "
                         "release verdict and claims cannot be shown, so treat the result as "
                         "not released.", *_SKILL_LIMITS.get(sid, [])]
+    # JobService.envelope's words: a changed file is a hash mismatch, one that cannot be
+    # read (deleted or moved since the job was collected) is missing
+    changed = "no longer has the digest" in problem
+    unreadable = "cannot be read" in problem
     return Outcome(result=job, governance=g, job=_job_view(job),
+                   result_info={"checks": [{"id": "envelope_digest", "ok": False,
+                                            "detail": problem[:300]}],
+                                "artifacts": {"hash_mismatch": ["envelope"] if changed else [],
+                                              "missing": ["envelope"] if unreadable else []}},
                    summary=head + "；受治理运行的发布判定无法读取，按未准予发布处理",
                    summary_en=head_en + "; the governed run's release verdict cannot be read, "
                                         "so it counts as not released")
+
+
+def _research_tail(result: Any) -> tuple[str, str]:
+    """What a finished research run's summary adds (zh, en): its sixteen workflow stages by
+    validation status, whether release was authorised, and how many hypotheses it made,
+    from the result the research command printed (bioagent.cli._cmd_research)."""
+    if not isinstance(result, Mapping):
+        return "", ""
+    stages = [s for s in result.get("stages") or () if isinstance(s, Mapping)]
+    counts: dict[str, int] = {}
+    for s in stages:
+        counts[str(s.get("status"))] = counts.get(str(s.get("status")), 0) + 1
+    order = ("PASS", "FAIL", "BLOCKED", "UNVERIFIED", "SKIPPED", "NOT_APPLICABLE")
+    tally = [f"{k} {counts[k]}" for k in order if counts.get(k)]
+    hypotheses = len(result.get("hypotheses") or ())
+    released = result.get("released") is True
+    zh = (f"；{len(stages)} 个工作流阶段（{'、'.join(tally)}）" if stages else "") + \
+        f"；{'已准予发布' if released else '未准予发布'}，{hypotheses} 个机制假说"
+    en = (f"; {len(stages)} workflow stages ({', '.join(tally)})" if stages else "") + \
+        ("; release authorised" if released else "; release not authorised") + \
+        f", {hypotheses} mechanism hypothesis(es)"
+    if result.get("complete") is False:
+        # a required stage had nothing to work on (nothing could be tested): the run is a
+        # record of that, not a negative result (run_manifest.json lists the problems)
+        n = len(result.get("problems") or ())
+        zh += f"；运行不完整（{n} 个必需阶段未完成，见 run_manifest.json）"
+        en += f"; the run is incomplete ({n} required stage(s) not done; see run_manifest.json)"
+    return zh, en
+
+
+def _run_record(job: Mapping[str, Any], ctx: Context, o: Outcome) -> None:
+    """What a succeeded pipeline job's own run.json says, for the receipt: the pipeline and
+    its code digest, the seeds of its configuration, the versions of its tools, the models
+    (a fold's method and version with each request's digests; ADMET's model-card digests) and
+    the comparison it made against a reference structure. run.json is read only at the digest
+    recorded when the job was collected (``context.jobs.run_manifest``); one that changed
+    since is listed as a hash mismatch, and nothing of it is used."""
+    if str(job.get("state")) != "succeeded" or not any(
+            isinstance(a, Mapping) and a.get("name") == "run" for a in job.get("artefacts") or ()):
+        return
+    fetch = _jobs_fn(ctx.jobs, "run_manifest")
+    if fetch is None:
+        return
+    checks = o.result_info.setdefault("checks", [])
+    try:
+        doc = fetch(str(job.get("id")))
+    except Exception as exc:                                    # noqa: BLE001
+        reason = str(exc) or type(exc).__name__
+        checks.append({"id": "run_manifest", "ok": False, "detail": reason[:300]})
+        arts = o.result_info.setdefault("artifacts", {})
+        if "no longer has the digest" in reason:
+            arts.setdefault("hash_mismatch", []).append("run")
+        elif "cannot be read" in reason:
+            arts.setdefault("missing", []).append("run")
+        return
+    if not isinstance(doc, Mapping):
+        return
+    checks.append({"id": "run_manifest", "ok": True})
+    impl = {k: doc[k] for k in ("pipeline", "code_digest") if isinstance(doc.get(k), str)}
+    if impl:
+        o.execution["implementation"] = impl
+    config = doc.get("config") if isinstance(doc.get("config"), Mapping) else {}
+    seeds = {str(k): v for k, v in config.items() if _SEED_ARG.match(str(k))
+             and isinstance(v, (int, str)) and not isinstance(v, bool)}
+    if seeds:
+        o.provenance["seeds"] = seeds
+    # the engines the run itself chose ('auto' in the parameters names none): the selecting
+    # arguments as the run records them, top level first, then its configuration
+    entry = get_entry(f"job.{job.get('kind')}") or {}
+    selectors = {str((e.get("selected_by") or {}).get("arg"))
+                 for e in (entry.get("execution") or {}).get("engines") or ()}
+    resolved = {a: (doc.get(a) if isinstance(doc.get(a), str) else config.get(a))
+                for a in selectors}
+    resolved = {a: v for a, v in resolved.items() if isinstance(v, str) and v}
+    if resolved:
+        o.execution["resolved_args"] = resolved
+    tools: dict[str, str] = {}
+    for key in ("tools", "versions"):
+        if isinstance(doc.get(key), Mapping):
+            tools.update({str(k): v for k, v in doc[key].items() if isinstance(v, str) and v})
+    models: list[dict[str, Any]] = []
+    compared: list[dict[str, Any]] = []
+    kind = str(job.get("kind") or "")
+    if kind == "pipeline.fold":
+        by_method: dict[tuple[str, str], dict[str, Any]] = {}
+        for s in doc.get("summary") or ():
+            if not isinstance(s, Mapping):
+                continue
+            method, version = str(s.get("method") or ""), str(s.get("version") or "")
+            model = by_method.setdefault((method, version), {
+                "id": method, "version": version or None, "remote": bool(s.get("remote")),
+                "requests": []})
+            model["requests"].append({k: s.get(k) for k in ("name", "request_sha256",
+                                                            "response_sha256")})
+            if method and version:
+                tools.setdefault(method, version)
+            if isinstance(s.get("comparison"), Mapping):
+                compared.append({"name": s.get("name"), **jsonable(dict(s["comparison"]))})
+        models = list(by_method.values())
+    elif kind == "pipeline.admet" and isinstance(doc.get("models"), Mapping):
+        for endpoint, card in sorted(doc["models"].items()):
+            if isinstance(card, Mapping):
+                models.append({"id": str(endpoint), "sha256": card.get("model_sha256"),
+                               "archive_sha256": card.get("archive_sha256"),
+                               "metric": card.get("metric"), "test_score": card.get("test_score")})
+    if models:
+        o.provenance["models"] = models
+    if tools:
+        o.execution["engine_versions"] = tools
+    if compared:
+        # the fold compared its model with a reference structure the user gave: that, and
+        # only that, is a reference comparison
+        o.result_info["reference"] = {"kind": "structure_comparison", "compared": compared}
 
 
 def _exec_job(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
@@ -2876,6 +3575,25 @@ def _searchable(where: str) -> list[dict[str, Any]]:
         if where not in _PROBED:
             _PROBED[where] = catalog_entries(where, probe=where == "runner")
         return _PROBED[where]
+
+
+def _built(ctx: Context) -> list[str] | None:
+    """The datasets built in this runtime's data hub (None when it cannot be read)."""
+    try:
+        return list(_hub(ctx).built())
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def _kind_missing(ctx: Context) -> dict[str, list[str]]:
+    """What the runner's job service says each job kind lacks (system.capabilities' host
+    facts, which the runner passes in the context), by entry id."""
+    caps = ctx.capabilities if isinstance(ctx.capabilities, Mapping) else {}
+    out: dict[str, list[str]] = {}
+    for k in caps.get("kinds") or ():
+        if isinstance(k, Mapping) and k.get("kind") and k.get("missing"):
+            out[f"job.{k['kind']}"] = [str(m) for m in k["missing"]]
+    return out
 
 
 def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> Outcome:
@@ -2897,7 +3615,8 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                            kind=args.get("kind"), runnable_now=bool(args.get("runnable_now")),
                            limit=int(args.get("limit") or 10), where=ctx.where,
                            network=ctx.network, jobs=ctx.jobs is not None,
-                           items=_searchable(ctx.where))
+                           items=_searchable(ctx.where), built=_built(ctx),
+                           kind_missing=_kind_missing(ctx))
         view = {"matched": [{k: m[k] for k in ("id", "title", "summary", "parameters",
                                                "runnable_now", "needs", "confirm", "network")
                              if k in m and (k != "needs" or m[k])}
@@ -2913,6 +3632,8 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                                   + (f" ({r['total']} related in all)" if more else ""))
     if op == "capabilities":
         return _capabilities(ctx, g)
+    if op == "capability_audit":
+        return _capability_audit(args, ctx, g)
     if op == "job_status":
         get = _jobs_fn(ctx.jobs, "get")
         if get is None:
@@ -2936,6 +3657,10 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
             g["limitations"] = ([gv.LIMIT_PREDICTED]
                                 if _predictive_job(str(job.get("kind")), job.get("params"))
                                 else [])
+            # and the pipeline's own, one per line of its limitations.md (jobs.py collects
+            # them with the stages, which the job itself carries)
+            g["limitations"] += [str(x) for x in job.get("limitations") or ()
+                                 if str(x) not in g["limitations"]]
         else:
             g["limitations"] = [gv.LIMIT_PENDING]
         progress = job.get("progress") or {}
@@ -2945,15 +3670,20 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         if state == "succeeded":
             tail += f"，{len(job.get('artefacts') or [])} 个产出文件"
             tail_en += f", {len(job.get('artefacts') or [])} output file(s)"
+            if job.get("kind") == "research.run":
+                zh, en = _research_tail(job.get("result"))
+                tail, tail_en = tail + zh, tail_en + en
         elif state == "failed":
             err = (job.get("outcome") or {}).get("error")
             tail += f"：{err}" if err else ""
             tail_en += f": {err}" if err else ""
-        return Outcome(result=job, governance=g, job=_job_view(job),
-                       summary=f"任务 {job.get('id')}：{_STATE_ZH.get(state, state)}{tail}"
-                               + ("" if state == "succeeded" else "（尚无结果）"),
-                       summary_en=f"Job {job.get('id')}: {_STATE_EN.get(state, state)}{tail_en}"
-                                  + ("" if state == "succeeded" else " (no result yet)"))
+        o = Outcome(result=job, governance=g, job=_job_view(job),
+                    summary=f"任务 {job.get('id')}：{_STATE_ZH.get(state, state)}{tail}"
+                            + ("" if state == "succeeded" else "（尚无结果）"),
+                    summary_en=f"Job {job.get('id')}: {_STATE_EN.get(state, state)}{tail_en}"
+                               + ("" if state == "succeeded" else " (no result yet)"))
+        _run_record(job, ctx, o)
+        return o
     if op == "doctor":
         from bioagent.doctor import diagnose
         report = diagnose(smoke=bool(args.get("smoke", False)))
@@ -3066,6 +3796,13 @@ def _provider_call(entry: dict[str, Any], args: Mapping[str, Any], ctx: Context)
                         close_backend()
 
 
+#: system.capabilities' remote_compute: the page's sentence (core/catalog.js REMOTE_COMPUTE)
+#: without its last clause, which names runner.loopback, a field only the page's answer has.
+_REMOTE_COMPUTE = {"configured": False,
+                   "reason": "no remote compute backend is registered; calls run in this browser "
+                             "or on the paired runner"}
+
+
 def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     from .envelope import runtime_string, versions
 
@@ -3077,10 +3814,6 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         deps.update({b: dependency_present(b) for b in ("salmon", "kallisto", "fastp",
                                                         "colabfold_batch")})
     items = _searchable(ctx.where)
-    runnable = [e for e in items if ctx.where in e.get("exec", ())
-                and e.get("available") is not False
-                and (not e.get("network") or ctx.network)
-                and (not e.get("job") or ctx.jobs is not None)]
     project = _project(ctx)
     hub_root = None
     built: list[str] = []
@@ -3089,11 +3822,22 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         hub_root, built = str(hub.root), hub.built()
     except Exception:                                       # noqa: BLE001
         pass
+    # one readiness for every entry (capability.readiness), as catalog_search and the
+    # capability audit judge it: runtime, dependencies, built datasets, web access, jobs
+    kind_missing = _kind_missing(ctx)
+    states = [capability.readiness(e, where=ctx.where, network=ctx.network,
+                                   jobs=ctx.jobs is not None,
+                                   built=built if hub_root is not None else None,
+                                   kind_missing=kind_missing.get(e["id"]))["state"]
+              for e in items]
+    runnable = [e for e, state in zip(items, states) if state == "ready"]
     result: dict[str, Any] = {
         "where": ctx.where, "runtime": runtime_string(), "versions": versions(),
         "device": ctx.device,
         "compute": ("Python on the CPU (single thread, WebAssembly)" if ctx.where == "browser"
                     else "Python on this machine; jobs use the device setting"),
+        # nothing computes elsewhere: no remote backend exists to send work to (CONTRACTS §6)
+        "remote_compute": dict(_REMOTE_COMPUTE),
         "network": {"enabled": ctx.network, "profile": ctx.profile}, "purpose": ctx.purpose,
         "jobs": ctx.jobs is not None, "dependencies": deps,
         "audit_chain": {"project_id": ctx.project_id, "durable": project.durable,
@@ -3103,7 +3847,9 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
         "counts": {"entries": len(items), "runnable_here": len(runnable),
                    "by_kind": {k: sum(1 for e in runnable if e["kind"] == k) for k in (
                        "native", "skill", "connector", "clinic", "tcmdb", "study", "job",
-                       "system")}}}
+                       "system")},
+                   "by_readiness": {s: states.count(s) for s in capability.READINESS
+                                    if states.count(s)}}}
     if ctx.where == "browser":
         result["pyodide_loadable"] = ["numpy", "scipy", "pandas"]
     if ctx.capabilities:
@@ -3119,6 +3865,49 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
                            f"网络{'已开启' if ctx.network else '未开启'}",
                    summary_en=f"Capabilities: {where_en}; {len(runnable)}/{len(items)} entries "
                               f"runnable; web access {'on' if ctx.network else 'off'}")
+
+
+_AUDIT_ZH = {"ready": "就绪", "needs_runner": "需要本机 Runner", "missing_dependency": "缺少依赖",
+                 "needs_dataset": "需要数据集", "network_unavailable": "未联网",
+                 "needs_authentication": "需要认证", "unsupported": "此处不支持"}
+_AUDIT_EN = {"ready": "ready", "needs_runner": "needing the runner",
+                 "missing_dependency": "missing a dependency", "needs_dataset": "needing a dataset",
+                 "network_unavailable": "needing web access",
+                 "needs_authentication": "needing authentication", "unsupported": "unsupported here"}
+
+
+def _capability_audit(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) -> Outcome:
+    """system.capability_audit: every entry against this runtime (capability.audit)."""
+    from .catalog import verification_records
+    result = capability.audit(
+        _searchable(ctx.where), where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
+        built=_built(ctx), kind_missing=_kind_missing(ctx), state=args.get("state") or None,
+        kind=args.get("kind") or None, category=args.get("category") or None,
+        limit=int(args.get("limit") or 100))
+    g["limitations"] = [result["note"]]
+    if not verification_records()["live_upstream"]:
+        g["limitations"].append(
+            "This runtime does not carry the committed connector verification record "
+            "(BioScience-Harness/data/connector_live_verification.csv), so its connectors read "
+            "UNVERIFIED here; the site's catalog.json carries that record, joined when the site "
+            "was built.")
+    counts = result["counts"]
+    by = counts["by_readiness"]
+    tested = counts["by_implementation"].get("tested", 0)
+    where_zh = "浏览器运行时" if ctx.where == "browser" else "本机 Runner"
+    where_en = "the browser runtime" if ctx.where == "browser" else "the local runner"
+    view = {"where": result["where"], "counts": counts, "matched": result["matched"],
+            "entries": [{"id": r["id"], "readiness": r["readiness"],
+                         **({"needs": [q["detail"] for q in r["requires"]]} if r["requires"] else {}),
+                         "verification": r["verification"]["status"]} for r in result["entries"]],
+            "note": result["note"]}
+    return Outcome(result=result, model_view=view, governance=g,
+                   summary=f"能力审计（{where_zh}）：{counts['entries']} 项，"
+                           + "，".join(f"{_AUDIT_ZH[s]} {n}" for s, n in by.items())
+                           + f"；已提交核验记录为通过的 {tested} 项",
+                   summary_en=f"Capability audit ({where_en}): {counts['entries']} entries, "
+                              + ", ".join(f"{n} {_AUDIT_EN[s]}" for s, n in by.items())
+                              + f"; {tested} with a passing committed verification record")
 
 
 def _formula_corpus(ctx: Context) -> dict[str, Any]:
@@ -3172,3 +3961,18 @@ _EXECUTORS: dict[str, Callable[[dict[str, Any], dict[str, Any], Context], Outcom
     "native": _exec_native, "connector": _exec_connector, "skill": _exec_skill,
     "clinic": _exec_clinic, "tcmdb": _exec_tcmdb, "study": _exec_study, "job": _exec_job,
     "system": _exec_system}
+
+#: The operations each hand-written executor dispatches on (its ``op ==`` branches, and those
+#: of the helper it hands ``op`` to). A catalog entry's implementation reference
+#: ``tcmstudio.dispatch:_exec_<kind>#<op>`` resolves only for these (catalog._resolves);
+#: test_capability_state checks this table against the functions' own code.
+HANDLED_OPS: dict[str, frozenset[str]] = {
+    "_exec_clinic": frozenset({"template", "assess", "check", "followup", "verify"}),
+    "_exec_tcmdb": frozenset({"catalog", "compare", "consensus", "datasets", "evidence_for",
+                              "formulas", "import_store", "licences", "materia", "query",
+                              "relation_kinds", "relations", "status", "tables", "unresolved"}),
+    "_exec_study": frozenset({"combination", "contrast_formula_monomer", "effect_modification",
+                              "exposure_screen"}),
+    "_exec_system": frozenset({"audit_verify", "capabilities", "capability_audit",
+                               "catalog_search", "classify", "doctor", "job_status",
+                               "provider_call", "provider_catalog", "skills"})}

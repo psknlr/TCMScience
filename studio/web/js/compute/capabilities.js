@@ -8,8 +8,30 @@
 // A WebNN context created for "npu" is reported, not verified: Chromium creates one on machines that have no NPU and
 // runs the graph on the CPU. Nothing here claims that a particular piece of silicon did the work; receipts name the
 // backend that ran and whether its output was checked.
+//
+// The evidence ladder (CONTRACTS §3) orders what can be shown about a device, with the same words for the browser's
+// GPU, the runner's devices and receipt.execution.device.evidence:
+//   selected < reported < dispatched < validated < verified < accelerated
+// selected: chosen by a setting; reported: an API or driver says it exists; dispatched: a kernel was submitted to it;
+// validated: that kernel's output passed its parity / recount check; verified: a known-answer test passed on it;
+// accelerated: measured faster than the CPU baseline on this device. The probe alone reaches "reported" at most.
+
+import { classifyAdapter } from "../runtime/webgpu.js";
 
 export const CAPABILITIES_SCHEMA = "tcmstudio.capabilities/1";
+export const EVIDENCE = Object.freeze(["selected", "reported", "dispatched", "validated", "verified", "accelerated"]);
+
+// What an NPU is, here: never verified. The page cannot see which processor runs a WebNN graph, no tool uses WebNN,
+// and no native NPU execution provider is wired to any tool. NPU acceleration would need a verified execution
+// provider and hardware-backed execution evidence for the workload; neither exists.
+export const NPU_STATUS = Object.freeze({
+  detected: Object.freeze({ status: "unverified", label_en: "WebNN detected; NPU execution unverified", label_zh: "检测到 WebNN；NPU 执行未经验证",
+    reason: "the browser does not report which processor runs a WebNN graph, and no tool uses WebNN" }),
+  absent: Object.freeze({ status: "unverified", label_en: "No verified NPU backend is available", label_zh: "没有可用的已验证 NPU 后端",
+    reason: "this browser offers no WebNN API, and no tool uses an NPU" }),
+  not_probed: Object.freeze({ status: "unverified", label_en: "No verified NPU backend is available", label_zh: "没有可用的已验证 NPU 后端",
+    reason: "WebNN was not probed, and no tool uses an NPU" }),
+});
 
 // Tiny modules from wasm-feature-detect (Apache-2.0): WebAssembly.validate says whether the engine knows the feature.
 const WASM = {
@@ -26,8 +48,6 @@ const WASM = {
 // The GPU limits that decide whether a workload fits (WebGPU spec names).
 const GPU_LIMITS = ["maxBufferSize", "maxStorageBufferBindingSize", "maxComputeWorkgroupStorageSize", "maxComputeInvocationsPerWorkgroup",
   "maxComputeWorkgroupSizeX", "maxComputeWorkgroupsPerDimension", "maxStorageBuffersPerShaderStage"];
-
-const SOFTWARE_GPU = /swiftshader|llvmpipe|lavapipe|software|microsoft basic render|warp/i;
 
 // The WebNN contexts asked for. deviceType is what Chromium accepted when this was written; the specification has
 // since moved to powerPreference, and an engine may ignore either: the answer is recorded, never assumed.
@@ -54,7 +74,7 @@ export async function probeCapabilities(opts = {}) {
   const sab = typeof g.SharedArrayBuffer === "function";
   const [webgpu, webnn, storage] = await Promise.all([
     opts.webgpu === false ? skipped("not probed") : probeWebGPU(nav, timeoutMs),
-    opts.webnn === false ? skipped("not probed") : probeWebNN(g, nav, { timeoutMs, deep: Boolean(opts.deep) }),
+    opts.webnn === false ? { ...skipped("not probed"), npu: { ...NPU_STATUS.not_probed } } : probeWebNN(g, nav, { timeoutMs, deep: Boolean(opts.deep) }),
     probeStorage(g, nav, timeoutMs),
   ]);
   const wasm = probeWasm(g.WebAssembly, { isolated, sab });
@@ -118,45 +138,101 @@ function probeWasm(W, { isolated, sab }) {
   };
 }
 
+// webgpu.adapter is classifyAdapter()'s answer (kind software | physical | unidentified, with its reason); software is
+// true for a software renderer, false for a physical adapter and null for an unidentified one (never "not software").
 async function probeWebGPU(nav, timeoutMs) {
   const out = { api: Boolean(nav.gpu?.requestAdapter), adapter: null, software: null, features: [], limits: {}, error: null };
-  if (!out.api) return out;
+  const done = () => { out.evidence = webgpuEvidence(out); return out; };
+  if (!out.api) return done();
   let adapter;
   try {
     adapter = await within(nav.gpu.requestAdapter({ powerPreference: "high-performance" }), timeoutMs, "requestAdapter");
   } catch (err) {
     out.error = message(err);
-    return out;
+    return done();
   }
-  if (!adapter) { out.error = "no adapter"; return out; }
+  if (!adapter) { out.error = "no adapter"; return done(); }
   let info = adapter.info;
   try { if (!info && adapter.requestAdapterInfo) info = await within(adapter.requestAdapterInfo(), timeoutMs, "requestAdapterInfo"); } catch { info = null; }
-  info ||= {};
-  const fallback = Boolean(adapter.isFallbackAdapter ?? info.isFallbackAdapter);
-  out.adapter = {
-    vendor: String(info.vendor || ""), architecture: String(info.architecture || ""),
-    device: String(info.device || ""), description: String(info.description || ""), fallback,
-  };
-  out.software = fallback || SOFTWARE_GPU.test(`${info.vendor} ${info.architecture} ${info.device} ${info.description}`);
+  out.adapter = classifyAdapter(info, adapter);
+  out.software = out.adapter.kind === "software" ? true : out.adapter.kind === "physical" ? false : null;
   try { out.features = [...(adapter.features || [])].map(String).sort(); } catch { out.features = []; }
   for (const k of GPU_LIMITS) {
     const v = adapter.limits?.[k];
     if (typeof v === "number") out.limits[k] = v;
   }
-  return out;
+  return done();
+}
+
+/**
+ * The highest rung of EVIDENCE that `facts` {selected, reported, dispatched, validated, verified, accelerated,
+ * adapter_kind} reach, or null. Every rung above "reported" needs all the rungs below it, and "accelerated" also needs
+ * a physical adapter: a software or unidentified one never reaches it, whatever was measured.
+ */
+export function evidenceLevel(facts = {}) {
+  let level = facts.selected ? "selected" : null;
+  for (const rung of EVIDENCE.slice(1)) {
+    if (facts[rung] !== true) break;
+    if (rung === "accelerated" && facts.adapter_kind !== "physical") break;
+    level = rung;
+  }
+  return level;
+}
+
+/**
+ * The WebGPU rungs reached here: from the probe (`webgpu`, caps.webgpu) and, when given, the Worker's session
+ * (`session`, SequenceAccelerator.evidence(): {adapter, dispatched, validated, rejected, known_answer, accelerated,
+ * measured, last_reason}). → {ladder, level, api, adapter_reported, adapter_kind, dispatched, validated, rejected,
+ * verified, accelerated, reason}: counts are this session's calls (null without a session), verified is the known-answer
+ * test (null when it has not run), accelerated is true only from a measured comparison on this device (null when
+ * nothing was measured), and reason says what the next rung needs.
+ */
+export function webgpuEvidence(webgpu = {}, session = null) {
+  const adapter = session?.adapter || webgpu?.adapter || null;
+  const kind = adapter?.kind || null;
+  const s = session || null;
+  const count = (k) => (s ? (Number.isFinite(s[k]) ? s[k] : 0) : null);
+  const verified = s?.known_answer ? s.known_answer.ok === true : null;
+  const accelerated = !s || !s.measured ? null : kind === "physical" && s.accelerated > 0;
+  const facts = {
+    reported: Boolean(adapter), dispatched: count("dispatched") > 0, validated: count("validated") > 0,
+    verified: verified === true, accelerated: accelerated === true, adapter_kind: kind,
+  };
+  const level = evidenceLevel(facts);
+  let reason;
+  if (!webgpu?.api && !adapter) reason = "this browser has no WebGPU API";
+  else if (!adapter) reason = `no WebGPU adapter was returned${webgpu?.error ? ` (${webgpu.error})` : ""}`;
+  else if (kind === "software") reason = `a software renderer (${adapter.reason}): never GPU acceleration, and the runtime does not use it`;
+  else if (level === "reported") reason = kind === "unidentified" ? `the adapter is unidentified (${adapter.reason}): not reported as a GPU; no count kernel has run on it yet` : "no count kernel has run on it yet";
+  else if (level === "dispatched") reason = s?.last_reason ? `no output has passed Python's recount yet (${s.last_reason})` : "no output has passed Python's recount yet";
+  else if (level === "validated") reason = s?.known_answer?.ok === false ? `its known-answer test failed: ${s.known_answer.reason}` : "its known-answer test has not passed";
+  else if (level === "verified") reason = kind !== "physical" ? "not a physical adapter, so never counted as acceleration" : accelerated === false ? "measured here, and not faster than the CPU kernel" : "no measurement on this device compares it with the CPU kernel";
+  else reason = "measured faster than the CPU kernel on this device";
+  return {
+    ladder: [...EVIDENCE], level, api: webgpu?.api ?? null, adapter_reported: Boolean(adapter), adapter_kind: kind,
+    dispatched: count("dispatched"), validated: count("validated"), rejected: count("rejected"), verified, accelerated, reason,
+  };
 }
 
 /**
  * Which WebNN contexts can be created, and what each says it supports. With `deep`, a 2×2 float32 matmul is built,
  * dispatched and read back on each context: that proves the API computes correctly, not which hardware ran it.
+ * webnn.npu is always {status: "unverified"}: "WebNN detected; NPU execution unverified" where the API exists, "No
+ * verified NPU backend is available" where it does not. context_created and device_type_requested say what was asked
+ * and answered; neither is evidence of an NPU.
  */
 async function probeWebNN(g, nav, { timeoutMs, deep }) {
   const out = {
     api: Boolean(nav.ml?.createContext),
+    context_created: false,
+    device_type_requested: [],
+    npu: { ...NPU_STATUS.absent },
     contexts: [],
     note: "A created context shows that the browser accepted the request; it does not show which processor ran the graph.",
   };
   if (!out.api) return out;
+  out.npu = { ...NPU_STATUS.detected };
+  out.device_type_requested = WEBNN_REQUESTS.map((r) => r.options.deviceType).filter(Boolean);
   for (const { label, options } of WEBNN_REQUESTS) {
     const row = { label, requested: options, created: false, error: null, limits_fingerprint: null, float16_matmul: null, verified: null };
     let ctx = null;
@@ -180,6 +256,7 @@ async function probeWebNN(g, nav, { timeoutMs, deep }) {
     }
     out.contexts.push(row);
   }
+  out.context_created = out.contexts.some((c) => c.created);
   // contexts that report identical operator limits are probably served by the same backend
   const prints = out.contexts.filter((c) => c.limits_fingerprint).map((c) => c.limits_fingerprint);
   out.distinct_backends_hint = prints.length ? new Set(prints).size : null;
@@ -274,12 +351,19 @@ export function summarizeCapabilities(caps) {
   const w = caps.wasm || {};
   lines.push({ backend: "wasm", available: Boolean(w.available), detail: [w.simd ? "SIMD" : "no SIMD", w.threads_usable ? "threads" : w.threads ? "threads need isolation" : "no threads"].join(", ") });
   const gpu = caps.webgpu || {};
+  const kind = gpu.adapter?.kind || (gpu.adapter ? (gpu.software === true ? "software" : gpu.software === false ? "physical" : "unidentified") : null);
+  const name = [gpu.adapter?.vendor, gpu.adapter?.architecture].filter(Boolean).join(" ");
   lines.push({
-    backend: "webgpu", available: Boolean(gpu.adapter) && gpu.software === false,
-    detail: !gpu.api ? "no WebGPU API" : !gpu.adapter ? `no adapter${gpu.error ? ` (${gpu.error})` : ""}` : `${[gpu.adapter.vendor, gpu.adapter.architecture].filter(Boolean).join(" ") || "adapter"}${gpu.software ? " (software renderer: not used for acceleration)" : ""}`,
+    // a GPU is "available" only when the adapter names a hardware vendor; what it has shown is gpu.evidence
+    backend: "webgpu", available: kind === "physical",
+    detail: !gpu.api ? "no WebGPU API" : !gpu.adapter ? `no adapter${gpu.error ? ` (${gpu.error})` : ""}`
+      : kind === "software" ? `${name || "adapter"} (software renderer: not used for acceleration)`
+      : kind === "unidentified" ? `${name || "adapter"} (unidentified: not reported as a GPU)`
+      : `${name || "adapter"} (reported by the browser; speed not measured by this probe)`,
   });
   const nn = caps.webnn || {};
   const created = (nn.contexts || []).filter((c) => c.created).map((c) => c.label);
-  lines.push({ backend: "webnn", available: created.length > 0, detail: !nn.api ? "no WebNN API" : created.length ? `contexts created: ${created.join(", ")} (the processor that runs a graph is not reported)` : "no context could be created" });
+  const npu = nn.api ? NPU_STATUS.detected.label_en : NPU_STATUS.absent.label_en;
+  lines.push({ backend: "webnn", available: created.length > 0, detail: !nn.api ? `no WebNN API. ${npu}` : created.length ? `${npu}. Contexts created: ${created.join(", ")} (the processor that runs a graph is not reported)` : `${npu}. No context could be created` });
   return lines;
 }

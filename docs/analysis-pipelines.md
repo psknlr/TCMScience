@@ -13,6 +13,41 @@ runs, which are recorded but never released, until a person reviews and promotes
 | Protein structure: sequences to checked models | `bioagent fold` | below |
 | Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
 | ADMET: structures to properties, alerts and predicted endpoints | `bioagent admet` | below |
+| Network pharmacology: a formula to bounded mechanism hypotheses | `bioagent research` | below |
+
+## What is verified where
+
+Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
+job); none runs in the browser, and none has a record from a deployed service. What has
+been exercised differs by engine:
+
+| Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
+|---|---|---|---|---|
+| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path; PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1: **simulated**, known answer |
+| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path, Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
+| Structure | ESM Atlas (remote, `--allow-remote`), local ESMFold, ColabFold | the 1UBQ reference from the stored ESM Atlas model, offline; no local ESMFold weights, no ColabFold | "Analysis pipelines with the standard tools" (TM-align comparison) | PDB 1UBQ (public) |
+| Docking | AutoDock Vina 1.2, meeko, RDKit, gemmi | RDKit and meeko, with a stand-in for Vina that the tests name | "Molecular modelling with the standard tools" (real Vina, 3PTB redocking) | the 3PTB pocket (public) |
+| ADMET | RDKit, scikit-learn, models trained from the TDC archive | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy | "Molecular modelling with the standard tools" | the TDC ADMET group (public, a download) |
+| Network pharmacology | `bioagent.research` on ledger-verified snapshots | planted worlds and fixtures only (`+planted`, `+fx`) | the unit tier; real data in `live-data.yml`: defined, never executed | planted worlds: **simulated**, known answer |
+
+Since stages and references were added (2026-10-18), the engine jobs also run
+`tests/test_runrecord.py` and `tests/test_pipeline_references.py`. Those two files need no
+engine (the RNA-seq and single-cell references pin the built-in backends; the docking one
+compares its fixture's digest), so they check the records and the reference results, not
+the engines; the engines are checked by each job's own tests. Those jobs have not run since
+then: every CI run from `ci` #282 and `live-data` #11 (2026-10-11, 20:06 UTC) onwards ended
+before a job was given a runner ([validation.md](validation.md)). Remote compute for these pipelines is designed, not
+deployed ([studio/docs/REMOTE_COMPUTE.md](../studio/docs/REMOTE_COMPUTE.md)).
+
+Three things hold whatever the engine:
+- The built-in DESeq2 implementation, PyDESeq2 and R's DESeq2 implement the same method
+  but do not give numerically identical results; how far they agree, and where they
+  differ, is measured in [omics-backends.md](omics-backends.md), and each run's
+  `limitations.md` says so.
+- A docking score is the scoring function's estimate, never a measured affinity.
+- An ADMET prediction outside its model's applicability domain is flagged and unreliable,
+  and a structure prediction is never replaced by a retrieved structure: a reference is
+  only compared with.
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -117,6 +152,9 @@ it in the table.
 - The built-in steps read about 10^5 reads per second. For large libraries, use the
   standard tools.
 - The design is additive only: no interaction terms or LRT.
+- The built-in test, PyDESeq2 and R's DESeq2 are not numerically identical; with three or
+  fewer residual degrees of freedom the built-in test does not reproduce R's calls
+  ([omics-backends.md](omics-backends.md)).
 
 ## Single-cell: count matrices to an annotated atlas
 
@@ -437,9 +475,289 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - A prediction is for the standardised parent structure, not for a salt or a prodrug as
   administered.
 
+## Network pharmacology: a formula to bounded mechanism hypotheses
+
+`bioagent research "<question>" --formula <formula> --snapshots DIR --ledger FILE
+--state-dir DIR --out DIR` runs the closed research loop (`bioagent.research.loop`): a
+frozen protocol, ledger-verified snapshots, the analysis as an isolated PSH tool call,
+pre-registered rebuttals and an attested release. In Studio it is the job `research.run`
+(core tool `network_pharmacology_run`). `scripts/run_network_pharmacology.py` runs the same
+analysis under the run contract without the rebuttals. Neither is the seed skill
+`analyze-tcm-network-pharmacology`, which is a *limited seed-corpus network hypothesis
+analysis*: it reads only the curated seed corpus, with no database coverage and no measured
+activity, and draws no permutation null.
+
+`--formula` names the formula separately from the question (a name, a name with its source
+book, or an id). It decides what is studied; a question whose text names another formula is
+refused.
+
+### Steps
+
+The analysis runs as one call. `bioagent.research.workflow` reads it back as sixteen
+recorded stages, each with a validation status (PASS, FAIL, BLOCKED, UNVERIFIED, SKIPPED,
+NOT_APPLICABLE), its reason, its counts and the command that reproduces the run:
+
+| # | Stage | What it records | When it is not PASS |
+|---|---|---|---|
+| 1 | Formula identity | the composition the herb layer records, by fingerprint | FAIL if the herb layer records another |
+| 2 | Herb composition | components and their verified source species | UNVERIFIED when a component has none |
+| 3 | Herb to compound | constituents per herb and source, composition level | UNVERIFIED when a herb with a species has none |
+| 4 | Structure identity | deduplication by identical source-supplied standard InChIKey; keys sharing a connectivity block are counted, not merged | always UNVERIFIED: the snapshots carry no structure, so nothing is re-standardised |
+| 5 | Compound to target | measured potencies at or below the cut-off, each re-read from its snapshot | UNVERIFIED with no measured target; FAIL if a target rests on no measured edge |
+| 6 | Measured vs predicted | predicted edges counted and left out; hypotheses cite measured edges | FAIL if a target or a citation rests on a prediction; UNVERIFIED with no target to check |
+| 7 | Disease genes | the Open Targets gene set at the stated datatype and score | NOT_APPLICABLE without a disease; SKIPPED, with the refusal, when the run refused the Open Targets snapshot its contract requested |
+| 8 | Intersections | measured targets x disease genes x background (descriptive) | as stage 7 |
+| 9 | PPI network | the STRING edges at or above the cut-off, re-read from the snapshot | UNVERIFIED when STRING was dropped, or read with no measured target in the background (no network could be built); SKIPPED when it was not asked for or was refused |
+| 10 | Pathway annotation | Reactome | GO SKIPPED (no GO snapshot is registered); KEGG BLOCKED (licence required) |
+| 11 | Enrichment | the background, stated in the protocol, and the pathways tested | UNVERIFIED when nothing could be tested |
+| 12 | Multiple testing | Benjamini-Hochberg over every pathway tested, recomputed | UNVERIFIED when nothing could be tested |
+| 13 | Permutation and sensitivity | the degree-matched null for each BH-significant pathway; the rebuttals | UNVERIFIED when nothing could be tested or a rebuttal could not run; NOT_APPLICABLE when no pathway passed BH (nothing to permute) |
+| 14 | Topology | degree, betweenness, components, descriptive only | as stage 9 |
+| 15 | Bounded interpretation | claims are `mechanism_hypothesis`, worded as one | UNVERIFIED when nothing could be tested; FAIL on a stronger kind or wording |
+| 16 | Reproducible export | every export read back with its recorded SHA-256 and size | FAIL on a missing or changed file |
+
+A source the protocol dropped makes every stage that reads it UNVERIFIED, with the
+deviation attached. A source the run's contract requested and the run refused (an
+`--allow-source` list, a commercial run's terms) is named by every stage that reads it and
+in one line of `limitations.md`. A stage whose data were not read is never PASS, an empty
+result never passes, and a missing dataset is never negative evidence.
+
+In `stages.json` (the run-record form Studio reads) a stage that had nothing to test is
+`not_applicable`, so a run in which nothing could be tested is not `complete`. A run that
+tested pathways and found none significant is complete: its stage 13 had nothing to permute
+and says so.
+
+### What it writes
+
+| File | Holds |
+|---|---|
+| `compounds.tsv` | compound, name, InChIKey, connectivity block, `id_kind` (inchikey or source_local), level, herbs, sources |
+| `targets.tsv` | target, name, `evidence_class` (measured), measurements, distinct publications, compounds, herbs, in background, disease score, degree, betweenness |
+| `disease_targets.tsv` | the disease gene set: target, name, score, datatypes, is a measured target, in background |
+| `enrichment.tsv` | library, pathway, size, members in the background, overlap, p, BH q, permutation p, fold, targets |
+| `network.tsv` | the PPI edge list: a, b, score, the STRING record |
+| `provenance.json` | snapshot ids, parameters, seed, digests, coverage, and every edge the tables rest on as (snapshot id, record id) |
+| `limitations.md` | one limitation per line: the analysis's, the rebuttals', the deviations and one line per stage that is not PASS |
+| `report.html` | stages, coverage, enrichment, hypotheses, limitations, snapshots and file digests |
+| `run_manifest.json` | `tcmscience.run-manifest/1`: the sixteen stages, every output's SHA-256 and size, snapshot ids, parameters, seed, code digest, protocol digest, the reproduce command, and an `execution` block (audit head, `artifact.json` digest) |
+
+A table with nothing in it is written with its header. The research loop also writes
+`protocol.json`, `result.json`, `enrichment.jsonl`, `rebuttal.json`, `artifact.json` and
+`stages.json`.
+
+### How it is checked
+
+- Every export but the manifest is an output of the research artifact, so
+  `validate_artifact` checks its digest. The manifest is written last, after
+  `artifact.json`, and records the digest of every output and of the artifact.
+- No export carries a timestamp. Two runs in fresh state directories give byte-identical
+  exports. The manifest differs only in its `execution` block, which names the run's audit
+  chain.
+- `python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE`
+  re-checks the manifest's digests. It recomputes each p- and q-value of `enrichment.tsv`
+  from the table's own columns, and re-runs the analysis on the snapshots the manifest
+  names; the tables must come out byte for byte. It exits 0 when every check passed, 1 when
+  one contradicts the run, and 3 when none does but one could not be made (no snapshots
+  given, or an empty enrichment table with nothing to recompute).
+- A stage whose own check FAILs is not a result: `bioagent research` exits 3, and
+  `scripts/run_network_pharmacology.py` too, whatever the release check said.
+- Studio's `research.run` requires the nine exports on exit 0 and exit 1 alike; exit 3
+  fails the job. Its validator re-reads every digest in `run_manifest.json` (never through
+  a symlink, and only regular files), so a table edited after the run fails the job's
+  check, and so does a stage the manifest lists as FAIL.
+- The manifest's reproduce command says whether it reproduces the run exactly
+  (`reproduce_exact`): false when the run used a choice the command cannot carry (a
+  parameter the command has no option for, another skill directory, a formula it cannot
+  look up by id). Whether a lock was given is in the `execution` block, so the command,
+  which passes one, writes the same exports.
+- `tests/test_np_workflow.py` runs on the planted worlds (`bioagent.research.planted`) and
+  the fixture of `tests/test_network_pharmacology.py`. They are fixtures, built under
+  `+planted` and `+fx` versions, not data.
+- Real data: the `live-data` CI workflow is defined to download the real NPASS, CMAUP, LOTUS,
+  STRING and Reactome files on GitHub's runners, run 葛根芩连汤 through the research job,
+  upload the nine exports and run `verify` on them. That step has never been executed: no
+  `live-data` run since it was added has been given a runner ([validation.md](validation.md)).
+  Nothing in this repository's offline tests is a real-data result.
+
+### What a result is
+
+A released hypothesis is a `mechanism_hypothesis`: a computational hypothesis awaiting
+experimental test, citing the snapshot edges of one path. The indication overlap and the
+topology are descriptive, not claims. An empty result says which kind it is:
+
+- "No measured target was found for the N constituents in these snapshots, so no enrichment
+  could be tested; an empty result, not evidence of inactivity."
+- "Pathways were tested and none passed both BH and the permutation null": an absence of
+  evidence for enrichment, not evidence that any pathway is uninvolved.
+
+### Limits
+
+- Composition is species-level (C1/C2), so every claim stops at a hypothesis.
+- Targets are what happened to be measured: absence of a measurement is not absence of
+  activity, and screening panels bias the assayed background.
+- Identity is the source-supplied InChIKey only. Stereo, isotope and charge variants that
+  share a connectivity block are reported, not merged.
+- Pathways are Reactome's lowest-level annotation. GO is not tested: no GO snapshot is
+  registered, and adding its source card is a person's decision. KEGG is not tested: its
+  membership requires a licence, and none is downloaded or bundled.
+- Without a STRING snapshot the network has no edges because none were read, not because
+  none exist.
+
+## Run records: stages, completeness and limitations
+
+Every pipeline records its stages as it runs (`bioagent.runrecord`). A stage is
+`{name, required, status, check, reason, engine, version, device, seconds, outputs}`:
+
+- `status` is `succeeded`, `failed`, `skipped` (chosen not to run), `unavailable` (could
+  not run here: a model, package or tool is missing) or `not_applicable` (nothing to do);
+- `check` is a validation status (PASS, FAIL, …) when the stage tests something;
+- `device` is where the stage computed, as observed (below);
+- `outputs` are the files under the output directory that hold the stage's result.
+
+A run is **complete** only when every required stage succeeded and no check is FAIL.
+
+- `stages.json` in the output directory is rewritten atomically when a stage starts and
+  when it ends. A run that stops part way leaves its failed stage there, with the error.
+  The Studio runner reads it for a job's progress (the stage running, the share of
+  required stages done) and shows the stages on the job.
+- At the end, `run.json` gains `stages`, `complete` and `limitations`. Its file name and
+  existing keys are unchanged.
+- `limitations.md` has one limitation per line: what every result of the pipeline is
+  not, and what this run did not do (a stage skipped, not applicable or unavailable,
+  with its reason). Its lines equal `run.json`'s `limitations`. It holds no timestamp,
+  so a rerun gives the same bytes; timings are only in `stages.json` and `run.json`.
+- `verify_run` (`--verify`) re-hashes the inputs and outputs as before. For a `run.json`
+  with stages it also checks completeness and content:
+  - completeness: every required stage succeeded, no check failed, the run is recorded
+    as complete, and each stage's outputs are recorded outputs that exist;
+  - content: `deseq2_results.tsv`, `counts.tsv`, `tpm.tsv` and `vst.tsv` have their
+    columns and one row per gene the test saw; `cells.tsv` has one row per analysed
+    cell and `clusters.tsv` one per cluster; `scores.tsv` has one row per docked ligand
+    (at least one), each with its poses; `admet.tsv` has one row per molecule read and
+    the columns of the models recorded; `summary.json` has one entry and one model per
+    sequence.
+
+  A `run.json` written before stages were recorded gets the digest checks only.
+- **An incomplete run makes the command exit 1**, after writing its files so they can
+  be inspected. That happens when:
+  - no ligand docked, redocking missed 2 Å, or a ligand's best pose failed its checks;
+  - an ADMET run has no models, or none for an endpoint asked for by name;
+  - any check failed.
+
+  As a Studio job it then fails with the stages at fault as its problems. It never
+  becomes a clean `succeeded`. The candidate skills that wrap these pipelines draft no
+  claim from such a run, and their limitations name the stages at fault.
+
+| Pipeline | Stages, in order |
+|---|---|
+| RNA-seq | `validate_reference`, `ingest`, `validate_fastq`, `qc`, `trim` (skipped with `--trimmer none`), `quantify`, `summarize_genes`, `differential_expression`, `explore`, `report`, `verify` |
+| Single cell | `validate_input`, `qc`, `doublets` (skipped when off), `normalize`, `hvg`, `pca`, `integrate` (not applicable with one batch or `none`), `neighbors` (the kNN graph, UMAP connectivities and layout), `cluster` (Leiden, and PAGA's connectivity between the clusters), `markers`, `annotate`, `trajectory` (pseudotime; not applicable without a root), `pseudobulk_de` (not applicable without two conditions), `report`, `verify` |
+| Structure | `input_check`, `predict`, `sequence_identity`, `confidence`, `geometry`, `compare` (not applicable without a reference), `report`, `verify` |
+| Docking | `receptor_prep`, `ligand_prep`, `site`, `redock_validation` (skipped without a co-crystal ligand; FAIL beyond 2 Å), `dock`, `pose_checks`, `contacts`, `report`, `verify` |
+| ADMET | `standardize`, `descriptors`, `rules`, `alerts`, `models` (unavailable without them), `predictions`, `report`, `verify` |
+
+**RNA-seq input checks, before QC and trimming spend time.** `validate_reference`
+runs first, before the lanes of a sample are merged. It requires:
+- unique transcript identifiers, no empty sequence, nucleotide codes only;
+- at least one transcript of the FASTA in the annotation;
+- for `--engine hisat2`, a GTF annotation whose every sequence name is a contig of the
+  genome (a GTF on `chr1` and a genome on `1` would count nothing).
+
+`validate_fastq` then reads every record, not QC's sample of the first 200,000. It
+requires:
+- an `@` header with a name and a `+` separator;
+- as many quality values as bases;
+- bases A, C, G, T or N, and quality characters within Phred+offset;
+- the mates of a pair in step and of the same name;
+- a gzip stream that is complete.
+
+A failure stops the run and names the line. Both records go under `run.json`'s
+`validation`; `inputs` keeps its keys.
+
+**Devices, as observed.**
+- The built-in, Scanpy, Vina and command-line tool stages compute on the CPU and say
+  `cpu`.
+- scVI trains with accelerator `cpu` by design, so that its seed reproduces the model,
+  whatever device the job was given.
+- Local ESMFold records the device its parameters were on: `cuda:0`, or `cpu`. It moves
+  to a GPU only through CUDA, so a job given Apple's MPS computes on the CPU and says so.
+- The ESM Atlas service is `remote:api.esmatlas.com`.
+- ColabFold records what its own log says (`gpu` or `cpu`), and otherwise null with a
+  note. `gpu` is ColabFold's alone: its log reports a GPU without naming one, and a
+  note says the device is as reported, not observed.
+
+**Structure checkpoints.**
+- Local ESMFold records the Hub model id, its revision, a SHA-256 of the weights
+  themselves (computed once per revision in a process) and, on CUDA, the peak GPU
+  memory. The peak memory varies between runs, so it is in `run.json`, not in
+  `summary.json`.
+- ColabFold records its version, its model type and the digest of the `config.json` it
+  wrote. The AlphaFold2 parameters are not digested, so its checkpoint is recorded as
+  `verifiable: false` with `scope: config_only`. Only a checkpoint whose weights were
+  digested is verifiable.
+- The ESM Atlas service's weights cannot be observed from here. They are recorded as
+  `verifiable: false`, and no digest is claimed for them.
+
+Whatever the method, a model of a sequence other than the one asked for is refused
+(`predict` and the `sequence_identity` stage). A retrieved structure is only compared
+with; it never stands in for a prediction.
+
+**Docking pose checks.** Each pose is checked for:
+- finite coordinates;
+- every ligand heavy atom inside the box (within 0.5 Å);
+- no ligand–receptor heavy-atom pair closer than 2.2 Å, metal ions left out.
+
+The results go into `run.json`'s `results` and `scores.tsv` (`pose_check`,
+`min_receptor_distance`). Benzamidine's crystal pose in 3PTB sits 2.8 Å from its nearest
+receptor atom and passes. These are sanity checks, not PoseBusters, and passing them
+does not validate binding. Vina's ranking is kept as it is.
+
+`tests/test_docking.py` exercises the stages and checks with RDKit, meeko and a
+stand-in for Vina, and says so; real Vina is run by CI's molecular-modelling job, which
+has not run since these checks were added (`ci` #281 was its last run). The
+`dock-ligands` skill drafts a hypothesis only from a complete run, and only for a ligand
+whose best pose passed these checks.
+
+**ADMET model identity.** `run.json`'s `models` keeps its six fields per endpoint and
+adds:
+- whether the archive is the pinned one, and the training set;
+- the model class and its iterations, and the features;
+- the applicability domain's digest and threshold;
+- the scikit-learn and RDKit versions, and the seed.
+
+With no model, the `models` and `predictions` stages are unavailable and the run is
+incomplete, though descriptors, rules and alerts are still written.
+
+### Reference datasets
+
+`bioagent/data/pipeline_references.json` (version 2026.10.1) names one reference
+dataset per pipeline: its content digests, the parameters it is run with, and the
+values expected from it. It also holds output digests, which are compared only in the
+environment they were recorded in (Python, numpy, scipy, CPU architecture and the CPU features
+numpy dispatches to): a table of floats can differ in its last digits on another machine with the
+same library versions, so elsewhere the expected values are the check. `tests/test_pipeline_references.py` re-runs the
+RNA-seq and single-cell references with the built-in backends and the structure reference
+offline, compares the docking reference's fixture digest (the redocking itself is in
+`tests/test_docking.py`, which needs Vina), and runs the ADMET reference only where its
+archive is given.
+
+| Pipeline | Reference | Kind | Where it is checked |
+|---|---|---|---|
+| RNA-seq | `omics_world` v1 (`tests/omics_world.py`, seed 1, 5% adapters) | simulated, known answer | here: the seven planted genes, at most one false discovery, 30 genes tested, outputs byte-identical |
+| Single cell | `sc_world` v1 (`tests/sc_world.py`, seed 0) | simulated, known answer | here: ARI above 0.9 (1.0), the four cell types named, at least 12 planted genes in B-cell pseudobulk |
+| Structure | PDB 1UBQ and the stored ESM Atlas model | public | here, offline: TM-score 0.958, RMSD 0.83 Å; a new prediction requires the network or torch and transformers |
+| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: defined for CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented), not yet executed there with this reference |
+| ADMET | the TDC ADMET group | public | requires RDKit, scikit-learn and the archive (`BIOAGENT_TDC_ARCHIVE`): held-out scores within 0.05 of the table above for scores on [0, 1], and within 5% for errors in the endpoint's unit |
+
+The two simulated references are not public data. A run on one of them is recognised by
+its content digests, and its `limitations.md` says "simulated, known answer … not public
+data".
+
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
+
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务），都不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。自 `ci` #282 与 `live-data` #11（2026-10-11 20:06 UTC）起，CI 运行都在分配运行器之前结束，这些测试尚未在 CI 中运行。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
 **RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发，依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
@@ -530,3 +848,36 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 **适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
 
 所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。
+
+**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
+- 十六个工作流阶段（`bioagent.research.workflow`）逐一记录：状态（PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED、NOT_APPLICABLE）、原因、计数与复现命令。依次为：方剂身份、药材组成与基原物种、药材到化合物、结构身份与去重（按来源提供的标准 InChIKey，共享连接块的不同键只报告、不合并；快照不含结构，因此未做重新标准化，该阶段恒为 UNVERIFIED）、化合物到实测靶点、实测与预测分离、疾病基因、交集、PPI 网络、通路注释（Reactome；GO 因未登记 GO 快照而 SKIPPED；KEGG 因需要许可而 BLOCKED）、显式背景下的富集、覆盖全部检验通路的 BH 校正、度匹配置换与敏感性、拓扑（仅描述）、有界解释、可复现导出。
+- 被方案丢弃的数据源会使读取它的每个阶段为 UNVERIFIED 并附上偏离记录；技能合同请求、但本次运行拒绝的数据源（如 `--allow-source` 未列入）由读取它的每个阶段注明，并在 `limitations.md` 中占一行。未读到数据的阶段绝不会是 PASS，空结果也绝不会是 PASS（读到 STRING 但背景中没有实测靶点时，PPI 与拓扑阶段为 UNVERIFIED：无法构建网络，不是“无相互作用”的证据），缺失的数据集也绝不当作阴性证据。未指定疾病时，疾病阶段为 NOT_APPLICABLE；Open Targets 快照被拒绝时为 SKIPPED。在 `stages.json` 中，无可检验对象的阶段记为 `not_applicable`，因此“什么都无法检验”的运行不是 `complete`；检验了通路但无一显著的运行是完整的。
+- 九个导出文件：`compounds.tsv`、`targets.tsv`、`disease_targets.tsv`、`enrichment.tsv`、`network.tsv`（STRING 阈值以上的边列表，而非枢纽列表）、`provenance.json`（每条边追溯到快照记录）、`limitations.md`、`report.html` 与最后写出的 `run_manifest.json`（`tcmscience.run-manifest/1`：十六个阶段、每个输出的 SHA-256 与大小、快照 ID、参数、种子、代码摘要、方案摘要、复现命令，以及只记录本次执行身份的 `execution` 块，即审计链头与 `artifact.json` 摘要）。导出不含时间戳，两次全新运行字节相同；空表只写表头。
+- 复核：`python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE` 复核清单摘要，并从表格自身各列重算每个 p 值与 q 值，再在清单所列快照上重跑分析，表格须逐字节一致。`verify` 全部通过时退出 0，有检查与运行相矛盾时退出 1，无矛盾但有检查无法进行（未给快照，或富集表为空、无可重算）时退出 3。任一阶段自身检查为 FAIL 时，`bioagent research` 退出 3。Studio 的 `research.run` 在退出码 0 与 1 时都要求这九个文件，退出码 3 使任务失败；其校验器重读清单中的每个摘要（不经符号链接，只读普通文件），运行后被改动的表格、或清单中列为 FAIL 的阶段，都会使任务检查失败。
+- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。`live-data` CI 工作流中已定义真实数据用例：在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。但这一步从未执行过：加入之后的 `live-data` 运行都没有分配到运行器（见 [validation.md](validation.md)）。
+- 空结果会说明属于哪一种：「在这些快照中未找到 N 个成分的任何实测靶点，因此无法检验富集；这是空结果，不是无活性的证据」，或「已检验通路，但没有通路同时通过 BH 与置换检验」——这是缺乏富集证据，而不是任何通路无关的证据。被发布的结论只能是 `mechanism_hypothesis`（机制假说）；适应证重叠与拓扑只作描述，不构成结论。
+
+**运行记录：阶段、完整性与局限。** 每个流程在运行中逐阶段记录（`bioagent.runrecord`）。每个阶段记录以下字段：
+- 名称、是否必需、状态（成功 / 失败 / 跳过 / 不可用 / 不适用）；
+- 检查结果（PASS、FAIL 等）与原因；
+- 引擎与版本、实际计算设备、耗时和产出文件。
+
+只有全部必需阶段成功、且没有任何检查为 FAIL 时，运行才算完整。
+- `stages.json` 在每个阶段开始和结束时原子地重写；中途失败的运行会留下失败阶段及其错误。Studio 用它显示任务进度和各阶段。
+- 运行结束时，`run.json` 增加 `stages`、`complete` 和 `limitations`，文件名和原有键不变。
+- `limitations.md` 每行一条局限，与 `run.json` 的 `limitations` 一致，不含时间戳，重跑字节相同。
+- `--verify` 除复核摘要外，对带阶段的记录还检查完整性和表格内容（列名、行数与记录一致）。旧记录只做摘要复核。
+- 运行不完整时命令以退出码 1 结束，文件仍保留供查看。例如：没有配体对接成功、重对接超过 2 Å、最优构象未通过检查、ADMET 缺少模型。作为 Studio 任务，它会以失败告终，并列出出问题的阶段，绝不会显示为干净的「成功」。包装这些流程的候选 Skill 不会据此提出结论，并在局限中列出出问题的阶段。
+
+各流程的阶段见上表。补充几点：
+- **RNA-seq：** 在合并多泳道文件、质控和修剪之前先校验参考（转录本 ID 唯一、注释能对上；hisat2 时 GTF 序列名都在基因组中），再逐条校验全部 FASTQ 记录（而不只是质控抽样的前 20 万条），包括双端配对的读段名。
+- **设备按实际记录：** 内置、Scanpy、Vina 和命令行工具都在 CPU 上。scVI 按设计在 CPU 上训练。本地 ESMFold 记录参数所在设备，它只通过 CUDA 使用 GPU，分配到 MPS 时实际在 CPU 上运行，并如实记录。ESM Atlas 记为远程。ColabFold 按其日志记录 `gpu` 或 `cpu`；`gpu` 只用于 ColabFold，因为其日志只说用了 GPU、不说是哪一块，并附说明：设备是日志报告的，不是本地观察到的。
+- **结构预测检查点：** 本地 ESMFold 记录模型 ID、版本和权重本身的 SHA-256（同一进程中每个版本只计算一次），CUDA 上的峰值显存只写入 `run.json`、不写入 `summary.json`；ColabFold 记录版本与 `config.json` 摘要，AlphaFold2 参数本身未做摘要，因此其检查点记为「不可验证」（`verifiable: false`，`scope: config_only`）；只有对权重本身做了摘要的检查点才算可验证；ESM Atlas 的权重无法从本地观察，记为「不可验证」，不声称任何摘要。任何方法得到的模型，序列都必须与输入一致；检索到的结构只用于比较，绝不替代预测。
+- **对接构象检查：** 坐标有限、重原子都在对接盒内、配体与受体重原子间距不小于 2.2 Å。这只是合理性检查，不是 PoseBusters，也不验证结合。`tests/test_docking.py` 用 RDKit、meeko 和 Vina 的替身测试各阶段与检查（测试中已注明），真实的 Vina 运行在 CI 的分子建模任务中。`dock-ligands` Skill 只在运行完整时提出假说，且只针对最优构象通过这些检查的配体。
+- **ADMET：** 每个终点记录完整的模型身份：模型和归档的摘要、训练集、指标、适用域阈值与摘要、库版本。缺少模型时，模型与预测阶段为「不可用」，运行不完整。
+
+**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.1）：每个流程一份，记录内容摘要、参数和预期结果。
+- RNA-seq 与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
+- 结构参考为 PDB 1UBQ 与存档的 ESMFold 模型，离线核对。
+- 对接参考（3PTB）需要 Vina，在 CI 中核对。
+- ADMET 参考需要 TDC 归档，仅在提供归档时核对。

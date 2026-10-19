@@ -221,6 +221,15 @@ is what it releases. The reasons are listed in `limitations.md`. See
 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md) for results on
 real data.
 
+The same run is also read back as sixteen recorded workflow stages (formula identity to
+reproducible export, each PASS, FAIL, BLOCKED, UNVERIFIED, SKIPPED or NOT_APPLICABLE; GO
+annotation is SKIPPED because no GO snapshot is registered, KEGG is BLOCKED because its
+membership needs a licence) and written as nine exports, from `compounds.tsv` to
+`run_manifest.json` and `report.html`; `python -m bioagent.analysis.np_exports verify`
+re-checks them ([docs/analysis-pipelines.md](docs/analysis-pipelines.md)). This is the
+data-driven analysis; the seed skill `analyze-tcm-network-pharmacology` is a limited
+seed-corpus network hypothesis analysis, and is all that runs in Studio's browser mode.
+
 <!-- zh -->
 闭环分五个阶段：
 
@@ -239,6 +248,8 @@ real data.
 
 即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 
+同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析，也是 Studio 浏览器模式中唯一能运行的网络药理学。
+
 ---
 
 ## Reading a `ResearchArtifact` · 如何阅读 `ResearchArtifact`
@@ -246,7 +257,7 @@ real data.
 ```
 normalize-tcm-entities@1.0.0
   question:   resolve 2 TCM name(s) to corpus entities
-  versions:   runtime=psh-0.5.3+bioagent-0.2.6|skill=...|source=1982...|benchmark=unversioned
+  versions:   runtime=psh-0.6.0+bioagent-0.2.7|skill=...|source=1982...|benchmark=unversioned
   sources:    1   evidence: 1   claims: 1   outputs: 1
   validation: publishable
   claim [attribution] 1 of 2 queried names resolve to an entity in the seed corpus
@@ -294,7 +305,7 @@ refusal is deliberate, tested, and visible in the artifact's `limitations`.
 | --- | --- |
 | `normalize-tcm-entities` | **Choose between ambiguous names.** 「姜」 returns 生姜 *and* 干姜 as candidates; 「甘草」 additionally reports its processed forms. Picking one would be wrong roughly half the time and confident every time. |
 | `retrieve-tcm-evidence` | **Adjudicate.** It labels design and reports scope, retraction state and coverage limits. Risk of bias, precision and consistency stay `NOT_ASSESSED` because the corpus carries nothing to judge them on. An empty result is reported as an empty result, not as "no effect". |
-| `analyze-tcm-network-pharmacology` | **Mix prediction with measurement.** `predicted_targets` and `measured_targets` are separate keys — there is no combined list. Every edge is marked `directness = EXTRAPOLATED`, and the manifest forbids every clinical claim kind. |
+| `analyze-tcm-network-pharmacology` | **Mix prediction with measurement.** `predicted_targets` and `measured_targets` are separate keys — there is no combined list. A predicted edge is marked `directness = DIRECT` (the corpus records that relation directly); what keeps it from being read as a measurement is its predictive study design (`network_prediction`), which licenses a mechanism hypothesis and nothing stronger, and the manifest forbids every clinical claim kind. |
 | `assess-tcm-safety` | **Answer "safe".** The status is `risk_recorded`, `no_record` or `unknown`. Absence of a record is not evidence of safety, and the artifact says so in those words. 十八反 is checked as a *set* because it is a property of a pair. |
 
 <!-- zh -->
@@ -302,7 +313,7 @@ refusal is deliberate, tested, and visible in the artifact's `limitations`.
 | --- | --- |
 | `normalize-tcm-entities` | **在有歧义的名字之间做选择。** 「姜」会同时返回生姜*和*干姜作为候选；「甘草」还会额外报告它的各种炮制品。挑一个的话，大约一半的时候会挑错，而且每一次都信心十足。 |
 | `retrieve-tcm-evidence` | **做裁决。** 它只标注研究设计，并报告范围、撤稿状态与覆盖限度。偏倚风险（risk of bias, RoB）、精确度与一致性一律保持 `NOT_ASSESSED`，因为语料里根本没有可供判断的依据。空结果就报成空结果，而不是报成「无效」。 |
-| `analyze-tcm-network-pharmacology` | **把预测和实测混在一起。** `predicted_targets` 与 `measured_targets` 是两个分开的键——不存在合并列表。每条边都标记为 `directness = EXTRAPOLATED`，清单也禁止一切临床类主张。 |
+| `analyze-tcm-network-pharmacology` | **把预测和实测混在一起。** `predicted_targets` 与 `measured_targets` 是两个分开的键——不存在合并列表。预测边标记为 `directness = DIRECT`（语料直接记录了这条关系）；让它不能被读成实测的，是其预测性研究设计（`network_prediction`）：只许可机制假说，不许可更强的主张；清单也禁止一切临床类主张。 |
 | `assess-tcm-safety` | **回答「安全」。** 状态只有 `risk_recorded`、`no_record` 或 `unknown`。没有记录，不等于安全的证据，产物里就是这么写的。十八反是作为一个*集合*来检查的，因为它是成对药物的性质。 |
 
 ### Why the prediction rule matters · 为什么预测规则很重要

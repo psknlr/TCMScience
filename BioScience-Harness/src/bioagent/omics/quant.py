@@ -51,7 +51,7 @@ from .fastq import FastqError, open_text, read_fastq
 __all__ = ["KmerIndex", "QuantResult", "GeneTable", "QuantError", "FragmentLengths",
            "read_fasta", "canonical_kmers", "effective_lengths", "em", "quantify",
            "read_tx2gene", "summarize_to_gene", "read_abundance", "write_abundance",
-           "MAX_FRAG_LEN"]
+           "validate_reference", "MAX_FRAG_LEN"]
 
 MAX_FRAG_LEN = 1000                     # kallisto's: no fragment is this long or longer
 ALPHA_LIMIT = 1e-7
@@ -632,6 +632,126 @@ def read_tx2gene(path: str | Path) -> dict[str, tuple[str, str]]:
 
 def _strip_version(name: str) -> str:
     return re.sub(r"\.\d+$", "", name)
+
+
+_IUPAC = set("ACGTUNRYSWKMBDHV")
+
+
+def _text_digest(path: str | Path) -> str:
+    """SHA-256 of a file's decompressed text, newlines as read (gzip bytes vary)."""
+    h = hashlib.sha256()
+    with open_text(path) as fh:
+        for line in fh:
+            h.update(line.encode("utf-8", "replace"))
+    return h.hexdigest()
+
+
+def _is_gtf(path: str | Path) -> bool:
+    with open_text(path) as fh:
+        for line in fh:
+            if line.strip() and not line.startswith("#"):
+                return len(line.rstrip("\r\n").split("\t")) >= 9
+    return False
+
+
+def validate_reference(*, transcripts: str | Path | None = None,
+                       annotation: str | Path | None = None,
+                       genome: str | Path | None = None) -> dict[str, Any]:
+    """The reference checked before any read is touched, as one record.
+
+    * transcriptome FASTA: no identifier twice, no empty sequence, nothing but
+      nucleotide codes (IUPAC ambiguity codes are counted: their k-mers are not indexed);
+    * annotation (GTF or transcript-to-gene table): at least one transcript of the FASTA
+      is in it (versions stripped as ``summarize_to_gene`` does); the share that is not
+      is counted;
+    * genome (the hisat2 engine): the annotation must be a GTF, and every sequence name
+      its features lie on must be a contig of the genome FASTA (a GTF on ``chr1`` and a
+      genome on ``1`` count nothing and say nothing; here they are refused).
+
+    Each problem raises ``QuantError`` with what to fix. The record holds the counts and
+    each file's ``content_sha256`` (of its decompressed text).
+    """
+    record: dict[str, Any] = {}
+    ids: list[str] = []
+    if transcripts:
+        seen: set[str] = set()
+        dup: list[str] = []
+        empty: list[str] = []
+        invalid: list[str] = []
+        ambiguous = 0
+        for name, seq in read_fasta(transcripts):
+            if name in seen:
+                dup.append(name)
+            seen.add(name)
+            ids.append(name)
+            if not seq:
+                empty.append(name)
+                continue
+            letters = set(seq.upper())
+            if letters - _IUPAC:
+                invalid.append(name)
+            elif letters - set("ACGTU"):
+                ambiguous += 1
+        if not ids:
+            raise QuantError(f"{transcripts}: the transcriptome is empty")
+        if dup:
+            raise QuantError(f"{transcripts}: {len(dup)} transcript identifiers appear more than "
+                             f"once ({', '.join(sorted(set(dup))[:5])}); each must be unique")
+        if empty:
+            raise QuantError(f"{transcripts}: {len(empty)} transcripts have no sequence "
+                             f"({', '.join(empty[:5])})")
+        if invalid:
+            raise QuantError(f"{transcripts}: {len(invalid)} transcripts hold characters that "
+                             f"are not nucleotide codes ({', '.join(invalid[:5])})")
+        record["transcripts"] = {"records": len(ids), "with_ambiguity_codes": ambiguous,
+                                 "content_sha256": _text_digest(transcripts)}
+    gtf = False
+    if annotation:
+        gtf = _is_gtf(annotation)
+        tx2gene = read_tx2gene(annotation)
+        entry: dict[str, Any] = {"format": "gtf" if gtf else "table",
+                                 "transcripts": len(tx2gene),
+                                 "genes": len({g for g, _ in tx2gene.values()}),
+                                 "content_sha256": _text_digest(annotation)}
+        if ids:
+            stripped = {_strip_version(t) for t in tx2gene}
+            annotated = sum(1 for t in ids if t in tx2gene or _strip_version(t) in stripped)
+            if not annotated:
+                raise QuantError(f"no transcript of {transcripts} is in the annotation "
+                                 f"{annotation}: the two come from different sources or "
+                                 "releases (compare their transcript identifiers)")
+            entry.update({"annotated": annotated, "unannotated": len(ids) - annotated})
+        record["annotation"] = entry
+    if genome:
+        if not (annotation and gtf):
+            raise QuantError("alignment to a genome needs a GTF annotation (featureCounts "
+                             "counts exons by gene_id)")
+        contigs: list[str] = []
+        whole = hashlib.sha256()
+        with open_text(genome) as fh:
+            for line in fh:
+                whole.update(line.encode("utf-8", "replace"))
+                if line.startswith(">"):
+                    words = line[1:].split()
+                    if not words:
+                        raise QuantError(f"{genome}: a FASTA record has an empty header")
+                    contigs.append(words[0])
+        if not contigs:
+            raise QuantError(f"{genome} holds no sequence")
+        seqnames: set[str] = set()
+        with open_text(annotation) as fh:
+            for line in fh:
+                if line.strip() and not line.startswith("#"):
+                    seqnames.add(line.split("\t", 1)[0])
+        missing = sorted(seqnames - set(contigs))
+        if missing:
+            raise QuantError(f"the annotation's features lie on {len(missing)} sequence names "
+                             f"the genome does not have ({', '.join(missing[:5])}; the genome "
+                             f"has {', '.join(contigs[:5])}{', ...' if len(contigs) > 5 else ''})"
+                             ": use a genome and a GTF from the same source")
+        record["genome"] = {"contigs": len(contigs), "annotated_seqnames": len(seqnames),
+                            "content_sha256": whole.hexdigest()}
+    return record
 
 
 @dataclass

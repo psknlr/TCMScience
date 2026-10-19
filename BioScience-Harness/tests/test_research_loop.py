@@ -88,6 +88,37 @@ def test_a_surviving_hypothesis_is_released_with_verified_receipts(tmp_path):
     assert doc["validation"]["states"]["release_authorized"] is True
 
 
+def test_the_research_job_writes_the_nine_exports_into_its_artifact(tmp_path):
+    from bioagent.analysis.np_exports import EXPORTS, MANIFEST_FILE, manifest_problems
+    ledger = _world(tmp_path, tested_only=PROTEINS[8:40])
+    run = _run(tmp_path, ledger)
+    out = Path(run.output_dir)
+    listed = {f.path: f.sha256 for f in run.artifact.outputs}
+    manifest = json.loads((out / MANIFEST_FILE).read_text(encoding="utf-8"))
+    for name in EXPORTS:
+        assert (out / name).is_file(), name
+        if name != MANIFEST_FILE:          # the manifest is written after the artifact
+            assert "sha256:" + listed[name] == manifest["outputs"][name]["sha256"], name
+    assert manifest_problems(out) == []
+    assert manifest["execution"]["artifact"]["path"] == "artifact.json"
+    assert manifest["protocol_digest"] == run.protocol.digest
+    # STRING was read here: the network is its edge list at the cut-off, the 0.2 edge left out
+    network = (out / "network.tsv").read_text(encoding="utf-8").splitlines()
+    assert network[0] == "a\tb\tscore\trecord" and len(network) == 1 + 4
+    assert not any(line.endswith("\tlow") for line in network)
+    stages = {s["id"]: s["status"] for s in manifest["stages"]}
+    assert stages["ppi_network"] == "PASS" and stages["topology"] == "PASS"
+
+
+def test_a_negative_result_says_whether_anything_could_be_tested(tmp_path):
+    ledger = _world(tmp_path)                     # every assayed protein is a hit
+    run = _run(tmp_path, ledger)
+    assert run.released and run.hypotheses == ()
+    assert any(line.startswith("every claim the analysis made was refuted at rebuttal")
+               for line in run.artifact.limitations)
+    assert not any("nothing could be tested" in line for line in run.artifact.limitations)
+
+
 def test_every_stage_is_recorded_in_order_and_the_protocol_comes_first(tmp_path):
     from psh import PSHConfig, TrustedKernel
     ledger = _world(tmp_path, tested_only=PROTEINS[8:40])

@@ -82,3 +82,24 @@ def test_an_unknown_design_is_refused(world, tmp_path):
         rnaseq_differential_expression(str(world.sheet), transcripts=str(world.transcripts),
                                        experiment_design="randomized_trial",
                                        out_dir=str(tmp_path))
+
+
+def test_an_incomplete_run_makes_no_claim(world, tmp_path, monkeypatch):
+    """The run is made incomplete after it ran (its verify check marked FAIL, as a changed
+    output would): the skill must read the run's own verdict and claim nothing."""
+    from bioagent.omics import rnaseq as R
+    from bioagent.skills.omics import rnaseq_differential_expression
+    real = R.run_rnaseq
+
+    def incomplete(*args, **kwargs):
+        run = real(*args, **kwargs)
+        run.stages = [dict(s, check="FAIL", reason="an output has changed")
+                      if s["name"] == "verify" else s for s in run.stages]
+        run.complete = False
+        return run
+
+    monkeypatch.setattr(R, "run_rnaseq", incomplete)
+    art = rnaseq_differential_expression(**_args(world, tmp_path / "run"))
+    assert art.evidence and not art.claims
+    assert any(x.startswith("the run is incomplete (stage verify: its check failed")
+               for x in art.limitations)

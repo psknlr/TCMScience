@@ -2,7 +2,7 @@
 // pages) render from `app.state` and call `app` actions; they subscribe to `app.on(type)` for the parts that change.
 //
 // Events: route · projects · conversations · conversation · messages · turn (live updates) · inspector · runtime ·
-// settings · catalog · relay · lang · layout · privacy.
+// settings · catalog · relay · lang · layout · privacy · evidence (a call or job this page saw ran: ui/runlog.js).
 //
 // Telemetry (core/telemetry.js, studio/docs/TELEMETRY.md): usage events as the app works (routes, turns, tools, research
 // workflows, availability, errors), and — only while the visitor agrees, and only for conversations that may be
@@ -27,6 +27,8 @@ import { announce, closeTopOverlay, hasOverlay, installTooltips, toast } from ".
 import { inlinedInPrompt } from "./files.js";
 import { HashRouter, routeHref } from "./router.js";
 import { registerUiStrings } from "./strings.js";
+import { emptyEvidence, noteEvidence, recordJob, recordRun } from "./runlog.js";
+import { classifyAdapter } from "../runtime/webgpu.js";
 
 const DRAFT_SAVE_MS = 1500;
 const PEER_CHANNEL = "tcmstudio";
@@ -87,6 +89,8 @@ export class App {
       relay: null,
       runner: { status: "idle", info: null, error: null, devices: null, settings: null },
       browser: { status: "idle", progress: null, message: "", device: null, caps: null },
+      // what this page's own calls showed about the devices (ui/runlog.js noteEvidence), for Settings → Compute
+      computeEvidence: emptyEvidence(),
       storageWarning: null,
     };
   }
@@ -1187,6 +1191,12 @@ export class App {
       const named = this.#calls.get(key) || this.#nameCall(ev.name || call.name, ev.args || call.args || {}, env);
       this.#calls.delete(key);
       if (env.reused) return; // the first call's outcome, given again: counted when that one ran
+      // what ran here: the catalog's executed-successfully count (this browser only) and the session's device evidence
+      try {
+        const counted = recordRun(env);
+        noteEvidence(this.state.computeEvidence, env);
+        this.emit("evidence", { counted });
+      } catch { /* never the turn's concern */ }
       if (named.deferred) this.telemetry.track("workflow", { key, kind: named.kind, name: named.name, phase: "started" });
       // answered by the page itself (the catalog, a refusal of the router); a database query from the browser goes
       // through the site's gateway
@@ -1217,6 +1227,8 @@ export class App {
       const k = `${job.id}|${job.state}`;
       if (this.#jobsReported.has(k)) return;
       this.#jobsReported.add(k);
+      // a job collected and verified on the runner: one run of its kind (once per job id, whoever saw it first)
+      if (job.state === "succeeded" && recordJob(job).length) this.emit("evidence", { job: job.id });
       const { kind, name } = jobWorkflow(job, this.#jobWorkflows.get(String(job.id)), this.#toolNames);
       // the job's id itself is not sent: a digest of it says the same job twice is one
       sha256Hex(String(job.id)).then((hash) => this.telemetry.track("workflow", {
@@ -1604,7 +1616,11 @@ function stubRuntimes() {
   return { browser: mk("browser"), runner: mk("runner") };
 }
 
-/** WebGPU and core count, honestly: a software adapter (SwiftShader) is reported as such (CONTRACTS §5). */
+/**
+ * WebGPU and core count, honestly (CONTRACTS §5): the adapter is classifyAdapter()'s answer (runtime/webgpu.js: kind
+ * software | physical | unidentified, with its reason), the one classifier the probe, the runtime and the Worker use.
+ * software is true for a software renderer, false for a physical adapter and null for an unidentified one.
+ */
 export async function detectBrowserDevice() {
   const out = { cores: navigator.hardwareConcurrency || null, memory_gb: navigator.deviceMemory ?? null, cross_origin_isolated: Boolean(self.crossOriginIsolated), webgpu: { api: "gpu" in navigator, adapter: null } };
   if (navigator.gpu) {
@@ -1612,11 +1628,8 @@ export async function detectBrowserDevice() {
       const a = await navigator.gpu.requestAdapter({ powerPreference: "high-performance" });
       if (a) {
         const info = a.info ?? (a.requestAdapterInfo ? await a.requestAdapterInfo() : {});
-        const fallback = a.isFallbackAdapter ?? info.isFallbackAdapter ?? false;
-        out.webgpu.adapter = {
-          vendor: info.vendor || "", architecture: info.architecture || "", description: info.description || "",
-          software: Boolean(fallback || /swiftshader|llvmpipe|software/i.test(`${info.architecture} ${info.description} ${info.vendor}`)),
-        };
+        const c = classifyAdapter(info, a);
+        out.webgpu.adapter = { ...c, software: c.kind === "software" ? true : c.kind === "physical" ? false : null };
       }
     } catch (err) {
       out.webgpu.error = String(err?.message || err);

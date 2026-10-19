@@ -257,7 +257,7 @@ class JobExecutor(abc.ABC):
 #: is how ``status`` tells "running" from "gone" without trusting a PID that the operating
 #: system may since have given to another process.
 _SUPERVISOR = r'''
-import fcntl, json, os, subprocess, sys, time
+import fcntl, json, os, resource, subprocess, sys, time
 
 def write(path, doc):
     with open(path + ".tmp", "w", encoding="utf-8") as fh:
@@ -287,8 +287,15 @@ except subprocess.TimeoutExpired:
     timed_out = True
     proc.kill()
     rc = proc.wait()
+usage = resource.getrusage(resource.RUSAGE_CHILDREN)
+# ru_maxrss: KiB on Linux, bytes on macOS; of the largest single process waited for
+scale = 2.0 ** 20 if sys.platform == "darwin" else 1024.0
 write(os.path.join(job, "exit.json"),
-      {"returncode": rc, "timed_out": timed_out, "finished_at": time.time()})
+      {"returncode": rc, "timed_out": timed_out, "finished_at": time.time(),
+       "resources": {"peak_rss_mb": round(usage.ru_maxrss / scale, 1),
+                     "cpu_user_s": round(usage.ru_utime, 3),
+                     "cpu_system_s": round(usage.ru_stime, 3),
+                     "source": "getrusage(RUSAGE_CHILDREN) in the job's supervisor"}})
 '''
 
 #: Variables a local job inherits from the harness. Everything else (API keys, tokens,
@@ -309,6 +316,12 @@ class LocalSubprocessJobs(JobExecutor):
     ``BIOAGENT_JOB_OUTPUT``), ``stdout.log``, ``stderr.log`` and ``exit.json``. The job id
     is the submission id, so submitting the same submission twice finds the first job
     instead of starting a second. Needs POSIX process groups and ``flock``.
+
+    ``exit.json`` also holds ``resources``: the supervisor's
+    ``getrusage(RUSAGE_CHILDREN)`` after the job ended, that is the CPU time of the job and
+    of the processes it waited for, and ``peak_rss_mb``, the peak resident memory of the
+    largest single one of those processes. It is not the sum over the process tree, and a
+    process the job did not wait for is not counted.
     """
 
     name = "local-subprocess"

@@ -88,7 +88,7 @@ def test_a_rerun_gives_the_same_numbers(world, builtin, tmp_path):
     config = R.RNASeqConfig(transcripts=world.transcripts, annotation=world.gtf,
                             engine="builtin", trimmer="builtin")
     again = R.run_rnaseq(world.sheet, config, tmp_path / "again")
-    for name in ("deseq2_results.tsv", "counts.tsv", "report.md"):
+    for name in ("deseq2_results.tsv", "counts.tsv", "report.md", "limitations.md"):
         assert (tmp_path / "again" / name).read_text() == (builtin.out_dir / name).read_text()
     assert again.manifest["code_digest"] == builtin.manifest["code_digest"]
 
@@ -165,3 +165,181 @@ def test_alignment_with_hisat2_and_featurecounts(world, tmp_path):
     assert run.engine == "hisat2"
     assert all(run.quantification[s.name]["mapping_rate"] > 0.9 for s in run.samples)
     assert set(UP) | set(DOWN) <= set(_called(run))
+
+
+# ---------------------------------------------------------------- the run record
+
+def test_every_stage_is_recorded_in_order_and_the_run_is_complete(builtin):
+    out = builtin.out_dir
+    manifest = json.loads((out / "run.json").read_text())
+    stages = manifest["stages"]
+    assert [s["name"] for s in stages] == list(R.STAGES)
+    assert all(s["status"] == "succeeded" and s["required"] for s in stages)
+    assert all(s["device"] == "cpu" and s["seconds"] is not None for s in stages)
+    checked = {s["name"]: s["check"] for s in stages if s["check"]}
+    assert checked == {"validate_reference": "PASS", "validate_fastq": "PASS",
+                       "verify": "PASS"}
+    engines = {s["name"]: s["engine"] for s in stages}
+    assert engines["quantify"] == "builtin-quant" and engines["trim"] == "builtin-trim"
+    assert engines["differential_expression"] == "builtin-de"
+    assert manifest["complete"] is True and builtin.complete
+    assert json.loads((out / "stages.json").read_text())["stages"] == stages
+    # every file a stage names is an output the record digests
+    listed = set(manifest["outputs"])
+    assert {o for s in stages for o in s["outputs"]} <= listed
+    assert "stages.json" not in listed and "limitations.md" in listed
+    # what the reads and the reference were checked for, under a key of its own
+    reads = manifest["validation"]["reads"]["ctrl1"]
+    assert reads["R1"]["reads"] == reads["R2"]["reads"] and reads["paired"]
+    assert manifest["validation"]["reference"]["annotation"]["unannotated"] == 0
+    # no timestamp or timing reaches the deterministic files
+    for name in ("report.md", "limitations.md", "deseq2_results.tsv"):
+        assert "seconds" not in (out / name).read_text()
+
+
+def test_the_limitations_file_is_the_runs_limitations(builtin):
+    lines = (builtin.out_dir / "limitations.md").read_text().splitlines()
+    assert lines == builtin.manifest["limitations"] == builtin.limitations
+    text = " ".join(lines)
+    assert "does not establish a mechanism" in text
+    assert "docs/omics-backends.md" in text and "PyDESeq2" in text
+    # this world is the registered simulated reference, and the run says so
+    assert builtin.manifest["reference_dataset"]["id"] == "omics_world"
+    assert "simulated, known answer" in text and "not public data" in text
+
+
+def test_a_reference_the_annotation_does_not_know_stops_the_run_early(world, tmp_path):
+    gtf = tmp_path / "other.gtf"
+    gtf.write_text(world.gtf.read_text().replace('transcript_id "G', 'transcript_id "X'))
+    config = R.RNASeqConfig(transcripts=world.transcripts, annotation=gtf, engine="builtin",
+                            trimmer="builtin")
+    with pytest.raises(R.RNASeqError, match="no transcript of .* is in the annotation"):
+        R.run_rnaseq(world.sheet, config, tmp_path / "out")
+    assert not (tmp_path / "out" / "trimmed").exists()          # nothing was spent on reads
+    assert not (tmp_path / "out" / "merged").exists()           # nor on merging lanes
+    stages = json.loads((tmp_path / "out" / "stages.json").read_text())["stages"]
+    assert [(s["name"], s["status"]) for s in stages] == [("validate_reference", "failed")]
+
+
+def test_a_genome_and_gtf_from_different_sources_are_refused():
+    from bioagent.omics import quant
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as d:
+        genome, gtf = Path(d) / "g.fa", Path(d) / "a.gtf"
+        genome.write_text(">1\nACGTACGT\n>2\nACGT\n")
+        gtf.write_text('chr1\tsim\texon\t1\t4\t.\t+\t.\tgene_id "G"; transcript_id "T";\n')
+        with pytest.raises(quant.QuantError, match="sequence names the genome does not have"):
+            quant.validate_reference(annotation=gtf, genome=genome)
+        gtf.write_text('1\tsim\texon\t1\t4\t.\t+\t.\tgene_id "G"; transcript_id "T";\n')
+        rec = quant.validate_reference(annotation=gtf, genome=genome)
+        assert rec["genome"]["contigs"] == 2 and rec["genome"]["annotated_seqnames"] == 1
+        table = Path(d) / "t2g.csv"
+        table.write_text("T,G\n")
+        with pytest.raises(quant.QuantError, match="needs a GTF annotation"):
+            quant.validate_reference(annotation=table, genome=genome)
+        fasta = Path(d) / "tx.fa"
+        fasta.write_text(">T1\nACGT\n>T1\nACGA\n")
+        with pytest.raises(quant.QuantError, match="appear more than once"):
+            quant.validate_reference(transcripts=fasta)
+
+
+def test_out_of_step_mates_are_refused_before_qc(world, tmp_path):
+    import gzip
+    lines = gzip.open(world.root / "ctrl1_R2.fastq.gz", "rt").read().splitlines()
+    lines[0] = lines[0].replace("ctrl1.0/2", "ctrl1.9/2")
+    bad = tmp_path / "ctrl1_R2.fastq.gz"
+    with gzip.open(bad, "wt") as fh:
+        fh.write("\n".join(lines) + "\n")
+    rows = world.sheet.read_text().splitlines()
+    for k, row in enumerate(rows[1:], start=1):
+        name, r1, r2, condition = row.split(",")
+        r2 = str(bad) if name == "ctrl1" else str(world.root / r2)
+        rows[k] = ",".join((name, str(world.root / r1), r2, condition))
+    sheet = tmp_path / "s.csv"
+    sheet.write_text("\n".join(rows) + "\n")
+    config = R.RNASeqConfig(transcripts=world.transcripts, annotation=world.gtf,
+                            engine="builtin", trimmer="none")
+    with pytest.raises(R.RNASeqError, match="sample ctrl1: pair 1 is out of step"):
+        R.run_rnaseq(sheet, config, tmp_path / "out")
+    stages = json.loads((tmp_path / "out" / "stages.json").read_text())["stages"]
+    assert stages[-1]["name"] == "validate_fastq" and stages[-1]["status"] == "failed"
+
+
+def test_a_stage_that_fails_is_recorded_and_the_earlier_ones_kept(world, tmp_path,
+                                                                  monkeypatch):
+    from bioagent.omics import quant
+
+    def broken(*a, **k):
+        raise quant.QuantError("summarising failed")
+    monkeypatch.setattr(quant, "summarize_to_gene", broken)
+    config = R.RNASeqConfig(transcripts=world.transcripts, annotation=world.gtf,
+                            engine="builtin", trimmer="none")
+    with pytest.raises(quant.QuantError):
+        R.run_rnaseq(world.sheet, config, tmp_path)
+    doc = json.loads((tmp_path / "stages.json").read_text())
+    states = [(s["name"], s["status"]) for s in doc["stages"]]
+    assert states[-1] == ("summarize_genes", "failed")
+    assert all(status == "succeeded" for name, status in states[:-1] if name != "trim")
+    assert ("trim", "skipped") in states and doc["running"] is None
+    assert "QuantError: summarising failed" in doc["stages"][-1]["reason"]
+
+
+def test_verify_run_checks_completeness_and_content(builtin, tmp_path):
+    import hashlib
+    copy = tmp_path / "copy"
+    shutil.copytree(builtin.out_dir, copy, ignore=shutil.ignore_patterns("index", "trimmed"))
+    assert R.verify_run(copy)[0]
+    manifest = json.loads((copy / "run.json").read_text())
+
+    def rewrite(doc):
+        (copy / "run.json").write_text(json.dumps(doc))
+
+    # a table cut to its header, re-digested so only the content check can see it
+    table = copy / "deseq2_results.tsv"
+    original = table.read_text()
+    table.write_text(original.splitlines()[0] + "\n")
+    edited = json.loads(json.dumps(manifest))
+    edited["outputs"]["deseq2_results.tsv"] = hashlib.sha256(table.read_bytes()).hexdigest()
+    rewrite(edited)
+    ok, problems = R.verify_run(copy)
+    assert not ok and any("deseq2_results.tsv: 0 rows" in p for p in problems), problems
+    table.write_text(original)
+    rewrite(manifest)
+    # a stage naming an output that is not there
+    edited = json.loads(json.dumps(manifest))
+    edited["stages"][-2]["outputs"].append("plots/heatmap.svg")
+    rewrite(edited)
+    ok, problems = R.verify_run(copy)
+    assert not ok and any("plots/heatmap.svg is not among" in p for p in problems)
+    # a recorded output deleted
+    rewrite(manifest)
+    (copy / "plots" / "pca.svg").unlink()
+    ok, problems = R.verify_run(copy)
+    assert not ok and "output plots/pca.svg is missing" in problems
+    shutil.copy(builtin.out_dir / "plots" / "pca.svg", copy / "plots" / "pca.svg")
+    # a run recorded as incomplete
+    rewrite({**manifest, "complete": False,
+             "stages": [{**s, "status": "unavailable", "reason": "no VST"}
+                        if s["name"] == "explore" else s for s in manifest["stages"]]})
+    ok, problems = R.verify_run(copy)
+    assert not ok and "stage explore unavailable here: no VST" in problems
+    assert "run.json records the run as incomplete" in problems
+    # a record written before stages: the digest checks only, as before
+    rewrite({k: v for k, v in manifest.items() if k not in ("stages", "complete")})
+    assert R.verify_run(copy) == (True, [])
+
+
+def test_the_cli_exits_1_for_an_incomplete_run(world, tmp_path, monkeypatch, capsys):
+    from bioagent import cli
+    monkeypatch.setattr(R, "_content_problems",
+                        lambda out, manifest: ["deseq2_results.tsv: a planted mismatch"])
+    code = cli.main(["rnaseq", "--samples", str(world.sheet), "--transcripts",
+                     str(world.transcripts), "--annotation", str(world.gtf), "--engine",
+                     "builtin", "--trimmer", "none", "--out", str(tmp_path), "--json"])
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "incomplete: stage verify: its check failed: deseq2_results.tsv: a planted " \
+           "mismatch" in err
+    manifest = json.loads((tmp_path / "run.json").read_text())
+    assert manifest["complete"] is False and not R.verify_run(tmp_path)[0]

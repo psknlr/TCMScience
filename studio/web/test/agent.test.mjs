@@ -75,6 +75,7 @@ test("max steps: the last allowed call is made with tool_choice none; the turn e
   assert.equal(runtimes.browser.calls.length, 2, "tools requested on the final call are not run");
   const last = res.toolMessages.at(-1);
   assert.equal(last.envelope.status, "cancelled");
+  assert.equal(last.envelope.receipt.result.outcome, "not_executed", "it never reached the router or a runtime");
   assert.deepEqual(res.assistant.wire.at(-1), { role: "tool", tool_call_id: "t3", content: last.content }, "and still answered, so the history stays valid");
 });
 

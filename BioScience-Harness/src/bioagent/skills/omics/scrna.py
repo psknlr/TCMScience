@@ -4,8 +4,9 @@ Runs :func:`bioagent.omics.scrna.run_scrna` and returns its result as a research
 Clusters, cell-type labels, the trajectory and pseudotime are outputs, not claims: a
 label is an inference from marker expression and a pseudotime an ordering by
 similarity, and the artifact says so. A claim is made only for a comparison between
-conditions, per cell type by pseudobulk, and its kind follows the declared design as
-for bulk RNA-seq: human samples support an ``association``, cells or animals a
+conditions, per cell type by pseudobulk, and only from a complete run (``run.complete``:
+every required stage succeeded and no check failed); its kind follows the declared design
+as for bulk RNA-seq: human samples support an ``association``, cells or animals a
 ``mechanism_hypothesis``. Its evidence is the rows of the pseudobulk tables, each with a
 quote receipt.
 """
@@ -21,6 +22,7 @@ from typing import Any
 from ...contracts import (CandidateClaim, Directness, EvidenceItem, EvidenceQuality,
                           SourceCard, require_declared)
 from ...contracts.source_card import canonical_hash
+from ...runrecord import problems as stage_problems
 from ..base import artifact, file_of, json_file
 from .rnaseq import EXPERIMENT_DESIGNS, _population
 
@@ -113,7 +115,7 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
         first = next(iter(pb.results.values()))
         contrast_used = first.contrast
     for ct, n_sig in sorted(tested.items()):
-        if not n_sig:
+        if not n_sig or not run.complete:
             continue
         safe = "".join(ch if ch.isalnum() else "_" for ch in ct)
         items = [e for e in evidence if e.id.startswith(f"pb.{safe}.")]
@@ -169,7 +171,11 @@ def scrna_cell_atlas(source: str, *, experiment_design: str = "in_vitro",
     ]
     if experiment_design != "observational":
         limitations.append("cells or animals: nothing here describes people")
-    if not claims:
+    if not run.complete:
+        limitations.append("the run is incomplete ("
+                           + "; ".join(stage_problems(run.stages) or ["not recorded why"])
+                           + "), so no claim is made")
+    elif not claims:
         limitations.append("no comparison between conditions found a difference, or none "
                            "was possible, so no claim is made")
     limitations += [f"warning from the run: {w}" for w in run.warnings]

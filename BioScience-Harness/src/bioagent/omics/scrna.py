@@ -32,6 +32,12 @@ Steps (Scanpy's and the single-cell best-practice defaults), each recorded:
 10. **Report**: tables, SVG figures, ``report.md``/``.html`` and ``run.json`` with every
     parameter and digest; ``verify_run`` re-checks them.
 
+Every stage is recorded with its status, check, engine, version, device and time
+(``bioagent.runrecord``; the names are ``STAGES``): ``stages.json`` while the run works,
+``run.json['stages']`` at the end, with ``complete`` and ``limitations.md``. Each device
+is the one the stage computed on, and that is the CPU for every stage, scVI included
+(``sc.analysis.SCVI_DEVICE``), whatever device the job was given.
+
 Steps 3 to 6 run on the built-in parts named above or on Scanpy (``analysis_backend``;
 ``sc.analysis``), and the pseudobulk test of step 9 on the built-in DESeq2
 implementation or on PyDESeq2 (``de_backend``). These choices and
@@ -57,7 +63,12 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+from scipy import sparse
 
+from .. import __version__ as _VERSION
+from ..runrecord import (LIMITATIONS_FILE, STAGES_FILE, StageRecorder, match_reference,
+                         output_problems, record_problems, stage_limitations, tsv_shape,
+                         write_limitations)
 from . import de_backends, svgplot
 from .rnaseq import _html, _sha256
 from .sc import analysis as sc_analysis
@@ -70,7 +81,32 @@ from .sc import pseudobulk as sc_pb
 from .sc import qc as sc_qc
 from .sc import trajectory as sc_traj
 
-__all__ = ["ScConfig", "ScRun", "ScError", "read_sheet", "run_scrna", "verify_run"]
+__all__ = ["ScConfig", "ScRun", "ScError", "read_sheet", "run_scrna", "verify_run", "STAGES",
+           "LIMITATIONS"]
+
+PIPELINE = "bioagent.omics.scrna"
+#: The stages of a run, in order. ``integrate`` is not applicable with one batch,
+#: ``trajectory`` without a root, ``pseudobulk_de`` without two conditions; ``doublets``
+#: and ``annotate`` can be turned off.
+STAGES = ("validate_input", "qc", "doublets", "normalize", "hvg", "pca", "integrate",
+          "neighbors", "cluster", "markers", "annotate", "trajectory", "pseudobulk_de",
+          "report", "verify")
+#: What every result of this pipeline is not, one line each (``limitations.md``).
+LIMITATIONS = (
+    "Clusters are groups of transcriptionally similar cells in this data set.",
+    "A cell-type label is an inference from marker expression against a panel, not a "
+    "measurement.",
+    "Pseudotime orders cells by similarity from a chosen root; it is not elapsed time.",
+    "A pseudobulk difference is an association between conditions in these samples. None "
+    "of these results establishes a mechanism or a clinical effect.",
+)
+CELLS_HEADER = ("cell", "sample", "cluster", "cell_type", "n_genes", "total_counts",
+                "pct_mito", "doublet_score", "doublet_called", "umap_1", "umap_2",
+                "pseudotime")
+MARKERS_HEADER = ("cluster", "cell_type", "gene", "score", "log2_fold_change", "p_adjusted",
+                  "pct_in", "pct_out")
+CLUSTERS_HEADER = ("cluster", "cells", "cell_type", "confidence", "top_markers")
+_UNLISTED = {"run.json", STAGES_FILE}
 
 
 class ScError(ValueError):
@@ -146,6 +182,10 @@ class ScRun:
     manifest: dict[str, Any] = field(default_factory=dict)
     cells: np.ndarray = field(default_factory=lambda: np.zeros(0))
     analysis: dict[str, Any] = field(default_factory=dict)   # which backend ran, how
+    stages: list[dict[str, Any]] = field(default_factory=list)
+    complete: bool = False
+    limitations: list[str] = field(default_factory=list)
+    reference_dataset: dict[str, Any] | None = None
 
     def summary(self) -> dict[str, Any]:
         sizes = {str(c): int((self.clusters == c).sum()) for c in np.unique(self.clusters)}
@@ -159,7 +199,8 @@ class ScRun:
                 "de_backend": ({"backend": self.pseudobulk.backend,
                                 "version": self.pseudobulk.version}
                                if self.pseudobulk else None),
-                "warnings": list(self.warnings), "out_dir": str(self.out_dir)}
+                "warnings": list(self.warnings), "out_dir": str(self.out_dir),
+                "complete": self.complete}
 
 
 def _code_digest() -> str:
@@ -187,76 +228,118 @@ def _check_choices(config: ScConfig) -> None:
     de_backends.check_backend(config.de_backend)
 
 
+def _matrix_digest(m: sc_io.CellMatrix) -> str:
+    """SHA-256 of a count matrix as read: barcodes, gene ids and names, and the counts in
+    sorted CSR form. It names the data whatever file format or compressor held it."""
+    c = sparse.csr_matrix(m.counts, copy=True)
+    c.sort_indices()
+    h = hashlib.sha256()
+    for labels in (m.cells, m.gene_ids, m.gene_names):
+        h.update("\t".join(str(v) for v in labels).encode("utf-8") + b"\n")
+    for a in (c.indptr, c.indices, c.data):
+        h.update(np.ascontiguousarray(a, dtype=np.int64).tobytes())
+    return h.hexdigest()
+
+
 def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRun:
+    """Run every stage and write the report; each stage is recorded as it runs
+    (``runrecord.StageRecorder``), and ``ScRun.complete`` says whether every required
+    stage succeeded and no check failed."""
+    # the choices first: one that is not installed is refused before anything is written
     _check_choices(config)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
+    rec = StageRecorder(out, PIPELINE, plan=STAGES)
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     warnings: list[str] = []
-    src = Path(source)
-    if src.is_file() and src.suffix.lower() in (".csv", ".tsv") and _is_sheet(src):
-        rows = read_sheet(src)
-    else:
-        rows = [{"sample": "sample1", "path": str(src)}]
-    info = {r["sample"]: {k: v for k, v in r.items() if k not in ("sample", "path")}
-            for r in rows}
-    parts = [(r["sample"], sc_io.read_counts(r["path"])) for r in rows]
-    matrix = sc_io.concatenate(parts, info)
-    inputs = {}
-    for r in rows:
-        p = Path(r["path"])
-        files = [p] if p.is_file() else sorted(q for q in p.rglob("*") if q.is_file())
-        for f in files:
-            inputs[str(f)] = _sha256(f)
-    if config.markers:
-        inputs[str(config.markers)] = _sha256(Path(config.markers))
+
+    # the sheet and the raw counts
+    with rec.stage("validate_input", engine=PIPELINE, version=_VERSION) as st:
+        src = Path(source)
+        if src.is_file() and src.suffix.lower() in (".csv", ".tsv") and _is_sheet(src):
+            rows = read_sheet(src)
+        else:
+            rows = [{"sample": "sample1", "path": str(src)}]
+        info = {r["sample"]: {k: v for k, v in r.items() if k not in ("sample", "path")}
+                for r in rows}
+        parts = [(r["sample"], sc_io.read_counts(r["path"])) for r in rows]
+        digests = {}
+        for name, part in parts:
+            if part.shape[0] == 0 or part.shape[1] == 0:
+                raise ScError(f"sample {name}: the matrix has {part.shape[0]} cells and "
+                              f"{part.shape[1]} genes")
+            if len(set(part.cells.tolist())) != len(part.cells):
+                raise ScError(f"sample {name}: a cell barcode appears more than once")
+            digests[name] = _matrix_digest(part)
+        matrix = sc_io.concatenate(parts, info)
+        inputs = {}
+        for r in rows:
+            p = Path(r["path"])
+            files = [p] if p.is_file() else sorted(q for q in p.rglob("*") if q.is_file())
+            for f in files:
+                inputs[str(f)] = _sha256(f)
+        if config.markers:
+            inputs[str(config.markers)] = _sha256(Path(config.markers))
+        st.check = "PASS"
+        st.reason = (f"{len(parts)} samples, {matrix.shape[0]:,} cells x {matrix.shape[1]:,} "
+                     "genes of raw counts (non-negative integers); barcodes unique per sample")
+    reference_dataset = match_reference(PIPELINE, digests)
 
     # 1. QC
-    qres = sc_qc.filter_cells(matrix, sc_qc.QCSettings(min_genes=config.min_genes,
-                                                       min_cells=config.min_cells,
-                                                       nmads=config.nmads))
-    m = qres.matrix
-    if m.shape[0] < 50:
-        raise ScError(f"only {m.shape[0]} cells pass QC; too few to analyse")
-    qc = {"cells_in": int(matrix.shape[0]), "cells_out": int(m.shape[0]),
-          "removed": qres.removed, "genes_removed": qres.genes_removed,
-          "per_sample": qres.per_sample}
+    with rec.stage("qc", engine="bioagent.omics.sc.qc", version=_VERSION) as st:
+        qres = sc_qc.filter_cells(matrix, sc_qc.QCSettings(min_genes=config.min_genes,
+                                                           min_cells=config.min_cells,
+                                                           nmads=config.nmads))
+        m = qres.matrix
+        if m.shape[0] < 50:
+            raise ScError(f"only {m.shape[0]} cells pass QC; too few to analyse")
+        qc = {"cells_in": int(matrix.shape[0]), "cells_out": int(m.shape[0]),
+              "removed": qres.removed, "genes_removed": qres.genes_removed,
+              "per_sample": qres.per_sample}
+        st.reason = (f"{qc['cells_out']:,} of {qc['cells_in']:,} cells pass (>= "
+                     f"{config.min_genes} genes, {config.nmads:g} MADs per sample)")
 
     # 2. doublets
     scores = np.zeros(m.shape[0])
     called = np.zeros(m.shape[0], dtype=bool)
     dbl_detail: dict[str, Any] = {"mode": config.doublets, "per_sample": {}}
     if config.doublets != "off":
-        for k, s in enumerate(dict.fromkeys(m.obs["sample"])):
-            idx = np.flatnonzero(m.obs["sample"] == s)
-            d = sc_doublets.scrublet(m.counts[idx], expected_rate=config.expected_doublet_rate,
-                                     seed=config.seed + k)
-            scores[idx] = d.scores
-            called[idx] = d.predicted
-            dbl_detail["per_sample"][str(s)] = {"called": int(d.predicted.sum()),
-                                                "cells": len(idx), **d.detail}
-            if str(d.detail.get("threshold_method", "")).startswith("none"):
-                warnings.append(f"{s}: no doublet threshold found; no doublet called")
-        dbl_detail["called"] = int(called.sum())
-        share = called.mean() if len(called) else 0.0
-        if share > 2 * config.expected_doublet_rate:
-            note = ("if the data hold such a continuum, rerun with doublets='flag'"
-                    if config.doublets == "remove"
-                    else "they were kept and flagged (doublets='flag')")
-            warnings.append(f"{share:.0%} of cells were called doublets, over twice the "
-                            f"expected {config.expected_doublet_rate:.0%}. Scrublet also scores "
-                            "cells in a continuous transition between two types as doublets; "
-                            + note)
-        if config.doublets == "remove" and called.any():
-            keep = ~called
-            m = m.subset(cells=keep)
-            scores, qmetrics = scores[keep], {k: v[keep] for k, v in qres.metrics.items()}
-            called = called[keep]
-        else:
-            qmetrics = qres.metrics
+        with rec.stage("doublets", engine="bioagent.omics.sc.doublets (Scrublet's method)",
+                       version=_VERSION) as st:
+            for k, s in enumerate(dict.fromkeys(m.obs["sample"])):
+                idx = np.flatnonzero(m.obs["sample"] == s)
+                d = sc_doublets.scrublet(m.counts[idx],
+                                         expected_rate=config.expected_doublet_rate,
+                                         seed=config.seed + k)
+                scores[idx] = d.scores
+                called[idx] = d.predicted
+                dbl_detail["per_sample"][str(s)] = {"called": int(d.predicted.sum()),
+                                                    "cells": len(idx), **d.detail}
+                if str(d.detail.get("threshold_method", "")).startswith("none"):
+                    warnings.append(f"{s}: no doublet threshold found; no doublet called")
+            dbl_detail["called"] = int(called.sum())
+            share = called.mean() if len(called) else 0.0
+            if share > 2 * config.expected_doublet_rate:
+                note = ("if the data hold such a continuum, rerun with doublets='flag'"
+                        if config.doublets == "remove"
+                        else "they were kept and flagged (doublets='flag')")
+                warnings.append(f"{share:.0%} of cells were called doublets, over twice the "
+                                f"expected {config.expected_doublet_rate:.0%}. Scrublet also "
+                                "scores cells in a continuous transition between two types "
+                                "as doublets; " + note)
+            if config.doublets == "remove" and called.any():
+                keep = ~called
+                m = m.subset(cells=keep)
+                scores, qmetrics = scores[keep], {k: v[keep] for k, v in qres.metrics.items()}
+                called = called[keep]
+            else:
+                qmetrics = qres.metrics
+            st.reason = (f"{dbl_detail['called']} called "
+                         f"({'removed' if config.doublets == 'remove' else 'kept, flagged'})")
     else:
         qmetrics = qres.metrics
         dbl_detail["called"] = 0
+        rec.skip("doublets", "doublets 'off': no doublet was looked for")
 
     # 3-6. normalisation, HVG, PCA, integration, graph, clusters, layout, markers
     batch_values, batch_name = _batches(m, config)
@@ -266,7 +349,7 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
                              n_top_genes=config.n_top_genes, n_pcs=config.n_pcs,
                              n_neighbors=config.n_neighbors, resolution=config.resolution,
                              seed=config.seed, scvi_epochs=config.scvi_epochs,
-                             scvi_threads=config.scvi_threads), out_dir=out)
+                             scvi_threads=config.scvi_threads), out_dir=out, recorder=rec)
     integration = dict(an.integration)
     if integration.get("converged") is False:
         warnings.append(f"Harmony did not converge in {integration['rounds']} rounds")
@@ -284,51 +367,78 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
     annotation = None
     cell_types = {str(c): f"cluster {c}" for c in np.unique(clusters)}
     if config.annotate:
-        panel = (sc_annotate.load_panel(config.markers) if config.markers
-                 else sc_annotate.default_panel())
-        annotation = sc_annotate.annotate_clusters(an.logx, m.gene_names, clusters, panel,
-                                                   seed=config.seed)
-        cell_types = dict(annotation.labels)
-        unassigned = [c for c, v in cell_types.items() if v == sc_annotate.UNASSIGNED]
-        if unassigned:
-            warnings.append(f"clusters {', '.join(unassigned)}: no cell type of the panel "
-                            "leads; left unassigned")
+        with rec.stage("annotate", engine="bioagent.omics.sc.annotate",
+                       version=_VERSION) as st:
+            panel = (sc_annotate.load_panel(config.markers) if config.markers
+                     else sc_annotate.default_panel())
+            annotation = sc_annotate.annotate_clusters(an.logx, m.gene_names, clusters,
+                                                       panel, seed=config.seed)
+            cell_types = dict(annotation.labels)
+            unassigned = [c for c, v in cell_types.items() if v == sc_annotate.UNASSIGNED]
+            if unassigned:
+                warnings.append(f"clusters {', '.join(unassigned)}: no cell type of the "
+                                "panel leads; left unassigned")
+            st.reason = (f"{len(cell_types) - len(unassigned)} of {len(cell_types)} clusters "
+                         "named from marker scores"
+                         + (" (the given panel)" if config.markers else
+                            " (the default panel)"))
+    else:
+        rec.skip("annotate", "annotation was turned off: clusters keep their numbers")
 
-    # 8. trajectory, on the graph the clusters were found on
-    pg = sc_traj.paga(an.adjacency, clusters)
+    # 8. trajectory, on the graph the clusters were found on (PAGA came with them)
+    pg = an.paga if an.paga is not None else sc_traj.paga(an.adjacency, clusters)
     pseudotime = None
     root_note = ""
     if config.root is not None:
-        root_cluster = _root_cluster(config.root, cell_types, clusters)
-        joined = sc_traj.connected_clusters(pg, root_cluster, config.paga_threshold)
-        pseudotime, root, ordered = sc_traj.pseudotime_from(conn, clusters, root_cluster,
-                                                            include=joined)
-        root_note = (f"root cell {m.cells[root]} in cluster {root_cluster}, over clusters "
-                     f"{', '.join(joined)} (joined by PAGA connectivity >= "
-                     f"{config.paga_threshold:g}); {ordered:,} cells ordered")
-        if ordered < len(clusters):
-            warnings.append(f"{len(clusters) - ordered:,} cells lie outside the trajectory "
-                            "from the root and have no pseudotime")
+        with rec.stage("trajectory", required=False, engine="bioagent.omics.sc.trajectory",
+                       version=_VERSION) as st:
+            root_cluster = _root_cluster(config.root, cell_types, clusters)
+            joined = sc_traj.connected_clusters(pg, root_cluster, config.paga_threshold)
+            pseudotime, root, ordered = sc_traj.pseudotime_from(conn, clusters, root_cluster,
+                                                                include=joined)
+            root_note = (f"root cell {m.cells[root]} in cluster {root_cluster}, over "
+                         f"clusters {', '.join(joined)} (joined by PAGA connectivity >= "
+                         f"{config.paga_threshold:g}); {ordered:,} cells ordered")
+            if ordered < len(clusters):
+                warnings.append(f"{len(clusters) - ordered:,} cells lie outside the "
+                                "trajectory from the root and have no pseudotime")
+            st.reason = f"diffusion pseudotime from cluster {root_cluster}: {ordered:,} cells"
+    else:
+        rec.not_applicable("trajectory", "no root cluster or cell type was named, so no "
+                                         "pseudotime was computed")
 
     # 9. conditions
     pb = None
     contrast = config.contrast or _infer_contrast(info)
     if contrast is not None:
-        labels = np.array([cell_types[str(c)] for c in clusters], dtype=object)
-        pb = sc_pb.pseudobulk_de(m.counts, list(m.gene_names), labels, m.obs["sample"], info,
-                                 design=f"~ {contrast[0]}", contrast=contrast,
-                                 de_backend=config.de_backend)
-        if not pb.results:
-            warnings.append("no cell type has enough samples per condition for pseudobulk "
-                            "testing")
+        with rec.stage("pseudobulk_de", required=False,
+                       engine="builtin-de" if config.de_backend == "builtin" else "pydeseq2"
+                       ) as st:
+            labels = np.array([cell_types[str(c)] for c in clusters], dtype=object)
+            pb = sc_pb.pseudobulk_de(m.counts, list(m.gene_names), labels, m.obs["sample"],
+                                     info, design=f"~ {contrast[0]}", contrast=contrast,
+                                     de_backend=config.de_backend)
+            st.version = pb.version
+            if not pb.results:
+                warnings.append("no cell type has enough samples per condition for "
+                                "pseudobulk testing")
+                st.status = "skipped"
+                st.reason = "no cell type has enough samples per condition to test"
+            else:
+                st.reason = (f"{contrast[1]} vs {contrast[2]} in {len(pb.results)} cell "
+                             f"types; {len(pb.skipped)} not tested")
+    else:
+        rec.not_applicable("pseudobulk_de", "the samples do not carry two conditions to "
+                                            "compare")
 
     run = ScRun(out_dir=out, n_cells=int(m.shape[0]), n_genes=int(m.shape[1]),
                 clusters=clusters, cell_types=cell_types, annotation=annotation, markers=mk,
                 umap=an.umap, pseudotime=pseudotime, paga=pg, pseudobulk=pb, qc=qc,
                 doublets=dbl_detail, integration=integration, warnings=warnings,
                 cells=m.cells, analysis=an.record)
+    run.reference_dataset = reference_dataset
     _write(run, m, config, qmetrics, scores, called, an, contrast, info, inputs, started,
-           root_note)
+           root_note, rec, digests)
     return run
 
 
@@ -393,81 +503,149 @@ def _tsv(path: Path, header: Sequence[str], rows: Sequence[Sequence[Any]]) -> No
                                                        else str(v)) for v in r) + "\n")
 
 
+def _limitations(run: ScRun, config: ScConfig, rec: StageRecorder) -> list[str]:
+    lines = list(LIMITATIONS)
+    if config.doublets != "off":
+        lines.append("Scrublet scores cells in a continuous transition between two types as "
+                     "it scores doublets, so a real intermediate state can be called a "
+                     "doublet.")
+    if run.pseudobulk is not None and run.pseudobulk.results:
+        lines.append("The built-in DESeq2-method implementation, PyDESeq2 and R's DESeq2 do "
+                     "not give numerically identical pseudobulk results; "
+                     "docs/omics-backends.md traces where and why they differ.")
+    if run.reference_dataset:
+        ref = run.reference_dataset
+        lines.append(f"The input is the reference dataset {ref['id']} (version "
+                     f"{ref['version']}): {ref['label']}. {ref['statement']}")
+    lines += stage_limitations(rec.stages)
+    return lines
+
+
 def _write(run: ScRun, m: sc_io.CellMatrix, config: ScConfig, qmetrics: dict[str, np.ndarray],
            scores: np.ndarray, called: np.ndarray, an: sc_analysis.Analysis,
            contrast: tuple[str, str, str] | None, info: Mapping[str, Any],
-           inputs: dict[str, str], started: str, root_note: str) -> None:
+           inputs: dict[str, str], started: str, root_note: str, rec: StageRecorder,
+           digests: Mapping[str, str]) -> None:
     out = run.out_dir
     cl = run.clusters
     pt = run.pseudotime
-    _tsv(out / "cells.tsv",
-         ["cell", "sample", "cluster", "cell_type", "n_genes", "total_counts", "pct_mito",
-          "doublet_score", "doublet_called", "umap_1", "umap_2", "pseudotime"],
-         [[m.cells[i], m.obs["sample"][i], int(cl[i]), run.cell_types[str(cl[i])],
-           float(qmetrics["n_genes"][i]), float(qmetrics["total_counts"][i]),
-           float(qmetrics["pct_mito"][i]), float(scores[i]), bool(called[i]),
-           float(run.umap[i, 0]), float(run.umap[i, 1]),
-           (float(pt[i]) if pt is not None else None)] for i in range(len(cl))])
-    rows = []
-    for g in run.markers.groups:
-        for r in run.markers.top(g, 50):
-            rows.append([g, run.cell_types.get(g, ""), r["gene"], r["score"],
-                         r["log2_fold_change"], r["p_adjusted"], r["pct_in"], r["pct_out"]])
-    _tsv(out / "markers.tsv", ["cluster", "cell_type", "gene", "score", "log2_fold_change",
-                               "p_adjusted", "pct_in", "pct_out"], rows)
-    crow = []
-    for g in run.markers.groups:
-        conf = run.annotation.confidence.get(g, 0.0) if run.annotation else None
-        top = ", ".join(r["gene"] for r in run.markers.top(g, 5))
-        crow.append([g, int((cl.astype(str) == g).sum()), run.cell_types.get(g, ""),
-                     conf, top])
-    _tsv(out / "clusters.tsv", ["cluster", "cells", "cell_type", "confidence", "top_markers"],
-         crow)
-    _tsv(out / "paga.tsv", ["cluster_a", "cluster_b", "connectivity"],
-         [[a, b, float(run.paga.connectivities[run.paga.groups.index(a),
-                                                run.paga.groups.index(b)])]
-          for a in run.paga.groups for b in run.paga.groups if a < b
-          and run.paga.connectivities[run.paga.groups.index(a), run.paga.groups.index(b)] > 0])
-    if run.pseudobulk:
-        pdir = out / "pseudobulk"
+    with rec.stage("report", engine=PIPELINE, version=_VERSION) as st:
+        _tsv(out / "cells.tsv", CELLS_HEADER,
+             [[m.cells[i], m.obs["sample"][i], int(cl[i]), run.cell_types[str(cl[i])],
+               float(qmetrics["n_genes"][i]), float(qmetrics["total_counts"][i]),
+               float(qmetrics["pct_mito"][i]), float(scores[i]), bool(called[i]),
+               float(run.umap[i, 0]), float(run.umap[i, 1]),
+               (float(pt[i]) if pt is not None else None)] for i in range(len(cl))])
+        rows = []
+        for g in run.markers.groups:
+            for r in run.markers.top(g, 50):
+                rows.append([g, run.cell_types.get(g, ""), r["gene"], r["score"],
+                             r["log2_fold_change"], r["p_adjusted"], r["pct_in"],
+                             r["pct_out"]])
+        _tsv(out / "markers.tsv", MARKERS_HEADER, rows)
+        crow = []
+        for g in run.markers.groups:
+            conf = run.annotation.confidence.get(g, 0.0) if run.annotation else None
+            top = ", ".join(r["gene"] for r in run.markers.top(g, 5))
+            crow.append([g, int((cl.astype(str) == g).sum()), run.cell_types.get(g, ""),
+                         conf, top])
+        _tsv(out / "clusters.tsv", CLUSTERS_HEADER, crow)
+        _tsv(out / "paga.tsv", ["cluster_a", "cluster_b", "connectivity"],
+             [[a, b, float(run.paga.connectivities[run.paga.groups.index(a),
+                                                    run.paga.groups.index(b)])]
+              for a in run.paga.groups for b in run.paga.groups if a < b
+              and run.paga.connectivities[run.paga.groups.index(a),
+                                          run.paga.groups.index(b)] > 0])
+        written = ["cells.tsv", "markers.tsv", "clusters.tsv", "paga.tsv"]
+        if run.pseudobulk:
+            pdir = out / "pseudobulk"
+            pdir.mkdir(exist_ok=True)
+            contract = [attr for _, attr, _ in de_backends.CONTRACT]
+            for ct, res in run.pseudobulk.results.items():
+                safe = _safe(ct)
+                _tsv(pdir / f"{safe}.tsv", ["gene", *contract],
+                     [[r["gene"], *(r[c] for c in contract)] for r in res.table()])
+                written.append(f"pseudobulk/{safe}.tsv")
+        plots = _plots(run, m, qmetrics, an.variance_ratio)
+        pdir = out / "plots"
         pdir.mkdir(exist_ok=True)
-        contract = [attr for _, attr, _ in de_backends.CONTRACT]
-        for ct, res in run.pseudobulk.results.items():
-            safe = "".join(ch if ch.isalnum() else "_" for ch in ct)
-            _tsv(pdir / f"{safe}.tsv", ["gene", *contract],
-                 [[r["gene"], *(r[c] for c in contract)] for r in res.table()])
-    plots = _plots(run, m, qmetrics, an.variance_ratio)
-    pdir = out / "plots"
-    pdir.mkdir(exist_ok=True)
-    for name, svg in plots.items():
-        (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
-    md = _markdown(run, config, contrast, an, root_note)
-    (out / "report.md").write_text(md, encoding="utf-8")
-    (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
-    outputs = {str(p.relative_to(out)): _sha256(p) for p in sorted(out.rglob("*"))
-               if p.is_file() and p.name != "run.json"}
+        for name, svg in plots.items():
+            (pdir / f"{name}.svg").write_text(svg, encoding="utf-8")
+        md = _markdown(run, config, contrast, an, root_note)
+        (out / "report.md").write_text(md, encoding="utf-8")
+        (out / "report.html").write_text(_html(md, plots), encoding="utf-8")
+        run.limitations = write_limitations(out, _limitations(run, config, rec))
+        st.outputs = [*written, "report.md", "report.html", LIMITATIONS_FILE,
+                      *(f"plots/{name}.svg" for name in plots)]
     pseudobulk = None
     if run.pseudobulk is not None:
         pb = run.pseudobulk
         pseudobulk = {"backend": pb.backend, "version": pb.version,
                       "tests": {ct: res.record() for ct, res in pb.results.items()},
                       "skipped": pb.skipped}
-    manifest = {"pipeline": "bioagent.omics.scrna", "code_digest": _code_digest(),
-                "started": started,
-                "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "python": platform.python_version(), "numpy": np.__version__,
-                "config": config.as_dict(), "samples": info, "inputs": inputs,
-                "outputs": outputs, "summary": run.summary(), "qc": run.qc,
-                "doublets": run.doublets,
-                "analysis": {**run.analysis, "modularity": an.modularity},
-                "integration": run.integration, "pseudobulk": pseudobulk,
-                "warnings": run.warnings}
+    manifest: dict[str, Any] = {}
+    with rec.stage("verify", engine=PIPELINE, version=_VERSION) as st:
+        outputs = {str(p.relative_to(out)): _sha256(p) for p in sorted(out.rglob("*"))
+                   if p.is_file() and p.name not in _UNLISTED}
+        manifest.update({
+            "pipeline": PIPELINE, "code_digest": _code_digest(), "started": started,
+            "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "python": platform.python_version(), "numpy": np.__version__,
+            "config": config.as_dict(), "samples": info, "inputs": inputs,
+            "outputs": outputs, "summary": run.summary(), "qc": run.qc,
+            "doublets": run.doublets, "analysis": {**run.analysis, "modularity": an.modularity},
+            "integration": run.integration, "pseudobulk": pseudobulk,
+            "warnings": run.warnings})
+        found = _content_problems(out, manifest) + output_problems(rec.stages, outputs, out)
+        st.check = "FAIL" if found else "PASS"
+        st.reason = ("; ".join(found)[:600] if found else
+                     f"{len(outputs)} outputs digested; tables agree with the run record")
+    run.stages = rec.as_list()
+    run.complete = rec.complete
+    manifest["summary"] = run.summary()
+    manifest.update({"stages": run.stages, "complete": run.complete,
+                     "limitations": run.limitations,
+                     "validation": {"matrices": dict(digests)},
+                     "reference_dataset": run.reference_dataset})
     run.manifest = manifest
     (out / "run.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2,
                                              default=str), encoding="utf-8")
+    rec.finish()
+
+
+def _safe(name: str) -> str:
+    return "".join(ch if ch.isalnum() else "_" for ch in name)
+
+
+def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
+    """The tables against the run record: a row per analysed cell and per cluster, the
+    columns this version writes, a table per pseudobulk test."""
+    found = []
+    s = manifest.get("summary") or {}
+    expect = {"cells.tsv": (CELLS_HEADER, s.get("cells")),
+              "clusters.tsv": (CLUSTERS_HEADER, len(s.get("clusters") or {})),
+              "markers.tsv": (MARKERS_HEADER, None)}
+    for name, (header, rows) in expect.items():
+        path = out / name
+        if not path.is_file():
+            found.append(f"{name} is missing")
+            continue
+        got, n = tsv_shape(path)
+        if got != list(header):
+            found.append(f"{name}: its columns are not {', '.join(header)}")
+        if rows is not None and n != rows:
+            found.append(f"{name}: {n} rows, where the run record has {rows}")
+    tests = ((manifest.get("pseudobulk") or {}).get("tests") or {})
+    for ct in tests:
+        if not (out / "pseudobulk" / f"{_safe(ct)}.tsv").is_file():
+            found.append(f"pseudobulk/{_safe(ct)}.tsv is missing for the {ct} test")
+    return found
 
 
 def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
+    """Re-hash every recorded input and output; for a record with stages, also check that
+    the run is complete and that its tables agree with it (a record without stages gets
+    the digest checks only)."""
     out = Path(out_dir)
     manifest = json.loads((out / "run.json").read_text(encoding="utf-8"))
     problems = []
@@ -483,6 +661,9 @@ def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
             problems.append(f"output {rel} is missing")
         elif _sha256(p) != digest:
             problems.append(f"output {rel} has changed")
+    if "stages" in manifest:
+        problems += record_problems(manifest, out)
+        problems += _content_problems(out, manifest)
     return not problems, problems
 
 
@@ -640,6 +821,9 @@ def _markdown(run: ScRun, config: ScConfig, contrast: tuple[str, str, str] | Non
               "not time. A pseudobulk difference is an association between conditions in "
               "these samples. None of it establishes a mechanism or a clinical effect.", "",
               "## Reproducing it", "",
-              "`run.json` records every input and output digest and the configuration; "
-              "`bioagent scrna --verify <out>` re-checks the digests.", ""]
+              "`run.json` records every input and output digest, the configuration and "
+              "each stage's status, engine, device and time; `limitations.md` lists this "
+              "run's limitations. `bioagent scrna --verify <out>` re-checks the digests, "
+              "that every required stage succeeded and that the tables agree with the "
+              "record.", ""]
     return "\n".join(lines)

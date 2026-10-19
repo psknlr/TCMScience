@@ -3,10 +3,17 @@
 //   #/                           home: the last conversation, or a new one
 //   #/p/:projectId               project overview (and a new conversation in it)
 //   #/p/:projectId/c/:convId     conversation workspace
-//   #/settings/:tab              models | compute | general | privacy | shortcuts
-//   #/about  ·  #/catalog  ·  #/catalog/:entryId
+//   #/settings/:tab              models | compute | data | general | privacy | shortcuts
+//   #/about  ·  #/catalog  ·  #/catalog/:entryId   (the catalog's search and filters ride along as ?q=&category=&f=…)
 
-export const SETTINGS_TABS = ["models", "compute", "general", "privacy", "shortcuts"];
+export const SETTINGS_TABS = ["models", "compute", "data", "general", "privacy", "shortcuts"];
+
+/**
+ * The catalog page's view in the address (ui/pages/catalog.js): q (the search), category, f (state chips, comma
+ * separated), rt (runtime), ds (dataset), ver (verification), be (local backend). In this order, empty ones left out, so
+ * one view has one address.
+ */
+export const CATALOG_PARAMS = ["q", "category", "f", "rt", "ds", "ver", "be"];
 
 /** Parse a location hash into a route object. Unknown paths are {name: "notfound"}. */
 export function parseRoute(hash) {
@@ -36,9 +43,21 @@ export function routeHref(route) {
     case "conversation": return `#/p/${enc(route.projectId)}/c/${enc(route.convId)}`;
     case "settings": return `#/settings/${SETTINGS_TABS.includes(route.tab) ? route.tab : "models"}`;
     case "about": return "#/about";
-    case "catalog": return route.entryId ? `#/catalog/${enc(route.entryId)}` : "#/catalog";
+    case "catalog": return `${route.entryId ? `#/catalog/${enc(route.entryId)}` : "#/catalog"}${catalogQuery(route.params)}`;
     default: return "#/";
   }
+}
+
+/** "?q=…&f=…" for the catalog params that are set (CATALOG_PARAMS order), "" for none. */
+function catalogQuery(params) {
+  if (!params || typeof params !== "object") return "";
+  const q = new URLSearchParams();
+  for (const k of CATALOG_PARAMS) {
+    const v = params[k];
+    if (v !== undefined && v !== null && String(v) !== "") q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
 }
 
 export function sameRoute(a, b) {

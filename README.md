@@ -38,8 +38,7 @@
 [![CI](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml/badge.svg)](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2d4a7a.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2d4a7a.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-3%2C902%20passing-2c7560.svg)
-![Kernel](https://img.shields.io/badge/kernel-PSH%200.5.3-9a6428.svg)
+![Kernel](https://img.shields.io/badge/kernel-PSH%200.6.0-9a6428.svg)
 
 </div>
 
@@ -59,7 +58,7 @@ Agent systems for biomedical research put their weight on different layers. TCMS
 
 | Layer | The question it answers | Where published systems put their weight | TCMScience |
 |---|---|---|---|
-| Tools | What can an agent call? | [ToolUniverse](https://github.com/mims-harvard/ToolUniverse): more than 1,000 models, datasets, APIs and packages, and 68 prebuilt research workflows (README, Oct 2026) | 58 public sources, 153 typed operations and 147 native tools, each behind a source card |
+| Tools | What can an agent call? | [ToolUniverse](https://github.com/mims-harvard/ToolUniverse): more than 1,000 models, datasets, APIs and packages, and 68 prebuilt research workflows (README, Oct 2026) | 117 public sources, 444 typed operations and 150 native tools, each behind a source card |
 | Actions | How does an agent compose them into research? | [Biomni](https://doi.org/10.1126/science.adz4351) (*Science*, 2026): 150 tools, 59 databases and 105 software packages drawn from 25 biomedical subfields; tool retrieval, planning, code execution | plans compiled into typed, bounded programs before anything runs |
 | Cognition | How does it explore and decide? | [DeepEvidence](https://doi.org/10.1038/s42256-026-01266-0) (*Nat. Mach. Intell.*, 2026): breadth- and depth-first research over an evidence graph · [BioMedAgent](https://doi.org/10.1038/s41551-026-01634-6) (*Nat. Biomed. Eng.*, 2026): 77 % of 327 data-analysis tasks · [BioDiscoveryAgent](https://proceedings.iclr.cc/paper_files/paper/2025/hash/4252dc94531833029000f85dc5fac792-Abstract-Conference.html) (ICLR 2025): closed-loop design of genetic perturbation experiments | an inquiry engine over predictions sealed in advance ([below](#deciding-what-to-find-out-next)); new, and checked only on planted worlds |
 | **Epistemics** | What may this evidence support? | tracking, attribution and validation of the evidence gathered | **study designs are types, and one table the kernel enforces says which claim kinds each design licenses: at compile time, at the claim and at release** |
@@ -127,7 +126,7 @@ Planted worlds show the mechanics. They are not evidence that the engine decides
 
 ## Key results: a case study on 葛根芩连汤
 
-The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) was analysed end to end with the shipped network-pharmacology skill on public data: NPASS, CMAUP and LOTUS for composition; curated potency measurements and PubChem BioAssay for activity; Reactome and STRING for biology; Open Targets for the indication. The marker compounds of all four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources.
+The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) was analysed end to end with the governed `tcm.network-pharmacology` skill (not the limited seed-corpus skill) on public data: NPASS, CMAUP and LOTUS for composition; curated potency measurements and PubChem BioAssay for activity; Reactome and STRING for biology; Open Targets for the indication. The marker compounds of all four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources.
 
 **1 · The usual enrichment result is explained by assay coverage.** 1,792 constituents; 391 human proteins with a measured potency, 237 of them at ≤ 10 µM.
 
@@ -151,6 +150,8 @@ All 12 carbonic-anhydrase-pathway proteins had been assayed, and 11 were hits. T
 
 The literature-defined enrichment is circular, because compound–target data and text mining study the same well-known proteins. The pipeline therefore defaults to genetic evidence and warns whenever literature is chosen. Full methods, sensitivity analyses and limitations are in the [design spec](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md).
 
+*Not regression-checked.* These figures come from runs on the downloaded files recorded in the design spec, outside CI. The real-data case for this formula in `.github/workflows/live-data.yml` (the research job's sixteen stages and nine exports, then `verify`) is defined but has not been executed yet ([docs/validation.md](docs/validation.md)).
+
 ## Evidence governance
 
 <p align="center">
@@ -173,7 +174,7 @@ cd BioScience-Harness && python examples/run_skills.py
 # … 5/5 artifacts passed the publication gate
 ```
 
-Install as libraries (Python ≥ 3.11). `[test]` is not optional: without `hypothesis`, eleven PSH test modules are silently skipped.
+Install as libraries (Python ≥ 3.11). `[test]` is not optional: without `hypothesis`, PSH's property-based test modules are skipped or fail to collect.
 
 ```bash
 pip install -e "PSH-Harness[test]"          # trusted kernel
@@ -222,7 +223,7 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 # RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
-# tests: PSH 1380 · BioScience 2522 (unit tier)
+# tests: PSH's full suite; BioScience's unit tier (no data lake, no network)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -237,7 +238,7 @@ An LLM should not be its own planner, executor, security policy, evidence judge 
 - **Trusted kernel ([PSH-Harness](PSH-Harness)).** Labels data at entry, intersects every request with a policy lattice, compiles plans into typed and bounded programs, routes every model, tool and delegation call through one gateway, and quarantines output before release. Its audit is hash-chained.
 - **Scientific compiler ([PSH-Harness](PSH-Harness/docs/V6_SCIENTIFIC_COMPILER.md)).** In front of the kernel, not beside it: a research programme is typed and refused *before* it spends anything. An animal study cannot license a human efficacy claim, an analysis that does not depend on its protocol node is not preregistered, and a claim reaching beyond its source's population is an error with both populations named. 71 diagnostic codes, each with a remedy.
 - **Scientist plane ([psh.scientist](PSH-Harness/src/psh/scientist)).** Hypotheses, preregistered protocols and observations as content-hashed records; a world model of which explanations compete and which observations bore on which; and the inquiry engine, which chooses the next analysis by information gain over sealed predictions and decides when the project may stop.
-- **Capability plane ([BioScience-Harness](BioScience-Harness)).** 58 verified public sources with 153 typed operations, 147 native tools in 12 domains, a typed TCM layer (herbs, processing, formulas with 君臣佐使 roles, syndromes, classical passages, 十八反), and the source-snapshot layer.
+- **Capability plane ([BioScience-Harness](BioScience-Harness)).** 117 verified public sources with 444 typed operations, 150 native tools in 12 domains, a typed TCM layer (herbs, processing, formulas with 君臣佐使 roles, syndromes, classical passages, 十八反), and the source-snapshot layer.
 - **Governance layer.** Skill manifests compiled into kernel programs, data contracts with validators, a registry with a content-hashed lockfile, and the benchmark harness.
 
 ### Skills
@@ -246,7 +247,7 @@ An LLM should not be its own planner, executor, security policy, evidence judge 
 |---|---|
 | `normalize-tcm-entities` | Choose for you when a name is ambiguous: 「姜」 may be 生姜 or 干姜, which are different drugs. |
 | `retrieve-tcm-evidence` | Pass judgement: an empty result is not "no effect", and unassessed bias stays `NOT_ASSESSED`. |
-| `analyze-tcm-network-pharmacology` | Conflate prediction with measurement: predicted and measured targets are separate keys, and it claims a mechanism *hypothesis* only. |
+| `analyze-tcm-network-pharmacology` | Conflate prediction with measurement: predicted and measured targets are separate keys, and it claims a mechanism *hypothesis* only. It is a limited seed-corpus network hypothesis analysis: no database coverage, no measured activity. |
 | `assess-tcm-safety` | Answer "safe": no record is not safety, and 十八反 is checked as a property of the pair. |
 | `tcm.network-pharmacology` | Report enrichment without its controls: it runs the case study above on ledger-verified snapshots and writes full provenance. |
 
@@ -301,6 +302,24 @@ Every source has a card stating its licence and access path. Web access is on by
 | Reactome | pathway membership | CC0 |
 | Open Targets 26.09 | target–disease associations | CC0 |
 
+Bulk files are acquired on the runner, never through the browser's query gateway. A partial download resumes only onto the same remote file (`If-Range` with a strong ETag or a Last-Modified date, and an exact `Content-Range`), or when a reviewed checksum will check the joined file; otherwise it starts again. Archives are read through before a file is kept (gzip, bzip2 and xz to the end, zip through every CRC). The runner's `/api/datasets` routes acquire registered datasets only, never a URL or a path. Object storage (R2) and ENA downloads by accession are not implemented. The new transfer has been tested against loopback servers only: no live run of it has happened yet.
+
+### Studio: in the browser and on a local runner
+
+TCMScience provides browser-based access to its registered scientific capabilities ([Studio](studio/README.md)). Lightweight tools execute locally through Pyodide, WebAssembly, and selected WebGPU kernels. Resource-intensive pipelines require a configured local Runner or an authorized remote compute environment. No remote compute environment is deployed today: the compute setting `remote` answers `remote_not_configured` ([contract: designed, not deployed](studio/docs/REMOTE_COMPUTE.md)).
+
+| Capability | Status | What shows it |
+|---|---|---|
+| Python tools, governed skills and the clinic in the browser (Pyodide, CPU) | implemented, tested | CI's browser end-to-end specs, which fail in CI when Pyodide's CDN does not answer. Outputs were compared with native CPython for a named subset only, by a manual runtime check ([matrix](studio/docs/compat/summary.md)). No record from the deployed site |
+| Exact JavaScript and WebAssembly SIMD kernels for 7 sequence tools | implemented, tested | 374 parity cases against the Python reference, in Studio's CI (`studio.yml`) |
+| WebGPU integer counts for 3 of those tools | implemented; tested on a software adapter only | never run on a hardware GPU, so its speed is unmeasured; used, when the scheduler expects it to be faster, on any adapter not identified as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU) |
+| WebNN | detection only | WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified execution provider and hardware-backed execution evidence; no workload has either today |
+| Public databases from the browser, through the site's bounded gateway | implemented, tested | every operation's request checked against a mock transport, and refused offline, by `connector_coverage.py --check`, run locally (its CI step is defined and has not run yet); and against its real upstream from a maintainer's run, dated; none verified through the deployed gateway ([coverage by level](studio/docs/compat/connectors.md)) |
+| Network pharmacology | limited in the browser | Browser mode supports a limited seed-corpus network hypothesis workflow. Full data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific execution backend: the runner's research job, with sixteen recorded stages and nine exports ([pipelines](docs/analysis-pipelines.md)) |
+| Pipelines and native engines | implemented on the local runner; the engine paths last ran in CI's engine jobs (CPU) on `ci` #281, 2026-10-11, before the current stage records and pipeline code; since then run locally on the built-in paths only, with real Vina not run | the engine jobs in `ci.yml`, defined; none has run its jobs since `ci` #281 ([pipelines](docs/analysis-pipelines.md#what-is-verified-where), [validation](docs/validation.md#not-verified-here-and-why)) |
+| GPU jobs | implemented on the local runner; never run on a GPU in CI (every CI job is CPU-only) | a runner GPU is reported by its driver, never verified by a computation here |
+| Remote compute | planned: designed, not deployed | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |
+
 ### Validation
 
 A capability is not counted as working because it is registered or because its unit tests
@@ -316,9 +335,14 @@ bioagent validate benchmark --out reports/ --live      # 桂枝汤 and palpitati
 bioagent validate summary reports/                     # every report as one Markdown table
 ```
 
-CI runs the offline tier on every push and the live tiers on GitHub's runners
-(`.github/workflows/live-data.yml`). What they established, and what they did not, against
+CI is set up to run the offline tier on every push and the live tiers on GitHub's runners
+(`.github/workflows/live-data.yml`); no `ci` or `live-data` run has run its jobs since `ci` #281 and
+`live-data` #10 (2026-10-11), so what was added since is defined there, not executed
+([docs/validation.md](docs/validation.md#not-verified-here-and-why)). What they established, and what they did not, against
 the plan's acceptance criteria: [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md).
+Connectors have levels of their own (mock transport, live upstream, live through the deployed
+gateway), and browser parity has its own (kernel parity; Pyodide parity, by the manual runtime
+check and, for one skill, CI's end-to-end specs), each reported apart ([docs/validation.md](docs/validation.md)).
 
 ## TCMScience Arena
 

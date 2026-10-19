@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "@playwright/test";
-import { REPO, STUDIO, scratch, workerSkipReason } from "./lib/servers.mjs";
+import { REPO, STUDIO, pyodideSkipReason, scratch, workerSkipReason } from "./lib/servers.mjs";
 
 const WORKFLOW = readFileSync(path.join(REPO, ".github", "workflows", "studio.yml"), "utf8");
 const LINES = WORKFLOW.split("\n");
@@ -93,8 +93,14 @@ test("a change to anything the site bundles or tcmstudio imports runs the workfl
   for (const event of ["push", "pull_request"]) {
     const globs = pathsOf(event);
     for (const file of changed) expect(globs.some((g) => matches(g, file)), `${event}: ${file} runs the workflow`).toBe(true);
-    // the harnesses' docs, tests and data are not in the site: no rebuild, no redeploy
-    for (const file of ["BioScience-Harness/README.md", "PSH-Harness/docs/x.md", "BioScience-Harness/tests/test_x.py", "BioScience-Harness/data/x.csv"]) {
+    // the docs whose catalog numbers studio/scripts/doc_facts.py checks (its DOCS), and the connector record the
+    // site's catalog is built from, run it too: a stale number fails where it was written
+    for (const file of ["README.md", "README.zh-CN.md", "BioScience-Harness/README.md", "docs/validation.md",
+      "BioScience-Harness/data/connector_live_verification.csv"]) {
+      expect(globs.some((g) => matches(g, file)), `${event}: ${file} runs the workflow`).toBe(true);
+    }
+    // the harnesses' other docs, tests and data are not in the site: no rebuild, no redeploy
+    for (const file of ["PSH-Harness/docs/x.md", "BioScience-Harness/docs/x.md", "BioScience-Harness/tests/test_x.py", "BioScience-Harness/data/x.csv"]) {
       expect(globs.some((g) => matches(g, file)), `${event}: ${file} does not`).toBe(false);
     }
   }
@@ -208,4 +214,22 @@ test("a Worker that cannot start fails the relay spec in CI; outside CI only a m
   // and the spec acts on it: it rethrows, it no longer turns every failure into a skip
   const spec = readFileSync(path.join(STUDIO, "e2e", "relay.spec.mjs"), "utf8");
   expect(spec).toMatch(/skipReason = workerSkipReason\(err\);\s*if \(!skipReason\) throw err;/);
+});
+
+test("an unreachable Pyodide CDN fails the browser specs in CI; outside CI it skips them with the reason", () => {
+  const url = "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/";
+  for (const CI of ["true", "1"]) {
+    expect(pyodideSkipReason(false, url, "browser mode", { CI }), `CI=${CI}`).toBeNull();
+    expect(pyodideSkipReason(true, url, "browser mode", { CI })).toBeNull();
+  }
+  for (const env of [{}, { CI: "" }, { CI: "false" }, { CI: "0" }]) {
+    expect(pyodideSkipReason(false, url, "browser mode", env)).toMatch(/not reachable.*browser mode not tested/);
+    expect(pyodideSkipReason(true, url, "browser mode", env)).toBeNull();
+  }
+  // and each spec that needs real Pyodide decides through it, never with a bare test.skip(!reachable)
+  for (const name of ["browser.spec.mjs", "browser-access.spec.mjs", "mobile.spec.mjs"]) {
+    const spec = readFileSync(path.join(STUDIO, "e2e", name), "utf8");
+    expect(spec, name).toMatch(/requirePyodide\(test, reachable, boot\.pyodide\.index_url, /);
+    expect(spec, name).not.toMatch(/test\.skip\(!reachable/);
+  }
 });

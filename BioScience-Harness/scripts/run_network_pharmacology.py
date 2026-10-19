@@ -9,14 +9,22 @@
     python scripts/run_network_pharmacology.py --snapshots SNAP \\
         --ledger SNAP/audit/snapshots.jsonl --out RUN
 
-Writes compounds/targets/enrichment/network tables, claims.json, release.json,
-provenance.json, limitations.md and snapshot_lock.json to RUN. ``--lock RUN/snapshot_lock.json``
+Writes the nine exports of ``bioagent.analysis.np_exports`` to RUN: compounds.tsv,
+targets.tsv, disease_targets.tsv, enrichment.tsv, network.tsv (the STRING edge list at the
+cut-off), provenance.json (every edge traced to its snapshot record), limitations.md,
+report.html and run_manifest.json (the sixteen workflow stages, every output's digest,
+the command that reproduces the run); and claims.json, release.json, disease.json (with a
+disease) and snapshot_lock.json. No file carries a timestamp. ``python -m
+bioagent.analysis.np_exports verify RUN --snapshots SNAP --ledger LEDGER`` re-checks the
+digests and recomputes the tables. The research job (``bioagent research``) runs the same
+analysis with pre-registered rebuttals. ``--lock RUN/snapshot_lock.json``
 reruns on exactly those snapshots; ``--formula ID`` analyses another formula version the
 herb-layer snapshot records: an id from the formula table (``tcm:formula.fx…``) or from a
 reviewed HKBU export (``hkbu:formula.<formula_id>``, read from ``--hkbu-formulas``,
-default ``<tcmdb>/raw/hkbu_formulas_manual/formula_herb.tsv``). Exit status is non-zero
-when a snapshot does not match the ledger, the skill's contract refuses the run, or a
-claim is refused at release.
+default ``<tcmdb>/raw/hkbu_formulas_manual/formula_herb.tsv``). Exit status is 1 when a
+snapshot does not match the ledger, the skill's contract refuses the run, or a claim is
+refused at release; 3 when the run finished but one of its workflow stages FAILed its own
+check, or its run_manifest.json could not be read (the manifest names the stage).
 """
 
 from __future__ import annotations
@@ -149,11 +157,24 @@ def main(argv: list[str] | None = None) -> int:
     except (SkillRunRefused, SnapshotError, LedgerError, StoreError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps({k: provenance[k] for k in ("dataset_hashes", "excluded", "background", "network",
-                                                "disease", "claims", "psh_program_fingerprint", "governed",
-                                                "result_digest")},
-                     ensure_ascii=False, indent=2))
-    return 0
+    summary = {k: provenance[k] for k in ("dataset_hashes", "excluded", "background", "network",
+                                          "disease", "claims", "psh_program_fingerprint", "governed",
+                                          "result_digest")}
+    try:
+        manifest = json.loads((Path(args.out) / "run_manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        manifest = {}
+    # the sixteen workflow stages, as the manifest records them
+    summary["stages"] = [{k: s.get(k) for k in ("n", "id", "status", "reason")}
+                         for s in manifest.get("stages") or ()]
+    summary["complete"] = manifest.get("complete")
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    from bioagent.research.workflow import failed_stages
+    failed = failed_stages(manifest.get("stages") or ()) or (
+        [] if manifest else ["run_manifest.json could not be read"])
+    for line in failed:
+        print(f"failed: {line}", file=sys.stderr)
+    return 3 if failed else 0
 
 
 if __name__ == "__main__":

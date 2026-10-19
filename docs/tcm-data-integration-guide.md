@@ -494,6 +494,22 @@ python -m pytest tests/test_tcmdb_framework.py tests/test_sources.py tests/test_
 
 第一阶段可交付“一个可查询的数据源 + 稳定来源 ID + 原始记录和待审队列 + 一个只读工具”。第二阶段再接入特定科研 skill 的快照解析、证据合同和发布审核。不要为了增加目录数量，把尚未取得数据或没有验证的 API 写成已接入。
 
+### 数据文件怎样下载：`tcmdb fetch` 与 Studio 的数据获取
+
+`python -m bioagent.cli tcmdb fetch <key>` 和 Studio 本机 Runner 的数据获取接口（`POST /api/datasets/acquisitions {dataset}`，即一个 `tcmdb.fetch` 任务）都调用 `bioagent.acquisition.service.acquire_dataset`。只下载已登记数据集的审核过的 URL，文件存入 Runner 自己的数据目录；浏览器的 `/api/sources` 网关（8 MiB、30 秒）不承载这些文件。每个文件经 `acquisition.transfer.VerifiedTransfer` 传输，数据中心原有的检查（磁盘检查、HTML 拒收、记住被网络策略拒绝的主机、审计记录）照旧生效：
+
+- **只续传同一个文件。** 首次应答的身份（强 ETag、Last-Modified 及该应答的 Date、大小）记在 `<文件名>.part.json`。续传时发送 `Range: bytes=N-` 和 `If-Range`（用 ETag；日期只有在 Date 证明它是强校验器时才用，按 RFC 9110），只接受 `Content-Range` 恰为 `bytes N-(total-1)/total`、且 ETag（或 Last-Modified）与记录一致的 `206`，所以忽略 `If-Range` 的服务器也拼不出两个文件；收到 `200`（文件已变）就从第 0 字节重下。没有可用校验器的残留文件，只有在有审核过的校验和可检查拼接结果时才续传，否则丢弃重下（“resume refused: identity unverifiable”）。因此两个版本拼成的文件即使大小相同也不会被保留。已经完整的残留文件（在最后一块之后取消）直接检查，不重新下载。
+- **只重试暂时性故障**（超时、连接中断、408、425、429、5xx；服务器的 `Retry-After` 最多等 60 秒）。404、410 立即失败；磁盘写满立即停止，并保留残留文件。
+- **下载前按服务器报告的大小检查磁盘空间**，不只看登记的大小；同一文件的第二个传输（另一个任务）在第一个持有文件锁时被拒绝。
+- **保留前完整读一遍**：gzip、bzip2、xz 读到流末尾（CRC 和长度），zip、xlsx 逐个成员校验 CRC，Parquet 检查首尾魔数，无表头表格检查第一行字段数（不少于规格声明的列数，与数据库读取方式一致；已与审核校验和一致的文件不做这项推测性检查）。损坏的压缩包判为 FAIL，不保留。
+- **记录**（`raw/<key>/.downloads.json`、`audit/downloads.jsonl`）新增 `sha256`、`resumed`/`resumed_from`、`etag`、`last_modified`、`final_url`、`server`、`retrieved_at`、数据集的 `release` 和重下原因，原有字段不改名。
+- **只存一份。** 科研快照已有的文件（NPASS、CMAUP、LOTUS）若与审核校验和一致，就以硬链接复用（双向都如此）；没有审核校验和的文件从不复用。
+- **取消**（Studio 的取消或 SIGTERM）在下一个数据块到达时即停止，保留残留文件及其身份记录，下次获取时经校验续传；服务器停滞不发数据时，进程在取消 10 秒后被结束。同一数据集仍在获取时，Studio 拒绝第二次获取（`409`）。
+
+`TCMDataHub.fetch`（Python 方法）仍使用原来的 `acquisition.downloader`；需要上述规则时调用 `acquire_dataset(hub, key)`。这些传输规则用本机回环 HTTP 服务器（真实的 Range、ETag、If-Range 语义）测试（`tests/test_acquisition_transfer.py`、`studio/runner/tests/test_datasets_api.py`），测的是传输机制，不是真实下载；真实文件的证据是 live-data CI 的记录（`bioagent/data/live_download_verification.json`）。
+
+许可如实说明：数据集的 `redistribution` 取自写明该版本的审核许可记录（`registry/licence_records.yaml`；没有版本或滚动版本的数据集不套用任何记录），没有记录时为 “unknown — downloading is not permission to redistribute”（未知：能下载不等于允许再分发）。不复制到对象存储：通过存储桶或签名 URL 共享已下载文件尚未实现，因为在这里无法部署和验证，而把未声明许可的数据集放进共享位置就是再分发。
+
 ## 10. 代码及官方资料
 
 - [TCMScience 数据源说明](https://github.com/psknlr/TCMScience/blob/df0cd3e37c254c65dc39db6703955bac0e3418ad/docs/tcm-data-sources.md)

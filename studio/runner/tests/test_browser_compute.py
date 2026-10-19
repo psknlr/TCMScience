@@ -16,6 +16,8 @@ import pytest
 from tcmstudio import browser_compute
 
 BRIDGE = Path(__file__).resolve().parents[2] / "web" / "js" / "compute" / "bridge.js"
+ACCELERATOR = BRIDGE.with_name("accelerator.js")
+WEBGPU = BRIDGE.parents[1] / "runtime" / "webgpu.js"
 CTX = json.dumps({"where": "browser"})
 
 
@@ -54,6 +56,46 @@ def test_bound_gpu_counts_give_the_original_result_and_a_webgpu_receipt(model):
     assert gpu["receipt"]["device"] == "webgpu", "CONTRACTS §3: webgpu for a JS-side GPU path"
     assert gpu["receipt"]["compute"]["backend"] == "webgpu"
     assert run(args, kernels=False)["receipt"]["device"] == "cpu", "call-scoped counts must not leak"
+    # receipt/1 mirrors receipt.compute, and the device the counts came from
+    assert gpu["receipt"]["execution"]["kernel"] == "webgpu" == gpu["receipt"]["compute"]["backend"]
+    assert gpu["receipt"]["execution"]["runtime"] == cpu["receipt"]["execution"]["runtime"] == "pyodide"
+    assert gpu["receipt"]["execution"]["device"]["used"] == "webgpu"
+    # what was requested is the page's acceleration preference, which Python is not told
+    assert gpu["receipt"]["execution"]["device"]["requested"] is None
+    assert cpu["receipt"]["execution"]["kernel"] == cpu["receipt"]["compute"]["backend"] == "pyodide"
+    assert cpu["receipt"]["execution"]["device"]["used"] == "cpu"
+    assert gpu["receipt"]["result"]["fallbacks"] == []
+    # the evidence ladder: Python's own recount makes GPU counts "validated", never more; the CPU stays "selected"
+    assert gpu["receipt"]["execution"]["device"]["evidence"] == "validated"
+    assert cpu["receipt"]["execution"]["device"]["evidence"] == "selected"
+    g = gpu["receipt"]["compute"]["gpu"]
+    assert set(g) == {"validated", "handoff_ms"} and g["validated"] is True and g["handoff_ms"] >= 0
+    assert "gpu" not in cpu["receipt"]["compute"], "no packet, no GPU evidence"
+
+
+def test_the_packets_crossing_into_python_counts_in_handoff_ms(monkeypatch):
+    """The Worker marks its clock just before the call; Python, on the same clock, counts the
+    crossing as part of the GPU path's hand-off. Without a mark, or outside a Worker, nothing
+    is added; a mark without a packet is ignored."""
+    args = json.loads(json.dumps(DIST))
+    args["arguments"]["model"] = "p"
+    p = json.dumps(packet("native.distance_matrix", DIST_SEQS, DIST_COUNTS))
+
+    def call(options, pkt=p):
+        return json.loads(browser_compute.call_json("call_tool", json.dumps(args), CTX, pkt, json.dumps(options)))
+
+    monkeypatch.setattr(browser_compute, "_worker_clock", lambda: 1250.0)
+    marked = call({"kernels": True, "sent_at": 1000.0})["receipt"]["compute"]["gpu"]
+    assert marked["validated"] is True and 250.0 <= marked["handoff_ms"] < 260.0
+    for bad in (None, "1000", True, float("nan"), 2000.0, -1e9):        # unknown, or a mark from another clock
+        assert call({"kernels": True, "sent_at": bad})["receipt"]["compute"]["gpu"]["handoff_ms"] < 10.0, bad
+    assert "gpu" not in call({"kernels": True, "sent_at": 1000.0}, pkt="null")["receipt"]["compute"]
+    monkeypatch.setattr(browser_compute, "_worker_clock", lambda: None)  # CPython: no Worker clock
+    assert call({"kernels": True, "sent_at": 1000.0})["receipt"]["compute"]["gpu"]["handoff_ms"] < 10.0
+    monkeypatch.undo()
+    assert browser_compute._worker_clock() is None, "outside Pyodide there is no Worker clock"
+    gpu = call({"kernels": True, "sent_at": 1000.0})
+    assert gpu["result"] == call({"kernels": False}, pkt="null")["result"], "the result never depends on the timing"
 
 
 def test_gc_windows_include_s_ambiguity_and_match_python():
@@ -91,6 +133,12 @@ def test_a_packet_that_does_not_belong_or_check_out_is_not_used_and_the_call_sti
     assert got["receipt"]["device"] == "cpu", why
     assert got["receipt"]["compute"]["backend"] == "pyodide", why
     assert got["receipt"]["compute"]["gpu_rejected"], why
+    assert got["receipt"]["execution"]["kernel"] == "pyodide", why
+    fallback = got["receipt"]["result"]["fallbacks"]
+    assert [f["what"] for f in fallback] == ["compute"], why
+    assert got["receipt"]["compute"]["gpu_rejected"] in fallback[0]["reason"], why
+    assert got["receipt"]["compute"]["gpu"]["validated"] is False, why
+    assert got["receipt"]["execution"]["device"]["evidence"] == "selected", why
 
 
 def test_well_formed_but_wrong_counts_with_the_right_digest_are_caught_by_python_s_own_recount():
@@ -107,6 +155,14 @@ def test_well_formed_but_wrong_counts_with_the_right_digest_are_caught_by_python
     got = run(gc, packet("native.gc_content", ["GCASN"], off_by_one, 2))
     assert got["result"] == run(gc, kernels=False)["result"]
     assert "window" in got["receipt"]["compute"]["gpu_rejected"]
+    # Hamming's one record is the whole count: recounted exactly, so a total in range but wrong is not used
+    ham = {"tool": "native.hamming_distance", "arguments": {"a": "ANU", "b": "ACT"}}
+    got = run(ham, packet("native.hamming_distance", ["ANU", "ACT"], [3, 0, 0, 0]))
+    assert got["result"] == run(ham, kernels=False)["result"] and got["result"]["distance"] == 2
+    assert "Hamming" in got["receipt"]["compute"]["gpu_rejected"]
+    assert browser_compute.check_counts("hamming_distance", [3, 0, 0, 0], ["ACGTACGTAC" * 10, "ACGAACGTAC" * 10], 0)
+    assert browser_compute.check_counts("hamming_distance", [10, 0, 0, 0], ["ACGTACGTAC" * 10, "ACGAACGTAC" * 10], 0) is None
+    assert browser_compute._mismatches("AßC", "AxC") == 1, "a non-ASCII pair is counted per character"
 
 
 def test_invalid_arguments_fail_as_before_with_or_without_a_packet():
@@ -114,6 +170,77 @@ def test_invalid_arguments_fail_as_before_with_or_without_a_packet():
     invalid = run(args, packet("native.distance_matrix", ["A", "G"], [0] * 16))
     assert invalid["error"]["type"] == "bad_arguments"
     assert invalid["receipt"]["device"] == "cpu"
+    assert "compute" not in invalid["receipt"] and invalid["receipt"]["execution"]["kernel"] is None
+
+
+def test_a_failed_call_s_kernel_is_pyodide_whatever_helped(monkeypatch):
+    """The GPU counts were used, and then the call failed: no accelerator is credited, in
+    receipt.compute or in receipt/1."""
+    from tcmstudio import dispatch
+    real = dispatch.call_json
+
+    def failing(tool, arguments_json, context_json):
+        e = json.loads(real(tool, arguments_json, context_json))
+        e.update(status="failed", ok=False, error={"type": "runtime_error", "message": "late", "hint": ""})
+        e["receipt"]["result"] = {**e["receipt"]["result"], "outcome": "failed", "kind": None}
+        return json.dumps(e)
+
+    monkeypatch.setattr(dispatch, "call_json", failing)
+    got = run(DIST, packet("native.distance_matrix", DIST_SEQS, DIST_COUNTS))
+    assert got["status"] == "failed"
+    assert got["receipt"]["compute"]["backend"] == got["receipt"]["execution"]["kernel"] == "pyodide"
+    assert got["receipt"]["device"] == "cpu"
+    assert got["receipt"]["execution"]["device"]["used"] != "webgpu"
+    assert "gpu" not in got["receipt"]["compute"]
+    assert got["receipt"]["execution"]["device"]["evidence"] not in ("validated", "verified", "accelerated")
+
+
+# ------------------------------------------------------------------------- the Worker's real packets, bound in Python
+
+PREPARE = """
+import { SequenceAccelerator } from %s;
+import { planSequenceCompute, referenceCounts } from %s;
+const [tool, argsJson] = process.argv.slice(1);
+const args = JSON.parse(argsJson);
+// a GPU double that counts with the CPU reference: what a working device returns
+const gpu = { adapter: null, knownAnswer: { ok: true }, lastRun: null, fallbackReason: null, allowsSoftware: false,
+  async prepare(t, a) { const p = planSequenceCompute(t, a); this.lastRun = { dispatched: true, checked: true, cold: false, setup_ms: 0, work_ms: 1 };
+    return { tool: t, width: p.width, n: p.n, window: p.window, counts: Array.from(referenceCounts(p)), backend: "webgpu", precision: "uint32 exact counts; Python float64 transforms" }; },
+  stop() {} };
+const acc = new SequenceAccelerator({ gpu, simd: () => ({ available: false, reason: "test" }) });
+// this device measured the CPU paths as slow at this size, so the scheduler gives the work to the GPU
+acc.learn(tool, args, "js", 1e9); acc.learn(tool, args, "python", 1e9);
+const out = await acc.prepare(tool, args);
+process.stdout.write(JSON.stringify(out.packet));
+"""
+
+
+def worker_packet(tool, args):
+    script = PREPARE % (json.dumps(ACCELERATOR.as_uri()), json.dumps(WEBGPU.as_uri()))
+    out = subprocess.run(["node", "--input-type=module", "-e", script, tool, json.dumps(args)],
+                         capture_output=True, text=True, encoding="utf-8", timeout=60, check=True)
+    return json.loads(out.stdout)
+
+
+@pytest.mark.parametrize("tool, args", [
+    ("native.distance_matrix", {"sequences": {"a": "acgu nRY-" * 4000, "b": "AGGTTTCA" * 4000, "c": "ac-t nacg" * 4000}}),
+    ("native.distance_matrix", {"sequences": ["ACGT" * 9000, "GGTA" * 9000], "model": "k2p"}),
+    ("native.hamming_distance", {"a": "acgturysn" * 4000, "b": "GCSNTTCNA" * 4000}),
+    ("native.gc_content", {"sequence": "ACGTURYSN" * 4000, "window": 300}),
+])
+def test_the_workers_own_packet_binds_in_python_byte_for_byte(tool, args):
+    """accelerator.js's digest and normalisation are browser_compute's: a packet the Worker
+    prepares for a call is used by Python for that call, and the result is the reference's."""
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed: the Worker's JavaScript cannot be run here")
+    packet = worker_packet(tool, args)
+    assert packet and packet["backend"] == "webgpu", "the scheduler gave the work to the GPU"
+    call = {"tool": tool, "arguments": args}
+    got, reference = run(call, packet), run(call, kernels=False)
+    assert got["receipt"]["compute"]["backend"] == "webgpu", got["receipt"]["compute"].get("gpu_rejected")
+    assert got["receipt"]["compute"]["gpu"]["validated"] is True
+    assert got["result"] == reference["result"]
+    assert got["receipt"]["output_sha256"] == reference["receipt"]["output_sha256"]
 
 
 # ------------------------------------------------------------------------------------------- the real JS kernels
@@ -190,6 +317,7 @@ def test_alignment_kernels_match_python_on_random_inputs(js):
         fast, slow = both({"tool": kind, "arguments": {"a": a, "b": b, **params[trial % len(params)]}})
         same(fast, slow)
         used += fast["receipt"]["compute"]["backend"] == "js"
+        assert fast["receipt"]["execution"]["kernel"] == fast["receipt"]["compute"]["backend"]
         assert slow["receipt"]["compute"]["backend"] == "pyodide"
     assert used == 60, "every one of these is large enough for the kernel"
 
@@ -234,7 +362,8 @@ def test_count_kernels_match_python(js):
     fast, slow = both({"tool": "native.hamming_distance", "arguments": {"a": a, "b": b}})
     same(fast, slow)
     compute = fast["receipt"]["compute"]
-    assert compute["backend"] == js.counts_by
+    assert compute["backend"] == js.counts_by == fast["receipt"]["execution"]["kernel"]
+    assert slow["receipt"]["execution"]["kernel"] == "pyodide"
     assert compute["kernels"] == [{"kernel": "sequence.counts", "outcome": "used", "backend": js.counts_by,
                                    "ms": compute["kernels"][0]["ms"]}]
     assert ("WebAssembly SIMD" in compute["precision"]) == (js.counts_by == "wasm-simd")
