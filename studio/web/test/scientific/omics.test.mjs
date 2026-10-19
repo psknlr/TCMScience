@@ -10,6 +10,8 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { IDBFactory } from "fake-indexeddb";
 import { fakeOpfs } from "../fixtures/fake-opfs.mjs";
+import { RUNNER_ONLY } from "../fixtures/fakes.mjs";
+import { runnerOnly } from "../../js/core/catalog.js";
 import { OpfsStore } from "../../js/scientific/data/opfs-store.js";
 import { OMICS, OMICS_HANDLERS, parseDelimited, rnaseqCounts, rnaseqNeedsRunner, scrna, scrnaNeedsRunner } from "../../js/scientific/pipelines/omics.js";
 import { BrowserJobService, jobDir } from "../../js/scientific/runtime/job-manager.js";
@@ -60,7 +62,8 @@ function workerClass(store, python) {
     async #answer({ id, op, payload }) {
       const reply = (result) => this.send({ id, ok: true, ms: 1, result });
       this.calls.push({ op, payload });
-      if (op === "init") return reply({ runtime: "pyodide-314.0.7 / CPython 3.14.2", platform: "emscripten", machine: "wasm32", packages: ["pyyaml"], pyodide: { version: "314.0.7" } });
+      // the bundle it unpacked, as science.worker.js reports it: the boot's
+      if (op === "init") return reply({ runtime: "pyodide-314.0.7 / CPython 3.14.2", platform: "emscripten", machine: "wasm32", packages: ["pyyaml"], pyodide: { version: "314.0.7" }, bundle: { path: payload.boot.bundle.path, sha256: payload.boot.bundle.sha256 } });
       if (op === "packages") return reply({ packages: ["pyyaml", ...payload.names], versions: { ...VERSIONS, pyyaml: "6.0.3" } });
       if (op === "memory") return reply({ wasm_bytes: 200 << 20 });
       if (op === "mount") {
@@ -156,17 +159,17 @@ function cannedPython(outputs, { exit = 0, verify = () => PASS, refused = null }
 const COUNTS = "gene_id\tgene_name\tc1\tt1\nG1\tA\t10\t40\n";
 const SAMPLES = "sample\tcondition\nc1\tcontrol\nt1\ttreated\n";
 
-async function setup({ python, files = projectStore(), quota } = {}) {
-  const fake = fakeOpfs(quota ? { quota } : {});
+/** A job service over scripted workers; boot, idb and fake: the page reloaded on the same storage (a site update). */
+async function setup({ python, files = projectStore(), quota, boot = BOOT, idb = new IDBFactory(), fake = fakeOpfs(quota ? { quota } : {}) } = {}) {
   const store = new OpfsStore({ root: fake.root, storage: fake.storage });
   const Worker = workerClass(store, python || cannedPython(RNASEQ_OUT));
-  const pool = new ScienceWorkerPool({ size: 1, Worker, workerUrl: "w.js", boot: BOOT, interruptGraceMs: 20 });
+  const pool = new ScienceWorkerPool({ size: 1, Worker, workerUrl: "w.js", boot, interruptGraceMs: 20 });
   const svc = new BrowserJobService({
-    indexedDB: new IDBFactory(), locks: null, pool, store, projectFiles: projectFilesResolver(files), handlers: OMICS_HANDLERS,
+    indexedDB: idb, locks: null, pool, store, projectFiles: projectFilesResolver(files), handlers: OMICS_HANDLERS,
     navigator: { userAgent: "test", hardwareConcurrency: 4, deviceMemory: 8 },
   });
   assert.equal(await svc.start(), "ready");
-  return { svc, store, files, Worker, fake };
+  return { svc, store, files, Worker, fake, idb };
 }
 
 async function settle(svc, id, ms = 5000) {
@@ -206,10 +209,11 @@ test("rnaseq preflight: FASTQ and PyDESeq2 need the runner (with what it would d
   const deseq = await refused(rnaseqCounts, { counts: "counts.tsv", samples: "samples.tsv", de_backend: "pydeseq2" }, svc);
   assert.deepEqual([deseq.type, deseq.need], ["unavailable", "runner"]);
   assert.match(deseq.message, /PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is/);
-  // the sample table given with counts is a FASTQ sheet: the runner runs that, without counts
+  // the sample table given with counts is a FASTQ sheet: the runner refuses the pair as bad arguments (kinds.py), and
+  // so is it here, in its words; a FASTQ sheet runs there without counts
   const sheet = await refused(rnaseqCounts, { counts: "counts.tsv", samples: "fastq_sheet.csv" }, svc);
-  assert.deepEqual([sheet.type, sheet.need], ["unavailable", "runner"]);
-  assert.match(sheet.message, /fastq_sheet\.csv is a FASTQ sample sheet/);
+  assert.deepEqual([sheet.type, sheet.need], ["bad_arguments", "arguments"]);
+  assert.equal(sheet.message, "samples: with counts this is the sample table (sample and the design columns); a FASTQ sample sheet runs without counts");
 
   const cases = [
     [{ counts: "counts.tsv", samples: "samples.tsv", transcripts: "tx.fa", engine: "salmon" }, /a count-matrix run takes no FASTQ reference or engine: transcripts, engine/],
@@ -342,7 +346,7 @@ test("rnaseq: the inputs copied and checked, Python called on the mounted copies
   // the run's limitations, then where it was computed (the worker's versions), as the job carries them
   assert.deepEqual(done.limitations, [
     "Counts were given, not quantified here.", "The design has one factor.",
-    "Computed in this browser with Pyodide's numpy 2.4.6 and scipy 1.18.0; the native run is the reference, and its numbers can differ in the last digits (held to a stated tolerance)",
+    "Computed in this browser with Pyodide's numpy 2.4.6 and scipy 1.18.0; the native run is the reference. This run was not compared with one: on two simulated references the browser's numbers agreed with the native run's within a stated tolerance (studio/docs/BROWSER_JOBS.md §3.1), so a value near a threshold, such as an adjusted p-value near alpha, can fall on the other side here.",
   ]);
   assert.equal(done.limitations.at(-1), OMICS.computedLine(VERSIONS));
 
@@ -490,10 +494,9 @@ test("a call whose files only the runner reads reaches the model as needs_runner
   ]);
   const { svc } = await setup({ files });
   const rt = new BrowserJobsRuntime({ service: svc });
-  // named by its id, the source is an .h5ad only by the file's own name; the sample table is a FASTQ sheet only inside
+  // named by its id, the source is an .h5ad only by the file's own name
   for (const [tool, args, why] of [
     ["call_tool", { tool: "job.pipeline.scrna", arguments: { source: files.recs[0].id } }, /AnnData \(\.h5ad\) needs anndata/],
-    ["run_pipeline", { pipeline: "rnaseq", arguments: { counts: "counts.tsv", samples: "fastq.csv" } }, /fastq\.csv is a FASTQ sample sheet/],
   ]) {
     assert.equal(rt.needsRunner(jobCall(tool, args).kind, jobCall(tool, args).params), null, "not known from the parameters");
     const env = await rt.call(tool, args, { project_id: "p1" });
@@ -502,6 +505,10 @@ test("a call whose files only the runner reads reaches the model as needs_runner
     assert.deepEqual(env.error.requires.map((q) => q.need), ["runner"]);
     assert.match(env.error.message, why);
   }
+  // counts with a FASTQ sheet as the sample table, known only inside it: bad arguments, as the runner refuses it
+  const pair = await rt.call("run_pipeline", { pipeline: "rnaseq", arguments: { counts: "counts.tsv", samples: "fastq.csv" } }, { project_id: "p1" });
+  assert.deepEqual([pair.error.type, pair.error.reason], ["bad_arguments", undefined]);
+  assert.match(pair.error.message, /a FASTQ sample sheet runs without counts/);
   // a refusal about the browser's own storage is still the job service's
   const none = await rt.call("run_pipeline", { pipeline: "rnaseq", arguments: { counts: "counts.tsv", samples: "fastq.csv" } }, { project_id: null });
   assert.equal(none.error.reason, undefined, "a missing file is bad arguments");
@@ -552,6 +559,85 @@ test("a resumed job copies its inputs again and reuses its analysis when the out
   assert.ok(second.logs.some((l) => /analysis: its checkpoint does not verify, so it runs again \(the stage's inputs changed since its checkpoint\)/.test(l.text)));
 });
 
+test("a resumed job runs its analysis again when what computed it changed (numpy and scipy, the bundle); the limitations name what computed the outputs", async () => {
+  const files = projectStore([["p1", "counts.tsv", COUNTS], ["p1", "samples.tsv", SAMPLES]]);
+  let failVerify = true;
+  const python = cannedPython(RNASEQ_OUT, { verify: () => (failVerify ? { status: "FAIL", checks: [], problems: ["not yet"], report: {} } : PASS) });
+  const runs = () => python.calls.filter((c) => c.name === "run_rnaseq_counts").length;
+  const first = await setup({ python, files });
+  const job = await first.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
+  assert.equal((await settle(first.svc, job.id)).state, "failed");
+  assert.equal(runs(), 1);
+  // the worker now reports other numpy and scipy (a site update between the attempts)
+  const before = { ...VERSIONS };
+  Object.assign(VERSIONS, { numpy: "9.9.9", scipy: "8.8.8" });
+  try {
+    await first.svc.resume(job.id);
+    const again = await settle(first.svc, job.id);
+    assert.equal(again.state, "failed");
+    assert.deepEqual(again.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", false], ["verify", false]]);
+    assert.equal(runs(), 2, "the analysis ran again, on the numpy and scipy now loaded");
+    assert.equal(again.limitations.at(-1), OMICS.computedLine({ numpy: "9.9.9", scipy: "8.8.8" }));
+    assert.ok(again.logs.some((l) => /analysis: its checkpoint does not verify, so it runs again \(the stage's inputs changed since its checkpoint\)/.test(l.text)));
+  } finally {
+    Object.assign(VERSIONS, before);
+  }
+  // the same versions and another bundle (the page reloaded on a new site, the same storage): it runs again too
+  const second = await setup({ python, files, boot: { ...BOOT, bundle: { ...BOOT.bundle, sha256: "b".repeat(64) } }, idb: first.idb, fake: first.fake });
+  failVerify = false;
+  await second.svc.resume(job.id);
+  const done = await settle(second.svc, job.id);
+  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+  assert.deepEqual(done.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", false], ["verify", false]]);
+  assert.equal(runs(), 4, "the attempt between ran it on 9.9.9 and 8.8.8; this one on the new bundle");
+  assert.equal(done.limitations.at(-1), OMICS.computedLine(VERSIONS));
+  // and nothing changed: reused, as before
+  failVerify = true;
+  const third = await second.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
+  assert.equal((await settle(second.svc, third.id)).state, "failed");
+  failVerify = false;
+  await second.svc.resume(third.id);
+  const reused = await settle(second.svc, third.id);
+  assert.deepEqual(reused.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", true], ["verify", false]]);
+  assert.equal(runs(), 5);
+});
+
+test("scrna preflight: a source that names no file here and is no table may be a Cell Ranger directory, which the runner reads: the refusal says so", async () => {
+  const files = projectStore([["p1", "pbmc.tsv.gz", "gz"], ["p1", "sheet_dir.csv", "sample,path,batch\ns1,filtered_feature_bc_matrix,b1\n"], ["p1", "sheet_gone.csv", "sample,path\ns1,gone.h5\n"]]);
+  const svc = await preflightSvc({ files });
+  for (const [params, why] of [
+    [{ source: "filtered_feature_bc_matrix" }, /^source: no file named "filtered_feature_bc_matrix" in this project; a Cell Ranger directory is read by the runner \(bioagent scrna <dir>\): a directory cannot be a project file$/],
+    [{ source: "sample1/outs/raw_feature_bc_matrix" }, /in this project; a Cell Ranger directory is read by the runner/],
+    [{ source: "sheet_dir.csv" }, /^source: line 2, path: no file named "filtered_feature_bc_matrix" in this project; a Cell Ranger directory is read by the runner \(bioagent scrna <dir>\)/],
+  ]) {
+    const r = await refused(scrna, params, svc);
+    assert.deepEqual([r?.type, r?.need], ["bad_arguments", "arguments"], JSON.stringify(params));
+    assert.match(r.message, why);
+    assert.match(r.hint, /^Connect the local runner: it reads a Cell Ranger directory on the machine that holds it/);
+  }
+  // a table that is not here, or a file named as a format the runner reads by its suffix, is not said to be a directory
+  for (const params of [{ source: "gone.tsv" }, { source: "gone.csv.gz" }, { source: "sheet_gone.csv" }]) {
+    const r = await refused(scrna, params, svc);
+    assert.equal(r?.type, "bad_arguments", JSON.stringify(params));
+    assert.match(r.message, /no file named/);
+    assert.doesNotMatch(r.message, /Cell Ranger/);
+    assert.equal(r.hint, "");
+  }
+});
+
+test("the handlers' needsRunner agree with the catalog's runner_only rules, which the router reads when the job service's module is absent", () => {
+  const cases = {
+    "pipeline.rnaseq": [{}, { counts: "c.tsv" }, { counts: "" }, { counts: null }, { counts: "  " }, { samples: "s.csv" }, { counts: "c.tsv", de_backend: "pydeseq2" }, { counts: "c.tsv", de_backend: "builtin" }, { de_backend: "pydeseq2" }],
+    "pipeline.scrna": [{}, { source: "x.tsv" }, { source: "x.H5AD" }, { source: " x.h5 " }, { source: "x.h5ad.tsv" }, { source: "x.tsv", analysis_backend: "scanpy" }, { source: "x.tsv", analysis_backend: "builtin" }, { source: "x.tsv", integration: "scvi" }, { source: "x.tsv", integration: "harmony" }, { source: 5 }],
+  };
+  for (const h of OMICS_HANDLERS) {
+    const entry = { execution: { browser_job: { runner_only: RUNNER_ONLY[h.kind] } } };
+    for (const params of cases[h.kind]) assert.equal(Boolean(h.needsRunner(params)), runnerOnly(entry, params).length > 0, `${h.kind} ${JSON.stringify(params)}`);
+    // without a call's arguments nothing is judged (tcmstudio.capability.runner_only(entry, None) is empty)
+    assert.deepEqual(runnerOnly(entry, undefined), []);
+  }
+});
+
 // ------------------------------------------------------------------------------------------------------- the page
 
 test("run_pipeline is a job call: job.pipeline.<pipeline> with the kind's arguments; the runtime says what needs the runner", async () => {
@@ -559,6 +645,16 @@ test("run_pipeline is a job call: job.pipeline.<pipeline> with the kind's argume
   assert.deepEqual(jobCall("call_tool", { tool: "run_pipeline", arguments: { pipeline: "scrna", arguments: { source: "x.tsv" } } }), { kind: "pipeline.scrna", params: { source: "x.tsv" } });
   assert.deepEqual(jobCall("call_tool", { tool: "job.pipeline.scrna", arguments: { source: "x.tsv" } }), { kind: "pipeline.scrna", params: { source: "x.tsv" } });
   assert.equal(jobCall("run_pipeline", { arguments: {} }), null);
+  // its arguments as the runner's schema reads them: JSON text is the object it spells; the kind's parameters given
+  // beside them, arguments of another type or none are bad arguments
+  assert.deepEqual(jobCall("run_pipeline", { pipeline: "rnaseq", arguments: '{"counts": "c.tsv", "samples": "s.tsv"}' }), { kind: "pipeline.rnaseq", params: { counts: "c.tsv", samples: "s.tsv" } });
+  assert.deepEqual(jobCall("call_tool", { tool: "run_pipeline", arguments: { pipeline: "scrna", arguments: '{"source": "x.tsv"}' } }), { kind: "pipeline.scrna", params: { source: "x.tsv" } });
+  for (const [args, why] of [
+    [{ pipeline: "rnaseq", counts: "c.tsv", samples: "s.tsv" }, /run_pipeline has no argument 'counts', 'samples'/],
+    [{ pipeline: "rnaseq", arguments: "c.tsv" }, /arguments must be an object \(the job kind's parameters\), not a string/],
+    [{ pipeline: "rnaseq", arguments: null }, /arguments must be an object \(the job kind's parameters\), not null/],
+    [{ pipeline: "rnaseq" }, /missing the required argument 'arguments'/],
+  ]) assert.match(jobCall("run_pipeline", args).problem, why, JSON.stringify(args));
   const submitted = [];
   const service = {
     status: "ready", reason: null, kinds: () => OMICS_HANDLERS.map((h) => ({ kind: h.kind })), events: () => () => {},
@@ -572,6 +668,18 @@ test("run_pipeline is a job call: job.pipeline.<pipeline> with the kind's argume
   assert.equal(env.status, "job_submitted");
   assert.deepEqual(submitted, [{ kind: "pipeline.rnaseq", params: { counts: "c.tsv", samples: "s.tsv" }, opts: { project_id: "p1", submission_id: null } }]);
   assert.equal(env.via, "job.pipeline.rnaseq");
+  const flat = await rt.call("run_pipeline", { pipeline: "rnaseq", counts: "c.tsv", samples: "s.tsv" }, { project_id: "p1" });
+  assert.equal(flat.error.type, "bad_arguments");
+  assert.doesNotMatch(flat.text, /FASTQ/);
+  // a kind no handler here knows (a pipeline the catalog does not have, or none): not_found, and no remedy that says
+  // the runner runs it
+  for (const args of [{ pipeline: "RNAseq", arguments: { counts: "c.tsv" } }, { arguments: { counts: "c.tsv" } }]) {
+    const unknown = await rt.call("run_pipeline", args, { project_id: "p1" });
+    assert.deepEqual([unknown.error.type, unknown.error.reason], ["not_found", "not_found"], JSON.stringify(args));
+    assert.match(unknown.error.hint, /^This browser runs pipeline\.rnaseq, pipeline\.scrna; catalog_search kind='job' lists every job kind/);
+    assert.doesNotMatch(unknown.text, /runs every job kind|Connect the local runner/);
+  }
+  assert.equal(submitted.length, 1, "nothing else was submitted");
   assert.equal(rt.needsRunner("pipeline.rnaseq", { counts: "c.tsv", samples: "s.tsv" }), null);
   assert.match(rt.needsRunner("pipeline.rnaseq", { samples: "s.csv" }).message, /FASTQ/);
   assert.match(rt.needsRunner("pipeline.scrna", { source: "a.tsv", integration: "scvi" }).hint, /Connect the local runner/);

@@ -26,6 +26,7 @@ from __future__ import annotations
 import csv
 import gzip
 import io
+import zlib
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -221,7 +222,11 @@ def read_table(path: str | Path) -> CellMatrix:
     """Genes in rows, cells in columns; the first column holds gene names."""
     path = Path(path)
     with _open(path) as fh:
-        text = fh.read()
+        try:
+            text = fh.read()
+        except (EOFError, OSError, zlib.error) as exc:      # a gzip stream cut short or corrupt
+            raise ScIOError(f"{path} cannot be read to its end ({type(exc).__name__}: "
+                            f"{exc})") from exc
     first = text.split("\n", 1)[0]
     delimiter = "\t" if first.count("\t") >= first.count(",") else ","
     rows = list(csv.reader(io.StringIO(text), delimiter=delimiter))

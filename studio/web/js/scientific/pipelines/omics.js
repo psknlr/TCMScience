@@ -16,8 +16,9 @@
 // SHA-256 the project recorded for it; then it is mounted read-only in the worker. A sample sheet's files are found the
 // same way and the sheet is rewritten to name the copies, as the runner's _stage_sheet does.
 //
-// inputs → analysis → verify. The analysis stage is checkpointed (its parameters and its inputs' digests): a resumed
-// job reuses it when every output it wrote still re-hashes to its recorded digest.
+// inputs → analysis → verify. The analysis stage is checkpointed (its parameters, its inputs' digests and the runtime
+// that computed it: the bundle, Pyodide, numpy and scipy): a resumed job reuses it when every output it wrote still
+// re-hashes to its recorded digest.
 
 import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
 import { Sha256 } from "../data/digest.js";
@@ -34,13 +35,17 @@ const N_TOP_GENES = [50, 10000];
 /** The job copies its inputs into OPFS and the pipeline writes about as much again: room for three times them. */
 const STORAGE_FACTOR = 3;
 const RUNNER = "Connect the local runner";
+const DIRECTORY_HINT = `${RUNNER}: it reads a Cell Ranger directory on the machine that holds it. Here, give a count table of this project (CSV, TSV or TXT, gzipped or not; genes in rows).`;
 const TABLE = /\.(csv|tsv|txt)(\.gz)?$/i;
 const SHEET = /\.(csv|tsv|txt)$/i;
 
-/** The browser's line about where the numbers were computed; the versions are the worker's own (never written here). */
+/**
+ * The browser's line about where the numbers were computed; the versions are the worker's own (never written here). It
+ * claims no tolerance for this run: none was compared with a native one, only the two simulated references were.
+ */
 function computedLine(versions) {
   const v = (name) => (versions?.[name] ? `${name} ${versions[name]}` : `${name} (its version was not reported)`);
-  return `Computed in this browser with Pyodide's ${v("numpy")} and ${v("scipy")}; the native run is the reference, and its numbers can differ in the last digits (held to a stated tolerance)`;
+  return `Computed in this browser with Pyodide's ${v("numpy")} and ${v("scipy")}; the native run is the reference. This run was not compared with one: on two simulated references the browser's numbers agreed with the native run's within a stated tolerance (studio/docs/BROWSER_JOBS.md §3.1), so a value near a threshold, such as an adjusted p-value near alpha, can fall on the other side here.`;
 }
 const UMAP_LINE = "The UMAP layout is a picture of the graph: it amplifies last-digit differences and is not compared with the native run's";
 
@@ -226,8 +231,11 @@ function checkScrna(p) {
 
 // --------------------------------------------------------------------------------------------- project files
 
-/** The project file a parameter names (its id, or its name: the newest file of that name in the project). */
-async function findFile(projectFiles, projectId, param, ref) {
+/**
+ * The project file a parameter names (its id, or its name: the newest file of that name in the project). note: what the
+ * refusal adds when no file has that name (directoryNote).
+ */
+async function findFile(projectFiles, projectId, param, ref, note = "") {
   if (typeof ref !== "string" || !ref.trim()) throw bad(`${param}: name a file of this project (its name or its id)`);
   if (!projectFiles) {
     throw refusal("unavailable", "This page gives the job service no project files to read the inputs from.", "storage",
@@ -240,12 +248,24 @@ async function findFile(projectFiles, projectId, param, ref) {
     throw refusal("unavailable", `${param}: the project's files could not be read (${err?.message || err})`, "storage");
   }
   if (!rec) {
-    throw bad(`${param}: no file named ${JSON.stringify(ref.trim())} in this project${projectId ? "" : " (the job belongs to no project, so only a file id can name one)"}`);
+    const e = bad(`${param}: no file named ${JSON.stringify(ref.trim())} in this project${projectId ? "" : " (the job belongs to no project, so only a file id can name one)"}${note}`);
+    if (note) e.hint = DIRECTORY_HINT;
+    throw e;
   }
   if (!rec.blob || typeof rec.blob.slice !== "function" || !bareSha256(rec.sha256)) {
     throw refusal("unavailable", `${param}: ${rec.name} has no bytes or no recorded SHA-256 in this browser`, "storage", "Attach the file to the project again.");
   }
   return rec;
+}
+
+/**
+ * A scRNA source named neither as a table nor as a format the runner reads by its suffix may be a Cell Ranger
+ * directory: the runner reads one where it is (browser_jobs.run_scrna refuses one for it), and a directory can never
+ * be a project file, so the refusal of a name with no file says so.
+ */
+function directoryNote(ref) {
+  const name = typeof ref === "string" ? ref.trim() : "";
+  return name && !TABLE.test(name) && !formatNeedsRunner("source", name) ? "; a Cell Ranger directory is read by the runner (bioagent scrna <dir>): a directory cannot be a project file" : "";
 }
 
 /** The first line of a (small) file's text, without a byte-order mark. */
@@ -268,15 +288,13 @@ async function plan(spec, p, projectFiles, projectId) {
   let sheet = null;
   for (const param of spec.files) {
     if (!given(p[param])) continue;
-    const rec = await findFile(projectFiles, projectId, param, p[param]);
+    const rec = await findFile(projectFiles, projectId, param, p[param], spec === SCRNA && param === "source" ? directoryNote(p[param]) : "");
     files.push({ param, rec });
     if (spec === RNASEQ && param === "samples") {
+      // counts with a FASTQ sample sheet: the runner refuses the pair (kinds.py, count-matrix mode), and so is it here
       const cells = headerCells(await firstLine(rec.blob));
       if (cells.includes("fastq_1") || cells.includes("fastq_2")) {
-        throw runnerRefusal({
-          message: `samples: ${rec.name} is a FASTQ sample sheet: the count-matrix mode takes a sample table (a sample column and the design's variables)`,
-          hint: `${RUNNER}: it runs the full pipeline from FASTQ (leave out counts there).`,
-        });
+        throw bad("samples: with counts this is the sample table (sample and the design columns); a FASTQ sample sheet runs without counts");
       }
     }
     if (spec === SCRNA && param === "source") {
@@ -287,7 +305,7 @@ async function plan(spec, p, projectFiles, projectId) {
         if (/\.txt$/i.test(rec.name)) throw bad(`source: ${rec.name} is a sample sheet, and a sample sheet is read as .csv or .tsv only; name it so`);
         sheet = { rec };
         for (const row of await sheetRows(rec)) {
-          const found = await findFile(projectFiles, projectId, `source: line ${row.line}, path`, row.path);
+          const found = await findFile(projectFiles, projectId, `source: line ${row.line}, path`, row.path, directoryNote(row.path));
           const why = formatNeedsRunner(`source: line ${row.line}, path`, found.name);
           if (why) throw runnerRefusal(why);
           if (!TABLE.test(found.name)) throw bad(`source: line ${row.line}, path ${found.name} is not a count table (CSV, TSV or TXT, gzipped or not; genes in rows)`);
@@ -548,8 +566,6 @@ function handler(spec, { title, analysis }) {
         s.record({ inputs: staged.digests });
         return { detail: `${staged.names.length} file${staged.names.length === 1 ? "" : "s"} copied and checked against the project's SHA-256` };
       });
-      // what the analysis depends on: its parameters and the bytes of its inputs
-      const inputsDigest = `sha256:${await sha256Hex(canonicalJson({ params, inputs: staged.digests }))}`;
       const lease = await pool.lease({ packages: PACKAGES });
       let summary = null;
       // a worker refused for memory is not handed to the next job: if it ran out, its wasm memory never shrinks again
@@ -558,6 +574,11 @@ function handler(spec, { title, analysis }) {
         // the versions this worker loaded, as it reports them: the limitations say what computed the numbers
         const loaded = await lease.call("packages", { names: PACKAGES }, { signal: ctx.signal });
         const versions = Object.fromEntries(PACKAGES.map((n) => [n, loaded?.versions?.[n] ?? null]));
+        // what the analysis depends on: its parameters, the bytes of its inputs, and what computes it (the bundle's
+        // SHA-256, Pyodide's version, the numpy and scipy this worker reports): a resumed job on a changed runtime runs
+        // it again, so the limitations always name what computed the outputs
+        const runtime = { bundle: lease.info?.bundle?.sha256 ?? null, pyodide: lease.info?.pyodide?.version ?? null, packages: versions };
+        const inputsDigest = `sha256:${await sha256Hex(canonicalJson({ params, inputs: staged.digests, runtime }))}`;
         const m = await lease.call("mount", { root: `${root}/inputs`, dir: [...ctx.dir, "inputs"], files: staged.names }, { signal: ctx.signal });
         ctx.log("info", `${m.files.length} input file${m.files.length === 1 ? "" : "s"} mounted read-only (${(m.bytes / 1e6).toFixed(1)} MB, ${m.mode})`);
 

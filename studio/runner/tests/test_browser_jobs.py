@@ -602,12 +602,11 @@ def test_verify_pipeline_without_a_record_fails_and_says_why(tmp_path):
 @pytest.fixture
 def refusable(tmp_path):
     """Sources the browser's single-cell job does not read: a 10x HDF5, an .h5ad, a
-    directory, and a sheet naming an HDF5 file; and a FASTQ sheet given as a sample table."""
+    directory, and a sheet naming an HDF5 file."""
     (tmp_path / "pbmc.h5").write_bytes(b"\x89HDF\r\n\x1a\n")
     (tmp_path / "atlas.H5AD").write_bytes(b"\x89HDF\r\n\x1a\n")
     (tmp_path / "filtered_feature_bc_matrix").mkdir()
     (tmp_path / "sheet.csv").write_text("sample,path\nctrl1,pbmc.h5\n")
-    (tmp_path / "fastq.csv").write_text("sample,fastq_1,condition\nctrl1,a.fq.gz,control\n")
     (tmp_path / "counts.tsv").write_text("gene_id\ta\tb\ng1\t1\t2\n")
     return tmp_path
 
@@ -615,9 +614,6 @@ def refusable(tmp_path):
 @pytest.mark.parametrize("fn, args, needle, need", [
     ("run_rnaseq_counts", {"de_backend": "pydeseq2"},
      "PyDESeq2 is not in this browser's Python; the built-in DESeq2 implementation is", "runner"),
-    ("run_rnaseq_counts", {"samples": "fastq.csv"},
-     "is a FASTQ sample sheet: the count-matrix mode takes a sample table; run the full "
-     "pipeline from FASTQ on the runner", "runner"),
     ("run_scrna", {"analysis_backend": "scanpy"}, "Scanpy, anndata, leidenalg and umap-learn",
      "runner"),
     ("run_scrna", {"integration": "scvi"}, "scVI (scvi-tools and torch) is not in this browser's",
@@ -645,6 +641,118 @@ def test_what_the_browser_does_not_run_is_refused_with_the_reason(refusable, fn,
     assert result["need"] == need
     assert not (refusable / "out").exists(), "nothing is written for a refused call"
     assert any(kind == "log" and data["text"].startswith("refused: ") for kind, data in events)
+
+
+#: The runner's refusal of a FASTQ sample sheet given with counts (kinds._rnaseq_counts_prepare).
+FASTQ_SHEET_WITH_COUNTS = ("samples: with counts this is the sample table (sample and the design "
+                           "columns); a FASTQ sample sheet runs without counts")
+
+
+def _corrupt_gzip(text: str) -> bytes:
+    """``text`` gzipped, its deflate stream corrupted (bytes 20 to 60 flipped)."""
+    import gzip
+    raw = gzip.compress(text.encode("utf-8"), mtime=0)
+    return raw[:20] + bytes(b ^ 0xFF for b in raw[20:60]) + raw[60:]
+
+
+@pytest.fixture
+def unusable(tmp_path):
+    """Inputs nothing can analyse, wherever it runs: a FASTQ sample sheet given as the sample
+    table (its header spaced, too), gzipped tables whose deflate stream is corrupt (zlib.error,
+    not a truncated file), a count table that is not UTF-8, and a sheet row with no path."""
+    counts = "gene_id\tgene_name\t" + "\t".join(f"s{i}" for i in range(6)) + "\n" + "".join(
+        f"g{g}\tG{g}\t" + "\t".join(str((g * 7 + i * 3) % 50 + 1) for i in range(6)) + "\n"
+        for g in range(200))
+    samples = "sample\tcondition\n" + "".join(f"s{i}\t{'ab'[i % 2]}\n" for i in range(6))
+    table = "gene\t" + "\t".join(f"c{i}" for i in range(60)) + "\n" + "".join(
+        f"G{g}\t" + "\t".join(str((g + i) % 4) for i in range(60)) + "\n" for g in range(300))
+    (tmp_path / "counts.tsv").write_text(counts)
+    (tmp_path / "samples.tsv").write_text(samples)
+    for name, text in (("counts.tsv.gz", counts), ("samples.tsv.gz", samples),
+                       ("table.tsv.gz", table)):
+        (tmp_path / name).write_bytes(_corrupt_gzip(text))
+    (tmp_path / "gz_sheet.csv").write_text("sample,path\nA,table.tsv.gz\n")
+    (tmp_path / "fastq.csv").write_text("sample,fastq_1,condition\nctrl1,a.fq.gz,control\n")
+    (tmp_path / "spaced.csv").write_text("sample, fastq_1, fastq_2, condition\n"
+                                         "ctrl1, a_1.fq.gz, a_2.fq.gz, control\n")
+    (tmp_path / "latin.csv").write_bytes(
+        table.replace("\t", ",").replace("\nG1,", "\nG\xe9ne1,").encode("latin-1"))
+    (tmp_path / "empty_path.csv").write_text("sample,path,condition\nA,,control\n")
+    return tmp_path
+
+
+@pytest.mark.parametrize("fn, args, needle", [
+    ("run_rnaseq_counts", {"samples": "fastq.csv"}, FASTQ_SHEET_WITH_COUNTS),
+    ("run_rnaseq_counts", {"samples": "spaced.csv"}, FASTQ_SHEET_WITH_COUNTS),
+    ("run_rnaseq_counts", {"counts": "counts.tsv.gz"},
+     "{dir}/counts.tsv.gz cannot be read to its end (error: Error -3 while decompressing data"),
+    ("run_rnaseq_counts", {"samples": "samples.tsv.gz"},
+     "{dir}/samples.tsv.gz cannot be read to its end (error: Error -3 while decompressing data"),
+    ("run_scrna", {"source": "table.tsv.gz"},
+     "{dir}/table.tsv.gz cannot be read to its end (error: Error -3 while decompressing data"),
+    ("run_scrna", {"source": "gz_sheet.csv"},
+     "{dir}/table.tsv.gz cannot be read to its end (error: Error -3 while decompressing data"),
+    ("run_scrna", {"source": "latin.csv"}, "'utf-8' codec can't decode byte 0xe9"),
+    ("run_scrna", {"source": "empty_path.csv"}, "line 2 of {dir}/empty_path.csv names no path"),
+])
+def test_inputs_nothing_can_analyse_are_refused_as_the_runner_refuses_them(
+        unusable, capsys, fn, args, needle):
+    """Refused with need null (no runner or memory would run them), in the runner's words: a
+    FASTQ sheet with counts as the runner's job kind refuses it, the rest as the command
+    prints it; never a runtime error, and never 'the runner would run it'."""
+    from bioagent import cli
+    base = ({"counts": "counts.tsv", "samples": "samples.tsv"} if fn == "run_rnaseq_counts"
+            else {})
+    full = {k: str(unusable / v) for k, v in {**base, **args}.items()}
+    result = _ok(call(fn, json.dumps({**full, "out_dir": str(unusable / "out")})))
+    assert (result["exit"], result["need"], result["summary"]) == (2, None, None), result
+    assert result["refused"].startswith(needle.replace("{dir}", str(unusable))), result["refused"]
+    if needle == FASTQ_SHEET_WITH_COUNTS:
+        from tcmstudio.kinds import RNASEQ_COUNTS_FASTQ_SHEET
+        assert result["refused"] == RNASEQ_COUNTS_FASTQ_SHEET
+        return
+    # the command run natively says the same
+    argv = (["rnaseq", "--counts", full["counts"], "--samples", full["samples"]]
+            if fn == "run_rnaseq_counts" else ["scrna", full["source"]])
+    assert cli.main([*argv, "--out", str(unusable / "native")]) == 1
+    assert f"refused: {result['refused']}\n" in capsys.readouterr().err
+
+
+def test_a_table_is_counted_before_it_is_read_in_full(tmp_path, monkeypatch):
+    """Whether the source is a sheet is decided from its first line, so a single count table
+    is counted (here past a lowered limit) before anything reads it in full."""
+    from bioagent.omics import scrna  # noqa: F401 - imported before read_text is watched
+
+    (tmp_path / "t.csv").write_text("gene,c1,c2,c3\nCD3E,1,2,3\n")
+    real = Path.read_text
+
+    def read_text(self, *args, **kwargs):
+        assert self.name != "t.csv", "the table was read in full before its cells were counted"
+        return real(self, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(browser_jobs, "SC_CELLS_MAX", 2)
+    result = _ok(call("run_scrna", json.dumps({"source": str(tmp_path / "t.csv"),
+                                               "out_dir": str(tmp_path / "out")})))
+    assert (result["exit"], result["need"]) == (2, "memory"), result
+    assert result["refused"].startswith("3 cells exceed the 2 a browser worker can hold")
+
+
+def test_a_spaced_header_is_counted_as_the_reader_reads_it(tmp_path, monkeypatch):
+    """A CSV header written with ', ' holds the samples the count reader reads (it strips each
+    cell): at the samples limit, whatever it is measured to be, the table runs."""
+    monkeypatch.setattr(browser_jobs, "RNASEQ_SAMPLES_MAX", 200)
+    samples = [f"s{i}" for i in range(200)]
+    (tmp_path / "counts.csv").write_text("gene_id, gene_name, " + ", ".join(samples) + "\n" + "".join(
+        f"g{g}, G{g}, " + ", ".join(str((g + i) % 9 + 1) for i in range(200)) + "\n"
+        for g in range(30)))
+    (tmp_path / "samples.csv").write_text("sample,condition\n" + "".join(
+        f"{s},{'ab'[i % 2]}\n" for i, s in enumerate(samples)))
+    events: list = []
+    result = _ok(call("run_rnaseq_counts", json.dumps({
+        "counts": str(tmp_path / "counts.csv"), "samples": str(tmp_path / "samples.csv"),
+        "out_dir": str(tmp_path / "out")}), lambda kind, data: events.append((kind, data))))
+    assert (result["exit"], result["need"]) == (0, None), result
+    assert any("(30 genes x 200 samples)" in data["text"] for kind, data in events if kind == "log")
 
 
 @pytest.mark.parametrize("fn, args, needle", [

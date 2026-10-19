@@ -421,6 +421,7 @@ def _first_line(path: Any, *, count: bool = False) -> tuple[str, int]:
     bytes, as the pipelines' readers decide). ("", 0) when it cannot be read; the
     pipeline's own reader then says why."""
     import gzip
+    import zlib
     from pathlib import Path
 
     path = Path(path)
@@ -431,20 +432,21 @@ def _first_line(path: Any, *, count: bool = False) -> tuple[str, int]:
               else path.open(encoding="utf-8-sig")) as fh:
             first = next((line for line in fh if line.strip()), "")
             rows = sum(1 for line in fh if line.strip()) if count else 0
-    except (OSError, EOFError, UnicodeDecodeError, ValueError):
+    except (OSError, EOFError, UnicodeDecodeError, ValueError, zlib.error):
         return "", 0
     return first.rstrip("\r\n"), rows
 
 
 def _cells(line: str, *, tab_on_tie: bool) -> list[str]:
     """A header line's cells, split at the separator it uses more: a tab, else a comma (on a
-    tie, a tab as the single-cell reader decides, a comma as the count-matrix reader does)."""
+    tie, a tab as the single-cell reader decides, a comma as the count-matrix reader does),
+    each stripped as the readers strip them."""
     import csv
 
     tabs, commas = line.count("\t"), line.count(",")
     tab = tabs >= commas if tab_on_tie else tabs > commas
     try:
-        return next(csv.reader([line], delimiter="\t" if tab else ","), [])
+        return [c.strip() for c in next(csv.reader([line], delimiter="\t" if tab else ","), [])]
     except csv.Error:                     # the pipeline's own reader says what is wrong
         return []
 
@@ -456,12 +458,11 @@ def run_rnaseq_counts(args: Mapping[str, Any], emit: Emit | None = None) -> dict
     (refused: ``refused`` says why, ``need`` what would run it, and nothing else is set).
     ``counts`` and ``samples`` are the two tables' paths, ``out_dir`` where the run writes.
     The parameters are held to the runner's ``pipeline.rnaseq`` checks (``kinds``: design,
-    contrast, an alpha of 0.0001 to 0.5). ``de_backend`` ``pydeseq2`` is refused: this
-    browser's Python has no PyDESeq2. So is a matrix of more than ``RNASEQ_GENES_MAX`` genes
-    or ``RNASEQ_SAMPLES_MAX`` samples, counted from its lines before it is read in full, and
-    a run that runs out of memory (``need`` ``memory``)."""
-    from pathlib import Path
-
+    contrast, an alpha of 0.0001 to 0.5), and a FASTQ sample sheet given as ``samples`` is
+    refused in the runner's words (it runs without counts). ``de_backend`` ``pydeseq2`` is
+    refused: this browser's Python has no PyDESeq2. So is a matrix of more than
+    ``RNASEQ_GENES_MAX`` genes or ``RNASEQ_SAMPLES_MAX`` samples, counted from its lines
+    before it is read in full, and a run that runs out of memory (``need`` ``memory``)."""
     from bioagent import runrecord
     from bioagent.omics.rnaseq import RNASeqError
     from bioagent.omics.rnaseq_counts import RNASeqCountsConfig, run_rnaseq_counts as run_counts
@@ -477,6 +478,10 @@ def run_rnaseq_counts(args: Mapping[str, Any], emit: Emit | None = None) -> dict
     if choices["de_backend"] == "pydeseq2":
         return _refused(log, "PyDESeq2 is not in this browser's Python; the built-in DESeq2 "
                              "implementation is", "runner")
+    # a FASTQ sample sheet given as the sample table: the runner refuses it with counts too
+    sheet = _cells(_first_line(paths["samples"])[0], tab_on_tie=False)
+    if "fastq_1" in sheet or "fastq_2" in sheet:
+        return _refused(log, kinds.RNASEQ_COUNTS_FASTQ_SHEET)
     # the size of the matrix, from its header and its lines, before anything is read in full
     first, genes = _first_line(paths["counts"], count=True)
     header = _cells(first, tab_on_tie=False)
@@ -485,12 +490,6 @@ def run_rnaseq_counts(args: Mapping[str, Any], emit: Emit | None = None) -> dict
     if genes > RNASEQ_GENES_MAX or samples > RNASEQ_SAMPLES_MAX:
         return _refused(log, f"{size} exceed the {RNASEQ_GENES_MAX:,} genes x "
                              f"{RNASEQ_SAMPLES_MAX} samples {_HOLDS}", "memory")
-    # a FASTQ sample sheet given as the sample table: the full pipeline from FASTQ is the runner's
-    sheet = _cells(_first_line(paths["samples"])[0], tab_on_tie=False)
-    if "fastq_1" in sheet or "fastq_2" in sheet:
-        return _refused(log, f"{Path(paths['samples']).name} is a FASTQ sample sheet: the "
-                             "count-matrix mode takes a sample table; run the full pipeline "
-                             "from FASTQ on the runner", "runner")
     config = RNASeqCountsConfig(design=choices["design"], contrast=contrast,
                                 de_backend=choices["de_backend"], alpha=choices["alpha"])
     log(f"rnaseq counts: {paths['counts']} ({size}) with the sample table "
@@ -524,7 +523,7 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
     2^31 - 1, 50 to 10000 highly variable genes). Refused here, with the reason: the Scanpy
     backend and scVI (not in this browser's Python), and a 10x HDF5, .h5ad or directory
     source, in the sheet or alone; the runner reads those. So are more than
-    ``SC_CELLS_MAX`` cells, counted from the tables' headers before anything is read in
+    ``SC_CELLS_MAX`` cells, counted from the tables' headers before any table is read in
     full, and a run that runs out of memory (``need`` ``memory``)."""
     import csv
     from pathlib import Path
@@ -552,10 +551,12 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
         return _refused(log, "scVI (scvi-tools and torch) is not in this browser's Python; "
                              "built-in Harmony is", "runner")
     try:
+        # a sheet or a table, as the pipeline decides it: from the first line alone
         files = ([Path(r["path"]) for r in read_sheet(source)]
                  if source.is_file() and source.suffix.lower() in (".csv", ".tsv")
                  and _is_sheet(source) else [source])
-    except ScError as exc:
+    except (ScError, ValueError, OSError, csv.Error) as exc:
+        # what the command prints as "refused: ..." (a sheet or table that is not UTF-8 too)
         return _refused(log, str(exc))
     for f in files:
         if f.is_dir():

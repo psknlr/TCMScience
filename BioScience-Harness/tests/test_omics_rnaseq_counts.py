@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import json
 import shutil
+import zlib
 
 import numpy as np
 import pytest
@@ -232,6 +233,38 @@ def test_sample_tables_that_cannot_be_used_are_refused(tmp_path, text, needle):
     with pytest.raises(R.RNASeqError) as exc:
         C.read_sample_table(path)
     assert needle in str(exc.value)
+
+
+def _broken_gzip(text: str, how: str) -> bytes:
+    """``text`` gzipped, then made unreadable: its deflate stream corrupted (bytes 20 to 60
+    flipped) or cut short."""
+    raw = gzip.compress(text.encode("utf-8"), mtime=0)
+    if how == "truncated":
+        return raw[:len(raw) // 2]
+    return raw[:20] + bytes(b ^ 0xFF for b in raw[20:60]) + raw[60:]
+
+
+@pytest.mark.parametrize("how", ["corrupt", "truncated"])
+@pytest.mark.parametrize("which", ["counts", "samples"])
+def test_a_gzipped_table_that_cannot_be_read_to_its_end_is_refused(world, tmp_path, capsys,
+                                                                    which, how):
+    """A corrupt deflate stream (zlib.error) or one cut short (EOFError) is refused with the
+    reason, as a FASTQ file is (omics.fastq), never a traceback."""
+    data = _broken_gzip(world[which].read_text(), how)
+    if how == "corrupt":
+        with pytest.raises(zlib.error):
+            gzip.decompress(data)
+    path = tmp_path / f"{which}.tsv.gz"
+    path.write_bytes(data)
+    read = C.read_counts_table if which == "counts" else C.read_sample_table
+    with pytest.raises(R.RNASeqError) as exc:
+        read(path)
+    assert str(exc.value).startswith(f"{path} cannot be read to its end ("
+                                     + ("error: " if how == "corrupt" else "EOFError: "))
+    tables = {"counts": world["counts"], "samples": world["samples"], which: path}
+    code, _, err = _cli(["rnaseq", "--counts", str(tables["counts"]), "--samples",
+                         str(tables["samples"]), "--out", str(tmp_path / "o")], capsys)
+    assert code == 1 and err.startswith(f"refused: {path} cannot be read to its end"), err
 
 
 def test_a_run_refuses_before_writing_what_it_cannot_run(world, tmp_path):

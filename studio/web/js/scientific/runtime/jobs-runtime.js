@@ -7,6 +7,7 @@
 // to the service as a resolver, {find(projectId, ref)}, which names a file by its id or, as the runner resolves a bare
 // name among its uploads, by its name: the newest file of that name in the project.
 
+import { pipelineArguments } from "../../core/catalog.js";
 import { glossary, t } from "../../core/i18n.js";
 import { baseReceipt } from "../../core/receipt.js";
 import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
@@ -25,7 +26,10 @@ const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
 /** The handlers this page has, by kind: what a call needs the runner for is asked of them before it is placed. */
 const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS].map((h) => [h.kind, h]));
 
-/** The job kind and parameters a call stands for, or null when it is not a job this service runs. */
+/**
+ * The job kind and parameters a call stands for ({kind, params}), or null when it is not a job this service runs; a
+ * run_pipeline call the runner's schema refuses (core/catalog.js pipelineArguments) → {kind, problem}.
+ */
 export function jobCall(tool, args = {}) {
   const a = isPlainObject(args) ? args : {};
   if (tool === "network_pharmacology_run") {
@@ -37,10 +41,13 @@ export function jobCall(tool, args = {}) {
     for (const key of ["background", "hits", "permutations", "activity", "optional"]) if (key in params) job[key] = params[key];
     return { kind: "research.run", params: job };
   }
-  // as tcmstudio.core_tools.route maps it for the runner: job.pipeline.<pipeline> with the job kind's arguments
+  // as tcmstudio.core_tools.route maps it for the runner: job.pipeline.<pipeline> with the job kind's arguments (an
+  // object, or the JSON text of one, as the dispatcher reads them)
   if (tool === "run_pipeline") {
     const pipeline = typeof a.pipeline === "string" ? a.pipeline.trim() : "";
-    return pipeline ? { kind: `pipeline.${pipeline}`, params: isPlainObject(a.arguments) ? a.arguments : {} } : null;
+    if (!pipeline) return null;
+    const { params, problem } = pipelineArguments(a);
+    return problem ? { kind: `pipeline.${pipeline}`, problem } : { kind: `pipeline.${pipeline}`, params };
   }
   const id = tool === "call_tool" ? String(a.tool || "") : String(tool || "");
   const params = tool === "call_tool" ? (isPlainObject(a.arguments) ? a.arguments : {}) : a;
@@ -129,8 +136,18 @@ export class BrowserJobsRuntime {
     const status = browserJobStatus(tool, args);
     if (status) return this.#status(tool, status, input_sha256);
     const call = jobCall(tool, args);
+    if (call?.problem) {
+      return failed(tool, input_sha256, "bad_arguments", call.problem, "Give the job kind's parameters as an object in arguments: run_pipeline {pipeline, arguments: {…}}.");
+    }
     if (!call || !this.runs(call.kind)) {
-      return failed(tool, input_sha256, "unavailable", `${call ? call.kind : tool} is not a job this browser runs`, "Connect the local runner: it runs every job kind.");
+      if (call && BY_KIND.has(call.kind)) {
+        return failed(tool, input_sha256, "unavailable", `${call.kind} is not a job this browser runs`, "Connect the local runner: it runs every job kind.");
+      }
+      // a kind no handler of this page knows (run_pipeline naming no pipeline): not one the runner is known to run either
+      const env = failed(tool, input_sha256, "not_found", `${call ? call.kind : tool} is not a job this browser runs`,
+        `This browser runs ${this.kinds().join(", ") || "no job kind now"}; catalog_search kind='job' lists every job kind and where it runs.`);
+      env.error.reason = "not_found";
+      return env;
     }
     try {
       const job = await this.service.submit(call.kind, call.params, { project_id: ctx.project_id || null, submission_id: ctx.submission_id || null });
@@ -140,7 +157,7 @@ export class BrowserJobsRuntime {
       const type = err?.type === "bad_arguments" ? "bad_arguments" : "unavailable";
       const env = failed(tool, input_sha256, type, err?.message || String(err), err?.hint || "");
       if (err?.need) env.error.requires = [{ need: err.need, detail: err.message || String(err), remedy: err.hint || "" }];
-      // a call whose files only the runner reads (a FASTQ sheet, an .h5ad named by its id) needs the runner, not the
+      // a call whose files only the runner reads (an .h5ad named by its id, a sheet's .h5 path) needs the runner, not the
       // job service: the reason is the need's, as the router's own needs_runner (tcmstudio.capability.REASON_NEED)
       if (err?.need === "dataset") env.error.reason = "needs_dataset";
       else if (err?.need === "runner") env.error.reason = "needs_runner";

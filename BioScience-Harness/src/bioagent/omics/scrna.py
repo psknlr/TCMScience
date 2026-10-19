@@ -146,14 +146,20 @@ def read_sheet(path: str | Path) -> list[dict[str, str]]:
     text = p.read_text(encoding="utf-8-sig")
     first = text.splitlines()[0] if text.strip() else ""
     dialect = "excel-tab" if first.count("\t") > first.count(",") else "excel"
-    rows = [{k.strip(): (v or "").strip() for k, v in r.items() if k}
-            for r in csv.DictReader(text.splitlines(), dialect=dialect)]
+    reader = csv.DictReader(text.splitlines(), dialect=dialect)
+    rows, lines = [], []
+    for r in reader:
+        rows.append({k.strip(): (v or "").strip() for k, v in r.items() if k})
+        lines.append(reader.line_num)
     if not rows or "sample" not in rows[0] or "path" not in rows[0]:
         raise ScError(f"{p} needs 'sample' and 'path' columns")
     names = [r["sample"] for r in rows]
     if len(set(names)) != len(names):
         raise ScError(f"{p} names a sample twice")
-    for r in rows:
+    for line, r in zip(lines, rows):
+        if not r["path"]:
+            # an empty cell would name the sheet's own directory
+            raise ScError(f"line {line} of {p} names no path")
         q = Path(r["path"])
         q = q if q.is_absolute() else p.parent / q
         if not q.exists():
@@ -446,7 +452,10 @@ def run_scrna(source: str | Path, config: ScConfig, out_dir: str | Path) -> ScRu
 
 
 def _is_sheet(path: Path) -> bool:
-    first = path.read_text(encoding="utf-8-sig").split("\n", 1)[0].lower()
+    """Whether ``path`` is a sample sheet (``sample`` and ``path`` columns), from its first
+    line alone: a count table is not read in full to tell."""
+    with path.open(encoding="utf-8-sig") as fh:
+        first = fh.readline().lower()
     cells = [c.strip() for c in first.replace("\t", ",").split(",")]
     return "sample" in cells and "path" in cells
 

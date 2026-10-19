@@ -739,16 +739,36 @@ def _validation_record(v: ValidationResult, schema: str, phi: bool,
     return out
 
 
+def _kind_check(entry: Mapping[str, Any], args: Mapping[str, Any]) -> str | None:
+    """A job kind's refusal of these parameters alone (``kinds.Kind.check``), or None."""
+    if entry["kind"] != "job":
+        return None
+    from .kinds import KINDS, BadParams
+    spec = KINDS.get(entry["id"].split(".", 1)[1])
+    try:
+        if spec is not None and spec.check is not None:
+            spec.check(args)
+    except BadParams as exc:
+        return str(exc)
+    return None
+
+
 def _preflight(entry: Mapping[str, Any], args: Mapping[str, Any], ctx: Context) -> Outcome | None:
     """Can this entry run here, now? Missing runtime, dependency (the chosen engine's too) or
     web access, or a request too large for the browser, is a plain 'unavailable' /
     'network_off' with the remedy, every missing requirement (error.requires) and the reason
     code (error.reason); nothing is approximated. capability.requirements decides; datasets
     and the job service are left to the call itself (a lookup with no store says not_loaded,
-    a job without the service says so), and a connector reports web access itself."""
+    a job without the service says so), and a connector reports web access itself. Before
+    all of it, parameters a job kind refuses on their own (kinds.Kind.check) are
+    'bad_arguments' in the kind's words, wherever the call would run."""
     kind = entry["kind"]
     title = entry["title"]["en"]
     zh = entry["title"]["zh"]
+    problem = _kind_check(entry, args)
+    if problem:
+        # arguments no engine could run (a count matrix with a FASTQ engine): not a missing tool
+        return _failure(kind, "bad_arguments", problem, _signature(entry["parameters"]))
     size = None
     if ctx.where == "browser":
         try:

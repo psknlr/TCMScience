@@ -2,13 +2,13 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { indexedDB } from "fake-indexeddb";
-import { Catalog } from "../js/core/catalog.js";
+import { Catalog, requirement } from "../js/core/catalog.js";
 import { HUMAN_ONLY, PLACEMENT_REASONS, ToolRouter, hostsDigest, hostsOf, normalizeEnvelope, storeApprovals, synthEnvelope } from "../js/core/router.js";
 import { RECEIPT_SCHEMA } from "../js/core/receipt.js";
 import { t } from "../js/core/i18n.js";
 import { openStore } from "../js/core/store.js";
 import { refusalsOf } from "../js/core/governance.js";
-import { envelopeFor, fakeRuntime, memoryApprovals, testCatalogDoc } from "./fixtures/fakes.mjs";
+import { envelopeFor, fakeRuntime, memoryApprovals, pipelineCatalogDoc, testCatalogDoc } from "./fixtures/fakes.mjs";
 import { BrowserJobsRuntime } from "../js/scientific/runtime/jobs-runtime.js";
 
 const catalog = () => new Catalog(testCatalogDoc());
@@ -226,6 +226,148 @@ test("run_pipeline: placed by the kind its pipeline names; a call whose argument
   assert.deepEqual([lacking.where, lacking.reason], [null, "missing_deps"]);
   assert.match(lacking.message, /scanpy/);
   assert.equal(make({ runner: "offline" }).r.placement("job.pipeline.scrna", { source: "x.tsv", analysis_backend: "scanpy" }).reason, "needs_runner");
+});
+
+/** A router over pipelineCatalogDoc, with a job service that runs pipeline.rnaseq and pipeline.scrna (jobs null: none). */
+function pipelineRouter({ runner = "offline", compute = "auto", jobs = "ready", browser = "idle" } = {}) {
+  const submitted = [];
+  const service = {
+    status: jobs, reason: jobs === "ready" ? null : "no OPFS", events: () => () => {}, onStatus: () => () => {},
+    kinds: () => (jobs === "ready" ? [{ kind: "pipeline.rnaseq" }, { kind: "pipeline.scrna" }] : []),
+    submit: async (kind, params, opts) => {
+      submitted.push({ kind, params, opts });
+      return { id: "bj-0123456789abcdef", kind, state: "queued", title: { zh: "x", en: "x" }, stages: [] };
+    },
+  };
+  const runtimes = { browser: fakeRuntime("browser", { status: browser }), runner: fakeRuntime("runner", { status: runner }) };
+  if (jobs !== null) runtimes.jobs = new BrowserJobsRuntime({ service });
+  const cat = new Catalog(pipelineCatalogDoc());
+  return { r: new ToolRouter({ catalog: cat, runtimes, settings: { compute }, approvals: memoryApprovals() }), runtimes, submitted, catalog: cat };
+}
+
+test("without a call's arguments a browser job kind is ready where the job service runs it; the page's catalog answers say so too", async () => {
+  const { r, catalog: cat } = pipelineRouter();
+  // nothing is known that would need the runner (tcmstudio.capability.runner_only(entry, None) is empty)
+  for (const x of ["job.pipeline.rnaseq", cat.byId["job.pipeline.rnaseq"], "job.pipeline.scrna", "run_pipeline"]) {
+    const p = r.placement(x);
+    assert.deepEqual([p.where, p.reason], ["browser", "ok"], x.id || x);
+  }
+  // a call's arguments are known, even empty ones: no counts is the FASTQ run
+  assert.equal(r.placement("job.pipeline.rnaseq", {}).reason, "needs_runner");
+  assert.equal(r.whereCall("call_tool", { tool: "job.pipeline.rnaseq" }), null);
+  assert.equal(r.whereCall("call_tool", { tool: "job.pipeline.rnaseq", arguments: { counts: "c.tsv", samples: "s.tsv" } }), "browser");
+  // catalog_search and capabilities_status, answered in the page while Pyodide is not ready, agree
+  const search = await r.call("catalog_search", { query: "RNA-seq" }, { projectId: "p1" });
+  assert.equal(search.receipt.execution.placement.chosen, "page");
+  const hit = search.result.matched.find((m) => m.id === "job.pipeline.rnaseq");
+  assert.deepEqual([hit.runnable_now, hit.where, hit.needs], [true, "browser", []]);
+  assert.equal(JSON.parse(search.text).matched.find((m) => m.id === "job.pipeline.rnaseq").runnable_now, true);
+  const caps = await r.call("capabilities_status", {}, { projectId: "p1" });
+  const base = new ToolRouter({ catalog: new Catalog(testCatalogDoc()), runtimes: r.runtimes, settings: { compute: "auto" } });
+  const baseCaps = await base.call("capabilities_status", {}, { projectId: "p1" });
+  assert.equal(caps.result.by_place.browser, baseCaps.result.by_place.browser + 2, "both kinds, by the browser");
+});
+
+test("run_pipeline's arguments as the runner's schema reads them: JSON text is the object it spells; flat parameters, or arguments that are not an object, are bad arguments before any approval", async () => {
+  const counts = { counts: "counts.tsv", samples: "samples.tsv" };
+  const { r, submitted } = pipelineRouter();
+  const text = { pipeline: "rnaseq", arguments: JSON.stringify(counts) };
+  assert.equal(r.where("run_pipeline", text), "browser");
+  const asked = [];
+  const env = await r.call("run_pipeline", text, { projectId: "p1", onApproval: async (q) => { asked.push(q); return "once"; } });
+  assert.equal(env.status, "job_submitted");
+  assert.deepEqual(submitted.at(-1).params, counts);
+  assert.deepEqual(asked[0].args, { pipeline: "rnaseq", arguments: counts }, "approved as the object it spells");
+  const viaTool = await r.call("call_tool", { tool: "run_pipeline", arguments: { pipeline: "rnaseq", arguments: JSON.stringify(counts) } }, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(viaTool.status, "job_submitted");
+  assert.deepEqual(submitted.at(-1).params, counts);
+
+  for (const [args, why] of [
+    [{ pipeline: "rnaseq", ...counts }, /run_pipeline has no argument 'counts', 'samples'/],
+    [{ pipeline: "rnaseq", arguments: "counts.tsv" }, /arguments must be an object \(the job kind's parameters\), not a string/],
+    [{ pipeline: "rnaseq", arguments: [counts] }, /arguments must be an object \(the job kind's parameters\), not a list/],
+    [{ pipeline: "rnaseq" }, /run_pipeline is missing the required argument 'arguments'/],
+  ]) {
+    const n = submitted.length;
+    let approvals = 0;
+    const bad = await r.call("run_pipeline", args, { projectId: "p1", onApproval: async () => { approvals += 1; return "once"; } });
+    assert.equal(bad.status, "failed", JSON.stringify(args));
+    assert.equal(bad.error.type, "bad_arguments");
+    assert.match(bad.error.message, why);
+    assert.doesNotMatch(bad.text, /FASTQ/, "not refused for a reason the call does not have");
+    assert.equal(approvals, 0, "refused before any approval");
+    assert.equal(submitted.length, n);
+    assert.equal(bad.receipt.execution.placement.chosen, null);
+    assert.equal(r.whereCall("run_pipeline", args), null);
+  }
+});
+
+test("run_pipeline naming no pipeline of the catalog is bad arguments with the pipelines listed, before any placement or approval", async () => {
+  const { r, submitted } = pipelineRouter();
+  for (const [args, why, mean] of [
+    [{ pipeline: "Rnaseq", arguments: { counts: "c.tsv", samples: "s.tsv" } }, /pipeline must be one of rnaseq, scrna, fold; got "Rnaseq"/, /Did you mean 'rnaseq' for pipeline\?/],
+    [{ arguments: { counts: "c.tsv", samples: "s.tsv" } }, /run_pipeline is missing the required argument 'pipeline' \(one of rnaseq, scrna, fold\)/, null],
+    [{ pipeline: "deseq2", arguments: {} }, /pipeline must be one of rnaseq, scrna, fold; got "deseq2"/, null],
+  ]) {
+    let approvals = 0;
+    const env = await r.call("run_pipeline", args, { projectId: "p1", onApproval: async () => { approvals += 1; return "once"; } });
+    assert.equal(env.status, "failed", JSON.stringify(args));
+    assert.equal(env.error.type, "bad_arguments");
+    assert.match(env.error.message, why);
+    assert.match(env.error.hint, /pipeline \(rnaseq, scrna, fold\)/);
+    if (mean) assert.match(env.error.hint, mean);
+    assert.doesNotMatch(env.text, /runs every job kind|Connect the local runner/);
+    assert.equal(approvals, 0);
+    assert.equal(r.whereCall("run_pipeline", args), null);
+  }
+  assert.equal(submitted.length, 0, "no job was asked for");
+  // not named yet (no call in view): still a place in the browser while its job service runs a pipeline
+  assert.equal(r.where("run_pipeline"), "browser");
+});
+
+test("compute Browser with the runner connected: a call whose arguments need the runner is refused for the setting, with the arguments' reason", async () => {
+  const fastq = { pipeline: "rnaseq", arguments: { samples: "sheet.csv" } };
+  const { r } = pipelineRouter({ compute: "browser", runner: "ready" });
+  const p = r.placement("run_pipeline", fastq);
+  assert.deepEqual([p.where, p.reason], [null, "compute_browser"]);
+  assert.deepEqual(p.requires.map((q) => q.need), ["compute_setting"]);
+  assert.match(p.message, /from FASTQ .*计算目标已设为「浏览器」/);
+  assert.doesNotMatch(p.message, /连接 Runner 后可运行/);
+  const env = await r.call("run_pipeline", fastq, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(env.error.reason, "compute_browser");
+  assert.equal(env.error.hint, requirement("compute_setting").remedy);
+  assert.match(env.text, /with these arguments runs only on the local runner: an RNA-seq run from FASTQ .*\. Compute is set to Browser/);
+  assert.doesNotMatch(env.text, /Connect the runner/);
+  assert.equal(r.runtimes.runner.calls.length, 0);
+  // a connected runner that lacks the kind: the setting first, then what it lacks there
+  const lacking = pipelineRouter({ compute: "browser", runner: "ready" });
+  Object.assign(lacking.catalog.byId["job.pipeline.scrna"], { available: false, missing: ["scanpy"] });
+  const q = lacking.r.placement("job.pipeline.scrna", { source: "x.tsv", analysis_backend: "scanpy" });
+  assert.deepEqual([q.reason, q.requires.map((x) => x.need)], ["compute_browser", ["compute_setting", "dependency"]]);
+  // the runner not connected: it needs the runner (and the setting), as before
+  const off = pipelineRouter({ compute: "browser" }).r.placement("run_pipeline", fastq);
+  assert.deepEqual([off.reason, off.requires.map((x) => x.need)], ["needs_runner", ["runner", "compute_setting"]]);
+  assert.match(off.message, /连接 Runner 后可运行/);
+});
+
+test("without the job service's module the catalog's runner_only rules still say what needs the runner, as tcmstudio.capability.runner_only reads them", async () => {
+  const { r } = pipelineRouter({ jobs: null });
+  for (const [x, args, why] of [
+    ["run_pipeline", { pipeline: "rnaseq", arguments: { samples: "sheet.csv", transcripts: "tx.fa" } }, /^without counts this is the FASTQ run/],
+    ["job.pipeline.rnaseq", { counts: "c.tsv", samples: "s.tsv", de_backend: "pydeseq2" }, /^PyDESeq2 is not in this browser's Python/],
+    ["job.pipeline.scrna", { source: "pbmc.H5AD" }, /^a 10x HDF5 or \.h5ad source/],
+    ["call_tool", { tool: "job.pipeline.scrna", arguments: { source: "x.tsv", analysis_backend: "scanpy" } }, /^Scanpy, anndata/],
+  ]) {
+    const p = x === "call_tool" ? r.placement(r.resolve(x, args).target, args.arguments) : r.placement(x, args);
+    assert.deepEqual([p.where, p.reason], [null, "needs_runner"], JSON.stringify(args));
+    assert.match(p.requires[0].detail, why);
+    assert.equal(p.requires[0].remedy, requirement("runner").remedy);
+  }
+  const env = await r.call("job.pipeline.scrna", { source: "pbmc.h5ad" }, { projectId: "p1" });
+  assert.equal(env.error.reason, "needs_runner");
+  // what the browser would run is still the job service's to run; and no arguments, nothing judged
+  assert.equal(r.placement("run_pipeline", { pipeline: "rnaseq", arguments: { counts: "c.tsv", samples: "s.tsv" } }).reason, "needs_job_service");
+  assert.equal(r.placement("job.pipeline.rnaseq").reason, "needs_job_service");
 });
 
 test("a browser runtime that failed to load counts as absent", () => {
@@ -981,7 +1123,7 @@ test("an entry that takes a clinic intake is patient data (as the dispatcher dec
 });
 
 test("the new router and approval messages exist in zh and en, with the same placeholders", () => {
-  const keys = ["unknown_compute", "remote_not_configured", "too_large_for_browser", "too_large_for_browser_only", "missing_engine", "missing_deps_remote", "runner_lacks", "runner_lacks_remote"].map((k) => `core.router.${k}`)
+  const keys = ["unknown_compute", "remote_not_configured", "too_large_for_browser", "too_large_for_browser_only", "missing_engine", "missing_deps_remote", "runner_lacks", "runner_lacks_remote", "browser_only_setting_args", "bad_arguments"].map((k) => `core.router.${k}`)
     .concat(["core.approval.remote_runner", "core.approval.remote_runner_phi", "core.approval.job_remote", "core.approval.network_unknown", "core.runner.label_remote"])
     .concat(["core.runner.not_running_remote", "core.runner.timeout_remote", "core.runner.http_remote", "core.local.capabilities_remote"]);
   const ph = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();

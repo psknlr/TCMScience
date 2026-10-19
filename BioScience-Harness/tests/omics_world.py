@@ -114,9 +114,9 @@ COUNTS_PLANTED = 40
 def make_counts_world(out_dir: Path, seed: int = 1) -> dict:
     """A simulated count matrix with a known answer, for the RNA-seq count-matrix mode.
 
-    2,000 genes x 6 samples (ctrl1-3, trt1-3). Each gene's mean is log-normal (median
-    about 55, a long right tail, a few hundred genes below 5), times a per-sample size
-    factor (0.7 to 1.3). Counts are negative binomial with a dispersion trend
+    2,000 genes x 6 samples (ctrl1-3, trt1-3). Each gene's mean is log-normal (at seed 1:
+    median about 53, a long right tail, 130 of the 2,000 below 5, about 6.5%), times a
+    per-sample size factor (0.7 to 1.3). Counts are negative binomial with a dispersion trend
     0.05 + 1 / mean, DESeq2's parametric form, times a per-gene log-normal factor. Forty
     genes drawn from those with a mean of at least 50 are four-fold higher in the treated
     samples and forty more four-fold lower.

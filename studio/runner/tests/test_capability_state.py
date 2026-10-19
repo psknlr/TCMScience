@@ -520,6 +520,39 @@ def test_a_chosen_engine_that_is_not_installed_is_refused_before_submit(entry_id
     assert not jobs.submitted, "nothing is submitted for an engine that is not here"
 
 
+@pytest.mark.parametrize("installed", [False, True])
+@pytest.mark.parametrize("extra, named", [
+    ({"engine": "salmon"}, "engine"),
+    ({"trimmer": "fastp"}, "trimmer"),
+    ({"engine": "kallisto", "trimmer": "fastp"}, "engine, trimmer"),
+    ({"transcripts": "u_0000000000000002"}, "transcripts"),
+])
+def test_a_count_matrix_call_naming_a_fastq_engine_is_bad_arguments(extra, named, installed,
+                                                                     runner_ctx, browser_ctx,
+                                                                     jobs, monkeypatch):
+    """No engine runs a count matrix, so a call with counts that names one (or a trimmer, or a
+    FASTQ reference) is refused as bad arguments in the job kind's words (kinds), whether or
+    not the engine is installed here: never 'install salmon', which would not make it run."""
+    from tcmstudio import dispatch
+    monkeypatch.setattr(dispatch, "dependency_present", lambda name: installed)
+    args = {"pipeline": "rnaseq", "arguments": {"counts": "u_0000000000000000",
+                                                "samples": "u_0000000000000001", **extra}}
+    for ctx in (runner_ctx, browser_ctx):
+        e = call("run_pipeline", args, ctx)
+        assert e["status"] == "failed" and e["error"]["type"] == "bad_arguments", e["error"]
+        assert e["error"]["message"] == (
+            f"a count-matrix run takes no FASTQ reference or engine: {named} (leave them out "
+            "with counts, or give a FASTQ sample sheet without counts)")
+        assert "reason" not in e["error"] and "requires" not in e["error"]
+    assert not jobs.submitted
+    # without counts the same engine is the FASTQ run's, and a missing one is still named
+    if not installed and "engine" in extra:
+        e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {
+            "samples": "u_0000000000000001", "transcripts": "u_0000000000000002", **extra}},
+            runner_ctx)
+        assert e["error"]["reason"] == "missing_engine", e["error"]
+
+
 def test_the_builtin_defaults_still_submit(runner_ctx, jobs):
     for entry_id, args in (("job.pipeline.scrna", {"source": "u_0000000000000000"}),
                            ("job.pipeline.rnaseq", {"samples": "u_0000000000000000", "engine": "builtin"}),

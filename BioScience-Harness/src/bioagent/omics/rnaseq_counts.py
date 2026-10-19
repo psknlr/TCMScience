@@ -38,6 +38,7 @@ import hashlib
 import io
 import json
 import platform
+import zlib
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -101,11 +102,15 @@ class CountsTable:
 
 def _text(raw: bytes, where: str) -> str:
     """A table's text, gunzipped when it is gzip (by its magic bytes, whatever its name)."""
-    try:
-        if raw[:2] == b"\x1f\x8b":
+    if raw[:2] == b"\x1f\x8b":
+        try:
             raw = gzip.decompress(raw)
+        except (EOFError, OSError, zlib.error) as exc:      # cut short, or a corrupt stream
+            raise RNASeqError(f"{where} cannot be read to its end ({type(exc).__name__}: "
+                              f"{exc})") from None
+    try:
         return raw.decode("utf-8-sig")
-    except (OSError, EOFError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError as exc:
         raise RNASeqError(f"{where} cannot be read as UTF-8 text ({exc})") from None
 
 

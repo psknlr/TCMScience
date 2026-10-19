@@ -65,6 +65,46 @@ def test_normalised_values_are_refused(tmp_path):
         io.read_counts(p)
 
 
+@pytest.mark.parametrize("how", ["corrupt", "truncated"])
+def test_a_gzipped_table_that_cannot_be_read_to_its_end_is_refused(tmp_path, capsys, how):
+    """A corrupt deflate stream (zlib.error) or one cut short (EOFError) is refused with the
+    reason, as a FASTQ file is (omics.fastq), never a traceback."""
+    import gzip
+    import zlib
+
+    from bioagent import cli
+    text = "gene\t" + "\t".join(f"c{i}" for i in range(60)) + "\n" + "".join(
+        f"G{g}\t" + "\t".join(str((g + i) % 4) for i in range(60)) + "\n" for g in range(300))
+    raw = gzip.compress(text.encode(), mtime=0)
+    data = (raw[:len(raw) // 2] if how == "truncated"
+            else raw[:20] + bytes(b ^ 0xFF for b in raw[20:60]) + raw[60:])
+    if how == "corrupt":
+        with pytest.raises(zlib.error):
+            gzip.decompress(data)
+    p = tmp_path / "t.tsv.gz"
+    p.write_bytes(data)
+    with pytest.raises(io.ScIOError) as exc:
+        io.read_counts(p)
+    assert str(exc.value).startswith(f"{p} cannot be read to its end ("
+                                     + ("error: " if how == "corrupt" else "EOFError: "))
+    assert cli.main(["scrna", str(p), "--out", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err.startswith(f"refused: {p} cannot be read to its end")
+
+
+def test_a_sheet_row_that_names_no_path_is_refused(tmp_path, capsys):
+    """An empty path cell is the sheet's mistake, said with its line; it does not name the
+    sheet's own directory (a Cell Ranger directory, to the reader)."""
+    from bioagent import cli
+    (tmp_path / "a.tsv").write_text("gene\tc1\tc2\nG1\t1\t2\n")
+    sheet = tmp_path / "sheet.csv"
+    sheet.write_text("sample,path,condition\nA,a.tsv,control\n\nB,,treated\n")
+    with pytest.raises(S.ScError) as exc:
+        S.read_sheet(sheet)
+    assert str(exc.value) == f"line 4 of {sheet} names no path"
+    assert cli.main(["scrna", str(sheet), "--out", str(tmp_path / "o")]) == 1
+    assert capsys.readouterr().err == f"refused: line 4 of {sheet} names no path\n"
+
+
 # ---------------------------------------------------------------- QC and doublets
 
 def test_low_quality_cells_are_removed(matrix, world):

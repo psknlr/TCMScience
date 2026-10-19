@@ -156,6 +156,10 @@ class Kind:
     result: Callable[[Path, dict[str, Any]], Any] | None = None
     verify: Callable[[dict[str, Any], Mapping[str, str]], list[str]] | None = None
     progress: Callable[[Path, dict[str, Any]], dict[str, Any] | None] | None = None
+    #: the checks of the parameters alone, which read no file (``prepare`` makes them too); the
+    #: dispatcher makes them before it looks for an engine, so a call that no engine could run
+    #: is refused as bad arguments, never for a tool to install
+    check: Callable[[Mapping[str, Any]], None] | None = None
 
     def __post_init__(self) -> None:
         if self.progress is None:
@@ -582,6 +586,10 @@ def _enum(name: str, value: Any, allowed: Sequence[str], default: str) -> str:
 
 #: What only a FASTQ run takes; a count-matrix run refuses each rather than ignore it.
 RNASEQ_FASTQ_ONLY = ("transcripts", "genome", "annotation", "engine", "trimmer")
+#: A FASTQ sample sheet given as the sample table of a count-matrix run, refused in these words
+#: (the browser's job, tcmstudio.browser_jobs, refuses it in them too).
+RNASEQ_COUNTS_FASTQ_SHEET = ("samples: with counts this is the sample table (sample and the "
+                             "design columns); a FASTQ sample sheet runs without counts")
 
 
 def _rnaseq_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
@@ -612,18 +620,23 @@ def _rnaseq_choices(p: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _rnaseq_counts_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
-    """The count-matrix mode (``bioagent rnaseq --counts``): a count table and a sample table,
-    each one file; nothing of the FASTQ run is taken."""
-    given = [k for k in RNASEQ_FASTQ_ONLY if p.get(k) not in (None, "")]
+def _rnaseq_check(p: Mapping[str, Any]) -> None:
+    """With counts, nothing of the FASTQ run is taken (``RNASEQ_FASTQ_ONLY``): no engine runs a
+    count matrix, so naming one is a bad argument wherever the call would run."""
+    given = [k for k in RNASEQ_FASTQ_ONLY if p.get(k) not in (None, "")] if p.get("counts") else []
     if given:
         raise BadParams("a count-matrix run takes no FASTQ reference or engine: " + ", ".join(given)
                         + " (leave them out with counts, or give a FASTQ sample sheet without counts)")
+
+
+def _rnaseq_counts_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    """The count-matrix mode (``bioagent rnaseq --counts``): a count table and a sample table,
+    each one file; nothing of the FASTQ run is taken."""
+    _rnaseq_check(p)
     counts = ctx.file("counts", p.get("counts"))
     table = ctx.file("samples", p.get("samples"))
     if _is_sheet(table, "fastq_1") or _is_sheet(table, "fastq_2"):
-        raise BadParams("samples: with counts this is the sample table (sample and the design columns); "
-                        "a FASTQ sample sheet runs without counts")
+        raise BadParams(RNASEQ_COUNTS_FASTQ_SHEET)
     return {"mode": "counts", "counts": str(counts), "sample_table": str(table), **_rnaseq_choices(p)}
 
 
@@ -1362,7 +1375,8 @@ def default_kinds() -> dict[str, Kind]:
              _rnaseq_prepare, _rnaseq_command,
              artefacts=(run_json, report, ("results", "deseq2_results.tsv", True), limits),
              validators={"run": _verifier("bioagent.omics.rnaseq")},
-             timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress),
+             timeout_s=48 * 3600.0, result=_stdout_result, progress=_rnaseq_progress,
+             check=_rnaseq_check),
         Kind("pipeline.scrna", ("单细胞分析流程", "Single-cell pipeline"), "minutes",
              _scrna_prepare, _scrna_command,
              artefacts=(run_json, report, ("clusters", "clusters.tsv", True),
