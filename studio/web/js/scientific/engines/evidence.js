@@ -7,11 +7,12 @@
 //
 // The rung a job reaches on the evidence ladder (ui/runlog.js) is decided from what happened, never from what was
 // asked:
-//   verified    the job succeeded, a verify stage ran (not reused) and passed, and for every output the page's
-//               digest equals the worker's
-//   validated   the job succeeded and the two digests agree for every output, but no verify stage ran
+//   verified    a job worker computed, the job succeeded, a verify stage ran (not reused) and said it passed, and
+//               for every output the page's digest equals the worker's
+//   validated   a job worker computed, the job succeeded and the two digests agree for every output, but no verify
+//               stage ran
 //   dispatched  a job worker computed, but the job's checks did not pass (or it was stopped)
-//   selected    the CPU was chosen and nothing computed on it
+//   selected    the CPU was chosen and no job worker computed anything (whatever the page itself wrote)
 // A browser job never runs on a GPU, so it never reaches "accelerated". Its assurance is "outputs_verified" only when
 // it succeeded, both digests agree for every output and no output it was expected to write is missing.
 
@@ -56,18 +57,25 @@ export function digestChecks(cmp) {
 }
 
 /**
- * The ids of the verify stages that ran and passed in this attempt: a stage that said it verified (verified: true),
- * or one named "verify", that succeeded without being reused from a checkpoint.
+ * The ids of the verify stages that ran and passed in this attempt: a stage that said it verified (verified: true,
+ * which a handler returns only when its check passed) and succeeded without being reused from a checkpoint. A
+ * stage's name proves nothing: one called "verify" that did not say so is not counted.
  */
 export function verifyStages(stages = []) {
   return (Array.isArray(stages) ? stages : [])
-    .filter((s) => s && s.status === "succeeded" && !s.reused && (s.verified === true || s.id === "verify"))
+    .filter((s) => s && s.status === "succeeded" && !s.reused && s.verified === true)
     .map((s) => String(s.id));
 }
 
-/** Whether a job worker computed anything for the job: a worker it leased, or a stage that names one. */
+/** The workers that did something for the job: an operation sent (calls), or a stage that names it. A worker that
+ * was only started for the job (its boot is not the job's work) is not one. */
+function workersThatRan(workers = []) {
+  return (Array.isArray(workers) ? workers : []).filter((w) => Number(w?.calls) > 0 || (Array.isArray(w?.stages) && w.stages.length > 0));
+}
+
+/** Whether a job worker computed anything for the job: a worker that ran an operation for it, or a stage that names one. */
 export function workRan({ workers = [], stages = [] } = {}) {
-  return (Array.isArray(workers) && workers.length > 0) || (Array.isArray(stages) && stages.some((s) => s?.worker));
+  return workersThatRan(workers).length > 0 || (Array.isArray(stages) && stages.some((s) => s?.worker));
 }
 
 /**
@@ -78,10 +86,13 @@ export function jobEvidence({ state, stages = [], artefacts = [], workerDigests 
   const digests = compareDigests(artefacts, workerDigests, pageDigests);
   const verify = verifyStages(stages);
   const ok = state === "succeeded";
+  // every rung above "selected" is about the device: none is reached when no job worker computed anything
   let evidence = "selected";
-  if (ok && digests.page_digests && verify.length) evidence = "verified";
-  else if (ok && digests.page_digests) evidence = "validated";
-  else if (workRan({ workers, stages })) evidence = "dispatched";
+  if (workRan({ workers, stages })) {
+    if (ok && digests.page_digests && verify.length) evidence = "verified";
+    else if (ok && digests.page_digests) evidence = "validated";
+    else evidence = "dispatched";
+  }
   const assurance = ok && digests.page_digests && !(missing || []).length ? "outputs_verified" : "none";
   return { evidence, assurance, verify_stages: verify, digests };
 }
@@ -127,7 +138,7 @@ export function buildJobReceipt({
   const state = j.state || null;
   const ev = jobEvidence({ state, stages: stageList, artefacts: arts, workerDigests, pageDigests, missing, workers });
   const ran = workRan({ workers, stages: stageList });
-  const n = (workers || []).length || new Set(stageList.map((s) => s?.worker).filter(Boolean)).size;
+  const n = workersThatRan(workers).length || new Set(stageList.map((s) => s?.worker).filter(Boolean)).size;
   const passed = state === "succeeded" ? [...new Set([...(checks || []).map((c) => (typeof c === "string" ? c : JSON.stringify(c))), ...digestChecks(ev.digests)])] : [];
   const deviceStages = {};
   for (const s of stageList) if (s?.status === "succeeded" && s.worker && !s.reused) deviceStages[s.id] = "cpu";
@@ -175,7 +186,7 @@ export function buildJobReceipt({
     error: j.error?.message ?? null,
     stages: stageList.map((s) => ({
       name: s.id, status: s.status, seconds: s.seconds ?? null, device: s.worker && !s.reused ? "cpu" : null, worker: s.worker ?? null,
-      reused: Boolean(s.reused),
+      reused: Boolean(s.reused), verified: s.verified === true,
     })),
     complete: typeof j.outcome?.complete === "boolean" ? j.outcome.complete : null,
     limitations: [...(limitations || [])].map(String),

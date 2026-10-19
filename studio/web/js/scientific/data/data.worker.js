@@ -526,6 +526,17 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       validator = null;
       side = null;
       continue;
+    } else if (offset && transport === "relay" && (status === 502 || status === 413)) {
+      // the relay checks the upstream's answer to a range itself and refuses one that cannot be joined; the partial
+      // file then goes, or every later resume would be refused the same way
+      const type = await relayRefusal(res);
+      if (type !== "bad_range" && type !== "size_mismatch") throw httpError(status, host, transport);
+      await part.drop();
+      restarts.push(`relay: the relay refused the answer to bytes=${offset}- (${type}): the partial file was dropped and the download restarted from byte 0`);
+      offset = 0;
+      validator = null;
+      side = null;
+      continue;
     } else {
       await cancelBody(res);
       throw httpError(status, host, transport);
@@ -563,6 +574,15 @@ function oversize(row, bytes, what) {
   return new OpError("oversize", row.bytes !== null
     ? `${what} ${bytes} bytes, more than the reviewed ${row.bytes}; nothing was kept`
     : `${what} ${bytes} bytes, more than the ${MAX_UNKNOWN_BYTES}-byte limit for a file the registry has no size for; nothing was kept`);
+}
+
+/** The error type of the relay's JSON refusal ('' when the body says none); the body is read either way. */
+async function relayRefusal(res) {
+  try {
+    return String((await res.json())?.error?.type || "");
+  } catch {
+    return "";
+  }
 }
 
 function httpError(status, host, transport) {

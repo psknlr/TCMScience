@@ -346,12 +346,15 @@ export class ScienceWorkerPool {
       slot.boot_ms = Math.round(now() - t0);
       lease.boot_ms = slot.boot_ms;
     } catch (err) {
-      // a worker that did not finish init is in no known state: it is not kept
-      this.#kill(slot, `init failed: ${err?.message || err}`);
-      slot.error = { type: err?.type || "boot_error", message: err?.message || String(err) };
+      // a worker that did not finish init is in no known state: it is not kept. Only this boot's worker, though: one
+      // terminated from outside (terminate, terminateAll) may already have been followed by the next lease's.
+      if (slot.gen === gen) {
+        this.#kill(slot, `init failed: ${err?.message || err}`);
+        slot.error = { type: err?.type || "boot_error", message: err?.message || String(err) };
+      }
       throw err;
     } finally {
-      slot.onProgress = null;
+      if (slot.gen === gen) slot.onProgress = null;
     }
   }
 

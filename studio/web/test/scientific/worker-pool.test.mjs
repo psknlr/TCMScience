@@ -339,6 +339,27 @@ test("terminate(id) revokes the lease; terminateAll turns away whoever waits", a
   fresh.release();
 });
 
+test("a worker terminated while it starts: the lease waiting behind it gets a new worker, not a dead one", async () => {
+  let first = true;
+  const { p, Worker } = pool({}, {
+    init(w, { id }) {
+      if (first) { first = false; return; } // the first worker never finishes starting
+      w.reply(id, { ...INFO });
+    },
+  });
+  const booting = p.lease();
+  await tick(5);
+  const waiting = p.lease();
+  p.terminate("science-1");
+  await assert.rejects(booting, { type: "terminated" });
+  const lease = await waiting;
+  assert.equal(lease.alive, true, "the failed boot did not end the worker started after it");
+  assert.equal(Worker.instances.length, 2);
+  assert.equal(Worker.instances[1].terminated, false);
+  assert.deepEqual(await lease.call("memory", {}), { wasm_bytes: 64 << 20 });
+  lease.release();
+});
+
 test("a lease's terminate() ends its worker; a page without Worker is told so", async () => {
   const { p, Worker } = pool();
   const lease = await p.lease();

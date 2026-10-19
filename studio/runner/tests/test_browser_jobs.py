@@ -419,6 +419,8 @@ def test_the_registry_lists_the_research_files_as_the_build_reads_them():
     from bioagent.sources.pipeline import RESEARCH_SOURCES, required_files
     from bioagent.tcmdb import DATASETS
 
+    from bioagent.acquisition.downloader import PACER
+
     from tcmstudio.datasets import REDISTRIBUTION_UNKNOWN, licence_of, registry_document
 
     doc = registry_document()
@@ -437,6 +439,9 @@ def test_the_registry_lists_the_research_files_as_the_build_reads_them():
         assert f["host"] == urllib.parse.urlsplit(a.url).hostname
         assert f["reviewed"] is (a in ACQUIRABLE)
         assert f["relay"] is True and f["redirect_hosts"] == []
+        # the relay paces each host as bioagent's acquisition does
+        assert f["rate_rps"] == PACER.interval(f["host"]) ** -1
+    assert files["260413_frozen.csv.gz"]["rate_rps"] == 0.1      # zenodo.org's Crawl-delay
     # every reviewed checksum, LOTUS's as Zenodo publishes it (md5); none invented
     assert sum(1 for f in files.values() if f["checksum"]) == 14
     assert files["260413_frozen.csv.gz"]["checksum"] == "md5:cf0cf2afa2ca4d758b68f2e39d466f5d"

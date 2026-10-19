@@ -26,7 +26,7 @@ const tick = () => new Promise((r) => setImmediate(r));
  * exposeRange (false: the 206 has no readable Content-Range), wrongRange, mismatch412 (If-Range mismatch → 412),
  * contentLength (false: none), status (always this), failAfter (bytes, then the connection drops), hangAfter (bytes,
  * then nothing more arrives), hangRequest (no answer at all), onChunk(sent), redirectedTo (the answer came from this
- * URL after a redirect).
+ * URL after a redirect), rangeRefusal ({status, type}: a request with Range gets the relay's JSON refusal).
  * refuse(host): every request to it throws TypeError, as fetch does for a CORS refusal.
  */
 function fakeNet() {
@@ -50,6 +50,9 @@ function fakeNet() {
       const r = resources.get(u.href);
       if (!r) return new Response("not found", { status: 404 });
       if (r.status) return new Response("no", { status: r.status });
+      if (r.rangeRefusal && headers.range) {
+        return new Response(JSON.stringify({ error: { type: r.rangeRefusal.type, message: "refused" } }), { status: r.rangeRefusal.status, headers: { "content-type": "application/json" } });
+      }
       if (r.hangRequest) {
         return new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }));
       }
@@ -467,6 +470,35 @@ test("auto: a partial file the relay started is resumed through the relay; the r
   ]);
   assert.deepEqual(net.requests.at(-1).headers, { range: `bytes=${2 * CHUNK}-`, "if-range": '"r"' });
   assert.deepEqual(await store.readBytes([...DIR, row.name]), new Uint8Array(body));
+});
+
+test("relay: a range the relay refuses (bad_range, size_mismatch) drops the partial file and restarts once; another refusal keeps it", async () => {
+  for (const [status, type] of [[502, "bad_range"], [413, "size_mismatch"]]) {
+    const { store, net, env, call } = await setup();
+    const body = randomBytes(6 * CHUNK);
+    const row = rowFor("NPASS3.0_target.txt", body);
+    const relayed = `${SITE}api/datasets/files/research/${row.name}`;
+    net.serve(relayed, body, { etag: '"r"', onChunk: (sent) => { if (sent >= 2 * CHUNK) cancel(env, 1); } });
+    assert.equal((await get(call, row, "relay", 1)).error.type, "cancelled");
+    net.serve(relayed, body, { etag: '"r"', rangeRefusal: { status, type } });
+    const reply = await get(call, row, "relay");
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.equal(reply.result.resumed_from, null);
+    assert.deepEqual(reply.result.restarts, [`relay: the relay refused the answer to bytes=${2 * CHUNK}- (${type}): the partial file was dropped and the download restarted from byte 0`]);
+    assert.deepEqual(net.requests.at(-1).headers, {});
+    assert.deepEqual(await store.readBytes([...DIR, row.name]), new Uint8Array(body));
+  }
+  // any other refusal is the relay's answer to report, and the partial file stays for a later resume
+  const { store, net, env, call } = await setup();
+  const body = randomBytes(6 * CHUNK);
+  const row = rowFor("NPASS3.0_target.txt", body);
+  const relayed = `${SITE}api/datasets/files/research/${row.name}`;
+  net.serve(relayed, body, { etag: '"r"', onChunk: (sent) => { if (sent >= 2 * CHUNK) cancel(env, 1); } });
+  assert.equal((await get(call, row, "relay", 1)).error.type, "cancelled");
+  net.serve(relayed, body, { etag: '"r"', rangeRefusal: { status: 502, type: "upstream_unreachable" } });
+  const reply = await get(call, row, "relay");
+  assert.equal(reply.error.type, "http");
+  assert.equal(reply.error.kept_part, true);
 });
 
 test("no reviewed size: a 206 whose total is not the length the first answer declared is another file, not joined", async () => {

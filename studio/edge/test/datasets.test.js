@@ -102,6 +102,7 @@ test("a registered file comes from its reviewed URL, with only the listed header
   assert.equal(sent.url, TARGETS.url);
   assert.equal(sent.init.method, "GET");
   assert.equal(sent.init.redirect, "manual");
+  assert.equal(sent.init.cache, "no-store", "not kept in Cloudflare's cache on the way");
   assert.equal(sent.init.credentials, undefined);
   // nothing of the visitor's: no cookie, credential or address; the coding asked for is the file's own bytes
   assert.deepEqual(Object.fromEntries(sent.init.headers), { "accept-encoding": "identity", "user-agent": USER_AGENT });
@@ -120,7 +121,7 @@ test("a registered file comes from its reviewed URL, with only the listed header
   assert.equal(head.body, null);
 });
 
-test("only the registry's files, by GET or HEAD: anything else is a 404 or a 405, before any limit or upstream", async () => {
+test("only the registry's files, by GET or HEAD: anything else is a 404 or a 405, before the visitor's counters or the upstream", async () => {
   const w = setup();
   for (const path of [
     "/api/datasets", "/api/datasets/files", "/api/datasets/files/research", "/api/datasets/files/research/",
@@ -237,6 +238,15 @@ test("a 206 is the range asked for, of the file the registry sizes; a 200 to a r
   answer.headers = { "Content-Range": "bytes 0-99/117843" };
   const beyond = await w.call(TARGETS.name, { headers: { Range: "bytes=0-9" } });
   assert.deepEqual([beyond.status, (await errorOf(beyond)).type], [502, "bad_range"]);
+  // a 206's Content-Length is its part's length, and a part of unknown length is held to it
+  answer.headers = { "Content-Range": "bytes 100-109/117843", "Content-Length": "11" };
+  const misdeclared = await w.call(TARGETS.name, ask);
+  assert.deepEqual([misdeclared.status, (await errorOf(misdeclared)).type], [502, "bad_range"]);
+  const part = setup({ upstream: () => new Response(new Uint8Array(12), { status: 206, headers: { "Content-Range": "bytes 100-109/117843" } }) });
+  const overlong = await part.call(TARGETS.name, ask);
+  assert.equal(overlong.status, 206);
+  assert.equal(overlong.headers.get("Content-Length"), null);
+  await assert.rejects(overlong.arrayBuffer(), /larger than 10 bytes/);
   const whole = setup({ upstream: () => file() });
   const res = await whole.call(TARGETS.name, ask);
   assert.equal(res.status, 200);
@@ -259,6 +269,12 @@ test("caps: a declared length over the registry's size is refused before streami
   await assert.rejects(cut.arrayBuffer(), /larger than 10 bytes/);
   const exact = await counted.call();
   assert.equal((await exact.arrayBuffer()).byteLength, 10);
+  // past the cap the upstream is stopped too, not drained
+  const source = endless();
+  const runaway = setup({ registry: registryOf([small]), upstream: () => new Response(source.stream) });
+  await assert.rejects((await runaway.call()).arrayBuffer(), /larger than 10 bytes/);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(source.seen.cancelled, true);
   // no size in the registry: the browser's own limit for such a file, by the declared length or the range's total
   const unsized = setup({ upstream: (_url, init) => init.headers.has("Range")
     ? new Response(null, { status: 206, headers: { "Content-Range": `bytes 5-9/${MAX_UNSIZED_BYTES + 1}` } })
@@ -323,7 +339,11 @@ test("redirects: at most three hops, each https to the file's host or a host the
   await res.body.cancel();
   assert.deepEqual(w.calls.map((c) => c.url), [LOTUS.url, mirror]);
   assert.equal(w.calls[1].init.headers.get("Range"), "bytes=0-", "the range goes to the host that answers");
-  assert.deepEqual(w.paces.map((p) => p.host), ["zenodo.org", "files.zenodo.org"]);
+  assert.deepEqual(w.paces, [{ host: "zenodo.org", rps: 1 }, { host: "files.zenodo.org", rps: 1 }]);
+  // a rate the registry gives the file is its own host's pace; the host it is redirected to keeps the default
+  const slow = setup({ registry: registryOf([{ ...LOTUS, rate_rps: 0.1 }]), upstream: (url) => (url === LOTUS.url ? new Response(null, { status: 302, headers: { Location: mirror } }) : file()) });
+  await (await slow.call(LOTUS.name)).body.cancel();
+  assert.deepEqual(slow.paces, [{ host: "zenodo.org", rps: 0.1 }, { host: "files.zenodo.org", rps: 1 }]);
   const relative = setup({ upstream: (url) => (url === LOTUS.url ? new Response(null, { status: 307, headers: { Location: "/records/1/file#part" } }) : file()) });
   const followed = await relative.call(LOTUS.name);
   assert.equal(followed.headers.get("X-Relay-Upstream"), "https://zenodo.org/records/1/file");
@@ -419,6 +439,8 @@ test("the registry: build-generated, checked whole; a bad or missing one serves 
   const compiled = compileDatasets(REGISTRY);
   assert.equal(compiled.files, 4);
   assert.deepEqual([...compiled.groups.get("research").get(LOTUS.name).hosts], ["zenodo.org", "files.zenodo.org"]);
+  assert.equal(compiled.groups.get("research").get(LOTUS.name).rps, 1, "no rate in the registry: one request a second");
+  assert.equal(compileDatasets(registryOf([{ ...TARGETS, rate_rps: 50 }])).groups.get("research").get(TARGETS.name).rps, 20, "the Limiter's ceiling");
   const bad = [
     { ...REGISTRY, schema: "tcmstudio.datasets/2" }, { schema: "tcmstudio.datasets/1" }, registryOf([]),
     { schema: "tcmstudio.datasets/1", groups: { "../x": REGISTRY.groups.research } },
@@ -428,6 +450,7 @@ test("the registry: build-generated, checked whole; a bad or missing one serves 
       { url: "https://localhost/x.txt", host: "localhost" }, { url: "https://bidd.group/x.txt#frag" },
       { name: "a/b.txt" }, { name: ".." }, { name: "" }, { redirect_hosts: ["10.0.0.1"] }, { redirect_hosts: "files.zenodo.org" },
       { redirect_hosts: ["Files.Zenodo.org"] }, { bytes: -1 }, { bytes: 1.5 }, { bytes: "10" },
+      { rate_rps: 0 }, { rate_rps: -1 }, { rate_rps: "1" }, { rate_rps: Number.NaN }, { rate_rps: Number.POSITIVE_INFINITY },
     ].map((change) => registryOf([{ ...TARGETS, ...change }])),
     registryOf([TARGETS, TARGETS]),
   ];

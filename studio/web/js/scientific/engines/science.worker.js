@@ -392,11 +392,13 @@ async function writeOpfs(folder, name, bytes) {
   await w.close();
 }
 
+/** Remove `paths` from memory. A mount at or below a freed path is unmounted first, so its OPFS handles close: an open
+ * sync access handle would refuse the next mount, or a new download, of the same file. */
 function free({ paths = [] }) {
   for (const p of paths) {
     const path = memfsPath(p);
-    if (mounts.has(path)) unmount({ root: path });
-    else try { rmTree(path); } catch { /* not there */ }
+    for (const root of [...mounts.keys()]) if (root === path || root.startsWith(`${path}/`)) unmount({ root });
+    try { rmTree(path); } catch { /* not there */ }
   }
   return { freed: paths.length };
 }

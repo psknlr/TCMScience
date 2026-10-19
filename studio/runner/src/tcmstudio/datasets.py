@@ -158,23 +158,28 @@ def registry_document() -> dict[str, Any]:
     its project (``data.<project>``) when that record names this release, else unknown.
     ``relay`` lets the site's relay fetch it from that URL for a browser the host does not
     answer directly; ``redirect_hosts`` are the hosts besides its own a download of it may
-    be redirected to, none reviewed so far. Nothing in it depends on this machine: the
-    same code gives the same document."""
+    be redirected to, none reviewed so far. ``rate_rps`` is the pace bioagent's acquisition
+    keeps with the file's host (requests a second: a source card's rate, a robots.txt
+    Crawl-delay, else one a second), which the relay keeps too. Nothing in it depends on
+    this machine: the same code gives the same document."""
     import urllib.parse
 
+    from bioagent.acquisition.downloader import PACER, _host_rates
     from bioagent.acquisition.sources import ACQUIRABLE
     from bioagent.sources.pipeline import RESEARCH_SOURCES, required_files
 
+    rates = _host_rates()
     files = []
     for a in required_files(RESEARCH_SOURCES, network=True):
         rec, applies = _licence_record(a.source_project.lower(), a.version)
+        host = urllib.parse.urlsplit(a.url).hostname or a.host
         files.append({
-            "name": a.filename, "url": a.url,
-            "host": urllib.parse.urlsplit(a.url).hostname or a.host,
+            "name": a.filename, "url": a.url, "host": host,
             "bytes": a.expected_bytes, "checksum": a.checksum, "reviewed": a in ACQUIRABLE,
             "project": a.source_project, "fmt": a.fmt or None, "license": a.license,
             "redistribution": rec.redistribution if applies else REDISTRIBUTION_UNKNOWN,
-            "relay": True, "redirect_hosts": []})
+            "relay": True, "redirect_hosts": [],
+            "rate_rps": float(rates.get(host, PACER.default_rps))})
     return {"schema": REGISTRY_SCHEMA, "groups": {"research": {
         "title": {"zh": "研究数据快照的原始文件", "en": "Raw files of the research snapshots"},
         "sources": list(RESEARCH_SOURCES), "network": True, "files": files}}}

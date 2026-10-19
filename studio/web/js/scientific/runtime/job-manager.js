@@ -156,6 +156,8 @@ class JobsDb {
           tx.onerror = () => reject(tx.error);
           tx.onabort = () => reject(tx.error || new Error("transaction aborted"));
         }) : null;
+        // awaited below once the body succeeds; a body that throws reports its own error, not this one again
+        done?.catch(() => {});
         const result = await body(tx.objectStore("jobs"));
         if (done) await done;
         return result;
@@ -301,7 +303,7 @@ export class BrowserJobService {
         hint: "Resume the job: stages whose outputs still match their checkpoints are reused.",
       };
       this.#appendLog(rec, held === null ? "warn" : "info", held === null
-        ? "interrupted: no tab was running it (this browser has no Web Locks, so a job another open tab runs cannot be told apart)"
+        ? "interrupted: no tab was running it (Web Locks are missing here or could not be queried, so a job another open tab runs cannot be told apart)"
         : "interrupted: no open tab was running it");
       await this.#db.put(rec);
     }
@@ -481,6 +483,35 @@ export class BrowserJobService {
     clearTimeout(run.forceTimer);
     // from here on the handler's context changes nothing (a handler cut off by the cancel grace may still be running)
     run.closed = true;
+    try {
+      await this.#record(job, run, handler, returned, failure);
+    } catch (err) {
+      // the end could not be assembled (a bug, or storage that failed under it): the job still ends, and says so,
+      // so that its lock is released and the queue behind it moves on
+      (globalThis.reportError || console.error)(err);
+      if (!ENDED_STATES.includes(job.state)) {
+        Object.assign(job, {
+          state: "failed", finished_at: this.#iso(), progress: null, result: null,
+          error: { type: "runtime_error", message: clip(`the job's end could not be recorded: ${err?.message || err}`, 1500) },
+        });
+        await this.#save(job).catch(() => {});
+        this.#emit(job, "state");
+        this.#emit(job, "error", job.error);
+        this.#emit(job, "done");
+      }
+    } finally {
+      run.lock?.release();
+      this.#runs.delete(job.id);
+      this.#jobs.delete(job.id);
+      this.#writes.delete(job.id);
+      this.#running.delete(job.id);
+      run.finished();
+      this.#schedule();
+    }
+  }
+
+  /** Read the outputs back, write the receipt, and put the job's end on its record (one write, then the events). */
+  async #record(job, run, handler, returned, failure) {
     const stopped = run.controller.signal.aborted;
     await this.#settleLeases(run);
     let state = stopped ? "cancelled" : failure ? "failed" : "succeeded";
@@ -492,8 +523,15 @@ export class BrowserJobService {
       s.finished_at = at;
     }
     if (state === "succeeded" && returned && typeof returned === "object") {
-      this.#mergeOutcome(run, returned.outcome);
-      job.result = returned.result === undefined ? null : jsonOnly(returned.result);
+      try {
+        this.#mergeOutcome(run, returned.outcome);
+        job.result = returned.result === undefined ? null : jsonOnly(returned.result);
+      } catch (err) {
+        // a result the record cannot hold is no result: it could not be shown or followed up later
+        state = "failed";
+        error = { type: "runtime_error", message: clip(`the job's result cannot be kept as JSON: ${err?.message || err}`, 1500) };
+        job.result = null;
+      }
     }
     const o = run.outcome;
     const expected = this.#expected(handler, job.params);
@@ -533,23 +571,17 @@ export class BrowserJobService {
     this.#emit(job, "state");
     if (job.state === "failed") this.#emit(job, "error", job.error);
     this.#emit(job, "done");
-    run.lock?.release();
-    this.#runs.delete(job.id);
-    this.#jobs.delete(job.id);
-    this.#writes.delete(job.id);
-    this.#running.delete(job.id);
-    run.finished();
-    this.#schedule();
   }
 
   /**
-   * A job of this tab whose end is being recorded (its state already says so; its lock is not yet released): wait for
-   * that, so whoever saw it end can resume or remove it at once. → true when the job is still queued or running here.
+   * A job of this tab whose end is being recorded (its handler has stopped, or it was cancelled while queued; its lock
+   * is not yet released): wait for that, so whoever saw it end can resume or remove it at once. → true when the job is
+   * still queued or running here.
    */
   async #busyHere(id) {
     const run = this.#runs.get(id);
     if (!run) return false;
-    if (!ENDED_STATES.includes(this.#jobs.get(id)?.state)) return true;
+    if (!run.closed && !ENDED_STATES.includes(this.#jobs.get(id)?.state)) return true;
     await run.ended;
     return this.#runs.has(id);
   }
@@ -606,6 +638,8 @@ export class BrowserJobService {
           problems.push(`${a.name}: ${st.bytes} bytes in storage, the worker wrote ${a.bytes}`);
         }
         pageDigests[a.name] = bareSha256(await this.#hashFile(path, "sha256"));
+        // gone between the stat and the read, or a hash that is not a SHA-256: the page has no digest to agree with
+        if (!pageDigests[a.name]) problems.push(`${a.name}: reading it back from storage gave no SHA-256`);
       } catch (err) {
         problems.push(`${a.name} could not be read back: ${err?.message || err}`);
       }
@@ -779,7 +813,9 @@ export class BrowserJobService {
   /**
    * ctx.pool: leases go through it so the service knows which workers a job holds (a cancel interrupts them; the
    * receipt names them and their busy time). A lease's calls take the job's signal when they name none, and its
-   * release() first asks the worker for its memory (the receipt's wasm_peak_bytes).
+   * release() first asks the worker for its memory (the receipt's wasm_peak_bytes). A cancelled job's worker is
+   * terminated instead of given back: Python may have stopped in place, but what the job left in the worker's memory
+   * (its working files, OPFS files it mounted and holds open) is in no known state, and the next job must not inherit it.
    */
   #leaser(job, run) {
     const signal = run.controller.signal;
@@ -790,12 +826,21 @@ export class BrowserJobService {
         if (signal.aborted) throw cancelledError();
         if (run.closed) throw cancelledError();
         const lease = await this.#pool.lease({ ...opts, signal: opts.signal || signal });
+        if (run.closed) {
+          // the job ended while it waited (a handler cut off by the cancel grace): nobody would give this one back
+          lease.release();
+          throw cancelledError();
+        }
         run.leases.add(lease);
         let releasing = false;
         const release = () => {
           if (releasing || lease.released) return;
           releasing = true;
           run.usage.set(lease, lease.stats());
+          if (signal.aborted) {
+            lease.terminate();
+            return;
+          }
           run.probes.push((async () => {
             if (lease.alive && !lease.busy && !signal.aborted) {
               try {
@@ -893,7 +938,8 @@ export class BrowserJobService {
         if (out.worker) s.worker = String(out.worker);
         if (out.reused === true) s.reused = true;
         if (out.verified === true) s.verified = true;
-        if (out.checkpoint) await this.#checkpoints(job, run).write(sid, out.checkpoint);
+        // a stage that finished after its job ended (cut off by the cancel grace) leaves nothing for a later attempt
+        if (out.checkpoint && !run.closed) await this.#checkpoints(job, run).write(sid, out.checkpoint);
       }
       end("succeeded", out?.detail);
       return out;
@@ -1023,12 +1069,15 @@ export class BrowserJobService {
 
   /**
    * Cancel a job → its view. Queued here: cancelled at once. Running here: its signal aborts, the workers it leased
-   * are interrupted (then terminated after their grace period), and it ends "cancelled" when the handler has stopped
-   * (or after cancelGraceMs without it). Interrupted: cancelled (it will not be resumed). A job another live tab runs
-   * is that tab's to cancel; a finished one has nothing to cancel.
+   * are interrupted (then terminated after their grace period, and terminated anyway when the job gives them back),
+   * and it ends "cancelled" when the handler has stopped (or after cancelGraceMs without it). Interrupted: cancelled
+   * (it will not be resumed). A job another live tab runs is that tab's to cancel; a finished one, or one whose
+   * handler had already stopped when the cancel came, has nothing to cancel.
    */
   async cancel(id) {
     await this.start();
+    // a job whose handler has stopped is ending as it ran: wait for its record, then answer from it below
+    if (this.#runs.get(id)?.closed) await this.#runs.get(id).ended;
     const job = this.#jobs.get(id);
     const run = this.#runs.get(id);
     if (job && run) {
@@ -1054,6 +1103,7 @@ export class BrowserJobService {
         run.controller?.abort();
         for (const lease of run.leases) lease.interrupt();
         run.forceTimer = setTimeout(() => {
+          if (run.closed) return;
           this.#log(job, "warn", `the job did not stop within ${Math.round(this.#cancelGraceMs / 1000)} s of the cancel; its workers were terminated`);
           run.force?.(cancelledError());
         }, this.#cancelGraceMs);
@@ -1112,7 +1162,15 @@ export class BrowserJobService {
     delete job.limitations; // the next attempt's own, if it finds any
     this.#appendLog(job, "info", `resumed (attempt ${job.attempts})`);
     this.#jobs.set(id, job);
-    await this.#save(job);
+    try {
+      await this.#save(job);
+    } catch (err) {
+      // not recorded as queued: it stays as it was, and its lock is not kept for a job that will not run
+      this.#jobs.delete(id);
+      this.#writes.delete(id);
+      lock.release();
+      throw refusal("unavailable", `the job could not be recorded: ${err?.message || err}`, "storage");
+    }
     this.#enqueue(job, lock);
     const view = this.#view(job);
     this.#emit(job, "state");

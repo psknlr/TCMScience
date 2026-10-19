@@ -1,7 +1,7 @@
 // The evidence of a browser job (js/scientific/engines/evidence.js): the rung it reaches from what happened — verified
-// only with a verify stage that ran and the page's digests equal to the worker's, validated with the digests alone,
-// dispatched when a worker computed but the checks did not pass, selected when nothing computed — the assurance, and
-// the receipt document. Also the memory budget helpers (js/scientific/runtime/memory.js).
+// only with a verify stage that ran and said it passed and the page's digests equal to the worker's, validated with the
+// digests alone, dispatched when a worker computed but the checks did not pass, selected when no job worker computed
+// anything — the assurance, and the receipt document. Also the memory budget helpers (js/scientific/runtime/memory.js).
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -42,15 +42,16 @@ test("digests: a SHA-256 in any spelling; both readings compared for every outpu
 
 test("the ladder: verified needs a verify stage that ran and agreeing digests; validated the digests alone", () => {
   const base = { state: "succeeded", artefacts: arts, workerDigests: worker, pageDigests: { ...worker }, workers };
-  const verified = jobEvidence({ ...base, stages: [stage("research"), stage("verify")] });
+  const verified = jobEvidence({ ...base, stages: [stage("research"), stage("verify", { verified: true })] });
   assert.equal(verified.evidence, "verified");
   assert.equal(verified.assurance, "outputs_verified");
   assert.deepEqual(verified.verify_stages, ["verify"]);
-  // a stage that says it verified counts as well, whatever its id
+  // a stage that says it verified counts, whatever its id; a name alone proves nothing
   assert.equal(jobEvidence({ ...base, stages: [stage("recompute", { verified: true })] }).evidence, "verified");
+  assert.equal(jobEvidence({ ...base, stages: [stage("research"), stage("verify")] }).evidence, "validated");
   // a verify stage reused from a checkpoint did not run this time
-  assert.equal(jobEvidence({ ...base, stages: [stage("research"), stage("verify", { reused: true })] }).evidence, "validated");
-  assert.deepEqual(verifyStages([stage("verify", { status: "failed" })]), []);
+  assert.equal(jobEvidence({ ...base, stages: [stage("research"), stage("verify", { reused: true, verified: true })] }).evidence, "validated");
+  assert.deepEqual(verifyStages([stage("verify", { status: "failed", verified: true })]), []);
   const validated = jobEvidence({ ...base, stages: [stage("research")] });
   assert.equal(validated.evidence, "validated");
   assert.equal(validated.assurance, "outputs_verified");
@@ -61,7 +62,7 @@ test("the ladder: verified needs a verify stage that ran and agreeing digests; v
   // a failed job is never verified, whatever its digests
   assert.equal(jobEvidence({ ...base, state: "failed", stages: [stage("research"), stage("verify")] }).evidence, "dispatched");
   // an expected output that is missing keeps the rung but not the assurance
-  const missing = jobEvidence({ ...base, stages: [stage("research"), stage("verify")], missing: ["report.html"] });
+  const missing = jobEvidence({ ...base, stages: [stage("research"), stage("verify", { verified: true })], missing: ["report.html"] });
   assert.equal(missing.evidence, "verified");
   assert.equal(missing.assurance, "none");
   // nothing computed on the CPU: it was only selected
@@ -70,6 +71,12 @@ test("the ladder: verified needs a verify stage that ran and agreeing digests; v
   assert.equal(nothing.assurance, "none");
   // a stage that names its worker is work that ran, even when no lease was recorded
   assert.equal(jobEvidence({ state: "cancelled", stages: [{ id: "build", status: "cancelled", worker: "science-2" }] }).evidence, "dispatched");
+  // outputs the page wrote itself agree with their digests, but no job worker computed them: no rung above selected
+  const pageOnly = jobEvidence({ ...base, workers: [], stages: [{ id: "write", status: "succeeded", worker: null, reused: false, verified: true }] });
+  assert.equal(pageOnly.evidence, "selected");
+  assert.equal(pageOnly.assurance, "outputs_verified", "the hashes still agree");
+  // a worker only started for the job (no operation sent, no stage) computed nothing for it
+  assert.equal(jobEvidence({ state: "failed", stages: [], workers: [{ id: "science-1", stages: [], calls: 0, busy_ms: 0, boot_ms: 900 }] }).evidence, "selected");
 });
 
 test("runtime and platform come only from what the workers reported", () => {
@@ -84,7 +91,7 @@ test("the receipt: the runner's fields where they mean the same, placement brows
   const job = {
     id: "bj-0123456789abcdef", kind: "research.run", state: "succeeded", project_id: "p1", submission_id: null,
     started_at: "2026-10-19T10:00:00.000Z", finished_at: "2026-10-19T10:02:03.500Z", error: null, outcome: { complete: true },
-    stages: [stage("prepare", { worker: "science-1" }), stage("research"), stage("verify"), { id: "extra", status: "succeeded", worker: null, reused: true, seconds: 0 }],
+    stages: [stage("prepare", { worker: "science-1" }), stage("research"), stage("verify", { verified: true }), { id: "extra", status: "succeeded", worker: null, reused: true, seconds: 0 }],
     artefacts: arts,
   };
   const doc = buildJobReceipt({
@@ -111,7 +118,8 @@ test("the receipt: the runner's fields where they mean the same, placement brows
   assert.deepEqual(doc.checks, ["np_exports.verify", "worker_digests", "page_digests"]);
   assert.equal(doc.assurance, "outputs_verified");
   assert.equal(doc.complete, true);
-  assert.deepEqual(doc.stages.map((s) => [s.name, s.device, s.reused]), [["prepare", "cpu", false], ["research", "cpu", false], ["verify", "cpu", false], ["extra", null, true]]);
+  assert.deepEqual(doc.stages.map((s) => [s.name, s.device, s.reused, s.verified]), [["prepare", "cpu", false, false], ["research", "cpu", false, false], ["verify", "cpu", false, true], ["extra", null, true, false]]);
+  assert.deepEqual(doc.device.verify_stages, ["verify"]);
   assert.equal(doc.engine, null);
   assert.deepEqual(doc.limitations, ["Predicted ≠ measured"]);
   assert.equal(JSON.parse(JSON.stringify(doc)).resources.memory.wasm_peak_bytes, 1 << 30, "it is plain JSON");

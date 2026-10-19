@@ -73,6 +73,7 @@ function workerClass(run) {
   class FakeWorker {
     constructor() { this.terminated = false; this.received = []; instances.push(this); }
     postMessage(data) {
+      if (data?.type === "interrupt-buffer") this.buffer = new Uint8Array(data.buffer);
       if (this.terminated || typeof data !== "string") return;
       const msg = JSON.parse(data);
       this.received.push(msg);
@@ -446,7 +447,7 @@ test("start(): a job left queued or running without a live tab's lock is interru
   const guessed = await noLocks.get(live.id);
   assert.equal(guessed.state, "interrupted");
   assert.equal(guessed.logs.at(-1).level, "warn");
-  assert.match(guessed.logs.at(-1).text, /no Web Locks/);
+  assert.match(guessed.logs.at(-1).text, /Web Locks are missing here or could not be queried/);
 });
 
 /** Records written straight into the database, as an earlier page left them. */
@@ -644,4 +645,78 @@ test("a job worker that crashes mid-stage fails the job with the worker's fatal 
   assert.match(done.error.message, /out of memory/);
   assert.equal(Worker.instances[0].terminated, true);
   assert.ok(!isAbort(done.error));
+});
+
+test("a cancel that arrives while the job's end is being recorded changes nothing: the job ends as it ran", async () => {
+  const store = new MemoryStore();
+  const reading = deferred();
+  const go = deferred();
+  // the service is reading the artefacts back when the cancel comes
+  const hashFile = async (path) => { reading.resolve(); await go.promise; const b = store.bytesAt(path); return b ? hex(b) : null; };
+  const { svc } = setup({ store, hashFile, cancelGraceMs: 20 });
+  const job = await svc.submit("test.compute", {});
+  await reading.promise;
+  const cancelling = svc.cancel(job.id);
+  go.resolve();
+  await assert.rejects(cancelling, { type: "conflict", message: /already finished \(succeeded\)/ });
+  await new Promise((r) => setTimeout(r, 50)); // past the cancel grace
+  const done = await svc.get(job.id);
+  assert.equal(done.state, "succeeded");
+  assert.equal((await svc.receipt(job.id)).doc.state, "succeeded");
+  assert.ok(!done.logs.some((l) => /cancel|did not stop/.test(l.text)), done.logs.map((l) => l.text).join("\n"));
+});
+
+test("a result that cannot be kept as JSON fails its job, and the queue goes on", async () => {
+  const circular = { rows: 1 };
+  circular.self = circular;
+  let n = 0;
+  const handler = { kind: "test.loop", title: { zh: "x", en: "x" }, stages: [], async run() { return { result: n++ === 0 ? circular : { rows: 2 } }; } };
+  const { svc, registry } = setup({ handlers: [handler] });
+  const first = await svc.submit("test.loop", {});
+  const second = await svc.submit("test.loop", {});
+  const a = await settle(svc, first.id);
+  assert.equal(a.state, "failed");
+  assert.match(a.error.message, /cannot be kept as JSON/);
+  assert.equal(a.result, null);
+  assert.equal((await settle(svc, second.id)).state, "succeeded", "the next job still ran");
+  assert.equal(registry.size, 0, "both locks released");
+});
+
+test("an artefact the page cannot hash when it reads it back fails the job: no digest, no agreement", async () => {
+  const { svc } = setup({ hashFile: async () => null });
+  const job = await svc.submit("test.compute", {});
+  const done = await settle(svc, job.id);
+  assert.equal(done.state, "failed");
+  assert.equal(done.error.type, "integrity");
+  assert.match(done.error.message, /table\.tsv: reading it back from storage gave no SHA-256/);
+  assert.deepEqual(done.outcome.checks, []);
+  const r = await svc.receipt(job.id);
+  assert.deepEqual(r.doc.digests.unread, ["table.tsv"]);
+  assert.equal(r.doc.assurance, "none");
+});
+
+test("isolated: Python stops in place on a cancel, yet the cancelled job's worker is not handed to the next job", async () => {
+  globalThis.crossOriginIsolated = true;
+  try {
+    const run = (p, w) => new Promise((resolve) => {
+      if (p.fn !== "compute" || !p.args.hang) return resolve({ ok: true, result: p.fn });
+      const poll = setInterval(() => {
+        if (w.buffer?.[0] !== 2) return;
+        clearInterval(poll);
+        w.buffer[0] = 0; // KeyboardInterrupt raised: Python is back at the top
+        resolve({ ok: false, error: { type: "cancelled", message: "KeyboardInterrupt" } });
+      }, 2);
+    });
+    const { svc, Worker } = setup({ run, size: 1 });
+    const job = await svc.submit("test.compute", { hang: true });
+    await new Promise((r) => setTimeout(r, 30));
+    await svc.cancel(job.id);
+    assert.equal((await settle(svc, job.id)).state, "cancelled");
+    assert.equal(Worker.instances[0].terminated, true, "whatever the job left in the worker's memory goes with it");
+    const next = await svc.submit("test.compute", {});
+    assert.equal((await settle(svc, next.id)).state, "succeeded");
+    assert.equal(Worker.instances.length, 2, "the next job booted a fresh worker");
+  } finally {
+    delete globalThis.crossOriginIsolated;
+  }
 });
