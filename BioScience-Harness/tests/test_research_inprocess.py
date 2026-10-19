@@ -141,6 +141,33 @@ def test_the_manifest_records_the_interpreter_it_ran_in(pair):
     assert a == b, "only the execution block may differ"
 
 
+def test_in_process_starts_no_process_and_no_thread(tmp_path, monkeypatch):
+    """What the browser's Python cannot do: start a process (Emscripten refuses) or a
+    thread (Pyodide has none). The in-process run does neither; the isolated one needs
+    both (a child per call, behind an egress-proxy thread)."""
+    import os
+    import subprocess as sp
+    import threading
+
+    root, ledger = _world(tmp_path, "selective")
+
+    def no_process(*args, **kw):
+        raise OSError(138, "emscripten does not support processes")
+
+    def no_thread(self, *args, **kw):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(sp.Popen, "_execute_child", no_process)
+    monkeypatch.setattr(os, "fork", no_process)
+    monkeypatch.setattr(threading.Thread, "start", no_thread)
+    with pytest.raises(OSError):
+        sp.run(["true"])                                  # the refusal is in place
+    run = _run(tmp_path, root, ledger, "p", isolate=False)
+    assert run.released and run.artifact.provenance["governed_execution"] is True
+    assert {r["isolation"] for r in run.artifact.provenance["execution"].values()} == \
+        {"in_process"}
+
+
 def test_a_profile_that_requires_isolation_refuses_to_run_in_process(tmp_path):
     root, ledger = _world(tmp_path, "selective")
     with pytest.raises(ValueError, match="requires isolation"):

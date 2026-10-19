@@ -23,6 +23,8 @@
 //     recorded total (and its ETag, when readable, the recorded one); otherwise the partial file is dropped and the
 //     download restarts without Range, once. A 200 restarts from byte 0 on that answer; a 412 drops and restarts;
 //   - at most the registry's size is accepted (2 GiB when it has none); more is refused and nothing is kept;
+//   - an answer redirected off the reviewed host (other than to the registry's redirect_hosts), or from https down to
+//     http, is refused: fetch follows a redirect before the page can see it, so its body is not read and nothing kept;
 //   - SHA-256 (and MD5 when the reviewed checksum is md5) is computed while the bytes are written; a resumed file is
 //     hashed again whole when it is complete. A size or checksum that is not the reviewed one keeps nothing;
 //   - a complete file moves to <dir>/<name> (FileSystemHandle.move, or a copy and a delete where the browser has no
@@ -30,7 +32,8 @@
 //     first, so a file is never next to a record that is not its own.
 // Transport "auto" tries the host directly; only when that request cannot be made at all (a TypeError: the network,
 // or the host not allowing a web page to read it — CORS) does it try the relay, and the reply lists both attempts.
-// A cancel stops between chunks and keeps the partial file and its identity record for a later resume.
+// A cancel stops between chunks and keeps the partial file and its identity record for a later resume. Nothing is
+// retried here: a transfer that breaks off keeps its partial file too, and the next download of the file resumes it.
 
 import { digestFile, hasher, parseChecksum } from "./digest.js";
 import { OpfsStore, checkPath } from "./opfs-store.js";
@@ -113,6 +116,7 @@ function errorOf(err) {
   if (code === "quota" || code === "storage" || code === "busy" || code === "corrupt") return { type: "storage", message: err.message, ...(code === "quota" ? { quota: true } : {}) };
   if (code === "not_found") return { type: "not_found", message: err.message };
   if (err?.name === "QuotaExceededError") return { type: "storage", quota: true, message: `the browser's storage quota for this site is used up (${describe(err)})` };
+  if (err?.name === "NoModificationAllowedError") return { type: "busy", message: `the file is open elsewhere: another tab or worker is writing it (${describe(err)})` };
   return { type: "runtime_error", message: describe(err).slice(0, 2000) };
 }
 
@@ -175,7 +179,8 @@ function checkRow(row) {
   if (url.protocol !== "https:" && url.protocol !== "http:") throw new OpError("bad_arguments", `${name}: only http(s) URLs are downloaded`);
   const bytes = row.bytes === null || row.bytes === undefined ? null : Number(row.bytes);
   if (bytes !== null && !(Number.isSafeInteger(bytes) && bytes >= 0)) throw new OpError("bad_arguments", `${name}: bytes ${row.bytes} is not a size`);
-  return { name, url: url.href, bytes, checksum: row.checksum || null, sum: parseChecksum(row.checksum) };
+  const redirectHosts = Array.isArray(row.redirect_hosts) ? row.redirect_hosts.map((h) => String(h).toLowerCase()) : [];
+  return { name, url: url.href, bytes, checksum: row.checksum || null, sum: parseChecksum(row.checksum), redirectHosts };
 }
 
 function pathsOf(dir, name) {
@@ -378,11 +383,8 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
   let { offset, validator } = planResume(await part.size(), side, row, transport, cap, restarts);
   // nothing left to ask for, and a reviewed checksum will check the file as it is
   if (offset && side.total === offset && row.sum) return { bytes: offset, total: offset, side, start: offset, hashers: null, validator: "checksum" };
-  let restartedRange = false;
-  let restarted412 = false;
-  let restarted416 = false;
-  let retriedWhole = false;
   const host = new URL(url).host;
+  // every restart asks for the whole file (offset 0), so this runs at most twice
   for (;;) {
     cx.check();
     const headers = {};
@@ -398,16 +400,20 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       res = await cx.env.fetch(url, init);
     } catch (err) {
       cx.check(err);
-      if (offset && !retriedWhole) {
+      if (offset) {
         // If-Range is not a header a page may send cross-origin without asking first (a CORS preflight); a host that
         // refuses the preflight can still serve the whole file
-        retriedWhole = true;
         restarts.push(`${transport}: the request for bytes=${offset}- could not be made (${describe(err)}); asked again for the whole file`);
         offset = 0;
         validator = null;
         continue;
       }
       throw new OpError("network", `${host} could not be reached (${describe(err)})${transport === "direct" ? ": the network is down, or the host does not let a web page download from it (CORS)" : ""}`, { phase: "request" });
+    }
+    const moved = redirectRefusal(res, url, transport, row);
+    if (moved) {
+      await cancelBody(res);
+      throw new OpError("redirect", `${host}: ${moved}; the reviewed URL needs review, and nothing from it was kept`);
     }
     const h = res.headers;
     const status = res.status;
@@ -424,8 +430,6 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       if (why) {
         await cancelBody(res);
         await part.drop();
-        if (restartedRange) throw new OpError("transfer", `the server answered bytes=${offset}- wrongly again (${why}); nothing was kept`);
-        restartedRange = true;
         restarts.push(`${transport}: the answer to bytes=${offset}- cannot be joined to the partial file (${why}): it was dropped and the download restarted from byte 0`);
         offset = 0;
         validator = null;
@@ -439,11 +443,10 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       }
       start = offset;
       total = cr.total;
-    } else if (status === 200 || status === 206) {
-      if (status === 206) {
-        await cancelBody(res);
-        throw new OpError("transfer", `${host} answered a request for the whole file with HTTP 206; nothing was kept`);
-      }
+    } else if (status === 206) {
+      await cancelBody(res);
+      throw new OpError("transfer", `${host} answered a request for the whole file with HTTP 206; nothing was kept`);
+    } else if (status === 200) {
       if (offset) restarts.push(`${transport}: the server sent the whole file for bytes=${offset}- (If-Range did not match, or it serves no ranges): restarted from byte 0`);
       const declared = lengthOf(h.get("content-length"));
       if (declared !== null && declared > cap) {
@@ -459,10 +462,9 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
         transport, declared_bytes: declared,
       };
       await store.writeJson(paths.side, side);
-    } else if (status === 412 && offset && !restarted412) {
+    } else if (status === 412 && offset) {
       await cancelBody(res);
       await part.drop();
-      restarted412 = true;
       restarts.push(`${transport}: HTTP 412 for bytes=${offset}-: the file changed since the partial file was started; it was dropped and the download restarted from byte 0`);
       offset = 0;
       validator = null;
@@ -474,8 +476,6 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       // If-Range is evaluated before Range: a 416 naming this very size says the partial file is the whole file
       if (whole === offset && (validator || row.sum)) return { bytes: offset, total: whole, side, start: offset, hashers: null, validator: validator ? (side.etag ? "etag" : "last-modified") : "checksum" };
       await part.drop();
-      if (restarted416) throw httpError(416, host, transport);
-      restarted416 = true;
       restarts.push(`${transport}: HTTP 416 for bytes=${offset}-: the partial file was dropped and the download restarted from byte 0`);
       offset = 0;
       validator = null;
@@ -489,6 +489,19 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
     const end = await streamBody(cx, res, part, { start, cap, total, hint: side?.declared_bytes ?? null, hashers, row });
     return { bytes: end, total, side, start, hashers, validator: start ? (side.etag ? "etag" : side.last_modified ? "last-modified" : "checksum") : null };
   }
+}
+
+/** Why an answer that came through a redirect is not used ('' when it may be): fetch follows a redirect before the
+ * page can see it, so a hop off the reviewed host (or to any host but the site, through the relay), or from https down
+ * to http, is refused after the fact and its body is not read. */
+function redirectRefusal(res, url, transport, row) {
+  if (!res.redirected || !res.url) return "";
+  const from = new URL(url);
+  const to = new URL(res.url);
+  if (from.protocol === "https:" && to.protocol !== "https:") return `redirected from https down to ${to.protocol.replace(":", "")}`;
+  const allowed = transport === "direct" ? [from.hostname, ...row.redirectHosts] : [from.hostname];
+  if (!allowed.includes(to.hostname.toLowerCase())) return `redirected to ${to.hostname}, which the registry does not list for this file (${allowed.join(", ")})`;
+  return "";
 }
 
 function digestNames(row) {
@@ -508,11 +521,13 @@ function oversize(row, bytes, what) {
 }
 
 function httpError(status, host, transport) {
-  const why = status === 404 || status === 410 ? ": the reviewed URL is out of date and needs review"
+  const relay = transport === "relay";
+  const why = (status === 404 || status === 410) && relay ? ": the relay does not serve this file here (it serves only what the registry names, where the site runs it)"
+    : status === 404 || status === 410 ? ": the reviewed URL is out of date and needs review"
     : status === 401 || status === 403 || status === 407 ? ": the host requires authorisation or refuses this client; access controls are not bypassed"
     : status === 429 ? ": the host is rate-limiting; try later"
     : status >= 500 ? ": a server error" : "";
-  return new OpError("http", `${transport === "relay" ? "the site's relay" : host} answered HTTP ${status}${why}`, { status, phase: "response" });
+  return new OpError("http", `${relay ? "the site's relay" : host} answered HTTP ${status}${why}`, { status, phase: "response", ...(relay ? { relay: true } : {}) });
 }
 
 /** The response body into the partial file at `start`, hashing as it goes; returns the bytes the file holds. */

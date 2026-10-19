@@ -370,7 +370,7 @@ export function mountInspector(app, host) {
       const job = e.env.job;
       if (job?.id && !jobsSeen.has(job.id)) {
         jobsSeen.add(job.id);
-        outputs.push({ path: job.id, job: true, where: "runner", key: `job:${job.id}`, jobId: job.id });
+        outputs.push({ path: job.id, job: true, where: /^bj-/.test(job.id) ? "browser" : "runner", key: `job:${job.id}`, jobId: job.id });
       }
     }
     const inputs = h("div.files-inputs", h("p.muted.small", t("ui.files.loading")));
@@ -400,6 +400,7 @@ export function mountInspector(app, host) {
   }
 
   function jobFilesBlock(jobId) {
+    if (/^bj-/.test(jobId)) return browserJobFilesBlock(jobId);
     const runner = app.runtimes.runner;
     const box = h("div.job-files", { "data-file": jobId }, h("p.files-sec__sub", icon("workflow", { size: 12 }), t("ui.files.job", { id: jobId })));
     if (app.state.runner.status !== "ready") { box.append(h("p.muted.small", t("ui.job.connect_to_follow"))); return box; }
@@ -411,6 +412,30 @@ export function mountInspector(app, host) {
         name: f.path, type: f.media_type, bytes: f.bytes, sha256: f.sha256, digest: true, location: t("ui.files.loc_runner"), key: `${jobId}/${f.path}`,
         onPreview: () => { filePick = { key: `${jobId}/${f.path}`, source: { url: runner.fileUrl(jobId, f.path) }, meta: { name: f.path, media_type: f.media_type } }; render(); },
         onDownload: () => { const a = h("a", { href: runner.fileUrl(jobId, f.path), download: f.path.split("/").pop() }); document.body.append(a); a.click(); a.remove(); },
+      }))));
+    }).catch((err) => box.append(h("p.muted.small", err?.message || String(err))));
+    return box;
+  }
+
+  /** A browser job's files: in this origin's private storage, opened from there (the job service's readFile). */
+  function browserJobFilesBlock(jobId) {
+    const service = app.runtimes.jobs?.service;
+    const box = h("div.job-files", { "data-file": jobId }, h("p.files-sec__sub", icon("workflow", { size: 12 }), t("ui.files.job", { id: jobId })));
+    if (!service || app.runtimes.jobs.status !== "ready") { box.append(h("p.muted.small", t("ui.job.browser_unavailable"))); return box; }
+    service.get(jobId).then(async (job) => {
+      if (!job || job.state !== "succeeded") { box.append(h("p.muted.small", t("ui.job.pending_note"))); return; }
+      const files = await service.files(jobId);
+      const open = async (f) => service.readFile(jobId, f.path);
+      box.append(h("ul.file-list", { role: "list" }, files.map((f) => fileRow({
+        // the job service re-read each file from storage and compared it with the digest the job worker recorded
+        name: f.name, bytes: f.bytes, sha256: f.sha256, digest: true, location: t("ui.files.loc_browser_job"), key: `${jobId}/${f.name}`,
+        onPreview: async () => { filePick = { key: `${jobId}/${f.name}`, source: { blob: await open(f) }, meta: { name: f.name } }; render(); },
+        onDownload: async () => {
+          const url = URL.createObjectURL(await open(f));
+          const a = h("a", { href: url, download: f.name.split("/").pop() });
+          document.body.append(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        },
       }))));
     }).catch((err) => box.append(h("p.muted.small", err?.message || String(err))));
     return box;

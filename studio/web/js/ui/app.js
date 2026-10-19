@@ -302,6 +302,24 @@ export class App {
         }
       });
     }
+    const jobs = this.runtimes.jobs;
+    if (jobs) {
+      this.state.browserJobs = { status: jobs.status, reason: jobs.reason || null, snapshots: null };
+      const refresh = async () => {
+        let built = null;
+        try {
+          const { snapshotsBuilt } = await import("../scientific/pipelines/network-pharmacology.js");
+          built = jobs.status === "ready" ? await snapshotsBuilt(jobs.service?.store) : null;
+        } catch { built = null; }
+        this.state.browserJobs = { ...this.state.browserJobs, status: jobs.status, reason: jobs.reason || null, snapshots: Boolean(built), built };
+        this.emit("runtime", { kind: "jobs" });
+      };
+      this.refreshBrowserJobs = refresh;
+      jobs.onStatus?.(() => { refresh(); });
+      // a snapshot build that ended changes what research.run can read here
+      this.on("job", (job) => { if (job?.kind === "research.snapshot" && ["succeeded", "failed", "cancelled"].includes(job.state)) refresh(); });
+      refresh();
+    }
     if (browser) {
       this.state.browser.status = browser.status;
       browser.onStatus?.((ev) => {
@@ -934,6 +952,7 @@ export class App {
       web: this.webOn(),
       compute: this.compute(),
       browser: { status: this.state.browser.status, device: "cpu (WebAssembly, single thread)" },
+      jobs: this.state.browserJobs ? { status: this.state.browserJobs.status, snapshots: this.state.browserJobs.snapshots, workers: this.runtimes.jobs?.pool?.size ?? null } : null,
       runner: {
         status: r.status, url: this.state.settings.runner.url, version: r.info?.version || null,
         devices: (r.devices?.devices || r.info?.devices || []).map((d) => ({ id: d.id, name: d.name, kind: d.kind, available: d.available })),

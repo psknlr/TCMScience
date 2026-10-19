@@ -8,11 +8,14 @@
 //     on close, so pipeTo works), createSyncAccessHandle({mode}) (read/write {at}, truncate, getSize, flush, close)
 //     and move();
 //   - locks: one open sync access handle per file in "readwrite" mode, shared "read-only" or "readwrite-unsafe"
-//     handles, writables shared among themselves; a locked file cannot be opened otherwise, removed, moved or read by
-//     getFile() (NoModificationAllowedError); a removed entry's handles throw NotFoundError;
+//     handles, writables shared among themselves; a locked file cannot be opened otherwise, removed or moved
+//     (NoModificationAllowedError), as in Chromium; a removed entry's handles throw NotFoundError;
+//   - stricter than Chromium in one place: getFile() of a file open for writing through a sync access handle throws
+//     NoModificationAllowedError here (Chromium returns a snapshot). The code here does not rely on that snapshot,
+//     and the fake refuses so a test notices if it starts to; getFileWhileWriting: true gives Chromium's answer;
 //   - a quota (QuotaExceededError) and storage.estimate() / persisted() / persist().
-// Options turn off what some browsers lack: syncAccessHandles (the main thread has none), writables (older Safari),
-// move (Safari).
+// Options turn off what a context or an engine may lack: syncAccessHandles (a page's main thread has none; they are
+// for dedicated workers), writables (engines without createWritable), move (engines without FileSystemHandle.move).
 
 const MiB = 1 << 20;
 const domError = (name, message) => new DOMException(message, name);
@@ -72,9 +75,9 @@ class DirNode {
 }
 
 class FakeFs {
-  constructor({ quota = 8 * 1024 * MiB, syncAccessHandles = true, writables = true, move = true } = {}) {
+  constructor({ quota = 8 * 1024 * MiB, syncAccessHandles = true, writables = true, move = true, getFileWhileWriting = false } = {}) {
     this.quota = quota;
-    this.options = { syncAccessHandles, writables, move };
+    this.options = { syncAccessHandles, writables, move, getFileWhileWriting };
     this.rootNode = new DirNode();
     this.root = new FakeDirectoryHandle(this, this.rootNode, "");
   }
@@ -224,7 +227,7 @@ export class FakeFileHandle extends FakeHandle {
 
   async getFile() {
     this.alive();
-    if (this.node.sync.some((s) => s.mode !== "read-only")) throw domError("NoModificationAllowedError", `${this.name} is open for writing through a sync access handle`);
+    if (!this.fs.options.getFileWhileWriting && this.node.sync.some((s) => s.mode !== "read-only")) throw domError("NoModificationAllowedError", `${this.name} is open for writing through a sync access handle`);
     return new File([this.node.bytes().slice()], this.name, { lastModified: this.node.lastModified });
   }
 

@@ -86,8 +86,8 @@ async function waitFor(svc, id, timeoutMs) {
 
 async function gqd() {
   const bootDoc = await boot();
-  const store = await OpfsStore.open();
-  if (!check("private storage (OPFS)", Boolean(store), store ? "" : "this browser has none")) return;
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
   const datasets = new DatasetWorkspace({
     store, registryUrl: "/runtime/datasets.json", workerUrl: new URL("/js/scientific/data/data.worker.js", location.href).href,
   });
@@ -102,7 +102,7 @@ async function gqd() {
     files.set(f.name, new File([blob], f.name));
   }
   const t0 = performance.now();
-  const rows = await datasets.acquire({ names: [...files.keys()], files, transport: "import" });
+  const rows = await datasets.acquire({ names: [...files.keys()], files });
   out.imported = rows.map((r) => ({ file: r.file, status: r.status, bytes: r.bytes, route: r.route }));
   check("raw files imported into private storage", rows.every((r) => ["PASS", "UNVERIFIED"].includes(r.status)), rows.filter((r) => !["PASS", "UNVERIFIED"].includes(r.status)).map((r) => `${r.file}: ${r.reason}`).join("; ") || `${rows.length} files`, performance.now() - t0);
 

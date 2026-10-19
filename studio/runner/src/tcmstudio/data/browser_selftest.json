@@ -1,0 +1,25 @@
+{
+ "digests": {
+  "compounds.tsv": "sha256:50aadc1ae4b80d6698948a49e71a2884fefe55ae16e7021d43253b6a46216968",
+  "disease_targets.tsv": "sha256:7aba9d44fd31c2b0f2028d7b2f2be9504c3e1e5b88cf465e3d203f355b0da0cc",
+  "enrichment.tsv": "sha256:b1fc7aaec5c9f7e8b26a6c2d2a82c68ffc0e4b7c1881a99f46f666d94d4f2a06",
+  "network.tsv": "sha256:429d37d846d9efce48cd72f67d4b3287ef1a8bd6a26215eef4e1792c32c19894",
+  "targets.tsv": "sha256:da5d6cd58cd7e1a5b8dda352541765b7702e948039475cde1806c1d93fd9d6dd"
+ },
+ "permutations": 200,
+ "question": "葛根芩连汤的实测靶点集中在哪些通路？",
+ "recorded_with": {
+  "machine": "x86_64",
+  "platform": "linux",
+  "python": "3.13.16"
+ },
+ "scenario": "selective",
+ "schema": "tcmstudio.browser-selftest/1",
+ "tables": {
+  "compounds.tsv": "compound\tname\tinchikey\tconnectivity\tid_kind\tlevel\therbs\tsources\ninchikey:BCCLFXZVJITGTB-SVFNUMZXQL-N\tcmp2\tBCCLFXZVJITGTB-SVFNUMZXQL-N\tBCCLFXZVJITGTB\tinchikey\tC1\ttcm:herb.huanglian\tnpass\ninchikey:ESZYCIDPYOPUMZ-GDPAMNTYYA-N\tcmp1\tESZYCIDPYOPUMZ-GDPAMNTYYA-N\tESZYCIDPYOPUMZ\tinchikey\tC1\ttcm:herb.huangqin\tnpass\ninchikey:HSRELTPUSCTAPI-RHGWPRRPMU-N\tcmp3\tHSRELTPUSCTAPI-RHGWPRRPMU-N\tHSRELTPUSCTAPI\tinchikey\tC1\ttcm:herb.gancao\tnpass\ninchikey:MYNBIQPMZJPLSG-QEJEYDTZIR-N\tcmp0\tMYNBIQPMZJPLSG-QEJEYDTZIR-N\tMYNBIQPMZJPLSG\tinchikey\tC1\ttcm:herb.gegen\tnpass\n",
+  "disease_targets.tsv": "target\tname\tscore\tdatatypes\tis_measured_target\tin_background\n",
+  "enrichment.tsv": "library\tpathway\tname\tsize\tin_background\toverlap\tp_value\tq_value\tempirical_p\tfold_enrichment\ttargets\nreactome\treactome:R-HSA-A\tpathway R-HSA-A\t8\t8\t8\t9.419325284310654e-08\t5.652e-07\t0.004975124378109453\t4.5556\tuniprot:P10000;uniprot:P10001;uniprot:P10002;uniprot:P10003;uniprot:P10004;uniprot:P10005;uniprot:P10006;uniprot:P10007\nreactome\treactome:R-HSA-B4\tpathway R-HSA-B4\t7\t5\t1\t0.7312829764691187\t1.0\t\t0.9111\tuniprot:P10040\nreactome\treactome:R-HSA-B0\tpathway R-HSA-B0\t7\t7\t0\t0.9999999999999997\t1.0\t\t0.0\t\nreactome\treactome:R-HSA-B1\tpathway R-HSA-B1\t7\t7\t0\t0.9999999999999997\t1.0\t\t0.0\t\nreactome\treactome:R-HSA-B2\tpathway R-HSA-B2\t7\t7\t0\t0.9999999999999997\t1.0\t\t0.0\t\nreactome\treactome:R-HSA-B3\tpathway R-HSA-B3\t7\t7\t0\t0.9999999999999997\t1.0\t\t0.0\t\n",
+  "network.tsv": "a\tb\tscore\trecord\n",
+  "targets.tsv": "target\tname\tevidence_class\tmeasurements\tpublications\tcompounds\therbs\tin_background\tdisease_score\tdegree\tbetweenness\nuniprot:P10000\tP10000\tmeasured\t1\t1\tinchikey:MYNBIQPMZJPLSG-QEJEYDTZIR-N\ttcm:herb.gegen\tTrue\t\t0\t0.0\nuniprot:P10001\tP10001\tmeasured\t1\t1\tinchikey:MYNBIQPMZJPLSG-QEJEYDTZIR-N\ttcm:herb.gegen\tTrue\t\t0\t0.0\nuniprot:P10002\tP10002\tmeasured\t1\t1\tinchikey:MYNBIQPMZJPLSG-QEJEYDTZIR-N\ttcm:herb.gegen\tTrue\t\t0\t0.0\nuniprot:P10003\tP10003\tmeasured\t1\t1\tinchikey:ESZYCIDPYOPUMZ-GDPAMNTYYA-N\ttcm:herb.huangqin\tTrue\t\t0\t0.0\nuniprot:P10004\tP10004\tmeasured\t1\t1\tinchikey:ESZYCIDPYOPUMZ-GDPAMNTYYA-N\ttcm:herb.huangqin\tTrue\t\t0\t0.0\nuniprot:P10005\tP10005\tmeasured\t1\t1\tinchikey:BCCLFXZVJITGTB-SVFNUMZXQL-N\ttcm:herb.huanglian\tTrue\t\t0\t0.0\nuniprot:P10006\tP10006\tmeasured\t1\t1\tinchikey:BCCLFXZVJITGTB-SVFNUMZXQL-N\ttcm:herb.huanglian\tTrue\t\t0\t0.0\nuniprot:P10007\tP10007\tmeasured\t1\t1\tinchikey:HSRELTPUSCTAPI-RHGWPRRPMU-N\ttcm:herb.gancao\tTrue\t\t0\t0.0\nuniprot:P10040\tP10040\tmeasured\t1\t1\tinchikey:HSRELTPUSCTAPI-RHGWPRRPMU-N\ttcm:herb.gancao\tTrue\t\t0\t0.0\n"
+ }
+}

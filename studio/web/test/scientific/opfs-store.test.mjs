@@ -6,7 +6,7 @@
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fakeOpfs } from "../fixtures/fake-opfs.mjs";
+import { FakeFileHandle, fakeOpfs } from "../fixtures/fake-opfs.mjs";
 import { OpfsStore, checkPath } from "../../js/scientific/data/opfs-store.js";
 
 const enc = new TextEncoder();
@@ -165,6 +165,22 @@ test("move: in place where the browser has move(), else a copy and a delete; the
     assert.deepEqual(await store.readBytes(fin), data);
     assert.deepEqual(fs.openHandles(), []);
     await assert.rejects(store.move(part, fin), (e) => e.code === "not_found");
+  }
+});
+
+test("move: a move() that does not take this form falls back to the copy; a lock is not worked around", async () => {
+  const { store } = await opened();
+  const original = FakeFileHandle.prototype.move;
+  try {
+    FakeFileHandle.prototype.move = async () => { throw new DOMException("not here", "NotSupportedError"); };
+    await store.writeText(["tcmstudio", "a"], "aaa");
+    assert.equal(await store.move(["tcmstudio", "a"], ["tcmstudio", "b"]), "copy");
+    assert.equal(await store.readText(["tcmstudio", "b"]), "aaa");
+    FakeFileHandle.prototype.move = async () => { throw new DOMException("open", "NoModificationAllowedError"); };
+    await assert.rejects(store.move(["tcmstudio", "b"], ["tcmstudio", "c"]), (e) => e.code === "storage" && /NoModificationAllowedError/.test(e.message));
+    assert.equal(await store.readText(["tcmstudio", "b"]), "aaa");
+  } finally {
+    FakeFileHandle.prototype.move = original;
   }
 });
 

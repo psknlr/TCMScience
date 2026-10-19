@@ -98,6 +98,11 @@ function environment(lang, env, project, provider = {}) {
     `- Compute: browser runtime ${browser} (Python tools use WebAssembly CPU; compatible numerical tools can use WebGPU with CPU fallback)${runner === "ready" ? `; local runner connected${env.runner?.url ? ` at ${env.runner.url}` : ""}${env.runner?.version ? ` (tcmstudio ${env.runner.version})` : ""}` : "; local runner not connected (pipelines, native engines and process-based third-party tools require it; the research jobs can run in this browser)"}.`,
     "- Registered public database connectors and local TCM data inspection can run in the browser. Online requests use the site's bounded source gateway after project web access and approval. Read each entry's execution requirements; a source in the catalog does not mean its entire database is downloaded or freely reusable.",
   ];
+  if (env.jobs) {
+    lines.push(env.jobs.status === "ready"
+      ? `- Browser jobs: ready (${env.jobs.workers || 1} job worker${env.jobs.workers === 1 ? "" : "s"}, files in this browser's private storage); research snapshots built in this browser: ${env.jobs.snapshots ? "yes" : "no (job.research.snapshot builds them; it downloads about 418 MB)"}.`
+      : "- Browser jobs: unavailable in this browser (no private file storage or workers); jobs need the local runner.");
+  }
   const devices = (env.runner?.devices || []).filter((d) => d && d.available !== false);
   if (runner === "ready" && devices.length) lines.push(`- Runner devices: ${devices.map((d) => d.name ? `${d.id} (${d.name})` : d.id).join(", ")}.`);
   if (env.compute && env.compute !== "auto") lines.push(`- The user set compute to: ${env.compute}.`);

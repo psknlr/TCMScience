@@ -6,7 +6,12 @@
 import { glossary, t } from "../../core/i18n.js";
 import { baseReceipt } from "../../core/receipt.js";
 import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
-import { envelopeFor } from "./job-manager.js";
+import { DatasetWorkspace } from "../data/datasets.js";
+import { OpfsStore } from "../data/opfs-store.js";
+import { HANDLERS } from "../pipelines/network-pharmacology.js";
+import { browserSelfTest } from "../pipelines/selftest.js";
+import { BrowserJobService, envelopeFor } from "./job-manager.js";
+import { ScienceWorkerPool, recommendedPoolSize } from "./worker-pool.js";
 
 /** A browser job's id (the runner's never start so). */
 export const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
@@ -55,9 +60,14 @@ export class BrowserJobsRuntime {
     return this.service?.onStatus ? this.service.onStatus(fn) : () => {};
   }
 
-  /** The kinds this browser runs (catalog BROWSER_JOB_KINDS, as far as this page's handlers go). */
+  /** The kinds this browser runs for the model (catalog BROWSER_JOB_KINDS; not the internal self-test). */
   kinds() {
-    return (this.service?.kinds?.() || []).map((k) => k.kind);
+    return (this.service?.kinds?.() || []).filter((k) => !k.internal).map((k) => k.kind);
+  }
+
+  /** Why the service cannot run jobs here (when its status is "unsupported"). */
+  get reason() {
+    return this.service?.reason || null;
   }
 
   runs(kind) {
@@ -132,4 +142,46 @@ function failed(tool, input_sha256, type, message, hint) {
     receipt: baseReceipt({ where: "browser", runtime: "studio-jobs/1", decided_by: "browser-runtime", input_sha256 }),
     job: null, approval: null, error: { type, message, hint },
   };
+}
+
+/**
+ * The page's job service, ready to take jobs, or one whose status says why it cannot: no Web Workers, no IndexedDB for
+ * the job records, no private file storage (OPFS) for the files, or no boot.json. Nothing heavy starts here: Pyodide
+ * boots in a job worker when the first job runs. opts: {bootUrl, siteUrl, Worker, indexedDB, storage, fetch}.
+ */
+export async function createJobsRuntime(opts = {}) {
+  const site = opts.siteUrl || new URL("../../../", import.meta.url).href;
+  const unsupported = (reason) => new BrowserJobsRuntime({ service: { status: "unsupported", reason, kinds: () => [], onStatus: () => () => {} } });
+  const Worker = opts.Worker ?? globalThis.Worker;
+  if (typeof Worker !== "function") return unsupported("this browser has no Web Workers");
+  if (!(opts.indexedDB ?? globalThis.indexedDB)) return unsupported("this browser keeps no IndexedDB (a private window?)");
+  const { store, reason } = await OpfsStore.open({ storage: opts.storage });
+  if (!store) return unsupported(reason || "this browser has no Origin Private File System");
+  let boot;
+  try {
+    const res = await (opts.fetch || globalThis.fetch)(opts.bootUrl || new URL("runtime/boot.json", site).href, { cache: "no-cache" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    boot = await res.json();
+  } catch (err) {
+    return unsupported(`runtime/boot.json could not be read (${err?.message || err})`);
+  }
+  const nav = globalThis.navigator || {};
+  const size = recommendedPoolSize({ cores: nav.hardwareConcurrency, memoryGb: nav.deviceMemory, isolated: Boolean(globalThis.crossOriginIsolated) });
+  const pool = new ScienceWorkerPool({
+    size: size.size, Worker, boot, siteUrl: site, indexUrl: opts.indexUrl,
+    workerUrl: new URL("js/scientific/engines/science.worker.js", site).href,
+  });
+  const datasets = new DatasetWorkspace({
+    store, siteUrl: site, Worker, registryUrl: new URL(boot.datasets?.path || "runtime/datasets.json", site).href,
+    workerUrl: new URL("js/scientific/data/data.worker.js", site).href,
+  });
+  const service = new BrowserJobService({ indexedDB: opts.indexedDB, pool, store, datasets, handlers: [...HANDLERS, browserSelfTest] });
+  try {
+    await service.start();
+  } catch (err) {
+    return unsupported(`the job records could not be opened (${err?.message || err})`);
+  }
+  const rt = new BrowserJobsRuntime({ service });
+  rt.pool = { size: size.size, reason: size.reason };
+  return rt;
 }

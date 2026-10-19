@@ -273,8 +273,14 @@ export class OpfsStore {
     const name = dest[dest.length - 1];
     if (typeof src.move === "function") {
       await this.remove(dest);
-      await src.move(destDir, name);
-      return "move";
+      try {
+        await src.move(destDir, name);
+        return "move";
+      } catch (err) {
+        // a browser whose move() does not take this form (NotSupportedError, TypeError): the copy below does the
+        // same; anything else (a lock, the quota) is the answer
+        if (domName(err) !== "NotSupportedError" && !(err instanceof TypeError)) throw storageFailure(to, err);
+      }
     }
     await this.copy(from, to, { signal });
     await this.remove(from);

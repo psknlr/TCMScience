@@ -8,6 +8,7 @@
 // attempts when "auto" fell back), so nothing reads as fetched one way when it came another.
 
 import { RAW_FILE_SCHEMA, TRANSPORTS, recordMismatch } from "./data.worker.js";
+import { parseChecksum } from "./digest.js";
 import { checkPath } from "./opfs-store.js";
 
 export const DATASETS_SCHEMA = "tcmstudio.datasets/1";
@@ -46,6 +47,11 @@ function fileRow(f, group) {
   }
   const bytes = f.bytes === null || f.bytes === undefined ? null : Number(f.bytes);
   if (bytes !== null && !(Number.isSafeInteger(bytes) && bytes >= 0)) throw workspaceError("bad_registry", `${where}: ${name} has a size that is not a number of bytes`);
+  try {
+    parseChecksum(f.checksum || null);
+  } catch (err) {
+    throw workspaceError("bad_registry", `${where}: ${name}: ${err.message}`);
+  }
   return { ...f, name, url: url.href, host: f.host || url.hostname, bytes, checksum: f.checksum || null };
 }
 
@@ -135,7 +141,7 @@ export class DatasetWorkspace {
     const dir = this.rawDir();
     const files = [];
     for (const row of reg.files) {
-      const st = await this.#store.stat([...dir, row.name]);
+      const st = await this.#statOrBusy([...dir, row.name]);
       let meta = null;
       let damaged = false;
       try {
@@ -144,14 +150,14 @@ export class DatasetWorkspace {
         if (err?.code !== "corrupt") throw err;
         damaged = true;
       }
-      let reason = st ? recordMismatch(meta, st.bytes, row) : "not here";
-      if (st && damaged) reason = "its record is damaged";
+      let reason = !st ? "not here" : st.busy ? "it is being written" : damaged ? "its record is damaged" : recordMismatch(meta, st.bytes, row);
       const present = Boolean(st) && !reason;
-      const part = await this.#store.stat([...dir, ".part", row.name]);
+      // a partial file the data worker is writing cannot be read here: its size is then unknown (null)
+      const part = await this.#statOrBusy([...dir, ".part", row.name]);
       files.push({
         ...row, present, meta: present ? meta : null,
         status: present ? (meta.verified === "none" ? UNVERIFIED : PASS) : null,
-        reason: present ? null : reason, partial_bytes: part?.bytes || 0,
+        reason: present ? null : reason, partial_bytes: part?.busy ? null : part?.bytes || 0,
       });
     }
     const need = files.filter((f) => !f.present);
@@ -240,6 +246,16 @@ export class DatasetWorkspace {
     this.#interrupt = null;
     if (w) w.terminate();
     this.#flush("the data worker was stopped");
+  }
+
+  /** stat(), or {busy: true} for a file another context holds open for writing (a sync access handle). */
+  async #statOrBusy(path) {
+    try {
+      return await this.#store.stat(path);
+    } catch (err) {
+      if (err?.name === "NoModificationAllowedError") return { busy: true };
+      throw err;
+    }
   }
 
   #cachedRow(base, f) {
@@ -340,7 +356,7 @@ function registryFields(f) {
   return row;
 }
 
-const FAILS = new Set(["checksum", "size", "oversize", "transfer", "bad_arguments", "bad_request", "read", "runtime_error", "fatal", "not_found"]);
+const FAILS = new Set(["checksum", "size", "oversize", "transfer", "redirect", "bad_arguments", "bad_request", "read", "runtime_error", "fatal", "not_found"]);
 
 /** A worker reply as an acquisition row. */
 function rowOf(base, f, reply, how) {
@@ -363,7 +379,8 @@ function rowOf(base, f, reply, how) {
   const type = e.type || "runtime_error";
   let status;
   if (type === "cancelled") status = SKIPPED;
-  else if (type === "http") status = e.status === 404 || e.status === 410 || (e.status >= 400 && e.status < 500 && ![401, 403, 407, 429].includes(e.status)) ? FAIL : BLOCKED;
+  // a host's 404 says the reviewed URL is stale (a defect to fix); the relay's says the site does not serve it here
+  else if (type === "http") status = !e.relay && (e.status === 404 || e.status === 410 || (e.status >= 400 && e.status < 500 && ![401, 403, 407, 429].includes(e.status))) ? FAIL : BLOCKED;
   else if (FAILS.has(type)) status = FAIL;
   else status = BLOCKED; // network, storage, unavailable, busy: outside the code
   const kept = e.kept_part ? `; ${e.have} bytes are kept for a resume` : "";

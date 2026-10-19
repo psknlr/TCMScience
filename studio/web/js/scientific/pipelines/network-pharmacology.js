@@ -15,8 +15,10 @@ const GROUP = "research";
 const DATA = ["tcmstudio", "datasets", GROUP];
 const RAW = [...DATA, "raw"];
 const SNAPSHOTS = [...DATA, "snapshots"];
-const SNAPSHOTS_NEXT = [...DATA, "snapshots.next"];
-const REPORT = [...DATA, "snapshot_report.json"];
+const REPORT_DIR = [...DATA, "report"];
+/** Written last by research.snapshot: the snapshots under SNAPSHOTS are complete and are the ones it built. */
+const BUILT = [...DATA, "snapshots.json"];
+export const SNAPSHOTS_BUILT_SCHEMA = "tcmstudio.browser-snapshots/1";
 /** Pyodide packages the snapshot store needs (bioagent.sources.snapshot reads and writes Parquet). */
 const PACKAGES = ["pyarrow"];
 
@@ -91,7 +93,10 @@ export const researchSnapshot = {
       if (!plan.missing.length) return { detail: "every file is already here", reused: true };
       const rows = await datasets.acquire({
         names: plan.missing, transport: params.transport || "auto", signal: ctx.signal,
-        onProgress: (p) => ctx.progress(0.05 + 0.45 * (p.fraction ?? 0), p.message || `${p.file || ""}`),
+        onProgress: (p) => {
+          const within = p.total ? Math.min(1, (p.bytes || 0) / p.total) : 0;
+          ctx.progress(0.05 + 0.45 * ((p.index + within) / Math.max(1, p.count)), `${p.file} ${((p.bytes || 0) / 1e6).toFixed(0)} MB`);
+        },
       });
       s.record({ files: rows });
       const bad = rows.filter((r) => !["PASS", "UNVERIFIED"].includes(r.status));
@@ -104,6 +109,7 @@ export const researchSnapshot = {
       return { detail: `${rows.length} file(s) obtained` };
     });
 
+    // only the files the workspace holds complete (a .meta record beside each): a copy cut short is not mounted
     const names = (await datasets.plan()).files.filter((f) => f.present).map((f) => f.name);
     const lease = await pool.lease({ packages: PACKAGES });
     try {
@@ -115,8 +121,8 @@ export const researchSnapshot = {
           fn: "build_snapshots",
           args: {
             raw_dir: `${root}/raw`, snapshot_root: `${root}/snapshots`, ledger: `${root}/snapshots/ledger.jsonl`,
-            sources: params.sources || undefined, network: params.network !== false,
-            report_path: `${root}/snapshot_report.json`,
+            sources: params.sources || undefined, network: params.network !== false, formulas: params.formulas || undefined,
+            report_path: `${root}/out/snapshot_report.json`,
           },
         }, { signal: ctx.signal, onEvent: (ev) => onPythonEvent(ctx, ev, 0.5, 0.4) }), "build_snapshots");
         s.record({ report_status: report.status, worker: lease.id });
@@ -132,17 +138,21 @@ export const researchSnapshot = {
       });
 
       await ctx.stage("persist", async () => {
-        const snaps = await lease.call("persist", { from: `${root}/snapshots`, dir: SNAPSHOTS_NEXT, clean: true }, { signal: ctx.signal });
-        const rep = await lease.call("persist", { from: root, dir: [...ctx.dir, "out"], clean: false, only: ["snapshot_report.json"] }, { signal: ctx.signal });
-        await ctx.store.replaceDir(SNAPSHOTS_NEXT, SNAPSHOTS);
-        const report = rep.files.find((f) => f.path.join("/") === "snapshot_report.json");
-        if (report) {
-          await ctx.store.copyFile([...ctx.dir, "out", "snapshot_report.json"], REPORT);
-          ctx.artefact({ name: "snapshot_report.json", path: ["out", "snapshot_report.json"], bytes: report.bytes, sha256: report.sha256 });
-        }
+        // the marker goes first and last: a page that closes half way leaves no marker, and research.run refuses
+        // snapshots without one (Python would refuse them anyway: the ledger and the table hashes would not verify)
+        await ctx.store.remove(BUILT).catch(() => false);
+        const snaps = await lease.call("persist", { from: `${root}/snapshots`, dir: SNAPSHOTS, clean: true }, { signal: ctx.signal });
+        const out = await lease.call("persist", { from: `${root}/out`, dir: [...ctx.dir, "out"], clean: true }, { signal: ctx.signal });
+        await lease.call("persist", { from: `${root}/out`, dir: REPORT_DIR, clean: true }, { signal: ctx.signal });
+        for (const f of out.files) ctx.artefact({ name: f.path.join("/"), path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 });
         const ledger = snaps.files.find((f) => f.path.join("/") === "ledger.jsonl");
-        if (ledger) ctx.artefact({ name: "ledger.jsonl", path: [...SNAPSHOTS, "ledger.jsonl"], bytes: ledger.bytes, sha256: ledger.sha256, shared: true });
-        return { detail: `${snaps.files.length} files kept in this browser`, worker: lease.id };
+        await ctx.store.writeJson(BUILT, {
+          schema: SNAPSHOTS_BUILT_SCHEMA, job_id: ctx.job.id, at: new Date().toISOString(),
+          ledger: ledger ? { sha256: `sha256:${ledger.sha256}`, bytes: ledger.bytes } : null,
+          files: snaps.files.length, bytes: snaps.files.reduce((a, f) => a + f.bytes, 0),
+          snapshots: Object.fromEntries(Object.entries(ctx.state.report?.snapshots || {}).map(([k, v]) => [k, v.snapshot_id])),
+        });
+        return { detail: `${snaps.files.length} snapshot files kept in this browser`, worker: lease.id };
       });
     } finally {
       await lease.call("free", { paths: [work(ctx.job)] }).catch(() => {});
@@ -170,7 +180,7 @@ export const researchRun = {
     if (!params || typeof params.question !== "string" || !params.question.trim()) {
       throw refusal("bad_arguments", "a research question is required", "arguments");
     }
-    if (!(await svc.store.exists([...SNAPSHOTS, "ledger.jsonl"]))) {
+    if (!(await svc.store.exists(BUILT)) || !(await svc.store.exists([...SNAPSHOTS, "ledger.jsonl"]))) {
       throw refusal("unavailable", "No research snapshots in this browser yet: the research job reads them through their ledger.", "dataset",
         "Build them first (research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.");
     }
@@ -245,3 +255,15 @@ function onPythonEvent(ctx, ev, base, span) {
 }
 
 export const HANDLERS = [researchSnapshot, researchRun];
+
+/** The record research.snapshot left of the snapshots it built in this browser, or null (none, or not complete). */
+export async function snapshotsBuilt(store) {
+  if (!store) return null;
+  try {
+    if (!(await store.exists([...SNAPSHOTS, "ledger.jsonl"]))) return null;
+    const doc = await store.readJson(BUILT);
+    return doc?.schema === SNAPSHOTS_BUILT_SCHEMA ? doc : null;
+  } catch {
+    return null;
+  }
+}

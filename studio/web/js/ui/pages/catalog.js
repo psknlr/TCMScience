@@ -348,6 +348,8 @@ export function mountCatalog(app, main) {
       web: typeof app.webOn === "function" ? app.webOn() : undefined,
       built: dataKnown && Array.isArray(bd.built) ? bd.built : [], dataKnown,
       compute: typeof app.compute === "function" ? app.compute() : app.state.settings?.compute,
+      // the browser's job service: which job kinds it runs here, and whether the research snapshots are built in it
+      jobs: app.runtimes?.jobs ? { status: app.runtimes.jobs.status, kinds: app.runtimes.jobs.kinds?.() || [], snapshots: app.state.browserJobs?.snapshots ?? null } : undefined,
     };
   };
   let fieldsCache = null;

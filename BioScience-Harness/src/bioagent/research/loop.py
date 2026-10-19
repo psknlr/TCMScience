@@ -776,10 +776,10 @@ def _in_process_policy(root: str, ledger: str) -> Any:
 class _GovernedAnalysis:
     """Runs the analysis as a PSH tool call on a bridged BioScience component.
 
-    ``isolate`` is the bridge's: ``None`` (it isolates, since a manifest directory is
-    given) or ``False`` (in this process). ``isolation`` is where the calls run, as the
-    bridge set them up, ``process`` or ``in_process``; each call checks that the broker
-    ran it that way before its result is used."""
+    ``isolate`` is the bridge's: ``None`` or ``True`` isolates (a manifest directory is
+    always given here), ``False`` runs the calls in this process. ``isolation`` is where
+    they run as the bridge set them up, ``process`` or ``in_process``; each call checks
+    that the broker ran it so before its result is used."""
 
     def __init__(self, kernel: Any, snapshot_root: Any, ledger_path: Any, contract: Any,
                  accept_review: bool, profile: str, manifest_dir: Path, *,
@@ -1113,7 +1113,7 @@ def _execution(governed: bool, profile: str, program: str,
 def _runtime() -> dict[str, str]:
     """The interpreter this execution ran in, as it reports itself (``emscripten`` and
     ``wasm32`` in the browser's Pyodide). It goes in the manifest's ``execution`` block,
-    with the audit head: what identifies one execution, not what its outputs depend on."""
+    with the audit head: the part of the manifest that identifies one execution."""
     return {"python": platform.python_version(), "implementation": sys.implementation.name,
             "platform": sys.platform, "machine": platform.machine()}
 
