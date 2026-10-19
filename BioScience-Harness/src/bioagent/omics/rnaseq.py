@@ -253,23 +253,31 @@ def _check_de_backend(config: RNASeqConfig) -> None:
 
 
 def _infer_contrast(samples: Sequence[Sample], config: RNASeqConfig) -> tuple[str, str, str]:
-    if config.contrast is not None:
-        factor, num, den = config.contrast
-        levels = {s.attributes.get(factor) for s in samples}
-        if factor not in samples[0].attributes:
+    return _contrast([s.attributes for s in samples], config.design, config.contrast)
+
+
+def _contrast(attributes: Sequence[Mapping[str, str]], design: str,
+              contrast: tuple[str, str, str] | None) -> tuple[str, str, str]:
+    """The contrast to test, from each sample's design variables (in sheet order): the one
+    named, its levels checked, or else the last design factor's two levels, the later in
+    sorted order against the earlier. Also the count-matrix mode's (``rnaseq_counts``)."""
+    if contrast is not None:
+        factor, num, den = contrast
+        levels = {a.get(factor) for a in attributes}
+        if factor not in attributes[0]:
             raise RNASeqError(f"the sample sheet has no column {factor!r}")
         for level in (num, den):
             if level not in levels:
                 raise RNASeqError(f"{factor} has no level {level!r} (levels: "
                                   f"{', '.join(sorted(map(str, levels)))})")
         return factor, num, den
-    terms = [t.strip() for t in config.design.replace("~", "").split("+") if t.strip()]
+    terms = [t.strip() for t in design.replace("~", "").split("+") if t.strip()]
     if not terms:
         raise RNASeqError("the design names no variable")
     factor = terms[-1]
-    if factor not in samples[0].attributes:
+    if factor not in attributes[0]:
         raise RNASeqError(f"the sample sheet has no column {factor!r}")
-    levels = sorted({s.attributes[factor] for s in samples})
+    levels = sorted({a[factor] for a in attributes})
     if len(levels) != 2:
         raise RNASeqError(f"{factor} has {len(levels)} levels; name the contrast to test")
     return factor, levels[1], levels[0]
@@ -612,48 +620,10 @@ def run_rnaseq(sheet: str | Path, config: RNASeqConfig, out_dir: str | Path) -> 
                      + f"; counts {genes.counts_from_abundance}")
 
     # differential expression; the count columns and the sheet's rows meet by name
-    de_engine = "builtin-de" if config.de_backend == "builtin" else "pydeseq2"
-    with rec.stage("differential_expression", engine=de_engine) as st:
-        result = de_backends.run_de(np.round(genes.counts), list(genes.genes), genes.samples,
-                                    {s.name: dict(s.attributes) for s in samples},
-                                    design=config.design, contrast=contrast,
-                                    backend=config.de_backend, alpha=config.alpha,
-                                    covariates=config.covariates, vst=True,
-                                    threads=config.threads)
-        st.version = result.version
-        factor = contrast[0]
-        per_level: dict[str, int] = {}
-        for s in samples:
-            per_level[s.attributes[factor]] = per_level.get(s.attributes[factor], 0) + 1
-        if min(per_level.values()) < 3:
-            warnings.append("fewer than three replicates in a group: Cook's distance outlier "
-                            "filtering is not applied there, and estimates are less stable")
-        names = dict(zip(genes.genes, genes.names))
-        contract = [attr for _, attr, _ in de_backends.CONTRACT]
-        _write_tsv(out / "deseq2_results.tsv", ["gene_id", "gene_name", *contract],
-                   [[r["gene"], names.get(r["gene"], r["gene"]), *(r[c] for c in contract)]
-                    for r in result.table()])
-        # ... and, apart from them, that implementation's own estimates
-        diagnostics = de_backends.GENE_DIAGNOSTICS
-        _write_tsv(out / "de_diagnostics.tsv", ["gene_id", *diagnostics],
-                   [[g, *(_value(result.gene_diagnostics[k][i]) for k in diagnostics)]
-                    for i, g in enumerate(result.genes)])
-        st.outputs = ["deseq2_results.tsv", "de_diagnostics.tsv"]
-        summ = result.summary()
-        st.reason = (f"{summ['significant']} of {summ['tested']} tested genes at FDR < "
-                     f"{result.alpha:g} (Wald test; Benjamini-Hochberg after independent "
-                     "filtering)")
-
+    result = _test(rec, out, np.round(genes.counts), genes.genes, genes.names, genes.samples,
+                   {s.name: dict(s.attributes) for s in samples}, config, contrast, warnings)
     # exploration, on the variance-stabilised matrix of the implementation that ran
-    with rec.stage("explore", engine=de_engine, version=result.version) as st:
-        vst = result.vst
-        pca = _pca(vst, list(result.samples))
-        dist = _distances(vst)
-        _write_tsv(out / "vst.tsv", ["gene_id", *result.samples],
-                   [[g, *map(float, vst[i])] for i, g in enumerate(result.genes)])
-        st.outputs = ["vst.tsv"]
-        st.reason = (f"VST; PCA of the {pca['genes']} most variable genes; sample-to-sample "
-                     "distances")
+    vst, pca, dist = _explore(rec, out, result, config.de_backend)
 
     run = RNASeqRun(out_dir=out, samples=samples, engine=engine, trimmer=trimmer,
                     contrast=contrast, qc=qc, trimming=trimming,
@@ -672,6 +642,68 @@ def _gene_names(annotation: str | Path, genes: Sequence[str]) -> tuple[str, ...]
         return tuple(genes)
     names = {g: n for g, n in mapping.values()}
     return tuple(names.get(g, g) for g in genes)
+
+
+def _de_engine(backend: str) -> str:
+    """The catalog's engine id of the differential-expression stages."""
+    return "builtin-de" if backend == "builtin" else "pydeseq2"
+
+
+def _test(rec: StageRecorder, out: Path, counts: np.ndarray, genes: Sequence[str],
+          names: Sequence[str], sample_ids: Sequence[str],
+          metadata: Mapping[str, Mapping[str, str]], config: Any,
+          contrast: tuple[str, str, str], warnings: list[str]) -> de_backends.DEResult:
+    """The ``differential_expression`` stage: ``config``'s design, backend, alpha,
+    covariates and threads (an ``RNASeqConfig`` or an ``rnaseq_counts`` config) on integer
+    counts, genes x samples; ``deseq2_results.tsv`` and ``de_diagnostics.tsv`` written.
+    Shared by the full pipeline and its count-matrix mode, so the two write the same
+    tables from the same counts."""
+    with rec.stage("differential_expression", engine=_de_engine(config.de_backend)) as st:
+        result = de_backends.run_de(counts, list(genes), sample_ids, metadata,
+                                    design=config.design, contrast=contrast,
+                                    backend=config.de_backend, alpha=config.alpha,
+                                    covariates=config.covariates, vst=True,
+                                    threads=config.threads)
+        st.version = result.version
+        factor = contrast[0]
+        per_level: dict[str, int] = {}
+        for attributes in metadata.values():
+            per_level[attributes[factor]] = per_level.get(attributes[factor], 0) + 1
+        if min(per_level.values()) < 3:
+            warnings.append("fewer than three replicates in a group: Cook's distance outlier "
+                            "filtering is not applied there, and estimates are less stable")
+        named = dict(zip(genes, names))
+        contract = [attr for _, attr, _ in de_backends.CONTRACT]
+        _write_tsv(out / "deseq2_results.tsv", ["gene_id", "gene_name", *contract],
+                   [[r["gene"], named.get(r["gene"], r["gene"]), *(r[c] for c in contract)]
+                    for r in result.table()])
+        # ... and, apart from them, that implementation's own estimates
+        diagnostics = de_backends.GENE_DIAGNOSTICS
+        _write_tsv(out / "de_diagnostics.tsv", ["gene_id", *diagnostics],
+                   [[g, *(_value(result.gene_diagnostics[k][i]) for k in diagnostics)]
+                    for i, g in enumerate(result.genes)])
+        st.outputs = ["deseq2_results.tsv", "de_diagnostics.tsv"]
+        summ = result.summary()
+        st.reason = (f"{summ['significant']} of {summ['tested']} tested genes at FDR < "
+                     f"{result.alpha:g} (Wald test; Benjamini-Hochberg after independent "
+                     "filtering)")
+    return result
+
+
+def _explore(rec: StageRecorder, out: Path, result: de_backends.DEResult,
+             backend: str) -> tuple[np.ndarray, dict[str, Any], np.ndarray]:
+    """The ``explore`` stage on the variance-stabilised matrix of the implementation that
+    ran: ``vst.tsv``, the PCA and the sample distances, as (vst, pca, distances)."""
+    with rec.stage("explore", engine=_de_engine(backend), version=result.version) as st:
+        vst = result.vst
+        pca = _pca(vst, list(result.samples))
+        dist = _distances(vst)
+        _write_tsv(out / "vst.tsv", ["gene_id", *result.samples],
+                   [[g, *map(float, vst[i])] for i, g in enumerate(result.genes)])
+        st.outputs = ["vst.tsv"]
+        st.reason = (f"VST; PCA of the {pca['genes']} most variable genes; sample-to-sample "
+                     "distances")
+    return vst, pca, dist
 
 
 def _pca(vst: np.ndarray, samples: Sequence[str]) -> dict[str, Any]:
@@ -820,22 +852,28 @@ def _write_outputs(run: RNASeqRun, config: RNASeqConfig, dist: np.ndarray,
 def _content_problems(out: Path, manifest: Mapping[str, Any]) -> list[str]:
     """The tables against the run record: the result contract's columns, one row per gene
     the test saw, one column per sample."""
-    found = []
     de = (manifest.get("summary") or {}).get("differential_expression") or {}
-    genes = de.get("genes")
     samples = [str(s.get("name")) for s in manifest.get("samples") or ()]
     contract = [attr for _, attr, _ in de_backends.CONTRACT]
     expect = {"deseq2_results.tsv": ["gene_id", "gene_name", *contract],
               "counts.tsv": ["gene_id", "gene_name", *samples],
               "tpm.tsv": ["gene_id", "gene_name", *samples],
               "vst.tsv": ["gene_id", *samples]}
+    return _table_problems(out, expect, de.get("genes"))
+
+
+def _table_problems(out: Path, expect: Mapping[str, Sequence[str]],
+                    genes: int | None) -> list[str]:
+    """Each table (name under ``out`` -> its columns) present, with exactly those columns
+    and, when ``genes`` is known, one row per gene."""
+    found = []
     for name, header in expect.items():
         path = out / name
         if not path.is_file():
             found.append(f"{name} is missing")
             continue
         got, rows = tsv_shape(path)
-        if got != header:
+        if got != list(header):
             found.append(f"{name}: its columns are not {', '.join(header)}")
         if genes is not None and rows != genes:
             found.append(f"{name}: {rows} rows, where the run record has {genes} genes")
@@ -846,9 +884,14 @@ def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
     """Re-hash every recorded input and output; for a record with stages, also check that
     the run is complete (``runrecord.record_problems``) and that its tables agree with it.
     A run.json without ``stages`` (written before they were recorded) gets the digest
-    checks only. Returns (no problem, the problems)."""
+    checks only. A record of the count-matrix mode is checked by that mode's own
+    ``rnaseq_counts.verify_run``, so one check covers both. Returns (no problem, the
+    problems)."""
     out = Path(out_dir)
     manifest = json.loads((out / "run.json").read_text(encoding="utf-8"))
+    from . import rnaseq_counts
+    if manifest.get("pipeline") == rnaseq_counts.PIPELINE:
+        return rnaseq_counts.verify_run(out)
     problems = []
     for path, digest in manifest["inputs"].items():
         p = Path(path)
@@ -869,7 +912,6 @@ def verify_run(out_dir: str | Path) -> tuple[bool, list[str]]:
 
 
 def _plots(run: RNASeqRun, dist: np.ndarray) -> dict[str, str]:
-    res = run.result
     plots: dict[str, str] = {}
     first = next(iter(run.qc))
     q = run.qc[first]["R1"]["per_position_quality"]
@@ -882,15 +924,25 @@ def _plots(run: RNASeqRun, dist: np.ndarray) -> dict[str, str]:
     rates = [float(run.quantification[n].get("mapping_rate") or 0.0) for n in names]
     plots["mapping"] = svgplot.bars(names, rates, title="Fraction of reads assigned",
                                     ylabel="fraction", hline=MIN_MAPPING)
+    plots.update(_de_plots(run.result, run.pca, run.contrast,
+                           {s.name: s.attributes for s in run.samples}, dist))
+    return plots
+
+
+def _de_plots(res: de_backends.DEResult, pca: Mapping[str, Any],
+              contrast: tuple[str, str, str], attributes: Mapping[str, Mapping[str, str]],
+              dist: np.ndarray) -> dict[str, str]:
+    """The figures of the test and the exploration (PCA, sample distances, MA, volcano,
+    p-values, dispersions), from the result alone; the count-matrix mode draws the same."""
+    plots: dict[str, str] = {}
     # the VST's columns, and so the PCA and the distances, follow the result's sample IDs
-    factor = run.contrast[0]
-    attributes = {s.name: s.attributes for s in run.samples}
+    factor = contrast[0]
     columns = list(res.samples)
-    groups = [attributes[n][factor] for n in run.pca["samples"]]
-    ev = run.pca["explained"] + [0.0, 0.0]
+    groups = [attributes[n][factor] for n in pca["samples"]]
+    ev = pca["explained"] + [0.0, 0.0]
     plots["pca"] = svgplot.scatter(
-        run.pca["pc1"], run.pca["pc2"], groups=groups, labels=run.pca["samples"], radius=5,
-        title=f"PCA of the {run.pca['genes']} most variable genes (VST)",
+        pca["pc1"], pca["pc2"], groups=groups, labels=pca["samples"], radius=5,
+        title=f"PCA of the {pca['genes']} most variable genes (VST)",
         xlabel=f"PC1 ({ev[0]:.0%} of variance)", ylabel=f"PC2 ({ev[1]:.0%} of variance)")
     order = _order(dist)
     plots["sample_distances"] = svgplot.heatmap(
@@ -906,7 +958,7 @@ def _plots(run: RNASeqRun, dist: np.ndarray) -> dict[str, str]:
     plots["ma"] = svgplot.scatter(
         np.log10(res.base_mean[ok]), res.log2_fold_change[ok], groups=list(status[ok]),
         colours=colours, hlines=(0,), radius=2,
-        title=f"MA plot: {run.contrast[1]} vs {run.contrast[2]} (FDR < {res.alpha:g})",
+        title=f"MA plot: {contrast[1]} vs {contrast[2]} (FDR < {res.alpha:g})",
         xlabel="log10 mean of normalised counts", ylabel="log2 fold change")
     tested = np.isfinite(res.p_value)
     plots["volcano"] = svgplot.scatter(
@@ -940,23 +992,67 @@ def _de_name(res: de_backends.DEResult) -> str:
             else f"PyDESeq2 {res.version}")
 
 
+def _result_lines(res: de_backends.DEResult, design: str,
+                  contrast: tuple[str, str, str]) -> list[str]:
+    """The report's result in three lines: the contrast, the calls, the filters."""
+    summ = res.summary()
+    factor, num, den = contrast
+    return [f"- Design `{design}`, contrast `{factor}`: **{num}** vs **{den}** "
+            f"(log2 fold change > 0 means higher in {num}).",
+            f"- {summ['tested']} genes tested; **{summ['significant']}** differ at FDR "
+            f"< {res.alpha:g} ({summ['up']} higher, {summ['down']} lower in {num}).",
+            f"- Low-count filter: {summ['filtered_low_count']} genes "
+            + (f"below mean count {_fmt(summ['filter_threshold'])} "
+               if summ["filter_threshold"] is not None else "with low mean counts ")
+            + f"were not adjusted (DESeq2 independent filtering); "
+            f"{summ['cooks_outliers']} genes flagged by Cook's distance; "
+            f"{summ['all_zero']} genes had no reads."]
+
+
+def _top_genes(res: de_backends.DEResult, names: Mapping[str, str]) -> list[str]:
+    """The 20 genes with the smallest adjusted p-values, as a table."""
+    order = [i for i in np.argsort(np.where(np.isfinite(res.p_adjusted), res.p_adjusted,
+                                            np.inf), kind="mergesort")
+             if np.isfinite(res.p_adjusted[i])][:20]
+    lines = ["## Top genes", "",
+             "| gene | name | base mean | log2 FC | SE | p | FDR |",
+             "|---|---|---|---|---|---|---|"]
+    for i in order:
+        g = res.genes[i]
+        lines.append(f"| {g} | {names.get(g, g)} | {_fmt(float(res.base_mean[i]))} | "
+                     f"{_fmt(float(res.log2_fold_change[i]))} | "
+                     f"{_fmt(float(res.lfc_se[i]))} | {_fmt(float(res.p_value[i]))} | "
+                     f"{_fmt(float(res.p_adjusted[i]))} |")
+    if not order:
+        lines.append("| (none) | | | | | | |")
+    return lines
+
+
+def _de_methods(res: de_backends.DEResult, pca: Mapping[str, Any]) -> list[str]:
+    """The Methods lines of the test, its design matrix and the exploration."""
+    return [
+        f"- **Differential expression**: the DESeq2 method (Love et al. 2014) by "
+        f"{_de_name(res)} (`{res.version}`): median-of-ratios size factors "
+        f"({res.diagnostics['size_factor_method']}), Cox-Reid dispersions shrunk to a "
+        f"{res.diagnostics['dispersion_trend']['kind']} trend, NB GLM, Wald test, Cook's "
+        "distances (an outlier loses its p-value; no count is replaced), independent "
+        "filtering, Benjamini-Hochberg.",
+        "- **Design matrix**: columns "
+        + ", ".join(f"`{c}`" for c in res.design_columns) + "; reference levels "
+        + ", ".join(f"{f} = {lv}" for f, lv in res.reference_levels.items())
+        + "; the same matrix whichever implementation runs.",
+        f"- **Exploration**: VST with the dispersion trend {_de_name(res)} fitted with the "
+        f"design; PCA of the {pca['genes']} most variable genes; Euclidean sample "
+        "distances."]
+
+
 def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]]) -> str:
     res = run.result
     summ = res.summary()
     names = dict(zip(run.genes.genes, run.genes.names))
-    factor, num, den = run.contrast
+    num, den = run.contrast[1:]
     lines = [f"# RNA-seq differential expression: {num} vs {den}", ""]
-    lines += ["## Result", "",
-              f"- Design `{config.design}`, contrast `{factor}`: **{num}** vs **{den}** "
-              f"(log2 fold change > 0 means higher in {num}).",
-              f"- {summ['tested']} genes tested; **{summ['significant']}** differ at FDR "
-              f"< {res.alpha:g} ({summ['up']} higher, {summ['down']} lower in {num}).",
-              f"- Low-count filter: {summ['filtered_low_count']} genes "
-              + (f"below mean count {_fmt(summ['filter_threshold'])} "
-                 if summ["filter_threshold"] is not None else "with low mean counts ")
-              + f"were not adjusted (DESeq2 independent filtering); "
-              f"{summ['cooks_outliers']} genes flagged by Cook's distance; "
-              f"{summ['all_zero']} genes had no reads.",
+    lines += ["## Result", "", *_result_lines(res, config.design, run.contrast),
               f"- Quantification: **{run.engine}**; trimming: **{run.trimmer}**; "
               f"differential expression: **{_de_name(res)}**.", ""]
     if run.warnings:
@@ -985,20 +1081,7 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
     lines += ["", f"QC measured at most the first {config.qc_reads:,} reads of each file; "
               "every record of every file was checked for structure, bases, quality range "
               "and mate names before it.", ""]
-    order = [i for i in np.argsort(np.where(np.isfinite(res.p_adjusted), res.p_adjusted,
-                                            np.inf), kind="mergesort")
-             if np.isfinite(res.p_adjusted[i])][:20]
-    lines += ["## Top genes", "",
-              "| gene | name | base mean | log2 FC | SE | p | FDR |",
-              "|---|---|---|---|---|---|---|"]
-    for i in order:
-        g = res.genes[i]
-        lines.append(f"| {g} | {names.get(g, g)} | {_fmt(float(res.base_mean[i]))} | "
-                     f"{_fmt(float(res.log2_fold_change[i]))} | "
-                     f"{_fmt(float(res.lfc_se[i]))} | {_fmt(float(res.p_value[i]))} | "
-                     f"{_fmt(float(res.p_adjusted[i]))} |")
-    if not order:
-        lines.append("| (none) | | | | | | |")
+    lines += _top_genes(res, names)
     lines += ["", "The full table is `deseq2_results.tsv`; counts and TPM are `counts.tsv` "
               "and `tpm.tsv`; the variance-stabilised matrix is `vst.tsv`. The test's own "
               "estimates (dispersions, Cook's flags, convergence) are in "
@@ -1030,19 +1113,7 @@ def _markdown(run: RNASeqRun, config: RNASeqConfig, steps: list[dict[str, Any]])
         (f"- **Gene totals**: tximport's rules ({run.genes.counts_from_abundance}), "
          "rounded for the count model." if run.engine != "hisat2" else
          "- **Gene totals**: featureCounts' gene counts."),
-        f"- **Differential expression**: the DESeq2 method (Love et al. 2014) by "
-        f"{_de_name(res)} (`{res.version}`): median-of-ratios size factors "
-        f"({res.diagnostics['size_factor_method']}), Cox-Reid dispersions shrunk to a "
-        f"{res.diagnostics['dispersion_trend']['kind']} trend, NB GLM, Wald test, Cook's "
-        "distances (an outlier loses its p-value; no count is replaced), independent "
-        "filtering, Benjamini-Hochberg.",
-        "- **Design matrix**: columns "
-        + ", ".join(f"`{c}`" for c in res.design_columns) + "; reference levels "
-        + ", ".join(f"{f} = {lv}" for f, lv in res.reference_levels.items())
-        + "; the same matrix whichever implementation runs.",
-        f"- **Exploration**: VST with the dispersion trend {_de_name(res)} fitted with the "
-        f"design; PCA of the {run.pca['genes']} most variable genes; Euclidean sample "
-        "distances.", ""]
+        *_de_methods(res, run.pca), ""]
     lines += [f"- {n}" for n in summ["notes"] + list(run.genes.notes)]
     lines += ["", "## What this result is", "",
               "A statistical association within this experiment: these genes differ between "

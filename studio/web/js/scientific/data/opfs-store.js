@@ -319,6 +319,54 @@ export class OpfsStore {
     return src.size;
   }
 
+  /**
+   * Replace the file at `path` with the bytes of `blob` (a Blob or File from anywhere: IndexedDB, an input element),
+   * read and written in pieces of `chunk` bytes, never whole in memory → the bytes written. onChunk(bytes) sees each
+   * piece as it is written, in order (a caller hashes what was written, not what it was told was there). A write that
+   * fails or is cancelled removes what it wrote.
+   */
+  async writeBlob(path, blob, { signal, chunk = 4 << 20, onChunk } = {}) {
+    if (!blob || typeof blob.slice !== "function" || !Number.isFinite(blob.size)) throw storeError("bad_input", "writeBlob needs a Blob or File");
+    const handle = await this.file(path, { create: true });
+    const pieces = async (write) => {
+      for (let at = 0; at < blob.size; at += chunk) {
+        if (signal?.aborted) throw signal.reason ?? new DOMException("the copy was cancelled", "AbortError");
+        const piece = new Uint8Array(await blob.slice(at, Math.min(blob.size, at + chunk)).arrayBuffer());
+        await write(piece, at);
+        onChunk?.(piece);
+      }
+    };
+    try {
+      if (typeof handle.createWritable === "function") {
+        const w = await handle.createWritable();
+        try {
+          await pieces((piece) => w.write(piece));
+          await w.close();
+        } catch (err) {
+          try { await w.abort(); } catch { /* already closed or errored: nothing was committed */ }
+          throw err;
+        }
+      } else if (typeof handle.createSyncAccessHandle === "function") {
+        const h = await handle.createSyncAccessHandle();
+        try {
+          await h.truncate(0);
+          await pieces((piece, at) => {
+            if (h.write(piece, { at }) !== piece.length) throw storeError("storage", `a short write at byte ${at}`);
+          });
+          await h.flush();
+        } finally {
+          await h.close();
+        }
+      } else {
+        throw storeError("storage", "this browser can write OPFS files only from a worker");
+      }
+    } catch (err) {
+      await this.remove(path).catch(() => {});
+      throw domName(err) === "AbortError" ? err : storageFailure(path, err);
+    }
+    return blob.size;
+  }
+
   /** {usage, quota, persisted} from the StorageManager; a value the browser does not give is null. */
   async estimate() {
     const s = this.#storage;
