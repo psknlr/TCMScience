@@ -525,12 +525,13 @@ nothing changes.
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
 | 2 | The research loop in the browser (`job.research.snapshot`, `job.research.run`): job workers, OPFS, a job service with cancel and resume, receipts; the permutation null is CPython's own MT19937, so no port is needed ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | P1 | **Done** (this branch); the real 葛根芩连汤 browser run passed in `live-data` #18 and #19 (runs 39251758718 and 39258060948, commits 43918ac and 53bdbb0, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it) |
+| 2 | RNA-seq from a count matrix and single-cell from count tables as browser jobs (`job.pipeline.rnaseq` in its count-matrix mode, `job.pipeline.scrna`): the runner's Python with Pyodide's numpy and scipy, inputs copied from the project's files and checked against their SHA-256; FASTQ, PyDESeq2, Scanpy, scVI, 10x HDF5, `.h5ad` and inputs above 6,000 cells or 100,000 genes × 200 samples refused for the runner, with the reason ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)) | P2 | **Done** (this branch, commit 65fa6aa): implemented and tested locally in headless Chromium 141 with Pyodide 314.0.7 (`science.mjs --mode omics`): on `omics_counts_world` v1 and `sc_world` v1 every output identical to the native command's, within the stated tolerance (at most 0.133 of it) or not compared with the reason (the UMAP layout and five figures); the genes called, each cell's cluster and cell type identical; the known answers hold on the browser's files. The same check passed in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio` #91 (run 39286931542, commit 65fa6aa, 2026-10-19)) |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |
 | 3 | WASM threads for distance-matrix rows and neighbour joining; SIMD alignment (anti-diagonals) | P2 | Proposed |
 | 4 | Optional NPU operation in the local runner ([§6](#6-webgpu-webassembly-and-webnn)); in-browser chat models (WebLLM) for desktops with a capable GPU, opt-in and labelled | P3 | Proposed |
-| 4 | Small-dataset browser mode for single-cell analysis | P3 | Proposed |
+| 4 | Small-dataset browser mode for single-cell analysis | P3 | **Done** as the P2 row above: count tables up to 6,000 cells, the built-in analysis |
 
 ### 11.1 Ranked formula search
 
@@ -580,6 +581,9 @@ skill's code no longer matches its pin.
   1.9× faster in the browser, byte-identical (differential tests against the original code).
 - Ranked formula search over the 84,294-row workbook, with a herb found under every name the materia table gives it
   (黄芪 also as 黄耆: 5,936 rows instead of 31), identical in the browser and on the runner.
+- RNA-seq from a count matrix and single-cell from count tables as browser jobs (2026-10-19): compared output by output
+  with the native command on two known-answer references, locally in headless Chromium; identical, within a stated
+  tolerance, or (the UMAP layout and figures) not compared, and said so ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)).
 
 **Implemented, partly verified**
 
@@ -604,4 +608,7 @@ verified execution provider and hardware-backed execution evidence; none has eit
 Resource-intensive pipelines need the local runner; no remote compute environment is deployed
 ([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). The data-driven network-pharmacology research loop runs in the browser as jobs
 (the runner's Python in job workers, the data in the site's private storage), checked against a known answer
-([BROWSER_JOBS.md](BROWSER_JOBS.md)); the seed skill remains a limited seed-corpus network hypothesis workflow.
+([BROWSER_JOBS.md](BROWSER_JOBS.md)); the seed skill remains a limited seed-corpus network hypothesis workflow. RNA-seq
+differential expression from a count matrix and single-cell analysis of count tables (up to 6,000 cells) also run there
+as jobs, their numbers held to the native run within a stated tolerance and their UMAP layout not compared; RNA-seq
+from FASTQ, Scanpy, scVI and larger inputs need the runner.

@@ -125,7 +125,9 @@ BROWSER_JOB_NOTES = {
                         "says so",
     "job.pipeline.rnaseq": "the count-matrix mode (a count table and a sample table from the project's files, copied "
                            "into OPFS): the built-in DESeq2 implementation, VST, PCA and the report, as on the runner; "
-                           "FASTQ (QC, trimming, quantification) and PyDESeq2 need the runner",
+                           "FASTQ (QC, trimming, quantification) and PyDESeq2 need the runner, and so do more than "
+                           "100,000 genes or 200 samples (wasm32, 4 GB); the numbers are held to the native run's "
+                           "within a stated tolerance",
     "job.pipeline.scrna": "count tables (CSV/TSV, gzipped or not) or a sheet of them from the project's files: QC, "
                           "doublets, built-in Harmony, Leiden, UMAP, markers, annotation, pseudobulk, as on the runner; "
                           "Scanpy, scVI, 10x HDF5 and .h5ad need the runner, and so do more than 6,000 cells (a "
@@ -283,9 +285,10 @@ FAMILIES = [
      "1,000 cells: seconds natively); tens of thousands of cells need GBs, so a browser job refuses more than 6,000 "
      "cells, or 100,000 genes or 200 samples, for the runner (wasm32 caps a worker near 4 GB)", "not yet measured",
      "browser jobs running the same Python as the runner with Pyodide's numpy and scipy (the built-in DESeq2 "
-     "implementation; the built-in single-cell analysis and Harmony); the comparison with the native run, table by "
-     "table to a stated tolerance and without the UMAP layout (studio/web/test/runtime/science.mjs --mode omics), "
-     "has not run yet",
+     "implementation; the built-in single-cell analysis and Harmony); compared output by output with the native "
+     "command on omics_counts_world v1 and sc_world v1 (studio/web/test/runtime/science.mjs --mode omics): identical, "
+     "within a stated tolerance (at most 0.133 of it) or, for the UMAP layout and figures, not compared; the genes "
+     "called, each cell's cluster and cell type identical; passed in headless Chromium locally and in Studio's CI (studio #91, 2026-10-19)",
      "PyDESeq2, Scanpy, scVI, 10x HDF5 and .h5ad stay on the runner"),
     ("Single-cell as a governed skill", "skill.scrna-cell-atlas", "6", "100 MB–GBs; hours", "no",
      "runner (a skill.run job); on count tables job.pipeline.scrna runs the same pipeline in the browser", "—"),

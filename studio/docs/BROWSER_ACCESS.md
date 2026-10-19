@@ -111,6 +111,19 @@ answer (the planted world) and on the parser tests' fixture files; the build and
 the real 17 files in a browser, compared export by export with the native run, passed in `live-data` #18 and #19 (runs 39251758718 and 39258060948, commits 43918ac and 53bdbb0, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it). The pinned seed skill
 remains a limited seed-corpus network hypothesis workflow.
 
+RNA-seq differential expression from a count matrix (`pipeline.rnaseq` with `counts` and a sample table) and
+single-cell analysis of count tables (`pipeline.scrna`) are implemented as browser jobs too, with Pyodide's numpy and
+scipy ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)). Their inputs are files
+of the person's own project: copied from the page's storage into the job's private storage and checked against their
+recorded SHA-256, they are computed on in the page and never sent through the gateway or the relay (what the model
+reads of a job, its status and summary, reaches the model like any tool result). A FASTQ
+run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad` inputs, and inputs above 6,000 cells or 100,000 genes × 200 samples
+(a browser worker's wasm32 memory holds about 4 GB) are refused in the browser with the reason and need the runner.
+On two known-answer references, compared with the native command on the same files, every output was identical,
+within a stated tolerance, or (the UMAP layout and figures) not compared, and the known answers held: tested locally
+in headless Chromium with Pyodide 314.0.7, and in Studio's CI with Pyodide's numpy and scipy from jsDelivr (`studio`
+#91, 2026-10-19).
+
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),
 [Worker XHR](https://developer.mozilla.org/en-US/docs/Web/API/XMLHttpRequest_API/Synchronous_and_Asynchronous_Requests),

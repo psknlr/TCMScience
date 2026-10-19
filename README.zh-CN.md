@@ -239,6 +239,8 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 
 # 从 FASTQ 到差异表达报告的 RNA-seq 流程（docs/analysis-pipelines.md）
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
+# ……或从计数矩阵和样本表出发（计数矩阵模式；它也能在 Studio 的浏览器中运行）
+python -m bioagent.cli rnaseq --counts counts.tsv --samples samples.tsv --out results/
 
 # 测试：PSH 全部测试；BioScience 单元层（不需要数据湖，不联网）
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
@@ -277,7 +279,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 
 | 流程 | 它拒绝做什么 |
 |---|---|
-| `bioagent rnaseq` — FASTQ → 质控 → 修剪 → 定量 → DESeq2 → 报告 | 把表达差异说成机制或效应：人体样本只支持关联，细胞和动物样本只支持机制假说。 |
+| `bioagent rnaseq` — FASTQ → 质控 → 修剪 → 定量 → DESeq2 → 报告；或计数矩阵 → DESeq2 → 报告（`--counts`） | 把表达差异说成机制或效应：人体样本只支持关联，细胞和动物样本只支持机制假说。 |
 | `bioagent scrna` — 计数矩阵 → 质控 → 双细胞 → Harmony → Leiden → 标志基因 → 注释 → PAGA／拟时序 → 伪 bulk | 把按标志基因给出的标签当作测量，或把细胞当作重复：标签和拟时序是输出，不同条件按样本比较。 |
 | `bioagent fold` — 序列 → ESMFold／AlphaFold2 → pLDDT、DSSP、几何检查 → 与参考结构比 TM-score | 把预测当作实测结构，或未经允许把序列发往任何地方：模型是带置信度的输出，远程预测需要 `--allow-remote`。 |
 | `bioagent dock` — 受体 + 配体 → 准备好的 PDBQT → 再对接检验 → Vina 构象、打分、接触 | 把打分当作亲和力，或用没通过再对接检验的设置给构象排序：先验证；没有验证，就不下结论。 |
@@ -336,6 +338,7 @@ TCMScience 通过浏览器提供对已登记科学能力的访问（[Studio](stu
 | WebNN | 只做检测 | 提供 WebNN 能力检测。只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持真正的 NPU 加速；目前没有任何工作负载具备这两者 |
 | 浏览器经站点的受限网关查询公共数据库 | 已实现，已测试 | 每个操作的请求都由 `connector_coverage.py --check` 对照模拟传输检查过，并确认离线时被拒绝，这一检查是 CI `validation` 任务中的一步（在 `ci` #317 中通过，2026-10-19）；并由维护者的运行对真实上游验证过（带日期）；没有一个经过已部署网关验证（[按验证层级的覆盖](studio/docs/compat/connectors.md)） |
 | 浏览器中的网络药理学研究任务（无需 Runner） | 已实现，已用已知答案和葛根芩连汤真实文件测试 | `research.snapshot` 与 `research.run` 以浏览器任务运行：Runner 的同一套 Python 在 Pyodide 任务工作线程中执行，17 个原始文件（418 MB）保存在本站私有存储中。在模拟世界上，任务工作线程写出的五张表与原生 CPython 逐字节一致（无头 Chromium，本地及 Studio 的 CI，使用 Pyodide 自带的 pyarrow）。从私有存储挂载原始文件构建快照（也以 `research.snapshot` 任务运行），快照 ID 与原生构建相同；工作线程丢失的任务可从检查点续跑：这两项在无头 Chromium 中通过，本地及 Studio 的 CI（`studio` #88，2026-10-19，使用 Pyodide 自带的 pyarrow）均已通过。模拟世界没有 STRING、疾病、CMAUP、LOTUS 层，网络拓扑在那里未被检验。葛根芩连汤真实数据以浏览器任务运行、并与原生运行逐个导出文件比对：已在 `live-data` #18 与 #19 中通过（运行 39251758718 与 39258060948，提交 43918ac 与 53bdbb0，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）（[BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)）。这是某一天的一次运行，每次 live-data 运行都会重复。锁定的种子 Skill 仍是有限的种子语料网络假说分析 |
+| 浏览器中的 RNA-seq（计数矩阵）与单细胞（计数表）分析（无需 Runner） | 已实现，已在无头 Chromium（Pyodide 314.0.7）中测试：本地及 Studio 的 CI（`studio` #91，2026-10-19） | `pipeline.rnaseq`（计数矩阵模式）与 `pipeline.scrna`（计数表，内置分析与 Harmony）以浏览器任务运行：Runner 的同一套 Python 配 Pyodide 的 numpy 与 scipy，输入从项目文件复制并按其 SHA-256 核对。在已知答案参考 `omics_counts_world` v1（2,000 个基因 × 6 个样本）与 `sc_world` v1（1,077 个细胞）上，与同一批文件上的原生命令逐个输出比对（`science.mjs --mode omics`）：逐字节一致，或数值在给定容差内（\|a − b\| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133），或不比较并说明原因（UMAP 布局与五张图；改为检查布局结构）；显著的 90 个基因、每个细胞的聚类与细胞类型完全相同；在浏览器写出的文件上找到了预设答案。本地两个任务分别用时 8.1 秒与 9.5 秒（原生命令 1.1 秒与 5.3 秒）。从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 输入，以及超过 6,000 个细胞或 100,000 个基因 × 200 个样本的输入（浏览器工作线程的 wasm32 内存约 4 GB；限值在 Node 下的 Pyodide 中测得，不是在浏览器标签页中）都会被拒绝并说明原因，需要 Runner（[BROWSER_JOBS.md §3.1](studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)） |
 | 分析流程与原生引擎 | 在本机 Runner 上实现；已在 CI 的引擎任务中测试（CPU 运行器） | `ci.yml` 的引擎任务在 `ci` #317（2026-10-19）中全部通过：带命令行工具和 R 的 DESeq2 的分析流程、使用真实 Vina 的对接、OpenMM 与 ProteinMPNN、scVI。这些测试在小型参考数据或夹具上运行各引擎：并非每条引擎路径，也没有真实数据（[分析流程](docs/analysis-pipelines.md#what-is-verified-where)、[验证](docs/validation.md#not-verified-here-and-why)） |
 | GPU 任务 | 在本机 Runner 上实现；从未在 CI 中的 GPU 上运行（CI 的任务都只有 CPU） | Runner 的 GPU 由驱动报告，在这里从未经计算验证 |
 | 远程计算 | 计划中：已设计，未部署 | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |

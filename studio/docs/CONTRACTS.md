@@ -123,7 +123,18 @@ does this) and served live by the runner at `GET /api/catalog`. One JSON documen
                         "precision": "…", "workload": "…"},     // the 7 kernel tools (tcmstudio.browser_compute)
     "engines": [{"id": "esmfold", "selected_by": {"arg": "method", "value": "esmfold", "with": {…}?},
                  "requires": [Requirement], "device": "cpu|gpu|remote",
-                 "readiness": {"runner": R}}]                   // pipeline jobs and skills; readiness on the runner only
+                 "readiness": {"runner": R}}],                  // pipeline jobs and skills; readiness on the runner only
+    "browser_job": {"service": "studio-jobs/1", "runtime": "pyodide", "workers": "…",
+                    "storage": "origin private file system", "pyodide_packages": ["numpy", "scipy"],
+                    "inputs": "…", "engines": ["builtin"],
+                    "runner_only": [{"arg": "counts", "absent": true, "why": "…"},
+                                    {"arg": "de_backend", "is": "pydeseq2", "why": "…"}]}
+                                                 // the job kinds the page's job service runs (catalog
+                                                 // BROWSER_JOB_KINDS: research.snapshot, research.run [pyarrow],
+                                                 // pipeline.rnaseq, pipeline.scrna [numpy, scipy]); the two pipelines
+                                                 // run part of their kind: runner_only lists the arguments that need
+                                                 // the runner ({arg, absent: true | is: value | suffix: [...], why};
+                                                 // capability.runner_only), BROWSER_JOBS.md §3.1
   },
   "hosts_by": {"dataset": {"herb2": ["47.92.70.12"]}},           // job.tcmdb.fetch (per dataset), system.provider_call
                                                  // ({tool: hosts}, the reviewed allowlists): the hosts of one call
@@ -178,7 +189,7 @@ serves the same at `GET /api/capabilities/audit` (§4).
 | `connector_call` {connector, operation, arguments} | connector.<key>.<op> | R | network |
 | `literature_search` {query, source=europepmc, limit=10} | connector.europepmc / ncbi_eutils / crossref | R | network |
 | `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | B R ★ | job; snapshot pipeline; in the browser a job of the page's job service ([BROWSER_JOBS.md](BROWSER_JOBS.md)) |
-| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | R ★ | job; GPU-capable kinds honour the device setting |
+| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)); the router places the call by the kind its `pipeline` names, and one the browser cannot run (`fold`, `dock`, `admet`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`) goes to a connected runner, or is refused with reason `needs_runner` and why |
 | `job_status` {job_id, wait_s≤60} | runner jobs; browser jobs (ids `bj-…`) | B R | a browser job's status is the page's to answer, whatever the placement |
 | `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
 | `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
@@ -528,12 +539,37 @@ succeeded job's `run.json` only while it has the digest recorded at collection, 
 one group of optional scientific packages), `skill.run` (any governed skill as a background run), `tcmdb.fetch`,
 `tcmdb.build`.
 Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command from the browser).
+
+- **`pipeline.rnaseq`** has two modes. Without `counts`: a FASTQ sample sheet (`samples`) with `transcripts`,
+  `annotation`, `genome`, `engine`, `trimmer` as before. With `counts` (a gene × sample count table, TSV/CSV, integers):
+  the count-matrix mode, `samples` being the sample table (`sample` and the design columns); both are plain files
+  (upload ids or file names), `transcripts`, `genome`, `annotation`, `engine` and `trimmer` are refused
+  (`bad_arguments`, "a count-matrix run takes no FASTQ reference or engine: …"), and so is a FASTQ sheet given as
+  `samples`. `design`, `contrast`, `de_backend` (`builtin`·`pydeseq2`) and `alpha` (0.0001–0.5) are common to both. Its
+  argv: `bioagent.cli rnaseq --counts=… --samples=… --design=… --de-backend=… --alpha=… --threads=<job threads>
+  [--contrast=…] --out={output} --json`; the same artefacts (`run`, `report`, `results`, `limitations`) and validator.
+- **`pipeline.scrna`** takes `n_top_genes` (highly variable genes, an integer 50–10000, default 2000), passed as
+  `--n-top-genes`, with `source`, `doublets`, `analysis_backend`, `integration`, `resolution` (0.05–5), `markers`,
+  `root`, `contrast` and `seed` as before.
+
 **Browser jobs.** `research.snapshot` and `research.run` also run in the page's own job service
 (`studio/web/js/scientific`, [BROWSER_JOBS.md](BROWSER_JOBS.md)): the same typed params, the same Python functions
 (`tcmstudio.browser_jobs`), job records in IndexedDB `tcmstudio-jobs`, files in OPFS, states `queued`, `running`,
 `succeeded`, `failed`, `cancelled` and `interrupted` (the page closed while it ran; resumable), and the same
 `tcmstudio.job-receipt/1` with `placement: "browser"`, the workers and two independent readings of every output's
-digest.
+digest. So do `pipeline.rnaseq` in its count-matrix mode and `pipeline.scrna` on count tables
+([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)), through
+`tcmstudio.browser_jobs.run_rnaseq_counts` (`{counts, samples, design?, contrast?, alpha?, de_backend?, out_dir}`),
+`run_scrna` (`{source, doublets?, analysis_backend?, integration?, resolution?, seed?, markers?, root?, contrast?,
+n_top_genes?, out_dir}`) (each → `{exit, summary, failed, refused, need}`: exit 0 complete, 1 incomplete, 2 refused,
+`need` `runner`, `memory` or null) and
+`verify_pipeline` (`{kind, out_dir}` → `{status, checks, problems, report}`, the runner's checks under the runner's
+names). Their file params name files of the job's project (an id, or a name: the newest file of that name), copied
+into the job's OPFS directory and refused unless they have the SHA-256 the project recorded; the receipt's `inputs`
+records each (`{sha256, bytes, source}`; a sample sheet's tables under `source.files`). Refused before anything is
+queued: what `execution.browser_job.runner_only` names (`unavailable`, need `runner`), the runner's bounds and unknown
+params (`bad_arguments`). Refused for memory (type `refused`, need `memory`): more than 6,000 cells, more than 100,000
+genes or 200 samples, and a `MemoryError` during the run; the worker is then retired.
 File parameters reference upload ids. The device setting becomes `CUDA_VISIBLE_DEVICES` (`""` forces
 CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
 

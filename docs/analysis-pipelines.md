@@ -8,7 +8,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 
 | Pipeline | Command | Status |
 |---|---|---|
-| RNA-seq: FASTQ to differential expression | `bioagent rnaseq` | below |
+| RNA-seq: FASTQ, or a count matrix, to differential expression | `bioagent rnaseq` | below |
 | Single-cell: count matrices to an annotated atlas | `bioagent scrna` | below |
 | Protein structure: sequences to checked models | `bioagent fold` | below |
 | Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
@@ -20,14 +20,17 @@ runs, which are recorded but never released, until a person reviews and promotes
 Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
 job); network pharmacology also runs as browser jobs, with no runner (checked on a known answer and on fixture files;
 and on the real 葛根芩连汤 files, whose exports were the native run's bytes in `live-data` #18 and #19:
-[BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)),
-the others do not run in the browser, and none has a record from a deployed service. What has
-been exercised differs by engine:
+[BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)). So, in part, do RNA-seq and single cell: RNA-seq from a count
+matrix and single cell from count tables, with the built-in engines, up to 6,000 cells or 100,000 genes × 200 samples
+([In the browser](#in-the-browser-count-matrices-and-count-tables), below); they were compared output by output with
+the native command on their known-answer references in headless Chromium, locally and in Studio's CI (`studio` #91,
+2026-10-19). Structure, docking and ADMET do not
+run in the browser, and no pipeline has a record from a deployed service. What has been exercised differs by engine:
 
 | Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
 |---|---|---|---|---|
-| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path; PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1: **simulated**, known answer |
-| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path, Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
+| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path, from FASTQ and from a count matrix (also in Pyodide in headless Chromium); PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1 and, for the count-matrix mode, `omics_counts_world` v1: **simulated**, known answer |
+| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path (also in Pyodide in headless Chromium, on count tables), Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
 | Structure | ESM Atlas (remote, `--allow-remote`), local ESMFold, ColabFold | the 1UBQ reference from the stored ESM Atlas model, offline; no local ESMFold weights, no ColabFold | "Analysis pipelines with the standard tools" (TM-align comparison) | PDB 1UBQ (public) |
 | Docking | AutoDock Vina 1.2, meeko, RDKit, gemmi | RDKit and meeko, with a stand-in for Vina that the tests name | "Molecular modelling with the standard tools" (real Vina, 3PTB redocking) | the 3PTB pocket (public) |
 | ADMET | RDKit, scikit-learn, models trained from the TDC archive | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy | "Molecular modelling with the standard tools" | the TDC ADMET group (public, a download) |
@@ -40,6 +43,9 @@ compares its fixture's digest), so they check the records and the reference resu
 the engines; the engines are checked by each job's own tests. From `ci` #282 (2026-10-11, 20:06
 UTC) until 2026-10-19 no CI run was given a runner; in `ci` #317 (2026-10-19) every engine job
 passed, these two files included, all on CPU runners ([validation.md](validation.md#not-verified-here-and-why)).
+The count-matrix mode's tests (`tests/test_omics_rnaseq_counts.py`, and its reference in
+`tests/test_pipeline_references.py`) joined that job with commit 65fa6aa; it passed in `ci` #322 (run 39286930329, 2026-10-19: 231 passed, 2
+skipped).
 Those jobs run each engine on a small reference or fixture, not on real data. Remote compute for these pipelines is designed, not
 deployed ([studio/docs/REMOTE_COMPUTE.md](../studio/docs/REMOTE_COMPUTE.md)).
 
@@ -72,6 +78,32 @@ sample,fastq_1,fastq_2,condition,batch
 ctrl1,ctrl1_R1.fastq.gz,ctrl1_R2.fastq.gz,control,1
 trt1,trt1_R1.fastq.gz,trt1_R2.fastq.gz,treated,1
 ```
+
+**From a count matrix** (`bioagent.omics.rnaseq_counts`), for counts made elsewhere (featureCounts, salmon through
+tximport, a published matrix):
+
+```bash
+bioagent rnaseq --counts counts.tsv --samples samples.tsv --design "~ condition" \
+    --contrast condition,treated,control --out results/
+```
+
+- `--counts` is a gene × sample table, TSV or CSV (gzipped or not): `gene_id`, an optional `gene_name`, then one
+  column per sample, every value a non-negative integer. Refused, with the line and sample named: a value that is not
+  a number, negative, not finite or not an integer ("round estimated counts first"), 2^53 or more, a duplicated gene
+  id or sample name, fewer than two samples, a sample with no counts at all, a tab or line break inside a name.
+- `--samples` is then a sample table: a `sample` column and the design variables, one row per count column. A FASTQ
+  sheet (`fastq_1`/`fastq_2`) is refused: reads go through the full pipeline.
+- The FASTQ options (`--transcripts`, `--genome`, `--annotation`, `--engine`, `--trimmer`, `--fragment-mean`,
+  `--fragment-sd`, `--strand`) are refused (exit 2), never ignored. `--design`, `--contrast`, `--covariate`,
+  `--de-backend` and `--alpha` mean what they mean for FASTQ.
+- From the counts on, the steps are the full pipeline's, by the same code: differential expression, VST, PCA, sample
+  distances, the same tables and figures, `report.md`/`report.html`, `limitations.md` and `run.json`. No read was
+  seen, so there is no QC, trimming or quantification, and `limitations.md` says the counts were analysed as given.
+  On the FASTQ reference's counts, rounded into a table, this mode writes the full pipeline's `deseq2_results.tsv`,
+  `de_diagnostics.tsv` and `vst.tsv` byte for byte (a test checks it).
+- `run.json` names the pipeline `bioagent.omics.rnaseq_counts`, the input kind `counts`, each input (path, SHA-256,
+  size) and the content digests of the canonical count and sample tables; `bioagent rnaseq --verify` checks either
+  mode. Its stages are `validate_counts`, `differential_expression`, `explore`, `report`, `verify`.
 
 ### Steps
 
@@ -159,6 +191,8 @@ it in the table.
 - The built-in test, PyDESeq2 and R's DESeq2 are not numerically identical; with three or
   fewer residual degrees of freedom the built-in test does not reproduce R's calls
   ([omics-backends.md](omics-backends.md)).
+- The count-matrix mode cannot check how its counts were made: library preparation, aligner or quantifier,
+  annotation and filtering are unknown to it.
 
 ## Single-cell: count matrices to an annotated atlas
 
@@ -244,6 +278,41 @@ declared design allows.
   thousands of cells, not millions.
 - The UMAP coordinates are not umap-learn's. The layout is a picture of the graph, not
   a measurement.
+- `--n-top-genes` (default 2,000; the runner's `n_top_genes`, 50 to 10,000) sets how many highly variable genes are
+  kept; the reference runs with 600.
+
+## In the browser: count matrices and count tables
+
+In Studio, two of these pipelines also run as browser jobs, with no runner, in Pyodide job workers holding numpy and
+scipy ([BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)):
+
+- `pipeline.rnaseq` in its count-matrix mode (`counts` and `samples`), with the built-in DESeq2 implementation;
+- `pipeline.scrna` on count tables (CSV, TSV or TXT, gzipped or not, or a `.csv`/`.tsv` sample sheet of them), with the
+  built-in analysis and built-in Harmony or none.
+
+The inputs are files of the person's project, copied into the job's private storage and checked against their
+recorded SHA-256. Refused there with the reason, for the runner: a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and
+`.h5ad` sources, and more than 6,000 cells or 100,000 genes × 200 samples (a browser worker's wasm32 memory holds about
+4 GB; a `MemoryError` is the same refusal). On `omics_counts_world` v1 and `sc_world` v1 (as count tables), compared
+output by output with the native command on the same files at one BLAS thread (`studio/web/test/runtime/science.mjs
+--mode omics`):
+
+- identical bytes: RNA-seq `counts.tsv`, `vst.tsv`, `report.md`, `limitations.md`; single-cell `clusters.tsv`,
+  `markers.tsv`, `paga.tsv`, `report.md`, `limitations.md`, `cells.tsv` apart from the UMAP coordinates;
+- within a stated tolerance (|a − b| ≤ 1e-6 + 1e-4·max + one unit in the sixth significant digit; the largest
+  difference 0.133 of it): `deseq2_results.tsv`, `de_diagnostics.tsv` and the four pseudobulk tables, whose numbers come
+  from iterative fits that turn last-bit differences between numpy builds into printed digits;
+- not compared, with the reason: the UMAP coordinates and five figures; the layout's structure is checked instead
+  (each cell's 15 nearest UMAP neighbours in its cluster: browser 0.9985, native 0.9983);
+- exactly the same: the 90 genes called, the pseudobulk calls, each of the 1,077 cells' cluster and cell type;
+- the known answers on the browser's files: all 80 planted genes found in their direction with 10 false discoveries
+  among 90 calls; ARI 1.0, the four cell types, 16 of 20 planted B-cell genes, mixing 1.03.
+
+Tested locally in headless Chromium 141 with Pyodide 314.0.7 (numpy 2.4.6, scipy 1.18.0), against native Python
+3.13.16 with numpy 2.5.4 and scipy 1.18.1; and in Studio's CI with Pyodide's numpy and scipy from jsDelivr, against
+CI's Python 3.12.15 (`studio` #91, 2026-10-19), with the same results. The tolerance was fitted on these two simulated
+references and is not established for other data; other settings (a pseudotime root, `integration: none`, a marker
+table of one's own) were not compared in a browser.
 
 ## Protein structure: sequences to checked models
 
@@ -659,6 +728,7 @@ A run is **complete** only when every required stage succeeded and no check is F
 | Pipeline | Stages, in order |
 |---|---|
 | RNA-seq | `validate_reference`, `ingest`, `validate_fastq`, `qc`, `trim` (skipped with `--trimmer none`), `quantify`, `summarize_genes`, `differential_expression`, `explore`, `report`, `verify` |
+| RNA-seq from a count matrix | `validate_counts`, `differential_expression`, `explore`, `report`, `verify` |
 | Single cell | `validate_input`, `qc`, `doublets` (skipped when off), `normalize`, `hvg`, `pca`, `integrate` (not applicable with one batch or `none`), `neighbors` (the kNN graph, UMAP connectivities and layout), `cluster` (Leiden, and PAGA's connectivity between the clusters), `markers`, `annotate`, `trajectory` (pseudotime; not applicable without a root), `pseudobulk_de` (not applicable without two conditions), `report`, `verify` |
 | Structure | `input_check`, `predict`, `sequence_identity`, `confidence`, `geometry`, `compare` (not applicable without a reference), `report`, `verify` |
 | Docking | `receptor_prep`, `ligand_prep`, `site`, `redock_validation` (skipped without a co-crystal ligand; FAIL beyond 2 Å), `dock`, `pose_checks`, `contacts`, `report`, `verify` |
@@ -738,13 +808,13 @@ incomplete, though descriptors, rules and alerts are still written.
 
 ### Reference datasets
 
-`bioagent/data/pipeline_references.json` (version 2026.10.1) names one reference
-dataset per pipeline: its content digests, the parameters it is run with, and the
+`bioagent/data/pipeline_references.json` (version 2026.10.2) names one reference
+dataset per pipeline (two for RNA-seq, one per mode): its content digests, the parameters it is run with, and the
 values expected from it. It also holds output digests, which are compared only in the
 environment they were recorded in (Python, numpy, scipy, CPU architecture and the CPU features
 numpy dispatches to): a table of floats can differ in its last digits on another machine with the
 same library versions, so elsewhere the expected values are the check. `tests/test_pipeline_references.py` re-runs the
-RNA-seq and single-cell references with the built-in backends and the structure reference
+RNA-seq (both modes) and single-cell references with the built-in backends and the structure reference
 offline, compares the docking reference's fixture digest (the redocking itself is in
 `tests/test_docking.py`, which needs Vina), and runs the ADMET reference only where its
 archive is given.
@@ -752,12 +822,13 @@ archive is given.
 | Pipeline | Reference | Kind | Where it is checked |
 |---|---|---|---|
 | RNA-seq | `omics_world` v1 (`tests/omics_world.py`, seed 1, 5% adapters) | simulated, known answer | here: the seven planted genes, at most one false discovery, 30 genes tested, outputs byte-identical |
+| RNA-seq, count matrix | `omics_counts_world` v1 (`tests/omics_world.py:make_counts_world`, seed 1: 2,000 genes × 6 samples, 40 genes four-fold up and 40 down) | simulated, known answer | here: at least 38 planted genes found in each direction (40 and 40 when recorded), none in the wrong direction, at most 15 false discoveries (10 among 90 calls when recorded), 1,999 genes tested, outputs byte-identical; in a browser, the same values (above) |
 | Single cell | `sc_world` v1 (`tests/sc_world.py`, seed 0) | simulated, known answer | here: ARI above 0.9 (1.0), the four cell types named, at least 12 planted genes in B-cell pseudobulk |
 | Structure | PDB 1UBQ and the stored ESM Atlas model | public | here, offline: TM-score 0.958, RMSD 0.83 Å; a new prediction requires the network or torch and transformers |
 | Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented), passed there in `ci` #317 (2026-10-19) |
 | ADMET | the TDC ADMET group | public | requires RDKit, scikit-learn and the archive (`BIOAGENT_TDC_ARCHIVE`): held-out scores within 0.05 of the table above for scores on [0, 1], and within 5% for errors in the endpoint's unit |
 
-The two simulated references are not public data. A run on one of them is recognised by
+The three simulated references are not public data. A run on one of them is recognised by
 its content digests, and its `limitations.md` says "simulated, known answer … not public
 data".
 
@@ -765,9 +836,9 @@ data".
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
 
-**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18 与 #19 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)），其余流程不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18 与 #19 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞或 100,000 个基因 × 200 个样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；结构预测、对接与 ADMET 不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
-**RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发，依次完成以下步骤：
+**RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发（或用 `--counts` 从计数矩阵出发，见下文），依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
 - 修剪：fastp，或内置的 cutadapt 式修剪；
 - 定量：salmon、kallisto 或内置的 k-mer 伪比对与 EM；也可用 HISAT2 + featureCounts；
@@ -777,6 +848,13 @@ data".
 - 报告：带 SVG 图的 Markdown/HTML 报告，以及记录全部摘要的 `run.json`，可用 `--verify` 复核。
 
 内置定量器对双端测序增加了片段长度一致性检查，纠正了外显子跳跃异构体被低估的问题。
+
+**从计数矩阵出发**（`bioagent rnaseq --counts counts.tsv --samples samples.tsv --out results/`，模块 `bioagent.omics.rnaseq_counts`），用于在别处得到的计数（featureCounts、经 tximport 的 salmon、已发表的矩阵）：
+- `--counts` 是基因 × 样本的 TSV 或 CSV 表（可 gzip）：`gene_id`、可选 `gene_name`，然后每个样本一列，每个值都必须是非负整数。以下情况被拒绝，并指明行与样本：非数字、负数、非有限值、非整数（「请先把估计计数取整」）、2^53 及以上、重复的基因 ID 或样本名、少于两个样本、某样本计数全为零、名称中含制表符或换行。
+- 此时 `--samples` 是样本表：`sample` 列加设计变量，每个计数列一行。FASTQ 样本表（含 `fastq_1`/`fastq_2`）被拒绝：读段要走完整流程。
+- FASTQ 专用选项（`--transcripts`、`--genome`、`--annotation`、`--engine`、`--trimmer`、`--fragment-mean`、`--fragment-sd`、`--strand`）被拒绝（退出码 2），绝不忽略。`--design`、`--contrast`、`--covariate`、`--de-backend` 与 `--alpha` 含义与 FASTQ 模式相同。
+- 从计数开始，步骤与完整流程相同、代码相同：差异表达、VST、PCA、样本距离、相同的表格与图、`report.md`/`report.html`、`limitations.md` 与 `run.json`。没有看到任何读段，因此没有质控、修剪和定量，`limitations.md` 注明计数按原样分析。把 FASTQ 参考的计数取整成表后，这一模式写出的 `deseq2_results.tsv`、`de_diagnostics.tsv` 与 `vst.tsv` 与完整流程逐字节相同（有测试检查）。
+- `run.json` 把流程记为 `bioagent.omics.rnaseq_counts`、输入类型 `counts`，记录每个输入（路径、SHA-256、大小）以及规范化计数表和样本表的内容摘要；`bioagent rnaseq --verify` 两种模式都能复核。阶段为 `validate_counts`、`differential_expression`、`explore`、`report`、`verify`。它无法检查计数是如何得到的（建库、比对或定量工具、注释、过滤都不可知）。
 
 验证有三层：
 - 按方法定义逐项核对；
@@ -805,7 +883,20 @@ data".
 - 与参考实现对比：高变基因、Wilcoxon 分数和 Leiden 模块度与 Scanpy/leidenalg 一致，UMAP 连接度与 umap-learn 的差异在 5×10⁻⁶ 以内；
 - 用已知答案的模拟数据检验：低质量细胞全部剔除，聚类 ARI 大于 0.9，注释正确，伪时间沿预设路径（Spearman 大于 0.85），伪批量只在预设的细胞类型中找到差异。
 
-聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。
+聚类、细胞类型标签和伪时间都只是输出，不构成结论；只有条件间的伪批量比较才会形成结论。`--n-top-genes`（默认 2,000；Runner 的 `n_top_genes`，50 到 10,000）设定保留的高变基因数，参考数据用 600。
+
+**浏览器中：计数矩阵与计数表**（[BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。在 Studio 中，这两个流程也能作为浏览器任务运行，无需 Runner，在装有 numpy 与 scipy 的 Pyodide 任务工作线程中：
+- `pipeline.rnaseq` 的计数矩阵模式（`counts` 与 `samples`），使用内置 DESeq2 实现；
+- `pipeline.scrna` 处理计数表（CSV、TSV 或 TXT，可 gzip，或由它们组成的 `.csv`/`.tsv` 样本表），使用内置分析与内置 Harmony 或不整合。
+
+输入是用户项目中的文件，复制到任务的私有存储并按记录的 SHA-256 核对。以下情况在浏览器中被拒绝并说明原因，交给 Runner：从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 来源，以及超过 6,000 个细胞或 100,000 个基因 × 200 个样本（浏览器工作线程的 wasm32 内存约 4 GB；`MemoryError` 也是同样的拒绝）。在 `omics_counts_world` v1 与写成计数表的 `sc_world` v1 上，与同一批文件上单个 BLAS 线程的原生命令逐个输出比对（`studio/web/test/runtime/science.mjs --mode omics`）：
+- 逐字节一致：RNA-seq 的 `counts.tsv`、`vst.tsv`、`report.md`、`limitations.md`；单细胞的 `clusters.tsv`、`markers.tsv`、`paga.tsv`、`report.md`、`limitations.md`，以及除 UMAP 坐标外的 `cells.tsv`；
+- 在给定容差内（|a − b| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133）：`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表，其数值来自迭代拟合，会把不同 numpy 构建之间末位的差异放大到打印出的数字；
+- 不比较并说明原因：UMAP 坐标与五张图；改为检查布局结构（每个细胞 15 个最近 UMAP 邻居中同簇的比例：浏览器 0.9985，原生 0.9983）；
+- 完全相同：显著的 90 个基因、各伪批量检验的显著基因、全部 1,077 个细胞的聚类与细胞类型；
+- 浏览器写出的文件上的已知答案：80 个预设基因全部按方向找到，90 个显著中假发现 10 个；ARI 1.0、四种细胞类型、B 细胞 20 个预设基因中找到 16 个、混合度 1.03。
+
+已在本地无头 Chromium 141 中用 Pyodide 314.0.7（numpy 2.4.6、scipy 1.18.0）测试，对照原生 Python 3.13.16、numpy 2.5.4、scipy 1.18.1；Studio 的 CI 中同样通过（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy，原生为 CI 的 Python 3.12.15），结果相同。这一容差是在这两个模拟参考上拟合的，对其他数据未经确立；其他设置（伪时间起点、`integration: none`、自备的标记基因表）没有在浏览器中比对过。
 
 **蛋白结构预测**（`bioagent fold`）：输入 FASTA 或单条序列，可选三种预测器：
 - `esmatlas`（默认）：通过 Meta 的 ESM Atlas 服务运行 ESMFold，最长 400 个残基。序列会发往第三方，须显式加 `--allow-remote`；
@@ -884,8 +975,8 @@ data".
 - **对接构象检查：** 坐标有限、重原子都在对接盒内、配体与受体重原子间距不小于 2.2 Å。这只是合理性检查，不是 PoseBusters，也不验证结合。`tests/test_docking.py` 用 RDKit、meeko 和 Vina 的替身测试各阶段与检查（测试中已注明），真实的 Vina 运行在 CI 的分子建模任务中，该任务连同这些检查在 `ci` #317（2026-10-19）中通过。`dock-ligands` Skill 只在运行完整时提出假说，且只针对最优构象通过这些检查的配体。
 - **ADMET：** 每个终点记录完整的模型身份：模型和归档的摘要、训练集、指标、适用域阈值与摘要、库版本。缺少模型时，模型与预测阶段为「不可用」，运行不完整。
 
-**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.1）：每个流程一份，记录内容摘要、参数和预期结果。
-- RNA-seq 与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
+**参考数据集**（`bioagent/data/pipeline_references.json`，版本 2026.10.2）：每个流程一份（RNA-seq 每种模式各一份），记录内容摘要、参数和预期结果。
+- RNA-seq（`omics_world` v1；计数矩阵模式为 `omics_counts_world` v1：2,000 个基因 × 6 个样本，上调、下调各预设 40 个四倍差异基因，要求每个方向至少找到 38 个、方向错误 0 个、假发现至多 15 个、检验 1,999 个基因）与单细胞的参考是**模拟数据（已知答案）**，不是公开数据，在本机重跑核对；在其上的运行会在 `limitations.md` 中注明。
 - 结构参考为 PDB 1UBQ 与存档的 ESMFold 模型，离线核对。
 - 对接参考（3PTB）需要 Vina，在 CI 的分子建模任务中核对，在 `ci` #317（2026-10-19）中通过。
 - ADMET 参考需要 TDC 归档，仅在提供归档时核对。
