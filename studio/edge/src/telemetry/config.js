@@ -17,8 +17,8 @@ export const TELEMETRY_DEFAULTS = {
   TELEMETRY_UTC_OFFSET: "8", // the reporting day, hours from UTC (8: Beijing)
   TELEMETRY_MAX_BODY_BYTES: "32768", // one batch of usage events
   CONVERSATION_MAX_BODY_BYTES: "65536", // one conversation record
-  TELEMETRY_PER_MINUTE: "60", // batches of usage events per visitor
-  TELEMETRY_PER_DAY: "3000",
+  TELEMETRY_PER_MINUTE: "30", // batches of usage events per visitor (a page sends one every 15 s at most while busy)
+  TELEMETRY_PER_DAY: "1500",
   CONVERSATIONS_PER_MINUTE: "20", // conversation records per visitor
   CONVERSATIONS_PER_DAY: "500",
   RETENTION_EVENTS_DAYS: "90", // per-turn and per-tool rows (no text)
@@ -28,6 +28,11 @@ export const TELEMETRY_DEFAULTS = {
   CONVERSATION_MAX_RECORDS: "50000", // beyond this many, the oldest records go first
   SECURITY_RAW_IP: "off", // off | flagged: keep the full address of a high-severity security event (else a network prefix)
   ADMIN_SESSION_SECONDS: "3600", // how long a dashboard sign-in lasts
+  // rows the telemetry may write a day, all three objects together (0: no budget, on a paid plan): 60 % usage, 25 %
+  // conversation records, 15 % security events. On the Workers Free plan the account has 100,000 a day for every
+  // Durable Object, the relay's and the gateway's limiter included, which refuses service once they are spent
+  // (telemetry/budget.js)
+  TELEMETRY_DAILY_ROWS: "40000",
 };
 
 const RANGES = {
@@ -35,7 +40,7 @@ const RANGES = {
   TELEMETRY_PER_MINUTE: [1, 100000], TELEMETRY_PER_DAY: [1, 10000000], CONVERSATIONS_PER_MINUTE: [1, 100000],
   CONVERSATIONS_PER_DAY: [1, 10000000], RETENTION_EVENTS_DAYS: [1, 3650], RETENTION_AGGREGATES_DAYS: [1, 3650],
   RETENTION_CONVERSATIONS_DAYS: [1, 3650], RETENTION_SECURITY_DAYS: [1, 3650], CONVERSATION_MAX_RECORDS: [100, 10000000],
-  ADMIN_SESSION_SECONDS: [300, 86400],
+  ADMIN_SESSION_SECONDS: [300, 86400], TELEMETRY_DAILY_ROWS: [0, 1000000000],
 };
 export const TELEMETRY_RANGES = RANGES;
 const OFF = /^(off|0|false|no)$/i;
@@ -69,10 +74,17 @@ export function telemetryConfig(env = {}) {
     maxRecords: num("CONVERSATION_MAX_RECORDS"),
     rawIp: get("SECURITY_RAW_IP").toLowerCase() === "flagged" ? "flagged" : "off",
     sessionSeconds: num("ADMIN_SESSION_SECONDS"),
+    budgets: budgetsOf(num("TELEMETRY_DAILY_ROWS")),
     adminToken: secret("ADMIN_TOKEN"),
     exportToken: secret("EXPORT_TOKEN"),
     consentVersion: CONSENT_VERSION,
   };
+}
+
+/** Each object's rows a day, from the telemetry's whole budget (0: none). */
+export function budgetsOf(total) {
+  if (!(total > 0)) return { usage: 0, conversations: 0, security: 0 };
+  return { usage: Math.floor(total * 0.6), conversations: Math.floor(total * 0.25), security: Math.floor(total * 0.15) };
 }
 
 /** What a page may know of the telemetry (in /v1/health and /api/telemetry/health): whether each kind is taken, the

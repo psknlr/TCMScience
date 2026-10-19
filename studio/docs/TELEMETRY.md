@@ -54,7 +54,7 @@ Worker 自己：Tao-S1 中继与数据库网关的次数和结果 ─▶ UsageLo
 | `question`、`answer` | 问题（≤4000 字）与回答（Markdown，≤12000 字）；已隐去的内容换成 `[redacted:类别]`，`redacted` 是隐去的处数 |
 | `provider`、`model` | 模型服务与模型名（如 `tao` / `Tao-S1`） |
 | `steps`、`tool_rounds`、`calls`、`limit_reached` | 智能体步数、调用工具的轮数、模型请求次数（含重试）、是否达到步数上限 |
-| `tools[]` | 每次工具执行：`name`、`kind`、`where`（browser / runner / gateway / page）、`status`、`ms`、`error_type`、`arg_keys`（**参数名**，不含值；≤12 个）；一轮最多 40 个 |
+| `tools[]` | 每次工具执行：`name`、`kind`、`where`（browser / runner / gateway / page）、`status`、`ms`、`error_type`（不含工具参数：既无参数值，也无参数名）；一轮最多 40 个 |
 | `citations` | 引文：工具给出的 `total`、原文已核对的 `verified`、回答中引用的 `used`、引用了却查不到的 `unresolved` |
 | `claims`、`evidence` | 内核的主张检查（`allowed` / `refused` / `unchecked`）；证据条目、预测、结果的发布与扣留数 |
 | `usage` | token：`input` / `output` |
@@ -86,8 +86,10 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 
 ## 使用统计：计什么
 
-网页把事件攒成批（有新事件后约 4 秒发一批；页面隐藏或离开时用 `sendBeacon`），每个标签页一个待发队列（存在 `localStorage`，刷新后
-接着发；关掉的标签页留下的队列 10 分钟后由其他标签页代发）；批有随机编号，Worker 对重发的批只计一次。
+网页把事件攒成批（有新事件后约 15 秒发一批；页面隐藏或离开时用 `sendBeacon`），每个页面一个待发队列（存在 `localStorage`）：
+页面离开时没发出去的，由下一个打开的页面（刷新后的同一标签页，或别的标签页）马上接着发；没来得及离开就没了的（浏览器崩溃），
+10 分钟后由其他页面代发。每批都有编号（离开时就分好批；代发时还没分批的事件按原队列命名），Worker 对重发的批只计一次，
+所以两个页面同时接手同一个队列也只计一次。
 **在 `/v1/health` 说明本站收统计之前不发送任何东西**，所以本机 Runner 提供的网页、其他托管处都不会发。
 发送失败只会稍后重试，从不影响对话。
 
@@ -104,8 +106,10 @@ Worker 另加 `seq`（递增编号）、`received`（收到时间）、`day`（�
 | `availability` | 服务（relay / runner / browser_runtime / storage）、是否可用 | 服务可用性 |
 | `consent` | 同意 / 拒绝 / 撤回 / 删除，说明版本 | 同意情况 |
 
-Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和 token（`relay_tokens`）；数据库网关按**数据库主机**计请求数、
-结果类别（2xx/4xx/5xx、超时、拒绝、取消）和耗时（`connector`），从不记查询本身。
+Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和 token（`relay_tokens`）；数据库网关按**数据库**（注册表里的名称，
+如 `chembl`、`europepmc`：同在 www.ebi.ac.uk 的 18 个数据库分开计）计请求数、结果类别（2xx/4xx/5xx、超时、无法连接、取消，
+以及网关自己的拒绝 `refused:*`：限额、排队已满、限额服务不可用、不在注册表内）和已发出请求的耗时（`connector`），从不记查询
+本身。网关自己的拒绝从不算作数据库不可用；在匹配到某个数据库之前就被拒绝的请求记在 `-` 下。
 
 **这些数怎样区分**（仪表板也这样写）：页面浏览是每进入一个页面一次；访问是一段连续使用；访客按天去重；轮次是访客的一个问题；
 一轮可以有多次模型调用（每轮工具调用一次，加上重试）和多次工具执行。
@@ -122,7 +126,7 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 **地理位置**：只记 Cloudflare 判定的国家或地区代码（`TELEMETRY_GEO = "country"`；不明或 Tor 记 `XX`），不记城市或省份；
 `"off"` 则一律 `XX`。配置**不能**比说明更细：其他值按 `country` 处理，配置测试会报错。
 
-**限额**：一批 ≤50 个事件、正文 ≤32 KiB；每位访客每分钟 60 批、每天 3000 批；另与中继共用 `BURST`（每 10 秒 40 次）。
+**限额**：一批 ≤50 个事件、正文 ≤32 KiB；每位访客每分钟 30 批、每天 1500 批；另与中继共用 `BURST`（每 10 秒 40 次）。
 
 ## 安全日志
 
@@ -136,7 +140,9 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 | `admin_auth_failed`、`admin_locked` | 管理员登录失败；同一来源 15 分钟内失败 8 次后锁定 15 分钟 |
 | `admin_login`、`admin_view`、`admin_export`、`admin_delete`、`admin_prune` | 管理员登录、查看对话内容、导出、删除、手动清理（审计记录） |
 
-每个事件都计数；同一来源同一类事件每 10 秒最多存一条（扫描器一次会敲几千下），管理操作每次都存。
+每个事件都计数；同一来源同一类事件每 10 秒最多存一条（扫描器一次会敲几千下），管理操作每次都存。Worker 自己看到的事件先在
+内存里汇总，最多每 20 秒一次送进安全日志（每次带前 20 条完整事件，其余只计数；存下的时间是事件发生的时间），见下文「Durable
+Object 的额度」。管理操作的审计记录不经过汇总，当场写入。
 
 ### IP 地址
 
@@ -159,7 +165,7 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 | POST | `/api/admin/session/logout` | 退出 |
 | GET | `/api/admin/session` | 会话是否有效、到何时 |
 | GET | `/api/admin/telemetry/summary?days=7\|30\|90&provider=&model=&country=` | 仪表板的全部数字 |
-| GET | `/api/admin/telemetry/export?dataset=…&format=csv\|json&days=…` | 下载（见下表） |
+| GET | `/api/admin/telemetry/export?dataset=…&format=csv\|json&days=…&cursor=…` | 下载一页（见下表与「导出与私有保存」） |
 | GET | `/api/admin/telemetry/conversations?days=&status=&provider=&owner=&before=&limit=` | 对话记录（只有管理员；每次查看写入审计）；`owner` 可以是记录编号（12 位以上） |
 | POST | `/api/admin/telemetry/conversations/delete` | `{ids:[…]}` 或 `{owner}` → `{deleted}` |
 | POST | `/api/admin/telemetry/prune` | 立即按保留期限清理 |
@@ -182,24 +188,56 @@ Worker 自己另计：Tao-S1 中继的每次请求及结果（`relay_call`）和
 每个 Durable Object 每天 03:17（UTC）由自己的定时器清理一次；仪表板的「立即清理过期数据」也可以手动执行。每日盐与「见过」集合
 每天删除，批次去重编号两天后删除。保留期改短后，下一次清理即生效。
 
+### Durable Object 的额度
+
+统计、记录、安全日志与中继的限额（`LIMITER`）用的是同一个 Cloudflare 账号的 Durable Object 额度。Workers 免费版每天约
+10 万次 Durable Object 请求、10 万行写入，用完后到 00:00（UTC）之前所有 Durable Object 调用都会失败——限额对象此时按设计拒绝
+模型与数据库网关的调用（失败时关闭）。所以统计绝不能按请求花这份额度：
+
+- **网页的事件**：攒 15 秒或到页面隐藏、关闭时成批发送，一批是一次请求；每批的计数先合并再写（每种计数一行）。
+- **Worker 自己的计数**（中继调用与 token、数据库网关请求）与**安全事件**：在 Worker 实例的内存里按天与类别汇总，最多每
+  20 秒各送一次（安静一段时间后的第一个当场送出，其余在这 20 秒结束时送出，即使之后没有请求）；扫描器敲几千下、别的网站刷
+  几千次，也只是每 20 秒一次请求。代价：实例在送出之前被回收时，还没送出的计数会丢失，这几项数字因此是近似的。
+- **对话记录**：一轮一条，只在访客同意时发送，有每分钟、每天的上限。
+- **每天的写入上限**（`TELEMETRY_DAILY_ROWS`，默认 40000 行，按 UTC 日计，与 Cloudflare 的额度同一天切换）：使用统计 60 %、
+  对话记录 25 %、安全事件 15 %；一位访客（按地址）最多用其中的十分之一。到了上限，统计与记录接口回 503 `budget_spent`
+  （`Retry-After` 到 00:00 UTC），Worker 在那之前不再调用这个对象；网页把没发出的留着、按 `Retry-After` 等待；Worker 自己的
+  计数在那之前丢弃。安全事件照常计数，只是不再逐条保存（管理操作的审计记录除外）。**从不因额度拒绝**：访客的删除请求、
+  按保留期限的清理、管理员登录状态与审计记录。仪表板「设置」里显示三个对象今天已写入的行数与上限。付费版可设为 `0`（不设上限）。
+- 表结构尽量省写入：以文本为键的表用 `WITHOUT ROWID`（普通表还要多写一份键的索引）。
+- **读取**也有额度（免费版全账号每天 500 万行）：仪表板的一次汇总把所选时段的计数读两遍（本期与上一期）、每轮明细读三遍、
+  每次工具明细读三遍，与时段长短成正比；7 天的汇总最省，90 天的按需查看即可。导出按页读取，每页只读该页的行。
+
+用量大时请改用付费版（额度按用量计费，不会到点停用），或在 Cloudflare 的用量页面留意 Durable Object 的请求与写入行数。
+大量恶意请求本身（不论打到中继还是统计接口）都会消耗免费版每天 10 万次的 Durable Object 请求额度；正式运营建议在
+Cloudflare 上为 `/v1/*`、`/api/*` 加 WAF 速率限制规则，或使用付费版。
+
 ## 管理后台
 
-**登录**：`ADMIN_TOKEN`（Worker 机密，至少 32 个字符；没设置时 `/admin` 与 `/api/admin/*` 一律 503，后台关闭）。登录页是普通表单，
+**登录**：`ADMIN_TOKEN`（Worker 机密，至少 32 个字符；没设置时 `/admin` 与 `/api/admin/*` 一律 503，后台关闭）。后台只在本站的
+Worker 上：本机 Runner 不存统计与记录，它对 `/admin` 回 404。登录页是普通表单，
 令牌只在服务器端比较（先各自哈希再按固定时间比较）；成功后浏览器得到会话 Cookie `__Host-tcms_admin`（`HttpOnly; Secure;
 SameSite=Strict; Path=/`），内容是到期时间与随机数，用由 `ADMIN_TOKEN` 派生的密钥签名：**更换 `ADMIN_TOKEN` 即让所有会话失效**。
-有效期 `ADMIN_SESSION_SECONDS`（默认 1 小时）。同一来源 15 分钟内失败 8 次后锁定 15 分钟。
+有效期 `ADMIN_SESSION_SECONDS`（默认 1 小时）。**退出登录让所有会话在服务器端失效**（别处的登录、留下的 Cookie 副本都随之作废）。
+同一来源 15 分钟内失败 8 次后锁定 15 分钟；已登录的管理员不受同一地址上别人失败的影响，令牌（即使正确）在锁定期间一律拒绝。
 
 **防护**：用 Cookie 发出的修改请求必须来自本站页面（`Origin` 检查），别的网站无法借管理员的浏览器删除记录；后台页面强制
 `Content-Security-Policy`（只允许本站自己的脚本和样式，不允许内联脚本或样式，不允许被嵌入），`no-store`、`noindex`；
 Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的管理员；页面里没有任何令牌，访客写的文字一律作为文本显示，从不当作 HTML。
 公开的网页代码里也没有任何管理接口（测试检查）。
 
+**同源的余险**：后台与 Studio 网站同在 `science.impf.ai`。网站本身若出现脚本注入（XSS），在管理员登录的那段时间里，注入的
+脚本可以借用这个会话（`HttpOnly` 让它读不到 Cookie，但能发出带 Cookie 的同源请求）。网站对模型与访客的文字一律转义或消毒后
+才显示，后台的页面策略是强制的；但要彻底隔开，请把后台放到**单独的主机名和单独的 Worker**（例如 `admin.science.impf.ai`，
+只部署 `/admin` 与 `/api/admin`，以服务绑定访问三个 Durable Object），并在网站侧把 `/admin`、`/api/admin` 关闭。用完后台随手
+退出登录，也能把这段时间缩到最短。
+
 **看什么**（7 / 30 / 90 天；按模型服务、模型、国家或地区筛选；主要数字与前一时段在同样筛选下比较）：
 
 - 页面浏览、访问、访客·日（每日去重访客之和）；对话轮次与新对话；成功率；模型调用；token；响应耗时中位数及 p90、p95；工具执行与失败；应用错误；安全事件；
 - 访问量折线（页面浏览、访问、访客）、页面与浏览器分布；每日结束的轮次及其结束方式；记录与不记录的原因；失败原因；
 - 各模型的轮次、成功率、调用、token、平均耗时；耗时分位数（整轮与首个输出）；工具表（可筛选）及按运行位置；
-- 数据库网关按主机的可用率；Tao-S1 中继的结果；研究流程；证据与引文；地理分布；页面报告的错误与服务可用性；
+- 数据库网关按数据库的可用率；Tao-S1 中继的结果；研究流程；证据与引文；地理分布；页面报告的错误与服务可用性；
 - 同意情况与记录库的存取；安全事件、来源（月度哈希与网段）与管理操作记录；
 - 对话记录：**只在点「显示对话记录」后才读取**，每次读取写入审计；可按结束方式筛选、按记录编号查找、逐条或按访客删除。
 
@@ -213,7 +251,7 @@ Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的�
 | `daily` | 每日计数（`day, metric, a, b, n`） | 是 |
 | `turns` | 每轮一行的数字（无文字） | 是 |
 | `tools` | 每次工具执行一行 | 是 |
-| `connectors` | 数据库网关按主机、结果的每日计数 | 是 |
+| `connectors` | 数据库网关按数据库、结果的每日计数（`source` 列是注册表里的名称） | 是 |
 | `geo` | 按国家或地区的每日浏览、访问、访客 | 是 |
 | `security` | 安全事件（含网段） | 否，只有 `ADMIN_TOKEN` |
 | `conversations` | 对话记录（含问答） | 否，只有 `ADMIN_TOKEN` |
@@ -221,7 +259,8 @@ Service Worker 从不缓存 `/admin/`。仪表板的代码只发给已登录的�
 脚本用法（令牌放在环境变量里，不要写进命令行历史或文件）：
 
 ```bash
-curl -fsS -H "Authorization: Bearer $EXPORT_TOKEN" \
+# 一页（最多 1000 行）；还有下一页时，响应头 X-Next-Cursor 给出 cursor，加 &cursor=… 再取。整份导出请用下面的导出脚本。
+curl -fsS -D headers.txt -H "Authorization: Bearer $EXPORT_TOKEN" \
   "https://science.impf.ai/api/admin/telemetry/export?dataset=daily&format=csv&days=30" -o daily.csv
 ```
 
@@ -243,6 +282,9 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 - **只写到仓库之外**：目标在本仓库内时直接拒绝；在其他 git 仓库里时，只有加 `--private-repo`（确认该仓库私有、访问受限）才写。
 - 文件只有所有者可读（0600，目录 0700），按日期分目录；`--keep-days`（默认 180）删除更早的、由这个脚本建立的日期目录，其他文件不动。
 - 令牌只从环境变量读取，不接受命令行参数，从不打印；只发往 `--url`（必须是 https）。
+- **分页**：导出接口每次只给一页（1000 行；对话记录 100 条），JSON 的 `next`、CSV 的 `X-Next-Cursor` 与 `Link` 响应头指向下一页
+  （带 `&cursor=…` 再请求），CSV 只有第一页带表头与 BOM，列固定，各页依次拼接就是完整文件。脚本取完所有页才写文件，中途失败
+  则什么也不写；仪表板的导出按钮同样取完所有页再保存为一个文件。每次导出只在第一页记一条审计。
 
 导出的对话仍受访客的删除请求约束：访客删除后，已导出的副本请一并删除（墓碑表 `conv_deletions` 记录何时、删了谁的几条，可据此核对）。
 
@@ -266,11 +308,12 @@ node studio/edge/scripts/export-telemetry.mjs --out ~/tcmscience-exports --days 
 | `TELEMETRY_GEO` | `country` | `off`：不记国家或地区 |
 | `TELEMETRY_UTC_OFFSET` | `8` | 报告日的时区（小时，-14…14） |
 | `TELEMETRY_MAX_BODY_BYTES` / `CONVERSATION_MAX_BODY_BYTES` | `32768` / `65536` | 一批事件 / 一条记录的字节上限 |
-| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `60` / `3000` | 每位访客每分钟、每天的事件批数 |
+| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `30` / `1500` | 每位访客每分钟、每天的事件批数 |
 | `CONVERSATIONS_PER_MINUTE` / `CONVERSATIONS_PER_DAY` | `20` / `500` | 每位访客每分钟、每天的记录条数 |
 | `RETENTION_*_DAYS`、`CONVERSATION_MAX_RECORDS` | 见上 | 保留期限（1…3650 天）与记录条数上限 |
 | `SECURITY_RAW_IP` | `off` | `flagged`：高危安全事件保存完整地址 |
 | `ADMIN_SESSION_SECONDS` | `3600` | 后台会话时长（300…86400 秒） |
+| `TELEMETRY_DAILY_ROWS` | `40000` | 三个统计 Durable Object 每天合计可写的行数（使用统计 60 %、对话记录 25 %、安全事件 15 %）；`0` 不设上限（付费版） |
 
 机密（GitHub 仓库 Secrets，部署时写入 Worker；不进任何文件）：
 

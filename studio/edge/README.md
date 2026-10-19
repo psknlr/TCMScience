@@ -154,13 +154,14 @@ GraphQL 只接受注册的完整 query 文本和变量结构，表单和 JSON �
 | `TELEMETRY_GEO` | `country` | `off`：不记国家或地区（不提供更细的位置：说明里只写了「国家或地区」） |
 | `TELEMETRY_UTC_OFFSET` | `8` | 报告日的时区 |
 | `TELEMETRY_MAX_BODY_BYTES` / `CONVERSATION_MAX_BODY_BYTES` | `32768` / `65536` | 一批事件、一条记录的字节上限 |
-| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `60` / `3000` | 每位访客的事件批数 |
+| `TELEMETRY_PER_MINUTE` / `TELEMETRY_PER_DAY` | `30` / `1500` | 每位访客的事件批数 |
 | `CONVERSATIONS_PER_MINUTE` / `CONVERSATIONS_PER_DAY` | `20` / `500` | 每位访客的记录条数 |
 | `RETENTION_EVENTS_DAYS` / `RETENTION_AGGREGATES_DAYS` | `90` / `400` | 每轮、每次工具的明细 / 每日计数的保留天数 |
 | `RETENTION_CONVERSATIONS_DAYS` / `RETENTION_SECURITY_DAYS` | `90` / `30` | 对话记录 / 安全事件的保留天数 |
 | `CONVERSATION_MAX_RECORDS` | `50000` | 对话记录的条数上限（超过时最旧的先删） |
 | `SECURITY_RAW_IP` | `off` | `flagged`：高危安全事件保存完整地址（默认只存网段） |
 | `ADMIN_SESSION_SECONDS` | `3600` | 管理后台登录的有效期 |
+| `TELEMETRY_DAILY_ROWS` | `40000` | 统计每天合计可写的 Durable Object 行数（`0`：不设上限）；免费版全账号每天 10 万行，限额对象也在其中 |
 
 三个 Durable Object（`USAGE` → `UsageLog`、`CONVERSATIONS` → `ConversationLog`、`SECURITY` → `SecurityLog`）由 `[[migrations]]`
 的 `v2` 建立；每个每天 03:17（UTC）按保留期限自行清理。

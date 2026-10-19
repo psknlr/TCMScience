@@ -13,10 +13,14 @@ import {
 } from "../js/core/consent.js";
 import { redactText, sensitiveReason } from "../js/core/sensitive.js";
 import {
-  CONSENT_VERSION, LIMITS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
+  CONSENT_VERSION, LIMITS, PROVIDER_MODELS, normalizeBatch, normalizeEvent, normalizeRecord, ownerOf,
 } from "../js/core/telemetry-contract.js";
+import { PRESETS, newCustomProvider } from "../js/core/providers.js";
 import { OUTBOX_PREFIX, RECORDS_KEY, STALE_TURN_MS, TURNS_KEY, Telemetry, VISIT_IDLE_MS } from "../js/core/telemetry.js";
-import { buildRecord, citedIds, evidenceStats, exclusionOf, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { SKILL_FILES, buildRecord, callName, citedIds, evidenceStats, exclusionOf, jobWorkflow, toolRuns, turnEndEvent, turnStatus } from "../js/core/turnrecord.js";
+import { Catalog } from "../js/core/catalog.js";
+import { ToolRouter } from "../js/core/router.js";
+import { fakeRuntime, testCatalogDoc } from "./fixtures/fakes.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIX = (name) => JSON.parse(fs.readFileSync(path.join(here, "fixtures", name), "utf8"));
@@ -86,10 +90,29 @@ test("sensitive content: identifiers and patient cases keep a turn out; scientif
     "女性更年期常用方有哪些", "Which formula treats a patient's spleen deficiency in general?", "RNA-seq 流程", "数值 120 340 560 的均值", ""]) {
     assert.equal(sensitiveReason(text), null, text);
   }
-  const r = redactText("key sk-proj-abcdefghijklmnopqrstu, Bearer abcdefghijklmnopqrstu, mail x@y.org, tel 13800138000, 010-12345678, https://u:p@h.org/x?token=abc, 192.168.0.1, 密码：hunter2pass");
+  const r = redactText("key sk-proj-abcdefghijklmnopqrstu, Bearer abcdefgh1234ijklmnop, mail x@y.org, tel 13800138000, 010-12345678, https://u:p@h.org/x?token=abc, 192.168.0.1, 密码：hunter2pass");
   assert.equal(r.text, "key [redacted:api_key], Bearer [redacted:bearer], mail [redacted:email], tel [redacted:mobile], [redacted:phone], https://[redacted:url_credentials]@h.org/x?token=[redacted:url_secret], [redacted:ip_address], 密码：[redacted:secret]");
   assert.equal(r.hits, 9);
   assert.deepEqual(redactText("桂枝汤 3 剂，每剂 9 g"), { text: "桂枝汤 3 剂，每剂 9 g", hits: 0 });
+  // typed with a Chinese input method's full-width forms, or with the groups a phone number is written in: still
+  // found; what is kept has those digits and letters in ASCII, and the Chinese punctuation as written
+  const wide = {
+    "电话１３８００１３８０００": "电话[redacted:mobile]", "ａｂｃ＠ｅｘａｍｐｌｅ．ｃｏｍ": "[redacted:email]", "０１０-１２３４５６７８": "[redacted:phone]",
+    "１９２．１６８．１．１": "[redacted:ip_address]", "138-0013-8000": "[redacted:mobile]", "+86 138 0013 8000": "[redacted:mobile]",
+    "服务器是 10.0.0.1.": "服务器是 [redacted:ip_address].", "Authorization: Bearer abcdefghijklmnop": "Authorization: Bearer [redacted:bearer]",
+    "Authorization: Basic dXNlcjpwYXNzd29yZA==": "Authorization: Basic [redacted:bearer]",
+    "桂枝汤，主治：太阳中风（表虚证）？～１０％": "桂枝汤，主治：太阳中风（表虚证）？～10％", "ＴＰ５３ 的 ＧＣ 含量": "TP53 的 GC 含量",
+    "电话：１３８　００１３　８０００": "电话：[redacted:mobile]", "　　首行缩进": "　　首行缩进",
+  };
+  for (const [text, kept] of Object.entries(wide)) assert.equal(redactText(text).text, kept, text);
+  // prose is not a credential, nor a version number an address
+  for (const text of ["a basic understanding of 本草", "Basic Understanding of herbs", "the bearer of the formula", "version 1.10.0.0.1 build"]) {
+    assert.deepEqual(redactText(text), { text, hits: 0 }, text);
+  }
+  // "patient notes" is not a patient number: the label is a whole word
+  for (const text of ["patient notes on 桂枝汤", "Patient identification in TCM practice", "hospital notes"]) assert.equal(sensitiveReason(text), null, text);
+  for (const text of ["patient id: A12345", "patient no. 778899", "hospital number 55667"]) assert.equal(sensitiveReason(text), "identifier", text);
+  assert.equal(sensitiveReason("身份证号 １１０１０１１９９００３０７７７７７"), "identifier"); // full-width digits
 });
 
 // ------------------------------------------------------------------------------------------------- the contract
@@ -106,6 +129,26 @@ test("contract: events keep only known fields within bounds; a route is a name, 
   assert.equal(normalizeBatch({ v: 1, batch: "b", events: Array.from({ length: LIMITS.events + 1 }, () => ({ type: "pageview", route: "home" })) }), null);
 });
 
+test("contract: a provider by its preset's id or \"custom\", a model the preset lists or \"other\" — never an id or a path of the visitor's", async () => {
+  // the page's presets and the contract's list are the same (a preset added later must be listed here too)
+  assert.deepEqual(PROVIDER_MODELS, Object.fromEntries(PRESETS.map((p) => [p.id, p.models])));
+  const mine = newCustomProvider("openai", 1); // custom-<the time it was added>: the same for this browser every day
+  assert.match(mine.id, /^custom-/);
+  const ev = (provider, model) => normalizeEvent({ type: "turn_start", provider, model });
+  assert.deepEqual(ev(mine.id, "ft:gpt-4o-mini:acme-hospital:triage:abc123"), { type: "turn_start", provider: "custom", model: "other" });
+  assert.deepEqual(ev("vllm", "/data/zhangsan/Qwen2.5-72B-Instruct"), { type: "turn_start", provider: "vllm", model: "other" });
+  assert.deepEqual(ev("ollama", "/Users/alice.wang/models/qwen.gguf"), { type: "turn_start", provider: "ollama", model: "other" });
+  assert.deepEqual(ev("ollama", "qwen3:8b"), { type: "turn_start", provider: "ollama", model: "qwen3:8b" });
+  assert.deepEqual(ev("siliconflow", "Qwen/Qwen3-235B-A22B-Instruct-2507").model, "Qwen/Qwen3-235B-A22B-Instruct-2507");
+  assert.deepEqual(ev("tao", "Tao-S1"), { type: "turn_start", provider: "tao", model: "Tao-S1" });
+  assert.equal(ev("constructor", "x").provider, "custom");
+  const end = normalizeEvent({ type: "turn_end", turn: "t1", status: "completed", provider: mine.id, model: "my-model" });
+  assert.deepEqual([end.provider, end.model], ["custom", "other"]);
+  const owner = await ownerOf("p".repeat(43));
+  const rec = normalizeRecord({ v: 1, id: "m1", owner, consent: CONSENT_VERSION, question: "q", status: "completed", provider: mine.id, model: "/home/li/m.gguf" });
+  assert.deepEqual([rec.provider, rec.model], ["custom", "other"]);
+});
+
 test("contract: a record needs the current notice, an owner digest and a question; text is cut to its limit", async () => {
   const owner = await ownerOf("k".repeat(43));
   const base = { v: 1, id: "m1", owner, consent: CONSENT_VERSION, question: "q", status: "completed" };
@@ -117,7 +160,9 @@ test("contract: a record needs the current notice, an owner digest and a questio
   const long = normalizeRecord({ ...base, question: "问".repeat(5000), answer: "答".repeat(20000) });
   assert.equal(long.question.length, LIMITS.question);
   assert.equal(long.answer.length, LIMITS.answer);
-  assert.equal(normalizeRecord({ ...base, tools: [{ name: "tcm_herb", args: { name: "甘草" }, arg_keys: ["name"] }] }).tools[0].args, undefined);
+  // a tool run keeps neither its arguments nor their names
+  assert.deepEqual(normalizeRecord({ ...base, tools: [{ name: "tcm_herb", args: { name: "甘草" }, arg_keys: ["name"] }] }).tools[0],
+    { name: "tcm_herb", kind: "unknown", where: "unknown", status: "unknown" });
 });
 
 // ------------------------------------------------------------------------------------------------- what a turn may record
@@ -135,6 +180,93 @@ test("exclusion: uploads, project files, clinical and user-data tools, identifyi
   assert.equal(exclusionOf({ path: [q("x")], tools: [tool("literature_search", { query: "TP53" })] }), null);
   assert.equal(exclusionOf({ path: [q("患者，男，60岁"), q("桂枝汤呢？")] }), "sensitive_text"); // an earlier question
   assert.equal(exclusionOf({ path: [q("x")], discarded: true }), "discarded");
+  // an earlier turn's reason, kept on the conversation, holds for every later turn (a project file removed since)
+  assert.equal(exclusionOf({ path: [q("桂枝汤")], projectFiles: 0, before: "project_files" }), "project_files");
+  assert.equal(exclusionOf({ path: [q("桂枝汤")], before: null }), null);
+});
+
+test("exclusion: the governed skills that run as jobs on the visitor's files, however the file is named", () => {
+  const q = (content) => ({ id: content, role: "user", content });
+  const via = (tool, args, envelope = {}) => ({ role: "tool", name: "call_tool", args: { tool, arguments: args }, envelope: { via: tool, governance: { kind: "skill" }, status: "succeeded", ...envelope } });
+  const out = (t) => exclusionOf({ path: [q("x")], tools: [t] });
+  // every file argument of every such skill, given an upload's id, its bare name, a Windows or relative path, a literal
+  for (const [tool, args] of [
+    ["skill.dock-ligands", { receptor: "PDB:3PTB", ligands: "D:/lab/x.sdf" }],
+    ["skill.dock-ligands", { receptor: "R1=/home/me/ref.pdb", ligands: "CCO" }],
+    ["skill.predict-admet", { molecules: "u_0123456789abcdef" }],
+    ["skill.retrieve-literature-evidence", { question: "黄芩苷", corpus: "lab/notes.txt" }],
+    ["skill.scrna-cell-atlas", { source: "C:/Users/li/pbmc.h5ad" }],
+    ["skill.scrna-cell-atlas", { source: "pbmc_counts.h5ad" }],
+    ["skill.predict-protein-structure", { sequences: "MKTAYIAKQR" }],
+    ["skill.rnaseq-differential-expression", { sample_sheet: "u_00000000000000aa" }],
+  ]) assert.equal(out(via(tool, args)), "user_data_tool", `${tool} ${JSON.stringify(args)}`);
+  // called by name, or with its arguments as JSON text (the runner's dispatcher parses it)
+  assert.equal(out({ role: "tool", name: "skill.predict-admet", args: { molecules: "my.smi" }, envelope: { via: "skill.predict-admet" } }), "user_data_tool");
+  assert.equal(out({ role: "tool", name: "call_tool", args: { tool: "native.x", arguments: JSON.stringify({ data: "/home/me/a.csv" }) }, envelope: { via: "native.x" } }), "user_data_tool");
+  assert.equal(out({ role: "tool", name: "call_tool", args: { tool: "skill.predict-admet", arguments: '{"molecules":"CCO"}' }, envelope: { via: "skill.predict-admet" } }), "user_data_tool");
+  // an upload's id in any argument of any tool is that file; so is NAME=<a path> in a list
+  assert.equal(out(via("native.blast", { query: "u_0123456789abcdef" })), "user_data_tool");
+  assert.equal(out(via("native.align", { inputs: "R1=/data/a.fq, R2=/data/b.fq" })), "user_data_tool");
+  // a job's status brings in what the job ran on: a pipeline, a governed skill run, a store's build or import
+  const status = (kind) => ({ role: "tool", name: "job_status", args: { job_id: "j_1" }, envelope: { via: "system.job_status", governance: { kind: "system" }, job: { id: "j_1", kind, state: "succeeded" } } });
+  for (const kind of ["skill.run", "pipeline.rnaseq", "tcmdb.import"]) assert.equal(out(status(kind)), "user_data_tool", kind);
+  assert.equal(out(status("provision")), null);
+  // not the visitor's data: a flag left off, a number, an empty value, a genotype call, an accession
+  assert.equal(out(via("native.x", { input_file: false, upload: 0, files: [], path: "" })), null);
+  assert.equal(out(via("native.allele_frequencies", { genotypes: ["0/1", "./.", "1|1"] })), null);
+  assert.equal(out(via("native.allele_frequencies", { genotypes: "./." })), null);
+  assert.equal(out(via("connector.uniprot.entry", { accession: "P04637" })), null);
+  assert.equal(out(via("native.x", { note: "a=b, c=d" })), null);
+});
+
+test("a call is named as the catalog resolves it at its start; its end and its job under that name, so the funnel joins", () => {
+  const doc = testCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props, required: [] });
+  const entry = (id, kind) => ({ id, kind, title: { zh: id, en: id }, summary: id, category: "omics", parameters: obj(), example: null, exec: ["runner"], network: false, confirm: false, job: kind === "job", gpu: false, heavy: [], tags: [] });
+  doc.entries.push(entry("skill.scrna-cell-atlas", "skill"), entry("job.pipeline.rnaseq", "job"), entry("system.job_status", "system"), entry("connector.uniprot.entry", "connector"), entry("job.skill.run", "job"));
+  doc.core.push(
+    { name: "connector_call", title: { zh: "数据库", en: "Database" }, description: "x", parameters: obj({ connector: { type: "string" }, operation: { type: "string" } }), category: "literature", exec: ["browser", "runner"], network: true, confirm: false, job: false, maps_to: "connector.*" },
+    { name: "job_status", title: { zh: "任务", en: "Job" }, description: "x", parameters: obj({ job_id: { type: "string" } }), category: "system", exec: ["runner"], network: false, confirm: false, job: false, maps_to: "system.job_status" },
+  );
+  const catalog = new Catalog(doc);
+  const router = new ToolRouter({ catalog, runtimes: { runner: fakeRuntime("runner") }, settings: { compute: "auto", web: true } });
+  const known = new Set([...doc.core.map((c) => c.name), ...doc.entries.map((e) => e.id)]);
+  const ctx = (envelope = null) => ({ resolve: (n, a) => router.resolve(n, a), byId: catalog.byId, known, envelope });
+  // a governed skill: named and kinded by its entry, whatever kind the envelope of its submission reports
+  const skill = callName("call_tool", { tool: "skill.scrna-cell-atlas", arguments: { source: "u_0123456789abcdef" } }, ctx());
+  assert.deepEqual(skill, { name: "skill.scrna-cell-atlas", kind: "skill", workflow: true });
+  // run_pipeline and connector_call name their entry in their arguments
+  assert.deepEqual(callName("run_pipeline", { pipeline: "rnaseq", arguments: {} }, ctx()), { name: "job.pipeline.rnaseq", kind: "job", workflow: true });
+  assert.deepEqual(callName("connector_call", { connector: "uniprot", operation: "entry" }, ctx()), { name: "connector.uniprot.entry", kind: "connector", workflow: false });
+  // a job's status is a lookup, not the workflow (its envelope may say "skill" for a finished skill run)
+  assert.deepEqual(callName("job_status", { job_id: "j1" }, ctx({ via: "system.job_status", governance: { kind: "skill" } })), { name: "system.job_status", kind: "system", workflow: false });
+  // arguments as JSON text read as the object; a name the catalog does not know is never sent
+  assert.equal(callName("call_tool", { tool: "skill.scrna-cell-atlas", arguments: '{"source":"x"}' }, ctx()).name, "skill.scrna-cell-atlas");
+  assert.deepEqual(callName("made_up_tool", {}, ctx()), { name: "unknown", kind: "unknown", workflow: false });
+  // the job's end: under the call that submitted it on this page; on another page, from the job itself
+  assert.deepEqual(jobWorkflow({ id: "j1", kind: "skill.run", params: { skill_id: "scrna-cell-atlas" } }, { kind: "skill", name: "skill.scrna-cell-atlas" }, known), { kind: "skill", name: "skill.scrna-cell-atlas" });
+  assert.deepEqual(jobWorkflow({ id: "j2", kind: "skill.run", params: { skill_id: "scrna-cell-atlas" } }, null, known), { kind: "skill", name: "skill.scrna-cell-atlas" });
+  assert.deepEqual(jobWorkflow({ id: "j3", kind: "pipeline.rnaseq" }, null, known), { kind: "job", name: "job.pipeline.rnaseq" });
+  assert.deepEqual(jobWorkflow({ id: "j4", kind: "made.up" }, null, known), { kind: "job", name: "unknown" });
+});
+
+test("a turn's tool failures: not the visitor's own no, nor a call answered from an earlier identical one", () => {
+  const tool = (status, extra = {}) => ({ role: "tool", envelope: { status, ...extra } });
+  const ev = turnEndEvent({ id: "t", status: "completed", assistant: { steps: 2 }, tools: [
+    tool("failed"), tool("refused", { error: { type: "declined" } }), tool("refused", { error: { type: "refused" } }), tool("failed", { reused: { step: 1, callId: "c1" } }), tool("succeeded"),
+  ] });
+  assert.equal(ev.tools, 5);
+  assert.equal(ev.tool_failures, 2);
+});
+
+test("the page's table of skills that take files is the runner's (kinds.py _SKILL_FILES)", () => {
+  const source = fs.readFileSync(new URL("../../runner/src/tcmstudio/kinds.py", import.meta.url), "utf8");
+  const block = /_SKILL_FILES:[^=]*=\s*\{([\s\S]*?)\n\}/.exec(source);
+  assert.ok(block, "kinds.py has _SKILL_FILES");
+  const runner = {};
+  for (const m of block[1].matchAll(/"([a-z0-9-]+)":\s*\{([^}]*)\}/g)) runner[m[1]] = [...m[2].matchAll(/"([a-z_]+)":/g)].map((x) => x[1]);
+  assert.ok(Object.keys(runner).length >= 6);
+  assert.deepEqual(SKILL_FILES, runner);
 });
 
 test("a turn's record and usage event from a real kernel envelope: citations, claims, tools without arguments", async () => {
@@ -146,8 +278,8 @@ test("a turn's record and usage event from a real kernel envelope: citations, cl
   assert.ok(stats.citations.unresolved >= 1, "E9 names no citation the tools gave");
   assert.ok(stats.evidence.released + stats.evidence.withheld >= 1);
   const runs = toolRuns(tools);
-  assert.deepEqual(runs[0].arg_keys, ["subject", "co_administered"]);
-  assert.doesNotMatch(JSON.stringify(runs), /甘草|甘遂/);
+  assert.equal(runs[0].arg_keys, undefined);
+  assert.doesNotMatch(JSON.stringify(runs), /甘草|甘遂|subject|co_administered/);
   const assistant = { id: "a1", content: "甘草反甘遂 [E1]。联系 a@b.org", status: "ok", steps: 2, segments: [{ type: "tools", step: 1 }], usage: { input: 900, output: 80 }, provider: "tao", model: "Tao-S1" };
   const owner = await ownerOf("z".repeat(43));
   const record = buildRecord({ id: "a1", conversation: "c1", index: 1, owner, question: "甘草与甘遂同用，有哪些记载？", assistant, tools, status: turnStatus(assistant),
@@ -156,7 +288,7 @@ test("a turn's record and usage event from a real kernel envelope: citations, cl
   assert.equal(record.answer, "甘草反甘遂 [E1]。联系 [redacted:email]");
   assert.deepEqual([record.ms, record.first_ms, record.calls, record.tool_rounds, record.redacted], [8000, 500, 3, 1, 1]);
   assert.deepEqual(record.usage, { input: 900, output: 80 });
-  assert.doesNotMatch(JSON.stringify(record), /co_administered":\[/); // argument names only
+  assert.doesNotMatch(JSON.stringify(record), /co_administered|subject/); // no argument, nor its name
   const ev = normalizeEvent(turnEndEvent({ id: "a1", provider: "tao", model: "Tao-S1", status: "completed", first: true, startedAt: 1_000, endedAt: 9_000, calls: 3, assistant, tools, recorded: true }));
   assert.deepEqual([ev.type, ev.ms, ev.calls, ev.tools, ev.tokens_in, ev.recorded, ev.first], ["turn_end", 8000, 3, 1, 900, true, true]);
   assert.equal(JSON.stringify(ev).includes("甘草"), false, "a usage event holds no text");
@@ -209,6 +341,48 @@ test("client: page views and a visit, batched; a visit again only after half an 
   assert.ok(c.requests.every((r) => r.body.v === 1 && typeof r.body.batch === "string"));
 });
 
+test("client: two pages that take the same outbox over at once send it under the same batch ids", async () => {
+  resetStorage();
+  // a page that left with events it could not send: what it held is put in a batch as it leaves
+  const early = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  early.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  early.tel.route({ name: "home" });
+  assert.equal(early.tel.box.queue.length, 2);
+  early.tel.left();
+  const left = JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${early.tel.tab}`));
+  assert.deepEqual([left.left, left.queue.length, left.batches.length], [true, 0, 1]);
+  // an outbox abandoned with events not in a batch (a page that crashed without a pagehide)
+  const crashed = "0f1e2d3c-0000-4000-8000-000000000000";
+  const stale = { queue: left.batches[0].events, batches: [], saved: early.at() - 11 * 60000, left: false };
+  localStorage.setItem(`${OUTBOX_PREFIX}${crashed}`, JSON.stringify(stale));
+  const outboxes = () => {
+    const o = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith(OUTBOX_PREFIX)) o[k] = localStorage.getItem(k);
+    }
+    return o;
+  };
+  const before = outboxes();
+  sessionStorage.removeItem("tcmstudio.tab");
+  const one = client();
+  assert.deepEqual(Object.keys(outboxes()).filter((k) => before[k]), [], "taken over: removed");
+  // the other page read the same before this one's removal reached it (two tabs restored at once)
+  for (const [k, v] of Object.entries(before)) localStorage.setItem(k, v);
+  sessionStorage.removeItem("tcmstudio.tab");
+  const two = client();
+  const ids = (c) => c.tel.box.batches.map((b) => b.id).sort();
+  assert.equal(ids(one).length, 2);
+  assert.deepEqual(ids(two), ids(one));
+  assert.ok(ids(one).includes(`${crashed}.${stale.saved}.0`));
+  assert.deepEqual(one.tel.box.batches.map((b) => b.events.length), [2, 2]);
+  for (const c of [one, two]) {
+    c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+    await c.tel.flush();
+  }
+  assert.deepEqual(two.requests.map((r) => r.body.batch).sort(), one.requests.map((r) => r.body.batch).sort());
+});
+
 test("client: opted out (by switch, Do Not Track or GPC), nothing is sent and what waited is dropped", async () => {
   resetStorage();
   const dnt = client({ nav: { doNotTrack: "1" } });
@@ -236,14 +410,51 @@ test("client: a failed send is kept and sent after a reload of the same tab; a r
   assert.deepEqual(await c.tel.flush(), { sent: 0 }); // never throws
   const tab = sessionStorage.getItem("tcmstudio.tab");
   assert.ok(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`)).batches.length === 1);
-  // the page reloads (same tab): a new client finds the batch and sends it, under the same batch id
+  // the tab is duplicated while this page is open (sessionStorage is copied): the copy starts its own outbox
+  const copy = client();
+  copy.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(copy.tel.box.batches.length, 0);
+  assert.notEqual(copy.tel.tab, tab);
+  assert.ok(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`), "the open page keeps its own");
+  // the page reloads (pagehide, then a new page in the same tab): the new page takes the outbox over and sends the
+  // batch under the same batch id
+  sessionStorage.setItem("tcmstudio.tab", tab);
+  c.tel.left();
   down = false;
   const firstId = c.requests[0].body.batch;
   const again = client();
   again.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
   await again.tel.flush();
   assert.equal(again.requests[0].body.batch, firstId, "the Worker counts a batch once, whatever arrives twice");
-  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`)).batches.length, 0);
+  assert.equal(localStorage.getItem(`${OUTBOX_PREFIX}${tab}`), null);
+  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${again.tel.tab}`)).batches.length, 0);
+  // a tab closed with events unsent (its pagehide marked them): the next page of any tab takes them over at once
+  sessionStorage.removeItem("tcmstudio.tab");
+  const closing = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  closing.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  closing.tel.route({ name: "about" });
+  await closing.tel.flush();
+  assert.equal(closing.tel.box.batches.length, 1);
+  closing.tel.left();
+  sessionStorage.removeItem("tcmstudio.tab"); // the next page is another tab's
+  const next = client();
+  next.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(next.tel.box.batches.length, 1);
+  assert.equal(localStorage.getItem(`${OUTBOX_PREFIX}${closing.tel.tab}`), null);
+  await next.tel.flush();
+  assert.equal(next.requests[0].body.batch, closing.requests[0].body.batch);
+  assert.equal(next.tel.box.batches.length, 0);
+  // an open page's outbox, not marked, is left to it
+  sessionStorage.removeItem("tcmstudio.tab");
+  const open = client({ answer: () => Promise.reject(new TypeError("Failed to fetch")) });
+  open.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  open.tel.route({ name: "home" });
+  await open.tel.flush();
+  sessionStorage.removeItem("tcmstudio.tab");
+  const beside = client();
+  beside.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(beside.tel.box.batches.length, 0);
+  assert.equal(JSON.parse(localStorage.getItem(`${OUTBOX_PREFIX}${open.tel.tab}`)).batches.length, 1);
   // a malformed batch (400) is not tried again; 429 and 5xx are
   resetStorage();
   let status = 400;
@@ -295,6 +506,146 @@ test("client: records only while agreed; dropped on withdrawal or the conversati
   const failing = client({ answer: () => Promise.reject(new TypeError("offline")) });
   failing.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
   assert.deepEqual(await failing.tel.deleteMine(), { ok: false, reason: "network" });
+});
+
+test("client: no answer from the site's health keeps what waits (sent once the site answers); a Retry-After is waited out", async () => {
+  resetStorage();
+  let status = 503;
+  const c = client({ answer: () => new Response(null, { status, headers: status === 503 ? { "Retry-After": "120" } : {} }) });
+  c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  c.tel.route({ name: "home" });
+  await c.tel.flush(); // the site's day of rows is spent: it says to come back in two minutes
+  assert.equal(c.requests.length, 1);
+  assert.equal(c.tel.box.batches.length, 1);
+  status = 204;
+  c.tick(60000);
+  c.tel.route({ name: "about" });
+  await c.tel.flush();
+  assert.equal(c.requests.length, 1, "not asked again before the time it gave");
+  c.tick(61000);
+  await c.tel.flush();
+  assert.equal(c.tel.box.batches.length, 0);
+  assert.deepEqual(c.requests.slice(1).map((r) => r.body.events.map((e) => e.route)).flat(), ["home", "home", "about"]);
+  // the page reloads offline: the health check gets no answer, and what waited is neither sent nor dropped
+  resetStorage();
+  const before = client({ answer: () => Promise.reject(new TypeError("offline")) });
+  before.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  before.tel.route({ name: "home" });
+  await before.tel.flush();
+  before.tel.left();
+  const offline = client();
+  offline.tel.configure({ ok: false, unreachable: true, error: "Failed to fetch" }, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(offline.tel.config, null);
+  assert.equal(offline.tel.box.batches.length, 1);
+  await offline.tel.flush();
+  assert.equal(offline.requests.length, 0);
+  offline.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` }); // back online: the app asks again
+  await offline.tel.flush();
+  assert.equal(offline.requests.length, 1);
+  assert.equal(offline.tel.box.batches.length, 0);
+  // a site that answers without telemetry (a page served by the local runner) does drop it
+  const runnerPage = client();
+  runnerPage.tel.configure({ ok: true }, { relayBase: `${ORIGIN}/v1` });
+  assert.equal(runnerPage.tel.here, false);
+});
+
+test("client: the record queue is read again before each send; a deletion drops what waits and lets what is on its way arrive first", async () => {
+  resetStorage();
+  setContentConsent(true);
+  const owner = await ownerOf("w".repeat(43));
+  const record = (id, conversation = "c1") => ({ v: 1, id, conversation, owner, consent: CONSENT_VERSION, question: "q", status: "completed" });
+  let release;
+  const order = [];
+  const c = client({
+    answer: async (url, init) => {
+      const body = JSON.parse(init.body);
+      order.push(url.endsWith("/delete") ? "delete" : body.id);
+      if (body.id === "r1") await new Promise((r) => { release = r; }); // r1 is slow to arrive
+      return url.endsWith("/delete") ? new Response(JSON.stringify({ ok: true, deleted: 1 }), { status: 200 }) : new Response(null, { status: 201 });
+    },
+  });
+  c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  const first = c.tel.sendRecord(record("r1"));
+  await new Promise((r) => setTimeout(r, 5));
+  c.tel.sendRecord(record("r2", "c2")); // queued while r1 is on its way
+  c.tel.sendRecord(record("r3", "c3"));
+  c.tel.purgeRecords("c3"); // its conversation deleted meanwhile: never sent
+  release();
+  assert.deepEqual(await first, { sent: 2 });
+  assert.deepEqual(order, ["r1", "r2"]);
+  // a deletion: what waits is dropped, and the one on its way arrives before the deletion is asked
+  order.length = 0;
+  const slow = c.tel.sendRecord(record("r4"));
+  await new Promise((r) => setTimeout(r, 5));
+  c.tel.sendRecord(record("r5")); // waiting: dropped, never sent after the deletion
+  const deleted = c.tel.deleteMine();
+  release();
+  await slow;
+  assert.deepEqual(await deleted, { ok: true, deleted: 1 });
+  assert.deepEqual(order, ["r4", "delete"]); // r5 was never sent
+  assert.equal(localStorage.getItem(RECORDS_KEY), null);
+  // something that is not a record in the queue (a hand edit, an old page) is dropped, not a reason to stop
+  localStorage.setItem(RECORDS_KEY, JSON.stringify([null, 5, { id: 7 }]));
+  const later = client();
+  later.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+  assert.deepEqual(await later.tel.sendRecord(record("r6")), { sent: 1 });
+});
+
+test("client: with storage blocked, the answer to the notice and the records are kept for the page", async () => {
+  resetStorage();
+  const ls = globalThis.localStorage;
+  const blocked = { getItem: () => null, setItem: () => { throw new DOMException("blocked", "SecurityError"); }, removeItem: () => {}, key: () => null, length: 0, clear: () => {} };
+  Object.defineProperty(globalThis, "localStorage", { value: blocked, configurable: true, writable: true });
+  try {
+    const c = client();
+    c.tel.configure(HEALTH, { relayBase: `${ORIGIN}/v1` });
+    assert.equal(c.tel.needsConsent(), true);
+    setContentConsent(true);
+    assert.equal(c.tel.needsConsent(), false, "asked once, not before every question");
+    assert.equal(c.tel.contentOn, true);
+    const owner = await ownerOf("m".repeat(43));
+    assert.deepEqual(await c.tel.sendRecord({ v: 1, id: "x1", conversation: "c", owner, consent: CONSENT_VERSION, question: "q", status: "completed" }), { sent: 1 });
+    assert.equal(c.tel.touch(), true);
+    assert.equal(c.tel.touch(), false, "the same visit, not a new one at every page view");
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", { value: ls, configurable: true, writable: true });
+    forgetConsent();
+  }
+});
+
+test("client: a turn that ends before its lock is granted lets the lock go; recovery runs in one tab at a time", async () => {
+  resetStorage();
+  const granted = [];
+  const held = new Set();
+  let pending = null;
+  const locks = {
+    request: (name, a, b) => {
+      const fn = typeof a === "function" ? a : b;
+      const opts = typeof a === "function" ? {} : a;
+      if (opts.ifAvailable && held.has(name)) return Promise.resolve(fn(null));
+      return new Promise((resolve) => {
+        pending = () => {
+          held.add(name);
+          granted.push(name);
+          Promise.resolve(fn({ name })).then((v) => { held.delete(name); resolve(v); });
+        };
+        if (opts.ifAvailable) pending();
+      });
+    },
+    query: async () => ({ held: [...held].map((name) => ({ name })) }),
+  };
+  const c = client({ nav: { locks } });
+  c.tel.turnBegan({ id: "t1", conversationId: "c1", startedAt: 1 });
+  c.tel.turnEnded("t1"); // before the lock was granted
+  pending(); // granted now
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(held.has("tcmstudio-turn-t1"), false, "released at once");
+  // two pages recovering at the same moment: the second finds the lock taken and does nothing
+  let runs = 0;
+  const one = c.tel.exclusive(async () => { runs++; await new Promise((r) => setTimeout(r, 10)); });
+  const two = c.tel.exclusive(async () => { runs++; });
+  await Promise.all([one, two]);
+  assert.equal(runs, 1);
 });
 
 test("client: a page under an older or newer notice neither asks nor records", () => {

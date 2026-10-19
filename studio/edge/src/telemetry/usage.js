@@ -12,15 +12,36 @@
 //   turn_end     a turn finished, by status (completed / cancelled / failed / interrupted)
 //   model_call   one request to a model: a turn makes one per round of tool use, and one per retry
 //   tool_run     one tool execution, by tool and status
-//   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests)
-// Counters are written once per batch (summed first) to keep the number of rows written small.
+//   relay_call, relay_tokens, connector   seen by the Worker itself (Tao-S1 calls, database gateway requests by database)
+// Counters are written once per batch (summed first) to keep the number of rows written small; the tables keyed by text
+// are WITHOUT ROWID (a rowid table keyed by text keeps a second index of the key: one more row written per insert); and
+// what a day may write at all is the object's share of TELEMETRY_DAILY_ROWS (telemetry/budget.js).
 
 import { normalizeBatch } from "../../../web/js/core/telemetry-contract.js";
+import { RowBudget } from "./budget.js";
 import { daysBetween, shiftDay } from "./config.js";
 
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
 const enc = new TextEncoder();
-const MAX_ROWS = 50000; // rows read for a percentile or an export at most (the newest)
+const MAX_ROWS = 50000; // rows read for a percentile at most (the newest)
+export const PAGE_ROWS = 1000; // rows of an export a page (each page one request: the Worker's CPU per request is small)
+// each export: its rows from..to (two parameters), and the columns that order them and resume after a page
+const EXPORT_SPECS = {
+  daily: { key: ["day", "metric", "a", "b"], sql: "SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ?" },
+  turns: {
+    key: ["day", "id"], // the day index's own order: a page seeks, never sorts the period
+    sql: `SELECT id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools, tool_failures, ms, first_ms, tokens_in,
+      tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country
+      FROM usage_turns WHERE day >= ? AND day <= ?`,
+  },
+  tools: { key: ["day", "id"], sql: "SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ?" },
+  connectors: { key: ["day", "source", "outcome"], sql: "SELECT day, a AS source, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ?" },
+  geo: {
+    key: ["day", "metric", "country"],
+    sql: `SELECT day, metric, CASE WHEN metric = 'visitor' THEN a ELSE b END AS country, SUM(n) AS n FROM usage_counts
+      WHERE metric IN ('pageview', 'visit', 'visitor') AND day >= ? AND day <= ? GROUP BY day, metric, country`,
+  },
+};
 export const METRICS = [
   "app_init", "app_browser", "visit", "pageview", "pageview_tab", "visitor", "asker", "turn_start", "conversation_start", "turn_end",
   "turn_recorded", "turn_excluded", "model_call", "tokens_in", "tokens_out", "tool_run", "tool_kind", "tool_place", "workflow",
@@ -44,23 +65,29 @@ export function spread(values) {
 export class UsageCore {
   constructor(sql) {
     this.sql = sql;
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_counts (day TEXT NOT NULL, metric TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric, a, b))");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_seen (day TEXT NOT NULL, kind TEXT NOT NULL, who TEXT NOT NULL, PRIMARY KEY (day, kind, who))");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_salts (day TEXT PRIMARY KEY, salt TEXT NOT NULL)");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_once (id TEXT PRIMARY KEY, day TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_counts (day TEXT NOT NULL, metric TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, metric, a, b)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_seen (day TEXT NOT NULL, kind TEXT NOT NULL, who TEXT NOT NULL, PRIMARY KEY (day, kind, who)) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_salts (day TEXT PRIMARY KEY, salt TEXT NOT NULL) WITHOUT ROWID");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_once (id TEXT PRIMARY KEY, day TEXT NOT NULL) WITHOUT ROWID");
     sql.exec(`CREATE TABLE IF NOT EXISTS usage_turns (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, provider TEXT NOT NULL,
       model TEXT NOT NULL, status TEXT NOT NULL, first INTEGER NOT NULL, steps INTEGER, tool_rounds INTEGER, calls INTEGER, tools INTEGER,
       tool_failures INTEGER, ms INTEGER, first_ms INTEGER, tokens_in INTEGER, tokens_out INTEGER, citations INTEGER, citations_verified INTEGER,
       citations_used INTEGER, claims INTEGER, claims_refused INTEGER, recorded INTEGER, excluded TEXT, error_kind TEXT, error_type TEXT,
-      limit_reached INTEGER, country TEXT NOT NULL)`);
+      limit_reached INTEGER, country TEXT NOT NULL) WITHOUT ROWID`);
     sql.exec("CREATE INDEX IF NOT EXISTS usage_turns_day ON usage_turns (day)");
     sql.exec(`CREATE TABLE IF NOT EXISTS usage_tools (id TEXT PRIMARY KEY, day TEXT NOT NULL, ts INTEGER NOT NULL, tool TEXT NOT NULL,
-      kind TEXT NOT NULL, place TEXT NOT NULL, status TEXT NOT NULL, ms INTEGER, error_type TEXT)`);
+      kind TEXT NOT NULL, place TEXT NOT NULL, status TEXT NOT NULL, ms INTEGER, error_type TEXT) WITHOUT ROWID`);
     sql.exec("CREATE INDEX IF NOT EXISTS usage_tools_day ON usage_tools (day)");
-    sql.exec("CREATE TABLE IF NOT EXISTS usage_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL)");
+    sql.exec("CREATE TABLE IF NOT EXISTS usage_limits (k TEXT PRIMARY KEY, n INTEGER NOT NULL, day TEXT NOT NULL) WITHOUT ROWID");
     this.minute = new Map();
     this.currentMinute = -1;
     this.limitDay = null;
+    this.budget = new RowBudget(sql);
+    this.written = 0; // rows written so far (each insert, update or delete, and each index entry it changes)
+  }
+
+  #wrote(n) {
+    this.written += n;
   }
 
   // ----------------------------------------------------------------------------------------------- limits
@@ -70,7 +97,7 @@ export class UsageCore {
   limit(caller, kind, limits, now = Date.now()) {
     const today = new Date(now).toISOString().slice(0, 10);
     if (today !== this.limitDay) {
-      this.sql.exec("DELETE FROM usage_limits WHERE day <> ?", today);
+      this.#wrote(this.sql.exec("DELETE FROM usage_limits WHERE day <> ? RETURNING k", today).toArray().length);
       this.limitDay = today;
     }
     const minute = Math.floor(now / 60000);
@@ -86,6 +113,7 @@ export class UsageCore {
     if (limits.perDay && d >= limits.perDay) return { ok: false, reason: "day", retry: Math.ceil((86400000 - (now % 86400000)) / 1000) };
     this.minute.set(mk, m + 1);
     this.sql.exec("INSERT INTO usage_limits (k, n, day) VALUES (?, 1, ?) ON CONFLICT(k) DO UPDATE SET n = n + 1", dk, today);
+    this.#wrote(1);
     return { ok: true };
   }
 
@@ -96,9 +124,10 @@ export class UsageCore {
   salt(day) {
     let row = this.sql.exec("SELECT salt FROM usage_salts WHERE day = ?", day).toArray()[0];
     if (!row) {
-      this.sql.exec("DELETE FROM usage_salts WHERE day < ?", day);
-      this.sql.exec("DELETE FROM usage_seen WHERE day < ?", day);
-      this.sql.exec("INSERT INTO usage_salts (day, salt) VALUES (?, ?) ON CONFLICT(day) DO NOTHING", day, hex(crypto.getRandomValues(new Uint8Array(32))));
+      this.#wrote(this.sql.exec("DELETE FROM usage_salts WHERE day < ? RETURNING day", day).toArray().length);
+      this.#wrote(this.sql.exec("DELETE FROM usage_seen WHERE day < ? RETURNING day", day).toArray().length);
+      this.#wrote(this.sql.exec("INSERT INTO usage_salts (day, salt) VALUES (?, ?) ON CONFLICT(day) DO NOTHING RETURNING day", day,
+        hex(crypto.getRandomValues(new Uint8Array(32)))).toArray().length);
       row = this.sql.exec("SELECT salt FROM usage_salts WHERE day = ?", day).toArray()[0];
     }
     return row.salt;
@@ -108,12 +137,16 @@ export class UsageCore {
   async firstSeen(day, kind, visitor) {
     if (!visitor) return false;
     const who = hex(await crypto.subtle.digest("SHA-256", enc.encode(`${this.salt(day)}|${visitor}`))).slice(0, 32);
-    return this.sql.exec("INSERT INTO usage_seen (day, kind, who) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING who", day, kind, who).toArray().length > 0;
+    const fresh = this.sql.exec("INSERT INTO usage_seen (day, kind, who) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING who", day, kind, who).toArray().length > 0;
+    if (fresh) this.#wrote(1);
+    return fresh;
   }
 
   /** Has this id been taken before (a retried batch, a turn reported twice, a job's end seen in two tabs)? */
   once(id, day) {
-    return this.sql.exec("INSERT INTO usage_once (id, day) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id", id, day).toArray().length > 0;
+    const fresh = this.sql.exec("INSERT INTO usage_once (id, day) VALUES (?, ?) ON CONFLICT DO NOTHING RETURNING id", id, day).toArray().length > 0;
+    if (fresh) this.#wrote(1);
+    return fresh;
   }
 
   bump(counts) {
@@ -122,16 +155,29 @@ export class UsageCore {
       const [day, metric, a, b] = key.split("\u0000");
       this.sql.exec("INSERT INTO usage_counts (day, metric, a, b, n) VALUES (?, ?, ?, ?, ?) ON CONFLICT(day, metric, a, b) DO UPDATE SET n = n + excluded.n",
         day, metric, a, b, n);
+      this.#wrote(1);
     }
   }
 
   /**
    * One batch from a page: {v, batch, events}, read through the contract (telemetry-contract.js normalizeBatch).
-   * ctx: {day, country, visitor (the Worker's digest of address and browser; never stored as given), now, and the
-   * per-visitor limits {caller, limits}, checked first in the same call}. → {ok, accepted, duplicate?, dropped} |
-   * {ok:false, reason: "rate_limited" (with retry) | "bad_batch"}.
+   * ctx: {day, country, visitor (the Worker's digest of address and browser; never stored as given), now, the
+   * per-visitor limits {caller, limits}, checked first in the same call, and `budget`: the rows this object may write
+   * today (0: no budget)}. → {ok, accepted, duplicate?, dropped} | {ok:false, reason: "rate_limited" (with retry) |
+   * "budget" (with retry: the day's rows are written, or this visitor's share of them) | "bad_batch"}.
    */
-  async ingest(body, { day, country = "XX", visitor = "", now = Date.now(), caller = "", limits = null } = {}) {
+  async ingest(body, { day, country = "XX", visitor = "", now = Date.now(), caller = "", limits = null, budget = 0 } = {}) {
+    const room = this.budget.check(budget, { caller, now });
+    if (!room.ok) return { ok: false, reason: "budget", retry: room.retry, scope: room.reason };
+    const start = this.written;
+    try {
+      return await this.#ingest(body, { day, country, visitor, now, caller, limits });
+    } finally {
+      this.budget.charge(this.written - start, { caller, now });
+    }
+  }
+
+  async #ingest(body, { day, country, visitor, now, caller, limits }) {
     if (caller && limits) {
       const gate = this.limit(caller, "events", limits, now);
       if (!gate.ok) return { ok: false, reason: "rate_limited", retry: gate.retry };
@@ -172,6 +218,7 @@ export class UsageCore {
           e.citations ?? null, e.citations_verified ?? null, e.citations_used ?? null, e.claims ?? null, e.claims_refused ?? null,
           e.recorded ? 1 : 0, e.excluded ?? null, e.error_kind ?? null, e.error_type ?? null, e.limit_reached ? 1 : 0, country).toArray().length > 0;
           if (!fresh) break;
+          this.#wrote(2); // the row and its day index
           const provider = e.provider || "unknown";
           add("turn_end", e.status, provider);
           add("model_call", provider, e.model || "", e.calls ?? e.steps ?? 0);
@@ -185,6 +232,7 @@ export class UsageCore {
           const fresh = this.sql.exec(`INSERT INTO usage_tools (id, day, ts, tool, kind, place, status, ms, error_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT DO NOTHING RETURNING id`, e.call, day, now, e.tool, e.kind, e.place, e.status, e.ms ?? null, e.error_type ?? null).toArray().length > 0;
           if (!fresh) break;
+          this.#wrote(2);
           add("tool_run", e.tool, e.status);
           add("tool_kind", e.kind, e.status);
           add("tool_place", e.place, e.status);
@@ -203,18 +251,29 @@ export class UsageCore {
     return { ok: true, accepted: b.events.length, dropped: b.dropped };
   }
 
-  /** Counts the Worker took itself: [{metric, a, b, n}] on `day` (only known metrics, whole positive numbers). */
-  observe(list, { day } = {}) {
+  /** Counts the Worker took itself, summed in its memory between flushes (telemetry/buffer.js): [{metric, a, b, n}] on
+   * `day` (only known metrics, whole positive numbers), within the day's `budget` of rows (0: none). → {ok} |
+   * {ok:false, reason: "budget", retry} | {ok:false}. */
+  observe(list, { day, budget = 0, now = Date.now() } = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day)) || !Array.isArray(list)) return { ok: false };
+    const room = this.budget.check(budget, { now });
+    if (!room.ok) return { ok: false, reason: "budget", retry: room.retry };
+    const start = this.written;
     const counts = new Map();
-    for (const m of list.slice(0, 20)) {
+    for (const m of list.slice(0, 2000)) {
       const n = m?.n === undefined ? 1 : Math.floor(Number(m.n));
       if (!METRICS.includes(m?.metric) || !(n > 0)) continue;
       const k = [day, m.metric, String(m.a ?? "").slice(0, 120), String(m.b ?? "").slice(0, 120)].join("\u0000");
       counts.set(k, (counts.get(k) || 0) + n);
     }
     this.bump(counts);
+    this.budget.charge(this.written - start, { now });
     return { ok: true };
+  }
+
+  /** Today's rows written by this object, and its budget (for the dashboard). */
+  budgetState(budget = 0, now = Date.now()) {
+    return this.budget.state(budget, now);
   }
 
   // ----------------------------------------------------------------------------------------------- reading
@@ -224,7 +283,7 @@ export class UsageCore {
    * {provider, model, country} narrow the turns (and with country, the traffic). Never reads anything a visitor wrote:
    * there is none here.
    */
-  stats({ from, to, provider = "", model = "", country = "" } = {}) {
+  stats({ from, to, provider = "", model = "", country = "", budget = 0 } = {}) {
     const days = daysBetween(from, to);
     const span = days.length;
     const prevFrom = shiftDay(from, -span);
@@ -245,9 +304,18 @@ export class UsageCore {
       if (model && modelMetrics.includes(r.metric) && r.b !== model) return false;
       return true;
     };
+    const unfilterable = new Set([...(country ? ["turns_started", "conversations_started"] : []), ...(model ? ["conversations_started"] : [])]);
     const series = Object.fromEntries(SERIES.map((m) => [m, zeros()]));
-    for (const r of this.sql.exec("SELECT day, metric, a, b, SUM(n) AS n FROM usage_counts WHERE day >= ? AND day <= ? GROUP BY day, metric, a, b", from, to).toArray()) {
-      if (series[r.metric] && idx.has(r.day) && kept(r)) series[r.metric][idx.get(r.day)] += Number(r.n) || 0;
+    // the period's counters, read once: the series (filtered) and every breakdown below (not filtered) come from it
+    // (each row read is one of the account's daily rows read, which every Durable Object shares)
+    const groups = new Map(); // metric → `${a}\u0000${b}` → n
+    for (const r of this.sql.exec("SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ?", from, to).toArray()) {
+      const n = Number(r.n) || 0;
+      if (series[r.metric] && idx.has(r.day) && kept(r)) series[r.metric][idx.get(r.day)] += n;
+      if (!groups.has(r.metric)) groups.set(r.metric, new Map());
+      const g = groups.get(r.metric);
+      const k = `${r.a}\u0000${r.b}`;
+      g.set(k, (g.get(k) || 0) + n);
     }
     const totals = Object.fromEntries(Object.entries(series).map(([k, v]) => [k, sum(v)]));
     const previous = Object.fromEntries(SERIES.map((m) => [m, 0]));
@@ -255,7 +323,9 @@ export class UsageCore {
       if (r.metric in previous && kept(r)) previous[r.metric] += Number(r.n) || 0;
     }
 
-    // ---- turns (rows, every filter applies): status by day, success rate, latency, models, calls and tokens
+    // ---- turns (rows, every filter applies): status by day, success rate, latency, models, calls and tokens. One
+    // grouped read of the period serves them all (and, unfiltered, the filters' choices and the geography); the
+    // latency percentiles read the completed turns' times; the period before is one aggregate
     const turnsWhere = (a, z) => {
       const where = ["day >= ?", "day <= ?"];
       const args = [a, z];
@@ -267,17 +337,64 @@ export class UsageCore {
     const [W, args] = turnsWhere(from, to);
     const statuses = ["completed", "cancelled", "failed", "interrupted"];
     const turnsDaily = Object.fromEntries(statuses.map((s) => [s, zeros()]));
-    for (const r of this.sql.exec(`SELECT day, status, COUNT(*) AS n FROM usage_turns WHERE ${W} GROUP BY day, status`, ...args).toArray()) {
-      if (turnsDaily[r.status] && idx.has(r.day)) turnsDaily[r.status][idx.get(r.day)] += Number(r.n);
+    const modelDaily = { calls: zeros(), tokens_in: zeros(), tokens_out: zeros() };
+    const byModel = new Map();
+    const errorCounts = new Map();
+    const agg = { n: 0, citations: 0, verified: 0, used: 0, claims: 0, refused: 0, recorded: 0, excluded: 0, limit_reached: 0, conversations: 0, steps: 0, stepsN: 0 };
+    const providerSet = new Set();
+    const modelSet = new Set();
+    const turnsByCountry = new Map();
+    const grouped = this.sql.exec(`SELECT day, provider, model, country, status, COALESCE(error_kind, '') AS ek, COALESCE(error_type, '') AS et,
+      COUNT(*) AS n, SUM(first) AS first, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
+      SUM(COALESCE(tokens_out, 0)) AS tokens_out, SUM(CASE WHEN status = 'completed' THEN ms END) AS ms_sum,
+      SUM(CASE WHEN status = 'completed' AND ms IS NOT NULL THEN 1 ELSE 0 END) AS ms_n, SUM(steps) AS steps_sum, COUNT(steps) AS steps_n,
+      SUM(COALESCE(citations, 0)) AS citations, SUM(COALESCE(citations_verified, 0)) AS verified, SUM(COALESCE(citations_used, 0)) AS used,
+      SUM(COALESCE(claims, 0)) AS claims, SUM(COALESCE(claims_refused, 0)) AS refused, SUM(recorded) AS recorded,
+      SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached
+      FROM usage_turns WHERE day >= ? AND day <= ? GROUP BY day, provider, model, country, status, ek, et`, from, to).toArray();
+    for (const r of grouped) {
+      const n = Number(r.n) || 0;
+      // unfiltered: what the filters may choose, and the turns of each place
+      providerSet.add(r.provider);
+      if (r.model) modelSet.add(r.model);
+      turnsByCountry.set(r.country, (turnsByCountry.get(r.country) || 0) + n);
+      if ((provider && r.provider !== provider) || (model && r.model !== model) || (country && r.country !== country)) continue;
+      const i = idx.get(r.day);
+      if (i !== undefined && turnsDaily[r.status]) turnsDaily[r.status][i] += n;
+      if (i !== undefined) {
+        modelDaily.calls[i] += Number(r.calls) || 0;
+        modelDaily.tokens_in[i] += Number(r.tokens_in) || 0;
+        modelDaily.tokens_out[i] += Number(r.tokens_out) || 0;
+      }
+      const mk = `${r.provider}\u0000${r.model}`;
+      const m = byModel.get(mk) || { provider: r.provider, model: r.model, turns: 0, completed: 0, failed: 0, calls: 0, tokens_in: 0, tokens_out: 0, ms_sum: 0, ms_n: 0 };
+      m.turns += n;
+      if (r.status === "completed") m.completed += n;
+      if (r.status === "failed") m.failed += n;
+      m.calls += Number(r.calls) || 0;
+      m.tokens_in += Number(r.tokens_in) || 0;
+      m.tokens_out += Number(r.tokens_out) || 0;
+      m.ms_sum += Number(r.ms_sum) || 0;
+      m.ms_n += Number(r.ms_n) || 0;
+      byModel.set(mk, m);
+      if (r.status === "failed") {
+        const ek = `${r.ek}\u0000${r.et}`;
+        errorCounts.set(ek, (errorCounts.get(ek) || 0) + n);
+      }
+      agg.n += n;
+      agg.conversations += Number(r.first) || 0;
+      agg.steps += Number(r.steps_sum) || 0;
+      agg.stepsN += Number(r.steps_n) || 0;
+      for (const k of ["citations", "verified", "used", "claims", "refused", "recorded", "excluded", "limit_reached"]) agg[k] += Number(r[k]) || 0;
     }
     const turnTotals = Object.fromEntries(statuses.map((s) => [s, sum(turnsDaily[s])]));
     const finished = sum(Object.values(turnTotals));
-    const modelDaily = { calls: zeros(), tokens_in: zeros(), tokens_out: zeros() };
-    for (const r of this.sql.exec(`SELECT day, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
-      SUM(COALESCE(tokens_out, 0)) AS tokens_out FROM usage_turns WHERE ${W} GROUP BY day`, ...args).toArray()) {
-      if (!idx.has(r.day)) continue;
-      for (const k of ["calls", "tokens_in", "tokens_out"]) modelDaily[k][idx.get(r.day)] = Number(r[k]) || 0;
-    }
+    const models = [...byModel.values()].sort((a, b) => b.turns - a.turns).slice(0, 100)
+      .map(({ ms_sum: msSum, ms_n: msN, ...m }) => ({ ...m, avg_ms: msN ? Math.round(msSum / msN) : null }));
+    const errorsByType = [...errorCounts].map(([k, n]) => {
+      const [kind, type] = k.split("\u0000");
+      return { kind, type, n };
+    }).sort((a, b) => b.n - a.n).slice(0, 30);
     const [PW, pargs] = turnsWhere(prevFrom, prevTo);
     const before = this.sql.exec(`SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed, SUM(first) AS conversations,
       SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in, SUM(COALESCE(tokens_out, 0)) AS tokens_out
@@ -285,18 +402,6 @@ export class UsageCore {
     const toolsBefore = this.sql.exec("SELECT COUNT(*) AS n, SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed FROM usage_tools WHERE day >= ? AND day <= ?",
       prevFrom, prevTo).one();
     const latencyRows = this.sql.exec(`SELECT ms, first_ms FROM usage_turns WHERE ${W} AND status = 'completed' ORDER BY ts DESC LIMIT ?`, ...args, MAX_ROWS).toArray();
-    const models = this.sql.exec(`SELECT provider, model, COUNT(*) AS turns, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
-      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed, SUM(COALESCE(calls, steps, 0)) AS calls, SUM(COALESCE(tokens_in, 0)) AS tokens_in,
-      SUM(COALESCE(tokens_out, 0)) AS tokens_out, AVG(CASE WHEN status = 'completed' THEN ms END) AS avg_ms
-      FROM usage_turns WHERE ${W} GROUP BY provider, model ORDER BY turns DESC LIMIT 100`, ...args).toArray()
-      .map((r) => ({ provider: r.provider, model: r.model, turns: Number(r.turns), completed: Number(r.completed), failed: Number(r.failed),
-        calls: Number(r.calls), tokens_in: Number(r.tokens_in), tokens_out: Number(r.tokens_out), avg_ms: r.avg_ms === null ? null : Math.round(Number(r.avg_ms)) }));
-    const agg = this.sql.exec(`SELECT COUNT(*) AS n, SUM(COALESCE(citations, 0)) AS citations, SUM(COALESCE(citations_verified, 0)) AS verified,
-      SUM(COALESCE(citations_used, 0)) AS used, SUM(COALESCE(claims, 0)) AS claims, SUM(COALESCE(claims_refused, 0)) AS refused,
-      SUM(recorded) AS recorded, SUM(CASE WHEN excluded IS NOT NULL THEN 1 ELSE 0 END) AS excluded, SUM(limit_reached) AS limit_reached,
-      SUM(first) AS conversations, AVG(steps) AS avg_steps FROM usage_turns WHERE ${W}`, ...args).one();
-    const errorsByType = this.sql.exec(`SELECT COALESCE(error_kind, '') AS kind, COALESCE(error_type, '') AS type, COUNT(*) AS n FROM usage_turns
-      WHERE ${W} AND status = 'failed' GROUP BY kind, type ORDER BY n DESC LIMIT 30`, ...args).toArray().map((r) => ({ kind: r.kind, type: r.type, n: Number(r.n) }));
 
     // ---- tools (rows): runs, failures, durations
     const toolRows = this.sql.exec("SELECT tool, kind, status, ms FROM usage_tools WHERE day >= ? AND day <= ? ORDER BY ts DESC LIMIT ?", from, to, MAX_ROWS).toArray();
@@ -321,30 +426,35 @@ export class UsageCore {
     }
 
     // ---- breakdowns from the counters
-    const group = (metric) => this.sql.exec("SELECT a, b, SUM(n) AS n FROM usage_counts WHERE metric = ? AND day >= ? AND day <= ? GROUP BY a, b", metric, from, to)
-      .toArray().map((r) => ({ a: r.a, b: r.b, n: Number(r.n) }));
+    // the largest thousand of each breakdown (a page's events name what they name: their number is not the store's to
+    // bound, and a summary must stay small enough for one answer)
+    const group = (metric) => [...(groups.get(metric) || new Map())].map(([k, n]) => {
+      const [a, b] = k.split("\u0000");
+      return { a, b, n };
+    }).sort((x, y) => y.n - x.n).slice(0, 1000);
+    // by database (the registry's source key), "-" for what the gateway refused before it matched one
     const connectors = new Map();
     for (const r of group("connector")) {
-      const c = connectors.get(r.a) || { host: r.a, requests: 0, ok: 0, client_errors: 0, server_errors: 0, refused: 0, failed: 0, cancelled: 0, ms_total: 0 };
+      const c = connectors.get(r.a) || { source: r.a, requests: 0, ok: 0, client_errors: 0, server_errors: 0, refused: 0, failed: 0, cancelled: 0, ms_total: 0 };
       c.requests += r.n;
       if (/^[123]xx$/.test(r.b)) c.ok += r.n;
       else if (r.b === "4xx") c.client_errors += r.n;
       else if (r.b === "5xx") c.server_errors += r.n;
-      else if (r.b.startsWith("refused")) c.refused += r.n;
+      else if (r.b.startsWith("refused")) c.refused += r.n; // the gateway's own: its limits, its failures — never sent
       else if (r.b === "cancelled") c.cancelled += r.n; // the visitor stopped it: says nothing of the database
-      else c.failed += r.n; // timeout, unreachable, rate_limited, unavailable
+      else c.failed += r.n; // sent, and no answer: timeout, unreachable
       connectors.set(r.a, c);
     }
     for (const r of group("connector_ms")) {
       const c = connectors.get(r.a);
       if (c) c.ms_total += r.n;
     }
-    // availability: of the requests that reached the database or should have, the share it answered without a
-    // server error (a 4xx is the query's fault, not the database's; a refusal of the gateway never left it)
+    // availability: of the requests sent to the database, the share it answered without a server error (a 4xx is the
+    // query's fault, not the database's; a refusal of the gateway never left it); the time, of those sent too
     const connectorList = [...connectors.values()].map(({ ms_total: total, ...c }) => {
       const tried = c.ok + c.client_errors + c.server_errors + c.failed;
-      return { ...c, availability: tried ? (c.ok + c.client_errors) / tried : null, avg_ms: c.requests ? Math.round(total / c.requests) : null };
-    }).sort((a, b) => b.requests - a.requests);
+      return { ...c, availability: tried ? (c.ok + c.client_errors) / tried : null, avg_ms: tried ? Math.round(total / tried) : null };
+    }).sort((a, b) => b.requests - a.requests).slice(0, 200);
     const workflows = new Map();
     for (const r of group("workflow")) {
       const w = workflows.get(r.a) || { workflow: r.a, started: 0, submitted: 0, completed: 0, failed: 0, refused: 0, cancelled: 0 };
@@ -359,7 +469,7 @@ export class UsageCore {
     for (const r of group("pageview")) place(r.b).pageviews += r.n;
     for (const r of group("visit")) place(r.b).visits += r.n;
     for (const r of group("visitor")) place(r.a).visitors += r.n;
-    for (const r of this.sql.exec("SELECT country, COUNT(*) AS n FROM usage_turns WHERE day >= ? AND day <= ? GROUP BY country", from, to).toArray()) place(r.country).turns += Number(r.n);
+    for (const [c, n] of turnsByCountry) place(c).turns += n;
     const availability = new Map();
     for (const r of group("availability")) {
       const s = availability.get(r.a) || { service: r.a, checks: 0, up: 0, down: 0 };
@@ -371,24 +481,27 @@ export class UsageCore {
     const byKey = (metric) => group(metric).sort((a, b) => b.n - a.n);
     return {
       days,
+      budget: this.budget.state(budget),
       traffic: { daily: { pageviews: series.pageview, visits: series.visit, visitors: series.visitor, askers: series.asker, app_inits: series.app_init },
         totals: { pageviews: totals.pageview, visits: totals.visit, visitor_days: totals.visitor, asker_days: totals.asker, app_inits: totals.app_init },
         previous: { pageviews: previous.pageview, visits: previous.visit, visitor_days: previous.visitor },
         routes: byKey("pageview").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}),
         clients: { layouts: byKey("app_init"), browsers: byKey("app_browser") } },
       conversations: {
-        daily: { started: series.turn_start, conversations: series.conversation_start, ...turnsDaily },
-        totals: { turns_started: totals.turn_start, conversations_started: totals.conversation_start, finished, ...turnTotals },
-        previous: { turns_started: previous.turn_start, finished: Number(before.n) || 0, completed: Number(before.completed) || 0,
+        // a question sent is counted by provider and model only, a conversation's start by provider only: under a filter
+        // they cannot be narrowed by, they are null, never the unfiltered numbers (the turn rows below are filtered)
+        unfiltered: [...unfilterable],
+        daily: { started: unfilterable.has("turns_started") ? null : series.turn_start, conversations: unfilterable.has("conversations_started") ? null : series.conversation_start, ...turnsDaily },
+        totals: { turns_started: unfilterable.has("turns_started") ? null : totals.turn_start, conversations_started: unfilterable.has("conversations_started") ? null : totals.conversation_start, finished, ...turnTotals },
+        previous: { turns_started: unfilterable.has("turns_started") ? null : previous.turn_start, finished: Number(before.n) || 0, completed: Number(before.completed) || 0,
           conversations: Number(before.conversations) || 0 },
         success_rate: finished ? turnTotals.completed / finished : null,
-        conversations: Number(agg.conversations) || 0, recorded: Number(agg.recorded) || 0, excluded: Number(agg.excluded) || 0,
+        conversations: agg.conversations, recorded: agg.recorded, excluded: agg.excluded,
         excluded_by: byKey("turn_excluded").map((r) => ({ reason: r.a, n: r.n })),
-        limit_reached: Number(agg.limit_reached) || 0, avg_steps: agg.avg_steps === null ? null : Math.round(Number(agg.avg_steps) * 10) / 10,
+        limit_reached: agg.limit_reached, avg_steps: agg.stepsN ? Math.round((agg.steps / agg.stepsN) * 10) / 10 : null,
         errors: errorsByType,
       },
-      evidence: { citations: Number(agg.citations) || 0, verified: Number(agg.verified) || 0, used: Number(agg.used) || 0,
-        claims: Number(agg.claims) || 0, claims_refused: Number(agg.refused) || 0 },
+      evidence: { citations: agg.citations, verified: agg.verified, used: agg.used, claims: agg.claims, claims_refused: agg.refused },
       models: { daily: modelDaily, totals: { calls: sum(modelDaily.calls), tokens_in: sum(modelDaily.tokens_in), tokens_out: sum(modelDaily.tokens_out) },
         previous: { calls: Number(before.calls) || 0, tokens_in: Number(before.tokens_in) || 0, tokens_out: Number(before.tokens_out) || 0 }, list: models },
       latency: { total: spread(latencyRows.map((r) => (r.ms === null ? NaN : Number(r.ms)))), first_token: spread(latencyRows.map((r) => (r.first_ms === null ? NaN : Number(r.first_ms)))) },
@@ -396,7 +509,7 @@ export class UsageCore {
         previous: { runs: Number(toolsBefore.n) || 0, failed: Number(toolsBefore.failed) || 0 }, list: tools,
         by_kind: byKey("tool_kind").map((r) => ({ kind: r.a, status: r.b, n: r.n })), by_place: byKey("tool_place").map((r) => ({ place: r.a, status: r.b, n: r.n })) },
       connectors: connectorList,
-      workflows: [...workflows.values()].sort((a, b) => (b.started + b.submitted) - (a.started + a.submitted)),
+      workflows: [...workflows.values()].sort((a, b) => (b.started + b.submitted) - (a.started + a.submitted)).slice(0, 100),
       geography: [...geo.values()].sort((a, b) => (b.pageviews - a.pageviews) || (b.turns - a.turns)).slice(0, 250),
       errors: { daily: series.app_error, total: totals.app_error, previous: previous.app_error, list: byKey("app_error").map((r) => ({ category: r.a, name: r.b, n: r.n })).slice(0, 50) },
       availability: [...availability.values()],
@@ -404,33 +517,29 @@ export class UsageCore {
         tokens: byKey("relay_tokens").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}) },
       consent: byKey("consent").reduce((m, r) => ((m[r.a] = (m[r.a] || 0) + r.n), m), {}),
       rejected: byKey("telemetry_rejected").map((r) => ({ reason: r.a, n: r.n })),
-      filters: {
-        providers: this.sql.exec("SELECT DISTINCT provider FROM usage_turns WHERE day >= ? AND day <= ? ORDER BY provider", from, to).toArray().map((r) => r.provider),
-        models: this.sql.exec("SELECT DISTINCT model FROM usage_turns WHERE day >= ? AND day <= ? AND model <> '' ORDER BY model", from, to).toArray().map((r) => r.model),
-        countries: [...geo.keys()].sort(),
-      },
+      filters: { providers: [...providerSet].sort(), models: [...modelSet].sort(), countries: [...geo.keys()].sort() },
     };
   }
 
-  /** Rows for an export: daily (the counters), turns, tools, connectors, geo; at most MAX_ROWS, oldest first. */
-  exportRows(dataset, from, to) {
-    switch (dataset) {
-      case "daily":
-        return this.sql.exec("SELECT day, metric, a, b, n FROM usage_counts WHERE day >= ? AND day <= ? ORDER BY day, metric, a, b LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "turns":
-        return this.sql.exec(`SELECT id, day, ts, provider, model, status, first, steps, tool_rounds, calls, tools, tool_failures, ms, first_ms, tokens_in,
-          tokens_out, citations, citations_verified, citations_used, claims, claims_refused, recorded, excluded, error_kind, error_type, limit_reached, country
-          FROM usage_turns WHERE day >= ? AND day <= ? ORDER BY ts LIMIT ?`, from, to, MAX_ROWS).toArray();
-      case "tools":
-        return this.sql.exec("SELECT id, day, ts, tool, kind, place, status, ms, error_type FROM usage_tools WHERE day >= ? AND day <= ? ORDER BY ts LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "connectors":
-        return this.sql.exec("SELECT day, a AS host, b AS outcome, n FROM usage_counts WHERE metric = 'connector' AND day >= ? AND day <= ? ORDER BY day, a, b LIMIT ?", from, to, MAX_ROWS).toArray();
-      case "geo":
-        return this.sql.exec(`SELECT day, metric, CASE WHEN metric = 'visitor' THEN a ELSE b END AS country, SUM(n) AS n FROM usage_counts
-          WHERE metric IN ('pageview', 'visit', 'visitor') AND day >= ? AND day <= ? GROUP BY day, metric, country ORDER BY day, metric, country LIMIT ?`, from, to, MAX_ROWS).toArray();
-      default:
-        return null;
-    }
+  /**
+   * One page of an export, oldest first: daily (the counters), turns, tools, connectors, geo. `after`: the previous
+   * page's last row's key (the `next` it returned), `limit`: rows a page (at most PAGE_ROWS). → {rows, next} (next:
+   * null on the last page), or null for an unknown dataset or a malformed key.
+   */
+  exportRows(dataset, from, to, { after = null, limit = PAGE_ROWS } = {}) {
+    const n = Math.min(PAGE_ROWS, Math.max(1, Math.floor(Number(limit)) || PAGE_ROWS));
+    const spec = EXPORT_SPECS[dataset];
+    if (!spec) return null;
+    const key = after === null || after === undefined ? null : after;
+    if (key !== null && !(Array.isArray(key) && key.length === spec.key.length && key.every((v) => typeof v === "string" || Number.isFinite(v)))) return null;
+    const keyCols = spec.key.join(", ");
+    const where = key ? ` AND (${keyCols}) > (${spec.key.map(() => "?").join(", ")})` : "";
+    // every key starts with the day: a later page begins its scan at the day it stopped in, not at the period's start
+    const lo = key && String(key[0]) > from ? String(key[0]) : from;
+    const rows = this.sql.exec(`SELECT * FROM (${spec.sql}) WHERE 1${where} ORDER BY ${keyCols} LIMIT ?`, lo, to, ...(key || []), n + 1).toArray();
+    const page = rows.slice(0, n);
+    const last = page[page.length - 1];
+    return { rows: page, next: rows.length > n ? spec.key.map((k) => last[k]) : null };
   }
 
   /** Delete what is past its retention: rows after `events` days, counts after `aggregates`, the salts and seen-sets

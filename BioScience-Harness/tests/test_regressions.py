@@ -287,6 +287,7 @@ def test_bug8_unit_tier_needs_no_data_lake() -> None:
         [sys.executable, "-m", "pytest", "-q", "-m", "unit", "--no-header", "-p", "no:cacheprovider",
          "--deselect", "tests/test_regressions.py::test_bug8_unit_tier_needs_no_data_lake",
          str(REPO / "tests")],
-        cwd=str(REPO), capture_output=True, text=True, env=env, timeout=600,
+        # the whole unit tier again: about eight minutes on a GitHub-hosted runner, so the limit only catches a hang
+        cwd=str(REPO), capture_output=True, text=True, env=env, timeout=1800,
     )
     assert proc.returncode == 0, f"unit tier failed without lake:\n{proc.stdout[-2500:]}"

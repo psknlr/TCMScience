@@ -23,7 +23,6 @@ export const LIMITS = Object.freeze({
   answer: 12000, // characters of the answer kept in a record
   recordBytes: 60000, // a record as sent (the page shortens the answer to fit; keepalive requests allow 64 KiB)
   tools: 40, // tool runs listed in a record
-  argKeys: 12, // argument names listed per tool run (never their values)
   events: 50, // events in one batch
   batchBytes: 30000,
 });
@@ -46,6 +45,37 @@ export const CONSENT_DECISIONS = ["granted", "declined", "withdrawn", "deleted"]
 export const EXCLUSIONS = ["no_consent", "uploaded_file", "project_files", "clinical_tool", "user_data_tool", "sensitive_text", "discarded", "unavailable"];
 
 export const EVENT_TYPES = ["app_init", "visit", "pageview", "turn_start", "turn_end", "tool_end", "workflow", "error", "availability", "consent"];
+
+/** The model services the page offers (web/js/core/providers.js PRESETS; a test keeps the two equal) and the models it
+ * lists for each. A provider the visitor added is "custom" (its own id is made from the time it was added, the same
+ * for that browser every day: never sent), and a model a visitor typed, or a local server reported, is "other" (it may
+ * be a path on their computer or a name of their organization's). */
+export const PROVIDER_MODELS = Object.freeze({
+  tao: ["Tao-S1"],
+  openai: ["gpt-5", "gpt-5-mini", "gpt-4.1"],
+  anthropic: ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-4-5"],
+  deepseek: ["deepseek-chat", "deepseek-reasoner"],
+  qwen: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen3-max"],
+  moonshot: ["kimi-k2-turbo-preview", "kimi-k2-0905-preview", "moonshot-v1-32k"],
+  zhipu: ["glm-4.6", "glm-4.5", "glm-4.5-air"],
+  siliconflow: ["deepseek-ai/DeepSeek-V3.2", "Qwen/Qwen3-235B-A22B-Instruct-2507", "moonshotai/Kimi-K2-Instruct-0905"],
+  openrouter: ["openai/gpt-5", "anthropic/claude-opus-5-5", "deepseek/deepseek-chat-v3.1", "qwen/qwen3-235b-a22b"],
+  ollama: ["qwen3:8b", "qwen3:32b", "llama3.1:8b", "deepseek-r1:8b"],
+  lmstudio: [], vllm: [], llamacpp: [], custom_openai: [], custom_anthropic: [],
+});
+
+/** A provider as the telemetry names it: a preset's id, else "custom" (unknown when there is none). */
+export function providerOf(v) {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  return Object.hasOwn(PROVIDER_MODELS, v.trim()) ? v.trim() : "custom";
+}
+
+/** A model as the telemetry names it: one its preset lists, else "other" (none when there is none). */
+export function modelOf(provider, v) {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  const p = providerOf(provider);
+  return p && p !== "custom" && PROVIDER_MODELS[p].includes(v.trim()) ? v.trim() : "other";
+}
 
 // ------------------------------------------------------------------------------------------------- field readers
 
@@ -104,9 +134,9 @@ const EVENT_FIELDS = {
   }),
   visit: (e) => ({ route: oneOf(e.route, ROUTES) }),
   pageview: (e) => ({ route: oneOf(e.route, ROUTES), tab: token(e.tab, 24) }),
-  turn_start: (e) => ({ provider: token(e.provider, 40), model: token(e.model, 80), first: bool(e.first) }),
+  turn_start: (e) => ({ provider: providerOf(e.provider), model: modelOf(e.provider, e.model), first: bool(e.first) }),
   turn_end: (e) => ({
-    turn: id(e.turn), provider: token(e.provider, 40), model: token(e.model, 80), status: oneOf(e.status, TURN_STATUSES),
+    turn: id(e.turn), provider: providerOf(e.provider), model: modelOf(e.provider, e.model), status: oneOf(e.status, TURN_STATUSES),
     first: bool(e.first), steps: int(e.steps, 0, 64), tool_rounds: int(e.tool_rounds, 0, 64), calls: int(e.calls, 0, 256),
     tools: int(e.tools, 0, 1000), tool_failures: int(e.tool_failures, 0, 1000), ms: int(e.ms, 0, 24 * HOUR),
     first_ms: int(e.first_ms, 0, 24 * HOUR), tokens_in: int(e.tokens_in, 0, 1e10), tokens_out: int(e.tokens_out, 0, 1e10),
@@ -163,11 +193,10 @@ function toolRun(t) {
   if (!plain(t)) return null;
   const name = token(t.name, 80);
   if (!name) return null;
-  const keys = Array.isArray(t.arg_keys) ? t.arg_keys.map((k) => token(k, 40)).filter(Boolean).slice(0, LIMITS.argKeys) : undefined;
+  // a tool run without its arguments, their values or their names (the notice: "不含工具参数")
   return compact({
     name, kind: oneOf(t.kind, TOOL_KINDS) || "unknown", where: oneOf(t.where, PLACES) || "unknown",
     status: oneOf(t.status, TOOL_STATUSES) || "unknown", ms: int(t.ms, 0, 7 * 24 * HOUR), error_type: token(t.error_type, 40),
-    arg_keys: keys && keys.length ? keys : undefined,
   });
 }
 
@@ -203,7 +232,7 @@ export function normalizeRecord(r, { consentVersion = CONSENT_VERSION } = {}) {
     started: iso(r.started), finished: iso(r.finished), ms: int(r.ms, 0, 24 * HOUR), first_ms: int(r.first_ms, 0, 24 * HOUR),
     status, limit_reached: bool(r.limit_reached),
     question, answer: text(r.answer, LIMITS.answer) ?? "", redacted: int(r.redacted, 0, 100000),
-    provider: token(r.provider, 40), model: token(r.model, 80),
+    provider: providerOf(r.provider), model: modelOf(r.provider, r.model),
     steps: int(r.steps, 0, 64), tool_rounds: int(r.tool_rounds, 0, 64), calls: int(r.calls, 0, 256),
     tools: Array.isArray(r.tools) ? r.tools.slice(0, LIMITS.tools).map(toolRun).filter(Boolean) : [],
     citations: counts(r.citations, ["total", "verified", "used", "unresolved"]),

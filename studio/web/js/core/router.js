@@ -22,7 +22,7 @@
 import { COMPUTE_VALUES, isLocalTool, localCall, requirement, runnerLacks, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
-import { canonicalJson, clip, isAbort, isLoopbackUrl, isPlainObject, sha256Hex, utf8Bytes } from "./util.js";
+import { canonicalJson, clip, flagArgument, isAbort, isLoopbackUrl, isPlainObject, objectArgument, sha256Hex, utf8Bytes } from "./util.js";
 
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
@@ -323,7 +323,13 @@ export class ToolRouter {
 
   async #call(name, args, ctx = {}) {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
-    const input = isPlainObject(args) ? args : {};
+    let input = isPlainObject(args) ? args : {};
+    // call_tool's arguments as JSON text run as the object they spell (the dispatcher parses them): they are read, and
+    // approved, as that object here too
+    if (name === "call_tool" && typeof input.arguments === "string") {
+      const parsed = objectArgument(input.arguments);
+      if (parsed) input = { ...input, arguments: parsed };
+    }
     const r = this.resolve(name, input);
     if (r.renamed && !r.error) {
       const env = await this.call(r.renamed.name, r.renamed.args, ctx);
@@ -536,7 +542,11 @@ export class ToolRouter {
         out.push({ reason: "network", key: await networkKey(key, hosts), hosts, ...(legacy ? { legacy } : {}) });
       }
     }
-    if (input.allow_remote === true || input.arguments?.allow_remote === true) out.push({ reason: "remote_upload", key: `${key}:remote_upload`, hosts });
+    // the argument that sends the visitor's data to a third party's service (the entry's network_if), as the
+    // dispatcher reads it: true or "true"; the core tool's and the entry it resolves to both count
+    const sends = [...new Set(["allow_remote", r.target?.network_if, entry?.network_if].filter((x) => typeof x === "string" && x))];
+    const inner = objectArgument(input.arguments) || {};
+    if (sends.some((k) => flagArgument(input[k]) || flagArgument(inner[k]))) out.push({ reason: "remote_upload", key: `${key}:remote_upload`, hosts });
     if (where === "runner") {
       const id = this.#runnerIdentity();
       if (!remote) out.push({ reason: "first_runner_call", key: RUNNER_KEY });

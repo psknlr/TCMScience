@@ -14,9 +14,19 @@ import { storage } from "./util.js";
 
 export const CONSENT_KEY = "tcmstudio.consent";
 
+// the choices when this browser's storage will not keep them (blocked, full): held for this page, so that an answer is
+// not asked for again before every question
+let memory = null;
+
 function read() {
   const v = storage.getJSON(CONSENT_KEY);
-  return v && typeof v === "object" && !Array.isArray(v) ? v : {};
+  if (v && typeof v === "object" && !Array.isArray(v)) return v;
+  return memory || {};
+}
+
+function write(next) {
+  const kept = storage.setJSON(CONSENT_KEY, next) && JSON.stringify(storage.getJSON(CONSENT_KEY)) === JSON.stringify(next);
+  memory = kept ? null : next;
 }
 
 /** 32 random bytes as base64url (43 characters). */
@@ -48,13 +58,13 @@ export function setContentConsent(agreed) {
   const next = { ...c, v: CONSENT_VERSION, content: Boolean(agreed), at: new Date().toISOString() };
   if (key) next.key = key;
   else delete next.key;
-  storage.setJSON(CONSENT_KEY, next);
+  write(next);
   return consentState();
 }
 
 /** Usage statistics on or off (the visitor's own switch). */
 export function setAnalytics(on) {
-  storage.setJSON(CONSENT_KEY, { ...read(), analytics: Boolean(on) });
+  write({ ...read(), analytics: Boolean(on) });
   return consentState();
 }
 
@@ -85,4 +95,5 @@ export async function ownerHash() {
 /** Forget every choice and the key (the "clear all data" of Settings → General). */
 export function forgetConsent() {
   storage.remove(CONSENT_KEY);
+  memory = null;
 }

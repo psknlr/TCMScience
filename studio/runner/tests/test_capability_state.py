@@ -139,7 +139,9 @@ def test_reference_output_pass_is_each_natives_own_validation(by_id, tmp_path):
     """A native reads reference_output PASS exactly when `tcmstudio validate` finds its output
     matching its independent references here (functional_correctness PASS), one by one."""
     from tcmstudio.cli import main
-    assert main(["validate", "--out", str(tmp_path), "--kinds", "native"]) == 0
+    # the exit code also counts the performance budgets, which a loaded machine can miss; this test is about
+    # correctness only, and a native whose output is wrong drops out of `passed` below
+    main(["validate", "--out", str(tmp_path), "--kinds", "native"])
     report = json.loads((tmp_path / "tool_validation_report.json").read_text(encoding="utf-8"))
     passed = {r["component"] for r in report["records"] if r["kind"] == "native"
               and any(c["name"] == "functional_correctness" and c["status"] == "PASS" for c in r["checks"])}

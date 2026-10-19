@@ -393,6 +393,21 @@ def test_static_files_with_isolation_headers(tmp_path):
         assert h["content-type"] == "application/gzip"
 
 
+def test_the_dashboard_is_not_the_runners(tmp_path):
+    # a runner keeps no statistics or records and signs no admin in: the dashboard's pages, even navigated to, are 404
+    web = tmp_path / "web"
+    (web / "admin").mkdir(parents=True)
+    (web / "index.html").write_text("<!doctype html><title>Studio</title>", encoding="utf-8")
+    (web / "admin" / "index.html").write_text("<!doctype html><title>Dashboard</title>", encoding="utf-8")
+    (web / "admin" / "dashboard.js").write_text("export {};\n", encoding="utf-8")
+    with running_server(tmp_path / "home", web=web) as (_, c):
+        for path in ("/admin", "/admin/", "/admin/index.html", "/admin/dashboard.js"):
+            status, _, body = c.raw("GET", path, token=False, headers={"Sec-Fetch-Mode": "navigate"})
+            assert status == 404, path
+            assert b"Dashboard" not in body and b"science.impf.ai/admin/" in body, path
+        assert c.raw("GET", "/", token=False)[0] == 200  # the app itself is served as before
+
+
 def _bare_web(tmp_path):
     web = tmp_path / "web"
     web.mkdir()

@@ -250,7 +250,8 @@ export async function relayHealth({ fetch: fetchImpl = globalThis.fetch, baseUrl
       ...(r.ok && !j.ok ? told(t("core.relay.off")) : {}),
     };
   } catch (err) {
-    return { ok: false, model: "Tao-S1", limits: null, max_output_tokens: null, error: err?.message || String(err) };
+    // no answer at all (offline, a timeout): `unreachable`, so that nothing is concluded from it (core/telemetry.js)
+    return { ok: false, unreachable: true, model: "Tao-S1", limits: null, max_output_tokens: null, error: err?.message || String(err) };
   }
 }
 

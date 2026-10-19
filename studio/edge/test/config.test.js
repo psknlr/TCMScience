@@ -186,6 +186,9 @@ test("every [vars] change the docs tell the owner to make passes, and takes effe
     ["SECURITY_RAW_IP", '"flagged"', (c) => assert.equal(c.rawIp, "flagged")],
     ["CONVERSATIONS_PER_DAY", '"100"', (c) => assert.equal(c.recordLimits.perDay, 100)],
     ["ADMIN_SESSION_SECONDS", '"1800"', (c) => assert.equal(c.sessionSeconds, 1800)],
+    // the telemetry's daily rows: down, up, and lifted on a paid plan
+    ["TELEMETRY_DAILY_ROWS", '"20000"', (c) => assert.deepEqual(c.budgets, { usage: 12000, conversations: 5000, security: 3000 })],
+    ["TELEMETRY_DAILY_ROWS", '"0"', (c) => assert.deepEqual(c.budgets, { usage: 0, conversations: 0, security: 0 })],
   ];
   // only what is said of the changed variable: a mistake elsewhere in the file is the first test's to report
   const about = (key, vars) => problems(vars).filter((p) => p.startsWith(`${key}: `));

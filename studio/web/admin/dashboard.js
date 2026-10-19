@@ -443,7 +443,7 @@ function connectorsCard(u) {
   const rows = u.connectors || [];
   return card(t("connectors"), { note: t("connectors_note") },
     rows.length ? dataTable([
-      { key: "host", label: t("col_host"), mono: true },
+      { key: "source", label: t("col_database"), mono: true },
       { key: "requests", label: t("col_requests"), num: true, format: fmt.int },
       { key: "ok", label: t("col_ok"), num: true, format: fmt.int },
       { key: "client_errors", label: t("col_4xx"), num: true, format: fmt.int },
@@ -574,7 +574,7 @@ function securityCard(sec, days) {
 
 // ------------------------------------------------------------------------------------------------- conversation records
 
-function recordItem(item) {
+function recordItem(item, { onDeleted } = {}) {
   const r = item.record || {};
   const meta = [
     fmt.time(r.finished || item.received), t(r.status), [r.provider, r.model].filter(Boolean).join(" · "),
@@ -592,7 +592,7 @@ function recordItem(item) {
     r.owner ? t("record_owner", { ref: String(r.owner).slice(0, 12) }) : "",
     `${t("record_id")} ${r.id || "—"}`,
   ].filter(Boolean);
-  const tools = (r.tools || []).map((x) => ({ ...x, args: (x.arg_keys || []).join(", ") }));
+  const tools = r.tools || [];
   const del = el("button", { class: "btn btn--small btn--danger", type: "button", text: t("delete") });
   const node = el("details", { class: "record" },
     el("summary", {}, el("span", { class: "record__q", text: clip(r.question, 140) }), el("span", { class: "record__meta", text: meta })),
@@ -606,7 +606,6 @@ function recordItem(item) {
         { key: "status", label: t("col_status"), format: (v) => t(`tool_statuses.${v}`) },
         { key: "ms", label: t("col_time"), num: true, format: fmt.ms },
         { key: "error_type", label: t("col_error"), mono: true },
-        { key: "args", label: t("col_args"), mono: true },
       ], tools) : null,
       el("ul", { class: "record__facts" }, lines.map((x) => el("li", { text: x }))),
       el("div", {}, del)));
@@ -617,6 +616,7 @@ function recordItem(item) {
       await api("/api/admin/telemetry/conversations/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [r.id] }) });
       records.items = records.items.filter((it) => it.record?.id !== r.id);
       node.replaceWith(el("p", { class: "record__meta", role: "status", text: t("deleted") }));
+      onDeleted?.();
     } catch (err) {
       del.disabled = false;
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
@@ -637,13 +637,20 @@ function recordsCard(data) {
   const ref = el("input", { class: "input", type: "search", placeholder: t("records_ref"), "aria-label": t("records_ref"), value: records.owner || null,
     spellcheck: "false", autocomplete: "off" });
   const removeAll = el("button", { class: "btn btn--small btn--danger", type: "button", text: t("delete_owner"), hidden: true });
-  const paint = () => {
-    box.replaceChildren(...records.items.map(recordItem));
-    if (records.loaded && !records.items.length) box.append(empty("no_records"));
+  // the card's controls after a change of the list (a record deleted keeps its "deleted" line in place)
+  const controls = () => {
     more.hidden = !records.next;
+    show.textContent = records.loaded ? t("records_reload") : t("records_show");
     const owners = new Set(records.items.map((it) => it.record?.owner).filter(Boolean));
     removeAll.hidden = !(records.owner && owners.size === 1);
+    if (records.loaded && !records.items.length && !box.querySelector(".empty")) box.append(empty("no_records"));
   };
+  const paint = () => {
+    box.replaceChildren(...records.items.map((it) => recordItem(it, { onDeleted: controls })));
+    controls();
+  };
+  // a page fetched while the dashboard was drawn again (another language, another period) goes to the card shown now
+  records.paint = paint;
   let busy = false;
   const fetchPage = async (reset) => {
     if (busy) return;
@@ -660,8 +667,7 @@ function recordsCard(data) {
       records.items = reset ? res.items || [] : [...records.items, ...(res.items || [])];
       records.next = res.next || null;
       records.loaded = true;
-      show.textContent = t("records_reload");
-      paint();
+      (box.isConnected ? paint : records.paint || paint)();
     } catch (err) {
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
     } finally {
@@ -694,7 +700,7 @@ function recordsCard(data) {
       const res = await api("/api/admin/telemetry/conversations/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner }) });
       records.items = [];
       records.next = null;
-      paint();
+      (box.isConnected ? paint : records.paint || paint)();
       say(t("deleted_owner", { n: fmt.int(res?.deleted ?? 0) }));
     } catch (err) {
       if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
@@ -709,15 +715,85 @@ function recordsCard(data) {
 
 // ------------------------------------------------------------------------------------------------- exports and settings
 
+const MAX_EXPORT_PAGES = 2000; // an export comes in pages of up to a thousand rows (a hundred records)
+
+/** Every page of an export (each one request: the Worker's limits per request are small), put together and saved as
+ * one file, the same file the export script writes. */
+async function downloadExport(dataset, format, days) {
+  const parts = [];
+  const rows = [];
+  let meta = null;
+  let name = `tcmscience-${dataset}.${format}`;
+  let cursor = "";
+  for (let page = 1; page <= MAX_EXPORT_PAGES; page++) {
+    const q = new URLSearchParams({ dataset, format, days: String(days), ...(cursor ? { cursor } : {}) });
+    const res = await fetch(`/api/admin/telemetry/export?${q}`, { credentials: "same-origin", cache: "no-store" });
+    if (res.status === 401) {
+      expired();
+      throw new Expired("expired");
+    }
+    if (!res.ok) {
+      let e = null;
+      try { e = (await res.json())?.error; } catch { e = null; }
+      throw new Error((lang() === "zh" ? e?.message : e?.type) || `HTTP ${res.status}`);
+    }
+    if (page === 1) name = /filename="([A-Za-z0-9_.-]+)"/.exec(res.headers.get("Content-Disposition") || "")?.[1] || name;
+    if (format === "csv") {
+      parts.push(await res.text()); // text() drops the first page's BOM: it is put back once, below
+      cursor = res.headers.get("X-Next-Cursor") || "";
+    } else {
+      const body = await res.json();
+      meta ||= { dataset: body.dataset, period: body.period, generated: body.generated };
+      rows.push(...(body.rows || []));
+      cursor = body.next || "";
+    }
+    if (!cursor) break;
+    say(t("exporting", { n: fmt.int(page) }));
+  }
+  if (cursor) throw new Error(t("export_too_large"));
+  const blob = format === "csv" ? new Blob(["\ufeff", ...parts], { type: "text/csv;charset=utf-8" })
+    : new Blob([JSON.stringify({ ...meta, rows })], { type: "application/json;charset=utf-8" });
+  const href = URL.createObjectURL(blob);
+  const a = el("a", { href, download: name, hidden: "" });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
+  say(t("exported", { name }));
+}
+
 function exportsCard(data) {
   const admin = data.scope === "admin";
   const groups = DATASETS.filter((d) => admin || !ADMIN_ONLY.has(d)).map((d) => el("span", { class: "exports__group" },
     el("span", { text: t(`datasets.${d}`) }),
-    ["csv", "json"].map((f) => el("a", {
-      class: "btn btn--small", download: "", text: f.toUpperCase(), "aria-label": `${t(`datasets.${d}`)} · ${f.toUpperCase()}`,
-      href: `/api/admin/telemetry/export?${new URLSearchParams({ dataset: d, format: f, days: String(state.days) })}`,
-    }))));
+    ["csv", "json"].map((f) => {
+      // the link is the export's first page (enough for most periods, and what a browser without script gets); a
+      // click takes every page and saves them as one file
+      const link = el("a", {
+        class: "btn btn--small", download: "", text: f.toUpperCase(), "aria-label": `${t(`datasets.${d}`)} · ${f.toUpperCase()}`,
+        href: `/api/admin/telemetry/export?${new URLSearchParams({ dataset: d, format: f, days: String(state.days) })}`,
+      });
+      link.addEventListener("click", async (e) => {
+        e.preventDefault();
+        if (link.getAttribute("aria-busy") === "true") return;
+        link.setAttribute("aria-busy", "true");
+        try {
+          await downloadExport(d, f, state.days);
+        } catch (err) {
+          if (!(err instanceof Expired)) say(t("load_failed", { reason: err.message }), true);
+        } finally {
+          link.removeAttribute("aria-busy");
+        }
+      });
+      return link;
+    })));
   return card(t("exports"), { wide: true, note: t("exports_note", { n: state.days }) }, el("div", { class: "exports" }, groups));
+}
+
+/** Today's rows written by one telemetry object, and its daily budget (Durable Object rows: docs/TELEMETRY.md). */
+function rowsToday(kind, b) {
+  if (!b) return t("rows_none", { k: t(`rows_${kind}`) });
+  return b.limit ? t("rows_of", { k: t(`rows_${kind}`), n: fmt.int(b.rows ?? 0), max: fmt.int(b.limit) }) : t("rows_free", { k: t(`rows_${kind}`), n: fmt.int(b.rows ?? 0) });
 }
 
 function configCard(data) {
@@ -731,6 +807,7 @@ function configCard(data) {
     t("cfg_geo", { v: c.geo === "off" ? t("geo_off") : t("geo_country") }),
     t("cfg_ip", { v: c.raw_ip === "flagged" ? t("ip_flagged") : t("ip_off") }),
     t("cfg_retention", { e: r.events ?? "—", a: r.aggregates ?? "—", c: r.conversations ?? "—", s: r.security ?? "—" }),
+    t("cfg_rows", { v: ["usage", "conversations", "security"].map((k) => rowsToday(k, data[k]?.budget)).join(" · ") }),
   ];
   let prune = null;
   if (data.scope === "admin") {

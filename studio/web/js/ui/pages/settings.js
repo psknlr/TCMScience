@@ -393,6 +393,7 @@ function generalTab(app, rerender) {
           button({ label: t("ui.general.clear_btn"), variant: "danger", icon: "trash", onClick: async () => {
             const ok = await confirmDialog({ title: t("ui.general.clear_title"), body: t("ui.general.clear_body"), confirmLabel: t("ui.general.clear_btn"), danger: true });
             if (!ok) return;
+            app.telemetry?.stop?.(); // what this page held is dropped, and nothing is written back as it reloads
             await store.clearAll();
             try { localStorage.removeItem("tcmstudio.settings"); sessionStorage.removeItem("tcmstudio.keys"); } catch { /* storage unavailable */ }
             // the privacy choices and the deletion key, and anything the telemetry still held to send

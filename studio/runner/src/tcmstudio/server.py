@@ -1033,6 +1033,11 @@ class Handler(BaseHTTPRequestHandler):
             if isinstance(found, bytes):
                 return self._serve_bytes(found, media or media_type(name), cache=cache)
             return self._serve_file(found, cache=cache)
+        # the administrators' dashboard is the site's (its Worker holds the statistics and the records, and signs the
+        # admin in): a runner keeps none, so it serves none of the dashboard's pages, which would only loop on sign-in
+        if path == "/admin" or path.startswith("/admin/"):
+            raise _Refused(404, "not_found", "the dashboard is the site's, at https://science.impf.ai/admin/ "
+                                             "(this runner keeps no statistics or records)")
         root = srv.web_root
         if root is None:
             raise _Refused(404, "not_found", "this runner serves no web app (run it from a "
