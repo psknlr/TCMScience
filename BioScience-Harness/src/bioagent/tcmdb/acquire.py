@@ -10,10 +10,20 @@ declared size. Every attempt is appended to ``<root>/audit/downloads.jsonl``, ke
      "UNVERIFIED", "verified": "checksum" | "size" | "none", "bytes": ..., "checksum": ...,
      "reviewed_checksum": ..., "reason": "...", "duration_s": ...}
 
+A download through ``acquisition.transfer.VerifiedTransfer`` (``bioagent tcmdb fetch``,
+Studio's ``tcmdb.fetch`` job) adds, never renaming a field: ``sha256``, ``resumed`` and
+``resumed_from``, ``etag``, ``last_modified``, ``final_url``, ``server``, ``retrieved_at``,
+``release`` (the dataset's version), ``restarts``, ``attempts``, the content checks
+(``decompression``, ``format``), and for a file that arrived but was refused, ``check``
+(checksum, size, decompression, format or html). A file adopted from a verified copy
+elsewhere on the machine has the route ``local-mirror``.
+
 ``PASS`` is a file kept and verified; ``UNVERIFIED`` one kept with nothing to verify it
 against; ``FAIL`` a file refused because it is not the reviewed one (wrong checksum or size,
-a redirect elsewhere); ``BLOCKED`` an attempt something outside the code stopped (a network
-policy, an unresolvable name, a full disk, a size that needs a person's confirmation).
+a redirect elsewhere, an archive that is not whole); ``BLOCKED`` an attempt something outside
+the code stopped (a network policy, an unresolvable name, a full disk, a size that needs a
+person's confirmation, another transfer of the same file); ``SKIPPED`` a transfer cancelled
+on request, its partial file kept for a verified resume.
 """
 
 from __future__ import annotations
@@ -29,7 +39,7 @@ from ..validation import BLOCKED, FAIL, utc_now
 
 __all__ = ["AUDIT_FILE", "MANIFEST", "audit_path", "append_audit", "read_audit",
            "copy_verified", "disk_shortfall", "digest", "outcome_of_error", "read_manifest",
-           "record_manifest", "verification"]
+           "record_manifest", "rejection_check", "verification", "verification_of"]
 
 AUDIT_FILE = "downloads.jsonl"
 #: the downloader's own record of what it fetched (``acquisition.downloader``)
@@ -93,6 +103,11 @@ def outcome_of_error(exc: BaseException, host: str) -> tuple[str, str]:
     from ..validation.network import classify
 
     text = str(exc)
+    outcome = getattr(exc, "outcome", None)
+    if isinstance(exc, DownloadError) and outcome:
+        # acquisition.transfer says what its own stops are (a full disk, a lock another
+        # transfer holds, a corrupt archive, a cancellation), in words that need no reading
+        return outcome, text
     if isinstance(exc, DownloadError):
         low = text.lower()
         if "network access denied" in low:
@@ -116,6 +131,19 @@ def outcome_of_error(exc: BaseException, host: str) -> tuple[str, str]:
     return classify(exc, host)
 
 
+def rejection_check(reason: str) -> str | None:
+    """Which check refused a file that arrived, read from ``outcome_of_error``'s reason
+    (checksum, size or html); None for a file that never arrived."""
+    low = (reason or "").lower()
+    if "checksum mismatch" in low:
+        return "checksum"
+    if "!= expected" in low or "server-reported" in low:
+        return "size"
+    if "html page" in low:
+        return "html"
+    return None
+
+
 def read_manifest(raw_dir: str | Path) -> dict[str, Any]:
     path = Path(raw_dir) / MANIFEST
     try:
@@ -126,13 +154,12 @@ def read_manifest(raw_dir: str | Path) -> dict[str, Any]:
 
 
 def record_manifest(raw_dir: str | Path, name: str, entry: Mapping[str, Any]) -> None:
-    """Add ``name`` to the downloader's manifest, the way the downloader records a fetch."""
-    raw = Path(raw_dir)
-    data = read_manifest(raw)
-    data[name] = dict(entry)
-    tmp = raw / (MANIFEST + ".tmp")
-    tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-    os.replace(tmp, raw / MANIFEST)
+    """Add ``name`` to the downloader's manifest, the way the downloader records a fetch:
+    read and rewritten under the manifest's lock (``acquisition.transfer.record_entry``), so
+    an import and a transfer in the same directory cannot lose each other's entry."""
+    from ..acquisition.transfer import record_entry
+
+    record_entry(raw_dir, name, entry)
 
 
 def verification(raw_dir: str | Path, name: str, reviewed: str | None) -> str:
@@ -140,7 +167,11 @@ def verification(raw_dir: str | Path, name: str, reviewed: str | None) -> str:
     hashed to the reviewed checksum), ``mismatch`` (it was recorded with another checksum
     of the same algorithm: not the reviewed file), ``size``, or ``unverified`` (no record:
     copied in by hand)."""
-    rec = read_manifest(raw_dir).get(name) or {}
+    return verification_of(read_manifest(raw_dir).get(name) or {}, reviewed)
+
+
+def verification_of(rec: Mapping[str, Any], reviewed: str | None) -> str:
+    """``verification`` from the file's record itself (one read of the manifest for many)."""
     if reviewed and str(rec.get("checksum", "")).lower() == reviewed.lower():
         return "checksum"
     if reviewed and str(rec.get("checksum", "")).split(":", 1)[0] == reviewed.split(":", 1)[0]:

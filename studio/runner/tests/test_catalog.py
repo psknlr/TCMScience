@@ -161,6 +161,23 @@ def test_core_descriptions_state_limits():
     assert "attribution" in text["tcm_classical_search"]
 
 
+def test_the_seed_skill_is_titled_as_the_limited_analysis_it_is(runner_catalog):
+    """The pinned seed-corpus skill builds no measured-target network (its corpus records no
+    target relation): its entry and its core tool say so in both languages, and the core
+    tool points to the research job that does build one."""
+    entry = get_entry("skill.analyze-tcm-network-pharmacology")
+    assert entry["title"] == {"zh": "有限种子语料网络假说分析",
+                              "en": "Limited seed-corpus network hypothesis analysis"}
+    listed = next(e for e in runner_catalog["entries"]
+                  if e["id"] == "skill.analyze-tcm-network-pharmacology")
+    assert listed["title"] == entry["title"]
+    core = next(c for c in CORE_TOOLS if c["name"] == "tcm_network_hypothesis")
+    assert core["title"] == {"zh": "有限种子语料网络假说（受治理）",
+                             "en": "Limited seed-corpus network hypothesis (governed)"}
+    assert "limited seed-corpus network hypothesis" in core["description"]
+    assert "network_pharmacology_run" in core["description"]
+
+
 def test_entries_are_well_formed(runner_catalog):
     ids = [e["id"] for e in runner_catalog["entries"]]
     assert len(ids) == len(set(ids)), "entry ids must be unique"

@@ -788,6 +788,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._jobs(method, parts[1:])
         if head == "uploads":
             return self._uploads(method, parts[1:])
+        if head == "datasets":
+            return self._datasets(method, parts[1:])
         if head == "llm":
             if len(parts) == 1:
                 allow("POST")
@@ -796,6 +798,48 @@ class Handler(BaseHTTPRequestHandler):
                 allow("GET")
                 return self._json(probe_local(srv.config.local_servers, srv.config.local_timeout))
         raise _Refused(404, "not_found", f"no endpoint {path}")
+
+    # ---------------------------------------------------------------- datasets
+    def _datasets(self, method: str, rest: list[str]) -> None:
+        """CONTRACTS §4 /api/datasets (``tcmstudio.datasets``): registered datasets, their
+        manifest and readiness, and acquisitions (``tcmdb.fetch`` jobs)."""
+        from .datasets import DatasetAPI
+
+        api = DatasetAPI(self.server.jobs, self.server.data_env)
+        get = method in ("GET", "HEAD")
+        if not rest:
+            if not get:
+                raise _Refused(405, "method_not_allowed", "GET only", allow="GET")
+            return self._json(api.list())
+        if rest[0] == "acquisitions":
+            if len(rest) == 1:
+                if method == "POST":
+                    doc, created = api.acquire(self._json_body())
+                    job_id = doc["acquisition"]["id"]
+                    return self._json(doc, 201 if created else 200, headers=[
+                        ("Location", f"/api/datasets/acquisitions/{job_id}")])
+                if get:
+                    q = self._query()
+                    return self._json(api.acquisitions(q.get("project_id") or None,
+                                                       q.get("state") or None))
+                raise _Refused(405, "method_not_allowed", "GET or POST", allow="GET, POST")
+            if len(rest) == 2:
+                if get:
+                    return self._json(api.acquisition(rest[1]))
+                if method == "DELETE":
+                    return self._json(api.cancel(rest[1]))
+                raise _Refused(405, "method_not_allowed", "GET or DELETE", allow="GET, DELETE")
+            if len(rest) == 3 and rest[2] == "cancel":
+                if method != "POST":
+                    raise _Refused(405, "method_not_allowed", "POST only", allow="POST")
+                return self._json(api.cancel(rest[1]))
+            raise _Refused(404, "not_found", "no such acquisition endpoint")
+        if len(rest) == 2 and rest[1] in ("manifest", "readiness"):
+            if not get:
+                raise _Refused(405, "method_not_allowed", "GET only", allow="GET")
+            return self._json(api.manifest(rest[0]) if rest[1] == "manifest"
+                              else api.readiness(rest[0]))
+        raise _Refused(404, "not_found", "no such dataset endpoint")
 
     def _call(self) -> None:
         body = self._json_body()

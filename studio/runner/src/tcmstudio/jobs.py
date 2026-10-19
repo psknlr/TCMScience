@@ -48,8 +48,9 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping
 
 from . import devices as dev
-from .kinds import (KINDS, RUN_JSON_MAX_BYTES, BadParams, Kind, PrepareContext, StartContext,
-                    _no_output_token, read_record, read_stages, stage_summary)
+from .kinds import (KINDS, RUN_JSON_MAX_BYTES, RUN_MANIFEST_SCHEMA, BadParams, Kind,
+                    PrepareContext, StartContext, _no_output_token, read_record, read_stages,
+                    stage_summary)
 from .settings import RunnerState, data_environment, home_paths
 
 __all__ = ["JobError", "BadJobParams", "UnknownJob", "JobRefused", "JobConflict", "Uploads",
@@ -1125,9 +1126,12 @@ class JobService:
         if not st.state.finished:
             return
         # the process has ended; its outputs are being checked, and it is not done yet
-        before = (job.progress or {}).get("fraction")
+        # what was measured stays (a download's bytes, files and verifications); only the
+        # stage and the message say that the outputs are now being checked
+        before = job.progress or {}
         self._set_progress(job, {"stage": "verifying", "message": "verifying the outputs",
-                                 **({"fraction": before} if before is not None else {})})
+                                 **{k: before[k] for k in ("fraction", "bytes", "files",
+                                                           "verified") if k in before}})
         with self._ctl_lock:
             outcome = self.ctl.collect(ref, validators=dict(kind.validators) if kind else {})
         status = outcome.status
@@ -1332,8 +1336,7 @@ class JobService:
             "problems": list(out.get("problems") or ()),
             "error": out.get("error"),
             "stages": stage_summary(stages) if stages is not None else None,
-            "complete": (run_doc.get("complete") if run_doc is not None
-                         and isinstance(run_doc.get("complete"), bool) else None),
+            "complete": _completeness(run_doc, out_dir),
             "run_json_sha256": self._sha256(run_json) if run_json.is_file() else None,
             "limitations": list(limitations or ()),
             "resources": resources}
@@ -1383,6 +1386,23 @@ class JobService:
         self._emit(job, "state", view)
         self._emit(job, "done", view)
         self._changed.notify_all()
+
+
+def _completeness(run_doc: Mapping[str, Any] | None, out_dir: Path) -> bool | None:
+    """Whether the job's own record calls its run complete: a pipeline's run.json, else a
+    research run's run_manifest.json (it writes no run.json); None when neither says."""
+    complete = run_doc.get("complete") if run_doc is not None else None
+    if isinstance(complete, bool):
+        return complete
+    text = read_record(out_dir / "run_manifest.json", RUN_JSON_MAX_BYTES)
+    try:
+        manifest = json.loads(text) if text is not None else None
+    except ValueError:
+        return None
+    if not isinstance(manifest, dict) or manifest.get("schema") != RUN_MANIFEST_SCHEMA:
+        return None
+    complete = manifest.get("complete")
+    return complete if isinstance(complete, bool) else None
 
 
 def _input_digests(inputs: Mapping[str, Any]) -> dict[str, Any]:

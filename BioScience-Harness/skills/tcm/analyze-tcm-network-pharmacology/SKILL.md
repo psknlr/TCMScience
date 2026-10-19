@@ -1,4 +1,4 @@
-# TCM network pharmacology · 中医药网络药理学
+# Limited seed-corpus network hypothesis analysis · 有限种子语料网络假说分析
 
 `analyze-tcm-network-pharmacology` · implementation: `bioagent.skills.p0:analyze_tcm_network_pharmacology`
 
@@ -9,21 +9,36 @@
 <!-- zh -->
 > 本文件是说明文档。它**不**作为权威依据被解析，也从不参与编译——契约是 `skill.yaml`（见 `docs/adr/0003`）。它被附在每个科研产物（research artifact, RA）上，让读者看到该 Skill 声称做了什么。
 
-Builds a herb–target network for a formula, keeping predicted and measured
-edges strictly apart.
+A limited seed-corpus network hypothesis analysis: no database coverage, no measured
+activity. It builds a herb–target network for a formula from the curated seed corpus
+only, keeping predicted and measured edges strictly apart. The seed corpus records no
+molecular target for any of its formulas, so on it the skill builds no target network
+and makes no claim. It draws no permutation null and computes no topology.
+
+The data-driven workflow is a different program: the research loop (`bioagent research`,
+the Studio job `research.run`, core tool `network_pharmacology_run`) reads measured
+activities from NPASS, CMAUP and LOTUS snapshots, tests Reactome enrichment against a
+stated background with a degree-matched permutation null, records sixteen workflow stages
+and writes nine exports (see `docs/analysis-pipelines.md`).
 
 <!-- zh -->
-为一个方剂构建药材–靶点网络，把预测边与实测边严格分开。
+有限种子语料网络假说分析：不覆盖任何数据库，没有实测活性。它只从策展种子语料为一个方剂构建药材–靶点网络，把预测边与实测边严格分开。种子语料没有为其中任何方剂记录分子靶点，因此在种子语料上本技能不构建靶点网络，也不提出任何主张；它不做置换检验，也不计算拓扑。
+
+数据驱动的工作流是另一个程序：研究闭环（`bioagent research`，Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）从 NPASS、CMAUP 与 LOTUS 快照读取实测活性，在显式背景下检验 Reactome 富集并做度匹配置换检验，记录十六个工作流阶段，并写出九个导出文件（见 `docs/analysis-pipelines.md`）。
 
 ## The separation, which is the point · 分离本身就是重点
 
 `predicted_targets` and `measured_targets` are **different keys**. There is no
 combined `targets` list, so a consumer cannot accidentally read a prediction as a
 measurement. Every predicted edge also carries a predictive evidence design
-(`network_prediction`) and is marked `directness: EXTRAPOLATED`.
+(`network_prediction`). Its evidence is marked `directness: DIRECT`, because it is direct
+evidence that the corpus records the relation. The predictive design is what keeps the
+edge from being restated as a measurement: it licenses a mechanism hypothesis and nothing
+stronger. (An earlier build marked these edges EXTRAPOLATED, which blocked the very
+hypothesis they exist to support.)
 
 <!-- zh -->
-`predicted_targets` 与 `measured_targets` 是**两个不同的键**。不存在一个合并的 `targets` 列表，因此使用方不可能不小心把一条预测读成一次测量。每一条预测边还携带一个预测性研究设计（`network_prediction`），并被标记为 `directness: EXTRAPOLATED`。
+`predicted_targets` 与 `measured_targets` 是**两个不同的键**。不存在一个合并的 `targets` 列表，因此使用方不可能不小心把一条预测读成一次测量。每一条预测边还携带一个预测性研究设计（`network_prediction`）。其证据被标记为 `directness: DIRECT`，因为它直接证明语料记录了这条关系；让这条边不能被改述为测量的，是预测性研究设计：它只许可机制假说，不许可更强的主张。（早先的版本把这些边标为 EXTRAPOLATED，反而挡住了它们本应支持的假说。）
 
 ## Why it cannot make a clinical claim · 为什么它无法做出临床主张
 

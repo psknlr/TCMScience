@@ -768,6 +768,185 @@ def test_a_refused_job_reaches_the_model_as_a_refusal(tmp_path):
         assert env["receipt"]["execution"]["implementation"] is None
 
 
+# ------------------------------------------------------------------- the research job
+
+def _planted_snapshots(home: Path) -> None:
+    """A planted world (bioagent.research.planted: fixtures, built under '+planted'
+    versions, not data) where the research job reads its snapshots."""
+    from bioagent.research.planted import build_world
+    from bioagent.sources.ledger import SnapshotLedger
+    root = home / "data" / "snapshots"
+    root.mkdir(parents=True, exist_ok=True)
+    build_world("selective", root, ledger=SnapshotLedger(root / "ledger.jsonl"))
+
+
+RESEARCH_EXPORTS = ("compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv",
+                    "network.tsv", "provenance.json", "run_manifest.json", "limitations.md",
+                    "report.html")
+
+
+def test_the_research_job_studies_the_formula_it_was_given_and_checks_its_exports(tmp_path):
+    from tcmstudio import kinds as K
+    home = tmp_path / "home"
+    _planted_snapshots(home)
+    # no formula workbook: the question below names no formula, so only the job's formula
+    # parameter can say which one to study (it was validated and then never passed on)
+    environ = {"PATH": "/usr/bin:/bin", "HOME": str(home), "BIOAGENT_FORMULA_TABLE": "none"}
+    with running_server(home, environ=environ) as (srv, c):
+        status, job = c.post("/api/jobs", {"kind": "research.run", "params": {
+            "question": "这些成分的实测靶点集中在哪些通路？", "formula": "葛根芩连汤",
+            "permutations": 200}})
+        assert status == 201, job
+        final = c.wait_job(job["id"], timeout=300)
+        assert final["state"] == "succeeded", final["outcome"]
+        out = srv.home / "jobs" / job["id"] / "out"
+        names = {a["name"]: a["path"] for a in final["artefacts"]}
+        for name, rel in K.RESEARCH_EXPORTS:
+            assert names.get(name) == rel, (name, sorted(names))
+        assert set(RESEARCH_EXPORTS) <= set(names.values())
+        assert {"validator:manifest", "validator:artifact"} <= set(final["outcome"]["checks"])
+        result = final["result"]
+        assert result["formula"] == "tcm:formula.gegen_qinlian_tang" and result["released"]
+        assert [s["id"] for s in result["stages"]][:2] == ["formula_identity", "herb_composition"]
+        assert len(result["stages"]) == 16 and result["coverage"]["herbs"]["total"] == 4
+        # the sixteen stages reach the job, and limitations.md is one limitation per line
+        assert [s["name"] for s in final["stages"]][-1] == "reproducible_export"
+        assert final["limitations"] == (out / "limitations.md").read_text(
+            encoding="utf-8").splitlines()
+        # a research run writes no run.json: its receipt takes completeness from the manifest
+        manifest_doc = json.loads((out / "run_manifest.json").read_text(encoding="utf-8"))
+        assert isinstance(manifest_doc["complete"], bool)
+        assert srv.jobs.job_receipt(job["id"])["complete"] is manifest_doc["complete"]
+        st = c.call("job_status", {"job_id": job["id"]})
+        assert "16 个工作流阶段" in st["summary"] and "16 workflow stages" in st["summary_en"]
+        assert "已准予发布" in st["summary"] and "release authorised" in st["summary_en"]
+        # the validator re-reads every digest: a table edited after the run is refused
+        manifest = out / "run_manifest.json"
+        assert K._manifest_outputs(manifest) is None
+        table = out / "enrichment.tsv"
+        original = table.read_bytes()
+        table.write_bytes(original.replace(b"reactome", b"Reactome", 1))
+        assert "enrichment.tsv: differs from the digest" in K._manifest_outputs(manifest)
+        assert "enrichment.tsv" in (K._artifact_outputs(out / "artifact.json") or "")
+        table.write_bytes(original)
+        doc = json.loads(manifest.read_text(encoding="utf-8"))
+        del doc["outputs"]["report.html"]
+        manifest.write_text(json.dumps(doc), encoding="utf-8")
+        assert "report.html: not listed" in K._manifest_outputs(manifest)
+        manifest.write_text(json.dumps({**doc, "schema": "other"}), encoding="utf-8")
+        assert "not a tcmscience.run-manifest/1 manifest" in K._manifest_outputs(manifest)
+
+
+def test_the_research_command_carries_the_formula():
+    from types import SimpleNamespace
+
+    from tcmstudio import kinds as K
+    r = {"question": "这些成分的实测靶点集中在哪些通路？", "snapshots": "S", "ledger": "L",
+         "state_dir": "T", "background": "assayed", "hits": "potency", "permutations": 1000,
+         "accept_review": False, "activity": [], "optional": [], "formula": "葛根芩连汤"}
+    argv = K._research_command(r, SimpleNamespace(python="python"))
+    assert "--formula=葛根芩连汤" in argv
+    assert not any(a.startswith("--formula") for a in K._research_command(
+        {**r, "formula": ""}, SimpleNamespace(python="python")))
+    required = {name for name, _, req in K.KINDS["research.run"].artefacts if req}
+    assert required >= {name for name, _ in K.RESEARCH_EXPORTS} | {"artifact", "result"}
+
+
+def _manifest_dir(tmp_path: Path, stages: list | None = None) -> Path:
+    """A run directory holding the eight exports and a run manifest that lists them with
+    their digests (the files are placeholders; the validator reads only digests)."""
+    import hashlib
+    from tcmstudio import kinds as K
+    out = tmp_path / "out"
+    out.mkdir()
+    outputs = {}
+    for _, rel in K.RESEARCH_EXPORTS:
+        if rel == "run_manifest.json":
+            continue
+        data = f"{rel}\n".encode()
+        (out / rel).write_bytes(data)
+        outputs[rel] = {"sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+                        "bytes": len(data)}
+    (out / "run_manifest.json").write_text(json.dumps(
+        {"schema": K.RUN_MANIFEST_SCHEMA, "outputs": outputs, "stages": stages or []}),
+        encoding="utf-8")
+    return out
+
+
+def test_the_manifest_validator_fails_a_run_whose_own_stage_check_failed(tmp_path):
+    """A FAIL stage is not a result: the job fails with the stage named, whatever the exit
+    code (the research command also exits 3 for it, which is not an ok exit code)."""
+    from tcmstudio import kinds as K
+    ok = [{"n": 5, "id": "compound_target", "status": "PASS", "reason": "9 targets"},
+          {"n": 13, "id": "permutation_sensitivity", "status": "NOT_APPLICABLE", "reason": "x"}]
+    out = _manifest_dir(tmp_path, ok)
+    assert K._manifest_outputs(out / "run_manifest.json") is None
+    bad = [*ok, {"n": 12, "id": "multiple_testing", "status": "FAIL",
+                 "reason": "the q-values do not recompute over the full family"}]
+    doc = json.loads((out / "run_manifest.json").read_text(encoding="utf-8"))
+    (out / "run_manifest.json").write_text(json.dumps({**doc, "stages": bad}), encoding="utf-8")
+    verdict = K._manifest_outputs(out / "run_manifest.json")
+    assert verdict.startswith("stage multiple_testing: FAIL: the q-values do not recompute")
+    assert 3 not in K.KINDS["research.run"].ok_exit_codes
+
+
+def test_the_manifest_validator_reads_no_symlink_and_no_fifo(tmp_path):
+    """read_record's rule for every listed file: a symlink is not followed (even one that
+    stays inside the run directory), and a FIFO is never opened (it would block)."""
+    import os
+    from tcmstudio import kinds as K
+    out = _manifest_dir(tmp_path)
+    manifest = out / "run_manifest.json"
+    assert K._manifest_outputs(manifest) is None
+    table = out / "targets.tsv"
+    data = table.read_bytes()
+    (out / "copy.tsv").write_bytes(data)
+    table.unlink()
+    table.symlink_to(out / "copy.tsv")
+    assert "targets.tsv: not a regular file" in K._manifest_outputs(manifest)
+    table.unlink()
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(table)
+        assert "targets.tsv: not a regular file" in K._manifest_outputs(manifest)
+        table.unlink()
+    table.write_bytes(data)
+    assert K._manifest_outputs(manifest) is None
+
+
+def test_a_question_naming_another_formula_is_refused_before_the_job_is_queued(tmp_path):
+    from tcmstudio import kinds as K
+    ctx = K.PrepareContext(job_id="j1", job_dir=tmp_path / "job", project_id="p",
+                           paths={"projects": tmp_path / "projects"},
+                           data_env={"BIOAGENT_DATA_LAKE": str(tmp_path / "lake")},
+                           find=lambda value: None, settings={})
+    prepare = K.KINDS["research.run"].prepare
+    with pytest.raises(K.BadParams, match="the question names tcm:formula.gegen_qinlian_tang "
+                                          "but the formula given is another formula"):
+        prepare({"question": "葛根芩连汤的实测靶点集中在哪些通路？",
+                 "formula": "桂枝汤《伤寒论》"}, ctx)
+    with pytest.raises(K.BadParams, match="but the formula given is tcm:formula.fx0123"):
+        prepare({"question": "葛根芩连汤的通路", "formula": "tcm:formula.fx0123"}, ctx)
+    # the same formula, a question naming none, or one only the workbook can read: queued
+    for question, formula in (("葛根芩连汤的通路", "葛根黄芩黄连汤"),
+                              ("这些成分的实测靶点集中在哪些通路？", "葛根芩连汤"),
+                              ("tcm:formula.fx0123 的通路", "葛根芩连汤"),
+                              ("桂枝汤《伤寒论》的实测靶点集中在哪些通路？", "桂枝汤《伤寒论》")):
+        assert prepare({"question": question, "formula": formula}, ctx)["formula"] == formula
+
+
+def test_the_research_summary_says_when_a_run_is_incomplete():
+    """Nothing could be tested: the job succeeded (the loop released an empty result), and
+    its summary says the run is incomplete, in both languages."""
+    from tcmstudio.dispatch import _research_tail
+    result = {"stages": [{"status": "PASS"}, {"status": "UNVERIFIED"}], "released": True,
+              "hypotheses": [], "complete": False, "problems": ["stage a", "stage b"]}
+    zh, en = _research_tail(result)
+    assert "运行不完整（2 个必需阶段未完成" in zh
+    assert "the run is incomplete (2 required stage(s) not done" in en
+    zh, en = _research_tail({**result, "complete": True, "problems": []})
+    assert "不完整" not in zh and "incomplete" not in en
+
+
 def test_paths_outside_the_home_are_not_inputs(tmp_path):
     outside = tmp_path / "outside.fa"
     outside.write_text(">x\nMKTAYIAKQRQISFVKSHFSRQ\n")

@@ -37,6 +37,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
+from ..research.workflow import (activity_edges, compound_counts, edge_split, measured_support,
+                                 moot as _moot, power as _power, significant_rows)
 from . import (BLOCKED, FAIL, NOT_APPLICABLE, PASS, SKIPPED, UNVERIFIED, Record, aggregate,
                report, write_report)
 
@@ -364,12 +366,7 @@ def _provenance(rec: Record, run: _Run, stage_id: str) -> None:
 
 
 def _activity_edges(run: _Run, compounds: set[str]) -> list[tuple[str, dict[str, Any]]]:
-    out = []
-    for key, snap in sorted(run.snaps.items()):
-        for e in snap.edges:
-            if e.get("predicate") in ("targets", "tested_against") and e.get("subject") in compounds:
-                out.append((key, e))
-    return out
+    return activity_edges(run.snaps, compounds)
 
 
 # --------------------------------------------------------------------------- 3. compounds
@@ -381,13 +378,7 @@ def _compounds(run: _Run, stage: Mapping[str, Any]) -> Record:
     _provenance(rec, run, "compounds")
     herbs = {h["herb"]: h for h in run.outputs.get("herbs", {}).get("content", {}).get("herbs", ())}
     rows = run.result.get("compounds") or []
-    per_herb = {h: 0 for h in herbs}
-    per_source: dict[str, int] = {}
-    for row in rows:
-        for h in row.get("herbs") or ():
-            per_herb[h] = per_herb.get(h, 0) + 1
-        for s in row.get("sources") or ():
-            per_source[s] = per_source.get(s, 0) + 1
+    per_herb, per_source = compound_counts(rows, herbs)
     with_species = [h for h, v in herbs.items() if v.get("species")]
     none = [herbs[h]["chinese"] for h in with_species if not per_herb.get(h)]
     rec.add("compounds_per_herb", PASS if rows and not none else UNVERIFIED,
@@ -409,7 +400,7 @@ def _compounds(run: _Run, stage: Mapping[str, Any]) -> Record:
 # --------------------------------------------------------------------------- 4. targets
 
 def _targets(run: _Run, stage: Mapping[str, Any]) -> Record:
-    from ..analysis.network_pharmacology import Parameters, _passes_potency
+    from ..analysis.network_pharmacology import Parameters
 
     rec = _record(stage, "bioagent validate benchmark --out OUT --live")
     if run.research is None:
@@ -418,13 +409,7 @@ def _targets(run: _Run, stage: Mapping[str, Any]) -> Record:
     params = run.parameters or Parameters()
     targets = run.result.get("targets") or []
     compounds = {r["compound"] for r in run.result.get("compounds") or ()}
-    measured: dict[str, list[dict[str, Any]]] = {}
-    for key, e in _activity_edges(run, compounds):
-        if e.get("predicate") == "targets" and e.get("knowledge_level") != "prediction" \
-                and _passes_potency(e.get("measure"), params):
-            measured.setdefault(e["object"], []).append({"source": key, "record": e.get("source_record_id"),
-                                                         "compound": e["subject"],
-                                                         "measure": e.get("measure")})
+    measured = measured_support(run.snaps, compounds, params)
     unsupported = [t["target"] for t in targets if t["target"] not in measured]
     rec.add("targets_measured", FAIL if unsupported else PASS,
             f"{len(targets)} human proteins measured at or below {params.activity_max_nm:g} nM, each "
@@ -450,40 +435,9 @@ def _measured_vs_predicted(run: _Run, stage: Mapping[str, Any]) -> Record:
     if run.research is None:
         return _not_run(rec, run)
     _provenance(rec, run, "measured_vs_predicted")
-    compounds = {r["compound"] for r in run.result.get("compounds") or ()}
-    targets = {t["target"] for t in run.result.get("targets") or ()}
-    counts: dict[str, dict[str, int]] = {}
-
-    def count(cls: str, e: Mapping[str, Any]) -> None:
-        kind = "predicted" if e.get("knowledge_level") == "prediction" else "measured"
-        counts.setdefault(cls, {"measured": 0, "predicted": 0})[kind] += 1
-
-    for _, e in _activity_edges(run, compounds):
-        count("compound_target", e)
-    for e in getattr(run.snaps.get("string"), "edges", ()):
-        if e.get("subject") in targets and e.get("object") in targets:
-            count("protein_protein (STRING)", e)
-    for e in getattr(run.snaps.get("reactome"), "edges", ()):
-        if e.get("predicate") == "participates_in" and e.get("subject") in targets:
-            count("pathway_membership (Reactome)", e)
-    edges = {(s.snapshot_id, str(e.get("source_record_id"))): e
-             for s in run.snaps.values() for e in s.edges}
-    survived = set(run.rebuttal.get("survived") or ())
-    bad = []
-    for claim in run.result.get("claims") or ():
-        if claim["object"] not in survived:
-            continue
-        for sid, rid in claim.get("support") or ():
-            e = edges.get((sid, str(rid)))
-            if e is None or (e.get("predicate") == "targets" and (
-                    e.get("knowledge_level") == "prediction" or not e.get("measure"))):
-                bad.append((claim["object"], sid, rid))
-    predicted_left_out = int((run.result.get("excluded") or {}).get(
-        "predicted target edge (not used by this skill)", 0))
-    measured_targets = {e["object"] for _, e in _activity_edges(run, compounds)
-                        if e.get("predicate") == "targets" and e.get("knowledge_level") != "prediction"
-                        and e.get("measure")}
-    predicted_only = sorted(targets - measured_targets)
+    split = edge_split(run.result, run.snaps, run.rebuttal)
+    counts, bad = split["counts"], split["bad"]
+    predicted_left_out, predicted_only = split["predicted_left_out"], split["predicted_only"]
     rec.add("targets_from_measurements", FAIL if predicted_only else PASS,
             "every target has a measured activity edge; "
             f"{predicted_left_out} predicted compound-target edge(s) were left out of the analysis"
@@ -566,9 +520,7 @@ def _enrichment(run: _Run, stage: Mapping[str, Any]) -> Record:
     _provenance(rec, run, "enrichment")
     params = run.result.get("parameters") or {}
     rows = run.result.get("enrichment") or []
-    fdr, alpha = params.get("fdr", 0.05), params.get("permutation_alpha", 0.05)
-    significant = [r for r in rows if r.get("q_value") is not None and r["q_value"] <= fdr
-                   and r.get("empirical_p") is not None and r["empirical_p"] <= alpha]
+    significant = significant_rows(run.result)
     background = run.result.get("background") or {}
     query = int(background.get("potent_in_background",
                                len([t for t in run.result.get("targets") or () if t.get("in_background")])))
@@ -604,25 +556,6 @@ def _enrichment(run: _Run, stage: Mapping[str, Any]) -> Record:
                      "refuted": run.rebuttal.get("refuted") or [], "not_run": not_run},
         "result_digest": run.result.get("digest")})
     return rec
-
-
-def _power(background: Mapping[str, Any]) -> str:
-    """How much the over-representation test could find: when most assayed proteins are
-    potent hits, no pathway can be enriched by much, and an empty result says little."""
-    proteins, potent = background.get("proteins"), background.get("potent_in_background")
-    if not proteins or potent is None:
-        return ""
-    if not potent:
-        return f"; none of the {proteins} assayed proteins is a potent hit"
-    return (f"; {potent} of the {proteins} assayed proteins are potent hits, so no pathway can "
-            f"exceed a {proteins / potent:.2f}-fold enrichment")
-
-
-def _moot(not_run: Any) -> bool:
-    """A rebuttal that did not run because the primary analysis already is its conservative
-    variant (the assayed background); one that could not run (a single activity source) is a
-    limitation instead."""
-    return isinstance(not_run, Mapping) and "already" in str(not_run.get("why", ""))
 
 
 # --------------------------------------------------------------------------- 8. literature

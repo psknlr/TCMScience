@@ -211,6 +211,13 @@ class TCMDataHub:
           UNVERIFIED for a file kept with neither checksum nor size to check) and why.
 
         Manual datasets raise with their instructions.
+
+        This method keeps the downloader it always used (``acquisition.downloader``).
+        ``bioagent tcmdb fetch`` and Studio's ``tcmdb.fetch`` job run
+        ``acquisition.service.acquire_dataset`` instead, which sends every file through
+        this hub's ``_fetch_file`` with an ``acquisition.transfer.VerifiedTransfer``: a
+        resume only onto the same file, retries only for what is transient, a lock per
+        file, archives read through their CRC before a file is kept, and a fuller record.
         """
         from ..acquisition.downloader import Downloader
         spec = dataset(key)
@@ -227,7 +234,7 @@ class TCMDataHub:
                 for f in spec.files if include_optional or not f.optional]
 
     def _fetch_file(self, key: str, f: Any, dl: Any, refused: dict[str, str], *,
-                    confirm: bool, log) -> dict[str, Any]:
+                    confirm: bool, log, release: str | None = None) -> dict[str, Any]:
         import urllib.parse
 
         from . import acquire
@@ -240,6 +247,13 @@ class TCMDataHub:
                                  "route": "download", "expected_bytes": f.expected_bytes,
                                  "reviewed_checksum": f.checksum}
         status, reason, out = BLOCKED, "", {"file": f.name, "ok": False}
+        stopped: BaseException | None = None
+        # acquisition.transfer.VerifiedTransfer takes what a file's spec says of it: the
+        # release it belongs to, its format, a headerless table's columns, and whether an
+        # HTML page can be the file (it refuses one before it is kept or recorded)
+        extra = ({"release": release, "fmt": f.fmt, "columns": f.columns,
+                  "refuse_html": not f.html_ok}
+                 if getattr(dl, "verified_transfer", False) else {})
         if not (raw / f.name).exists():
             if host in refused:
                 reason = f"{refused[host]} (learnt from an earlier file; not requested again)"
@@ -248,7 +262,7 @@ class TCMDataHub:
         if not reason:
             try:
                 r = dl.fetch(f.url, f.name, checksum=f.checksum, expected_bytes=f.expected_bytes,
-                             confirm=confirm)
+                             confirm=confirm, **extra)
                 if not f.html_ok and _looks_like_html(raw / f.name):
                     (raw / f.name).unlink(missing_ok=True)
                     raise HubError(f"{f.url} returned an HTML page (a login, challenge or "
@@ -262,23 +276,38 @@ class TCMDataHub:
                           }[verified]
                 entry.update(route="cache" if r.from_cache else "download", bytes=r.bytes,
                              checksum=r.checksum, verified=verified)
+                if hasattr(r, "record"):            # how the transfer obtained it
+                    entry.update(r.record())
                 out = {"file": f.name, "bytes": r.bytes, "checksum": r.checksum,
                        "cached": r.from_cache, "ok": True, "verified": verified}
+                if getattr(r, "resumed", False):
+                    out["resumed_from"] = getattr(r, "resumed_from", None)
                 log(f"{key}: {f.name} {r.bytes} bytes{' (cached)' if r.from_cache else ''}, "
                     f"verified by {verified}")
             except HubError as exc:
                 status, reason = BLOCKED, str(exc)
+                if "HTML page" in reason:
+                    entry["check"] = "html"
             except Exception as exc:                                # noqa: BLE001
                 status, reason = acquire.outcome_of_error(exc, host)
                 if status == BLOCKED and ("policy" in reason or "resolve" in reason):
                     refused[host] = reason
+                check = getattr(exc, "check", None) or acquire.rejection_check(reason)
+                if check:
+                    entry["check"] = check
+                if getattr(exc, "cancelled", False):
+                    stopped = exc               # recorded below, then the caller stops
         if status not in (PASS, UNVERIFIED):
             out["error"] = reason[:300]
             log(f"{key}: {f.name} {status}: {reason}")
         out["status"], out["reason"] = status, reason
+        if entry.get("check"):
+            out["check"] = entry["check"]
         entry.update(status=status, reason=reason,
                      duration_s=round(time.perf_counter() - t0, 3))
         acquire.append_audit(self.root, entry)
+        if stopped is not None:
+            raise stopped
         return out
 
     def import_raw(self, key: str, path: str | Path, *, name: str | None = None,
@@ -344,7 +373,8 @@ class TCMDataHub:
         """
         spec = dataset(key)
         raw = self.raw_dir(key)
-        if not raw.exists() or not any(raw.iterdir()):
+        # dot entries (the downloader's record, its locks) are not files of the dataset
+        if not raw.exists() or not any(not p.name.startswith(".") for p in raw.iterdir()):
             hint = (spec.instructions if spec.access == "manual"
                     else "run hub.enrich(<name>) first" if spec.access == "live"
                     else f"run fetch('{key}')")

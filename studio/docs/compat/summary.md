@@ -8,11 +8,11 @@ Validation (the `validation` column) is each entry's committed verification reco
 
 | Class | Meaning | Entries | By kind |
 |---|---|---:|---|
-| 1 | browser now (Pyodide, CPU) | 170 | clinic 5, native 135, skill 4, study 4, system 7, tcmdb 15 |
+| 1 | browser now (Pyodide, CPU) | 171 | clinic 5, native 135, skill 5, study 4, system 7, tcmdb 15 |
 | 1g | browser now; data via the gateway | 444 | connector 444 |
 | 2 | browser: JavaScript CPU kernel | 4 | native 4 |
 | 3 | browser: WebGPU / WASM SIMD (exact) + CPU kernel | 3 | native 3 |
-| 5 | WASM SIMD/threads candidate | 9 | native 8, skill 1 |
+| 5 | WASM SIMD/threads candidate | 8 | native 8 |
 | 6 | substantial work for the browser | 3 | job 2, skill 1 |
 | 7 | native engine or GPU framework (runner) | 9 | job 4, skill 5 |
 | 8 | local runner only | 8 | job 5, system 3 |
@@ -27,11 +27,11 @@ Class 4 (WebNN) has no entries: no tool runs a neural model in the browser yet. 
 | Sequence alignment and edit distance | native.global/local/protein_alignment, native.edit_distance | 2 | O(n·m) cells, ≤ 4 M (alignment); 1 byte of traceback per cell | yes | done, exact; speed-ups measured in docs/benchmarks | WASM SIMD (anti-diagonal) for a further gain |
 | Sequence counts: distance matrices, Hamming, GC windows | native.distance_matrix, hamming_distance, gc_content | 3 | O(n²·w) comparisons; counts handed back are O(n²) | yes (GPU where present) | done: WebGPU, WebAssembly SIMD and JavaScript kernels, all exact; handing the counts to Python now dominates large matrices | a compact count format across the Pyodide boundary |
 | Phylogeny, k-mers, ORFs, rank statistics | neighbor_joining, upgma, kmer_counts, … | 5 | O(n³) (trees), linear (scans) | yes | runs in Pyodide; candidates for kernels | P2 |
-| Network pharmacology (permutation null) | skill.analyze-tcm-network-pharmacology | 5 | 1000 permutations × pathways; Brandes betweenness | yes | runs in Pyodide | P2: exact MT19937 port (pinned skill code: needs a reviewed re-pin) |
+| Network pharmacology: the limited seed-corpus skill | skill.analyze-tcm-network-pharmacology | 1 | seed corpus only: no permutation null, no topology; trivial CPU | yes | done (runs in Pyodide) | none needed here: the permutation null is the research loop's (below) |
 | Governed TCM skills, clinic, TCM data hub queries, studies | skill.*(tcm), clinic.*, tcmdb.*, study.* | 1 | MB (formula SQLite 12 MB, loaded on demand) | yes | done; formula search ranked by relevance, a herb under all its names (rank: true) | semantic retrieval with a packaged embedding model (P2) |
 | Public database connectors (117 sources, 444 operations) | connector.* | 1g | bounded responses | yes (online) | done: local parsing and policy, data via the gateway | — |
 | Text embeddings, classification, reranking (none exist yet) | — | 4 | 20–120 MB models | small models | not started: no model is packaged | P2: one ONNX embedding model, WebNN → WebGPU → WASM |
-| Single-cell and research loop | job.pipeline.scrna, job.research.run | 6 | 100 MB–GBs; hours | no | runner | small-dataset browser mode (P3) |
+| Single-cell and research loop | job.pipeline.scrna, job.research.run | 6 | 100 MB–GBs; hours; the research loop's seeded degree-matched permutation null (1000 per pathway) and Brandes betweenness | no | runner | small-dataset browser mode (P3); a browser port of the permutation null must draw exactly what Python's MT19937 draws (research code, outside the skill pins) (P2) |
 | RNA-seq quantification, docking, ADMET, structure prediction | job.pipeline.rnaseq/dock/admet/fold | 7 | GBs; native binaries; GPU | no | runner (CPU/GPU) | remote HPC worker for heavy cases |
 | Jobs, MCP providers, environment checks | job.*, system.provider_call, system.doctor | 8 | — | no | runner | — |
 

@@ -192,6 +192,39 @@ test("jobs: submit, get, list with filters, cancel, files; the methods and paths
   assert.equal(r.fileUrl("j_1", "out/图 1.png"), "http://127.0.0.1:8765/api/jobs/j_1/files/out/%E5%9B%BE%201.png?token=tok");
 });
 
+test("datasets: list, manifest, readiness, acquire, acquisitions, get, cancel; the methods and paths of §4", async () => {
+  const acquisition = { id: "j_2", dataset: "npass", state: "queued", url: "/api/datasets/acquisitions/j_2" };
+  const f = runnerServer({
+    routes: {
+      "GET /api/datasets": () => json({ count: 1, datasets: [{ key: "npass", readiness: { state: "supported" } }] }),
+      "GET /api/datasets/npass/manifest": () => json({ dataset: "npass", files: [{ name: "a.txt" }], redistribution: "unknown — downloading is not permission to redistribute" }),
+      "GET /api/datasets/npass/readiness": () => json({ dataset: "npass", state: "supported", requires: [] }),
+      "POST /api/datasets/acquisitions": () => json({ acquisition, plan: { hosts: ["bidd.group"] } }, 201, { location: "/api/datasets/acquisitions/j_2" }),
+      "GET /api/datasets/acquisitions": (u) => json({ acquisitions: [acquisition], q: u.search }),
+      "GET /api/datasets/acquisitions/j_2": () => json({ ...acquisition, state: "running", files: [{ file: "a.txt", state: "transferring" }] }),
+      "DELETE /api/datasets/acquisitions/j_2": () => json({ ...acquisition, state: "cancelled" }),
+      "GET /api/datasets/no%2Fsuch/readiness": () => json({ error: { type: "not_found", message: "no registered dataset" } }, 404),
+    },
+  });
+  const r = new RunnerRuntime({ token: "tok", fetch: f });
+  assert.equal((await r.datasets.list()).datasets[0].key, "npass");
+  assert.match((await r.datasets.manifest("npass")).redistribution, /^unknown/);
+  assert.equal((await r.datasets.readiness("npass")).state, "supported");
+  const made = await r.datasets.acquire({ dataset: "npass", project_id: "p1", submission_id: "s1" });
+  assert.equal(made.acquisition.id, "j_2");
+  const post = f.calls.find((c) => c.init.method === "POST");
+  // only the key and the job's own fields go to the runner: no URL, no size-gate override
+  assert.deepEqual(post.body, { dataset: "npass", project_id: "p1", submission_id: "s1" });
+  await r.datasets.acquire({ dataset: "npass", include_optional: true });
+  assert.deepEqual(f.calls.filter((c) => c.init.method === "POST")[1].body, { dataset: "npass", include_optional: true });
+  assert.equal((await r.datasets.acquisitions({ project_id: "p1", state: "running" })).q, "?project_id=p1&state=running");
+  assert.equal((await r.datasets.get("j_2")).files[0].state, "transferring");
+  assert.equal((await r.datasets.cancel("j_2")).state, "cancelled");
+  // a key is a path segment: it is encoded, never spliced into the path
+  await assert.rejects(r.datasets.readiness("no/such"), (e) => e.status === 404);
+  assert.ok(f.calls.every((c) => c.headers["X-TCM-Token"] === "tok"));
+});
+
 test("job events: EventSource with ?token=, typed events parsed, closed on done", async () => {
   const sources = [];
   class FakeES {

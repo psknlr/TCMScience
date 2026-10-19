@@ -5,8 +5,12 @@ name: live-data
 # bidd.group, LOTUS from Zenodo, STRING, Reactome, UniProt), verified against their reviewed
 # checksums, built into the data hub and into research snapshots, queried, and rebuilt to
 # check the digests; then the Guizhi Decoction and palpitations benchmark runs on the same
-# files with its literature queried live, twice, and its artifacts are compared; and the
-# twelve regression scenarios run live against the hub those files built.
+# files with its literature queried live, twice, and its artifacts are compared; then
+# 葛根芩连汤 goes through the research job's own commands on the same files (the
+# research.snapshot build, then research.run with --formula), its nine exports are
+# uploaded, and the analysis is recomputed from the saved exports and the snapshots and
+# compared digest for digest; and the twelve regression scenarios run live against the hub
+# those files built.
 #
 # Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
 # data are acquired, built, analysed or validated. --strict makes a file that could not be
@@ -25,6 +29,7 @@ on:
       - "BioScience-Harness/src/bioagent/research/**"
       - "BioScience-Harness/src/bioagent/validation/**"
       - "BioScience-Harness/src/bioagent/analysis/network_pharmacology.py"
+      - "BioScience-Harness/src/bioagent/analysis/np_exports.py"
       - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
       - "BioScience-Harness/src/bioagent/data/formula_errata.json"
       - ".github/workflows/live-data.yml"
@@ -40,7 +45,7 @@ jobs:
   live:
     name: Real downloads, hub datasets, research snapshots and the benchmark
     runs-on: ubuntu-latest
-    timeout-minutes: 170
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,6 +65,79 @@ jobs:
         id: benchmark
         continue-on-error: true
         run: bioagent validate benchmark --out "$RUNNER_TEMP/reports/benchmark" --raw "$RUNNER_TEMP/work/raw" --work "$RUNNER_TEMP/bench" --live --repeat --strict
+      - name: "The research job on real data: 葛根芩连汤, its nine exports, recomputed"
+        id: gqd
+        continue-on-error: true
+        timeout-minutes: 70
+        run: |
+          set -euo pipefail
+          gqd="$RUNNER_TEMP/gqd"
+          snap="$gqd/snapshots"
+          # the research.snapshot job's command, on the files tier 3 downloaded and verified
+          # against their reviewed checksums; a file that is not there is downloaded, and one
+          # that cannot be, or does not verify, fails the build (exit 1) and so this step
+          bioagent snapshots build --raw "$RUNNER_TEMP/work/raw" --out "$snap" \
+            --ledger "$snap/ledger.jsonl" --sources npass cmaup lotus \
+            --report "$gqd/snapshot_report.json"
+          # the research.run job's command; exit 1 (release not authorised) is a result,
+          # as the job counts it; exit 2 (refused) and exit 3 (a workflow stage FAILed its
+          # own check) fail the step, as they fail the job
+          set +e
+          bioagent research "葛根芩连汤的实测靶点集中在哪些通路？" --formula 葛根芩连汤 \
+            --snapshots "$snap" --ledger "$snap/ledger.jsonl" --state-dir "$gqd/state" \
+            --out "$gqd/out" --activity npass --activity cmaup --activity lotus \
+            --optional string > "$gqd/summary.json"
+          code=$?
+          set -e
+          cat "$gqd/summary.json"
+          test "$code" -le 1
+          # the nine exports, each non-empty (an empty table is its header)
+          for f in compounds.tsv targets.tsv disease_targets.tsv enrichment.tsv network.tsv \
+                   provenance.json run_manifest.json limitations.md report.html; do
+            test -s "$gqd/out/$f" || { echo "missing export: $f"; exit 1; }
+          done
+          # the recompute check: every digest the manifest records, each enrichment p and q
+          # from the saved table, and the analysis re-run on the snapshots the manifest names,
+          # whose tables must have the saved tables' digests. verify exits 0 (every check
+          # passed), 1 (one contradicts the run) or 3 (none does, but one could not be made:
+          # an empty enrichment table leaves no p-value to recompute). On the real files
+          # 葛根芩连汤 has measured targets, so 3 fails this step too: nothing to recompute
+          # here means the data or the build broke, not that the formula was found inert
+          set +e
+          python -m bioagent.analysis.np_exports verify "$gqd/out" --snapshots "$snap" \
+            --ledger "$snap/ledger.jsonl" > "$gqd/verify.json"
+          verified=$?
+          set -e
+          cat "$gqd/verify.json"
+          test "$verified" -eq 0 || { echo "verify exited $verified (0: every check passed)"; exit 1; }
+      - name: The research job's stages, in the summary
+        if: always() && steps.gqd.outcome != 'skipped'
+        run: |
+          manifest="$RUNNER_TEMP/gqd/out/run_manifest.json"
+          test -f "$manifest" || { echo "no run manifest"; exit 0; }
+          python - "$manifest" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("### 葛根芩连汤 through the research job (real files)\n")
+          print("| # | Stage | Status | Reason |\n|---|---|---|---|")
+          for s in doc["stages"]:
+              reason = str(s["reason"]).replace("|", "/")[:200]
+              print(f"| {s['n']} | {s['title']} | {s['status']} | {reason} |")
+          print(f"\ncomplete: {doc.get('complete')}")
+          for line in doc.get("problems") or ():
+              print(f"- {line}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.gqd.outcome != 'skipped'
+        with:
+          name: gegen-qinlian-research-exports
+          path: |
+            ${{ runner.temp }}/gqd/out
+            ${{ runner.temp }}/gqd/summary.json
+            ${{ runner.temp }}/gqd/verify.json
+            ${{ runner.temp }}/gqd/snapshot_report.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: "The regression scenarios and the core tools, live, on the hub those files built"
         id: scenarios
         continue-on-error: true
@@ -93,5 +171,5 @@ jobs:
       - name: The verdict
         if: always()
         run: |
-          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
-          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success
+          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; research job (葛根芩连汤): ${{ steps.gqd.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
+          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.gqd.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success

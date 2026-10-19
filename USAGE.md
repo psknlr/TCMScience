@@ -294,7 +294,7 @@ refusal is deliberate, tested, and visible in the artifact's `limitations`.
 | --- | --- |
 | `normalize-tcm-entities` | **Choose between ambiguous names.** 「姜」 returns 生姜 *and* 干姜 as candidates; 「甘草」 additionally reports its processed forms. Picking one would be wrong roughly half the time and confident every time. |
 | `retrieve-tcm-evidence` | **Adjudicate.** It labels design and reports scope, retraction state and coverage limits. Risk of bias, precision and consistency stay `NOT_ASSESSED` because the corpus carries nothing to judge them on. An empty result is reported as an empty result, not as "no effect". |
-| `analyze-tcm-network-pharmacology` | **Mix prediction with measurement.** `predicted_targets` and `measured_targets` are separate keys — there is no combined list. Every edge is marked `directness = EXTRAPOLATED`, and the manifest forbids every clinical claim kind. |
+| `analyze-tcm-network-pharmacology` | **Mix prediction with measurement.** `predicted_targets` and `measured_targets` are separate keys — there is no combined list. A predicted edge is marked `directness = DIRECT` (the corpus records that relation directly); what keeps it from being read as a measurement is its predictive study design (`network_prediction`), which licenses a mechanism hypothesis and nothing stronger, and the manifest forbids every clinical claim kind. |
 | `assess-tcm-safety` | **Answer "safe".** The status is `risk_recorded`, `no_record` or `unknown`. Absence of a record is not evidence of safety, and the artifact says so in those words. 十八反 is checked as a *set* because it is a property of a pair. |
 
 <!-- zh -->
@@ -302,7 +302,7 @@ refusal is deliberate, tested, and visible in the artifact's `limitations`.
 | --- | --- |
 | `normalize-tcm-entities` | **在有歧义的名字之间做选择。** 「姜」会同时返回生姜*和*干姜作为候选；「甘草」还会额外报告它的各种炮制品。挑一个的话，大约一半的时候会挑错，而且每一次都信心十足。 |
 | `retrieve-tcm-evidence` | **做裁决。** 它只标注研究设计，并报告范围、撤稿状态与覆盖限度。偏倚风险（risk of bias, RoB）、精确度与一致性一律保持 `NOT_ASSESSED`，因为语料里根本没有可供判断的依据。空结果就报成空结果，而不是报成「无效」。 |
-| `analyze-tcm-network-pharmacology` | **把预测和实测混在一起。** `predicted_targets` 与 `measured_targets` 是两个分开的键——不存在合并列表。每条边都标记为 `directness = EXTRAPOLATED`，清单也禁止一切临床类主张。 |
+| `analyze-tcm-network-pharmacology` | **把预测和实测混在一起。** `predicted_targets` 与 `measured_targets` 是两个分开的键——不存在合并列表。预测边标记为 `directness = DIRECT`（语料直接记录了这条关系）；让它不能被读成实测的，是其预测性研究设计（`network_prediction`）：只许可机制假说，不许可更强的主张；清单也禁止一切临床类主张。 |
 | `assess-tcm-safety` | **回答「安全」。** 状态只有 `risk_recorded`、`no_record` 或 `unknown`。没有记录，不等于安全的证据，产物里就是这么写的。十八反是作为一个*集合*来检查的，因为它是成对药物的性质。 |
 
 ### Why the prediction rule matters · 为什么预测规则很重要

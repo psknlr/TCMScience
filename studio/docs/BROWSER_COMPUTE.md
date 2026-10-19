@@ -39,7 +39,9 @@ servers the person runs (Ollama, LM Studio, llama.cpp, vLLM). No model ships wit
 distance (pure-Python O(n·m) loops: a 2000 × 2000 local alignment took 2.9 s in Pyodide); pairwise sequence counts
 (O(n²·w)); and, for large results, the envelope's own post-processing ([§9.3](#93-the-envelope-overhead)). Not ported
 yet: neighbour joining and UPGMA (O(n³) in Python) and the network-pharmacology permutation null (1000 seeded
-permutations per pathway; a port must reproduce Python's Mersenne Twister draws exactly).
+permutations per pathway; a port must reproduce Python's Mersenne Twister draws exactly). The null is the research
+loop's (`job.research.run`, `analysis/network_pharmacology.py`), outside the skill pins; the pinned seed-corpus skill
+draws no permutation and computes no topology.
 
 **A constraint on acceleration.** The four governed TCM skills (safety, entity normalisation, evidence retrieval,
 network pharmacology) are pinned in `BioScience-Harness/registry/skills.lock.yaml`. The pin is a content hash over each
@@ -72,12 +74,12 @@ Each was reproduced first (unit tests, and for the switches in Chromium) and has
 
 | Class | Meaning | Entries |
 |---|---|---:|
-| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 170 |
+| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 171 |
 | 1g | Runs in the browser now; its data comes from a public API through the bounded gateway | 444 |
 | 2 | A JavaScript CPU kernel computes the hot loop, byte-identical to Python | 4 |
 | 3 | WebGPU or WebAssembly SIMD integer reductions, exact, recounted in Python | 3 |
 | 4 | WebNN candidate (a neural model would run here) | 0 |
-| 5 | A WASM SIMD / threads kernel would pay off; not written | 9 |
+| 5 | A WASM SIMD / threads kernel would pay off; not written | 8 |
 | 6 | Needs substantial work for the browser (data size, memory, a job model) | 3 |
 | 7 | Needs a native engine or GPU framework (RNA-seq, docking, ADMET, folding) | 9 |
 | 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 8 |
@@ -505,7 +507,7 @@ nothing changes.
 | Phase | Work | Priority | Status |
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
-| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws. Its code belongs to a pinned governed skill, so a port needs the maintainers' review and a new pin; on the seed corpus the whole governed run takes about 0.5 s natively, so it waits for data that makes it slow | P2 | Proposed |
+| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws. It belongs to the research loop (`job.research.run`, `analysis/network_pharmacology.py`), not to a pinned skill (the seed-corpus skill draws no permutation), so a port needs no re-pin; the loop runs on the runner (its snapshot ledger and run length, class 6), so the port waits for a small-dataset browser mode | P2 | Proposed |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |

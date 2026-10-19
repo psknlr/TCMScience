@@ -577,13 +577,15 @@ harness *declared* and what it *enforced*, each pinned by a regression test in
   ClinicalTrials.gov, openFDA, STRING, KEGG, Reactome, Open Targets, RCSB PDB, Europe PMC, gnomAD,
   MyGene, MyVariant.
 - Acquisition layer: `AcquisitionSpec`, resumable checksum-verified `Downloader`, FETCHABLE resolution,
-  `AgentSpec(auto_fetch=True)`, and a CLI:
+  `AgentSpec(auto_fetch=True)`, and a CLI (`bioagent tcmdb fetch`, `bioagent fetch` and Studio's dataset
+  acquisitions now use `acquisition.transfer.VerifiedTransfer`: a resume only onto the same file, a lock
+  per file, archives read through before a file is kept; `TCMDataHub.fetch` keeps the plain `Downloader`):
 
 <!-- zh -->
 - 修复了十个架构缺陷，每一个都由一项回归测试钉扎（`tests/test_v21_regressions.py`）；其中一个是安全类缺陷（路径穿越进入不可变的策略平面）。
 - `HTTPBackend`（REST + GraphQL，只用标准库），带按主机限速、重试与响应缓存。
 - 16 个公共数据源连接器、45 个带类型的操作，全部实时验证过（`data/connector_live_verification.csv`）：Ensembl、UniProt、NCBI E-utilities、ChEMBL、PubChem、ClinicalTrials.gov、openFDA、STRING、KEGG、Reactome、Open Targets、RCSB PDB、Europe PMC、gnomAD、MyGene、MyVariant。
-- 采集层：`AcquisitionSpec`、可断点续传且校验和的 `Downloader`、FETCHABLE 解析、`AgentSpec(auto_fetch=True)`，以及一个 CLI：
+- 采集层：`AcquisitionSpec`、可断点续传且校验和的 `Downloader`、FETCHABLE 解析、`AgentSpec(auto_fetch=True)`，以及一个 CLI（`bioagent tcmdb fetch`、`bioagent fetch` 与 Studio 的数据获取现改用 `acquisition.transfer.VerifiedTransfer`：只续传同一个文件、每个文件一把锁、压缩包保留前完整读一遍；`TCMDataHub.fetch` 仍用原来的 `Downloader`）：
 
       PYTHONPATH=src python -m bioagent.cli sources
       PYTHONPATH=src python -m bioagent.cli fetchable

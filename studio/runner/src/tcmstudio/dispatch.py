@@ -3422,6 +3422,34 @@ def _skill_job(job: Mapping[str, Any], ctx: Context) -> Outcome:
                                         "so it counts as not released")
 
 
+def _research_tail(result: Any) -> tuple[str, str]:
+    """What a finished research run's summary adds (zh, en): its sixteen workflow stages by
+    validation status, whether release was authorised, and how many hypotheses it made,
+    from the result the research command printed (bioagent.cli._cmd_research)."""
+    if not isinstance(result, Mapping):
+        return "", ""
+    stages = [s for s in result.get("stages") or () if isinstance(s, Mapping)]
+    counts: dict[str, int] = {}
+    for s in stages:
+        counts[str(s.get("status"))] = counts.get(str(s.get("status")), 0) + 1
+    order = ("PASS", "FAIL", "BLOCKED", "UNVERIFIED", "SKIPPED", "NOT_APPLICABLE")
+    tally = [f"{k} {counts[k]}" for k in order if counts.get(k)]
+    hypotheses = len(result.get("hypotheses") or ())
+    released = result.get("released") is True
+    zh = (f"；{len(stages)} 个工作流阶段（{'、'.join(tally)}）" if stages else "") + \
+        f"；{'已准予发布' if released else '未准予发布'}，{hypotheses} 个机制假说"
+    en = (f"; {len(stages)} workflow stages ({', '.join(tally)})" if stages else "") + \
+        ("; release authorised" if released else "; release not authorised") + \
+        f", {hypotheses} mechanism hypothesis(es)"
+    if result.get("complete") is False:
+        # a required stage had nothing to work on (nothing could be tested): the run is a
+        # record of that, not a negative result (run_manifest.json lists the problems)
+        n = len(result.get("problems") or ())
+        zh += f"；运行不完整（{n} 个必需阶段未完成，见 run_manifest.json）"
+        en += f"; the run is incomplete ({n} required stage(s) not done; see run_manifest.json)"
+    return zh, en
+
+
 def _run_record(job: Mapping[str, Any], ctx: Context, o: Outcome) -> None:
     """What a succeeded pipeline job's own run.json says, for the receipt: the pipeline and
     its code digest, the seeds of its configuration, the versions of its tools, the models
@@ -3614,6 +3642,9 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
         if state == "succeeded":
             tail += f"，{len(job.get('artefacts') or [])} 个产出文件"
             tail_en += f", {len(job.get('artefacts') or [])} output file(s)"
+            if job.get("kind") == "research.run":
+                zh, en = _research_tail(job.get("result"))
+                tail, tail_en = tail + zh, tail_en + en
         elif state == "failed":
             err = (job.get("outcome") or {}).get("error")
             tail += f"：{err}" if err else ""

@@ -428,7 +428,18 @@ then closes); `: keep-alive` comments every 15 s. A finished job's stream is `st
 **Kinds.** `research.run` reads `<data lake>/snapshots` and the ledger `<data lake>/snapshots/ledger.jsonl` (missing →
 `available:false`, `missing:["snapshots (…)"]`, also in `/api/catalog`'s `job.research.run`); its state directory is
 `<home>/projects/<project>/research/<job id>`; exit 1 (release not authorised) is `succeeded` with `outcome.note` — a
-result, not a failure. `skill.run` runs `python -I -m tcmstudio.kinds skill-run`, which calls the dispatcher in the job's
+result, not a failure; exit 3 (a workflow stage FAILed its own check) is `failed`, with the stage named in `problems`.
+Its `formula` parameter is passed as `--formula` (it was validated and then dropped); a question naming another formula
+is refused with `bad_arguments` before the job is queued when the runner can tell without the formula workbook (the
+question names a hand-checked formula), and by the loop otherwise. Required on both exits, beside `artifact.json` and `result.json`: the nine exports
+`compounds.tsv`, `targets.tsv`, `disease_targets.tsv`, `enrichment.tsv`, `network.tsv`, `provenance.json`,
+`run_manifest.json` (`tcmscience.run-manifest/1`), `limitations.md`, `report.html` (artefact names `compounds`, `targets`,
+`disease_targets`, `enrichment`, `network`, `provenance`, `manifest`, `limitations`, `report`). The `manifest` validator
+re-reads every digest the manifest records, `artifact.json`'s included (a symlink or a non-regular file is refused,
+never opened), and fails the job for any stage the manifest lists as `FAIL`; `out/stages.json` carries the sixteen
+workflow stages (job `stages`; a stage that had nothing to test is `not_applicable`, so such a run is not `complete`),
+and the result (the command's summary) adds `formula`, `coverage`, `stages`, `exports`, `complete` and `problems`.
+`skill.run` runs `python -I -m tcmstudio.kinds skill-run`, which calls the dispatcher in the job's
 own process (with the entry's `job` flag switched off there) on `<home>/projects` and writes `out/envelope.json` and
 `out/outputs/…`; a refused governed run fails the job (`refused: …`). A candidate skill needs `allow_unpinned:true`.
 tcmdb jobs are verified against the hub's status after they exit. GPU-capable: fold with `esmfold`, and `skill.run`
@@ -478,6 +489,16 @@ finished meanwhile, queues again those that never started, and also follows any 
 (`open_jobs`) still holds open without a record. A second runner on the same `--home` refuses to start (exit 1;
 `<home>/runner.lock`), since two would start and collect the same jobs. integration: give each e2e runner its own
 `--home` (and `--port 0` if you like; the banner prints the port).
+
+**Datasets (`/api/datasets`).** Added: the dataset list, a dataset's manifest and readiness, and acquisitions
+(`POST /api/datasets/acquisitions` → a `tcmdb.fetch` job; `GET` one or all; `DELETE`, or `POST …/{id}/cancel`, to
+cancel). The spec's `POST …/cancel` is accepted as written and is the same as the `DELETE`. Errors are §3's: 400
+`bad_arguments` (any field but `dataset, include_optional, project_id, submission_id`, so never a URL or a size-gate
+confirmation; an unregistered or non-downloadable key), 404 `not_found` (an unknown key; a job that is not a
+`tcmdb.fetch`), 409 `conflict` (cancelling a finished acquisition; a dataset already being acquired; a
+`submission_id` that names another job; `error.job` names it), 422 `network_off`. A `tcmdb.fetch` job's `progress` carries `bytes`, `files` and
+`verified` from the files on disk, and keeps them while it is collected (`stage:"verifying"`). Not added: object
+storage (R2) or signed-URL sharing of downloaded files.
 
 ## browser-runtime: the site build and the in-browser runtime as built (additions to §5, §6, §10)
 

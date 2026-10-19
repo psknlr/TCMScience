@@ -87,6 +87,31 @@ export class RunnerRuntime {
       get: () => self.#json("/api/settings"),
       put: (s) => self.#json("/api/settings", { method: "PUT", body: s }),
     };
+
+    /**
+     * The runner's registered datasets and their acquisitions (CONTRACTS §4 /api/datasets). An acquisition names a
+     * registered dataset key and nothing else: the runner downloads the reviewed files into its own data directory as
+     * a tcmdb.fetch job (never through the page or the bounded /api/sources gateway), and no field confirms a file
+     * above the size gate. cancel is DELETE (409 once the acquisition has finished).
+     */
+    const ds = (key) => `/api/datasets/${encodeURIComponent(key)}`;
+    const acq = (id) => `/api/datasets/acquisitions/${encodeURIComponent(id)}`;
+    this.datasets = {
+      list: () => self.#json("/api/datasets"),
+      manifest: (key) => self.#json(`${ds(key)}/manifest`),
+      readiness: (key) => self.#json(`${ds(key)}/readiness`),
+      acquire: ({ dataset, include_optional, project_id, submission_id } = {}) =>
+        self.#json("/api/datasets/acquisitions", { method: "POST", body: { dataset, ...(include_optional ? { include_optional: true } : {}), ...(project_id ? { project_id } : {}), ...(submission_id ? { submission_id } : {}) } }),
+      acquisitions: ({ project_id, state } = {}) => {
+        const q = new URLSearchParams();
+        if (project_id) q.set("project_id", project_id);
+        if (state) q.set("state", state);
+        const qs = q.toString();
+        return self.#json(`/api/datasets/acquisitions${qs ? `?${qs}` : ""}`);
+      },
+      get: (id) => self.#json(acq(id)),
+      cancel: (id) => self.#json(acq(id), { method: "DELETE" }),
+    };
   }
 
   get label() {

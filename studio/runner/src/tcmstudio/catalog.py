@@ -699,8 +699,11 @@ _SKILL_META: dict[str, dict[str, Any]] = {
                           "example": {"subject": "甘草", "co_administered": ["甘遂"]},
                           "tags": ("安全性", "毒性", "十八反", "十九畏", "配伍禁忌", "妊娠禁忌",
                                    "相互作用")},
-    "analyze-tcm-network-pharmacology": {"title": ("网络药理分析（种子语料）",
-                                                   "Network pharmacology (seed corpus)"),
+    # Studio's title only (skill.yaml's name and summary are in the pinned content hash):
+    # the seed skill reads the curated seed corpus, with no database coverage and no
+    # measured activity; the data-driven workflow is job.research.run
+    "analyze-tcm-network-pharmacology": {"title": ("有限种子语料网络假说分析",
+                                                   "Limited seed-corpus network hypothesis analysis"),
                                          "category": "netpharm",
                                          "example": {"formula_name": "桂枝汤"},
                                          "tags": ("网络药理", "靶点", "机制假说", "通路")},

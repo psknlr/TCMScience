@@ -13,6 +13,7 @@ runs, which are recorded but never released, until a person reviews and promotes
 | Protein structure: sequences to checked models | `bioagent fold` | below |
 | Docking: a receptor and ligands to validated poses | `bioagent dock` | below |
 | ADMET: structures to properties, alerts and predicted endpoints | `bioagent admet` | below |
+| Network pharmacology: a formula to bounded mechanism hypotheses | `bioagent research` | below |
 
 ## RNA-seq: FASTQ to differential expression
 
@@ -437,6 +438,133 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 - A prediction is for the standardised parent structure, not for a salt or a prodrug as
   administered.
 
+## Network pharmacology: a formula to bounded mechanism hypotheses
+
+`bioagent research "<question>" --formula <formula> --snapshots DIR --ledger FILE
+--state-dir DIR --out DIR` runs the closed research loop (`bioagent.research.loop`): a
+frozen protocol, ledger-verified snapshots, the analysis as an isolated PSH tool call,
+pre-registered rebuttals and an attested release. In Studio it is the job `research.run`
+(core tool `network_pharmacology_run`). `scripts/run_network_pharmacology.py` runs the same
+analysis under the run contract without the rebuttals. Neither is the seed skill
+`analyze-tcm-network-pharmacology`, which is a *limited seed-corpus network hypothesis
+analysis*: it reads only the curated seed corpus, with no database coverage and no measured
+activity, and draws no permutation null.
+
+`--formula` names the formula separately from the question (a name, a name with its source
+book, or an id). It decides what is studied; a question whose text names another formula is
+refused.
+
+### Steps
+
+The analysis runs as one call. `bioagent.research.workflow` reads it back as sixteen
+recorded stages, each with a validation status (PASS, FAIL, BLOCKED, UNVERIFIED, SKIPPED,
+NOT_APPLICABLE), its reason, its counts and the command that reproduces the run:
+
+| # | Stage | What it records | When it is not PASS |
+|---|---|---|---|
+| 1 | Formula identity | the composition the herb layer records, by fingerprint | FAIL if the herb layer records another |
+| 2 | Herb composition | components and their verified source species | UNVERIFIED when a component has none |
+| 3 | Herb to compound | constituents per herb and source, composition level | UNVERIFIED when a herb with a species has none |
+| 4 | Structure identity | deduplication by identical source-supplied standard InChIKey; keys sharing a connectivity block are counted, not merged | always UNVERIFIED: the snapshots carry no structure, so nothing is re-standardised |
+| 5 | Compound to target | measured potencies at or below the cut-off, each re-read from its snapshot | UNVERIFIED with no measured target; FAIL if a target rests on no measured edge |
+| 6 | Measured vs predicted | predicted edges counted and left out; hypotheses cite measured edges | FAIL if a target or a citation rests on a prediction; UNVERIFIED with no target to check |
+| 7 | Disease genes | the Open Targets gene set at the stated datatype and score | NOT_APPLICABLE without a disease; SKIPPED, with the refusal, when the run refused the Open Targets snapshot its contract requested |
+| 8 | Intersections | measured targets x disease genes x background (descriptive) | as stage 7 |
+| 9 | PPI network | the STRING edges at or above the cut-off, re-read from the snapshot | UNVERIFIED when STRING was dropped, or read with no measured target in the background (no network could be built); SKIPPED when it was not asked for or was refused |
+| 10 | Pathway annotation | Reactome | GO SKIPPED (no GO snapshot is registered); KEGG BLOCKED (licence required) |
+| 11 | Enrichment | the background, stated in the protocol, and the pathways tested | UNVERIFIED when nothing could be tested |
+| 12 | Multiple testing | Benjamini-Hochberg over every pathway tested, recomputed | UNVERIFIED when nothing could be tested |
+| 13 | Permutation and sensitivity | the degree-matched null for each BH-significant pathway; the rebuttals | UNVERIFIED when nothing could be tested or a rebuttal could not run; NOT_APPLICABLE when no pathway passed BH (nothing to permute) |
+| 14 | Topology | degree, betweenness, components, descriptive only | as stage 9 |
+| 15 | Bounded interpretation | claims are `mechanism_hypothesis`, worded as one | UNVERIFIED when nothing could be tested; FAIL on a stronger kind or wording |
+| 16 | Reproducible export | every export read back with its recorded SHA-256 and size | FAIL on a missing or changed file |
+
+A source the protocol dropped makes every stage that reads it UNVERIFIED, with the
+deviation attached. A source the run's contract requested and the run refused (an
+`--allow-source` list, a commercial run's terms) is named by every stage that reads it and
+in one line of `limitations.md`. A stage whose data were not read is never PASS, an empty
+result never passes, and a missing dataset is never negative evidence.
+
+In `stages.json` (the run-record form Studio reads) a stage that had nothing to test is
+`not_applicable`, so a run in which nothing could be tested is not `complete`. A run that
+tested pathways and found none significant is complete: its stage 13 had nothing to permute
+and says so.
+
+### What it writes
+
+| File | Holds |
+|---|---|
+| `compounds.tsv` | compound, name, InChIKey, connectivity block, `id_kind` (inchikey or source_local), level, herbs, sources |
+| `targets.tsv` | target, name, `evidence_class` (measured), measurements, distinct publications, compounds, herbs, in background, disease score, degree, betweenness |
+| `disease_targets.tsv` | the disease gene set: target, name, score, datatypes, is a measured target, in background |
+| `enrichment.tsv` | library, pathway, size, members in the background, overlap, p, BH q, permutation p, fold, targets |
+| `network.tsv` | the PPI edge list: a, b, score, the STRING record |
+| `provenance.json` | snapshot ids, parameters, seed, digests, coverage, and every edge the tables rest on as (snapshot id, record id) |
+| `limitations.md` | one limitation per line: the analysis's, the rebuttals', the deviations and one line per stage that is not PASS |
+| `report.html` | stages, coverage, enrichment, hypotheses, limitations, snapshots and file digests |
+| `run_manifest.json` | `tcmscience.run-manifest/1`: the sixteen stages, every output's SHA-256 and size, snapshot ids, parameters, seed, code digest, protocol digest, the reproduce command, and an `execution` block (audit head, `artifact.json` digest) |
+
+A table with nothing in it is written with its header. The research loop also writes
+`protocol.json`, `result.json`, `enrichment.jsonl`, `rebuttal.json`, `artifact.json` and
+`stages.json`.
+
+### How it is checked
+
+- Every export but the manifest is an output of the research artifact, so
+  `validate_artifact` checks its digest. The manifest is written last, after
+  `artifact.json`, and records the digest of every output and of the artifact.
+- No export carries a timestamp. Two runs in fresh state directories give byte-identical
+  exports. The manifest differs only in its `execution` block, which names the run's audit
+  chain.
+- `python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE`
+  re-checks the manifest's digests. It recomputes each p- and q-value of `enrichment.tsv`
+  from the table's own columns, and re-runs the analysis on the snapshots the manifest
+  names; the tables must come out byte for byte. It exits 0 when every check passed, 1 when
+  one contradicts the run, and 3 when none does but one could not be made (no snapshots
+  given, or an empty enrichment table with nothing to recompute).
+- A stage whose own check FAILs is not a result: `bioagent research` exits 3, and
+  `scripts/run_network_pharmacology.py` too, whatever the release check said.
+- Studio's `research.run` requires the nine exports on exit 0 and exit 1 alike; exit 3
+  fails the job. Its validator re-reads every digest in `run_manifest.json` (never through
+  a symlink, and only regular files), so a table edited after the run fails the job's
+  check, and so does a stage the manifest lists as FAIL.
+- The manifest's reproduce command says whether it reproduces the run exactly
+  (`reproduce_exact`): false when the run used a choice the command cannot carry (a
+  parameter the command has no option for, another skill directory, a formula it cannot
+  look up by id). Whether a lock was given is in the `execution` block, so the command,
+  which passes one, writes the same exports.
+- `tests/test_np_workflow.py` runs on the planted worlds (`bioagent.research.planted`) and
+  the fixture of `tests/test_network_pharmacology.py`. They are fixtures, built under
+  `+planted` and `+fx` versions, not data.
+- Real data: the `live-data` CI workflow downloads the real NPASS, CMAUP, LOTUS, STRING and
+  Reactome files on GitHub's runners and runs 葛根芩连汤 through the research job. It uploads
+  the nine exports and runs `verify` on them. Nothing in this repository's offline tests is
+  a real-data result.
+
+### What a result is
+
+A released hypothesis is a `mechanism_hypothesis`: a computational hypothesis awaiting
+experimental test, citing the snapshot edges of one path. The indication overlap and the
+topology are descriptive, not claims. An empty result says which kind it is:
+
+- "No measured target was found for the N constituents in these snapshots, so no enrichment
+  could be tested; an empty result, not evidence of inactivity."
+- "Pathways were tested and none passed both BH and the permutation null": an absence of
+  evidence for enrichment, not evidence that any pathway is uninvolved.
+
+### Limits
+
+- Composition is species-level (C1/C2), so every claim stops at a hypothesis.
+- Targets are what happened to be measured: absence of a measurement is not absence of
+  activity, and screening panels bias the assayed background.
+- Identity is the source-supplied InChIKey only. Stereo, isotope and charge variants that
+  share a connectivity block are reported, not merged.
+- Pathways are Reactome's lowest-level annotation. GO is not tested: no GO snapshot is
+  registered, and adding its source card is a person's decision. KEGG is not tested: its
+  membership requires a licence, and none is downloaded or bundled.
+- Without a STRING snapshot the network has no edges because none were read, not because
+  none exist.
+
 ## Run records: stages, completeness and limitations
 
 Every pipeline records its stages as it runs (`bioagent.runrecord`). A stage is
@@ -674,6 +802,14 @@ data".
 **适用域对中药成分尤其重要**：TDC 训练集以类药合成化合物为主，而本仓库关注的许多分子不是。以各模型训练集的最大 Tanimoto 相似度计：阿司匹林在 hERG 模型为 0.31、槲皮素 0.67，均在域内；小檗碱 0.24、原人参二醇型三萜 0.16，均在域外，其预测会标注「outside domain」，不应作为预测结果解读——模型没见过皂苷，就对皂苷无话可说。
 
 所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。
+
+**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
+- 十六个工作流阶段（`bioagent.research.workflow`）逐一记录：状态（PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED、NOT_APPLICABLE）、原因、计数与复现命令。依次为：方剂身份、药材组成与基原物种、药材到化合物、结构身份与去重（按来源提供的标准 InChIKey，共享连接块的不同键只报告、不合并；快照不含结构，因此未做重新标准化，该阶段恒为 UNVERIFIED）、化合物到实测靶点、实测与预测分离、疾病基因、交集、PPI 网络、通路注释（Reactome；GO 因未登记 GO 快照而 SKIPPED；KEGG 因需要许可而 BLOCKED）、显式背景下的富集、覆盖全部检验通路的 BH 校正、度匹配置换与敏感性、拓扑（仅描述）、有界解释、可复现导出。
+- 被方案丢弃的数据源会使读取它的每个阶段为 UNVERIFIED 并附上偏离记录；技能合同请求、但本次运行拒绝的数据源（如 `--allow-source` 未列入）由读取它的每个阶段注明，并在 `limitations.md` 中占一行。未读到数据的阶段绝不会是 PASS，空结果也绝不会是 PASS（读到 STRING 但背景中没有实测靶点时，PPI 与拓扑阶段为 UNVERIFIED：无法构建网络，不是“无相互作用”的证据），缺失的数据集也绝不当作阴性证据。未指定疾病时，疾病阶段为 NOT_APPLICABLE；Open Targets 快照被拒绝时为 SKIPPED。在 `stages.json` 中，无可检验对象的阶段记为 `not_applicable`，因此“什么都无法检验”的运行不是 `complete`；检验了通路但无一显著的运行是完整的。
+- 九个导出文件：`compounds.tsv`、`targets.tsv`、`disease_targets.tsv`、`enrichment.tsv`、`network.tsv`（STRING 阈值以上的边列表，而非枢纽列表）、`provenance.json`（每条边追溯到快照记录）、`limitations.md`、`report.html` 与最后写出的 `run_manifest.json`（`tcmscience.run-manifest/1`：十六个阶段、每个输出的 SHA-256 与大小、快照 ID、参数、种子、代码摘要、方案摘要、复现命令，以及只记录本次执行身份的 `execution` 块，即审计链头与 `artifact.json` 摘要）。导出不含时间戳，两次全新运行字节相同；空表只写表头。
+- 复核：`python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE` 复核清单摘要，并从表格自身各列重算每个 p 值与 q 值，再在清单所列快照上重跑分析，表格须逐字节一致。`verify` 全部通过时退出 0，有检查与运行相矛盾时退出 1，无矛盾但有检查无法进行（未给快照，或富集表为空、无可重算）时退出 3。任一阶段自身检查为 FAIL 时，`bioagent research` 退出 3。Studio 的 `research.run` 在退出码 0 与 1 时都要求这九个文件，退出码 3 使任务失败；其校验器重读清单中的每个摘要（不经符号链接，只读普通文件），运行后被改动的表格、或清单中列为 FAIL 的阶段，都会使任务检查失败。
+- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。真实数据由 `live-data` CI 工作流在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。
+- 空结果会说明属于哪一种：「在这些快照中未找到 N 个成分的任何实测靶点，因此无法检验富集；这是空结果，不是无活性的证据」，或「已检验通路，但没有通路同时通过 BH 与置换检验」——这是缺乏富集证据，而不是任何通路无关的证据。被发布的结论只能是 `mechanism_hypothesis`（机制假说）；适应证重叠与拓扑只作描述，不构成结论。
 
 **运行记录：阶段、完整性与局限。** 每个流程在运行中逐阶段记录（`bioagent.runrecord`）。每个阶段记录以下字段：
 - 名称、是否必需、状态（成功 / 失败 / 跳过 / 不可用 / 不适用）；

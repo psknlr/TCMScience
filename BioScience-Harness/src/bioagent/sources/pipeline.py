@@ -7,9 +7,12 @@ snapshots through a hash-chained ledger. Building them took a person at a shell:
 record and a status (``bioagent.validation``'s six):
 
     discovery    the raw files the requested sources need, and which are here already
-    acquisition  each missing file downloaded from its reviewed URL, with the downloader's
-                 resume, pacing and size gate; a host the network policy refuses is learnt
-                 from its first refusal and not asked again
+    acquisition  each missing file adopted from a verified copy the data hub already holds
+                 (``mirrors``: a hard link, only for a file with a reviewed checksum), or
+                 downloaded from its reviewed URL through ``acquisition.transfer`` (a resume
+                 only onto the same file, the downloader's pacing and size gate, archives
+                 read through before a file is kept); a host the network policy refuses is
+                 learnt from its first refusal and not asked again
     integrity    every file hashed again and compared with its reviewed checksum; a file
                  with none (two files the acquisition table does not list yet) is verified
                  by its size, and its SHA-256 recorded for review
@@ -123,8 +126,14 @@ def plan(raw_dir: str | Path, sources: Iterable[str] = RESEARCH_SOURCES, *,
 
 
 def _acquire(raw: Path, specs: Sequence[AcquisitionSpec], *, confirm: bool, offline: bool,
-             log: Callable[[str], None]) -> list[dict[str, Any]]:
-    from ..acquisition.downloader import Downloader
+             log: Callable[[str], None], mirrors: Sequence[str | Path] = ()
+             ) -> list[dict[str, Any]]:
+    """Each file here, adopted from a verified copy in ``mirrors`` (the hub's raw directory
+    of the same dataset: one copy on disk, never one without a reviewed checksum), or
+    downloaded through ``acquisition.transfer.VerifiedTransfer`` (a resume only onto the same
+    file, retries only for what is transient, archives read through before a file is kept)."""
+    from ..acquisition.service import adopt_verified, release_of
+    from ..acquisition.transfer import VerifiedTransfer
     from ..tcmdb import acquire
 
     refused: dict[str, str] = {}
@@ -134,7 +143,15 @@ def _acquire(raw: Path, specs: Sequence[AcquisitionSpec], *, confirm: bool, offl
         host = urllib.parse.urlsplit(a.url).hostname or a.host
         row: dict[str, Any] = {"file": a.filename, "url": a.url, "host": host}
         cached = (raw / a.filename).is_file()
-        if offline and cached:
+        adopted = None if cached or offline or not mirrors else adopt_verified(
+            mirrors, raw, a.filename, a.checksum, url=a.url, release=release_of(a.version),
+            log=log)
+        if adopted is not None:
+            status, reason = PASS, (f"adopted from {adopted['mirror']} ({adopted['adopted_as']}); "
+                                    "it hashes to the reviewed checksum")
+            row.update(bytes=adopted["bytes"], checksum=adopted["checksum"], verified="checksum",
+                       route="local-mirror")
+        elif offline and cached:
             status, reason = PASS, "here; this run downloads nothing (the integrity stage checks it)"
             row["route"] = "local"
         elif offline:
@@ -144,15 +161,20 @@ def _acquire(raw: Path, specs: Sequence[AcquisitionSpec], *, confirm: bool, offl
         elif not cached and (short := acquire.disk_shortfall(raw, a.expected_bytes)):
             status, reason = BLOCKED, short
         else:
-            dl = Downloader(raw, timeout_s=120, log=log, min_interval_s=_MIN_INTERVAL.get(host, 0))
+            dl = VerifiedTransfer(raw, timeout_s=120, log=log,
+                                  min_interval_s=_MIN_INTERVAL.get(host, 0))
             try:
                 r = dl.fetch(a.url, a.filename, checksum=a.checksum,
-                             expected_bytes=a.expected_bytes, confirm=confirm)
+                             expected_bytes=a.expected_bytes, confirm=confirm,
+                             release=release_of(a.version), fmt=a.fmt, refuse_html=True)
                 verified = "checksum" if a.checksum else ("size" if r.verified else "none")
                 status = PASS if verified != "none" else UNVERIFIED
                 reason = f"{'reused' if r.from_cache else 'downloaded'}, verified by {verified}"
                 row.update(bytes=r.bytes, checksum=r.checksum, verified=verified,
-                           route="cache" if r.from_cache else "download")
+                           route="cache" if r.from_cache else "download",
+                           **{k: v for k, v in r.record().items()
+                              if k in ("resumed", "resumed_from", "etag", "last_modified",
+                                       "retrieved_at", "release", "decompression")})
             except Exception as exc:                                # noqa: BLE001
                 status, reason = acquire.outcome_of_error(exc, host)
                 if status == BLOCKED and ("policy" in reason or "resolve" in reason):
@@ -236,8 +258,13 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
                              formulas: Sequence[str] = (), formula_table: str | None = None,
                              confirm: bool = False, offline: bool = False,
                              report_path: str | Path | None = None,
+                             mirrors: Sequence[str | Path] = (),
                              log: Callable[[str], None] = print) -> dict[str, Any]:
-    """Run every stage and return (and, with ``report_path``, write) the report."""
+    """Run every stage and return (and, with ``report_path``, write) the report.
+
+    ``mirrors`` are directories that may already hold some of the same raw files (the data
+    hub's ``raw/npass``, ``raw/cmaup``, ``raw/lotus``): a file there that hashes to its
+    reviewed checksum is adopted as a hard link instead of being downloaded again."""
     from .build import build_gold
     from .ledger import LedgerError, SnapshotLedger
     from .snapshot import SnapshotError
@@ -276,7 +303,7 @@ def build_research_snapshots(raw_dir: str | Path, snapshot_root: str | Path,
                          f"{len(specs)} files needed, {len(found['missing'])} not here",
                          files=found["files"], download_bytes=found["download_bytes"]))
 
-    rows = _acquire(raw, specs, confirm=confirm, offline=offline, log=log)
+    rows = _acquire(raw, specs, confirm=confirm, offline=offline, log=log, mirrors=mirrors)
     acquired = aggregate(r["status"] for r in rows)
     stages.append(_stage("acquisition", acquired,
                          f"{sum(r['status'] in (PASS, UNVERIFIED) for r in rows)} of {len(rows)} "

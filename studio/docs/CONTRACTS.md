@@ -429,13 +429,20 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/jobs/{id}/files/{path}` | bytes; HTML is served with `Content-Security-Policy: sandbox` |
 | POST | `/api/uploads` | raw body; headers `X-Filename`, `Content-Type` → `{id, name, bytes, sha256, media_type}` |
 | GET | `/api/uploads` | `{uploads:[…]}` |
+| GET | `/api/datasets` | `{count, datasets:[{key, name, access, version, license, licence_class, commercial_use, redistribution, hosts, files_default, bytes_default, acquirable, readiness:{state, next_step}}], network:{enabled}}`: every registered hub dataset (`tcmdb.datasets`) |
+| GET | `/api/datasets/{key}/manifest` | `{dataset, name, access, version, homepage, license, licence_class, commercial_use, redistribution, licence_record?, hosts, files:[{name, url, host, table, fmt, optional, expected_bytes, reviewed_checksum, local:{present, bytes?, verification?, record?, part_bytes?, resumable?}}], size_gate_bytes, store:{built, files?, build?}, audit:[its audit lines, the last 20], instructions?}`; `404` for an unknown key |
+| GET | `/api/datasets/{key}/readiness` | `{dataset, access, state, next_step, missing?, local, network:{enabled}, acquire?:{method, path, body}, check?:{ok, problems, warnings}, requires:[Requirement]}`; `state` is one of the six of `tcmdb.status` |
+| POST | `/api/datasets/acquisitions` | `{dataset, include_optional?, project_id?, submission_id?}` → `201 {acquisition, plan:{files, download_bytes, unknown_sizes, hosts, size_gate_bytes}}` + `Location: /api/datasets/acquisitions/{id}` (same `submission_id` → `200`, the existing one). Creates a `tcmdb.fetch` job. `400 bad_arguments` for any other field (no URL, no size-gate override), a key that is not registered, or one that is not downloadable; `409 conflict` (`error.job`) while the dataset is already being acquired (a queued or running `tcmdb.fetch` of it), or when `submission_id` names another job (another kind, dataset or `include_optional`); `422 network_off` when the runner's network is off |
+| GET | `/api/datasets/acquisitions` | `?project_id=&state=` → `{acquisitions:[{id, dataset, state, url, job}]}` |
+| GET | `/api/datasets/acquisitions/{id}` | `{id, dataset, state, url, job:Job, files:[{file, url, host, state, have_bytes, total_bytes, expected_bytes, reviewed_checksum, verification?, check?, reason?, last_attempt?}], states, summary:{bytes, files, verified, fraction?, stage?}}` (`fraction` and `stage` only while the job runs, as in its progress); `404` for a job that is not a `tcmdb.fetch` |
+| DELETE | `/api/datasets/acquisitions/{id}` | cancel → the acquisition (`409` once finished). `POST /api/datasets/acquisitions/{id}/cancel` is the same |
 | GET | `/api/llm/local` | probes local model servers → `{servers:[{id:"ollama"|"lmstudio"|"vllm"|"llamacpp", base_url, ok, models:[…]}]}` |
 | POST | `/api/llm` | model proxy: header `X-TCM-Target: <full URL>`, body forwarded, response streamed back. The target must be loopback, or a host in the provider allowlist (OpenAI, Anthropic, DeepSeek, DashScope, Moonshot, Zhipu, SiliconFlow, OpenRouter, and `--allow-host`). The key travels in the request's own `Authorization`/`x-api-key` and is never stored or logged. |
 | GET | `/` and static paths | the web app (bundled `web/` or `--web DIR`), so `http://127.0.0.1:8765/` works offline |
 | GET | `/v1/health` | `200 {ok:false, service:"tcmstudio", relay:false, error:{type:"not_relay", code:"runner_no_relay", port:8765, message, message_en}}`: the runner never relays Tao-S1 (`message` is Chinese, `message_en` English; the page localises by `type`). A page it serves on a port other than 8765 looks for the relay on its own origin and reads this; other `/v1/*` paths are `404 not_relay` with the same `code`, `port` and `message_en`. |
 
 `Job = {id, kind, state:"queued"|"running"|"succeeded"|"failed"|"cancelled", params, project_id,
-created_at, started_at, finished_at, progress:{fraction?, message?, stage?}|null, device, outcome:{status, error?, problems?,
+created_at, started_at, finished_at, progress:{fraction?, message?, stage?, bytes?, files?, verified?}|null, device, outcome:{status, error?, problems?,
 checks?, expected?, receipt?}|null, artefacts:[{name, sha256, bytes}], files_url, stages?, limitations?, receipt?}`. A job is
 `succeeded` only after its outputs are collected and verified (digest + pipeline `verify_run`). Until then it is pending, and
 its result is never shown as an answer.
@@ -478,8 +485,44 @@ there to validate: an absent optional one is not listed) and `kind.verify`.
 `outcome.expected` names the artefacts the kind requires. `JobService.run_manifest(job_id)` (and the hook's) reads a
 succeeded job's `run.json` only while it has the digest recorded at collection, like `envelope(job_id)` (§3 receipt/1).
 
+- **Dataset acquisitions** (`tcmstudio.datasets`, `bioagent.acquisition.service`). An acquisition is a `tcmdb.fetch`
+  job: `bioagent tcmdb fetch <key> --report={output}/acquisition.json`, run on the runner, never through the page or the
+  bounded `/api/sources` gateway (whose 8 MiB / 30 s limits stay). Only a registered key's reviewed files are fetched.
+  Each file goes through `acquisition.transfer.VerifiedTransfer`: a partial file is resumed (`Range` + `If-Range`, and
+  only a `206` whose `Content-Range` is `bytes N-(total-1)/total` and whose ETag, or Last-Modified, is the recorded
+  one) only onto the same file — a strong ETag, or a Last-Modified date its answer's `Date` shows to be strong (RFC 9110
+  §8.8.2.2), recorded beside it in `<name>.part.json`, or a reviewed checksum that checks the joined file; otherwise
+  it restarts from byte 0. A partial file already whole is checked as it is, not fetched again. Timeouts, dropped
+  connections, 408/425/429/5xx are retried (a `Retry-After` up to 60 s; a longer one ends the transfer); 404/410 fail
+  at once; a full disk stops at once and keeps the partial file. The disk is checked against the server's size before
+  any GET; a second transfer of the same file is refused while one holds its lock (and a second acquisition of the
+  same dataset with `409`); a cancelled fetch stops at the next block that arrives and its process is ended 10 s after
+  the cancel at the latest; gzip/bzip2/xz/zip/xlsx files are read through their CRC and Parquet checked for its magic
+  before a file is kept. A file with a reviewed checksum that the research snapshots' raw directory already holds is
+  adopted as a hard link (route `local-mirror`), not downloaded again, and `research.snapshot` adopts the hub's copies
+  the same way, so NPASS, CMAUP and LOTUS are stored once. `files[].state` is `pending` (a kept `.part` resumes),
+  `transferring`, `kept`, `refused` (it never arrived) or `rejected` (it arrived and `check` — checksum, size,
+  decompression, format or html — refused it). The job's `result.acquisition` lists each file's status, verification,
+  route and `resumed_from`; the `.downloads.json` record and `audit/downloads.jsonl` add `sha256`, `resumed`,
+  `resumed_from`, `etag`, `last_modified`, `final_url`, `server`, `retrieved_at`, `release`, `restarts`. The job
+  fails when a default file is missing or a file is recorded as `mismatch` (not the reviewed file).
+- **Fetch progress.** A `tcmdb.fetch` job's `progress` is read from the bytes on disk:
+  `{fraction, bytes:{done, total, unknown?}, files:{done, total}, verified:{checksum, size, none, mismatch?},
+  stage:"transferring"|"verifying", message}` (`mismatch`, present only when non-zero, counts kept files recorded with
+  another checksum than the reviewed one; the job then fails). `fraction` is bytes done over bytes expected when every
+  file's size is known (declared, or the server's for a file whose transfer started), the share of files otherwise,
+  and stays below 1 until the job is collected; while it is, `bytes`, `files` and `verified` stay and `stage` is
+  `"verifying"`.
+- **Licences.** `redistribution` is a reviewed licence record's statement (`registry/licence_records.yaml`, the same
+  dataset, and a record version that names its release as a whole token; never for a dataset with no release or a
+  rolling one); without one it is `"unknown — downloading is not permission to redistribute"`. Files stay in
+  the runner's data directory. There is no object storage (R2 or other) and no signed-URL sharing: not implemented,
+  since nothing could be deployed or verified here and a shared copy of an unlicensed dataset would be redistribution.
+
 **Job kinds:** `pipeline.rnaseq`, `pipeline.scrna`, `pipeline.fold`, `pipeline.dock`, `pipeline.admet`,
-`research.run`, `skill.run` (any governed skill as a background run), `tcmdb.fetch`, `tcmdb.build`.
+`research.run`, `research.snapshot` (download, verify and build the research snapshots), `env.provision` (install
+one group of optional scientific packages), `skill.run` (any governed skill as a background run), `tcmdb.fetch`,
+`tcmdb.build`.
 Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command from the browser).
 File parameters reference upload ids. The device setting becomes `CUDA_VISIBLE_DEVICES` (`""` forces
 CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.

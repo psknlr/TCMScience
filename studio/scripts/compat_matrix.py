@@ -79,9 +79,16 @@ WASM_CANDIDATES = {
     "native.mann_whitney_u": "rank sums over large samples",
     "native.kruskal_wallis": "ranks over large samples",
     "native.enrichment_analysis": "many hypergeometric tests",
-    "skill.analyze-tcm-network-pharmacology": "seeded degree-matched permutation null (1000 per pathway): "
-                                              "the most data-parallel CPU work in the catalog; a port must "
-                                              "reproduce Python's Mersenne Twister draws exactly",
+}
+# Notes for entries that run in Pyodide as they are (class 1) and need one
+PYODIDE_NOTES = {
+    # The limited seed-corpus skill draws no permutation and computes no topology (skills/p0/netpharm.py:
+    # randomisation not performed), so no kernel would pay off: class 1, not a WASM candidate. The seeded
+    # degree-matched permutation null and Brandes betweenness are the research loop's
+    # (analysis/network_pharmacology.py, job.research.run, class 6), outside the pin.
+    "skill.analyze-tcm-network-pharmacology": "limited seed corpus: no permutation null, no topology; trivial "
+                                              "CPU. The seeded permutation null and betweenness run in "
+                                              "job.research.run",
 }
 # job and skill details: what blocks the browser, with the Pyodide 314 lockfile in mind
 RUNNER_REASONS = {
@@ -147,7 +154,7 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
         return ("5", "pyodide", "—", checked, WASM_CANDIDATES[eid])
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
-    return ("1", "pyodide", "—", checked, note)
+    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or note)
 
 
 def mobile(cls: str, e: dict) -> str:
@@ -213,8 +220,9 @@ FAMILIES = [
      "dominates large matrices", "a compact count format across the Pyodide boundary"),
     ("Phylogeny, k-mers, ORFs, rank statistics", "neighbor_joining, upgma, kmer_counts, …", "5",
      "O(n³) (trees), linear (scans)", "yes", "runs in Pyodide; candidates for kernels", "P2"),
-    ("Network pharmacology (permutation null)", "skill.analyze-tcm-network-pharmacology", "5",
-     "1000 permutations × pathways; Brandes betweenness", "yes", "runs in Pyodide", "P2: exact MT19937 port (pinned skill code: needs a reviewed re-pin)"),
+    ("Network pharmacology: the limited seed-corpus skill", "skill.analyze-tcm-network-pharmacology", "1",
+     "seed corpus only: no permutation null, no topology; trivial CPU", "yes", "done (runs in Pyodide)",
+     "none needed here: the permutation null is the research loop's (below)"),
     ("Governed TCM skills, clinic, TCM data hub queries, studies", "skill.*(tcm), clinic.*, tcmdb.*, study.*", "1",
      "MB (formula SQLite 12 MB, loaded on demand)", "yes",
      "done; formula search ranked by relevance, a herb under all its names (rank: true)",
@@ -224,7 +232,10 @@ FAMILIES = [
     ("Text embeddings, classification, reranking (none exist yet)", "—", "4", "20–120 MB models",
      "small models", "not started: no model is packaged", "P2: one ONNX embedding model, WebNN → WebGPU → WASM"),
     ("Single-cell and research loop", "job.pipeline.scrna, job.research.run", "6",
-     "100 MB–GBs; hours", "no", "runner", "small-dataset browser mode (P3)"),
+     "100 MB–GBs; hours; the research loop's seeded degree-matched permutation null (1000 per pathway) and "
+     "Brandes betweenness", "no", "runner",
+     "small-dataset browser mode (P3); a browser port of the permutation null must draw exactly what "
+     "Python's MT19937 draws (research code, outside the skill pins) (P2)"),
     ("RNA-seq quantification, docking, ADMET, structure prediction", "job.pipeline.rnaseq/dock/admet/fold", "7",
      "GBs; native binaries; GPU", "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",

@@ -35,6 +35,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -365,6 +366,85 @@ def _artifact_outputs(path: Path) -> str | None:
         if digest != str(out["sha256"]).removeprefix("sha256:"):
             problems.append(f"{out['path']}: digest differs from the artifact's record")
     return "; ".join(problems) or None
+
+
+#: The nine exports of a network-pharmacology research run (bioagent.analysis.np_exports),
+#: as (artefact name, file): required on exit 0 and exit 1 alike, a negative or empty
+#: result included (an empty table is its header).
+RESEARCH_EXPORTS = (("compounds", "compounds.tsv"), ("targets", "targets.tsv"),
+                    ("disease_targets", "disease_targets.tsv"), ("enrichment", "enrichment.tsv"),
+                    ("network", "network.tsv"), ("provenance", "provenance.json"),
+                    ("manifest", "run_manifest.json"), ("limitations", "limitations.md"),
+                    ("report", "report.html"))
+RUN_MANIFEST_SCHEMA = "tcmscience.run-manifest/1"
+
+
+def _sha256_file(path: Path) -> tuple[str, int]:
+    h, size = hashlib.sha256(), 0
+    with path.open("rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+            size += len(block)
+    return h.hexdigest(), size
+
+
+def _manifest_outputs(path: Path) -> str | None:
+    """run_manifest.json of a research run, re-checked here rather than trusted: it is a
+    regular file of at most RUN_JSON_MAX_BYTES with the run-manifest schema, no workflow
+    stage it lists FAILed its own check, it lists every other export, and every file it
+    lists (the artifact.json it names included) is a regular file, not a symlink, inside
+    the output directory with the SHA-256 and size it records. A table edited after the
+    run fails here, and so does a run whose own check failed (the research command also
+    exits 3 for it), whatever its release check said."""
+    text = read_record(path, RUN_JSON_MAX_BYTES)
+    if text is None:
+        return f"not a regular file of at most {RUN_JSON_MAX_BYTES} bytes"
+    try:
+        doc = json.loads(text)
+    except ValueError as exc:
+        return f"not readable JSON: {exc}"
+    if not isinstance(doc, Mapping) or doc.get("schema") != RUN_MANIFEST_SCHEMA:
+        return f"not a {RUN_MANIFEST_SCHEMA} manifest"
+    stages = doc.get("stages") if isinstance(doc.get("stages"), list) else []
+    # first, so that the 1000-character answer never cuts them off
+    problems = [f"stage {s.get('id')}: FAIL: {str(s.get('reason') or '')[:200]}"
+                for s in stages if isinstance(s, Mapping) and s.get("status") == "FAIL"]
+    outputs = doc.get("outputs") if isinstance(doc.get("outputs"), Mapping) else {}
+    problems += [f"{rel}: not listed in the manifest" for _, rel in RESEARCH_EXPORTS
+                 if rel != path.name and rel not in outputs]
+    listed = dict(outputs)
+    artifact = (doc.get("execution") or {}).get("artifact") \
+        if isinstance(doc.get("execution"), Mapping) else None
+    if isinstance(artifact, Mapping) and artifact.get("path"):
+        listed[str(artifact["path"])] = artifact
+    root = path.parent.resolve()
+    for rel, entry in sorted(listed.items()):
+        if not isinstance(entry, Mapping):
+            problems.append(f"{rel}: no digest recorded")
+            continue
+        target = (path.parent / str(rel)).resolve()
+        if root not in target.parents:
+            problems.append(f"{rel}: outside the output directory")
+            continue
+        # read_record's rule: nothing is read through a symlink, and only a regular file is
+        # opened (a FIFO the job left would block the collector)
+        try:
+            mode = os.lstat(path.parent / str(rel)).st_mode
+        except OSError:
+            problems.append(f"{rel}: missing")
+            continue
+        if not stat.S_ISREG(mode):
+            problems.append(f"{rel}: not a regular file")
+            continue
+        try:
+            digest, size = _sha256_file(target)
+        except OSError:
+            problems.append(f"{rel}: missing")
+            continue
+        if digest != str(entry.get("sha256") or "").removeprefix("sha256:") or \
+                size != entry.get("bytes"):
+            problems.append(f"{rel}: differs from the digest the manifest records")
+    return "; ".join(problems)[:1000] or None
 
 
 #: The most the runner reads of a pipeline's own record in its output directory, which the
@@ -753,6 +833,54 @@ def formula_ambiguity(formula: str) -> str | None:
             + (f" (e.g. {examples})" if examples else "") + "; tcm_formula lists every version")
 
 
+#: An empty formula table, so that the conflict check below never reads the workbook (one
+#: instance: the research loop keeps each table a question was parsed against).
+_NO_WORKBOOK: list[Any] = []
+
+
+def formula_conflict(question: str, formula: str) -> str | None:
+    """Why the research loop would refuse a question whose own text names another formula
+    than the job's ``formula`` parameter, said before the job is queued. Told here without
+    the formula workbook: when the question names a hand-checked formula (by name or id),
+    the parameter must name that formula too, for anything else it names (another
+    hand-checked formula, or any workbook formula, whose id always differs) is a formula
+    the question does not name, and the loop refuses it. When the question names no
+    hand-checked formula, or names a workbook id (an id is read before any name), only the
+    workbook can tell, and the loop does. None when they agree or it cannot be told here."""
+    try:
+        from bioagent.research.loop import FORMULAS, QuestionRefused, parse_question
+        from bioagent.sources.formulas import FormulaTable
+    except Exception:                                           # noqa: BLE001
+        return None
+
+    def workbook_ids(text: str) -> list[str]:
+        return [f for f in re.findall(r"tcm:formula\.[A-Za-z0-9_]+", text) if f not in FORMULAS]
+
+    if workbook_ids(question):
+        return None                         # only the workbook can say what it names
+    if not _NO_WORKBOOK:
+        _NO_WORKBOOK.append(FormulaTable([]))
+
+    def hand_checked(text: str) -> str | None:
+        try:
+            return parse_question(text, table=_NO_WORKBOOK[0]).formula_id
+        except QuestionRefused:
+            return None                     # none named, or a workbook formula
+        except Exception:                                       # noqa: BLE001
+            return None
+
+    stated = hand_checked(question)
+    if stated is None:
+        return None
+    # a workbook id given as the formula is never a hand-checked formula's id
+    named = (workbook_ids(formula) or [None])[0] or hand_checked(formula)
+    if named == stated:
+        return None
+    given = named or "another formula"
+    return (f"the question names {stated} but the formula given is {given}"
+            + ("" if given == formula else f" ({formula})") + "; name one formula")
+
+
 def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     root, ledger = snapshot_paths(ctx.data_env)
     out: dict[str, Any] = {
@@ -772,6 +900,10 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         ambiguous = formula_ambiguity(out["formula"])
         if ambiguous:
             raise BadParams(f"formula: {ambiguous}")
+        # a question naming another formula is refused here, not after the job has started
+        conflict = formula_conflict(out["question"], out["formula"])
+        if conflict:
+            raise BadParams(f"formula: {conflict}")
     return out
 
 
@@ -788,16 +920,22 @@ def _snapshot_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         ambiguous = formula_ambiguity(f)
         if ambiguous:
             raise BadParams(f"formulas: {ambiguous}")
-    return {"sources": list(dict.fromkeys(sources)) or list(_SNAPSHOT_SOURCES),
+    sources = list(dict.fromkeys(sources)) or list(_SNAPSHOT_SOURCES)
+    # the data hub's copies of the same reviewed files (job.tcmdb.fetch): adopted as hard
+    # links when they hash to the reviewed checksum, so NPASS and CMAUP are stored once
+    hub_raw = Path(ctx.data_env["BIOAGENT_TCMDB"]) / "raw"
+    return {"sources": sources,
             "network": bool(p.get("network", True)), "formulas": formulas,
             "raw": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "raw"),
-            "snapshots": str(root), "ledger": str(ledger)}
+            "snapshots": str(root), "ledger": str(ledger),
+            "mirrors": [str(hub_raw / s) for s in sources]}
 
 
 def _snapshot_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "snapshots", "build", _opt("raw", r["raw"]), _opt("out", r["snapshots"]),
                 _opt("ledger", r["ledger"]), _opt("report", f"{OUTPUT_TOKEN}/snapshot_report.json"),
                 "--sources", *r["sources"])
+    argv += [_opt("mirror", m) for m in r.get("mirrors") or ()]
     if not r["network"]:
         argv.append("--no-network")
     return argv + [_opt("formula", f) for f in r["formulas"]]
@@ -827,6 +965,11 @@ def _research_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
                 _opt("profile", "trusted_local"))
     if r.get("disease"):
         argv.append(_opt("disease", r["disease"]))
+    if r.get("formula"):
+        # the formula the job was asked for decides what is studied; the loop refuses a
+        # question whose own text names another (it was validated here and then dropped,
+        # so the loop guessed it from the question)
+        argv.append(_opt("formula", r["formula"]))
     argv += [_opt("activity", a) for a in r["activity"]]
     argv += [_opt("optional", a) for a in r["optional"]]
     if r["accept_review"]:
@@ -1020,13 +1163,38 @@ def _tcmdb_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     if allowed and dataset not in allowed:
         raise BadParams(f"dataset: {dataset!r} cannot be fetched by a program here; one of "
                         f"{', '.join(allowed[:20])}…")
+    # the research snapshots' raw directory may hold the same reviewed files (NPASS, CMAUP,
+    # LOTUS): a copy there that hashes to its reviewed checksum is hard-linked, not fetched
     return {"dataset": dataset, "include_optional": bool(p.get("include_optional")),
-            "root": ctx.data_env["BIOAGENT_TCMDB"]}
+            "root": ctx.data_env["BIOAGENT_TCMDB"],
+            "mirrors": [str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "raw")]}
 
 
 def _tcmdb_fetch_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
-    argv = _cli(ctx, "tcmdb", _opt("root", r["root"]), "fetch", r["dataset"])
+    # bioagent.acquisition.service.acquire_dataset: verified transfers, a lock per file,
+    # archives read through before a file is kept; SIGTERM keeps the partial file
+    argv = _cli(ctx, "tcmdb", _opt("root", r["root"]), "fetch", r["dataset"],
+                _opt("report", f"{OUTPUT_TOKEN}/acquisition.json"),
+                *[_opt("mirror", m) for m in r.get("mirrors") or ()])
     return argv + (["--all"] if r["include_optional"] else [])
+
+
+def _tcmdb_fetch_progress(job_dir: Path, r: dict[str, Any]) -> dict[str, Any] | None:
+    """Progress from the bytes on disk (``acquisition.service.acquisition_state``): the
+    fraction of the dataset's bytes there (of its files, while a size is unknown), the files
+    kept, how they were verified, and whether a file is being transferred or verified. The
+    message is the transfer's last log line."""
+    from bioagent.acquisition.service import acquisition_state
+    from bioagent.tcmdb.hub import TCMDataHub
+
+    state = acquisition_state(TCMDataHub(r["root"]), r["dataset"],
+                              include_optional=bool(r.get("include_optional")), running=True,
+                              audit=False)
+    out = dict(state["progress"])
+    line = _tail_line(job_dir / "stderr.log")
+    if line:
+        out["message"] = line[:200]
+    return out
 
 
 def _hub_status(r: dict[str, Any], data_env: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -1041,7 +1209,14 @@ def _tcmdb_fetch_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[
     except Exception as exc:                                    # noqa: BLE001
         return [f"the hub could not report the dataset: {type(exc).__name__}: {exc}"]
     missing = [f for s in status for f in s.get("missing_default") or ()]
-    return [f"files still missing after the download: {', '.join(missing)}"] if missing else []
+    problems = [f"files still missing after the download: {', '.join(missing)}"] if missing else []
+    # a file recorded with another checksum than the reviewed one is not the reviewed file
+    mismatched = sorted(name for s in status for name, how in (s.get("verification") or {}).items()
+                        if how == "mismatch")
+    if mismatched:
+        problems.append(f"not the reviewed file (its recorded checksum differs from the "
+                        f"reviewed one): {', '.join(mismatched)}")
+    return problems
 
 
 def _tcmdb_build_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
@@ -1079,6 +1254,24 @@ def _tcmdb_result(job_dir: Path, r: dict[str, Any]) -> Any:
     if r["dataset"] == "all":
         return {"built": [s["dataset"] for s in status if s.get("built")]}
     return status[0] if status else None
+
+
+def _tcmdb_fetch_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """The hub's status of the dataset, and what the acquisition did per file (its report,
+    ``out/acquisition.json``: status, verification, route, resume offset)."""
+    out = _tcmdb_result(job_dir, r)
+    try:
+        doc = json.loads((job_dir / "out" / "acquisition.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    if isinstance(out, dict) and isinstance(doc, dict):
+        keep = ("file", "status", "verified", "bytes", "route", "resumed_from", "check")
+        out = {**out, "acquisition": {
+            "status": doc.get("status"), "kept": doc.get("kept"), "bytes": doc.get("bytes"),
+            "verified": doc.get("verified"), "report": "acquisition.json",
+            "files": [{k: f.get(k) for k in keep if f.get(k) is not None}
+                      for f in doc.get("files") or ()][:100]}}
+    return out
 
 
 # ------------------------------------------------------------------------------- registry
@@ -1134,11 +1327,16 @@ def default_kinds() -> dict[str, Kind]:
              timeout_s=6 * 3600.0, result=_table_result("admet.tsv"), progress=_stage_progress),
         Kind("research.run", ("研究闭环", "Research loop"), "minutes", _research_prepare,
              _research_command,
-             artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True)),
-             validators={"artifact": _artifact_outputs, "result": _json_file},
-             # exit 1: the loop ran to the end and release was not authorised — a result
+             artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True),
+                        *((name, rel, True) for name, rel in RESEARCH_EXPORTS)),
+             validators={"artifact": _artifact_outputs, "result": _json_file,
+                         "manifest": _manifest_outputs, "provenance": _json_file},
+             # exit 1: the loop ran to the end and release was not authorised — a result;
+             # exit 3: a workflow stage FAILed its own check — the job fails, and its
+             # stages.json names the stage (bioagent.cli._cmd_research)
              ok_exit_codes=frozenset({0, 1}), timeout_s=12 * 3600.0,
-             requirements=_research_requirements, result=_stdout_result),
+             requirements=_research_requirements, result=_stdout_result,
+             progress=_stage_progress),
         Kind("research.snapshot", ("构建研究数据快照", "Build the research snapshots"), "minutes",
              _snapshot_prepare, _snapshot_command,
              artefacts=(("report", "snapshot_report.json", True),),
@@ -1158,8 +1356,10 @@ def default_kinds() -> dict[str, Kind]:
              network=lambda r: bool(r.get("network")), remote=lambda r: bool(r.get("remote")),
              timeout_s=12 * 3600.0, result=_skill_result),
         Kind("tcmdb.fetch", ("下载数据集", "Fetch a dataset"), "minutes", _tcmdb_prepare,
-             _tcmdb_fetch_command, network=True, timeout_s=12 * 3600.0,
-             verify=_tcmdb_fetch_verify, result=_tcmdb_result),
+             _tcmdb_fetch_command, artefacts=(("report", "acquisition.json", False),),
+             validators={"report": _json_file}, network=True, timeout_s=12 * 3600.0,
+             verify=_tcmdb_fetch_verify, result=_tcmdb_fetch_result,
+             progress=_tcmdb_fetch_progress),
         Kind("tcmdb.build", ("构建数据集", "Build a dataset"), "minutes", _tcmdb_build_prepare,
              _tcmdb_build_command, timeout_s=6 * 3600.0, verify=_tcmdb_build_verify,
              result=_tcmdb_result),

@@ -38,15 +38,25 @@ head it read; given an earlier run's head, it refuses a ledger cut short since.
 The provenance record is what ``ProvenanceCapsule`` asks for and nothing filled before:
 snapshot ids (``dataset_hashes``), parameters and seed (``random_seed``), a digest of the
 analysis code, the PSH program fingerprint, and a digest of the result.
+
+The outputs are the nine exports of :mod:`bioagent.analysis.np_exports` (compounds,
+targets, disease targets, enrichment, the network's edge list, provenance with every edge
+traced to its snapshot record, limitations, report.html and ``run_manifest.json`` with the
+sixteen workflow stages), plus ``claims.json``, ``release.json``, ``disease.json`` (with a
+disease) and ``snapshot_lock.json``. None carries a timestamp: two runs on the same
+snapshots and ledger write the same bytes, and so does the command the manifest records to
+reproduce the run (``reproduce_exact`` says whether it carries every choice the run made).
+Whether this execution was given a lock is recorded in the manifest's ``execution`` block,
+not in ``provenance.json``: the reproducing command passes one, and the exports must not
+differ for it. ``provenance.json`` lists the digests of the skill run's own records
+(claims, release, disease); every export's digest is in ``run_manifest.json``.
 """
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import platform
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Mapping
@@ -58,6 +68,7 @@ from ..sources.snapshot import Snapshot, load_snapshot
 from ..tcmdb.spec import allows_commercial
 from .network_pharmacology import (FormulaNotRecorded, NetworkPharmacologyResult, Parameters,
                                     recorded_composition, run_network_pharmacology)
+from .np_exports import write_exports, write_manifest
 
 __all__ = ["run_skill", "SkillRunRefused", "read_lock", "LOCK_FILE"]
 
@@ -198,14 +209,67 @@ def _choose(recorded: dict[str, list[tuple[str, str]]], wanted: list[str],
     return chosen
 
 
-def _tsv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> str:
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        w = csv.writer(fh, delimiter="\t", lineterminator="\n")
-        w.writerow(columns)
-        for r in rows:
-            w.writerow([";".join(map(str, r[c])) if isinstance(r.get(c), (list, tuple))
-                        else r.get(c) for c in columns])
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+def _datatypes(text: str) -> str | tuple[str, ...]:
+    """``--disease-evidence`` as scripts/run_network_pharmacology.py reads it."""
+    names = tuple(p.strip() for p in str(text).split(",") if p.strip())
+    return names[0] if len(names) == 1 else names
+
+
+def _default_contract(contract: SkillContract) -> bool:
+    """Whether ``contract`` is the one the script loads when given no ``--skill``."""
+    from ..config import skills_dir
+    try:
+        default = SkillContract.load(skills_dir() / "tcm" / "network-pharmacology" / "skill.yaml")
+    except Exception:                                           # noqa: BLE001
+        return False
+    return default.as_dict() == contract.as_dict()
+
+
+def _reproduce(formula: FormulaVersion, params: Parameters, allowed: set[str] | None,
+               purpose: str, *, contract: SkillContract, governed: bool,
+               accept_review: bool) -> tuple[list[str], bool]:
+    """The command that runs this analysis again on the same snapshots (``OUT`` is this
+    run's directory, whose ``snapshot_lock.json`` pins them), and whether it reproduces
+    exactly this run. It cannot carry the parameters the script has no option for (pathway
+    sizes, FDR, screening thresholds other than the minimum compounds), another skill
+    directory, ``accept_review``, or a formula it cannot look up by id (an HKBU formula
+    needs ``--hkbu-formulas``, a path on this machine); with any of them not at the
+    script's default the command is recorded with ``reproduce_exact`` false, and the
+    manifest's ``parameters`` and ``formula`` are the record."""
+    argv = ["python", "scripts/run_network_pharmacology.py", "--snapshots", "SNAPSHOTS",
+            "--ledger", "LEDGER", "--out", "OUT2", "--lock", "OUT/snapshot_lock.json",
+            "--formula", formula.id, "--activity-max-nm", f"{params.activity_max_nm:g}",
+            "--string-min-score", f"{params.string_min_score:g}",
+            "--permutations", str(params.permutations), "--background", params.background,
+            "--hits", params.hits, "--screening-min-compounds",
+            str(params.screening_min_compounds),
+            "--disease-evidence", ",".join(params.evidence_datatypes),
+            "--disease-min-score", f"{params.disease_min_score:g}", "--seed", str(params.seed),
+            "--purpose", purpose]
+    for key in sorted(allowed or ()):
+        argv += ["--allow-source", key]
+    if not governed:
+        argv.append("--allow-ungoverned")
+
+    def value(flag: str) -> str:
+        return argv[argv.index(flag) + 1]
+
+    # the parameters the script would build from this command, read back as it reads them
+    try:
+        again = Parameters(activity_max_nm=float(value("--activity-max-nm")),
+                           string_min_score=float(value("--string-min-score")),
+                           permutations=int(value("--permutations")), seed=int(value("--seed")),
+                           background=value("--background"), hits=value("--hits"),
+                           screening_min_compounds=int(value("--screening-min-compounds")),
+                           disease_evidence=_datatypes(value("--disease-evidence")),
+                           disease_min_score=float(value("--disease-min-score")))
+    except ValueError:
+        again = None
+    looked_up = formula == GEGEN_QINLIAN or formula.id.startswith("tcm:formula.fx")
+    # an empty allowance cannot be written as options: without one the script's is unrestricted
+    exact = (again == params and looked_up and not accept_review
+             and (allowed is None or bool(allowed)) and _default_contract(contract))
+    return argv, exact
 
 
 def _composition_licences(herbs: Snapshot, formula: FormulaVersion, purpose: str) -> list[str]:
@@ -307,35 +371,26 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
     (out / LOCK_FILE).write_text(json.dumps(
         {"schema": 1, "snapshots": {s.key: s.snapshot_id for s in snapshots}},
         indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    files = {
-        "compounds.tsv": _tsv(out / "compounds.tsv", result.compounds,
-                              ["compound", "name", "level", "herbs", "sources"]),
-        "targets.tsv": _tsv(out / "targets.tsv", result.targets,
-                            ["target", "name", "measurements", "in_background", "disease_score",
-                             "compounds"]),
-        "enrichment.tsv": _tsv(out / "enrichment.tsv", result.enrichment,
-                               ["pathway", "name", "size", "in_background", "overlap", "p_value", "q_value",
-                                "empirical_p", "fold_enrichment", "targets"]),
-        "network.tsv": _tsv(out / "network.tsv", result.network["hubs"],
-                            ["target", "name", "degree", "betweenness"]),
-    }
+    files: dict[str, str] = {}
+    extra: dict[str, dict[str, Any]] = {}
     payloads = [("claims.json", result.claims), ("release.json", result.release)]
     if result.disease:
-        payloads.append(("disease.json", result.disease))
+        payloads.append(("disease.json", {k: v for k, v in result.disease.items()
+                                          if k != "genes"}))
     for name, payload in payloads:
-        (out / name).write_text(json.dumps(payload, ensure_ascii=False, indent=2),
-                                encoding="utf-8")
-        files[name] = "sha256:" + hashlib.sha256((out / name).read_bytes()).hexdigest()
-    (out / "limitations.md").write_text(
-        "# Limitations\n\n" + "\n".join(f"- {line}" for line in result.limitations) + "\n",
-        encoding="utf-8")
+        data = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        (out / name).write_bytes(data)
+        files[name] = "sha256:" + hashlib.sha256(data).hexdigest()
+        extra[name] = {"sha256": files[name], "bytes": len(data)}
+    lock = (out / LOCK_FILE).read_bytes()
+    extra[LOCK_FILE] = {"sha256": "sha256:" + hashlib.sha256(lock).hexdigest(),
+                        "bytes": len(lock)}
     provenance = {
         "skill": {"id": contract.id, "version": contract.version,
                   "max_claim_kind": contract.max_claim_kind},
         "formula": {"id": formula.id, "chinese": formula.chinese, "source": formula.source,
                     "fingerprint": formula.fingerprint, "license": composition_licences},
         "snapshot_lock": {s.key: s.snapshot_id for s in snapshots},
-        "lock_given": pinned is not None,
         "dataset_hashes": result.snapshots,
         "sources_refused": refused,
         # The third term of request ∩ enabled cards ∩ run allowance. ``None`` is not "no
@@ -349,22 +404,38 @@ def run_skill(*, skill_dir: str | Path, snapshot_root: str | Path, ledger_path: 
         "psh_program_fingerprint": compiled.fingerprint if compiled else None,
         "governed": compiled is not None,
         "result_digest": result.digest(),
-        "outputs": files,
+        # the skill run's own records, as written; every export's digest (these included)
+        # is in run_manifest.json, which is written after provenance.json and so can list it
+        "outputs": dict(files),
         "excluded": result.excluded,
-        "network": {k: v for k, v in result.network.items() if k != "hubs"},
+        "network": {k: v for k, v in result.network.items() if k not in ("hubs", "edge_list")},
         "background": result.background,
-        "disease": {k: v for k, v in result.disease.items() if k != "targets"},
+        "disease": {k: v for k, v in result.disease.items() if k not in ("targets", "genes")},
         "claims": {"candidates": len(result.claims),
                    "released": len(result.release["released"]),
                    "refused": len(result.release["refused"])},
-        "python": platform.python_version(), "finished_at": time.time(),
+        # no wall-clock time: the record is an export, and two runs must give its bytes
+        "python": platform.python_version(),
     }
     if usage is not None:
         # every asset, the record and terms relied on, each verdict: what a commercial
         # Runtime.invoke records on its policy event
         provenance["usage"] = usage.as_dict()
-    (out / "provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2),
-                                         encoding="utf-8")
+    data = json.loads(json.dumps(result.as_dict(), ensure_ascii=False, default=str))
+    data["digest"] = provenance["result_digest"]
+    argv, exact = _reproduce(formula, params, allowed, purpose, contract=contract,
+                             governed=compiled is not None, accept_review=accept_review)
+    exports = write_exports(
+        data, out, formula=formula, snaps=snapshots, provenance=provenance,
+        requested=wanted, refused=refused, reproduce=argv,
+        manifest={"runner": "skill", "skill": provenance["skill"],
+                  "program_fingerprint": provenance["psh_program_fingerprint"],
+                  "governed": provenance["governed"], "purpose": purpose,
+                  "reproduce_exact": exact})
+    # the returned record is provenance.json's run-level part, as written: nothing is added
+    # to it after the file is serialised
+    write_manifest(exports, outputs=extra,
+                   execution={"ledger_head": head, "lock_given": pinned is not None})
     if result.release["refused"]:
         raise SkillRunRefused(f"{len(result.release['refused'])} claim(s) refused at release; "
                               f"see {out / 'release.json'}")

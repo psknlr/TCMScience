@@ -255,6 +255,67 @@ rows. A relation points at the record it summarises, and statistics run on the m
   warning;
 - the unresolved rows are counted.
 
+### How a dataset's files are acquired: `tcmdb fetch` and Studio's acquisitions
+
+`python -m bioagent.cli tcmdb fetch <key>` and Studio's acquisition route
+(`POST /api/datasets/acquisitions {dataset}` on the local runner, a `tcmdb.fetch` job) both
+run `bioagent.acquisition.service.acquire_dataset`. Only a registered dataset's reviewed
+URLs are fetched, into the runner's own data directory; the browser's `/api/sources`
+gateway (8 MiB, 30 s) never carries these files. Each file goes through
+`acquisition.transfer.VerifiedTransfer`, and the hub's own checks (its disk check, its
+HTML refusal, its learning of a host the network policy refuses, its audit) apply as before:
+
+- **Resume onto the same file only.** The first answer's identity (a strong ETag,
+  Last-Modified and that answer's Date, the size) is kept in `<name>.part.json`. A later
+  fetch sends `Range: bytes=N-` with `If-Range` (the ETag; a date only when the Date shows
+  it is a strong validator, as RFC 9110 asks) and keeps only a `206` for exactly
+  `bytes N-(total-1)/total` whose ETag, or Last-Modified, is the recorded one, so a server
+  that ignores `If-Range` cannot join two files; a `200` (the file changed) restarts from
+  byte 0. A partial file with no usable validator is resumed only when a reviewed checksum
+  will check the joined file; otherwise it is dropped ("resume refused: identity
+  unverifiable"). A file joined from two releases is therefore never kept, even when the
+  two have the same size. A partial file that is already whole (a cancel after its last
+  block) is checked as it is, not downloaded again.
+- **Retries only for what is transient** (timeouts, dropped connections, 408, 425, 429,
+  5xx, with a server's `Retry-After` up to 60 s). 404 and 410 fail at once; a full disk
+  stops at once and keeps the partial file.
+- **The disk is checked against the server's size**, not only the declared one, before
+  any byte is requested; **a second transfer of the same file** (another job) is refused
+  while the first holds its lock.
+- **What arrived is read through before it is kept**: a gzip, bzip2 or xz stream to its
+  end (CRC and length), every member of a zip or xlsx through its CRC, a Parquet file's
+  magic at both ends, and a headerless table's first line against its spec (at least the
+  declared fields, as the store reads it; not for a file its reviewed checksum already
+  verified). A corrupt archive fails and is not kept.
+- **The record** (`raw/<key>/.downloads.json`, `audit/downloads.jsonl`) adds `sha256`,
+  `resumed`/`resumed_from`, `etag`, `last_modified`, `final_url`, `server`,
+  `retrieved_at`, the dataset's `release` and the restarts, without renaming a field.
+- **Stored once.** A file the research snapshots already hold (NPASS, CMAUP, LOTUS) is
+  adopted as a hard link when it hashes to its reviewed checksum, in either direction; a
+  file with no reviewed checksum is never adopted.
+- **Cancellation** (Studio's cancel, or SIGTERM) stops as soon as the next block arrives
+  and keeps the partial file and its identity record, so the next acquisition resumes it,
+  verified; a process a stalled server holds is ended 10 s after the cancel. Studio
+  refuses (`409`) a second acquisition of a dataset that is still being acquired.
+
+`TCMDataHub.fetch` (the Python method) keeps the plain `acquisition.downloader` it always
+used; call `acquire_dataset(hub, key)` for the rules above. The transfer rules are tested
+against an HTTP server on the loopback interface with real Range, ETag and If-Range
+semantics (`tests/test_acquisition_transfer.py`, `studio/runner/tests/test_datasets_api.py`);
+those tests are of the mechanics, not live downloads. The live evidence for real files is
+the live-data CI record (`bioagent/data/live_download_verification.json`).
+
+Licences are said as found: a dataset's `redistribution` is a reviewed licence record's
+statement when the record names that release (`registry/licence_records.yaml`; never for a
+dataset with no release or a rolling one), otherwise "unknown — downloading is not
+permission to redistribute". Nothing is copied to object storage:
+sharing downloaded files through a bucket or signed URLs is not implemented, since it
+could not be deployed or verified here and a shared copy of an unlicensed dataset would be
+redistribution.
+
+<!-- zh -->
+**数据文件怎样下载（中文摘要）**：`tcmdb fetch` 与 Studio 的数据获取（`POST /api/datasets/acquisitions`）只下载已登记数据集的审核 URL，存入 Runner 本机目录；只续传同一个文件（强 ETag 或经 Date 证明为强校验器的 Last-Modified，或审核校验和），压缩包保留前完整读一遍，同一文件同时只允许一个传输，取消后保留残留文件以便校验续传。许可未经审核记录确认的一律写“未知：能下载不等于允许再分发”。详见 [`tcm-data-integration-guide.md`](tcm-data-integration-guide.md) 的“数据文件怎样下载：`tcmdb fetch` 与 Studio 的数据获取”一节。
+
 ## Decisions that are not obvious
 
 - **Undocumented endpoints.** TCMBank, ITCM and TTD answer unauthenticated GET requests
@@ -681,8 +742,9 @@ Each of these commands records what it found:
 
 - `python scripts/verify_connectors.py --only <connector keys>` calls every operation of
   the named connectors and updates `data/connector_live_verification.csv`.
-- `python -m bioagent.cli tcmdb fetch <key>` re-downloads a dataset's files and records
-  their sizes and checksums in `raw/<key>/.downloads.json`.
+- `python -m bioagent.cli tcmdb fetch <key>` downloads a dataset's missing files (a file
+  already here is checked against its reviewed checksum or size again) and records their
+  sizes, checksums and how each was obtained in `raw/<key>/.downloads.json`.
 - `python -m bioagent.cli tcmdb build <key>` rebuilds a store and records the SHA-256 of
   every file it loaded.
 
