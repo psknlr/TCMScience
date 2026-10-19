@@ -158,7 +158,7 @@ async function main() {
       const nativeOut = path.resolve(args.nativeOut);
       report.comparison = compareExports(res.files || {}, (name) => (existsSync(path.join(nativeOut, name)) ? readFileSync(path.join(nativeOut, name)) : null));
       for (const r of report.comparison) {
-        console.error(`${r.status === "identical" ? "same  " : r.ok ? "near  " : "DIFFER"} ${r.name}: ${r.why}`);
+        console.error(`${["identical", "same_apart_from_execution", "same_as_json"].includes(r.status) ? "same  " : r.ok ? "near  " : "DIFFER"} ${r.name}: ${r.why}`);
         if (!r.ok) report.ok = false;
       }
       report.identical = report.comparison.every((r) => r.status === "identical" || r.status === "same_apart_from_execution" || r.name === "report.html");

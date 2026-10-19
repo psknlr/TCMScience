@@ -267,7 +267,7 @@ FAMILIES = [
      "browser jobs running the same Python as the runner (the permutation null is CPython's own MT19937 in "
      "WebAssembly, so it draws exactly what the runner draws); on the planted world the five tables are "
      "compared byte for byte with the native answer (studio/e2e/science.spec.mjs); on the real 葛根芩连汤 files "
-     "every export was the native run's bytes in live-data #18 (2026-10-19), a comparison repeated on every "
+     "every export was the native run's bytes in live-data #18 and #19 (2026-10-19), a comparison repeated on every "
      "live-data run",
      "parallel per-source snapshot builds across job workers"),
     ("Single-cell", "job.pipeline.scrna", "6",
