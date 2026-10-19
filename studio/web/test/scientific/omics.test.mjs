@@ -6,6 +6,7 @@
 // resumed job reusing its analysis, and run_pipeline as a job call.
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { IDBFactory } from "fake-indexeddb";
@@ -62,8 +63,8 @@ function workerClass(store, python) {
     async #answer({ id, op, payload }) {
       const reply = (result) => this.send({ id, ok: true, ms: 1, result });
       this.calls.push({ op, payload });
-      // the bundle it unpacked, as science.worker.js reports it: the boot's
-      if (op === "init") return reply({ runtime: "pyodide-314.0.7 / CPython 3.14.2", platform: "emscripten", machine: "wasm32", packages: ["pyyaml"], pyodide: { version: "314.0.7" }, bundle: { path: payload.boot.bundle.path, sha256: payload.boot.bundle.sha256 } });
+      // the Pyodide and the bundle it loaded, as science.worker.js reports them: the boot's
+      if (op === "init") return reply({ runtime: "pyodide-314.0.7 / CPython 3.14.2", platform: "emscripten", machine: "wasm32", packages: ["pyyaml"], pyodide: { version: payload.boot.pyodide.version }, bundle: { path: payload.boot.bundle.path, sha256: payload.boot.bundle.sha256 } });
       if (op === "packages") return reply({ packages: ["pyyaml", ...payload.names], versions: { ...VERSIONS, pyyaml: "6.0.3" } });
       if (op === "memory") return reply({ wasm_bytes: 200 << 20 });
       if (op === "mount") {
@@ -346,9 +347,15 @@ test("rnaseq: the inputs copied and checked, Python called on the mounted copies
   // the run's limitations, then where it was computed (the worker's versions), as the job carries them
   assert.deepEqual(done.limitations, [
     "Counts were given, not quantified here.", "The design has one factor.",
-    "Computed in this browser with Pyodide's numpy 2.4.6 and scipy 1.18.0; the native run is the reference. This run was not compared with one: on two simulated references the browser's numbers agreed with the native run's within a stated tolerance (studio/docs/BROWSER_JOBS.md §3.1), so a value near a threshold, such as an adjusted p-value near alpha, can fall on the other side here.",
+    "Computed in this browser with Pyodide's numpy 2.4.6 and scipy 1.18.0; the native run is the reference. Not compared with it here: on two simulated references the numbers matched within a stated tolerance (BROWSER_JOBS.md §3.1), so a value near a threshold (an adjusted p-value near alpha) may differ.",
   ]);
   assert.equal(done.limitations.at(-1), OMICS.computedLine(VERSIONS));
+  // the model reads each limitation clipped at 320 characters: the line is whole, whatever versions it names
+  for (const versions of [VERSIONS, {}, { numpy: "2.4.6" }, { numpy: "12.34.567rc1", scipy: "12.34.567rc1" }]) {
+    assert.ok(OMICS.computedLine(versions).length <= 320, OMICS.computedLine(versions));
+  }
+  assert.match(OMICS.computedLine({}), /Pyodide's numpy and scipy \(versions not reported\);/);
+  assert.match(OMICS.computedLine({ numpy: "2.4.6" }), /numpy 2\.4\.6 and scipy \(version not reported\);/);
 
   // the inputs, on the record and on the receipt: the digests of the bytes copied, and which project file they were
   const counts = files.recs[0];
@@ -559,7 +566,7 @@ test("a resumed job copies its inputs again and reuses its analysis when the out
   assert.ok(second.logs.some((l) => /analysis: its checkpoint does not verify, so it runs again \(the stage's inputs changed since its checkpoint\)/.test(l.text)));
 });
 
-test("a resumed job runs its analysis again when what computed it changed (numpy and scipy, the bundle); the limitations name what computed the outputs", async () => {
+test("a resumed job runs its analysis again when what computed it changed (numpy and scipy, the bundle, Pyodide); the limitations name what computed the outputs", async () => {
   const files = projectStore([["p1", "counts.tsv", COUNTS], ["p1", "samples.tsv", SAMPLES]]);
   let failVerify = true;
   const python = cannedPython(RNASEQ_OUT, { verify: () => (failVerify ? { status: "FAIL", checks: [], problems: ["not yet"], report: {} } : PASS) });
@@ -601,6 +608,18 @@ test("a resumed job runs its analysis again when what computed it changed (numpy
     assert.equal(kept.state, "succeeded");
     assert.deepEqual(reused(kept), [["inputs", false], ["analysis", true], ["verify", false]]);
     assert.equal(runs(), 4);
+
+    // the same bundle, numpy and scipy, on another Pyodide (the page reloaded with a new boot): again
+    failVerify = true;
+    const last = await second.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
+    assert.equal((await settle(second.svc, last.id)).state, "failed");
+    const third = await setup({ python, files, boot: { ...BOOT, pyodide: { ...BOOT.pyodide, version: "315.0.1" }, bundle: { ...BOOT.bundle, sha256: "b".repeat(64) } }, idb: first.idb, fake: first.fake });
+    failVerify = false;
+    await third.svc.resume(last.id);
+    const rerun = await settle(third.svc, last.id);
+    assert.equal(rerun.state, "succeeded", JSON.stringify(rerun.error));
+    assert.deepEqual(reused(rerun), [["inputs", false], ["analysis", false], ["verify", false]]);
+    assert.equal(runs(), 6, "the analysis ran again, on the new Pyodide");
   } finally {
     Object.assign(VERSIONS, before);
   }
@@ -640,6 +659,27 @@ test("the handlers' needsRunner agree with the catalog's runner_only rules, whic
     // without a call's arguments nothing is judged (tcmstudio.capability.runner_only(entry, None) is empty)
     assert.deepEqual(runnerOnly(entry, undefined), []);
   }
+});
+
+/**
+ * tcmstudio.catalog's runner_only rules for the two kinds (entry.execution.browser_job), or null when tcmstudio is not
+ * importable by $PYTHON or python3 (the runner's tests cover the catalog there).
+ */
+function catalogRunnerOnly() {
+  const script = [
+    "import json",
+    "from tcmstudio.catalog import get_entry",
+    "print(json.dumps({k: get_entry('job.' + k)['execution']['browser_job']['runner_only'] for k in ('pipeline.rnaseq', 'pipeline.scrna')}))",
+  ].join("\n");
+  for (const py of [process.env.PYTHON, "python3"].filter(Boolean)) {
+    try { return JSON.parse(execFileSync(py, ["-I", "-c", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60000 })); } catch { /* the next one */ }
+  }
+  return null;
+}
+const CATALOG_RUNNER_ONLY = catalogRunnerOnly();
+
+test("the test catalog's runner_only rules are tcmstudio.catalog's: the agreement above holds for the rules the page is given", { skip: CATALOG_RUNNER_ONLY ? false : "tcmstudio is not importable by $PYTHON or python3" }, () => {
+  assert.deepEqual(CATALOG_RUNNER_ONLY, { ...RUNNER_ONLY });
 });
 
 // ------------------------------------------------------------------------------------------------------- the page

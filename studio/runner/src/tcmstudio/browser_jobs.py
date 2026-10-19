@@ -39,8 +39,10 @@ parts and built-in Harmony. A call that asks for more (PyDESeq2, Scanpy, scVI, a
 an .h5ad, a directory) comes back refused with the reason, as the catalog's
 ``execution.browser_job.runner_only`` says, and is never run another way. So does an input
 larger than a browser worker holds (wasm32 caps its memory near 4 GB): more than
-``SC_CELLS_MAX`` cells, or more than ``RNASEQ_GENES_MAX`` genes or ``RNASEQ_SAMPLES_MAX``
-samples, counted from the tables before the analysis; and a run that runs out of memory
+``SC_CELLS_MAX`` cells, or a table of more than ``SC_TABLE_COUNTS_MAX`` cells x genes; a
+matrix of more than ``RNASEQ_COUNTS_MAX`` genes x samples (``RNASEQ_GENES_MAX`` genes,
+``RNASEQ_SAMPLES_MAX`` samples at most), counted from the tables a line at a time before the
+analysis; and a run that runs out of memory
 all the same (``MemoryError``) is refused with that reason, not reported as an error. A
 pipeline's refusal says what would run it in ``need``: ``runner`` (an engine or a format
 this browser does not hold), ``memory`` (too large for a browser worker), or null (the
@@ -78,13 +80,19 @@ _HITS = ("potency", "screening")
 #: The pipeline module of each pipeline job kind the browser runs (its ``verify_run``).
 _PIPELINES = {"pipeline.rnaseq": "bioagent.omics.rnaseq",
               "pipeline.scrna": "bioagent.omics.scrna"}
-#: The largest inputs a browser worker takes (wasm32 caps its memory near 4 GB). Measured in
-#: Pyodide 314.0.7: a single-cell run on 5,424 cells used 1.02 GB and one on 13,568 reached
-#: the ceiling; RNA-seq on 60,000 genes x 8 samples took 282 MB. Larger inputs are refused
-#: before the analysis, for the runner.
+#: The largest inputs a browser worker takes (wasm32 caps its memory near 4 GB), from whole
+#: runs in Pyodide 314.0.7 under Node (the WebAssembly memory at its peak). Single cell: the
+#: doublet scores hold one table's cells x genes densely, so that product is bounded per table
+#: as well as the cells: 5,424 cells in four tables of 1,356 x 33,000 genes, 1.9 GB; one table
+#: of 2,000 x 33,000, 2.2 GB (of 2,712 x 33,000, 3.1 GB: too near the ceiling); 13,568 cells
+#: of 1,200 genes reached it. RNA-seq: 10,000,000 counts (100,000 genes x 100 samples, 50,000
+#: x 200) took 2.0 and 1.8 GB, and 100,000 x 200 took 3.6 GB. Larger inputs are refused before
+#: the analysis, for the runner.
 SC_CELLS_MAX = 6000
+SC_TABLE_COUNTS_MAX = 66_000_000          # one table's cells x genes: 2,000 x 33,000
 RNASEQ_GENES_MAX = 100_000
 RNASEQ_SAMPLES_MAX = 200
+RNASEQ_COUNTS_MAX = 10_000_000            # genes x samples
 _HOLDS = "a browser worker can hold (wasm32, 4 GB): run it on the runner"
 
 
@@ -461,8 +469,9 @@ def run_rnaseq_counts(args: Mapping[str, Any], emit: Emit | None = None) -> dict
     contrast, an alpha of 0.0001 to 0.5), and a FASTQ sample sheet given as ``samples`` is
     refused in the runner's words (it runs without counts). ``de_backend`` ``pydeseq2`` is
     refused: this browser's Python has no PyDESeq2. So is a matrix of more than
-    ``RNASEQ_GENES_MAX`` genes or ``RNASEQ_SAMPLES_MAX`` samples, counted from its lines
-    before it is read in full, and a run that runs out of memory (``need`` ``memory``)."""
+    ``RNASEQ_COUNTS_MAX`` genes x samples, ``RNASEQ_GENES_MAX`` genes or
+    ``RNASEQ_SAMPLES_MAX`` samples, counted from its lines before it is read in full, and a
+    run that runs out of memory (``need`` ``memory``)."""
     from bioagent import runrecord
     from bioagent.omics.rnaseq import RNASeqError
     from bioagent.omics.rnaseq_counts import RNASeqCountsConfig, run_rnaseq_counts as run_counts
@@ -487,9 +496,12 @@ def run_rnaseq_counts(args: Mapping[str, Any], emit: Emit | None = None) -> dict
     header = _cells(first, tab_on_tie=False)
     samples = max(len(header) - (2 if header[1:2] == ["gene_name"] else 1), 0)
     size = f"{genes:,} genes x {samples:,} samples"
-    if genes > RNASEQ_GENES_MAX or samples > RNASEQ_SAMPLES_MAX:
-        return _refused(log, f"{size} exceed the {RNASEQ_GENES_MAX:,} genes x "
-                             f"{RNASEQ_SAMPLES_MAX} samples {_HOLDS}", "memory")
+    if (genes > RNASEQ_GENES_MAX or samples > RNASEQ_SAMPLES_MAX
+            or genes * samples > RNASEQ_COUNTS_MAX):
+        return _refused(log, f"{size} ({genes * samples:,} counts) exceed the "
+                             f"{RNASEQ_COUNTS_MAX:,} counts (genes x samples; at most "
+                             f"{RNASEQ_GENES_MAX:,} genes and {RNASEQ_SAMPLES_MAX} samples) "
+                             f"{_HOLDS}", "memory")
     config = RNASeqCountsConfig(design=choices["design"], contrast=contrast,
                                 de_backend=choices["de_backend"], alpha=choices["alpha"])
     log(f"rnaseq counts: {paths['counts']} ({size}) with the sample table "
@@ -524,8 +536,9 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
     backend and scVI (not in this browser's Python), and a 10x HDF5, .h5ad or Cell Ranger
     directory source, in the sheet or alone; the runner reads those (a directory without a
     Cell Ranger output's files is refused as the command refuses it). So are more than
-    ``SC_CELLS_MAX`` cells, counted from the tables' headers before any table is read in
-    full, and a run that runs out of memory (``need`` ``memory``)."""
+    ``SC_CELLS_MAX`` cells, and a table of more than ``SC_TABLE_COUNTS_MAX`` cells x genes,
+    counted from the tables a line at a time before any is read in full, and a run that runs
+    out of memory (``need`` ``memory``)."""
     import csv
     from pathlib import Path
 
@@ -577,10 +590,20 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
             if f.name.lower().endswith(suffix):
                 return _refused(log, f"{f.name}: {why}; the runner reads it, and count tables "
                                      "(CSV/TSV) run here", "runner")
-    # the cells, one per column after the gene names, before any table is read in full
-    cells = sum(max(len(_cells(_first_line(f)[0], tab_on_tie=True)) - 1, 0) for f in files)
+    # each table's cells (a column each after the gene names) and genes (its other lines),
+    # a line at a time, before any table is read in full
+    sizes = []
+    for f in files:
+        first, genes = _first_line(f, count=True)
+        sizes.append((f, max(len(_cells(first, tab_on_tie=True)) - 1, 0), genes))
+    cells = sum(n for _, n, _ in sizes)
     if cells > SC_CELLS_MAX:
         return _refused(log, f"{cells:,} cells exceed the {SC_CELLS_MAX:,} {_HOLDS}", "memory")
+    for f, n, genes in sizes:
+        if n * genes > SC_TABLE_COUNTS_MAX:
+            return _refused(log, f"{f.name}: {n:,} cells x {genes:,} genes ({n * genes:,} "
+                                 f"counts) exceed the {SC_TABLE_COUNTS_MAX:,} counts of one "
+                                 f"table {_HOLDS}", "memory")
     config = ScConfig(doublets=choices["doublets"], analysis_backend=choices["analysis_backend"],
                       integration_method=choices["integration"],
                       resolution=choices["resolution"], seed=choices["seed"],

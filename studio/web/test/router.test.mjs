@@ -281,6 +281,10 @@ test("run_pipeline's arguments as the runner's schema reads them: JSON text is t
   const viaTool = await r.call("call_tool", { tool: "run_pipeline", arguments: { pipeline: "rnaseq", arguments: JSON.stringify(counts) } }, { projectId: "p1", onApproval: async () => "once" });
   assert.equal(viaTool.status, "job_submitted");
   assert.deepEqual(submitted.at(-1).params, counts);
+  // call_tool's own arguments as JSON text: where it runs is said as call() reads them
+  const outer = { tool: "run_pipeline", arguments: JSON.stringify({ pipeline: "rnaseq", arguments: counts }) };
+  assert.equal(r.whereCall("call_tool", outer), "browser");
+  assert.equal((await r.call("call_tool", outer, { projectId: "p1", onApproval: async () => "once" })).status, "job_submitted");
 
   for (const [args, why] of [
     [{ pipeline: "rnaseq", ...counts }, /run_pipeline has no argument 'counts', 'samples'/],
@@ -308,6 +312,9 @@ test("run_pipeline naming no pipeline of the catalog is bad arguments with the p
     [{ pipeline: "Rnaseq", arguments: { counts: "c.tsv", samples: "s.tsv" } }, /pipeline must be one of rnaseq, scrna, fold; got "Rnaseq"/, /Did you mean 'rnaseq' for pipeline\?/],
     [{ arguments: { counts: "c.tsv", samples: "s.tsv" } }, /run_pipeline is missing the required argument 'pipeline' \(one of rnaseq, scrna, fold\)/, null],
     [{ pipeline: "deseq2", arguments: {} }, /pipeline must be one of rnaseq, scrna, fold; got "deseq2"/, null],
+    // given, but not as one of the names: never said to be missing
+    [{ pipeline: 5, arguments: {} }, /^pipeline must be one of rnaseq, scrna, fold; got 5$/, null],
+    [{ pipeline: "", arguments: {} }, /^pipeline must be one of rnaseq, scrna, fold; got ""$/, null],
   ]) {
     let approvals = 0;
     const env = await r.call("run_pipeline", args, { projectId: "p1", onApproval: async () => { approvals += 1; return "once"; } });
@@ -323,6 +330,32 @@ test("run_pipeline naming no pipeline of the catalog is bad arguments with the p
   assert.equal(submitted.length, 0, "no job was asked for");
   // not named yet (no call in view): still a place in the browser while its job service runs a pipeline
   assert.equal(r.where("run_pipeline"), "browser");
+});
+
+test("call_tool whose own arguments are not an object is bad arguments in the dispatcher's words, not a reason the call does not have", async () => {
+  const { r, submitted } = pipelineRouter();
+  for (const [args, why] of [
+    [{ tool: "job.pipeline.rnaseq", arguments: "counts.tsv" }, /^arguments are not valid JSON \(/],
+    [{ tool: "job.pipeline.rnaseq", arguments: '"counts.tsv"' }, /^arguments must be an object, not a string$/],
+    [{ tool: "job.pipeline.rnaseq", arguments: ["counts.tsv"] }, /^arguments must be an object, not a list$/],
+    [{ tool: "job.pipeline.rnaseq", arguments: 5 }, /^arguments must be an object, not a number$/],
+    [{ tool: "job.pipeline.rnaseq", arguments: "null" }, /^arguments must be an object, not null$/],
+  ]) {
+    let approvals = 0;
+    const env = await r.call("call_tool", args, { projectId: "p1", onApproval: async () => { approvals += 1; return "once"; } });
+    assert.equal(env.status, "failed", JSON.stringify(args));
+    assert.equal(env.error.type, "bad_arguments");
+    assert.match(env.error.message, why);
+    assert.doesNotMatch(env.text, /FASTQ|Connect the local runner/);
+    assert.equal(approvals, 0);
+    assert.equal(r.whereCall("call_tool", args), null);
+  }
+  assert.equal(submitted.length, 0);
+  // left out, null or blank: no arguments, judged as such (here: an RNA-seq call with no counts runs from FASTQ)
+  for (const args of [{ tool: "job.pipeline.rnaseq" }, { tool: "job.pipeline.rnaseq", arguments: null }, { tool: "job.pipeline.rnaseq", arguments: "  " }]) {
+    const env = await r.call("call_tool", args, { projectId: "p1", onApproval: async () => "once" });
+    assert.notEqual(env.error?.type, "bad_arguments", JSON.stringify(args));
+  }
 });
 
 test("compute Browser with the runner connected: a call whose arguments need the runner is refused for the setting, with the arguments' reason", async () => {
@@ -505,9 +538,10 @@ test("allow_remote as the dispatcher reads it: in arguments given as JSON text, 
   // approved, the runtime gets the object the text spells, as the dispatcher would have read it
   await r.call("call_tool", { tool: "native.scrna_cluster", arguments: text }, { projectId: "p", onApproval: async () => "once" });
   assert.deepEqual(runtimes.runner.calls[0].args, { tool: "native.scrna_cluster", arguments: { allow_remote: true, data: "x" } });
-  // anything else stays as it was given (the dispatcher refuses what is not an object)
-  await r.call("call_tool", { tool: "native.scrna_cluster", arguments: "[1, 2]" }, { projectId: "p", onApproval: async () => "once" });
-  assert.equal(runtimes.runner.calls[1].args.arguments, "[1, 2]");
+  // anything else is refused here as the dispatcher refuses it (not an object), and never sent
+  const list = await r.call("call_tool", { tool: "native.scrna_cluster", arguments: "[1, 2]" }, { projectId: "p", onApproval: async () => "once" });
+  assert.deepEqual([list.status, list.error.type, list.error.message], ["failed", "bad_arguments", "arguments must be an object, not a list"]);
+  assert.equal(runtimes.runner.calls.length, 1);
 });
 
 test("parallel calls that need the same approval ask once", async () => {

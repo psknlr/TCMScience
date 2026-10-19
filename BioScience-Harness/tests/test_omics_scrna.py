@@ -65,6 +65,55 @@ def test_normalised_values_are_refused(tmp_path):
         io.read_counts(p)
 
 
+@pytest.mark.parametrize("name, line_end", [("t.tsv", "\n"), ("t.csv.gz", "\r\n")])
+def test_a_table_read_a_row_at_a_time_is_the_matrix_parsed_whole(tmp_path, name, line_end):
+    """The reader keeps each row's non-zero counts only; the matrix is the one a parse of the
+    whole table gives (cells in rows, sorted CSR, float32), and a blank line is skipped."""
+    import csv
+    import gzip
+
+    rng = np.random.default_rng(3)
+    values = np.where(rng.random((40, 25)) < 0.3, rng.integers(1, 9, (40, 25)), 0)
+    values[5] = 0                                          # a gene with no counts at all
+    cells = [f"c{i}" for i in range(25)]
+    cells[3] = "c,3"                                       # a quoted header cell in the CSV
+    sep = "\t" if name.startswith("t.tsv") else ","
+    lines = [sep.join(['"gene"' if sep == "," else "gene"]
+                      + [f'"{c}"' if sep in c else c for c in cells])]
+    lines += [sep.join([f"G{g}"] + [str(v) for v in row]) for g, row in enumerate(values)]
+    lines.insert(7, "")
+    text = line_end.join(lines) + line_end
+    p = tmp_path / name
+    p.write_bytes(gzip.compress(text.encode(), mtime=0) if name.endswith(".gz")
+                  else text.encode())
+    m = io.read_counts(p)
+    whole = list(csv.reader(text.replace("\r\n", "\n").split("\n")[:-1], delimiter=sep))
+    expected = sparse.csr_matrix(np.array([[float(v) for v in r[1:]] for r in whole[1:] if r],
+                                          dtype=np.float64).T)
+    assert list(m.cells) == cells and list(m.gene_ids) == [f"G{g}" for g in range(40)]
+    assert m.counts.dtype == np.float32 and m.counts.has_sorted_indices
+    assert (m.counts != expected.astype(np.float32)).nnz == 0
+    assert m.counts.nnz == np.count_nonzero(values)
+
+
+def test_a_table_row_of_the_wrong_length_is_refused_with_the_counts(tmp_path):
+    p = tmp_path / "t.tsv"
+    p.write_text("gene\tc1\tc2\nG1\t1\t2\nG2\t3\n")
+    with pytest.raises(io.ScIOError, match=r"rows have 1 values for 2 cells"):
+        io.read_counts(p)
+
+
+def test_a_corrupt_file_of_a_cell_ranger_directory_is_refused(world, tmp_path):
+    """A 10x directory whose gzip is corrupt is refused with the reason, as a table is."""
+    d = tmp_path / "ctrl1"
+    shutil.copytree(world.root / "ctrl1", d)
+    raw = (d / "barcodes.tsv.gz").read_bytes()
+    (d / "barcodes.tsv.gz").write_bytes(raw[:20] + bytes(b ^ 0xFF for b in raw[20:60])
+                                        + raw[60:])
+    with pytest.raises(io.ScIOError, match=r"cannot be read to its end"):
+        io.read_counts(d)
+
+
 @pytest.mark.parametrize("how", ["corrupt", "truncated"])
 def test_a_gzipped_table_that_cannot_be_read_to_its_end_is_refused(tmp_path, capsys, how):
     """A corrupt deflate stream (zlib.error) or one cut short (EOFError) is refused with the

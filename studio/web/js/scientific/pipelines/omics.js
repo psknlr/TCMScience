@@ -44,8 +44,11 @@ const SHEET = /\.(csv|tsv|txt)$/i;
  * claims no tolerance for this run: none was compared with a native one, only the two simulated references were.
  */
 function computedLine(versions) {
-  const v = (name) => (versions?.[name] ? `${name} ${versions[name]}` : `${name} (its version was not reported)`);
-  return `Computed in this browser with Pyodide's ${v("numpy")} and ${v("scipy")}; the native run is the reference. This run was not compared with one: on two simulated references the browser's numbers agreed with the native run's within a stated tolerance (studio/docs/BROWSER_JOBS.md §3.1), so a value near a threshold, such as an adjusted p-value near alpha, can fall on the other side here.`;
+  const known = (name) => Boolean(versions?.[name]);
+  const what = !known("numpy") && !known("scipy") ? "numpy and scipy (versions not reported)"
+    : ["numpy", "scipy"].map((name) => (known(name) ? `${name} ${versions[name]}` : `${name} (version not reported)`)).join(" and ");
+  // kept under the 320 characters a job's limitation keeps when the model reads it (jobs-runtime limitsText)
+  return `Computed in this browser with Pyodide's ${what}; the native run is the reference. Not compared with it here: on two simulated references the numbers matched within a stated tolerance (BROWSER_JOBS.md §3.1), so a value near a threshold (an adjusted p-value near alpha) may differ.`;
 }
 const UMAP_LINE = "The UMAP layout is a picture of the graph: it amplifies last-digit differences and is not compared with the native run's";
 

@@ -140,11 +140,11 @@ export class ToolRouter {
     return this.placement(toolOrEntry, args).where;
   }
 
-  /** Where a call would run, resolving call_tool to the entry it names. */
+  /** Where a call would run, resolving call_tool to the entry it names (its arguments read as call() reads them). */
   whereCall(name, args = {}) {
-    const input = isPlainObject(args) ? args : {};
+    const input = this.#input(name, args);
     const r = this.resolve(name, input);
-    if (r.error || this.#badPipeline(r.target, entryArgs(name, input))) return null;
+    if (r.error || callToolArgumentsProblem(name, args) || this.#badPipeline(r.target, entryArgs(name, input))) return null;
     return this.placement(r.target, entryArgs(name, input)).where;
   }
 
@@ -371,14 +371,7 @@ export class ToolRouter {
 
   async #call(name, args, ctx = {}) {
     const { projectId = null, conversationId = null, signal, onApproval, callId = null } = ctx;
-    let input = isPlainObject(args) ? args : {};
-    // call_tool's arguments as JSON text run as the object they spell (the dispatcher parses them): they are read, and
-    // approved, as that object here too; so are those of a core tool that maps to a family (run_pipeline's)
-    const family = String(this.catalog?.coreTool?.(name)?.maps_to || "").endsWith(".*");
-    if ((name === "call_tool" || family) && typeof input.arguments === "string") {
-      const parsed = objectArgument(input.arguments);
-      if (parsed) input = { ...input, arguments: parsed };
-    }
+    const input = this.#input(name, args);
     const r = this.resolve(name, input);
     if (r.renamed && !r.error) {
       const env = await this.call(r.renamed.name, r.renamed.args, ctx);
@@ -405,7 +398,8 @@ export class ToolRouter {
       }), this.#provenance({ where: null, reason: "not_found" }));
     }
     const callArgs = entryArgs(name, input);
-    const bad = this.#badPipeline(r.target, callArgs);
+    const problem = callToolArgumentsProblem(name, args);
+    const bad = problem ? { message: problem, hint: 'Pass the arguments as a JSON object, e.g. {"name": "黄芪"}.' } : this.#badPipeline(r.target, callArgs);
     if (bad) {
       // as the runner's schema check refuses it: before it is placed, and before anyone is asked to approve it
       return stamp(await synthEnvelope({
@@ -498,6 +492,19 @@ export class ToolRouter {
         error: { type: "runtime_error", message, hint: "" },
       }), prov);
     }
+  }
+
+  /**
+   * A call's arguments as they are read: call_tool's arguments as JSON text run as the object they spell (the
+   * dispatcher parses them), so they are read, and approved, as that object here too; so are those of a core tool that
+   * maps to a family (run_pipeline's).
+   */
+  #input(name, args) {
+    const input = isPlainObject(args) ? args : {};
+    const family = String(this.catalog?.coreTool?.(name)?.maps_to || "").endsWith(".*");
+    if ((name !== "call_tool" && !family) || typeof input.arguments !== "string") return input;
+    const parsed = objectArgument(input.arguments);
+    return parsed ? { ...input, arguments: parsed } : input;
   }
 
   /** receipt.execution additions: how the call was placed and which approvals it ran under. */
@@ -726,8 +733,8 @@ export class ToolRouter {
     const a = isPlainObject(args) ? args : {};
     const names = Object.keys(this.catalog?.byId || {}).filter((id) => id.startsWith(PIPELINE)).map((id) => id.slice(PIPELINE.length));
     const problems = [];
-    if (typeof a.pipeline !== "string" || !a.pipeline) problems.push(`run_pipeline is missing the required argument 'pipeline' (one of ${names.join(", ")})`);
-    else if (names.length && !names.includes(a.pipeline)) problems.push(`pipeline must be one of ${names.join(", ")}; got ${JSON.stringify(a.pipeline)}`);
+    if (a.pipeline === undefined) problems.push(`run_pipeline is missing the required argument 'pipeline' (one of ${names.join(", ")})`);
+    else if (typeof a.pipeline !== "string" || (names.length && !names.includes(a.pipeline))) problems.push(`pipeline must be one of ${names.join(", ")}; got ${JSON.stringify(a.pipeline)}`);
     const { problem } = pipelineArguments(a);
     if (problem) problems.push(problem);
     if (!problems.length) return null;
@@ -829,6 +836,28 @@ function browserJobStatusId(name, input) {
   const asks = name === "job_status" || name === "system.job_status" || (name === "call_tool" && ["job_status", "system.job_status"].includes(input.tool));
   const id = asks ? String(inner?.job_id || "") : "";
   return BROWSER_JOB_ID.test(id) ? id : null;
+}
+
+/**
+ * What the dispatcher refuses in call_tool's own `arguments` (tcmstudio.dispatch: the core schema's object check), or
+ * null: JSON text that does not parse, or anything that is not an object once parsed. Left out, null or blank text is
+ * no arguments. Refused here as there, before the call is placed and before anyone is asked to approve it.
+ */
+function callToolArgumentsProblem(name, args) {
+  if (name !== "call_tool" || !isPlainObject(args)) return null;
+  let value = args.arguments;
+  if (value === undefined || value === null || isPlainObject(value)) return null;
+  if (typeof value === "string") {
+    if (!value.trim()) return null;
+    try {
+      value = JSON.parse(value);
+    } catch (err) {
+      return `arguments are not valid JSON (${err.message})`;
+    }
+    if (isPlainObject(value)) return null;
+  }
+  const kind = value === null ? "null" : Array.isArray(value) ? "a list" : typeof value === "boolean" ? "a boolean" : typeof value === "number" ? "a number" : typeof value === "string" ? "a string" : typeof value;
+  return `arguments must be an object, not ${kind}`;
 }
 
 function entryArgs(name, input) {

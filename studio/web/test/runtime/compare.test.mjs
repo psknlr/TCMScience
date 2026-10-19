@@ -342,6 +342,9 @@ test("no result from the page: its failures, the rows it had shown and its conso
   assert.deepEqual(pageLines(failed), ["page   nothing in its console"]);
   assert.match(lostJob(failed, undefined, "pipeline.rnaseq"), /^the page's result has no pipeline\.rnaseq job/);
   assert.match(lostJob(failed, { state: "failed", error: { message: "worker lost" } }, "pipeline.scrna"), /^the pipeline\.scrna job ended failed in the browser \(worker lost\); its outputs were not read back/);
+  // past its wait the page records the job as it is: one still running has not ended, and is not said to have
+  assert.match(lostJob(failed, { state: "running", error: null }, "pipeline.rnaseq"), /^the pipeline\.rnaseq job had not ended when the page stopped waiting for it \(still running\); its outputs were not read back/);
+  assert.match(lostJob(failed, { state: undefined, error: null }, "pipeline.rnaseq"), /had not ended .*\(no state recorded\)/);
   assert.equal(lostJob({ ok: true, checks: [] }, { state: "succeeded", files: {} }, "pipeline.scrna"), null);
   assert.deepEqual(pageLines({ ok: true, checks: [] }), []);
 });

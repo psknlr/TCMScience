@@ -122,13 +122,17 @@ function noResult(res) {
   return Array.isArray(res?.checks) ? null : `no result came back from the page (${res?.failures?.[0] ?? "no failure recorded"})`;
 }
 
+/** The states a job ends in (science-check.mjs waitFor); past its wait the page records a job in whatever state it is. */
+const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
+
 /** Why a job's receipt and outputs are not there, when they are not: no result from the page, no such job in its
- * result, or a job that did not succeed → text | null. */
+ * result, a job that did not succeed, or one that had not ended when the page stopped waiting → text | null. */
 export function lostJob(res, job, kind) {
   if (noResult(res)) return noResult(res);
   if (!job) return `the page's result has no ${kind} job (its checks say why)`;
-  if (!job.files) return `the ${kind} job ended ${job.state ?? "without a state"} in the browser${job.error?.message ? ` (${job.error.message})` : ""}; its outputs were not read back`;
-  return null;
+  if (job.files) return null;
+  if (!ENDED.includes(job.state)) return `the ${kind} job had not ended when the page stopped waiting for it (${job.state ? `still ${job.state}` : "no state recorded"}); its outputs were not read back`;
+  return `the ${kind} job ended ${job.state} in the browser${job.error?.message ? ` (${job.error.message})` : ""}; its outputs were not read back`;
 }
 
 const PAGE_ROWS = 40;
@@ -274,7 +278,9 @@ async function main() {
     for (const c of res.checks || []) console.error(`${c.ok ? "ok    " : "FAILED"} ${c.label}${c.detail ? `: ${c.detail}` : ""}`);
     for (const line of pageLines(res)) console.error(line);
     if (fx) {
-      report.comparison = [...compareFixture(res.report, fx.report), ...compareFixture(res.service_report, fx.report, "research.snapshot job: ")];
+      // no result from the page: one row saying so, not a snapshot each "browser undefined"
+      report.comparison = noResult(res) ? [{ name: "the snapshots", same: false, why: noResult(res) }]
+        : [...compareFixture(res.report, fx.report), ...compareFixture(res.service_report, fx.report, "research.snapshot job: ")];
       for (const r of report.comparison) {
         console.error(`${r.same ? "same  " : "DIFFER"} ${r.name}: ${r.why}`);
         if (!r.same) report.ok = false;

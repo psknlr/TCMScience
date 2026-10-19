@@ -797,8 +797,8 @@ def test_pipeline_arguments_are_held_to_the_runners_checks(fn, args, needle):
 
 
 def test_more_than_a_browser_worker_holds_is_refused_before_the_analysis(tmp_path, monkeypatch):
-    """wasm32 caps a worker near 4 GB: more cells, genes or samples than the measured limits
-    are refused for memory, counted from the tables (gzipped or not) before any is read in
+    """wasm32 caps a worker near 4 GB: more cells, counts in a table, genes, samples or counts
+    in a matrix than the measured limits are refused for memory, counted from the tables (gzipped or not) before any is read in
     full, and nothing is written."""
     import gzip
 
@@ -824,6 +824,17 @@ def test_more_than_a_browser_worker_holds_is_refused_before_the_analysis(tmp_pat
     assert refused("run_scrna", {"source": str(tmp_path / "sheet.csv")}) == (
         "6,001 cells exceed the 6,000 a browser worker can hold (wasm32, 4 GB): run it on the "
         "runner")
+    # and one table's cells x genes (the doublet scores hold it densely), its genes counted
+    # from its lines
+    (tmp_path / "t.csv").write_text("gene,c1,c2,c3\nCD3E,1,2,3\n\nMS4A1,0,1,0\n")
+    monkeypatch.setattr(browser_jobs, "SC_TABLE_COUNTS_MAX", 5)
+    assert refused("run_scrna", {"source": str(tmp_path / "t.csv")}) == (
+        "t.csv: 3 cells x 2 genes (6 counts) exceed the 5 counts of one table a browser worker "
+        "can hold (wasm32, 4 GB): run it on the runner")
+    monkeypatch.setattr(browser_jobs, "SC_TABLE_COUNTS_MAX", 6)
+    result = _ok(call("run_scrna", json.dumps({"source": str(tmp_path / "t.csv"),
+                                               "out_dir": str(tmp_path / "o1")})))
+    assert result["need"] != "memory", result
     # RNA-seq: 201 samples, or (the limit lowered here) more genes than it allows
     samples = [f"s{i}" for i in range(201)]
     counts = tmp_path / "counts.tsv"
@@ -833,13 +844,18 @@ def test_more_than_a_browser_worker_holds_is_refused_before_the_analysis(tmp_pat
         f"{s}\t{'a' if i % 2 else 'b'}\n" for i, s in enumerate(samples)))
     rna = {"counts": str(counts), "samples": str(tmp_path / "samples.tsv")}
     assert refused("run_rnaseq_counts", rna) == (
-        "3 genes x 201 samples exceed the 100,000 genes x 200 samples a browser worker can hold "
-        "(wasm32, 4 GB): run it on the runner")
+        "3 genes x 201 samples (603 counts) exceed the 10,000,000 counts (genes x samples; at "
+        "most 100,000 genes and 200 samples) a browser worker can hold (wasm32, 4 GB): run it on "
+        "the runner")
     monkeypatch.setattr(browser_jobs, "RNASEQ_SAMPLES_MAX", 201)
     monkeypatch.setattr(browser_jobs, "RNASEQ_GENES_MAX", 2)
-    assert refused("run_rnaseq_counts", rna).startswith("3 genes x 201 samples exceed the 2 genes")
-    # at the limit it runs (here: refused by the pipeline for what the table is, not for memory)
+    assert refused("run_rnaseq_counts", rna).startswith("3 genes x 201 samples (603 counts) exceed")
     monkeypatch.setattr(browser_jobs, "RNASEQ_GENES_MAX", 3)
+    monkeypatch.setattr(browser_jobs, "RNASEQ_COUNTS_MAX", 602)
+    assert refused("run_rnaseq_counts", rna).startswith(
+        "3 genes x 201 samples (603 counts) exceed the 602 counts")
+    # at the limit it runs (here: refused by the pipeline for what the table is, not for memory)
+    monkeypatch.setattr(browser_jobs, "RNASEQ_COUNTS_MAX", 603)
     result = _ok(call("run_rnaseq_counts", json.dumps({**rna, "out_dir": str(tmp_path / "o")})))
     assert result["need"] != "memory"
 
