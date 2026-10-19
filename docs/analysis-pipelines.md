@@ -19,7 +19,8 @@ runs, which are recorded but never released, until a person reviews and promotes
 
 Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
 job); network pharmacology also runs as browser jobs, with no runner (checked on a known answer and on fixture files;
-its real-data comparison with the native run has not completed a run yet: [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)),
+and on the real 葛根芩连汤 files, whose exports were the native run's bytes in `live-data` #18:
+[BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)),
 the others do not run in the browser, and none has a record from a deployed service. What has
 been exercised differs by engine:
 
@@ -764,7 +765,7 @@ data".
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
 
-**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案和夹具文件上检验；与原生运行的真实数据比对尚未完成一次运行，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)），其余流程不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)），其余流程不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
 **RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发，依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；

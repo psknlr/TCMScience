@@ -109,7 +109,7 @@ export class BrowserJobsRuntime {
     const env = {
       ok: true, tool, via: "system.job_status", status: "succeeded", duration_ms: 0,
       summary: t("ui.tool.job_state", { state: glossary.verdictState(job.state, undefined, "job") }),
-      text: `Job ${job.id} (in this browser): ${job.state}${tail}${files}${succeeded ? "" : " (no result yet)"}${job.error?.message ? `: ${job.error.message}` : ""}`,
+      text: `Job ${job.id} (in this browser): ${job.state}${tail}${files}${succeeded ? "" : " (no result yet)"}${job.error?.message ? `: ${job.error.message}` : ""}${succeeded ? limitsText(job.limitations) : ""}`,
       result: job, citations: [],
       governance: { kind: "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: succeeded ? [...(job.limitations || [])] : ["Pending: until the job has succeeded it has no result."], outputs: [] },
       receipt: baseReceipt({ where: "browser", runtime: "studio-jobs/1", input_sha256, kind: "system", outcome: "succeeded" }),
@@ -133,6 +133,19 @@ export class BrowserJobsRuntime {
       const timer = setTimeout(finish, ms);
     });
   }
+}
+
+/** A finished job's limitations as the model reads them, worded as the runner's envelope words them (envelope.py). */
+function limitsText(limitations) {
+  const list = (Array.isArray(limitations) ? limitations : []).map(String).filter(Boolean);
+  if (!list.length) return "";
+  const clip = (x) => {
+    const one = x.split(/\s+/).filter(Boolean).join(" ");
+    return one.length <= 320 ? one : `${one.slice(0, 319)}…`;
+  };
+  const lines = list.slice(0, 8).map((x) => `- ${clip(x)}`);
+  if (list.length > 8) lines.push(`- … ${list.length - 8} more in the UI`);
+  return `\nLimits (state these when you use this result):\n${lines.join("\n")}`;
 }
 
 function failed(tool, input_sha256, type, message, hint) {

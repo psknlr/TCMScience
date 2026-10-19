@@ -20,12 +20,12 @@
 // unless --pyodide-dir serves a copy at /pyodide/. Exit 0 only when every check passed.
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { compareExports } from "./compare.mjs";
 import { MIME, buildSite, headersFor, loadPlaywright, parseHeaders, runPage } from "./run.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -67,9 +67,6 @@ function compareFixture(browser, native, label = "") {
   return rows;
 }
 
-const RESEARCH_EXPORTS = ["compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv", "network.tsv",
-  "provenance.json", "run_manifest.json", "limitations.md", "report.html"];
-const TABLES = RESEARCH_EXPORTS.filter((n) => n.endsWith(".tsv"));
 
 function parseArgs(argv) {
   const a = { mode: "selftest", keep: false, timeoutMin: null };
@@ -126,32 +123,6 @@ function serve({ site, pyodideDir, raw }) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, origin: `http://127.0.0.1:${server.address().port}` })));
 }
 
-function sha256(buf) {
-  return `sha256:${createHash("sha256").update(buf).digest("hex")}`;
-}
-
-/** The browser's exports against the native run's, file by file. The manifest's execution block names the run itself
- * (its audit head, its artifact): compared apart from it. */
-function compareGqd(browserFiles, nativeOut) {
-  const rows = [];
-  for (const name of RESEARCH_EXPORTS) {
-    const nativePath = path.join(nativeOut, name);
-    const b = browserFiles[name];
-    if (!existsSync(nativePath) || !b) { rows.push({ name, same: false, why: !b ? "not written in the browser" : "no native file" }); continue; }
-    const native = readFileSync(nativePath);
-    const same = sha256(native) === b.sha256;
-    let why = same ? "identical bytes" : "the bytes differ";
-    let comparable = same;
-    if (!same && name === "run_manifest.json" && b.text) {
-      const strip = (doc) => { const d = JSON.parse(doc); delete d.execution; return JSON.stringify(d); };
-      comparable = strip(native.toString("utf8")) === strip(b.text);
-      why = comparable ? "identical apart from execution (the run's own audit head and artifact)" : "differs beyond execution";
-    }
-    rows.push({ name, same, comparable, why, browser: b.sha256, native: sha256(native) });
-  }
-  return rows;
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const built = args.site ? null : buildSite();
@@ -183,14 +154,14 @@ async function main() {
       }
       if (!res.report || !res.service_report) report.ok = false;
     }
-    if (args.mode === "gqd" && res.files) {
-      report.comparison = compareGqd(res.files, path.resolve(args.nativeOut));
+    if (args.mode === "gqd") {
+      const nativeOut = path.resolve(args.nativeOut);
+      report.comparison = compareExports(res.files || {}, (name) => (existsSync(path.join(nativeOut, name)) ? readFileSync(path.join(nativeOut, name)) : null));
       for (const r of report.comparison) {
-        console.error(`${r.same || r.comparable ? "same  " : "DIFFER"} ${r.name}: ${r.why}`);
-        if (TABLES.includes(r.name) && !r.same) report.ok = false;
-        // report.html restates the manifest's run-specific lines; everything else must match
-        if (!TABLES.includes(r.name) && !r.same && !r.comparable && r.name !== "report.html") report.ok = false;
+        console.error(`${r.status === "identical" ? "same  " : r.ok ? "near  " : "DIFFER"} ${r.name}: ${r.why}`);
+        if (!r.ok) report.ok = false;
       }
+      report.identical = report.comparison.every((r) => r.status === "identical" || r.status === "same_apart_from_execution" || r.name === "report.html");
     }
   } finally {
     await browser.close();

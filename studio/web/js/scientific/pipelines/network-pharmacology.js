@@ -230,7 +230,7 @@ export const researchRun = {
         for (const o of rec.outputs) ctx.artefact({ name: o.path.slice(1).join("/"), path: o.path, bytes: o.bytes, sha256: o.sha256 });
         s.worker = lease.id;
         // a resumed job starts with no limitations of its own: the reused artifact still says how it ran
-        await recordIsolation(ctx, s);
+        await recordLimits(ctx, s);
         return { ok: true, detail: `reused: its ${check.checked} outputs re-hash to the digests recorded when it ran` };
       };
       await ctx.stage("research", async (s) => {
@@ -260,7 +260,7 @@ export const researchRun = {
           throw e;
         }
         await ctx.store.writeJson(SUMMARY, summary);
-        await recordIsolation(ctx, s);
+        await recordLimits(ctx, s);
         return {
           detail: `${summary?.released ? "released" : "not released"}; ${summary?.stages?.length ?? 0} stages`, worker: lease.id,
           checkpoint: { inputs_digest: inputs, outputs: kept.files.map((f) => ({ path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 })) },
@@ -290,15 +290,32 @@ export const researchRun = {
   },
 };
 
-/** How the governed analysis ran, as the artifact itself records it (in this worker's process, through the PSH
- * broker): kept in the stage's record, and said as a limitation of the job when it ran in process. */
-async function recordIsolation(ctx, s) {
+// a run's limitations.md as the job carries it, as the runner's job service does (tcmstudio.jobs): at most this many
+// lines, each at most this long
+const LIMITATION_LINES = 100;
+const LIMITATION_CHARS = 1000;
+
+/** The non-empty lines of a limitations.md, held to the runner's bounds. */
+export function limitationLines(text) {
+  const lines = String(text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const out = lines.slice(0, LIMITATION_LINES).map((l) => (l.length <= LIMITATION_CHARS ? l : `${l.slice(0, LIMITATION_CHARS - 1)}…`));
+  if (lines.length > LIMITATION_LINES) out.push(`… and ${lines.length - LIMITATION_LINES} more in limitations.md`);
+  return out;
+}
+
+/** What the job says about the limits of its result: the lines of the run's limitations.md, then, from the artifact
+ * itself, how the governed analysis ran (in this worker's process, through the PSH broker), also kept in the stage's
+ * record. */
+async function recordLimits(ctx, s) {
+  const md = await ctx.store.readBytes([...ctx.dir, "out", "limitations.md"]).catch(() => null);
+  const lines = md ? limitationLines(new TextDecoder().decode(md)) : [];
   const execution = (await ctx.store.readJson([...ctx.dir, "out", "artifact.json"]).catch(() => null))?.provenance?.execution || {};
   const isolation = Object.fromEntries(Object.entries(execution).map(([stage, r]) => [stage, r?.isolation || r?.mode || null]));
   s.record({ isolation });
   if (Object.values(isolation).includes("in_process")) {
-    ctx.outcome({ limitations: ["The governed analysis ran in this browser's job worker process, through the PSH broker and its audit chain (isolation: in_process): a browser worker cannot start the isolated child process the runner uses. The analysis code and its inputs are the same; the artifact records this per stage."] });
+    lines.push("The governed analysis ran in this browser's job worker process, through the PSH broker and its audit chain (isolation: in_process): a browser worker cannot start the isolated child process the runner uses. The analysis code and its inputs are the same; the artifact records this per stage.");
   }
+  if (lines.length) ctx.outcome({ limitations: lines });
 }
 
 function onPythonEvent(ctx, ev, base, span) {

@@ -450,6 +450,54 @@ test("start(): a job left queued or running without a live tab's lock is interru
   assert.match(guessed.logs.at(-1).text, /Web Locks are missing here or could not be queried/);
 });
 
+test("a job another tab ends while this one recovers keeps its end; one left by a tab closed since start() is interrupted on the next read", async () => {
+  const idb = new IDBFactory();
+  const registry = new Map();
+  const base = { kind: "test.compute", where: "browser", params: {}, project_id: null, submission_id: null, title: { zh: "x", en: "x" }, started_at: null, finished_at: null, progress: null, artefacts: [], device: "cpu", outcome: null, result: null, receipt: null, error: null, logs: [], attempts: 1, stages: [] };
+  const ending = { ...base, id: "bj-00000000000000b1", state: "running", created_at: "2026-10-19T09:00:00.000Z" };
+  const closing = { ...base, id: "bj-00000000000000b2", state: "running", created_at: "2026-10-19T09:00:01.000Z" };
+  await seed(idb, [ending, closing]);
+  registry.set(lockName(ending.id), "tab-0");
+  registry.set(lockName(closing.id), "tab-0");
+  const { svc } = setup({ idb, registry, client: "tab-1" });
+  await svc.start();
+  assert.equal((await svc.get(ending.id)).state, "running", "tab 0 still runs it");
+  // tab 0 writes the job's end, then lets its lock go: this tab must read that end, not put an older copy back
+  await seed(idb, [{ ...ending, state: "succeeded", finished_at: "2026-10-19T09:05:00.000Z", receipt: { path: "job_receipt.json", sha256: "a".repeat(64) } }]);
+  registry.delete(lockName(ending.id));
+  const ended = await svc.get(ending.id);
+  assert.equal(ended.state, "succeeded");
+  assert.equal(ended.receipt.sha256, "a".repeat(64));
+  // tab 0 closes with the other job running: the next read here says interrupted, and it can be resumed
+  registry.delete(lockName(closing.id));
+  const left = await svc.get(closing.id);
+  assert.equal(left.state, "interrupted");
+  assert.match(left.logs.at(-1).text, /no open tab was running it/);
+  assert.deepEqual((await svc.list()).map((j) => [j.id, j.state]), [[closing.id, "interrupted"], [ending.id, "succeeded"]]);
+  const resumed = await svc.resume(closing.id);
+  assert.equal(resumed.state, "queued");
+  assert.equal((await settle(svc, closing.id)).state, "succeeded");
+});
+
+test("two resumes of one job at once: the second is refused, with or without Web Locks, and the job runs once", async () => {
+  for (const locks of [true, false]) {
+    const idb = new IDBFactory();
+    const failed = { kind: "test.compute", where: "browser", params: {}, project_id: null, submission_id: null, title: { zh: "x", en: "x" }, started_at: null, finished_at: "2026-10-19T09:01:00.000Z", progress: null, artefacts: [], device: "cpu", outcome: null, result: null, receipt: null, error: { type: "failed", message: "x" }, logs: [], attempts: 1, stages: [], id: "bj-00000000000000c1", state: "failed", created_at: "2026-10-19T09:00:00.000Z" };
+    await seed(idb, [failed]);
+    let runs = 0;
+    const { svc } = setup({ idb, run: async (p) => { runs += 1; return { ok: true, result: p.fn }; }, ...(locks ? {} : { locks: null }) });
+    const [a, b] = await Promise.allSettled([svc.resume(failed.id), svc.resume(failed.id)]);
+    assert.equal(a.status, "fulfilled", `${locks}: ${a.reason}`);
+    assert.equal(b.status, "rejected");
+    assert.equal(b.reason.type, "conflict");
+    assert.equal((await settle(svc, failed.id)).state, "succeeded");
+    assert.equal(runs, 1, "the job ran once");
+    // the queue is free for the next job
+    const next = await svc.submit("test.compute", {});
+    assert.equal((await settle(svc, next.id)).state, "succeeded");
+  }
+});
+
 /** Records written straight into the database, as an earlier page left them. */
 function seed(idb, records) {
   return new Promise((resolve, reject) => {

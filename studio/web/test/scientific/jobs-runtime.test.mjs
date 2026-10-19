@@ -3,6 +3,7 @@
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { limitationLines } from "../../js/scientific/pipelines/network-pharmacology.js";
 import { BrowserJobsRuntime, browserJobStatus, jobCall } from "../../js/scientific/runtime/jobs-runtime.js";
 
 const ID = "bj-0123456789abcdef";
@@ -41,10 +42,12 @@ test("job_status: a succeeded job carries its own limitations (in-process isolat
   assert.equal(done.ok, true);
   assert.deepEqual(done.governance.limitations, [limitation]);
   assert.match(done.text, /succeeded, 1 output file/);
+  // the model reads the text: the limits are in it, worded as the runner's envelope words them
+  assert.ok(done.text.endsWith(`\nLimits (state these when you use this result):\n- ${limitation}`), done.text);
   assert.equal(done.job.where, "browser");
   const running = await rt.call("job_status", { job_id: "bj-00000000aaaaaaaa" });
   assert.deepEqual(running.governance.limitations, ["Pending: until the job has succeeded it has no result."]);
-  assert.match(running.text, /running, 50% done \(no result yet\)/);
+  assert.match(running.text, /running, 50% done \(no result yet\)$/);
   const missing = await rt.call("job_status", { job_id: "bj-ffffffffffffffff" });
   assert.equal(missing.ok, false);
   assert.equal(missing.error.type, "not_found");
@@ -59,4 +62,13 @@ test("a refusal before anything is queued keeps its need: no snapshots here is n
   const other = await rt.call("call_tool", { tool: "job.pipeline.rnaseq", arguments: {} });
   assert.equal(other.error.type, "unavailable");
   assert.match(other.error.message, /not a job this browser runs/);
+});
+
+test("a run's limitations.md becomes the job's limitations as the runner's job service bounds them", () => {
+  assert.deepEqual(limitationLines("one\n\n  two  \n"), ["one", "two"]);
+  const long = limitationLines(`${"x".repeat(1200)}\n${Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n")}`);
+  assert.equal(long.length, 101);
+  assert.equal(long[0].length, 1000);
+  assert.ok(long[0].endsWith("…"));
+  assert.equal(long.at(-1), "… and 21 more in limitations.md");
 });

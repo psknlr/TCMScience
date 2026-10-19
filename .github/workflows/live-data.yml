@@ -35,9 +35,15 @@ on:
       - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
       - "BioScience-Harness/src/bioagent/data/formula_errata.json"
       - "studio/runner/src/tcmstudio/browser_jobs.py"
+      - "studio/runner/src/tcmstudio/datasets.py"
+      - "studio/runner/src/tcmstudio/kinds.py"
+      - "studio/runner/src/tcmstudio/webbuild.py"
+      - "studio/web/js/core/util.js"
       - "studio/web/js/scientific/**"
       - "studio/web/js/runtime/pyboot.js"
       - "studio/web/test/runtime/science*"
+      - "studio/web/test/runtime/compare.mjs"
+      - "studio/web/test/runtime/run.mjs"
       - ".github/workflows/live-data.yml"
 
 permissions:
@@ -167,9 +173,13 @@ jobs:
           for c in page.get("checks") or ():
               detail = str(c.get("detail") or "").replace("|", "/")[:160]
               print(f"| {c['label']} | {'ok' if c['ok'] else 'FAILED'} | {detail} | {c.get('ms') or ''} |")
-          print("\n| Export | Compared with the native run |\n|---|---|")
+          print("\n| Export | Status | Compared with the native run |\n|---|---|---|")
           for r in doc.get("comparison") or ():
-              print(f"| {r['name']} | {r['why']} |")
+              why = str(r.get("why") or "").replace("|", "/")[:300]
+              print(f"| {r['name']} | {r.get('status', '')} | {why} |")
+          if doc.get("comparison"):
+              print("\nevery export identical (the manifest apart from its execution block)" if doc.get("identical")
+                    else "\nnot every export is identical bytes: the rows above say which are within tolerance and what was set aside")
           receipt = page.get("receipt") or {}
           if receipt:
               print(f"\nreceipt: placement {receipt.get('placement')}, runtime {receipt.get('runtime')}, "

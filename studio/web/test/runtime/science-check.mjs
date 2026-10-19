@@ -153,8 +153,8 @@ async function gqd() {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const d = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
     const sha = `sha256:${[...d].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-    const text = /\.(json|md)$/.test(name) || name === "enrichment.tsv" ? new TextDecoder().decode(bytes) : undefined;
-    out.files[name] = { sha256: sha, bytes: bytes.byteLength, ...(text !== undefined && bytes.byteLength < 4e6 ? { text } : {}) };
+    // the text too, for science.mjs to compare cell by cell should the bytes differ (every export is text)
+    out.files[name] = { sha256: sha, bytes: bytes.byteLength, ...(bytes.byteLength < 16e6 ? { text: new TextDecoder().decode(bytes) } : {}) };
   }
   check("nine exports read back", Object.keys(out.files).length === RESEARCH_EXPORTS.length, Object.keys(out.files).join(", "));
 }

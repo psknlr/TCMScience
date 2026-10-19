@@ -266,8 +266,9 @@ FAMILIES = [
      "not yet measured",
      "browser jobs running the same Python as the runner (the permutation null is CPython's own MT19937 in "
      "WebAssembly, so it draws exactly what the runner draws); on the planted world the five tables are "
-     "compared byte for byte with the native answer (studio/e2e/science.spec.mjs); the real-data comparison of "
-     "every export with the native run is defined in live-data and has not completed a run yet",
+     "compared byte for byte with the native answer (studio/e2e/science.spec.mjs); on the real 葛根芩连汤 files "
+     "every export was the native run's bytes in live-data #18 (2026-10-19), a comparison repeated on every "
+     "live-data run",
      "parallel per-source snapshot builds across job workers"),
     ("Single-cell", "job.pipeline.scrna", "6",
      "100 MB–GBs; hours", "no", "runner",

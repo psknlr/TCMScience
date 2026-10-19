@@ -236,8 +236,10 @@ failures and the ways on.
   research command 0, or 1 for a release not authorised), the nine exports exist and are
   not empty, and `np_exports verify` exits 0. It asserts no figure: the README's headline
   figures for this formula come from runs outside CI and are not regression-checked. The
-  same research as browser jobs, compared export by export with this run, has not
-  completed a run yet.
+  same research as browser jobs (`research.snapshot` and `research.run` in headless
+  Chromium, Pyodide job workers, no runner), compared export by export with this run,
+  passed in `live-data` #18 (run 39251758718, 2026-10-19): every export the native run's
+  bytes, `run_manifest.json` apart from its execution block.
 - **The verified transfer, live**: tier 3 downloads through
   `acquisition.transfer.VerifiedTransfer` (resume only onto the same remote file, archives
   read through before a file is kept). In `live-data` #17 (2026-10-19) it fetched the 17

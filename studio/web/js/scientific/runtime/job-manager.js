@@ -204,6 +204,7 @@ export class BrowserJobService {
   #pumpTimer = null;
   #writes = new Map();
   #submissions = new Map();
+  #resuming = new Set();
 
   /**
    * indexedDB, locks (navigator.locks), pool (a ScienceWorkerPool), store (an OpfsStore), datasets (the dataset
@@ -283,29 +284,47 @@ export class BrowserJobService {
   /** Every job recorded as queued or running that no live tab holds the lock of → interrupted. */
   async #recover() {
     const open = (await this.#db.all()).filter((j) => (j.state === "queued" || j.state === "running") && !this.#runs.has(j.id));
-    if (!open.length) return;
-    const held = await this.#heldLocks();
-    for (const rec of open) {
-      if (held?.has(lockName(rec.id))) continue; // a live tab has it queued or running
+    for (const rec of open) await this.#reclaim(rec, { atStart: true });
+  }
+
+  /**
+   * A record that says queued or running for a job this tab does not run → the record as it now is: interrupted when
+   * no live tab runs it. The job's lock is taken first and the record read again under it, so a tab that is just
+   * ending the job (it writes its last record before it lets the lock go) is never overwritten, and only a record that
+   * still says queued or running is changed. Without Web Locks a job another open tab runs cannot be told apart: then
+   * only start() does this (as it always has, and says so in the job's log), never a later read.
+   */
+  async #reclaim(rec, { atStart = false } = {}) {
+    if (!this.#db || this.#runs.has(rec.id) || (rec.state !== "queued" && rec.state !== "running")) return rec;
+    if (!this.#locks && !atStart) return rec;
+    const lock = await this.#hold(rec.id);
+    if (!lock) return rec; // a live tab has it queued or running
+    if (!lock.held && !atStart) return rec; // the locks refused here (an opaque origin): only start() decides then
+    try {
+      const now = await this.#db.get(rec.id);
+      if (!now || (now.state !== "queued" && now.state !== "running") || this.#runs.has(rec.id)) return now || rec;
       const at = this.#iso();
-      for (const s of rec.stages || []) {
+      for (const s of now.stages || []) {
         if (s.status !== "running") continue;
         s.status = "cancelled";
         s.finished_at = at;
         s.detail = "interrupted: the page was closed while this stage ran";
       }
-      const was = rec.state;
-      rec.state = "interrupted";
-      rec.progress = null;
-      rec.error = {
+      const was = now.state;
+      now.state = "interrupted";
+      now.progress = null;
+      now.error = {
         type: "interrupted",
         message: `the page (or the browser) was closed while the job was ${was}; resume it to continue`,
         hint: "Resume the job: stages whose outputs still match their checkpoints are reused.",
       };
-      this.#appendLog(rec, held === null ? "warn" : "info", held === null
-        ? "interrupted: no tab was running it (Web Locks are missing here or could not be queried, so a job another open tab runs cannot be told apart)"
-        : "interrupted: no open tab was running it");
-      await this.#db.put(rec);
+      this.#appendLog(now, lock.held ? "info" : "warn", lock.held
+        ? "interrupted: no open tab was running it"
+        : "interrupted: no tab was running it (Web Locks are missing here or could not be queried, so a job another open tab runs cannot be told apart)");
+      await this.#db.put(now);
+      return now;
+    } finally {
+      lock.release();
     }
   }
 
@@ -456,6 +475,12 @@ export class BrowserJobService {
   async #execute(id) {
     const job = this.#jobs.get(id);
     const run = this.#runs.get(id);
+    if (!job || !run) {
+      // queued twice (two resumes where nothing could tell them apart): the first one ran it; this one has nothing to do
+      this.#running.delete(id);
+      this.#schedule();
+      return;
+    }
     const handler = this.#handlers.get(job.kind);
     run.controller = new AbortController();
     const forced = new Promise((_, reject) => { run.force = reject; });
@@ -990,7 +1015,8 @@ export class BrowserJobService {
     const live = this.#jobs.get(id);
     if (live) return this.#view(live);
     const rec = this.#db ? await this.#db.get(String(id)) : null;
-    return rec ? this.#view(rec) : null;
+    // a job left running by a tab that has closed since this one started is interrupted, not running for ever
+    return rec ? this.#view(await this.#reclaim(rec)) : null;
   }
 
   /** The jobs of a project (or all), newest first, at most `limit`. */
@@ -998,7 +1024,8 @@ export class BrowserJobService {
     await this.start();
     if (!this.#db) return [];
     const recs = project_id === undefined || project_id === null ? await this.#db.all() : await this.#db.byProject(project_id);
-    const byId = new Map(recs.map((r) => [r.id, r]));
+    const byId = new Map();
+    for (const r of recs) byId.set(r.id, await this.#reclaim(r));
     for (const j of this.#jobs.values()) if (project_id === undefined || project_id === null || j.project_id === project_id) byId.set(j.id, j);
     return [...byId.values()]
       .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
@@ -1131,10 +1158,23 @@ export class BrowserJobService {
 
   /** Queue an interrupted or failed job again → its view (attempts + 1). Its handler may reuse finished stages. */
   async resume(id) {
+    // one resume of a job at a time in this tab, whether or not Web Locks can tell two apart
+    if (this.#resuming.has(id)) throw typedError("conflict", `job ${id} is already being resumed`);
+    this.#resuming.add(id);
+    try {
+      return await this.#resume(id);
+    } finally {
+      this.#resuming.delete(id);
+    }
+  }
+
+  async #resume(id) {
     await this.start();
     if (await this.#busyHere(id)) throw typedError("conflict", `job ${id} is already queued or running`);
-    const rec = this.#db ? await this.#db.get(String(id)) : null;
-    if (!rec) throw typedError("not_found", `no job '${id}' in this browser`);
+    const found = this.#db ? await this.#db.get(String(id)) : null;
+    if (!found) throw typedError("not_found", `no job '${id}' in this browser`);
+    // left running by a tab that has closed: interrupted first, then resumed like any interrupted job
+    const rec = await this.#reclaim(found);
     if (rec.state !== "interrupted" && rec.state !== "failed") {
       throw typedError("conflict", `only an interrupted or failed job can be resumed; ${id} is ${rec.state}`);
     }
