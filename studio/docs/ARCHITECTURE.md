@@ -5,7 +5,12 @@ It gives every TCMScience capability (150 native tools, the governed skills, the
 data hub, 117 public connectors, the pipelines and structure engines, and the research loop) to a
 conversational agent. The agent's every claim stays inside what its evidence licenses.
 
-The server stays thin by design: **the computation runs on the user's own machine**.
+The server stays thin by design: **the computation runs on the user's own machine**, in the browser or on the local
+runner. The one exception is a runner job the user allows to call a third-party service (`allow_remote`, approved per
+call: structure prediction on ESM Atlas, for example). No remote compute environment is deployed: under the compute
+setting `remote` every call fails (status `failed`, `error.type` `unavailable`, `error.reason` `remote_not_configured`),
+except `catalog_search` and `capabilities_status`, which the page answers itself. The contract a remote backend would
+have to meet is in [REMOTE_COMPUTE.md](REMOTE_COMPUTE.md) (designed, not deployed).
 
 ```
                         ┌──────────────────────── science.impf.ai (one Cloudflare Worker) ───────────────────────┐
@@ -34,12 +39,19 @@ The server stays thin by design: **the computation runs on the user's own machin
 | Default model **Tao-S1** | the Worker relay on the same origin | the upstream key stays a Worker secret; the page never names the upstream vendor |
 | User's own model APIs | browser → provider directly, or via the runner's `/api/llm` proxy when the provider blocks browser calls (CORS) | keys never pass through science.impf.ai |
 | Local models | browser → local server directly (needs CORS on that server), or via the runner | inference on the user's GPU/CPU |
-| Pure-Python tools and pinned governed skills | **browser** (Pyodide) when no runner is connected, otherwise the runner | no install needed; same code, same content hashes |
-| Network connectors, the TCM data hub, long jobs, GPU | **runner** only | CORS, files, subprocesses, devices |
+| Pure-Python tools and pinned governed skills | **browser** (Pyodide) when no runner is connected, otherwise the runner | no install needed; the same code (compared with native CPython for a named subset: [compat/summary.md](compat/summary.md)) |
+| Public-database connectors | the **runner** when one is connected (`auto`); otherwise the **browser**, through the Worker's bounded `/api/sources` gateway when web access is on and the call approved | the request, its policy and the parsing run in Python on the device; only HTTP crosses the gateway ([BROWSER_ACCESS.md](BROWSER_ACCESS.md); levels per operation: [compat/connectors.md](compat/connectors.md)) |
+| TCM data hub queries | the **runner** when one is connected (`auto`); otherwise the **browser**, over the packaged stores and stores the user imports | building NPASS, CMAUP or LOTUS from their downloads is a runner job |
+| Bulk downloads, store builds, long jobs, native engines, GPU | **runner** only | files, subprocesses, devices; a runner GPU is reported by its driver, not verified by a computation |
+| Remote compute | **nowhere**: no backend is deployed | `remote` answers `remote_not_configured` and never falls back ([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)) |
 
-**The server never computes.** The Worker relays model calls and serves files. It does not receive tool calls or see
-uploaded data, and it stores a conversation only when its visitor agreed to the recording notice (`docs/TELEMETRY.md`):
-the page sends the record of each finished turn, without files, tool arguments or identifiers, and anonymous usage counts.
+**The server never computes.** The Worker relays model calls, serves files, and forwards approved database queries
+through its bounded gateway: their URLs, bodies and supported headers, and the responses, pass through it and are not
+retained (BROWSER_ACCESS.md). It runs no tool and stores no uploaded file. What the page sends to Tao-S1 (the messages,
+the tool results and the project's text files under 8 KB, which go with every message) passes through its relay, which
+does not keep it. It stores a conversation only when its visitor agreed to the recording notice (`docs/TELEMETRY.md`):
+the page sends the record of each finished turn, without files, tool arguments or identifiers, and anonymous usage
+counts.
 
 ## Components (directories)
 
@@ -73,5 +85,9 @@ the page sends the record of each finished turn, without files, tool arguments o
    once, for this project, or never. Signing a clinic draft is a human act and is never a tool.
 6. **No vendor named for Tao-S1.** The relay renames the model in both directions and rewrites
    upstream errors in its own words (the TaoChronos pattern).
+7. **`auto` is runner-first, and nothing falls back to a remote place.** A connected runner takes every
+   call it can run, so a project's governed runs write one durable audit chain. A remote compute
+   environment, when one exists, is chosen explicitly and approved separately (REMOTE_COMPUTE.md); today
+   none is deployed.
 
 See `CONTRACTS.md` for the wire formats and module interfaces, and `DESIGN.md` for the design system.

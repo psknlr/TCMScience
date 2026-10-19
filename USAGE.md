@@ -221,6 +221,15 @@ is what it releases. The reasons are listed in `limitations.md`. See
 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md) for results on
 real data.
 
+The same run is also read back as sixteen recorded workflow stages (formula identity to
+reproducible export, each PASS, FAIL, BLOCKED, UNVERIFIED, SKIPPED or NOT_APPLICABLE; GO
+annotation is SKIPPED because no GO snapshot is registered, KEGG is BLOCKED because its
+membership needs a licence) and written as nine exports, from `compounds.tsv` to
+`run_manifest.json` and `report.html`; `python -m bioagent.analysis.np_exports verify`
+re-checks them ([docs/analysis-pipelines.md](docs/analysis-pipelines.md)). This is the
+data-driven analysis; the seed skill `analyze-tcm-network-pharmacology` is a limited
+seed-corpus network hypothesis analysis, and is all that runs in Studio's browser mode.
+
 <!-- zh -->
 闭环分五个阶段：
 
@@ -239,6 +248,8 @@ real data.
 
 即使所有假说都被驳回，这次运行仍会发布，发布的就是这个阴性结果，原因写在 `limitations.md` 里。真实数据上的结果见 [docs/audit-2026-09-response.md](docs/audit-2026-09-response.md)。
 
+同一次运行还会被读回为十六个有记录的工作流阶段（从方剂身份到可复现导出，每个阶段为 PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED 或 NOT_APPLICABLE；GO 注释因未登记 GO 快照而为 SKIPPED，KEGG 因通路成员需要许可而为 BLOCKED），并写出九个导出文件，从 `compounds.tsv` 到 `run_manifest.json` 与 `report.html`；`python -m bioagent.analysis.np_exports verify` 可复核它们（见 [docs/analysis-pipelines.md](docs/analysis-pipelines.md)）。这才是数据驱动的分析；种子技能 `analyze-tcm-network-pharmacology` 只是有限种子语料网络假说分析，也是 Studio 浏览器模式中唯一能运行的网络药理学。
+
 ---
 
 ## Reading a `ResearchArtifact` · 如何阅读 `ResearchArtifact`
@@ -246,7 +257,7 @@ real data.
 ```
 normalize-tcm-entities@1.0.0
   question:   resolve 2 TCM name(s) to corpus entities
-  versions:   runtime=psh-0.5.3+bioagent-0.2.6|skill=...|source=1982...|benchmark=unversioned
+  versions:   runtime=psh-0.6.0+bioagent-0.2.7|skill=...|source=1982...|benchmark=unversioned
   sources:    1   evidence: 1   claims: 1   outputs: 1
   validation: publishable
   claim [attribution] 1 of 2 queried names resolve to an entity in the seed corpus

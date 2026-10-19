@@ -15,6 +15,40 @@ runs, which are recorded but never released, until a person reviews and promotes
 | ADMET: structures to properties, alerts and predicted endpoints | `bioagent admet` | below |
 | Network pharmacology: a formula to bounded mechanism hypotheses | `bioagent research` | below |
 
+## What is verified where
+
+Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
+job); none runs in the browser, and none has a record from a deployed service. What has
+been exercised differs by engine:
+
+| Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
+|---|---|---|---|---|
+| RNA-seq | built-in QC, trimming, quantification and DE; fastp, salmon, kallisto, HISAT2 + featureCounts; PyDESeq2; R's DESeq2 as the reference | the built-in path; PyDESeq2 in a separate environment | "Analysis pipelines with the standard tools" | `omics_world` v1: **simulated**, known answer |
+| Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path, Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
+| Structure | ESM Atlas (remote, `--allow-remote`), local ESMFold, ColabFold | the 1UBQ reference from the stored ESM Atlas model, offline; no local ESMFold weights, no ColabFold | "Analysis pipelines with the standard tools" (TM-align comparison) | PDB 1UBQ (public) |
+| Docking | AutoDock Vina 1.2, meeko, RDKit, gemmi | RDKit and meeko, with a stand-in for Vina that the tests name | "Molecular modelling with the standard tools" (real Vina, 3PTB redocking) | the 3PTB pocket (public) |
+| ADMET | RDKit, scikit-learn, models trained from the TDC archive | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy | "Molecular modelling with the standard tools" | the TDC ADMET group (public, a download) |
+| Network pharmacology | `bioagent.research` on ledger-verified snapshots | planted worlds and fixtures only (`+planted`, `+fx`) | the unit tier; real data in `live-data.yml`: defined, never executed | planted worlds: **simulated**, known answer |
+
+Since stages and references were added (2026-10-18), the engine jobs also run
+`tests/test_runrecord.py` and `tests/test_pipeline_references.py`. Those two files need no
+engine (the RNA-seq and single-cell references pin the built-in backends; the docking one
+compares its fixture's digest), so they check the records and the reference results, not
+the engines; the engines are checked by each job's own tests. Those jobs have not run since
+then: every CI run from `ci` #282 and `live-data` #11 (2026-10-11, 20:06 UTC) onwards ended
+before a job was given a runner ([validation.md](validation.md)). Remote compute for these pipelines is designed, not
+deployed ([studio/docs/REMOTE_COMPUTE.md](../studio/docs/REMOTE_COMPUTE.md)).
+
+Three things hold whatever the engine:
+- The built-in DESeq2 implementation, PyDESeq2 and R's DESeq2 implement the same method
+  but do not give numerically identical results; how far they agree, and where they
+  differ, is measured in [omics-backends.md](omics-backends.md), and each run's
+  `limitations.md` says so.
+- A docking score is the scoring function's estimate, never a measured affinity.
+- An ADMET prediction outside its model's applicability domain is flagged and unreliable,
+  and a structure prediction is never replaced by a retrieved structure: a reference is
+  only compared with.
+
 ## RNA-seq: FASTQ to differential expression
 
 ```bash
@@ -118,6 +152,9 @@ it in the table.
 - The built-in steps read about 10^5 reads per second. For large libraries, use the
   standard tools.
 - The design is additive only: no interaction terms or LRT.
+- The built-in test, PyDESeq2 and R's DESeq2 are not numerically identical; with three or
+  fewer residual degrees of freedom the built-in test does not reproduce R's calls
+  ([omics-backends.md](omics-backends.md)).
 
 ## Single-cell: count matrices to an annotated atlas
 
@@ -536,10 +573,11 @@ A table with nothing in it is written with its header. The research loop also wr
 - `tests/test_np_workflow.py` runs on the planted worlds (`bioagent.research.planted`) and
   the fixture of `tests/test_network_pharmacology.py`. They are fixtures, built under
   `+planted` and `+fx` versions, not data.
-- Real data: the `live-data` CI workflow downloads the real NPASS, CMAUP, LOTUS, STRING and
-  Reactome files on GitHub's runners and runs 葛根芩连汤 through the research job. It uploads
-  the nine exports and runs `verify` on them. Nothing in this repository's offline tests is
-  a real-data result.
+- Real data: the `live-data` CI workflow is defined to download the real NPASS, CMAUP, LOTUS,
+  STRING and Reactome files on GitHub's runners, run 葛根芩连汤 through the research job,
+  upload the nine exports and run `verify` on them. That step has never been executed: no
+  `live-data` run since it was added has been given a runner ([validation.md](validation.md)).
+  Nothing in this repository's offline tests is a real-data result.
 
 ### What a result is
 
@@ -695,7 +733,10 @@ incomplete, though descriptors, rules and alerts are still written.
 dataset per pipeline: its content digests, the parameters it is run with, and the
 values expected from it. It also holds output digests, which are compared only under the
 numpy and scipy they were recorded with. `tests/test_pipeline_references.py` re-runs the
-references wherever their engines exist.
+RNA-seq and single-cell references with the built-in backends and the structure reference
+offline, compares the docking reference's fixture digest (the redocking itself is in
+`tests/test_docking.py`, which needs Vina), and runs the ADMET reference only where its
+archive is given.
 
 | Pipeline | Reference | Kind | Where it is checked |
 |---|---|---|---|
@@ -712,6 +753,8 @@ data".
 ## 中文摘要
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
+
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务），都不在浏览器中运行，也都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq 与单细胞的内置路径，以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。自 `ci` #282 与 `live-data` #11（2026-10-11 20:06 UTC）起，CI 运行都在分配运行器之前结束，这些测试尚未在 CI 中运行。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
 **RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发，依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
@@ -808,7 +851,7 @@ data".
 - 被方案丢弃的数据源会使读取它的每个阶段为 UNVERIFIED 并附上偏离记录；技能合同请求、但本次运行拒绝的数据源（如 `--allow-source` 未列入）由读取它的每个阶段注明，并在 `limitations.md` 中占一行。未读到数据的阶段绝不会是 PASS，空结果也绝不会是 PASS（读到 STRING 但背景中没有实测靶点时，PPI 与拓扑阶段为 UNVERIFIED：无法构建网络，不是“无相互作用”的证据），缺失的数据集也绝不当作阴性证据。未指定疾病时，疾病阶段为 NOT_APPLICABLE；Open Targets 快照被拒绝时为 SKIPPED。在 `stages.json` 中，无可检验对象的阶段记为 `not_applicable`，因此“什么都无法检验”的运行不是 `complete`；检验了通路但无一显著的运行是完整的。
 - 九个导出文件：`compounds.tsv`、`targets.tsv`、`disease_targets.tsv`、`enrichment.tsv`、`network.tsv`（STRING 阈值以上的边列表，而非枢纽列表）、`provenance.json`（每条边追溯到快照记录）、`limitations.md`、`report.html` 与最后写出的 `run_manifest.json`（`tcmscience.run-manifest/1`：十六个阶段、每个输出的 SHA-256 与大小、快照 ID、参数、种子、代码摘要、方案摘要、复现命令，以及只记录本次执行身份的 `execution` 块，即审计链头与 `artifact.json` 摘要）。导出不含时间戳，两次全新运行字节相同；空表只写表头。
 - 复核：`python -m bioagent.analysis.np_exports verify RUN --snapshots DIR --ledger FILE` 复核清单摘要，并从表格自身各列重算每个 p 值与 q 值，再在清单所列快照上重跑分析，表格须逐字节一致。`verify` 全部通过时退出 0，有检查与运行相矛盾时退出 1，无矛盾但有检查无法进行（未给快照，或富集表为空、无可重算）时退出 3。任一阶段自身检查为 FAIL 时，`bioagent research` 退出 3。Studio 的 `research.run` 在退出码 0 与 1 时都要求这九个文件，退出码 3 使任务失败；其校验器重读清单中的每个摘要（不经符号链接，只读普通文件），运行后被改动的表格、或清单中列为 FAIL 的阶段，都会使任务检查失败。
-- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。真实数据由 `live-data` CI 工作流在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。
+- 测试在植入世界（`bioagent.research.planted`）与测试夹具上运行，它们是夹具，不是数据。`live-data` CI 工作流中已定义真实数据用例：在 GitHub 运行器上下载真实的 NPASS、CMAUP、LOTUS、STRING 与 Reactome 文件，对葛根芩连汤运行研究任务，上传九个导出并执行 `verify`。但这一步从未执行过：加入之后的 `live-data` 运行都没有分配到运行器（见 [validation.md](validation.md)）。
 - 空结果会说明属于哪一种：「在这些快照中未找到 N 个成分的任何实测靶点，因此无法检验富集；这是空结果，不是无活性的证据」，或「已检验通路，但没有通路同时通过 BH 与置换检验」——这是缺乏富集证据，而不是任何通路无关的证据。被发布的结论只能是 `mechanism_hypothesis`（机制假说）；适应证重叠与拓扑只作描述，不构成结论。
 
 **运行记录：阶段、完整性与局限。** 每个流程在运行中逐阶段记录（`bioagent.runrecord`）。每个阶段记录以下字段：

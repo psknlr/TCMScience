@@ -38,8 +38,7 @@
 [![CI](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml/badge.svg)](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2d4a7a.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2d4a7a.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-3%2C902%20passing-2c7560.svg)
-![Kernel](https://img.shields.io/badge/kernel-PSH%200.5.3-9a6428.svg)
+![Kernel](https://img.shields.io/badge/kernel-PSH%200.6.0-9a6428.svg)
 
 </div>
 
@@ -144,7 +143,7 @@ TCMScience 主要不是一个「工具多」的生物医学智能体。它是一
 
 ## 主要结果：葛根芩连汤案例
 
-用随包的网络药理学 Skill 在公开数据上对这首方剂（按《伤寒论》记载：葛根、黄芩、黄连、甘草）做了完整分析。数据来源：组成用 NPASS、CMAUP、LOTUS；活性用整理的实测效价和 PubChem BioAssay；生物学用 Reactome、STRING；适应症用 Open Targets。四味药的标志成分（葛根素、黄芩苷、小檗碱、甘草酸）在三个组成数据源中全部找到。
+用受治理的 `tcm.network-pharmacology` Skill（不是有限种子语料 Skill）在公开数据上对这首方剂（按《伤寒论》记载：葛根、黄芩、黄连、甘草）做了完整分析。数据来源：组成用 NPASS、CMAUP、LOTUS；活性用整理的实测效价和 PubChem BioAssay；生物学用 Reactome、STRING；适应症用 Open Targets。四味药的标志成分（葛根素、黄芩苷、小檗碱、甘草酸）在三个组成数据源中全部找到。
 
 **1 · 常见的富集结论可以用「检测覆盖」解释。** 1,792 个成分；391 个人类蛋白有实测效价，其中 237 个 ≤ 10 µM。
 
@@ -168,6 +167,8 @@ TCMScience 主要不是一个「工具多」的生物医学智能体。它是一
 
 用文献定义得到的富集是循环论证：成分—靶点数据和文本挖掘研究的是同一批热门蛋白。所以流程默认使用遗传证据，选用文献时会给出警告。完整方法、敏感性分析与局限见[设计规范](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md)。
 
+*尚无回归检查。* 以上数字来自设计规范中记录的、在下载文件上于 CI 之外完成的运行。`.github/workflows/live-data.yml` 中为这首方剂定义的真实数据用例（研究任务的十六个阶段与九个导出文件，再执行 `verify`）已经写好，但尚未执行过（见 [docs/validation.md](docs/validation.md)）。
+
 ## 证据治理
 
 <p align="center">
@@ -190,7 +191,7 @@ cd BioScience-Harness && python examples/run_skills.py
 # … 5/5 artifacts passed the publication gate
 ```
 
-作为库安装（Python ≥ 3.11）。`[test]` 不能省：少了 `hypothesis`，PSH 有 11 个测试模块会被静默跳过。
+作为库安装（Python ≥ 3.11）。`[test]` 不能省：少了 `hypothesis`，PSH 基于性质的测试模块会被跳过或无法收集。
 
 ```bash
 pip install -e "PSH-Harness[test]"          # 可信内核
@@ -239,7 +240,7 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 # 从 FASTQ 到差异表达报告的 RNA-seq 流程（docs/analysis-pipelines.md）
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
-# 测试：PSH 1380 · BioScience 2522（单元层）
+# 测试：PSH 全部测试；BioScience 单元层（不需要数据湖，不联网）
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -252,6 +253,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 大语言模型不应同时是自己的规划器、执行器、安全策略、证据裁判和发布权威。因此 TCMScience 分为三个平面（见上图）：
 
 - **可信内核（[PSH-Harness](PSH-Harness)）**：在入口给数据打标签，每个请求都与策略格求交，把计划编译成有类型、有边界的程序，所有模型、工具和委派调用都经过同一个网关，输出在发布前隔离。审计记录是哈希链。
+- **科学编译器（[PSH-Harness](PSH-Harness/docs/V6_SCIENTIFIC_COMPILER.md)）**：位于内核之前，而不是旁边：一个研究计划在花费任何资源*之前*就被类型检查并拒绝。动物实验不能许可人体疗效主张；不依赖其方案节点的分析不算预注册；超出来源人群的主张是错误，两个人群都会被写明。71 个诊断码，每个都附有修正办法。
 - **科学家平面（[psh.scientist](PSH-Harness/src/psh/scientist)）**：
   - 假说、预注册方案和观察都是带内容哈希的记录。
   - 世界模型记录哪些解释相互竞争、哪些观察涉及哪个解释。
@@ -265,7 +267,7 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 |---|---|
 | `normalize-tcm-entities` | 在名称有歧义时替你选：「姜」可能是生姜或干姜，是两味不同的药。 |
 | `retrieve-tcm-evidence` | 下判断：空结果不等于「无效」，未评估的偏倚保持 `NOT_ASSESSED`。 |
-| `analyze-tcm-network-pharmacology` | 混淆预测与实测：预测靶点和实测靶点分开存放，只提出机制*假说*。 |
+| `analyze-tcm-network-pharmacology` | 混淆预测与实测：预测靶点和实测靶点分开存放，只提出机制*假说*。它是有限种子语料网络假说分析：不覆盖任何数据库，没有实测活性。 |
 | `assess-tcm-safety` | 回答「安全」：没有记录不等于安全；十八反按药对组合检查。 |
 | `tcm.network-pharmacology` | 不带对照地报告富集：在账本校验过的快照上运行上面的案例，并写出完整溯源。 |
 
@@ -319,6 +321,39 @@ cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -
 | UniProt（人类，已审阅） | Swiss-Prot 主号，用于映射 PubChem 的基因号 | CC BY 4.0 |
 | Reactome | 通路成员 | CC0 |
 | Open Targets 26.09 | 靶点—疾病关联 | CC0 |
+
+大文件由 Runner 获取，从不经过浏览器的查询网关。中断的下载只在确认是同一个远程文件时才续传（`If-Range` 带强 ETag 或 Last-Modified 日期，且 `Content-Range` 完全吻合），或者有经审核的校验和能核对拼接后的文件；否则从头重新下载。压缩包在保留之前完整读一遍（gzip、bzip2、xz 读到结尾，zip 逐个核对 CRC）。Runner 的 `/api/datasets` 接口只获取已登记的数据集，从不接受 URL 或路径。对象存储（R2）和按 accession 从 ENA 下载都没有实现。新的传输只在本机回环服务器上测试过，还没有做过任何一次真实的在线运行。
+
+### Studio：浏览器与本机 Runner
+
+TCMScience 通过浏览器提供对已登记科学能力的访问（[Studio](studio/README.md)）。轻量工具经 Pyodide、WebAssembly 和部分 WebGPU 内核在本地运行；资源密集的流程需要配置好的本机 Runner，或经授权的远程计算环境。目前没有部署任何远程计算环境：计算目标设为 `remote` 时，回答是 `remote_not_configured`（[契约：已设计，未部署](studio/docs/REMOTE_COMPUTE.md)）。
+
+| 能力 | 状态 | 依据 |
+|---|---|---|
+| 浏览器中的 Python 工具、受治理 Skill 与临床辨证（Pyodide，CPU） | 已实现，已测试 | CI 的浏览器端到端测试；在 CI 中 Pyodide 的 CDN 不可达时测试失败，而不是跳过。与本机 CPython 的输出对比只覆盖列明的一部分，由手动运行的运行时核对完成（[兼容矩阵](studio/docs/compat/summary.md)）。没有来自已部署站点的记录 |
+| 7 个序列工具的精确 JavaScript 与 WebAssembly SIMD 内核 | 已实现，已测试 | Studio 的 CI（`studio.yml`）对照 Python 参考实现跑 374 个一致性用例 |
+| 其中 3 个工具的 WebGPU 整数计数 | 已实现；只在软件适配器上测试过 | 从未在硬件 GPU 上运行，速度未经测量；在调度器预计更快时，用于任何未被识别为软件渲染器的适配器（实体适配器，或无法识别的适配器，后者从不算作 GPU） |
+| WebNN | 只做检测 | 提供 WebNN 能力检测。只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持真正的 NPU 加速；目前没有任何工作负载具备这两者 |
+| 浏览器经站点的受限网关查询公共数据库 | 已实现，已测试 | 每个操作都用模拟传输测试过（离线，每次推送），并由维护者的运行对真实上游验证过（带日期）；没有一个经过已部署网关验证（[按验证层级的覆盖](studio/docs/compat/connectors.md)） |
+| 网络药理学 | 浏览器中受限 | 浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端：即 Runner 上的研究任务，记录十六个阶段，写出九个导出文件（[分析流程](docs/analysis-pipelines.md)） |
+| 分析流程与原生引擎 | 在本机 Runner 上实现；在 CI 的引擎任务中测试，在 CPU 上 | `ci.yml` 的引擎任务（[分析流程](docs/analysis-pipelines.md#what-is-verified-where)） |
+| GPU 任务 | 在本机 Runner 上实现；从未在 CI 中的 GPU 上运行（CI 的任务都只有 CPU） | Runner 的 GPU 由驱动报告，在这里从未经计算验证 |
+| 远程计算 | 计划中：已设计，未部署 | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |
+
+### 验证
+
+一项能力不会因为已登记、或单元测试通过，就被算作可用。每次运行都按检查项记录 PASS、FAIL、BLOCKED、SKIPPED、UNVERIFIED 或 NOT_APPLICABLE；被阻断或被跳过的在线测试，永远不会算作通过（[docs/validation.md](docs/validation.md)）。
+
+```bash
+tcmstudio validate --out reports/                      # 每项能力都经分发器运行，
+                                                       # 外加十二个研究场景
+bioagent validate data --out reports/ --live           # 真实的 NPASS、CMAUP、LOTUS、STRING、
+                                                       # Reactome 文件：下载、校验、构建
+bioagent validate benchmark --out reports/ --live      # 桂枝汤与心悸，十二个阶段
+bioagent validate summary reports/                     # 所有报告汇成一张 Markdown 表
+```
+
+CI 在每次推送时运行离线层，在 GitHub 的运行器上运行在线层（`.github/workflows/live-data.yml`）。对照计划的验收标准，它们证明了什么、没有证明什么，见 [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md)。数据库连接器有自己的层级（模拟传输、真实上游、经已部署网关的真实调用），浏览器与本机的一致性也有自己的层级（内核一致性；Pyodide 一致性，由手动运行的运行时核对，以及 CI 端到端测试中的一个 Skill），分别报告（[docs/validation.md](docs/validation.md)）。
 
 ## TCMScience Arena 评测平台
 

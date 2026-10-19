@@ -624,6 +624,36 @@ Nine v1 defects were reproduced empirically and fixed; each has a regression tes
 <!-- zh -->
 九个 v1 缺陷被实证复现并修复；每一个都在 `tests/test_regressions.py` 中有对应的回归测试。
 
+## Acquiring datasets, as it works now · 数据集获取的现状
+
+Bulk files are acquired by `acquisition.transfer.VerifiedTransfer` (`bioagent tcmdb fetch`, `bioagent fetch`, the
+snapshot pipeline, the live validation tier and Studio's runner). It is stricter than the resumable, checksum-verified
+`Downloader` it extends:
+
+- A partial download resumes only onto the same remote file: the request carries `If-Range` with a strong ETag or a
+  Last-Modified date, and only a `206` whose `Content-Range` is exactly the missing bytes is appended. With no such
+  validator it resumes only when a reviewed checksum will check the joined file; otherwise it starts again from zero,
+  and a spliced file fails its checksum and is not kept.
+- Archives are integrity-checked before a file is kept: gzip, bzip2 and xz are read to the end, zip and xlsx through
+  every CRC, Parquet by its magic, a headerless table by its field count; an HTML page in place of the file is refused.
+- Studio's runner exposes `/api/datasets` (token-gated). Its acquisitions take a registered dataset key only, never a
+  URL, a path or an override of the size gate.
+- Not implemented: object storage (R2) for shared copies, and ENA downloads by accession.
+
+What remains unverified live: the transfer has been tested against loopback servers only (`tests/test_acquisition_transfer.py`,
+`tests/test_tcmdb_fetch_integrity.py`). No live run of it has happened yet; the live tier
+(`.github/workflows/live-data.yml`) is where it will first meet the real servers.
+
+<!-- zh -->
+大文件由 `acquisition.transfer.VerifiedTransfer` 获取（`bioagent tcmdb fetch`、`bioagent fetch`、快照流水线、在线验证层与 Studio 的 Runner 都使用它）。它比它所扩展的「可断点续传、带校验和」的 `Downloader` 更严格：
+
+- 中断的下载只在确认是同一个远程文件时才续传：请求带 `If-Range`（强 ETag 或 Last-Modified 日期），只有 `Content-Range` 恰好是缺失字节的 `206` 才会被拼接。没有这样的验证依据时，只有在经审核的校验和能核对拼接后的文件时才续传，否则从零重新下载；拼接出错的文件校验和不符，不会被保留。
+- 文件保留之前先检查压缩包完整性：gzip、bzip2、xz 读到结尾，zip 与 xlsx 逐个核对 CRC，Parquet 检查魔数，无表头的表格检查字段数；以 HTML 页面冒充文件的一律拒绝。
+- Studio 的 Runner 提供 `/api/datasets`（需配对令牌），获取请求只接受已登记的数据集键，从不接受 URL、路径或对大小门槛的覆盖。
+- 未实现：用于共享副本的对象存储（R2），以及按 accession 从 ENA 下载。
+
+尚未在线验证的部分：这套传输只在本机回环服务器上测试过（`tests/test_acquisition_transfer.py`、`tests/test_tcmdb_fetch_integrity.py`），还没有做过任何一次真实的在线运行；在线验证层（`.github/workflows/live-data.yml`）将是它第一次面对真实服务器的地方。
+
 ## Layout · 目录结构
 
     src/bioagent/

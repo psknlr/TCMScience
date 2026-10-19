@@ -59,10 +59,10 @@
 <line x1="1014.0" y1="276" x2="1052" y2="276" style="stroke:var(--ink);stroke-width:2" marker-end="url(#a-ink)"/>
 <rect x="150" y="386" width="880" height="124" rx="12" style="fill:none;stroke:var(--c);stroke-width:1.4;stroke-dasharray:0"/><text x="168" y="412" font-size="14.5" font-weight="700" style="fill:var(--c);letter-spacing:.06em">CAPABILITY PLANE · BIOSCIENCE-HARNESS</text><text x="1012" y="412" font-size="14" text-anchor="end" class="muted">called, never trusted</text>
 <rect x="168.0" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="266.75" y="448.0" text-anchor="middle" font-size="17" font-weight="600">58 public sources</text>
-<text x="266.75" y="471.0" text-anchor="middle" font-size="14" class="muted">153 typed operations</text>
+<text x="266.75" y="448.0" text-anchor="middle" font-size="17" font-weight="600">117 public sources</text>
+<text x="266.75" y="471.0" text-anchor="middle" font-size="14" class="muted">444 typed operations</text>
 <rect x="383.5" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
-<text x="482.25" y="448.0" text-anchor="middle" font-size="17" font-weight="600">147 native tools</text>
+<text x="482.25" y="448.0" text-anchor="middle" font-size="17" font-weight="600">150 native tools</text>
 <text x="482.25" y="471.0" text-anchor="middle" font-size="14" class="muted">12 domains</text>
 <rect x="599.0" y="420" width="197.5" height="74" rx="8" style="fill:var(--c-bg);stroke:var(--c);stroke-width:1.2"/>
 <text x="697.75" y="448.0" text-anchor="middle" font-size="17" font-weight="600">bioagent.tcm</text>

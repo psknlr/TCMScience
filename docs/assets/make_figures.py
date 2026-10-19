@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Draw the README and project-page figures from the code they describe.
 
-    python docs/assets/make_figures.py
+    python docs/assets/make_figures.py            # rewrites both figures
+    python docs/assets/make_figures.py --check    # fails when a committed figure is out of date
 
-* ``overview.svg``  — the three planes and the boundary between them;
+* ``overview.svg``  — the three planes and the boundary between them, with the capability
+  plane's counts (public sources, typed operations, native tools and their domains) read
+  from ``bioagent.providers.public_apis.SOURCES`` and ``bioagent.tools.TOOLS``;
 * ``licensing.svg`` — which study designs license which claim kinds, read from
   PSH's own ``psh.workflow.compiler._SUPPORTS``: the figure cannot disagree with
   the kernel, because it is drawn from the table the kernel enforces.
@@ -22,9 +25,12 @@ from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "PSH-Harness" / "src"))
+sys.path.insert(0, str(ROOT / "BioScience-Harness" / "src"))
 
 from psh.workflow.compiler import _SUPPORTS  # noqa: E402
 from psh.workflow.ir import EVIDENCE_DESIGNS, PREDICTIVE_DESIGNS, ClaimType  # noqa: E402
+from bioagent.providers.public_apis import SOURCES  # noqa: E402
+from bioagent.tools import TOOLS  # noqa: E402
 
 OUT = Path(__file__).resolve().parent
 FONT = ("-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, "
@@ -139,7 +145,10 @@ def overview() -> str:
     b.append(arrow(lx + lw + 2, 276, ax - 2, 276, "ink", width=2))
     # capability plane, called through the gateway
     b.append(band(X0, 386, X1 - X0, 124, "c", "Capability plane · BioScience-Harness", "called, never trusted"))
-    cap = [("58 public sources", "153 typed operations"), ("147 native tools", "12 domains"),
+    operations = sum(len(src.operations) for src in SOURCES)
+    domains = len({t.domain for t in TOOLS})
+    cap = [(f"{len(SOURCES)} public sources", f"{operations} typed operations"),
+           (f"{len(TOOLS)} native tools", f"{domains} domains"),
            ("bioagent.tcm", "herbs · formulas · classics"), ("Source snapshots", "content-hashed · ledger")]
     for (x, w), (t, s) in zip(row(4), cap):
         b.append(box(x, 420, w, 74, "c", t, s))
@@ -238,6 +247,13 @@ def licensing() -> str:
 
 
 if __name__ == "__main__":
-    for name, draw in (("overview.svg", overview), ("licensing.svg", licensing)):
-        (OUT / name).write_text(draw(), encoding="utf-8")
+    figures = {name: draw() for name, draw in (("overview.svg", overview), ("licensing.svg", licensing))}
+    if "--check" in sys.argv[1:]:
+        stale = [n for n, text in figures.items()
+                 if not (OUT / n).is_file() or (OUT / n).read_text(encoding="utf-8") != text]
+        for n in stale:
+            print(f"out of date: docs/assets/{n} (run python docs/assets/make_figures.py)")
+        raise SystemExit(1 if stale else 0)
+    for name, text in figures.items():
+        (OUT / name).write_text(text, encoding="utf-8")
         print(OUT / name)

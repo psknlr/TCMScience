@@ -3768,7 +3768,8 @@ def _provider_call(entry: dict[str, Any], args: Mapping[str, Any], ctx: Context)
                         close_backend()
 
 
-#: system.capabilities' remote_compute, word for word the page's (core/catalog.js REMOTE_COMPUTE).
+#: system.capabilities' remote_compute: the page's sentence (core/catalog.js REMOTE_COMPUTE)
+#: without its last clause, which names runner.loopback, a field only the page's answer has.
 _REMOTE_COMPUTE = {"configured": False,
                    "reason": "no remote compute backend is registered; calls run in this browser "
                              "or on the paired runner"}

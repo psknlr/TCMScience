@@ -45,6 +45,7 @@ import csv
 import gzip
 import time
 import urllib.request
+import zlib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Sequence
@@ -112,8 +113,11 @@ def _open_text(path: Path):
 def _format(path: Path, fmt: str) -> tuple[str, str, dict[str, Any]]:
     if fmt in ("zip", "raw") or path.suffix.lower() == ".zip":
         return NOT_APPLICABLE, "not a text table", {}
-    with _open_text(path) as fh:
-        head = fh.read(4096)
+    try:
+        with _open_text(path) as fh:
+            head = fh.read(4096)
+    except (OSError, EOFError, zlib.error) as exc:      # a stream that cannot be read is a FAIL
+        return FAIL, f"the file could not be read as text: {type(exc).__name__}: {exc}", {}
     if head.lstrip().lower().startswith(("<!doctype html", "<html")):
         return FAIL, "an HTML page, not the file", {}
     first = next((line for line in head.splitlines() if line.strip()), "")
@@ -298,8 +302,13 @@ def validate_files(specs: Sequence[Any], raw_dir: str | Path, *, live: bool,
                         "is recorded here for a person to review and pin", sha256=sha)
             status, detail, ev = _decompression(path)
             rec.add("decompression", status, detail, **ev)
-            status, detail, ev = _format(path, a.fmt)
-            rec.add("format", status, detail, **ev)
+            if status == FAIL:
+                # its text cannot be trusted, and reading it again would only fail again
+                rec.add("format", SKIPPED, "the archive did not decompress, so its format "
+                        "was not read")
+            else:
+                status, detail, ev = _format(path, a.fmt)
+                rec.add("format", status, detail, **ev)
         rec.add("version", *_version_check(a.filename, a.version))
         rec.runtime_s = time.perf_counter() - t0
         log(f"{a.filename}: {rec.status}"

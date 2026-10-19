@@ -338,13 +338,24 @@ The tests:
   `tests/test_omics_gsea.py` need the analysis extra. In CI's job "Analysis pipelines
   with the standard tools", it is installed and `BIOAGENT_REQUIRE_TOOLS=1` turns a
   missing package into a failure, so all of them run.
-- `tests/test_omics_scvi.py` needs scvi-tools as well, and `tests/test_omics_deseq2_r.py`
-  needs `Rscript` with DESeq2 (and PyDESeq2 for its PyDESeq2 checks). Neither is in
-  that job's list.
+- `tests/test_omics_deseq2_r.py` needs `Rscript` with DESeq2 (and PyDESeq2 for its
+  PyDESeq2 checks). The same job installs R and Bioconductor's DESeq2 and runs it. It
+  also re-runs `tests/test_runrecord.py` and `tests/test_pipeline_references.py` (the
+  stages each run records, and the built-in reference datasets); those need no engine,
+  since the references pin the built-in backends, so the engine paths are checked by the
+  backend tests above and not by them.
+- `tests/test_omics_scvi.py` needs scvi-tools as well. It runs in its own CI job, "scVI,
+  trained on the CPU", on PyTorch's CPU wheel.
 
 A test that needs an optional package or tool skips without it, and fails instead
 under `BIOAGENT_REQUIRE_TOOLS=1`. The unit tier passes with skips, and its refusal
 and alignment tests run there; scVI's record is checked there against stand-ins.
+
+What each statement here rests on: the comparisons above (PyDESeq2, R's DESeq2, Scanpy,
+harmonypy, scVI, GSEApy) were run where this document was written, with the versions
+named, and are repeated by the CI jobs above wherever those jobs are given a runner.
+None of these backends runs in the browser, and none has a record from a deployed
+service: they are runner-side implementations.
 
 ## Limits
 
@@ -405,4 +416,5 @@ GSEA 不作为 Skill 的一步：它需要第三方基因集来源及其许可�
 
 **安装与测试：**
 - **安装：** `bioagent[analysis]` 提供 GSEApy 与 harmonypy，下限为实测通过的版本：GSEApy 1.1.6（1.1.0 和 1.1.5 未通过，现在会被拒绝并说明原因），harmonypy 0.0.10。`bioagent[scvi]` 提供 scvi-tools 1.5.1 及以上；先从 PyTorch 的 CPU 源安装 torch，可避免从 PyPI 装入 CUDA 版。
-- **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_scvi.py` 还需要 scvi-tools，`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2，它们不在该作业的列表中。
+- **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2：同一作业安装了 R 与 Bioconductor 的 DESeq2 并运行它，并重跑 `tests/test_runrecord.py` 与 `tests/test_pipeline_references.py`（各流程记录的阶段，以及内置参考数据集）；这两个文件不需要任何引擎，参考数据集固定使用内置后端，所以引擎路径由上面的后端测试检查，而不是由它们检查。`tests/test_omics_scvi.py` 还需要 scvi-tools，在单独的 CI 作业「scVI, trained on the CPU」中用 PyTorch 的 CPU 版运行。
+- **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在分配到运行器时会重复这些比较。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。

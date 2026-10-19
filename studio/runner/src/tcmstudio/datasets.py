@@ -34,6 +34,7 @@ anywhere but the runner's data directory; there is no object storage and no shar
 from __future__ import annotations
 
 import functools
+import json
 import sqlite3
 import types
 from contextlib import closing
@@ -61,6 +62,36 @@ def _data_records() -> dict[str, Any]:
         return {r.id: r for r in LicenceRecords.load().records if getattr(r, "kind", "") == "data"}
     except Exception:                                           # noqa: BLE001
         return {}
+
+
+@functools.lru_cache(maxsize=1)
+def _live_downloads() -> dict[str, Any]:
+    """CI's live-download record (bioagent/data/live_download_verification.json), by file
+    name: what a real download in the live-data workflow found. Read once; {} without it."""
+    try:
+        from importlib import resources
+        doc = json.loads(resources.files("bioagent.data").joinpath(
+            "live_download_verification.json").read_text(encoding="utf-8"))
+    except Exception:                                           # noqa: BLE001
+        return {}
+    files = doc.get("files") if isinstance(doc, dict) else None
+    return files if isinstance(files, dict) else {}
+
+
+def live_record(spec: Any) -> dict[str, Any] | None:
+    """The committed CI record of real downloads of this dataset's files: how many of them a
+    live run downloaded and verified (PASS), of how many it reached, the latest run and its
+    date. None when no live run reached any of them. It says what CI found on those days,
+    not what is on this runner (that is ``local``)."""
+    record = _live_downloads()
+    rows = [record[f.name] for f in spec.files if isinstance(record.get(f.name), dict)]
+    if not rows:
+        return None
+    latest = max(rows, key=lambda r: str(r.get("verified_at") or ""))
+    return {"files_pass": sum(1 for r in rows if r.get("status") == "PASS"),
+            "files_recorded": len(rows), "files": len(spec.files),
+            "run": latest.get("run"), "at": str(latest.get("verified_at") or "")[:10] or None,
+            "record": "bioagent/data/live_download_verification.json"}
 
 
 def release_covered(version: Any, covered: Any) -> bool:
@@ -146,12 +177,19 @@ class DatasetAPI:
             sizes = [f.expected_bytes for f in default]
             r = self._readiness(d, statuses.get(d.key))
             lic = licence_of(d)
+            status = statuses.get(d.key) or {}
             rows.append({"key": d.key, "name": d.name, "access": d.access,
                          "version": d.version or None, **lic, "hosts": _hosts(d),
                          "files_default": len(default),
                          "bytes_default": sum(sizes) if sizes and None not in sizes else None,
                          "acquirable": d.access == "download",
-                         "readiness": {"state": r["state"], "next_step": r["next_step"]}})
+                         "readiness": {"state": r["state"], "next_step": r["next_step"]},
+                         # what this runner holds, so a list needs no manifest per row
+                         "local": {k: status.get(k) for k in ("built", "files_present",
+                                                              "files_default", "missing_default",
+                                                              "verification")
+                                   if status.get(k) is not None},
+                         "live_record": live_record(d)})
         return {"count": len(rows), "datasets": rows, "network": {"enabled": self.network_on()},
                 "acquire": "POST /api/datasets/acquisitions {dataset}"}
 
@@ -230,6 +268,7 @@ class DatasetAPI:
             "dataset": spec.key, "name": spec.name, "access": spec.access,
             "version": spec.version or None, "homepage": spec.homepage,
             **licence_of(spec, record=True), "hosts": _hosts(spec), "files": files,
+            "live_record": live_record(spec),
             "size_gate_bytes": SIZE_GATE_BYTES,
             "store": self._store(hub, spec.key),
             "audit": acquire.read_audit(hub.root, spec.key)[-20:]}

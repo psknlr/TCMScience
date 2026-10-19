@@ -126,7 +126,10 @@ jobs:
         env:
           PYTHONPATH: ../PSH-Harness/src
           BIOAGENT_REQUIRE_TOOLS: "1"
-        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py tests/test_structure.py tests/test_omics_de_backends.py tests/test_omics_sc_backends.py tests/test_omics_gsea.py tests/test_omics_deseq2_r.py
+        # test_runrecord and test_pipeline_references are re-run here too: the stages each pipeline records and the
+        # built-in reference datasets. They need no engine (the references pin the built-in backends); the engine
+        # paths are checked by the backend tests before them (de_backends, sc_backends, deseq2_r)
+        run: python -m pytest -q tests/test_omics_fastq.py tests/test_omics_quant.py tests/test_omics_deseq.py tests/test_omics_rnaseq.py tests/test_omics_skill.py tests/test_omics_scrna.py tests/test_omics_sc_reference.py tests/test_structure.py tests/test_omics_de_backends.py tests/test_omics_sc_backends.py tests/test_omics_gsea.py tests/test_omics_deseq2_r.py tests/test_runrecord.py tests/test_pipeline_references.py
       - name: Dependency readiness where the packages are installed (imports, versions, known-answer calculations)
         run: |
           code=0
@@ -176,7 +179,11 @@ jobs:
         env:
           PYTHONPATH: ../PSH-Harness/src
           BIOAGENT_REQUIRE_TOOLS: "1"
-        run: python -m pytest -q tests/test_docking.py tests/test_admet.py tests/test_compute_contracts.py
+        # with real Vina, meeko and RDKit: the redocking reference (3PTB) and a full run through every stage, pose
+        # checks included. The stage and incomplete-run tests use a stand-in for Vina here too; they need RDKit and
+        # meeko, which the unit tier lacks. test_runrecord and test_pipeline_references need no engine (the docking
+        # reference compares its fixture's digest; the ADMET one skips without BIOAGENT_TDC_ARCHIVE, not set here)
+        run: python -m pytest -q tests/test_docking.py tests/test_admet.py tests/test_compute_contracts.py tests/test_runrecord.py tests/test_pipeline_references.py
       - name: Dependency readiness where the packages are installed (imports, versions, known-answer calculations)
         # a group not installed in this job is BLOCKED, which does not fail it; an installed
         # package that fails to import or computes a wrong answer does
@@ -394,6 +401,13 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
+      # ci.yml runs on every push, studio.yml only on its paths: the generated reports and every count the docs
+      # restate are checked here too, so a change anywhere that moves them fails where it is made
+      - name: The docs' numbers, the compatibility matrix and the connector coverage agree with the code
+        run: |
+          python3 studio/scripts/doc_facts.py --check
+          python3 studio/scripts/compat_matrix.py --check
+          python3 studio/scripts/connector_coverage.py --check
       - name: Every capability through the dispatcher
         run: tcmstudio validate --out "$RUNNER_TEMP/reports/capabilities"
       - name: The Guizhi Decoction and palpitations benchmark, offline
@@ -410,7 +424,8 @@ jobs:
 
   live-connectors:
     # Opt-in: the public sources are other people's services. Verified on demand, and the
-    # record in data/connector_live_verification.csv says when.
+    # record in data/connector_live_verification.csv says when. The monthly run of every
+    # operation, with its report uploaded, is .github/workflows/connectors-live.yml.
     name: Live connector verification (manual)
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

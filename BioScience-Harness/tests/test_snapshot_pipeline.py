@@ -212,3 +212,28 @@ def test_the_snapshots_it_builds_are_the_ones_the_research_loop_reads(served, tm
                        state_dir=tmp_path / "state", output_dir=tmp_path / "run")
     assert run.snapshots["npass"] == doc["snapshots"]["npass"]["snapshot_id"]
     assert run.verdict is not None, "the loop ran to its verdict on these snapshots"
+
+
+def test_nothing_is_downloaded_when_the_disk_cannot_hold_a_file(served, tmp_path, monkeypatch):
+    """The disk-shortfall branch of the acquisition stage: with 10 MB free (less than the
+    64 MB headroom alone), no file is fetched, each is BLOCKED with the reason, and the run
+    stops before the build."""
+    from bioagent.validation import environment
+
+    monkeypatch.setattr(environment, "disk_free", lambda path: 10_000_000)
+    raw = tmp_path / "raw"
+    doc = pipeline.build_research_snapshots(raw, tmp_path / "snap",
+                                            tmp_path / "snap" / "ledger.jsonl",
+                                            log=lambda m: None)
+    assert doc["status"] == BLOCKED
+    assert [s["stage"] for s in doc["stages"]] == ["discovery", "acquisition"]
+    files = doc["stages"][1]["files"]
+    sized = {n for n, a in pipeline._SPECS.items() if a.expected_bytes}
+    assert sized and {f["file"] for f in files if f["status"] == BLOCKED} >= sized
+    for f in files:
+        if f["file"] in sized:
+            assert "not enough disk space" in f["reason"] and "nothing was started" in f["reason"]
+    assert all(f["status"] != PASS for f in files)
+    assert not any(s.startswith("GET") for s in _Serve.seen), "no body was requested"
+    kept = [p.name for p in raw.rglob("*") if p.is_file() and not p.name.startswith(".")]
+    assert not [n for n in kept if n in pipeline._SPECS], kept

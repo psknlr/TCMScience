@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import { startMockLLM } from "./mock-llm.mjs";
 import { readDb, seedSettings, send, shot, waitForAnswers, waitForApp, watchConsole } from "./lib/app.mjs";
-import { PYTHON, REPO, startStatic } from "./lib/servers.mjs";
+import { PYTHON, REPO, requirePyodide, startStatic } from "./lib/servers.mjs";
 
 let site;
 let mock;
@@ -34,12 +34,12 @@ test("the governed skill runs in the browser (Pyodide) with the native content h
   await waitForApp(page);
   expect(await page.evaluate(() => globalThis.crossOriginIsolated), "the site's _headers isolate the page").toBe(true);
 
-  // Pyodide comes from jsDelivr: without it there is nothing to test here
+  // Pyodide comes from jsDelivr: without it there is nothing to test here (a skip outside CI, a failure in CI)
   const boot = await page.evaluate(async () => (await fetch("/runtime/boot.json")).json());
   const reachable = await page.evaluate(async (u) => {
     try { return (await fetch(`${u}pyodide-lock.json`, { method: "GET" })).ok; } catch { return false; }
   }, boot.pyodide.index_url);
-  test.skip(!reachable, `Pyodide's CDN (${boot.pyodide.index_url}) is not reachable from this browser: browser mode not tested`);
+  requirePyodide(test, reachable, boot.pyodide.index_url, "browser mode");
 
   // no runner: the compute chip says the browser
   expect(await page.evaluate(() => globalThis.__studio.state.runner.status)).not.toBe("ready");

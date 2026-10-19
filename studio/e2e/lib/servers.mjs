@@ -170,6 +170,29 @@ export function startStatic(site, { sources = null } = {}) {
   }));
 }
 
+// ------------------------------------------------------------------------------------------------ Pyodide
+
+/**
+ * Why a spec that needs real Pyodide may skip: Pyodide is fetched from its CDN (jsDelivr, `boot.pyodide.index_url`), so
+ * on a machine that cannot reach it (no network, or a proxy that refuses the CDN) there is no browser runtime to test,
+ * and the skip says what went untested. Null when the CDN answered, and always in CI, where the runner has the network:
+ * there an unreachable CDN means browser mode was not tested, and that must fail rather than pass as a skip.
+ */
+export function pyodideSkipReason(reachable, indexUrl, untested, env = process.env) {
+  if (reachable) return null;
+  if (env.CI && !/^(0|false)$/i.test(String(env.CI).trim())) return null;
+  return `Pyodide's CDN (${indexUrl}) is not reachable from this browser: ${untested} not tested`;
+}
+
+/** Skip with the reason outside CI; in CI an unreachable CDN is a failure (`pyodideSkipReason`). */
+export function requirePyodide(test, reachable, indexUrl, untested, env = process.env) {
+  const why = pyodideSkipReason(reachable, indexUrl, untested, env);
+  if (!reachable && !why) {
+    throw new Error(`Pyodide's CDN (${indexUrl}) is not reachable in CI: ${untested} would go untested, which is a failure here, not a skip`);
+  }
+  test.skip(Boolean(why), why ?? "");
+}
+
 // ------------------------------------------------------------------------------------------------ the Worker
 
 /**

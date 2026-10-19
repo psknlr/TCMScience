@@ -59,6 +59,13 @@ def test_the_list_says_what_each_dataset_is_and_how_ready_it_is(tmp_path):
     assert by["tcmsp_export"]["acquirable"] is False                # a manual import
     assert by["lotus"]["redistribution"] == "with attribution (CC BY 4.0)", \
         "a reviewed licence record for the same release says so"
+    # what this runner holds (nothing yet), beside what CI's live run found on its day
+    assert npass["local"]["files_present"] == 0 and npass["local"]["built"] is False
+    assert npass["live_record"] == {
+        "files_pass": 6, "files_recorded": 6, "files": 6, "at": "2026-10-11",
+        "run": "https://github.com/psknlr/TCMScience/actions/runs/38127338070",
+        "record": "bioagent/data/live_download_verification.json"}
+    assert by["tcmsp_export"]["live_record"] is None              # no live run reached it
 
 
 def test_a_licence_record_speaks_only_for_the_release_it_names():

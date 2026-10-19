@@ -38,8 +38,7 @@
 [![CI](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml/badge.svg)](https://github.com/psknlr/TCMScience/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2d4a7a.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-2d4a7a.svg)](https://www.python.org/downloads/)
-![Tests](https://img.shields.io/badge/tests-3%2C902%20passing-2c7560.svg)
-![Kernel](https://img.shields.io/badge/kernel-PSH%200.5.3-9a6428.svg)
+![Kernel](https://img.shields.io/badge/kernel-PSH%200.6.0-9a6428.svg)
 
 </div>
 
@@ -127,7 +126,7 @@ Planted worlds show the mechanics. They are not evidence that the engine decides
 
 ## Key results: a case study on 葛根芩连汤
 
-The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) was analysed end to end with the shipped network-pharmacology skill on public data: NPASS, CMAUP and LOTUS for composition; curated potency measurements and PubChem BioAssay for activity; Reactome and STRING for biology; Open Targets for the indication. The marker compounds of all four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources.
+The formula (葛根, 黄芩, 黄连, 甘草 as recorded in the *Shanghan Lun*) was analysed end to end with the governed `tcm.network-pharmacology` skill (not the limited seed-corpus skill) on public data: NPASS, CMAUP and LOTUS for composition; curated potency measurements and PubChem BioAssay for activity; Reactome and STRING for biology; Open Targets for the indication. The marker compounds of all four herbs (puerarin, baicalin, berberine, glycyrrhizic acid) were recovered in all three composition sources.
 
 **1 · The usual enrichment result is explained by assay coverage.** 1,792 constituents; 391 human proteins with a measured potency, 237 of them at ≤ 10 µM.
 
@@ -151,6 +150,8 @@ All 12 carbonic-anhydrase-pathway proteins had been assayed, and 11 were hits. T
 
 The literature-defined enrichment is circular, because compound–target data and text mining study the same well-known proteins. The pipeline therefore defaults to genetic evidence and warns whenever literature is chosen. Full methods, sensitivity analyses and limitations are in the [design spec](BioScience-Harness/docs/THIRD_PARTY_DB_CONNECTOR_SPEC.md).
 
+*Not regression-checked.* These figures come from runs on the downloaded files recorded in the design spec, outside CI. The real-data case for this formula in `.github/workflows/live-data.yml` (the research job's sixteen stages and nine exports, then `verify`) is defined but has not been executed yet ([docs/validation.md](docs/validation.md)).
+
 ## Evidence governance
 
 <p align="center">
@@ -173,7 +174,7 @@ cd BioScience-Harness && python examples/run_skills.py
 # … 5/5 artifacts passed the publication gate
 ```
 
-Install as libraries (Python ≥ 3.11). `[test]` is not optional: without `hypothesis`, eleven PSH test modules are silently skipped.
+Install as libraries (Python ≥ 3.11). `[test]` is not optional: without `hypothesis`, PSH's property-based test modules are skipped or fail to collect.
 
 ```bash
 pip install -e "PSH-Harness[test]"          # trusted kernel
@@ -222,7 +223,7 @@ python -m bioagent.mcp review DRAFT.yaml                                  # docs
 # RNA-seq from FASTQ to a differential-expression report (docs/analysis-pipelines.md)
 python -m bioagent.cli rnaseq --samples samples.csv --transcripts tx.fa --annotation genes.gtf --out results/
 
-# tests: PSH 1380 · BioScience 2522 (unit tier)
+# tests: PSH's full suite; BioScience's unit tier (no data lake, no network)
 cd PSH-Harness        && PYTHONPATH=src python -m pytest -q
 cd BioScience-Harness && PYTHONPATH=src:../PSH-Harness/src python -m pytest -q -m unit
 ```
@@ -246,7 +247,7 @@ An LLM should not be its own planner, executor, security policy, evidence judge 
 |---|---|
 | `normalize-tcm-entities` | Choose for you when a name is ambiguous: 「姜」 may be 生姜 or 干姜, which are different drugs. |
 | `retrieve-tcm-evidence` | Pass judgement: an empty result is not "no effect", and unassessed bias stays `NOT_ASSESSED`. |
-| `analyze-tcm-network-pharmacology` | Conflate prediction with measurement: predicted and measured targets are separate keys, and it claims a mechanism *hypothesis* only. |
+| `analyze-tcm-network-pharmacology` | Conflate prediction with measurement: predicted and measured targets are separate keys, and it claims a mechanism *hypothesis* only. It is a limited seed-corpus network hypothesis analysis: no database coverage, no measured activity. |
 | `assess-tcm-safety` | Answer "safe": no record is not safety, and 十八反 is checked as a property of the pair. |
 | `tcm.network-pharmacology` | Report enrichment without its controls: it runs the case study above on ledger-verified snapshots and writes full provenance. |
 
@@ -301,6 +302,24 @@ Every source has a card stating its licence and access path. Web access is on by
 | Reactome | pathway membership | CC0 |
 | Open Targets 26.09 | target–disease associations | CC0 |
 
+Bulk files are acquired on the runner, never through the browser's query gateway. A partial download resumes only onto the same remote file (`If-Range` with a strong ETag or a Last-Modified date, and an exact `Content-Range`), or when a reviewed checksum will check the joined file; otherwise it starts again. Archives are read through before a file is kept (gzip, bzip2 and xz to the end, zip through every CRC). The runner's `/api/datasets` routes acquire registered datasets only, never a URL or a path. Object storage (R2) and ENA downloads by accession are not implemented. The new transfer has been tested against loopback servers only: no live run of it has happened yet.
+
+### Studio: in the browser and on a local runner
+
+TCMScience provides browser-based access to its registered scientific capabilities ([Studio](studio/README.md)). Lightweight tools execute locally through Pyodide, WebAssembly, and selected WebGPU kernels. Resource-intensive pipelines require a configured local Runner or an authorized remote compute environment. No remote compute environment is deployed today: the compute setting `remote` answers `remote_not_configured` ([contract: designed, not deployed](studio/docs/REMOTE_COMPUTE.md)).
+
+| Capability | Status | What shows it |
+|---|---|---|
+| Python tools, governed skills and the clinic in the browser (Pyodide, CPU) | implemented, tested | CI's browser end-to-end specs, which fail in CI when Pyodide's CDN does not answer. Outputs were compared with native CPython for a named subset only, by a manual runtime check ([matrix](studio/docs/compat/summary.md)). No record from the deployed site |
+| Exact JavaScript and WebAssembly SIMD kernels for 7 sequence tools | implemented, tested | 374 parity cases against the Python reference, in Studio's CI (`studio.yml`) |
+| WebGPU integer counts for 3 of those tools | implemented; tested on a software adapter only | never run on a hardware GPU, so its speed is unmeasured; used, when the scheduler expects it to be faster, on any adapter not identified as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU) |
+| WebNN | detection only | WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified execution provider and hardware-backed execution evidence; no workload has either today |
+| Public databases from the browser, through the site's bounded gateway | implemented, tested | every operation with a mock transport (offline, every push) and against its real upstream from a maintainer's run, dated; none verified through the deployed gateway ([coverage by level](studio/docs/compat/connectors.md)) |
+| Network pharmacology | limited in the browser | Browser mode supports a limited seed-corpus network hypothesis workflow. Full data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific execution backend: the runner's research job, with sixteen recorded stages and nine exports ([pipelines](docs/analysis-pipelines.md)) |
+| Pipelines and native engines | implemented on the local runner; tested in CI's engine jobs, on the CPU | the engine jobs in `ci.yml` ([pipelines](docs/analysis-pipelines.md#what-is-verified-where)) |
+| GPU jobs | implemented on the local runner; never run on a GPU in CI (every CI job is CPU-only) | a runner GPU is reported by its driver, never verified by a computation here |
+| Remote compute | planned: designed, not deployed | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |
+
 ### Validation
 
 A capability is not counted as working because it is registered or because its unit tests
@@ -319,6 +338,9 @@ bioagent validate summary reports/                     # every report as one Mar
 CI runs the offline tier on every push and the live tiers on GitHub's runners
 (`.github/workflows/live-data.yml`). What they established, and what they did not, against
 the plan's acceptance criteria: [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md).
+Connectors have levels of their own (mock transport, live upstream, live through the deployed
+gateway), and browser parity has its own (kernel parity; Pyodide parity, by the manual runtime
+check and, for one skill, CI's end-to-end specs), each reported apart ([docs/validation.md](docs/validation.md)).
 
 ## TCMScience Arena
 

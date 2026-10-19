@@ -78,8 +78,11 @@ jobs:
           fi
           python -m pip install --upgrade pip
           pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest
-          # every catalog number the READMEs and docs restate, against the catalog itself
+          # every catalog number the READMEs and docs restate, against the catalog itself; the compatibility matrix
+          # and the connector coverage report, regenerated and compared (the runner tests below run them too)
           python3 studio/scripts/doc_facts.py --check
+          python3 studio/scripts/compat_matrix.py --check
+          python3 studio/scripts/connector_coverage.py --check
           if [ -d studio/runner/tests ]; then
             python -m pytest -q studio/runner/tests
           else

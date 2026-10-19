@@ -1,12 +1,31 @@
 # Browser data access and local computation
 
-Studio exposes the complete registered public-source operation catalog through the
-same-origin `/api/sources/request` gateway. The manifest is generated from
+TCMScience provides browser-based access to its registered scientific capabilities.
+Lightweight tools execute locally through Pyodide, WebAssembly, and selected WebGPU
+kernels. Resource-intensive pipelines require a configured local Runner or an
+authorized remote compute environment; no remote compute environment is deployed
+today ([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md): designed, not deployed).
+
+When a connector call runs in the browser, every registered public-source operation
+is routed through the same-origin `/api/sources/request` gateway. (Under the default
+compute setting `auto`, a connected runner takes the call first and sends it from the
+user's machine; the browser runs it when no runner is connected, or under `browser`.)
+The manifest is generated from
 `bioagent.providers.public_apis.SOURCES` at build time, so the browser and edge use
 the same reviewed paths, methods, query fields and body templates. The gateway is
 not an arbitrary URL proxy. It validates origins, templates, hosts, redirects,
 credentials, request sizes and response sizes, and applies visitor and source
 rate limits. `/api/sources/health` reports the deployed manifest counts and limits.
+
+What has been verified, per operation, is reported by level in
+[compat/connectors.md](compat/connectors.md) (generated, `--check` in CI): every
+operation's request reaches a mock transport as the live verification sends it and
+is refused offline (both checked offline on every push), and every operation
+answered from its real upstream in a maintainer's run through the runner's HTTP
+backend (dated, in `BioScience-Harness/data/connector_live_verification.csv`). None
+has been verified from a browser through the deployed gateway to its real upstream:
+the post-deploy check reads `/api/sources/health` only, and the end-to-end test sends
+one operation through the gateway code with a mocked upstream.
 
 Project web access is on by default in every compute mode (browser, runner and auto), and the runner's own
 network switch is on by default too. The approval flow still applies: each network tool asks before its first
@@ -48,10 +67,12 @@ Native Python tools continue to run on the device's CPU in WebAssembly (Pyodide)
 Seven tools also have exact local kernels in the Worker: the sequence alignments
 (global, local, protein) and the edit distance in JavaScript, and the integer
 counts of `native.distance_matrix`, `native.hamming_distance` and
-`native.gc_content` in WebAssembly SIMD, or with WebGPU where the scheduler
-expects the GPU to be faster. The original Python functions still compute the
-scientific formulas, rounding, validation and policy processing, and check every
-kernel result before using it; the output is byte-identical to Python's. Receipts
+`native.gc_content` in WebAssembly SIMD, or with WebGPU where the scheduler expects
+the GPU to be faster, on any adapter not identified as a software renderer (a physical
+one, or an unidentified one, which is never counted as a GPU). WebGPU has run only on a
+software adapter in tests; its speed on a hardware GPU is unmeasured. The original
+Python functions still compute the scientific formulas, rounding, validation and
+policy processing, and check every kernel result before using it; the output is byte-identical to Python's. Receipts
 identify the actual backend (`receipt.compute`). No accelerator is used merely
 because a visitor opens the page. Settings → Compute → Browser acceleration
 chooses Auto, CPU only (no GPU) or the Python reference only. GPU failure,
@@ -67,9 +88,16 @@ on reviewed versions and local Python/MCP process transports; their coverage and
 requirements are surfaced separately from browser HTTP connectors.
 Full database copies, unrestricted third-party code, large
 omics/docking engines and general NPU access cannot be supplied by a browser API
-alone. No WebNN or NPU acceleration is used or claimed: WebNN is probed and
-reported (Settings, `system.capabilities`), but a context the browser creates for
-an "npu" request is not evidence of an NPU.
+alone. WebNN capability detection is available (Settings, `system.capabilities`).
+Actual NPU acceleration is supported only for workloads with a verified execution
+provider and hardware-backed execution evidence; no workload has either, so none is
+used or claimed, and a context the browser creates for an "npu" request is not
+evidence of an NPU.
+
+Browser mode supports a limited seed-corpus network hypothesis workflow. Full
+data-driven network pharmacology analysis requires verified external data snapshots
+and an appropriate scientific execution backend: the runner's `research.run` job
+([docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)).
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),

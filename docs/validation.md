@@ -30,15 +30,26 @@ on `FAIL`; the live-data workflow uses it.
 | 1 Unit | functions and their contracts | `ci.yml`: `psh`, `bioscience` (`-m unit`), `studio.yml` | `pytest` |
 | 2 Integration | every registered capability through the Studio dispatcher with its reference output; the twelve research scenarios; the benchmark as far as it goes offline | `ci.yml`: `validation`, every push | `tcmstudio validate --out DIR`; `bioagent validate benchmark --out DIR` |
 | 3 Real data | the reviewed research files from their servers (NPASS, CMAUP, LOTUS, STRING, Reactome, UniProt), verified, built into the data hub and the research snapshots, queried, rebuilt | `live-data.yml`: by hand, weekly, and on a push that changes acquisition, sources, research, analysis or validation | `bioagent validate data --out DIR --work W --live --strict` |
-| 4 End-to-end research | the Guizhi Decoction and palpitations benchmark on those files, its literature queried live, run twice and compared | `live-data.yml` | `bioagent validate benchmark --out DIR --raw W/raw --live --repeat --strict` |
+| 4 End-to-end research | the Guizhi Decoction and palpitations benchmark on those files, its literature queried live, run twice and compared; 葛根芩连汤 through the research job (sixteen stages, nine exports, then `np_exports verify`): defined, not yet executed | `live-data.yml` | `bioagent validate benchmark --out DIR --raw W/raw --live --repeat --strict` |
 | 5 Performance and reliability | each record's runtime; resumed downloads (a byte-range request on a partial file); rebuild and repeat digests; the agent's failure budget | inside tiers 2–4, and the agent tests | — |
+| Browser (Pyodide) | the real Pyodide runtime in Chromium: one governed skill's content and output hashes against native CPython (`browser.spec.mjs`), the source gateway's code with a mocked upstream, and the distance matrix with acceleration `auto` (WebGPU or WebAssembly SIMD, whichever the runtime picks; CI's headless Chromium has at most a software adapter, which the runtime refuses, so there it is the CPU), the CPU kernel and the reference Python giving the same result (`browser-access.spec.mjs`), a phone emulation (`mobile.spec.mjs`); and the runtime check, which compares about twenty envelopes with native CPython field by field | the specs: `studio.yml`'s build job, where an unreachable Pyodide CDN fails them (outside CI they skip, with the reason); the runtime check: by hand only, not in CI | `npm run test:e2e`; `npm run test:runtime` |
+| Connectors | every operation by level ([below](#connector-verification-levels)) | `ci.yml` `validation` (every push) for the offline levels; `connectors-live.yml` monthly and on demand for the live one, as a report | `python3 studio/scripts/connector_coverage.py --check` |
 
 The specialised CI jobs stay as they were and remain part of the picture: the analysis
 pipelines with the standard tools, docking and ADMET with their engines, the structure
 engines, scVI, the end-to-end cases and the manual live-connector verification. The
-molecular-modelling and analysis jobs also write the dependency readiness report: the
-groups they install are imported, checked against their locked versions and given a
-calculation with a known answer there, not only reported `BLOCKED` where they are absent.
+engine paths themselves are exercised by those jobs' own tests (`test_omics_de_backends`,
+`test_omics_sc_backends`, `test_omics_deseq2_r`, `test_docking`, `test_admet`). The
+analysis and molecular-modelling jobs also re-run the run-record tests and the built-in
+reference datasets (`tests/test_runrecord.py`, `tests/test_pipeline_references.py`) in an
+install that has the engines, but those tests need none: the RNA-seq and single-cell
+references pin the built-in backends, the docking reference compares only its fixture's
+digest, and the ADMET reference runs only where `BIOAGENT_TDC_ARCHIVE` names a copy of the
+archive, which neither job sets. They check the recorded stages and the reference results,
+not the engines. The molecular-modelling and analysis jobs also write the dependency
+readiness report: the groups they install are imported, checked against their locked
+versions and given a calculation with a known answer there, not only reported `BLOCKED`
+where they are absent.
 
 Every command can be summarised as Markdown, which both workflows append to the run's
 summary page:
@@ -74,6 +85,48 @@ Live download results are folded into the committed record
 `src/bioagent/data/live_download_verification.json` by
 `bioagent validate record --report DIR/live_download_validation.json`, which refuses an
 offline report: an offline run verifies nothing about a server.
+
+## Capability verification levels (the catalog)
+
+Every catalog entry carries `verification = {status, levels}` (`tcmstudio.catalog`), read
+from committed records only: a level is never dated by the clock, never taken from a
+fixture as if it were live, and an entry with no record is `UNVERIFIED`, which is not a
+failure and not a pass. The compatibility matrix's `validation` column
+([`studio/docs/compat/matrix.csv`](../studio/docs/compat/matrix.csv)) prints these levels.
+
+| Level | What it shows | What produces it | Entries with it |
+|---|---|---|---:|
+| `offline_invocation` | the entry's own example ran through the dispatcher, offline | `tcmstudio validate` records it per run (tier 2); no committed record feeds the catalog yet | 0 |
+| `reference_output` | the tool's output equals an expected value established independently of its code | `bioagent/validation/references.py`, held by `tcmstudio validate` | 74 |
+| `kernel_parity` | a browser kernel returns exactly what the Python implementation returns | `studio/web/test/fixtures/kernel_cases.json`, run by the web and runner tests | 7 |
+| `pyodide_parity` | the browser runtime's envelope equals native CPython's | the runtime check (`npm run test:runtime`); it is run by hand and commits no record, so the catalog has none | 0 |
+| `lock_pin` | a pinned governed skill's code matches its reviewed content hash | `BioScience-Harness/registry/skills.lock.yaml`, checked on every governed run | 4 |
+| `gateway_mock` | the edge gateway (`studio/edge/src/sources.js` `handleSources`) accepted the operation's request and forwarded it to a mocked upstream | reserved for a per-operation run of the gateway's own code; no committed record exists. The connector coverage report's `mock_transport` level (below) does not exercise the gateway, is a separate, lower level, and is reported only in `connectors.md`, never here | 0 |
+| `live_upstream` | the real upstream answered the operation's example | `BioScience-Harness/data/connector_live_verification.csv` (`scripts/verify_connectors.py`), with its date | 444 |
+| `live_gateway` | a browser call through the deployed gateway reached the real upstream | nothing yet: no committed record exists | 0 |
+
+`state.implementation` is `tested` exactly when some level is `PASS`; the runner adds
+`readiness` per runtime (CONTRACTS §2). Nothing here says a capability is ready on a given
+machine: readiness is computed where the call would run.
+
+## Connector verification levels
+
+[`studio/docs/compat/connectors.md`](../studio/docs/compat/connectors.md) (one row per
+operation in `connectors.csv`, generated by `studio/scripts/connector_coverage.py`, whose
+`--check` runs in CI) reports each level apart, and a lower level is never counted as a
+higher one:
+
+| Level | What it shows | Where it comes from |
+|---|---|---|
+| mock transport | the operation, called through Studio's dispatcher as the browser calls it, sends one request to its declared host, the same method, URL and body as the live verification, and a stand-in's HTTP 200 comes back succeeded | the generator, offline, on every `--check` |
+| offline refusal | with web access off, the call is refused (`network_off`) before any request | the generator, offline |
+| live upstream | the real upstream answered, through the runner's `HTTPBackend`, on the date recorded | `data/connector_live_verification.csv`, changed only by a reviewed commit of a real run |
+| live through the deployed gateway | a browser call through science.impf.ai's gateway to the real upstream | none: every operation is "not verified" |
+| scheduled full run | every operation re-run against its upstream on a schedule | `.github/workflows/connectors-live.yml`, monthly and on demand; it uploads its CSV and a coverage report and commits nothing, so no scheduled run is recorded in the repository |
+
+The edge gateway's own policy (`studio/edge/src/sources.js`) is unit-tested against a small
+synthetic registry and is exercised for one operation, with a mocked upstream, by
+`browser-access.spec.mjs`; it is not part of the mock-transport level.
 
 ## The Guizhi Decoction and palpitations benchmark
 
@@ -158,6 +211,32 @@ failures and the ways on.
 
 ## Not verified here, and why
 
+- **CI runs since 2026-10-11**: every `ci` run from #282 and every `live-data` run from #11
+  (2026-10-11, 20:06 UTC) to 2026-10-19 ended within about a minute, almost all within
+  five seconds, without running its jobs: a condition of the repository's Actions account,
+  not a test result. The last runs that ran their jobs are `ci` #281 and `live-data` #10
+  (2026-10-11). What was added since has therefore not run on GitHub: the pipeline stage
+  and reference tests in the engine jobs, the 葛根芩连汤 real-data step of `live-data.yml`,
+  the connector coverage check and the monthly live connector run. They are defined, not
+  executed.
+- **The 葛根芩连汤 real-data case**: the research job on the tier-3 files, its nine exports
+  uploaded and re-checked with `np_exports verify`, is defined in `live-data.yml` and has
+  never run. The README's headline figures for this formula come from runs outside CI and
+  are not regression-checked.
+- **The verified transfer, live**: `acquisition.transfer.VerifiedTransfer` (resume only onto
+  the same remote file, archives read through before a file is kept) is tested against
+  loopback servers only; its first contact with the real servers will be the live tier.
+- **Browser runtime parity beyond a subset**: the runtime check compares about twenty
+  envelopes with native CPython, by hand; no test compares every browser entry, and the
+  network-pharmacology seed skill has never been run in Pyodide by a test.
+- **Hardware**: no physical GPU and no NPU. WebGPU has run on a software adapter only, a
+  runner GPU is reported by its driver and never verified by a computation, and no
+  workload has a verified NPU execution provider. Firefox, Safari, iOS and Android devices
+  have not been tested.
+- **The deployed gateway against real upstreams**: no connector has been verified from a
+  browser through science.impf.ai to its source; the post-deploy check reads the gateway's
+  health counts only.
+- **Remote compute**: none is deployed; `studio/docs/REMOTE_COMPUTE.md` is a design.
 - **Live downloads from this development sandbox**: its egress proxy refuses bidd.group,
   zenodo.org and stringdb-downloads.org. The live tier runs on GitHub's runners instead;
   what it found is in [the release qualification report](release-qualification-2026-10.md).

@@ -429,8 +429,8 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/jobs/{id}/files/{path}` | bytes; HTML is served with `Content-Security-Policy: sandbox` |
 | POST | `/api/uploads` | raw body; headers `X-Filename`, `Content-Type` → `{id, name, bytes, sha256, media_type}` |
 | GET | `/api/uploads` | `{uploads:[…]}` |
-| GET | `/api/datasets` | `{count, datasets:[{key, name, access, version, license, licence_class, commercial_use, redistribution, hosts, files_default, bytes_default, acquirable, readiness:{state, next_step}}], network:{enabled}}`: every registered hub dataset (`tcmdb.datasets`) |
-| GET | `/api/datasets/{key}/manifest` | `{dataset, name, access, version, homepage, license, licence_class, commercial_use, redistribution, licence_record?, hosts, files:[{name, url, host, table, fmt, optional, expected_bytes, reviewed_checksum, local:{present, bytes?, verification?, record?, part_bytes?, resumable?}}], size_gate_bytes, store:{built, files?, build?}, audit:[its audit lines, the last 20], instructions?}`; `404` for an unknown key |
+| GET | `/api/datasets` | `{count, datasets:[{key, name, access, version, license, licence_class, commercial_use, redistribution, hosts, files_default, bytes_default, acquirable, readiness:{state, next_step}, local:{built, files_present, files_default, missing_default, verification}, live_record}], network:{enabled}}`: every registered hub dataset (`tcmdb.datasets`). `local` is what this runner holds; `live_record` (also in the manifest) is CI's committed record of real downloads of the dataset's files (`bioagent/data/live_download_verification.json`): `{files_pass, files_recorded, files, run, at, record}`, or `null` when no live run reached any of them. It says what that run found on its day, not what is on this runner |
+| GET | `/api/datasets/{key}/manifest` | `{dataset, name, access, version, homepage, license, licence_class, commercial_use, redistribution, licence_record?, hosts, files:[{name, url, host, table, fmt, optional, expected_bytes, reviewed_checksum, local:{present, bytes?, verification?, record?, part_bytes?, resumable?}}], size_gate_bytes, store:{built, files?, build?}, live_record, audit:[its audit lines, the last 20], instructions?}`; `404` for an unknown key |
 | GET | `/api/datasets/{key}/readiness` | `{dataset, access, state, next_step, missing?, local, network:{enabled}, acquire?:{method, path, body}, check?:{ok, problems, warnings}, requires:[Requirement]}`; `state` is one of the six of `tcmdb.status` |
 | POST | `/api/datasets/acquisitions` | `{dataset, include_optional?, project_id?, submission_id?}` → `201 {acquisition, plan:{files, download_bytes, unknown_sizes, hosts, size_gate_bytes}}` + `Location: /api/datasets/acquisitions/{id}` (same `submission_id` → `200`, the existing one). Creates a `tcmdb.fetch` job. `400 bad_arguments` for any other field (no URL, no size-gate override), a key that is not registered, or one that is not downloadable; `409 conflict` (`error.job`) while the dataset is already being acquired (a queued or running `tcmdb.fetch` of it), or when `submission_id` names another job (another kind, dataset or `include_optional`); `422 network_off` when the runner's network is off |
 | GET | `/api/datasets/acquisitions` | `?project_id=&state=` → `{acquisitions:[{id, dataset, state, url, job}]}` |
@@ -549,7 +549,9 @@ CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
   `durable:false`.
 - A Pyodide fatal error terminates and restarts the worker. The failed call returns `status:"failed"`,
   `error.type:"runtime_error"`.
-- Device report: `{cores, memory_gb, cross_origin_isolated, webgpu:{api, adapter:{vendor, architecture, description, software:bool}|null}}`,
+- Device report: `{cores, memory_gb, cross_origin_isolated, webgpu:{api, adapter:{kind, vendor, architecture, device, description, fallback, reason, software}|null}}`:
+  `adapter` is `classifyAdapter()`'s answer (runtime/webgpu.js), `kind` software | physical | unidentified, and `software` is true, false, or
+  null for an unidentified adapter; `compute.webgpu_adapter` is true only for a physical one and `compute.webgpu_adapter_kind` names the kind,
   plus `python` and `compute` (the local backends: CONTRACT_NOTES, browser-compute).
   The UI says "Python tools run on the CPU (single thread, WebAssembly)". A software WebGPU adapter is reported as such.
 
@@ -612,6 +614,7 @@ export function entryState(entry, ctx) → {implementation, readiness: {browser:
 export function requirement(need, {names?, detail?, remedy?}) → Requirement   // {need, detail, remedy, names?}, English
 export const NEEDS, READINESS, IMPLEMENTATION, COMPUTE_VALUES, REMOTE_COMPUTE   // REMOTE_COMPUTE = {configured:false, reason}
 export function mergeCatalogs(built, runner)   // the runner wins on exec/available/missing/…; never on the browser's
+  // (the document's verification_records, Catalog.verificationRecords, are kept by the constructor, toJSON and the merge)
   // readiness (state.readiness.browser), its compute backends (execution.browser_compute) or its request limit
   // (limits.max_request_bytes.browser, per entry and for the document)
 

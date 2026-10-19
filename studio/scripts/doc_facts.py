@@ -9,13 +9,18 @@ way the site build builds it) and from ``compat_matrix.rows()`` for the browser 
 core tools, connector sources and operations, native tools and their domains, governed and pinned skills, entries
 that run in the browser and those only the runner runs, and the class counts.
 
-Two kinds of check run over README.md, README.zh-CN.md, studio/README.md, studio/docs/*.md,
+Two kinds of check run over README.md, README.zh-CN.md, USAGE.md, studio/README.md, studio/docs/*.md,
 BioScience-Harness/README.md and docs/*.md:
 
 * anchors: a phrase a given doc is known to use (``| 3 | … | 3 |`` in the class table, ``642 entries: native 150,
   …``); each must still be found, so a reworded sentence is noticed instead of silently escaping the check;
 * phrases anywhere ("N public sources", "N typed operations", "N native tools", "N 个原生工具", "N entries", …):
   every number in one must equal the fact it names.
+
+Versions a doc states (the README's kernel badge, USAGE's example version line) are checked the same way against
+each package's pyproject.toml (``VERSION_ANCHORS``). A table that must list every member of a set (docs/validation.md's
+verification levels) is checked for a row per member (``TABLE_ROWS``), so a deleted row is noticed as well as a wrong
+count. The kernel parity case count is read from ``studio/web/test/fixtures/kernel_cases.json``.
 
 A dated report or a release note states the counts of its own day and is left as written; each such file or
 section is listed below with the reason. Nothing else is exempt.
@@ -38,8 +43,10 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
         sys.path.insert(0, str(src))
 
 #: the docs whose numbers are checked (globs from the repository root)
-DOCS = ("README.md", "README.zh-CN.md", "studio/README.md", "studio/docs/*.md", "BioScience-Harness/README.md",
-        "docs/*.md")
+DOCS = ("README.md", "README.zh-CN.md", "USAGE.md", "studio/README.md", "studio/docs/*.md",
+        "BioScience-Harness/README.md", "docs/*.md")
+#: the kernel parity fixtures (the cases web/test/kernels.test.mjs and test_kernel_fixtures.py run)
+KERNEL_CASES = "studio/web/test/fixtures/kernel_cases.json"
 
 #: whole files that state the counts of their own date, with the reason
 HISTORICAL_FILES = {
@@ -56,6 +63,9 @@ HISTORICAL_SECTIONS = {
 }
 
 _N = r"(\d[\d,]*)"
+#: the capability verification levels an entry's ``verification.levels`` may hold (docs/validation.md)
+VERIFICATION_LEVELS = ("offline_invocation", "reference_output", "kernel_parity", "pyodide_parity", "lock_pin",
+                       "gateway_mock", "live_upstream", "live_gateway")
 #: (pattern, fact): wherever the phrase appears, its number must be the fact
 PHRASES: tuple[tuple[str, str], ...] = (
     (rf"(?<![\d.,~]){_N} (?:catalog )?entries\b", "entries"),
@@ -70,6 +80,10 @@ PHRASES: tuple[tuple[str, str], ...] = (
     (rf"{_N} 个带类型的操作", "operations"),
     (rf"{_N} 个(?:目录)?条目", "entries"),
     (rf"{_N} 个固定版本的受治理 Skill", "pinned_skills"),
+    (rf"(?<![\d.,~]){_N} (?:sequence|kernel) tools\b", "kernel_tools"),
+    (rf"{_N} 个(?:序列|内核)工具", "kernel_tools"),
+    (rf"(?<![\d.,~]){_N} parity cases\b", "kernel_cases"),
+    (rf"{_N} 个一致性用例", "kernel_cases"),
 )
 #: (doc, pattern, facts): a phrase this doc is known to use; it must still be there. A fact None is a label group;
 #: "class.{}" takes the label before it.
@@ -98,9 +112,70 @@ ANCHORS: tuple[tuple[str, str, tuple[str | None, ...]], ...] = (
      rf"job {_N}, system {_N}\.",
      ("entries", "kind.native", "kind.skill", "kind.connector", "kind.clinic", "kind.tcmdb", "kind.study", "kind.job",
       "kind.system")),
+    ("docs/validation.md", rf"^\| `({'|'.join(VERIFICATION_LEVELS)})` \| [^\n]*\| (\d+) \|$", (None, "level.{}")),
+    ("README.md", rf"{_N} parity cases against the Python reference", ("kernel_cases",)),
+    ("README.zh-CN.md", rf"对照 Python 参考实现跑 {_N} 个一致性用例", ("kernel_cases",)),
+    ("studio/README.md", rf"逐字节相同（{_N} 个一致性用例", ("kernel_cases",)),
+    ("studio/docs/BROWSER_COMPUTE.md", rf"shown by the parity tests \({_N} fixture cases", ("kernel_cases",)),
     ("BioScience-Harness/README.md", rf"and {_N} public sources", ("sources",)),
     ("BioScience-Harness/README.md", rf"tools/\s+{_N} native bioinformatics, clinical and TCM tools", ("native",)),
 )
+
+#: the packages whose version a doc may state, and the file each version is read from
+PYPROJECTS = {"psh": "PSH-Harness/pyproject.toml", "bioagent": "BioScience-Harness/pyproject.toml",
+              "tcmstudio": "studio/runner/pyproject.toml"}
+#: (doc, pattern, package): a version this doc states (a badge, a heading); it must be the package's own
+VERSION_ANCHORS: tuple[tuple[str, str, str], ...] = (
+    ("README.md", r"badge/kernel-PSH%20([0-9][0-9.]*[0-9])-", "psh"),
+    ("README.zh-CN.md", r"badge/kernel-PSH%20([0-9][0-9.]*[0-9])-", "psh"),
+    # the example ResearchArtifact's version line (bioagent.skills.base: psh-<psh>+bioagent-<bioagent>)
+    ("USAGE.md", r"runtime=psh-([0-9][0-9.]*[0-9])\+bioagent-", "psh"),
+    ("USAGE.md", r"runtime=psh-[0-9.]+\+bioagent-([0-9][0-9.]*[0-9])\|", "bioagent"),
+)
+#: (doc, row pattern with one ``{}`` for the member, members): a table that must have its own row for every member
+TABLE_ROWS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("docs/validation.md", r"^\| `{}` \|", VERIFICATION_LEVELS),
+)
+
+
+def versions(root: Path = REPO) -> dict[str, str]:
+    """{package: version}, read from each package's pyproject.toml (the ``version = "…"`` of its [project])."""
+    out = {}
+    for package, rel in PYPROJECTS.items():
+        m = re.search(r'^version\s*=\s*"([^"]+)"', (root / rel).read_text(encoding="utf-8"), re.M)
+        if m:
+            out[package] = m.group(1)
+    return out
+
+
+def check_versions(rel: str, text: str, known: dict[str, str]) -> list[str]:
+    """The version anchors of one doc: each must still be there and name the package's own version."""
+    problems = []
+    for doc, pattern, package in VERSION_ANCHORS:
+        if doc != rel:
+            continue
+        found = list(re.finditer(pattern, text))
+        if not found:
+            problems.append(f"{rel}: the version /{pattern}/ is no longer there; reword the anchor in "
+                            "studio/scripts/doc_facts.py to the doc's new wording")
+        for m in found:
+            if m.group(1) != known.get(package):
+                problems.append(f"{rel}:{_line(text, m.start())}: '{m.group(0)}' says {package} {m.group(1)}; "
+                                f"{PYPROJECTS[package]} gives {known.get(package)}")
+    return problems
+
+
+def check_rows(rel: str, text: str) -> list[str]:
+    """The tables of one doc that must list every member of a set: a member without its own row is reported."""
+    problems = []
+    for doc, row, members in TABLE_ROWS:
+        if doc != rel:
+            continue
+        for member in members:
+            if not re.search(row.format(re.escape(member)), text, re.M):
+                problems.append(f"{rel}: no row for '{member}' (/{row.format(member)}/); every member of the set "
+                                "must have its own row")
+    return problems
 
 
 def facts() -> dict[str, int]:
@@ -127,6 +202,9 @@ def facts() -> dict[str, int]:
                              if ((e.get("verification") or {}).get("levels") or {}).get("live_upstream", {})
                              .get("status") == "PASS"),
         **{f"class.{c}": classes.get(c, 0) for c in compat_matrix.CLASS_LABELS},
+        **{f"level.{n}": sum(1 for e in items if n in ((e.get("verification") or {}).get("levels") or {}))
+           for n in VERIFICATION_LEVELS},
+        "kernel_cases": len(json.loads((REPO / KERNEL_CASES).read_text(encoding="utf-8"))["cases"]),
     }
     return out
 
@@ -217,11 +295,16 @@ def docs(root: Path = REPO) -> list[Path]:
 
 def check(root: Path = REPO, known: dict[str, int] | None = None) -> list[str]:
     known = known or facts()
+    released = versions(REPO)
     problems = []
     for path in docs(root):
         rel = path.relative_to(root).as_posix()
-        problems += check_text(rel, path.read_text(encoding="utf-8"), known)
-    missing = sorted({doc for doc, _, _ in ANCHORS} - {p.relative_to(root).as_posix() for p in docs(root)})
+        text = path.read_text(encoding="utf-8")
+        problems += check_text(rel, text, known)
+        problems += check_versions(rel, text, released)
+        problems += check_rows(rel, text)
+    missing = sorted({doc for doc, _, _ in (*ANCHORS, *VERSION_ANCHORS, *TABLE_ROWS)}
+                     - {p.relative_to(root).as_posix() for p in docs(root)})
     problems += [f"{doc}: anchored doc not found" for doc in missing]
     return problems
 
@@ -232,7 +315,7 @@ def main() -> int:
     args = ap.parse_args()
     known = facts()
     if not args.check:
-        print(json.dumps(known, indent=2, sort_keys=True))
+        print(json.dumps({**known, **{f"version.{k}": v for k, v in versions().items()}}, indent=2, sort_keys=True))
         return 0
     problems = check(REPO, known)
     for p in problems:
