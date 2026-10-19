@@ -26,7 +26,8 @@ const tick = () => new Promise((r) => setImmediate(r));
  * exposeRange (false: the 206 has no readable Content-Range), wrongRange, mismatch412 (If-Range mismatch → 412),
  * contentLength (false: none), status (always this), failAfter (bytes, then the connection drops), hangAfter (bytes,
  * then nothing more arrives), hangRequest (no answer at all), onChunk(sent), redirectedTo (the answer came from this
- * URL after a redirect), rangeRefusal ({status, type}: a request with Range gets the relay's JSON refusal).
+ * URL after a redirect), rangeRefusal ({status, type}: a request with Range gets the relay's JSON refusal), refusal
+ * ({status, error}: every request gets the relay's JSON refusal).
  * refuse(host): every request to it throws TypeError, as fetch does for a CORS refusal.
  */
 function fakeNet() {
@@ -50,6 +51,7 @@ function fakeNet() {
       const r = resources.get(u.href);
       if (!r) return new Response("not found", { status: 404 });
       if (r.status) return new Response("no", { status: r.status });
+      if (r.refusal) return new Response(JSON.stringify({ error: r.refusal.error }), { status: r.refusal.status, headers: { "content-type": "application/json" } });
       if (r.rangeRefusal && headers.range) {
         return new Response(JSON.stringify({ error: { type: r.rangeRefusal.type, message: "refused" } }), { status: r.rangeRefusal.status, headers: { "content-type": "application/json" } });
       }
@@ -501,6 +503,26 @@ test("relay: a range the relay refuses (bad_range, size_mismatch) drops the part
   assert.equal(reply.error.kept_part, true);
 });
 
+test("relay: the host's own answer passed on is the host's (a stale URL is FAIL, as directly); the relay's own refusal is the relay's", async () => {
+  const cases = [
+    [{ status: 404, error: { type: "upstream_status", upstream_status: 404, message: "x" } }, "http", /^bidd\.group answered HTTP 404: the reviewed URL is out of date and needs review \(through the site's relay\)$/, undefined],
+    [{ status: 413, error: { type: "too_large", message: "x" } }, "oversize", /through the site's relay: the file is not its reviewed size \(too_large\)/, undefined],
+    [{ status: 502, error: { type: "redirect_refused", message: "x" } }, "redirect", /redirected to a host the registry does not list/, undefined],
+    [{ status: 404, error: { type: "not_relayed", message: "x" } }, "http", /the site's relay answered HTTP 404: the relay does not serve this file here/, true],
+  ];
+  for (const [refusal, type, message, relay] of cases) {
+    const { net, call } = await setup();
+    const body = randomBytes(CHUNK);
+    const row = rowFor("NPASS3.0_target.txt", body);
+    net.serve(`${SITE}api/datasets/files/research/${row.name}`, body, { refusal });
+    const reply = await get(call, row, "relay");
+    assert.equal(reply.ok, false);
+    assert.equal(reply.error.type, type, JSON.stringify(reply.error));
+    assert.match(reply.error.message, message);
+    assert.equal(reply.error.relay, relay);
+  }
+});
+
 test("no reviewed size: a 206 whose total is not the length the first answer declared is another file, not joined", async () => {
   const { store, net, env, call } = await setup();
   const body = randomBytes(6 * CHUNK);
@@ -770,6 +792,8 @@ test("the plan: the registry against OPFS — missing files, what they weigh (nu
   const plan = await ws.plan();
   assert.deepEqual(plan.missing, ["a.txt", "b.csv.gz", "c.txt", "d.txt", "e.txt"]);
   assert.equal(plan.download_bytes, null, "c.txt has no reviewed size");
+  assert.deepEqual(plan.unknown_sizes, ["c.txt"]);
+  assert.equal(plan.known_bytes, plan.files.filter((f) => !f.present && f.bytes !== null).reduce((n, f) => n + f.bytes, 0));
   assert.deepEqual(plan.hosts, ["bidd.group", "reactome.org", "rest.uniprot.org", "stringdb-downloads.org", "zenodo.org"]);
   assert.ok(plan.files.every((f) => f.present === false && f.meta === null && f.reason === "not here" && f.partial_bytes === 0));
 });

@@ -427,8 +427,9 @@ export function mountInspector(app, host) {
       const files = await service.files(jobId);
       const open = async (f) => service.readFile(jobId, f.path);
       box.append(h("ul.file-list", { role: "list" }, files.map((f) => fileRow({
-        // the job service re-read each file from storage and compared it with the digest the job worker recorded
-        name: f.name, bytes: f.bytes, sha256: f.sha256, digest: true, location: t("ui.files.loc_browser_job"), key: `${jobId}/${f.name}`,
+        // the page re-read each file from storage when the job ended and found the digest the job worker recorded;
+        // listed now only at the size it had then (service.files), not hashed again
+        name: f.name, bytes: f.bytes, sha256: f.sha256, digest: "browser", location: t("ui.files.loc_browser_job"), key: `${jobId}/${f.name}`,
         onPreview: async () => { filePick = { key: `${jobId}/${f.name}`, source: { blob: await open(f) }, meta: { name: f.name } }; render(); },
         onDownload: async () => {
           const url = URL.createObjectURL(await open(f));
@@ -450,6 +451,7 @@ export function mountInspector(app, host) {
         h("p.file-row__meta", [type || "", bytes !== undefined && bytes !== null ? formatBytes(bytes) : "", location].filter(Boolean).join(" · ")),
         h("div.file-row__badges", sha256 ? hashBadge(sha256, { compact: true }) : null,
           verified ? chip({ label: t("ui.artifact.output_verified"), tone: "jade", icon: "check" })
+            : digest === "browser" ? chip({ label: t("ui.files.digest_checked"), tone: "slate", icon: "check", title: t("ui.files.digest_checked_browser_tip") })
             : digest ? chip({ label: t("ui.files.digest_checked"), tone: "slate", icon: "check", title: t("ui.files.digest_checked_tip") }) : null)),
       h("div.file-row__actions",
         onPreview ? iconButton({ icon: "eye", label: t("ui.files.preview"), size: "sm", onClick: onPreview }) : null,

@@ -50,6 +50,8 @@ export class BrowserJobsRuntime {
   constructor({ service }) {
     this.kind = "jobs";
     this.service = service;
+    /** Whether research snapshots are built in this browser (true/false), null until the page has looked (ui/app.js). */
+    this.snapshots = null;
   }
 
   get status() {
@@ -109,7 +111,7 @@ export class BrowserJobsRuntime {
       summary: t("ui.tool.job_state", { state: glossary.verdictState(job.state, undefined, "job") }),
       text: `Job ${job.id} (in this browser): ${job.state}${tail}${files}${succeeded ? "" : " (no result yet)"}${job.error?.message ? `: ${job.error.message}` : ""}`,
       result: job, citations: [],
-      governance: { kind: "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: succeeded ? [] : ["Pending: until the job has succeeded it has no result."], outputs: [] },
+      governance: { kind: "system", released: null, artifact: null, verdict: null, claims: [], evidence: [], refusals: [], labels: [], licences: [], limitations: succeeded ? [...(job.limitations || [])] : ["Pending: until the job has succeeded it has no result."], outputs: [] },
       receipt: baseReceipt({ where: "browser", runtime: "studio-jobs/1", input_sha256, kind: "system", outcome: "succeeded" }),
       job: { id: job.id, kind: job.kind, state: job.state, where: "browser" }, approval: null, error: null,
     };

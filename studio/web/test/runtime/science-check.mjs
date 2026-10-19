@@ -9,11 +9,15 @@
 // ?mode=service   the job service end to end without real data: the planted world's snapshots are seeded into private
 //                 storage (as research.snapshot would leave them), then research.run and the self-test run as jobs of the
 //                 service; research.run's five tables must be the self-test's committed answer (same world, same
-//                 parameters), and both jobs must write receipts that match their recorded digests
+//                 parameters), its receipt must match its recorded digest with outputs_verified, and a second run whose
+//                 workers are lost after its research stage must fail, then resume from that stage's checkpoint
 // ?mode=fixture   the snapshot build on raw files mounted from private storage: the parser tests' fixture files
 //                 (served at /raw/) are written into OPFS, mounted read-only in a job worker, and built with their own
-//                 checksums in place of the reviewed ones (fixture_specs.py); science.mjs compares the snapshot ids with
-//                 the same build run natively
+//                 checksums in place of the reviewed ones (fixture_specs.py); a write to a mounted file must fail and
+//                 the OPFS bytes must not change. Then the same files are imported through the dataset workspace (a
+//                 registry naming them with their own checksums) and research.snapshot runs as a job of the service,
+//                 down to its persisted snapshots and marker; science.mjs compares both builds' snapshot ids with the
+//                 same build run natively
 // ?index=URL      where Pyodide is (default: boot.json's index_url)
 
 import { DatasetWorkspace } from "../../js/scientific/data/datasets.js";
@@ -79,6 +83,13 @@ async function selftest() {
     lease.release();
     p.terminateAll();
   }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function sha256Hex(bytes) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function waitFor(svc, id, timeoutMs) {
@@ -182,9 +193,42 @@ async function service() {
   out.receipt = receipt?.doc || null;
   check("receipt at its recorded digest", receipt?.matches === true, JSON.stringify({ placement: receipt?.doc?.placement, device: receipt?.doc?.device, assurance: receipt?.doc?.assurance }));
   check("receipt says the browser verified the outputs", receipt?.doc?.device?.evidence === "verified", JSON.stringify(receipt?.doc?.device));
+  check("receipt: both digest readings agree (outputs_verified)", receipt?.doc?.assurance === "outputs_verified", String(receipt?.doc?.assurance));
   for (const name of ["compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv", "network.tsv"]) {
     const a = (job.artefacts || []).find((x) => x.name === name);
     check(`${name} is the committed answer`, a && `sha256:${a.sha256}` === out.expected?.[name], `${a?.sha256 || "missing"} vs ${out.expected?.[name]}`);
+  }
+  const cp = await svc.readFile(job.id, ["checkpoints", "research.json"]).then((f) => f.text()).then(JSON.parse).catch((e) => ({ error: String(e) }));
+  check("the research stage's checkpoint", cp?.schema === "tcmstudio.checkpoint/1" && (cp.outputs || []).length > 0 && Boolean(cp.inputs_digest), JSON.stringify({ schema: cp?.schema, outputs: cp?.outputs?.length, error: cp?.error }));
+
+  // a run whose job workers are lost after its research stage fails; resumed, it reuses that stage from its checkpoint
+  const t3 = performance.now();
+  // the workers are stopped from the job's own event, as the research stage ends: no race with the verify stage
+  let stopped = null;
+  let lost = await svc.submit("research.run", { question: "葛根芩连汤的实测靶点集中在哪些通路？", background: "assayed", permutations: 200 }, { project_id: "science-check" });
+  const unsubscribe = svc.events(lost.id, (ev) => {
+    const research = ev?.job?.stages?.find((x) => x.id === "research");
+    if (!stopped && ev?.type === "stages" && research?.status === "succeeded") {
+      stopped = ev.job.stages.map((x) => `${x.id}:${x.status}`);
+      p.terminateAll();
+    }
+  });
+  lost = await waitFor(svc, lost.id, 10 * 60_000);
+  unsubscribe?.();
+  out.lost_job = { stopped_at: stopped, state: lost?.state, stages: lost?.stages?.map((x) => `${x.id}:${x.status}:${x.detail || ""}`) };
+  if (check("workers lost after the research stage: the job fails", lost?.state === "failed", `${lost?.state}: ${lost?.error?.message || ""}`)) {
+    await svc.resume(lost.id);
+    lost = await waitFor(svc, lost.id, 10 * 60_000);
+    const research = lost?.stages?.find((x) => x.id === "research");
+    check("resumed: the research stage reused from its checkpoint, the rest run again", lost?.state === "succeeded" && research?.reused === true
+      && lost.stages.filter((x) => x.id !== "research" && x.id !== "prepare").every((x) => !x.reused),
+    lost?.stages?.map((x) => `${x.id}:${x.status}${x.reused ? "(reused)" : ""}`).join(" ") || lost?.state, performance.now() - t3);
+    for (const name of ["enrichment.tsv", "targets.tsv"]) {
+      const a = (lost?.artefacts || []).find((x) => x.name === name);
+      check(`resumed: ${name} is still the committed answer`, a && `sha256:${a.sha256}` === out.expected?.[name], `${a?.sha256 || "missing"}`);
+    }
+    // the reused stage's artifact still says how the analysis ran, and the resumed job says so too
+    check("resumed: the job still states the in-process isolation", (lost?.limitations || []).some((l) => /isolation: in_process/.test(l)), JSON.stringify(lost?.limitations || []));
   }
 
   const t2 = performance.now();
@@ -201,7 +245,11 @@ async function fixture() {
   if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
   await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
   const listed = await (await fetch("/raw/index.json")).json();
-  for (const f of listed) await store.writeBytes([...RESEARCH_PATHS.raw, f.name], new Uint8Array(await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).arrayBuffer()));
+  const raw = new Map();
+  for (const f of listed) raw.set(f.name, new Uint8Array(await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).arrayBuffer()));
+  for (const [name, bytes] of raw) await store.writeBytes([...RESEARCH_PATHS.raw, name], bytes);
+  const before = new Map();
+  for (const [name, bytes] of raw) before.set(name, await sha256Hex(bytes));
   check("fixture files written to private storage", listed.length > 0, listed.map((f) => f.name).join(", "));
   // the worker driven directly: the python op exists only for a worker booted with debug (test pages)
   const w = new Worker("/js/scientific/engines/science.worker.js", { type: "module" });
@@ -233,9 +281,76 @@ result = _call("build_snapshots", ${JSON.stringify(JSON.stringify(args))})` });
     const doc = JSON.parse(text);
     out.report = doc.result || null;
     check("snapshots built in the job worker", doc.ok && ["PASS", "UNVERIFIED"].includes(doc.result?.status), doc.error?.message || doc.result?.status, performance.now() - t0);
-    check("raw files stay read-only", true);
+    const first = listed[0].name;
+    const tried = await call("python", { code: `
+try:
+    with open(${JSON.stringify(`/work/fx/raw/${first}`)}, "r+b") as fh:
+        fh.write(b"x")
+    result = "written"
+except OSError as e:
+    result = f"refused: {type(e).__name__} errno {e.errno}"` });
+    check("a write to a mounted raw file is refused", String(tried).startsWith("refused"), String(tried));
+    await call("unmount", { root: "/work/fx/raw" });
   } finally {
     w.terminate();
+  }
+  const changed = [];
+  for (const name of raw.keys()) {
+    if ((await sha256Hex(await store.readBytes([...RESEARCH_PATHS.raw, name]))) !== before.get(name)) changed.push(name);
+  }
+  check("the raw files in OPFS are the bytes written before the build", !changed.length, changed.join(", ") || `${raw.size} files re-hashed`);
+  await snapshotJob(bootDoc, store, raw);
+}
+
+/** research.snapshot as a job of the service on the fixture files, imported through the dataset workspace with a
+ * registry that names them with their own checksums; the worker's reviewed specs are patched the same way. */
+async function snapshotJob(bootDoc, store, raw) {
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  const real = await (await fetch("/runtime/datasets.json")).json();
+  const files = [];
+  for (const f of real.groups.research.files) {
+    const bytes = raw.get(f.name);
+    if (bytes) files.push({ ...f, bytes: bytes.byteLength, checksum: `sha256:${await sha256Hex(bytes)}` });
+  }
+  const doc = { ...real, groups: { research: { ...real.groups.research, files } } };
+  const registryUrl = URL.createObjectURL(new Blob([JSON.stringify(doc)], { type: "application/json" }));
+  const datasets = new DatasetWorkspace({ store, registryUrl, workerUrl: new URL("/js/scientific/data/data.worker.js", location.href).href });
+  const rows = await datasets.acquire({ names: files.map((f) => f.name), files: new Map(files.map((f) => [f.name, new File([raw.get(f.name)], f.name)])) });
+  if (!check("fixture files imported through the dataset workspace", rows.length === files.length && rows.every((r) => r.status === "PASS"), rows.filter((r) => r.status !== "PASS").map((r) => `${r.file}: ${r.status} ${r.reason}`).join("; ") || `${rows.length} files`)) return;
+  // one worker, booted with its debug op, its reviewed specs patched to the fixtures' before the job leases it
+  const p = new ScienceWorkerPool({
+    size: 1, workerUrl: new URL("/js/scientific/engines/science.worker.js", location.href).href,
+    boot: bootDoc, siteUrl: new URL("/", location.href).href, indexUrl, debug: true,
+  });
+  try {
+    const lease = await p.lease({ packages: ["pyarrow"] });
+    try {
+      await lease.call("mount", { root: "/work/patch/raw", dir: datasets.rawDir(), files: files.map((f) => f.name) });
+      const helper = await (await fetch("/test/runtime/fixture_specs.py")).text();
+      await lease.call("python", { code: `${helper}
+result = ",".join(patch("/work/patch/raw"))` });
+      await lease.call("unmount", { root: "/work/patch/raw" });
+    } finally {
+      lease.release();
+    }
+    const svc = new BrowserJobService({ pool: p, store, datasets, handlers: HANDLERS });
+    await svc.start();
+    const t0 = performance.now();
+    let job = await svc.submit("research.snapshot", {}, { project_id: "science-check" });
+    job = await waitFor(svc, job.id, 10 * 60_000);
+    out.snapshot_job = job;
+    if (!check("research.snapshot as a browser job", job?.state === "succeeded", job?.error?.message || job?.state, performance.now() - t0)) return;
+    out.service_report = job.result || null;
+    check("its stages", job.stages.every((x) => x.status === "succeeded"), job.stages.map((x) => `${x.id}:${x.status}`).join(" "));
+    const marker = await store.readJson(RESEARCH_PATHS.built).catch(() => null);
+    const ledger = await store.readBytes([...RESEARCH_PATHS.snapshots, "ledger.jsonl"]).catch(() => null);
+    check("snapshots kept with their marker, the ledger at the marker's digest", marker?.schema === SNAPSHOTS_BUILT_SCHEMA && marker?.job_id === job.id && ledger
+      && marker.ledger?.sha256 === `sha256:${await sha256Hex(ledger)}`, JSON.stringify({ schema: marker?.schema, ledger: marker?.ledger }));
+    const receipt = await svc.receipt(job.id);
+    check("its receipt at its recorded digest, outputs_verified", receipt?.matches === true && receipt?.doc?.assurance === "outputs_verified", JSON.stringify({ assurance: receipt?.doc?.assurance, evidence: receipt?.doc?.device?.evidence }));
+  } finally {
+    p.terminateAll();
+    URL.revokeObjectURL(registryUrl);
   }
 }
 

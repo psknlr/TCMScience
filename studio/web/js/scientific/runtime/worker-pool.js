@@ -158,14 +158,15 @@ export class ScienceWorkerPool {
    * size: how many workers at most (recommendedPoolSize); workerUrl: ../engines/science.worker.js; Worker: the
    * Worker constructor; boot: the boot.json document, or an async function giving it; siteUrl, indexUrl: passed to
    * init; bootTimeoutMs: init and package loading (180 s); interruptGraceMs: how long Python has to stop after
-   * SIGINT before its worker is terminated (3 s); callTimeoutMs: the default limit of a call (0: none).
+   * SIGINT before its worker is terminated (3 s); callTimeoutMs: the default limit of a call (0: none); debug: boot
+   * the workers with their debug op (test pages only; Studio never sets it).
    */
   constructor({
     size = 1, workerUrl, Worker = globalThis.Worker, boot, siteUrl = null, indexUrl = null, bootTimeoutMs = 180_000,
-    interruptGraceMs = 3000, callTimeoutMs = 0, name = "tcmstudio-science",
+    interruptGraceMs = 3000, callTimeoutMs = 0, name = "tcmstudio-science", debug = false,
   } = {}) {
     const n = Math.max(1, Math.floor(Number(size)) || 1);
-    this.#opts = { workerUrl, Worker, boot, siteUrl, indexUrl, bootTimeoutMs, interruptGraceMs, callTimeoutMs, name };
+    this.#opts = { workerUrl, Worker, boot, siteUrl, indexUrl, bootTimeoutMs, interruptGraceMs, callTimeoutMs, name, debug: debug === true };
     this.#slots = Array.from({ length: n }, (_, i) => ({
       id: `science-${i + 1}`, worker: null, gen: 0, info: null, packages: new Set(), interrupt: null, pending: new Map(),
       lease: null, phase: null, calls: 0, busy_ms: 0, boot_ms: null, instances: 0, onProgress: null, error: null,
@@ -340,7 +341,8 @@ export class ScienceWorkerPool {
     slot.onProgress = onEvent || null;
     const t0 = now();
     try {
-      const info = await this.#call(lease, "init", { boot, siteUrl: o.siteUrl, indexUrl: o.indexUrl }, { signal, onEvent, timeoutMs: o.bootTimeoutMs, count: false });
+      const init = { boot, siteUrl: o.siteUrl, indexUrl: o.indexUrl, ...(o.debug ? { debug: true } : {}) };
+      const info = await this.#call(lease, "init", init, { signal, onEvent, timeoutMs: o.bootTimeoutMs, count: false });
       slot.info = info && typeof info === "object" ? info : {};
       for (const p of slot.info.packages || []) slot.packages.add(String(p));
       slot.boot_ms = Math.round(now() - t0);

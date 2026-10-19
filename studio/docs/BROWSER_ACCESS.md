@@ -102,11 +102,14 @@ provider and hardware-backed execution evidence; no workload has either, so none
 used or claimed, and a context the browser creates for an "npu" request is not
 evidence of an NPU.
 
-The full data-driven network pharmacology analysis runs in the browser as jobs:
+The full data-driven network pharmacology analysis is implemented as browser jobs:
 `research.snapshot` builds verified snapshots from the 17 raw files kept in the site's
 private storage, and `research.run` runs the sixteen-stage workflow on them, both with
 the runner's own Python in job workers ([BROWSER_JOBS.md](BROWSER_JOBS.md),
-[docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)). The pinned seed skill
+[docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)). It is checked on a known
+answer (the planted world) and on the parser tests' fixture files; the build and run on
+the real 17 files in a browser are defined in the live-data workflow and have not
+completed a run yet. The pinned seed skill
 remains a limited seed-corpus network hypothesis workflow.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's

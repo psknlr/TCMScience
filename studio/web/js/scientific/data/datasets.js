@@ -132,7 +132,9 @@ export class DatasetWorkspace {
 
   /**
    * What OPFS holds against the registry → {group, files: [{...row, present, meta, status, reason, partial_bytes}],
-   * missing: [name], download_bytes (null when a missing file has no reviewed size), hosts (of the missing files)}.
+   * missing: [name], download_bytes (null when a missing file has no reviewed size), known_bytes (the reviewed sizes
+   * of the missing files that have one), unknown_sizes ([name]: the missing files without one), hosts (of the missing
+   * files)}.
    * A file counts as present only with its record, and only when the record still matches the registry (its
    * reviewed checksum, or size): a file cut short by a closed tab, or a superseded release, is missing.
    */
@@ -166,6 +168,8 @@ export class DatasetWorkspace {
       files,
       missing: need.map((f) => f.name),
       download_bytes: need.every((f) => f.bytes !== null) ? need.reduce((n, f) => n + f.bytes, 0) : null,
+      known_bytes: need.reduce((n, f) => n + (f.bytes ?? 0), 0),
+      unknown_sizes: need.filter((f) => f.bytes === null).map((f) => f.name),
       hosts: [...new Set(need.map((f) => f.host))].sort(),
     };
   }

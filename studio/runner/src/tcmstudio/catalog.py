@@ -1404,11 +1404,14 @@ def _dataset_hosts(keys: Iterable[str]) -> dict[str, list[str]]:
 #: Job kinds the page's browser job service also runs (studio/web/js/scientific/pipelines: the same Python, in
 #: job workers, with the files in the site's private storage; studio/docs/BROWSER_JOBS.md). Every other kind runs
 #: only on the runner's job service. A kind is listed here only once its browser handler exists and the browser
-#: parity tests run it (studio/web/test/scientific, studio/e2e/science.spec.mjs).
+#: parity tests run it (studio/web/test/runtime/science.mjs: research.snapshot as a job on fixture files, research.run
+#: as a job on the planted world; studio/e2e/science.spec.mjs; the live-data 葛根芩连汤 comparison).
 BROWSER_JOB_KINDS = ("research.snapshot", "research.run")
 
 #: How a browser job runs, as the catalog states it (entry.execution.browser_job).
-_BROWSER_JOB = {"service": "studio-jobs/1", "runtime": "pyodide", "workers": "job workers (one per spare CPU core)",
+_BROWSER_JOB = {"service": "studio-jobs/1", "runtime": "pyodide",
+                "workers": ("one job worker per job, one job at a time in a tab (the pool is sized one "
+                            "per spare CPU core, at most one per 1.5 GB of device memory, at most 4)"),
                 "storage": "origin private file system", "pyodide_packages": ["pyarrow"]}
 
 
@@ -1784,23 +1787,25 @@ def _score(e: Mapping[str, Any], tokens: list[str], full: str) -> float:
 def runnable_here(e: Mapping[str, Any], *, where: str, network: bool = False,
                   jobs: bool = False, built: Iterable[str] | None = None,
                   kind_missing: Mapping[str, list[str]] | None = None,
-                  browser_jobs: bool = False) -> bool:
+                  browser_jobs: bool = False, browser_snapshots: bool | None = None) -> bool:
     """Whether ``e`` is ready in ``where`` (capability.readiness)."""
     return not _needs(e, where=where, network=network, jobs=jobs, built=built,
-                      kind_missing=kind_missing, browser_jobs=browser_jobs)
+                      kind_missing=kind_missing, browser_jobs=browser_jobs,
+                      browser_snapshots=browser_snapshots)
 
 
 def _needs(e: Mapping[str, Any], *, where: str, network: bool, jobs: bool,
            built: Iterable[str] | None = None,
            kind_missing: Mapping[str, list[str]] | None = None,
-           browser_jobs: bool = False) -> list[str]:
+           browser_jobs: bool = False, browser_snapshots: bool | None = None) -> list[str]:
     """What the model reads for an entry that cannot run now: the details of its missing
     requirements (unchanged words: 'the local runner (tcmstudio serve)', 'install: …',
     'web access for this project', 'the runner's job service')."""
     return [r["detail"] for _, r in capability.requirements(
         e, where=where, network=network, jobs=jobs,
         built=list(built) if built is not None else None,
-        kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs)]
+        kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs,
+        browser_snapshots=browser_snapshots)]
 
 
 def catalog_search(query: str = "", category: str | None = None, kind: str | None = None,
@@ -1809,7 +1814,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
                    items: list[dict[str, Any]] | None = None,
                    built: Iterable[str] | None = None,
                    kind_missing: Mapping[str, list[str]] | None = None,
-                   browser_jobs: bool = False) -> dict[str, Any]:
+                   browser_jobs: bool = False,
+                   browser_snapshots: bool | None = None) -> dict[str, Any]:
     """Ranked entries for a query (ids, titles, tags, summaries; Chinese substrings count),
     each with its full parameter schema so the model can call it. ``built`` (the datasets
     built here) and ``kind_missing`` (what the job service says a kind lacks, by entry id)
@@ -1828,7 +1834,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
             continue
         if runnable_now and not runnable_here(e, where=where, network=network, jobs=jobs,
                                               built=built, kind_missing=kind_missing,
-                                              browser_jobs=browser_jobs):
+                                              browser_jobs=browser_jobs,
+                                              browser_snapshots=browser_snapshots):
             continue
         s = _score(e, tokens, full) if tokens else 1.0
         # A lone shared character pair (a bigram such as 分析) is noise, not a match.
@@ -1838,7 +1845,8 @@ def catalog_search(query: str = "", category: str | None = None, kind: str | Non
     matched = []
     for s, e in scored[:limit]:
         needs = _needs(e, where=where, network=network, jobs=jobs, built=built,
-                       kind_missing=kind_missing, browser_jobs=browser_jobs)
+                       kind_missing=kind_missing, browser_jobs=browser_jobs,
+                       browser_snapshots=browser_snapshots)
         run = not needs
         matched.append({"id": e["id"], "kind": e["kind"], "category": e["category"],
                         "title": dict(e["title"]), "summary": e["summary"],

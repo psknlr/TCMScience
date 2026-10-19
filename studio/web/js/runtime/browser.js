@@ -272,6 +272,7 @@ export class BrowserRuntime {
     const context = { project_id: ctx.project_id ?? null, conversation_id: ctx.conversation_id ?? null, approvals: Array.isArray(ctx.approvals) ? ctx.approvals : [], device: "cpu", network: ctx.network !== false };
     // the page's job service runs the job kinds marked execution.browser_job; Python's readiness answers need to know
     if (ctx.browser_jobs) context.browser_jobs = true;
+    if (typeof ctx.browser_snapshots === "boolean") context.browser_snapshots = ctx.browser_snapshots;
     // only capabilities_status reports host facts; the WebGPU probe is not worth making for every call
     if (entry?.id === "system.capabilities") context.capabilities = await this.#capabilities();
     if (signal?.aborted) return fail("cancelled", null, t("runtime.browser.cancelled"), "Not run: the call was cancelled before it started.", "not_executed");

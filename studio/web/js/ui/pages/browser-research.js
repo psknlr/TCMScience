@@ -27,6 +27,14 @@ function fileChip(f) {
   return chip({ label: t("ui.bresearch.missing"), tone: "slate", icon: "circleDashed", dashed: true });
 }
 
+/** What the missing files weigh: their reviewed sizes, and how many have none (never a guess for those). */
+function sizeOfPlan(plan) {
+  const unknown = (plan.unknown_sizes || []).length;
+  const known = plan.known_bytes ?? plan.download_bytes ?? 0;
+  if (!unknown) return formatBytes(known);
+  return t("ui.bresearch.size_partly_known", { size: formatBytes(known), n: unknown });
+}
+
 export function browserResearchSection(app, { tracker, confirm = confirmDialog, rerender, st }) {
   const jobs = app.runtimes?.jobs;
   const body = [];
@@ -59,7 +67,7 @@ export function browserResearchSection(app, { tracker, confirm = confirmDialog, 
   const built = app.state.browserJobs?.built || null;
   body.push(keyValue([
     [t("ui.bresearch.files"), t("ui.bresearch.files_v", { here: plan.files.filter((f) => f.present).length, all: plan.files.length })],
-    plan.download_bytes ? [t("ui.bresearch.to_download"), formatBytes(plan.download_bytes)] : null,
+    plan.missing?.length ? [t("ui.bresearch.to_download"), sizeOfPlan(plan)] : null,
     est && Number.isFinite(est.usage) ? [t("ui.bresearch.storage"), t("ui.bresearch.storage_v", { used: formatBytes(est.usage), quota: Number.isFinite(est.quota) ? formatBytes(est.quota) : "?", kept: est.persisted ? t("ui.bresearch.persisted") : t("ui.bresearch.may_be_evicted") })] : null,
     [t("ui.bresearch.snapshots"), built ? t("ui.bresearch.snapshots_built", { at: String(built.at || "").slice(0, 16).replace("T", " "), job: built.job_id }) : t("ui.bresearch.snapshots_none")],
     [t("ui.bresearch.workers"), t("ui.bresearch.workers_v", { n: jobs.pool?.size ?? 1, why: jobs.pool?.reason || "" })],
@@ -97,7 +105,7 @@ export function browserResearchSection(app, { tracker, confirm = confirmDialog, 
     const missing = plan.files.filter((f) => !f.present);
     const ok = await confirm({
       title: t("ui.bresearch.build_title"),
-      body: missing.length ? t("ui.bresearch.build_body_download", { n: missing.length, size: plan.download_bytes ? formatBytes(plan.download_bytes) : "?", hosts: (plan.hosts || []).join(", ") }) : t("ui.bresearch.build_body_local"),
+      body: missing.length ? t("ui.bresearch.build_body_download", { n: missing.length, size: sizeOfPlan(plan), hosts: (plan.hosts || []).join(", ") }) : t("ui.bresearch.build_body_local"),
       confirmLabel: t("ui.bresearch.build"),
     });
     if (!ok) return;

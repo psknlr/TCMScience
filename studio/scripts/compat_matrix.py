@@ -265,9 +265,10 @@ FAMILIES = [
      "418 MB of raw files in OPFS (read in place); snapshots of a few MB; minutes of CPU per build",
      "not yet measured",
      "browser jobs running the same Python as the runner (the permutation null is CPython's own MT19937 in "
-     "WebAssembly, so it draws exactly what the runner draws); the five tables and the result digest are "
-     "compared byte for byte with native CPython (studio/e2e/science.spec.mjs, and the 葛根芩连汤 real-data run "
-     "in live-data)", "parallel per-source snapshot builds across job workers"),
+     "WebAssembly, so it draws exactly what the runner draws); on the planted world the five tables are "
+     "compared byte for byte with the native answer (studio/e2e/science.spec.mjs); the real-data comparison of "
+     "every export with the native run is defined in live-data and has not completed a run yet",
+     "parallel per-source snapshot builds across job workers"),
     ("Single-cell", "job.pipeline.scrna", "6",
      "100 MB–GBs; hours", "no", "runner",
      "small-dataset browser job (numpy/scipy are in Pyodide; UMAP coordinates differ across numpy builds)"),

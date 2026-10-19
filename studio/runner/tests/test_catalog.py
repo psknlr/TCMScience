@@ -290,6 +290,28 @@ def test_job_kinds_are_the_runner_kinds():
             assert "browser_job" not in (e.get("execution") or {}), kind
 
 
+def test_browser_research_run_readiness_follows_the_browsers_job_service_and_snapshots():
+    from tcmstudio import capability
+
+    run, snap = get_entry("job.research.run"), get_entry("job.research.snapshot")
+
+    def needs(e, **kw):
+        return [(code, r["need"]) for code, r in capability.requirements(e, where="browser", **kw)]
+
+    assert needs(run, browser_jobs=False) == [("needs_job_service", "job_service")]
+    # the service runs, and the page has not said whether snapshots are built: not judged
+    assert needs(run, browser_jobs=True) == []
+    assert needs(run, browser_jobs=True, browser_snapshots=True) == []
+    # none built in this browser: research.run would be refused, so it is not ready (as the page's catalog says)
+    missing = capability.requirements(run, where="browser", browser_jobs=True, browser_snapshots=False)
+    assert [(c, r["need"], r.get("names")) for c, r in missing] == [("needs_dataset", "dataset", ["research snapshots"])]
+    assert capability.readiness(run, where="browser", browser_jobs=True, browser_snapshots=False)["state"] == "needs_dataset"
+    # building them needs no snapshots; the runner is not judged by the browser's
+    assert needs(snap, browser_jobs=True, browser_snapshots=False) == []
+    assert all(r["need"] != "dataset" or "browser" not in r["detail"]
+               for _, r in capability.requirements(run, where="runner", jobs=True, browser_snapshots=False))
+
+
 def test_browser_catalog(browser_catalog, runner_catalog):
     assert browser_catalog["where"] == "browser"
     by_id = {e["id"]: e for e in browser_catalog["entries"]}

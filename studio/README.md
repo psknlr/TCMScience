@@ -41,8 +41,10 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 情况见 [docs/compat/summary.md](docs/compat/summary.md)，其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
 可在批准联网后经同源网关调用。大型流程和原生引擎仍显示各自的依赖。
 
-完整的数据驱动网络药理学研究也能在浏览器中运行：`research.snapshot` 与 `research.run` 是浏览器任务，Runner 的同一套 Python
-在 Pyodide 任务工作线程中执行，原始文件保存在本站私有存储（OPFS）中（[docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)）。种子 Skill
+完整的数据驱动网络药理学研究已实现为浏览器任务：`research.snapshot` 与 `research.run`，Runner 的同一套 Python
+在 Pyodide 任务工作线程中执行，原始文件保存在本站私有存储（OPFS）中（[docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)）。它已在
+已知答案（模拟世界）和解析器测试的夹具文件上检验；在浏览器中用真实的 17 个文件构建并研究的步骤已写入 live-data 流程，尚未
+完成一次运行。种子 Skill
 仍是有限的种子语料网络假说分析。提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
 

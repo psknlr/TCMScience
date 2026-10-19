@@ -350,6 +350,17 @@ def test_a_file_that_is_not_the_reviewed_one_fails_the_build(fixture_raw, tmp_pa
     ("run_research", json.dumps({"question": 3}), "question: a string"),
     ("run_research", json.dumps({"question": QUESTION, "permutations": "many"}), "permutations"),
     ("run_research", json.dumps({"question": QUESTION, "background": "all"}), "background"),
+    # the runner's research.run bounds (kinds._research_prepare), not just "a positive number"
+    ("run_research", json.dumps({"question": QUESTION, "permutations": 5_000_000}),
+     "permutations: between 100 and 100000"),
+    ("run_research", json.dumps({"question": QUESTION, "permutations": 10}),
+     "permutations: between 100 and 100000"),
+    ("run_research", json.dumps({"question": QUESTION, "activity": ["NPASS v2"]}),
+     "activity: 'NPASS v2' is not in the expected form"),
+    ("run_research", json.dumps({"question": QUESTION, "disease": "diarrhoea"}),
+     "disease: 'diarrhoea' is not in the expected form"),
+    # a wrongly typed formula is an argument error, not the analysis refusing the question
+    ("run_research", json.dumps({"question": QUESTION, "formula": 7}), "formula: a string"),
     ("build_snapshots", json.dumps({"raw_dir": "r", "snapshot_root": "s", "ledger": "l",
                                     "sources": ["chembl"]}), "no research source"),
     ("plan_snapshots", json.dumps({"raw_dir": "r", "network": "yes"}), "network: true or false"),

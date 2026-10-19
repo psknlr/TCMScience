@@ -55,13 +55,15 @@ function nativeFixture() {
   return { dir, raw, report: doc.result, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-function compareFixture(browser, native) {
+/** The browser build's snapshot ids (and, for the worker's own report, its stage statuses) against the native build's;
+ * `label` prefixes the rows of a second browser build (research.snapshot as a job, whose result has no stages). */
+function compareFixture(browser, native, label = "") {
   const ids = (doc) => Object.fromEntries(Object.entries(doc?.snapshots || {}).map(([k, v]) => [k, v.snapshot_id]));
   const stages = (doc) => (doc?.stages || []).map((x) => `${x.stage}:${x.status}`);
   const b = ids(browser);
   const n = ids(native);
-  const rows = [...new Set([...Object.keys(b), ...Object.keys(n)])].sort().map((k) => ({ name: k, same: b[k] === n[k], why: b[k] === n[k] ? b[k] : `browser ${b[k]} / native ${n[k]}` }));
-  rows.push({ name: "stages", same: JSON.stringify(stages(browser)) === JSON.stringify(stages(native)), why: stages(browser).join(" ") });
+  const rows = [...new Set([...Object.keys(b), ...Object.keys(n)])].sort().map((k) => ({ name: `${label}${k}`, same: b[k] === n[k], why: b[k] === n[k] ? b[k] : `browser ${b[k]} / native ${n[k]}` }));
+  if (!label) rows.push({ name: "stages", same: JSON.stringify(stages(browser)) === JSON.stringify(stages(native)), why: stages(browser).join(" ") });
   return rows;
 }
 
@@ -174,12 +176,12 @@ async function main() {
     if (!res.ok) report.ok = false;
     for (const c of res.checks || []) console.error(`${c.ok ? "ok    " : "FAILED"} ${c.label}${c.detail ? `: ${c.detail}` : ""}`);
     if (fx) {
-      report.comparison = compareFixture(res.report, fx.report);
+      report.comparison = [...compareFixture(res.report, fx.report), ...compareFixture(res.service_report, fx.report, "research.snapshot job: ")];
       for (const r of report.comparison) {
         console.error(`${r.same ? "same  " : "DIFFER"} ${r.name}: ${r.why}`);
         if (!r.same) report.ok = false;
       }
-      if (!res.report) report.ok = false;
+      if (!res.report || !res.service_report) report.ok = false;
     }
     if (args.mode === "gqd" && res.files) {
       report.comparison = compareGqd(res.files, path.resolve(args.nativeOut));

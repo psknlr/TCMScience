@@ -197,7 +197,8 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
                  built: Collection[str] | None = None, args: Mapping[str, Any] | None = None,
                  probe: Probe | None = None, kind_missing: Sequence[str] | None = None,
                  request_bytes: int | None = None,
-                 browser_jobs: bool | None = None) -> list[tuple[str, dict[str, Any]]]:
+                 browser_jobs: bool | None = None,
+                 browser_snapshots: bool | None = None) -> list[tuple[str, dict[str, Any]]]:
     """Every requirement this entry lacks in ``where``, each with its reason code, in the
     order catalog_search has always named them (runtime, install, web access, job service;
     engines, the request size and datasets in between).
@@ -211,7 +212,9 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
     this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON.
     ``browser_jobs``: in the browser, whether the page's job service is running (it runs the
     entries whose ``execution.browser_job`` says so; the page tells the worker in its context);
-    None when not known, which counts as not running."""
+    None when not known, which counts as not running. ``browser_snapshots``: whether the
+    research snapshots are built in this browser's private storage (``research.run`` there
+    reads only those); None when the page has not said, which is not judged."""
     out: list[tuple[str, dict[str, Any]]] = []
     exec_ = entry.get("exec") or ()
     if where not in exec_:
@@ -273,8 +276,16 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
     if in_page and entry.get("job") and not browser_jobs and not other:
         out.append(("needs_job_service", requirement(
             "job_service", _BROWSER_JOBS,
-            "Use a current Chrome, Edge, Firefox or Safari outside a private window (the jobs keep "
-            "their files in the site's private storage), or connect the local runner.")))
+            "Use a current Chromium-based browser such as Chrome or Edge, outside a private window "
+            "(the jobs keep their files in the site's private storage; Firefox and Safari have not "
+            "been tested with them), or connect the local runner.")))
+    elif in_page and browser_jobs and browser_snapshots is False and entry.get("id") == "job.research.run":
+        # worded as the page's own catalog words it (web/js/core/catalog.js entryState)
+        out.append(("needs_dataset", requirement(
+            "dataset", "the research snapshots built in this browser",
+            "Build them first in this browser (job.research.snapshot: the NPASS, CMAUP and LOTUS "
+            "files plus STRING and Reactome), or connect a runner that has them.",
+            names=["research snapshots"])))
     elif not in_page and entry.get("job") and not jobs and not other:
         # (the job service's own sentence, when it gave one, already says this)
         out.append(("needs_job_service", requirement(
@@ -337,7 +348,8 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
           built: Collection[str] | None = None, probe: Probe | None = None,
           kind_missing: Mapping[str, Sequence[str]] | None = None, state: str | None = None,
           kind: str | None = None, category: str | None = None,
-          limit: int | None = None, browser_jobs: bool = False) -> dict[str, Any]:
+          limit: int | None = None, browser_jobs: bool = False,
+          browser_snapshots: bool | None = None) -> dict[str, Any]:
     """Every entry against this runtime: implementation, readiness with what is missing,
     and the committed verification; counts by readiness, implementation and verification.
     Filters narrow the list, never the counts. Network reachability is never claimed: an
@@ -345,7 +357,8 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
     rows = []
     for e in items:
         r = readiness(e, where=where, network=network, jobs=jobs, built=built, probe=probe,
-                      kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs)
+                      kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs,
+                      browser_snapshots=browser_snapshots)
         v = e.get("verification") or {}
         rows.append({"id": e["id"], "kind": e["kind"], "category": e.get("category"),
                      "implementation": (e.get("state") or {}).get("implementation", "registered"),

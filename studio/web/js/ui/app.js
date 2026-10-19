@@ -312,6 +312,8 @@ export class App {
           built = jobs.status === "ready" ? await snapshotsBuilt(jobs.service?.store) : null;
         } catch { built = null; }
         this.state.browserJobs = { ...this.state.browserJobs, status: jobs.status, reason: jobs.reason || null, snapshots: Boolean(built), built };
+        // what the router tells Python's readiness answers (unknown while the service is not running)
+        jobs.snapshots = jobs.status === "ready" ? Boolean(built) : null;
         this.emit("runtime", { kind: "jobs" });
       };
       this.refreshBrowserJobs = refresh;

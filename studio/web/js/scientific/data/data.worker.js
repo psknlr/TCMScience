@@ -526,17 +526,20 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       validator = null;
       side = null;
       continue;
-    } else if (offset && transport === "relay" && (status === 502 || status === 413)) {
-      // the relay checks the upstream's answer to a range itself and refuses one that cannot be joined; the partial
-      // file then goes, or every later resume would be refused the same way
-      const type = await relayRefusal(res);
-      if (type !== "bad_range" && type !== "size_mismatch") throw httpError(status, host, transport);
-      await part.drop();
-      restarts.push(`relay: the relay refused the answer to bytes=${offset}- (${type}): the partial file was dropped and the download restarted from byte 0`);
-      offset = 0;
-      validator = null;
-      side = null;
-      continue;
+    } else if (transport === "relay") {
+      // the relay's JSON body says whose answer this is: the dataset host's status, passed on, or its own refusal
+      const why = await relayRefusal(res);
+      if (offset && (why.type === "bad_range" || why.type === "size_mismatch")) {
+        // it checks the host's answer to a range itself and refuses one that cannot be joined; the partial file then
+        // goes, or every later resume would be refused the same way
+        await part.drop();
+        restarts.push(`relay: the relay refused the answer to bytes=${offset}- (${why.type}): the partial file was dropped and the download restarted from byte 0`);
+        offset = 0;
+        validator = null;
+        side = null;
+        continue;
+      }
+      throw relayError(status, why, row, host);
     } else {
       await cancelBody(res);
       throw httpError(status, host, transport);
@@ -576,13 +579,35 @@ function oversize(row, bytes, what) {
     : `${what} ${bytes} bytes, more than the ${MAX_UNKNOWN_BYTES}-byte limit for a file the registry has no size for; nothing was kept`);
 }
 
-/** The error type of the relay's JSON refusal ('' when the body says none); the body is read either way. */
+/** The relay's JSON refusal → {type, upstream_status} ('' and null when the body says none); the body is read either way. */
 async function relayRefusal(res) {
   try {
-    return String((await res.json())?.error?.type || "");
+    const e = (await res.json())?.error || {};
+    const upstream = Number(e.upstream_status);
+    return { type: String(e.type || ""), upstream_status: Number.isInteger(upstream) ? upstream : null };
   } catch {
-    return "";
+    return { type: "", upstream_status: null };
   }
+}
+
+/** What a relay answer that is not the file says, with its cause where the relay names one: the dataset host's own
+ * status is the host's (a 404 there is a stale reviewed URL, as it is on a direct download), a file larger than its
+ * reviewed size or a redirect off the registry is what it is on the direct path too, and only the rest is the relay's. */
+function relayError(status, why, row, relayHost) {
+  const upstreamHost = new URL(row.url).host;
+  if (why.type === "upstream_status" && why.upstream_status) {
+    const e = httpError(why.upstream_status, upstreamHost, "direct");
+    e.message = `${e.message} (through the site's relay)`;
+    e.details.via = "relay";
+    return e;
+  }
+  if (why.type === "too_large" || why.type === "size_mismatch") {
+    return new OpError(why.type === "too_large" ? "oversize" : "size", `${upstreamHost}, through the site's relay: the file is not its reviewed size (${why.type}); nothing was kept`);
+  }
+  if (why.type === "redirect_refused") {
+    return new OpError("redirect", `${upstreamHost}, through the site's relay: redirected to a host the registry does not list for this file; nothing from it was kept`);
+  }
+  return httpError(status, relayHost, "relay");
 }
 
 function httpError(status, host, transport) {

@@ -3,8 +3,8 @@
 // pyarrow from the Pyodide distribution, and studies the planted world (tcmstudio.browser_selftest): the snapshot store,
 // the governed analysis in this process (a worker cannot start one), its seeded permutation null, the rebuttals and
 // the nine exports, recomputed. Its five tables must be the bytes native CPython committed — the known answer the
-// research jobs are held to in a browser — and then the same check runs as a job of the page's job service, which
-// writes the job's receipt.
+// research jobs are held to in a browser. The worker is driven directly here; the job service around it (jobs,
+// checkpoints, receipts) is checked by studio/web/test/runtime/science.mjs --mode service and --mode fixture.
 
 import { expect, test } from "@playwright/test";
 import { requirePyodide, startStatic } from "./lib/servers.mjs";

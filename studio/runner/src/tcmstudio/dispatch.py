@@ -89,6 +89,8 @@ class Context:
     #: in the browser: whether the page's job service is running (it, not this worker, runs the
     #: job kinds whose catalog entry carries execution.browser_job)
     browser_jobs: bool = False
+    #: in the browser: whether the research snapshots are built in its private storage (None: not said)
+    browser_snapshots: bool | None = None
 
     @property
     def profile(self) -> str:
@@ -139,6 +141,8 @@ class Context:
             ctx.jobs = value["jobs"]
         if value.get("browser_jobs") is not None:
             ctx.browser_jobs = _truthy(value["browser_jobs"])
+        if isinstance(value.get("browser_snapshots"), bool):
+            ctx.browser_snapshots = value["browser_snapshots"]
         return ctx, notes
 
 
@@ -3621,6 +3625,7 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                            limit=int(args.get("limit") or 10), where=ctx.where,
                            network=ctx.network, jobs=ctx.jobs is not None,
                            browser_jobs=ctx.browser_jobs,
+                           browser_snapshots=ctx.browser_snapshots,
                            items=_searchable(ctx.where), built=_built(ctx),
                            kind_missing=_kind_missing(ctx))
         view = {"matched": [{k: m[k] for k in ("id", "title", "summary", "parameters",
@@ -3833,6 +3838,7 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     kind_missing = _kind_missing(ctx)
     states = [capability.readiness(e, where=ctx.where, network=ctx.network,
                                    jobs=ctx.jobs is not None, browser_jobs=ctx.browser_jobs,
+                                   browser_snapshots=ctx.browser_snapshots,
                                    built=built if hub_root is not None else None,
                                    kind_missing=kind_missing.get(e["id"]))["state"]
               for e in items]
@@ -3887,7 +3893,7 @@ def _capability_audit(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) 
     from .catalog import verification_records
     result = capability.audit(
         _searchable(ctx.where), where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
-        browser_jobs=ctx.browser_jobs,
+        browser_jobs=ctx.browser_jobs, browser_snapshots=ctx.browser_snapshots,
         built=_built(ctx), kind_missing=_kind_missing(ctx), state=args.get("state") or None,
         kind=args.get("kind") or None, category=args.get("category") or None,
         limit=int(args.get("limit") or 100))

@@ -2,10 +2,13 @@
 
 ``bioagent.research.planted`` builds small synthetic snapshots whose right answer is known (the
 'selective' world: the formula's constituents act on pathway A, and the specificity check has
-control herbs to draw). Studying it runs every part a real research job runs — the snapshot store
-(pyarrow), the ledger, the governed analysis with its seeded degree-matched permutation null
-(CPython's MT19937, so a browser draws exactly what the runner draws), the rebuttals, the nine
-exports and their recomputation — in seconds, with no download.
+control herbs to draw). Studying it runs the snapshot store (pyarrow), the ledger, the herb layer,
+NPASS activities, the Reactome enrichment with its seeded degree-matched permutation null
+(CPython's MT19937, so a browser draws exactly what the runner draws), the governed analysis, the
+rebuttals, the nine exports and their recomputation — in seconds, with no download. It does not
+run everything a real research job runs: the world has no STRING, disease, CMAUP or LOTUS layer,
+so network.tsv and disease_targets.tsv are header only and the network topology (degree,
+betweenness) is not exercised; the 葛根芩连汤 comparison on the real files covers those.
 
 The answer it must give is committed (``data/browser_selftest.json``): the five tables as native
 CPython wrote them. :func:`run` studies the world here and compares; the browser's job service runs

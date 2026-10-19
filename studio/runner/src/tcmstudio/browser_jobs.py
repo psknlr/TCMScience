@@ -80,6 +80,16 @@ def _text(args: Mapping[str, Any], name: str, *, required: bool = True,
     return value
 
 
+def _runner_check(check: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """One of the runner's own parameter checks (``kinds``), its refusal as bad arguments."""
+    from .kinds import BadParams
+
+    try:
+        return check(*args, **kwargs)
+    except BadParams as exc:
+        raise BadArguments(str(exc)) from None
+
+
 def _choice(args: Mapping[str, Any], name: str, choices: tuple[str, ...]) -> str:
     value = _text(args, name, required=False, default=choices[0])
     if value not in choices:
@@ -171,7 +181,10 @@ def run_research(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str,
     (released), 1 (release not authorised), 2 (refused: ``refused`` says why, and nothing
     else is set) or 3 (a workflow stage FAILed its own check: ``failed`` names it). The
     defaults are the command's: the assayed background, potency hits, 1000 permutations,
-    NPASS as the activity source and STRING as the optional one, profile trusted_local."""
+    NPASS as the activity source and STRING as the optional one, profile trusted_local.
+    The parameters are held to the runner's ``research.run`` bounds (``kinds``: 100 to
+    100000 permutations, source keys, an ontology id for the disease, one formula), so a
+    call the runner refuses as bad arguments is refused here the same way."""
     from dataclasses import replace
 
     from bioagent.analysis.network_pharmacology import Parameters
@@ -179,26 +192,42 @@ def run_research(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str,
                                         parse_question, research_summary)
     from bioagent.research.loop import run_research as research
 
+    from . import kinds
+
     _only(args, ("question", "formula", "disease", "activity", "optional", "background",
                  "hits", "permutations", "accept_review", "snapshot_root", "ledger",
                  "state_dir", "out_dir"))
     text = _text(args, "question")
-    permutations = args.get("permutations", 1000)
-    if permutations is None:
-        permutations = 1000
-    if isinstance(permutations, bool) or not isinstance(permutations, int) or permutations < 1:
-        raise BadArguments(f"permutations: a positive whole number, not {permutations!r}")
-    params = replace(Parameters(), background=_choice(args, "background", _BACKGROUNDS),
-                     hits=_choice(args, "hits", _HITS), permutations=permutations)
-    activity = tuple(_strings(args, "activity") or ["npass"])
-    optional = tuple(_strings(args, "optional") or ["string"])
+    _runner_check(kinds._text, "question", text)
+    permutations = args.get("permutations")
+    permutations = 1000 if permutations is None else _runner_check(
+        kinds._int, "permutations", permutations, *kinds.PERMUTATIONS)
+    activity = tuple(_runner_check(kinds._text, "activity", a, pattern=kinds._SOURCE_KEY)
+                     for a in _strings(args, "activity")) or ("npass",)
+    optional = tuple(_runner_check(kinds._text, "optional", a, pattern=kinds._SOURCE_KEY)
+                     for a in _strings(args, "optional")) or ("string",)
+    disease = _text(args, "disease", required=False)
+    if disease:
+        disease = _runner_check(kinds._text, "disease", disease, pattern=kinds._DISEASE)
+    formula = _text(args, "formula", required=False)
+    if formula:
+        formula = _runner_check(kinds._text, "formula", formula, max_len=100)
+        problem = kinds.formula_ambiguity(formula) or kinds.formula_conflict(text, formula)
+        if problem:
+            raise BadArguments(f"formula: {problem}")
+    try:
+        params = replace(Parameters(), background=_choice(args, "background", _BACKGROUNDS),
+                         hits=_choice(args, "hits", _HITS), permutations=permutations)
+    except BadArguments:
+        raise
+    except ValueError as exc:                # what the analysis itself refuses
+        raise BadArguments(str(exc)) from None
     paths = {k: _text(args, k) for k in ("snapshot_root", "ledger", "state_dir", "out_dir")}
     accept_review = _flag(args, "accept_review", False)
     isolate = _isolate()
     log = _log(emit)
     try:
-        question = parse_question(text, disease=_text(args, "disease", required=False),
-                                  formula=_text(args, "formula", required=False))
+        question = parse_question(text, disease=disease, formula=formula)
         protocol = default_protocol(question, activity=activity, optional=optional,
                                     parameters=params)
         log(f"research {question.formula_id}: protocol {protocol.digest}"

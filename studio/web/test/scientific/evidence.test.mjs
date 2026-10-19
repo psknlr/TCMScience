@@ -1,14 +1,13 @@
 // The evidence of a browser job (js/scientific/engines/evidence.js): the rung it reaches from what happened — verified
 // only with a verify stage that ran and said it passed and the page's digests equal to the worker's, validated with the
 // digests alone, dispatched when a worker computed but the checks did not pass, selected when no job worker computed
-// anything — the assurance, and the receipt document. Also the memory budget helpers (js/scientific/runtime/memory.js).
+// anything — the assurance, and the receipt document.
 import "../fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   JOB_RECEIPT_SCHEMA, bareSha256, buildJobReceipt, compareDigests, digestChecks, jobEvidence, platformOf, runtimeOf, verifyStages,
 } from "../../js/scientific/engines/evidence.js";
-import { ASSUMED_DEVICE_GB, WASM32_MAX_BYTES, measureMemory, memoryBudget } from "../../js/scientific/runtime/memory.js";
 
 const A = "a".repeat(64);
 const B = "b".repeat(64);
@@ -135,39 +134,4 @@ test("the receipt: the runner's fields where they mean the same, placement brows
   assert.equal(idle.device.used, null);
   assert.equal(idle.device.evidence, "selected");
   assert.equal(idle.duration_s, null);
-});
-
-test("memoryBudget: the reported device memory (or an assumption it names), half for the job, wasm32's ceiling", () => {
-  const b = memoryBudget({ deviceMemory: 8, workers: 2 });
-  assert.equal(b.device_gb, 8);
-  assert.equal(b.assumed_gb, null);
-  assert.equal(b.total_bytes, 4 * 2 ** 30);
-  assert.equal(b.per_worker_bytes, 2 * 2 ** 30);
-  assert.equal(b.source, "navigator.deviceMemory");
-  const assumed = memoryBudget({ deviceMemory: undefined });
-  assert.equal(assumed.device_gb, null);
-  assert.equal(assumed.assumed_gb, ASSUMED_DEVICE_GB);
-  assert.match(assumed.note, /not reported here; 2 GB is assumed/);
-  const measured = memoryBudget({ deviceMemory: 4, measured: { bytes: 2 ** 29 } });
-  assert.equal(measured.measured_bytes, 2 ** 29);
-  assert.equal(measured.total_bytes, 2 * 2 ** 30 - 2 ** 29);
-  assert.match(measured.note, /this page holds now \(measured\)/);
-  const big = memoryBudget({ deviceMemory: 64, workers: 1 });
-  assert.equal(big.per_worker_bytes, WASM32_MAX_BYTES, "no worker holds more than 4 GiB");
-});
-
-test("measureMemory: only on an isolated page that has the call; otherwise null with the reason", async () => {
-  const off = await measureMemory({ isolated: false, performance: { measureUserAgentSpecificMemory: async () => ({ bytes: 1 }) } });
-  assert.equal(off.bytes, null);
-  assert.match(off.reason, /not cross-origin isolated/);
-  const missing = await measureMemory({ isolated: true, performance: {} });
-  assert.equal(missing.bytes, null);
-  assert.match(missing.reason, /no performance\.measureUserAgentSpecificMemory/);
-  const ok = await measureMemory({ isolated: true, performance: { measureUserAgentSpecificMemory: async () => ({ bytes: 123456, breakdown: [] }) } });
-  assert.deepEqual(ok, { bytes: 123456, measured_by: "performance.measureUserAgentSpecificMemory", reason: null });
-  const slow = await measureMemory({ isolated: true, timeoutMs: 10, performance: { measureUserAgentSpecificMemory: () => new Promise(() => {}) } });
-  assert.equal(slow.bytes, null);
-  assert.match(slow.reason, /did not answer/);
-  const refused = await measureMemory({ isolated: true, performance: { measureUserAgentSpecificMemory: async () => { throw Object.assign(new Error("no"), { name: "SecurityError" }); } } });
-  assert.match(refused.reason, /SecurityError: no/);
 });

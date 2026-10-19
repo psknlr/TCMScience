@@ -656,7 +656,7 @@ export function entryState(entry, ctx = {}) {
     if (ctx.jobs?.status !== "ready" || !kinds.includes(kind)) {
       b.push(requirement("job_service", {
         detail: "this browser's job service (job workers and the site's private file storage)",
-        remedy: "Use a current Chrome, Edge, Firefox or Safari outside a private window, or connect the local runner.",
+        remedy: "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs), or connect the local runner.",
       }));
     } else if (kind === "research.run" && ctx.jobs.snapshots === false) {
       b.push(requirement("dataset", {

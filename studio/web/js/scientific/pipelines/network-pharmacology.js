@@ -52,12 +52,15 @@ function unwrap(text, what) {
   return doc && "result" in doc ? doc.result : doc;
 }
 
-async function storageRefusal(store, needBytes) {
-  if (!store) return refusal("unavailable", "This browser has no Origin Private File System for the job's files.", "storage", "Use a current Chrome, Edge, Firefox or Safari, outside a private window.");
+/** A refusal when the browser's free storage is below needBytes (the reviewed sizes known); unsized: the files whose
+ * size nobody reviewed, which this check cannot count and says so. */
+async function storageRefusal(store, needBytes, unsized = []) {
+  if (!store) return refusal("unavailable", "This browser has no Origin Private File System for the job's files.", "storage", "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs).");
   if (!needBytes) return null;
   const est = await store.estimate?.().catch(() => null);
   if (est && Number.isFinite(est.quota) && Number.isFinite(est.usage) && est.quota - est.usage < needBytes) {
-    return refusal("unavailable", `The job needs about ${(needBytes / 1e6).toFixed(0)} MB of browser storage; ${((est.quota - est.usage) / 1e6).toFixed(0)} MB is free.`, "storage", "Free some space, or allow the site to store more.");
+    const more = unsized.length ? `, and more for ${unsized.length} file${unsized.length > 1 ? "s" : ""} with no reviewed size (${unsized.join(", ")})` : "";
+    return refusal("unavailable", `The job needs at least ${(needBytes / 1e6).toFixed(0)} MB of browser storage${more}; ${((est.quota - est.usage) / 1e6).toFixed(0)} MB is free.`, "storage", "Free some space, or allow the site to store more.");
   }
   return null;
 }
@@ -77,7 +80,8 @@ export const researchSnapshot = {
     if (!svc.store) throw await storageRefusal(null);
     if (!svc.datasets) throw refusal("unavailable", "The dataset registry (runtime/datasets.json) is not available in this build.", "dataset");
     const plan = await svc.datasets.plan();
-    const refused = await storageRefusal(svc.store, (plan.download_bytes || 0) * 1.1);
+    // the reviewed sizes only: a file with none (three in the registry) is not guessed at, and the log says so
+    const refused = await storageRefusal(svc.store, (plan.known_bytes ?? plan.download_bytes ?? 0) * 1.1, plan.unknown_sizes || []);
     if (refused) throw refused;
     if (params?.transport && !["auto", "direct", "relay"].includes(params.transport)) {
       throw refusal("bad_arguments", `transport must be auto, direct or relay, not ${params.transport}`, "arguments");
@@ -90,6 +94,8 @@ export const researchSnapshot = {
     await ctx.stage("plan", async () => {
       plan = await datasets.plan();
       ctx.log("info", `${plan.files.length} files needed; ${plan.missing.length} not in this browser yet`);
+      const unsized = plan.unknown_sizes || [];
+      if (unsized.length) ctx.log("info", `the storage check counted the reviewed sizes only: ${unsized.join(", ")} ha${unsized.length > 1 ? "ve" : "s"} none`);
       return { detail: `${plan.files.length} files, ${plan.missing.length} to obtain` };
     });
 
@@ -149,6 +155,8 @@ export const researchSnapshot = {
         const out = await lease.call("persist", { from: `${root}/out`, dir: [...ctx.dir, "out"], clean: true }, { signal: ctx.signal });
         await lease.call("persist", { from: `${root}/out`, dir: REPORT_DIR, clean: true }, { signal: ctx.signal });
         for (const f of out.files) ctx.artefact({ name: f.path.join("/"), path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 });
+        // the snapshots and their ledger are the job's products too: the page reads each back when the job ends
+        for (const f of snaps.files) ctx.artefact({ name: `snapshots/${f.path.join("/")}`, path: [...SNAPSHOTS, ...f.path], bytes: f.bytes, sha256: f.sha256 });
         const ledger = snaps.files.find((f) => f.path.join("/") === "ledger.jsonl");
         await ctx.store.writeJson(BUILT, {
           schema: SNAPSHOTS_BUILT_SCHEMA, job_id: ctx.job.id, at: new Date().toISOString(),
@@ -184,6 +192,11 @@ export const researchRun = {
     if (!params || typeof params.question !== "string" || !params.question.trim()) {
       throw refusal("bad_arguments", "a research question is required", "arguments");
     }
+    // the runner's bounds (tcmstudio.kinds PERMUTATIONS); Python checks them again with the rest
+    const n = params.permutations;
+    if (n !== undefined && n !== null && !(Number.isInteger(n) && n >= 100 && n <= 100000)) {
+      throw refusal("bad_arguments", `permutations: between 100 and 100000, not ${JSON.stringify(n)}`, "arguments");
+    }
     if (!(await svc.store.exists(BUILT)) || !(await svc.store.exists([...SNAPSHOTS, "ledger.jsonl"]))) {
       throw refusal("unavailable", "No research snapshots in this browser yet: the research job reads them through their ledger.", "dataset",
         "Build them first (research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.");
@@ -216,6 +229,8 @@ export const researchRun = {
         const rec = await ctx.checkpoint.read("research");
         for (const o of rec.outputs) ctx.artefact({ name: o.path.slice(1).join("/"), path: o.path, bytes: o.bytes, sha256: o.sha256 });
         s.worker = lease.id;
+        // a resumed job starts with no limitations of its own: the reused artifact still says how it ran
+        await recordIsolation(ctx, s);
         return { ok: true, detail: `reused: its ${check.checked} outputs re-hash to the digests recorded when it ran` };
       };
       await ctx.stage("research", async (s) => {
@@ -245,13 +260,7 @@ export const researchRun = {
           throw e;
         }
         await ctx.store.writeJson(SUMMARY, summary);
-        // how the analysis ran, as the artifact itself records it: in this worker's process through the PSH broker
-        const execution = (await ctx.store.readJson([...ctx.dir, "out", "artifact.json"]).catch(() => null))?.provenance?.execution || {};
-        const isolation = Object.fromEntries(Object.entries(execution).map(([stage, r]) => [stage, r?.isolation || r?.mode || null]));
-        s.record({ isolation });
-        if (Object.values(isolation).includes("in_process")) {
-          ctx.outcome({ limitations: ["The governed analysis ran in this browser's job worker process, through the PSH broker and its audit chain (isolation: in_process): a browser worker cannot start the isolated child process the runner uses. The analysis code and its inputs are the same; the artifact records this per stage."] });
-        }
+        await recordIsolation(ctx, s);
         return {
           detail: `${summary?.released ? "released" : "not released"}; ${summary?.stages?.length ?? 0} stages`, worker: lease.id,
           checkpoint: { inputs_digest: inputs, outputs: kept.files.map((f) => ({ path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 })) },
@@ -280,6 +289,17 @@ export const researchRun = {
     return { result: summary };
   },
 };
+
+/** How the governed analysis ran, as the artifact itself records it (in this worker's process, through the PSH
+ * broker): kept in the stage's record, and said as a limitation of the job when it ran in process. */
+async function recordIsolation(ctx, s) {
+  const execution = (await ctx.store.readJson([...ctx.dir, "out", "artifact.json"]).catch(() => null))?.provenance?.execution || {};
+  const isolation = Object.fromEntries(Object.entries(execution).map(([stage, r]) => [stage, r?.isolation || r?.mode || null]));
+  s.record({ isolation });
+  if (Object.values(isolation).includes("in_process")) {
+    ctx.outcome({ limitations: ["The governed analysis ran in this browser's job worker process, through the PSH broker and its audit chain (isolation: in_process): a browser worker cannot start the isolated child process the runner uses. The analysis code and its inputs are the same; the artifact records this per stage."] });
+  }
+}
 
 function onPythonEvent(ctx, ev, base, span) {
   if (!ev) return;

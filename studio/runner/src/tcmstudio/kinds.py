@@ -54,6 +54,8 @@ _SMILES = re.compile(r"^[A-Za-z0-9@+\-\[\]()=#$%/\\.:*~]{1,2000}$")
 _REMOTE_STRUCTURE = re.compile(r"^(PDB:[0-9A-Za-z]{4}(:[A-Za-z0-9]{1,26})?|UniProt:[A-Za-z0-9]{6,10})$",
                                re.IGNORECASE)
 _DISEASE = re.compile(r"^[A-Za-z]{2,12}[_:][A-Za-z0-9]{1,20}$")
+#: research.run's permutations, at least and at most (the browser's research job keeps the same bounds)
+PERMUTATIONS = (100, 100000)
 _SOURCE_KEY = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
@@ -889,7 +891,7 @@ def _research_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
         "state_dir": str(ctx.paths["projects"] / safe_id(ctx.project_id) / "research" / ctx.job_id),
         "background": _enum("background", p.get("background"), ("assayed", "reactome"), "assayed"),
         "hits": _enum("hits", p.get("hits"), ("potency", "screening"), "potency"),
-        "permutations": _int("permutations", p.get("permutations", 1000), 100, 100000),
+        "permutations": _int("permutations", p.get("permutations", 1000), *PERMUTATIONS),
         "accept_review": bool(p.get("accept_review")),
         "activity": [_text("activity", a, pattern=_SOURCE_KEY) for a in p.get("activity") or []],
         "optional": [_text("optional", a, pattern=_SOURCE_KEY) for a in p.get("optional") or []]}

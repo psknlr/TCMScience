@@ -29,7 +29,7 @@ const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
 /** What a browser that cannot run jobs lacks (the job workers keep their files in the site's private storage). */
 const BROWSER_JOBS_NEED = {
   detail: "this browser's job service (job workers and the site's private file storage)",
-  remedy: "Use a current Chrome, Edge, Firefox or Safari outside a private window, or connect the local runner.",
+  remedy: "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs), or connect the local runner.",
 };
 
 export const TEXT_LIMIT = 16000;
@@ -439,6 +439,7 @@ export class ToolRouter {
         project_id: projectId, conversation_id: conversationId, approvals: granted.map((g) => g.reason), signal,
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
         browser_jobs: this.runtimes.jobs?.status === "ready",
+        browser_snapshots: typeof this.runtimes.jobs?.snapshots === "boolean" ? this.runtimes.jobs.snapshots : null,
       }), signal);
       return stamp(await normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry }), prov);
     } catch (err) {

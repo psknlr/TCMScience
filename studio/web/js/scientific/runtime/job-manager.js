@@ -354,7 +354,7 @@ export class BrowserJobService {
     await this.start();
     if (this.#status !== "ready") {
       throw refusal("unavailable", `this browser's job service is not available: ${this.#reason}`, "job_service",
-        "Use a current Chrome, Edge, Firefox or Safari outside a private window, or connect the local runner.");
+        "Use a current Chromium-based browser such as Chrome or Edge, outside a private window (Firefox and Safari have not been tested with these jobs), or connect the local runner.");
     }
     const handler = this.#handlers.get(String(kind || ""));
     if (!handler) {
