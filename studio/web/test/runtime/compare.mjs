@@ -168,9 +168,10 @@ export function compareExports(browserFiles, nativeOf) {
 // ------------------------------------------------------------------------- the omics jobs (science.mjs --mode omics)
 //
 // pipeline.rnaseq (count-matrix mode) and pipeline.scrna as browser jobs, against the native command on the same files.
-// Their numbers come from iterative fits (the DESeq2 dispersion search, a grid then golden sections on a flat
-// likelihood; Harmony; the UMAP layout) that turn a last-bit difference between the native build (its numpy, scipy and
-// BLAS) and Pyodide's wasm32 one into a difference the tables' six printed digits can show, so a numeric cell is held to
+// Their DESeq2 fits (the dispersion search, a grid then golden sections on a flat likelihood, in the RNA-seq tables and
+// each pseudobulk) turn a last-bit difference between the native build (its numpy, scipy and BLAS) and Pyodide's wasm32
+// one into a difference the tables' six printed digits can show (the UMAP layout amplifies it too, and is not compared;
+// what follows from Harmony was identical in the runs so far), so a numeric cell is held to
 // OMICS_RULE. Measured in Pyodide 314.0.7 against native numpy and scipy over three configurations, the largest
 // difference used 0.157 of it (a pseudobulk p-value), and the tighter 1e-7 + 1e-5·max was exceeded 1.55-fold. Each row
 // says the rule and how much of it the largest difference used. Everything else is exact: headers, gene and cell order, NA positions, True/False flags, every text cell, the

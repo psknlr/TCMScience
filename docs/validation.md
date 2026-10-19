@@ -238,8 +238,8 @@ failures and the ways on.
   figures for this formula come from runs outside CI and are not regression-checked. The
   same research as browser jobs (`research.snapshot` and `research.run` in headless
   Chromium, Pyodide job workers, no runner), compared export by export with this run,
-  passed in `live-data` #18 and #19 (runs 39251758718 and 39258060948, 2026-10-19): every export the native run's
-  bytes, `run_manifest.json` apart from its execution block.
+  passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, 2026-10-19): every export the
+  native run's bytes, `run_manifest.json` apart from its execution block.
 - **The verified transfer, live**: tier 3 downloads through
   `acquisition.transfer.VerifiedTransfer` (resume only onto the same remote file, archives
   read through before a file is kept). In `live-data` #17 (2026-10-19) it fetched the 17

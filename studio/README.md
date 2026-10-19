@@ -44,16 +44,17 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 完整的数据驱动网络药理学研究已实现为浏览器任务：`research.snapshot` 与 `research.run`，Runner 的同一套 Python
 在 Pyodide 任务工作线程中执行，原始文件保存在本站私有存储（OPFS）中（[docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)）。它已在
 已知答案（模拟世界）和解析器测试的夹具文件上检验；在浏览器中用真实的 17 个文件构建并研究、与原生运行逐个导出文件比对，
-已在 `live-data` #18 与 #19 中通过（运行 39251758718 与 39258060948，提交 43918ac 与 53bdbb0，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）。种子 Skill
+已在 `live-data` #18、#19 与 #21 中通过（运行 39251758718、39258060948 与 39286930354，提交 43918ac、53bdbb0 与 65fa6aa，2026-10-19，GitHub 运行器上的无头 Chromium，Pyodide 314.0.7 及其 pyarrow 22.0.0）：17 个原始文件导入本站私有存储，`research.snapshot` 与 `research.run` 作为浏览器任务成功运行，每个导出文件与同一批文件上的原生运行逐字节一致（五张表、`provenance.json`、`limitations.md`、`report.html`；`run_manifest.json` 除执行块外一致）。该次运行：4 味药材、1,792 个成分、370 个实测人类靶点、237 个节点 624 条边的 STRING 网络、检验 959 条 Reactome 通路，BH 校正后无一显著（因此真实数据上未抽取置换零分布；模拟世界检验了它）。种子 Skill
 仍是有限的种子语料网络假说分析。
 
 从计数矩阵出发的 RNA-seq 差异表达（`pipeline.rnaseq` 的计数矩阵模式）和从计数表出发的单细胞分析（`pipeline.scrna`，
 内置分析与 Harmony）也已实现为浏览器任务：Runner 的同一套 Python 配 Pyodide 的 numpy 与 scipy，输入是项目里的文件，复制到
 任务的私有存储并按记录的 SHA-256 核对（[docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)）。
 在两个已知答案参考上与原生命令逐个输出比对：逐字节一致、数值在给定容差内（最大用到容差的 0.133），或不比较并说明原因
-（UMAP 布局与图）；显著基因、每个细胞的聚类与细胞类型完全相同，预设答案在浏览器写出的文件上成立。已在本地无头 Chromium
+（UMAP 布局与图；用户自己的运行不做比较）；显著基因、每个细胞的聚类与细胞类型完全相同，预设答案在浏览器写出的文件上成立。已在本地无头 Chromium
 （Pyodide 314.0.7）中测试，并在 Studio 的 CI（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy）中通过。从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad`，以及
-超过 6,000 个细胞或 100,000 个基因 × 200 个样本的输入，会被拒绝并说明原因，需要本机 Runner。
+超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因或计数矩阵超过 10,000,000 个基因 × 样本的输入（限值依据 Node 下
+Pyodide 314.0.7 中的运行设定，不是在浏览器标签页中测得），会被拒绝并说明原因，需要本机 Runner。
 
 提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
@@ -263,7 +264,7 @@ clinical tool or identifying details), and counts anonymous usage you can switch
 - **Network pharmacology in the browser.** The full data-driven research loop runs as browser jobs: `research.snapshot`
   (the 17 raw files downloaded, relayed or imported into the site's private storage, verified and built into snapshots)
   and `research.run` (the sixteen stages and nine exports), the runner's own Python in Pyodide job workers. On the planted
-  world a job worker writes the native bytes; the real 葛根芩连汤 comparison in the live-data workflow passed in `live-data` #18 and #19 (runs 39251758718 and 39258060948, commits 43918ac and 53bdbb0, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it)
+  world a job worker writes the native bytes; the real 葛根芩连汤 comparison in the live-data workflow passed in `live-data` #18, #19 and #21 (runs 39251758718, 39258060948 and 39286930354, commits 43918ac, 53bdbb0 and 65fa6aa, 2026-10-19, headless Chromium on GitHub's runner, Pyodide 314.0.7 with its pyarrow 22.0.0): the 17 raw files imported into the site's private storage, `research.snapshot` and `research.run` succeeded as browser jobs, and every export was the native run's bytes on the same files (the five tables, `provenance.json`, `limitations.md`, `report.html`; `run_manifest.json` apart from its execution block). That run: 4 herbs, 1,792 constituents, 370 measured human targets, a 237-node, 624-edge STRING network, 959 Reactome pathways tested, none significant after BH (so no permutation null was drawn there; the planted world exercises it)
   ([docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)). The seed skill remains a limited seed-corpus network hypothesis
   workflow.
 - **RNA-seq and single-cell in the browser.** RNA-seq differential expression from a count matrix (`pipeline.rnaseq` in
@@ -272,11 +273,14 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   into the job's private storage and checked against their recorded SHA-256
   ([docs/BROWSER_JOBS.md §3.1](docs/BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)). On two known-answer
   references, compared output by output with the native command: identical bytes, numbers within a stated tolerance
-  (at most 0.133 of it), or not compared, with the reason (the UMAP layout and figures); the genes called and each
+  (at most 0.133 of it), or not compared, with the reason (the UMAP layout and figures; a person's own run is not
+  compared); the genes called and each
   cell's cluster and cell type identical, the planted answers found on the browser's files. Tested locally in headless
   Chromium (Pyodide 314.0.7), and passed in Studio's CI (`studio` #91, 2026-10-19, Pyodide's numpy and scipy from
   jsDelivr). A FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and `.h5ad`, and
-  inputs above 6,000 cells or 100,000 genes × 200 samples are refused with the reason and need the local runner.
+  inputs above 6,000 cells, a table above 66,000,000 cells × genes or a count matrix above 10,000,000 genes × samples
+  (limits set from runs in Pyodide 314.0.7 under Node, not in a browser tab) are refused with the reason and need the local
+  runner.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a

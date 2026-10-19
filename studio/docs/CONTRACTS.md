@@ -189,11 +189,11 @@ serves the same at `GET /api/capabilities/audit` (§4).
 | `connector_call` {connector, operation, arguments} | connector.<key>.<op> | R | network |
 | `literature_search` {query, source=europepmc, limit=10} | connector.europepmc / ncbi_eutils / crossref | R | network |
 | `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | B R ★ | job; snapshot pipeline; in the browser a job of the page's job service ([BROWSER_JOBS.md](BROWSER_JOBS.md)) |
-| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)); the router places the call by the kind its `pipeline` names, and one the browser cannot run (`fold`, `dock`, `admet`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`) goes to a connected runner, or is refused with reason `needs_runner` and why |
+| `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | B R ★ | job; GPU-capable kinds honour the device setting. In the browser `rnaseq` with `counts` and `scrna` on count tables are jobs of the page's job service ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)); the router places the call by the kind its `pipeline` names, and one the browser cannot run (`fold`, `dock`, `admet`; FASTQ, PyDESeq2, Scanpy, scVI, `.h5`, `.h5ad`) goes to a connected runner, or is refused with reason `needs_runner` and why (under compute Browser with the runner connected, `compute_browser` and why). `arguments` is an object, or the JSON text of one (read as that object, as the dispatcher reads it); a call without a `pipeline` of the catalog, with `arguments` that are not an object, or with the kind's parameters beside `arguments` is `bad_arguments` before it is placed or approved, the pipelines listed |
 | `job_status` {job_id, wait_s≤60} | runner jobs; browser jobs (ids `bj-…`) | B R | a browser job's status is the page's to answer, whatever the placement |
 | `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
 | `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
-| `call_tool` {tool, arguments} | any Entry id | per entry | the entry's own `confirm`/`network` apply |
+| `call_tool` {tool, arguments} | any Entry id | per entry | the entry's own `confirm`/`network` apply; `arguments` that are not an object (JSON text that does not parse, or parses to something else) is `bad_arguments` in the dispatcher's words, before placement or approval |
 
 Never offered to the model: `clinic.sign` (the practitioner's act), `tcmdb.fetch --confirm` above its size gate, registry
 release and promotion, raw shell. These appear in the UI only.
@@ -545,7 +545,10 @@ Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command 
   the count-matrix mode, `samples` being the sample table (`sample` and the design columns); both are plain files
   (upload ids or file names), `transcripts`, `genome`, `annotation`, `engine` and `trimmer` are refused
   (`bad_arguments`, "a count-matrix run takes no FASTQ reference or engine: …"), and so is a FASTQ sheet given as
-  `samples`. `design`, `contrast`, `de_backend` (`builtin`·`pydeseq2`) and `alpha` (0.0001–0.5) are common to both. Its
+  `samples` ("samples: with counts this is the sample table (sample and the design columns); a FASTQ sample sheet runs
+  without counts", `kinds.RNASEQ_COUNTS_FASTQ_SHEET`, the browser's words too). The FASTQ-option check reads no
+  file (`Kind.check`): the dispatcher makes it before it looks for an engine, so a count-matrix call naming a FASTQ engine
+  is `bad_arguments` wherever it would run, never a tool to install. `design`, `contrast`, `de_backend` (`builtin`·`pydeseq2`) and `alpha` (0.0001–0.5) are common to both. Its
   argv: `bioagent.cli rnaseq --counts=… --samples=… --design=… --de-backend=… --alpha=… --threads=<job threads>
   [--contrast=…] --out={output} --json`; the same artefacts (`run`, `report`, `results`, `limitations`) and validator.
 - **`pipeline.scrna`** takes `n_top_genes` (highly variable genes, an integer 50–10000, default 2000), passed as
@@ -561,15 +564,24 @@ digest. So do `pipeline.rnaseq` in its count-matrix mode and `pipeline.scrna` on
 ([BROWSER_JOBS.md §3.1](BROWSER_JOBS.md#31-rna-seq-and-single-cell-from-count-tables)), through
 `tcmstudio.browser_jobs.run_rnaseq_counts` (`{counts, samples, design?, contrast?, alpha?, de_backend?, out_dir}`),
 `run_scrna` (`{source, doublets?, analysis_backend?, integration?, resolution?, seed?, markers?, root?, contrast?,
-n_top_genes?, out_dir}`) (each → `{exit, summary, failed, refused, need}`: exit 0 complete, 1 incomplete, 2 refused,
+n_top_genes?, out_dir}`; a directory `source` is need `runner`, one without a Cell Ranger output's files refused as the
+command refuses it) (each → `{exit, summary, failed, refused, need}`: exit 0 complete, 1 incomplete, 2 refused,
 `need` `runner`, `memory` or null) and
 `verify_pipeline` (`{kind, out_dir}` → `{status, checks, problems, report}`, the runner's checks under the runner's
 names). Their file params name files of the job's project (an id, or a name: the newest file of that name), copied
 into the job's OPFS directory and refused unless they have the SHA-256 the project recorded; the receipt's `inputs`
 records each (`{sha256, bytes, source}`; a sample sheet's tables under `source.files`). Refused before anything is
-queued: what `execution.browser_job.runner_only` names (`unavailable`, need `runner`), the runner's bounds and unknown
-params (`bad_arguments`). Refused for memory (type `refused`, need `memory`): more than 6,000 cells, more than 100,000
-genes or 200 samples, and a `MemoryError` during the run; the worker is then retired.
+queued: what `execution.browser_job.runner_only` names (`unavailable`, need `runner`); the runner's bounds, unknown
+params, `counts` with a FASTQ sample sheet as `samples` (the runner's words) and a name that is no file of the project
+(`bad_arguments`; for a `source` that is no table, `.h5` or `.h5ad`, the refusal adds that a Cell Ranger directory is
+read by the runner: a directory cannot be a project file). Refused for memory (type `refused`, need `memory`), each
+input counted a line at a time before any is read in full: more than `SC_CELLS_MAX` (6,000) cells, a table of more
+than `SC_TABLE_COUNTS_MAX` (66,000,000) cells × genes, a count matrix of more than `RNASEQ_COUNTS_MAX` (10,000,000)
+genes × samples or of more than 100,000 genes or 200 samples, and a `MemoryError` during the run; the worker is then
+retired. A gzipped input that is corrupt or cut short, and a single-cell table that is not UTF-8, are refused with
+the reason (`refused`, need null), as the command refuses them. The analysis stage's checkpoint digest covers its
+params, its inputs' digests and what computes it (the bundle's SHA-256, Pyodide's version, the numpy and scipy the
+worker reports): a job resumed on a changed runtime runs the analysis again.
 File parameters reference upload ids. The device setting becomes `CUDA_VISIBLE_DEVICES` (`""` forces
 CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
 

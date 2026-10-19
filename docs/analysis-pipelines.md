@@ -19,9 +19,10 @@ runs, which are recorded but never released, until a person reviews and promotes
 
 Every pipeline is implemented and runs on the person's own runner (in Studio, as a runner
 job); network pharmacology also runs as browser jobs, with no runner (checked on a known answer and on fixture files;
-and on the real 葛根芩连汤 files, whose exports were the native run's bytes in `live-data` #18 and #19:
+and on the real 葛根芩连汤 files, whose exports were the native run's bytes in `live-data` #18, #19 and #21:
 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)). So, in part, do RNA-seq and single cell: RNA-seq from a count
-matrix and single cell from count tables, with the built-in engines, up to 6,000 cells or 100,000 genes × 200 samples
+matrix and single cell from count tables, with the built-in engines, up to 6,000 cells (66,000,000 cells × genes in a
+table) or 10,000,000 genes × samples
 ([In the browser](#in-the-browser-count-matrices-and-count-tables), below); they were compared output by output with
 the native command on their known-answer references in headless Chromium, locally and in Studio's CI (`studio` #91,
 2026-10-19). Structure, docking and ADMET do not
@@ -90,7 +91,8 @@ bioagent rnaseq --counts counts.tsv --samples samples.tsv --design "~ condition"
 - `--counts` is a gene × sample table, TSV or CSV (gzipped or not): `gene_id`, an optional `gene_name`, then one
   column per sample, every value a non-negative integer. Refused, with the line and sample named: a value that is not
   a number, negative, not finite or not an integer ("round estimated counts first"), 2^53 or more, a duplicated gene
-  id or sample name, fewer than two samples, a sample with no counts at all, a tab or line break inside a name.
+  id or sample name, fewer than two samples, a sample with no counts at all, a tab or line break inside a name; and a
+  gzipped table whose stream is corrupt or cut short ("… cannot be read to its end (…)"), never a crash.
 - `--samples` is then a sample table: a `sample` column and the design variables, one row per count column. A FASTQ
   sheet (`fastq_1`/`fastq_2`) is refused: reads go through the full pipeline.
 - The FASTQ options (`--transcripts`, `--genome`, `--annotation`, `--engine`, `--trimmer`, `--fragment-mean`,
@@ -207,7 +209,13 @@ The sample sheet lists `sample,path` and any sample variables (`condition`, `bat
 - an `.h5ad`;
 - a genes x cells CSV/TSV.
 
-Every input must be raw counts; normalised values are refused.
+Every input must be raw counts; normalised values are refused. A CSV/TSV table is read a row at a time, keeping each
+row's non-zero counts, so it needs memory for its counts rather than for its text (the matrix is the one a parse of
+the whole text gives; for one table of 1,356 cells × 33,000 genes in Pyodide, 1.55 GB instead of 2.0 GB at the run's
+peak; after reading, the doublet scores' dense matrix dominates). A blank line is skipped; a row with the wrong number
+of values is refused ("rows have N values for M cells"); a gzipped table or Cell Ranger file whose stream is corrupt
+or cut short is refused with the reason ("… cannot be read to its end (…)"); a sheet line with an empty `path` is
+refused ("line N of <sheet> names no path").
 
 ### Steps
 
@@ -292,16 +300,20 @@ scipy ([BROWSER_JOBS.md §3.1](../studio/docs/BROWSER_JOBS.md#31-rna-seq-and-sin
 
 The inputs are files of the person's project, copied into the job's private storage and checked against their
 recorded SHA-256. Refused there with the reason, for the runner: a FASTQ run, PyDESeq2, Scanpy, scVI, 10x HDF5 and
-`.h5ad` sources, and more than 6,000 cells or 100,000 genes × 200 samples (a browser worker's wasm32 memory holds about
-4 GB; a `MemoryError` is the same refusal). On `omics_counts_world` v1 and `sc_world` v1 (as count tables), compared
+`.h5ad` sources, and more than 6,000 cells, a table of more than 66,000,000 cells × genes (the doublet scores hold one
+sample's cells × genes densely) or a count matrix of more than 10,000,000 genes × samples (a browser worker's wasm32
+memory holds about 4 GB; measured in Pyodide 314.0.7 under Node, one run each, not in a browser tab: four tables of
+1,356 cells × 33,000 genes took 1.9 GB, one table of 2,000 × 33,000 2.2 GB, 10 M counts 1.8–2.0 GB; a `MemoryError` is
+the same refusal). `counts` with a FASTQ sample sheet as `samples` is refused as bad arguments, as the runner refuses
+it. On `omics_counts_world` v1 and `sc_world` v1 (as count tables), compared
 output by output with the native command on the same files at one BLAS thread (`studio/web/test/runtime/science.mjs
 --mode omics`):
 
 - identical bytes: RNA-seq `counts.tsv`, `vst.tsv`, `report.md`, `limitations.md`; single-cell `clusters.tsv`,
   `markers.tsv`, `paga.tsv`, `report.md`, `limitations.md`, `cells.tsv` apart from the UMAP coordinates;
 - within a stated tolerance (|a − b| ≤ 1e-6 + 1e-4·max + one unit in the sixth significant digit; the largest
-  difference 0.133 of it): `deseq2_results.tsv`, `de_diagnostics.tsv` and the four pseudobulk tables, whose numbers come
-  from iterative fits that turn last-bit differences between numpy builds into printed digits;
+  difference 0.133 of it): `deseq2_results.tsv`, `de_diagnostics.tsv` and the four pseudobulk tables, all DESeq2 fits,
+  whose dispersion search turns last-bit differences between numpy builds into printed digits;
 - not compared, with the reason: the UMAP coordinates and five figures; the layout's structure is checked instead
   (each cell's 15 nearest UMAP neighbours in its cluster: browser 0.9985, native 0.9983);
 - exactly the same: the 90 genes called, the pseudobulk calls, each of the 1,077 cells' cluster and cell type;
@@ -310,9 +322,11 @@ output by output with the native command on the same files at one BLAS thread (`
 
 Tested locally in headless Chromium 141 with Pyodide 314.0.7 (numpy 2.4.6, scipy 1.18.0), against native Python
 3.13.16 with numpy 2.5.4 and scipy 1.18.1; and in Studio's CI with Pyodide's numpy and scipy from jsDelivr, against
-CI's Python 3.12.15 (`studio` #91, 2026-10-19), with the same results. The tolerance was fitted on these two simulated
-references and is not established for other data; other settings (a pseudotime root, `integration: none`, a marker
-table of one's own) were not compared in a browser.
+CI's Python 3.12.15 (`studio` #91, 2026-10-19), with the same results but the native UMAP agreement, 0.9981 there. The
+tolerance was fitted on these two simulated references and is not established for other data; other settings (a
+pseudotime root, `integration: none`, a marker table of one's own) were not compared in a browser, and a person's own
+run is compared with nothing: its limitations say that a value near a threshold (an adjusted p-value near alpha) may
+differ.
 
 ## Protein structure: sequences to checked models
 
@@ -836,7 +850,7 @@ data".
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
 
-**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18 与 #19 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞或 100,000 个基因 × 200 个样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；结构预测、对接与 ADMET 不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18、#19 与 #21 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞（单个表 66,000,000 个细胞 × 基因）或 10,000,000 个基因 × 样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；结构预测、对接与 ADMET 不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
 **RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发（或用 `--counts` 从计数矩阵出发，见下文），依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
@@ -850,7 +864,7 @@ data".
 内置定量器对双端测序增加了片段长度一致性检查，纠正了外显子跳跃异构体被低估的问题。
 
 **从计数矩阵出发**（`bioagent rnaseq --counts counts.tsv --samples samples.tsv --out results/`，模块 `bioagent.omics.rnaseq_counts`），用于在别处得到的计数（featureCounts、经 tximport 的 salmon、已发表的矩阵）：
-- `--counts` 是基因 × 样本的 TSV 或 CSV 表（可 gzip）：`gene_id`、可选 `gene_name`，然后每个样本一列，每个值都必须是非负整数。以下情况被拒绝，并指明行与样本：非数字、负数、非有限值、非整数（「请先把估计计数取整」）、2^53 及以上、重复的基因 ID 或样本名、少于两个样本、某样本计数全为零、名称中含制表符或换行。
+- `--counts` 是基因 × 样本的 TSV 或 CSV 表（可 gzip）：`gene_id`、可选 `gene_name`，然后每个样本一列，每个值都必须是非负整数。以下情况被拒绝，并指明行与样本：非数字、负数、非有限值、非整数（「请先把估计计数取整」）、2^53 及以上、重复的基因 ID 或样本名、少于两个样本、某样本计数全为零、gzip 数据流损坏或被截断的表（「… cannot be read to its end (…)」，不会崩溃）、名称中含制表符或换行。
 - 此时 `--samples` 是样本表：`sample` 列加设计变量，每个计数列一行。FASTQ 样本表（含 `fastq_1`/`fastq_2`）被拒绝：读段要走完整流程。
 - FASTQ 专用选项（`--transcripts`、`--genome`、`--annotation`、`--engine`、`--trimmer`、`--fragment-mean`、`--fragment-sd`、`--strand`）被拒绝（退出码 2），绝不忽略。`--design`、`--contrast`、`--covariate`、`--de-backend` 与 `--alpha` 含义与 FASTQ 模式相同。
 - 从计数开始，步骤与完整流程相同、代码相同：差异表达、VST、PCA、样本距离、相同的表格与图、`report.md`/`report.html`、`limitations.md` 与 `run.json`。没有看到任何读段，因此没有质控、修剪和定量，`limitations.md` 注明计数按原样分析。把 FASTQ 参考的计数取整成表后，这一模式写出的 `deseq2_results.tsv`、`de_diagnostics.tsv` 与 `vst.tsv` 与完整流程逐字节相同（有测试检查）。
@@ -877,6 +891,8 @@ data".
 - 轨迹分析：PAGA，以及从指定起点出发的扩散伪时间；
 - 条件间比较：按细胞类型做伪批量 DESeq2。
 
+计数表逐行读取，只保留每行的非零计数，所需内存取决于计数而非文本（矩阵与整体解析相同；在 Pyodide 中，单个 1,356 个细胞 × 33,000 个基因的表在运行峰值时用 1.55 GB 而非 2.0 GB；读入之后占主导的是双细胞评分的稠密矩阵）。空行跳过；值的个数不对的行被拒绝（「rows have N values for M cells」）；gzip 数据流损坏或被截断的计数表或 Cell Ranger 文件被拒绝并说明原因（「… cannot be read to its end (…)」）；样本表中 `path` 为空的行被拒绝（「line N of <样本表> names no path」）。
+
 分析后端（内置或 Scanpy）、批次整合方法（none、harmony 或 scvi）和伪批量检验实现（内置或 PyDESeq2）三者可独立选择，见 omics-backends.md。
 
 验证有两类：
@@ -889,14 +905,14 @@ data".
 - `pipeline.rnaseq` 的计数矩阵模式（`counts` 与 `samples`），使用内置 DESeq2 实现；
 - `pipeline.scrna` 处理计数表（CSV、TSV 或 TXT，可 gzip，或由它们组成的 `.csv`/`.tsv` 样本表），使用内置分析与内置 Harmony 或不整合。
 
-输入是用户项目中的文件，复制到任务的私有存储并按记录的 SHA-256 核对。以下情况在浏览器中被拒绝并说明原因，交给 Runner：从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 来源，以及超过 6,000 个细胞或 100,000 个基因 × 200 个样本（浏览器工作线程的 wasm32 内存约 4 GB；`MemoryError` 也是同样的拒绝）。在 `omics_counts_world` v1 与写成计数表的 `sc_world` v1 上，与同一批文件上单个 BLAS 线程的原生命令逐个输出比对（`studio/web/test/runtime/science.mjs --mode omics`）：
+输入是用户项目中的文件，复制到任务的私有存储并按记录的 SHA-256 核对。以下情况在浏览器中被拒绝并说明原因，交给 Runner：从 FASTQ 出发的运行、PyDESeq2、Scanpy、scVI、10x HDF5 与 `.h5ad` 来源，以及超过 6,000 个细胞、单个表超过 66,000,000 个细胞 × 基因（双细胞评分以稠密方式保存一个样本的细胞 × 基因）或计数矩阵超过 10,000,000 个基因 × 样本（浏览器工作线程的 wasm32 内存约 4 GB；在 Node 下的 Pyodide 314.0.7 中测得，每项一次，不是在浏览器标签页中：四个 1,356 个细胞 × 33,000 个基因的表用 1.9 GB，单个 2,000 × 33,000 的表 2.2 GB，10 M 个计数 1.8–2.0 GB；`MemoryError` 也是同样的拒绝）。`counts` 与作为 `samples` 的 FASTQ 样本表同时给出时，与 Runner 一样作为参数错误拒绝。在 `omics_counts_world` v1 与写成计数表的 `sc_world` v1 上，与同一批文件上单个 BLAS 线程的原生命令逐个输出比对（`studio/web/test/runtime/science.mjs --mode omics`）：
 - 逐字节一致：RNA-seq 的 `counts.tsv`、`vst.tsv`、`report.md`、`limitations.md`；单细胞的 `clusters.tsv`、`markers.tsv`、`paga.tsv`、`report.md`、`limitations.md`，以及除 UMAP 坐标外的 `cells.tsv`；
-- 在给定容差内（|a − b| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133）：`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表，其数值来自迭代拟合，会把不同 numpy 构建之间末位的差异放大到打印出的数字；
+- 在给定容差内（|a − b| ≤ 1e-6 + 1e-4·max + 第六位有效数字的一个单位；最大差异用到容差的 0.133）：`deseq2_results.tsv`、`de_diagnostics.tsv` 与四个伪批量表，都是 DESeq2 拟合的输出，其离散度搜索会把不同 numpy 构建之间末位的差异放大到打印出的数字；
 - 不比较并说明原因：UMAP 坐标与五张图；改为检查布局结构（每个细胞 15 个最近 UMAP 邻居中同簇的比例：浏览器 0.9985，原生 0.9983）；
 - 完全相同：显著的 90 个基因、各伪批量检验的显著基因、全部 1,077 个细胞的聚类与细胞类型；
 - 浏览器写出的文件上的已知答案：80 个预设基因全部按方向找到，90 个显著中假发现 10 个；ARI 1.0、四种细胞类型、B 细胞 20 个预设基因中找到 16 个、混合度 1.03。
 
-已在本地无头 Chromium 141 中用 Pyodide 314.0.7（numpy 2.4.6、scipy 1.18.0）测试，对照原生 Python 3.13.16、numpy 2.5.4、scipy 1.18.1；Studio 的 CI 中同样通过（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy，原生为 CI 的 Python 3.12.15），结果相同。这一容差是在这两个模拟参考上拟合的，对其他数据未经确立；其他设置（伪时间起点、`integration: none`、自备的标记基因表）没有在浏览器中比对过。
+已在本地无头 Chromium 141 中用 Pyodide 314.0.7（numpy 2.4.6、scipy 1.18.0）测试，对照原生 Python 3.13.16、numpy 2.5.4、scipy 1.18.1；Studio 的 CI 中同样通过（`studio` #91，2026-10-19，使用 jsDelivr 上 Pyodide 的 numpy 与 scipy，原生为 CI 的 Python 3.12.15），结果相同，只是原生的 UMAP 同簇比例为 0.9981。这一容差是在这两个模拟参考上拟合的，对其他数据未经确立；其他设置（伪时间起点、`integration: none`、自备的标记基因表）没有在浏览器中比对过；用户自己的运行不与任何结果比较，其局限说明写明接近阈值的值（接近 alpha 的校正 p 值）可能不同。
 
 **蛋白结构预测**（`bioagent fold`）：输入 FASTA 或单条序列，可选三种预测器：
 - `esmatlas`（默认）：通过 Meta 的 ESM Atlas 服务运行 ESMFold，最长 400 个残基。序列会发往第三方，须显式加 `--allow-remote`；
