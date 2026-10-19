@@ -3,9 +3,9 @@
 // drawer below that, a bottom sheet on phones. Selecting in the thread selects here, scrolls and highlights for 1.2 s;
 // clicking a row here scrolls the thread to the message that produced it.
 
-import { claimsOf, evidenceOf, refusalsOf, releaseOf, sourceView } from "../core/governance.js";
+import { claimsOf, evidenceOf, refusalsOf, releaseOf, resultOf, sourceView } from "../core/governance.js";
 import { glossary, lang, t } from "../core/i18n.js";
-import { canonicalJson } from "../core/util.js";
+import { canonicalJson, isLoopbackUrl } from "../core/util.js";
 import { clamp, debounce, fill, formatBytes, formatDateTime, formatDuration, h, rafThrottle } from "./dom.js";
 import { viewOfStored } from "./conversation.js";
 import { filePreview, jsonTree } from "./files.js";
@@ -15,7 +15,8 @@ import {
 } from "./governance.js";
 import { icon } from "./icons.js";
 import { button, chip, copyButton, emptyState, iconButton, keyValue, segmented, tabList } from "./primitives.js";
-import { argsSummary, callStateView, deviceLabel, envelopeSummary, isDeclined, toolTitle, whereBadge } from "./toolcards.js";
+import { gpuMeasured } from "./runlog.js";
+import { argsSummary, assuranceLabel, callStateView, computeBackendLabel, deviceLabel, envelopeSummary, isDeclined, resultChip, toolTitle, whereBadge } from "./toolcards.js";
 
 export const TABS = ["run", "evidence", "claims", "files", "provenance"];
 const TAB_ICONS = { run: "activity", evidence: "bookText", claims: "scale", files: "files", provenance: "fingerprint" };
@@ -270,7 +271,8 @@ export function mountInspector(app, host) {
       noteLang: envelopeSummary(env).text ? envelopeSummary(env).lang : null,
       status: glossaryCall(status, env),
       duration: env ? env.duration_ms : null,
-      where: r.decided_by === "router" ? h("span.where.where--none", t("ui.where.not_run")) : whereBadge(r, { where: e.call.where, runnerUrl: app.state.settings.runner.url }),
+      // a page-made envelope (any decided_by) gets the not-run badge (whereBadge → pageBadge)
+      where: whereBadge(r, { where: e.call.where, runnerUrl: app.state.settings.runner.url }),
       hashes: [r.input_sha256 ? hashBadge(r.input_sha256, { compact: true, label: t("ui.tool.input") }) : null, r.output_sha256 ? hashBadge(r.output_sha256, { compact: true, label: t("ui.tool.output") }) : null],
       onClick: () => app.revealInThread({ callId: e.callId, messageId: vm.id }),
     });
@@ -457,8 +459,8 @@ export function mountInspector(app, host) {
         keyValue([
           [t("ui.prov.tool"), h("code.kv__code", env.via && env.via !== env.tool ? `${env.tool} → ${env.via}` : env.tool)],
           [t("ui.prov.model"), modelLabel],
-          [t("ui.prov.where"), r.decided_by === "router" ? t("ui.where.decided_in_page") : [r.where === "runner" ? t("ui.where.runner") : t("ui.where.browser"), r.where === "runner" ? hostOf(app.state.settings.runner.url) : null].filter(Boolean).join(" @")],
-          [t("ui.prov.device"), deviceLabel(r.device) || "—"],
+          [t("ui.prov.where"), r.decided_by ? t(`ui.where.decided.${DECIDERS.includes(r.decided_by) ? r.decided_by : "router"}`) : [r.where === "runner" ? t(runnerRemote(app) ? "ui.where.runner_remote" : "ui.where.runner") : t("ui.where.browser"), r.where === "runner" ? hostOf(app.state.settings.runner.url) : null].filter(Boolean).join(" @")],
+          [t("ui.prov.device"), r.decided_by ? "—" : deviceLabel(r.execution?.device?.assigned || r.device) || "—"],
           [t("ui.prov.runtime"), r.runtime || "—"],
           [t("ui.prov.versions"), r.versions && Object.keys(r.versions).length ? h("code.kv__code", Object.entries(r.versions).map(([k, v]) => `${k} ${v}`).join(" · ")) : "—"],
           [t("ui.prov.started"), r.started_at ? h("time", { datetime: r.started_at }, formatDateTime(r.started_at)) : "—"],
@@ -468,6 +470,10 @@ export function mountInspector(app, host) {
           r.content_hash ? ["Skill", hashBadge(r.content_hash)] : null,
         ])),
     ];
+    // receipt/1: what the result is, how it ran, what it rests on, what computed it (provenanceSections)
+    for (const sec of provenanceSections(env)) {
+      parts.push(h("section.prov-sec", { "data-prov": sec.id }, h("h3.prov-sec__title", sec.title), sec.note ? h("p.inspector__note", sec.note) : null, keyValue(sec.rows)));
+    }
     // the kernel's refusals of this call, whatever its status (a succeeded candidate run is still refused release)
     const refusals = refusalsOf(env);
     if (refusals.length) parts.push(h("section.prov-sec", h("h3.prov-sec__title", t("ui.prov.refusals", { n: refusals.length })), reasonList(refusals)));
@@ -518,6 +524,134 @@ export function mountInspector(app, host) {
   render();
   const api = { refresh: render, destroy: () => offs.forEach((off) => off()) };
   return api;
+}
+
+const DECIDERS = ["router", "browser-runtime", "runner-client", "unavailable-runtime"];
+const RUNGS = ["selected", "reported", "dispatched", "validated", "verified", "accelerated"];
+const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
+
+function runnerRemote(app) {
+  const url = app.state.settings?.runner?.url;
+  return Boolean(url) && !isLoopbackUrl(url);
+}
+
+/** A list of short lines (one per item) as one node. */
+function lines(items) {
+  const list = items.filter(Boolean);
+  return list.length ? h("ul.prov-lines", { role: "list" }, list.map((x) => h("li", x))) : null;
+}
+
+/**
+ * The Provenance tab's receipt/1 sections, in order: 结果 Result (receipt.result: kind, outcome, assurance, checks,
+ * artifacts, fallbacks), 执行 Execution (receipt.execution: runtime, kernel, engine, implementation, validation, device
+ * with its evidence, placement, approvals), 来源 Provenance (receipt.provenance: datasets, seeds, models) and 计算
+ * Compute (receipt.compute: backend, adapter kind, dispatched/validated, accelerated only when measured). → [{id,
+ * title, note?, rows: [[label, value]]}]; a section with nothing to show is left out. A legacy envelope (no
+ * receipt.schema) has its result derived (resultOf) and says so; nothing else is made up for it.
+ */
+export function provenanceSections(env) {
+  const r = isObj(env?.receipt) ? env.receipt : {};
+  const out = [];
+  const res = resultOf(env);
+  const recorded = isObj(r.result) ? r.result : {};
+  const legacy = !r.schema;
+
+  // 结果 Result
+  const checks = Array.isArray(recorded.checks) ? recorded.checks.filter(isObj) : [];
+  const art = isObj(recorded.artifacts) ? recorded.artifacts : null;
+  const fallbacks = Array.isArray(recorded.fallbacks) ? recorded.fallbacks.filter(isObj) : [];
+  out.push({
+    id: "result", title: t("ui.prov.result"),
+    note: res.derived ? t("ui.prov.derived_note") : null,
+    rows: [
+      [t("ui.prov.schema"), legacy ? t("ui.prov.legacy") : h("code.kv__code", String(r.schema))],
+      [t("ui.prov.kind"), resultChip(env) || h("span.muted", t("ui.prov.no_kind"))],
+      [t("ui.prov.outcome"), t(`ui.result.outcome.${res.outcome}`)],
+      [t("ui.prov.assurance"), assuranceLabel(res.assurance)],
+      checks.length ? [t("ui.prov.checks"), lines(checks.map((c) => h("span", icon(c.ok ? "check" : "x", { size: 12 }), h("code", String(c.id || "?")), c.detail ? h("span.muted", { lang: "en" }, ` ${String(c.detail).slice(0, 300)}`) : null)))] : null,
+      art ? [t("ui.prov.artifacts"), t("ui.prov.artifacts_v", { expected: (art.expected || []).length, missing: (art.missing || []).length, mismatch: (art.hash_mismatch || []).length })] : null,
+      art?.missing?.length ? [t("ui.prov.missing"), h("code.kv__code", art.missing.join(", "))] : null,
+      art?.hash_mismatch?.length ? [t("ui.prov.hash_mismatch"), h("code.kv__code", art.hash_mismatch.join(", "))] : null,
+      fallbacks.length ? [t("ui.prov.fallbacks"), lines(fallbacks.map((f) => h("span", h("code", String(f.what || "?")), h("span", { lang: "en" }, ` ${String(f.reason || "").slice(0, 400)}`))))] : null,
+      isObj(recorded.reference) ? [t("ui.prov.reference"), h("code.kv__code", canonicalJson(recorded.reference).slice(0, 400))] : null,
+    ],
+  });
+
+  // 执行 Execution
+  const ex = isObj(r.execution) ? r.execution : null;
+  if (ex) {
+    const dev = isObj(ex.device) ? ex.device : null;
+    const val = isObj(ex.validation) ? ex.validation : null;
+    const impl = isObj(ex.implementation) ? ex.implementation : null;
+    const eng = isObj(ex.engine) ? ex.engine : null;
+    const place = isObj(ex.placement) ? ex.placement : null;
+    const approvals = Array.isArray(ex.approvals) ? ex.approvals.filter(isObj) : [];
+    out.push({
+      id: "execution", title: t("ui.prov.execution"),
+      rows: [
+        [t("ui.prov.runtime"), ["cpython", "pyodide", "page"].includes(ex.runtime) ? t(`ui.prov.runtime_v.${ex.runtime}`) : ex.runtime || "—"],
+        [t("ui.prov.kernel"), ex.kernel ? computeBackendLabel(ex.kernel) : "—"],
+        eng ? [t("ui.prov.engine"), h("code.kv__code", [eng.id, eng.version].filter(Boolean).join(" "))] : null,
+        impl ? [t("ui.prov.implementation"), h("code.kv__code", [impl.ref, impl.version].filter(Boolean).join(" · "))] : null,
+        val ? [t("ui.prov.validation"), val.ok
+          ? h("span", t("ui.prov.validation_ok", { schema: String(val.schema || "entry"), n: Array.isArray(val.repairs) ? val.repairs.length : 0 }), val.normalized_sha256 ? h("span", " ", hashBadge(val.normalized_sha256, { compact: true })) : null)
+          : h("span", t("ui.prov.validation_failed"), Array.isArray(val.problems) && val.problems.length ? h("span.muted", { lang: "en" }, ` ${val.problems.slice(0, 5).join("; ")}`) : null)] : null,
+        dev ? [t("ui.prov.device"), h("span",
+          h("span.mono", [dev.requested ? `${deviceLabel(dev.requested) || dev.requested}` : null, dev.assigned ? deviceLabel(dev.assigned) : t("ui.prov.not_assigned")].filter(Boolean).join(" → ")),
+          dev.used ? h("span.muted", ` · ${t("ui.prov.used", { device: deviceLabel(dev.used) })}`) : null,
+          h("span.muted", ` · ${RUNGS.includes(dev.evidence) ? t(`ui.prov.evidence.${dev.evidence}`) : t("ui.prov.evidence_none")}`),
+          dev.note ? h("span.muted", { lang: "en" }, ` (${String(dev.note).slice(0, 300)})`) : null)] : null,
+        place ? [t("ui.prov.placement"), h("span",
+          h("span.mono", `${place.requested || "auto"} → ${place.chosen || "—"}`),
+          place.reason ? h("span.muted", ` · ${place.reason}`) : null,
+          isObj(place.runner) ? h("span.muted", ` · ${place.runner.loopback === false ? t("ui.where.runner_remote") : t("ui.where.runner")} @${place.runner.host}`) : null)] : null,
+        approvals.length ? [t("ui.prov.approvals"), lines(approvals.map((a) => h("span",
+          h("code", String(a.reason || "?")), h("span.muted", ` · ${t(`ui.prov.scope.${["once", "project", "standing", "page"].includes(a.scope) ? a.scope : "once"}`)}`),
+          Array.isArray(a.hosts) && a.hosts.length ? h("span.mono", ` ${a.hosts.join(", ")}`) : null)))] : null,
+      ],
+    });
+  }
+
+  // 来源 Provenance
+  const pv = isObj(r.provenance) ? r.provenance : null;
+  if (pv) {
+    const ds = Array.isArray(pv.datasets) ? pv.datasets.filter(isObj) : [];
+    const seeds = isObj(pv.seeds) ? Object.entries(pv.seeds) : [];
+    const models = Array.isArray(pv.models) ? pv.models.filter(isObj) : [];
+    const rows = [
+      ds.length ? [t("ui.prov.datasets"), lines(ds.map((d) => h("span",
+        h("code", String(d.id || "?")),
+        h("span.muted", ` · ${d.release ? t("ui.prov.release_v", { release: d.release }) : d.version ? t("ui.prov.version_v", { version: d.version }) : t("ui.prov.no_release")}`),
+        d.licence ? h("span.muted", ` · ${d.licence}`) : null,
+        d.retrieved_at ? h("span.muted", ` · ${t("ui.prov.retrieved", { at: formatDateTime(d.retrieved_at) })}`) : null,
+        d.sha256 ? h("span", " ", hashBadge(d.sha256, { compact: true })) : null)))] : null,
+      seeds.length ? [t("ui.prov.seeds"), h("code.kv__code", seeds.map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · "))] : null,
+      models.length ? [t("ui.prov.models"), h("code.kv__code", models.map((m) => [m.id, m.version].filter(Boolean).join(" ")).join(" · "))] : null,
+    ];
+    if (rows.some(Boolean)) out.push({ id: "provenance", title: t("ui.prov.provenance"), rows });
+  }
+
+  // 计算 Compute (the browser's local backends)
+  const c = isObj(r.compute) ? r.compute : null;
+  if (c?.backend) {
+    const g = isObj(c.gpu) ? c.gpu : null;
+    const kind = g?.adapter?.kind;
+    // a CPU baseline alone is not a comparison (ui/runlog.js gpuMeasured): faster or not is said only when one was made
+    const measured = gpuMeasured(g);
+    out.push({
+      id: "compute", title: t("ui.prov.compute"),
+      rows: [
+        [t("ui.prov.backend"), computeBackendLabel(c.backend)],
+        c.precision ? [t("ui.prov.precision"), h("span", { lang: "en" }, String(c.precision))] : null,
+        kind ? [t("ui.prov.adapter"), t(`ui.compute.ev.adapter.${["software", "physical", "unidentified"].includes(kind) ? kind : "unidentified"}`)] : null,
+        g ? [t("ui.prov.gpu"), t("ui.prov.gpu_v", { dispatched: g.dispatched ? t("ui.common.yes") : t("ui.common.no"), validated: g.validated ? t("ui.common.yes") : t("ui.common.no") })] : null,
+        g ? [t("ui.prov.accelerated"), measured ? t(g.accelerated === true ? "ui.prov.accelerated_yes" : "ui.prov.accelerated_no") : t("ui.prov.accelerated_unmeasured")] : null,
+        g?.basis ? [t("ui.prov.basis"), h("span.muted", { lang: "en" }, String(g.basis).slice(0, 400))] : null,
+        c.fallback_reason || c.gpu_rejected ? [t("ui.prov.fallback_reason"), h("span", { lang: "en" }, String(c.gpu_rejected || c.fallback_reason).slice(0, 400))] : null,
+      ],
+    });
+  }
+  return out;
 }
 
 /** The exact call, through the dispatcher's own command line (the same code the browser and the runner run). */

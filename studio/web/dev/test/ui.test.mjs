@@ -22,7 +22,10 @@ import { ICON_NAMES, icon } from "../../js/ui/icons.js";
 import { reproduceCommand } from "../../js/ui/inspector.js";
 import { SHORTCUTS } from "../../js/ui/palette.js";
 import { EXAMPLES } from "../../js/ui/pages/project.js";
-import { parseRoute, routeHref } from "../../js/ui/router.js";
+import { CATALOG_PARAMS, parseRoute, routeHref, SETTINGS_TABS } from "../../js/ui/router.js";
+import { IMPLEMENTATION, NEEDS, READINESS } from "../../js/core/catalog.js";
+import { RUNTIME_FILTERS, STATE_FIELDS, STATE_FLAGS, VERIFY_LEVELS } from "../../js/ui/pages/catalog.js";
+import { DATA_READINESS } from "../../js/ui/pages/data.js";
 import { EN, registerUiStrings, ZH } from "../../js/ui/strings.js";
 import { argsSummary, jobCard, permissionCard, toolCallCard } from "../../js/ui/toolcards.js";
 
@@ -33,6 +36,19 @@ const FIX = Object.fromEntries(fs.readdirSync(path.join(web, "dev/fixtures")).fi
   .map((f) => [f.replace(/\.json$/, ""), JSON.parse(fs.readFileSync(path.join(web, "dev/fixtures", f), "utf8"))]));
 
 // ------------------------------------------------------------------------------------------------- strings
+
+/** Every stage name the five pipelines, the research workflow and tcmdb.fetch record (bioagent STAGES), and the runner's. */
+const JOB_STAGES = [
+  "validate_reference", "ingest", "validate_fastq", "qc", "trim", "quantify", "summarize_genes", "differential_expression", "explore", "report", "verify",
+  "validate_input", "doublets", "normalize", "hvg", "pca", "integrate", "neighbors", "cluster", "markers", "annotate", "trajectory", "pseudobulk_de",
+  "receptor_prep", "ligand_prep", "site", "redock_validation", "dock", "pose_checks", "contacts",
+  "input_check", "predict", "sequence_identity", "confidence", "geometry", "compare",
+  "standardize", "descriptors", "rules", "alerts", "models", "predictions",
+  "formula_identity", "herb_composition", "herb_compound", "structure_identity", "compound_target", "measured_vs_predicted", "disease_genes",
+  "intersections", "ppi_network", "pathway_annotation", "enrichment_background", "multiple_testing", "permutation_sensitivity", "topology",
+  "bounded_interpretation", "reproducible_export",
+  "transferring", "verifying",
+];
 
 function sourceFiles(dir) {
   const out = [];
@@ -76,8 +92,8 @@ test("dynamic key families are complete", () => {
     ...["all", "allowed", "refused", "declaration", "extrapolation"].map((x) => `ui.claims.filter.${x}`),
     ...["native", "skill", "connector", "clinic", "tcmdb", "study", "job", "system"].flatMap((x) => [`ui.run.gov.${x}`, `ui.catalog.kind.${x}`]),
     ...["language", "model", "compute"].map((x) => `ui.onb.step.${x}`),
-    ...["models", "compute", "general", "shortcuts"].map((x) => `ui.settings.tab.${x}`),
-    ...["auto", "browser", "runner"].map((x) => `ui.compute.target_help.${x}`),
+    ...SETTINGS_TABS.map((x) => `ui.settings.tab.${x}`),
+    ...["auto", "browser", "runner", "remote"].map((x) => `ui.compute.target_help.${x}`),
     ...["system", "light", "dark"].map((x) => `ui.theme.${x}`),
     ...["model", "network", "runtime"].map((x) => `ui.thread.error.${x}`),
     ...["once", "project", "deny"].map((x) => `ui.perm.decided.${x}`),
@@ -88,6 +104,36 @@ test("dynamic key families are complete", () => {
     ...["submitted", "running", "collected"].map((x) => `ui.job.step.${x}`),
     ...["runtime", "skill", "source", "benchmark"].map((x) => `ui.cv.${x}`),
     ...[1, 2, 3, 4].map((i) => `ui.about.what.${i}`), ...[1, 2, 3, 4].map((i) => `ui.about.where.${i}`), ...[1, 2, 3, 4, 5].map((i) => `ui.about.not.${i}`),
+    // capability state, data, jobs, receipts, device evidence
+    "ui.job.step.verifying",
+    ...["research.snapshot", "env.provision", "tcmdb.fetch", "tcmdb.build", "research.run", "skill.run", ...["rnaseq", "scrna", "fold", "dock", "admet"].map((x) => `pipeline.${x}`)].map((x) => `ui.job.kind.${x}`),
+    ...JOB_STAGES.map((x) => `ui.job.stage.${x}`),
+    ...["succeeded", "failed", "skipped", "unavailable", "not_applicable"].map((x) => `ui.job.stage_status.${x}`),
+    ...["record", "computation", "prediction", "draft", "fixture", "system", "not_run", "pending"].map((x) => `ui.result.kind.${x}`),
+    ...["release_authorized", "outputs_verified", "none"].map((x) => `ui.result.assurance.${x}`),
+    ...["not_executed", "queued", "running", "succeeded", "validated", "failed", "cancelled"].map((x) => `ui.result.outcome.${x}`),
+    ...["router", "browser-runtime", "runner-client", "unavailable-runtime"].map((x) => `ui.where.decided.${x}`),
+    ...["webgpu", "wasm-simd", "js", "pyodide"].map((x) => `ui.compute.backend.${x}`),
+    ...["selected", "reported", "dispatched", "validated", "verified", "accelerated"].flatMap((x) => [`ui.compute.ev.rung.${x}`, `ui.prov.evidence.${x}`]),
+    ...["software", "physical", "unidentified"].map((x) => `ui.compute.ev.adapter.${x}`),
+    ...["cpython", "pyodide", "page"].map((x) => `ui.prov.runtime_v.${x}`),
+    ...["once", "project", "standing", "page"].map((x) => `ui.prov.scope.${x}`),
+    ...NEEDS.flatMap((x) => [`ui.need.${x}`, `ui.need.remedy.${x}`]),
+    ...STATE_FIELDS.map((x) => `ui.catalog.field.${x}`),
+    ...STATE_FLAGS.map((x) => `ui.catalog.flag.${x}`),
+    ...RUNTIME_FILTERS.map((x) => `ui.catalog.rt.${x}`),
+    ...VERIFY_LEVELS.map((x) => `ui.catalog.level.${x}`),
+    ...READINESS.map((x) => `ui.catalog.readiness.${x}`),
+    ...IMPLEMENTATION.map((x) => `ui.catalog.impl.${x}`),
+    ...["PASS", "FAIL", "BLOCKED", "UNVERIFIED", "SKIPPED", "NOT_APPLICABLE"].map((x) => `ui.catalog.verify.${x}`),
+    ...["confirm", "job", "network", "remote_upload"].flatMap((x) => [`ui.catalog.approval.${x}`, `ui.catalog.approval_long.${x}`]),
+    ...["browser", "runner", "runner_remote", "page"].map((x) => `ui.catalog.where.${x}`),
+    ...["cpu", "gpu", "remote"].map((x) => `ui.catalog.device.${x}`),
+    ...DATA_READINESS.map((x) => `ui.data.readiness.${x}`),
+    ...["open", "share-alike", "non-commercial", "no-derivatives", "unknown"].map((x) => `ui.data.class.${x}`),
+    ...["allowed", "forbidden", "unknown"].map((x) => `ui.data.commercial.${x}`),
+    ...["download", "manual", "live"].map((x) => `ui.data.access_v.${x}`),
+    ...["checksum", "size", "mismatch", "unverified"].map((x) => `ui.data.verify.${x}`),
   ];
   const missing = need.filter((k) => !(k in ZH) || !(k in EN));
   assert.deepEqual(missing, []);
@@ -120,6 +166,15 @@ test("routes parse and print both ways", () => {
     for (const [k, v] of Object.entries(r)) assert.equal(back[k], v, `${k} of ${routeHref(r)}`);
   }
   assert.equal(parseRoute("#/settings/nope").tab, "models");
+  assert.equal(parseRoute(routeHref({ name: "settings", tab: "data" })).tab, "data");
+  // the catalog's search and filters ride along, in one fixed order, empty ones left out
+  const params = { be: "webgpu", f: "needs_runner,verified", q: "gc content", category: "seq_genomics", rt: "", ds: "npass", ver: "kernel_parity" };
+  const href = routeHref({ name: "catalog", entryId: "native.gc_content", params });
+  assert.equal(href, "#/catalog/native.gc_content?q=gc+content&category=seq_genomics&f=needs_runner%2Cverified&ds=npass&ver=kernel_parity&be=webgpu");
+  const back = parseRoute(href);
+  assert.equal(back.entryId, "native.gc_content");
+  for (const k of CATALOG_PARAMS) assert.equal(back.params[k] ?? "", params[k] ?? "", k);
+  assert.equal(routeHref({ name: "catalog", params: {} }), "#/catalog");
   assert.equal(parseRoute("#/x/y").name, "notfound");
   assert.equal(parseRoute("").name, "home");
 });

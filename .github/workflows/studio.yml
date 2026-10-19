@@ -89,6 +89,10 @@ jobs:
             echo "::notice::studio/runner has no tests directory"
           fi
       - name: Web (core modules and UI)
+        # the Runner step installed tcmstudio into this job's Python: the tests that read a real runner's answers
+        # (Settings → Data against /api/datasets) run instead of skipping
+        env:
+          PYTHON: python
         run: |
           if [ ! -f studio/package.json ]; then
             echo "::notice::studio/package.json is not in this tree: no web tests"

@@ -4,6 +4,7 @@
 
 import { claimsOf, verdictBadge } from "../../core/governance.js";
 import { t } from "../../core/i18n.js";
+import { hostsDigest, hostsOf } from "../../core/router.js";
 import { debounce, download, fill, formatBytes, formatDateTime, formatRelative, h } from "../dom.js";
 import { verdictPill, hashBadge } from "../governance.js";
 import { icon } from "../icons.js";
@@ -242,7 +243,7 @@ function defaultsSection(app, p) {
       webSwitch(app, { description: t("ui.web.desc_long") }),
       Object.keys(p.approvals || {}).length ? h("div.approvals",
         h("p.field__label", t("ui.project.approvals")),
-        h("ul.approvals__list", { role: "list" }, Object.keys(p.approvals).map((k) => h("li", approvalLabel(k), button({ label: t("ui.project.revoke"), size: "sm", variant: "ghost", onClick: async () => {
+        h("ul.approvals__list", { role: "list" }, Object.keys(p.approvals).map((k) => h("li", approvalLabel(k, app.catalog), button({ label: t("ui.project.revoke"), size: "sm", variant: "ghost", onClick: async () => {
           // only this key, inside the write: an approval granted since this list was drawn is kept
           try { await app.revokeApprovals(p.id, [k]); } catch (err) { toast(t("ui.project.save_failed", { message: err?.message || String(err) }), { tone: "warn" }); }
           app.emit("conversations");
@@ -251,12 +252,54 @@ function defaultsSection(app, p) {
   });
 }
 
-/** A stored approval key (core/router.js) in words: runner · <entry> · <entry>:network · <entry>:remote_upload. */
-function approvalLabel(key) {
-  if (key === "runner") return h("span", t("ui.project.approval.runner"));
-  const [id, what] = key.split(":");
-  const label = what === "network" ? t("ui.project.approval.network") : what === "remote_upload" ? t("ui.project.approval.remote") : t("ui.project.approval.run");
-  return h("span", h("code", id), h("span.muted", ` · ${label}`));
+/**
+ * A stored approval key (core/router.js) in words: runner (the local runner) · runner@<host> (a remote runner, never
+ * called local) · remote@<host> (a remote compute backend) · <entry> (a job or a confirmed act) · <entry>:network (the
+ * older key: the entry's own static hosts) · <entry>:network@<sha12> (these hosts only: the hosts are found by hashing
+ * the entry's own host lists, or read from the key when a page without Web Crypto wrote them out) ·
+ * <entry>:remote_upload (data sent to a third-party service).
+ */
+export function approvalLabel(key, catalog) {
+  const k = String(key || "");
+  if (k === "runner") return h("span", t("ui.project.approval.runner"));
+  if (k.startsWith("runner@")) return h("span", t("ui.project.approval.runner_remote"), " ", h("code", k.slice(7)));
+  if (k.startsWith("remote@")) return h("span", t("ui.project.approval.remote_compute"), " ", h("code", k.slice(7)));
+  const at = k.indexOf(":");
+  const id = at < 0 ? k : k.slice(0, at);
+  const what = at < 0 ? "" : k.slice(at + 1);
+  if (what === "remote_upload") return h("span", h("code", id), h("span.muted", ` · ${t("ui.project.approval.remote")}`));
+  if (what === "network" || what.startsWith("network@")) {
+    const entry = catalog?.byId?.[id] || null;
+    const hostsEl = h("span.approval__hosts.mono");
+    const label = h("span", h("code", id), h("span.muted", ` · ${t("ui.project.approval.network")}`), " ", hostsEl);
+    if (what === "network") {
+      // the older key stands only for the entry's own static hosts
+      const own = entry ? hostsOf(entry) : [];
+      hostsEl.textContent = own.length ? t("ui.project.approval.hosts", { hosts: own.join(", ") }) : t("ui.project.approval.hosts_static");
+    } else {
+      const tag = what.slice("network@".length);
+      if (!/^[0-9a-f]{12}$/.test(tag)) hostsEl.textContent = t("ui.project.approval.hosts", { hosts: tag.split(",").join(", ") });
+      else {
+        hostsEl.textContent = t("ui.project.approval.hosts_digest", { digest: tag });
+        hostsFor(entry, tag).then((hosts) => { if (hosts) hostsEl.textContent = t("ui.project.approval.hosts", { hosts: hosts.join(", ") }); }).catch(() => {});
+      }
+    }
+    return label;
+  }
+  return h("span", h("code", id), h("span.muted", ` · ${t("ui.project.approval.run")}`));
+}
+
+/** The host list of an entry (its static hosts, or one of its hosts_by lists) whose digest is this sha12, or null. */
+async function hostsFor(entry, sha12) {
+  if (!entry) return null;
+  const candidates = [hostsOf(entry)];
+  const by = entry.hosts_by && typeof entry.hosts_by === "object" ? entry.hosts_by : {};
+  for (const map of Object.values(by)) if (map && typeof map === "object") for (const list of Object.values(map)) if (Array.isArray(list)) candidates.push(list);
+  for (const list of candidates) {
+    if (!list.length) continue;
+    try { if ((await hostsDigest(list)) === sha12) return [...new Set(list.map((x) => String(x).trim().toLowerCase()))].sort(); } catch { return null; }
+  }
+  return null;
 }
 
 // ------------------------------------------------------------------------------------------------- recent claims

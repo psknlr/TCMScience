@@ -13,6 +13,8 @@ Status words used throughout:
 - **Implemented, partly verified**: in the code, but checked only where this environment allows (for example, WebGPU
   only on a software adapter).
 - **Proposed**: designed here, not implemented. Nothing in the app claims it.
+- **Verified in deployment**: shown on the deployed site (science.impf.ai) by a record committed here. Nothing in this
+  document has such a record: every result below comes from local runs, CI or the benchmark machine.
 
 Related: the per-entry [compatibility matrix](compat/summary.md) ([CSV](compat/matrix.csv)), the
 [benchmark report](benchmarks/2026-10-10-chromium-141-linux.md), [BROWSER_ACCESS.md](BROWSER_ACCESS.md) (data access),
@@ -70,7 +72,13 @@ Each was reproduced first (unit tests, and for the switches in Chromium) and has
 
 [`compat/matrix.csv`](compat/matrix.csv) has one row per catalog entry (`id`, `kind`, `class`, `local_backends`,
 `network`, `offline`, `gpu`, `deps`, `mobile`, `fallback`, `validation`, `notes`). It is generated from the catalog
-(`python3 studio/scripts/compat_matrix.py`); a runner test fails when the committed copy is out of date.
+(`python3 studio/scripts/compat_matrix.py`); a runner test fails when the committed copy is out of date. Its
+`validation` column is each entry's committed verification record (`entry.verification` in the catalog: levels such as
+`kernel_parity`, `lock_pin`, `reference_output` and `live_upstream`, each with its status and, where the record has one,
+its date); an entry with no record is UNVERIFIED. A class says where an entry runs, not that its browser output was
+compared with native CPython: that comparison was made only for the calls of the manual runtime check
+([§10](#10-validation)), and the connectors' levels are reported per operation in
+[compat/connectors.md](compat/connectors.md).
 
 | Class | Meaning | Entries |
 |---|---|---:|
@@ -160,7 +168,7 @@ reference, plus randomized end-to-end runs against it), not by the check.
 | [`web/js/compute/simd.js`](../web/js/compute/simd.js) | Instantiates it synchronously from the embedded bytes; copies letters in with `TextEncoder.encodeInto`; lets go of a memory grown past 16 MB. |
 | [`web/js/compute/bridge.js`](../web/js/compute/bridge.js) | The one function Python calls (`call(name, json) → json`): SIMD counts, else JavaScript; declines on any error. |
 | [`web/js/compute/accelerator.js`](../web/js/compute/accelerator.js) | The Worker's decision before a sequence tool runs (GPU packet or not), learning from what ran, the GPU's evidence for each call (`settle`) and what the Worker adds to the receipt (`decorateReceipt`). |
-| [`web/js/runtime/webgpu.js`](../web/js/runtime/webgpu.js) | The WGSL count kernel, its known-answer test, and `classifyAdapter`, the classifier of WebGPU adapters that the probe, the runtime, the Worker's device report, the benchmark and the smoke harness use. The page's own device report (`runtime/browser.js` `detectDevice`, `ui/app.js` `detectBrowserDevice`) still applies an older software-name rule; see [§5.1](#51-the-evidence-ladder). |
+| [`web/js/runtime/webgpu.js`](../web/js/runtime/webgpu.js) | The WGSL count kernel, its known-answer test, and `classifyAdapter`, the one classifier of WebGPU adapters: the probe, the runtime, the Worker's device report, the page's own device report (`runtime/browser.js` `detectDevice`, `ui/app.js` `detectBrowserDevice`), the Settings panel, the benchmark and the smoke harness all use it; see [§5.1](#51-the-evidence-ladder). |
 | [`runner/src/tcmstudio/browser_compute.py`](../runner/src/tcmstudio/browser_compute.py) | The Python side: binds packets to inputs, decides when a kernel is worth calling, checks results, writes `receipt.compute` and mirrors it into `receipt.execution`. |
 | [`runner/src/tcmstudio/devices.py`](../runner/src/tcmstudio/devices.py) | The runner's devices, each with its rung on the ladder (`reported`) and what reported it, and the detection-only report of accelerator runtimes ([§6](#6-webgpu-webassembly-and-webnn)). |
 | `BioScience-Harness/src/bioagent/tools/{_compute,align,sequence}.py` | Call-scoped kernel hooks (ContextVars), each tool's fast path and its check. |
@@ -228,7 +236,8 @@ What can be shown about a device is ordered, with the same words for the browser
 
 Every rung above `reported` needs all the rungs below it; `reported` does not need `selected` (the probe reports an
 adapter nobody chose). **Adapter kind** comes from `classifyAdapter` in `runtime/webgpu.js`, which the probe, the
-runtime, the Worker's device report, the benchmark and the smoke harness use:
+runtime, the Worker's device report, the page's own device report, the Settings panel, the benchmark and the smoke
+harness use:
 
 - `software`: a CPU renderer named as such (SwiftShader, llvmpipe, lavapipe, softpipe, WARP, the Microsoft Basic
   Render Driver, anything calling itself software), or an adapter the browser marks as a fallback adapter. It is never
@@ -239,11 +248,12 @@ runtime, the Worker's device report, the benchmark and the smoke harness use:
   calls it a GPU or physical. The runtime may still use it, because its counts are checked like any other, but it can
   never reach `accelerated`.
 
-**Not yet on the classifier: the page's own device report.** `runtime/browser.js` `detectDevice` and `ui/app.js`
-`detectBrowserDevice`, which the Settings panel shows, still apply an older rule (a software renderer's name, else a
-GPU). There an adapter that names nothing gets `software: false` and `compute.webgpu_adapter: true`, so the panel can
-present an unidentified adapter as a GPU the sequence statistics can use. Moving both onto `classifyAdapter` (and the
-panel onto `adapter.kind`) is open work; until then the panel's GPU line is the browser's report, not this ladder.
+**The page's own device report is on the classifier too.** `runtime/browser.js` `detectDevice` and `ui/app.js`
+`detectBrowserDevice` give `classifyAdapter`'s answer (`adapter.kind`, `reason`, and `software` true / false / null for
+an unidentified adapter), and `compute.webgpu_adapter` is true only for a physical one (`compute.webgpu_adapter_kind`
+names the kind). The Settings panel reads `adapter.kind` (`ui/panels.js` `adapterOf`, which classifies an older report
+the same way): an adapter that names nothing is 「未识别」, never presented as a GPU (the runtime may still use it, and
+Python checks every count it returns, but it never reaches `accelerated`), and a software one is 「软件模拟 GPU」. Its evidence list puts each row's report beside what this page's own calls showed.
 
 The probe (`caps.webgpu.evidence`) reaches `reported` at most; the Worker's session evidence (its device report's
 `compute_evidence`) counts the calls that were dispatched, validated and rejected, the known-answer test, and how many
@@ -342,7 +352,7 @@ guessed, and the person choosing it. The app must keep working without it.
 
 **Implemented and tested** (`web/test/sw.test.mjs`, `runner/tests/test_webbuild.py`, and offline reloads in Chromium):
 
-- A service worker (`web/sw.js`) keeps the app shell (73 files, each listed in a manifest the build writes with its
+- A service worker (`web/sw.js`) keeps the app shell (every file listed in a manifest the build writes with its
   SHA-256, and checked against it when cached), Pyodide, and the fonts. The page loads and runs tools with the network
   off. An offline run produced the same output hash as an online one.
 - Each version is a consistent snapshot. A new version installs in the background and is offered ("a new version is
@@ -478,7 +488,8 @@ a first visit downloads about 11 MB from jsDelivr, and later visits read them fr
 
 ## 10. Validation
 
-The results below are those of the 2026-10-10 report. The 2026-10-18 additions are covered by
+The results below are those of the 2026-10-10 report, as of that date; the suite counts have changed since and are not
+restated here. The 2026-10-18 additions are covered by
 `web/test/compute.test.mjs` and `web/test/runtime/webgpu.test.mjs` (the classifier, the ladder, the known-answer test,
 like-for-like timing, the receipt), `runner/tests/test_browser_compute.py` (the Worker's own packets bound in Python,
 the evidence Python writes) and `runner/tests/test_devices.py` (device evidence, the runtime report), and by
@@ -490,7 +501,7 @@ the evidence Python writes) and `runner/tests/test_devices.py` (device evidence,
 | `pytest studio/runner/tests` | The Python side: packets bound to inputs, lying and broken kernels caught, the real JavaScript kernels driven through Node (with SIMD and without) against the original Python, the envelope fast paths against the original code, ranked formula search, the pinned skills' code against their pins, the web build and its service-worker manifest, the matrix | 338 passed |
 | `pytest -m unit BioScience-Harness` | The tools' kernel hooks and checks; everything else in bioagent | 2534 passed, 131 skipped |
 | `node --test studio/edge/test` | The Worker: relay, gateway, headers | 63 passed |
-| `node studio/web/test/runtime/run.mjs` | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; 18 envelopes compared field by field with native CPython | all passed |
+| `node studio/web/test/runtime/run.mjs` (`npm run test:runtime`; run by hand, **not in CI**) | Real Pyodide in Chromium 141: 48 checks (governed skills, tools, kernels with each acceleration choice, cancellation, ranked formula search), reload from cache, a non-isolated page, a tampered bundle refused; on 2026-10-10, 18 envelopes compared field by field with native CPython. The comparisons are the calls `check.mjs` marks `compare`; as of 2026-10-19 there are 21, not re-run since: the 7 kernel tools; `benjamini_hochberg`, `fisher_exact`; the TCM lookups (`tcm_compatibility` twice, `tcm_herb`, `tcm_syndrome`); ranked `tcmdb.formulas`; `catalog_search`; three of the four pinned skills (safety, normalisation, evidence retrieval); and three refusals, compared as refusals: `connector_call` with web access off (`network_off`), `clinic.sign` (`HUMAN_ONLY`) and a misspelt argument (`bad_arguments`). The network-pharmacology seed skill is not among them | all passed (2026-10-10) |
 
 **Cross-platform status.** Tested: Chromium 141 headless on Linux x86-64, isolated and not isolated; Node 22 (V8)
 for the kernels; native CPython 3.13 for the comparisons. The repository's Playwright suite also emulates a phone (390 ×
@@ -580,7 +591,11 @@ retrieval, a native NPU operation, persistent-storage requests and model caching
 Firefox, Safari, on phones, GPUs and NPUs.
 
 **What Studio may say about itself, then**: tools run locally in the browser, on the CPU, with exact kernels for
-alignment, edit distance and sequence counts, and on the GPU for large count workloads where a hardware adapter
-exists (its speed unmeasured here; a receipt says `accelerated` only from a measurement on that device). Model calls
-are remote unless the person runs a local model. WebNN capability detection is available; no NPU is used, and none is
-claimed.
+alignment, edit distance and sequence counts. The count kernels may use WebGPU for large workloads on any adapter not
+identified as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU); that path
+is exact on a software adapter in tests and has never run on a hardware GPU, so its speed is unknown (a receipt says
+`accelerated` only from a measurement on that device). Model calls are remote unless the person runs a local model. WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a
+verified execution provider and hardware-backed execution evidence; none has either, so no NPU is used or claimed.
+Resource-intensive pipelines need the local runner; no remote compute environment is deployed
+([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). Browser mode supports a limited seed-corpus network hypothesis workflow; full
+data-driven network pharmacology needs verified snapshots and the runner's research job.

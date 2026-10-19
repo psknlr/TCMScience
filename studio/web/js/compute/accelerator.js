@@ -215,13 +215,14 @@ export class SequenceAccelerator {
     const base = plan ? this.scheduler.baseline(op, plan.operations, CPU_KERNELS) : null;
     const adapter = gpu.adapter || null;
     const ka = gpu.known_answer || this.gpu.knownAnswer || null;
-    let accelerated = false, basis;
+    let accelerated = false, measured = false, basis;
     if (!used) basis = "the GPU's counts were not used for this call";
     else if (adapter?.kind !== "physical") basis = adapter?.kind === "software" ? "a software renderer is never GPU acceleration" : "the adapter is unidentified, so it is not counted as a GPU";
     else if (ka?.ok !== true) basis = "the device has not passed its known-answer test";
     else if (!complete) basis = "this call's GPU time is incomplete (a step was not timed), so it is not compared";
     else if (!base) basis = `no CPU kernel has been measured for ${op.slice(OP.length + 1)} at this size on this device, so there is nothing to compare with`;
     else {
+      measured = true;   // a like-for-like comparison was made; only then may the answer be "not faster"
       accelerated = gpuMs < base.ms;
       basis = `measured on this device: ${gpuMs} ms on the GPU${run.cold ? " (including its one-time set-up)" : ""} against ${ms3(base.ms)} ms by the ${base.id} kernel for ${op.slice(OP.length + 1)} at the same size class, both including their transfer into and out of Python`;
     }
@@ -247,7 +248,7 @@ export class SequenceAccelerator {
       gpu_ms: gpuMs, cold: Boolean(run?.cold),
       ...(Number.isFinite(run?.kernel_ms) ? { kernel_ms: run.kernel_ms } : {}),
       cpu_baseline_ms: base ? ms3(base.ms) : null, cpu_baseline_backend: base ? base.id : null,
-      accelerated, basis, fallback_reason: fallback, evidence: evidenceLevel(facts),
+      measured, accelerated, basis, fallback_reason: fallback, evidence: evidenceLevel(facts),
     };
   }
 

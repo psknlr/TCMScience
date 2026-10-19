@@ -612,6 +612,7 @@ export function entryState(entry, ctx) → {implementation, readiness: {browser:
   // it is connected (derived:true from available/missing for an older runner), needs_runner otherwise; both add the
   // project's web access. implementation: state.implementation, else derived conservatively (registered/implemented/tested)
 export function requirement(need, {names?, detail?, remedy?}) → Requirement   // {need, detail, remedy, names?}, English
+export function readinessOf(requires, given) → state   // the readiness precedence over a list of Requirements (READINESS order)
 export const NEEDS, READINESS, IMPLEMENTATION, COMPUTE_VALUES, REMOTE_COMPUTE   // REMOTE_COMPUTE = {configured:false, reason}
 export function mergeCatalogs(built, runner)   // the runner wins on exec/available/missing/…; never on the browser's
   // (the document's verification_records, Catalog.verificationRecords, are kept by the constructor, toJSON and the merge)

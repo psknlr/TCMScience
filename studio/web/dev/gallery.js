@@ -264,6 +264,10 @@ function jobsSection() {
   return h("div.g-grid.g-grid--wide",
     g("job · queued", jobCard(j.queued, { onCancel: () => toast("cancel") })),
     g("job · running (CUDA:0)", jobCard(j.running, { onCancel: () => toast("cancel"), logs: ["vina: exhaustiveness 8", "pose 1/10", "pose 2/10", "pose 3/10", "pose 4/10"] })),
+    g("job · running, a stage and files written so far (not results)", jobCard({ ...j.running, progress: { stage: "redock_validation", fraction: 0.4, message: "stage redock_validation" } }, { onCancel: () => toast("cancel"), partial: [{ path: "receptor.pdbqt", bytes: 182344 }, { path: "redock/pose_1.pdbqt", bytes: 9120 }] })),
+    g("job · verifying (the runner collects it)", jobCard({ ...j.running, progress: { stage: "verifying", message: "verifying the outputs" } })),
+    g("job · tcmdb.fetch (bytes, files, verification)", jobCard({ ...j.running, kind: "tcmdb.fetch", device: null, progress: { stage: "transferring", fraction: 0.31, bytes: { done: 52428800, total: 167772160 }, files: { done: 1, total: 3 }, verified: { checksum: 1, size: 0, none: 0 }, message: "npass: part 50/160 MB" } })),
+    g("job · tcmdb.fetch checking one file mid-download (still running)", jobCard({ ...j.running, kind: "tcmdb.fetch", device: null, progress: { stage: "verifying", fraction: 0.62, bytes: { done: 104857600, total: 167772160 }, files: { done: 2, total: 3 }, verified: { checksum: 2, size: 0, none: 0 }, message: "npass: checking NPASSv2.0_activities.txt" } })),
     g("job · collected and verified", jobCard(j.succeeded, { onOpenFile: (p) => toast(p) })),
     g("job · failed (engine missing)", jobCard(j.failed)));
 }

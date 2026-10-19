@@ -12,7 +12,7 @@ import { Emitter } from "../core/events.js";
 import { registerStrings, t } from "../core/i18n.js";
 import { baseReceipt, pageOutcome } from "../core/receipt.js";
 import { canonicalJson, nowIso, sha256Hex } from "../core/util.js";
-import { WEBGPU_TOOLS } from "./webgpu.js";
+import { WEBGPU_TOOLS, classifyAdapter } from "./webgpu.js";
 import { simdStatus } from "../compute/simd.js";
 
 // the tools whose hot loop has a CPU kernel in the Worker (compute/bridge.js): the counts with WebAssembly SIMD where
@@ -104,14 +104,12 @@ export async function detectDevice({ navigator: nav = globalThis.navigator, isol
       ]);
       if (adapter) {
         const i = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : {}) || {};
-        const fallback = Boolean(adapter.isFallbackAdapter ?? i.isFallbackAdapter);
-        out.webgpu.adapter = {
-          vendor: i.vendor || "", architecture: i.architecture || "", description: i.description || "",
-          // SwiftShader, llvmpipe and friends are CPU emulators: not a GPU, whatever the API says
-          software: fallback || /swiftshader|llvmpipe|lavapipe|software|microsoft basic render/i.test(`${i.vendor} ${i.architecture} ${i.description}`),
-          fallback,
-        };
-        out.compute.webgpu_adapter = !out.webgpu.adapter.software;
+        // the one classifier (runtime/webgpu.js): SwiftShader, llvmpipe and friends are CPU renderers, not a GPU,
+        // whatever the API says; an adapter that names nothing is unidentified, never taken for a GPU
+        const c = classifyAdapter(i, adapter);
+        out.webgpu.adapter = { ...c, software: c.kind === "software" ? true : c.kind === "physical" ? false : null };
+        out.compute.webgpu_adapter = c.kind === "physical";
+        out.compute.webgpu_adapter_kind = c.kind;
       }
     } catch (err) {
       out.webgpu.error = String(err?.message || err);

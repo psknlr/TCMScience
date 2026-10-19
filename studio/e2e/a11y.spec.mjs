@@ -320,7 +320,7 @@ test("axe-core finds no serious or critical WCAG A/AA issue on the main views, l
       await waitForAnswers(page, 1);
       problems.push(...await axeProblems(page, `${at} #/conversation`));
       const project = await page.evaluate(() => globalThis.__studio.state.project.id);
-      for (const r of [`#/project/${project}`, "#/settings/models", "#/settings/compute", "#/settings/general", "#/settings/privacy", "#/settings/shortcuts", "#/catalog", "#/catalog/native.reverse_complement", "#/about"]) {
+      for (const r of [`#/project/${project}`, "#/settings/models", "#/settings/compute", "#/settings/data", "#/settings/general", "#/settings/privacy", "#/settings/shortcuts", "#/catalog", "#/catalog/native.reverse_complement", "#/catalog?f=needs_runner&be=webgpu", "#/catalog/skill.dock-ligands?f=needs_approval", "#/catalog/tcmdb.query", "#/about"]) {
         await page.evaluate((h) => { location.hash = h; }, r);
         await expect.poll(() => page.evaluate(() => location.hash)).toBe(r);
         problems.push(...await axeProblems(page, `${at} ${r.replace(project, "<id>")}`));

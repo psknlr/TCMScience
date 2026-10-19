@@ -1,13 +1,21 @@
 // The compute panel (DESIGN §3.6) and the model panel (§3.7), shared by the composer/top-bar popovers and the
 // settings pages, plus the runner pairing dialog. Compute runs on the user's machine: the browser (Pyodide in a Web
-// Worker) or the local runner on 127.0.0.1, on the device the user picks.
+// Worker) or the local runner on 127.0.0.1, on the device the user picks. A runner on another machine is a remote
+// runner and is never called 本机; there is no remote compute backend ("remote" is a choice that runs nothing).
+//
+// The hardware evidence list (Settings → Compute) puts what each device or backend reported beside what this page's
+// own calls showed, in the words of the evidence ladder (compute/capabilities.js: selected < reported < dispatched <
+// validated < verified < accelerated). A software WebGPU adapter is 软件模拟 GPU, never GPU acceleration; WebNN is
+// "detected; NPU execution unverified" at most; a runner's GPU is reported or selected, never more.
 
 import { allProviders, localFix, PRESETS } from "../core/providers.js";
 import { lang, t } from "../core/i18n.js";
+import { isLoopbackUrl } from "../core/util.js";
+import { classifyAdapter } from "../runtime/webgpu.js";
 import { append, clear, fill, formatNumber, h } from "./dom.js";
 import { icon } from "./icons.js";
 import { openDialog, openPopover, toast } from "./overlay.js";
-import { button, chip, copyButton, notice, progressBar, segmented, slider, spinner, statusDot, switchControl, textField } from "./primitives.js";
+import { button, chip, copyButton, notice, progressBar, segmented, selectField, slider, spinner, statusDot, switchControl, textField } from "./primitives.js";
 import { deviceLabel } from "./toolcards.js";
 
 // ------------------------------------------------------------------------------------------------- compute chip
@@ -27,13 +35,23 @@ function selectedDeviceKind(app) {
   return /^(cuda|rocm|mps)/.test(sel) ? "GPU" : "CPU";
 }
 
-/** 「浏览器」 / 「本机 · GPU」 / 「本机（未连接）」 — the words on the compute chip. */
+/** Is the paired runner on another machine (its address is not loopback)? Then it is never called 本机. */
+export function runnerIsRemote(app) {
+  const url = app.state.settings?.runner?.url;
+  return Boolean(url) && !isLoopbackUrl(url);
+}
+
+/** 「浏览器」 / 「本机 · GPU」 / 「本机（未连接）」 / 「远程 Runner · GPU」 / 「远程（未配置）」 — the words on the compute chip. */
 export function computeChipLabel(app) {
   const compute = app.compute();
   const ready = app.state.runner.status === "ready";
+  // no remote compute backend exists: the chip says so, and never names this machine for it
+  if (compute === "remote") return t("ui.compute.chip.remote");
+  if (!["auto", "browser", "runner"].includes(compute)) return t("ui.compute.chip.unknown");
+  const runnerChip = () => t(runnerIsRemote(app) ? "ui.compute.chip.runner_remote" : "ui.compute.chip.runner", { device: selectedDeviceKind(app) });
   if (compute === "browser") return t("ui.compute.chip.browser");
-  if (compute === "runner") return ready ? t("ui.compute.chip.runner", { device: selectedDeviceKind(app) }) : t("ui.compute.chip.runner_off");
-  return ready ? t("ui.compute.chip.runner", { device: selectedDeviceKind(app) }) : t("ui.compute.chip.browser");
+  if (compute === "runner") return ready ? runnerChip() : t("ui.compute.chip.runner_off");
+  return ready ? runnerChip() : t("ui.compute.chip.browser");
 }
 
 export function openComputePopover(app, anchor, { returnTo } = {}) {
@@ -61,14 +79,16 @@ export function computePanel(app, { compact = false, onNavigate } = {}) {
       options: [
         { value: "auto", label: t("ui.compute.auto"), title: t("ui.compute.auto_tip") },
         { value: "browser", label: t("ui.compute.browser"), icon: "globe" },
-        { value: "runner", label: t("ui.compute.runner"), icon: "laptop" },
+        { value: "runner", label: runnerIsRemote(app) ? t("ui.compute.runner_remote") : t("ui.compute.runner"), icon: "laptop" },
       ],
       onChange: (v) => app.setCompute(v),
     }),
-    h("p.panel__help", t(`ui.compute.target_help.${app.compute()}`), s.project?.defaults?.compute ? h("span.muted", ` ${t("ui.compute.project_override", { name: s.project.name })}`) : null)));
+    h("p.panel__help", targetHelp(app.compute()), s.project?.defaults?.compute ? h("span.muted", ` ${t("ui.compute.project_override", { name: s.project.name })}`) : null),
+    remoteChoice(app, { compact })));
   if (s.layout === "mobile") parts.push(notice({ tone: "info", body: t("ui.compute.mobile") }));
   parts.push(browserCard(app, { compact }));
   parts.push(runnerCard(app, { compact }));
+  if (!compact) parts.push(evidenceList(app));
   if (compact) {
     parts.push(h("div.panel__block.panel__block--row",
       webSwitch(app, { description: s.project ? t("ui.web.desc_project", { name: s.project.name }) : t("ui.web.desc_default") })));
@@ -106,6 +126,54 @@ function syncWebSwitches(app) {
   app.on("project", sync);
 }
 
+/** The help line of a compute target; a value this page does not know is said as such. */
+function targetHelp(compute) {
+  if (["auto", "browser", "runner", "remote"].includes(compute)) return t(`ui.compute.target_help.${compute}`);
+  return t("ui.compute.target_help_unknown", { value: String(compute).slice(0, 40) });
+}
+
+/**
+ * The fourth target, remote compute, as a select rather than a fourth segment (a phone's width): it can be chosen, and
+ * it says that it is not configured — every call is then unavailable (remote_not_configured) and nothing falls back to
+ * the browser or the runner. The compact popover shows only the note, and a way back, while it is chosen.
+ */
+function remoteChoice(app, { compact }) {
+  const on = app.compute() === "remote";
+  if (compact) {
+    return on ? notice({ tone: "warn", icon: "wifiOff", body: t("ui.compute.remote_on"), actions: [button({ label: t("ui.compute.remote_back"), size: "sm", onClick: () => app.setCompute("auto") })] }) : null;
+  }
+  return h("div.compute-remote",
+    selectField({
+      label: t("ui.compute.remote_label"), value: on ? "remote" : "",
+      options: [{ value: "", label: t("ui.compute.remote_none") }, { value: "remote", label: t("ui.compute.remote_option") }],
+      help: t("ui.compute.remote_help"),
+      onChange: (v) => { if (v === "remote") app.setCompute("remote"); else if (app.compute() === "remote") app.setCompute("auto"); },
+    }),
+    on ? notice({ tone: "warn", icon: "wifiOff", body: t("ui.compute.remote_on") }) : null);
+}
+
+/** The adapter of a device report as the one classifier sees it (an older report without kind is classified here). */
+export function adapterOf(dev) {
+  const ad = dev?.webgpu?.adapter;
+  if (!ad) return null;
+  if (["software", "physical", "unidentified"].includes(ad.kind)) return ad;
+  const c = classifyAdapter(ad, { isFallbackAdapter: Boolean(ad.fallback) });
+  // a report that already called it software stays software (the older rule never called a GPU software)
+  return ad.software === true && c.kind !== "software" ? { ...c, kind: "software" } : c;
+}
+
+const adapterName = (ad) => [ad?.vendor, ad?.architecture, ad?.device, ad?.description].filter(Boolean).join(" ");
+
+/** The browser card's WebGPU line: none / no adapter / software (not a GPU) / unidentified / physical (reported). */
+export function webgpuLine(dev) {
+  if (!dev?.webgpu?.api) return t("ui.browser.webgpu_none");
+  const ad = adapterOf(dev);
+  if (!ad) return t("ui.browser.webgpu_no_adapter");
+  if (ad.kind === "software") return t("ui.browser.webgpu_software", { name: adapterName(ad) || "software" });
+  if (ad.kind === "unidentified") return t("ui.browser.webgpu_unidentified");
+  return t("ui.browser.webgpu_hw", { name: adapterName(ad) });
+}
+
 function browserCard(app, { compact }) {
   const b = app.state.browser;
   const status = b.status || "idle";
@@ -129,13 +197,8 @@ function browserCard(app, { compact }) {
   facts.push(h("li", icon("cpu", { size: 14 }), t("ui.browser.cpu_note")));
   if (dev) {
     facts.push(h("li", icon("gauge", { size: 14 }), t("ui.browser.cores", { cores: dev.cores ?? "?", memory: dev.memory_gb ? t("ui.browser.memory", { gb: dev.memory_gb }) : "" })));
-    const ad = dev.webgpu?.adapter;
-    let gpuText;
-    if (!dev.webgpu?.api) gpuText = t("ui.browser.webgpu_none");
-    else if (!ad) gpuText = t("ui.browser.webgpu_no_adapter");
-    else if (ad.software) gpuText = t("ui.browser.webgpu_software", { name: [ad.vendor, ad.architecture].filter(Boolean).join(" ") || "software" });
-    else gpuText = t("ui.browser.webgpu_hw", { name: [ad.vendor, ad.architecture, ad.description].filter(Boolean).join(" ") });
-    facts.push(h("li", { class: ad?.software ? "is-muted" : "" }, icon("gpu", { size: 14 }), gpuText));
+    const ad = adapterOf(dev);
+    facts.push(h("li", { class: ad && ad.kind !== "physical" ? "is-muted" : "" }, icon("gpu", { size: 14 }), webgpuLine(dev)));
     if (!compact) facts.push(h("li", icon("lock", { size: 14 }), dev.cross_origin_isolated ? t("ui.browser.isolated") : t("ui.browser.not_isolated")));
   }
   const caps = b.caps;
@@ -164,7 +227,7 @@ function runnerCard(app, { compact }) {
   const url = app.state.settings.runner.url;
   const head = h("div.rt-card__head",
     h("span.rt-card__icon", icon("laptop")),
-    h("div.rt-card__title", h("p.rt-card__name", t("ui.compute.runner_runtime")), h("p.rt-card__sub.mono", hostOf(url) + (info.version ? ` · v${info.version}` : ""))),
+    h("div.rt-card__title", h("p.rt-card__name", runnerIsRemote(app) ? t("ui.compute.runner_runtime_remote") : t("ui.compute.runner_runtime")), h("p.rt-card__sub.mono", hostOf(url) + (info.version ? ` · v${info.version}` : ""))),
     h("span.rt-card__status", statusDot(tone), t(`ui.runner.status.${status}`)));
   if (status !== "ready") return h("section.rt-card", head, runnerConnect(app, { compact }));
 
@@ -194,6 +257,109 @@ function runnerCard(app, { compact }) {
   }
   body.push(h("div.rt-card__actions", button({ label: t("ui.runner.disconnect"), size: "sm", variant: "ghost", icon: "unplug", onClick: () => app.disconnectRunner() })));
   return h("section.rt-card.is-ready", head, body);
+}
+
+// ------------------------------------------------------------------------------------------------- evidence
+
+const RUNGS = ["selected", "reported", "dispatched", "validated", "verified", "accelerated"];
+
+/**
+ * The hardware evidence rows, in a fixed order: [{id, icon, name, reported, evidence, muted}]. Pure (no DOM), from the
+ * app's state: the browser's device report and probe (caps), the session's evidence (ui/runlog.js noteEvidence) and
+ * the runner's device report and settings.
+ */
+export function evidenceRows(state) {
+  const dev = state.browser?.device || null;
+  const caps = state.browser?.caps || null;
+  const ev = state.computeEvidence || {};
+  const calls = ev.calls || {};
+  const rows = [];
+
+  // 1. the browser's CPU: Python in Pyodide (one thread), and the JavaScript kernels
+  rows.push({
+    id: "cpu", icon: "cpu", name: t("ui.compute.ev.cpu"),
+    reported: dev ? t("ui.compute.ev.cpu_reported", { cores: dev.cores ?? "?" }) : t("ui.compute.ev.not_probed"),
+    evidence: (calls.pyodide || calls.js)
+      ? [calls.pyodide ? t("ui.compute.ev.cpu_used", { n: calls.pyodide }) : null, calls.js ? t("ui.compute.ev.js_used", { n: calls.js }) : null].filter(Boolean).join(" ")
+      : t("ui.compute.ev.not_used"),
+  });
+
+  // 2. WebAssembly SIMD: the probe, and the count calls its kernel computed (each checked by Python)
+  const w = caps?.wasm;
+  rows.push({
+    id: "simd", icon: "zap", name: t("ui.compute.ev.simd"),
+    reported: !caps ? t("ui.compute.ev.not_probed") : w?.simd ? t("ui.compute.ev.simd_yes") : t("ui.compute.ev.simd_no"),
+    evidence: calls["wasm-simd"] ? t("ui.compute.ev.simd_used", { n: calls["wasm-simd"] }) : t("ui.compute.ev.not_used"),
+    muted: Boolean(caps) && !w?.simd,
+  });
+
+  // 3. WebGPU: the one classifier's kind, then the highest rung a receipt of this session showed
+  const ad = adapterOf(dev) || (caps?.webgpu?.adapter && ["software", "physical", "unidentified"].includes(caps.webgpu.adapter.kind) ? caps.webgpu.adapter : null);
+  const api = dev ? Boolean(dev.webgpu?.api) : caps ? Boolean(caps.webgpu?.api) : null;
+  const g = ev.webgpu || null;
+  let gpuName, gpuReported, gpuEvidence;
+  if (api === null) { gpuName = t("ui.compute.ev.webgpu"); gpuReported = t("ui.compute.ev.not_probed"); }
+  else if (!api) { gpuName = t("ui.compute.ev.webgpu"); gpuReported = t("ui.browser.webgpu_none"); }
+  else if (!ad) { gpuName = t("ui.compute.ev.webgpu"); gpuReported = t("ui.browser.webgpu_no_adapter"); }
+  else {
+    gpuName = t(`ui.compute.ev.adapter.${ad.kind}`);
+    gpuReported = ad.kind === "unidentified" ? t("ui.compute.ev.adapter_unnamed") : adapterName(ad) || "—";
+  }
+  if (ad?.kind === "software") gpuEvidence = t("ui.compute.ev.software_never");
+  else if (!g?.evidence) gpuEvidence = t("ui.compute.ev.not_used");
+  else {
+    const rung = g.evidence === "accelerated" && !(ad?.kind === "physical" && g.accelerated === true) ? "verified" : g.evidence;
+    gpuEvidence = [t(`ui.compute.ev.rung.${rung}`), t("ui.compute.ev.gpu_counts", { dispatched: g.dispatched || 0, validated: g.validated || 0 }),
+      rung !== "accelerated" ? (g.accelerated === false ? t("ui.compute.ev.not_faster") : t("ui.compute.ev.not_measured")) : null].filter(Boolean).join(" · ");
+  }
+  rows.push({ id: "webgpu", icon: "gpu", name: gpuName, reported: gpuReported, evidence: gpuEvidence, muted: !ad || ad.kind !== "physical" });
+
+  // 4. the runner's GPUs: what its probe reports, and the device it is set to (selected); no job reports more
+  const r = state.runner || {};
+  const remote = Boolean(state.settings?.runner?.url) && !isLoopbackUrl(state.settings.runner.url);
+  const runnerName = t(remote ? "ui.compute.ev.runner_gpu_remote" : "ui.compute.ev.runner_gpu");
+  if (r.status !== "ready") {
+    rows.push({ id: "runner", icon: "laptop", name: runnerName, reported: t("ui.compute.ev.runner_off"), evidence: t("ui.compute.ev.not_used"), muted: true });
+  } else {
+    const devices = (r.devices?.devices || r.info?.devices || []).filter((d) => d && d.id !== "cpu" && d.kind !== "cpu");
+    const sel = r.settings?.device || r.devices?.selected || "auto";
+    const seen = Object.entries(ev.runner?.devices || {}).filter(([id]) => id !== "cpu");
+    rows.push({
+      id: "runner", icon: "laptop", name: runnerName,
+      reported: devices.length ? t("ui.compute.ev.runner_reported", { list: devices.map((d) => [deviceLabel(d.id), d.name, d.available === false ? t("ui.compute.ev.unavailable") : null].filter(Boolean).join(" ")).join(t("ui.compute.ev.list_sep")) }) : t("ui.compute.ev.runner_no_gpu"),
+      evidence: [
+        sel !== "auto" && sel !== "cpu" ? t("ui.compute.ev.runner_selected", { device: deviceLabel(sel) }) : null,
+        seen.length ? t("ui.compute.ev.runner_assigned", { list: seen.map(([id, rung]) => t("ui.compute.ev.device_rung", { device: deviceLabel(id), rung: t(`ui.compute.ev.rung.${RUNGS.includes(rung) ? rung : "selected"}`) })).join(t("ui.compute.ev.list_sep")) }) : null,
+      ].filter(Boolean).join(" ") || t("ui.compute.ev.not_used"),
+      muted: !devices.length,
+    });
+  }
+
+  // 5. WebNN / NPU: detected at most, never verified (compute/capabilities.js NPU_STATUS)
+  const nn = caps?.webnn;
+  rows.push({
+    id: "npu", icon: "cpu", name: t("ui.compute.ev.npu"),
+    reported: !caps ? t("ui.compute.ev.not_probed") : nn?.api ? t("ui.compute.ev.npu_detected") : t("ui.compute.ev.npu_absent"),
+    evidence: t("ui.compute.ev.npu_none"), muted: true,
+  });
+
+  // 6. remote compute: none exists
+  rows.push({ id: "remote", icon: "globe", name: t("ui.compute.ev.remote"), reported: t("ui.compute.ev.remote_reported"), evidence: t("ui.compute.ev.remote_none"), muted: true });
+  return rows;
+}
+
+/** The evidence list: each device or backend, what it reported, what this page's calls showed (Settings → Compute). */
+function evidenceList(app) {
+  if (!app.state.browser.caps) app.computeCapabilities?.();
+  const rows = evidenceRows(app.state);
+  return h("section.rt-card.evidence", { "aria-labelledby": "evidence-title" },
+    h("div.rt-card__head",
+      h("span.rt-card__icon", icon("listChecks")),
+      h("div.rt-card__title", h("p.rt-card__name", { id: "evidence-title" }, t("ui.compute.ev.title")), h("p.rt-card__sub.evidence__sub", t("ui.compute.ev.sub")))),
+    h("ul.evidence__list", { role: "list" }, rows.map((row) => h("li", { class: ["evidence__row", row.muted && "is-muted"], "data-evidence": row.id },
+      h("p.evidence__name", icon(row.icon, { size: 14 }), h("span", row.name)),
+      h("p.evidence__line", h("span.evidence__k", t("ui.compute.ev.reported")), h("span", row.reported)),
+      h("p.evidence__line", h("span.evidence__k", t("ui.compute.ev.shown")), h("span", row.evidence))))));
 }
 
 function engineInstalled(e) {

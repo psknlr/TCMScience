@@ -34,6 +34,8 @@ export class Catalog {
     this.neverOffered = isPlainObject(doc.never_offered) ? { ...doc.never_offered } : {};
     // the largest request one call takes, per runtime ({max_request_bytes: {runner, browser}}); an entry's own wins
     this.limits = isPlainObject(doc.limits) ? structuredClone(doc.limits) : null;
+    // the committed file each verification level rests on ({level: path}), for the catalog page (CONTRACTS §2)
+    this.verificationRecords = isPlainObject(doc.verification_records) ? { ...doc.verification_records } : {};
     this._index = null;
   }
 
@@ -116,6 +118,7 @@ export class Catalog {
       schema: this.schema, versions: this.versions, categories: this.categories, core: this.core, entries: this.entries,
       ...(Object.keys(this.neverOffered).length ? { never_offered: this.neverOffered } : {}),
       ...(this.limits ? { limits: this.limits } : {}),
+      ...(Object.keys(this.verificationRecords).length ? { verification_records: this.verificationRecords } : {}),
     };
   }
 }
@@ -192,6 +195,8 @@ export function mergeCatalogs(built, runner) {
     entries: [...byId.values()],
     ...(built.never_offered || runner.never_offered ? { never_offered: { ...(built.never_offered || {}), ...(runner.never_offered || {}) } } : {}),
     ...(isPlainObject(built.limits) || isPlainObject(runner.limits) ? { limits: mergeLimits(built.limits, runner.limits) } : {}),
+    ...(isPlainObject(built.verification_records) || isPlainObject(runner.verification_records)
+      ? { verification_records: { ...(runner.verification_records || {}), ...(built.verification_records || {}) } } : {}),
     sources: ["built", "runner"],
   };
 }
@@ -536,6 +541,14 @@ function stateOf(requires, given) {
   const ranks = requires.map((r) => READINESS.indexOf(STATE_OF_NEED[r.need] || "unsupported"));
   if (READINESS.includes(given) && given !== "ready") ranks.push(READINESS.indexOf(given));
   return ranks.length ? READINESS[Math.min(...ranks)] : "ready";
+}
+
+/**
+ * The readiness state Requirements come to (and `given`, a state already decided), by the same precedence: for a view
+ * that adds what only it knows (ui/pages/catalog.js: the compute preference, a store not read yet).
+ */
+export function readinessOf(requires, given) {
+  return stateOf((Array.isArray(requires) ? requires : []).filter(isRequirement), given);
 }
 
 const toSet = (x) => (x instanceof Set ? x : new Set(x == null ? [] : [...x].map(String)));

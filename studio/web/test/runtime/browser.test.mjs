@@ -137,17 +137,31 @@ test("catalog() and device() answer without starting Python", async () => {
   assert.equal(Worker.instances.length, 0);
 });
 
-test("detectDevice reports a software WebGPU adapter as such", async () => {
+test("detectDevice reports a software WebGPU adapter as such, through the one classifier (classifyAdapter)", async () => {
   const nav = {
     hardwareConcurrency: 8, deviceMemory: 16,
     gpu: { requestAdapter: async () => ({ isFallbackAdapter: true, info: { vendor: "google", architecture: "swiftshader", description: "" } }) },
   };
   const d = await detectDevice({ navigator: nav, isolated: true });
-  assert.deepEqual(d.webgpu.adapter, { vendor: "google", architecture: "swiftshader", description: "", software: true, fallback: true });
+  const { reason, ...adapter } = d.webgpu.adapter;
+  assert.deepEqual(adapter, { kind: "software", vendor: "google", architecture: "swiftshader", device: "", description: "", fallback: true, software: true });
+  assert.match(reason, /fallback adapter/);
+  assert.equal(d.compute.webgpu_adapter, false);
+  assert.equal(d.compute.webgpu_adapter_kind, "software");
   assert.equal(d.cores, 8);
   assert.equal(d.memory_gb, 16);
   const hw = await detectDevice({ navigator: { gpu: { requestAdapter: async () => ({ info: { vendor: "nvidia", architecture: "ada", description: "RTX 4090" } }) } } });
   assert.equal(hw.webgpu.adapter.software, false);
+  assert.equal(hw.webgpu.adapter.kind, "physical");
+  assert.equal(hw.compute.webgpu_adapter, true);
+  // a name in the device field alone (llvmpipe) is a software renderer too, which the older rule missed
+  const llvm = await detectDevice({ navigator: { gpu: { requestAdapter: async () => ({ info: { vendor: "mesa", device: "llvmpipe (LLVM 17)" } }) } } });
+  assert.equal(llvm.webgpu.adapter.kind, "software");
+  // an adapter that names nothing is unidentified: never a GPU the sequence statistics can use
+  const anon = await detectDevice({ navigator: { gpu: { requestAdapter: async () => ({ info: {} }) } } });
+  assert.equal(anon.webgpu.adapter.kind, "unidentified");
+  assert.equal(anon.webgpu.adapter.software, null);
+  assert.equal(anon.compute.webgpu_adapter, false);
   const none = await detectDevice({ navigator: {} });
   assert.deepEqual(none.webgpu, { api: false, adapter: null });
 });
