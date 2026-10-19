@@ -74,6 +74,7 @@ let fatal = null;
 let bootInfo = null;
 const packages = new Set();
 let locked = null; // the lockfile's package names
+let debugOps = false; // the test pages' python op (init {debug: true}); never on in Studio
 const mounts = new Map(); // MEMFS root → {handles, files, bytes, mode}
 let chain = Promise.resolve();
 
@@ -110,6 +111,7 @@ async function handle({ id, op, payload = {} }) {
       case "run": return reply(id, ms, run(id, payload)); // Python's JSON text, unparsed
       case "free": return reply(id, ms, JSON.stringify(free(payload)));
       case "memory": return reply(id, ms, JSON.stringify(memory()));
+      case "python": return reply(id, ms, JSON.stringify(python(payload)));
       default: throw codeError("bad_request", `unknown operation: ${op}`);
     }
   } catch (err) {
@@ -140,7 +142,8 @@ function throwIfCancelled() {
 
 // ------------------------------------------------------------------------------------------------------------- boot
 
-async function init({ boot, siteUrl, indexUrl }) {
+async function init({ boot, siteUrl, indexUrl, debug = false }) {
+  debugOps = Boolean(debug);
   if (py && api) return bootInfo;
   if (!boot?.pyodide || !boot?.bundle?.sha256 || !boot?.bundle?.path) throw codeError("bad_boot", "boot.json is incomplete (pyodide, bundle.path, bundle.sha256 are required)");
   const t0 = performance.now();
@@ -418,6 +421,20 @@ function run(id, { fn, args = {} }) {
     event(id, { kind: String(kind), ...data });
   };
   return api.job(fn, JSON.stringify(args), emit);
+}
+
+/** Test pages only (init {debug: true}): run Python text, return what it assigns to `result` as JSON text. */
+function python({ code }) {
+  if (!debugOps) throw codeError("bad_request", "debug operations are off");
+  if (!api) throw codeError("not_ready", "the job worker has not been initialised");
+  const ns = py.globals.get("dict")();
+  try {
+    py.runPython(String(code || ""), { globals: ns });
+    const value = ns.get("result");
+    return value === undefined ? null : String(value);
+  } finally {
+    ns.destroy?.();
+  }
 }
 
 function memory() {

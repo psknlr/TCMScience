@@ -238,7 +238,7 @@ test("the Worker: one hostname, the app's files first, the relay under /v1/*, it
   assert.deepEqual(toml.routes, [{ pattern: "science.impf.ai", custom_domain: true }]);
   assert.deepEqual(toml.assets, {
     directory: "../_site", binding: "ASSETS", not_found_handling: "none",
-    run_worker_first: ["/v1/*", "/api/sources/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"],
+    run_worker_first: ["/v1/*", "/api/sources/*", "/api/datasets/*", "/api/telemetry/*", "/api/admin/*", "/admin", "/admin/*"],
   });
   assert.deepEqual(toml.ratelimits, [{ name: "BURST", namespace_id: "7321", simple: { limit: 40, period: 10 } }]);
   assert.ok(!["7311", "7312", "7313"].includes(toml.ratelimits[0].namespace_id)); // TaoChronos's: their counters would be shared

@@ -128,6 +128,65 @@ def test_a_stage_computed_one_way_is_not_reused_by_a_run_the_other_way(tmp_path)
         first.artifact.provenance["result_digest"]
 
 
+def test_an_interrupted_run_resumes_from_the_stages_it_finished(tmp_path, monkeypatch):
+    """How the browser cancels a job: its Python is interrupted (KeyboardInterrupt, at the
+    next bytecode check) wherever it is; here inside the second analysis call, the first
+    rebuttal variant, under the broker. The audit chain still verifies, and the job resumed
+    on the same state reuses the analysis it finished and writes what a run never
+    interrupted writes."""
+    from types import SimpleNamespace
+
+    from psh.kernel.egress import ExecutionBroker
+
+    root, ledger = _world(tmp_path, "selective")
+    invoke, calls = ExecutionBroker._invoke, []
+
+    def interrupted(self, *args, **kw):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return invoke(self, *args, **kw)
+
+    with monkeypatch.context() as m:
+        # the broker's own step, past its gate: patching the analysis instead would change
+        # the code its result records (the digest of the module run_network_pharmacology
+        # is found in)
+        m.setattr(ExecutionBroker, "_invoke", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            _run(tmp_path, root, ledger, "cut", isolate=False)
+    types = [r.event_type for r in _records(SimpleNamespace(state_dir=tmp_path / "state-cut"))]
+    assert "research_analysis_completed" in types
+    assert "research_rebuttal_completed" not in types
+    resumed = _run(tmp_path, root, ledger, "cut", isolate=False)
+    assert "analyse" in resumed.resumed_stages and "rebut" not in resumed.resumed_stages
+    clean = _run(tmp_path, root, ledger, "clean", isolate=False)
+    for name in SAME_BYTES:
+        assert (tmp_path / "out-cut" / name).read_bytes() == \
+            (tmp_path / "out-clean" / name).read_bytes(), name
+    for key in ("result_digest", "tool_calls", "execution"):
+        assert resumed.artifact.provenance[key] == clean.artifact.provenance[key], key
+
+
+def test_the_in_process_policy_reads_the_two_paths_and_writes_nothing(tmp_path):
+    from bioagent.policy import PROFILES
+    from bioagent.research.loop import _in_process_policy
+
+    root, ledger = str(tmp_path / "snap"), str(tmp_path / "ledger.jsonl")
+    kernel = _in_process_policy(root, ledger)
+    for name, shipped in PROFILES.items():
+        p = kernel.profile(name)
+        assert p.allow_filesystem_write == frozenset(), name
+        # never wider than the child's: the workspace there is the directory holding both
+        assert p.allow_filesystem_read == ({root, ledger}
+                                           if "${workspace}" in shipped.allow_filesystem_read
+                                           else shipped.allow_filesystem_read), name
+    p = kernel.profile("biomedical-research")
+    assert p.check_filesystem([root + "/npass/x.json", ledger], mode="read").rule == \
+        "perm.fs_read.ok"
+    assert p.check_filesystem([str(tmp_path / "other")], mode="read").rule == \
+        "perm.fs_read.outside_root"
+
+
 def test_the_manifest_records_the_interpreter_it_ran_in(pair):
     import platform
     _, _, _, isolated, in_process = pair

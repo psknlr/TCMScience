@@ -207,6 +207,32 @@ def test_the_command_line_gives_the_same_bytes(planted):
     assert "log: research" in res.stderr
 
 
+def test_a_cancelled_run_is_data_and_resumes_where_it_stopped(planted, tmp_path, monkeypatch):
+    """The browser cancels a job by interrupting its Python (KeyboardInterrupt), here in the
+    second analysis call, under the broker. call() says so, and the job resumed on the same
+    state reuses the analysis it finished and writes the bytes ``bioagent research`` wrote."""
+    from psh.kernel.egress import ExecutionBroker
+
+    invoke, calls = ExecutionBroker._invoke, []
+
+    def interrupted(self, *args, **kw):
+        calls.append(1)
+        if len(calls) == 2:
+            raise KeyboardInterrupt
+        return invoke(self, *args, **kw)
+
+    monkeypatch.setattr(browser_jobs, "_isolate", lambda: False)  # as under Emscripten
+    args = json.dumps(_research_args(planted["root"], planted["ledger"], tmp_path, "c"))
+    with monkeypatch.context() as m:
+        m.setattr(ExecutionBroker, "_invoke", interrupted)
+        assert _error(call("run_research", args))["type"] == "cancelled"
+    result = _ok(call("run_research", args))
+    assert result["exit"] == 0 and "analyse" in result["summary"]["resumed_stages"]
+    for name in SAME_BYTES:
+        assert (tmp_path / "out-c" / name).read_bytes() == \
+            (planted["tmp"] / "out-cli" / name).read_bytes(), name
+
+
 def test_a_refused_question_is_exit_2_with_the_reason(planted, tmp_path):
     args = {**_research_args(planted["root"], planted["ledger"], tmp_path, "r"),
             "question": "不存在汤的靶点"}
@@ -347,15 +373,20 @@ def test_failures_are_typed_and_call_never_raises(monkeypatch):
     def not_json(args, emit):
         return {"value": float("nan")}
 
+    def exits(args, emit):
+        sys.exit(4)
+
     functions = dict(browser_jobs.FUNCTIONS)
     monkeypatch.setattr(browser_jobs, "FUNCTIONS", {
         **functions, "missing": missing, "broken": broken, "interrupted": interrupted,
-        "not_json": not_json})
+        "not_json": not_json, "exits": exits})
     assert _error(call("missing"))["type"] == "refused"
     assert "pyarrow" in _error(call("missing"))["message"]
     assert _error(call("broken")) == {"type": "runtime_error", "message": "RuntimeError: boom"}
     assert _error(call("interrupted"))["type"] == "cancelled"
     assert _error(call("not_json"))["type"] == "runtime_error"
+    assert _error(call("exits")) == {"type": "runtime_error",
+                                     "message": "exits tried to exit (code 4)"}
 
 
 def test_the_command_line_exit_codes(tmp_path):

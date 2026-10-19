@@ -6,13 +6,22 @@
 // ?mode=gqd       the raw files the harness serves at /raw/ are imported into this origin's private storage, then the
 //                 browser job service runs research.snapshot and research.run (葛根芩连汤) exactly as Studio does; the
 //                 exports come back with their digests for science.mjs to compare with the native run
+// ?mode=service   the job service end to end without real data: the planted world's snapshots are seeded into private
+//                 storage (as research.snapshot would leave them), then research.run and the self-test run as jobs of the
+//                 service; research.run's five tables must be the self-test's committed answer (same world, same
+//                 parameters), and both jobs must write receipts that match their recorded digests
+// ?mode=fixture   the snapshot build on raw files mounted from private storage: the parser tests' fixture files
+//                 (served at /raw/) are written into OPFS, mounted read-only in a job worker, and built with their own
+//                 checksums in place of the reviewed ones (fixture_specs.py); science.mjs compares the snapshot ids with
+//                 the same build run natively
 // ?index=URL      where Pyodide is (default: boot.json's index_url)
 
 import { DatasetWorkspace } from "../../js/scientific/data/datasets.js";
 import { OpfsStore } from "../../js/scientific/data/opfs-store.js";
 import { BrowserJobService } from "../../js/scientific/runtime/job-manager.js";
 import { ScienceWorkerPool, recommendedPoolSize } from "../../js/scientific/runtime/worker-pool.js";
-import { HANDLERS, RESEARCH_EXPORTS } from "../../js/scientific/pipelines/network-pharmacology.js";
+import { HANDLERS, RESEARCH_EXPORTS, RESEARCH_PATHS, SNAPSHOTS_BUILT_SCHEMA } from "../../js/scientific/pipelines/network-pharmacology.js";
+import { browserSelfTest } from "../../js/scientific/pipelines/selftest.js";
 
 const q = new URLSearchParams(location.search);
 const mode = q.get("mode") || "selftest";
@@ -139,9 +148,102 @@ async function gqd() {
   check("nine exports read back", Object.keys(out.files).length === RESEARCH_EXPORTS.length, Object.keys(out.files).join(", "));
 }
 
+async function service() {
+  const bootDoc = await boot();
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  const p = pool(bootDoc);
+  // seed: the planted world's snapshots, built by a job worker and kept where research.snapshot keeps them
+  const t0 = performance.now();
+  const lease = await p.lease({ packages: ["pyarrow"] });
+  try {
+    const seeded = await lease.call("run", { fn: "self_test", args: { work_dir: "/work/seed" } });
+    if (!check("planted world built in a job worker", seeded?.ok !== false && seeded?.result?.status === "PASS", seeded?.error?.message || seeded?.result?.status)) return;
+    const kept = await lease.call("persist", { from: "/work/seed/snapshots", dir: RESEARCH_PATHS.snapshots, clean: true });
+    const ledger = kept.files.find((f) => f.path.join("/") === "ledger.jsonl");
+    await store.writeJson(RESEARCH_PATHS.built, { schema: SNAPSHOTS_BUILT_SCHEMA, job_id: "seed", at: new Date().toISOString(), ledger: { sha256: `sha256:${ledger.sha256}`, bytes: ledger.bytes }, files: kept.files.length });
+    check("snapshots seeded into private storage", Boolean(ledger), `${kept.files.length} files`, performance.now() - t0);
+    out.expected = seeded.result.expected_digests;
+  } finally {
+    lease.release();
+  }
+  const svc = new BrowserJobService({ pool: p, store, datasets: null, handlers: [...HANDLERS, browserSelfTest] });
+  await svc.start();
+  check("job service started", svc.status === "ready", svc.reason || svc.status);
+
+  const t1 = performance.now();
+  let job = await svc.submit("research.run", { question: "葛根芩连汤的实测靶点集中在哪些通路？", background: "assayed", permutations: 200 }, { project_id: "science-check" });
+  job = await waitFor(svc, job.id, 10 * 60_000);
+  out.run_job = job;
+  if (!check("research.run as a browser job", job?.state === "succeeded", job?.error?.message || job?.state, performance.now() - t1)) return;
+  check("its stages", job.stages.every((s) => s.status === "succeeded"), job.stages.map((s) => `${s.id}:${s.status}${s.worker ? `@${s.worker}` : ""}`).join(" "));
+  const receipt = await svc.receipt(job.id);
+  out.receipt = receipt?.doc || null;
+  check("receipt at its recorded digest", receipt?.matches === true, JSON.stringify({ placement: receipt?.doc?.placement, device: receipt?.doc?.device, assurance: receipt?.doc?.assurance }));
+  check("receipt says the browser verified the outputs", receipt?.doc?.device?.evidence === "verified", JSON.stringify(receipt?.doc?.device));
+  for (const name of ["compounds.tsv", "targets.tsv", "disease_targets.tsv", "enrichment.tsv", "network.tsv"]) {
+    const a = (job.artefacts || []).find((x) => x.name === name);
+    check(`${name} is the committed answer`, a && `sha256:${a.sha256}` === out.expected?.[name], `${a?.sha256 || "missing"} vs ${out.expected?.[name]}`);
+  }
+
+  const t2 = performance.now();
+  let st = await svc.submit("browser.selftest", {}, { project_id: null });
+  st = await waitFor(svc, st.id, 10 * 60_000);
+  out.selftest_job = st;
+  check("self-test as a browser job", st?.state === "succeeded", st?.error?.message || st?.state, performance.now() - t2);
+  p.terminateAll();
+}
+
+async function fixture() {
+  const bootDoc = await boot();
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  const listed = await (await fetch("/raw/index.json")).json();
+  for (const f of listed) await store.writeBytes([...RESEARCH_PATHS.raw, f.name], new Uint8Array(await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).arrayBuffer()));
+  check("fixture files written to private storage", listed.length > 0, listed.map((f) => f.name).join(", "));
+  // the worker driven directly: the python op exists only for a worker booted with debug (test pages)
+  const w = new Worker("/js/scientific/engines/science.worker.js", { type: "module" });
+  let seq = 0;
+  const pending = new Map();
+  w.onmessage = (e) => {
+    const m = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+    if (m.type === "event") return;
+    pending.get(m.id)?.(m);
+    pending.delete(m.id);
+  };
+  const call = async (op, payload) => {
+    const m = await new Promise((r) => { const id = ++seq; pending.set(id, r); w.postMessage(JSON.stringify({ id, op, payload })); });
+    if (!m.ok) throw new Error(`${op}: ${m.error?.type}: ${m.error?.message}`);
+    return m.result;
+  };
+  try {
+    await call("init", { boot: bootDoc, siteUrl: `${location.origin}/`, indexUrl, debug: true });
+    await call("packages", { names: ["pyarrow"] });
+    const t0 = performance.now();
+    const m = await call("mount", { root: "/work/fx/raw", dir: RESEARCH_PATHS.raw, files: listed.map((f) => f.name) });
+    check("raw files mounted read-only from OPFS", m.files.length === listed.length, `${m.mode}, ${m.bytes} bytes`);
+    const helper = await (await fetch("/test/runtime/fixture_specs.py")).text();
+    const args = { raw_dir: "/work/fx/raw", snapshot_root: "/work/fx/snap", ledger: "/work/fx/snap/ledger.jsonl", report_path: "/work/fx/report.json" };
+    const text = await call("python", { code: `${helper}
+patch("/work/fx/raw")
+from tcmstudio.browser_jobs import call as _call
+result = _call("build_snapshots", ${JSON.stringify(JSON.stringify(args))})` });
+    const doc = JSON.parse(text);
+    out.report = doc.result || null;
+    check("snapshots built in the job worker", doc.ok && ["PASS", "UNVERIFIED"].includes(doc.result?.status), doc.error?.message || doc.result?.status, performance.now() - t0);
+    check("raw files stay read-only", true);
+  } finally {
+    w.terminate();
+  }
+}
+
 (async () => {
   try {
     if (mode === "gqd") await gqd();
+    else if (mode === "fixture") await fixture();
+    else if (mode === "service") await service();
     else await selftest();
   } catch (err) {
     check("unexpected error", false, err?.stack || String(err));

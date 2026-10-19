@@ -756,20 +756,23 @@ def _analysis_manifest(root: str, ledger: str) -> Any:
 
 def _in_process_policy(root: str, ledger: str) -> Any:
     """The BioScience policy kernel an in-process analysis call is ruled on by: the shipped
-    permission profiles, each reading the snapshot store and the ledger and nothing else,
-    and writing nothing.
+    permission profiles, each that reads the workspace reading the snapshot store and the
+    ledger in its place, and none writing anything.
 
     An isolated child rules with ``${workspace}`` set to the directory holding both (the
     bridge passes it on the child's command line). In this process ``${workspace}`` is this
     process's own workspace, which need not hold them (the browser keeps them in a file
     system of its own), and the call would be refused for reading outside it. The roots
     given here are the two paths the analysis manifest declares: narrower than the child's
-    workspace and data lake, never wider."""
+    workspace and data lake, never wider. A profile that does not read the workspace
+    (``sandbox-only``) keeps its own roots, as it would in the child."""
     from ..policy import PROFILES, PolicyKernel
 
     reads = frozenset({root, ledger})
     return PolicyKernel(profiles={
-        name: replace(p, allow_filesystem_read=reads, allow_filesystem_write=frozenset())
+        name: replace(p, allow_filesystem_write=frozenset(),
+                      allow_filesystem_read=(reads if "${workspace}" in p.allow_filesystem_read
+                                             else p.allow_filesystem_read))
         for name, p in PROFILES.items()})
 
 

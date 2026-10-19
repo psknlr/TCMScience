@@ -177,9 +177,9 @@ serves the same at `GET /api/capabilities/audit` (§4).
 | `tcmdb_consensus` {kind, subject?, object?, min_support?, limit?} | tcmdb.consensus | R | |
 | `connector_call` {connector, operation, arguments} | connector.<key>.<op> | R | network |
 | `literature_search` {query, source=europepmc, limit=10} | connector.europepmc / ncbi_eutils / crossref | R | network |
-| `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | R ★ | job; snapshot pipeline |
+| `network_pharmacology_run` {formula, disease?, parameters?} | job.research.run | B R ★ | job; snapshot pipeline; in the browser a job of the page's job service ([BROWSER_JOBS.md](BROWSER_JOBS.md)) |
 | `run_pipeline` {pipeline: rnaseq·scrna·fold·dock·admet, arguments} | job.pipeline.* | R ★ | job; GPU-capable kinds honour the device setting |
-| `job_status` {job_id, wait_s≤60} | runner jobs | R | |
+| `job_status` {job_id, wait_s≤60} | runner jobs; browser jobs (ids `bj-…`) | B R | a browser job's status is the page's to answer, whatever the placement |
 | `capabilities_status` {} | system.capabilities | B R | what can run where, now; `remote_compute: {configured:false, reason}` (no remote backend exists; the page's answer says the same, §6) |
 | `catalog_search` {query?, category?, kind?, runnable_now?, limit≤25} | the catalog | B R | |
 | `call_tool` {tool, arguments} | any Entry id | per entry | the entry's own `confirm`/`network` apply |
@@ -528,6 +528,12 @@ succeeded job's `run.json` only while it has the digest recorded at collection, 
 one group of optional scientific packages), `skill.run` (any governed skill as a background run), `tcmdb.fetch`,
 `tcmdb.build`.
 Each kind maps typed params to a fixed `bioagent.cli` argv (never a raw command from the browser).
+**Browser jobs.** `research.snapshot` and `research.run` also run in the page's own job service
+(`studio/web/js/scientific`, [BROWSER_JOBS.md](BROWSER_JOBS.md)): the same typed params, the same Python functions
+(`tcmstudio.browser_jobs`), job records in IndexedDB `tcmstudio-jobs`, files in OPFS, states `queued`, `running`,
+`succeeded`, `failed`, `cancelled` and `interrupted` (the page closed while it ran; resumable), and the same
+`tcmstudio.job-receipt/1` with `placement: "browser"`, the workers and two independent readings of every output's
+digest.
 File parameters reference upload ids. The device setting becomes `CUDA_VISIBLE_DEVICES` (`""` forces
 CPU) plus engine options, and threads become `OMP_NUM_THREADS` etc.
 

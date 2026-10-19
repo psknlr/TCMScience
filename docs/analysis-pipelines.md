@@ -481,7 +481,10 @@ rules, alerts and predictions are outputs. They rank compounds for testing.
 --state-dir DIR --out DIR` runs the closed research loop (`bioagent.research.loop`): a
 frozen protocol, ledger-verified snapshots, the analysis as an isolated PSH tool call,
 pre-registered rebuttals and an attested release. In Studio it is the job `research.run`
-(core tool `network_pharmacology_run`). `scripts/run_network_pharmacology.py` runs the same
+(core tool `network_pharmacology_run`), on the runner or in the browser's own job workers
+with no runner: there the analysis runs in-process through the same PSH broker (a worker
+cannot start processes) and the artifact records `isolation: "in_process"`
+([studio/docs/BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)). `scripts/run_network_pharmacology.py` runs the same
 analysis under the run contract without the rebuttals. Neither is the seed skill
 `analyze-tcm-network-pharmacology`, which is a *limited seed-corpus network hypothesis
 analysis*: it reads only the curated seed corpus, with no database coverage and no measured
@@ -849,7 +852,7 @@ data".
 
 所有数值都是模型预测或规则判定，不是实测值；域外预测不可靠；结构警示只是提示需要进一步查看，并非定论（许多天然产物，尤其是黄酮和儿茶酚类，都会命中 PAINS 规则）。因此候选 Skill `predict-admet` 不提出任何结论，只输出这些结果，用于排序筛选、指导实验。
 
-**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
+**网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。在 Studio 中它也能作为浏览器任务在任务工作线程里运行，无需 Runner：此时分析经同一个 PSH 代理在进程内执行（Worker 不能启动子进程），产物记录 `isolation: "in_process"`（[studio/docs/BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
 - 十六个工作流阶段（`bioagent.research.workflow`）逐一记录：状态（PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED、NOT_APPLICABLE）、原因、计数与复现命令。依次为：方剂身份、药材组成与基原物种、药材到化合物、结构身份与去重（按来源提供的标准 InChIKey，共享连接块的不同键只报告、不合并；快照不含结构，因此未做重新标准化，该阶段恒为 UNVERIFIED）、化合物到实测靶点、实测与预测分离、疾病基因、交集、PPI 网络、通路注释（Reactome；GO 因未登记 GO 快照而 SKIPPED；KEGG 因需要许可而 BLOCKED）、显式背景下的富集、覆盖全部检验通路的 BH 校正、度匹配置换与敏感性、拓扑（仅描述）、有界解释、可复现导出。
 - 被方案丢弃的数据源会使读取它的每个阶段为 UNVERIFIED 并附上偏离记录；技能合同请求、但本次运行拒绝的数据源（如 `--allow-source` 未列入）由读取它的每个阶段注明，并在 `limitations.md` 中占一行。未读到数据的阶段绝不会是 PASS，空结果也绝不会是 PASS（读到 STRING 但背景中没有实测靶点时，PPI 与拓扑阶段为 UNVERIFIED：无法构建网络，不是“无相互作用”的证据），缺失的数据集也绝不当作阴性证据。未指定疾病时，疾病阶段为 NOT_APPLICABLE；Open Targets 快照被拒绝时为 SKIPPED。在 `stages.json` 中，无可检验对象的阶段记为 `not_applicable`，因此“什么都无法检验”的运行不是 `complete`；检验了通路但无一显著的运行是完整的。
 - 九个导出文件：`compounds.tsv`、`targets.tsv`、`disease_targets.tsv`、`enrichment.tsv`、`network.tsv`（STRING 阈值以上的边列表，而非枢纽列表）、`provenance.json`（每条边追溯到快照记录）、`limitations.md`、`report.html` 与最后写出的 `run_manifest.json`（`tcmscience.run-manifest/1`：十六个阶段、每个输出的 SHA-256 与大小、快照 ID、参数、种子、代码摘要、方案摘要、复现命令，以及只记录本次执行身份的 `execution` 块，即审计链头与 `artifact.json` 摘要）。导出不含时间戳，两次全新运行字节相同；空表只写表头。

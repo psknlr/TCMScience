@@ -41,8 +41,9 @@ Python 逐字节对比过的只是其中一部分：7 个内核工具、`benjami
 情况见 [docs/compat/summary.md](docs/compat/summary.md)，其 validation 列来自目录中每个条目已提交的验证记录）。注册的在线数据库
 可在批准联网后经同源网关调用。大型流程和原生引擎仍显示各自的依赖。
 
-浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端
-（Runner 上的研究任务 `research.run`）。提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
+完整的数据驱动网络药理学研究也能在浏览器中运行：`research.snapshot` 与 `research.run` 是浏览器任务，Runner 的同一套 Python
+在 Pyodide 任务工作线程中执行，原始文件保存在本站私有存储（OPFS）中（[docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)）。种子 Skill
+仍是有限的种子语料网络假说分析。提供 WebNN 能力检测；只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持
 真正的 NPU 加速，目前没有任何工作负载具备这两者。
 
 **2. 加上本机 Runner。** Runner 连接后，工具都在它上面运行（`计算 → 自动`）：本机 CPython，项目各自的持久审计链，你的设备。
@@ -247,9 +248,12 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   TCM lookups, ranked formula search and three of the four pinned skills, by the manual runtime check; CI's end-to-end specs
   compare one governed skill's content and output hashes). Per entry: [docs/compat/summary.md](docs/compat/summary.md), whose
   validation column is each entry's committed verification record.
-- **Network pharmacology in the browser.** Browser mode supports a limited seed-corpus network hypothesis workflow. Full
-  data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific
-  execution backend (the runner's `research.run` job).
+- **Network pharmacology in the browser.** The full data-driven research loop runs as browser jobs: `research.snapshot`
+  (the 17 raw files downloaded, relayed or imported into the site's private storage, verified and built into snapshots)
+  and `research.run` (the sixteen stages and nine exports), the runner's own Python in Pyodide job workers. On the planted
+  world a job worker writes the native bytes; the real 葛根芩连汤 comparison runs in the live-data workflow and has not run
+  yet ([docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)). The seed skill remains a limited seed-corpus network hypothesis
+  workflow.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a

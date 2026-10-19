@@ -228,7 +228,9 @@ membership needs a licence) and written as nine exports, from `compounds.tsv` to
 `run_manifest.json` and `report.html`; `python -m bioagent.analysis.np_exports verify`
 re-checks them ([docs/analysis-pipelines.md](docs/analysis-pipelines.md)). This is the
 data-driven analysis; the seed skill `analyze-tcm-network-pharmacology` is a limited
-seed-corpus network hypothesis analysis, and is all that runs in Studio's browser mode.
+seed-corpus network hypothesis analysis. In Studio the research loop runs as a job, on
+the runner or in the browser's own job workers with no runner
+([studio/docs/BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)).
 
 <!-- zh -->
 闭环分五个阶段：

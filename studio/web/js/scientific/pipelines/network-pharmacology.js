@@ -11,6 +11,8 @@
 // research.run       prepare → research → verify: the sixteen-stage workflow and its nine exports, then the exports
 //                    recomputed (np_exports verify) and checked like the runner checks them
 
+import { canonicalJson, sha256Hex } from "../../core/util.js";
+
 const GROUP = "research";
 const DATA = ["tcmstudio", "datasets", GROUP];
 const RAW = [...DATA, "raw"];
@@ -19,6 +21,8 @@ const REPORT_DIR = [...DATA, "report"];
 /** Written last by research.snapshot: the snapshots under SNAPSHOTS are complete and are the ones it built. */
 const BUILT = [...DATA, "snapshots.json"];
 export const SNAPSHOTS_BUILT_SCHEMA = "tcmstudio.browser-snapshots/1";
+/** Where the research data lives in this origin's private storage (studio/docs/BROWSER_JOBS.md §2). */
+export const RESEARCH_PATHS = Object.freeze({ raw: RAW, snapshots: SNAPSHOTS, built: BUILT, report: REPORT_DIR });
 /** Pyodide packages the snapshot store needs (bioagent.sources.snapshot reads and writes Parquet). */
 const PACKAGES = ["pyarrow"];
 
@@ -189,6 +193,11 @@ export const researchRun = {
   async run(ctx) {
     const { params, pool } = ctx;
     const root = work(ctx.job);
+    // what the research stage depends on: its parameters and the snapshots it reads (their ledger's digest); a resumed
+    // job reuses the stage only when both are unchanged and its outputs still re-hash to the digests it recorded
+    const built = await ctx.store.readJson(BUILT).catch(() => null);
+    const inputs = `sha256:${await sha256Hex(canonicalJson({ params, ledger: built?.ledger?.sha256 || null }))}`;
+    const SUMMARY = [...ctx.dir, "summary.json"];
     const lease = await pool.lease({ packages: PACKAGES });
     let summary = null;
     try {
@@ -197,6 +206,18 @@ export const researchRun = {
         return { detail: `${r.files} snapshot files (${(r.bytes / 1e6).toFixed(1)} MB)`, worker: lease.id };
       });
 
+      const reuse = async (s) => {
+        const check = await ctx.checkpoint.reusable("research", { inputs_digest: inputs });
+        if (!check.ok) return check;
+        summary = await ctx.store.readJson(SUMMARY).catch(() => null);
+        if (!summary) return { ok: false, problems: ["the earlier attempt's summary is gone"] };
+        // the verify stage reads the exports from the worker's memory: put back what the earlier attempt kept
+        await lease.call("restore", { dir: [...ctx.dir, "out"], to: `${root}/out` }, { signal: ctx.signal });
+        const rec = await ctx.checkpoint.read("research");
+        for (const o of rec.outputs) ctx.artefact({ name: o.path.slice(1).join("/"), path: o.path, bytes: o.bytes, sha256: o.sha256 });
+        s.worker = lease.id;
+        return { ok: true, detail: `reused: its ${check.checked} outputs re-hash to the digests recorded when it ran` };
+      };
       await ctx.stage("research", async (s) => {
         const out = unwrap(await lease.call("run", {
           fn: "run_research",
@@ -223,8 +244,12 @@ export const researchRun = {
           e.type = "failed";
           throw e;
         }
-        return { detail: `${summary?.released ? "released" : "not released"}; ${summary?.stages?.length ?? 0} stages`, worker: lease.id };
-      });
+        await ctx.store.writeJson(SUMMARY, summary);
+        return {
+          detail: `${summary?.released ? "released" : "not released"}; ${summary?.stages?.length ?? 0} stages`, worker: lease.id,
+          checkpoint: { inputs_digest: inputs, outputs: kept.files.map((f) => ({ path: ["out", ...f.path], bytes: f.bytes, sha256: f.sha256 })) },
+        };
+      }, { reuse });
 
       await ctx.stage("verify", async (s) => {
         const v = unwrap(await lease.call("run", {
@@ -232,7 +257,8 @@ export const researchRun = {
           args: { out_dir: `${root}/out`, snapshot_root: `${root}/snapshots`, ledger: `${root}/snapshots/ledger.jsonl` },
         }, { signal: ctx.signal, onEvent: (ev) => onPythonEvent(ctx, ev, 0.7, 0.25) }), "verify_research");
         s.record({ status: v.status, worker: lease.id });
-        ctx.outcome({ checks: v.checks || [], problems: v.problems || [] });
+        // as the runner's receipt names them: the checks that passed by name, what failed in words
+        ctx.outcome({ checks: (v.checks || []).filter((c) => c.status === "PASS").map((c) => c.name), problems: v.problems || [] });
         if (v.status !== "PASS") {
           const e = new Error(`the exports did not recompute: ${(v.problems || []).slice(0, 3).join("; ") || v.status}`);
           e.type = "failed";

@@ -339,6 +339,17 @@ function computeTab(app, rerender, { jobs: tracker } = {}) {
   } else {
     jobsBox.append(h("p.muted.small", t("ui.jobs.needs_runner")));
   }
+  // this browser's own jobs (research.snapshot, research.run, the self-test): followed, cancelled and resumed here
+  const browserJobs = h("div.jobs-list");
+  const service = app.runtimes.jobs?.status === "ready" ? app.runtimes.jobs.service : null;
+  if (service) {
+    browserJobs.append(h("p.muted.small", spinner({ size: 12 }), " ", t("ui.files.loading")));
+    service.list({ limit: 20 }).then((list) => {
+      fill(browserJobs, list.length ? h("div.stack", list.map((j) => (tracker ? tracker.node(j, { fresh: true }) : null))) : h("p.muted.small", t("ui.jobs.browser_none")));
+    }).catch((err) => fill(browserJobs, h("p.muted.small", err?.message || String(err))));
+  } else {
+    browserJobs.append(h("p.muted.small", t("ui.jobs.browser_unavailable", { reason: app.runtimes.jobs?.reason || t("ui.bresearch.no_service") })));
+  }
   return h("div.stack.stack--xl",
     section({ title: t("ui.compute.title"), children: computePanel(app, { compact: false }) }),
     section({ title: t("ui.browser.acceleration"), children: selectField({
@@ -347,7 +358,8 @@ function computeTab(app, rerender, { jobs: tracker } = {}) {
       help: t("ui.browser.acceleration_help"), onChange: (v) => app.setSetting({ browserAcceleration: v }),
     }) }),
     section({ title: t("ui.web.label"), children: switchControl({ label: t("ui.web.default_label"), description: t("ui.web.default_desc"), checked: app.state.settings.web, onChange: (v) => app.setSetting({ web: v }) }) }),
-    section({ title: t("ui.jobs.title"), children: jobsBox }));
+    section({ title: t("ui.jobs.title"), children: jobsBox }),
+    section({ title: t("ui.jobs.browser_title"), children: browserJobs }));
 }
 
 // ------------------------------------------------------------------------------------------------- general

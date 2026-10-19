@@ -42,8 +42,10 @@ distance (pure-Python O(n·m) loops: a 2000 × 2000 local alignment took 2.9 s i
 (O(n²·w)); and, for large results, the envelope's own post-processing ([§9.3](#93-the-envelope-overhead)). Not ported
 yet: neighbour joining and UPGMA (O(n³) in Python) and the network-pharmacology permutation null (1000 seeded
 permutations per pathway; a port must reproduce Python's Mersenne Twister draws exactly). The null is the research
-loop's (`job.research.run`, `analysis/network_pharmacology.py`), outside the skill pins; the pinned seed-corpus skill
-draws no permutation and computes no topology.
+loop's (`job.research.run`, `analysis/network_pharmacology.py`), outside the skill pins, and it now runs in the browser
+without a port: the research jobs run the loop itself in Pyodide job workers, where CPython's own MT19937 draws exactly
+what the runner's draws ([BROWSER_JOBS.md](BROWSER_JOBS.md)). The pinned seed-corpus skill draws no permutation and
+computes no topology.
 
 **A constraint on acceleration.** The four governed TCM skills (safety, entity normalisation, evidence retrieval,
 network pharmacology) are pinned in `BioScience-Harness/registry/skills.lock.yaml`. The pin is a content hash over each
@@ -365,8 +367,10 @@ guessed, and the person choosing it. The app must keep working without it.
   to IndexedDB (IDBFS) where it works, and the receipt says `durable: false` where it does not.
 - The capability probe reports quota, usage, whether storage is persisted, OPFS and the Cache API.
 
-**Proposed**: ask for persistent storage (`navigator.storage.persist()`) when the person downloads something large;
-resumable, content-addressed model downloads into OPFS, with a quota check before the download starts.
+**Implemented for the research jobs** ([BROWSER_JOBS.md](BROWSER_JOBS.md)): resumable, verified downloads of the
+research files into OPFS (a quota check before a job starts; `If-Range` resumes), read in place by Python through
+synchronous access handles, and a *Keep this data* button that asks for persistent storage. **Proposed**: the same for
+model downloads (none ships).
 
 ---
 
@@ -519,7 +523,7 @@ nothing changes.
 | Phase | Work | Priority | Status |
 |---|---|---|---|
 | 1 | Network switches made reliable; capability probe; scheduler; exact CPU kernels (JavaScript, WASM SIMD); WebGPU packets bound and checked; offline service worker; matrix; benchmark; envelope fast paths; ranked formula search with herb names ([§11.1](#111-ranked-formula-search)) | — | **Done** (this branch) |
-| 2 | Network-pharmacology permutation null in WebAssembly, drawing exactly what Python's MT19937 draws. It belongs to the research loop (`job.research.run`, `analysis/network_pharmacology.py`), not to a pinned skill (the seed-corpus skill draws no permutation), so a port needs no re-pin; the loop runs on the runner (its snapshot ledger and run length, class 6), so the port waits for a small-dataset browser mode | P2 | Proposed |
+| 2 | The research loop in the browser (`job.research.snapshot`, `job.research.run`): job workers, OPFS, a job service with cancel and resume, receipts; the permutation null is CPython's own MT19937, so no port is needed ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | P1 | **Done** (this branch); the real 葛根芩连汤 browser run is in the live-data workflow and has not run yet |
 | 2 | A compact count format across the Pyodide boundary (JSON dominates large matrices) | P1 | Proposed |
 | 2 | CSP enforcing; `storage.persist()` on large downloads; Firefox and WebKit runs of the runtime check in CI | P1 | Proposed |
 | 3 | One ONNX embedding model for TCM terms through ONNX Runtime Web (WebNN → WebGPU → WASM, each checked against WASM) | P2 | Proposed |
@@ -587,9 +591,8 @@ skill's code no longer matches its pin.
 - The runner's accelerator-runtime report: detection only; no such runtime was installed here.
 
 **Proposed, not implemented** (nothing in the app claims these): WebNN or WebGPU model inference (embeddings,
-classifiers, local chat models), WASM-threaded kernels, the MT19937-exact permutation port, semantic (embedding)
-retrieval, a native NPU operation, persistent-storage requests and model caching in OPFS, an enforcing CSP, and testing in
-Firefox, Safari, on phones, GPUs and NPUs.
+classifiers, local chat models), WASM-threaded kernels, semantic (embedding) retrieval, a native NPU operation, model
+caching in OPFS, an enforcing CSP, and testing in Firefox, Safari, on phones, GPUs and NPUs.
 
 **What Studio may say about itself, then**: tools run locally in the browser, on the CPU, with exact kernels for
 alignment, edit distance and sequence counts. The count kernels may use WebGPU for large workloads on any adapter not
@@ -598,5 +601,6 @@ is exact on a software adapter in tests and has never run on a hardware GPU, so 
 `accelerated` only from a measurement on that device). Model calls are remote unless the person runs a local model. WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a
 verified execution provider and hardware-backed execution evidence; none has either, so no NPU is used or claimed.
 Resource-intensive pipelines need the local runner; no remote compute environment is deployed
-([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). Browser mode supports a limited seed-corpus network hypothesis workflow; full
-data-driven network pharmacology needs verified snapshots and the runner's research job.
+([REMOTE_COMPUTE.md](REMOTE_COMPUTE.md)). The data-driven network-pharmacology research loop runs in the browser as jobs
+(the runner's Python in job workers, the data in the site's private storage), checked against a known answer
+([BROWSER_JOBS.md](BROWSER_JOBS.md)); the seed skill remains a limited seed-corpus network hypothesis workflow.

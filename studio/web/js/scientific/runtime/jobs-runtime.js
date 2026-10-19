@@ -9,7 +9,7 @@ import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
 import { DatasetWorkspace } from "../data/datasets.js";
 import { OpfsStore } from "../data/opfs-store.js";
 import { HANDLERS } from "../pipelines/network-pharmacology.js";
-import { browserSelfTest } from "../pipelines/selftest.js";
+import { SELFTEST_KIND, browserSelfTest } from "../pipelines/selftest.js";
 import { BrowserJobService, envelopeFor } from "./job-manager.js";
 import { ScienceWorkerPool, recommendedPoolSize } from "./worker-pool.js";
 
@@ -62,7 +62,7 @@ export class BrowserJobsRuntime {
 
   /** The kinds this browser runs for the model (catalog BROWSER_JOB_KINDS; not the internal self-test). */
   kinds() {
-    return (this.service?.kinds?.() || []).filter((k) => !k.internal).map((k) => k.kind);
+    return (this.service?.kinds?.() || []).map((k) => k.kind).filter((kind) => kind !== SELFTEST_KIND);
   }
 
   /** Why the service cannot run jobs here (when its status is "unsupported"). */

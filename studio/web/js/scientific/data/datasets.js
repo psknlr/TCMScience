@@ -208,8 +208,9 @@ export class DatasetWorkspace {
       const registryRow = registryFields(f);
       let how = transport;
       let note = "";
-      if (!file && f.relay === false && transport !== "direct") {
-        // the site relays only what the registry lets it; "auto" then means the host itself, and says so
+      if (!file && f.relay !== true && transport !== "direct") {
+        // the site relays only what the registry marks relay: true (the edge refuses anything else); "auto" then means
+        // the host itself, and says so
         if (transport === "relay") {
           rows.push({ ...base, status: BLOCKED, reason: "the site does not relay this file (the registry does not offer it); only a direct download from its host is possible" });
           continue;
@@ -239,13 +240,14 @@ export class DatasetWorkspace {
     return reply.result;
   }
 
-  /** Stop the data worker (a running transfer keeps its partial file for a resume). */
+  /** Stop the data worker (a running transfer keeps its partial file for a resume). What was in flight answers
+   * "cancelled": a deliberate stop, not a defect. */
   terminate() {
     const w = this.#worker;
     this.#worker = null;
     this.#interrupt = null;
     if (w) w.terminate();
-    this.#flush("the data worker was stopped");
+    this.#flush("cancelled", "the data worker was stopped before this finished");
   }
 
   /** stat(), or {busy: true} for a file another context holds open for writing (a sync access handle). */
@@ -340,13 +342,13 @@ export class DatasetWorkspace {
     try {
       worker.terminate();
     } catch { /* already gone */ }
-    this.#flush(message);
+    this.#flush("fatal", message);
   }
 
-  #flush(message) {
+  #flush(type, message) {
     const pending = [...this.#pending.values()];
     this.#pending.clear();
-    for (const p of pending) p.resolve({ ok: false, fatal: true, error: { type: "fatal", message } });
+    for (const p of pending) p.resolve({ ok: false, fatal: true, error: { type, message } });
   }
 }
 

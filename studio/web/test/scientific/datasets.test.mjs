@@ -24,8 +24,9 @@ const tick = () => new Promise((r) => setImmediate(r));
 /**
  * An HTTP server in memory. serve(url, body, options): etag, lastModified, ranges (false: ignores Range),
  * exposeRange (false: the 206 has no readable Content-Range), wrongRange, mismatch412 (If-Range mismatch → 412),
- * contentLength (false: none), status (always this), failAfter (bytes, then the connection drops), onChunk(sent),
- * redirectedTo (the answer came from this URL after a redirect).
+ * contentLength (false: none), status (always this), failAfter (bytes, then the connection drops), hangAfter (bytes,
+ * then nothing more arrives), hangRequest (no answer at all), onChunk(sent), redirectedTo (the answer came from this
+ * URL after a redirect).
  * refuse(host): every request to it throws TypeError, as fetch does for a CORS refusal.
  */
 function fakeNet() {
@@ -49,6 +50,9 @@ function fakeNet() {
       const r = resources.get(u.href);
       if (!r) return new Response("not found", { status: 404 });
       if (r.status) return new Response("no", { status: r.status });
+      if (r.hangRequest) {
+        return new Promise((_, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true }));
+      }
       const total = r.body.length;
       let start = 0;
       let status = 200;
@@ -91,6 +95,7 @@ function bodyStream(bytes, offset, r, signal) {
       if (signal?.aborted) return;
       if (at >= bytes.length) { controller.close(); return; }
       if (r.failAfter !== undefined && offset + at >= r.failAfter) { controller.error(new TypeError("network error")); return; }
+      if (r.hangAfter !== undefined && offset + at >= r.hangAfter) return new Promise(() => {}); // the abort errors the stream
       const piece = bytes.slice(at, at + CHUNK);
       at += piece.length;
       controller.enqueue(piece);
@@ -99,12 +104,12 @@ function bodyStream(bytes, offset, r, signal) {
   });
 }
 
-async function setup(options = {}) {
+async function setup({ stallMs, ...options } = {}) {
   const fake = fakeOpfs(options);
   const { store } = await OpfsStore.open({ storage: fake.storage });
   const net = fakeNet();
   const events = [];
-  const env = workerEnv({ store, fetch: net.fetch, post: (m) => events.push(JSON.parse(m)), baseUrl: WORKER_URL });
+  const env = workerEnv({ store, fetch: net.fetch, post: (m) => events.push(JSON.parse(m)), baseUrl: WORKER_URL, stallMs });
   let seq = 0;
   const call = (op, payload, id = ++seq) => handle({ id, op, payload }, env);
   return { fake, store, net, env, events, call };
@@ -208,6 +213,10 @@ test("the stop flag of the interrupt buffer cancels between chunks, as a cancel 
   Atomics.store(env.interrupt, 0, 0);
   env.cancelled.add(99);
   assert.equal((await get(call, row, "direct", 99)).error.type, "cancelled", "a cancel for an op still queued stops it at its start");
+  // a flag still raised from the op before is not this op's stop
+  Atomics.store(env.interrupt, 0, 1);
+  assert.equal((await call("stat", { path: DIR })).ok, true);
+  assert.equal(Atomics.load(env.interrupt, 0), 0);
 });
 
 test("If-Range no longer matching: the server's whole new file (200), or its 412, restarts from byte 0 — recorded", async () => {
@@ -416,6 +425,150 @@ test("a connection that drops mid-body keeps the partial file for a resume", asy
   assert.match(reply.error.message, /broke off at 131072 bytes.*kept for a resume/);
   assert.equal(reply.error.kept_part, true);
   assert.equal((await store.stat([...DIR, ".part", row.name])).bytes, 2 * CHUNK);
+});
+
+test("a transfer that stalls (no answer, or no more bytes) is stopped as a network error, its partial file kept", async () => {
+  const { store, net, call } = await setup({ stallMs: 150 });
+  const body = randomBytes(5 * CHUNK);
+  const row = rowFor("NPASS3.0_activities.txt", body);
+  net.serve(row.url, body, { etag: '"h"', hangAfter: 2 * CHUNK });
+  const reply = await get(call, row);
+  assert.equal(reply.error.type, "network");
+  assert.equal(reply.error.phase, "stall");
+  assert.match(reply.error.message, /nothing arrived from the network for 150 ms: the transfer stalled/);
+  assert.equal(reply.error.kept_part, true);
+  assert.equal(reply.error.have, 2 * CHUNK);
+  assert.equal((await store.stat([...DIR, ".part", row.name])).bytes, 2 * CHUNK);
+
+  // a host that never answers: under "auto" this is not a refusal to fall back from, only a stop
+  net.serve(row.url, body, { hangRequest: true });
+  const silent = await get(call, row, "auto");
+  assert.equal(silent.error.phase, "stall");
+  assert.deepEqual(silent.error.attempts.map((a) => a.transport), ["direct"]);
+  assert.equal((await store.stat([...DIR, ".part", row.name])).bytes, 2 * CHUNK, "the partial file is untouched");
+});
+
+test("auto: a partial file the relay started is resumed through the relay; the record says what the direct request did", async () => {
+  const { store, net, env, call } = await setup();
+  const body = randomBytes(6 * CHUNK);
+  const row = rowFor("NPASS3.0_target.txt", body);
+  const relayed = `${SITE}api/datasets/files/research/${row.name}`;
+  net.refuse("bidd.group");
+  net.serve(relayed, body, { etag: '"r"', onChunk: (sent) => { if (sent >= 2 * CHUNK) cancel(env, 1); } });
+  assert.equal((await get(call, row, "auto", 1)).error.type, "cancelled");
+  net.serve(relayed, body, { etag: '"r"' });
+  const reply = await get(call, row, "auto");
+  assert.equal(reply.ok, true, JSON.stringify(reply.error));
+  assert.equal(reply.result.resumed_from, 2 * CHUNK);
+  assert.deepEqual(reply.result.attempts.map((a) => [a.transport, a.ok]), [["direct", false], ["relay", true]]);
+  // the direct request asked for the whole file and was never answered: nothing claims the download restarted
+  assert.deepEqual(reply.result.restarts, [
+    `direct: ${2 * CHUNK} bytes of a partial file are not resumed through this transport (it was started through the relay transport, not direct); the request asks for the whole file`,
+  ]);
+  assert.deepEqual(net.requests.at(-1).headers, { range: `bytes=${2 * CHUNK}-`, "if-range": '"r"' });
+  assert.deepEqual(await store.readBytes([...DIR, row.name]), new Uint8Array(body));
+});
+
+test("no reviewed size: a 206 whose total is not the length the first answer declared is another file, not joined", async () => {
+  const { store, net, env, call } = await setup();
+  const body = randomBytes(6 * CHUNK);
+  const row = rowFor("9606.protein.aliases.v12.0.txt.gz", body, { checksum: null, bytes: null });
+  net.serve(row.url, body, { etag: '"a"', onChunk: (sent) => { if (sent >= 2 * CHUNK) cancel(env, 1); } });
+  await get(call, row, "direct", 1);
+  assert.equal((await store.readJson([...DIR, ".part", `${row.name}.json`])).declared_bytes, body.length);
+  // a host that answers the range of a longer file under the old validator (it ignores If-Range)
+  const longer = Buffer.concat([body, randomBytes(CHUNK)]);
+  net.serve(row.url, longer, { etag: '"a"' });
+  const reply = await get(call, row);
+  assert.equal(reply.ok, true, JSON.stringify(reply.error));
+  assert.match(reply.result.restarts.join("\n"), /its total is 458752 bytes, not the recorded 393216: another file/);
+  assert.equal(reply.result.resumed_from, null);
+  assert.deepEqual(await store.readBytes([...DIR, row.name]), new Uint8Array(longer));
+});
+
+test("a partial file started for another reviewed size is not resumed once the registry reviews a new one", async () => {
+  const { net, env, call } = await setup();
+  const old = randomBytes(4 * CHUNK);
+  const now = randomBytes(5 * CHUNK);
+  net.serve(rowFor("Targets.txt", old).url, old, { etag: '"t"', onChunk: (sent) => { if (sent >= CHUNK) cancel(env, 1); } });
+  await get(call, rowFor("Targets.txt", old), "direct", 1);
+  net.serve(rowFor("Targets.txt", now).url, now, { etag: '"t2"' });
+  const reply = await get(call, rowFor("Targets.txt", now));
+  assert.equal(reply.ok, true, JSON.stringify(reply.error));
+  assert.match(reply.result.restarts[0], /started for a 262144-byte file, and the registry now reviews 327680 bytes/);
+  assert.equal(net.requests.at(-1).headers.range, undefined);
+});
+
+test("no reviewed checksum: a kept file obtained from a URL the registry no longer gives is replaced", async () => {
+  const { store, net, call } = await setup();
+  const body = randomBytes(CHUNK);
+  const row = rowFor("uniprot_human_reviewed_accessions.txt", body, { url: "https://rest.uniprot.org/uniprotkb/stream?query=a", host: "rest.uniprot.org", checksum: null, bytes: null });
+  net.serve(row.url, body, {});
+  assert.equal((await get(call, row)).ok, true);
+  const moved = { ...row, url: "https://rest.uniprot.org/uniprotkb/stream?query=b" };
+  const fresh = randomBytes(CHUNK);
+  net.serve(moved.url, fresh, {});
+  const reply = await get(call, moved);
+  assert.equal(reply.result.reused, false);
+  assert.match(reply.result.restarts[0], /it was obtained from https:\/\/rest\.uniprot\.org\/uniprotkb\/stream\?query=a, not the registry's/);
+  assert.deepEqual(await store.readBytes([...DIR, row.name]), new Uint8Array(fresh));
+  // with a reviewed checksum the bytes name the file, wherever it came from
+  const sure = rowFor("Plants.txt", body);
+  net.serve(sure.url, body, {});
+  assert.equal((await get(call, sure)).ok, true);
+  assert.equal((await get(call, { ...sure, url: "https://bidd.group/CMAUP/v2/Plants.txt" })).result.reused, true);
+});
+
+test("a complete file that cannot be placed (the quota, during the copy) is reported as kept, and is", async () => {
+  const body = randomBytes(6 * CHUNK);
+  const { store, net, call } = await setup({ move: false, quota: 6 * CHUNK + 1000 + 300_000 });
+  const row = rowFor("Ingredients_All.txt", body);
+  net.serve(row.url, body, { etag: '"q"' });
+  const reply = await get(call, row);
+  assert.equal(reply.error.type, "storage");
+  assert.equal(reply.error.quota, true);
+  assert.equal(reply.error.kept_part, true);
+  assert.equal(reply.error.have, body.length);
+  assert.equal((await store.stat([...DIR, ".part", row.name])).bytes, body.length);
+  assert.equal(await store.exists([...DIR, row.name]), false);
+});
+
+test("a kept file a job holds open (a read-only mount) is busy, not replaced", async () => {
+  const { store, net, call } = await setup();
+  const body = randomBytes(CHUNK);
+  const row = rowFor("Plants.txt", body);
+  await store.writeBytes([...DIR, row.name], body.subarray(0, 10)); // no record: it would be removed
+  const mount = await (await store.file([...DIR, row.name])).createSyncAccessHandle({ mode: "read-only" });
+  try {
+    net.serve(row.url, body, {});
+    const reply = await get(call, row);
+    assert.equal(reply.error.type, "busy");
+    assert.match(reply.error.message, /is open elsewhere/);
+    assert.equal(net.requests.length, 0);
+  } finally {
+    mount.close();
+  }
+});
+
+test("the worker answers messages only as a worker's own script, not when another worker imports it", async () => {
+  class WorkerGlobalScope {}
+  const scope = (href) => Object.assign(Object.create(WorkerGlobalScope.prototype), {
+    location: { href }, navigator: {}, fetch: async () => new Response(""), postMessage() {}, onmessage: null,
+  });
+  globalThis.WorkerGlobalScope = WorkerGlobalScope;
+  try {
+    const main = new URL("../../js/scientific/data/data.worker.js?as-main", import.meta.url).href;
+    globalThis.self = scope(`${main}#x`);
+    await import(main);
+    assert.equal(typeof globalThis.self.onmessage, "function");
+    const own = () => {};
+    globalThis.self = Object.assign(scope("https://science.impf.ai/js/scientific/engines/other.worker.js"), { onmessage: own });
+    await import(new URL("../../js/scientific/data/data.worker.js?as-dependency", import.meta.url).href);
+    assert.equal(globalThis.self.onmessage, own, "an importing worker keeps its own handler");
+  } finally {
+    delete globalThis.self;
+    delete globalThis.WorkerGlobalScope;
+  }
 });
 
 test("a file under the final name without a matching record is removed and fetched again", async () => {
@@ -665,6 +818,15 @@ test("acquire: transport auto falls back to the relay only for a host the page c
   assert.equal(relayOnly.status, BLOCKED);
   assert.match(relayOnly.reason, /does not relay this file/);
 
+  // the relay serves only rows marked relay: true; a row that does not say so is not sent there either
+  const unmarked = registryDoc();
+  delete unmarked.groups.research.files[0].relay;
+  const quiet = await workspace({ doc: unmarked });
+  const [notMarked] = await quiet.ws.acquire({ names: ["a.txt"], transport: "relay" });
+  assert.equal(notMarked.status, BLOCKED);
+  assert.match(notMarked.reason, /does not relay this file/);
+  assert.equal(quiet.net.requests.filter((r) => r.url.includes("/api/datasets/")).length, 0);
+
   // a relay that answers 404 is a site without the relay, not a stale reviewed URL
   const other = await workspace();
   const [noRelay] = await other.ws.acquire({ names: ["a.txt"], transport: "relay" });
@@ -752,6 +914,38 @@ test("the plan while the worker writes: a file held open reads as being written,
   const plan = await ws.plan();
   assert.equal(plan.files.find((f) => f.name === "a.txt").partial_bytes, 100);
   assert.equal(plan.files.find((f) => f.name === "b.csv.gz").reason, "it has no record of how it was obtained");
+});
+
+test("an op asked for while a cancelled one is still stopping is not stopped by that cancel's flag", async () => {
+  globalThis.crossOriginIsolated = true;
+  try {
+    const { ws, net, store } = await workspace();
+    await store.writeBytes([...DIR, "d.txt"], bodies.d);
+    const ctl = new AbortController();
+    let hashed = null;
+    net.serve("https://bidd.group/files/a.txt", bodies.a, {
+      etag: '"a"',
+      onChunk: (sent) => {
+        if (sent >= CHUNK && !hashed) {
+          ctl.abort(); // the one op in flight: the stop flag is raised for it
+          hashed = ws.hash([...DIR, "d.txt"]); // asked before the cancelled download has answered
+        }
+      },
+    });
+    const [row] = await ws.acquire({ names: ["a.txt"], transport: "direct", signal: ctl.signal });
+    assert.equal(row.status, SKIPPED);
+    assert.equal(await hashed, sha256(bodies.d));
+  } finally {
+    delete globalThis.crossOriginIsolated;
+  }
+});
+
+test("terminate() mid-transfer: the file in flight is SKIPPED (a deliberate stop), not FAIL", async () => {
+  const { ws, net } = await workspace();
+  net.serve("https://bidd.group/files/a.txt", bodies.a, { etag: '"a"', onChunk: (sent) => { if (sent >= CHUNK) ws.terminate(); } });
+  const [row] = await ws.acquire({ names: ["a.txt"], transport: "direct" });
+  assert.equal(row.status, SKIPPED);
+  assert.equal(row.error_type, "cancelled");
 });
 
 test("hash(): an OPFS file digested in the worker, off the page", async () => {

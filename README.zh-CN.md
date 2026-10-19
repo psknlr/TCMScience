@@ -335,7 +335,7 @@ TCMScience 通过浏览器提供对已登记科学能力的访问（[Studio](stu
 | 其中 3 个工具的 WebGPU 整数计数 | 已实现；只在软件适配器上测试过 | 从未在硬件 GPU 上运行，速度未经测量；在调度器预计更快时，用于任何未被识别为软件渲染器的适配器（实体适配器，或无法识别的适配器，后者从不算作 GPU） |
 | WebNN | 只做检测 | 提供 WebNN 能力检测。只有具备经验证的执行提供程序和硬件执行证据的工作负载，才支持真正的 NPU 加速；目前没有任何工作负载具备这两者 |
 | 浏览器经站点的受限网关查询公共数据库 | 已实现，已测试 | 每个操作的请求都由 `connector_coverage.py --check` 对照模拟传输检查过，并确认离线时被拒绝，这一检查在本地运行（CI 中的这一步已定义，尚未运行）；并由维护者的运行对真实上游验证过（带日期）；没有一个经过已部署网关验证（[按验证层级的覆盖](studio/docs/compat/connectors.md)） |
-| 网络药理学 | 浏览器中受限 | 浏览器模式支持有限的种子语料网络假说流程。完整的数据驱动网络药理学分析需要经过验证的外部数据快照和合适的科学计算后端：即 Runner 上的研究任务，记录十六个阶段，写出九个导出文件（[分析流程](docs/analysis-pipelines.md)） |
+| 浏览器中的网络药理学研究任务（无需 Runner） | 已实现，已用已知答案测试 | `research.snapshot` 与 `research.run` 以浏览器任务运行：Runner 的同一套 Python 在 Pyodide 任务工作线程中执行，17 个原始文件（418 MB）保存在本站私有存储中。在模拟世界上，任务工作线程写出的五张表与原生 CPython 逐字节一致；从私有存储挂载原始文件构建快照，快照 ID 与原生构建相同（Studio 的 CI，Chromium）。葛根芩连汤真实数据以浏览器任务运行、并与原生运行逐个导出文件比对的步骤已写入 live-data 流程，尚未运行（[BROWSER_JOBS.md](studio/docs/BROWSER_JOBS.md)）。锁定的种子 Skill 仍是有限的种子语料网络假说分析 |
 | 分析流程与原生引擎 | 在本机 Runner 上实现；各引擎路径最后一次在 CI 的引擎任务（CPU）中运行是 `ci` #281（2026-10-11），早于现在的阶段记录和流程代码；此后只在本地以内置路径运行过，没有运行真实的 Vina | `ci.yml` 的引擎任务已定义；自 `ci` #281 以来没有一次运行真正执行了任务（[分析流程](docs/analysis-pipelines.md#what-is-verified-where)、[验证](docs/validation.md#not-verified-here-and-why)） |
 | GPU 任务 | 在本机 Runner 上实现；从未在 CI 中的 GPU 上运行（CI 的任务都只有 CPU） | Runner 的 GPU 由驱动报告，在这里从未经计算验证 |
 | 远程计算 | 计划中：已设计，未部署 | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |

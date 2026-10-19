@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // After a deployment: does science.impf.ai answer, with its headers, and does Tao-S1 work? (stdlib only; Node 22)
 //   node scripts/check.mjs [--url https://science.impf.ai] [--origin <url>] [--wait 300] [--settle 120] [--require-model] [--require-sources]
-//                          [--require-telemetry] [--relay on|off]
+//                          [--require-telemetry] [--datasets | --require-datasets] [--relay on|off]
 // 1. GET /v1/health, retried while a new custom domain and its certificate come up (--wait seconds), and — when Tao-S1
 //    is required — while a key put a moment ago reaches the edge (--settle seconds: health says ok:false until then);
 // 2. GET / is the app, with the headers from _headers (cross-origin isolation, the content policy);
@@ -10,12 +10,16 @@
 //    script unless --relay says otherwise) is the owner's choice, not a failure.
 // With --require-telemetry: the telemetry routes answer, and the admin side is closed to anyone not signed in (the
 // dashboard's code and its API answer 401, or 503 while no ADMIN_TOKEN is set — never 200).
+// With --datasets: one HEAD of a small reviewed file through the dataset relay (/api/datasets/files/*), which asks the
+// file's host for its headers; a failure is a warning (the host may be down: that is not the deployment's fault).
+// --require-datasets makes it a failure.
 // When the model call fails and MINIMAX_API_KEY is in the environment (the deploy workflow passes it), the upstream is
 // called once directly with the settings in wrangler.toml, and its own status, code and message (the key redacted) are
 // added to the reason: the relay never shows them, by design, so this is where the owner learns what the upstream said.
 // Prints one JSON line; exits non-zero with a reason when something is wrong.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { compileDatasets } from "../src/datasets.js";
 import { compileRegistry } from "../src/sources.js";
 
 const UA = "tcmscience-deploy-check/1";
@@ -83,6 +87,45 @@ export async function checkTelemetry(url, fetcher = fetch) {
   }
   return { status: "ok", analytics: health.analytics, conversations: health.conversations, consent_version: health.consent_version,
     admin: shut["/api/admin/telemetry/summary"] === 401 ? "on" : "off (no ADMIN_TOKEN)" };
+}
+
+/** The file the dataset probe asks for: CMAUP's target table, small (about 118 kB) and with a reviewed size. */
+export const DATASET_PROBE = { group: "research", name: "CMAUPv2.0_download_Targets.txt" };
+
+/**
+ * The deployed dataset registry lists the probe file for the relay, and the relay answers a HEAD of it from the file's
+ * host (X-Relay-Upstream) with the reviewed size. One request through the relay, counted against its limits like any
+ * other; it downloads nothing.
+ */
+export async function checkDatasets(url, fetcher = fetch, probe = DATASET_PROBE) {
+  const res = await fetcher(`${url}/runtime/datasets.json`, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(30000) });
+  const type = res.headers.get("Content-Type") || "";
+  if (res.status !== 200 || !type.toLowerCase().includes("json")) {
+    await res.body?.cancel();
+    throw new Error(`${url}/runtime/datasets.json answered ${res.status} ${type}: rebuild and deploy the complete site`);
+  }
+  let registry;
+  try { registry = compileDatasets(JSON.parse(await res.text())); }
+  catch (error) { throw new Error(`${url}/runtime/datasets.json is not a valid dataset registry (${error.message})`); }
+  const entry = registry.groups.get(probe.group)?.get(probe.name);
+  if (!entry?.relay) throw new Error(`${url}/runtime/datasets.json does not offer ${probe.group}/${probe.name} to the relay`);
+  const path = `/api/datasets/files/${encodeURIComponent(probe.group)}/${encodeURIComponent(probe.name)}`;
+  const head = await fetcher(`${url}${path}`, { method: "HEAD", headers: { "User-Agent": UA }, redirect: "manual", signal: AbortSignal.timeout(60000) });
+  await head.body?.cancel();
+  const via = head.headers.get("X-Relay-Upstream");
+  if (head.status !== 200 || !via) {
+    // a HEAD carries no body: the relay's own refusals are JSON, a path the Worker does not route is the plain 404
+    const relayed = (head.headers.get("Content-Type") || "").includes("json");
+    const why = !relayed && head.status === 404 ? ": the Worker does not route /api/datasets/* (deploy src/index.js with the site)"
+      : head.status === 503 ? ": the relay is paused (SOURCES = \"off\"), or its registry or limiter is unavailable"
+      : head.status >= 500 ? ` (the relay could not get the file from ${entry.host})` : "";
+    throw new Error(`HEAD ${url}${path} answered ${head.status}${why}`);
+  }
+  const length = head.headers.get("Content-Length");
+  if (entry.bytes !== null && length !== null && Number(length) !== entry.bytes) {
+    throw new Error(`HEAD ${url}${path}: ${entry.host} says the file has ${length} bytes, the registry ${entry.bytes}: the file changed upstream and needs review`);
+  }
+  return { status: "ok", file: `${probe.group}/${probe.name}`, upstream: via, bytes: length === null ? null : Number(length) };
 }
 
 /** RELAY as a wrangler.toml sets it ("on" when the file does not say), or null when there is no such file. */
@@ -223,6 +266,15 @@ export async function check(options = {}, io = {}) {
   const summary = { url, model: health.model, max_output_tokens: health.max_output_tokens, limits: health.limits, headers: "ok" };
   if (options.requireSources) summary.sources = await checkSources(url, fetcher);
   if (options.requireTelemetry) summary.telemetry = await checkTelemetry(url, fetcher);
+  if (options.datasets || options.requireDatasets) {
+    try {
+      summary.datasets = await checkDatasets(url, fetcher);
+    } catch (err) {
+      if (options.requireDatasets) throw err;
+      log(`warning: the dataset relay probe failed: ${err.message}`);
+      summary.datasets = { status: "warning", reason: err.message };
+    }
+  }
   if (!health.ok) {
     if (paused) {
       log("Tao-S1 is paused (RELAY = \"off\" in wrangler.toml); the site works with visitors' own models");
@@ -274,6 +326,8 @@ function parse(argv) {
     else if (a === "--require-model") options.requireModel = true;
     else if (a === "--require-sources") options.requireSources = true;
     else if (a === "--require-telemetry") options.requireTelemetry = true;
+    else if (a === "--datasets") options.datasets = true;
+    else if (a === "--require-datasets") options.requireDatasets = true;
     else if (a === "--relay") options.relay = argv[++i];
     else if (a === "-h" || a === "--help") options.help = true;
     else throw new Error(`unknown argument ${a}`);
@@ -291,7 +345,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
     if (options.relay === undefined) options.relay = relayIn(text);
     options.upstream = upstreamFrom(text, process.env.MINIMAX_API_KEY);
     if (options.help) {
-      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--require-sources] [--require-telemetry] [--relay on|off]");
+      console.log("node scripts/check.mjs [--url https://science.impf.ai] [--origin URL] [--wait SECONDS] [--settle SECONDS] [--require-model] [--require-sources] [--require-telemetry] [--datasets | --require-datasets] [--relay on|off]");
     } else {
       console.log(JSON.stringify(await check(options)));
     }

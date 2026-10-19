@@ -42,7 +42,14 @@ unavailable due to its own login, API terms, outage or unsupported response size
 Some registered upstream sources offer HTTP only. Those exact public endpoints
 remain accessible, but credential headers are stripped from their unencrypted
 transport. HTTPS-to-HTTP redirects are refused. Credentials never cross hosts.
-Bulk downloads and large model assets are outside this bounded query gateway.
+Bulk downloads and large model assets are outside this bounded query gateway. The
+research files the browser's own research jobs read (NPASS, CMAUP, LOTUS, STRING,
+Reactome, UniProt: 17 files, 418 MB) have a separate route: a direct download when the
+host allows a web page to make one, else the dataset relay
+(`/api/datasets/files/<group>/<name>`), which serves only the exact URLs of the build's
+`runtime/datasets.json`, streams the body without storing it, passes `Range`/`If-Range`
+through so a download resumes, and is rate-limited like this gateway; or an import of
+files obtained elsewhere ([BROWSER_JOBS.md](BROWSER_JOBS.md) §2).
 
 The repository formula workbook is indexed in full, preserving all seven columns,
 duplicate names and source versions. Its compressed SQLite asset is verified against
@@ -95,10 +102,12 @@ provider and hardware-backed execution evidence; no workload has either, so none
 used or claimed, and a context the browser creates for an "npu" request is not
 evidence of an NPU.
 
-Browser mode supports a limited seed-corpus network hypothesis workflow. Full
-data-driven network pharmacology analysis requires verified external data snapshots
-and an appropriate scientific execution backend: the runner's `research.run` job
-([docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)).
+The full data-driven network pharmacology analysis runs in the browser as jobs:
+`research.snapshot` builds verified snapshots from the 17 raw files kept in the site's
+private storage, and `research.run` runs the sixteen-stage workflow on them, both with
+the runner's own Python in job workers ([BROWSER_JOBS.md](BROWSER_JOBS.md),
+[docs/analysis-pipelines.md](../../docs/analysis-pipelines.md)). The pinned seed skill
+remains a limited seed-corpus network hypothesis workflow.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),

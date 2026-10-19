@@ -7,7 +7,8 @@
 // {id, ok:true, ms, result} | {id, ok:false, ms, fatal:false, error:{type, message, …details}}; while an op runs,
 // {type:"event", id, event:{kind:"progress", file, bytes, total, phase}}. Two structured messages:
 // {type:"interrupt-buffer", buffer} (a SharedArrayBuffer the page sets non-zero to stop the running op; polled between
-// chunks and every 50 ms) and {type:"cancel", id} (stops that op, running or queued). Ops run one at a time.
+// chunks and every 50 ms, lowered by the worker as each op starts) and {type:"cancel", id} (stops that op, running or
+// queued). Ops run one at a time.
 //
 // Ops: download {file: <registry row>, dir, transport: "direct"|"relay"|"auto", relayBase}, import {file: File, name,
 // dir, expect: <registry row>}, hash {path, algorithm}, stat {path}, list {path}, remove {path, recursive},
@@ -34,6 +35,8 @@
 // or the host not allowing a web page to read it — CORS) does it try the relay, and the reply lists both attempts.
 // A cancel stops between chunks and keeps the partial file and its identity record for a later resume. Nothing is
 // retried here: a transfer that breaks off keeps its partial file too, and the next download of the file resumes it.
+// A transfer that stalls (no answer, or no bytes, for `stallMs`, 2 minutes) is stopped the same way and fails as a
+// network error: a browser's fetch has no time limit of its own, and a job must not wait forever on a silent host.
 
 import { digestFile, hasher, parseChecksum } from "./digest.js";
 import { OpfsStore, checkPath } from "./opfs-store.js";
@@ -44,6 +47,7 @@ export const TRANSPORTS = Object.freeze(["direct", "relay", "auto"]);
 const READ_CHUNK = 4 << 20;
 const PROGRESS_MS = 200;
 const POLL_MS = 50;
+const STALL_MS = 120_000;
 
 class OpError extends Error {
   constructor(type, message, details = {}) {
@@ -57,11 +61,12 @@ const describe = (err) => (err?.name && err.name !== "Error" ? `${err.name}: ${e
 
 /**
  * What the op handlers need, so the tests can give fakes: store (an OpfsStore) or storage (to open one), fetch,
- * post(message) for events, now() in ms, baseUrl to resolve a relative relay path against.
+ * post(message) for events, now() in ms, baseUrl to resolve a relative relay path against, stallMs (how long a
+ * request or a read of a body may wait for the network before the transfer counts as stalled).
  */
-export function workerEnv({ store = null, storage = null, fetch, post = () => {}, now = () => performance.now(), baseUrl = null } = {}) {
+export function workerEnv({ store = null, storage = null, fetch, post = () => {}, now = () => performance.now(), baseUrl = null, stallMs = STALL_MS } = {}) {
   return {
-    store, storage, fetch, post, now, baseUrl,
+    store, storage, fetch, post, now, baseUrl, stallMs,
     interrupt: null, // Uint8Array over the page's SharedArrayBuffer, when it is cross-origin isolated
     cancelled: new Set(), // ids a {type:"cancel"} named, before or while they run
     running: new Map(), // id -> AbortController
@@ -81,19 +86,43 @@ export async function handle(msg, env) {
   const { id, op, payload } = msg || {};
   const controller = new AbortController();
   env.running.set(id, controller);
+  // a stop flag already raised when an op begins was raised for the op before it (the page raises it only while one op
+  // is in flight, and that op may have ended before the flag was seen); a stop meant for this op also comes as a
+  // cancel message, so lowering it here loses nothing and keeps a stale flag from stopping the next op
+  if (env.interrupt) Atomics.store(env.interrupt, 0, 0);
   const stopped = () => env.cancelled.has(id) || Boolean(env.interrupt && Atomics.load(env.interrupt, 0));
-  const poll = setInterval(() => { if (stopped()) controller.abort(); }, POLL_MS);
   const cx = {
     id, env, signal: controller.signal,
-    /** Throws "cancelled" when this op was asked to stop; with `err` (a failure just caught), only then. */
+    stalled: null, // the error, once the network went silent for longer than env.stallMs
+    waitingSince: null,
+    /** Throws "cancelled" when this op was asked to stop (or the stall error when it stalled); with `err` (a failure
+     * just caught), only then. */
     check(err) {
+      if (cx.stalled) throw cx.stalled;
       if (stopped() || controller.signal.aborted) throw new OpError("cancelled", "cancelled before it finished");
       return err;
+    },
+    /** `promise` (a request, or a read of a body), counted toward the stall limit while it is pending. */
+    async network(promise) {
+      cx.waitingSince = env.now();
+      try {
+        return await promise;
+      } finally {
+        cx.waitingSince = null;
+      }
     },
     emit(event) {
       env.post(JSON.stringify({ type: "event", id, event }));
     },
   };
+  const poll = setInterval(() => {
+    if (stopped()) controller.abort();
+    else if (cx.waitingSince !== null && env.stallMs > 0 && env.now() - cx.waitingSince > env.stallMs && !cx.stalled) {
+      const limit = env.stallMs >= 1000 ? `${Math.round(env.stallMs / 1000)} s` : `${env.stallMs} ms`;
+      cx.stalled = new OpError("network", `nothing arrived from the network for ${limit}: the transfer stalled and was stopped`, { phase: "stall" });
+      controller.abort();
+    }
+  }, POLL_MS);
   try {
     cx.check();
     const fn = OPS[op];
@@ -113,7 +142,9 @@ function errorOf(err) {
   if (err instanceof OpError) return { type: err.type, message: err.message, ...err.details };
   const code = err?.code;
   if (code === "bad_path" || code === "bad_arguments") return { type: "bad_arguments", message: err.message };
-  if (code === "quota" || code === "storage" || code === "busy" || code === "corrupt") return { type: "storage", message: err.message, ...(code === "quota" ? { quota: true } : {}) };
+  // the store's "busy" (a file another tab or a job's mount holds open) is the same answer as the handle's own refusal
+  if (code === "busy") return { type: "busy", message: err.message };
+  if (code === "quota" || code === "storage" || code === "corrupt") return { type: "storage", message: err.message, ...(code === "quota" ? { quota: true } : {}) };
   if (code === "not_found") return { type: "not_found", message: err.message };
   if (err?.name === "QuotaExceededError") return { type: "storage", quota: true, message: `the browser's storage quota for this site is used up (${describe(err)})` };
   if (err?.name === "NoModificationAllowedError") return { type: "busy", message: `the file is open elsewhere: another tab or worker is writing it (${describe(err)})` };
@@ -244,7 +275,8 @@ async function download(payload, cx) {
       const { type, message, ...rest } = errorOf(err);
       e = new OpError(type, message, rest);
     }
-    const have = part.open ? await part.size() : 0;
+    // the part is closed once placing began (a move or copy that then failed leaves it, complete, where it was)
+    const have = part.open ? await part.size() : (await store.stat(paths.part).catch(() => null))?.bytes ?? 0;
     Object.assign(e.details, { attempts, restarts, have, kept_part: have > 0 && Boolean(await readRecord(store, paths.side).catch(() => null)) });
     throw e;
   } finally {
@@ -293,6 +325,9 @@ export function recordMismatch(meta, bytes, row) {
     return meta[sum.algorithm] ? `its ${sum.algorithm} is not the reviewed checksum` : `its record has no ${sum.algorithm} to compare with the reviewed checksum`;
   }
   if (row.bytes !== null && row.bytes !== undefined && meta.bytes !== Number(row.bytes)) return `${meta.bytes} bytes, not the reviewed ${row.bytes}`;
+  // without a reviewed checksum the URL is part of what names the file: a copy from a URL the registry no longer
+  // gives (another query, another release path) is not the file it describes now
+  if (!sum && meta.url && row.url && meta.url !== row.url) return `it was obtained from ${meta.url}, not the registry's ${row.url}`;
   return "";
 }
 
@@ -358,6 +393,13 @@ function otherFile(side, headers) {
   return "";
 }
 
+/** The file's size as recorded when its partial file was started: the reviewed size, else the length the server
+ * declared for the whole file then; null when neither is known. (A host that content-encoded that answer declared
+ * the encoded length; the mismatch then costs a restart from byte 0, never a wrong join.) */
+function knownTotal(side) {
+  return side?.total ?? side?.declared_bytes ?? null;
+}
+
 /** Where a transfer starts: {offset, validator}. Records in `restarts` why a partial file is not continued. */
 function planResume(have, side, row, transport, cap, restarts) {
   if (!have) return { offset: 0, validator: null };
@@ -365,12 +407,15 @@ function planResume(have, side, row, transport, cap, restarts) {
   if (!side) why = "it has no identity record";
   else if (side.url !== row.url) why = "it was started from another URL";
   else if (side.transport !== transport) why = `it was started through the ${side.transport} transport, not ${transport}`;
-  else if (side.total !== null && side.total !== undefined && have > side.total) why = "it is longer than the file";
+  else if (row.bytes !== null && side.total !== null && side.total !== undefined && side.total !== row.bytes) why = `it was started for a ${side.total}-byte file, and the registry now reviews ${row.bytes} bytes`;
+  else if (knownTotal(side) !== null && have > knownTotal(side)) why = "it is longer than the file";
   else if (have > cap) why = "it is longer than the reviewed size";
   const validator = why ? null : side.etag || side.last_modified || null;
   if (!why && !validator && !row.sum) why = "its identity cannot be shown (no ETag or Last-Modified was readable when it was started, and no reviewed checksum will check the joined file)";
   if (why) {
-    restarts.push(`${transport}: ${have} bytes of a partial file not resumed: ${why}; the download starts from byte 0`);
+    // what this request does, not what becomes of the partial file: it is replaced only if the whole file arrives
+    // (under "auto" a direct request that cannot be made leaves it for the relay to resume)
+    restarts.push(`${transport}: ${have} bytes of a partial file are not resumed through this transport (${why}); the request asks for the whole file`);
     return { offset: 0, validator: null };
   }
   return { offset: have, validator };
@@ -382,7 +427,7 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
   let side = await readRecord(store, paths.side);
   let { offset, validator } = planResume(await part.size(), side, row, transport, cap, restarts);
   // nothing left to ask for, and a reviewed checksum will check the file as it is
-  if (offset && side.total === offset && row.sum) return { bytes: offset, total: offset, side, start: offset, hashers: null, validator: "checksum" };
+  if (offset && knownTotal(side) === offset && row.sum) return { bytes: offset, total: offset, side, start: offset, hashers: null, validator: "checksum" };
   const host = new URL(url).host;
   // every restart asks for the whole file (offset 0), so this runs at most twice
   for (;;) {
@@ -397,7 +442,7 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       : { cache: "no-store", headers, signal: cx.signal };
     let res;
     try {
-      res = await cx.env.fetch(url, init);
+      res = await cx.network(cx.env.fetch(url, init));
     } catch (err) {
       cx.check(err);
       if (offset) {
@@ -425,7 +470,7 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       let why = "";
       if (!cr) why = raw === null ? "its Content-Range is not readable (the host does not expose it to web pages)" : `its Content-Range ${JSON.stringify(raw)} is not bytes start-end/total`;
       else if (cr.start !== offset || cr.end !== cr.total - 1) why = `it answered ${raw}, not bytes ${offset}-<last>/<total>`;
-      else if (side?.total !== null && side?.total !== undefined && cr.total !== side.total) why = `its total is ${cr.total} bytes, not the recorded ${side.total}: another file`;
+      else if (knownTotal(side) !== null && cr.total !== knownTotal(side)) why = `its total is ${cr.total} bytes, not the recorded ${knownTotal(side)}: another file`;
       else why = otherFile(side, h);
       if (why) {
         await cancelBody(res);
@@ -474,7 +519,7 @@ async function transfer(cx, { store, paths, part, row, url, transport, restarts 
       const whole = unsatisfiedTotal(h.get("content-range"));
       await cancelBody(res);
       // If-Range is evaluated before Range: a 416 naming this very size says the partial file is the whole file
-      if (whole === offset && (validator || row.sum)) return { bytes: offset, total: whole, side, start: offset, hashers: null, validator: validator ? (side.etag ? "etag" : "last-modified") : "checksum" };
+      if (whole === offset && (knownTotal(side) === null || knownTotal(side) === whole) && (validator || row.sum)) return { bytes: offset, total: whole, side, start: offset, hashers: null, validator: validator ? (side.etag ? "etag" : "last-modified") : "checksum" };
       await part.drop();
       restarts.push(`${transport}: HTTP 416 for bytes=${offset}-: the partial file was dropped and the download restarted from byte 0`);
       offset = 0;
@@ -551,7 +596,7 @@ async function streamBody(cx, res, part, { start, cap, total, hint = null, hashe
       cx.check();
       let r;
       try {
-        r = await reader.read();
+        r = await (phase === "import" ? reader.read() : cx.network(reader.read()));
       } catch (err) {
         cx.check(err);
         if (phase === "import") throw new OpError("read", `the chosen file could not be read at byte ${pos} (${describe(err)})`);
@@ -679,8 +724,9 @@ async function importFile(payload, cx) {
     kept = true;
     return { ...meta, reused: false, attempts: [], path: paths.final };
   } catch (err) {
-    // a File can be read again, so a cut-short import is dropped, not kept for a resume
-    if (!kept && part.open) await part.drop().catch(() => {});
+    // a File can be read again, so a cut-short import is dropped, not kept for a resume (also when placing it
+    // failed after the part was closed: it has no identity record a download could resume it by)
+    if (!kept) await (part.open ? part.drop() : store.remove(paths.part)).catch(() => {});
     throw err;
   } finally {
     await part.close();
@@ -728,7 +774,15 @@ export function serve(scope, env) {
   };
 }
 
-if (typeof self !== "undefined" && typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope) {
+/** Whether this module is the worker's own script: datasets.js imports it on the page, and a worker that imports
+ * datasets.js (or this module) for its helpers must keep its own message handler. */
+function isWorkerMain() {
+  if (typeof self === "undefined" || typeof WorkerGlobalScope === "undefined" || !(self instanceof WorkerGlobalScope)) return false;
+  const bare = (u) => String(u).split("#")[0];
+  return bare(self.location?.href) === bare(import.meta.url);
+}
+
+if (isWorkerMain()) {
   serve(self, workerEnv({
     storage: self.navigator?.storage ?? null,
     fetch: self.fetch.bind(self),

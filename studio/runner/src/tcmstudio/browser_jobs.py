@@ -4,7 +4,8 @@ A browser job (studio/docs/BROWSER_JOBS.md) runs its stages in a job worker, a P
 holding the same bundle as the tool runtime. Each stage that computes calls :func:`call`
 with a function name and its arguments as JSON text, and gets JSON text back; only strings
 cross into JavaScript. The functions are the runner's commands for the same work, so a
-browser run and a runner run of the same inputs give the same tables:
+browser run and a runner run of the same inputs are to give the same tables (natively that
+is tested; in the browser the self-test and the parity check say whether they did):
 
 ``plan_snapshots``   the raw files the research snapshots need and which are here
                      (``bioagent snapshots plan``)
@@ -121,10 +122,10 @@ def _isolate() -> bool | None:
     return False if sys.platform == "emscripten" else None
 
 
-def _log(emit: Emit | None) -> Callable[[str], None]:
-    def log(line: Any) -> None:
+def _log(emit: Emit | None) -> Callable[..., None]:
+    def log(line: Any, level: str = "info") -> None:
         if emit is not None:
-            emit("log", {"level": "info", "text": str(line)})
+            emit("log", {"level": level, "text": str(line)})
     return log
 
 
@@ -208,12 +209,13 @@ def run_research(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str,
                        profile="trusted_local", isolate=isolate)
     except (QuestionRefused, ResearchRefused, ValueError) as exc:
         # what the command prints as "refused: ..." and exits 2 for
-        log(f"refused: {exc}")
+        log(f"refused: {exc}", "warn")
         return {"exit": 2, "summary": None, "failed": [], "refused": str(exc)}
     summary, failed = research_summary(run, question)
     code = 3 if failed else (0 if run.released else 1)
     log(f"research {run.run_id}: {'released' if run.released else 'not released'}"
-        + (f"; {len(failed)} stage(s) failed their own check" if failed else ""))
+        + (f"; {len(failed)} stage(s) failed their own check" if failed else ""),
+        "warn" if failed else "info")
     return {"exit": code, "summary": summary, "failed": list(failed), "refused": None}
 
 
@@ -316,6 +318,9 @@ def call(fn: str, args_json: str = "{}", emit: Emit | None = None) -> str:
             return _error("runtime_error", f"{fn} returned a result that is not JSON: {exc}")
     except KeyboardInterrupt:
         return _error("cancelled", f"{fn} was interrupted")
+    except SystemExit as exc:
+        # nothing here should exit the interpreter the worker keeps for its next call
+        return _error("runtime_error", f"{fn} tried to exit (code {exc.code!r})")
     except BadArguments as exc:
         return _error("bad_arguments", str(exc))
     except ModuleNotFoundError as exc:
