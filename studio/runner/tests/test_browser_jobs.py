@@ -601,11 +601,13 @@ def test_verify_pipeline_without_a_record_fails_and_says_why(tmp_path):
 
 @pytest.fixture
 def refusable(tmp_path):
-    """Sources the browser's single-cell job does not read: a 10x HDF5, an .h5ad, a
-    directory, and a sheet naming an HDF5 file."""
+    """Sources the browser's single-cell job does not read: a 10x HDF5, an .h5ad, a Cell
+    Ranger directory, and a sheet naming an HDF5 file."""
     (tmp_path / "pbmc.h5").write_bytes(b"\x89HDF\r\n\x1a\n")
     (tmp_path / "atlas.H5AD").write_bytes(b"\x89HDF\r\n\x1a\n")
     (tmp_path / "filtered_feature_bc_matrix").mkdir()
+    for name in ("matrix.mtx.gz", "barcodes.tsv.gz", "features.tsv.gz"):
+        (tmp_path / "filtered_feature_bc_matrix" / name).write_bytes(b"")
     (tmp_path / "sheet.csv").write_text("sample,path\nctrl1,pbmc.h5\n")
     (tmp_path / "counts.tsv").write_text("gene_id\ta\tb\ng1\t1\t2\n")
     return tmp_path
@@ -659,7 +661,8 @@ def _corrupt_gzip(text: str) -> bytes:
 def unusable(tmp_path):
     """Inputs nothing can analyse, wherever it runs: a FASTQ sample sheet given as the sample
     table (its header spaced, too), gzipped tables whose deflate stream is corrupt (zlib.error,
-    not a truncated file), a count table that is not UTF-8, and a sheet row with no path."""
+    not a truncated file), a count table that is not UTF-8, a sheet row with no path, and a
+    directory that is not a Cell Ranger output, named alone or by a sheet row."""
     counts = "gene_id\tgene_name\t" + "\t".join(f"s{i}" for i in range(6)) + "\n" + "".join(
         f"g{g}\tG{g}\t" + "\t".join(str((g * 7 + i * 3) % 50 + 1) for i in range(6)) + "\n"
         for g in range(200))
@@ -678,6 +681,10 @@ def unusable(tmp_path):
     (tmp_path / "latin.csv").write_bytes(
         table.replace("\t", ",").replace("\nG1,", "\nG\xe9ne1,").encode("latin-1"))
     (tmp_path / "empty_path.csv").write_text("sample,path,condition\nA,,control\n")
+    (tmp_path / "dot.csv").write_text("sample,path,condition\nA,.,control\n")
+    (tmp_path / "not_10x").mkdir()
+    (tmp_path / "not_10x" / "matrix.mtx").write_text(
+        "%%MatrixMarket matrix coordinate integer general\n2 2 1\n1 1 3\n")
     return tmp_path
 
 
@@ -694,6 +701,8 @@ def unusable(tmp_path):
      "{dir}/table.tsv.gz cannot be read to its end (error: Error -3 while decompressing data"),
     ("run_scrna", {"source": "latin.csv"}, "'utf-8' codec can't decode byte 0xe9"),
     ("run_scrna", {"source": "empty_path.csv"}, "line 2 of {dir}/empty_path.csv names no path"),
+    ("run_scrna", {"source": "dot.csv"}, "{dir} has none of matrix.mtx (or .gz)"),
+    ("run_scrna", {"source": "not_10x"}, "{dir}/not_10x has none of barcodes.tsv (or .gz)"),
 ])
 def test_inputs_nothing_can_analyse_are_refused_as_the_runner_refuses_them(
         unusable, capsys, fn, args, needle):

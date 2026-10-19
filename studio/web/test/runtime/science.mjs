@@ -26,6 +26,9 @@
 // Without --site the site is built first (build_web.py --dev). Pyodide comes from boot.json's index_url (jsDelivr)
 // unless --pyodide-dir serves a copy at /pyodide/. $PYTHON (default python3) builds the site and runs the native side:
 // it needs bioagent and tcmstudio installed, and pytest for fixture and omics. Exit 0 only when every check passed.
+// When the page fails, its console is printed; when it gives no result at all (a timeout, a hang in a worker's boot or
+// a fetch, an error before its result), its failures and the rows it had shown too, and the comparison says that no
+// result came back rather than a row per file. --json keeps all of it.
 
 import { spawnSync } from "node:child_process";
 import { createReadStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -113,20 +116,68 @@ function namedInputs(params, raw) {
   return names;
 }
 
+/** The page gave no result (runPage's own: a timeout, a hang in a worker's boot or a fetch, an error before
+ * __result) → why, from its first failure; null when it did. */
+function noResult(res) {
+  return Array.isArray(res?.checks) ? null : `no result came back from the page (${res?.failures?.[0] ?? "no failure recorded"})`;
+}
+
+/** Why a job's receipt and outputs are not there, when they are not: no result from the page, no such job in its
+ * result, or a job that did not succeed → text | null. */
+export function lostJob(res, job, kind) {
+  if (noResult(res)) return noResult(res);
+  if (!job) return `the page's result has no ${kind} job (its checks say why)`;
+  if (!job.files) return `the ${kind} job ended ${job.state ?? "without a state"} in the browser${job.error?.message ? ` (${job.error.message})` : ""}; its outputs were not read back`;
+  return null;
+}
+
+const PAGE_ROWS = 40;
+const CONSOLE_LINES = 40;
+
+/** What the page itself said, for a reader of the log: when it gave no result, its failures and the rows it had shown;
+ * when it failed, its console (runPage keeps 60 lines of 400 characters; the last CONSOLE_LINES here) → lines. */
+export function pageLines(res) {
+  const lines = [];
+  if (noResult(res)) {
+    for (const f of res?.failures || []) lines.push(`FAILED page: ${f}`);
+    const rows = String(res?.partial || "").split("\n").filter((l) => l.trim());
+    lines.push(rows.length ? `page   its rows before it stopped${rows.length > PAGE_ROWS ? ` (the last ${PAGE_ROWS} of ${rows.length})` : ""}:` : "page   no rows shown before it stopped");
+    for (const l of rows.slice(-PAGE_ROWS)) lines.push(`         ${l.split("\t").filter(Boolean).join(" | ").slice(0, 300)}`);
+  }
+  if (!res?.ok) {
+    const out = res?.console || [];
+    lines.push(out.length ? `page   its console${out.length > CONSOLE_LINES ? ` (the last ${CONSOLE_LINES} of ${out.length} lines kept)` : ""}:` : "page   nothing in its console");
+    for (const l of out.slice(-CONSOLE_LINES)) lines.push(`         ${l}`);
+  }
+  return lines;
+}
+
 /**
  * One omics job of the page against the native run: its receipt's inputs against the files' digests on disk, its
  * outputs written out (WORK/browser/<key>, each at the digest the page read) and compared with the native command's,
- * then held to the known answer natively, the native run's outputs too → {rows, values, native_values}.
+ * then held to the known answer natively, the native run's outputs too → {rows, values, native_values}. When the
+ * job's receipt and outputs did not come back (lostJob), one row says why.
  */
-function checkOmicsJob(plan, job, om) {
+function checkOmicsJob(plan, job, om, res) {
   const rows = [];
-  const flat = Object.entries(job?.receipt?.inputs || {}).flatMap(([k, v]) => (v && typeof v.sha256 === "string" ? [[k, v]] : Object.entries(v || {}).map(([kk, vv]) => [`${k} ${kk}`, vv])));
+  const values = (run) => {
+    const r = spawnSync(PYTHON, [path.join(HERE, "omics_native.py"), "values", om.dir, plan.key, run], { encoding: "utf8", maxBuffer: 16 << 20 });
+    if (r.status !== 0) return [{ label: "the known answer's checks ran", ok: false, detail: (r.stderr || "").slice(-1500) }];
+    return JSON.parse(r.stdout.trim().split("\n").at(-1)).checks;
+  };
+  const native = path.join(om.dir, "native", plan.key);
+  const lost = lostJob(res, job, plan.kind);
+  if (lost) {
+    rows.push({ name: "the browser job: its receipt and outputs", status: "missing", ok: false, counted: true, why: lost });
+    return { rows, values: [{ label: "the browser's outputs", ok: false, detail: `none came back: ${lost}` }], native_values: values(native) };
+  }
+  const flat = Object.entries(job.receipt?.inputs || {}).flatMap(([k, v]) => (v && typeof v.sha256 === "string" ? [[k, v]] : Object.entries(v || {}).map(([kk, vv]) => [`${k} ${kk}`, vv])));
   const named = namedInputs(plan.params, om.raw);
   const unmatched = named.filter((name) => !flat.some(([, v]) => v?.source?.name === name && v.sha256 === sha256File(path.join(om.raw, name))));
-  rows.push({ name: "inputs: the served files, at their digests", status: !unmatched.length && flat.length === named.length ? "same" : "different", counted: true,
-    why: unmatched.length ? `not recorded at the file's digest: ${unmatched.join(", ")}` : flat.length !== named.length ? `${flat.length} inputs recorded for ${named.length} files` : `${named.length} inputs (${named.join(", ")}), each at the SHA-256 of the file served` });
+  rows.push({ name: "inputs: the served files, at their digests", status: job.receipt && !unmatched.length && flat.length === named.length ? "same" : "different", counted: true,
+    why: !job.receipt ? "no receipt came back from the browser job" : unmatched.length ? `not recorded at the file's digest: ${unmatched.join(", ")}` : flat.length !== named.length ? `${flat.length} inputs recorded for ${named.length} files` : `${named.length} inputs (${named.join(", ")}), each at the SHA-256 of the file served` });
   const dir = path.join(om.dir, "browser", plan.key);
-  const files = job?.files || {};
+  const files = job.files;
   const torn = [];
   for (const [rel, f] of Object.entries(files)) {
     const bytes = Buffer.from(f.text, "utf8");
@@ -135,14 +186,9 @@ function checkOmicsJob(plan, job, om) {
     writeFileSync(path.join(dir, rel), bytes);
   }
   if (torn.length) rows.push({ name: "outputs: their text", status: "different", counted: true, why: `not UTF-8 text that re-encodes to the bytes read: ${torn.join(", ")}` });
-  rows.push(...compareOmics(plan.kind, files, readTree(path.join(om.dir, "native", plan.key))));
+  rows.push(...compareOmics(plan.kind, files, readTree(native)));
   for (const r of rows) r.ok = r.ok ?? !["different", "missing"].includes(r.status);
-  const values = (run) => {
-    const r = spawnSync(PYTHON, [path.join(HERE, "omics_native.py"), "values", om.dir, plan.key, run], { encoding: "utf8", maxBuffer: 16 << 20 });
-    if (r.status !== 0) return [{ label: "the known answer's checks ran", ok: false, detail: (r.stderr || "").slice(-1500) }];
-    return JSON.parse(r.stdout.trim().split("\n").at(-1)).checks;
-  };
-  return { rows, values: Object.keys(files).length ? values(dir) : [{ label: "the browser's outputs", ok: false, detail: "none came back" }], native_values: values(path.join(om.dir, "native", plan.key)) };
+  return { rows, values: Object.keys(files).length ? values(dir) : [{ label: "the browser's outputs", ok: false, detail: "none came back" }], native_values: values(native) };
 }
 
 const TAG = { identical: "same  ", same: "same  ", same_apart_from_excluded: "same  ", same_apart_from_figures: "same  ", structure_held: "same  ", within_tolerance: "near  ", flips_near_alpha: "near  ", not_compared: "skip  " };
@@ -226,6 +272,7 @@ async function main() {
     report.page = res;
     if (!res.ok) report.ok = false;
     for (const c of res.checks || []) console.error(`${c.ok ? "ok    " : "FAILED"} ${c.label}${c.detail ? `: ${c.detail}` : ""}`);
+    for (const line of pageLines(res)) console.error(line);
     if (fx) {
       report.comparison = [...compareFixture(res.report, fx.report), ...compareFixture(res.service_report, fx.report, "research.snapshot job: ")];
       for (const r of report.comparison) {
@@ -239,7 +286,7 @@ async function main() {
       report.omics = {};
       for (const plan of OMICS_JOBS) {
         const job = res.jobs?.[plan.key];
-        const c = checkOmicsJob(plan, job, om);
+        const c = checkOmicsJob(plan, job, om, res);
         report.omics[plan.key] = c;
         for (const r of c.rows) {
           console.error(`${TAG[r.status] || (r.ok ? "near  " : "DIFFER")} ${plan.key} ${r.name}: ${r.why}`);
@@ -273,7 +320,9 @@ async function main() {
     }
     if (args.mode === "gqd") {
       const nativeOut = path.resolve(args.nativeOut);
-      report.comparison = compareExports(res.files || {}, (name) => (existsSync(path.join(nativeOut, name)) ? readFileSync(path.join(nativeOut, name)) : null));
+      // no result from the page: one row saying so, not an export each "not written in the browser"
+      report.comparison = noResult(res) ? [{ name: "the exports", status: "missing", ok: false, why: noResult(res) }]
+        : compareExports(res.files || {}, (name) => (existsSync(path.join(nativeOut, name)) ? readFileSync(path.join(nativeOut, name)) : null));
       for (const r of report.comparison) {
         console.error(`${["identical", "same_apart_from_execution", "same_as_json"].includes(r.status) ? "same  " : r.ok ? "near  " : "DIFFER"} ${r.name}: ${r.why}`);
         if (!r.ok) report.ok = false;

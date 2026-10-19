@@ -23,11 +23,11 @@ record: the manifest recorded sc_world's at OpenBLAS's default thread count, fro
 
 ``values`` holds a run's files in DIR (the browser's or the native run's) to the known answer, the bounds being the
 reference manifest's (bioagent/data/pipeline_references.json), never loosened: for RNA-seq the planted genes found in
-their direction, false discoveries, genes tested; for single-cell the clusters against the true cell types (adjusted
-Rand index, computed as tests/test_pipeline_references.py does), the four cell types, the planted genes in the B-cell
-pseudobulk and nothing elsewhere, batch mixing. A run's ``reference_dataset`` label is trusted only with its
-parameters equal to the manifest's (``match_reference`` compares the inputs only). It prints ``{key, checks: [{label,
-ok, detail}]}``.
+their direction, false discoveries, genes tested; for single-cell every cell one of sc_world's, the clusters against
+the true cell types (adjusted Rand index, computed as tests/test_pipeline_references.py does), the four cell types, the
+planted genes in the B-cell pseudobulk and nothing elsewhere, batch mixing. A run's ``reference_dataset`` label is
+trusted only with its parameters equal to the manifest's (``match_reference`` compares the inputs only). It prints
+``{key, checks: [{label, ok, detail}]}``.
 """
 from __future__ import annotations
 
@@ -264,10 +264,17 @@ def values_scrna(run: Path, truth: dict) -> list[dict]:
         check("its inputs: sc_world v1's counts as count tables (checked when written; no reference label, as the "
               "tables' gene ids are the names)", True, "not labelled")
     cells = _rows(run / "cells.tsv")
-    kind = np.array([truth["types"].get(r["cell"], "") for r in cells], dtype=object)
-    cluster = np.array([r["cluster"] for r in cells], dtype=object)
+    # every cell is one of sc_world's (the reference test indexes world.truth[c]); only the cells whose known type is
+    # none of the four (the path, the doublets) are left out of the ARI
+    unknown = [r["cell"] for r in cells if r["cell"] not in truth["types"]]
+    check("every cell of cells.tsv is one of sc_world's", not unknown,
+          f"{len(unknown)} of {len(cells)} are not: {', '.join(unknown[:5])}{', …' if len(unknown) > 5 else ''}"
+          if unknown else f"all {len(cells)}")
+    known = [r for r in cells if r["cell"] in truth["types"]]
+    kind = np.array([truth["types"][r["cell"]] for r in known], dtype=object)
+    cluster = np.array([r["cluster"] for r in known], dtype=object)
     keep = np.isin(kind, list(EXPECTED))
-    ari = _ari(kind[keep], cluster[keep])
+    ari = _ari(kind[keep], cluster[keep]) if keep.sum() > 1 else math.nan
     check(f"cluster ARI against the true cell types above {want['cluster_ari_above']}",
           ari > want["cluster_ari_above"], f"{ari:.4f} over {int(keep.sum())} cells of the four types")
     types = sorted({r["cell_type"] for r in _rows(run / "clusters.tsv")})

@@ -521,8 +521,9 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
     ``path``) of them, ``markers`` a marker panel, both paths. The parameters are held to
     the runner's ``pipeline.scrna`` checks (``kinds``: resolution 0.05 to 5, seed 0 to
     2^31 - 1, 50 to 10000 highly variable genes). Refused here, with the reason: the Scanpy
-    backend and scVI (not in this browser's Python), and a 10x HDF5, .h5ad or directory
-    source, in the sheet or alone; the runner reads those. So are more than
+    backend and scVI (not in this browser's Python), and a 10x HDF5, .h5ad or Cell Ranger
+    directory source, in the sheet or alone; the runner reads those (a directory without a
+    Cell Ranger output's files is refused as the command refuses it). So are more than
     ``SC_CELLS_MAX`` cells, counted from the tables' headers before any table is read in
     full, and a run that runs out of memory (``need`` ``memory``)."""
     import csv
@@ -530,6 +531,7 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
 
     from bioagent import runrecord
     from bioagent.omics.optional import BackendUnavailable
+    from bioagent.omics.sc.io import ScIOError, _first
     from bioagent.omics.scrna import ScConfig, ScError, _is_sheet, read_sheet
     from bioagent.omics.scrna import run_scrna as run_sc
 
@@ -560,6 +562,13 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
         return _refused(log, str(exc))
     for f in files:
         if f.is_dir():
+            try:
+                # the files the reader opens in a Cell Ranger output: a directory without them
+                # is refused as the command refuses it, not sent to the runner
+                for names in (("matrix.mtx",), ("barcodes.tsv",), ("features.tsv", "genes.tsv")):
+                    _first(f, *names)
+            except ScIOError as exc:
+                return _refused(log, str(exc))
             return _refused(log, f"{f.name} is a directory (a Cell Ranger output): this "
                                  "browser's job reads count tables (CSV/TSV, gzipped or not); "
                                  "bioagent scrna reads a directory on the machine that holds it",

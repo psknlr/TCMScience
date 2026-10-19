@@ -10,7 +10,9 @@ name: studio
 # The site bundles PSH-Harness and BioScience-Harness (src, skills, registry) into its Python runtime, and tcmstudio
 # imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data, except
 # the committed connector live-verification record, which the site's catalog.json and studio/docs/compat/matrix.csv
-# are built from). The READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they trigger it too.
+# are built from, and the test modules the browser research jobs' native side imports: omics_world, sc_world and
+# test_pipeline_references for --mode omics, test_snapshot_pipeline and test_source_parsers for --mode fixture). The
+# READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they trigger it too.
 on:
   push:
     paths:
@@ -24,6 +26,11 @@ on:
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
       - "BioScience-Harness/data/connector_live_verification.csv"
+      - "BioScience-Harness/tests/omics_world.py"
+      - "BioScience-Harness/tests/sc_world.py"
+      - "BioScience-Harness/tests/test_pipeline_references.py"
+      - "BioScience-Harness/tests/test_snapshot_pipeline.py"
+      - "BioScience-Harness/tests/test_source_parsers.py"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -41,6 +48,11 @@ on:
       - "BioScience-Harness/pyproject.toml"
       - "BioScience-Harness/setup.py"
       - "BioScience-Harness/data/connector_live_verification.csv"
+      - "BioScience-Harness/tests/omics_world.py"
+      - "BioScience-Harness/tests/sc_world.py"
+      - "BioScience-Harness/tests/test_pipeline_references.py"
+      - "BioScience-Harness/tests/test_snapshot_pipeline.py"
+      - "BioScience-Harness/tests/test_source_parsers.py"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -158,6 +170,16 @@ jobs:
           node studio/web/test/runtime/science.mjs --mode service --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-service.json"
           node studio/web/test/runtime/science.mjs --mode fixture --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-fixture.json"
           node studio/web/test/runtime/science.mjs --mode omics --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-omics.json"
+      - name: Keep the browser research jobs' reports (every check, the page's failures, rows and console)
+        # also when a mode failed or timed out, which is when they are read; this workflow's own test runs on the
+        # planted and simulated references (digests and sizes of their outputs), nothing of a visitor's
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: science-reports
+          path: ${{ runner.temp }}/science-*.json
+          if-no-files-found: warn
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: studio-site

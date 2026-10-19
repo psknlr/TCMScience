@@ -28,7 +28,7 @@
 // Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
 // one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
 
-import { COMPUTE_VALUES, isLocalTool, localCall, pipelineArguments, requirement, runnerLacks, runnerOnly, unknownCompute } from "./catalog.js";
+import { COMPUTE_VALUES, isLocalTool, localCall, pipelineArguments, requirement, runnerLacks, runnerOnly as runnerOnlyRules, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
 import { canonicalJson, clip, flagArgument, isAbort, isLoopbackUrl, isPlainObject, objectArgument, sha256Hex, utf8Bytes } from "./util.js";
@@ -708,7 +708,7 @@ export class ToolRouter {
     const jobs = this.runtimes.jobs;
     if (!kind || kind.endsWith(".*")) return null;
     if (typeof jobs?.needsRunner !== "function") {
-      const why = runnerOnly(entry, isPlainObject(args) ? args : {});
+      const why = runnerOnlyRules(entry, isPlainObject(args) ? args : {});
       return why.length ? { detail: why.join("; "), remedy: requirement("runner").remedy } : null;
     }
     let why = null;

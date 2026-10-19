@@ -564,42 +564,46 @@ test("a resumed job runs its analysis again when what computed it changed (numpy
   let failVerify = true;
   const python = cannedPython(RNASEQ_OUT, { verify: () => (failVerify ? { status: "FAIL", checks: [], problems: ["not yet"], report: {} } : PASS) });
   const runs = () => python.calls.filter((c) => c.name === "run_rnaseq_counts").length;
+  const reused = (job) => job.stages.map((s) => [s.id, s.reused]);
   const first = await setup({ python, files });
   const job = await first.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
   assert.equal((await settle(first.svc, job.id)).state, "failed");
   assert.equal(runs(), 1);
-  // the worker now reports other numpy and scipy (a site update between the attempts)
   const before = { ...VERSIONS };
-  Object.assign(VERSIONS, { numpy: "9.9.9", scipy: "8.8.8" });
   try {
+    // the worker now reports other numpy and scipy (a site update between the attempts)
+    Object.assign(VERSIONS, { numpy: "9.9.9", scipy: "8.8.8" });
     await first.svc.resume(job.id);
     const again = await settle(first.svc, job.id);
     assert.equal(again.state, "failed");
-    assert.deepEqual(again.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", false], ["verify", false]]);
+    assert.deepEqual(reused(again), [["inputs", false], ["analysis", false], ["verify", false]]);
     assert.equal(runs(), 2, "the analysis ran again, on the numpy and scipy now loaded");
     assert.equal(again.limitations.at(-1), OMICS.computedLine({ numpy: "9.9.9", scipy: "8.8.8" }));
     assert.ok(again.logs.some((l) => /analysis: its checkpoint does not verify, so it runs again \(the stage's inputs changed since its checkpoint\)/.test(l.text)));
+
+    // the same versions and another bundle (the page reloaded on a new site, over the same storage): again
+    const second = await setup({ python, files, boot: { ...BOOT, bundle: { ...BOOT.bundle, sha256: "b".repeat(64) } }, idb: first.idb, fake: first.fake });
+    failVerify = false;
+    await second.svc.resume(job.id);
+    const done = await settle(second.svc, job.id);
+    assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+    assert.deepEqual(reused(done), [["inputs", false], ["analysis", false], ["verify", false]]);
+    assert.equal(runs(), 3, "the analysis ran again, with the new bundle");
+    assert.equal(done.limitations.at(-1), OMICS.computedLine({ numpy: "9.9.9", scipy: "8.8.8" }));
+
+    // nothing changed between the attempts: the analysis is reused
+    failVerify = true;
+    const other = await second.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
+    assert.equal((await settle(second.svc, other.id)).state, "failed");
+    failVerify = false;
+    await second.svc.resume(other.id);
+    const kept = await settle(second.svc, other.id);
+    assert.equal(kept.state, "succeeded");
+    assert.deepEqual(reused(kept), [["inputs", false], ["analysis", true], ["verify", false]]);
+    assert.equal(runs(), 4);
   } finally {
     Object.assign(VERSIONS, before);
   }
-  // the same versions and another bundle (the page reloaded on a new site, the same storage): it runs again too
-  const second = await setup({ python, files, boot: { ...BOOT, bundle: { ...BOOT.bundle, sha256: "b".repeat(64) } }, idb: first.idb, fake: first.fake });
-  failVerify = false;
-  await second.svc.resume(job.id);
-  const done = await settle(second.svc, job.id);
-  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
-  assert.deepEqual(done.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", false], ["verify", false]]);
-  assert.equal(runs(), 4, "the attempt between ran it on 9.9.9 and 8.8.8; this one on the new bundle");
-  assert.equal(done.limitations.at(-1), OMICS.computedLine(VERSIONS));
-  // and nothing changed: reused, as before
-  failVerify = true;
-  const third = await second.svc.submit("pipeline.rnaseq", { counts: "counts.tsv", samples: "samples.tsv" }, { project_id: "p1" });
-  assert.equal((await settle(second.svc, third.id)).state, "failed");
-  failVerify = false;
-  await second.svc.resume(third.id);
-  const reused = await settle(second.svc, third.id);
-  assert.deepEqual(reused.stages.map((s) => [s.id, s.reused]), [["inputs", false], ["analysis", true], ["verify", false]]);
-  assert.equal(runs(), 5);
 });
 
 test("scrna preflight: a source that names no file here and is no table may be a Cell Ranger directory, which the runner reads: the refusal says so", async () => {

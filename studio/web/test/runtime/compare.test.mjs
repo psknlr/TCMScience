@@ -1,12 +1,20 @@
 // The comparison science.mjs --mode gqd holds the browser's research exports to (compare.mjs): identical bytes named so,
 // a last-bit difference in a p-value named within tolerance with what it changed downstream, anything else different.
+// Then the omics jobs' (--mode omics): compare.mjs's rule for their outputs, omics_native.py's known answer, and what
+// science.mjs says when the page gives no result.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   OMICS_RULE, RELATIVE, compareExports, compareJson, compareOmics, compareOmicsTable, compareSignificant, compareTable, compareText,
   omicsBound, omicsFraction, umapAgreement, withoutFigures,
 } from "./compare.mjs";
+import { lostJob, pageLines } from "./science.mjs";
 
 const sha = (text) => `sha256:${createHash("sha256").update(Buffer.from(text)).digest("hex")}`;
 const ENRICH = "pathway\tp_value\tq_value\nR-HSA-1\t0.024699668194706335\t0.5\nR-HSA-2\t1\t1\n";
@@ -170,6 +178,40 @@ test("report.html is compared with its figures set aside", () => {
   assert.equal(withoutFigures('<p>a</p><svg viewBox="0 0 2 2"><circle r="1.25"/></svg><p>b</p>'), "<p>a</p><svg/><p>b</p>");
 });
 
+test("report.html: identical with its figures set aside, or different; a number in its text has no tolerance", () => {
+  const run = JSON.stringify({ stages: [], complete: true, outputs: {} });
+  const report = (text, figure) => ({ "run.json": run, "report.html": `<p>${text}</p><svg>${figure}</svg>` });
+  const row = (b, n) => compareOmics("pipeline.scrna", browserFiles(b), n).find((r) => r.name === "report.html");
+  assert.deepEqual([row(report("mixing 1.02530", 1), report("mixing 1.02530", 2)).status, row(report("mixing 1.02530", 1), report("mixing 1.02530", 2)).ok], ["same_apart_from_figures", true]);
+  // the last digit of a number it restates, well within OMICS_RULE: still a difference
+  const near = row(report("mixing 1.02531", 1), report("mixing 1.02530", 2));
+  assert.deepEqual([near.status, near.ok, near.fraction], ["different", false, undefined]);
+  assert.match(near.why, /with each inline figure \(<svg>\) set aside.*1\.02531.*1\.02530/);
+});
+
+test("a figure that is not the same bytes: its own reason, naming the table that holds what it draws only where one does", () => {
+  const run = JSON.stringify({ stages: [], complete: true, outputs: {} });
+  const figures = ["ma", "volcano", "p_values", "dispersion", "pca", "sample_distances", "qc_genes", "qc_mito", "markers", "pca_variance", "paga", "umap_clusters", "heatmap_of_something_new"];
+  const files = (d) => Object.fromEntries([["run.json", run], ...figures.map((f) => [`plots/${f}.svg`, `<svg>${d}</svg>`])]);
+  const by = Object.fromEntries(compareOmics("pipeline.rnaseq", browserFiles(files("a")), files("b")).map((r) => [r.name, r]));
+  const why = (f) => by[`plots/${f}.svg`].why;
+  for (const f of figures) assert.deepEqual([by[`plots/${f}.svg`].status, by[`plots/${f}.svg`].counted], ["not_compared", false], f);
+  for (const f of ["ma", "volcano", "p_values"]) assert.match(why(f), /is compared in deseq2_results\.tsv/, f);
+  assert.match(why("dispersion"), /compared in de_diagnostics\.tsv/);
+  for (const f of ["qc_genes", "qc_mito"]) assert.match(why(f), /is compared in cells\.tsv/, f);
+  assert.match(why("markers"), /markers\.tsv/);
+  assert.match(why("markers"), /not compared/, "a marker's share in the other clusters is in no table");
+  for (const f of ["pca", "sample_distances", "pca_variance", "heatmap_of_something_new"]) {
+    assert.match(why(f), /in no table and is not compared|is not compared here/, f);
+    assert.doesNotMatch(why(f), /compared in (the tables|\w+\.tsv)/, f);
+  }
+  assert.match(why("sample_distances"), /only its input, vst\.tsv, is/);
+  assert.match(why("paga"), /UMAP/);
+  assert.match(why("paga"), /paga\.tsv/);
+  assert.match(why("umap_clusters"), /the layout's structure is checked below/);
+  assert.ok(!Object.values(by).some((r) => /the numbers it draws are compared in the tables/.test(r.why)), "no figure is said to be compared in 'the tables'");
+});
+
 /** A tiny pipeline.rnaseq or pipeline.scrna output directory, text by path. */
 function omicsRun(kind, { results = RESULTS, svg = "<svg><path d=\"M0 0\"/></svg>", cells = CELLS(LAYOUT) } = {}) {
   const run = kind === "pipeline.rnaseq"
@@ -222,4 +264,84 @@ test("a single-cell run: each cell's cluster and type and the clusters table exa
   // a layout whose clusters run into each other has lost its structure, whatever its coordinates
   const smeared = browserFiles(omicsRun("pipeline.scrna", { cells: CELLS(LAYOUT.map(([x, y]) => [x % 10, y % 10])) }));
   assert.equal(compareOmics("pipeline.scrna", smeared, native).find((r) => r.name === "UMAP layout: its structure").ok, false);
+});
+
+// ------------------------------------------------------------------- the known answer (omics_native.py values)
+
+const OMICS_NATIVE = path.join(path.dirname(fileURLToPath(import.meta.url)), "omics_native.py");
+/** A Python that can run omics_native.py values (bioagent, numpy, scipy, pytest), or null (CI's web step has one). */
+const KNOWN_ANSWER_PYTHON = [process.env.PYTHON, "python3"].filter(Boolean).find((py) => {
+  try { execFileSync(py, ["-c", "import bioagent.omics.scrna, numpy, scipy, pytest"], { stdio: "ignore", timeout: 60000 }); return true; } catch { return false; }
+}) ?? null;
+
+/**
+ * A tiny pipeline.scrna output directory that meets sc_world's known answer, with its truth: two samples of five cells
+ * of each of sc_world's four types, a path cell and a doublet each, clustered by type; `rename` changes the ids of one
+ * sample's cells in cells.tsv only (as a table reader that dropped Cell Ranger's "-1" would) → {work, run}.
+ */
+function scKnownAnswer(dir, { rename = false } = {}) {
+  const kinds = ["B", "Mono", "NK", "Plt"];
+  const cells = ["ctrl1", "trt1"].flatMap((s) => [...kinds.flatMap((k) => Array.from({ length: 5 }, () => k)), "path", "doublet"]
+    .map((kind, i) => ({ id: `${s}:CELL${String(i).padStart(5, "0")}-1`, sample: s, kind })));
+  const types = Object.fromEntries(cells.map((c) => [c.id, c.kind]));
+  const genes = Array.from({ length: 12 }, (_, i) => `GENE${String(i).padStart(4, "0")}`);
+  const work = path.join(dir, "work");
+  const run = path.join(dir, "run");
+  mkdirSync(path.join(run, "pseudobulk"), { recursive: true });
+  mkdirSync(work, { recursive: true });
+  writeFileSync(path.join(work, "truth.json"), JSON.stringify({ scrna: { types, condition_genes: genes } }));
+  const cluster = { B: 0, Mono: 1, NK: 2, Plt: 3, path: 2, doublet: 0 };
+  writeFileSync(path.join(run, "cells.tsv"), "cell\tsample\tcluster\n"
+    + cells.map((c) => `${rename && c.sample === "ctrl1" ? c.id.replace(/-1$/, "") : c.id}\t${c.sample}\t${cluster[c.kind]}\n`).join(""));
+  writeFileSync(path.join(run, "clusters.tsv"), "cluster\tcells\tcell_type\n0\t11\tB cell\n1\t10\tCD14+ monocyte\n2\t11\tNK cell\n3\t10\tPlatelet\n");
+  const table = (q) => "gene\tlog2_fold_change\tp_adjusted\n" + genes.map((g) => `${g}\t1.5\t${q}\n`).join("");
+  writeFileSync(path.join(run, "pseudobulk", "B_cell.tsv"), table(0.001));
+  writeFileSync(path.join(run, "pseudobulk", "NK_cell.tsv"), table(0.9));
+  writeFileSync(path.join(run, "run.json"), JSON.stringify({
+    config: { analysis_backend: "builtin", integration_method: "harmony", de_backend: "builtin", n_top_genes: 600, seed: 0 },
+    integration: { mixing_after: 0.95 }, pseudobulk: { tests: { "B cell": { alpha: 0.05 }, "NK cell": { alpha: 0.05 } } }, complete: true,
+  }));
+  return { work, run };
+}
+
+test("the single-cell known answer: every cell of cells.tsv must be one of sc_world's, not only the ones the ARI keeps", { skip: KNOWN_ANSWER_PYTHON ? false : "no Python with bioagent, numpy, scipy and pytest ($PYTHON or python3)" }, () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "tcms-known-answer-"));
+  try {
+    const values = ({ work, run }) => JSON.parse(execFileSync(KNOWN_ANSWER_PYTHON, [OMICS_NATIVE, "values", work, "scrna", run], { encoding: "utf8" }).trim().split("\n").at(-1)).checks;
+    const whole = values(scKnownAnswer(path.join(dir, "whole")));
+    assert.ok(whole.every((c) => c.ok), JSON.stringify(whole.filter((c) => !c.ok)));
+    assert.match(whole.find((c) => /^cluster ARI/.test(c.label)).detail, /^1\.0000 over 40 cells of the four types/);
+    // one sample's ids changed on both sides alike: the ARI over the other sample's cells is still 1, and that is not a pass
+    const renamed = values(scKnownAnswer(path.join(dir, "renamed"), { rename: true }));
+    const every = renamed.find((c) => /every cell of cells\.tsv is one of sc_world's/.test(c.label));
+    assert.ok(every && !every.ok, JSON.stringify(renamed));
+    assert.match(every.detail, /^22 of 44 are not: ctrl1:CELL00000, /);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ------------------------------------------------------------- science.mjs: a page that gave no result, or failed
+
+test("no result from the page: its failures, the rows it had shown and its console are said, and each job says why it has nothing", () => {
+  // what runPage returns when __result never came (here the omics page stopped by --timeout-min 0.05)
+  const timedOut = {
+    ok: false, failures: ["no result within 3000 ms: TimeoutError: page.waitForFunction: Timeout 3000ms exceeded."],
+    partial: "private storage (OPFS)\tok\t\t\nthe inputs are a project's files\tok\tcounts.tsv (66844 bytes)\t88\njob service started\tok\tready\t",
+    console: ["error: Failed to load resource: net::ERR_CONNECTION_RESET", "pageerror: Error: the worker did not boot"], page_ms: 3100,
+  };
+  const lines = pageLines(timedOut);
+  assert.equal(lines[0], "FAILED page: no result within 3000 ms: TimeoutError: page.waitForFunction: Timeout 3000ms exceeded.");
+  assert.ok(lines.includes("         job service started | ok | ready"), lines.join("\n"));
+  assert.ok(lines.some((l) => /pageerror: Error: the worker did not boot/.test(l)), lines.join("\n"));
+  for (const kind of ["pipeline.rnaseq", "pipeline.scrna"]) assert.match(lostJob(timedOut, undefined, kind), /^no result came back from the page \(no result within 3000 ms/);
+  // a long console is bounded
+  assert.ok(pageLines({ ...timedOut, console: Array.from({ length: 60 }, (_, i) => `log: ${i}`) }).length < 60);
+  // a page that came back: its checks say it all, and a job's rows say what is missing of it
+  const failed = { ok: false, checks: [{ label: "pipeline.scrna as a browser job", ok: false, detail: "worker lost" }], failures: ["pipeline.scrna as a browser job: worker lost"], console: [] };
+  assert.deepEqual(pageLines(failed), ["page   nothing in its console"]);
+  assert.match(lostJob(failed, undefined, "pipeline.rnaseq"), /^the page's result has no pipeline\.rnaseq job/);
+  assert.match(lostJob(failed, { state: "failed", error: { message: "worker lost" } }, "pipeline.scrna"), /^the pipeline\.scrna job ended failed in the browser \(worker lost\); its outputs were not read back/);
+  assert.equal(lostJob({ ok: true, checks: [] }, { state: "succeeded", files: {} }, "pipeline.scrna"), null);
+  assert.deepEqual(pageLines({ ok: true, checks: [] }), []);
 });

@@ -177,7 +177,9 @@ export function compareExports(browserFiles, nativeOf) {
 // set of significant genes (a gene that crosses alpha fails the row, unless both values are within the rule of alpha,
 // when it is named, not hidden), each cell's cluster and cell type, the clusters table. The UMAP layout is a picture of
 // the graph that amplifies last-bit differences: its coordinates (cells.tsv umap_1, umap_2) and the figures are not
-// compared; its structure is (umapAgreement). report.html is compared with its figures set aside.
+// compared; its structure is (umapAgreement). A figure that is not the same bytes says whether what it draws is
+// compared, and in which table (FIGURES). report.html must be identical with each figure set aside: no tolerance on its
+// text.
 
 export const OMICS_RULE = "|a − b| ≤ 1e-6 + 1e-4·max(|a|,|b|) + one unit in the sixth significant digit of max(|a|,|b|) (the tables print %.6g)";
 /** The UMAP's structure: each cell's UMAP_K nearest neighbours in the layout, the share of them in its cluster. */
@@ -187,6 +189,23 @@ export const UMAP_AGREEMENT_GAP = 0.01;
 const UMAP_COLUMNS = ["umap_1", "umap_2"];
 /** Files the run writes about itself (times, paths, versions): compared through their fields (record rows). */
 const RECORDS = ["run.json", "stages.json", "job_receipt.json"];
+/** What each figure draws (bioagent.omics.rnaseq._de_plots, bioagent.omics.scrna._plots), and whether that is compared
+ * and where: the reason a figure that is not the same bytes gives. A figure not named here says only that what it
+ * draws is not compared. */
+const FIGURES = {
+  "plots/ma.svg": "what it draws (each gene's base_mean, log2_fold_change and p_adjusted against alpha) is compared in deseq2_results.tsv",
+  "plots/volcano.svg": "what it draws (each tested gene's log2_fold_change, p_value and p_adjusted against alpha) is compared in deseq2_results.tsv",
+  "plots/p_values.svg": "what it draws (the tested genes' p_value) is compared in deseq2_results.tsv",
+  "plots/dispersion.svg": "what it draws (each gene's dispersion_gene_wise, dispersion_trend and dispersion against its base_mean) is compared in de_diagnostics.tsv and deseq2_results.tsv",
+  "plots/pca.svg": "what it draws (the samples' PCA coordinates and the variance PC1 and PC2 explain) is in no table and is not compared; only its input, vst.tsv, is",
+  "plots/sample_distances.svg": "what it draws (the sample-to-sample distances) is in no table and is not compared; only its input, vst.tsv, is",
+  "plots/qc_genes.svg": "what it draws (each cell's n_genes) is compared in cells.tsv",
+  "plots/qc_mito.svg": "what it draws (each cell's pct_mito) is compared in cells.tsv",
+  "plots/markers.svg": "what it draws (the share of each cluster's cells expressing the clusters' top markers) is compared in markers.tsv (pct_in) for each cluster's own markers; a marker's share in another cluster is not compared unless it is among that cluster's 50 markers too",
+  "plots/pca_variance.svg": "what it draws (the variance each PC explains) is in no table and is not compared",
+  "plots/paga.svg": "its nodes sit at the clusters' UMAP medians, and its edges are the connectivities compared in paga.tsv",
+  "plots/umap_pseudotime.svg": "the pseudotime it is coloured by is compared in cells.tsv",
+};
 
 /** The bound OMICS_RULE holds a numeric cell to: 1e-6 + 1e-4·m + u6, m = max(|a|, |b|), u6 one unit in m's sixth
  * significant digit. */
@@ -328,7 +347,8 @@ const fmt = (v) => (typeof v === "number" ? Number(v.toPrecision(4)) : v);
  * [{name, status, ok, counted, why, browser, native, fraction?}]. `kind` is pipeline.rnaseq or pipeline.scrna. Every
  * file both runs wrote is a row (run.json and stages.json through their fields); then the discrete results and, for
  * single-cell, the UMAP's structure. ok is false only for a counted row that is different or missing; a figure that
- * is not the same bytes is "not_compared" and not counted.
+ * is not the same bytes is "not_compared" and not counted, and says whether what it draws is compared (FIGURES);
+ * report.html is "same_apart_from_figures" or "different".
  */
 export function compareOmics(kind, browserFiles, nativeFiles) {
   const rows = [];
@@ -349,8 +369,8 @@ export function compareOmics(kind, browserFiles, nativeFiles) {
     if (typeof b.text !== "string") { row(name, "different", "the bytes differ (the browser's text was not returned)", shas); continue; }
     if (name.endsWith(".svg")) {
       row(name, "not_compared", /umap|paga/.test(name)
-        ? "not compared: a UMAP figure (its points are the layout, which amplifies last-bit differences; the layout's structure is checked below)"
-        : "not compared: a figure, its coordinates printed at two or three digits; the numbers it draws are compared in the tables", { ...shas, counted: false });
+        ? `not compared: a UMAP figure (its points are the layout, which amplifies last-bit differences; the layout's structure is checked below)${FIGURES[name] ? `; ${FIGURES[name]}` : ""}`
+        : `not compared: a figure, its coordinates printed at two or three digits; ${FIGURES[name] ?? "what it draws is not compared here"}`, { ...shas, counted: false });
       continue;
     }
     if (name.endsWith(".tsv")) {
@@ -362,11 +382,16 @@ export function compareOmics(kind, browserFiles, nativeFiles) {
       else row(name, c.status, `the cells differ: ${JSON.stringify(c.first)}${c.count > 5 ? ` and ${c.count - 5} more` : ""}${worst ? `; ${worst}` : ""}`, { ...shas, ...(c.worst ? { fraction: c.worst.fraction } : {}) });
       continue;
     }
-    const [got, want, figures] = name === "report.html" ? [withoutFigures(b.text), withoutFigures(textN(name)), true] : [b.text, textN(name), false];
-    if (figures && got === want) { row(name, "same_apart_from_figures", "identical with each inline figure (<svg>) set aside", shas); continue; }
+    if (name === "report.html") {
+      // equal with each figure set aside, every number it restates included: no tolerance on its text
+      const [got, want] = [withoutFigures(b.text), withoutFigures(textN(name))];
+      if (got === want) row(name, "same_apart_from_figures", "identical with each inline figure (<svg>) set aside", shas);
+      else row(name, "different", `differs with each inline figure (<svg>) set aside (no tolerance on its text): ${JSON.stringify(compareText(got, want, () => false).first)}`, shas);
+      continue;
+    }
     let worstText = 0;
-    const t = compareText(got, want, (x, y) => { const f = omicsFraction(x, y); worstText = Math.max(worstText, f); return f <= 1; });
-    if (t.same) row(name, "within_tolerance", `the same words${figures ? " with the figures set aside" : ""}, the numbers within the rule (the largest at ${fmt(worstText)} of the bound); not identical bytes`, { ...shas, fraction: worstText });
+    const t = compareText(b.text, textN(name), (x, y) => { const f = omicsFraction(x, y); worstText = Math.max(worstText, f); return f <= 1; });
+    if (t.same) row(name, "within_tolerance", `the same words, the numbers within the rule (the largest at ${fmt(worstText)} of the bound); not identical bytes`, { ...shas, fraction: worstText });
     else row(name, "different", `differs: ${JSON.stringify(t.first)}`, shas);
   }
 
