@@ -19,7 +19,7 @@ rate limits. `/api/sources/health` reports the deployed manifest counts and limi
 
 What has been verified, per operation, is reported by level in
 [compat/connectors.md](compat/connectors.md) (generated; its `--check` is a step of CI's
-`validation` job that is defined and has not run yet, so it is checked locally): every
+`validation` job, which passed in `ci` #317 on 2026-10-19): every
 operation's request reaches a mock transport as the live verification sends it and
 is refused offline (both checked offline by that check), and every operation
 answered from its real upstream in a maintainer's run through the runner's HTTP

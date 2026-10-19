@@ -253,8 +253,8 @@ clinical tool or identifying details), and counts anonymous usage you can switch
 - **Network pharmacology in the browser.** The full data-driven research loop runs as browser jobs: `research.snapshot`
   (the 17 raw files downloaded, relayed or imported into the site's private storage, verified and built into snapshots)
   and `research.run` (the sixteen stages and nine exports), the runner's own Python in Pyodide job workers. On the planted
-  world a job worker writes the native bytes; the real 葛根芩连汤 comparison runs in the live-data workflow and has not run
-  yet ([docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)). The seed skill remains a limited seed-corpus network hypothesis
+  world a job worker writes the native bytes; the real 葛根芩连汤 comparison runs in the live-data workflow and has not completed
+  a run yet ([docs/BROWSER_JOBS.md](docs/BROWSER_JOBS.md)). The seed skill remains a limited seed-corpus network hypothesis
   workflow.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.

@@ -353,7 +353,8 @@ and alignment tests run there; scVI's record is checked there against stand-ins.
 
 What each statement here rests on: the comparisons above (PyDESeq2, R's DESeq2, Scanpy,
 harmonypy, scVI, GSEApy) were run where this document was written, with the versions
-named, and are repeated by the CI jobs above wherever those jobs are given a runner.
+named, and are repeated by the CI jobs above on every run that gives them a runner (they
+passed in `ci` #317, 2026-10-19, on CPU runners).
 None of these backends runs in the browser, and none has a record from a deployed
 service: they are runner-side implementations.
 
@@ -417,4 +418,4 @@ GSEA 不作为 Skill 的一步：它需要第三方基因集来源及其许可�
 **安装与测试：**
 - **安装：** `bioagent[analysis]` 提供 GSEApy 与 harmonypy，下限为实测通过的版本：GSEApy 1.1.6（1.1.0 和 1.1.5 未通过，现在会被拒绝并说明原因），harmonypy 0.0.10。`bioagent[scvi]` 提供 scvi-tools 1.5.1 及以上；先从 PyTorch 的 CPU 源安装 torch，可避免从 PyPI 装入 CUDA 版。
 - **测试：** 三个测试文件在单元层自动跳过需要可选包的部分，在 CI 的 analysis-tools 作业中全部运行。`tests/test_omics_deseq2_r.py` 还需要 R 和 DESeq2：同一作业安装了 R 与 Bioconductor 的 DESeq2 并运行它，并重跑 `tests/test_runrecord.py` 与 `tests/test_pipeline_references.py`（各流程记录的阶段，以及内置参考数据集）；这两个文件不需要任何引擎，参考数据集固定使用内置后端，所以引擎路径由上面的后端测试检查，而不是由它们检查。`tests/test_omics_scvi.py` 还需要 scvi-tools，在单独的 CI 作业「scVI, trained on the CPU」中用 PyTorch 的 CPU 版运行。
-- **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在分配到运行器时会重复这些比较。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。
+- **依据：** 上述比较（PyDESeq2、R 的 DESeq2、Scanpy、harmonypy、scVI、GSEApy）是在撰写本文的环境中、用文中写明的版本实际运行的，CI 作业在每次分配到运行器时会重复这些比较（在 `ci` #317 中通过，2026-10-19，CPU 运行器）。这些后端都不在浏览器中运行，也没有来自任何已部署服务的记录：它们是 Runner 端的实现。
