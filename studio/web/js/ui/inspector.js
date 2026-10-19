@@ -460,7 +460,8 @@ export function mountInspector(app, host) {
           [t("ui.prov.tool"), h("code.kv__code", env.via && env.via !== env.tool ? `${env.tool} → ${env.via}` : env.tool)],
           [t("ui.prov.model"), modelLabel],
           [t("ui.prov.where"), r.decided_by ? t(`ui.where.decided.${DECIDERS.includes(r.decided_by) ? r.decided_by : "router"}`) : [r.where === "runner" ? t(runnerRemote(app) ? "ui.where.runner_remote" : "ui.where.runner") : t("ui.where.browser"), r.where === "runner" ? hostOf(app.state.settings.runner.url) : null].filter(Boolean).join(" @")],
-          [t("ui.prov.device"), r.decided_by ? "—" : deviceLabel(r.execution?.device?.assigned || r.device) || "—"],
+          // a receipt/1 names the assigned device (none yet for a queued job); only a legacy receipt falls back to device
+          [t("ui.prov.device"), r.decided_by ? "—" : isObj(r.execution?.device) ? deviceLabel(r.execution.device.assigned) || t("ui.prov.not_assigned") : deviceLabel(r.device) || "—"],
           [t("ui.prov.runtime"), r.runtime || "—"],
           [t("ui.prov.versions"), r.versions && Object.keys(r.versions).length ? h("code.kv__code", Object.entries(r.versions).map(([k, v]) => `${k} ${v}`).join(" · ")) : "—"],
           [t("ui.prov.started"), r.started_at ? h("time", { datetime: r.started_at }, formatDateTime(r.started_at)) : "—"],

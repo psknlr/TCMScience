@@ -335,7 +335,8 @@ gives it, so the runner and the browser runtime write the same fields with the s
   only) by the Worker from `receipt.compute.gpu`, never from an estimate (CONTRACT_NOTES, browser-compute). A job has `requested` (the runner's device setting), `assigned`
   (`job.device`, set when it starts; `null` and a note while queued) and `evidence:"selected"`. `used` is `cpu` only
   for a CPU job, and `null` for a GPU job: hiding the other GPUs is a selection, and no job reports the device its
-  engine used. `receipt.device` of a job envelope is that assigned device, so a GPU job is never reported as `cpu`.
+  engine used. `receipt.device` of a job envelope is that assigned device, and `null` until the runner assigns one (a
+  queued job, every `job_submitted` envelope), so a GPU job is never reported as `cpu`.
 - **`execution.kernel`** mirrors `receipt.compute.backend` (`browser_compute._mirror`): `pyodide` for a call that
   failed whatever helped it, `null` where no compute receipt was written. `receipt.compute` stays the authority on
   the kernels.
@@ -370,8 +371,11 @@ gives it, so the runner and the browser runtime write the same fields with the s
   job's declared outputs were digested at collection (`outcome.checks` names `controller_digests` or
   `runner_digests`), none it requires is missing, and none is known to have changed since: `run.json` and a
   `skill.run` job's `envelope.json` are read back at their recorded digests when the job is polled; other artefacts
-  are not re-hashed then (a mismatch at collection already fails the job). That covers hashes only, not the science.
-  Anything else is `none`.
+  are not re-hashed then (a mismatch at collection already fails the job). One read back that fails its check is not
+  verified, whatever was recorded: a changed file is listed in `artifacts.hash_mismatch`, one that can no longer be
+  read (deleted or moved since) in `artifacts.missing`, and the assurance is `none`. That covers hashes only, not the
+  science. Anything else is `none`. An envelope stored before `receipt.result` existed is derived in the page
+  (`resultOf`, `derived: true`) as `outputs_verified` only for a collected job whose artefacts each carry a `sha256`.
 - **`result.checks`**: a governed skill's six verdict states, then `skill_pinned` and `outputs_present`. A job adds
   the checks its collection passed (`outcome.checks`: `controller_digests`, `validator:<artefact>`, `kind.verify`,
   …), or one `collection` failure per problem. It may also add `run_manifest` or `envelope_digest` (read back at the
@@ -417,14 +421,14 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/catalog` | the catalog (§2), with `exec` reflecting this runner (heavy deps probed: `available:false` + `missing:[…]` per entry) and each entry's `state.readiness.runner` and engines' `readiness.runner`, brought up to date on every read (this runner's network switch; its job service and what each kind lacks, and the datasets built in its data hub, re-read every few seconds). A change makes a new document; one already being sent is never changed |
 | GET | `/api/capabilities/audit` | `?state=&kind=&category=&limit=` (≤ 1000) → `{where:"runner", network:{enabled}, jobs, datasets_built, counts:{entries, by_readiness, by_implementation, by_verification}, filters, matched, entries:[{id, kind, category, implementation, readiness, requires:[Requirement], verification:{status, at}}], note, versions}`: the same function as `system.capability_audit` (§2), over this runner's catalog. Filters narrow `entries`, never `counts`. No request is made to any host: `ready` for an entry that reaches one means web access is on. `400` for an unknown `state` or a bad `limit` |
 | POST | `/api/call` | `{tool, arguments, context:{project_id?, conversation_id?, approvals?:[…]}}` → envelope (§3) |
-| GET | `/api/devices` | `{devices:[Device], selected:"auto"}` where `Device = {id:"cpu"|"cuda:0"|"mps"|"rocm:0", kind, name, memory_gb?, driver?, available:bool, note?}` |
+| GET | `/api/devices` | `{devices:[Device], selected:"auto"}` where `Device = {id:"cpu"|"cuda:0"|"mps"|"rocm:0", kind, name, memory_gb?, driver?, available:bool, note?, evidence:"reported", reported_by}`: `evidence` is the rung of the evidence ladder (§3) the runner reaches for a device, `reported` at most (nothing in the runner runs a kernel on it), and `reported_by` what reported it (`operating system`, `nvidia-smi`, `rocm-smi`, `platform (Apple Silicon)`, `PyTorch <version>`) |
 | GET | `/api/settings` / PUT | `Settings = {device:"auto"|id, threads:int, max_jobs:int, network:{enabled:bool, profile:"offline-analysis"|"biomedical-research"}, purpose:"academic"|"commercial", allow_remote:bool}` |
 | GET | `/api/kinds` | `[{kind, title:{zh,en}, parameters:JSONSchema, available, missing:[…], gpu, duration:"seconds"|"minutes"|"hours"}]` |
 | POST | `/api/jobs` | `{kind, params, project_id?, submission_id?}` → `201 Job` (same `submission_id` → the existing job) |
 | GET | `/api/jobs` | `?project_id=&state=` → `{jobs:[Job]}` |
 | GET | `/api/jobs/{id}` | `Job` |
 | DELETE | `/api/jobs/{id}` | cancel → `Job` (409 if already finished) |
-| GET | `/api/jobs/{id}/events` | SSE: `event: state|log|progress|artefact|done`, `data: JSON`, each written as it happens; keep-alive comment every 15 s; `?token=`. A (re)connection starts with `state` and up to 80 recent `log` lines. |
+| GET | `/api/jobs/{id}/events` | SSE: `event: state|log|progress|stages|artefact|done`, `data: JSON`, each written as it happens; keep-alive comment every 15 s; `?token=`. A (re)connection starts with `state` and up to 80 recent `log` lines. `progress` carries `Job.progress`; `stages` `{stages}`, `Job.stages` each time a running pipeline's `stages.json` moves on. |
 | GET | `/api/jobs/{id}/files` | `{files:[{path, bytes, sha256, media_type}]}` |
 | GET | `/api/jobs/{id}/files/{path}` | bytes; HTML is served with `Content-Security-Policy: sandbox` |
 | POST | `/api/uploads` | raw body; headers `X-Filename`, `Content-Type` → `{id, name, bytes, sha256, media_type}` |
@@ -432,7 +436,7 @@ governed runs), and `data/` (`BIOAGENT_DATA_LAKE`, `BIOAGENT_TCMDB` point here u
 | GET | `/api/datasets` | `{count, datasets:[{key, name, access, version, license, licence_class, commercial_use, redistribution, hosts, files_default, bytes_default, acquirable, readiness:{state, next_step}, local:{built, files_present, files_default, missing_default, verification}, live_record}], network:{enabled}}`: every registered hub dataset (`tcmdb.datasets`). `local` is what this runner holds; `live_record` (also in the manifest) is CI's committed record of real downloads of the dataset's files (`bioagent/data/live_download_verification.json`): `{files_pass, files_recorded, files, run, at, record}`, or `null` when no live run reached any of them. It says what that run found on its day, not what is on this runner |
 | GET | `/api/datasets/{key}/manifest` | `{dataset, name, access, version, homepage, license, licence_class, commercial_use, redistribution, licence_record?, hosts, files:[{name, url, host, table, fmt, optional, expected_bytes, reviewed_checksum, local:{present, bytes?, verification?, record?, part_bytes?, resumable?}}], size_gate_bytes, store:{built, files?, build?}, live_record, audit:[its audit lines, the last 20], instructions?}`; `404` for an unknown key |
 | GET | `/api/datasets/{key}/readiness` | `{dataset, access, state, next_step, missing?, local, network:{enabled}, acquire?:{method, path, body}, check?:{ok, problems, warnings}, requires:[Requirement]}`; `state` is one of the six of `tcmdb.status` |
-| POST | `/api/datasets/acquisitions` | `{dataset, include_optional?, project_id?, submission_id?}` → `201 {acquisition, plan:{files, download_bytes, unknown_sizes, hosts, size_gate_bytes}}` + `Location: /api/datasets/acquisitions/{id}` (same `submission_id` → `200`, the existing one). Creates a `tcmdb.fetch` job. `400 bad_arguments` for any other field (no URL, no size-gate override), a key that is not registered, or one that is not downloadable; `409 conflict` (`error.job`) while the dataset is already being acquired (a queued or running `tcmdb.fetch` of it), or when `submission_id` names another job (another kind, dataset or `include_optional`); `422 network_off` when the runner's network is off |
+| POST | `/api/datasets/acquisitions` | `{dataset, include_optional?, project_id?, submission_id?}` → `201 {acquisition, plan:{files, download_bytes, unknown_sizes, hosts, size_gate_bytes}}` + `Location: /api/datasets/acquisitions/{id}` (same `submission_id` → `200`, the existing one). Creates a `tcmdb.fetch` job. `400 bad_arguments` for any other field (no URL, no size-gate override), a key that is not registered, one that is not downloadable, or one whose every file is optional asked for without `include_optional: true` (it would fetch nothing; the Data page and `…/readiness`'s `acquire.body` pass it, and `job.tcmdb.fetch` refuses the same call); `409 conflict` (`error.job`) while the dataset is already being acquired (a queued or running `tcmdb.fetch` of it), or when `submission_id` names another job (another kind, dataset or `include_optional`); `422 network_off` when the runner's network is off |
 | GET | `/api/datasets/acquisitions` | `?project_id=&state=` → `{acquisitions:[{id, dataset, state, url, job}]}` |
 | GET | `/api/datasets/acquisitions/{id}` | `{id, dataset, state, url, job:Job, files:[{file, url, host, state, have_bytes, total_bytes, expected_bytes, reviewed_checksum, verification?, check?, reason?, last_attempt?}], states, summary:{bytes, files, verified, fraction?, stage?}}` (`fraction` and `stage` only while the job runs, as in its progress); `404` for a job that is not a `tcmdb.fetch` |
 | DELETE | `/api/datasets/acquisitions/{id}` | cancel → the acquisition (`409` once finished). `POST /api/datasets/acquisitions/{id}/cancel` is the same |
@@ -632,7 +636,8 @@ export class ToolRouter {
   placement(toolOrEntry, args?) → {where, reason, message, requires: [Requirement]}   // choice + why + what it needs
     // reason: ok | not_found | missing_deps | compute_browser | no_runtime | runner_offline | needs_runner
     //       | unknown_compute | remote_not_configured | too_large_for_browser | missing_engine   (PLACEMENT_REASONS,
-    //       which also lists human_only: placement provenance of a HUMAN_ONLY refusal, never an unavailable reason)
+    //       which also lists human_only: placement provenance of a HUMAN_ONLY refusal, never an unavailable reason);
+    //       what the connected runner lacks may also give needs_dataset | needs_job_service (RUNTIME_REASONS, §6)
   async call(name, args, {projectId, conversationId, signal, onApproval}) → Envelope   // never rejects
     // enforces confirm/network approvals: if needed, awaits onApproval(request) → "once"|"project"|"deny"
 }
@@ -695,10 +700,16 @@ Router rules (`core/router.js`):
   dependency | dataset | network | job_service | compute_setting | remote_backend | memory | authentication`. Each
   reason maps to one need: `needs_runner`/`runner_offline` → runner; `missing_deps`/`missing_engine` → dependency;
   `compute_browser`/`unknown_compute` → compute_setting; `no_runtime` → browser_runtime; `remote_not_configured` →
-  remote_backend; `too_large_for_browser` → memory. The unavailable envelope has `error = {type:"unavailable",
-  message, hint: <first remedy>, reason, requires}` and its `text` adds `Needs: <details>`. A `network_off` envelope
-  has `requires: [{need:"network"}]`. `catalog_search` `needs` are the details, byte for byte as before. `remote` and
-  an unknown value add their own.
+  remote_backend; `too_large_for_browser` → memory. What an entry lacks on the connected runner is read as the
+  runner's catalog classifies it (`state.readiness.runner`, else its `missing` list classified as
+  `tcmstudio.capability` does it: package names a dependency, the research snapshots a dataset, any other sentence the
+  job service), and the reason is that of its first need: `missing_deps` → dependency, `needs_dataset` → dataset,
+  `needs_job_service` → job_service (core.router.runner_lacks); so a dataset is never a package to install. The
+  unavailable envelope has `error = {type:"unavailable", message, hint: <first remedy>, reason, requires}` and its
+  `text` adds `Needs: <details>`. A `network_off` envelope has `error.reason: "network_off"`, `requires:
+  [{need:"network", names: <the hosts it would reach>}]` and the first remedy as `hint`, as the dispatcher's has.
+  `catalog_search` `needs` are the details, byte for byte as before for package names. `remote` and an unknown value
+  add their own.
 - **too_large_for_browser.** The router measures the UTF-8 length of the canonical JSON of the arguments the entry
   receives. It compares that with `limits.max_request_bytes.browser` (the entry's own value, else the catalog
   document's). A larger call is never sent to the browser. Under `auto` the runner, when connected, takes it as
@@ -716,8 +727,9 @@ Router rules (`core/router.js`):
   hosts. A key stored before this change, `<entry>:network`, still counts, but only while the call's hosts are among
   the entry's static hosts. Other keys: `<entry>:remote_upload`; `runner` (the first call on a loopback runner); and
   `runner@<host>` (reason `remote_runner`, the first call on a runner on another machine, which is never covered by
-  `runner` and never called local). A clinic or `phi` entry on a remote runner is asked about for every call
-  (`needs[].per_call`). Nothing stands for it, and "project" does not store it. The approval request lists each
+  `runner` and never called local). A clinic or `phi` entry on a remote runner, or one that takes a clinic `intake`
+  (§3; `skill.draft-tcm-prescription`), and `job.skill.run` of such a skill (its `skill_id`), is asked about for every
+  call (`needs[].per_call`), as patient data (`core.approval.remote_runner_phi`). Nothing stands for it, and "project" does not store it. The approval request lists each
   reason with its own hosts (`request.needs: [{reason, hosts, per_call?}]`). A network call whose hosts are not known
   in advance (an entry with `hosts_by` whose argument value it does not map, such as `system.provider_call` with an
   unlisted `tool`, or a network entry that names no hosts) is asked about for every call too (`per_call`, hosts `[]`,

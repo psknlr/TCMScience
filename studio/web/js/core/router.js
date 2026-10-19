@@ -19,7 +19,7 @@
 // Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
 // one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
 
-import { COMPUTE_VALUES, isLocalTool, localCall, requirement, unknownCompute } from "./catalog.js";
+import { COMPUTE_VALUES, isLocalTool, localCall, requirement, runnerLacks, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
 import { canonicalJson, clip, isAbort, isLoopbackUrl, isPlainObject, sha256Hex, utf8Bytes } from "./util.js";
@@ -34,10 +34,19 @@ export const PLACEMENT_REASONS = Object.freeze([
   "ok", "not_found", "missing_deps", "compute_browser", "no_runtime", "runner_offline", "needs_runner",
   "unknown_compute", "remote_not_configured", "too_large_for_browser", "missing_engine", "human_only",
 ]);
-/** The other error.reason codes a runtime's envelope can carry (decided by the Python dispatcher or the runner). */
+/**
+ * The other error.reason codes a runtime's envelope can carry (decided by the Python dispatcher or the runner). The
+ * router gives them too: network_off when the project's web access is off, and needs_dataset, needs_job_service (or
+ * another of these) when the connected runner's catalog says the entry lacks that need there.
+ */
 export const RUNTIME_REASONS = Object.freeze([
   "needs_dataset", "needs_job_service", "remote_upload_off", "network_off", "needs_authentication",
 ]);
+/**
+ * The reason for what an entry lacks on the connected runner, by the need of its first requirement
+ * (tcmstudio.capability.REASON_NEED read backwards): a dataset is never a package to install.
+ */
+const RUNNER_NEED_REASON = { dependency: "missing_deps", dataset: "needs_dataset", job_service: "needs_job_service", network: "network_off", authentication: "needs_authentication" };
 const MESSAGE = {
   not_found: "core.router.unknown_tool", missing_deps: "core.router.missing_deps", compute_browser: "core.router.browser_only_setting",
   no_runtime: "core.router.no_runtime", runner_offline: "core.router.runner_setting_offline", needs_runner: "core.router.needs_runner",
@@ -163,10 +172,19 @@ export class ToolRouter {
     // no remote backend exists: unavailable, and never moved to the runner or the browser instead
     if (compute === "remote") return none("remote_not_configured", label, [requirement("remote_backend")]);
     // a runner on another machine is never called the local one
-    const missing = () => (target.available === false && exec.includes("runner") && runnerUp
-      ? none("missing_deps", { ...label, missing: (target.missing || []).join(", ") || "?" }, [requirement("dependency", { names: target.missing || [] })],
-        this.#runnerRemote() ? "core.router.missing_deps_remote" : MESSAGE.missing_deps)
-      : null);
+    // what the runner lacks, as its catalog classifies it (state.readiness.runner): packages are missing_deps, the
+    // research snapshots needs_dataset, a job layer that cannot run there needs_job_service
+    const missing = () => {
+      if (!(target.available === false && exec.includes("runner") && runnerUp)) return null;
+      const requires = runnerLacks(target);
+      const reason = RUNNER_NEED_REASON[requires[0].need] || "missing_deps";
+      const remote = this.#runnerRemote();
+      if (reason === "missing_deps") {
+        const names = requires.filter((q) => q.need === "dependency").flatMap((q) => q.names || []);
+        return none("missing_deps", { ...label, missing: names.join(", ") || "?" }, requires, remote ? "core.router.missing_deps_remote" : MESSAGE.missing_deps);
+      }
+      return none(reason, { ...label, missing: requires.map((q) => q.detail).join("; ") }, requires, remote ? "core.router.runner_lacks_remote" : "core.router.runner_lacks");
+    };
     const inBrowser = () => this.#tooLarge(target, args, label, compute, exec) || ok("browser");
     const onRunner = () => this.#engineMissing(target, args, label) || ok("runner");
     if (compute === "browser") {
@@ -358,12 +376,16 @@ export class ToolRouter {
 
     const flags = { network: Boolean(r.target.network), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
     if (flags.network && !(await this.#webOn(projectId))) {
-      const requires = [requirement("network")];
+      // the hosts it would reach, as the network approval names them (the core tool's when the entry names none)
+      const { entry: reached, args: reachedArgs } = this.#effective(r.target, callArgs);
+      let hosts = hostsOf(reached, reachedArgs);
+      if (!hosts.length && reached !== r.target) hosts = hostsOf(r.target, callArgs);
+      const requires = [requirement("network", { names: hosts })];
       return stamp(await synthEnvelope({
         tool: name, via: r.entry?.id, args: input, status: "failed", kind: r.entry?.kind,
         summary: t("core.router.network_off", { name: r.label }),
         text: "Not run: web access is off for this project and this tool reaches the network. Ask the user to turn on web access for the project if the result is needed.",
-        error: { type: "network_off", message: t("core.router.network_off", { name: r.label }), hint: "turn on web access for this project", requires },
+        error: { type: "network_off", message: t("core.router.network_off", { name: r.label }), hint: requires[0].remedy, reason: "network_off", requires },
       }), this.#provenance(place));
     }
 
@@ -519,7 +541,7 @@ export class ToolRouter {
       const id = this.#runnerIdentity();
       if (!remote) out.push({ reason: "first_runner_call", key: RUNNER_KEY });
       // patient data (phi entries: the clinic) goes to another machine only with the person's yes to this call
-      else if (isPhi(r)) out.push({ reason: "remote_runner", key: `${RUNNER_KEY}@${id.host}`, hosts: [id.host], perCall: true, text: "core.approval.remote_runner_phi" });
+      else if (isPhi(r, entry, args, this.catalog)) out.push({ reason: "remote_runner", key: `${RUNNER_KEY}@${id.host}`, hosts: [id.host], perCall: true, text: "core.approval.remote_runner_phi" });
       else out.push({ reason: "remote_runner", key: `${RUNNER_KEY}@${id.host}`, hosts: [id.host] });
     }
     return out;
@@ -586,9 +608,17 @@ export class ToolRouter {
   }
 }
 
-/** Does the call carry patient data (an entry marked phi, or a clinic entry)? */
-function isPhi(r) {
-  return r.target?.phi === true || r.entry?.phi === true || r.entry?.kind === "clinic" || r.target?.kind === "clinic";
+/**
+ * Does the call carry patient data? The rule of tcmstudio.dispatch._is_phi (CONTRACTS §3): an entry marked phi, a
+ * clinic entry, or one that takes a clinic `intake` (skill.draft-tcm-prescription); and for job.skill.run the skill its
+ * skill_id names, whose arguments the job carries.
+ */
+function isPhi(r, entry, args, catalog) {
+  const phi = (e) => isPlainObject(e) && (e.phi === true || e.kind === "clinic" || (isPlainObject(e.parameters?.properties) && Object.hasOwn(e.parameters.properties, "intake")));
+  if ([r.target, r.entry, entry].some(phi)) return true;
+  const runsSkill = [r.target, r.entry, entry].some((e) => e?.id === "job.skill.run");
+  const id = runsSkill && isPlainObject(args) ? args.skill_id : null;
+  return typeof id === "string" && phi(catalog?.byId?.[`skill.${id}`]);
 }
 
 function labelOf(x) {

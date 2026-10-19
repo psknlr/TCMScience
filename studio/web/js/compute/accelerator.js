@@ -299,7 +299,8 @@ export function gpuDegradation(plan, compute) {
  * settle() object, merged over what Python wrote there); receipt/1 says what compute says: execution.kernel is
  * compute.backend, execution.device.requested the acceleration preference, its evidence raised along the ladder only
  * when the GPU's counts were used and only as far as gpu.evidence shows. result.fallbacks gains a {what: "compute"}
- * entry only for a degradation (gpuDegradation): a routine CPU path is not one. → the receipt (changed in place).
+ * entry only for a degradation (gpuDegradation): a routine CPU path is not one, and counts Python rejected already have
+ * Python's own entry (browser_compute._mirror), which is not said twice. → the receipt (changed in place).
  */
 export function decorateReceipt(receipt, { tool, preference = "auto", plan = null, packet = null, gpu = null } = {}) {
   if (!receipt || typeof receipt !== "object") return receipt;
@@ -324,7 +325,9 @@ export function decorateReceipt(receipt, { tool, preference = "auto", plan = nul
   if (degraded && r && typeof r === "object") {
     const fallbacks = Array.isArray(r.fallbacks) ? r.fallbacks : (r.fallbacks = []);
     const reason = String(degraded).slice(0, 600);
-    if (!fallbacks.some((f) => f?.what === "compute" && f.reason === reason)) fallbacks.push({ what: "compute", reason });
+    const rejected = c.gpu_rejected ? String(c.gpu_rejected) : "";
+    const said = fallbacks.some((f) => f?.what === "compute" && (f.reason === reason || (rejected && String(f.reason || "").includes(rejected))));
+    if (!said) fallbacks.push({ what: "compute", reason });
   }
   return receipt;
 }

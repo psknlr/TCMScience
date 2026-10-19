@@ -89,6 +89,8 @@ export function datasetFacts(row, { manifest = null, status = null } = {}) {
     live_record: manifest?.live_record || r.live_record || null,
     readiness: r.readiness?.state || "catalogued", next_step: r.readiness?.next_step || "",
     acquirable: r.acquirable ?? (r.access === "download"),
+    // every reviewed file optional (fetched only on request): an acquisition asks for them, else it fetches nothing
+    optional_only: Number.isFinite(r.files_default) && r.files_default === 0,
   };
   if (manifest && Array.isArray(manifest.files)) {
     const wanted = manifest.files.filter((f) => f && !f.optional);
@@ -332,8 +334,9 @@ function manifestFiles(m) {
 
 /**
  * Ask, then acquire: a confirmation that names the hosts it reaches and the size expected (and that the runner's
- * network switch and its size gate still apply), then POST /api/datasets/acquisitions {dataset, project_id}. A refusal
- * (network off, already being acquired, not downloadable) is said as the runner said it.
+ * network switch and its size gate still apply), then POST /api/datasets/acquisitions {dataset, project_id}, with
+ * include_optional when every file of the dataset is optional (as the runner's readiness route gives the body). A
+ * refusal (network off, already being acquired, not downloadable) is said as the runner said it.
  */
 async function acquire(app, st, f, { confirm, rerender }) {
   const body = h("div.stack",
@@ -345,9 +348,9 @@ async function acquire(app, st, f, { confirm, rerender }) {
   if (!ok) return;
   const runner = app.runtimes.runner;
   try {
-    const res = await runner.datasets.acquire({ dataset: f.key, project_id: app.state.project?.id || undefined });
+    const res = await runner.datasets.acquire({ dataset: f.key, include_optional: f.optional_only || undefined, project_id: app.state.project?.id || undefined });
     const a = res?.acquisition || res;
-    if (a?.id) st.acquisitions[f.key] = { id: a.id, state: a.state, job: a.job || { id: a.id, kind: "tcmdb.fetch", state: a.state || "queued", params: { dataset: f.key } } };
+    if (a?.id) st.acquisitions[f.key] = { id: a.id, state: a.state, job: a.job || { id: a.id, kind: "tcmdb.fetch", state: a.state || "queued", params: { dataset: f.key, include_optional: Boolean(f.optional_only) } } };
     toast(t("ui.data.acquire_started", { name: f.name }), { tone: "ok" });
   } catch (err) {
     toast(err?.message || String(err), { tone: "warn", timeout: 6000 });

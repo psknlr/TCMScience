@@ -156,6 +156,11 @@ def test_rnaseq_job_lifecycle_with_events_files_and_verification(tmp_path, world
         assert {"id": "run_manifest", "ok": False} == {k: v for k, v in res["checks"][-1].items()
                                                        if k != "detail"}
         assert "code_digest" not in st["receipt"]["execution"]["implementation"]
+        # one that can no longer be read (deleted since) is missing, and not verified either
+        run_json.unlink()
+        res = c.call("job_status", {"job_id": job["id"]})["receipt"]["result"]
+        assert (res["outcome"], res["assurance"]) == ("succeeded", "none")
+        assert "run" in res["artifacts"]["missing"] and res["artifacts"]["hash_mismatch"] == []
         run_json.write_bytes(original)
         assert "--threads=4" in " ".join(final["command"]) or "--threads=" in " ".join(final["command"])
         assert final["command"][1:4] == ["-I", "-m", "bioagent.cli"]
@@ -277,6 +282,13 @@ def test_run_pipeline_and_job_status_through_the_dispatcher(tmp_path):
         assert "未准予发布" in st["summary"]
         res = st["receipt"]["result"]
         assert res["artifacts"]["hash_mismatch"] == ["envelope"] and res["assurance"] == "none"
+        # one that can no longer be read (deleted since the job was collected) is missing, and
+        # the job's outputs are not called verified
+        (out / "envelope.json").unlink()
+        res = c.call("job_status", {"job_id": job_id})["receipt"]["result"]
+        assert (res["outcome"], res["assurance"]) == ("succeeded", "none")
+        assert "envelope" in res["artifacts"]["missing"] and res["artifacts"]["hash_mismatch"] == []
+        assert [c_["ok"] for c_ in res["checks"] if c_["id"] == "envelope_digest"] == [False]
         # bad arguments are caught before anything runs
         env = c.call("run_pipeline", {"pipeline": "rnaseq", "arguments": {}})
         assert env["status"] == "failed" and env["error"]["type"] == "bad_arguments"
@@ -530,6 +542,13 @@ def test_a_complete_pipeline_shows_its_stages_and_limitations(tmp_path):
         assert any(p.get("message") == "stage compute" for p in progress)
         fractions = [p["fraction"] for p in progress if "fraction" in p]
         assert fractions == sorted(fractions) and max(fractions) < 1
+        # the stage list itself follows the run (a progress event carries only the progress)
+        live = [d["stages"] for e, d in events if e == "stages"]
+        assert live and all(isinstance(x, list) for x in live), [e for e, _ in events]
+        names = [[x["name"] for x in stages] for stages in live]
+        assert any(names), f"the list never moved on while the job ran: {names}"
+        plan = ["prepare", "compute", "check", "report"]
+        assert all(n == plan[:len(n)] for n in names), names
         final = c.wait_job(job["id"])
         assert final["state"] == "succeeded", final["outcome"]
         assert [s["name"] for s in final["stages"]] == ["prepare", "compute", "check", "report"]

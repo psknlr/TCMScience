@@ -456,8 +456,9 @@ const LIMIT_KIND = [[/^Predicted ≠ measured/, "prediction"], [/^This is a draf
  * gets one derived here from its status, who decided it and its limitations, marked `derived: true`, so a view never
  * presents it as recorded. The derivation is conservative: a kind only from a sign the envelope itself carries
  * (a prediction or draft limitation, a connector, data hub or system call), else null; assurance release_authorized
- * only when all six release states passed, outputs_verified only for a collected job; validated ⇔ succeeded and an
- * assurance other than none.
+ * only when all six release states passed, outputs_verified only for a collected job whose outputs were each recorded
+ * with their SHA-256 (as tcmstudio.dispatch._outputs_verified asks: a job with no outputs had nothing hashed);
+ * validated ⇔ succeeded and an assurance other than none.
  */
 export function resultOf(envelope) {
   const r = envelope?.receipt?.result;
@@ -482,7 +483,7 @@ export function resultOf(envelope) {
   let assurance = "none";
   if (outcome === "succeeded") {
     if (g.released === true && RELEASE_STATES.every((id) => states[id] === true)) assurance = "release_authorized";
-    else if (job?.state === "succeeded") assurance = "outputs_verified";
+    else if (job?.state === "succeeded" && hashedOutputs(envelope, job)) assurance = "outputs_verified";
   }
   let kind = null;
   if (outcome === "succeeded") {
@@ -493,6 +494,12 @@ export function resultOf(envelope) {
     if (!kind && g.kind === "system" && !job) kind = "system";
   }
   return { kind, outcome: outcome === "succeeded" && assurance !== "none" ? "validated" : outcome, assurance, derived: true };
+}
+
+/** A collected job's outputs, each with its SHA-256 (the job as the result, or the envelope's job): none is not hashed. */
+function hashedOutputs(envelope, job) {
+  const arts = [envelope?.result?.artefacts, job?.artefacts].find((a) => Array.isArray(a) && a.length) || [];
+  return arts.length > 0 && arts.every((a) => a && typeof a === "object" && typeof a.sha256 === "string" && a.sha256.length > 0);
 }
 
 /** The result kind alone (receipt.result.kind, or derived for a legacy envelope; null when it cannot be told). */

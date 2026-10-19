@@ -31,6 +31,8 @@ def test_every_push_checks_the_docs_numbers_the_matrix_and_the_connector_coverag
     studio, _ = _load("studio.yml")
     test = _runs(studio["jobs"]["test"])
     assert "studio/scripts/doc_facts.py --check" in test and "pytest -q studio/runner/tests" in test
+    # studio.yml runs only on its paths, which do not list the other workflows: this test runs on every push too
+    assert "pytest -q studio/runner/tests/test_ci_wiring.py" in run
 
 
 @pytest.mark.parametrize("job", ["analysis-tools", "molecular-tools"])

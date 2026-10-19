@@ -235,6 +235,21 @@ test("catalog: a requirement's own remedy and detail are kept (never a generic s
   assert.ok(![...detail.querySelectorAll("a")].some((a) => /^javascript:/i.test(a.getAttribute("href") || "")), "never a javascript: link");
 });
 
+test("catalog: a connected runner whose job service cannot start is not said to need connecting", () => {
+  setLang("zh");
+  const e = { id: "job.x", kind: "job", exec: ["runner"], job: true };
+  const ready = (state) => text(stateRow(entryFields(e, { state })).find((c) => c.getAttribute("data-field") === "ready"));
+  const service = { implementation: "implemented", readiness: { runner: { state: "needs_runner", requires: [
+    { need: "job_service", detail: "the job layer cannot run on Windows without WSL", remedy: "Restart the runner where its job service can start." }] } } };
+  assert.match(ready(service), /Runner 的任务服务无法运行/);
+  assert.doesNotMatch(ready(service), /需要连接 Runner/);
+  const away = { implementation: "implemented", readiness: { runner: { state: "needs_runner", requires: [requirement("runner")] } } };
+  assert.match(ready(away), /需要连接 Runner/);
+  setLang("en");
+  assert.match(ready(service), /the runner's job service cannot run/);
+  setLang("zh");
+});
+
 test("catalog: the filters (state chips, runtime, dataset, backend) narrow the list, and live in the address", () => {
   setLang("zh");
   const app = catalogApp();
@@ -441,6 +456,27 @@ test("Settings → Data: a download is asked for only after a confirmation that 
   assert.match(text(npass), /文件 1\/2 个/);
   assert.match(text(npass), /校验和核验 1 个/);
   assert.ok(!host.querySelector('[data-acquire="npass"]'), "no second download while one runs");
+  assert.equal(calls.acquire[0].include_optional, undefined, "a dataset with required files asks for those only");
+  host.remove();
+});
+
+test("Settings → Data: a dataset whose every file is optional is acquired with include_optional (else nothing is fetched)", async () => {
+  setLang("zh");
+  const { app, calls } = dataApp();
+  app.runtimes.runner.datasets.list = async () => ({ ...DATASETS, datasets: [
+    { key: "mesh", name: "MeSH", access: "download", version: "2026", license: "", hosts: ["nlmpubs.nlm.nih.gov"], files_default: 0, bytes_default: null,
+      acquirable: true, readiness: { state: "supported", next_step: "job.tcmdb.fetch {dataset: mesh, include_optional: true}, then job.tcmdb.build" } },
+  ] });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const render = () => { host.replaceChildren(dataTab(app, render, { confirm: async () => true })); };
+  render();
+  await flush(); await flush();
+  host.querySelector('[data-acquire="mesh"]').dispatchEvent(new window.Event("click"));
+  await flush(); await flush(); await flush();
+  assert.deepEqual(calls.acquire.map((b) => [b.dataset, b.include_optional]), [["mesh", true]]);
+  assert.equal(datasetFacts({ key: "x", files_default: 0 }).optional_only, true);
+  assert.equal(datasetFacts({ key: "x" }).optional_only, false, "an older runner's row says nothing about it");
   host.remove();
 });
 
@@ -638,6 +674,31 @@ test("job receipt: used only at its recorded digest; a listed job that has ended
   await flush(); await flush();
   assert.ok(!events.includes("j_done") && !events.includes("j_failed"), `no job event for listed ended jobs: ${events}`);
   tracker.close();
+});
+
+test("job tracker: a running pipeline's stage list follows its stages events, not only its progress", async () => {
+  setLang("zh");
+  let deliver = null;
+  const app = new App();
+  app.state.runner = { ...app.state.runner, status: "ready" };
+  app.runtimes = { runner: {
+    url: "http://127.0.0.1:8765", fileUrl: (id, p) => `http://127.0.0.1:8765/api/jobs/${id}/files/${p}`,
+    jobs: { get: async (id) => ({ id, kind: "pipeline.rnaseq", state: "running", stages: [{ name: "qc", required: true, status: "running" }] }),
+      files: async () => ({ files: [] }), events: (id, on) => { deliver = on; return () => {}; } },
+  } };
+  const tracker = new JobTracker(app);
+  const host = document.createElement("div");
+  document.body.append(host);
+  host.append(tracker.node({ id: "j_live", kind: "pipeline.rnaseq", state: "running" }, { fresh: true }));
+  await flush(); await flush();
+  assert.ok(deliver, "followed by its event stream");
+  await deliver({ type: "progress", data: { stage: "quantify", fraction: 0.5 } });
+  assert.deepEqual(tracker.get("j_live").stages.map((s) => s.name), ["qc"], "a progress event leaves the stages");
+  await deliver({ type: "stages", data: { stages: [{ name: "qc", required: true, status: "succeeded" }, { name: "quantify", required: true, status: "running" }] } });
+  assert.deepEqual(tracker.get("j_live").stages.map((s) => [s.name, s.status]), [["qc", "succeeded"], ["quantify", "running"]]);
+  assert.equal(tracker.get("j_live").progress.stage, "quantify");
+  tracker.close();
+  host.remove();
 });
 
 test("job card: a succeeded job's files, records, limitations and resources; the pill says output hashes verified", () => {

@@ -66,21 +66,23 @@ BERBERINE = "inchikey:YBHILYKTIRIUTE-UHFFFAOYSA-N"
 
 @contextmanager
 def _requests_seen() -> Iterator[list[tuple[str, str | None]]]:
-    """Record the URL and Range header of every request urllib sends meanwhile: evidence of
-    what the downloader actually asked for, nothing more (it changes no request)."""
+    """Record the URL and Range header of every request urllib sends meanwhile, through any
+    opener (``urlopen``'s, and the one ``acquisition.transfer`` builds to check each
+    redirect): evidence of what the downloader actually asked for, nothing more (it changes
+    no request)."""
     seen: list[tuple[str, str | None]] = []
-    real = urllib.request.urlopen
+    real = urllib.request.OpenerDirector.open
 
-    def recording(req, *args, **kwargs):
+    def recording(self, req, *args, **kwargs):
         if isinstance(req, urllib.request.Request):
             seen.append((req.full_url, req.get_header("Range")))
-        return real(req, *args, **kwargs)
+        return real(self, req, *args, **kwargs)
 
-    urllib.request.urlopen = recording
+    urllib.request.OpenerDirector.open = recording            # type: ignore[method-assign]
     try:
         yield seen
     finally:
-        urllib.request.urlopen = real
+        urllib.request.OpenerDirector.open = real             # type: ignore[method-assign]
 
 
 def _version_check(name: str, version: str) -> tuple[str, str]:

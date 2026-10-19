@@ -33,7 +33,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from . import capability
 from . import governance as gv
@@ -1029,11 +1029,13 @@ def _engine_of(work: Mapping[str, Any] | None, args: Mapping[str, Any],
     return first
 
 
-def _job_device(job: Mapping[str, Any], ctx: Context) -> tuple[dict[str, Any], str]:
+def _job_device(job: Mapping[str, Any], ctx: Context) -> tuple[dict[str, Any], str | None]:
     """A job's device: the setting asked for, the device the runner assigned when it started
     the job (devices.resolve), and nothing more. Hiding the other GPUs is a selection, not
     proof the engine used the one it was given, so the evidence is 'selected' and ``used`` is
-    known only for a CPU job (no GPU is visible to it)."""
+    known only for a CPU job (no GPU is visible to it). The legacy ``receipt.device`` is the
+    assigned device, and null until the job starts: never the dispatcher's own CPU, which a
+    queued GPU job will not run on."""
     caps = ctx.capabilities if isinstance(ctx.capabilities, Mapping) else {}
     assigned = job.get("device") or None
     dev: dict[str, Any] = {"requested": caps.get("device_setting"), "assigned": assigned,
@@ -1046,7 +1048,7 @@ def _job_device(job: Mapping[str, Any], ctx: Context) -> tuple[dict[str, Any], s
     elif assigned != "cpu":
         dev["note"] = ("assigned by the runner (the other GPUs hidden from the job); the job "
                        "does not report which device its engine used")
-    return dev, str(assigned or ctx.device)
+    return dev, (str(assigned) if assigned else None)
 
 
 def _seeds(entry: Mapping[str, Any] | None, args: Mapping[str, Any]) -> dict[str, Any]:
@@ -1156,12 +1158,24 @@ def _datasets(entry: Mapping[str, Any] | None, via: str, kind: str, o: Outcome,
         out += [_tcmdb_dataset(k) for k in dict.fromkeys(keys)]
     if job is not None:
         inputs = job.get("inputs") if isinstance(job.get("inputs"), Mapping) else {}
-        for param, value in inputs.items():
+
+        def records(param: str, value: Any) -> Iterable[tuple[str, Mapping[str, Any]]]:
+            # an upload record, a list of them, or (a sample sheet's files) a mapping of
+            # them by column and line, read down as jobs._input_digests reads it
             for inp in (value if isinstance(value, list) else [value]):
                 if not isinstance(inp, Mapping):
                     continue
-                item = {"id": str(inp.get("upload") or inp.get("path") or param), "role": "input",
-                        "param": str(param), "name": inp.get("name"), "sha256": inp.get("sha256"),
+                if (not inp.get("sha256") and not inp.get("upload")
+                        and any(isinstance(v, Mapping) for v in inp.values())):
+                    for sub, nested in inp.items():
+                        yield from records(f"{param}.{sub}", nested)
+                else:
+                    yield param, inp
+
+        for param, value in inputs.items():
+            for name, inp in records(str(param), value):
+                item = {"id": str(inp.get("upload") or inp.get("path") or name), "role": "input",
+                        "param": name, "name": inp.get("name"), "sha256": inp.get("sha256"),
                         "bytes": inp.get("bytes"), "release": None}
                 out.append({k: v for k, v in item.items() if v is not None or k == "release"})
         # a job's result may name its sources (a research run's snapshots)
@@ -1230,7 +1244,9 @@ def _result_kind(entry: Mapping[str, Any] | None, via: str, kind: str, gov: Mapp
 def _outputs_verified(job: Mapping[str, Any], o: Outcome) -> bool:
     """A succeeded job's outputs were digested when it was collected: it declared outputs,
     each has its SHA-256, the collection names the digest check (older records predate the
-    list), none it expected is missing, and none is known to have changed since."""
+    list), none it expected is missing, none is known to have changed since, and none read
+    back for this receipt failed its check (an envelope or run.json that can no longer be
+    read is not verified, whatever was recorded of it)."""
     arts = [a for a in job.get("artefacts") or () if isinstance(a, Mapping)]
     jo = job.get("outcome") if isinstance(job.get("outcome"), Mapping) else {}
     checks = jo.get("checks")
@@ -1241,7 +1257,11 @@ def _outputs_verified(job: Mapping[str, Any], o: Outcome) -> bool:
     names = {a.get("name") for a in arts}
     if any(n not in names for n in jo.get("expected") or ()):
         return False
-    return not ((o.result_info.get("artifacts") or {}).get("hash_mismatch"))
+    info_arts = o.result_info.get("artifacts") or {}
+    if info_arts.get("hash_mismatch") or info_arts.get("missing"):
+        return False
+    return all(c.get("ok") is not False for c in o.result_info.get("checks") or ()
+               if isinstance(c, Mapping))
 
 
 def _result_record(entry: Mapping[str, Any] | None, via: str, kind: str, o: Outcome,
@@ -1286,6 +1306,7 @@ def _result_record(entry: Mapping[str, Any] | None, via: str, kind: str, o: Outc
             missing += [n for n in wanted if n not in names]
     checks += [dict(c) for c in info.get("checks") or () if isinstance(c, Mapping)]
     mismatch += list((info.get("artifacts") or {}).get("hash_mismatch") or ())
+    missing += list((info.get("artifacts") or {}).get("missing") or ())
     fallbacks = [dict(f) for f in info.get("fallbacks") or () if isinstance(f, Mapping)]
     if job is not None and job.get("device_note") and job.get("device") == "cpu":
         fallbacks.append({"what": "device", "reason": str(job["device_note"])})
@@ -3412,11 +3433,15 @@ def _skill_job(job: Mapping[str, Any], ctx: Context) -> Outcome:
     g["limitations"] = [f"The governed run's envelope could not be read back ({problem}); its "
                         "release verdict and claims cannot be shown, so treat the result as "
                         "not released.", *_SKILL_LIMITS.get(sid, [])]
-    changed = "no longer has the digest" in problem          # JobService.envelope's words
+    # JobService.envelope's words: a changed file is a hash mismatch, one that cannot be
+    # read (deleted or moved since the job was collected) is missing
+    changed = "no longer has the digest" in problem
+    unreadable = "cannot be read" in problem
     return Outcome(result=job, governance=g, job=_job_view(job),
                    result_info={"checks": [{"id": "envelope_digest", "ok": False,
                                             "detail": problem[:300]}],
-                                "artifacts": {"hash_mismatch": ["envelope"] if changed else []}},
+                                "artifacts": {"hash_mismatch": ["envelope"] if changed else [],
+                                              "missing": ["envelope"] if unreadable else []}},
                    summary=head + "；受治理运行的发布判定无法读取，按未准予发布处理",
                    summary_en=head_en + "; the governed run's release verdict cannot be read, "
                                         "so it counts as not released")
@@ -3469,8 +3494,11 @@ def _run_record(job: Mapping[str, Any], ctx: Context, o: Outcome) -> None:
     except Exception as exc:                                    # noqa: BLE001
         reason = str(exc) or type(exc).__name__
         checks.append({"id": "run_manifest", "ok": False, "detail": reason[:300]})
+        arts = o.result_info.setdefault("artifacts", {})
         if "no longer has the digest" in reason:
-            o.result_info.setdefault("artifacts", {}).setdefault("hash_mismatch", []).append("run")
+            arts.setdefault("hash_mismatch", []).append("run")
+        elif "cannot be read" in reason:
+            arts.setdefault("missing", []).append("run")
         return
     if not isinstance(doc, Mapping):
         return

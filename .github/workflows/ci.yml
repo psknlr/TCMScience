@@ -400,7 +400,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas]" -e studio/runner
+      - run: pip install -e PSH-Harness -e "BioScience-Harness[formulas,dev]" -e studio/runner
       # ci.yml runs on every push, studio.yml only on its paths: the generated reports and every count the docs
       # restate are checked here too, so a change anywhere that moves them fails where it is made
       - name: The docs' numbers, the compatibility matrix and the connector coverage agree with the code
@@ -408,6 +408,10 @@ jobs:
           python3 studio/scripts/doc_facts.py --check
           python3 studio/scripts/compat_matrix.py --check
           python3 studio/scripts/connector_coverage.py --check
+      # studio.yml's paths do not include this file, connectors-live.yml or live-data.yml: the test that checks what
+      # they run is run here, on every push, so a change to them alone is checked too
+      - name: The workflows run what the docs say they run
+        run: python -m pytest -q studio/runner/tests/test_ci_wiring.py
       - name: Every capability through the dispatcher
         run: tcmstudio validate --out "$RUNNER_TEMP/reports/capabilities"
       - name: The Guizhi Decoction and palpitations benchmark, offline

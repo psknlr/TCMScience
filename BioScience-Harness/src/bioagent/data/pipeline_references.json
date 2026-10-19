@@ -111,7 +111,7 @@
                    "benzamidine_scores_better_than_octane": true,
                    "pose_checks_pass": true, "complete": true}
       },
-      "status": "requires vina, meeko and rdkit (checked in CI's molecular-modelling job by tests/test_docking.py)",
+      "status": "requires vina, meeko and rdkit (defined for CI's molecular-modelling job, tests/test_docking.py; not yet executed there with this reference)",
       "requires": ["vina", "meeko", "rdkit"],
       "check": "BioScience-Harness/tests/test_docking.py"
     },

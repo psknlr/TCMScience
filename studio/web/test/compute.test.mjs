@@ -660,4 +660,13 @@ test("result.fallbacks: only a GPU that was tried and failed, set aside, or whos
   const later = await broken.prepare("native.distance_matrix", huge);
   assert.match(gpuDegradation(later.plan, {}), /^set aside for this session: device lost/);
   assert.match(gpuDegradation(null, { gpu_rejected: "the counts of pair 0,1 differ from Python's" }), /Python did not use the GPU's counts: the counts of pair 0,1/);
+  // Python already recorded the rejection (browser_compute._mirror): the event is listed once
+  const rejected = "the counts of pair 0,1 differ from Python's";
+  const receipt = { compute: { backend: "pyodide", gpu_rejected: rejected }, execution: { device: {} },
+    result: { fallbacks: [{ what: "compute", reason: `the WebGPU counts were not used: ${rejected}` }] } };
+  decorateReceipt(receipt, { tool: "native.distance_matrix", packet: { counts: [] } });
+  assert.deepEqual(receipt.result.fallbacks.map((f) => f.what), ["compute"]);
+  const fresh = { compute: { backend: "pyodide", gpu_rejected: rejected }, execution: { device: {} }, result: { fallbacks: [] } };
+  decorateReceipt(fresh, { tool: "native.distance_matrix", packet: { counts: [] } });
+  assert.equal(fresh.result.fallbacks.length, 1, "without Python's entry the Worker still says it");
 });

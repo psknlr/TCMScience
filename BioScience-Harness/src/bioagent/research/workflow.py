@@ -183,7 +183,27 @@ def edge_split(result: Mapping[str, Any], snaps: Mapping[str, Any],
                rebuttal: Mapping[str, Any]) -> dict[str, Any]:
     """Each edge class counted as measured or predicted, the predicted compound-target
     edges the analysis left out, targets resting on predictions only, and citations of a
-    surviving hypothesis that are not a snapshot edge or not a measured activity."""
+    surviving hypothesis that are not a snapshot edge or not a measured activity.
+
+    The run's mode decides which activity edges are its measurements, as the analysis
+    decided it (``network_pharmacology``, step 2): with ``hits: screening`` a depositor's
+    active call in PubChem BioAssay, an observation that need carry no activity value; with
+    potency hits a curated measurement with its value. An edge of the other mode was left
+    out of the analysis and supports nothing here."""
+    from ..analysis.network_pharmacology import SCREENING_SOURCE
+
+    screening = (result.get("parameters") or {}).get("hits") == "screening"
+    screen_snap = snaps.get(SCREENING_SOURCE)
+    screen_id = getattr(screen_snap, "snapshot_id", None)
+
+    def measured(e: Mapping[str, Any], from_screen: bool) -> bool:
+        # a measured compound-target edge of the run's own mode
+        if e.get("predicate") != "targets" or e.get("knowledge_level") == "prediction":
+            return False
+        if from_screen != screening:
+            return False
+        return screening or bool(e.get("measure"))
+
     compounds = {r["compound"] for r in result.get("compounds") or ()}
     targets = {t["target"] for t in result.get("targets") or ()}
     counts: dict[str, dict[str, int]] = {}
@@ -220,14 +240,13 @@ def edge_split(result: Mapping[str, Any], snaps: Mapping[str, Any],
             continue
         for sid, rid in claim.get("support") or ():
             e = edges.get((sid, str(rid)))
-            if e is None or (e.get("predicate") == "targets" and (
-                    e.get("knowledge_level") == "prediction" or not e.get("measure"))):
+            if e is None or (e.get("predicate") == "targets" and not measured(
+                    e, screen_id is not None and sid == screen_id)):
                 bad.append((claim["object"], sid, rid))
     predicted_left_out = int((result.get("excluded") or {}).get(
         "predicted target edge (not used by this skill)", 0))
-    measured_targets = {e["object"] for _, e in activity
-                        if e.get("predicate") == "targets" and e.get("knowledge_level") != "prediction"
-                        and e.get("measure")}
+    measured_targets = {e["object"] for key, e in activity
+                        if measured(e, key == SCREENING_SOURCE)}
     return {"counts": counts, "bad": bad, "predicted_left_out": predicted_left_out,
             "predicted_only": sorted(targets - measured_targets)}
 

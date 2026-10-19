@@ -108,6 +108,10 @@ function readinessReason(r) {
     if (q?.need === "remote_backend") return { label: t("ui.catalog.readiness.remote_backend"), icon: "globe" };
     if (q) return { label: t("ui.catalog.readiness.compute_setting"), icon: "sliders" };
   }
+  // needs_runner is also the state of a connected runner whose job service cannot start: said as that, not "connect"
+  if (r.state === "needs_runner" && r.requires.some((x) => x.need === "job_service") && !r.requires.some((x) => x.need === "runner")) {
+    return { label: t("ui.catalog.readiness.job_service"), icon: READINESS_ICON.needs_runner || "circleDashed" };
+  }
   return { label: t(`ui.catalog.readiness.${r.state}`), icon: READINESS_ICON[r.state] || "circleDashed" };
 }
 

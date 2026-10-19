@@ -935,6 +935,9 @@ class JobService:
                     if stages != job.stages:
                         job.stages = stages
                         job.version += 1
+                        # a progress event carries only the progress: the stage list of a
+                        # card that follows the stream moves on with this one
+                        self._emit(job, "stages", {"stages": stages})
         if kind is not None and kind.progress is not None and not st.state.finished:
             try:
                 progress = kind.progress(job.dir, job.prepared)

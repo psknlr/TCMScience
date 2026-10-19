@@ -1163,9 +1163,22 @@ def _tcmdb_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     if allowed and dataset not in allowed:
         raise BadParams(f"dataset: {dataset!r} cannot be fetched by a program here; one of "
                         f"{', '.join(allowed[:20])}…")
+    include_optional = bool(p.get("include_optional"))
+    if not include_optional:
+        # a dataset whose every file is optional asks for none of them by default: such a
+        # fetch would download nothing and still exit cleanly, so it is refused here
+        from bioagent.acquisition.service import wanted_files
+        from bioagent.tcmdb import hub as hub_module
+        try:
+            spec = hub_module.dataset(dataset)
+        except KeyError:
+            spec = None
+        if spec is not None and spec.files and not wanted_files(spec, False):
+            raise BadParams(f"dataset: every file of {dataset} is optional, so a fetch without "
+                            "include_optional downloads nothing; pass include_optional: true")
     # the research snapshots' raw directory may hold the same reviewed files (NPASS, CMAUP,
     # LOTUS): a copy there that hashes to its reviewed checksum is hard-linked, not fetched
-    return {"dataset": dataset, "include_optional": bool(p.get("include_optional")),
+    return {"dataset": dataset, "include_optional": include_optional,
             "root": ctx.data_env["BIOAGENT_TCMDB"],
             "mirrors": [str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "raw")]}
 

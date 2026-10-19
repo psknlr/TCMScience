@@ -571,7 +571,7 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
           error: Mapping[str, Any] | None = None, job: Mapping[str, Any] | None = None,
           approval: Mapping[str, Any] | None = None, arguments: Any = None,
           started_at: str | None = None, duration_ms: int | float | None = None,
-          where: str = "runner", device: str = "cpu", content_hash: str | None = None,
+          where: str = "runner", device: str | None = "cpu", content_hash: str | None = None,
           audit_head: str | None = None, composite_version: str | None = None,
           receipt_extra: Mapping[str, Any] | None = None, notes: Iterable[str] = (),
           text_limit: int = TEXT_LIMIT) -> dict[str, Any]:
@@ -609,7 +609,9 @@ def shape(tool: str, *, via: str | None = None, kind: str = "system",
         text = str(text)[:text_limit]
         receipt: dict[str, Any] = {
             "where": where if where in ("browser", "runner") else "runner",
-            "runtime": runtime_string(), "device": device or "cpu", "versions": versions(),
+            # None only for a job with no device assigned yet (dispatch._job_device)
+            "runtime": runtime_string(), "device": None if device is None else device or "cpu",
+            "versions": versions(),
             "composite_version": composite_version, "content_hash": content_hash,
             "audit_head": audit_head or None, "input_sha256": sha256_json(arguments or {}),
             "output_sha256": sha256_json(result_j), "started_at": started_at or utc_now()}

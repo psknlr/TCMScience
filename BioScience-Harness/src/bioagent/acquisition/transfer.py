@@ -90,9 +90,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping
 
-from ..backends.http import _RedirectRefused
+from ..backends.http import _GuardedRedirects, _RedirectRefused
 from ..validation import BLOCKED, FAIL, NOT_APPLICABLE, PASS, SKIPPED, utc_now
-from .downloader import _UA, DownloadError, DownloadResult, Downloader
+from .downloader import _UA, PACER, DownloadError, DownloadResult, Downloader, _Paced
 
 __all__ = ["VerifiedTransfer", "TransferResult", "TransferError", "TransferCancelled",
            "SIDECAR_SCHEMA", "RETRY_AFTER_CAP_S", "check_archive", "check_columns",
@@ -515,6 +515,37 @@ class VerifiedTransfer(Downloader):
         self.retry_after_cap_s = float(retry_after_cap_s)
         #: the first wait after a transient failure; it doubles per attempt, up to 10 s
         self.retry_backoff_s = float(retry_backoff_s)
+
+    # ------------------------------------------------------------- requests
+    def _open(self, req: urllib.request.Request):
+        """``Downloader._open`` with every redirect checked before it is followed
+        (``backends.http._GuardedRedirects``): a hop to any other host than the request's,
+        or from https down to http, is refused (``_RedirectRefused``, not retried) before
+        that host is contacted, so a chain that leaves the reviewed host and comes back is
+        refused at its first hop. The inherited method checks only the URL the answer
+        finally came from; that check is kept. Paced per host as it is (``PACER``)."""
+        parts = urllib.parse.urlsplit(req.full_url)
+        host = parts.hostname or ""
+        opener = urllib.request.build_opener(
+            _GuardedRedirects(frozenset({host.lower()}), parts.scheme))
+        PACER.wait(host, self.rates)
+        try:
+            resp = opener.open(req, timeout=self.timeout_s)
+        except BaseException:
+            PACER.done(host)                 # a refused request still counts
+            raise
+        final = urllib.parse.urlsplit(getattr(resp, "url", None) or req.full_url)
+        moved = (final.hostname or "").lower() != host.lower()
+        if moved or (parts.scheme == "https" and final.scheme != "https"):
+            try:
+                resp.close()
+            finally:
+                PACER.done(host)
+            raise _RedirectRefused(
+                f"redirected to {final.hostname or final.geturl()!r}, which is not a host "
+                f"this call may contact ({host})" if moved
+                else f"redirected from https down to {final.scheme}")
+        return _Paced(resp, host)
 
     # ------------------------------------------------------------ cancellation
     def cancelled(self) -> bool:

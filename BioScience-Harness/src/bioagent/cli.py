@@ -245,6 +245,11 @@ def _cmd_tcmdb(a) -> int:
                 print("cancelled: the partial file is kept and resumes, verified, on the next "
                       "fetch", file=sys.stderr)
                 return 130
+            if not doc["files"]:
+                # nothing was asked for (every file of the dataset is optional): not a success
+                print(f"nothing fetched: every file of {a.dataset} is optional; pass --all to "
+                      "fetch them", file=sys.stderr)
+                return 1
             if all(r["ok"] for r in doc["files"]):
                 return 0
             bad = next(r for r in doc["files"] if not r["ok"])

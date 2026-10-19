@@ -242,8 +242,13 @@ test("resultOf: receipt.result as recorded; derived (and marked so) for an envel
   // jobs: queued and running are not results; a collected job's outputs were hash-checked, nothing more
   assert.equal(legacy({ status: "job_submitted", job: { state: "queued" } }).outcome, "queued");
   assert.equal(legacy({ status: "succeeded", job: { state: "running" }, governance: { kind: "system" } }).outcome, "running");
-  const fold = legacy({ status: "succeeded", job: { state: "succeeded" }, governance: { kind: "job", limitations: ["Predicted ≠ measured: a computational prediction or network inference supports a mechanism hypothesis at most, never a mechanism or efficacy."] } });
+  const predicted = { kind: "job", limitations: ["Predicted ≠ measured: a computational prediction or network inference supports a mechanism hypothesis at most, never a mechanism or efficacy."] };
+  const fold = legacy({ status: "succeeded", job: { state: "succeeded", artefacts: [{ name: "structure", sha256: "ab".repeat(32) }] }, governance: predicted });
   assert.deepEqual(fold, { kind: "prediction", outcome: "validated", assurance: "outputs_verified", derived: true });
+  // a job with no outputs (tcmdb.build), or one whose outputs carry no digest, had nothing hashed
+  assert.deepEqual(legacy({ status: "succeeded", job: { state: "succeeded" }, governance: predicted }), { kind: "prediction", outcome: "succeeded", assurance: "none", derived: true });
+  assert.equal(legacy({ status: "succeeded", job: { state: "succeeded", artefacts: [{ name: "a", sha256: "ab" }, { name: "b" }] }, governance: { kind: "system" } }).assurance, "none");
+  assert.equal(legacy({ status: "succeeded", job: { state: "succeeded" }, result: { artefacts: [{ name: "a", sha256: "cd" }] }, governance: { kind: "system" } }).assurance, "outputs_verified");
   // a kind only from a sign the envelope carries
   assert.equal(legacy({ status: "succeeded", governance: { kind: "connector" } }).kind, "record");
   assert.equal(legacy({ status: "succeeded", governance: { kind: "clinic" } }).kind, "draft");

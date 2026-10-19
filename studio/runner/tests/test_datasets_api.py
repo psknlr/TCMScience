@@ -122,6 +122,8 @@ def test_an_acquisition_names_a_registered_key_and_nothing_else(tmp_path):
                             ({"dataset": "npass", "confirm": True}, "size-gate"),
                             ({"dataset": "tcmsp_export"}, "cannot be downloaded"),
                             ({"dataset": "npass", "include_optional": "yes"}, "true or false"),
+                            # every file optional: without include_optional nothing is fetched
+                            ({"dataset": "mesh"}, "every file of mesh is optional"),
                             ({}, "dataset")):
             status, doc = c.post("/api/datasets/acquisitions", body)
             assert status == 400 and doc["error"]["type"] == "bad_arguments", body

@@ -244,6 +244,27 @@ test("merge: the runner's readiness never replaces the browser's; browser comput
   assert.deepEqual(new Catalog(new Catalog(docs).toJSON()).limits, new Catalog(docs).limits);
 });
 
+test("merge: an entry's implementation state and its verification come from the same side, so tested ⇔ a level passed", () => {
+  const pass = { status: "PASS", levels: { live_upstream: { status: "PASS", record: "data/connector_live_verification.csv" } } };
+  const none = { status: "UNVERIFIED", levels: {} };
+  const built = { ...testCatalogDoc(), entries: [{ id: "connector.x.y", exec: ["browser", "runner"], state: { implementation: "tested" }, verification: pass }] };
+  // a runner whose checkout reads other records (or none): its own pair is not mixed into the built one
+  const runner = { entries: [{ id: "connector.x.y", exec: ["browser", "runner"], state: { implementation: "implemented", readiness: { runner: { state: "ready", requires: [] } } }, verification: none }] };
+  const e = new Catalog(mergeCatalogs(built, runner)).byId["connector.x.y"];
+  assert.equal(e.state.implementation, "tested");
+  assert.deepEqual(e.verification, pass);
+  assert.equal(e.state.readiness.runner.state, "ready");
+  // a built entry without a state of its own takes the runner's pair
+  const older = { ...testCatalogDoc(), entries: [{ id: "connector.x.y", exec: ["browser", "runner"], verification: pass }] };
+  const o = new Catalog(mergeCatalogs(older, runner)).byId["connector.x.y"];
+  assert.equal(o.state.implementation, "implemented");
+  assert.deepEqual(o.verification, none);
+  for (const m of [e, o]) {
+    const passed = Object.values(m.verification.levels).some((l) => l.status === "PASS");
+    assert.equal(m.state.implementation === "tested", passed);
+  }
+});
+
 test("search filters for the catalog page: runtime, readiness, dataset, verification, backend", () => {
   const c = new Catalog(stateDoc());
   const ids = (opts) => c.search("", { limit: 200, ...opts }).map((e) => e.id).sort();

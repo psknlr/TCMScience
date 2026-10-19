@@ -4,9 +4,12 @@ Each reference names its data by content digest, the parameters it is run with a
 it must give. Here the built-in RNA-seq and single-cell references are generated again,
 their digests compared with the manifest's, the pipelines run on them and the results
 compared with the expected values (and, under the numpy and scipy the output digests
-were recorded with, with those digests too). The structure reference runs offline from
-its stored model. The docking reference needs Vina (tests/test_docking.py checks it in
-CI's molecular-modelling job); here only its fixture's digest is compared. The ADMET
+were recorded with, with those digests too). The input digests and the reference's
+identity are compared under any numpy: they are stable across the versions tried (2.4.6
+and 2.5.4), and a change of numpy's random streams should fail here, not pass unseen. The
+structure reference runs offline from its stored model. The docking reference needs Vina
+(tests/test_docking.py, in CI's molecular-modelling job, which has not run it yet); here
+only its fixture's digest is compared. The ADMET
 reference needs the TDC archive, a download: it runs only where BIOAGENT_TDC_ARCHIVE
 names a copy, and is skipped otherwise even under BIOAGENT_REQUIRE_TOOLS, since what is
 missing then is data, not a tool.
@@ -48,12 +51,6 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _generated_here(ref: dict) -> bool:
-    """Whether this numpy is the one the generator ran under (its random streams are
-    what the data digests record)."""
-    return ref["source"]["generated_with"]["numpy"] == np.__version__
-
-
 def test_the_rnaseq_reference_reruns_to_its_expected_result(tmp_path):
     from bioagent.omics import rnaseq as R
     ref = _ref("omics_world")
@@ -69,10 +66,9 @@ def test_the_rnaseq_reference_reruns_to_its_expected_result(tmp_path):
                for m in ("R1", "R2")}
     digests["transcripts"] = validation["reference"]["transcripts"]["content_sha256"]
     digests["annotation"] = validation["reference"]["annotation"]["content_sha256"]
-    if _generated_here(ref):
-        assert digests == ref["inputs"]
-        assert content_digest(digests) == ref["sha256"]
-        assert run.reference_dataset["id"] == "omics_world"
+    assert digests == ref["inputs"]
+    assert content_digest(digests) == ref["sha256"]
+    assert run.reference_dataset["id"] == "omics_world"
     want = ref["expected"]["values"]
     res = run.result
     called = {g: float(res.log2_fold_change[i]) for i, g in enumerate(res.genes)
@@ -85,7 +81,9 @@ def test_the_rnaseq_reference_reruns_to_its_expected_result(tmp_path):
     assert min(q["mapping_rate"] for q in run.quantification.values()) >= \
         want["mapping_rate_at_least"]
     assert run.complete is want["complete"]
-    if _generated_here(ref) and _same_numerics(ref["expected"]["outputs_recorded_with"]):
+    # the output digests depend on the numerics too (numpy and scipy): compared only under
+    # the versions they were recorded with
+    if _same_numerics(ref["expected"]["outputs_recorded_with"]):
         for name, digest in ref["expected"]["outputs"].items():
             assert _sha(tmp_path / "out" / name) == digest, name
 
@@ -112,9 +110,8 @@ def test_the_scrna_reference_reruns_to_its_expected_result(tmp_path):
         de_backend=p["de_backend"], n_top_genes=p["n_top_genes"], seed=p["seed"]),
         tmp_path / "out")
     digests = run.manifest["validation"]["matrices"]
-    if _generated_here(ref):
-        assert digests == ref["inputs"] and content_digest(digests) == ref["sha256"]
-        assert run.reference_dataset["id"] == "sc_world"
+    assert digests == ref["inputs"] and content_digest(digests) == ref["sha256"]
+    assert run.reference_dataset["id"] == "sc_world"
     want = ref["expected"]["values"]
     kind = np.array([world.truth[c]["type"] for c in run.cells], dtype=object)
     keep = np.isin(kind, list(EXPECTED))
@@ -129,7 +126,9 @@ def test_the_scrna_reference_reruns_to_its_expected_result(tmp_path):
             assert len(res.significant()) <= want["pseudobulk_other_cell_types_significant_at_most"]
     assert run.integration["mixing_after"] > want["batch_mixing_after_above"]
     assert run.complete is want["complete"]
-    if _generated_here(ref) and _same_numerics(ref["expected"]["outputs_recorded_with"]):
+    # the output digests depend on the numerics too (numpy and scipy): compared only under
+    # the versions they were recorded with
+    if _same_numerics(ref["expected"]["outputs_recorded_with"]):
         for name, digest in ref["expected"]["outputs"].items():
             assert _sha(tmp_path / "out" / name) == digest, name
 

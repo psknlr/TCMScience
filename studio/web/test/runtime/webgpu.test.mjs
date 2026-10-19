@@ -26,10 +26,12 @@ function emulate(bases, params) {
 /**
  * A WebGPU device double that runs the recorded commands on submit: the dispatch (emulated), buffer copies and
  * timestamp resolves. corruptFrom: dispatches after this many come back with one count wrong (0: all of them).
+ * state.slow (from `slow`) can be changed between calls; state.mapped counts the readbacks that completed.
  */
 function fakeGPU({ fail = false, lost = false, corrupt = false, corruptFrom = 0, slow = false, limit = 2 ** 28, info = { vendor: "nvidia", architecture: "ampere" }, timestamps = false } = {}) {
   let resolveLoss;
   const destroyed = [], submitted = [], deviceRequests = [];
+  const state = { slow, mapped: 0 };
   const device = {
     features: new Set(timestamps ? ["timestamp-query"] : []),
     lost: new Promise((resolve) => { resolveLoss = resolve; }),
@@ -39,7 +41,7 @@ function fakeGPU({ fail = false, lost = false, corrupt = false, corruptFrom = 0,
     async createComputePipelineAsync() { return { getBindGroupLayout() { return {}; } }; },
     createBuffer({ size, usage }) {
       return { data: new ArrayBuffer(size), usage, destroy() { destroyed.push(this); }, unmap() {},
-        async mapAsync() { if (slow) await new Promise((r) => setTimeout(r, 100)); if (lost) { resolveLoss({ message: "GPU disconnected" }); throw new Error("lost"); } },
+        async mapAsync() { if (state.slow) await new Promise((r) => setTimeout(r, 100)); if (lost) { resolveLoss({ message: "GPU disconnected" }); throw new Error("lost"); } state.mapped++; },
         getMappedRange() { return this.data; },
       };
     },
@@ -77,7 +79,7 @@ function fakeGPU({ fail = false, lost = false, corrupt = false, corruptFrom = 0,
   let adapters = 0;
   const adapter = { info, features: new Set(timestamps ? ["timestamp-query"] : []), async requestDevice(descriptor) { deviceRequests.push(descriptor); return device; } };
   return { navigator: { gpu: { async requestAdapter() { adapters++; return adapter; } } },
-    device, destroyed, submitted, deviceRequests, get adapters() { return adapters; } };
+    device, destroyed, submitted, deviceRequests, state, get adapters() { return adapters; } };
 }
 
 // ------------------------------------------------------------------------------------------- the classifier
@@ -266,12 +268,37 @@ test("timestamps, when asked for and supported, give the GPU's own kernel time",
 
 test("cancellation during readback releases buffers and never silently retries on CPU", async () => {
   const args = { sequence: "GCSN".repeat(10000) };
+  // the device warmed first (its known-answer test passed), so the cancel lands in the call's own readback
+  const gpu = fakeGPU(), compute = new SequenceCompute(gpu);
+  assert.ok(await compute.prepare("native.gc_content", args));
+  assert.equal(compute.knownAnswer?.ok, true);
+  const destroyed = gpu.destroyed.length, dispatched = gpu.submitted.length, mapped = gpu.state.mapped;
+  gpu.state.slow = true;
+  let aborted = false;
+  const timer = setTimeout(() => { aborted = true; }, 5);
+  await assert.rejects(compute.prepare("native.gc_content", args, { isCancelled: () => aborted }), (e) => e.code === "cancelled");
+  clearTimeout(timer);
+  assert.equal(gpu.submitted.length - dispatched, 1, "the call's own dispatch, no known-answer test again");
+  assert.equal(gpu.state.mapped, mapped, "stopped during its readback, not after it completed");
+  assert.equal(gpu.destroyed.length - destroyed, 4, "its four buffers released");
+  assert.equal(compute.knownAnswer?.ok, true, "a cancelled call leaves the device's verdict standing");
+  compute.stop();
+});
+
+test("a cancel during the known-answer test leaves no verdict, and the next call runs the test again", async () => {
+  const args = { sequence: "GCSN".repeat(10000) };
   const gpu = fakeGPU({ slow: true }), compute = new SequenceCompute(gpu);
   let aborted = false;
   const timer = setTimeout(() => { aborted = true; }, 5);
   await assert.rejects(compute.prepare("native.gc_content", args, { isCancelled: () => aborted }), (e) => e.code === "cancelled");
   clearTimeout(timer);
-  assert.equal(gpu.destroyed.length, 4);
+  assert.equal(gpu.submitted.length, 1, "stopped in the first known-answer dispatch");
+  assert.equal(gpu.destroyed.length, 4, "whose buffers are released");
+  assert.equal(compute.knownAnswer, null);
+  gpu.state.slow = false;
+  assert.ok(await compute.prepare("native.gc_content", args));
+  assert.equal(gpu.submitted.length, 1 + KNOWN_ANSWERS.length + 1, "the whole test again, then the call");
+  assert.equal(compute.knownAnswer?.ok, true);
   compute.stop();
 });
 

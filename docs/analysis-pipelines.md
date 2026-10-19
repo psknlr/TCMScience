@@ -713,7 +713,8 @@ receptor atom and passes. These are sanity checks, not PoseBusters, and passing 
 does not validate binding. Vina's ranking is kept as it is.
 
 `tests/test_docking.py` exercises the stages and checks with RDKit, meeko and a
-stand-in for Vina, and says so; real Vina runs in CI's molecular-modelling job. The
+stand-in for Vina, and says so; real Vina is run by CI's molecular-modelling job, which
+has not run since these checks were added (`ci` #281 was its last run). The
 `dock-ligands` skill drafts a hypothesis only from a complete run, and only for a ligand
 whose best pose passed these checks.
 
@@ -743,7 +744,7 @@ archive is given.
 | RNA-seq | `omics_world` v1 (`tests/omics_world.py`, seed 1, 5% adapters) | simulated, known answer | here: the seven planted genes, at most one false discovery, 30 genes tested, outputs byte-identical |
 | Single cell | `sc_world` v1 (`tests/sc_world.py`, seed 0) | simulated, known answer | here: ARI above 0.9 (1.0), the four cell types named, at least 12 planted genes in B-cell pseudobulk |
 | Structure | PDB 1UBQ and the stored ESM Atlas model | public | here, offline: TM-score 0.958, RMSD 0.83 Å; a new prediction requires the network or torch and transformers |
-| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented) |
+| Docking | the 3PTB pocket | public (CC0) | requires vina, meeko and RDKit: defined for CI's molecular-modelling job (redocking under 2 Å; 0.38 Å documented), not yet executed there with this reference |
 | ADMET | the TDC ADMET group | public | requires RDKit, scikit-learn and the archive (`BIOAGENT_TDC_ARCHIVE`): held-out scores within 0.05 of the table above for scores on [0, 1], and within 5% for errors in the endpoint's unit |
 
 The two simulated references are not public data. A run on one of them is recognised by

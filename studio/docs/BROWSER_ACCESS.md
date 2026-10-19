@@ -18,9 +18,10 @@ credentials, request sizes and response sizes, and applies visitor and source
 rate limits. `/api/sources/health` reports the deployed manifest counts and limits.
 
 What has been verified, per operation, is reported by level in
-[compat/connectors.md](compat/connectors.md) (generated, `--check` in CI): every
+[compat/connectors.md](compat/connectors.md) (generated; its `--check` is a step of CI's
+`validation` job that is defined and has not run yet, so it is checked locally): every
 operation's request reaches a mock transport as the live verification sends it and
-is refused offline (both checked offline on every push), and every operation
+is refused offline (both checked offline by that check), and every operation
 answered from its real upstream in a maintainer's run through the runner's HTTP
 backend (dated, in `BioScience-Harness/data/connector_live_verification.csv`). None
 has been verified from a browser through the deployed gateway to its real upstream:

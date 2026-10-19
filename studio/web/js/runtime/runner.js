@@ -76,7 +76,7 @@ export class RunnerRuntime {
       cancel: (id) => self.#json(`/api/jobs/${encodeURIComponent(id)}`, { method: "DELETE" }),
       files: (id) => self.#json(`/api/jobs/${encodeURIComponent(id)}/files`),
       /**
-       * Follow a job's events (state|log|progress|artefact|done|error); onEvent({type, data}). Returns close(). The
+       * Follow a job's events (state|log|progress|stages|artefact|done|error); onEvent({type, data}). Returns close(). The
        * shared poll reports state (the job, when it changed) and done (the finished job); log lines come only to a
        * job that holds one of the few event streams.
        */
@@ -369,7 +369,7 @@ export class RunnerRuntime {
       this.#deliver(f, type, data);
       if (type === "done") f.close();
     };
-    for (const type of ["state", "log", "progress", "artefact", "done"]) es.addEventListener(type, deliver(type));
+    for (const type of ["state", "log", "progress", "stages", "artefact", "done"]) es.addEventListener(type, deliver(type));
     es.onmessage = deliver("message");
     es.onerror = () => {
       // EventSource reconnects by itself; tell the caller only when it gave up

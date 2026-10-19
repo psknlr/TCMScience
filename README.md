@@ -314,9 +314,9 @@ TCMScience provides browser-based access to its registered scientific capabiliti
 | Exact JavaScript and WebAssembly SIMD kernels for 7 sequence tools | implemented, tested | 374 parity cases against the Python reference, in Studio's CI (`studio.yml`) |
 | WebGPU integer counts for 3 of those tools | implemented; tested on a software adapter only | never run on a hardware GPU, so its speed is unmeasured; used, when the scheduler expects it to be faster, on any adapter not identified as a software renderer (a physical one, or an unidentified one, which is never counted as a GPU) |
 | WebNN | detection only | WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified execution provider and hardware-backed execution evidence; no workload has either today |
-| Public databases from the browser, through the site's bounded gateway | implemented, tested | every operation with a mock transport (offline, every push) and against its real upstream from a maintainer's run, dated; none verified through the deployed gateway ([coverage by level](studio/docs/compat/connectors.md)) |
+| Public databases from the browser, through the site's bounded gateway | implemented, tested | every operation's request checked against a mock transport, and refused offline, by `connector_coverage.py --check`, run locally (its CI step is defined and has not run yet); and against its real upstream from a maintainer's run, dated; none verified through the deployed gateway ([coverage by level](studio/docs/compat/connectors.md)) |
 | Network pharmacology | limited in the browser | Browser mode supports a limited seed-corpus network hypothesis workflow. Full data-driven network pharmacology analysis requires verified external data snapshots and an appropriate scientific execution backend: the runner's research job, with sixteen recorded stages and nine exports ([pipelines](docs/analysis-pipelines.md)) |
-| Pipelines and native engines | implemented on the local runner; tested in CI's engine jobs, on the CPU | the engine jobs in `ci.yml` ([pipelines](docs/analysis-pipelines.md#what-is-verified-where)) |
+| Pipelines and native engines | implemented on the local runner; the engine paths last ran in CI's engine jobs (CPU) on `ci` #281, 2026-10-11, before the current stage records and pipeline code; since then run locally on the built-in paths only, with real Vina not run | the engine jobs in `ci.yml`, defined; none has run its jobs since `ci` #281 ([pipelines](docs/analysis-pipelines.md#what-is-verified-where), [validation](docs/validation.md#not-verified-here-and-why)) |
 | GPU jobs | implemented on the local runner; never run on a GPU in CI (every CI job is CPU-only) | a runner GPU is reported by its driver, never verified by a computation here |
 | Remote compute | planned: designed, not deployed | [studio/docs/REMOTE_COMPUTE.md](studio/docs/REMOTE_COMPUTE.md) |
 
@@ -335,8 +335,10 @@ bioagent validate benchmark --out reports/ --live      # 桂枝汤 and palpitati
 bioagent validate summary reports/                     # every report as one Markdown table
 ```
 
-CI runs the offline tier on every push and the live tiers on GitHub's runners
-(`.github/workflows/live-data.yml`). What they established, and what they did not, against
+CI is set up to run the offline tier on every push and the live tiers on GitHub's runners
+(`.github/workflows/live-data.yml`); no `ci` or `live-data` run has run its jobs since `ci` #281 and
+`live-data` #10 (2026-10-11), so what was added since is defined there, not executed
+([docs/validation.md](docs/validation.md#not-verified-here-and-why)). What they established, and what they did not, against
 the plan's acceptance criteria: [docs/release-qualification-2026-10.md](docs/release-qualification-2026-10.md).
 Connectors have levels of their own (mock transport, live upstream, live through the deployed
 gateway), and browser parity has its own (kernel parity; Pyodide parity, by the manual runtime

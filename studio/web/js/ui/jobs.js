@@ -160,6 +160,7 @@ export class JobTracker {
       if (ev.type === "state") { rec.replay = []; rec.replayTimer = setTimeout(() => endReplay(rec), 250); }
       if (ev.type === "state" || ev.type === "done") rec.job = { ...rec.job, ...(data.job || data) };
       else if (ev.type === "progress") rec.job = { ...rec.job, progress: data };
+      else if (ev.type === "stages" && Array.isArray(data.stages)) rec.job = { ...rec.job, stages: data.stages };
       else if (ev.type === "artefact" && data && typeof data.path === "string") {
         // written so far: a name and a size, not a result (the card lists them only until the job is collected)
         if (!rec.partial.some((f) => f.path === data.path)) rec.partial = [...rec.partial, { path: data.path, bytes: data.bytes }].slice(-PARTIAL_MAX);

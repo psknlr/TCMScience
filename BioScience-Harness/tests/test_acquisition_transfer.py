@@ -474,6 +474,23 @@ def test_a_redirect_to_another_host_is_refused(upstream, tmp_path):
     assert not (tmp_path / "away.bin").exists()
 
 
+def test_a_redirect_through_another_host_and_back_never_reaches_that_host(upstream, tmp_path):
+    # 127.0.0.1 → localhost → 127.0.0.1: the URL it ends on is the request's host again, so
+    # only a check of each hop before it is followed keeps the other host uncontacted (one
+    # loopback server answers both names; the path it was asked for says which hop it was)
+    port = upstream.rsplit(":", 1)[1]
+    _Upstream.files["/real.bin"] = _File(b"y" * 100)
+    _Upstream.script["/bounce"] = [{"redirect": f"http://localhost:{port}/hop"}]
+    _Upstream.script["/hop"] = [{"redirect": f"http://127.0.0.1:{port}/real.bin"}]
+    with pytest.raises(DownloadError) as exc:
+        _dl(tmp_path).fetch(f"{upstream}/bounce", "bounce.bin",
+                            checksum="sha256:" + hashlib.sha256(b"y" * 100).hexdigest())
+    status, reason = outcome_of_error(exc.value, "127.0.0.1")
+    assert status == FAIL and "redirected" in reason and "localhost" in reason
+    assert "/hop" not in {s["path"] for s in _Upstream.seen}, "the other host was contacted"
+    assert not (tmp_path / "bounce.bin").exists()
+
+
 # ----------------------------------------------------------------- disk and locks
 
 def test_no_get_is_sent_when_the_disk_cannot_hold_the_servers_size(upstream, tmp_path,

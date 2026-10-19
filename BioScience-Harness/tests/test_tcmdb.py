@@ -419,6 +419,15 @@ def test_the_cli_lists_the_catalogue(capsys):
     assert "DCABM-TCM" in capsys.readouterr().out
 
 
+def test_a_fetch_that_asks_for_no_file_is_not_a_success(tmp_path, capsys):
+    # every MeSH file is optional: without --all the fetch wants none, and touches no network
+    from bioagent.cli import main
+    assert main(["tcmdb", "--root", str(tmp_path), "fetch", "mesh"]) == 1
+    out, err = capsys.readouterr()
+    assert json.loads(out.strip().splitlines()[-1])["kept"] == 0
+    assert "every file of mesh is optional" in err
+
+
 # ------------------------------------------------- SymMap / HERB site query endpoints
 class _Result:
     def __init__(self, value, status="SUCCEEDED"):

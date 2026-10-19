@@ -167,7 +167,11 @@ one test.
   `core.approval.job_remote` (a job on a remote runner, its host named), `core.approval.network_unknown`,
   `core.router.missing_deps_remote`, `core.router.too_large_for_browser_only` (an entry only the browser runs),
   `core.runner.{not_running,timeout,http}_remote` and `core.local.capabilities_remote`. `PLACEMENT_REASONS` also
-  lists `human_only` (placement provenance of a HUMAN_ONLY refusal only).
+  lists `human_only` (placement provenance of a HUMAN_ONLY refusal only). What the connected runner lacks takes the
+  reason of its first need (`needs_dataset`, `needs_job_service` from `RUNTIME_REASONS`, or `missing_deps`), worded
+  by `core.router.runner_lacks` / `core.router.runner_lacks_remote`; `core/catalog.js` exports `missingRequirements`
+  (a runner's `missing` list classified as `tcmstudio.capability` does it) and `runnerLacks(entry)`. The UI's
+  `ui.catalog.readiness.job_service` says needs_runner when only the runner's job service is missing.
 - Extras: `whereCall(name, args)`, `placement(x, args?) → {where, reason, message, requires}`, `resolve(name, args)`,
   `storeApprovals(store)`, `normalizeEnvelope`, `synthEnvelope` (async; `where` default `"page"`, `decided_by`,
   `outcome`), `hostsOf(entry, args)`, `hostsDigest(hosts)`, `PLACEMENT_REASONS`.
@@ -420,10 +424,13 @@ timed_out?, note?}`. `progress` only while running. `GET /api/jobs/{id}?wait_s=N
 POST `/api/jobs` answers 201 for a new job and 200 for an existing `submission_id`.
 
 **Events** (`/api/jobs/{id}/events`): `retry: 3000`, then `state` (Job), the recent `log` lines, `progress` if any;
-live: `state` (Job), `log` `{stream:"stdout"|"stderr", line}`, `progress` `{fraction?, message?, stage?}` (`{}` when
-cleared; `stage` is a pipeline's stage from its `stages.json`, or `"verifying"` while the job is collected, §4),
-`artefact` `{path, bytes, media_type}` (a new file in the output directory, not yet verified), `done` (Job; the stream
-then closes); `: keep-alive` comments every 15 s. A finished job's stream is `state` + `done` at once.
+live: `state` (Job), `log` `{stream:"stdout"|"stderr", line}`, `progress` `{fraction?, message?, stage?, bytes?,
+files?, verified?}` (the whole `Job.progress` of §4; `{}` when cleared; `stage` is a pipeline's stage from its
+`stages.json`, or `"verifying"` while the job is collected; `bytes`, `files` and `verified` a `tcmdb.fetch`'s),
+`stages` `{stages}` (`Job.stages`, each time a running pipeline's `stages.json` moves on, so a card's stage list follows
+it; the page's `JobTracker` merges it), `artefact` `{path, bytes, media_type}` (a new file in the output directory, not
+yet verified), `done` (Job; the stream then closes); `: keep-alive` comments every 15 s. A finished job's stream is
+`state` + `done` at once.
 
 **Kinds.** `research.run` reads `<data lake>/snapshots` and the ledger `<data lake>/snapshots/ledger.jsonl` (missing →
 `available:false`, `missing:["snapshots (…)"]`, also in `/api/catalog`'s `job.research.run`); its state directory is
@@ -645,8 +652,8 @@ cheaper estimate or a software adapter has `compute.fallback_reason` only. With 
 crossing in `handoff_ms`; it never affects the result.
 
 **Device report** (§5) additions: `python {device:"cpu", threads:1, note}` and `compute {webgpu_tools, webgpu_adapter
-(false for a software adapter; this page-side report still uses its older name rule, so an unidentified adapter counts
-as true there: BROWSER_COMPUTE §5.1), cpu_kernels {"wasm-simd": [tools], js: [tools]}, precision, fallback}`. The Worker's
+(true only for a physical adapter, by `classifyAdapter`, with `webgpu_adapter_kind`: CONTRACTS §5, BROWSER_COMPUTE
+§5.1), cpu_kernels {"wasm-simd": [tools], js: [tools]}, precision, fallback}`. The Worker's
 own device report (`op: "device"`) classifies its adapter with `classifyAdapter` (`adapter.kind`, `reason`, `device`;
 `software` true / false / null as in the probe) and adds `compute_evidence`, the session's `webgpuEvidence`.
 `system.capabilities` also carries `browser.compute`, the probe of `compute/capabilities.js` (schema

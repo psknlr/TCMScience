@@ -60,6 +60,39 @@ test("placement: an entry the runner cannot run (missing deps) says what is miss
   assert.match(p.message, /vina, meeko/);
 });
 
+test("placement: what the runner lacks is read as its catalog classifies it, never as a package to install", async () => {
+  const doc = testCatalogDoc();
+  const base = { kind: "job", category: "research", summary: "x", example: null, exec: ["runner"], network: false, confirm: true, job: true, gpu: false, heavy: [], tags: [], parameters: { type: "object", properties: {} } };
+  const snapshots = "snapshots (/x/ledger.jsonl)";
+  doc.entries.push(
+    // the runner's own readiness, merged into the entry: a dataset to build
+    { ...base, id: "job.research.run", title: { zh: "研究", en: "Research" }, available: false, missing: [snapshots],
+      state: { implementation: "implemented", readiness: { runner: { state: "needs_dataset", requires: [{ need: "dataset", detail: `the research ${snapshots} built on this runner`, remedy: "Build them first: job.research.snapshot (one recorded run downloads, verifies and records every snapshot).", names: ["research snapshots"] }] } } } },
+    // an older runner: available/missing only, a sentence among the names
+    { ...base, id: "job.old", title: { zh: "旧", en: "Old" }, available: false, missing: ["the job layer cannot run on Windows without WSL"] },
+    { ...base, id: "job.pkg", title: { zh: "包", en: "Pkg" }, available: false, missing: ["salmon", snapshots] },
+  );
+  const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: "ready" }) };
+  const r = new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: { compute: "auto" }, approvals: memoryApprovals() });
+  const research = r.placement("job.research.run");
+  assert.equal(research.reason, "needs_dataset");
+  assert.deepEqual(research.requires.map((q) => q.need), ["dataset"]);
+  assert.match(research.requires[0].remedy, /job\.research\.snapshot/);
+  assert.doesNotMatch(research.message, /依赖|install/i);
+  const env = await r.call("call_tool", { tool: "job.research.run" }, { projectId: "p" });
+  assert.equal(env.error.reason, "needs_dataset");
+  assert.equal(env.error.hint, research.requires[0].remedy);
+  assert.doesNotMatch(env.text, /install: snapshots/);
+  const old = r.placement("job.old");
+  assert.equal(old.reason, "needs_job_service");
+  assert.deepEqual(old.requires.map((q) => [q.need, q.detail]), [["job_service", "the job layer cannot run on Windows without WSL"]]);
+  const pkg = r.placement("job.pkg");
+  assert.equal(pkg.reason, "missing_deps");
+  assert.deepEqual(pkg.requires.map((q) => [q.need, q.names]), [["dependency", ["salmon"]], ["dataset", ["research snapshots"]]]);
+  assert.match(pkg.message, /salmon/);
+  assert.doesNotMatch(pkg.message, /snapshots/);
+});
+
 test("a browser runtime that failed to load counts as absent", () => {
   const { r } = router({ browser: "offline", runner: "offline" });
   assert.equal(r.where("tcm_herb"), null);
@@ -156,6 +189,10 @@ test("network tools need the project's web access, then an approval naming the h
   const off = await r.call("literature_search", { query: "葛根素" }, { projectId: "off", onApproval: async () => "once" });
   assert.equal(off.status, "failed");
   assert.equal(off.error.type, "network_off");
+  // the same shape as the dispatcher's network_off: its reason, the hosts it would reach, the first remedy as hint
+  assert.equal(off.error.reason, "network_off");
+  assert.deepEqual(off.error.requires.map((q) => [q.need, q.names]), [["network", ["www.ebi.ac.uk"]]]);
+  assert.equal(off.error.hint, off.error.requires[0].remedy);
   let req;
   const on = await r.call("literature_search", { query: "葛根素" }, { projectId: "on", onApproval: async (q) => { req = q; return "project"; } });
   assert.equal(on.status, "succeeded");
@@ -755,8 +792,41 @@ test("patient data goes to a remote runner only with a yes to that very call; no
   assert.equal(runtimes.runner.calls.filter((c) => c.args?.tool === "clinic.assess").length, 2);
 });
 
+test("an entry that takes a clinic intake is patient data (as the dispatcher decides it), and so is job.skill.run of that skill", async () => {
+  // as the built catalog has them: a skill (no phi flag) whose parameters take the intake, and the job that runs a skill
+  const doc = testCatalogDoc();
+  const base = { summary: "x", category: "tcm_knowledge", example: null, network: false, gpu: false, heavy: [], tags: [] };
+  doc.entries.push(
+    { ...base, id: "skill.draft-tcm-prescription", kind: "skill", title: { zh: "处方草案", en: "Draft" }, parameters: { type: "object", properties: { intake: { type: "object" }, days: { type: "integer" } } }, exec: ["browser", "runner"], confirm: true, job: false },
+    { ...base, id: "job.skill.run", kind: "job", title: { zh: "技能任务", en: "Skill job" }, parameters: { type: "object", properties: { skill_id: { type: "string" }, arguments: { type: "object" } } }, exec: ["runner"], confirm: true, job: true },
+  );
+  const host = "lab.example.org:8765";
+  for (const [tool, args, phi] of [
+    ["skill.draft-tcm-prescription", { intake: { age: 40 } }, true],
+    ["job.skill.run", { skill_id: "draft-tcm-prescription", arguments: { intake: { age: 40 } } }, true],
+    ["job.skill.run", { skill_id: "normalize-tcm-entities", arguments: { names: ["甘草"] } }, false],
+  ]) {
+    // the remote runner and the entry's own confirmation both stand approved for the project
+    const approvals = memoryApprovals({ p: { web: true, approvals: { [`runner@${host}`]: "project", [tool]: "project" } } });
+    const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: "ready" }) };
+    runtimes.runner.url = `https://${host}`;
+    const r = new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: { compute: "runner" }, approvals });
+    const asked = [];
+    const env = await r.call("call_tool", { tool, arguments: args }, { projectId: "p", onApproval: async (q) => { asked.push(q); return "deny"; } });
+    if (phi) {
+      assert.equal(env.status, "refused", `${tool}: asked, and the answer was no`);
+      assert.deepEqual(asked.map((q) => q.needs.map((n) => [n.reason, n.per_call === true])), [[["remote_runner", true]]], tool);
+      assert.match(asked[0].text, /患者资料/, `${tool}: the prompt says it is patient data`);
+      assert.equal(runtimes.runner.calls.length, 0, `${tool}: nothing went to the remote runner`);
+    } else {
+      assert.equal(asked.length, 0, "a skill without an intake rides the standing grants");
+      assert.equal(env.status, "succeeded");
+    }
+  }
+});
+
 test("the new router and approval messages exist in zh and en, with the same placeholders", () => {
-  const keys = ["unknown_compute", "remote_not_configured", "too_large_for_browser", "too_large_for_browser_only", "missing_engine", "missing_deps_remote"].map((k) => `core.router.${k}`)
+  const keys = ["unknown_compute", "remote_not_configured", "too_large_for_browser", "too_large_for_browser_only", "missing_engine", "missing_deps_remote", "runner_lacks", "runner_lacks_remote"].map((k) => `core.router.${k}`)
     .concat(["core.approval.remote_runner", "core.approval.remote_runner_phi", "core.approval.job_remote", "core.approval.network_unknown", "core.runner.label_remote"])
     .concat(["core.runner.not_running_remote", "core.runner.timeout_remote", "core.runner.http_remote", "core.local.capabilities_remote"]);
   const ph = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();

@@ -453,6 +453,41 @@ def test_network_tsv_is_the_string_edges_at_or_above_the_cut_off(tmp_path):
         r["compound"] for r in _rows(out / "compounds.tsv")}
 
 
+def test_a_screening_run_counts_its_active_calls_as_its_measurements(tmp_path):
+    # PubChem BioAssay active calls are observations that carry no activity value: in a
+    # screening run they are the run's measurements (stage 5 accepts them), so stage 6 must
+    # not call the targets they support predicted, nor a hypothesis that cites one unsupported
+    from test_network_pharmacology import SCREEN, _screening_snapshot
+
+    snaps = _build(tmp_path / "w")
+    tested = PATHWAY_A + PROTEINS[8:36]
+    active = {i: PATHWAY_A[:6] for i in range(4)}
+    active[0] = active[0] + [PROTEINS[8 + 7 * k] for k in range(4)]
+    screen = _screening_snapshot(tmp_path / "pc", active, tested)
+    assert not any(e.get("measure") for e in screen.edges), "the fixture's calls have no value"
+    result = run_network_pharmacology([*snaps, screen], params=SCREEN)
+    assert result.claims and not result.release["refused"]
+    data = json.loads(json.dumps(result.as_dict(), default=str))
+    data["digest"] = result.digest()
+    exports = write_exports(data, tmp_path / "out", formula=GEGEN_QINLIAN, snaps=[*snaps, screen])
+    stages = {s["id"]: s for s in exports.stages}
+    assert stages["compound_target"]["status"] == PASS
+    split = stages["measured_vs_predicted"]
+    assert _check(split, "targets_from_measurements")["status"] == PASS, split
+    assert _check(split, "hypotheses_cite_measured_edges")["status"] == PASS, split
+    # a curated measurement the screening run left out supports nothing in it: only the
+    # screening calls make a target measured here (and the other way round for potency)
+    from bioagent.research.workflow import edge_split
+    by_key = {s.key: s for s in [*snaps, screen]}
+    survived = {"survived": [c["object"] for c in result.claims]}
+    only_curated = dict(data, targets=[*data["targets"], {"target": f"uniprot:{PROTEINS[40]}"}])
+    assert edge_split(only_curated, by_key, survived)["predicted_only"] == [f"uniprot:{PROTEINS[40]}"]
+    potency = run_network_pharmacology([*snaps, screen], params=FAST)
+    pdata = json.loads(json.dumps(potency.as_dict(), default=str))
+    assert edge_split(pdata, by_key, {"survived": [c["object"] for c in potency.claims]})[
+        "predicted_only"] == []
+
+
 def test_without_string_the_network_is_empty_and_says_why(tmp_path):
     snaps = [s for s in _build(tmp_path) if s.key != "string"]
     result = run_network_pharmacology(snaps, params=FAST)

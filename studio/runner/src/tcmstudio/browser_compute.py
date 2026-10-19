@@ -125,9 +125,20 @@ def check_counts(name: str, counts: Any, sequences, window: int) -> str | None:
 _TRANSITIONS = {("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")}
 
 
+def _mismatches(a: str, b: str) -> int:
+    """The positions at which two equal-length strings differ, as hamming_distance counts
+    them; for ASCII at C speed (the pair XORed as two big integers: a zero byte is a
+    position where they agree)."""
+    if a.isascii() and b.isascii():
+        x = int.from_bytes(a.encode("ascii"), "big") ^ int.from_bytes(b.encode("ascii"), "big")
+        return len(a) - x.to_bytes(len(a), "big").count(0)
+    return sum(1 for p, q in zip(a, b) if p != q)
+
+
 def _sample_check(name: str, counts: list, sequences, window: int) -> str | None:
     """A few records recounted here, the way the original Python counts them: a GPU or a
-    kernel that returns well-formed but wrong counts is caught without redoing the work."""
+    kernel that returns well-formed but wrong counts is caught without redoing the work.
+    Hamming's one record is the whole count: it is recounted exactly, at C speed."""
     n = len(sequences)
     if name == "distance_matrix":
         for i, j in {(0, 1), (n - 2, n - 1)}:
@@ -149,6 +160,10 @@ def _sample_check(name: str, counts: list, sequences, window: int) -> str | None
             for r in {1, len(seq) - window + 1}:
                 if counts[r * 4] != sum(seq[r - 1:r - 1 + window].count(c) for c in "GCS"):
                     return f"the GC count of window {r} differs from Python's"
+    elif name == "hamming_distance":
+        a, b = sequences[0], sequences[1]
+        if len(a) != len(b) or counts[0] != _mismatches(a, b):
+            return "the Hamming count differs from Python's"
     return None
 
 

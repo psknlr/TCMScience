@@ -176,6 +176,11 @@ export function mergeCatalogs(built, runner) {
     if (isPlainObject(a.title) && isPlainObject(b.title)) out.title = { ...a.title, ...dropEmpty(b.title) };
     if (Array.isArray(a.tags) || Array.isArray(b.tags)) out.tags = [...new Set([...(a.tags || []), ...(b.tags || [])])];
     if (isPlainObject(a.state) || isPlainObject(b.state)) out.state = mergeState(a.state, b.state);
+    // state.implementation and verification are one pair (tested ⇔ a committed level passed): both from the side the
+    // implementation came from, the built side when it has one (it carries the committed records' join)
+    const builtImpl = isPlainObject(a.state) && a.state.implementation !== undefined;
+    if (builtImpl && a.verification !== undefined) out.verification = a.verification;
+    else if (!builtImpl && b.verification !== undefined) out.verification = b.verification;
     if (isPlainObject(a.execution) && isPlainObject(b.execution)) {
       out.execution = { ...a.execution, ...b.execution };
       if (a.execution.browser_compute !== undefined) out.execution.browser_compute = a.execution.browser_compute;
@@ -463,7 +468,7 @@ function requirementsOf(e, status) {
   const out = [];
   const exec = e.exec || [];
   if (!exec.includes("browser") && status.runner !== "ready") out.push(requirement("runner"));
-  if (e.available === false && e.missing?.length) out.push(requirement("dependency", { names: e.missing }));
+  if (e.available === false && e.missing?.length) out.push(...missingRequirements(e.missing));
   if (e.network && !status.web) out.push(requirement("network"));
   if (status.compute === "browser" && !exec.includes("browser")) out.push(requirement("compute_setting"));
   // the two preferences that run nothing here (no string above changes for the others)
@@ -515,6 +520,43 @@ export function unknownCompute(value) {
     detail: `compute set to auto, browser or runner (it is "${String(value).slice(0, 40)}", which Studio does not know)`,
     remedy: "Choose Auto, Browser or Local runner under Settings → Compute (or in the project's defaults).",
   });
+}
+
+const PACKAGE = /^[A-Za-z0-9][A-Za-z0-9_.+-]*$/;
+const JOB_SERVICE_REMEDY = "Restart the runner where its job service can start (Linux or macOS, or WSL on Windows, with bioagent installed); the detail says why it cannot start here.";
+
+/**
+ * What a runner entry's `missing` list asks for, classified as tcmstudio.capability._classify classifies it (the
+ * runner folds what its job service says a kind lacks into `missing`): package and command names are one dependency
+ * requirement; the research snapshots a dataset (built with job.research.snapshot, never installed); any other
+ * sentence, why the job layer cannot run there, the job service. A list of package names alone reads as before.
+ */
+export function missingRequirements(missing) {
+  const items = [...new Set(listOf(missing))];
+  const deps = items.filter((x) => PACKAGE.test(x));
+  const out = deps.length ? [requirement("dependency", { names: deps })] : [];
+  for (const x of items) {
+    if (x.startsWith("snapshots") && !PACKAGE.test(x)) {
+      out.push(requirement("dataset", { names: ["research snapshots"], detail: `the research ${x} built on this runner`, remedy: "Build them first: job.research.snapshot (one recorded run downloads, verifies and records every snapshot)." }));
+    }
+  }
+  for (const x of items) if (!PACKAGE.test(x) && !x.startsWith("snapshots")) out.push(requirement("job_service", { detail: x, remedy: JOB_SERVICE_REMEDY }));
+  return out;
+}
+
+/**
+ * What an entry lacks on the connected runner: the runner catalog's own state.readiness.runner requirements when it
+ * gives them (it classified them), else its `missing` list classified here (an older runner), else an unnamed
+ * dependency.
+ */
+export function runnerLacks(entry) {
+  const given = isPlainObject(entry?.state?.readiness?.runner) ? entry.state.readiness.runner : null;
+  if (given && given.state !== "ready") {
+    const requires = (Array.isArray(given.requires) ? given.requires : []).filter(isRequirement);
+    if (requires.length) return requires.map((q) => ({ ...q }));
+  }
+  const classified = missingRequirements(entry?.missing);
+  return classified.length ? classified : [requirement("dependency")];
 }
 
 /** Is this a Requirement (from a catalog or an envelope written elsewhere)? */
@@ -618,7 +660,7 @@ export function entryState(entry, ctx = {}) {
     const requires = (Array.isArray(given.requires) ? given.requires : []).filter(isRequirement);
     runner = { ...given, requires: [...requires] };
   } else {
-    const requires = e.available === false ? [requirement("dependency", { names: e.missing || [] })] : [];
+    const requires = e.available === false ? runnerLacks({ missing: e.missing }) : [];
     runner = { state: stateOf(requires), requires, derived: true };
   }
   if (netOff && runner.state !== "unsupported" && !runner.requires.some((r) => r.need === "network")) {

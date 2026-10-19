@@ -922,6 +922,37 @@ def test_a_queued_job_has_no_device_yet_and_a_gpu_job_is_never_called_cpu(runner
     assert r["result"]["outcome"] == "succeeded" and r["result"]["assurance"] == "none"
 
 
+def test_a_queued_gpu_job_names_no_device_in_its_legacy_field_either(runner_ctx, jobs):
+    # the dispatcher's own context is the CPU; a job not yet started has no device at all
+    runner_ctx["capabilities"] = {"device_setting": "cuda:0"}
+    # (any job: the device comes when it starts; scrna is one this runner can queue without optional engines)
+    e = call("run_pipeline", {"pipeline": "scrna", "arguments": {"source": "u_9"}}, runner_ctx)
+    assert e["status"] == "job_submitted", e["error"]
+    assert e["receipt"]["device"] is None, "never the CPU the dispatcher runs on"
+    st = call("job_status", {"job_id": e["job"]["id"]}, runner_ctx)
+    assert st["receipt"]["device"] is None and st["receipt"]["execution"]["device"]["assigned"] is None
+    jobs.jobs[e["job"]["id"]].update(state="running", device="cuda:0")
+    assert call("job_status", {"job_id": e["job"]["id"]}, runner_ctx)["receipt"]["device"] == "cuda:0"
+
+
+def test_a_sample_sheet_s_files_each_reach_the_receipt_s_provenance(runner_ctx, jobs):
+    e = call("run_pipeline", {"pipeline": "rnaseq", "arguments": {"samples": "u_sheet"}}, runner_ctx)
+    job_id = e["job"]["id"]
+    fq = {f"fastq_{n}:{line}": {"upload": f"u_fq{n}{line}", "name": f"s{line}_R{n}.fq.gz",
+                                "sha256": f"{n}{line}" * 32, "bytes": 1000 + line}
+          for n in (1, 2) for line in (2, 3)}
+    jobs.jobs[job_id].update(inputs={"samples": {"upload": "u_sheet", "name": "sheet.csv",
+                                                 "sha256": "ab" * 32, "bytes": 90},
+                                     "samples.files": fq})
+    st = call("job_status", {"job_id": job_id}, runner_ctx)
+    got = {d["id"]: d for d in st["receipt"]["provenance"]["datasets"] if d.get("role") == "input"}
+    assert got["u_sheet"]["sha256"] == "ab" * 32
+    for key, rec in fq.items():
+        d = got[rec["upload"]]
+        assert (d["sha256"], d["bytes"], d["param"]) == (rec["sha256"], rec["bytes"], f"samples.files.{key}")
+    assert "samples.files" not in got, "the mapping itself is not an input"
+
+
 def test_a_degraded_call_records_its_fallback(runner_ctx, monkeypatch):
     from types import SimpleNamespace
     from tcmstudio import dispatch

@@ -155,6 +155,14 @@ def test_well_formed_but_wrong_counts_with_the_right_digest_are_caught_by_python
     got = run(gc, packet("native.gc_content", ["GCASN"], off_by_one, 2))
     assert got["result"] == run(gc, kernels=False)["result"]
     assert "window" in got["receipt"]["compute"]["gpu_rejected"]
+    # Hamming's one record is the whole count: recounted exactly, so a total in range but wrong is not used
+    ham = {"tool": "native.hamming_distance", "arguments": {"a": "ANU", "b": "ACT"}}
+    got = run(ham, packet("native.hamming_distance", ["ANU", "ACT"], [3, 0, 0, 0]))
+    assert got["result"] == run(ham, kernels=False)["result"] and got["result"]["distance"] == 2
+    assert "Hamming" in got["receipt"]["compute"]["gpu_rejected"]
+    assert browser_compute.check_counts("hamming_distance", [3, 0, 0, 0], ["ACGTACGTAC" * 10, "ACGAACGTAC" * 10], 0)
+    assert browser_compute.check_counts("hamming_distance", [10, 0, 0, 0], ["ACGTACGTAC" * 10, "ACGAACGTAC" * 10], 0) is None
+    assert browser_compute._mismatches("AßC", "AxC") == 1, "a non-ASCII pair is counted per character"
 
 
 def test_invalid_arguments_fail_as_before_with_or_without_a_packet():
