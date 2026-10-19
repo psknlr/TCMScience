@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tcmstudio.catalog import (CATEGORIES, JOB_KINDS, build_catalog, catalog_search, entries,
+from tcmstudio.catalog import (BROWSER_JOB_KINDS, CATEGORIES, JOB_KINDS, build_catalog, catalog_search, entries,
                                get_entry, skill_specs)
 from tcmstudio.core_tools import CORE_TOOLS
 from tcmstudio.dispatch import validate
@@ -37,9 +37,9 @@ CONTRACT_CORE = {
     "tcmdb_consensus": ("tcmdb.consensus", ["browser", "runner"], False, False, False),
     "connector_call": ("connector.*", ["browser", "runner"], False, False, True),
     "literature_search": ("connector.europepmc.search", ["browser", "runner"], False, False, True),
-    "network_pharmacology_run": ("job.research.run", ["runner"], True, True, False),
+    "network_pharmacology_run": ("job.research.run", ["browser", "runner"], True, True, False),
     "run_pipeline": ("job.pipeline.*", ["runner"], True, True, False),
-    "job_status": ("system.job_status", ["runner"], False, False, False),
+    "job_status": ("system.job_status", ["browser", "runner"], False, False, False),
     "capabilities_status": ("system.capabilities", ["browser", "runner"], False, False, False),
     "catalog_search": ("system.catalog_search", ["browser", "runner"], False, False, False),
     "call_tool": (None, ["browser", "runner"], False, False, False),
@@ -276,9 +276,18 @@ def test_job_kinds_are_the_runner_kinds():
                               "pipeline.dock", "pipeline.admet", "research.run",
                               "research.snapshot", "env.provision", "skill.run", "tcmdb.fetch",
                               "tcmdb.build"}
+    # the browser's job service runs exactly these (studio/web/js/scientific/pipelines)
+    assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run")
     for kind in JOB_KINDS:
         e = get_entry(f"job.{kind}")
-        assert e["job"] and e["confirm"] and e["exec"] == ["runner"]
+        assert e["job"] and e["confirm"]
+        if kind in BROWSER_JOB_KINDS:
+            assert e["exec"] == ["browser", "runner"], kind
+            browser_job = e["execution"]["browser_job"]
+            assert browser_job["runtime"] == "pyodide" and browser_job["pyodide_packages"] == ["pyarrow"]
+        else:
+            assert e["exec"] == ["runner"], kind
+            assert "browser_job" not in (e.get("execution") or {}), kind
 
 
 def test_browser_catalog(browser_catalog, runner_catalog):
@@ -288,9 +297,12 @@ def test_browser_catalog(browser_catalog, runner_catalog):
     for e in by_id.values():
         assert "available" not in e, "the build machine is not the user's browser"
         if e["kind"] == "job":
-            assert "browser" not in e["exec"], e["id"]
-    for runner_only in ("system.job_status", "skill.dock-ligands"):
+            # only the kinds the browser's job service implements
+            assert ("browser" in e["exec"]) == (e["id"][4:] in BROWSER_JOB_KINDS), e["id"]
+    for runner_only in ("job.pipeline.rnaseq", "skill.dock-ligands"):
         assert "browser" not in by_id[runner_only]["exec"]
+    # browser job ids (bj-…) are answered by the page; the runner's by the runner
+    assert by_id["system.job_status"]["exec"] == ["browser", "runner"]
     for both in ("native.reverse_complement", "skill.assess-tcm-safety", "clinic.assess",
                  "tcmdb.catalog", "study.exposure_screen", "tcmdb.relations", "tcmdb.consensus",
                  "native.hkbu_formula_lookup", "connector.uniprot.entry"):

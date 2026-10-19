@@ -29,7 +29,7 @@ Cloudflare Worker (`studio/edge`: static files, the `/v1` relay to the Tao-S1 mo
 to public databases) and an optional local runner (`tcmstudio serve`, native CPython). In the browser, tools run in a
 Web Worker on **Pyodide 314.0.7** (CPython 3.14 compiled to WebAssembly) executing the real `psh`, `bioagent` and
 `tcmstudio` packages from a SHA-256-verified bundle, so a browser call and a runner call return the same envelope
-(CONTRACTS §3). The tool catalog has **650 entries** (25 core tools); **630 run in the browser** today
+(CONTRACTS §3). The tool catalog has **650 entries** (25 core tools); **633 run in the browser** today
 ([matrix](compat/summary.md)).
 
 **Where computation happened before this work.** Every browser tool ran single-threaded on the CPU in Pyodide, except
@@ -82,15 +82,16 @@ compared with native CPython: that comparison was made only for the calls of the
 
 | Class | Meaning | Entries |
 |---|---|---:|
-| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 171 |
+| 1 | Runs in the browser now, unchanged (Pyodide, CPU) | 172 |
 | 1g | Runs in the browser now; its data comes from a public API through the bounded gateway | 444 |
+| 1j | Runs in the browser now as a job: the same Python in job workers, files in private storage ([BROWSER_JOBS.md](BROWSER_JOBS.md)) | 2 |
 | 2 | A JavaScript CPU kernel computes the hot loop, byte-identical to Python | 4 |
 | 3 | WebGPU or WebAssembly SIMD integer reductions, exact, recounted in Python | 3 |
 | 4 | WebNN candidate (a neural model would run here) | 0 |
 | 5 | A WASM SIMD / threads kernel would pay off; not written | 8 |
-| 6 | Needs substantial work for the browser (data size, memory, a job model) | 3 |
+| 6 | Needs substantial work for the browser (data size, memory, a job model) | 2 |
 | 7 | Needs a native engine or GPU framework (RNA-seq, docking, ADMET, folding) | 9 |
-| 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 8 |
+| 8 | Stays on the local runner (processes, files, long jobs, MCP servers) | 6 |
 
 Class 4 is empty because no tool runs a neural model; the matrix does not pretend otherwise. Classes 7 and 8 stay on
 the runner: a browser cannot run STAR, AutoDock Vina or PyTorch-CUDA, and should not pretend to. Nothing was removed:

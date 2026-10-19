@@ -9,8 +9,10 @@ name: live-data
 # 葛根芩连汤 goes through the research job's own commands on the same files (the
 # research.snapshot build, then research.run with --formula), its nine exports are
 # uploaded, and the analysis is recomputed from the saved exports and the snapshots and
-# compared digest for digest; and the twelve regression scenarios run live against the hub
-# those files built.
+# compared digest for digest; then the same research runs again in headless Chromium as the
+# browser's own jobs (research.snapshot and research.run in Pyodide job workers, the raw files
+# imported into the page's private storage, no runner), and every export is compared with the
+# native run's; and the twelve regression scenarios run live against the hub those files built.
 #
 # Network-enabled, so not on every push: by hand, weekly, and on a push that changes how
 # data are acquired, built, analysed or validated. --strict makes a file that could not be
@@ -32,6 +34,10 @@ on:
       - "BioScience-Harness/src/bioagent/analysis/np_exports.py"
       - "BioScience-Harness/src/bioagent/data/benchmark_guizhi_palpitations.json"
       - "BioScience-Harness/src/bioagent/data/formula_errata.json"
+      - "studio/runner/src/tcmstudio/browser_jobs.py"
+      - "studio/web/js/scientific/**"
+      - "studio/web/js/runtime/pyboot.js"
+      - "studio/web/test/runtime/science*"
       - ".github/workflows/live-data.yml"
 
 permissions:
@@ -127,6 +133,49 @@ jobs:
           for line in doc.get("problems") or ():
               print(f"- {line}")
           PY
+      - uses: actions/setup-node@v4
+        if: steps.gqd.outcome == 'success'
+        with:
+          node-version: "22"
+      - name: "The same research in a browser: research.snapshot and research.run as browser jobs, compared with the native run"
+        id: browser_gqd
+        if: steps.gqd.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 120
+        run: |
+          set -euo pipefail
+          (cd studio && (npm ci || npm install) && npx playwright install --with-deps chromium)
+          # the site with its test pages (build_web.py --dev); Pyodide and its pyarrow come from jsDelivr as on
+          # science.impf.ai. The page imports the raw files tier 3 verified, then runs both jobs through the browser
+          # job service; science.mjs compares every export with the native run's ($RUNNER_TEMP/gqd/out): the five
+          # tables must be the same bytes, the manifest the same apart from its execution block
+          python studio/scripts/build_web.py --out "$RUNNER_TEMP/site" --dev
+          node studio/web/test/runtime/science.mjs --mode gqd --site "$RUNNER_TEMP/site" \
+            --raw "$RUNNER_TEMP/work/raw" --native-out "$RUNNER_TEMP/gqd/out" \
+            --json "$RUNNER_TEMP/reports/browser_gqd.json" --timeout-min 110
+      - name: The browser run, in the summary
+        if: always() && steps.browser_gqd.outcome != 'skipped'
+        run: |
+          report="$RUNNER_TEMP/reports/browser_gqd.json"
+          test -f "$report" || { echo "no browser report"; exit 0; }
+          python - "$report" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json, sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          page = doc.get("page") or {}
+          print("### 葛根芩连汤 as browser jobs (Chromium, Pyodide job workers, no runner)\n")
+          print("| Check | Result | Detail | ms |\n|---|---|---|---:|")
+          for c in page.get("checks") or ():
+              detail = str(c.get("detail") or "").replace("|", "/")[:160]
+              print(f"| {c['label']} | {'ok' if c['ok'] else 'FAILED'} | {detail} | {c.get('ms') or ''} |")
+          print("\n| Export | Compared with the native run |\n|---|---|")
+          for r in doc.get("comparison") or ():
+              print(f"| {r['name']} | {r['why']} |")
+          receipt = page.get("receipt") or {}
+          if receipt:
+              print(f"\nreceipt: placement {receipt.get('placement')}, runtime {receipt.get('runtime')}, "
+                    f"device {json.dumps(receipt.get('device'), ensure_ascii=False)}")
+          print(f"\nverdict: {'all checks passed' if doc.get('ok') else 'FAILED'}")
+          PY
       - uses: actions/upload-artifact@v4
         if: always() && steps.gqd.outcome != 'skipped'
         with:
@@ -171,5 +220,5 @@ jobs:
       - name: The verdict
         if: always()
         run: |
-          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; research job (葛根芩连汤): ${{ steps.gqd.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
-          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.gqd.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success
+          echo "tier 3 (data): ${{ steps.data.outcome }}; tier 4 (benchmark): ${{ steps.benchmark.outcome }}; research job (葛根芩连汤): ${{ steps.gqd.outcome }}; the same in a browser: ${{ steps.browser_gqd.outcome }}; scenarios: ${{ steps.scenarios.outcome }}"
+          test "${{ steps.data.outcome }}" = success && test "${{ steps.benchmark.outcome }}" = success && test "${{ steps.gqd.outcome }}" = success && test "${{ steps.browser_gqd.outcome }}" = success && test "${{ steps.scenarios.outcome }}" = success

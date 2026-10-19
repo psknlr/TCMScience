@@ -12,6 +12,8 @@ specific class its code and dependencies support, never in one it has not been s
   1  runs in the browser now, unchanged (Pyodide: CPython compiled to WebAssembly, CPU)
   1g runs in the browser now; its data comes from the source's public API through the site's
      bounded gateway (the request, parsing and policy run locally; the data is remote by nature)
+  1j runs in the browser now as a job: the same Python in the page's job workers (Pyodide, CPU),
+     its files in the site's private storage (OPFS), followed and cancelled like a runner job
   2  converted: a JavaScript CPU kernel computes the hot loop, byte-identical to Python (checked)
   3  WebGPU and WebAssembly SIMD: exact integer reductions on the GPU or with SIMD on the CPU,
      with recounts in Python (and the JavaScript kernel, then Python, as the fallbacks)
@@ -42,6 +44,7 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
 CLASS_LABELS = {
     "1": "browser now (Pyodide, CPU)",
     "1g": "browser now; data via the gateway",
+    "1j": "browser now, as a job (job workers + private storage)",
     "2": "browser: JavaScript CPU kernel",
     "3": "browser: WebGPU / WASM SIMD (exact) + CPU kernel",
     "4": "WebNN candidate",
@@ -100,7 +103,6 @@ RUNNER_REASONS = {
                                "remote services (allow_remote)"),
     "job.pipeline.dock": ("7", "AutoDock Vina, meeko, gemmi and rdkit are native and not in Pyodide"),
     "job.pipeline.admet": ("7", "rdkit is not in Pyodide (scikit-learn is)"),
-    "job.research.run": ("6", "pyarrow is in Pyodide 314; the blocker is the data lake snapshot ledger and a long job"),
     "job.skill.run": ("8", "runs a governed skill as a subprocess job"),
     "job.tcmdb.fetch": ("8", "downloads full third-party databases to disk"),
     "job.tcmdb.build": ("8", "builds SQLite stores from those downloads"),
@@ -111,8 +113,19 @@ RUNNER_REASONS = {
     "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline above"),
     "skill.scrna-cell-atlas": ("6", "the single-cell pipeline above"),
     "system.provider_call": ("8", "ToolUniverse / BioMCP run as local MCP processes"),
-    "system.job_status": ("8", "follows runner jobs"),
     "system.doctor": ("8", "inspects the runner's Python environment"),
+}
+# What a browser job reads and writes (classified by entry.execution.browser_job, from tcmstudio.catalog)
+BROWSER_JOB_NOTES = {
+    "job.research.snapshot": "17 raw files (418 MB) downloaded, relayed or imported into OPFS, read in place by Python "
+                             "through synchronous access handles; integrity, parse, gold check and ledger as on the "
+                             "runner",
+    "job.research.run": "the sixteen-stage workflow and nine exports over the snapshots in OPFS; the governed analysis "
+                        "runs in-process through the PSH broker (a worker cannot start processes) and the artifact "
+                        "says so",
+}
+PYODIDE_NOTES_JOBS = {
+    "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
 }
 WEBNN_NOTE = ("No model ships with the site; a packaged ONNX model (embeddings for TCM terms, a text classifier) "
               "could run here through ONNX Runtime Web's WebNN, WebGPU or WASM providers")
@@ -140,6 +153,12 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
                     checked, GPU.get(eid) or kernel.get("workload", ""))
         return ("2", "js kernel → pyodide", "the original Python", checked,
                 KERNEL.get(eid) or kernel.get("workload", ""))
+    job = (e.get("execution") or {}).get("browser_job")
+    if job and "browser" in exec_:
+        packages = ", ".join(job.get("pyodide_packages") or [])
+        return ("1j", f"pyodide job workers ({packages}) + OPFS → the runner's job service",
+                "the runner, when the browser has no private storage or the user prefers it", checked,
+                BROWSER_JOB_NOTES.get(eid, ""))
     if eid in RUNNER_REASONS:
         cls, why = RUNNER_REASONS[eid]
         return (cls, "runner (native CPython" + (", GPU" if e.get("gpu") else "") + ")",
@@ -154,10 +173,12 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
         return ("5", "pyodide", "—", checked, WASM_CANDIDATES[eid])
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
-    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or note)
+    return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or PYODIDE_NOTES_JOBS.get(eid) or note)
 
 
 def mobile(cls: str, e: dict) -> str:
+    if cls == "1j":
+        return "not yet: a phone's browser storage and memory are not measured for these jobs"
     if cls in ("1", "1g", "2", "3", "5"):
         extra = " + numpy/scipy on demand" if e.get("pyodide_packages") else ""
         return f"yes: phone CPU (Pyodide ~11 MB once{extra})"
@@ -240,11 +261,16 @@ FAMILIES = [
      "through the deployed gateway)", "—"),
     ("Text embeddings, classification, reranking (none exist yet)", "—", "4", "20–120 MB models",
      "small models", "not started: no model is packaged", "P2: one ONNX embedding model, WebNN → WebGPU → WASM"),
-    ("Single-cell and research loop", "job.pipeline.scrna, job.research.run", "6",
-     "100 MB–GBs; hours; the research loop's seeded degree-matched permutation null (1000 per pathway) and "
-     "Brandes betweenness", "no", "runner",
-     "small-dataset browser mode (P3); a browser port of the permutation null must draw exactly what "
-     "Python's MT19937 draws (research code, outside the skill pins) (P2)"),
+    ("Research snapshots and the research loop", "job.research.snapshot, job.research.run", "1j",
+     "418 MB of raw files in OPFS (read in place); snapshots of a few MB; minutes of CPU per build",
+     "not yet measured",
+     "browser jobs running the same Python as the runner (the permutation null is CPython's own MT19937 in "
+     "WebAssembly, so it draws exactly what the runner draws); the five tables and the result digest are "
+     "compared byte for byte with native CPython (studio/e2e/science.spec.mjs, and the 葛根芩连汤 real-data run "
+     "in live-data)", "parallel per-source snapshot builds across job workers"),
+    ("Single-cell", "job.pipeline.scrna", "6",
+     "100 MB–GBs; hours", "no", "runner",
+     "small-dataset browser job (numpy/scipy are in Pyodide; UMAP coordinates differ across numpy builds)"),
     ("RNA-seq quantification, docking, ADMET, structure prediction", "job.pipeline.rnaseq/dock/admet/fold", "7",
      "GBs; native binaries; GPU", "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
@@ -261,8 +287,9 @@ def summary(table: list[dict]) -> str:
     lines = ["# Browser compatibility matrix", "",
              "Generated by `studio/scripts/compat_matrix.py` from the tool catalog; one row per entry in "
              "[`matrix.csv`](matrix.csv). `--check` keeps it current (studio/runner/tests).", "",
-             f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 2, 3, 5): "
-             f"{sum(counts[c] for c in ('1', '1g', '2', '3', '5'))}; with a local kernel (2, 3): "
+             f"Entries: {len(table)}. Running in the browser today (classes 1, 1g, 1j, 2, 3, 5): "
+             f"{sum(counts[c] for c in ('1', '1g', '1j', '2', '3', '5'))}; as browser jobs (1j): {counts['1j']}; "
+             f"with a local kernel (2, 3): "
              f"{counts['2'] + counts['3']}; on the local runner only (6, 7, 8): {sum(counts[c] for c in ('6', '7', '8'))}.", "",
              f"Validation (the `validation` column) is each entry's committed verification record "
              f"(`entry.verification` in the catalog): {checked['a committed record']} entries have one, "

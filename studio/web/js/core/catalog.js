@@ -614,7 +614,9 @@ export function datasetsOf(entry, args) {
 /**
  * The capability state of an entry here: {implementation, readiness: {browser: R, runner: R}}, R = {state, requires}.
  * ctx: {browser, runner (runtime statuses), web (the project's web access), built (dataset keys known built in the
- * browser: tcmdb status), packages (Pyodide packages this browser can load, when known), args (a call's arguments)}.
+ * browser: tcmdb status), packages (Pyodide packages this browser can load, when known), args (a call's arguments),
+ * jobs (the browser job service: {status, kinds: [job kinds it runs], snapshots: research snapshots here (true, false,
+ * or null when not read)}, when the page has one)}.
  *
  * browser: decided here. A dataset counts as present only when it is known built (ctx.built); a package list that is
  * not known is not held against the entry (the call itself reports one it cannot load). runner: the runner catalog's
@@ -645,6 +647,23 @@ export function entryState(entry, ctx = {}) {
     const built = toSet(ctx.built);
     const lack = data.includes("*") ? (built.size ? [] : ["*"]) : data.filter((d) => !built.has(d));
     if (lack.length) b.push(requirement("dataset", { names: lack.filter((d) => d !== "*") }));
+  }
+  // a job runs in the browser only through the page's job service (studio/web/js/scientific), for the kinds it runs
+  const browserJob = exec.includes("browser") && Boolean(e.job) && isPlainObject(e.execution?.browser_job);
+  if (browserJob && ctx.jobs !== undefined) {
+    const kind = String(e.id || "").replace(/^job\./, "");
+    const kinds = Array.isArray(ctx.jobs?.kinds) ? ctx.jobs.kinds : [];
+    if (ctx.jobs?.status !== "ready" || !kinds.includes(kind)) {
+      b.push(requirement("job_service", {
+        detail: "this browser's job service (job workers and the site's private file storage)",
+        remedy: "Use a current Chrome, Edge, Firefox or Safari outside a private window, or connect the local runner.",
+      }));
+    } else if (kind === "research.run" && ctx.jobs.snapshots === false) {
+      b.push(requirement("dataset", {
+        names: ["research snapshots"], detail: "the research snapshots built in this browser",
+        remedy: "Build them first in this browser (job.research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.",
+      }));
+    }
   }
   if (netOff) b.push(requirement("network"));
   if (ctx.browser !== undefined && !isUp(ctx.browser)) b.push(requirement("browser_runtime"));

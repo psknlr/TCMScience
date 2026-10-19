@@ -175,6 +175,12 @@ def test_build_writes_the_site(site, bundle):
     data = (out / boot["bundle"]["path"]).read_bytes()
     assert hashlib.sha256(data).hexdigest() == boot["bundle"]["sha256"] == bundle.sha256
     assert (out / "runtime" / "catalog.json").is_file()
+    # the dataset registry the browser's research jobs read, named in boot.json by its digest
+    datasets = (out / "runtime" / "datasets.json").read_bytes()
+    assert datasets == webbuild.datasets_bytes(), "the same code gives the same bytes"
+    assert boot["datasets"] == {"path": "runtime/datasets.json",
+                                "sha256": hashlib.sha256(datasets).hexdigest()}
+    assert json.loads(datasets)["schema"] == "tcmstudio.datasets/1"
     assert (out / "index.html").is_file()
     assert (out / "js" / "runtime" / "browser.js").is_file()
     assert (out / "js" / "runtime" / "pyodide.worker.js").is_file()
@@ -262,6 +268,9 @@ def test_runtime_file_serves_the_same_files_from_memory(bundle):
     assert data == bundle.data
     assert webbuild.runtime_file("runtime/boot.json")[0] == boot_bytes
     assert webbuild.runtime_file("/runtime/catalog.json")[1].startswith("application/json")
+    datasets, media = webbuild.runtime_file("datasets.json")
+    assert media.startswith("application/json")
+    assert boot["datasets"]["sha256"] == hashlib.sha256(datasets).hexdigest()
     assert webbuild.runtime_file("tcms-py.000000000000.tar.gz") is None
     assert webbuild.runtime_file("../boot.json") is None
     assert webbuild.runtime_file("") is None

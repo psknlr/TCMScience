@@ -350,7 +350,8 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                  "clinicaltrials.gov"]),
     _core("network_pharmacology_run", "网络药理研究闭环（任务）", "Network pharmacology run (job)",
           "netpharm", """
-        The data-driven network-pharmacology workflow, as a job on the local runner: frozen
+        The data-driven network-pharmacology workflow, as a job (in this browser's job workers,
+        or on a connected local runner): frozen
         protocol → verified snapshots (NPASS / CMAUP / LOTUS, STRING, Reactome, Open
         Targets) → measured targets → Reactome enrichment against a stated background, BH
         over every pathway tested, a degree-matched permutation null → pre-registered
@@ -358,7 +359,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         validation status and its reason (GO skipped: no GO snapshot; KEGG blocked: licence
         required), and writes nine exports: compound, target, disease-target, enrichment and
         network-edge tables, provenance.json, run_manifest.json, limitations.md, report.html.
-        Needs the snapshots built on the runner with the formula in their herb layer
+        Needs the snapshots built where the job runs, with the formula in their herb layer
         (job.research.snapshot: formulas ["桂枝汤《伤寒论》"]); the user approves each job.
         Returns a job id for job_status. Claims are capped at mechanism_hypothesis; a refuted
         hypothesis, or nothing testable, is a result.""",
@@ -370,7 +371,7 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                    "permutations": I(minimum=100, maximum=100000, default=1000),
                    "activity": arr(S(), "activity sources, e.g. [npass]"),
                    "optional": arr(S(), "optional sources, e.g. [string]")})},
-              required=("formula",)), "job.research.run", R, confirm=True, job=True),
+              required=("formula",)), "job.research.run", B_R, confirm=True, job=True),
     _core("run_pipeline", "计算流程（任务）", "Run a pipeline (job)", "omics", """
         Start a heavy pipeline as a job on the user's machine (local runner, CPU or GPU per
         the device setting): rnaseq (FASTQ → differential expression), scrna (count matrices
@@ -384,12 +385,13 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
                "arguments": obj({}, description="the job kind's parameters", additional=True)},
               required=("pipeline", "arguments")), "job.pipeline.*", R, confirm=True, job=True),
     _core("job_status", "任务状态", "Job status", "system", """
-        Status of a runner job: state (queued, running, succeeded, failed, cancelled),
-        progress, and once it has succeeded its outcome and output files. wait_s (at most 60)
-        waits for a change. Until the state is succeeded the job is pending work: never
-        present partial output as a result.""",
+        Status of a job (a browser job's id starts with bj-; the others are the runner's):
+        state (queued, running, succeeded, failed, cancelled, or interrupted when the page
+        that ran it closed), progress, and once it has succeeded its outcome and output
+        files. wait_s (at most 60) waits for a change. Until the state is succeeded the job
+        is pending work: never present partial output as a result.""",
           obj({"job_id": S(), "wait_s": I(minimum=0, maximum=60, default=0)},
-              required=("job_id",)), "system.job_status", R),
+              required=("job_id",)), "system.job_status", B_R),
     _core("capabilities_status", "运行能力", "Capabilities", "system", """
         What can run now and where: the browser runtime (Python on the CPU, single thread,
         WebAssembly), the local runner (devices, network profile, purpose), optional

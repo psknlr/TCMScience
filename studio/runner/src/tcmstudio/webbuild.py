@@ -3,7 +3,7 @@
     tcmstudio webbuild --out DIR [--web DIR] [--dev] [--pyodide-index-url URL]
     python3 studio/scripts/build_web.py --out studio/_site
 
-The site is the web app (``studio/web``) plus three generated files under ``runtime/``:
+The site is the web app (``studio/web``) plus files generated under ``runtime/``, among them:
 
 * ``catalog.json``: the tool catalog for the browser (§2), so the page can offer tools
   before Python has loaded;
@@ -13,10 +13,13 @@ The site is the web app (``studio/web``) plus three generated files under ``runt
   the real versions. It is built reproducibly: sorted entries, fixed times and owners,
   gzip mtime 0, so the same sources give the same bytes and the same name;
 * ``boot.json``: what the Pyodide worker loads, and the bundle's SHA-256, which the
-  worker checks before unpacking.
+  worker checks before unpacking;
+* ``datasets.json``: the raw files the browser's research jobs acquire, with their reviewed
+  URLs, sizes, checksums and licences (``tcmstudio.datasets.registry_document``), written
+  with sorted keys so the same code gives the same bytes; ``boot.json`` names its SHA-256.
 
-The local runner serves the same three files from memory (``runtime_file``) when it has
-no built site, so ``http://127.0.0.1:8765/`` gets a browser runtime too.
+The local runner serves the same files from memory (``runtime_file``) when it has no
+built site, so ``http://127.0.0.1:8765/`` gets a browser runtime too.
 """
 
 from __future__ import annotations
@@ -41,7 +44,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 __all__ = ["BOOT_SCHEMA", "BuildError", "PYODIDE_INDEX_URL", "PYODIDE_VERSION", "Bundle",
            "add_arguments", "build", "build_bundle", "boot_document", "catalog_bytes",
-           "clear_cache", "default_web_dir", "main", "run", "runtime_file", "runtime_files"]
+           "clear_cache", "datasets_bytes", "default_web_dir", "main", "run", "runtime_file",
+           "runtime_files"]
 
 PYODIDE_VERSION = "314.0.7"
 PYODIDE_INDEX_URL = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/"
@@ -280,10 +284,22 @@ def _index_url(explicit: str | None) -> str:
     return url if url.endswith("/") else url + "/"
 
 
+def datasets_bytes() -> bytes:
+    """``runtime/datasets.json`` as published: the dataset registry
+    (``tcmstudio.datasets.registry_document``) with sorted keys, so a rebuild gives the same
+    bytes."""
+    from .datasets import registry_document
+
+    return (json.dumps(registry_document(), ensure_ascii=False, indent=2, sort_keys=True,
+                       allow_nan=False) + "\n").encode("utf-8")
+
+
 def boot_document(bundle: Bundle, catalog: bytes, *,
-                  index_url: str | None = None) -> dict[str, Any]:
-    """``runtime/boot.json`` (§5). Paths are relative to the site root."""
-    return {
+                  index_url: str | None = None,
+                  datasets: bytes | None = None) -> dict[str, Any]:
+    """``runtime/boot.json`` (§5). Paths are relative to the site root. ``datasets`` is
+    ``runtime/datasets.json`` as published, named here with its SHA-256 when given."""
+    doc = {
         "schema": BOOT_SCHEMA,
         "pyodide": {"version": PYODIDE_VERSION, "index_url": _index_url(index_url),
                     "packages": list(PYODIDE_PACKAGES)},
@@ -297,6 +313,10 @@ def boot_document(bundle: Bundle, catalog: bytes, *,
         "source_gateway": {"path": "runtime/source-gateway.json", "request_path": "/api/sources/request"},
         "data_assets": data_assets()[1],
     }
+    if datasets is not None:
+        doc["datasets"] = {"path": "runtime/datasets.json",
+                           "sha256": hashlib.sha256(datasets).hexdigest()}
+    return doc
 
 
 def _json_bytes(doc: Any) -> bytes:
@@ -379,18 +399,21 @@ _CACHE_KEY: str | None = None
 
 def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str]]:
     """``{name: (bytes, media type)}`` for the files under ``runtime/``: ``boot.json``,
-    ``catalog.json`` and ``tcms-py.<sha12>.tar.gz``. Built on first use (about two seconds)
-    and kept for the life of the process. The bundle's name changes with its content, so it
-    may be cached as immutable; the other two must be revalidated."""
+    ``catalog.json``, ``datasets.json``, ``source-gateway.json``, the data assets and
+    ``tcms-py.<sha12>.tar.gz``. Built on first use (about two seconds) and kept for the life
+    of the process. The bundle's name changes with its content, so it may be cached as
+    immutable; the others must be revalidated."""
     global _CACHE, _CACHE_KEY
     key = _index_url(index_url)
     with _LOCK:
         if _CACHE is None or key != _CACHE_KEY:
             bundle = build_bundle()
             catalog, _ = catalog_bytes(strict=False)
-            boot = boot_document(bundle, catalog, index_url=key)
+            datasets = datasets_bytes()
+            boot = boot_document(bundle, catalog, index_url=key, datasets=datasets)
             _CACHE = {"boot.json": (_json_bytes(boot), "application/json; charset=utf-8"),
                       "catalog.json": (catalog, "application/json; charset=utf-8"),
+                      "datasets.json": (datasets, "application/json; charset=utf-8"),
                       bundle.name: (bundle.data, "application/gzip")}
             _CACHE["source-gateway.json"] = (_json_bytes(source_gateway_document()),
                                               "application/json; charset=utf-8")
@@ -552,7 +575,8 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
     say("building the browser catalog")
     catalog, doc = catalog_bytes(strict=True)
     say(f"  {doc['counts']['core']} core tools, {doc['counts']['entries']} entries")
-    boot = boot_document(bundle, catalog, index_url=index_url)
+    datasets = datasets_bytes()
+    boot = boot_document(bundle, catalog, index_url=index_url, datasets=datasets)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     staging = out.with_name(f".{out.name}.build-{secrets.token_hex(4)}")
@@ -563,6 +587,7 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         runtime.mkdir(exist_ok=True)
         (runtime / bundle.name).write_bytes(bundle.data)
         (runtime / "catalog.json").write_bytes(catalog)
+        (runtime / "datasets.json").write_bytes(datasets)
         (runtime / "boot.json").write_bytes(_json_bytes(boot))
         (runtime / "source-gateway.json").write_bytes(_json_bytes(source_gateway_document()))
         for name, (content, _media) in data_assets()[0].items():

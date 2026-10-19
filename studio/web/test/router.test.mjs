@@ -93,6 +93,56 @@ test("placement: what the runner lacks is read as its catalog classifies it, nev
   assert.doesNotMatch(pkg.message, /snapshots/);
 });
 
+test("placement: a job kind the browser's job service runs goes to it, never to the Pyodide tool worker", async () => {
+  const doc = testCatalogDoc();
+  const obj = { type: "object", properties: {} };
+  const job = { kind: "job", category: "research", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: [], tags: [], parameters: obj };
+  doc.entries.push(
+    { ...job, id: "job.research.run", title: { zh: "研究", en: "Research" }, exec: ["browser", "runner"], execution: { browser_job: { service: "studio-jobs/1" } } },
+    { ...job, id: "job.research.other", title: { zh: "其他", en: "Other" }, exec: ["browser", "runner"] },
+    { id: "system.job_status", kind: "system", title: { zh: "任务状态", en: "Job status" }, summary: "x", category: "system", parameters: obj, example: null, exec: ["browser", "runner"], network: false, confirm: false, job: false, gpu: false, heavy: [], tags: [] },
+  );
+  doc.core.push({ name: "job_status", title: { zh: "任务状态", en: "Job status" }, description: "Status of a job.", parameters: obj, category: "system", exec: ["browser", "runner"], network: false, confirm: false, job: false, maps_to: "system.job_status" });
+  const submitted = (tool) => ({ ...envelopeFor(tool, "browser"), status: "job_submitted", job: { id: "bj-0123456789abcdef", kind: "research.run", state: "queued", where: "browser" } });
+  const make = ({ jobs = "ready", runner = "offline", compute = "auto" } = {}) => {
+    const runtimes = {
+      browser: fakeRuntime("browser", { status: "idle" }),
+      runner: fakeRuntime("runner", { status: runner }),
+      jobs: jobs === null ? undefined : { ...fakeRuntime("jobs", { status: jobs, answer: submitted }), runs: (kind) => kind === "research.run" },
+    };
+    return { r: new ToolRouter({ catalog: new Catalog(doc), runtimes, settings: { compute }, approvals: memoryApprovals() }), runtimes };
+  };
+  const { r, runtimes } = make();
+  assert.equal(r.where("job.research.run"), "browser");
+  const env = await r.call("call_tool", { tool: "job.research.run", arguments: { question: "q" } }, { projectId: "p", onApproval: async () => "once" });
+  assert.equal(env.status, "job_submitted");
+  assert.equal(runtimes.jobs.calls.length, 1);
+  assert.equal(runtimes.browser.calls.length, 0, "a job never goes to the tool worker");
+  assert.equal(env.receipt.execution.placement.chosen, "browser");
+  // a kind the browser's service does not implement has no browser place, whatever its exec says
+  const other = make().r.placement("job.research.other");
+  assert.equal(other.where, null);
+  assert.equal(other.reason, "needs_job_service");
+  // a connected runner takes jobs under auto, as it takes every call it can run
+  assert.equal(make({ runner: "ready" }).r.where("job.research.run"), "runner");
+  // no job service in this browser: said so, under browser and under auto without a runner
+  for (const compute of ["browser", "auto"]) {
+    const p = make({ jobs: "unsupported", compute }).r.placement("job.research.run");
+    assert.equal(p.reason, "needs_job_service", compute);
+    assert.deepEqual(p.requires.map((q) => q.need), ["job_service"]);
+    assert.match(p.requires[0].detail, /this browser's job service/);
+  }
+  // a browser job's status is the page's to answer, even with a runner connected; a runner job's is the runner's
+  const both = make({ runner: "ready" });
+  const st = await both.r.call("job_status", { job_id: "bj-0123456789abcdef" }, { projectId: "p" });
+  assert.equal(both.runtimes.jobs.calls.at(-1).tool, "job_status");
+  assert.equal(st.receipt.execution.placement.chosen, "browser");
+  await both.r.call("job_status", { job_id: "j-1234" }, { projectId: "p", onApproval: async () => "once" });
+  assert.equal(both.runtimes.runner.calls.at(-1).tool, "job_status");
+  const gone = await make({ jobs: null, runner: "ready" }).r.call("job_status", { job_id: "bj-0123456789abcdef" }, { projectId: "p" });
+  assert.equal(gone.error.reason, "needs_job_service");
+});
+
 test("a browser runtime that failed to load counts as absent", () => {
   const { r } = router({ browser: "offline", runner: "offline" });
   assert.equal(r.where("tcm_herb"), null);

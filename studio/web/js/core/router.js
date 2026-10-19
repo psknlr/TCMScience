@@ -24,6 +24,14 @@ import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
 import { canonicalJson, clip, flagArgument, isAbort, isLoopbackUrl, isPlainObject, objectArgument, sha256Hex, utf8Bytes } from "./util.js";
 
+/** A browser job's id (studio/web/js/scientific/runtime/jobs-runtime.js): its status is the page's to answer. */
+const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
+/** What a browser that cannot run jobs lacks (the job workers keep their files in the site's private storage). */
+const BROWSER_JOBS_NEED = {
+  detail: "this browser's job service (job workers and the site's private file storage)",
+  remedy: "Use a current Chrome, Edge, Firefox or Safari outside a private window, or connect the local runner.",
+};
+
 export const TEXT_LIMIT = 16000;
 const RUNNER_KEY = "runner";
 /**
@@ -152,7 +160,9 @@ export class ToolRouter {
     const exec = Array.isArray(target.exec) ? target.exec : [];
     const browserUp = this.#browserUp();
     const runnerUp = this.#runnerUp();
-    const canB = exec.includes("browser") && browserUp;
+    // a job runs in the browser only through the page's job service, and only a kind it implements
+    const jobsHere = !target.job || this.#jobsUp(target);
+    const canB = exec.includes("browser") && browserUp && jobsHere;
     const runnerHasIt = exec.includes("runner") && target.available !== false;
     const canR = runnerHasIt && runnerUp;
     const compute = this.#compute();
@@ -187,9 +197,11 @@ export class ToolRouter {
     };
     const inBrowser = () => this.#tooLarge(target, args, label, compute, exec) || ok("browser");
     const onRunner = () => this.#engineMissing(target, args, label) || ok("runner");
+    const noJobs = () => none("needs_job_service", label, [requirement("job_service", BROWSER_JOBS_NEED)], "core.router.needs_browser_jobs");
     if (compute === "browser") {
       if (canB) return inBrowser();
       if (!exec.includes("browser")) return none("compute_browser", label, [requirement("compute_setting")]);
+      if (browserUp && !jobsHere) return noJobs();
       return none("no_runtime", label, [requirement("browser_runtime")]);
     }
     if (compute === "runner") {
@@ -201,6 +213,7 @@ export class ToolRouter {
     // the browser otherwise (ARCHITECTURE, placement rules)
     if (canR) return onRunner();
     if (canB) return inBrowser();
+    if (exec.includes("browser") && browserUp && !jobsHere && !runnerUp) return noJobs();
     if (exec.includes("runner") && !runnerUp) return none("needs_runner", label, [requirement("runner")]);
     return missing() || none("no_runtime", label, [requirement("browser_runtime")]);
   }
@@ -356,6 +369,21 @@ export class ToolRouter {
       }), this.#provenance({ where: null, reason: "not_found" }));
     }
     const callArgs = entryArgs(name, input);
+    const browserJob = browserJobStatusId(name, input);
+    if (browserJob && (r.target?.id === "system.job_status" || r.target?.maps_to === "system.job_status")) {
+      const jobs = this.runtimes.jobs;
+      const place = { where: "browser", reason: "ok" };
+      if (!jobs || jobs.status !== "ready") {
+        return stamp(await synthEnvelope({
+          tool: name, via: "system.job_status", args: input, status: "failed", kind: "system",
+          summary: t("core.router.needs_browser_jobs", { name: r.label }),
+          text: `Not run: ${browserJob} is a job of this browser's job service, which is not running here.`,
+          error: { type: "unavailable", message: t("core.router.needs_browser_jobs", { name: r.label }), hint: BROWSER_JOBS_NEED.remedy, reason: "needs_job_service", requires: [requirement("job_service", BROWSER_JOBS_NEED)] },
+        }), this.#provenance({ where: null, reason: "needs_job_service" }));
+      }
+      const env = await jobs.call(name, input, { project_id: projectId, conversation_id: conversationId, signal });
+      return stamp(await normalizeEnvelope(env, { tool: name, where: "browser", entry: r.entry }), this.#provenance(place));
+    }
     const place = this.#place(r.target, callArgs, r.target);
 
     if (isLocalTool(r.target.name)) {
@@ -404,12 +432,13 @@ export class ToolRouter {
     }
     const prov = this.#provenance(place, granted);
 
-    const rt = this.runtimes[place.where];
+    const rt = place.where === "browser" && r.target.job ? this.runtimes.jobs : this.runtimes[place.where];
     if (signal?.aborted) return stamp(await cancelled(name, r, input, "not_executed"), prov);
     try {
       const env = await raceAbort(rt.call(name, input, {
         project_id: projectId, conversation_id: conversationId, approvals: granted.map((g) => g.reason), signal,
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
+        browser_jobs: this.runtimes.jobs?.status === "ready",
       }), signal);
       return stamp(await normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry }), prov);
     } catch (err) {
@@ -610,6 +639,14 @@ export class ToolRouter {
     return this.runtimes.runner?.status === "ready";
   }
 
+  /** Is the page's job service running, and does it run this job's kind? */
+  #jobsUp(target) {
+    const jobs = this.runtimes.jobs;
+    if (!jobs || jobs.status !== "ready") return false;
+    const id = String(target?.id || target?.maps_to || "");
+    return id.startsWith("job.") && typeof jobs.runs === "function" && jobs.runs(id.slice(4));
+  }
+
   #target(x) {
     if (!x) return null;
     if (typeof x === "object") return x;
@@ -689,6 +726,14 @@ async function networkKey(key, hosts) {
 }
 
 /** The arguments the entry itself receives: call_tool's `arguments`, otherwise the call's own. */
+/** The id of a browser job a job_status call asks about (job_status, system.job_status or call_tool), or null. */
+function browserJobStatusId(name, input) {
+  const inner = name === "call_tool" ? (isPlainObject(input.arguments) ? input.arguments : {}) : input;
+  const asks = name === "job_status" || name === "system.job_status" || (name === "call_tool" && ["job_status", "system.job_status"].includes(input.tool));
+  const id = asks ? String(inner?.job_id || "") : "";
+  return BROWSER_JOB_ID.test(id) ? id : null;
+}
+
 function entryArgs(name, input) {
   if (name !== "call_tool") return input;
   return isPlainObject(input?.arguments) ? input.arguments : {};

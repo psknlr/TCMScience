@@ -24,7 +24,10 @@ refusal point:
     written to the audit chain. Then :func:`run_network_pharmacology` runs with the
     protocol's parameters as a PSH tool call: a bridged component
     (:mod:`bioagent.research.tools`) that the kernel executes in an isolated child
-    process. The child reloads every snapshot through the ledger.
+    process, or, with ``isolate=False`` (where no process can be started, as in the
+    browser's Python), in this process through the same broker and audit chain. The
+    artifact records which (``provenance.execution.<stage>.isolation``). The tool reloads
+    every snapshot through the ledger.
 ``rebut``
     Every claim the analysis released is tested against the pre-registered rebuttals.
     A claim that disappears under the conservative background, when one activity
@@ -61,7 +64,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
+import sys
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,7 +87,7 @@ from ..tcm.model import licenses
 
 __all__ = ["FORMULAS", "formula_for", "Protocol", "QuestionRefused", "ResearchQuestion", "ResearchRefused",
            "ResearchRun", "canonical_row", "default_protocol", "parse_question",
-           "run_research", "snapshot_content_store"]
+           "research_summary", "run_research", "snapshot_content_store"]
 
 SKILL_ID = "research-network-pharmacology"
 SKILL_VERSION = "0.1.0"
@@ -399,7 +404,8 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                  protocol: Protocol | None = None, skill_dir: str | Path | None = None,
                  accept_review: bool = False,
                  analyse: Callable[..., Any] | None = None,
-                 profile: str = "trusted_local") -> ResearchRun:
+                 profile: str = "trusted_local",
+                 isolate: bool | None = None) -> ResearchRun:
     """Run ``question`` through protocol, retrieval, analysis, rebuttal and release.
 
     By default every analysis — the primary one and each rebuttal variant — executes as a
@@ -408,6 +414,13 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
     deployment ``profile`` decides isolation. ``analyse`` replaces that with an
     in-process callable; it exists for tests, and the artifact then records
     ``governed_execution: false``.
+
+    ``isolate`` says where those tool calls run. ``None`` leaves it to the bridge, which
+    isolates (each call in a child process the kernel starts). ``False`` runs them in this
+    process, for a Python that cannot start one (the browser's): still compiled, brokered
+    and recorded in the audit chain, so the run stays governed, and the artifact says
+    ``isolation: in_process`` for every stage that ran so. A profile that requires
+    isolation refuses it.
 
     A stage recorded by an earlier run is reused only if it was executed the way this
     run would execute it: same mode (governed or in-process), profile, compiled program,
@@ -422,6 +435,9 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
         raise ResearchRefused(f"PSH is not importable ({exc}); a research run needs "
                               "its audit chain") from exc
 
+    if analyse is not None and isolate is not None:
+        raise ValueError("isolate= says where the governed analysis runs; an analyse= "
+                         "callable is not governed and runs in this process")
     if isinstance(question, str):
         question = parse_question(question)
     protocol = protocol or default_protocol(question)
@@ -478,9 +494,11 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
             (contract.steps if contract is not None else {}).keys()))
         if analyse is None:
             analyse = _GovernedAnalysis(kernel, snapshot_root, ledger_path, contract,
-                                        accept_review, profile, state / "psh")
+                                        accept_review, profile, state / "psh",
+                                        isolate=isolate)
         governed = isinstance(analyse, _GovernedAnalysis)
-        execution = _execution(governed, profile, program, skill_dir)
+        execution = _execution(governed, profile, program, skill_dir,
+                               analyse.isolation if governed else "")
         retrieve_input = _digest({"protocol": protocol.digest, "snapshots": ids})
         if ckpt.done("retrieve", retrieve_input):
             resumed.append("retrieve")
@@ -581,7 +599,8 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                                     "sha256": "sha256:" + hashlib.sha256(document).hexdigest(),
                                     "bytes": len(document)},
                        "release_authorized": verdict.release_authorized,
-                       "governed_execution": artifact.provenance.get("governed_execution")})
+                       "governed_execution": artifact.provenance.get("governed_execution"),
+                       "runtime": _runtime()})
         ckpt.save("release", _digest({"rebut": rebut_input, "artifact": artifact.digest}),
                   {"artifact_digest": artifact.digest, "states": verdict.states})
     finally:
@@ -591,6 +610,50 @@ def run_research(question: ResearchQuestion | str, *, snapshot_root: str | Path,
                        snapshots=ids, deviations=tuple(deviations), rebuttal=rebuttal,
                        resumed_stages=tuple(resumed), audit_head=head,
                        state_dir=str(state), output_dir=str(out))
+
+
+def research_summary(run: ResearchRun, question: ResearchQuestion
+                     ) -> tuple[dict[str, Any], list[str]]:
+    """What ``bioagent research`` prints for a finished run, and the stages that failed.
+
+    The summary is the run's release, hypotheses, rebuttals and execution, with the
+    sixteen workflow stages and the coverage read back from the run's
+    ``run_manifest.json``. The failed lines name each stage that FAILed its own check, or
+    say that the manifest could not be read; with any, the command exits 3 whatever the
+    release check said (the research.run job counts 0 and 1 as results, 3 as a failure).
+    Studio's browser job (``tcmstudio.browser_jobs``) returns the same two things.
+    """
+    from .workflow import failed_stages
+
+    summary = {"run_id": run.run_id, "released": run.released,
+               "hypotheses": list(run.hypotheses),
+               "refuted": list(run.refuted), "deviations": list(run.deviations),
+               "rebuttals_not_run": run.rebuttal.get("not_run", []),
+               "resumed_stages": list(run.resumed_stages),
+               "states": run.verdict.states if run.verdict else {},
+               "snapshots": dict(run.snapshots), "audit_head": run.audit_head,
+               **{k: (run.artifact.provenance.get(k) if run.artifact else None)
+                  for k in ("compiled_program", "governed_execution", "tool_calls")},
+               "output_dir": run.output_dir}
+    # the sixteen workflow stages and how far the data reached, from the run's manifest
+    try:
+        manifest = json.loads((Path(run.output_dir) / "run_manifest.json").read_text(
+            encoding="utf-8"))
+        unread = None
+    except (OSError, ValueError) as exc:
+        manifest, unread = {}, f"run_manifest.json could not be read ({exc})"
+    summary["formula"] = question.formula_id
+    summary["coverage"] = {k: ({n: x for n, x in v.items() if n not in ("groups", "rule")}
+                               if k == "identity" and isinstance(v, dict) else v)
+                           for k, v in (manifest.get("coverage") or {}).items()}
+    summary["stages"] = [{"n": s.get("n"), "id": s.get("id"), "status": s.get("status"),
+                          "reason": str(s.get("reason") or "")[:240]}
+                         for s in manifest.get("stages") or ()]
+    summary["exports"] = sorted(manifest.get("outputs") or ())
+    summary["complete"] = manifest.get("complete")
+    summary["problems"] = list(manifest.get("problems") or ())
+    failed = failed_stages(manifest.get("stages") or ()) or ([unread] if unread else [])
+    return summary, failed
 
 
 # ---------------------------------------------------------------------------
@@ -691,11 +754,36 @@ def _analysis_manifest(root: str, ledger: str) -> Any:
         permissions=Permissions(filesystem_read=(root, ledger)))
 
 
+def _in_process_policy(root: str, ledger: str) -> Any:
+    """The BioScience policy kernel an in-process analysis call is ruled on by: the shipped
+    permission profiles, each reading the snapshot store and the ledger and nothing else,
+    and writing nothing.
+
+    An isolated child rules with ``${workspace}`` set to the directory holding both (the
+    bridge passes it on the child's command line). In this process ``${workspace}`` is this
+    process's own workspace, which need not hold them (the browser keeps them in a file
+    system of its own), and the call would be refused for reading outside it. The roots
+    given here are the two paths the analysis manifest declares: narrower than the child's
+    workspace and data lake, never wider."""
+    from ..policy import PROFILES, PolicyKernel
+
+    reads = frozenset({root, ledger})
+    return PolicyKernel(profiles={
+        name: replace(p, allow_filesystem_read=reads, allow_filesystem_write=frozenset())
+        for name, p in PROFILES.items()})
+
+
 class _GovernedAnalysis:
-    """Runs the analysis as a PSH tool call on a bridged BioScience component."""
+    """Runs the analysis as a PSH tool call on a bridged BioScience component.
+
+    ``isolate`` is the bridge's: ``None`` (it isolates, since a manifest directory is
+    given) or ``False`` (in this process). ``isolation`` is where the calls run, as the
+    bridge set them up, ``process`` or ``in_process``; each call checks that the broker
+    ran it that way before its result is used."""
 
     def __init__(self, kernel: Any, snapshot_root: Any, ledger_path: Any, contract: Any,
-                 accept_review: bool, profile: str, manifest_dir: Path) -> None:
+                 accept_review: bool, profile: str, manifest_dir: Path, *,
+                 isolate: bool | None = None) -> None:
         from ..psh import BioScienceBridge, default_runtime
         from .tools import TOOL_ID
 
@@ -711,11 +799,18 @@ class _GovernedAnalysis:
             raise ResearchRefused("the snapshots and the ledger share no directory but the "
                                   "filesystem root; put them under one work directory")
         manifest = _analysis_manifest(self.root, self.ledger)
+        # The bridge isolates by default here: it is always given a manifest directory.
+        # An isolated child is told its workspace on its command line; an in-process call
+        # is ruled on by this process's policy kernel, which reads only the two paths.
+        isolating = True if isolate is None else bool(isolate)
         runtime = default_runtime(catalogue=False, public_apis=False, skills=False,
-                                  extra_manifests=(manifest,))
-        self.bridge = BioScienceBridge(kernel, runtime, profile=profile,
+                                  extra_manifests=(manifest,),
+                                  kernel=None if isolating else
+                                  _in_process_policy(self.root, self.ledger))
+        self.bridge = BioScienceBridge(kernel, runtime, profile=profile, isolate=isolate,
                                        manifest_dir=manifest_dir / "bioscience",
-                                       roots={"workspace": workspace})
+                                       roots={"workspace": workspace} if isolating else None)
+        self.isolation = "process" if self.bridge.isolate else "in_process"
         self.bridge.admit(manifest)
         self.component = self.bridge.component(TOOL_ID)
         self.calls = 0
@@ -736,8 +831,18 @@ class _GovernedAnalysis:
             "skill": self.skill, "accept_review": self.accept_review,
         }
         self.calls += 1
-        result = self.kernel.broker.call_tool(self.component, payload,
-                                              self.kernel.policy.envelope())
+        # The broker counts the calls it ran in a child process and in this one; the run
+        # records ``isolation`` before it calls, so a call that ran the other way refuses
+        # the run rather than leave that record standing.
+        broker = self.kernel.broker
+        counter = ("isolated_tool_calls" if self.isolation == "process"
+                   else "in_process_tool_calls")
+        before = getattr(broker, counter, None)
+        result = broker.call_tool(self.component, payload, self.kernel.policy.envelope())
+        if before is not None and getattr(broker, counter) != before + 1:
+            where = "in a child process" if self.isolation == "process" else "in this process"
+            raise ResearchRefused(f"the analysis was set up to run {where}, and the broker "
+                                  "did not run it there")
         value = getattr(result, "value", result)
         if isinstance(value, str):
             value = json.loads(value)
@@ -987,14 +1092,30 @@ def _limitations(result: Mapping[str, Any], rebuttal: Mapping[str, Any],
 # ---------------------------------------------------------------------------
 
 def _execution(governed: bool, profile: str, program: str,
-               skill_dir: str | Path | None) -> dict[str, Any]:
-    """How this run executes its analyses: what a reused stage must have run under."""
+               skill_dir: str | Path | None, isolation: str = "") -> dict[str, Any]:
+    """How this run executes its analyses: what a reused stage must have run under.
+
+    A governed run also records where its tool calls run (``isolation``: ``process`` or
+    ``in_process``, as the bridge set them up). A stage computed one way is therefore not
+    reused by a run that would compute it the other way, and the artifact never reports a
+    process isolation the calls did not have."""
     from ..skills.loader import skill_content_hash
     from .tools import TOOL_ENTRYPOINT
-    return {"mode": "governed" if governed else "in_process",
-            "profile": profile if governed else "", "program": program,
-            "code": skill_content_hash(_skill_directory(skill_dir), entrypoint=TOOL_ENTRYPOINT),
-            "environment": _environment()["digest"]}
+    out = {"mode": "governed" if governed else "in_process",
+           "profile": profile if governed else "", "program": program,
+           "code": skill_content_hash(_skill_directory(skill_dir), entrypoint=TOOL_ENTRYPOINT),
+           "environment": _environment()["digest"]}
+    if governed:
+        out["isolation"] = isolation
+    return out
+
+
+def _runtime() -> dict[str, str]:
+    """The interpreter this execution ran in, as it reports itself (``emscripten`` and
+    ``wasm32`` in the browser's Pyodide). It goes in the manifest's ``execution`` block,
+    with the audit head: what identifies one execution, not what its outputs depend on."""
+    return {"python": platform.python_version(), "implementation": sys.implementation.name,
+            "platform": sys.platform, "machine": platform.machine()}
 
 
 def _reusable(ckpt: "_Checkpoint", kernel: Any, run_id: str, stage: str, input_digest: str,

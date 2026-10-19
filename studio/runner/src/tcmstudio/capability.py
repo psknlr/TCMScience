@@ -63,6 +63,7 @@ _RUNNER = "the local runner (tcmstudio serve)"
 _BROWSER = "the browser runtime"
 _NETWORK = "web access for this project"
 _JOBS = "the runner's job service"
+_BROWSER_JOBS = "this browser's job service (job workers and the site's private file storage)"
 _INSTALL = "Install it (pip install …) on the runner machine; Studio never substitutes an approximation."
 _PYODIDE = ("The browser runtime loads the Pyodide packages an entry lists in pyodide_packages before "
             "calling it; or run it on the local runner.")
@@ -195,7 +196,8 @@ def _classify(items: Iterable[str], remedy: str = _JOB_SERVICE
 def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, jobs: bool = True,
                  built: Collection[str] | None = None, args: Mapping[str, Any] | None = None,
                  probe: Probe | None = None, kind_missing: Sequence[str] | None = None,
-                 request_bytes: int | None = None) -> list[tuple[str, dict[str, Any]]]:
+                 request_bytes: int | None = None,
+                 browser_jobs: bool | None = None) -> list[tuple[str, dict[str, Any]]]:
     """Every requirement this entry lacks in ``where``, each with its reason code, in the
     order catalog_search has always named them (runtime, install, web access, job service;
     engines, the request size and datasets in between).
@@ -206,7 +208,10 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
     chosen engines are checked only with it); without it, what the catalog's own probe found
     (``available``/``missing``) counts. ``built``: the dataset keys built in this runtime's
     data hub, or None not to judge data. ``kind_missing``: what the runner's job service says
-    this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON."""
+    this job kind lacks. ``request_bytes``: the size of the call's arguments as JSON.
+    ``browser_jobs``: in the browser, whether the page's job service is running (it runs the
+    entries whose ``execution.browser_job`` says so; the page tells the worker in its context);
+    None when not known, which counts as not running."""
     out: list[tuple[str, dict[str, Any]]] = []
     exec_ = entry.get("exec") or ()
     if where not in exec_:
@@ -264,7 +269,13 @@ def requirements(entry: Mapping[str, Any], *, where: str, network: bool = True, 
         out.append(("network_off", requirement("network", _NETWORK, _remedy("NETWORK_OFF"),
                                                hosts_for(entry, args))))
     out += [("needs_job_service", r) for r in other]
-    if entry.get("job") and not jobs and not other:
+    in_page = where == "browser" and bool((entry.get("execution") or {}).get("browser_job"))
+    if in_page and entry.get("job") and not browser_jobs and not other:
+        out.append(("needs_job_service", requirement(
+            "job_service", _BROWSER_JOBS,
+            "Use a current Chrome, Edge, Firefox or Safari outside a private window (the jobs keep "
+            "their files in the site's private storage), or connect the local runner.")))
+    elif not in_page and entry.get("job") and not jobs and not other:
         # (the job service's own sentence, when it gave one, already says this)
         out.append(("needs_job_service", requirement(
             "job_service", _JOBS, _JOB_SERVICE if where == "runner" else _remedy("NEEDS_RUNNER"))))
@@ -326,7 +337,7 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
           built: Collection[str] | None = None, probe: Probe | None = None,
           kind_missing: Mapping[str, Sequence[str]] | None = None, state: str | None = None,
           kind: str | None = None, category: str | None = None,
-          limit: int | None = None) -> dict[str, Any]:
+          limit: int | None = None, browser_jobs: bool = False) -> dict[str, Any]:
     """Every entry against this runtime: implementation, readiness with what is missing,
     and the committed verification; counts by readiness, implementation and verification.
     Filters narrow the list, never the counts. Network reachability is never claimed: an
@@ -334,7 +345,7 @@ def audit(items: Iterable[Mapping[str, Any]], *, where: str, network: bool, jobs
     rows = []
     for e in items:
         r = readiness(e, where=where, network=network, jobs=jobs, built=built, probe=probe,
-                      kind_missing=(kind_missing or {}).get(e["id"]))
+                      kind_missing=(kind_missing or {}).get(e["id"]), browser_jobs=browser_jobs)
         v = e.get("verification") or {}
         rows.append({"id": e["id"], "kind": e["kind"], "category": e.get("category"),
                      "implementation": (e.get("state") or {}).get("implementation", "registered"),
