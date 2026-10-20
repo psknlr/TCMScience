@@ -55,10 +55,14 @@ export function workerEnv({ fetch = globalThis.fetch?.bind(globalThis), readData
     state: null, // {RDKit, preparer, info}
     interrupt: null,
     cancelled: new Set(),
+    pending: null, // the ids the message loop has taken and not yet answered (serve sets it)
   };
 }
 
+/** A cancel for an op not answered yet; under the message loop, one for an op already answered (or never sent) is
+ * dropped, so that it cannot stop a later op given the same id. */
 export function cancel(env, id) {
+  if (env.pending && !env.pending.has(id)) return;
   env.cancelled.add(id);
 }
 
@@ -198,6 +202,7 @@ export async function handle(msg, env) {
 /** The message loop of a worker scope (self, or a test's stand-in). */
 export function serve(scope, env) {
   let chain = Promise.resolve();
+  env.pending ??= new Set();
   scope.onmessage = (ev) => {
     const msg = ev.data;
     if (!msg || typeof msg !== "object") return;
@@ -210,8 +215,10 @@ export function serve(scope, env) {
       return;
     }
     if (msg.id === undefined || msg.id === null) return;
+    env.pending.add(msg.id);
     chain = chain.then(async () => {
       const { reply, transfer } = await handle(msg, env);
+      env.pending.delete(msg.id);
       scope.postMessage(reply, transfer);
     }).catch(() => {});
   };

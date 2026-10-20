@@ -180,4 +180,17 @@ test("the message loop: requests in order, each reply posted with its buffers as
   assert.deepEqual(posted[0][1], []);
   assert.deepEqual(posted[1][1], [posted[1][0].result.features.buffer, posted[1][0].result.bits.buffer]);
   assert.ok(e.interrupt instanceof Uint8Array);
+
+  // a cancel that arrives after its op was answered stops nothing later: the same id runs again
+  scope.onmessage({ data: { type: "cancel", id: 2 } });
+  scope.onmessage({ data: { id: 2, op: "prepare", payload: { molecules: molecules(2) } } });
+  for (let i = 0; i < 200 && posted.length < 3; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual([posted[2][0].id, posted[2][0].ok], [2, true], "a stale cancel does not stop a later op with its id");
+  assert.equal(e.cancelled.size, 0);
+  // one for an op still queued does stop it
+  scope.onmessage({ data: { id: 3, op: "prepare", payload: { molecules: molecules(40) } } });
+  scope.onmessage({ data: { id: 4, op: "prepare", payload: { molecules: molecules(2) } } });
+  scope.onmessage({ data: { type: "cancel", id: 4 } });
+  for (let i = 0; i < 400 && posted.length < 5; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(posted.slice(3).map(([m]) => [m.id, m.ok, m.error?.type ?? null]), [[3, true, null], [4, false, "cancelled"]]);
 });
