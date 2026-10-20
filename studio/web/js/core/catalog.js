@@ -660,11 +660,25 @@ export function datasetsOf(entry, args) {
 }
 
 /**
+ * Whether a call of this entry reaches the network by its network flag (tcmstudio.capability: an entry with
+ * network_unless needs it unless the call gives that argument, admet.models' archive as a project file, which it then
+ * reads instead of downloading). network_if, the argument that makes an entry with no network flag reach out, is the
+ * caller's to read.
+ */
+export function networkByFlag(entry, args) {
+  const e = isPlainObject(entry) ? entry : {};
+  if (!e.network) return false;
+  const unless = typeof e.network_unless === "string" && e.network_unless ? e.network_unless : null;
+  return !(unless && isPlainObject(args) && Boolean(args[unless]));
+}
+
+/**
  * The capability state of an entry here: {implementation, readiness: {browser: R, runner: R}}, R = {state, requires}.
  * ctx: {browser, runner (runtime statuses), web (the project's web access), built (dataset keys known built in the
  * browser: tcmdb status), packages (Pyodide packages this browser can load, when known), args (a call's arguments),
  * jobs (the browser job service: {status, kinds: [job kinds it runs], snapshots: research snapshots here (true, false,
- * or null when not read)}, when the page has one)}.
+ * or null when not read), admet_models: the ADMET endpoints whose models are built here ([] for none, null when not
+ * read)}, when the page has one)}.
  *
  * browser: decided here. A dataset counts as present only when it is known built (ctx.built); a package list that is
  * not known is not held against the entry (the call itself reports one it cannot load). runner: the runner catalog's
@@ -675,7 +689,7 @@ export function entryState(entry, ctx = {}) {
   const e = isPlainObject(entry) ? entry : {};
   const exec = Array.isArray(e.exec) ? e.exec : [];
   const args = isPlainObject(ctx.args) ? ctx.args : {};
-  const netOff = ctx.web === false && (Boolean(e.network) || (typeof e.network_if === "string" && args[e.network_if] === true));
+  const netOff = ctx.web === false && (networkByFlag(e, args) || (typeof e.network_if === "string" && args[e.network_if] === true));
 
   // browser
   const b = [];
@@ -711,6 +725,17 @@ export function entryState(entry, ctx = {}) {
         names: ["research snapshots"], detail: "the research snapshots built in this browser",
         remedy: "Build them first in this browser (job.research.snapshot: the NPASS, CMAUP and LOTUS files plus STRING and Reactome), or connect a runner that has them.",
       }));
+    } else if (kind === "pipeline.admet" && Array.isArray(ctx.jobs.admet_models)) {
+      // the endpoints a call asks for (every one built when it names none) must have their models built here
+      const asked = Array.isArray(args.endpoints) ? args.endpoints.map((x) => String(x).trim()) : [];
+      const lack = asked.length ? asked.filter((x) => !ctx.jobs.admet_models.includes(x)) : ctx.jobs.admet_models.length ? [] : ["*"];
+      if (lack.length) {
+        b.push(requirement("dataset", {
+          names: ["ADMET models"],
+          detail: lack.includes("*") ? "the ADMET models built in this browser" : `the ADMET models built in this browser for ${lack.join(", ")}`,
+          remedy: "Build them first in this browser (job.admet.models: the TDC ADMET group archive, through the site's relay or from a project file, and the models trained here), or connect a runner that has them.",
+        }));
+      }
     }
   }
   if (netOff) b.push(requirement("network"));

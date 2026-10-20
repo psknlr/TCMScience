@@ -170,6 +170,8 @@ export function assuranceLabel(assurance) {
 export function deviceLabel(device) {
   const d = String(device || "").toLowerCase();
   if (!d) return "";
+  // a job whose stages computed on more than one ("cpu+webgpu": its Python on the CPU, a search on the GPU)
+  if (d.includes("+")) return d.split("+").map((x) => deviceLabel(x.trim())).filter(Boolean).join(" + ");
   if (d === "cpu") return "CPU";
   if (d === "mps") return "MPS";
   if (d === "webgpu") return "WebGPU";

@@ -179,6 +179,9 @@ export const RUNNER_ONLY = Object.freeze({
     { arg: "integration", is: "scvi", why: "scVI (scvi-tools and torch) is not in this browser's Python; built-in Harmony is" },
     { arg: "source", suffix: [".h5", ".h5ad"], why: "a 10x HDF5 or .h5ad source is not yet supported in the browser (its readers, h5py and anndata, are not loaded by this job); count tables (CSV/TSV) run here" },
   ],
+  "pipeline.admet": [
+    { arg: "molecules", suffix: [".sdf", ".sdf.gz", ".mol"], why: "an SDF or .mol file is read with RDKit's SDMolSupplier, which the browser's chemistry (RDKit.js) does not port; CSV, TSV and .smi files and one SMILES run here" },
+  ],
 });
 
 /**
@@ -199,6 +202,24 @@ export function pipelineCatalogDoc() {
     { ...job, id: "job.pipeline.rnaseq", title: { zh: "RNA-seq", en: "RNA-seq" }, summary: "RNA-seq differential expression", tags: ["RNA-seq"], parameters: obj({ counts: { type: "string" }, samples: { type: "string" }, de_backend: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.rnaseq") } },
     { ...job, id: "job.pipeline.scrna", title: { zh: "单细胞", en: "Single-cell" }, parameters: obj({ source: { type: "string" }, analysis_backend: { type: "string" }, integration: { type: "string" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.scrna") } },
     { ...job, id: "job.pipeline.fold", title: { zh: "结构", en: "Fold" }, parameters: obj({ method: { type: "string" } }), exec: ["runner"] },
+  );
+  return doc;
+}
+
+/**
+ * pipelineCatalogDoc with the ADMET kinds as tcmstudio.catalog writes them once the browser runs them: run_pipeline's
+ * pipelines include admet, job.pipeline.admet (its runner_only rule: SDF and .mol files) and job.admet.models.
+ */
+export function admetCatalogDoc() {
+  const doc = pipelineCatalogDoc();
+  const obj = (props = {}) => ({ type: "object", properties: props });
+  const job = { kind: "job", category: "structure_molecules", summary: "x", example: null, network: false, confirm: true, job: true, gpu: false, heavy: ["rdkit", "scikit-learn"], tags: [] };
+  const browserJob = (kind) => ({ service: "studio-jobs/1", runtime: "pyodide", pyodide_packages: ["numpy", "scipy", "scikit-learn"], chemistry: { engine: "rdkit.js", package: "@rdkit/rdkit", version: "2026.9.1", release: "2026.09.1" }, ...(RUNNER_ONLY[kind] ? { runner_only: RUNNER_ONLY[kind] } : {}) });
+  doc.core.find((c) => c.name === "run_pipeline").parameters.properties.pipeline.enum.push("admet");
+  doc.entries.push(
+    { ...job, id: "job.pipeline.admet", title: { zh: "ADMET", en: "ADMET" }, parameters: obj({ molecules: { type: "string" }, endpoints: { type: "array" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("pipeline.admet") } },
+    // network unless the call gives the archive (a project file it reads instead of downloading), as tcmstudio.catalog
+    { ...job, id: "job.admet.models", title: { zh: "构建 ADMET 模型", en: "Build the ADMET models" }, network: true, network_unless: "archive", hosts: ["dataverse.harvard.edu"], parameters: obj({ archive: { type: "string" }, endpoints: { type: "array" } }), exec: ["browser", "runner"], execution: { browser_job: browserJob("admet.models") } },
   );
   return doc;
 }

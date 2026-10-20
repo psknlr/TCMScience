@@ -286,7 +286,8 @@ async function serveDatasets(request, env, deps) {
       let next = null;
       try { next = httpsURL(new URL(response.headers.get("Location"), target).href.replace(/#.*$/, "")); } catch { /* refused below */ }
       if (!next || !entry.hosts.has(next.hostname)) {
-        refuse(502, "redirect_refused", `数据集服务器重定向到注册清单未列出的地址（只允许 HTTPS 到 ${[...entry.hosts].join("、")}）`);
+        // the host it was sent to is named, so that a reviewer can add it to the file's redirect_hosts
+        refuse(502, "redirect_refused", `数据集服务器重定向到注册清单未列出的地址 ${next ? next.hostname : "（不是 HTTPS 地址）"}（只允许 HTTPS 到 ${[...entry.hosts].join("、")}）`, { redirected_to: next ? next.hostname : null });
       }
       target = next;
     }
@@ -298,7 +299,9 @@ async function serveDatasets(request, env, deps) {
     const headers = {};
     if (err.extra.allow) headers.Allow = "GET, HEAD";
     if (err.status === 429) headers["Retry-After"] = String(Math.max(1, Math.ceil(err.extra.retry || 10)));
-    return reply(request, { error: { type: err.type, message: err.message } }, err.status, headers);
+    const error = { type: err.type, message: err.message };
+    if (err.extra.redirected_to !== undefined) error.redirected_to = err.extra.redirected_to;
+    return reply(request, { error }, err.status, headers);
   } finally {
     clearTimeout(timer);
     request.signal?.removeEventListener("abort", abort);

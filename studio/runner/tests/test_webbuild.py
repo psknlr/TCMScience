@@ -117,6 +117,40 @@ def test_index_url_override(monkeypatch, bundle):
     assert webbuild.boot_document(bundle, catalog)["pyodide"]["index_url"] == "https://example.org/py/"
 
 
+def test_boot_pins_the_browser_chemistry_as_rdkit_js_states_it(monkeypatch, bundle, tmp_path):
+    """boot.json's rdkit is read from the RDKIT constant of web/js/scientific/chem/rdkit.js, the
+    one place the pin is written; a mirror changes only where the wasm is fetched from."""
+    import re
+    text = (STUDIO / "web" / "js" / "scientific" / "chem" / "rdkit.js").read_text(encoding="utf-8")
+    monkeypatch.delenv("TCMSTUDIO_RDKIT_URL", raising=False)
+    pin = webbuild.rdkit_pin()
+    assert set(pin) == {"version", "release", "url", "sha256", "bytes", "loader"}
+    for key in ("version", "release", "url", "sha256"):
+        assert f'{key}: "{pin[key]}"' in text, key
+    assert f"bytes: {pin['bytes']}," in text
+    assert pin["url"] == f"https://cdn.jsdelivr.net/npm/@rdkit/rdkit@{pin['version']}/dist/RDKit_minimal.wasm"
+    assert re.fullmatch(r"[0-9a-f]{64}", pin["sha256"]) and pin["bytes"] > 1_000_000
+    assert pin["loader"] == f"js/scientific/chem/vendor/RDKit_minimal-{pin['version']}.mjs"
+    assert (STUDIO / "web" / pin["loader"]).is_file()
+    catalog, _ = webbuild.catalog_bytes(strict=False)
+    assert webbuild.boot_document(bundle, catalog, rdkit=pin)["rdkit"] == pin
+    assert "rdkit" not in webbuild.boot_document(bundle, catalog)
+    mirror = webbuild.rdkit_pin(url="/mirror/RDKit_minimal.wasm")
+    assert mirror == {**pin, "url": "/mirror/RDKit_minimal.wasm"}
+    monkeypatch.setenv("TCMSTUDIO_RDKIT_URL", "https://example.org/rdkit/RDKit_minimal.wasm")
+    assert webbuild.rdkit_pin()["url"] == "https://example.org/rdkit/RDKit_minimal.wasm"
+    # a web app without the module has no pin; one whose pin is incomplete is refused
+    assert webbuild.rdkit_pin(tmp_path) is None
+    broken = tmp_path / "js" / "scientific" / "chem"
+    broken.mkdir(parents=True)
+    (broken / "rdkit.js").write_text(text.replace("sha256: \"594c", "sha: \"594c"), encoding="utf-8")
+    with pytest.raises(webbuild.BuildError, match="its RDKIT pin lacks sha256"):
+        webbuild.rdkit_pin(tmp_path)
+    (broken / "rdkit.js").write_text(text, encoding="utf-8")
+    with pytest.raises(webbuild.BuildError, match="the vendored RDKit.js loader the pin names"):
+        webbuild.rdkit_pin(tmp_path)
+
+
 def test_browser_catalog_matches_the_cli(tmp_path):
     out = tmp_path / "cat.json"
     subprocess.run([sys.executable, "-m", "tcmstudio", "catalog", "--where", "browser",
@@ -181,6 +215,11 @@ def test_build_writes_the_site(site, bundle):
     assert boot["datasets"] == {"path": "runtime/datasets.json",
                                 "sha256": hashlib.sha256(datasets).hexdigest()}
     assert json.loads(datasets)["schema"] == "tcmstudio.datasets/1"
+    # the browser chemistry's pin, and the files it loads published with the site
+    assert boot["rdkit"] == webbuild.rdkit_pin(url=os.environ.get("TCMSTUDIO_RDKIT_URL"))
+    chem = out / "js" / "scientific" / "chem"
+    assert (out / boot["rdkit"]["loader"]).read_bytes() == (STUDIO / "web" / boot["rdkit"]["loader"]).read_bytes()
+    assert (chem / "filter_catalogs.json").is_file() and (chem / "vendor" / "LICENSE-RDKit.txt").is_file()
     assert (out / "index.html").is_file()
     assert (out / "js" / "runtime" / "browser.js").is_file()
     assert (out / "js" / "runtime" / "pyodide.worker.js").is_file()
@@ -202,7 +241,8 @@ def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site)
     paths = {f["path"] for f in manifest["files"]}
     assert {"/", "/js/main.js", "/js/ui/app.js", "/js/compute/kernels.js", "/js/compute/simd.js",
             "/js/compute/wasm/seqcount.wasm.js", "/runtime/boot.json", "/runtime/catalog.json",
-            "/manifest.webmanifest"} <= paths
+            "/manifest.webmanifest", "/js/scientific/chem/vendor/RDKit_minimal-2026.9.1.mjs",
+            "/js/scientific/chem/filter_catalogs.json"} <= paths
     assert (out / "js" / "compute" / "wasm" / "seqcount.wat").is_file(), "the module's source ships beside it"
     assert "/js/compute/wasm/seqcount.wat" not in paths, "but nothing loads it, so it is not cached"
     assert "/index.html" not in paths, "the page is kept as / (Workers may redirect /index.html)"
@@ -216,9 +256,14 @@ def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site)
         assert hashlib.sha256(disk.read_bytes()).hexdigest() == f["sha256"], f["path"]
     boot = json.loads((out / "runtime" / "boot.json").read_text(encoding="utf-8"))
     assert manifest["index_url"] == boot["pyodide"]["index_url"]
-    # deterministic: the same files give the same manifest and version; another index gives another version
-    assert webbuild.service_worker_manifest(out, manifest["index_url"]) == manifest
-    assert webbuild.service_worker_manifest(out, "/pyodide/")["version"] != manifest["version"]
+    # the RDKit.js wasm the page fetches (boot.json's url, a mirror's too), kept by sw.js at the pinned digest only
+    assert manifest["rdkit"] == {"url": boot["rdkit"]["url"], "sha256": boot["rdkit"]["sha256"]}
+    # deterministic: the same files give the same manifest and version; another index or wasm, another version
+    assert webbuild.service_worker_manifest(out, manifest["index_url"], boot["rdkit"]) == manifest
+    assert webbuild.service_worker_manifest(out, "/pyodide/", boot["rdkit"])["version"] != manifest["version"]
+    mirror = {**boot["rdkit"], "url": "/mirror/RDKit_minimal.wasm"}
+    assert webbuild.service_worker_manifest(out, manifest["index_url"], mirror)["version"] != manifest["version"]
+    assert "rdkit" not in webbuild.service_worker_manifest(out, manifest["index_url"])
 
 
 def test_the_unbuilt_service_worker_caches_nothing():

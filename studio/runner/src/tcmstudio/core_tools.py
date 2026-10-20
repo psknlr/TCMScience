@@ -378,8 +378,10 @@ CORE_TOOLS: tuple[dict[str, Any], ...] = (
         clusters), fold (protein structure), dock (AutoDock Vina), admet (descriptors,
         alerts, endpoints). The local runner runs every one (CPU or GPU per the device
         setting); this browser's job workers run rnaseq with counts and scrna on count
-        tables with the built-in engines, and say when a call needs the runner (FASTQ,
-        PyDESeq2, Scanpy, scVI, .h5/.h5ad, the other pipelines). arguments follow the job
+        tables with the built-in engines, and admet on a CSV/TSV/.smi file or one SMILES
+        with RDKit.js chemistry and the models built in this browser (job.admet.models),
+        and say when a call needs the runner (FASTQ, PyDESeq2, Scanpy, scVI, .h5/.h5ad,
+        SDF/.mol, fold, dock). arguments follow the job
         kind's schema (catalog_search kind='job'); files are upload ids or file names. The
         user approves each job, and allow_remote (sending a sequence to a third-party
         service) separately. Returns a job id; a pipeline that has not succeeded has no

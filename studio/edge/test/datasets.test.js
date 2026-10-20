@@ -355,7 +355,13 @@ test("redirects: at most three hops, each https to the file's host or a host the
     const off = setup({ upstream: () => new Response("moved", { status: 301, headers: { Location: location } }) });
     const refused = await off.call(LOTUS.name);
     assert.equal(refused.status, 502, location);
-    assert.equal((await errorOf(refused)).type, "redirect_refused");
+    const error = await errorOf(refused);
+    assert.equal(error.type, "redirect_refused");
+    // the host it was sent to is named (null when the address is not one the relay would follow at all), so a
+    // reviewer can add it to the file's redirect_hosts
+    const named = { "https://evil.example.org/file": "evil.example.org", "https://bidd.group/CMAUP/downloadFiles/x": "bidd.group" }[location] ?? null;
+    assert.equal(error.redirected_to, named, location);
+    if (named) assert.match(error.message, new RegExp(named.replace(/\./g, "\\.")));
     assert.equal(off.calls.length, 1, location);
   }
   const loop = setup({ upstream: (url) => new Response(null, { status: 302, headers: { Location: url } }) });

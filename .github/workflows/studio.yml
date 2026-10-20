@@ -11,8 +11,10 @@ name: studio
 # imports their internals: a change there is tested, rebuilt and redeployed too (not their docs, tests or data, except
 # the committed connector live-verification record, which the site's catalog.json and studio/docs/compat/matrix.csv
 # are built from, and the test modules the browser research jobs' native side imports: omics_world, sc_world and
-# test_pipeline_references for --mode omics, test_snapshot_pipeline and test_source_parsers for --mode fixture). The
-# READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they trigger it too.
+# test_pipeline_references for --mode omics, test_snapshot_pipeline and test_source_parsers for --mode fixture,
+# admet_world for --mode admet). The READMEs and docs/ restate catalog numbers that doc_facts.py checks, so they
+# trigger it too. The browser chemistry and the ADMET jobs' native side are RDKit 2026.9.1 and scikit-learn 1.8.0,
+# the versions the browser's RDKit.js and Pyodide's scikit-learn are pinned to: installed at exactly those versions.
 on:
   push:
     paths:
@@ -31,6 +33,7 @@ on:
       - "BioScience-Harness/tests/test_pipeline_references.py"
       - "BioScience-Harness/tests/test_snapshot_pipeline.py"
       - "BioScience-Harness/tests/test_source_parsers.py"
+      - "BioScience-Harness/tests/admet_world.py"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -53,6 +56,7 @@ on:
       - "BioScience-Harness/tests/test_pipeline_references.py"
       - "BioScience-Harness/tests/test_snapshot_pipeline.py"
       - "BioScience-Harness/tests/test_source_parsers.py"
+      - "BioScience-Harness/tests/admet_world.py"
       - "BioScience-Harness/README.md"
       - "README.md"
       - "README.zh-CN.md"
@@ -89,7 +93,8 @@ jobs:
             exit 0
           fi
           python -m pip install --upgrade pip
-          pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest
+          # RDKit and scikit-learn at the browser's pins: the runner's ADMET tests (browser_jobs admet_*) skip without
+          pip install -e PSH-Harness -e BioScience-Harness -e "studio/runner[test]" pytest rdkit==2026.9.1 scikit-learn==1.8.0
           # every catalog number the READMEs and docs restate, against the catalog itself; the compatibility matrix
           # and the connector coverage report, regenerated and compared (the runner tests below run them too)
           python3 studio/scripts/doc_facts.py --check
@@ -100,6 +105,11 @@ jobs:
           else
             echo "::notice::studio/runner has no tests directory"
           fi
+      - name: The browser chemistry's RDKit data and parity fixture, regenerated from native RDKit 2026.9.1
+        # make_chem_fixtures.py writes filter_catalogs.json, rdkit_tables.json, RDKit's licence and the parity fixture
+        # (web/test/fixtures/chem_parity.json) from native RDKit 2026.9.1 and RDKit's sources at the release tag (from
+        # raw.githubusercontent.com); --check fails when a committed file is not what they give
+        run: python studio/scripts/make_chem_fixtures.py --check
       - name: Web (core modules and UI)
         # the Runner step installed tcmstudio into this job's Python: the tests that read a real runner's answers
         # (Settings → Data against /api/datasets) run instead of skipping
@@ -129,6 +139,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e PSH-Harness -e BioScience-Harness -e studio/runner
+          # the native side of the browser ADMET jobs (science.mjs --mode admet): the browser's pins
+          pip install rdkit==2026.9.1 scikit-learn==1.8.0
       - name: Build the app (studio/_site) with its headers
         run: |
           python3 studio/scripts/build_web.py --out studio/_site
@@ -170,6 +182,22 @@ jobs:
           node studio/web/test/runtime/science.mjs --mode service --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-service.json"
           node studio/web/test/runtime/science.mjs --mode fixture --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-fixture.json"
           node studio/web/test/runtime/science.mjs --mode omics --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-omics.json"
+      - name: Browser chemistry, science kernels and the ADMET jobs (RDKit.js, WebGPU on SwiftShader, Pyodide's scikit-learn)
+        # chem.browser.mjs: the chemistry worker in Chromium (the vendored loader, npm's RDKit_minimal.wasm checked
+        # against the pin, a tampered one refused) prepares the parity corpus to native RDKit's answers.
+        # gpu-science.mjs --software: the device check on SwiftShader, a software adapter (exactness of the WGSL against
+        # WebAssembly SIMD and JavaScript; its timings are the CPU's, so it says "software, not evidence"; no runner here
+        # has a physical GPU). science.mjs --mode admet: admet.models on the known-answer archive (a project file) and
+        # pipeline.admet on a molecule set as jobs of the page's job service, RDKit.js and Pyodide from jsDelivr as on
+        # science.impf.ai, held exactly to native RDKit 2026.9.1 and scikit-learn 1.8.0 at one thread (the cards apart
+        # from file digests, seconds and the chemistry's name; admet.tsv; predictions and domain search; alerts; the
+        # refusals the set expects), then once more with the domain search forced onto SwiftShader's WebGPU by the
+        # handlers' harness-only switch: the same outputs
+        run: |
+          (cd studio && (npm ci || npm install) && npx playwright install --with-deps chromium)
+          node studio/web/test/runtime/chem.browser.mjs --json "$RUNNER_TEMP/science-chem.json"
+          node studio/web/test/runtime/gpu-science.mjs --software --json "$RUNNER_TEMP/science-gpu.json"
+          node studio/web/test/runtime/science.mjs --mode admet --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-admet.json"
       - name: Keep the browser research jobs' reports (every check, the page's failures, rows and console)
         # also when a mode failed or timed out, which is when they are read; this workflow's own test runs on the
         # planted and simulated references (digests and sizes of their outputs), nothing of a visitor's

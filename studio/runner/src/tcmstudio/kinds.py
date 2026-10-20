@@ -43,7 +43,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 __all__ = ["BadParams", "Kind", "PrepareContext", "StartContext", "KINDS", "default_kinds",
            "OUTPUT_TOKEN", "safe_id", "stdout_json", "read_stages", "read_record",
-           "stage_summary", "RECORD_MAX_BYTES", "RUN_JSON_MAX_BYTES", "main"]
+           "stage_summary", "admet_endpoints", "RECORD_MAX_BYTES", "RUN_JSON_MAX_BYTES", "main"]
 
 OUTPUT_TOKEN = "{output}"
 _UPLOAD_ID = re.compile(r"^u_[0-9a-f]{16}$")
@@ -61,6 +61,10 @@ PERMUTATIONS = (100, 100000)
 RNASEQ_ALPHA = (0.0001, 0.5)
 SCRNA_RESOLUTION = (0.05, 5.0)
 SCRNA_TOP_GENES = (50, 10000)
+#: admet.models' boosting iterations at most (build_models' max_iter, 600 by default), at least and at
+#: most; the browser's model build keeps the same bounds
+ADMET_MAX_ITER = (10, 5000)
+_ENDPOINT = re.compile(r"^[A-Za-z0-9_.]{1,64}$")
 _SOURCE_KEY = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
@@ -842,15 +846,112 @@ def _admet_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
     else:
         raise BadParams("molecules: an uploaded CSV (name,smiles), SDF or .smi file (its "
                         "upload id), or one SMILES")
-    endpoints = [_text("endpoints", e, pattern=re.compile(r"^[A-Za-z0-9_.]{1,64}$"))
-                 for e in p.get("endpoints") or []]
-    return {"molecules": molecules, "endpoints": endpoints,
+    return {"molecules": molecules, "endpoints": _admet_prepare_endpoints(p.get("endpoints")),
             "cache": str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "admet")}
+
+
+def _admet_prepare_endpoints(values: Any) -> list[str]:
+    """pipeline.admet's endpoints: names of the expected form (one with no model makes the run
+    incomplete, as ``bioagent admet --endpoint`` does; it is not refused here)."""
+    if values is not None and not isinstance(values, (list, tuple)):
+        raise BadParams("endpoints: a list of TDC ADMET endpoint names")
+    return [_text("endpoints", e, pattern=_ENDPOINT) for e in values or []]
 
 
 def _admet_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
     argv = _cli(ctx, "admet", r["molecules"], _opt("out", OUTPUT_TOKEN), _opt("cache", r["cache"]))
     return argv + [_opt("endpoint", e) for e in r["endpoints"]]
+
+
+# ---------------------------------------------------------------------------- admet.models
+
+def admet_endpoints(values: Any) -> list[str]:
+    """TDC ADMET endpoint names, each one of ``bioagent.admet.models.ENDPOINTS``, without
+    repeats, in the order given (empty: every endpoint)."""
+    from bioagent.admet.models import ENDPOINTS
+    if values is not None and not isinstance(values, (list, tuple)):
+        raise BadParams("endpoints: a list of TDC ADMET endpoint names")
+    names = [_text("endpoints", e, pattern=_ENDPOINT) for e in values or ()]
+    unknown = [e for e in names if e not in ENDPOINTS]
+    if unknown:
+        raise BadParams(f"endpoints: no TDC ADMET endpoint {', '.join(unknown)}; one of "
+                        f"{', '.join(ENDPOINTS)}")
+    return list(dict.fromkeys(names))
+
+
+def _admet_models_choices(p: Mapping[str, Any]) -> dict[str, Any]:
+    """Every setting of a model build but the archive: the endpoints, build_models' max_iter
+    and seed (its defaults, 600 and 0), and whether finished models are trained again."""
+    if p.get("rebuild") not in (None, True, False):
+        raise BadParams("rebuild: true or false")
+    return {"endpoints": admet_endpoints(p.get("endpoints")),
+            "max_iter": _int("max_iter", p.get("max_iter", 600), *ADMET_MAX_ITER),
+            "seed": _int("seed", p.get("seed", 0), 0, 2**31 - 1),
+            "rebuild": bool(p.get("rebuild"))}
+
+
+def _admet_models_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
+    """``bioagent admet --build-models`` into the data lake's ADMET cache (where
+    pipeline.admet reads the models), from the TDC archive downloaded once and pinned by its
+    SHA-256, or from a local copy of it (``archive``)."""
+    out = _admet_models_choices(p)
+    out["archive"] = str(ctx.file("archive", p["archive"])) if p.get("archive") else None
+    out["cache"] = str(Path(ctx.data_env["BIOAGENT_DATA_LAKE"]) / "admet")
+    return out
+
+
+def _admet_models_command(r: dict[str, Any], ctx: StartContext) -> list[str]:
+    argv = _cli(ctx, "admet", "--build-models", _opt("cache", r["cache"]),
+                _opt("max-iter", r["max_iter"]), _opt("seed", r["seed"]))
+    if r.get("archive"):
+        argv.append(_opt("archive", r["archive"]))
+    if r.get("rebuild"):
+        argv.append("--rebuild")
+    return argv + [_opt("endpoint", e) for e in r["endpoints"]]
+
+
+def _admet_models_checked(r: Mapping[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
+    """The endpoints the build was asked for (every one, when none was named) held to their
+    cards (``bioagent.admet.models.verify_models``), each trained on the build's archive:
+    the local copy given, else TDC's pinned archive, which the build downloads and checks."""
+    from bioagent.admet.models import ENDPOINTS, TDC_ADMET_SHA256, verify_models
+    archive = r.get("archive")
+    expected = hashlib.sha256(Path(archive).read_bytes()).hexdigest() if archive else TDC_ADMET_SHA256
+    return verify_models(Path(r["cache"]) / "models", list(r.get("endpoints") or ENDPOINTS),
+                         archive_sha256=expected)
+
+
+def _admet_models_verify(r: dict[str, Any], data_env: Mapping[str, str]) -> list[str]:
+    del data_env
+    return _admet_models_checked(r)[1]
+
+
+def _admet_models_result(job_dir: Path, r: dict[str, Any]) -> Any:
+    """Each endpoint's card as the build left it: its held-out score, sizes, what was dropped,
+    the archive and the card's digest."""
+    del job_dir
+    _, _, report = _admet_models_checked(r)
+    keep = ("metric", "test_score", "train", "test", "dropped_unreadable",
+            "dropped_unstandardisable", "archive_is_pinned", "card_sha256", "model_sha256")
+    return {"models": str(Path(r["cache"]) / "models"),
+            "endpoints": {e: {k: c.get(k) for k in keep} for e, c in report["endpoints"].items()}}
+
+
+def _admet_models_progress(job_dir: Path, r: dict[str, Any]) -> dict[str, Any] | None:
+    """The endpoints finished (trained, or kept because their model still matches its card)
+    of those asked for, from the lines the build prints, one per endpoint."""
+    from bioagent.admet.models import ENDPOINTS
+    asked = list(r.get("endpoints") or ENDPOINTS)
+    try:
+        text = (job_dir / "stdout.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return _last_line_progress(job_dir, r)
+    done = {m.group(1) for m in re.finditer(r"^  ([a-z0-9_]+): ", text, re.MULTILINE)}
+    n = len(done & set(asked))
+    line = _tail_line(job_dir / "stdout.log")
+    # one more step, the runner's own check of the cards, as _stage_progress counts it
+    return {"fraction": round(n / (len(asked) + 1), 3),
+            "message": line[:200] if line else "downloading or reading the archive"}
 
 
 # ----------------------------------------------------------------------------- research
@@ -1402,6 +1503,13 @@ def default_kinds() -> dict[str, Kind]:
              _admet_command, artefacts=(("table", "admet.tsv", True), run_json, limits),
              validators={"run": _verifier("bioagent.admet.pipeline")},
              timeout_s=6 * 3600.0, result=_table_result("admet.tsv"), progress=_stage_progress),
+        # the models live in the data lake's ADMET cache, where pipeline.admet reads them: no
+        # output of the job's own; the cards are checked against their files after it ends
+        Kind("admet.models", ("构建 ADMET 模型", "Build the ADMET models"), "hours",
+             _admet_models_prepare, _admet_models_command,
+             network=lambda r: not r.get("archive"), timeout_s=12 * 3600.0,
+             verify=_admet_models_verify, result=_admet_models_result,
+             progress=_admet_models_progress),
         Kind("research.run", ("研究闭环", "Research loop"), "minutes", _research_prepare,
              _research_command,
              artefacts=(("artifact", "artifact.json", True), ("result", "result.json", True),

@@ -18,6 +18,13 @@ The site is the web app (``studio/web``) plus files generated under ``runtime/``
   URLs, sizes, checksums and licences (``tcmstudio.datasets.registry_document``), written
   with sorted keys so the same code gives the same bytes; ``boot.json`` names its SHA-256.
 
+``boot.json`` also pins the browser chemistry's RDKit.js (``rdkit``): its version, the
+wasm's URL (jsDelivr at the exact npm version, or ``$TCMSTUDIO_RDKIT_URL`` /
+``--rdkit-url`` for a local mirror), SHA-256 and size, and the vendored loader's path, all
+read from the one place they are written, the ``RDKIT`` constant of
+``web/js/scientific/chem/rdkit.js`` (:func:`rdkit_pin`). The vendored loader (``.mjs``) and
+the filter catalogues are files of the web app, published with it.
+
 The local runner serves the same files from memory (``runtime_file``) when it has no
 built site, so ``http://127.0.0.1:8765/`` gets a browser runtime too.
 """
@@ -31,6 +38,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -44,8 +52,8 @@ from typing import Any, Callable, Iterable, Sequence
 
 __all__ = ["BOOT_SCHEMA", "BuildError", "PYODIDE_INDEX_URL", "PYODIDE_VERSION", "Bundle",
            "add_arguments", "build", "build_bundle", "boot_document", "catalog_bytes",
-           "clear_cache", "datasets_bytes", "default_web_dir", "main", "run", "runtime_file",
-           "runtime_files"]
+           "clear_cache", "datasets_bytes", "default_web_dir", "main", "rdkit_pin", "run",
+           "runtime_file", "runtime_files"]
 
 PYODIDE_VERSION = "314.0.7"
 PYODIDE_INDEX_URL = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/"
@@ -59,6 +67,10 @@ EXTRACT_DIR = "/opt/tcms/site"
 STATE_ROOT = "/persist"
 BOOT_SCHEMA = "tcmstudio.boot/1"
 ENV_INDEX_URL = "TCMSTUDIO_PYODIDE_INDEX_URL"
+ENV_RDKIT_URL = "TCMSTUDIO_RDKIT_URL"
+#: The module that holds the browser chemistry's RDKit.js pin (its ``RDKIT`` constant), from
+#: the web app's root; the loader's path in it is relative to its directory.
+RDKIT_MODULE = "js/scientific/chem/rdkit.js"
 
 #: 2020-01-01T00:00:00Z: every bundle entry gets this time, so a rebuild is byte-identical.
 _FIXED_MTIME = 1_577_836_800
@@ -284,6 +296,55 @@ def _index_url(explicit: str | None) -> str:
     return url if url.endswith("/") else url + "/"
 
 
+def _frozen(text: str, name: str) -> str:
+    """The body of ``name: Object.freeze({...})`` in ``text`` (no nested braces)."""
+    m = re.search(rf"\b{name}:\s*Object\.freeze\(\{{([^{{}}]*)\}}\)", text)
+    if m is None:
+        raise BuildError(f"{RDKIT_MODULE} has no {name} in its RDKIT pin")
+    return m.group(1)
+
+
+def _fields(body: str) -> dict[str, Any]:
+    """The ``key: "text"`` and ``key: 123`` fields of an object literal's body."""
+    out: dict[str, Any] = {k: v for k, v in re.findall(r'\b(\w+):\s*"([^"\\]*)"', body)}
+    out.update({k: int(v) for k, v in re.findall(r"\b(\w+):\s*(\d+)\s*[,}\n]", body + "\n")})
+    return out
+
+
+def rdkit_pin(web_dir: str | os.PathLike[str] | None = None, *,
+              url: str | None = None) -> dict[str, Any] | None:
+    """``boot.json``'s ``rdkit``: the RDKit.js the browser chemistry is pinned to, as the
+    ``RDKIT`` constant of ``web/js/scientific/chem/rdkit.js`` states it, so the pin is written
+    once: ``version`` (npm's) and ``release`` (RDKit's own), the wasm's ``url``, ``sha256``
+    and ``bytes``, and ``loader``, the vendored loader's path from the site root. ``url`` (or
+    ``$TCMSTUDIO_RDKIT_URL``) names a local mirror of the same wasm instead: the page checks
+    its SHA-256 and size against the pin either way. None when the web app has no such
+    module (an installed runner without its web app)."""
+    web = Path(web_dir) if web_dir else default_web_dir()
+    module = web / RDKIT_MODULE if web is not None else None
+    if module is None or not module.is_file():
+        return None
+    text = module.read_text(encoding="utf-8")
+    start = text.find("export const RDKIT = Object.freeze({")
+    if start < 0:
+        raise BuildError(f"{module} has no RDKIT pin (export const RDKIT = Object.freeze({{…}}))")
+    block = text[start:]
+    top = _fields(block.split("loader:", 1)[0])
+    loader, wasm = _fields(_frozen(block, "loader")), _fields(_frozen(block, "wasm"))
+    need = {"version": top, "release": top, "path": loader, "url": wasm, "sha256": wasm,
+            "bytes": wasm}
+    lacking = [k for k, where in need.items() if k not in where]
+    if lacking:
+        raise BuildError(f"{module}: its RDKIT pin lacks {', '.join(lacking)}")
+    path = (PurePosixPath(RDKIT_MODULE).parent / loader["path"]).as_posix()
+    if not (web / path).is_file():
+        raise BuildError(f"{web / path} is missing: the vendored RDKit.js loader the pin names")
+    mirror = (url or os.environ.get(ENV_RDKIT_URL) or "").strip()
+    return {"version": top["version"], "release": top["release"],
+            "url": mirror or wasm["url"], "sha256": wasm["sha256"], "bytes": wasm["bytes"],
+            "loader": path}
+
+
 def datasets_bytes() -> bytes:
     """``runtime/datasets.json`` as published: the dataset registry
     (``tcmstudio.datasets.registry_document``) with sorted keys, so a rebuild gives the same
@@ -296,9 +357,11 @@ def datasets_bytes() -> bytes:
 
 def boot_document(bundle: Bundle, catalog: bytes, *,
                   index_url: str | None = None,
-                  datasets: bytes | None = None) -> dict[str, Any]:
+                  datasets: bytes | None = None,
+                  rdkit: dict[str, Any] | None = None) -> dict[str, Any]:
     """``runtime/boot.json`` (§5). Paths are relative to the site root. ``datasets`` is
-    ``runtime/datasets.json`` as published, named here with its SHA-256 when given."""
+    ``runtime/datasets.json`` as published, named here with its SHA-256 when given;
+    ``rdkit`` is the browser chemistry's pin (:func:`rdkit_pin`), when the site has it."""
     doc = {
         "schema": BOOT_SCHEMA,
         "pyodide": {"version": PYODIDE_VERSION, "index_url": _index_url(index_url),
@@ -316,6 +379,8 @@ def boot_document(bundle: Bundle, catalog: bytes, *,
     if datasets is not None:
         doc["datasets"] = {"path": "runtime/datasets.json",
                            "sha256": hashlib.sha256(datasets).hexdigest()}
+    if rdkit is not None:
+        doc["rdkit"] = dict(rdkit)
     return doc
 
 
@@ -394,10 +459,11 @@ def data_assets() -> tuple[dict[str, tuple[bytes, str]], list[dict[str, Any]]]:
 
 _LOCK = threading.Lock()
 _CACHE: dict[str, tuple[bytes, str]] | None = None
-_CACHE_KEY: str | None = None
+_CACHE_KEY: tuple[str, str] | None = None
 
 
-def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str]]:
+def runtime_files(*, index_url: str | None = None,
+                  rdkit_url: str | None = None) -> dict[str, tuple[bytes, str]]:
     """``{name: (bytes, media type)}`` for the files under ``runtime/``: ``boot.json``,
     ``catalog.json``, ``datasets.json``, ``source-gateway.json``, the data assets and
     ``tcms-py.<sha12>.tar.gz``. Built on first use (about two seconds) and kept for the life
@@ -405,12 +471,14 @@ def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str
     immutable; the others must be revalidated."""
     global _CACHE, _CACHE_KEY
     key = _index_url(index_url)
+    mirror = (rdkit_url or os.environ.get(ENV_RDKIT_URL) or "").strip()
     with _LOCK:
-        if _CACHE is None or key != _CACHE_KEY:
+        if _CACHE is None or (key, mirror) != _CACHE_KEY:
             bundle = build_bundle()
             catalog, _ = catalog_bytes(strict=False)
             datasets = datasets_bytes()
-            boot = boot_document(bundle, catalog, index_url=key, datasets=datasets)
+            boot = boot_document(bundle, catalog, index_url=key, datasets=datasets,
+                                 rdkit=rdkit_pin(url=mirror or None))
             _CACHE = {"boot.json": (_json_bytes(boot), "application/json; charset=utf-8"),
                       "catalog.json": (catalog, "application/json; charset=utf-8"),
                       "datasets.json": (datasets, "application/json; charset=utf-8"),
@@ -418,7 +486,7 @@ def runtime_files(*, index_url: str | None = None) -> dict[str, tuple[bytes, str
             _CACHE["source-gateway.json"] = (_json_bytes(source_gateway_document()),
                                               "application/json; charset=utf-8")
             _CACHE.update(data_assets()[0])
-            _CACHE_KEY = key
+            _CACHE_KEY = (key, mirror)
         return dict(_CACHE)
 
 
@@ -481,9 +549,13 @@ _SW_SKIP_SUFFIXES = (".tar.gz", ".xlsx", ".wat")   # .wat: the readable source o
 _SW_SKIP_NAMES = {"sw.js", "_headers"}
 
 
-def service_worker_manifest(site: Path, index_url: str) -> dict[str, Any]:
+def service_worker_manifest(site: Path, index_url: str,
+                            rdkit: dict[str, Any] | None = None) -> dict[str, Any]:
     """The shell files of a built site with their SHA-256, and a version that changes when
-    any of them does (``sw.js`` caches exactly these, checked, one version at a time)."""
+    any of them does (``sw.js`` caches exactly these, checked, one version at a time).
+    ``rdkit`` is boot.json's RDKit.js pin (:func:`rdkit_pin`): its wasm's ``url`` and
+    ``sha256`` go into the manifest as ``rdkit``, so the service worker keeps the wasm at
+    the URL the page fetches it from (a mirror's too) and only at the pinned digest."""
     files = []
     for path in sorted(p for p in site.rglob("*") if p.is_file()):
         rel = path.relative_to(site).as_posix()
@@ -493,18 +565,22 @@ def service_worker_manifest(site: Path, index_url: str) -> dict[str, Any]:
             continue
         files.append({"path": "/" if rel == "index.html" else f"/{rel}",
                       "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
-    version = hashlib.sha256(json.dumps([files, index_url], sort_keys=True).encode()).hexdigest()[:16]
-    return {"version": version, "index_url": index_url, "files": files}
+    wasm = {"url": rdkit["url"], "sha256": rdkit["sha256"]} if rdkit else None
+    version = hashlib.sha256(json.dumps([files, index_url, *([wasm] if wasm else [])],
+                                        sort_keys=True).encode()).hexdigest()[:16]
+    return {"version": version, "index_url": index_url, "files": files,
+            **({"rdkit": wasm} if wasm else {})}
 
 
-def _fill_service_worker(site: Path, index_url: str) -> dict[str, Any] | None:
+def _fill_service_worker(site: Path, index_url: str,
+                         rdkit: dict[str, Any] | None = None) -> dict[str, Any] | None:
     sw = site / "sw.js"
     if not sw.is_file():
         return None
     text = sw.read_text(encoding="utf-8")
     if _SW_MARKER not in text:
         raise BuildError("sw.js has no PRECACHE line for the build to fill")
-    manifest = service_worker_manifest(site, index_url)
+    manifest = service_worker_manifest(site, index_url, rdkit)
     sw.write_text(text.replace(_SW_MARKER, "const PRECACHE = "
                                + json.dumps(manifest, separators=(",", ":"), ensure_ascii=False) + ";"),
                   encoding="utf-8")
@@ -550,7 +626,7 @@ def _install(staging: Path, out: Path) -> None:
 
 
 def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | None = None, *,
-          dev: bool = False, index_url: str | None = None,
+          dev: bool = False, index_url: str | None = None, rdkit_url: str | None = None,
           log: Callable[[str], None] | None = None) -> dict[str, Any]:
     """Build the site into ``out_dir`` and return a summary of what was written.
 
@@ -576,7 +652,10 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
     catalog, doc = catalog_bytes(strict=True)
     say(f"  {doc['counts']['core']} core tools, {doc['counts']['entries']} entries")
     datasets = datasets_bytes()
-    boot = boot_document(bundle, catalog, index_url=index_url, datasets=datasets)
+    rdkit = rdkit_pin(web, url=rdkit_url)
+    if rdkit is None:
+        say(f"warning: {web / RDKIT_MODULE} is missing; the browser's ADMET jobs will not start")
+    boot = boot_document(bundle, catalog, index_url=index_url, datasets=datasets, rdkit=rdkit)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     staging = out.with_name(f".{out.name}.build-{secrets.token_hex(4)}")
@@ -592,7 +671,7 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         (runtime / "source-gateway.json").write_bytes(_json_bytes(source_gateway_document()))
         for name, (content, _media) in data_assets()[0].items():
             (runtime / name).write_bytes(content)
-        sw = _fill_service_worker(staging, boot["pyodide"]["index_url"])
+        sw = _fill_service_worker(staging, boot["pyodide"]["index_url"], boot.get("rdkit"))
         headers = web.parent / "edge" / "_headers"
         if headers.is_file():
             shutil.copyfile(headers, staging / "_headers")
@@ -627,6 +706,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help=f"where the worker loads Pyodide from (default: ${ENV_INDEX_URL} or "
                              f"{PYODIDE_INDEX_URL}); absolute, or relative to the site root "
                              "for a self-hosted copy")
+    parser.add_argument("--rdkit-url", default=None, metavar="URL",
+                        help=f"where the page fetches RDKit_minimal.wasm from (default: "
+                             f"${ENV_RDKIT_URL} or the jsDelivr URL of the pinned version); a "
+                             "mirror of the same file, which the page checks against the pin")
     parser.add_argument("--json", action="store_true", help="print the summary as JSON")
 
 
@@ -634,7 +717,8 @@ def run(args: argparse.Namespace) -> int:
     log = (lambda m: print(m, file=sys.stderr))
     try:
         summary = build(args.out, args.web, dev=bool(args.dev),
-                        index_url=getattr(args, "pyodide_index_url", None), log=log)
+                        index_url=getattr(args, "pyodide_index_url", None),
+                        rdkit_url=getattr(args, "rdkit_url", None), log=log)
     except BuildError as exc:
         print(f"tcmstudio webbuild: {exc}", file=sys.stderr)
         return 2

@@ -62,3 +62,74 @@ export function onPythonEvent(ctx, ev, base, span) {
   if (ev.kind === "log" && ev.text) ctx.log(ev.level || "info", String(ev.text));
   else if (ev.kind === "progress") ctx.progress(base + span * Math.max(0, Math.min(1, Number(ev.fraction) || 0)), ev.message || "");
 }
+
+// ------------------------------------------------------------------------------------------- project files, workers
+// (what pipelines/admet.js needs as omics.js does it; omics.js keeps its own copies, with the scRNA directory note)
+
+/** A name a job's directory can hold: the file's own name where it can (Python reads a format from its suffix), else
+ * with the characters a path segment cannot have replaced. */
+export function safeName(name) {
+  const s = String(name || "").replace(/[/\\\0]/g, "_").trim();
+  return !s || s === "." || s === ".." ? "input" : s;
+}
+
+/**
+ * The project file a parameter names (its id, or its name: the newest file of that name in the project) → {id, name,
+ * bytes, sha256, blob}, or null when no file has that name. Refused (type "unavailable", need "storage") when the page
+ * gives no project files or they cannot be read, or the file has no bytes or no recorded SHA-256.
+ */
+export async function projectFile(projectFiles, projectId, param, ref) {
+  if (!projectFiles) {
+    throw refusal("unavailable", "This page gives the job service no project files to read the inputs from.", "storage",
+      "Open Studio itself (the page that holds the project), or connect the local runner.");
+  }
+  let rec = null;
+  try {
+    rec = await projectFiles.find(projectId ?? null, String(ref).trim());
+  } catch (err) {
+    throw refusal("unavailable", `${param}: the project's files could not be read (${err?.message || err})`, "storage");
+  }
+  if (!rec) return null;
+  if (!rec.blob || typeof rec.blob.slice !== "function" || !/^(sha256:)?[0-9a-f]{64}$/i.test(String(rec.sha256 || "").trim())) {
+    throw refusal("unavailable", `${param}: ${rec.name} has no bytes or no recorded SHA-256 in this browser`, "storage", "Attach the file to the project again.");
+  }
+  return rec;
+}
+
+/** The integrity error of a file whose bytes here are not the ones its record names. */
+export function digestMismatch(name, got, want, hint = "Attach the file to the project again.") {
+  const e = new Error(`${name}: its bytes in this browser have SHA-256 ${String(got).slice(0, 16)}…, not the ${String(want).replace(/^sha256:/, "").slice(0, 16)}… recorded for it; it was not used`);
+  e.type = "integrity";
+  e.hint = hint;
+  return e;
+}
+
+// wasm32 holds a job worker to about 4 GB. Running out is said as what it is, a refusal the runner answers: Python's
+// MemoryError (numpy's _ArrayMemoryError among them), or the worker's own allocation failing (Emscripten's OOM abort,
+// a Memory.grow past the limit, which Pyodide reports as a fatal error)
+const OUT_OF_MEMORY = /\bMemoryError\b|_ArrayMemoryError|\bOOM\b|out of memory|Cannot enlarge memory|Maximum memory size exceeded|Memory\.grow/i;
+export const MEMORY_HINT = "Connect the local runner: it runs the same analysis natively, without the browser's memory limit.";
+
+/** The typed refusal (type "refused", need "memory") for a worker call that ran out of memory, or null. */
+export function memoryRefusal(err, what) {
+  const message = String(err?.message || "");
+  if (err?.type === "refused" && err.need === "memory") {
+    if (!err.hint) err.hint = MEMORY_HINT;
+    return err;
+  }
+  if (!err || err.type === "refused" || !OUT_OF_MEMORY.test(message)) return null;
+  const e = new Error(`${what} ran out of memory: a browser job worker holds at most about 4 GB (wasm32); run it on the runner (${message.slice(0, 300)})`);
+  e.type = "refused";
+  e.need = "memory";
+  e.hint = MEMORY_HINT;
+  return e;
+}
+
+/** A Python function in the stage's worker → its result; running out of memory is a refusal, not a runtime error. */
+export async function pythonCall(ctx, lease, fn, args, [base, span], what) {
+  try {
+    return unwrap(await lease.call("run", { fn, args }, { signal: ctx.signal, onEvent: (ev) => onPythonEvent(ctx, ev, base, span) }), fn);
+  } catch (err) {
+    throw memoryRefusal(err, what) || err;
+  }
+}

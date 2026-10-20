@@ -66,23 +66,41 @@ test("auto without a calibration, or one that says not faster, or smaller than e
   assert.equal(noGpu.facts.reason, "this context has no WebGPU runtime");
 });
 
-test("auto on a calibrated device that measured the GPU faster: the GPU's result, checked, and accelerated", async () => {
-  const gpu = fakeScienceGPU(), g = new ScienceGPU(gpu);
+test("auto on a calibrated device that measured the GPU faster: the GPU's result, checked; accelerated when this call itself was faster", async () => {
+  // every wait on the device takes 15 ms: the session's first call, with its set-up, is slower than the 9 ms the CPU
+  // kernel took in the device check
+  const gpu = fakeScienceGPU({ delayMs: 15 }), g = new ScienceGPU(gpu);
   const calibration = await calibrationFor({ navigator: gpu.navigator, sizes: FASTER });
-  const { result, facts } = await runTanimoto({ queries: Q, refs: R, gpu: g, calibration, navigator: gpu.navigator });
+  const cold = await runTanimoto({ queries: Q, refs: R, gpu: g, calibration, navigator: gpu.navigator });
+  assert.deepEqual(plain(cold.result), WANT);
+  assert.equal(cold.facts.backend, "webgpu", "the calibration chose the GPU, and its checked result is used");
+  assert.equal(cold.facts.gpu.cold, true, "the device's first use in this session");
+  assert.ok(cold.facts.gpu.setup_ms > 0 && cold.facts.gpu.total_ms >= cold.facts.gpu.setup_ms, JSON.stringify(cold.facts.gpu));
+  assert.ok(cold.facts.gpu.total_ms > 9, "its set-up is part of its time");
+  assert.equal(cold.facts.accelerated, false, "warm timings do not speak for a cold call that was slower");
+  assert.equal(cold.facts.evidence, "verified");
+  assert.match(cold.facts.basis, /^not faster on this call: this call took [\d.]+ ms on the GPU \(set-up included: the device's first use in this session, its CPU check included\); the CPU kernel took 9 ms \(wasm-simd\) in the device check at 32 × 600, a size no larger than this call's$/);
+  // warm, and slower than the CPU's 9 ms all the same (two waits of 15 ms): not accelerated either
+  const warmSlow = await runTanimoto({ queries: Q, refs: R, gpu: g, calibration, navigator: gpu.navigator });
+  assert.equal(warmSlow.facts.gpu.cold, false);
+  assert.equal(warmSlow.facts.accelerated, false);
+  assert.match(warmSlow.facts.basis, /^not faster on this call: this call took [\d.]+ ms on the GPU \(warm, its CPU check included\)/);
+  // a device whose CPU kernel took a minute at that size: this warm call is faster, and accelerated
+  const slowCpu = await calibrationFor({ navigator: gpu.navigator, sizes: [{ queries: 32, refs: 600, accelerated: true, gpu_ms: 2, cpu_ms: 60000 }] });
+  const { result, facts } = await runTanimoto({ queries: Q, refs: R, gpu: g, calibration: slowCpu, navigator: gpu.navigator });
   assert.deepEqual(plain(result), WANT);
   assert.equal(facts.backend, "webgpu");
-  assert.match(facts.reason, /measured the GPU faster than the CPU kernel at 32 × 600 \(19,200 comparisons\): 2 ms against 9 ms/);
+  assert.match(facts.reason, /measured the GPU faster than the CPU kernel at 32 × 600 \(19,200 comparisons\): 2 ms against 60000 ms/);
   assert.equal(facts.validation.ok, true);
   assert.equal(facts.validation.checked, 10, "the first, the last and 8 more searched in full on the CPU");
   assert.equal(facts.gpu.adapter.kind, "physical");
-  assert.deepEqual([facts.gpu.dispatched, facts.gpu.validated, facts.gpu.verified], [true, true, true]);
+  assert.deepEqual([facts.gpu.dispatched, facts.gpu.validated, facts.gpu.verified, facts.gpu.cold], [true, true, true, false]);
   assert.equal(facts.gpu.known_answer.ok, true);
   assert.equal(facts.evidence, "accelerated");
   assert.equal(facts.accelerated, true);
-  assert.equal(facts.calibration_id, calibration.id);
-  assert.deepEqual(facts.cpu_baseline, { backend: "wasm-simd", ms: 9, at: { queries: 32, refs: 600, pairs: 19200 }, source: `calibration ${"c".repeat(12)}` });
-  assert.match(facts.basis, /physical adapter that passed its known-answer test, this result checked on the CPU/);
+  assert.equal(facts.calibration_id, slowCpu.id);
+  assert.deepEqual(facts.cpu_baseline, { backend: "wasm-simd", ms: 60000, at: { queries: 32, refs: 600, pairs: 19200 }, source: `calibration ${"c".repeat(12)}` });
+  assert.match(facts.basis, /physical adapter that passed its known-answer test, this result checked on the CPU, and faster than the CPU here: this call took [\d.]+ ms on the GPU \(warm/);
   assert.equal(facts.versions.kernel, "tanimoto.best/1");
   assert.match(facts.versions.wasm_sha256, /^[0-9a-f]{64}$/);
   assert.match(facts.versions.wgsl_sha256, /^[0-9a-f]{64}$/);
@@ -161,4 +179,32 @@ test("a cancel is never retried on another backend; invalid input fails as the k
   const empty = await runTanimoto({ queries: new Uint32Array(0), refs: R, gpu: g, calibration, navigator: gpu.navigator });
   assert.deepEqual(plain(empty.result), { arg: [], inter: [], union: [] });
   assert.equal(empty.facts.considered[0].reason, "no queries: nothing to compute");
+});
+
+test("force webgpu, a test harness's switch: the GPU without a calibration, a software adapter allowed by its ScienceGPU; checked, never accelerated", async () => {
+  const swift = fakeScienceGPU({ info: { vendor: "google", architecture: "swiftshader", isFallbackAdapter: true } });
+  const g = new ScienceGPU({ ...swift, allowSoftware: true });
+  const { result, facts } = await runTanimoto({ queries: Q, refs: R, gpu: g, navigator: swift.navigator, force: "webgpu" });
+  assert.deepEqual(plain(result), WANT);
+  assert.equal(facts.backend, "webgpu");
+  assert.equal(facts.forced, "webgpu");
+  assert.match(facts.reason, /^forced by a test harness's debug switch, without the device check's verdict \(no device check has been run on this device\)$/);
+  assert.equal(facts.gpu.validated, true, "its result was checked on the CPU all the same");
+  assert.equal(facts.gpu.adapter.kind, "software");
+  assert.equal(facts.accelerated, false);
+  assert.notEqual(facts.evidence, "accelerated");
+  assert.match(facts.basis, /forced by a test harness's debug switch: never acceleration/);
+  assert.equal(facts.cpu_baseline, null, "no calibration: no CPU time to compare with");
+  // the preference still wins: CPU only, or Python's own search
+  assert.equal((await runTanimoto({ queries: Q, refs: R, gpu: g, navigator: swift.navigator, force: "webgpu", preference: "cpu" })).facts.backend, "wasm-simd");
+  assert.equal((await runTanimoto({ queries: Q, refs: R, gpu: g, navigator: swift.navigator, force: "webgpu", preference: "reference" })).facts.backend, "python");
+  // a physical adapter forced over a calibration that says faster is still not acceleration
+  const phys = fakeScienceGPU(), pg = new ScienceGPU(phys);
+  const fast = await calibrationFor({ navigator: phys.navigator, sizes: [{ queries: 32, refs: 600, accelerated: true, gpu_ms: 2, cpu_ms: 60000 }] });
+  assert.equal((await runTanimoto({ queries: Q, refs: R, gpu: pg, calibration: fast, navigator: phys.navigator, force: "webgpu" })).facts.accelerated, false);
+  await assert.rejects(runTanimoto({ queries: Q, refs: R, force: "gpu" }), /force is "webgpu" or nothing, not "gpu"/);
+  // without the switch, ScienceGPU refuses the software adapter: the CPU computes
+  const plainGpu = new ScienceGPU(swift);
+  const sw = await calibrationFor({ navigator: swift.navigator, info: { vendor: "google", architecture: "swiftshader", isFallbackAdapter: true }, sizes: [{ queries: 32, refs: 600, accelerated: true, gpu_ms: 2, cpu_ms: 60000 }] });
+  assert.equal((await runTanimoto({ queries: Q, refs: R, gpu: plainGpu, calibration: sw, navigator: swift.navigator })).facts.backend, "wasm-simd");
 });

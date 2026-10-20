@@ -9,6 +9,7 @@ similarities, recomputed on the CPU and recorded; a card names its chemistry.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import time
@@ -497,3 +498,179 @@ def test_the_compound_case_records_the_molecules_descriptors(tmp_path, monkeypat
     molecule = report.step("ADMET").record["molecule"]
     assert molecule["descriptors"]["MolWt"] == pytest.approx(135.17, abs=0.01)
     assert "properties" not in molecule and molecule["rules"] and "alerts" in molecule
+
+
+# ----------------------------------------------------------------- the browser's split sets
+
+def test_an_endpoints_two_split_sets_are_read_as_the_one_list_a_build_prepares(world, tmp_path):
+    """A browser prepares an endpoint's train_val and test SMILES as two sets (it writes what
+    admet_split gives it); a build asks for train_val followed by test as one list."""
+    root, archive = world
+    from bioagent.admet import models as M
+    from bioagent.admet.chem import ChemError
+    from bioagent.admet.engine import PrecomputedEngine, RDKitEngine, write_prepared
+    native = RDKitEngine()
+    with zipfile.ZipFile(archive) as z:
+        train, test = (M.read_split(z, "hia_hou", s)[0] for s in M.SPLITS)
+    for name, smiles in (("train_val", train), ("test", test)):
+        write_prepared(native.prepare(smiles, alerts=False), native, tmp_path / "hia_hou" / name)
+    engine = PrecomputedEngine(tmp_path / "hia_hou")
+    both = engine.prepare(train + test, alerts=False)
+    whole = native.prepare(train + test, alerts=False)
+    assert both.ok.tolist() == whole.ok.tolist() and both.smiles == tuple(train + test)
+    assert both.features.tobytes() == whole.features.tobytes()
+    assert both.bits.tobytes() == whole.bits.tobytes()
+    for field in ("errors", "canonical", "atoms_with_h", "alerts", "needs"):
+        assert getattr(both, field) == getattr(whole, field), field
+    assert engine.prepare(test, alerts=False).smiles == tuple(test)     # one set, as before
+    # any order of whole sets is these molecules' chemistry; a part of a set is not
+    assert engine.prepare(test + train, alerts=False).features.tobytes() == native.prepare(
+        test + train, alerts=False).features.tobytes()
+    for wrong in (train + test[:-1], train[1:] + test, test[:1] + train):
+        with pytest.raises(ChemError, match="no prepared set"):
+            engine.prepare(wrong, alerts=False)
+    # the models built from the two sets are the native models
+    ms = M.build_models(tmp_path / "cache", archive=archive, endpoints=["hia_hou"], max_iter=100,
+                        log=lambda *_: None, engine=engine)
+    native_card = M.load_models(root / "native").cards["hia_hou"]
+    assert {k: v for k, v in ms.cards["hia_hou"].items() if k != "seconds"} == \
+        {k: v for k, v in native_card.items() if k != "seconds"}
+
+
+# ----------------------------------------------------------------- refused, not unreadable
+
+REIONIZER = ("standardisation needs RDKit's Reionizer (it would move a charge here), which "
+             "RDKit.js does not have")
+
+
+def _refusing_set(directory: Path, refuse: set[str], smiles: list[str], why: str = REIONIZER):
+    """RDKit's chemistry for ``smiles``, written as a browser's would be when its ports refuse
+    the molecules ``refuse`` (need "runner", for the reason ``why``), and read back."""
+    from bioagent.admet.engine import PrecomputedEngine, PreparedSet, RDKitEngine, write_prepared
+    p = RDKitEngine().prepare(smiles)
+    gone = [i for i, s in enumerate(smiles) if s in refuse]
+    keep = np.array([i not in gone for i in p.index], dtype=bool)
+    ok = p.ok.copy()
+    ok[gone] = False
+
+    def swap(column, value):
+        return tuple(value if i in gone else v for i, v in enumerate(column))
+    write_prepared(PreparedSet(smiles=p.smiles, ok=ok, features=p.features[keep],
+                               bits=p.bits[keep], errors=swap(p.errors, why),
+                               canonical=swap(p.canonical, None),
+                               descriptors=swap(p.descriptors, None),
+                               atoms_with_h=swap(p.atoms_with_h, None),
+                               alerts=swap(p.alerts, None), needs=swap(p.needs, "runner")),
+                   _Elsewhere(""), directory)
+    return PrecomputedEngine(directory)
+
+
+def test_a_molecule_the_browser_refused_is_said_to_be_refused_not_unreadable(world, tmp_path):
+    """The browser's chemistry refuses a molecule that needs a step it does not port; the
+    native one reads it. The run said it "could not be read"."""
+    smiles = [s for _, s in QUERY]
+    engine = _refusing_set(tmp_path / "prepared", {QUERY[4][1]}, smiles)      # berberine
+    run = _run(world, tmp_path / "out", engine=engine)
+    assert run.refused == {"berberine": REIONIZER}
+    assert list(run.failures) == ["bad"], "the invalid SMILES is still unreadable"
+    assert run.complete and run.summary()["refused"] == ["berberine"]
+    assert run.summary()["failures"] == ["bad"]
+    assert run.manifest["refused"] == run.refused and "berberine" not in run.manifest["failures"]
+    detail = "RDKit.js 2026.09.1 MinimalLib + test"
+    assert any(w.startswith(f"1 molecules were refused by {detail}") and "berberine: " in w
+               and "the runner's RDKit reads them" in w for w in run.warnings), run.warnings
+    assert not any("berberine" in w for w in run.warnings if "could not be read" in w)
+    lines = (tmp_path / "out" / "limitations.md").read_text().splitlines()
+    assert f"1 molecules were refused by {detail}, which cannot prepare them exactly as native " \
+           "RDKit does (run.json's refused says why for each), and have no result here; the " \
+           "runner's RDKit reads them: berberine." in lines
+    assert "1 molecules could not be read and have no result: bad." in lines
+    stage = {s["name"]: s for s in run.stages}["standardize"]
+    assert stage["reason"].startswith("7 of 9 molecules read and standardised (largest fragment, "
+                                      f"neutralised where possible); 1 refused by {detail}, "
+                                      "which cannot prepare them exactly as native RDKit does "
+                                      "(the runner's RDKit reads them)")
+    header, *rows = (tmp_path / "out" / "admet.tsv").read_text().splitlines()
+    assert len(rows) == 7 and not any(r.startswith("berberine\t") for r in rows)
+    from bioagent.admet.pipeline import verify_run
+    assert verify_run(tmp_path / "out") == (True, [])
+
+
+def test_a_molecule_refused_for_its_size_is_not_said_to_need_a_missing_step(world, tmp_path):
+    """RDKit.js also refuses a molecule larger than it takes (it fails on such molecules), which
+    is no standardisation step it lacks: the run gives the refusal's own reason and says only
+    that the browser's chemistry cannot prepare it exactly as native RDKit does."""
+    size = "RDKit.js takes molecules of at most 400 atoms (this one has 406); the runner reads it"
+    smiles = [s for _, s in QUERY]
+    engine = _refusing_set(tmp_path / "prepared", {QUERY[4][1]}, smiles, why=size)
+    run = _run(world, tmp_path / "out", engine=engine)
+    assert run.refused == {"berberine": size}
+    assert any(w.endswith(f"the runner's RDKit reads them: berberine: {size}") for w in run.warnings)
+    lines = [line for line in (tmp_path / "out" / "limitations.md").read_text().splitlines()
+             if "berberine" in line]
+    stage = {s["name"]: s for s in run.stages}["standardize"]
+    said = [*lines, stage["reason"], *(w for w in run.warnings if "refused" in w)]
+    assert len(said) == 3 and all("refused by" in s for s in said), said
+    for s in said:
+        assert "step" not in s.replace(size, ""), s
+
+
+def test_when_the_browser_refused_every_molecule_the_run_says_so(world, tmp_path):
+    good = [("toluene", "Cc1ccccc1"), ("phenol", "Oc1ccccc1")]
+    engine = _refusing_set(tmp_path / "prepared", {s for _, s in good}, [s for _, s in good])
+    from bioagent.admet.pipeline import AdmetConfig, run_admet
+    run = run_admet(good, AdmetConfig(cache_dir=str(world[0] / "native")), tmp_path / "out",
+                    engine=engine)
+    assert not run.molecules and not run.failures and sorted(run.refused) == ["phenol", "toluene"]
+    stage = {s["name"]: s for s in run.stages}["standardize"]
+    assert stage["status"] == "failed"
+    assert stage["reason"].startswith("no molecule could be prepared here; 2 refused by RDKit.js")
+    assert "no molecule could be prepared here, so nothing was predicted" in run.warnings
+    assert not run.complete
+
+
+def test_the_stages_say_where_the_chemistrys_time_is_when_it_was_not_native(world, tmp_path):
+    """An engine prepares every molecule at once, so the chemistry's time lands in the
+    standardize stage (or, read back from a browser, in none of this run's): the stage says
+    so. Native RDKit's stages read as they always have."""
+    smiles = [s for _, s in QUERY]
+    native = _run(world, tmp_path / "native")
+    reason = {s["name"]: s for s in native.stages}["standardize"]["reason"]
+    assert reason == ("8 of 9 molecules read and standardised (largest fragment, neutralised "
+                      "where possible)")
+    from bioagent.admet.engine import write_prepared
+    elsewhere = _Elsewhere(QUERY[0][1])
+    write_prepared(elsewhere.prepare(smiles), elsewhere, tmp_path / "prepared")
+    from bioagent.admet.engine import PrecomputedEngine
+    read_back = _run(world, tmp_path / "browser", engine=PrecomputedEngine(tmp_path / "prepared"))
+    reason = {s["name"]: s for s in read_back.stages}["standardize"]["reason"]
+    assert reason.endswith("; the chemistry (standardisation, descriptors, fingerprints, alerts) "
+                           "is what RDKit.js 2026.09.1 MinimalLib + test prepared before this run, "
+                           "read back and checked here, so its time is not in this run's stages")
+    direct = _run(world, tmp_path / "direct", engine=elsewhere)
+    reason = {s["name"]: s for s in direct.stages}["standardize"]["reason"]
+    assert reason.endswith("; RDKit.js 2026.09.1 MinimalLib + test prepares every molecule's "
+                           "chemistry at once (standardisation, descriptors, fingerprints, alerts), "
+                           "so its time is this stage's and the descriptors, rules and alerts "
+                           "stages only read it")
+
+
+def test_a_run_given_its_molecules_as_a_list_records_the_file_they_came_from(world, tmp_path):
+    from bioagent.admet.pipeline import verify_run
+    source = tmp_path / "molecules.json"
+    source.write_text(json.dumps({"names": [n for n, _ in QUERY], "smiles": [s for _, s in QUERY]}))
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    run = _run(world, tmp_path / "out", inputs={str(source): digest})
+    assert run.manifest["inputs"] == {str(source): digest}
+    assert verify_run(tmp_path / "out") == (True, [])
+    source.write_text("{}")
+    ok, problems = verify_run(tmp_path / "out")
+    assert not ok and problems == [f"input {source} has changed"]
+
+
+def test_the_admet_extra_asks_for_the_numpy_the_domain_search_needs():
+    """chem.tanimoto_best counts bits with np.bitwise_count, new in numpy 2.0."""
+    import tomllib
+    project = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    extra = tomllib.loads(project.read_text())["project"]["optional-dependencies"]["admet"]
+    assert "numpy>=2.0" in extra, extra

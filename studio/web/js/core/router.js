@@ -28,7 +28,7 @@
 // Every envelope the router returns records how it was placed and approved (receipt.execution.placement / .approvals);
 // one decided here also has the page's receipt (core/receipt.js: where "page", decided_by "router", not executed).
 
-import { COMPUTE_VALUES, isLocalTool, localCall, pipelineArguments, requirement, runnerLacks, runnerOnly as runnerOnlyRules, unknownCompute } from "./catalog.js";
+import { COMPUTE_VALUES, isLocalTool, localCall, networkByFlag, pipelineArguments, requirement, runnerLacks, runnerOnly as runnerOnlyRules, unknownCompute } from "./catalog.js";
 import { t } from "./i18n.js";
 import { baseReceipt, pageOutcome } from "./receipt.js";
 import { canonicalJson, clip, flagArgument, isAbort, isLoopbackUrl, isPlainObject, objectArgument, sha256Hex, utf8Bytes } from "./util.js";
@@ -448,7 +448,9 @@ export class ToolRouter {
       }), this.#provenance(place));
     }
 
-    const flags = { network: Boolean(r.target.network), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
+    // an entry with network_unless reaches nothing when the call gives that argument (admet.models with its archive as a
+    // project file): no web access needed, and no network approval asked
+    const flags = { network: networkByFlag(r.target, callArgs), confirm: Boolean(r.target.confirm), job: Boolean(r.target.job) };
     if (flags.network && !(await this.#webOn(projectId))) {
       // the hosts it would reach, as the network approval names them (the core tool's when the entry names none)
       const { entry: reached, args: reachedArgs } = this.#effective(r.target, callArgs);
@@ -480,6 +482,8 @@ export class ToolRouter {
         network: await this.#webOn(projectId), acceleration: this.settings.browserAcceleration || "auto",
         browser_jobs: this.runtimes.jobs?.status === "ready",
         browser_snapshots: typeof this.runtimes.jobs?.snapshots === "boolean" ? this.runtimes.jobs.snapshots : null,
+        // the ADMET endpoints whose models are built in this browser (job.admet.models), when the page has looked
+        browser_admet_models: Array.isArray(this.runtimes.jobs?.admetModels) ? [...this.runtimes.jobs.admetModels] : null,
       }), signal);
       return stamp(await normalizeEnvelope(env, { tool: name, where: place.where, entry: r.entry }), prov);
     } catch (err) {

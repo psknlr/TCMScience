@@ -91,6 +91,8 @@ class Context:
     browser_jobs: bool = False
     #: in the browser: whether the research snapshots are built in its private storage (None: not said)
     browser_snapshots: bool | None = None
+    #: in the browser: the ADMET endpoints whose models are built in its private storage (None: not said)
+    browser_admet_models: tuple[str, ...] | None = None
 
     @property
     def profile(self) -> str:
@@ -143,6 +145,9 @@ class Context:
             ctx.browser_jobs = _truthy(value["browser_jobs"])
         if isinstance(value.get("browser_snapshots"), bool):
             ctx.browser_snapshots = value["browser_snapshots"]
+        models = value.get("browser_admet_models")
+        if isinstance(models, (list, tuple)) and all(isinstance(m, str) for m in models):
+            ctx.browser_admet_models = tuple(models)
         return ctx, notes
 
 
@@ -3656,6 +3661,7 @@ def _exec_system(entry: dict[str, Any], args: dict[str, Any], ctx: Context) -> O
                            network=ctx.network, jobs=ctx.jobs is not None,
                            browser_jobs=ctx.browser_jobs,
                            browser_snapshots=ctx.browser_snapshots,
+                           browser_admet_models=ctx.browser_admet_models,
                            items=_searchable(ctx.where), built=_built(ctx),
                            kind_missing=_kind_missing(ctx))
         view = {"matched": [{k: m[k] for k in ("id", "title", "summary", "parameters",
@@ -3869,6 +3875,7 @@ def _capabilities(ctx: Context, g: dict[str, Any]) -> Outcome:
     states = [capability.readiness(e, where=ctx.where, network=ctx.network,
                                    jobs=ctx.jobs is not None, browser_jobs=ctx.browser_jobs,
                                    browser_snapshots=ctx.browser_snapshots,
+                                   browser_admet_models=ctx.browser_admet_models,
                                    built=built if hub_root is not None else None,
                                    kind_missing=kind_missing.get(e["id"]))["state"]
               for e in items]
@@ -3924,6 +3931,7 @@ def _capability_audit(args: Mapping[str, Any], ctx: Context, g: dict[str, Any]) 
     result = capability.audit(
         _searchable(ctx.where), where=ctx.where, network=ctx.network, jobs=ctx.jobs is not None,
         browser_jobs=ctx.browser_jobs, browser_snapshots=ctx.browser_snapshots,
+        browser_admet_models=ctx.browser_admet_models,
         built=_built(ctx), kind_missing=_kind_missing(ctx), state=args.get("state") or None,
         kind=args.get("kind") or None, category=args.get("category") or None,
         limit=int(args.get("limit") or 100))

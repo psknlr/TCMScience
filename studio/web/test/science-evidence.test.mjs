@@ -22,7 +22,8 @@ const base = { state: "succeeded", artefacts: arts, workerDigests: digests, page
 const r = (() => { let s = 5; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32; })();
 const fps = (n) => wordsFromBits(Array.from({ length: n }, () => { const s = []; for (let b = 0; b < 2048; b++) if (r() < 0.025) s.push(b); return s; }));
 const Q = fps(40), R = fps(600);
-const SIZES = [{ queries: 32, refs: 600, accelerated: true, gpu_ms: 2, cpu_ms: 9 }];
+// the CPU kernel took a minute at this size in the device check: this call's own GPU time, cold, is below it
+const SIZES = [{ queries: 32, refs: 600, accelerated: true, gpu_ms: 2, cpu_ms: 60000 }];
 
 /** Real facts: runTanimoto on a device double with a calibration that measured it faster (or as `options` say). */
 async function facts({ info, corrupt, sizes = SIZES, preference = "auto" } = {}) {
@@ -101,7 +102,7 @@ test("CPU-only stages: the job is verified, and nothing ran on a GPU", async () 
   assert.equal(cpu.backend, "wasm-simd");
   const doc = buildJobReceipt({ job: job(stagesWith([cpu, cpu])), workerDigests: digests, pageDigests: { ...digests }, workers });
   assert.equal(doc.device.evidence, "verified");
-  assert.match(doc.device.note, /one thread each; nothing ran on a GPU$/);
+  assert.match(doc.device.note, /one thread each; in this page: domain wasm-simd; nothing ran on a GPU$/);
   assert.deepEqual(doc.device.stages, { domain: "cpu", analysis: "cpu", verify: "cpu" }, "the page's kernel computed the domain stage");
   assert.deepEqual([doc.compute.stages.domain.backend, doc.compute.stages.domain.calls, doc.compute.stages.domain.accelerated, doc.compute.stages.domain.gpu], ["wasm-simd", 2, null, null]);
   assert.equal(doc.compute.accelerated, false);

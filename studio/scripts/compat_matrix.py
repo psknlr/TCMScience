@@ -41,6 +41,12 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
     if src.is_dir() and str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
+from tcmstudio.browser_jobs import ADMET_MOLECULES_MAX  # noqa: E402
+
+# what a browser ADMET run takes, measured in Pyodide 314.0.7 under Node (tcmstudio.browser_jobs)
+ADMET_MEASURED = ("1,000 molecules 224 MB, 10,000 625 MB, 20,000 1.0 GB at the WebAssembly memory's peak, 23 s "
+                  "for 20,000 with the page's domain search and 113 s when Python recomputes it")
+
 CLASS_LABELS = {
     "1": "browser now (Pyodide, CPU)",
     "1g": "browser now; data via the gateway",
@@ -98,13 +104,13 @@ RUNNER_REASONS = {
     "job.pipeline.fold": ("7", "ESMFold needs torch + transformers (not in Pyodide) and a GPU; ESM Atlas / ColabFold are "
                                "remote services (allow_remote)"),
     "job.pipeline.dock": ("7", "AutoDock Vina, meeko, gemmi and rdkit are native and not in Pyodide"),
-    "job.pipeline.admet": ("7", "rdkit is not in Pyodide (scikit-learn is)"),
     "job.skill.run": ("8", "runs a governed skill as a subprocess job"),
     "job.tcmdb.fetch": ("8", "downloads full third-party databases to disk"),
     "job.tcmdb.build": ("8", "builds SQLite stores from those downloads"),
     "skill.retrieve-literature-evidence": ("7", "PaperQA2 and its model calls are not a browser package"),
     "skill.dock-ligands": ("7", "the docking engines above"),
-    "skill.predict-admet": ("7", "rdkit"),
+    "skill.predict-admet": ("7", "rdkit, as a governed skill on the runner; the same pipeline runs in the browser as "
+                                 "job.pipeline.admet, its chemistry in RDKit.js"),
     "skill.predict-protein-structure": ("7", "torch / transformers and a GPU, or a remote structure service"),
     "skill.rnaseq-differential-expression": ("7", "the RNA-seq pipeline from FASTQ (salmon / kallisto / hisat2 / "
                                                   "fastp are native binaries; a transcriptome index needs GBs of "
@@ -135,6 +141,22 @@ BROWSER_JOB_NOTES = {
                           "table of more than 66,000,000 cells x genes (a browser worker holds no more: wasm32, "
                           "4 GB); the UMAP layout amplifies last-digit "
                           "differences and is not compared with the native run's",
+    "job.admet.models": "the TDC ADMET group archive, through the site's dataset relay or from the project's files, "
+                        "held to its SHA-256: each endpoint's two splits prepared by RDKit.js 2026.9.1 with exact "
+                        "ports of the rest of RDKit's chemistry, then trained with Pyodide's scikit-learn 1.8.0 as on "
+                        "the runner, one endpoint at a time (resumable); the models stay in this browser's private "
+                        "storage and nothing trained is shipped; a training molecule RDKit.js refuses is left out and "
+                        "counted on the card (dropped_unstandardisable), so a model built here can differ from the "
+                        "runner's; in Pyodide under Node, with native RDKit's chemistry standing in for RDKit.js, the "
+                        "small known-answer archive's cards were the native ones but for the model file's digest",
+    "job.pipeline.admet": "a CSV/TSV/.smi file from the project's files or one SMILES: standardisation, descriptors, "
+                          "fingerprints and alerts by RDKit.js 2026.9.1 with exact ports (a molecule that needs a step "
+                          "they lack is refused, named and left for the runner), the applicability-domain search by the "
+                          "WASM SIMD kernel (WebGPU only on a physical adapter this device's check measured faster), "
+                          "re-checked in Python, and the models built here (job.admet.models), as on the runner; SDF "
+                          f"and .mol need the runner, and so do more than {ADMET_MOLECULES_MAX:,} molecules (measured "
+                          f"in Pyodide under Node: {ADMET_MEASURED}); with native RDKit's chemistry standing in for "
+                          "RDKit.js, admet.tsv was the native run's bytes",
 }
 PYODIDE_NOTES_JOBS = {
     "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
@@ -297,8 +319,20 @@ FAMILIES = [
      "PyDESeq2, Scanpy, scVI, 10x HDF5 and .h5ad stay on the runner"),
     ("Single-cell as a governed skill", "skill.scrna-cell-atlas", "6", "100 MB–GBs; hours", "no",
      "runner (a skill.run job); on count tables job.pipeline.scrna runs the same pipeline in the browser", "—"),
-    ("RNA-seq from FASTQ (quantification), docking, ADMET, structure prediction",
-     "job.pipeline.rnaseq (FASTQ)/dock/admet/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
+    ("ADMET from structure: the model build and the predictions", "job.admet.models, job.pipeline.admet", "1j",
+     f"a run of 20,000 molecules against the 22 models: 1.0 GB and 23 s in Pyodide under Node, so a browser job takes "
+     f"at most {ADMET_MOLECULES_MAX:,}; a model build: the archive's 22 endpoints, up to 13,130 molecules each, "
+     "trained one at a time (the largest at its size: 877 MB and 28 s in Pyodide under Node)", "not yet measured",
+     "browser jobs running bioagent's ADMET pipeline and model build in Pyodide (scikit-learn 1.8.0) with the "
+     "chemistry in RDKit.js 2026.9.1 and exact ports (a molecule they cannot standardise exactly is refused, named "
+     "and counted, never approximated) and the domain search on the WASM SIMD kernel, re-checked in Python; in "
+     "Pyodide under Node, with native RDKit's chemistry standing in for RDKit.js, admet.tsv and the model cards "
+     "(but for the model file's digest) were the native run's; the comparison in a browser "
+     "(studio/web/test/runtime/science.mjs --mode admet) and on the real TDC archive (live-data) are separate runs",
+     "SDF and .mol, and the governed skill, stay on the runner; WebGPU for the domain search once a physical "
+     "adapter's device check shows it faster"),
+    ("RNA-seq from FASTQ (quantification), docking, structure prediction",
+     "job.pipeline.rnaseq (FASTQ)/dock/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
      "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
      "runner", "—"),

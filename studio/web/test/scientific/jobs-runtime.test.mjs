@@ -72,3 +72,35 @@ test("a run's limitations.md becomes the job's limitations as the runner's job s
   assert.ok(long[0].endsWith("…"));
   assert.equal(long.at(-1), "… and 21 more in limitations.md");
 });
+
+test("createJobsRuntime: the ADMET kinds, with the RDKit.js build boot.json pins, the admet dataset group and the person's acceleration setting", async () => {
+  const { IDBFactory } = await import("fake-indexeddb");
+  const { fakeOpfs } = await import("../fixtures/fake-opfs.mjs");
+  const { createJobsRuntime } = await import("../../js/scientific/runtime/jobs-runtime.js");
+  const { RDKIT } = await import("../../js/scientific/chem/rdkit.js");
+  const boot = (rdkit) => ({
+    schema: "tcmstudio.boot/1", pyodide: { version: "314.0.7", index_url: "https://cdn.example/pyodide/" }, bundle: { path: "b.tar.gz", sha256: "a".repeat(64) },
+    datasets: { path: "runtime/datasets.json" }, ...(rdkit ? { rdkit } : {}),
+  });
+  const make = async (doc) => createJobsRuntime({
+    siteUrl: "https://science.example/", Worker: class { postMessage() {} terminate() {} }, indexedDB: new IDBFactory(), storage: fakeOpfs().storage,
+    fetch: async () => ({ ok: true, json: async () => doc }), settings: () => ({ browserAcceleration: "cpu" }),
+  });
+  const rt = await make(boot({ version: RDKIT.version, release: RDKIT.release, url: "https://mirror.example/RDKit_minimal.wasm", sha256: RDKIT.wasm.sha256, bytes: RDKIT.wasm.bytes }));
+  assert.equal(rt.status, "ready");
+  assert.ok(rt.kinds().includes("admet.models") && rt.kinds().includes("pipeline.admet"));
+  assert.equal(rt.admetModels, null, "unknown until the page has looked");
+  assert.equal(rt.service.datasetsFor("admet").group, "admet");
+  assert.equal(rt.service.datasetsFor("research").group, "research");
+  // the kinds' refusals say what they lack here: no models built in this browser
+  const env = await rt.call("run_pipeline", { pipeline: "admet", arguments: { molecules: "CCO" } });
+  assert.equal(env.error.reason, "needs_dataset");
+  assert.match(env.error.hint, /job\.admet\.models/);
+  const sdf = await rt.call("run_pipeline", { pipeline: "admet", arguments: { molecules: "x.sdf" } });
+  assert.equal(sdf.error.reason, "needs_runner");
+  // a site whose boot.json pins another RDKit.js build than this page's code: refused, with the remedy
+  const skew = await make(boot({ version: "2027.3.1", url: "https://x/RDKit_minimal.wasm", sha256: "b".repeat(64), bytes: 1 }));
+  const refused = await skew.call("call_tool", { tool: "job.admet.models", arguments: { archive: "x.zip" } });
+  assert.match(refused.error.message, /boot\.json pins RDKit\.js 2027\.3\.1/);
+  assert.match(refused.error.hint, /Reload the page/);
+});

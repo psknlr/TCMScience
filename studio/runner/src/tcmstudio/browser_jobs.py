@@ -21,8 +21,16 @@ is tested; in the browser the self-test and the parity check say whether they di
                      ``pipeline.rnaseq`` runs it with counts
 ``run_scrna``        the single-cell pipeline on count tables (``bioagent scrna``), as
                      ``pipeline.scrna`` runs it with the built-in engines
+``admet_split``      the TDC ADMET group archive's endpoints split into their SMILES and
+                     targets, for the page's chemistry (RDKit.js) to prepare
+``admet_train``      one endpoint's model, domain and card from that chemistry, as
+                     ``bioagent admet --build-models`` trains it (the admet.models job)
+``admet_read``       a molecule file or one SMILES read as ``bioagent admet`` reads it
+``run_admet``        the ADMET pipeline (``bioagent admet``) on the page's chemistry and
+                     domain search, as ``pipeline.admet`` runs it
 ``verify_pipeline``  a pipeline run re-checked (its ``verify_run``) and held to what the
-                     runner's job of that kind requires of its outputs
+                     runner's job of that kind requires of its outputs; and the ADMET models
+                     held to their cards
 ``self_test``        the planted world's known answer (``tcmstudio.browser_selftest``): a
                      small world studied the way ``run_research`` studies one, its tables
                      compared with the ones native CPython committed
@@ -48,10 +56,21 @@ pipeline's refusal says what would run it in ``need``: ``runner`` (an engine or 
 this browser does not hold), ``memory`` (too large for a browser worker), or null (the
 inputs themselves cannot be analysed, wherever they run).
 
+ADMET runs in the browser with its chemistry computed by the page (RDKit.js, which Pyodide
+does not have) and handed over as prepared sets (``bioagent.admet.engine``: the
+``PrecomputedEngine`` reads them back and holds them to their molecules), the domain search
+by the page's kernels and checked here (``PrecomputedSimilarity``), and everything else in
+this Python: the models are scikit-learn's, trained here from the TDC archive, and the
+pipeline is ``bioagent.admet``'s. An SDF or .mol file is refused for the runner (RDKit's
+SDMolSupplier is not ported), and so is a run of more than ``ADMET_MOLECULES_MAX``
+molecules (``need`` ``memory``).
+
 ``call`` never raises. A failure is ``{"ok": false, "error": {"type", "message"}}`` with
 ``type`` ``bad_arguments`` (the arguments are not what the function takes), ``refused``
 (it cannot run here: a package this runtime does not hold, or, with ``need`` ``memory``,
-more memory than it has), ``cancelled`` (interrupted) or ``runtime_error``.
+more memory than it has; for ``admet_split``, ``admet_train`` and ``admet_read`` also
+inputs it cannot use, with ``need`` ``runner`` when the runner reads them and none when
+nothing does), ``cancelled`` (interrupted) or ``runtime_error``.
 ``emit(kind, data)``, when given, receives the log lines of a snapshot
 build, a research run and a pipeline run as ``("log", {"level", "text"})``, and a
 pipeline's stages as ``("progress", {"fraction", "stage", "message"})``, as they happen.
@@ -68,9 +87,10 @@ import json
 import sys
 from typing import Any, Callable, Mapping
 
-__all__ = ["BadArguments", "FUNCTIONS", "build_snapshots", "call", "main", "plan_snapshots",
-           "run_research", "run_rnaseq_counts", "run_scrna", "self_test", "verify_pipeline",
-           "verify_research"]
+__all__ = ["ADMET_MOLECULES_MAX", "BadArguments", "FUNCTIONS", "Refused", "admet_read",
+           "admet_split", "admet_train", "build_snapshots", "call", "main", "plan_snapshots",
+           "run_admet", "run_research", "run_rnaseq_counts", "run_scrna", "self_test",
+           "verify_pipeline", "verify_research"]
 
 Emit = Callable[[str, dict[str, Any]], Any]
 
@@ -79,7 +99,8 @@ _BACKGROUNDS = ("assayed", "reactome")
 _HITS = ("potency", "screening")
 #: The pipeline module of each pipeline job kind the browser runs (its ``verify_run``).
 _PIPELINES = {"pipeline.rnaseq": "bioagent.omics.rnaseq",
-              "pipeline.scrna": "bioagent.omics.scrna"}
+              "pipeline.scrna": "bioagent.omics.scrna",
+              "pipeline.admet": "bioagent.admet.pipeline"}
 #: The largest inputs a browser worker takes (wasm32 caps its memory near 4 GB), from whole
 #: runs in Pyodide 314.0.7 under Node (the WebAssembly memory at its peak). Single cell: the
 #: doublet scores hold one table's cells x genes densely, so that product is bounded per table
@@ -94,10 +115,33 @@ RNASEQ_GENES_MAX = 100_000
 RNASEQ_SAMPLES_MAX = 200
 RNASEQ_COUNTS_MAX = 10_000_000            # genes x samples
 _HOLDS = "a browser worker can hold (wasm32, 4 GB): run it on the runner"
+#: ADMET: the molecules of one run at most, the most the page's chemistry worker prepares at once
+#: (web/js/scientific/chem/chem.worker.js MAX_MOLECULES). Measured in Pyodide 314.0.7 under Node
+#: (run_admet against 22 models of the TDC group's sizes, 64,490 domain rows; the WebAssembly memory
+#: at its peak): 1,000 molecules 224 MB, 5,000 424 MB, 10,000 625 MB, 20,000 1.0 GB (about 130 MB
+#: and 45 MB per 1,000); 20,000 took 23 s with the page's similarities and 113 s (1.1 GB) when the
+#: CPU searched the domain here, and admet.tsv was the native run's bytes both ways. The prepared
+#: files a browser copies into the worker add about 10 KB a molecule. A model build needs no bound of its own:
+#: admet_train on the TDC group's largest endpoint at its size (cyp2d6_veith, 10,504 training and 2,626 test
+#: molecules, synthetic) peaked at 877 MB and took 28 s there, its card the native one but for the model's digest.
+ADMET_MOLECULES_MAX = 20_000
+#: Molecule files the browser's chemistry does not read (RDKit's SDMolSupplier is not ported).
+_ADMET_RUNNER_SUFFIXES = (".sdf", ".sdf.gz", ".mol")
+_MOLECULES_FILE = "molecules.json"
 
 
 class BadArguments(ValueError):
     """The arguments are not what the function takes."""
+
+
+class Refused(Exception):
+    """A call this runtime does not run: ``need`` is what would (``runner``, ``memory``), or
+    None when the inputs themselves cannot be used. ``call`` answers it as an error of type
+    ``refused``."""
+
+    def __init__(self, message: str, need: str | None = None) -> None:
+        super().__init__(message)
+        self.need = need
 
 
 # ------------------------------------------------------------------------- arguments
@@ -403,17 +447,20 @@ def _stages_progress(emit: Emit | None) -> Callable[[dict[str, Any]], None]:
 
 
 def _ended(run: Any, log: Callable[..., None], what: str) -> dict[str, Any]:
-    """``{exit, summary, failed, refused, need}`` of a pipeline run that ended: exit 0 when
-    it is complete, 1 when it is not (``failed`` names the stages at fault), as the
-    command's."""
+    """``{exit, summary, failed, reasons, refused, need}`` of a pipeline run that ended: exit 0
+    when it is complete, 1 when it is not (``failed`` names the stages at fault and
+    ``reasons`` what each stage record says of itself, as the command prints them)."""
     stages = run.stages
-    failed = [s["name"] for s in stages if s.get("check") == "FAIL"
-              or (s.get("required") and s.get("status") != "succeeded")]
+    at_fault = [s for s in stages if s.get("check") == "FAIL"
+                or (s.get("required") and s.get("status") != "succeeded")]
+    failed = [s["name"] for s in at_fault]
     log(f"{what}: {'complete' if run.complete else 'incomplete'}"
         + (f"; at fault: {', '.join(failed)}" if failed else ""),
         "info" if run.complete else "warn")
     return {"exit": 0 if run.complete else 1, "summary": _finite(run.summary()),
-            "failed": failed, "refused": None, "need": None}
+            "failed": failed, "reasons": {s["name"]: s.get("reason") for s in at_fault
+                                          if s.get("reason")},
+            "refused": None, "need": None}
 
 
 def _refused(log: Callable[..., None], why: str, need: str | None = None) -> dict[str, Any]:
@@ -625,8 +672,9 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
 
 
 def verify_pipeline(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
-    """``{kind, out_dir}`` (``kind`` ``pipeline.rnaseq`` or ``pipeline.scrna``) →
-    ``{status, checks, problems, report}``.
+    """``{kind, out_dir}`` (``kind`` ``pipeline.rnaseq``, ``pipeline.scrna`` or
+    ``pipeline.admet``), or ``{kind: "admet.models", models_dir, endpoints?,
+    archive_sha256?}`` → ``{status, checks, problems, report}``.
 
     The pipeline's own ``verify_run`` first (rnaseq's covers the count-matrix mode): every
     recorded input re-hashed at its recorded path (so the inputs must still be where the run
@@ -636,7 +684,13 @@ def verify_pipeline(args: Mapping[str, Any], emit: Emit | None = None) -> dict[s
     ``required_artefacts`` and ``validator:<name>``. ``status`` is the aggregate; ``report``
     is what the run recorded of itself: its pipeline, whether it is complete, its
     ``limitations.md`` lines and the problems ``verify_run`` found. One log line says the
-    verdict."""
+    verdict.
+
+    For ``admet.models`` the check is ``verify_models``, the one the runner's job of that
+    kind makes once it has ended: each endpoint's card (every card, when none is named)
+    has its model and domain files at the SHA-256 it records, and the cards record one
+    archive, ``archive_sha256`` when given; ``report`` is each endpoint's card digest,
+    file digests, archive, chemistry, counts and held-out score."""
     import importlib
     import json
     from pathlib import Path
@@ -644,10 +698,12 @@ def verify_pipeline(args: Mapping[str, Any], emit: Emit | None = None) -> dict[s
     from bioagent.runrecord import read_limitations
     from bioagent.validation import FAIL, PASS, aggregate
 
-    _only(args, ("kind", "out_dir"))
     kind = _text(args, "kind")
+    if kind == "admet.models":
+        return _verify_models(args, emit)
+    _only(args, ("kind", "out_dir"))
     if kind not in _PIPELINES:
-        raise BadArguments(f"kind: one of {', '.join(_PIPELINES)}, not {kind!r}")
+        raise BadArguments(f"kind: one of {', '.join([*_PIPELINES, 'admet.models'])}, not {kind!r}")
     out = Path(_text(args, "out_dir"))
     try:
         record = json.loads((out / "run.json").read_text(encoding="utf-8"))
@@ -676,6 +732,286 @@ def verify_pipeline(args: Mapping[str, Any], emit: Emit | None = None) -> dict[s
             "report": report}
 
 
+# ------------------------------------------------------------------------- ADMET
+
+def _admet_endpoints(args: Mapping[str, Any], *, every: bool) -> list[str]:
+    """``endpoints``, held to the runner's check (``kinds.admet_endpoints``: TDC names, no
+    repeats); with ``every``, none given is every TDC endpoint."""
+    from bioagent.admet.models import ENDPOINTS
+
+    from . import kinds
+
+    names = _runner_check(kinds.admet_endpoints, args.get("endpoints"))
+    return names or (list(ENDPOINTS) if every else [])
+
+
+def _chem_error() -> type[Exception]:
+    from bioagent.admet.chem import ChemError
+    return ChemError
+
+
+def admet_split(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{archive, out_dir, endpoints?}`` → ``{archive_sha256, pinned, endpoints: {endpoint:
+    {train_val: n, test: n}}, members}``: each endpoint's TDC splits read from the archive
+    as ``build_models`` reads them (``admet_group/<endpoint>/<split>.csv``, the SMILES and
+    targets in the archive's order) and written to ``out_dir/<endpoint>/<split>.json`` =
+    ``{"smiles": [...], "y": [...]}``, for the page's chemistry to prepare (each split's
+    SMILES are the set ``admet_train`` reads). ``endpoints`` are TDC names (default: all
+    22). ``pinned`` is whether the archive's SHA-256 is TDC's pinned one; when it is not,
+    the models are still built, and their cards say so, as natively. An archive that is not
+    a zip, or that lacks a member asked for, is refused (``need`` null)."""
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from bioagent.admet import models as M
+
+    _only(args, ("archive", "out_dir", "endpoints"))
+    archive, out = Path(_text(args, "archive")), Path(_text(args, "out_dir"))
+    endpoints = _admet_endpoints(args, every=True)
+    log = _log(emit)
+    try:
+        raw, sha = M.read_archive(archive)
+    except OSError as exc:
+        raise Refused(f"the archive cannot be read: {exc}") from None
+    except _chem_error() as exc:
+        raise Refused(str(exc)) from None
+    split: dict[str, dict[str, int]] = {}
+    members = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            for ep in endpoints:
+                split[ep] = {}
+                for name in M.SPLITS:
+                    smiles, y = M.read_split(z, ep, name)
+                    target = out / ep / f"{name}.json"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(json.dumps({"smiles": smiles, "y": [float(v) for v in y]},
+                                                 ensure_ascii=False, allow_nan=False),
+                                      encoding="utf-8")
+                    split[ep][name] = len(smiles)
+                    members.append(M.split_member(ep, name))
+    except _chem_error() as exc:
+        raise Refused(str(exc)) from None
+    except ValueError as exc:               # a target that is not a finite number
+        raise Refused(f"the archive's targets are not all finite numbers ({exc})") from None
+    pinned = sha == M.TDC_ADMET_SHA256
+    log(f"admet split: {len(endpoints)} endpoints of the archive {sha[:12]}"
+        + ("" if pinned else f" (not TDC's pinned archive {M.TDC_ADMET_SHA256[:12]}: the models' "
+                             "held-out scores will not be comparable with TDC's leaderboard)"),
+        "info" if pinned else "warn")
+    return {"archive_sha256": sha, "pinned": pinned, "endpoints": split, "members": members}
+
+
+def admet_train(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{archive, prepared_dir, models_dir, endpoint, seed?, max_iter?, rebuild?}`` → the
+    endpoint's model card, as ``model_cards.json`` holds it. The model is trained as
+    ``bioagent admet --build-models`` trains it (``bioagent.admet.models.train_endpoint``:
+    the same code, settings and files), from the chemistry the page prepared for the
+    endpoint's two splits (``prepared_dir/<endpoint>/{train_val,test}/``, the prepared sets
+    of ``admet_split``'s SMILES, found by their ``smiles_sha256``), and written into
+    ``models_dir`` (``<cache>/models``) as the build writes it: the model and its domain,
+    and the card merged into ``model_cards.json``. The card names the chemistry
+    (``rdkit.js``) and counts the training molecules it refused
+    (``dropped_unstandardisable``). A finished model that still matches its card, built
+    from the same archive, settings, library versions and chemistry, is kept unless
+    ``rebuild``. ``seed`` and ``max_iter`` are held to the runner's admet.models bounds.
+    Refused (``need`` null): an archive that is not a zip or lacks the endpoint, prepared
+    sets that are not for its molecules."""
+    from pathlib import Path
+
+    from bioagent.admet import models as M
+    from bioagent.admet.engine import PrecomputedEngine
+
+    from . import kinds
+
+    _only(args, ("archive", "prepared_dir", "models_dir", "endpoint", "seed", "max_iter",
+                 "rebuild"))
+    paths = {k: Path(_text(args, k)) for k in ("archive", "prepared_dir", "models_dir")}
+    endpoint = _text(args, "endpoint")
+    if endpoint not in M.ENDPOINTS:
+        raise BadArguments(f"endpoint: no TDC ADMET endpoint {endpoint!r}; one of "
+                           f"{', '.join(M.ENDPOINTS)}")
+    choices = _runner_check(kinds._admet_models_choices, _given(args, ("seed", "max_iter",
+                                                                       "rebuild")))
+    log = _log(emit)
+    try:
+        engine = PrecomputedEngine(paths["prepared_dir"] / endpoint)
+        card = M.train_endpoint(paths["models_dir"], archive=paths["archive"], endpoint=endpoint,
+                                seed=choices["seed"], max_iter=choices["max_iter"],
+                                rebuild=choices["rebuild"], log=log, engine=engine)
+    except _chem_error() as exc:
+        raise Refused(str(exc)) from None
+    except OSError as exc:
+        raise Refused(f"{endpoint}: {exc}") from None
+    return card
+
+
+def _molecules_rows(path: Any) -> int:
+    """The molecules a CSV/TSV/.smi file holds at most, counted a line at a time before it is
+    read in full: its lines that are not blank, less a header (as ``read_ligands`` reads one:
+    a first line with a comma or a tab, in a file that is not .smi)."""
+    first, more = _first_line(path, count=True)
+    if not first:
+        return 0
+    header = not str(path).lower().endswith(".smi") and ("," in first or "\t" in first.strip())
+    return more + (0 if header else 1)
+
+
+def admet_read(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{molecules, out_dir}`` → ``{n, file, smiles_sha256}``: the molecules read as
+    ``bioagent admet`` reads them (``pipeline.read_molecules``: a CSV/TSV with name and
+    smiles columns, a .smi file, or, when ``molecules`` is not a file, one SMILES) and
+    written to ``out_dir/molecules.json`` = ``{"names": [...], "smiles": [...]}``, which
+    ``run_admet`` reads; ``smiles_sha256`` names their prepared set. Refused: an SDF or .mol
+    file (``need`` ``runner``: RDKit's SDMolSupplier is not ported to the browser's
+    chemistry), more than ``ADMET_MOLECULES_MAX`` molecules (``need`` ``memory``, counted
+    before the file is read in full), and a file the reader refuses (``need`` null)."""
+    from pathlib import Path
+
+    from bioagent.admet.engine import smiles_sha256
+    from bioagent.admet.pipeline import read_molecules
+
+    from . import kinds
+
+    _only(args, ("molecules", "out_dir"))
+    given, out = _text(args, "molecules"), Path(_text(args, "out_dir"))
+    path = Path(given)
+    try:
+        is_file = path.is_file()
+    except (OSError, ValueError):                       # a long SMILES is no file name
+        is_file = False
+    log = _log(emit)
+    if is_file:
+        if path.name.lower().endswith(_ADMET_RUNNER_SUFFIXES):
+            raise Refused(f"{path.name}: an SDF or .mol file is read with RDKit's SDMolSupplier, "
+                          "which the browser's chemistry (RDKit.js) does not port; the runner "
+                          "reads it, and CSV, TSV and .smi files run here", "runner")
+        rows = _molecules_rows(path)
+        if rows > ADMET_MOLECULES_MAX:
+            raise Refused(f"{rows:,} molecules exceed the {ADMET_MOLECULES_MAX:,} {_HOLDS}",
+                          "memory")
+    elif path.name.lower().endswith((*_ADMET_RUNNER_SUFFIXES, ".csv", ".tsv", ".smi", ".txt")):
+        # a file name, not a SMILES: read as one, it would be a molecule that cannot be read
+        raise BadArguments(f"molecules: {path.name} is not a file here (nor one SMILES)")
+    else:
+        _runner_check(kinds._text, "molecules", given, pattern=kinds._SMILES, max_len=2000)
+    try:
+        entries = read_molecules(path if is_file else given.strip())
+    except _chem_error() as exc:
+        raise Refused(str(exc)) from None
+    if len(entries) > ADMET_MOLECULES_MAX:
+        raise Refused(f"{len(entries):,} molecules exceed the {ADMET_MOLECULES_MAX:,} {_HOLDS}",
+                      "memory")
+    names, smiles = [n for n, _ in entries], [s for _, s in entries]
+    out.mkdir(parents=True, exist_ok=True)
+    target = out / _MOLECULES_FILE
+    target.write_text(json.dumps({"names": names, "smiles": smiles}, ensure_ascii=False),
+                      encoding="utf-8")
+    log(f"admet read: {len(entries):,} molecules from "
+        + (path.name if is_file else "one SMILES"))
+    return {"n": len(entries), "file": str(target), "smiles_sha256": smiles_sha256(smiles)}
+
+
+def _read_entries(path: Any) -> list[tuple[str, str]]:
+    """The (name, SMILES) ``admet_read`` wrote (``molecules.json``)."""
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    names, smiles = (doc.get(k) if isinstance(doc, dict) else None for k in ("names", "smiles"))
+    if not (isinstance(names, list) and isinstance(smiles, list) and len(names) == len(smiles)
+            and all(isinstance(v, str) for v in (*names, *smiles))):
+        raise ValueError("it is not admet_read's names and smiles, one each")
+    return list(zip(names, smiles))
+
+
+def run_admet(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{molecules_file, prepared_dir, similarity_dir?, models_dir, endpoints?, out_dir}`` →
+    ``{exit, summary, failed, refused, need}``, as ``bioagent admet`` would end: ``exit`` 0
+    (complete), 1 (incomplete: no model, or none for an endpoint asked for; ``failed`` names
+    the stages at fault) or 2 (refused). ``molecules_file`` is what ``admet_read`` wrote; it
+    is recorded in run.json as the run's input and re-hashed by ``verify_run``. The chemistry
+    is the page's, ``prepared_dir`` (a prepared set for those SMILES, read back by
+    ``PrecomputedEngine``); ``similarity_dir``, when given, holds the page's domain search,
+    used only once it checks out (``PrecomputedSimilarity``), else the CPU searches here.
+    ``models_dir`` is the models directory (``<cache>/models``) that ``admet_train`` writes.
+    ``endpoints`` are held to the runner's check (``kinds``); an endpoint asked for with no
+    model makes the run incomplete, as natively. Refused: more than
+    ``ADMET_MOLECULES_MAX`` molecules (``need`` ``memory``), and chemistry that is not for
+    these molecules (``need`` null)."""
+    from pathlib import Path
+
+    from bioagent import runrecord
+    from bioagent.admet.engine import PrecomputedEngine, PrecomputedSimilarity
+    from bioagent.admet.pipeline import AdmetConfig
+    from bioagent.admet.pipeline import run_admet as run_pipeline
+    from bioagent.omics.rnaseq import _sha256
+
+    from . import kinds
+
+    _only(args, ("molecules_file", "prepared_dir", "similarity_dir", "models_dir", "endpoints",
+                 "out_dir"))
+    paths = {k: Path(_text(args, k)) for k in ("molecules_file", "prepared_dir", "models_dir",
+                                               "out_dir")}
+    similarity_dir = _text(args, "similarity_dir", required=False)
+    endpoints = tuple(_runner_check(kinds._admet_prepare_endpoints, args.get("endpoints")))
+    if paths["models_dir"].name != "models":
+        raise BadArguments("models_dir: the models directory build_models writes (<cache>/models), "
+                           f"not {paths['models_dir'].name!r}")
+    log = _log(emit)
+    try:
+        entries = _read_entries(paths["molecules_file"])
+    except (OSError, ValueError) as exc:
+        return _refused(log, f"{paths['molecules_file'].name} cannot be read as admet_read's "
+                             f"molecules: {exc}")
+    if len(entries) > ADMET_MOLECULES_MAX:
+        return _refused(log, f"{len(entries):,} molecules exceed the {ADMET_MOLECULES_MAX:,} "
+                             f"{_HOLDS}", "memory")
+    config = AdmetConfig(cache_dir=str(paths["models_dir"].parent), endpoints=endpoints)
+    try:
+        engine = PrecomputedEngine(paths["prepared_dir"])
+        similarity = PrecomputedSimilarity(similarity_dir) if similarity_dir else None
+        log(f"admet: {len(entries):,} molecules, chemistry {engine.detail}; similarity "
+            + (f"offered by {similarity.offered}" if similarity is not None and similarity.offered
+               else "searched on this CPU"))
+        with runrecord.watching(_stages_progress(emit)):
+            run = run_pipeline(entries, config, paths["out_dir"], engine=engine,
+                               similarity=similarity,
+                               inputs={str(paths["molecules_file"]): _sha256(paths["molecules_file"])})
+    except MemoryError:
+        return _refused(log, f"the run ran out of memory (MemoryError) on {len(entries):,} "
+                             f"molecules: more than {_HOLDS}", "memory")
+    except (_chem_error(), ValueError, OSError) as exc:
+        # what the command prints as "refused: ..."
+        return _refused(log, str(exc))
+    return _ended(run, log, "admet")
+
+
+def _verify_models(args: Mapping[str, Any], emit: Emit | None) -> dict[str, Any]:
+    """verify_pipeline for ``admet.models``: the models held to their cards
+    (``bioagent.admet.models.verify_models``, the runner's own check of the job)."""
+    import re
+    from pathlib import Path
+
+    from bioagent.admet.models import verify_models
+    from bioagent.validation import FAIL, PASS
+
+    _only(args, ("kind", "models_dir", "endpoints", "archive_sha256"))
+    models = Path(_text(args, "models_dir"))
+    endpoints = _admet_endpoints(args, every=False)
+    archive = _text(args, "archive_sha256", required=False) or None
+    if archive is not None and not re.fullmatch(r"[0-9a-f]{64}", archive):
+        raise BadArguments("archive_sha256: 64 lower-case hexadecimal digits")
+    ok, problems, report = verify_models(models, endpoints or None, archive_sha256=archive)
+    detail = ("; ".join(problems)[:1000] if problems else
+              f"{len(report['endpoints'])} models, each file and its applicability domain at the "
+              "SHA-256 its card records, all trained on one archive")
+    checks = [{"name": "verify_models", "status": PASS if ok else FAIL, "detail": detail}]
+    _log(emit)(f"verify admet.models: {checks[0]['status']}, {len(report['endpoints'])} cards"
+               + (f"; {len(problems)} problem(s)" if problems else ""),
+               "info" if ok else "warn")
+    return {"status": checks[0]["status"], "checks": checks, "problems": problems,
+            "report": {"models_dir": str(models), "archive_sha256": archive, **report}}
+
+
 def self_test(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
     """``{work_dir?}`` → the known-answer report (``tcmstudio.browser-selftest/1``): ``status``
     PASS only when the planted world studied here gives the committed tables (identical, or
@@ -690,7 +1026,8 @@ FUNCTIONS: Mapping[str, Callable[..., dict[str, Any]]] = {
     "plan_snapshots": plan_snapshots, "build_snapshots": build_snapshots,
     "run_research": run_research, "verify_research": verify_research,
     "run_rnaseq_counts": run_rnaseq_counts, "run_scrna": run_scrna,
-    "verify_pipeline": verify_pipeline, "self_test": self_test}
+    "admet_split": admet_split, "admet_train": admet_train, "admet_read": admet_read,
+    "run_admet": run_admet, "verify_pipeline": verify_pipeline, "self_test": self_test}
 
 
 # ------------------------------------------------------------------------- the entry
@@ -727,6 +1064,8 @@ def call(fn: str, args_json: str = "{}", emit: Emit | None = None) -> str:
         return _error("runtime_error", f"{fn} tried to exit (code {exc.code!r})")
     except BadArguments as exc:
         return _error("bad_arguments", str(exc))
+    except Refused as exc:
+        return _error("refused", str(exc), **({"need": exc.need} if exc.need else {}))
     except ModuleNotFoundError as exc:
         return _error("refused", f"{fn} cannot run here: {exc} (a package this runtime does "
                                  "not hold)")

@@ -297,3 +297,25 @@ test("an error raised by a search's commands is an error, not a wrong answer: no
   await assert.rejects(l.tanimotoBest(q, refs), (e) => e.code === "validation");
   assert.equal(l.knownAnswer.ok, true);
 });
+
+test("calls on one device run one after another, in the order they came: two searches at once never interleave, and each says what it did", async () => {
+  const gpu = fakeScienceGPU({ delayMs: 3 });
+  const g = new ScienceGPU(gpu);
+  const r = random(77);
+  const q1 = fingerprints(r, 40), r1 = fingerprints(r, 600), q2 = fingerprints(r, 20), r2 = fingerprints(r, 300);
+  // both asked for before either has its device: the first sets the device up (and runs its known-answer test), the
+  // second waits for it
+  const [a, b] = await Promise.all([g.tanimotoBest(q1, r1), g.tanimotoBest(q2, r2)]);
+  assert.deepEqual(plain(a), plain(tanimotoBestJS(q1, r1)));
+  assert.deepEqual(plain(b), plain(tanimotoBestJS(q2, r2)));
+  assert.deepEqual([a.run.pairs, a.run.cold, b.run.pairs, b.run.cold], [40 * 600, true, 20 * 300, false], "each result carries its own call's marks");
+  assert.equal(Object.keys(a).includes("run"), false, "not one of the result's own fields");
+  const order = gpu.state.dispatches.map((d) => d.Q).filter((q) => q === 40 || q === 20);
+  assert.deepEqual(order, [...order].sort((x, y) => y - x), `the second search's passes came after the first's: ${order.join(",")}`);
+  assert.equal(g.lastRun.pairs, 20 * 300);
+  // a failed call does not hold up the next, and says how far it got
+  const bad = g.tanimotoBest(q1, new Uint32Array(0));
+  const next = g.tanimotoBest(q2, r2);
+  await assert.rejects(bad, /no reference fingerprints/);
+  assert.deepEqual(plain(await next), plain(b));
+});

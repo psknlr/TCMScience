@@ -2,13 +2,13 @@ import "./fixtures/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { indexedDB } from "fake-indexeddb";
-import { Catalog, requirement } from "../js/core/catalog.js";
+import { Catalog, entryState, networkByFlag, requirement } from "../js/core/catalog.js";
 import { HUMAN_ONLY, PLACEMENT_REASONS, ToolRouter, hostsDigest, hostsOf, normalizeEnvelope, storeApprovals, synthEnvelope } from "../js/core/router.js";
 import { RECEIPT_SCHEMA } from "../js/core/receipt.js";
 import { t } from "../js/core/i18n.js";
 import { openStore } from "../js/core/store.js";
 import { refusalsOf } from "../js/core/governance.js";
-import { envelopeFor, fakeRuntime, memoryApprovals, pipelineCatalogDoc, testCatalogDoc } from "./fixtures/fakes.mjs";
+import { admetCatalogDoc, envelopeFor, fakeRuntime, memoryApprovals, pipelineCatalogDoc, testCatalogDoc } from "./fixtures/fakes.mjs";
 import { BrowserJobsRuntime } from "../js/scientific/runtime/jobs-runtime.js";
 
 const catalog = () => new Catalog(testCatalogDoc());
@@ -1179,4 +1179,82 @@ test("the new router and approval messages exist in zh and en, with the same pla
     assert.doesNotMatch(t(k, {}, "en"), /\blocal\b/i, k);
     assert.match(`${t(k, {}, "zh")} ${t(k, {}, "en")}`, /远程 Runner.*remote runner/, k);
   }
+});
+
+test("ADMET: run_pipeline admet and job.admet.models go to the browser's job service; an SDF or MOL file needs the runner, said with its reason", async () => {
+  const submitted = [];
+  const kinds = ["pipeline.rnaseq", "pipeline.scrna", "pipeline.admet", "admet.models"];
+  const make = ({ runner = "offline", compute = "auto", jobs = "ready" } = {}) => {
+    const service = {
+      status: jobs, reason: jobs === "ready" ? null : "no OPFS", events: () => () => {}, onStatus: () => () => {},
+      kinds: () => (jobs === "ready" ? kinds.map((kind) => ({ kind })) : []),
+      submit: async (kind, params, opts) => {
+        submitted.push({ kind, params, opts });
+        return { id: "bj-0123456789abcdef", kind, state: "queued", title: { zh: "x", en: "x" }, stages: [] };
+      },
+    };
+    const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: runner }), jobs: new BrowserJobsRuntime({ service }) };
+    return new ToolRouter({ catalog: new Catalog(admetCatalogDoc()), runtimes, settings: { compute }, approvals: memoryApprovals() });
+  };
+  const csv = { pipeline: "admet", arguments: { molecules: "mols.csv" } };
+  const sdf = { pipeline: "admet", arguments: { molecules: "ligands.sdf" } };
+  assert.equal(make().where("run_pipeline", csv), "browser");
+  const env = await make().call("run_pipeline", csv, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(env.status, "job_submitted");
+  assert.deepEqual(submitted.at(-1), { kind: "pipeline.admet", params: { molecules: "mols.csv" }, opts: { project_id: "p1", submission_id: null } });
+  const build = await make().call("call_tool", { tool: "job.admet.models", arguments: { endpoints: ["herg"] } }, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(build.status, "job_submitted");
+  assert.deepEqual(submitted.at(-1).kind, "admet.models");
+  for (const compute of ["auto", "browser"]) {
+    const p = make({ compute }).placement("run_pipeline", sdf);
+    assert.deepEqual([p.where, p.reason], [null, "needs_runner"], compute);
+    assert.match(p.requires[0].detail, /SDMolSupplier/);
+    assert.match(p.requires[0].remedy, /native RDKit/);
+  }
+  // the reason holds where the job service cannot start (the catalog's runner_only rule), and a connected runner takes it
+  assert.match(make({ jobs: "unsupported" }).placement("run_pipeline", sdf).requires[0].detail, /SDMolSupplier/);
+  assert.equal(make({ runner: "ready" }).where("run_pipeline", sdf), "runner");
+  assert.equal(make({ runner: "ready" }).where("run_pipeline", csv), "runner", "auto: a connected runner first");
+  assert.equal(make({ runner: "ready", compute: "browser" }).where("run_pipeline", csv), "browser");
+});
+
+test("job.admet.models with its archive as a project file reaches no network (network_unless): it runs with web access off, and no network approval is asked", async () => {
+  const kinds = ["pipeline.admet", "admet.models"];
+  const service = {
+    status: "ready", reason: null, events: () => () => {}, onStatus: () => () => {}, kinds: () => kinds.map((kind) => ({ kind })),
+    submit: async (kind) => ({ id: "bj-0123456789abcdef", kind, state: "queued", title: { zh: "x", en: "x" }, stages: [] }),
+  };
+  const approvals = memoryApprovals({ off: { web: false, approvals: {} }, on: { web: true, approvals: {} } });
+  const runtimes = { browser: fakeRuntime("browser", { status: "idle" }), runner: fakeRuntime("runner", { status: "offline" }), jobs: new BrowserJobsRuntime({ service }) };
+  const r = new ToolRouter({ catalog: new Catalog(admetCatalogDoc()), runtimes, settings: { compute: "auto" }, approvals });
+  const asked = [];
+  const onApproval = async (q) => { asked.push(q.reasons); return "once"; };
+  const local = await r.call("call_tool", { tool: "job.admet.models", arguments: { archive: "admet_group.zip", endpoints: ["herg"] } }, { projectId: "off", onApproval });
+  assert.equal(local.status, "job_submitted", JSON.stringify(local.error));
+  assert.deepEqual(asked, [["job"]], "a job's approval, not the network's");
+  const fetched = await r.call("call_tool", { tool: "job.admet.models", arguments: { endpoints: ["herg"] } }, { projectId: "off", onApproval });
+  assert.equal(fetched.error?.type, "network_off", "without the archive it downloads it: web access is needed");
+  assert.deepEqual(fetched.error.requires.map((q) => [q.need, q.names]), [["network", ["dataverse.harvard.edu"]]]);
+  asked.length = 0;
+  await r.call("call_tool", { tool: "job.admet.models", arguments: {} }, { projectId: "on", onApproval });
+  assert.ok(asked[0].includes("network"), "with web access on, its download is approved as one");
+  // the catalog's readiness says the same
+  const entry = admetCatalogDoc().entries.find((e) => e.id === "job.admet.models");
+  const ready = (args) => entryState(entry, { browser: "ready", runner: "offline", web: false, jobs: { status: "ready", kinds }, args }).readiness.browser;
+  assert.deepEqual(ready({ archive: "admet_group.zip" }).requires, []);
+  assert.deepEqual(ready({}).requires.map((q) => q.need), ["network"]);
+  assert.deepEqual(ready({ archive: "" }).requires.map((q) => q.need), ["network"], "an empty archive names nothing");
+  assert.equal(networkByFlag({ network: false, network_unless: "archive" }, {}), false);
+});
+
+test("a call in the page's Python is told which ADMET models this browser has built (for its readiness answers), and the snapshots", async () => {
+  const jobs = { status: "ready", kinds: () => [{ kind: "pipeline.admet" }], runs: () => true, onStatus: () => () => {}, snapshots: false, admetModels: ["caco2_wang"] };
+  const browser = fakeRuntime("browser", { status: "ready" });
+  const r = new ToolRouter({ catalog: new Catalog(testCatalogDoc()), runtimes: { browser, runner: fakeRuntime("runner", { status: "offline" }), jobs }, settings: { compute: "auto" }, approvals: memoryApprovals() });
+  await r.call("native.reverse_complement", { sequence: "ACGT" }, { projectId: "p1", onApproval: async () => "once" });
+  const ctx = browser.calls.at(-1).ctx;
+  assert.deepEqual([ctx.browser_jobs, ctx.browser_snapshots, ctx.browser_admet_models], [true, false, ["caco2_wang"]]);
+  jobs.admetModels = null;
+  await r.call("native.reverse_complement", { sequence: "ACGT" }, { projectId: "p1", onApproval: async () => "once" });
+  assert.equal(browser.calls.at(-1).ctx.browser_admet_models, null, "not looked yet: nothing said");
 });

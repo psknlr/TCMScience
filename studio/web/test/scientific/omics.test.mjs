@@ -662,14 +662,15 @@ test("the handlers' needsRunner agree with the catalog's runner_only rules, whic
 });
 
 /**
- * tcmstudio.catalog's runner_only rules for the two kinds (entry.execution.browser_job), or null when tcmstudio is not
+ * tcmstudio.catalog's runner_only rules for the pipeline kinds the browser runs (entry.execution.browser_job: the two
+ * omics kinds and pipeline.admet), or null when tcmstudio is not
  * importable by $PYTHON or python3 (the runner's tests cover the catalog there).
  */
 function catalogRunnerOnly() {
   const script = [
     "import json",
     "from tcmstudio.catalog import get_entry",
-    "print(json.dumps({k: get_entry('job.' + k)['execution']['browser_job']['runner_only'] for k in ('pipeline.rnaseq', 'pipeline.scrna')}))",
+    "print(json.dumps({k: get_entry('job.' + k)['execution']['browser_job']['runner_only'] for k in ('pipeline.rnaseq', 'pipeline.scrna', 'pipeline.admet')}))",
   ].join("\n");
   for (const py of [process.env.PYTHON, "python3"].filter(Boolean)) {
     try { return JSON.parse(execFileSync(py, ["-I", "-c", script], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 60000 })); } catch { /* the next one */ }

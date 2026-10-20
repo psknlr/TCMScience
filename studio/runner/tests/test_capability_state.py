@@ -494,6 +494,23 @@ def test_run_pipeline_in_the_browser_says_which_calls_need_the_runner(browser_ct
     assert (ok.get("error") or {}).get("reason") != "needs_runner"
 
 
+def test_run_pipeline_admet_in_the_browser_needs_the_runner_only_for_sdf_and_mol(browser_ctx):
+    """The browser's ADMET job reads CSV/TSV/.smi files and one SMILES with RDKit.js; an SDF or
+    .mol file is read with RDKit's SDMolSupplier, which is not ported, so it needs the runner."""
+    for name in ("ligands.sdf", "ligands.sdf.gz", "one.MOL"):
+        err = call("run_pipeline", {"pipeline": "admet", "arguments": {"molecules": name}},
+                   browser_ctx)["error"]
+        assert err["type"] == "unavailable" and err["reason"] == "needs_runner", err
+        assert "runs in the browser only in part" in err["message"] and "SDMolSupplier" in err["message"]
+    for value in ("molecules.csv", "CC(=O)Oc1ccccc1C(=O)O"):
+        ok = call("run_pipeline", {"pipeline": "admet", "arguments": {"molecules": value}}, browser_ctx)
+        assert (ok.get("error") or {}).get("reason") != "needs_runner", ok.get("error")
+    # building the models is a browser job too; nothing in its arguments needs the runner
+    built = call("call_tool", {"tool": "job.admet.models", "arguments": {"endpoints": ["herg"]}},
+                 browser_ctx)
+    assert (built.get("error") or {}).get("reason") != "needs_runner", built.get("error")
+
+
 def test_a_request_too_large_for_the_browser_is_refused_before_it_runs(browser_ctx):
     big = "A" * (capability.MAX_REQUEST_BYTES["browser"] + 16)
     e = call("call_tool", {"tool": "native.reverse_complement", "arguments": {"sequence": big}}, browser_ctx)
@@ -581,7 +598,7 @@ def test_the_audit_counts_every_entry_and_filters_only_the_list(runner_ctx):
     assert "no request was sent" in r["note"]
     jobs_only = call("call_tool", {"tool": "system.capability_audit",
                                    "arguments": {"kind": "job", "limit": 3}}, runner_ctx)["result"]
-    assert jobs_only["counts"] == r["counts"] and jobs_only["matched"] == 11 and len(jobs_only["entries"]) == 3
+    assert jobs_only["counts"] == r["counts"] and jobs_only["matched"] == 12 and len(jobs_only["entries"]) == 3
     unready = call("call_tool", {"tool": "system.capability_audit",
                                  "arguments": {"state": "needs_dataset"}}, runner_ctx)["result"]
     assert unready["entries"] and all(x["readiness"] == "needs_dataset" for x in unready["entries"])

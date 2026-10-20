@@ -905,7 +905,7 @@ def test_the_registry_lists_the_research_files_as_the_build_reads_them():
     from tcmstudio.datasets import REDISTRIBUTION_UNKNOWN, licence_of, registry_document
 
     doc = registry_document()
-    assert doc["schema"] == "tcmstudio.datasets/1" and set(doc["groups"]) == {"research"}
+    assert doc["schema"] == "tcmstudio.datasets/1" and set(doc["groups"]) == {"research", "admet"}
     group = doc["groups"]["research"]
     assert group["sources"] == list(RESEARCH_SOURCES) == ["npass", "cmaup", "lotus"]
     assert group["network"] is True and set(group["title"]) == {"zh", "en"}
@@ -944,6 +944,24 @@ def test_the_registry_lists_the_research_files_as_the_build_reads_them():
         assert files[name]["redistribution"] == REDISTRIBUTION_UNKNOWN, name
 
 
+def test_the_registry_lists_the_tdc_archive_the_browsers_model_build_reads():
+    """The admet group: the archive bioagent's build downloads, at its URL and pinned SHA-256,
+    relayed; no size, no licence record and no redirect host is invented."""
+    from bioagent.admet.models import TDC_ADMET_SHA256, TDC_ADMET_URL
+
+    from tcmstudio.datasets import REDISTRIBUTION_UNKNOWN, registry_document
+
+    group = registry_document()["groups"]["admet"]
+    assert group["network"] is True and set(group["title"]) == {"zh", "en"}
+    assert group["sources"] == ["tdc"]
+    assert group["files"] == [{
+        "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": "dataverse.harvard.edu",
+        "bytes": None, "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False,
+        "project": "TDC", "fmt": "zip", "license": "LicenseRef-TDC-per-dataset",
+        "redistribution": REDISTRIBUTION_UNKNOWN, "relay": True, "redirect_hosts": [],
+        "rate_rps": 1.0}]
+
+
 def test_the_published_registry_is_byte_stable_with_sorted_keys():
     from tcmstudio import webbuild
 
@@ -962,3 +980,370 @@ def test_a_count_table_the_csv_reader_cannot_parse_is_refused_not_a_runtime_erro
                                                 "out_dir": str(tmp_path / "out")})))
     assert result["exit"] == 2 and result["need"] is None, result
     assert result["refused"]
+
+
+# ------------------------------------------------------------------ ADMET
+
+ADMET_ENDPOINTS = ["caco2_wang", "hia_hou"]
+ADMET_MOLECULES = ("name,smiles\naspirin,CC(=O)Oc1ccccc1C(=O)O\n"
+                   "aspirin_na,CC(=O)Oc1ccccc1C(=O)[O-].[Na+]\ntoluene,Cc1ccccc1\n"
+                   "quercetin,O=c1c(O)c(-c2ccc(O)c(O)c2)oc2cc(O)cc(O)c12\nbad,C1CC(\n"
+                   "berberine,COc1ccc2cc3[n+](cc2c1OC)CCc1cc2OCOc2cc1-3\n"
+                   "rhodanine,S=C1SC(=Cc2ccccc2)C(=O)N1\n")
+
+
+def _refusal(text: str) -> dict:
+    """A call refused: its error, with ``need`` only when something else would run it."""
+    doc = json.loads(text)
+    assert doc["ok"] is False and doc["error"]["type"] == "refused", doc
+    assert set(doc["error"]) <= {"type", "message", "need"}, doc
+    return doc["error"]
+
+
+def _admet_tools():
+    pytest.importorskip("rdkit")
+    pytest.importorskip("sklearn")
+
+
+@pytest.fixture(scope="module")
+def admet_world(tmp_path_factory):
+    """The small TDC-shaped archive (BioScience-Harness/tests/admet_world), its models built
+    by ``bioagent admet --build-models`` (a child process), a molecule file run by ``bioagent
+    admet``, and what a browser's chemistry would hand over: for each endpoint a prepared set
+    per split of what ``admet_split`` wrote, and for the molecules ``admet_read`` read their
+    prepared set and the domain search, all written from native RDKit (``write_prepared``,
+    ``write_similarity``)."""
+    _admet_tools()
+    from bioagent.admet.chem import tanimoto_best
+    from bioagent.admet.engine import RDKitEngine, write_prepared, write_similarity
+    from bioagent.admet.models import load_models
+
+    tmp = tmp_path_factory.mktemp("admet")
+    archive = _harness("admet_world").make_archive(tmp / "tdc.zip")
+    molecules = tmp / "molecules.csv"
+    molecules.write_text(ADMET_MOLECULES, encoding="utf-8")
+    eps = [a for e in ADMET_ENDPOINTS for a in ("--endpoint", e)]
+    build = _bioagent(tmp, "admet", "--build-models", "--cache", str(tmp / "native"), "--archive",
+                      str(archive), "--max-iter", "100", *eps)
+    assert build.returncode == 0, build.stderr[-2000:]
+    run = _bioagent(tmp, "admet", str(molecules), "--out", str(tmp / "cli"), "--cache",
+                    str(tmp / "native"))
+    assert run.returncode == 0, run.stderr[-2000:]
+    split = _ok(call("admet_split", json.dumps({"archive": str(archive), "out_dir": str(tmp / "split"),
+                                                "endpoints": ADMET_ENDPOINTS})))
+    native = RDKitEngine()
+    for ep in ADMET_ENDPOINTS:
+        for name in ("train_val", "test"):
+            smiles = json.loads((tmp / "split" / ep / f"{name}.json").read_text())["smiles"]
+            write_prepared(native.prepare(smiles, alerts=False), native, tmp / "prepared" / ep / name)
+    read = _ok(call("admet_read", json.dumps({"molecules": str(molecules), "out_dir": str(tmp / "read")})))
+    smiles = json.loads(Path(read["file"]).read_text())["smiles"]
+    query = native.prepare(smiles)
+    write_prepared(query, native, tmp / "query")
+    models = load_models(tmp / "native")
+    write_similarity(tmp / "similarity", "wasm-simd", {
+        ep: (query.bits, models.domain(ep), tanimoto_best(query.bits, models.domain(ep)))
+        for ep in ADMET_ENDPOINTS})
+    return {"tmp": tmp, "archive": archive, "molecules": molecules, "split": split, "read": read}
+
+
+def test_admet_split_writes_each_endpoints_splits_as_the_build_reads_them(admet_world):
+    import zipfile
+
+    from bioagent.admet import models as M
+    tmp, split = admet_world["tmp"], admet_world["split"]
+    assert split["archive_sha256"] == hashlib.sha256(admet_world["archive"].read_bytes()).hexdigest()
+    assert split["pinned"] is False                       # a test archive, not TDC's
+    assert split["endpoints"] == {ep: {"train_val": 80, "test": 25} for ep in ADMET_ENDPOINTS}
+    assert split["members"] == [f"admet_group/{ep}/{s}.csv" for ep in ADMET_ENDPOINTS
+                                for s in ("train_val", "test")]
+    with zipfile.ZipFile(admet_world["archive"]) as z:
+        for ep in ADMET_ENDPOINTS:
+            for name in ("train_val", "test"):
+                smiles, y = M.read_split(z, ep, name)
+                doc = json.loads((tmp / "split" / ep / f"{name}.json").read_text())
+                assert doc == {"smiles": smiles, "y": [float(v) for v in y]}
+
+
+def test_admet_train_trains_what_the_command_trains(admet_world, tmp_path):
+    """One endpoint per call, from the page's prepared sets of each split: the cards the
+    command's build wrote, the same domain, and a model that predicts the same. (The model's
+    pickle is not compared byte for byte: whether pickle shares a string between two of the
+    estimator's attributes depends on the process that made it, so a long-lived process and a
+    fresh one can write two encodings of one model; measured here, 111,670 and 111,647
+    bytes.)"""
+    from bioagent.admet.engine import PrecomputedEngine
+    from bioagent.admet.models import ModelSet
+
+    tmp = admet_world["tmp"]
+    native = json.loads((tmp / "native" / "models" / "model_cards.json").read_text())
+    events: list = []
+    out = tmp_path / "models"
+    for ep in ADMET_ENDPOINTS:
+        card = _ok(call("admet_train", json.dumps({
+            "archive": str(admet_world["archive"]), "prepared_dir": str(tmp / "prepared"),
+            "models_dir": str(out), "endpoint": ep, "max_iter": 100}),
+            lambda kind, data: events.append((kind, data))))
+        same = ("seconds", "model_sha256")
+        assert {k: v for k, v in card.items() if k not in same} == \
+            {k: v for k, v in native[ep].items() if k not in same}, ep
+        assert (out / card["domain_file"]).read_bytes() == \
+            (tmp / "native" / "models" / card["domain_file"]).read_bytes()
+    assert list(json.loads((out / "model_cards.json").read_text())) == ADMET_ENDPOINTS
+    query = PrecomputedEngine(tmp / "query").prepare(
+        json.loads(Path(admet_world["read"]["file"]).read_text())["smiles"])
+    here = ModelSet(directory=out, cards=json.loads((out / "model_cards.json").read_text()))
+    there = ModelSet(directory=tmp / "native" / "models", cards=native)
+    for ep in ADMET_ENDPOINTS:
+        a, b = (m.predict(query.features, query.bits, ep) for m in (here, there))
+        assert all(a[k].tobytes() == b[k].tobytes() for k in a), ep
+    assert [d["text"].split(":")[0] for k, d in events if k == "log"] == \
+        ["  caco2_wang", "  hia_hou"]
+    # a finished model is kept, and says so
+    events.clear()
+    again = _ok(call("admet_train", json.dumps({
+        "archive": str(admet_world["archive"]), "prepared_dir": str(tmp / "prepared"),
+        "models_dir": str(out), "endpoint": "hia_hou", "max_iter": 100}),
+        lambda kind, data: events.append((kind, data))))
+    assert again == json.loads((out / "model_cards.json").read_text())["hia_hou"]
+    assert events == [("log", {"level": "info", "text": "  hia_hou: kept, its model matches its card"})]
+
+
+def test_admet_train_refuses_chemistry_that_is_not_for_the_endpoints_molecules(admet_world, tmp_path):
+    tmp = admet_world["tmp"]
+    import shutil
+    shutil.copytree(tmp / "prepared" / "hia_hou", tmp_path / "prepared" / "caco2_wang")
+    shutil.rmtree(tmp_path / "prepared" / "caco2_wang" / "test")
+    error = _refusal(call("admet_train", json.dumps({
+        "archive": str(admet_world["archive"]), "prepared_dir": str(tmp_path / "prepared"),
+        "models_dir": str(tmp_path / "models"), "endpoint": "caco2_wang"})))
+    assert "no prepared set" in error["message"] and "need" not in error
+    error = _refusal(call("admet_train", json.dumps({
+        "archive": str(admet_world["tmp"] / "molecules.csv"), "prepared_dir": str(tmp / "prepared"),
+        "models_dir": str(tmp_path / "models"), "endpoint": "hia_hou"})))
+    assert error["message"] == "molecules.csv is not a zip archive (the TDC ADMET group is one)"
+    assert not (tmp_path / "models" / "model_cards.json").exists()
+
+
+def test_admet_read_reads_molecules_as_the_command_does(tmp_path):
+    from bioagent.admet.engine import smiles_sha256
+    from bioagent.admet.pipeline import read_molecules
+    for name, text in (("m.csv", ADMET_MOLECULES), ("m.tsv", ADMET_MOLECULES.replace(",", "\t")),
+                       ("m.smi", "Cc1ccccc1 toluene\nOc1ccccc1\n")):
+        (tmp_path / name).write_text(text)
+        got = _ok(call("admet_read", json.dumps({"molecules": str(tmp_path / name),
+                                                 "out_dir": str(tmp_path / name[2:])})))
+        entries = read_molecules(tmp_path / name)
+        doc = json.loads(Path(got["file"]).read_text())
+        assert doc == {"names": [n for n, _ in entries], "smiles": [s for _, s in entries]}, name
+        assert got["n"] == len(entries) and got["file"] == str(tmp_path / name[2:] / "molecules.json")
+        assert got["smiles_sha256"] == smiles_sha256(doc["smiles"])
+    one = _ok(call("admet_read", json.dumps({"molecules": "CC(=O)Oc1ccccc1C(=O)O",
+                                             "out_dir": str(tmp_path / "one")})))
+    assert json.loads(Path(one["file"]).read_text()) == {"names": ["ligand1"],
+                                                         "smiles": ["CC(=O)Oc1ccccc1C(=O)O"]}
+
+
+@pytest.mark.parametrize("name", ["ligands.sdf", "ligands.SDF", "ligands.sdf.gz", "one.mol"])
+def test_admet_read_refuses_sdf_and_mol_files_for_the_runner(tmp_path, name):
+    (tmp_path / name).write_bytes(b"\n  RDKit\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n$$$$\n")
+    error = _refusal(call("admet_read", json.dumps({"molecules": str(tmp_path / name),
+                                                    "out_dir": str(tmp_path / "out")})))
+    assert error["need"] == "runner" and "SDMolSupplier" in error["message"], error
+    assert not (tmp_path / "out").exists()
+
+
+def test_admet_read_refuses_more_molecules_than_a_worker_holds_before_reading_them(tmp_path,
+                                                                                   monkeypatch):
+    from bioagent.admet import pipeline
+    monkeypatch.setattr(browser_jobs, "ADMET_MOLECULES_MAX", 3)
+    (tmp_path / "m.csv").write_text("name,smiles\n" + "".join(f"m{i},{'C' * (i + 1)}\n" for i in range(4)))
+    (tmp_path / "m.smi").write_text("\n".join("C" * (i + 1) for i in range(4)) + "\n\n")
+    (tmp_path / "ok.csv").write_text("name,smiles\n\n" + "".join(f"m{i},C\n" for i in range(3)))
+
+    def unread(*a):
+        raise AssertionError("read in full before it was counted")
+    for name in ("m.csv", "m.smi"):
+        with monkeypatch.context() as m:
+            m.setattr(pipeline, "read_molecules", unread)
+            error = _refusal(call("admet_read", json.dumps({"molecules": str(tmp_path / name),
+                                                            "out_dir": str(tmp_path / "out")})))
+        assert error == {"type": "refused", "need": "memory", "message":
+                         "4 molecules exceed the 3 a browser worker can hold (wasm32, 4 GB): run it "
+                         "on the runner"}, name
+    assert _ok(call("admet_read", json.dumps({"molecules": str(tmp_path / "ok.csv"),
+                                              "out_dir": str(tmp_path / "out")})))["n"] == 3
+
+
+@pytest.mark.parametrize("fn, args, needle", [
+    ("admet_read", {"molecules": "missing.csv", "out_dir": "o"}, "missing.csv is not a file here"),
+    ("admet_read", {"molecules": "not a smiles!", "out_dir": "o"},
+     "molecules: 'not a smiles!' is not in the expected form"),
+    ("admet_read", {"molecules": "-C", "out_dir": "o"}, "molecules: a value cannot start with '-'"),
+    ("admet_read", {"molecules": "C", "out_dir": "o", "endpoints": ["herg"]}, "unknown argument(s) endpoints"),
+    ("admet_split", {"archive": "a.zip", "out_dir": "o", "endpoints": ["herg_typo"]},
+     "endpoints: no TDC ADMET endpoint herg_typo"),
+    ("admet_split", {"archive": "a.zip", "out_dir": "o", "endpoints": "herg"},
+     "endpoints: a list of TDC ADMET endpoint names"),
+    ("admet_train", {"archive": "a.zip", "prepared_dir": "p", "models_dir": "m", "endpoint": "herg2"},
+     "endpoint: no TDC ADMET endpoint 'herg2'"),
+    ("admet_train", {"archive": "a.zip", "prepared_dir": "p", "models_dir": "m", "endpoint": "herg",
+                     "max_iter": 5}, "max_iter: between 10 and 5000"),
+    ("admet_train", {"archive": "a.zip", "prepared_dir": "p", "models_dir": "m", "endpoint": "herg",
+                     "seed": -1}, "seed: between 0 and 2147483647"),
+    ("admet_train", {"archive": "a.zip", "prepared_dir": "p", "models_dir": "m", "endpoint": "herg",
+                     "rebuild": "yes"}, "rebuild: true or false"),
+    ("run_admet", {"molecules_file": "m.json", "prepared_dir": "p", "models_dir": "cache/elsewhere",
+                   "out_dir": "o"}, "models_dir: the models directory build_models writes"),
+    ("run_admet", {"molecules_file": "m.json", "prepared_dir": "p", "models_dir": "c/models",
+                   "out_dir": "o", "endpoints": ["-x"]}, "endpoints: a value cannot start with '-'"),
+    ("verify_pipeline", {"kind": "admet.models", "models_dir": "m", "archive_sha256": "abc"},
+     "archive_sha256: 64 lower-case hexadecimal digits"),
+    ("verify_pipeline", {"kind": "admet.models", "out_dir": "o"}, "unknown argument(s) out_dir"),
+    ("verify_pipeline", {"kind": "admet.models"}, "models_dir: required"),
+    ("verify_pipeline", {"kind": "pipeline.fold", "out_dir": "o"},
+     "kind: one of pipeline.rnaseq, pipeline.scrna, pipeline.admet, admet.models"),
+])
+def test_admet_arguments_are_held_to_the_runners_checks(tmp_path, monkeypatch, fn, args, needle):
+    monkeypatch.chdir(tmp_path)
+    error = _error(call(fn, json.dumps(args)))
+    assert error["type"] == "bad_arguments" and needle in error["message"], error
+
+
+def _admet_run(world: dict, out: Path, **more) -> dict:
+    tmp = world["tmp"]
+    return _ok(call("run_admet", json.dumps({
+        "molecules_file": world["read"]["file"], "prepared_dir": str(tmp / "query"),
+        "similarity_dir": str(tmp / "similarity"), "models_dir": str(tmp / "native" / "models"),
+        "out_dir": str(out), **more})))
+
+
+def test_run_admet_writes_the_bytes_the_command_writes(admet_world, tmp_path):
+    result = _admet_run(admet_world, tmp_path / "out")
+    assert (result["exit"], result["failed"], result["refused"], result["need"]) == (0, [], None, None)
+    assert _outputs(tmp_path / "out") == _outputs(admet_world["tmp"] / "cli")
+    summary = result["summary"]
+    assert summary["failures"] == ["bad"] and summary["refused"] == [] and summary["complete"]
+    assert summary["similarity"] == {"backend": "wasm-simd", "rejected": None,
+                                     "checked": {"caco2_wang": 6, "hia_hou": 6}}
+    record = json.loads((tmp_path / "out" / "run.json").read_text())
+    assert record["inputs"] == {admet_world["read"]["file"]: hashlib.sha256(
+        Path(admet_world["read"]["file"]).read_bytes()).hexdigest()}
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": "pipeline.admet",
+                                                      "out_dir": str(tmp_path / "out")})))
+    assert checked["status"] == "PASS", checked["problems"]
+    assert [c["name"] for c in checked["checks"]] == ["verify_run", "required_artefacts",
+                                                      "validator:run"]
+    (tmp_path / "out" / "admet.tsv").write_text("changed")
+    checked = _ok(call("verify_pipeline", json.dumps({"kind": "pipeline.admet",
+                                                      "out_dir": str(tmp_path / "out")})))
+    assert checked["status"] == "FAIL" and "output admet.tsv has changed" in checked["problems"]
+
+
+def test_run_admet_is_incomplete_without_a_model_asked_for(admet_world, tmp_path):
+    result = _admet_run(admet_world, tmp_path / "out", endpoints=["hia_hou", "herg"])
+    assert result["exit"] == 1 and result["refused"] is None
+    assert result["failed"] == ["models", "predictions"]
+    # each stage at fault with what its record says of itself, as the command prints it
+    assert set(result["reasons"]) <= {"models", "predictions"} and "herg" in result["reasons"]["models"]
+    assert result["summary"]["complete"] is False
+
+
+def test_run_admet_refuses_chemistry_for_other_molecules_and_too_many_molecules(admet_world, tmp_path,
+                                                                               monkeypatch):
+    world = dict(admet_world)
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"names": ["x"], "smiles": ["CCO"]}))
+    result = _admet_run({**world, "read": {"file": str(other)}}, tmp_path / "out")
+    assert result["exit"] == 2 and result["need"] is None and "no prepared set" in result["refused"]
+    monkeypatch.setattr(browser_jobs, "ADMET_MOLECULES_MAX", 5)
+    result = _admet_run(world, tmp_path / "out2")
+    assert (result["exit"], result["need"]) == (2, "memory")
+    assert result["refused"].startswith("7 molecules exceed the 5 a browser worker can hold")
+    assert not (tmp_path / "out2").exists()
+    (tmp_path / "broken.json").write_text('{"names": ["a"], "smiles": []}')
+    result = _admet_run({**world, "read": {"file": str(tmp_path / "broken.json")}}, tmp_path / "o3")
+    assert result["exit"] == 2 and "cannot be read as admet_read's molecules" in result["refused"]
+
+
+def test_run_admet_says_which_molecules_the_browser_refused(admet_world, tmp_path):
+    """A molecule the page's chemistry refused (its row needs the runner) is reported as
+    refused, with the reason, not as one that could not be read."""
+    import numpy as np
+
+    from bioagent.admet.engine import PrecomputedEngine, PreparedSet, write_prepared
+    p = PrecomputedEngine(admet_world["tmp"] / "query").prepare(
+        json.loads(Path(admet_world["read"]["file"]).read_text())["smiles"])
+    at = 5                                                    # berberine
+    keep = np.array([i != at for i in p.index])
+    ok = p.ok.copy()
+    ok[at] = False
+    why = "standardisation needs RDKit's Reionizer (it would move a charge here), which RDKit.js does not have"
+
+    def swap(column, value):
+        return tuple(value if i == at else v for i, v in enumerate(column))
+
+    class BrowserChemistry:
+        name, version, detail = "rdkit.js", "2026.09.1", "RDKit.js 2026.09.1 MinimalLib + bioagent ports 1"
+    write_prepared(PreparedSet(smiles=p.smiles, ok=ok, features=p.features[keep], bits=p.bits[keep],
+                               errors=swap(p.errors, why), canonical=swap(p.canonical, None),
+                               descriptors=swap(p.descriptors, None),
+                               atoms_with_h=swap(p.atoms_with_h, None), alerts=swap(p.alerts, None),
+                               needs=swap(p.needs, "runner")), BrowserChemistry(), tmp_path / "query")
+    result = _ok(call("run_admet", json.dumps({
+        "molecules_file": admet_world["read"]["file"], "prepared_dir": str(tmp_path / "query"),
+        "models_dir": str(admet_world["tmp"] / "native" / "models"), "out_dir": str(tmp_path / "out")})))
+    assert result["exit"] == 0
+    assert result["summary"]["refused"] == ["berberine"] and result["summary"]["failures"] == ["bad"]
+    assert result["summary"]["chemistry"]["engine"] == "rdkit.js"
+    assert result["summary"]["similarity"] == {"backend": "cpu", "checked": None, "rejected": None}
+    lines = (tmp_path / "out" / "limitations.md").read_text().splitlines()
+    assert any(line.startswith("1 molecules were refused by RDKit.js 2026.09.1") and
+               line.endswith("the runner's RDKit reads them: berberine.") for line in lines)
+    assert not any("could not be read" in line and "berberine" in line for line in lines)
+
+
+def _cards_dir(path: Path) -> tuple[Path, dict]:
+    """A models directory with two cards and their files, no RDKit needed."""
+    import io as _io
+
+    import numpy as np
+    path.mkdir(parents=True)
+    cards = {}
+    for ep in ADMET_ENDPOINTS:
+        model, buf = f"pickle of {ep}".encode(), _io.BytesIO()
+        np.save(buf, np.zeros((2, 256), dtype=np.uint8))
+        (path / f"{ep}.pkl").write_bytes(model)
+        (path / f"{ep}_domain.npy").write_bytes(buf.getvalue())
+        cards[ep] = {"endpoint": ep, "archive_sha256": "a" * 64, "archive_is_pinned": False,
+                     "model_file": f"{ep}.pkl", "model_sha256": hashlib.sha256(model).hexdigest(),
+                     "domain_file": f"{ep}_domain.npy",
+                     "domain_sha256": hashlib.sha256(buf.getvalue()).hexdigest(),
+                     "chemistry": {"engine": "rdkit.js", "version": "2026.09.1", "detail": "x"},
+                     "train": 80, "test": 25, "dropped_unreadable": 0, "dropped_unstandardisable": 1,
+                     "metric": "mae", "test_score": 0.12, "sklearn": "1.8.0", "seed": 0,
+                     "max_iter": 600}
+    (path / "model_cards.json").write_text(json.dumps(cards))
+    return path, cards
+
+
+def test_verify_pipeline_holds_the_admet_models_to_their_cards(tmp_path):
+    from bioagent.admet.models import card_sha256
+    models, cards = _cards_dir(tmp_path / "shared")
+    args = {"kind": "admet.models", "models_dir": str(models), "endpoints": ADMET_ENDPOINTS}
+    checked = _ok(call("verify_pipeline", json.dumps(args)))
+    assert checked["status"] == "PASS" and checked["problems"] == []
+    assert [c["name"] for c in checked["checks"]] == ["verify_models"]
+    report = checked["report"]["endpoints"]
+    assert list(report) == ADMET_ENDPOINTS
+    assert report["hia_hou"]["card_sha256"] == card_sha256(cards["hia_hou"])
+    assert report["hia_hou"]["dropped_unstandardisable"] == 1
+    assert _ok(call("verify_pipeline", json.dumps({**args, "archive_sha256": "a" * 64})))["status"] == "PASS"
+    wrong = _ok(call("verify_pipeline", json.dumps({**args, "archive_sha256": "b" * 64})))
+    assert wrong["status"] == "FAIL" and wrong["problems"][0].startswith("caco2_wang: trained on another archive")
+    (models / "hia_hou.pkl").write_bytes(b"changed")
+    failed = _ok(call("verify_pipeline", json.dumps(args)))
+    assert failed["status"] == "FAIL"
+    assert failed["problems"] == ["hia_hou: its model file hia_hou.pkl does not match its card"]
+    missing = _ok(call("verify_pipeline", json.dumps({**args, "endpoints": ["herg"]})))
+    assert missing["problems"] == ["herg: no model card"]

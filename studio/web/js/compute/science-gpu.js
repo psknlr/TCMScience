@@ -20,7 +20,8 @@
 // and, within a piece, bands of workgroups dispatched one at a time so that no dispatch runs long (the first band is
 // small, the next ones are sized from the rate the device showed to take about targetMs; an OS watchdog resets GPUs
 // whose work runs for seconds). Whether a result is used is the scheduler's decision (compute/science-scheduler.js),
-// after its own check on the CPU.
+// after its own check on the CPU. One ScienceGPU runs one call at a time (a search, or the set-up ready() does), in the
+// order they came: they share the device's error scopes and lastRun.
 
 import { classifyAdapter } from "../runtime/webgpu.js";
 import { FP_BITS, FP_WORDS, TANIMOTO_KERNEL, searchShape } from "./science-cpu.js";
@@ -236,6 +237,7 @@ export class ScienceGPU {
   #setAside = null;      // why this adapter's answers are not used any more (a wrong answer after its test passed):
                          // for the session, so a new device after a loss does not clear it; stop() does
   #last = null;          // what the last tanimotoBest() did (lastRun)
+  #turn = Promise.resolve(); // the calls in the order they came: one at a time on this device (#exclusive)
 
   /**
    * navigator: whose gpu is used; timeoutMs: the limit of every asynchronous step (one band, one readback);
@@ -324,7 +326,23 @@ export class ScienceGPU {
    * known_answer, cold}. Throws (with a code) when there is no device to use: no_api, no_adapter, software_adapter,
    * known_answer_failed, set_aside, timeout, device_lost, cancelled.
    */
-  async ready({ isCancelled } = {}) {
+  ready({ isCancelled } = {}) {
+    return this.#exclusive(() => this.#ready({ isCancelled }));
+  }
+
+  /**
+   * fn() once every call before it on this device has settled → its result. A search and its set-up share the device's
+   * error scopes, its pipelines and lastRun: two at once would read each other's errors and timings, so the calls of
+   * one ScienceGPU run one after another, in the order they came (the domain searches of two jobs, or a device check
+   * and a job, wait for each other).
+   */
+  #exclusive(fn) {
+    const run = this.#turn.then(() => fn());
+    this.#turn = run.then(() => {}, () => {});
+    return run;
+  }
+
+  async #ready({ isCancelled } = {}) {
     const cold = !this.#device || !this.#pipelines || this.#knownDevice !== this.#device || !this.#knownAnswer;
     const device = await this.#getDevice();
     cancelled(isCancelled);
@@ -362,11 +380,26 @@ export class ScienceGPU {
   setAsideFor(reason) { this.#setAside = String(reason || "a result failed its check").slice(0, 300); }
 
   /**
-   * For each query, the most similar reference → {arg, inter, union}, as tanimotoBestJS returns them. Throws with a
-   * code when the device cannot answer (see ready(); also too_large, wrong_answer, timeout, device_lost, cancelled);
-   * lastRun says what it did.
+   * For each query, the most similar reference → {arg, inter, union}, as tanimotoBestJS returns them, with what this
+   * call did as its (non-enumerable) `run`: lastRun as this call left it. Throws with a code when the device cannot
+   * answer (see ready(); also too_large, wrong_answer, timeout, device_lost, cancelled), the error's `run` saying how far
+   * it got. Calls wait for the one before them (#exclusive).
    */
-  async tanimotoBest(queries, refs, { words = FP_WORDS, isCancelled } = {}) {
+  tanimotoBest(queries, refs, { words = FP_WORDS, isCancelled } = {}) {
+    return this.#exclusive(async () => {
+      try {
+        const out = await this.#tanimotoBest(queries, refs, { words, isCancelled });
+        // this call's own marks, whatever a later call does to lastRun
+        Object.defineProperty(out, "run", { value: this.lastRun, enumerable: false });
+        return out;
+      } catch (err) {
+        if (err && typeof err === "object") { try { err.run = this.lastRun; } catch { /* a frozen error */ } }
+        throw err;
+      }
+    });
+  }
+
+  async #tanimotoBest(queries, refs, { words = FP_WORDS, isCancelled } = {}) {
     this.#last = null;
     const { nq, nr } = searchShape(queries, refs, { words });
     if (words > FP_WORDS) throw new RangeError(`the WebGPU kernel's score key is exact only up to ${FP_BITS} bits (${FP_WORDS} words), not ${words * 32}`);
@@ -377,7 +410,7 @@ export class ScienceGPU {
       kernel_ms: null, bands: 0, max_band_ms: null, pieces: 0, pairs: nq * nr };
     this.#last = last;
     const t0 = now();
-    const ready = await this.ready({ isCancelled });
+    const ready = await this.#ready({ isCancelled });
     last.cold = ready.cold;
     last.setup_ms = ms3(now() - t0);
     const device = this.#device;

@@ -105,7 +105,7 @@ def test_capability_audit_endpoint(server):
     assert all(row["readiness"] == by[row["id"]] for row in audit["entries"])
     assert "no request was sent" in audit["note"]
     status, jobs = c.get("/api/capabilities/audit?kind=job&limit=2")
-    assert status == 200 and jobs["matched"] == 11 and len(jobs["entries"]) == 2
+    assert status == 200 and jobs["matched"] == 12 and len(jobs["entries"]) == 2
     assert jobs["counts"] == audit["counts"]
     status, ready = c.get("/api/capabilities/audit?state=needs_dataset")
     assert status == 200 and all(r["readiness"] == "needs_dataset" for r in ready["entries"])
@@ -125,8 +125,8 @@ def test_kinds_carry_schemas_and_availability(server):
     assert status == 200
     by = {k["kind"]: k for k in kinds}
     assert set(by) == {"pipeline.rnaseq", "pipeline.scrna", "pipeline.fold", "pipeline.dock",
-                       "pipeline.admet", "research.run", "research.snapshot", "env.provision",
-                       "skill.run", "tcmdb.fetch", "tcmdb.build"}
+                       "pipeline.admet", "admet.models", "research.run", "research.snapshot",
+                       "env.provision", "skill.run", "tcmdb.fetch", "tcmdb.build"}
     for k in kinds:
         assert k["parameters"]["type"] == "object"
         assert k["duration"] in ("seconds", "minutes", "hours")

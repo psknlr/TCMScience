@@ -24,7 +24,7 @@ import { Emitter } from "../../core/events.js";
 import { baseReceipt } from "../../core/receipt.js";
 import { abortError, canonicalJson, isAbort, isPlainObject, sha256Hex } from "../../core/util.js";
 import {
-  JOB_RECEIPT_FILE, bareSha256, buildJobReceipt, compareDigests, digestChecks, pathText, platformOf, runtimeOf,
+  JOB_RECEIPT_FILE, bareSha256, buildJobReceipt, compareDigests, computeEvidence, digestChecks, pathText, platformOf, runtimeOf,
 } from "../engines/evidence.js";
 
 export const JOBS_DB = "tcmstudio-jobs";
@@ -43,6 +43,10 @@ const LEVELS = new Set(["info", "warn", "error"]);
 /** As tcmstudio.governance.LIMIT_PENDING says it for a runner job. */
 const LIMIT_PENDING = "A job that has not succeeded is pending work, not a result.";
 const DEVICE_NOTE = "assigned: the job's Python runs in this browser's job workers, CPython compiled to WebAssembly (Pyodide), on the CPU";
+/** A job one of whose stages computed on WebGPU (its kernel calls' compute facts say so): what its record then says. */
+const WEBGPU_NOTE = (ids) => `${DEVICE_NOTE}; ${ids.join(", ")} computed on this browser's WebGPU adapter, each result checked on the CPU (the job receipt's compute section names the adapter and the calibration)`;
+/** A stage's compute facts are kept at most this many calls. */
+const COMPUTE_KEEP = 200;
 const MEMORY_MEASURED_BY = "the WebAssembly memory of each job worker when the job gave it back; a wasm32 memory only grows, so this is the peak since that worker started, which can include earlier jobs on it";
 
 /** The Web Lock a tab holds while one of its jobs is queued or running. */
@@ -88,6 +92,18 @@ function copy(v) {
 /** Only what JSON keeps: the parameters and stage records are stored and compared as JSON. */
 function jsonOnly(v) {
   return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+}
+
+/** The stages a job of this handler starts with: stagesFor(params) when the kind's stages depend on its parameters
+ * (admet.models: two per endpoint), else its fixed list. */
+function stagesOf(handler, params) {
+  if (typeof handler?.stagesFor === "function") {
+    try {
+      const list = handler.stagesFor(isPlainObject(params) ? params : {});
+      if (Array.isArray(list)) return list;
+    } catch { /* the fixed list */ }
+  }
+  return handler?.stages || [];
 }
 
 function blankStage(s) {
@@ -185,6 +201,7 @@ export class BrowserJobService {
   #pool;
   #store;
   #datasets;
+  #groups = new Map();
   #projectFiles;
   #handlers = new Map();
   #now;
@@ -211,22 +228,24 @@ export class BrowserJobService {
 
   /**
    * indexedDB, locks (navigator.locks), pool (a ScienceWorkerPool), store (an OpfsStore), datasets (the dataset
-   * workspace), projectFiles (the page's project files: {async find(projectId, ref) → {id, name, bytes, sha256, blob}
-   * | null}, ref a file id or a file name — the newest file of that name in the project), handlers ([{kind, title,
-   * stages, preflight?, run, expected?}]), now (→ Date), maxConcurrent (1), hashFile(path, algorithm) → hex
-   * (default: streamed from the store through data/digest.js), cancelGraceMs: how long a cancelled handler has to stop
-   * before its job is ended as cancelled without it (10 s).
+   * workspace of the research files), datasetGroups ({group: DatasetWorkspace} of other registry groups: "admet", the
+   * TDC archive the ADMET models are built from), projectFiles (the page's project files: {async find(projectId, ref)
+   * → {id, name, bytes, sha256, blob} | null}, ref a file id or a file name — the newest file of that name in the
+   * project), handlers ([{kind, title, stages, stagesFor?(params), preflight?, run, expected?}]), now (→ Date),
+   * maxConcurrent (1), hashFile(path, algorithm) → hex (default: streamed from the store through data/digest.js),
+   * cancelGraceMs: how long a cancelled handler has to stop before its job is ended as cancelled without it (10 s).
    */
   constructor({
     indexedDB = globalThis.indexedDB, locks = globalThis.navigator?.locks, pool = null, store = null, datasets = null,
-    projectFiles = null, handlers = [], now = () => new Date(), maxConcurrent = 1, hashFile = null, dbName = JOBS_DB,
-    cancelGraceMs = 10_000, navigator: nav = globalThis.navigator,
+    datasetGroups = null, projectFiles = null, handlers = [], now = () => new Date(), maxConcurrent = 1, hashFile = null,
+    dbName = JOBS_DB, cancelGraceMs = 10_000, navigator: nav = globalThis.navigator,
   } = {}) {
     this.#idb = indexedDB || null;
     this.#locks = locks && typeof locks.request === "function" ? locks : null;
     this.#pool = pool;
     this.#store = store;
     this.#datasets = datasets;
+    for (const [group, ws] of Object.entries(isPlainObject(datasetGroups) ? datasetGroups : {})) if (ws) this.#groups.set(group, ws);
     this.#projectFiles = projectFiles && typeof projectFiles.find === "function" ? projectFiles : null;
     for (const h of handlers || []) if (h && typeof h.kind === "string" && typeof h.run === "function") this.#handlers.set(h.kind, h);
     this.#now = now;
@@ -240,6 +259,12 @@ export class BrowserJobService {
   /** What a handler's preflight reads (and, with the job's project_id, its third argument, the project's files). */
   get store() { return this.#store; }
   get datasets() { return this.#datasets; }
+  /** The dataset workspace of a registry group ("research", "admet"), or null when this page has none for it. */
+  datasetsFor(group) {
+    const g = String(group || "");
+    if (this.#groups.has(g)) return this.#groups.get(g);
+    return this.#datasets && (this.#datasets.group ?? "research") === g ? this.#datasets : null;
+  }
   get pool() { return this.#pool; }
   get projectFiles() { return this.#projectFiles; }
 
@@ -428,7 +453,7 @@ export class BrowserJobService {
       id, kind: handler.kind, where: "browser", state: "queued", params, project_id: projectId, submission_id: submissionId,
       title: handler.title ? { ...handler.title } : { zh: handler.kind, en: handler.kind },
       created_at: this.#iso(), started_at: null, finished_at: null, progress: null,
-      stages: (handler.stages || []).map(blankStage),
+      stages: stagesOf(handler, params).map(blankStage),
       artefacts: [], inputs: {}, device: "cpu", device_note: DEVICE_NOTE, outcome: null, result: null, receipt: null,
       error: null, logs: [], attempts: 1,
     };
@@ -583,6 +608,10 @@ export class BrowserJobService {
     };
     if (typeof o.complete === "boolean") end.outcome.complete = o.complete;
     if (o.limitations?.length) end.limitations = [...o.limitations];
+    if (o.provenance) end.provenance = o.provenance;
+    // a stage that computed on WebGPU: the record says the job used it (the receipt says with what, and how checked)
+    const gpuStages = computeEvidence(job.stages)?.gpu_stages || [];
+    if (gpuStages.length) Object.assign(end, { device: "cpu+webgpu", device_note: WEBGPU_NOTE(gpuStages) });
     try {
       end.receipt = await this.#writeReceipt({ ...job, ...end }, run, collected, expected);
     } catch (err) {
@@ -635,6 +664,12 @@ export class BrowserJobService {
       if (Array.isArray(o[key])) out[key] = [...(out[key] || []), ...jsonOnly(o[key])];
     }
     if (typeof o.complete === "boolean") out.complete = o.complete;
+    // what the results rest on, as a runner job's receipt keeps it (receipt.provenance): the models' cards
+    if (isPlainObject(o.provenance)) {
+      const p = jsonOnly(o.provenance);
+      out.provenance = { ...(out.provenance || {}) };
+      for (const [k, v] of Object.entries(p)) out.provenance[k] = Array.isArray(v) ? [...(Array.isArray(out.provenance[k]) ? out.provenance[k] : []), ...v] : v;
+    }
   }
 
   #expected(handler, params) {
@@ -767,6 +802,8 @@ export class BrowserJobService {
       pool: this.#leaser(job, run),
       store: this.#store,
       datasets: this.#datasets,
+      /** the dataset workspace of a registry group ("admet"), or null */
+      datasetsFor: (group) => this.datasetsFor(group),
       /** the page's project files ({find(projectId, ref)}); the job's project is job.project_id */
       projectFiles: this.#projectFiles,
       dir: [...dir],
@@ -784,6 +821,10 @@ export class BrowserJobService {
       input: live((i) => this.#input(job, i)),
       /** checks / problems / missing / limitations / complete the handler found, added to the job's outcome */
       outcome: live((o) => this.#mergeOutcome(run, o)),
+      /** a finished stage's kernel results that the job did not use after all (a later stage's check rejected them and
+       * computed its own): each of that stage's compute facts is marked discarded with the reason, so the evidence counts
+       * neither its GPU nor an acceleration */
+      discardCompute: live((id, reason) => this.#discardCompute(job, id, reason)),
       throwIfCancelled,
     };
   }
@@ -913,8 +954,9 @@ export class BrowserJobService {
    * Run one stage: status, times, seconds and the worker (fn's result {worker} or stageCtx.worker = id), written
    * after each change. With {reuse}, reuse(stageCtx) is asked first: true (or {ok: true}) marks the stage succeeded
    * and reused without running fn. fn's result may carry detail, worker, reused: true (it found its work already
-   * done), verified: true (it is a verify stage that passed) and checkpoint: {inputs_digest, outputs} (written for
-   * the next attempt).
+   * done), verified: true (it is a verify stage that passed), compute (its kernel calls' facts, one or a list:
+   * compute/science-scheduler.js; stageCtx.compute(facts) adds one as it runs) and checkpoint: {inputs_digest, outputs}
+   * (written for the next attempt). The stage record keeps compute (stage.compute), which the receipt's evidence reads.
    */
   async #stage(job, run, id, fn, { reuse } = {}) {
     const signal = run.controller.signal;
@@ -928,6 +970,7 @@ export class BrowserJobService {
     Object.assign(s, { status: "running", started_at: this.#iso(), finished_at: null, seconds: null, worker: null, detail: null, reused: false });
     delete s.verified;
     delete s.record;
+    delete s.compute;
     const t0 = this.#now();
     run.stage = sid;
     job.progress = { ...(job.progress || { fraction: 0 }), stage: sid, message: s.title?.en || sid };
@@ -952,6 +995,12 @@ export class BrowserJobService {
         s.record = { ...(s.record || {}), ...jsonOnly(facts) };
         this.#touch(job);
       },
+      /** one kernel call's compute facts (compute/science-scheduler.js), kept on the stage as it ran: a stage that fails
+       * later still says where its calls computed */
+      compute: (facts) => {
+        if (run.closed) return;
+        this.#addCompute(job, s, facts);
+      },
       detail: (text) => {
         if (run.closed) return;
         s.detail = clip(text, DETAIL_CHARS);
@@ -975,6 +1024,8 @@ export class BrowserJobService {
       const out = await fn(sctx);
       if (out && typeof out === "object") {
         if (out.worker) s.worker = String(out.worker);
+        // the stage's kernel calls, when it returns them rather than adding each as it ran
+        if (out.compute !== undefined && !run.closed) this.#addCompute(job, s, out.compute);
         if (out.reused === true) s.reused = true;
         if (out.verified === true) s.verified = true;
         // a stage that finished after its job ended (cut off by the cancel grace) leaves nothing for a later attempt
@@ -986,6 +1037,23 @@ export class BrowserJobService {
       end(signal.aborted || isAbort(err) ? "cancelled" : "failed", err?.message || String(err));
       throw err;
     }
+  }
+
+  /** Compute facts (one call's, or a list) added to the stage's: only facts with a backend, as JSON. */
+  #addCompute(job, s, facts) {
+    const list = (Array.isArray(facts) ? facts : [facts]).filter((f) => isPlainObject(f) && typeof f.backend === "string");
+    if (!list.length) return;
+    s.compute = [...(Array.isArray(s.compute) ? s.compute : []), ...jsonOnly(list)].slice(-COMPUTE_KEEP);
+    this.#touch(job);
+  }
+
+  /** Stage `id`'s compute facts marked discarded (ctx.discardCompute): kept, as what ran, but no longer used. */
+  #discardCompute(job, id, reason) {
+    const s = (job.stages || []).find((x) => x.id === String(id));
+    if (!s || !Array.isArray(s.compute) || !s.compute.length) return;
+    const why = clip(String(reason || "not used"), 300);
+    s.compute = s.compute.map((f) => ({ ...f, discarded: why, accelerated: f.accelerated === true ? false : f.accelerated }));
+    this.#touch(job);
   }
 
   #progress(job, run, fraction, message) {
@@ -1241,12 +1309,14 @@ export class BrowserJobService {
       ...rec, state: "queued", attempts: (Number(rec.attempts) || 1) + 1, error: null, started_at: null, finished_at: null,
       progress: null, outcome: null, result: null, receipt: null,
       // the stages run again in order; each may be reused when its checkpoint verifies
-      stages: (handler.stages || rec.stages || []).map(blankStage),
+      stages: ((handler.stages || handler.stagesFor) ? stagesOf(handler, rec.params) : rec.stages || []).map(blankStage),
       // kept: a reused stage does not write its artefacts again, and every one is read back at the end
       artefacts: [...(rec.artefacts || [])],
       // the next attempt stages its inputs again and records them as it finds them
       inputs: {},
+      device: "cpu", device_note: DEVICE_NOTE,
     };
+    delete job.provenance; // the next attempt's own
     delete job.limitations; // the next attempt's own, if it finds any
     this.#appendLog(job, "info", `resumed (attempt ${job.attempts})`);
     this.#jobs.set(id, job);

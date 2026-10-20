@@ -115,9 +115,10 @@ def test_counts(runner_catalog):
     assert kinds["connector"] >= 400
     assert kinds["skill"] >= 11
     assert kinds["clinic"] >= 4 and kinds["tcmdb"] >= 8 and kinds["study"] >= 4
-    # system.capability_audit made the system entries ten (and the catalog 650): counted on purpose
-    assert kinds["job"] == 11 and kinds["system"] == 10
-    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 650
+    # system.capability_audit made the system entries ten (and the catalog 650), job.admet.models the
+    # jobs twelve (651): counted on purpose
+    assert kinds["job"] == 12 and kinds["system"] == 10
+    assert runner_catalog["counts"]["entries"] == len(runner_catalog["entries"]) == 651
 
 
 def test_the_capability_audit_entry(runner_catalog):
@@ -272,14 +273,18 @@ def test_human_acts_are_not_entries(runner_catalog):
 
 
 def test_job_kinds_are_the_runner_kinds():
-    assert set(JOB_KINDS) == {"pipeline.rnaseq", "pipeline.scrna", "pipeline.fold",
-                              "pipeline.dock", "pipeline.admet", "research.run",
-                              "research.snapshot", "env.provision", "skill.run", "tcmdb.fetch",
-                              "tcmdb.build"}
+    from tcmstudio.kinds import KINDS
+    assert set(JOB_KINDS) == set(KINDS) == {
+        "pipeline.rnaseq", "pipeline.scrna", "pipeline.fold", "pipeline.dock", "pipeline.admet",
+        "admet.models", "research.run", "research.snapshot", "env.provision", "skill.run",
+        "tcmdb.fetch", "tcmdb.build"}
     # the browser's job service runs exactly these (studio/web/js/scientific/pipelines)
-    assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna")
+    assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna",
+                                 "admet.models", "pipeline.admet")
+    admet = ["numpy", "scipy", "scikit-learn"]
     packages = {"research.snapshot": ["pyarrow"], "research.run": ["pyarrow"],
-                "pipeline.rnaseq": ["numpy", "scipy"], "pipeline.scrna": ["numpy", "scipy"]}
+                "pipeline.rnaseq": ["numpy", "scipy"], "pipeline.scrna": ["numpy", "scipy"],
+                "admet.models": admet, "pipeline.admet": admet}
     for kind in JOB_KINDS:
         e = get_entry(f"job.{kind}")
         assert e["job"] and e["confirm"]
@@ -304,6 +309,48 @@ def test_job_kinds_are_the_runner_kinds():
     assert "runner_only" not in get_entry("job.research.run")["execution"]["browser_job"]
 
 
+def test_the_admet_jobs_name_the_browsers_chemistry_and_what_needs_the_runner():
+    """The ADMET jobs run in the browser with RDKit.js for the chemistry (Pyodide has no RDKit)
+    and scikit-learn for the models; the pin is the one rdkit.js holds, and the one the runner's
+    environment pins for rdkit."""
+    import json
+    from pathlib import Path
+
+    from tcmstudio import capability, webbuild
+    from tcmstudio.catalog import RDKIT_JS
+    pin = webbuild.rdkit_pin()
+    assert (RDKIT_JS["version"], RDKIT_JS["release"]) == (pin["version"], pin["release"])
+    envs = json.loads((Path(__file__).resolve().parents[3] / "BioScience-Harness" / "registry" /
+                       "scientific_environments.json").read_text())
+    assert envs["groups"]["admet"]["packages"]["rdkit"] == RDKIT_JS["version"]
+    for kind in ("job.admet.models", "job.pipeline.admet"):
+        job = get_entry(kind)["execution"]["browser_job"]
+        assert job["chemistry"] == {"engine": "rdkit.js", "package": "@rdkit/rdkit",
+                                    "version": "2026.9.1", "release": "2026.09.1"}
+        assert job["engines"] == ["scikit-learn HistGradientBoosting"]
+    models = get_entry("job.admet.models")
+    assert "runner_only" not in models["execution"]["browser_job"]
+    assert models["network"] is True and models["hosts"] == ["dataverse.harvard.edu"]
+    # it downloads the archive unless it is given a copy of it: then web access is not needed
+    assert models["network_unless"] == "archive"
+    offline = {"where": "runner", "network": False}
+    assert [c for c, _ in capability.requirements(models, args={}, **offline)] == ["network_off"]
+    assert [c for c, _ in capability.requirements(models, **offline)] == ["network_off"]
+    assert capability.requirements(models, args={"archive": "u_0000000000000001"}, **offline) == []
+    assert set(models["parameters"]["properties"]) == {"endpoints", "archive", "max_iter", "seed", "rebuild"}
+    assert "nothing trained is shipped" in models["summary"].lower()
+    admet = get_entry("job.pipeline.admet")
+    assert [r["arg"] for r in admet["execution"]["browser_job"]["runner_only"]] == ["molecules"]
+    from tcmstudio.browser_jobs import ADMET_MOLECULES_MAX
+    assert admet["execution"]["browser_job"]["limits"] == {"molecules": ADMET_MOLECULES_MAX}
+    for name in ("ligands.sdf", "ligands.SDF.GZ", "one.mol"):
+        why = capability.runner_only(admet, {"molecules": name})
+        assert len(why) == 1 and "SDMolSupplier" in why[0], name
+    for value in ("molecules.csv", "set.smi", "m.tsv", "CC(=O)Oc1ccccc1C(=O)O"):
+        assert capability.runner_only(admet, {"molecules": value}) == [], value
+    assert "job.admet.models" in admet["summary"]
+
+
 def test_the_pipeline_parameters_and_their_bounds_are_the_runners():
     from tcmstudio import kinds
     rnaseq = get_entry("job.pipeline.rnaseq")["parameters"]["properties"]
@@ -313,6 +360,9 @@ def test_the_pipeline_parameters_and_their_bounds_are_the_runners():
     assert scrna["n_top_genes"]["default"] == 2000
     assert (scrna["n_top_genes"]["minimum"], scrna["n_top_genes"]["maximum"]) == kinds.SCRNA_TOP_GENES
     assert (scrna["resolution"]["minimum"], scrna["resolution"]["maximum"]) == kinds.SCRNA_RESOLUTION
+    models = get_entry("job.admet.models")["parameters"]["properties"]
+    assert (models["max_iter"]["minimum"], models["max_iter"]["maximum"]) == kinds.ADMET_MAX_ITER
+    assert models["max_iter"]["default"] == 600 and models["seed"]["default"] == 0
 
 
 @pytest.mark.parametrize("kind, args, why", [
@@ -369,6 +419,39 @@ def test_browser_research_run_readiness_follows_the_browsers_job_service_and_sna
     assert needs(snap, browser_jobs=True, browser_snapshots=False) == []
     assert all(r["need"] != "dataset" or "browser" not in r["detail"]
                for _, r in capability.requirements(run, where="runner", jobs=True, browser_snapshots=False))
+
+
+def test_browser_admet_readiness_follows_the_models_built_in_this_browser():
+    """As the page's catalog says it (web/js/core/catalog.js entryState): pipeline.admet in the
+    browser reads only the models built there, for the endpoints a call names, or any."""
+    from tcmstudio import capability, dispatch
+
+    run, build = get_entry("job.pipeline.admet"), get_entry("job.admet.models")
+
+    def needs(e, **kw):
+        return [(c, r["need"], r.get("names"), r["detail"])
+                for c, r in capability.requirements(e, where="browser", browser_jobs=True, **kw)]
+
+    # the page has not said: not judged
+    assert needs(run) == []
+    built = ["caco2_wang", "herg"]
+    assert needs(run, browser_admet_models=built) == []
+    assert needs(run, args={"endpoints": ["herg"]}, browser_admet_models=built) == []
+    assert needs(run, args={"endpoints": ["herg", "ames"]}, browser_admet_models=built) == [
+        ("needs_dataset", "dataset", ["ADMET models"], "the ADMET models built in this browser for ames")]
+    # none built: refused whatever it names
+    assert needs(run, browser_admet_models=[]) == [
+        ("needs_dataset", "dataset", ["ADMET models"], "the ADMET models built in this browser")]
+    assert capability.readiness(run, where="browser", browser_jobs=True,
+                                browser_admet_models=[])["state"] == "needs_dataset"
+    # building them needs no models; the runner is not judged by the browser's
+    assert needs(build, browser_admet_models=[]) == []
+    assert all(r["need"] != "dataset" for _, r in capability.requirements(
+        run, where="runner", jobs=True, browser_admet_models=[]))
+    # the page's context reaches the dispatcher's
+    ctx, _ = dispatch.Context.coerce({"where": "browser", "browser_admet_models": built})
+    assert ctx.browser_admet_models == ("caco2_wang", "herg")
+    assert dispatch.Context.coerce({"browser_admet_models": [1, 2]})[0].browser_admet_models is None
 
 
 def test_browser_catalog(browser_catalog, runner_catalog):

@@ -1,16 +1,20 @@
 // The catalog page's words for a browser job kind whose job service is not running here (ui/pages/catalog.js): the
-// browser's own job service, by place, never "the runner's"; and the generic job_service remedy, which no longer says
-// jobs run only on the runner. The DOM is studio/web/dev/test/setup.mjs's (linkedom).
+// browser's own job service, by place, never "the runner's"; the generic job_service remedy, which no longer says
+// jobs run only on the runner; a browser job kind's detail (what it loads, its chemistry, what it reads here); and
+// Settings → Compute's device check report (ui/pages/settings.js). The DOM is studio/web/dev/test/setup.mjs's (linkedom).
 import "./fixtures/setup.mjs";
 import "../dev/test/setup.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { entryState, requirement } from "../js/core/catalog.js";
+import { Catalog, entryState, requirement } from "../js/core/catalog.js";
 import { setLang, t } from "../js/core/i18n.js";
-import { entryFields, requirementView, stateRow } from "../js/ui/pages/catalog.js";
+import { ToolRouter } from "../js/core/router.js";
+import { App } from "../js/ui/app.js";
+import { entryFields, mountCatalog, requirementView, stateRow } from "../js/ui/pages/catalog.js";
+import { deviceReport } from "../js/ui/pages/settings.js";
 import { registerUiStrings } from "../js/ui/strings.js";
-import { pipelineCatalogDoc } from "./fixtures/fakes.mjs";
+import { admetCatalogDoc, pipelineCatalogDoc } from "./fixtures/fakes.mjs";
 
 registerUiStrings();
 const text = (el) => el.textContent.replace(/\s+/g, " ");
@@ -49,4 +53,54 @@ test("the generic job_service remedy does not say jobs run only on the runner (t
     assert.notEqual(t(k, undefined, "zh"), t(k, undefined, "en"), `${k} has its own zh and en`);
     assert.match(t(k, undefined, "zh"), /[一-鿿]/);
   }
+});
+
+
+test("Settings → Compute: a device check's report as the person reads it: the adapter and its kind, the known answer, each size's times, exactness and verdict", async () => {
+  setLang("en");
+  const report = {
+    schema: "tcmstudio.device-check/1", id: "d".repeat(64), measured_at: "2026-10-20T08:00:00.000Z", verdict: "accelerated at 1 of 2 sizes", label: null, verdict_reason: "…",
+    device: { adapter: { kind: "physical", vendor: "apple", architecture: "metal-3", description: "Apple M4 Max" }, gpu_error: null },
+    kernels: { "tanimoto.best": { known_answer: { ok: true, ms: 41.2 }, sizes: [
+      { queries: 32, refs: 2048, exact: { "wasm-simd": true, webgpu: true }, timings: { js: { ms: 15.6 }, "wasm-simd": { ms: 1.2 }, webgpu: { ms: 3.4 } }, accelerated: false, reason: "the GPU took 3.4 ms (search and check), WebAssembly SIMD 1.2 ms: not faster here" },
+      { queries: 4096, refs: 10504, exact: { "wasm-simd": true, webgpu: true }, timings: { js: { ms: 5788 }, "wasm-simd": { ms: 723 }, webgpu: { ms: 90 } }, accelerated: true, reason: "faster here" },
+    ] } },
+    stored: { ok: true },
+  };
+  const t1 = text(deviceReport(report));
+  assert.match(t1, /Apple M4 Max/);
+  assert.match(t1, /Physical WebGPU adapter/);
+  assert.match(t1, /passed \(41 ms\)/);
+  assert.match(t1, /32 × 2,048.*GPU 3\.4 ms · WebAssembly SIMD 1\.2 ms · JavaScript 15\.6 ms · exact · not faster on the GPU/);
+  assert.match(t1, /4,096 × 10,504.*GPU 90 ms .* · exact · faster on the GPU/);
+  assert.match(t1, /Kept as this device's calibration/);
+  // a software adapter, refused: no physical adapter, and its sizes have no verdict
+  const sw = { ...report, verdict: "no physical adapter", label: null, device: { adapter: null, gpu_error: { message: "WebGPU adapter is a software CPU renderer" } },
+    kernels: { "tanimoto.best": { known_answer: null, sizes: [{ queries: 32, refs: 2048, exact: { "wasm-simd": true, webgpu: null }, timings: { js: { ms: 15 }, "wasm-simd": { ms: 1 }, webgpu: null }, accelerated: null, reason: "no WebGPU adapter" }] } } };
+  const t2 = text(deviceReport(sw));
+  assert.match(t2, /No WebGPU adapter \(WebGPU adapter is a software CPU renderer\)/);
+  assert.match(t2, /GPU not measured/);
+  assert.match(t2, /no verdict/);
+  assert.match(t2, /not run/);
+  setLang("zh");
+  assert.match(text(deviceReport(report)), /GPU 更快/);
+});
+
+test("catalog: a browser job kind's detail names what its job worker loads, the chemistry it runs in the page and what it reads here", async () => {
+  setLang("en");
+  const app = new App();
+  const doc = admetCatalogDoc();
+  doc.entries.find((e) => e.id === "job.pipeline.admet").execution.browser_job.inputs = "a CSV/TSV (name,smiles) or .smi file from the project's files, or one SMILES";
+  app.catalog = new Catalog(doc);
+  app.state.route = { name: "catalog", entryId: "job.pipeline.admet", params: {} };
+  app.state.layout = "mobile";
+  app.toolRouter = new ToolRouter({ catalog: app.catalog, runtimes: {}, settings: app.state.settings });
+  const main = document.createElement("main");
+  const view = mountCatalog(app, main);
+  const detail = text(main.querySelector(".catalog__detail"));
+  assert.match(detail, /Browser job\s*numpy, scipy, scikit-learn/);
+  assert.match(detail, /Browser chemistry\s*rdkit\.js 2026\.9\.1/);
+  assert.match(detail, /Read in the browser\s*a CSV\/TSV \(name,smiles\) or \.smi file/);
+  view.destroy();
+  setLang("zh");
 });

@@ -297,11 +297,20 @@ export function browserJobsApi(service) {
   };
 }
 
+/** Where a browser job's stage computed: WebGPU when one of its kernel calls used the GPU's result, the CPU when a job
+ * worker or a CPU kernel did the work (its compute facts, scientific/engines/evidence.js), else nothing to say. */
+function stageDevice(x) {
+  const calls = Array.isArray(x?.compute) ? x.compute : [];
+  // a result the job threw away (its compute facts discarded: a later check rejected it) is not where it computed
+  if (!x?.reused && calls.some((f) => f?.backend === "webgpu" && !f?.discarded)) return "webgpu";
+  return x?.worker || calls.length ? "cpu" : undefined;
+}
+
 /** A browser job as the job card reads a job: its stages named and titled, its error as the outcome's. */
 export function browserJobView(job) {
   const stages = Array.isArray(job?.stages) ? job.stages.map((x) => ({
     name: x.id, title: x.title, status: x.status === "succeeded" ? "succeeded" : x.status,
-    seconds: x.seconds, device: x.worker ? "cpu" : undefined, reused: x.reused,
+    seconds: x.seconds, device: stageDevice(x), reused: x.reused,
   })) : job?.stages;
   const outcome = job?.state === "failed" || job?.state === "interrupted"
     ? { ...(job.outcome || {}), error: job.error?.message || job.outcome?.error || null }

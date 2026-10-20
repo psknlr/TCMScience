@@ -349,8 +349,9 @@ export function mountCatalog(app, main) {
       web: typeof app.webOn === "function" ? app.webOn() : undefined,
       built: dataKnown && Array.isArray(bd.built) ? bd.built : [], dataKnown,
       compute: typeof app.compute === "function" ? app.compute() : app.state.settings?.compute,
-      // the browser's job service: which job kinds it runs here, and whether the research snapshots are built in it
-      jobs: app.runtimes?.jobs ? { status: app.runtimes.jobs.status, kinds: app.runtimes.jobs.kinds?.() || [], snapshots: app.state.browserJobs?.snapshots ?? null } : undefined,
+      // the browser's job service: which job kinds it runs here, whether the research snapshots are built in it, and
+      // which ADMET models
+      jobs: app.runtimes?.jobs ? { status: app.runtimes.jobs.status, kinds: app.runtimes.jobs.kinds?.() || [], snapshots: app.state.browserJobs?.snapshots ?? null, admet_models: app.state.browserJobs?.admet ?? null } : undefined,
     };
   };
   let fieldsCache = null;
@@ -600,9 +601,24 @@ export function mountCatalog(app, main) {
       e.gpu ? [t("ui.catalog.gpu"), t("ui.catalog.gpu_yes")] : null,
       (e.heavy || []).length ? [t("ui.catalog.heavy"), h("code.kv__code", e.heavy.join(", "))] : null,
       (e.pyodide_packages || []).length ? [t("ui.catalog.pyodide_packages"), h("code.kv__code", e.pyodide_packages.join(", "))] : null,
+      ...browserJobRows(e),
     ];
     if (!rows.some(Boolean)) return null;
     return h("section.entry__sec", h("h3", t("ui.catalog.sec.backends")), keyValue(rows));
+  }
+
+  /** A browser job kind's own words (entry.execution.browser_job): the packages its job worker loads, the chemistry it
+   * runs in the page (the ADMET kinds: RDKit.js and its ports), and what it reads here; the rest needs the runner. */
+  function browserJobRows(e) {
+    const bj = e.execution?.browser_job;
+    if (!bj || typeof bj !== "object") return [];
+    const words = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? [v.engine || v.name, v.version].filter(Boolean).join(" ") : "");
+    const packages = Array.isArray(bj.pyodide_packages) ? bj.pyodide_packages : Array.isArray(bj.packages) ? bj.packages : [];
+    return [
+      packages.length && !(e.pyodide_packages || []).length ? [t("ui.catalog.browser_job"), h("code.kv__code", packages.join(", "))] : null,
+      words(bj.chemistry) ? [t("ui.catalog.browser_chemistry"), h("span", { lang: "en" }, words(bj.chemistry))] : null,
+      typeof bj.inputs === "string" && bj.inputs ? [t("ui.catalog.browser_inputs"), h("span", { lang: "en" }, bj.inputs)] : null,
+    ];
   }
 
   /** 限制: the largest request one call takes, per runtime (the entry's own, else the catalog's). */

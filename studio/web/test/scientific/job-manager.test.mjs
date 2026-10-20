@@ -819,3 +819,64 @@ test("isolated: Python stops in place on a cancel, yet the cancelled job's worke
     delete globalThis.crossOriginIsolated;
   }
 });
+
+test("a stage's compute facts are kept on its record, from its result or as each call adds them; a WebGPU stage marks the job's device", async () => {
+  // facts as compute/science-scheduler.js gives them: one CPU call, one whose GPU result was used
+  const cpu = { op: "tanimoto.best", backend: "wasm-simd", gpu: null, accelerated: null, calibration_id: null };
+  const gpu = {
+    op: "tanimoto.best", backend: "webgpu", accelerated: true, calibration_id: "c".repeat(64), basis: "faster here",
+    gpu: { adapter: { kind: "physical", vendor: "nvidia", architecture: "ampere", description: "" }, dispatched: true, validated: true, verified: true, kernel_ms: 1, total_ms: 3 },
+  };
+  const handler = {
+    kind: "test.gpu", title: { zh: "x", en: "x" }, stages: [{ id: "a" }, { id: "b" }, { id: "verify" }],
+    async run(ctx) {
+      const lease = await ctx.pool.lease({});
+      try {
+        await ctx.stage("a", async () => ({ worker: lease.id, compute: cpu }));
+        await ctx.stage("b", async (s) => { s.compute(cpu); s.compute({ nope: true }); s.compute(gpu); return { worker: lease.id }; });
+        await lease.call("run", { fn: "x", args: {} });
+        ctx.artefact(await written(ctx, "t.tsv", "x\n"));
+        ctx.outcome({ provenance: { models: [{ id: "herg", sha256: "a".repeat(64) }] } });
+        await ctx.stage("verify", async () => ({ worker: lease.id, verified: true }));
+      } finally { lease.release(); }
+      return { result: null };
+    },
+  };
+  const { svc } = setup({ handlers: [handler] });
+  const done = await settle(svc, (await svc.submit("test.gpu", {})).id);
+  assert.equal(done.state, "succeeded", JSON.stringify(done.error));
+  assert.deepEqual(done.stages.find((s) => s.id === "a").compute, [cpu], "returned by the stage");
+  assert.deepEqual(done.stages.find((s) => s.id === "b").compute, [cpu, gpu], "added as it ran; a fact without a backend is none");
+  assert.equal(done.device, "cpu+webgpu");
+  assert.match(done.device_note, /b computed on this browser's WebGPU adapter/);
+  assert.deepEqual(done.provenance, { models: [{ id: "herg", sha256: "a".repeat(64) }] });
+  const r = (await svc.receipt(done.id)).doc;
+  assert.equal(r.device.used, "cpu+webgpu");
+  assert.equal(r.device.evidence, "accelerated");
+  assert.deepEqual(r.device.stages, { a: "cpu", b: "webgpu", verify: "cpu" });
+  assert.deepEqual(r.provenance, done.provenance);
+  assert.deepEqual(Object.keys(r.compute.stages), ["a", "b"]);
+});
+
+test("stagesFor(params) gives a job its own stages (and a resumed one the same); datasetsFor names a registry group's workspace", async () => {
+  const research = { group: "research" }, admet = { group: "admet" };
+  let seen = null;
+  const handler = {
+    kind: "test.stages", title: { zh: "x", en: "x" }, stages: [{ id: "first" }],
+    stagesFor: (p) => [{ id: "first" }, ...(p.parts || []).map((x) => ({ id: `part.${x}`, title: { zh: x, en: x } })), { id: "last" }],
+    async run(ctx) {
+      seen = [ctx.datasetsFor("admet"), ctx.datasetsFor("research"), ctx.datasetsFor("other")];
+      if (ctx.params.fail) throw Object.assign(new Error("stop"), { type: "failed" });
+      return { result: null };
+    },
+  };
+  const { svc } = setup({ handlers: [handler], datasets: research, datasetGroups: { admet } });
+  const job = await svc.submit("test.stages", { parts: ["x", "y"], fail: true });
+  assert.deepEqual(job.stages.map((s) => s.id), ["first", "part.x", "part.y", "last"]);
+  assert.deepEqual(job.stages[1].title, { zh: "x", en: "x" });
+  await settle(svc, job.id);
+  assert.deepEqual(seen, [admet, research, null]);
+  assert.equal(svc.datasetsFor("admet"), admet);
+  const resumed = await svc.resume(job.id);
+  assert.deepEqual(resumed.stages.map((s) => s.id), ["first", "part.x", "part.y", "last"]);
+});

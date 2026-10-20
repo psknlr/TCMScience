@@ -447,3 +447,342 @@ export function compareOmics(kind, browserFiles, nativeFiles) {
   }
   return rows;
 }
+
+// ------------------------------------------------------------------------- the ADMET jobs (science.mjs --mode admet)
+//
+// admet.models and pipeline.admet as browser jobs against the native runs on the same files (admet_native.py). The
+// browser is held to exactness, not to a tolerance: its chemistry is RDKit.js held to native RDKit, its models are
+// scikit-learn 1.8.0 in Pyodide, bit-identical to native 1.8.0 on the same features, and its domain search is integer
+// counts. A model card is compared field by field apart from what names the process that wrote it (CARD_SET_ASIDE): the
+// model file's and domain file's digests (the domain file's bytes are a row of their own; a pickle's bytes depend on the
+// process that wrote it, wasm32 or 64-bit), the training's seconds and the chemistry engine. The native models are
+// trained on the molecules the browser chemistry kept (admet_native.py Refusing), the native pipeline run compared
+// byte for byte is the one on the molecules the browser is expected to keep; the runner's own run on every molecule
+// shows that it reads those the browser refuses. The predictions are compared at full precision (float.hex) and the
+// domain search as its integers (nearest training molecule, intersection, union), molecule by molecule. A report that
+// names the molecules the browser refused differs from the native one by those lines only (ADMET_REFUSED_LINES).
+
+/** Card fields that name the process that wrote the model, not the model: not compared. */
+export const CARD_SET_ASIDE = Object.freeze(["model_sha256", "domain_sha256", "seconds", "chemistry"]);
+/** run.json's model identity: the same fields set aside (and the RDKit version the card names, compared on the card). */
+const RUN_MODEL_SET_ASIDE = ["*.model_sha256", "*.chemistry"];
+/** Files the pipeline writes about the run itself: compared through their fields. */
+const ADMET_RECORDS = ["run.json", "stages.json", "job_receipt.json"];
+/** Outputs that list the molecules the browser refused: compared with those lines set aside. */
+const ADMET_REFUSED_LINES = ["report.md", "report.html", "limitations.md"];
+/**
+ * The one descriptor whose float64 value the browser's port does not give to the last bit: QED (rdkit.Chem.QED's
+ * desirability functions, a sum of exp() terms whose order and libm the JavaScript port cannot match exactly; measured
+ * on this harness's molecules: 1 or 2 units in the last place). Its float32 value, the one in the feature row the models
+ * read, must still be equal (the feature rows are compared as bytes), and the difference is named, never called
+ * identical. Every other descriptor is exact.
+ */
+export const ADMET_ULP_DESCRIPTORS = Object.freeze({ qed: 4 });
+
+/**
+ * A prediction is the model's raw output (the boosted trees' sum, compared exactly) passed through one elementary
+ * function: for a classification scipy's expit, whose exp is the C library's (glibc's natively, Emscripten's musl in
+ * Pyodide's wasm32), and for a log10 target numpy's 10 ** (natively, on a CPU with AVX-512, numpy's own SIMD power,
+ * not glibc's pow: 5% of values differ from glibc there by one unit, and those are most of these differences; without
+ * AVX-512, and in Pyodide, it is the C library's pow). Those last bits differ, so such a value may differ by this many
+ * units in the last place of float64, named and never called identical; a regression on its own scale has no such
+ * call and is exact. Measured on a synthetic archive at the TDC group's sizes: at most 2 units, on 52 of 16,105 test
+ * predictions, every raw output identical. Measured on 100,000 values in [-4, 4] (Pyodide 314.0.7 against glibc and
+ * numpy 2.4.6 on an AVX-512 x86_64): pow 0.07% differ from glibc's, 5.3% from numpy's AVX-512 power; exp 0.07%;
+ * expit 0.03%, at most 2 units; never more.
+ */
+export const ADMET_VALUE_ULPS = 4;
+
+/** How many units in the last place of float64 `a` and `b` are apart (Infinity when one is not a finite number). */
+export function ulps(a, b) {
+  if (a === b) return 0;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.sign(a) !== Math.sign(b)) return Infinity;
+  const view = new DataView(new ArrayBuffer(16));
+  view.setFloat64(0, Math.abs(a));
+  view.setFloat64(8, Math.abs(b));
+  return Number(view.getBigUint64(0) > view.getBigUint64(8) ? view.getBigUint64(0) - view.getBigUint64(8) : view.getBigUint64(8) - view.getBigUint64(0));
+}
+
+/** One molecule's descriptors (browser, native) → {exact: [keys that differ beyond any rule], ulp: [{key, ulps}] (the
+ * keys ADMET_ULP_DESCRIPTORS allows, within their bound and equal as float32)}. */
+export function compareDescriptors(got, want) {
+  const exact = [];
+  const ulp = [];
+  for (const k of [...new Set([...Object.keys(got || {}), ...Object.keys(want || {})])]) {
+    const a = got?.[k];
+    const b = want?.[k];
+    if (a === b) continue;
+    const n = typeof a === "number" && typeof b === "number" ? ulps(a, b) : Infinity;
+    if (k in ADMET_ULP_DESCRIPTORS && n <= ADMET_ULP_DESCRIPTORS[k] && Math.fround(a) === Math.fround(b)) ulp.push({ key: k, ulps: n, browser: a, native: b });
+    else exact.push(k);
+  }
+  return { exact, ulp };
+}
+
+/** The lines of a text that name none of `names` (as a whole word). */
+function linesWithout(text, names) {
+  const res = names.map((n) => new RegExp(`(^|[^A-Za-z0-9_])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^A-Za-z0-9_]|$)`));
+  const kept = [];
+  const dropped = [];
+  for (const line of String(text).split("\n")) (res.some((r) => r.test(line)) ? dropped : kept).push(line);
+  return { text: kept.join("\n"), dropped };
+}
+
+/** The C library call between a model's raw output and its prediction, by its card: "exp" (expit, a
+ * classification), "pow" (10 **, a log10 target) or null (a regression on its own scale). */
+export function admetTransform(card) {
+  return card?.task === "classification" ? "exp" : card?.log10_target ? "pow" : null;
+}
+
+/**
+ * Two exact() results of one endpoint, row by row (the rows named by `names`, in each side's order) → the first
+ * differences [{name, field, browser, native}], how many rows were compared, and the predictions that differ only in
+ * their last bits after the C library's call (`transform`, admetTransform), with the raw output identical: ulp
+ * [{name, ulps}]. Without a transform, or beyond ADMET_VALUE_ULPS, a value that differs is a difference.
+ */
+function exactRows(b, bNames, n, nNames, { transform = null, fields = ["value", "raw", "in_domain", "arg", "inter", "union"] } = {}) {
+  const at = new Map(nNames.map((name, i) => [name, i]));
+  const diffs = [];
+  const ulp = [];
+  let compared = 0;
+  for (const [i, name] of bNames.entries()) {
+    const j = at.get(name);
+    if (j === undefined) { diffs.push({ name, field: "row", browser: "predicted", native: "not predicted" }); continue; }
+    compared += 1;
+    for (const field of fields) {
+      const x = b?.[field]?.[i];
+      const y = n?.[field]?.[j];
+      if (x === y) continue;
+      if (field === "value" && transform && typeof x === "string" && typeof y === "string" && b?.raw?.[i] === n?.raw?.[j] && b?.raw?.[i] !== undefined) {
+        const k = ulps(parseHexFloat(x), parseHexFloat(y));
+        if (k <= ADMET_VALUE_ULPS) { ulp.push({ name, ulps: k }); continue; }
+      }
+      diffs.push({ name, field, browser: x, native: y });
+    }
+  }
+  return { diffs, compared, ulp };
+}
+
+/** Python's float.hex() text → the number ("0x1.8p+1" → 3; "-0x0.0p+0", "inf", "nan"). */
+export function parseHexFloat(text) {
+  const t = String(text).trim();
+  if (/^-?inf$/.test(t)) return t.startsWith("-") ? -Infinity : Infinity;
+  if (t === "nan") return NaN;
+  const m = /^(-)?0x([01])\.([0-9a-f]*)p([+-]\d+)$/.exec(t);
+  if (!m) return NaN;
+  const frac = m[3] ? Number.parseInt(m[3], 16) / 16 ** m[3].length : 0;
+  const v = (Number(m[2]) + frac) * 2 ** Number(m[4]);
+  return m[1] ? -v : v;
+}
+
+/** The status and words of a prediction row from exactRows' answer. */
+function predictionWords(x, expected, transform, what) {
+  if (x.diffs.length || x.compared !== expected) {
+    return { status: "different", why: `${x.compared} of ${expected} compared: ${JSON.stringify(x.diffs.slice(0, 4))}${x.diffs.length > 4 ? ` and ${x.diffs.length - 4} more` : ""}` };
+  }
+  if (!x.ulp.length) return { status: "identical", why: `${what}: each prediction (float64), the model's raw output, the domain flag and the domain search identical` };
+  const worst = x.ulp.reduce((m, u) => Math.max(m, u.ulps), 0);
+  return {
+    status: "within_tolerance",
+    why: `${what}: the model's raw output (the trees' sum) and the domain search identical; ${x.ulp.length} prediction${x.ulp.length === 1 ? " differs" : "s differ"} by at most ${worst} unit${worst === 1 ? "" : "s"} in the last place of float64 (allowed: ${ADMET_VALUE_ULPS}), all from ${transform === "exp" ? "the C library's exp in expit (a classification's probability): glibc's natively, Emscripten's in Pyodide" : "the power in 10 ** (a log10 target): numpy's AVX-512 power or glibc's pow natively, Emscripten's pow in Pyodide"} (${listed(x.ulp.map((u) => `${u.name} ${u.ulps}`), 3)}); not identical`,
+  };
+}
+
+const listed = (names, max = 8) => `${names.slice(0, max).join(", ")}${names.length > max ? ` and ${names.length - max} more` : ""}`;
+
+/**
+ * The ADMET jobs of the page (science-check.mjs out.admet: models, rechem, pipeline, probe, forced) against the native
+ * side (admet_native.py native: cards, runs, molecules, tests; nativeFiles: {runner, kept} → {path: Buffer} of the two
+ * pipeline runs) and what the molecule set expects (expected.json) → rows [{name, status, ok, counted, why}]. `real`:
+ * the archive is a real one, whose training refusals are reported rather than expected to be none.
+ */
+export function compareAdmet({ browser, native, nativeFiles, expected, real = false }) {
+  const rows = [];
+  const row = (name, status, why, { counted = true } = {}) => {
+    rows.push({ name, status, ok: !counted || !["different", "missing"].includes(status), counted, why });
+  };
+  const b = browser || {};
+  const n = native || {};
+  const nCards = n.cards || {};
+  const bCards = b.models?.cards || {};
+  const endpoints = [...new Set([...Object.keys(nCards), ...Object.keys(bCards)])];
+
+  // ---------------------------------------------------------------- the models
+  for (const e of endpoints) {
+    const bc = bCards[e];
+    const nc = nCards[e];
+    if (!bc || !nc) { row(`${e}: model card`, "missing", !bc ? "no card built in the browser" : "no native card"); continue; }
+    const c = compareJson(bc, nc, CARD_SET_ASIDE, 0);
+    row(`${e}: model card`, c.same ? "same_apart_from_excluded" : "different", c.same
+      ? `every field identical (${bc.metric} ${bc.test_score} on ${bc.test} test molecules, trained on ${bc.train} in ${bc.iterations} iterations; dropped ${bc.dropped_unreadable} unreadable, ${bc.dropped_unstandardisable} refused) apart from ${CARD_SET_ASIDE.join(", ")}, which name the process that wrote the model`
+      : `differs at ${c.first.join(", ")}: ${c.first.slice(0, 3).map((k) => `${k} browser ${JSON.stringify(k.split(".").reduce((o, x) => o?.[x], bc))} / native ${JSON.stringify(k.split(".").reduce((o, x) => o?.[x], nc))}`).join("; ")}`);
+    const dom = b.models?.domains?.[e];
+    const same = dom?.sha256 === nc.domain_sha256 && bc.domain_sha256 === nc.domain_sha256;
+    row(`${e}: applicability domain (its training molecules' fingerprints)`, same ? "identical" : "different", same
+      ? `${e}_domain.npy identical bytes (${dom.bytes} bytes, SHA-256 ${nc.domain_sha256.slice(0, 12)}…)`
+      : `browser ${dom?.sha256?.slice(0, 12) ?? "missing"}… (its card ${String(bc.domain_sha256).slice(0, 12)}…) / native ${String(nc.domain_sha256).slice(0, 12)}…`);
+    row(`${e}: model file`, "not_compared", `not compared: a pickle's bytes depend on the process that wrote it (wasm32 here, 64-bit natively; ${bc.model_sha256 === nc.model_sha256 ? "here they are the same" : "here they differ"}); what the model predicts is compared below, at full precision`, { counted: false });
+
+    const r = b.rechem?.[e];
+    if (!r) row(`${e}: training molecules the browser chemistry refused`, "missing", "the page did not prepare the splits again");
+    else {
+      const refused = r.train_val.refused.length + r.test.refused.length;
+      const unreadable = r.train_val.unreadable.length + r.test.unreadable.length;
+      const held = refused === bc.dropped_unstandardisable && unreadable === bc.dropped_unreadable;
+      const steps = {};
+      for (const k of ["train_val", "test"]) for (const [, , m] of r[k].refused) steps[m] = (steps[m] || 0) + 1;
+      const what = `${refused} refused${refused ? ` (${Object.entries(steps).map(([k, v]) => `${k}: ${v}`).join(", ")})` : ""} and ${unreadable} not read of ${r.train_val.n} + ${r.test.n}; the card counts ${bc.dropped_unstandardisable} and ${bc.dropped_unreadable}`;
+      if (!held) row(`${e}: training molecules the browser chemistry refused`, "different", `${what}: not the card's counts`);
+      else if (!real && refused) row(`${e}: training molecules the browser chemistry refused`, "different", `${what}: none expected for the known-answer archive (simple ring systems and substituents)`);
+      else row(`${e}: training molecules the browser chemistry refused`, real ? "reported" : "same", `${what}${real ? "; the native models were trained without them, as the browser's were" : "; none expected"}`);
+    }
+    const bt = b.probe?.sets?.[`test:${e}`];
+    const nt = n.tests?.[e];
+    if (!bt || !nt) row(`${e}: test-set predictions (full precision)`, "missing", !bt ? "the probe gave none for the browser" : "none natively");
+    else {
+      const idx = (ok) => ok.flatMap((v, i) => (v ? [`test row ${i}`] : []));
+      const okSame = JSON.stringify(bt.ok) === JSON.stringify(nt.ok);
+      const transform = admetTransform(nc);
+      const x = exactRows(bt.endpoints?.[e], idx(bt.ok), nt.endpoints?.[e], idx(nt.ok), { transform });
+      const w = predictionWords(x, idx(nt.ok).length, transform, `all ${x.compared} kept test molecules of ${nt.n}`);
+      row(`${e}: test-set predictions (full precision)`, okSame ? w.status : "different", okSame ? w.why : `the molecules kept differ; ${w.why}`);
+    }
+  }
+
+  // ---------------------------------------------------------------- the pipeline
+  const run = b.pipeline;
+  const exp = expected || {};
+  const refusedNames = Object.keys(exp.refused || {});
+  const nKept = nativeFiles?.kept || {};
+  const nRunner = nativeFiles?.runner || {};
+  const json = (text) => { try { return JSON.parse(text); } catch { return null; } };
+  if (!run?.files) row("pipeline.admet: its outputs", "missing", "no outputs came back from the browser job");
+  else {
+    const files = run.files;
+    const names = [...new Set([...Object.keys(files), ...Object.keys(nKept)])].filter((x) => !ADMET_RECORDS.includes(x)).sort();
+    for (const name of names) {
+      const f = files[name];
+      const nat = nKept[name];
+      const shas = { browser: f?.sha256 ?? null, native: shaOf(nat) };
+      if (!f || !nat) { row(`pipeline: ${name}`, "missing", !f ? "not written in the browser" : "no native file"); continue; }
+      if (shas.browser === shas.native) { row(`pipeline: ${name}`, "identical", `identical bytes to the native run on the kept molecules${name === "admet.tsv" ? ` (${tsvRows(f.text).length - 1} molecules: properties, rules, alerts, every prediction and its domain flag)` : ""}`); continue; }
+      if (ADMET_REFUSED_LINES.includes(name) && typeof f.text === "string") {
+        const a = linesWithout(f.text, refusedNames);
+        const w = linesWithout(textOf(nat), refusedNames);
+        if (a.text === w.text && a.dropped.length && !w.dropped.length) {
+          row(`pipeline: ${name}`, "same_apart_from_refused", `identical to the native run on the kept molecules apart from the ${a.dropped.length} line${a.dropped.length === 1 ? "" : "s"} naming the molecules the browser refused (${listed(refusedNames, 3)})`);
+          continue;
+        }
+      }
+      row(`pipeline: ${name}`, "different", typeof f.text === "string" ? `differs: ${JSON.stringify(compareText(f.text, textOf(nat), () => false).first)}` : "the bytes differ");
+    }
+
+    // run.json: the stages, the models it names, the molecules read, refused and not read, the similarity it used
+    const rb = json(files["run.json"]?.text);
+    const rk = json(nKept["run.json"] && textOf(nKept["run.json"]));
+    const rr = json(nRunner["run.json"] && textOf(nRunner["run.json"]));
+    if (!rb || !rk) row("pipeline: run.json", "missing", !rb ? "no readable run.json from the browser" : "no readable native run.json");
+    else {
+      const stages = (r) => (r.stages || []).map((s) => `${s.name}:${s.status}${s.check ? `:${s.check}` : ""}`);
+      const same = JSON.stringify(stages(rb)) === JSON.stringify(stages(rk)) && rb.complete === rk.complete;
+      row("pipeline: run.json stages", same ? "same" : "different", same ? `${stages(rk).length} stages ended the same way (${stages(rk).join(" ")}); complete ${rk.complete}` : `browser ${stages(rb).join(" ")} (complete ${rb.complete}) / native ${stages(rk).join(" ")} (complete ${rk.complete})`);
+      const m = compareJson(rb.models || {}, rk.models || {}, RUN_MODEL_SET_ASIDE, 0);
+      row("pipeline: run.json models", m.same ? "same_apart_from_excluded" : "different", m.same ? `the same ${Object.keys(rk.models || {}).length} models named (every field but model_sha256 and chemistry)` : `differs at ${m.first.join(", ")}`);
+      const read = JSON.stringify(rb.read) === JSON.stringify(rk.read);
+      row("pipeline: run.json molecules read", read ? "same" : "different", read ? `the same ${rk.read.length} molecules, in the same order` : `browser ${listed(rb.read || [])} / native ${listed(rk.read || [])}`);
+      const failures = JSON.stringify(rb.failures) === JSON.stringify(exp.unreadable) && JSON.stringify(rr?.failures) === JSON.stringify(exp.unreadable);
+      row("pipeline: molecules not read", failures ? "same" : "different", failures ? `${Object.entries(exp.unreadable || {}).map(([k, v]) => `${k} (${v})`).join(", ")}, as natively` : `browser ${JSON.stringify(rb.failures)} / native ${JSON.stringify(rr?.failures)} / expected ${JSON.stringify(exp.unreadable)}`);
+      // every refusal expected, each naming the step the browser lacks, and each molecule read by the runner
+      const got = rb.refused || {};
+      const bad = [];
+      for (const [name, step] of Object.entries(exp.refused || {})) {
+        const prow = run.chemistry?.not_prepared?.[name];
+        if (!(name in got)) bad.push(`${name}: not refused`);
+        else if (prow?.need !== "runner" || prow.missing !== step) bad.push(`${name}: its prepared row says need ${prow?.need}, missing ${prow?.missing}, not ${step}`);
+        else if (got[name] !== prow.error) bad.push(`${name}: run.json gives the reason "${got[name]}", its prepared row "${prow.error}"`);
+      }
+      for (const name of Object.keys(got)) if (!(name in (exp.refused || {}))) bad.push(`${name}: refused, not expected (${got[name]})`);
+      const runnerRead = new Set((rr?.read) || []);
+      const unread = refusedNames.filter((x) => !runnerRead.has(x));
+      if (unread.length) bad.push(`the runner's own run did not read ${unread.join(", ")}`);
+      row("pipeline: molecules the browser refused", bad.length ? "different" : "same", bad.length ? bad.join("; ") : `the ${refusedNames.length} expected, each for its step (${Object.entries(exp.refused || {}).map(([k, v]) => `${k}: ${v}`).join("; ")}), each prepared row need "runner"; the runner's own run read all ${refusedNames.length}`);
+      const sim = rb.similarity || {};
+      const offered = run.similarity?.doc?.backend;
+      const used = sim.backend === offered && !sim.rejected && Object.values(sim.checked || {}).every((v) => v > 0) && Object.keys(sim.checked || {}).length > 0;
+      row("pipeline: Python used the browser's similarities", used ? "same" : "different", used ? `backend ${sim.backend}, ${Object.entries(sim.checked).map(([k, v]) => `${k}: ${v} queries re-checked`).join(", ")}, none rejected` : `run.json similarity ${JSON.stringify(sim)}, the page offered ${offered}`);
+    }
+
+    // the chemistry of each molecule the browser prepared, and its alerts
+    const bRows = run.chemistry?.rows || {};
+    const nRows = n.molecules?.chemistry?.rows || {};
+    const keptNames = Object.keys(nRows).filter((x) => !refusedNames.includes(x));
+    const chemDiffs = [];
+    const alertDiffs = [];
+    const ulpDiffs = [];
+    let alerts = 0;
+    for (const name of [...new Set([...Object.keys(bRows), ...keptNames])]) {
+      const x = bRows[name];
+      const y = nRows[name];
+      if (!x || !y) { chemDiffs.push(`${name}: ${!x ? "not prepared in the browser" : "not prepared natively"}`); continue; }
+      for (const k of ["features_sha256", "bits_sha256", "canonical", "atoms_with_h"]) if (x[k] !== y[k]) chemDiffs.push(`${name}: ${k}`);
+      const d = compareDescriptors(x.descriptors, y.descriptors);
+      for (const k of d.exact) chemDiffs.push(`${name}: ${k} (browser ${x.descriptors?.[k]}, native ${y.descriptors?.[k]})`);
+      for (const u of d.ulp) ulpDiffs.push({ name, ...u });
+      if (JSON.stringify(x.alerts) !== JSON.stringify(y.alerts)) alertDiffs.push(`${name}: browser ${JSON.stringify(x.alerts)} / native ${JSON.stringify(y.alerts)}`);
+      alerts += (y.alerts || []).length;
+    }
+    const worstUlp = ulpDiffs.reduce((m, u) => Math.max(m, u.ulps), 0);
+    const ulpKeys = [...new Set(ulpDiffs.map((u) => u.key))];
+    const what = `${keptNames.length} molecules: the float32 feature row the models read, the packed bits, the canonical SMILES and the atom count identical to native RDKit's`;
+    row("pipeline: each molecule's chemistry", chemDiffs.length ? "different" : ulpDiffs.length ? "within_tolerance" : "identical", chemDiffs.length ? listed(chemDiffs, 6)
+      : ulpDiffs.length ? `${what}; every descriptor identical but ${ulpKeys.join(", ")}, whose float64 value differs on ${ulpDiffs.length} molecule${ulpDiffs.length === 1 ? "" : "s"} by at most ${worstUlp} unit${worstUlp === 1 ? "" : "s"} in the last place (allowed: ${ulpKeys.map((k) => `${k} ${ADMET_ULP_DESCRIPTORS[k]}`).join(", ")}), equal as float32 (${listed(ulpDiffs.map((u) => `${u.name} ${u.ulps}`), 4)}); not identical`
+        : `${what}; every descriptor identical in float64`);
+    row("pipeline: structural alerts", alertDiffs.length ? "different" : "identical", alertDiffs.length ? listed(alertDiffs, 4) : `${alerts} alerts over ${keptNames.length} molecules (PAINS, Brenk, NIH), each the same catalog and description in the same order`);
+
+    // the predictions at full precision and the domain search, molecule by molecule
+    const pm = b.probe?.sets?.molecules;
+    const nm = n.molecules || {};
+    for (const e of Object.keys(nm.endpoints || {})) {
+      if (!pm) { row(`pipeline: ${e} predictions (full precision)`, "missing", "the probe gave none for the browser"); continue; }
+      const bNames = (run.molecules?.names || []).filter((_, i) => pm.ok?.[i]);
+      const transform = admetTransform(nCards[e]);
+      const x = exactRows(pm.endpoints?.[e], bNames, nm.endpoints[e], nm.names || [], { transform });
+      const w = predictionWords(x, keptNames.length, transform, `${x.compared} molecules`);
+      row(`pipeline: ${e} predictions (full precision)`, w.status, w.why);
+      const s = run.similarity?.endpoints?.[e];
+      if (!s) { row(`pipeline: ${e} domain search (the browser's kernels)`, "missing", "no similarity file for it"); continue; }
+      const y = exactRows(s, run.names || [], nm.endpoints[e], nm.names || [], { fields: ["arg", "inter", "union"] });
+      const okd = !y.diffs.length && y.compared === keptNames.length;
+      row(`pipeline: ${e} domain search (the browser's kernels)`, okd ? "identical" : "different", okd ? `${y.compared} molecules × ${nCards[e]?.train ?? "?"} training molecules: the nearest one, the intersection and the union (${run.similarity.doc?.backend}) identical to native numpy's` : JSON.stringify(y.diffs.slice(0, 4)));
+    }
+  }
+
+  // ---------------------------------------------------------------- the same run with the GPU forced
+  const g = b.forced;
+  if (!g?.files || !run?.files) row("forced GPU: pipeline.admet once more", "missing", !g?.files ? "no outputs came back from the forced-GPU run" : "the first run gave none to compare with");
+  else {
+    const names = [...new Set([...Object.keys(g.files), ...Object.keys(run.files)])].filter((x) => !ADMET_RECORDS.includes(x)).sort();
+    const differ = names.filter((x) => g.files[x]?.sha256 !== run.files[x]?.sha256 || !g.files[x]);
+    row("forced GPU: every output", differ.length ? "different" : "identical", differ.length ? `not the first run's bytes: ${differ.join(", ")}` : `${names.length} outputs identical bytes to the first run's (${names.join(", ")})`);
+    const eps = Object.keys(run.similarity?.endpoints || {});
+    const simDiff = eps.filter((e) => g.similarity?.endpoints?.[e]?.sha256 !== run.similarity.endpoints[e].sha256);
+    row("forced GPU: the similarity files", simDiff.length || !eps.length ? "different" : "identical", simDiff.length || !eps.length ? `differ: ${simDiff.join(", ") || "none written"}` : `${eps.length} endpoints' nearest index, intersection and union identical to the first run's (${run.similarity.doc?.backend} there, ${g.similarity?.doc?.backend} here)`);
+    const rg = json(g.files["run.json"]?.text);
+    const r1 = json(run.files["run.json"]?.text);
+    const st = (r) => (r?.stages || []).map((s) => `${s.name}:${s.status}${s.check ? `:${s.check}` : ""}`).join(" ");
+    const simOk = rg?.similarity?.backend === "webgpu" && !rg.similarity.rejected;
+    row("forced GPU: run.json", st(rg) === st(r1) && simOk ? "same" : "different", `stages ${st(rg) === st(r1) ? "the same" : `differ (${st(rg)} / ${st(r1)})`}; similarity ${JSON.stringify(rg?.similarity)}`);
+    const domain = (job) => (job.stages || []).find((x) => x.id === "domain");
+    const calls = [].concat(domain(g)?.compute || []);
+    const first = [].concat(domain(run)?.compute || []);
+    const gpuOk = calls.length > 0 && calls.every((f) => f.backend === "webgpu" && f.forced === "webgpu" && f.accelerated !== true && f.gpu?.adapter?.kind === "software" && f.gpu?.validated === true);
+    row("forced GPU: the domain stage's compute facts", gpuOk ? "same" : "different", gpuOk
+      ? `${calls.length} calls on WebGPU, forced by the harness switch, on a software adapter (${[calls[0].gpu.adapter.vendor, calls[0].gpu.adapter.architecture, calls[0].gpu.adapter.description].filter(Boolean).join(" ") || "no name"}), each result validated on the CPU, never accelerated (${calls[0].basis?.slice(0, 160)})`
+      : `facts: ${JSON.stringify(calls.map((f) => ({ backend: f.backend, forced: f.forced, accelerated: f.accelerated, adapter: f.gpu?.adapter?.kind, validated: f.gpu?.validated, error: f.gpu?.error }))).slice(0, 500)}`);
+    const cpuOk = first.length > 0 && first.every((f) => ["wasm-simd", "js"].includes(f.backend) && f.accelerated !== true && !f.forced);
+    row("first run: the domain stage's compute facts", cpuOk ? "same" : "different", cpuOk ? `${first.length} calls on ${[...new Set(first.map((f) => f.backend))].join(", ")} (no calibration on this device: the GPU is not chosen), not accelerated` : JSON.stringify(first.map((f) => ({ backend: f.backend, forced: f.forced, accelerated: f.accelerated }))).slice(0, 500));
+    const used = g.receipt?.device?.used;
+    row("forced GPU: the job receipt", used === "cpu+webgpu" ? "same" : "different", `device.used ${used}; first run ${run.receipt?.device?.used}; evidence ${g.receipt?.device?.evidence}`);
+  }
+  return rows;
+}

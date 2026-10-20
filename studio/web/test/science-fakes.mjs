@@ -14,7 +14,8 @@
 //   errorFromPop      every popErrorScope() from this one on (counting from 1) reports an error: one raised by the
 //                     commands of a search rather than by its shaders
 //   timestamps        the adapter offers timestamp-query; each pass then takes 2.5 ms of GPU time
-// state: dispatches [{entry, x, y, c0, qb0}], created and destroyed buffers, deviceRequests, adapters.
+// state: dispatches [{entry, x, y, c0, qb0, Q, R (the piece's queries and references)}], created and destroyed buffers,
+// deviceRequests, adapters.
 
 const pop32 = (x) => {
   x -= (x >>> 1) & 0x55555555;
@@ -152,7 +153,7 @@ export function fakeScienceGPU({
               const views = c.group.entries.map((e) => new Uint32Array(e.resource.buffer.data));
               const max = granted.maxComputeWorkgroupsPerDimension;
               if (c.x > max || c.y > max) throw new Error(`dispatch ${c.x} × ${c.y} is beyond maxComputeWorkgroupsPerDimension`);
-              state.dispatches.push({ entry: c.entry, x: c.x, y: c.y, c0: views[3][3], qb0: views[3][4] });
+              state.dispatches.push({ entry: c.entry, x: c.x, y: c.y, c0: views[3][3], qb0: views[3][4], Q: views[3][0], R: views[3][1] });
               if (c.entry === "partial") partial(views, c.x, c.y);
               else {
                 state.reduces++;

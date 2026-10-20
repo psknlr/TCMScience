@@ -24,17 +24,36 @@
 //                 each job's receipt must match its recorded digest with outputs_verified and device evidence verified,
 //                 its inputs recorded at the project files' digests; every output comes back with its digest and text
 //                 for science.mjs to compare with the native command's and to hold to the known answer
+// ?mode=admet     the ADMET jobs: the files the harness serves at /raw/ (admet_native.py prepare: a TDC-shaped archive and
+//                 a molecule set) become a test project's files, and the job service runs admet.models (the archive given
+//                 as a project file) and then pipeline.admet on the molecules with admet-plan.mjs's parameters, exactly
+//                 as Studio does: the chemistry in the RDKit.js worker, the models trained in a job worker, the domain
+//                 search on this browser's kernels. Every card, output, similarity file and prepared row comes back for
+//                 science.mjs to compare with the native runs. The same browser chemistry prepares each endpoint's
+//                 training splits once more (which training molecules it refused, held to the cards' counts and the
+//                 job's own stage records, so that the native models are trained on the molecules kept here) and the
+//                 test splits, whose predictions a probe computes at full precision with the browser's models in a
+//                 job worker (admet_native.py exact), as it does for the pipeline's molecules. Then pipeline.admet runs
+//                 again with the handlers' harness-only switch that forces the domain search onto the GPU, a software
+//                 adapter allowed (SwiftShader: science.mjs launches Chromium with it): its outputs must be the first
+//                 run's, its compute facts say webgpu on a software adapter, never accelerated
 // ?index=URL      where Pyodide is (default: boot.json's index_url)
+// ?rdkit=URL      (admet) where RDKit_minimal.wasm is (default: boot.json's rdkit url); it must be boot.json's pin
+// ?real=1&endpoints=a,b   (admet) the archive is a real TDC ADMET group archive (admet-plan.mjs)
 
 import { openStore } from "../../js/core/store.js";
 import { DatasetWorkspace } from "../../js/scientific/data/datasets.js";
 import { OpfsStore } from "../../js/scientific/data/opfs-store.js";
-import { BrowserJobService } from "../../js/scientific/runtime/job-manager.js";
+import { BrowserJobService, jobDir } from "../../js/scientific/runtime/job-manager.js";
 import { projectFilesResolver } from "../../js/scientific/runtime/jobs-runtime.js";
 import { ScienceWorkerPool, recommendedPoolSize } from "../../js/scientific/runtime/worker-pool.js";
+import { preparedFiles } from "../../js/scientific/chem/prepared-set.js";
+import { N_BITS_BYTES, N_FEATURES } from "../../js/scientific/chem/features.js";
+import { ChemClient, createAdmetHandlers, modelsDir } from "../../js/scientific/pipelines/admet.js";
 import { HANDLERS, RESEARCH_EXPORTS, RESEARCH_PATHS, SNAPSHOTS_BUILT_SCHEMA } from "../../js/scientific/pipelines/network-pharmacology.js";
 import { OMICS_HANDLERS } from "../../js/scientific/pipelines/omics.js";
 import { browserSelfTest } from "../../js/scientific/pipelines/selftest.js";
+import { admetPlan } from "./admet-plan.mjs";
 import { OMICS_JOBS } from "./omics-plan.mjs";
 
 const q = new URLSearchParams(location.search);
@@ -443,9 +462,314 @@ async function omicsJob(svc, plan, projectId, recorded) {
     unread.length ? `not read back as recorded: ${unread.map((a) => a.path.join("/")).join(", ")}` : `${Object.keys(rec.files).length} files`);
 }
 
+// ------------------------------------------------------------------------------------------------- ?mode=admet
+
+/** The Pyodide packages the ADMET jobs and the probe import. */
+const ADMET_PACKAGES = ["numpy", "scipy", "scikit-learn"];
+const TEXT_FILE = /\.(tsv|md|html|json|svg|txt|csv)$/i;
+
+/** A job's record as the page keeps it for science.mjs: its stages with their records and compute facts. */
+function jobRecord(plan, job, ms) {
+  return {
+    kind: plan.kind, params: plan.params, id: job?.id ?? null, state: job?.state, ms: Math.round(ms), error: job?.error || null,
+    stages: (job?.stages || []).map((x) => ({
+      id: x.id, status: x.status, seconds: x.seconds ?? null, worker: x.worker ?? null, reused: Boolean(x.reused), detail: x.detail || "",
+      record: x.record ?? null, compute: x.compute ?? null,
+    })),
+    limitations: job?.limitations || [], outcome: job?.outcome || null, result: job?.result ?? null, logs: (job?.logs || []).map((l) => l.text).slice(-30),
+  };
+}
+
+/**
+ * One ADMET job of the service: submitted, waited for, its receipt checked as omicsJob checks one, every artefact read
+ * back (its digest; the text of a text file) → the record, or null when it did not succeed.
+ */
+async function admetJob(svc, label, plan, projectId, recorded, { timeoutMin = 60 } = {}) {
+  const t0 = performance.now();
+  let job;
+  try {
+    job = await svc.submit(plan.kind, plan.params, { project_id: projectId });
+  } catch (err) {
+    check(`${label}: ${plan.kind} submitted`, false, `${err?.type || "error"}: ${err?.message || err}${err?.need ? ` (need ${err.need})` : ""}`);
+    return null;
+  }
+  job = await waitFor(svc, job.id, timeoutMin * 60_000);
+  const ms = performance.now() - t0;
+  const rec = jobRecord(plan, job, ms);
+  if (!check(`${label}: ${plan.kind} as a browser job`, job?.state === "succeeded", job?.error?.message || job?.state, ms)) return rec;
+  check(`${label}: its stages`, job.stages.every((x) => x.status === "succeeded"), rec.stages.map((x) => `${x.id}:${x.status}${x.reused ? "(reused)" : ""} ${x.seconds ?? "?"} s`).join(", ").slice(0, 600));
+  const receipt = await svc.receipt(job.id);
+  const doc = receipt?.doc || null;
+  rec.receipt = doc;
+  check(`${label}: receipt at its recorded digest`, receipt?.matches === true, receipt?.sha256 || "no receipt");
+  check(`${label}: receipt says both digest readings agree (outputs_verified)`, doc?.assurance === "outputs_verified", String(doc?.assurance));
+  check(`${label}: receipt says the browser verified the outputs (device evidence verified)`, doc?.device?.evidence === "verified", JSON.stringify(doc?.device?.verify_stages ?? doc?.device?.evidence));
+  const inputs = Object.entries(doc?.inputs || {}).filter(([, v]) => v?.source?.project_file);
+  const wrong = inputs.filter(([, v]) => recorded.get(v.source.project_file)?.sha256 !== v.sha256);
+  check(`${label}: inputs recorded at the project files' digests`, inputs.length > 0 && !wrong.length,
+    wrong.length ? `not the project's: ${wrong.map(([k]) => k).join(", ")}` : inputs.map(([k, v]) => `${k}: ${v.source?.name} ${String(v.sha256).slice(0, 12)}…`).join("; "));
+  rec.memory = doc?.resources?.memory ?? null;
+  rec.files = {};
+  for (const a of job.artefacts || []) {
+    const file = await svc.readFile(job.id, a.path).catch(() => null);
+    if (!file) continue;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const key = a.path[0] === "out" ? a.path.slice(1).join("/") : a.path.at(-1);
+    rec.files[key] = { sha256: `sha256:${await sha256Hex(bytes)}`, recorded: a.sha256, bytes: bytes.byteLength, ...(TEXT_FILE.test(key) ? { text: new TextDecoder().decode(bytes) } : {}) };
+  }
+  const unread = (job.artefacts || []).filter((a) => {
+    const f = rec.files[a.path[0] === "out" ? a.path.slice(1).join("/") : a.path.at(-1)];
+    return !f || f.sha256 !== `sha256:${String(a.sha256).replace(/^sha256:/, "")}`;
+  });
+  check(`${label}: every output read back at its recorded digest`, (job.artefacts || []).length > 0 && !unread.length,
+    unread.length ? `not read back as recorded: ${unread.map((a) => a.path.join("/")).join(", ")}` : `${Object.keys(rec.files).length} files`);
+  rec.ok = true;
+  return rec;
+}
+
+/** A file of a job's directory → its bytes, or null. */
+async function jobBytes(svc, id, path) {
+  const f = await svc.readFile(id, path).catch(() => null);
+  return f ? new Uint8Array(await f.arrayBuffer()) : null;
+}
+
+/** Little-endian uint32 triples (arg, inter, union per query) → {arg, inter, union}. */
+function triples(bytes) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const n = Math.floor(bytes.byteLength / 12);
+  const out = { arg: [], inter: [], union: [] };
+  for (let i = 0; i < n; i++) {
+    out.arg.push(v.getUint32(12 * i, true));
+    out.inter.push(v.getUint32(12 * i + 4, true));
+    out.union.push(v.getUint32(12 * i + 8, true));
+  }
+  return out;
+}
+
+/**
+ * What a pipeline.admet job left in its directory besides its outputs: the molecules admet_read read, the prepared set
+ * (each row of prepared.json, and the SHA-256 of each prepared molecule's feature row and bits) and the similarity
+ * files (similarity.json and each endpoint's triples).
+ */
+async function pipelineFiles(svc, rec) {
+  const id = rec.id;
+  const text = async (path) => { const b = await jobBytes(svc, id, path); return b ? new TextDecoder().decode(b) : null; };
+  const molecules = JSON.parse((await text(["read", "molecules.json"])) || "null");
+  const prepared = JSON.parse((await text(["prepared", "prepared.json"])) || "null");
+  const features = await jobBytes(svc, id, ["prepared", "features.f32"]);
+  const bits = await jobBytes(svc, id, ["prepared", "bits.u8"]);
+  const rows = {};
+  const notPrepared = {};
+  let at = 0;
+  for (const [i, r] of (prepared?.rows || []).entries()) {
+    const name = molecules?.names?.[i] ?? String(i);
+    if (!r.ok) { notPrepared[name] = { error: r.error, need: r.need ?? null, missing: r.missing ?? null }; continue; }
+    rows[name] = {
+      features_sha256: features ? await sha256Hex(features.subarray(at * N_FEATURES * 4, (at + 1) * N_FEATURES * 4)) : null,
+      bits_sha256: bits ? await sha256Hex(bits.subarray(at * N_BITS_BYTES, (at + 1) * N_BITS_BYTES)) : null,
+      canonical: r.canonical, descriptors: r.descriptors, atoms_with_h: r.atoms_with_h, alerts: r.alerts,
+    };
+    at += 1;
+  }
+  const simDoc = JSON.parse((await text(["similarity", "similarity.json"])) || "null");
+  const similarity = { doc: simDoc, endpoints: {} };
+  for (const e of Object.keys(simDoc?.endpoints || {})) {
+    const b = await jobBytes(svc, id, ["similarity", `${e}.u32`]);
+    if (b) similarity.endpoints[e] = { sha256: await sha256Hex(b), ...triples(b) };
+  }
+  return {
+    molecules, engine: prepared?.engine ?? null, chemistry: { rows, not_prepared: notPrepared },
+    names: (molecules?.names || []).filter((_, i) => prepared?.rows?.[i]?.ok), similarity,
+  };
+}
+
+/** The counts a prepared set's rows give (pipelines/admet.js preparedCounts, which the job's chemistry stages record). */
+function counted(rows) {
+  const missing = {};
+  let ok = 0, refused = 0;
+  for (const r of rows) {
+    if (r.ok) ok += 1;
+    else if (r.refused) { refused += 1; const k = String(r.refused.missing || "a step"); missing[k] = (missing[k] || 0) + 1; }
+  }
+  return { n: rows.length, ok, refused, invalid: rows.length - ok - refused, missing };
+}
+
+const joined = (pieces, Type) => {
+  const out = new Type(pieces.reduce((a, p) => a + p.length, 0));
+  let at = 0;
+  for (const p of pieces) { out.set(p, at); at += p.length; }
+  return out;
+};
+
+/**
+ * Each endpoint's training splits as admet_split wrote them in the admet.models job, prepared once more by the same
+ * browser chemistry: the molecules it refused and could not read (for the native models to leave out the same), its
+ * counts held to the job's chemistry stage records, and each test split kept as a prepared set for the probe
+ * (tcmstudio/harness/tests/<endpoint>) → {endpoint: {train_val, test}}.
+ */
+async function rechem(svc, store, models, chemOpts, endpoints) {
+  const chem = new ChemClient(chemOpts);
+  const out = {};
+  try {
+    for (const e of endpoints) {
+      const stage = models.stages.find((x) => x.id === `chemistry.${e}`);
+      out[e] = {};
+      for (const split of ["train_val", "test"]) {
+        const doc = JSON.parse(new TextDecoder().decode((await jobBytes(svc, models.id, ["split", e, `${split}.json`])) || new Uint8Array()) || "null");
+        const smiles = doc?.smiles || [];
+        const t0 = performance.now();
+        const prep = await chem.prepareAll(smiles, { alerts: false });
+        const counts = counted(prep.rows);
+        out[e][split] = {
+          n: smiles.length, counts, ms: Math.round(performance.now() - t0),
+          refused: prep.rows.flatMap((r, i) => (!r.ok && r.refused ? [[smiles[i], String(r.error || ""), String(r.refused.missing || "")]] : [])),
+          unreadable: prep.rows.flatMap((r, i) => (!r.ok && !r.refused ? [[smiles[i], String(r.error || "")]] : [])),
+          job_counts: stage?.record?.prepared?.[split] ?? null,
+        };
+        if (split === "test") {
+          const files = preparedFiles({ smiles, rows: prep.rows, features: joined(prep.features, Float32Array), bits: joined(prep.bits, Uint8Array) });
+          const dir = ["tcmstudio", "harness", "tests", e];
+          await store.remove(dir, { recursive: true }).catch(() => false);
+          await store.writeText([...dir, "prepared.json"], files.json);
+          await store.writeBytes([...dir, "features.f32"], new Uint8Array(files.features));
+          await store.writeBytes([...dir, "bits.u8"], new Uint8Array(files.bits));
+          out[e][split].smiles = smiles;
+        }
+      }
+      const r = out[e];
+      const same = ["train_val", "test"].every((k) => JSON.stringify(r[k].counts) === JSON.stringify(r[k].job_counts));
+      check(`${e}: the browser chemistry, run again on its splits, gives the job's own counts`, same,
+        ["train_val", "test"].map((k) => `${k}: ${r[k].counts.ok} of ${r[k].n} prepared, ${r[k].counts.refused} refused, ${r[k].counts.invalid} not read${same ? "" : ` (the job recorded ${JSON.stringify(r[k].job_counts)})`}`).join("; "));
+    }
+  } finally {
+    chem.terminate();
+  }
+  return out;
+}
+
+/**
+ * The probe: a job worker booted with its debug op runs admet_native.py's probe on the browser's models (admet/models)
+ * and its prepared sets (the pipeline job's, each endpoint's test split), so that its full-precision predictions and
+ * its CPU domain search are computed by the same code as the native side's → probe()'s result.
+ */
+async function admetProbe(bootDoc, store, { cards, pipelineId, tests }) {
+  const p = new ScienceWorkerPool({
+    size: 1, workerUrl: new URL("/js/scientific/engines/science.worker.js", location.href).href,
+    boot: bootDoc, siteUrl: new URL("/", location.href).href, indexUrl, debug: true,
+  });
+  const t0 = performance.now();
+  try {
+    const lease = await p.lease({ packages: ADMET_PACKAGES });
+    try {
+      const files = ["model_cards.json", ...Object.values(cards).flatMap((c) => [c.model_file, c.domain_file])];
+      await lease.call("mount", { root: "/work/probe/models", dir: modelsDir(store), files: [...new Set(files)] });
+      const sets = [];
+      if (pipelineId) {
+        await lease.call("mount", { root: "/work/probe/prepared", dir: [...jobDir(pipelineId), "prepared"], files: ["prepared.json", "features.f32", "bits.u8"] });
+        await lease.call("mount", { root: "/work/probe/read", dir: [...jobDir(pipelineId), "read"], files: ["molecules.json"] });
+        sets.push({ key: "molecules", prepared_dir: "/work/probe/prepared", molecules: "/work/probe/read/molecules.json", endpoints: Object.keys(cards) });
+      }
+      for (const [e, t] of Object.entries(tests || {})) {
+        await lease.call("mount", { root: `/work/probe/tests/${e}`, dir: ["tcmstudio", "harness", "tests", e], files: ["prepared.json", "features.f32", "bits.u8"] });
+        sets.push({ key: `test:${e}`, prepared_dir: `/work/probe/tests/${e}`, smiles: t.smiles, endpoints: [e] });
+      }
+      const source = await (await fetch("/test/runtime/admet_native.py", { cache: "no-cache" })).text();
+      const text = await lease.call("python", { code: `${source}
+import json as _json
+result = _json.dumps(probe(_json.loads(${JSON.stringify(JSON.stringify({ models_dir: "/work/probe/models", sets }))})))` }, { timeoutMs: 60 * 60_000 });
+      const doc = JSON.parse(text);
+      const memory = await lease.call("memory", {}).catch(() => null);
+      await lease.call("free", { paths: ["/work/probe"] }).catch(() => {});
+      check("probe: the browser's models predicted its prepared sets in a job worker (admet_native.py exact)", Boolean(doc), `${Object.keys(doc || {}).length} sets`, performance.now() - t0);
+      return { sets: doc, memory };
+    } finally {
+      lease.release();
+    }
+  } finally {
+    p.terminateAll();
+  }
+}
+
+async function admet() {
+  const bootDoc = await boot();
+  const plan = admetPlan({ real: q.get("real") === "1", endpoints: (q.get("endpoints") || "").split(",").filter(Boolean) });
+  out.plan = plan;
+  const pin = bootDoc.rdkit || null;
+  if (!check("boot.json pins RDKit.js (version, url, sha256, bytes)", Boolean(pin?.sha256 && pin?.url && pin?.version), JSON.stringify(pin))) return;
+  const rdkit = q.get("rdkit") ? { ...pin, url: new URL(q.get("rdkit"), location.href).href } : pin;
+  out.rdkit = { version: rdkit.version, url: rdkit.url, sha256: rdkit.sha256, mirror: Boolean(q.get("rdkit")) };
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  const projects = await openStore({ name: "tcmstudio-science-check" });
+  const project = await projects.projects.create({ name: "science check: admet" });
+  const listed = await (await fetch("/raw/index.json")).json();
+  const t0 = performance.now();
+  const recorded = new Map();
+  for (const f of listed) {
+    const blob = await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).blob();
+    const rec = await projects.files.add(project.id, new File([blob], f.name), { name: f.name });
+    recorded.set(rec.id, rec);
+  }
+  out.project_files = [...recorded.values()].map((r) => ({ id: r.id, name: r.name, bytes: r.bytes, sha256: r.sha256 }));
+  check("the archive and the molecules are a project's files", recorded.size === listed.length && listed.length >= 2,
+    out.project_files.map((r) => `${r.name} (${r.bytes} bytes)`).join(", "), performance.now() - t0);
+
+  const chemOpts = { Worker, url: new URL("/js/scientific/chem/chem.worker.js", location.href).href, wasm: { url: rdkit.url, sha256: rdkit.sha256 } };
+  const common = { rdkit, ChemWorker: Worker, chemWorkerUrl: chemOpts.url, calibration: async () => null };
+  const p = pool(bootDoc);
+  const projectFiles = projectFilesResolver(projects.files);
+  const svc = new BrowserJobService({ pool: p, store, projectFiles, handlers: createAdmetHandlers(common) });
+  await svc.start();
+  check("job service started", svc.status === "ready", svc.reason || svc.status);
+  const res = {};
+  out.admet = res;
+  const minutes = plan.real ? 150 : 20;
+  try {
+    // the models, from the archive given as a project file
+    const models = await admetJob(svc, "models", plan.models, project.id, recorded, { timeoutMin: minutes });
+    res.models = models;
+    if (!models?.ok) return;
+    const cardsText = await store.readBytes([...modelsDir(store), "model_cards.json"]).then((b) => new TextDecoder().decode(b)).catch(() => null);
+    const cards = JSON.parse(cardsText || "{}");
+    models.cards = cards;
+    models.domains = {};
+    for (const [e, c] of Object.entries(cards)) {
+      const b = await store.readBytes([...modelsDir(store), c.domain_file]).catch(() => null);
+      models.domains[e] = b ? { sha256: await sha256Hex(b), bytes: b.byteLength } : null;
+    }
+    const endpoints = plan.models.params.endpoints || Object.keys(cards);
+    check("the models' cards are in this browser's models", endpoints.every((e) => cards[e]), `${Object.keys(cards).join(", ")}`);
+    res.rechem = await rechem(svc, store, models, chemOpts, endpoints);
+
+    // the molecules
+    const run = await admetJob(svc, "pipeline", plan.pipeline, project.id, recorded, { timeoutMin: minutes });
+    res.pipeline = run;
+    if (run?.ok) Object.assign(run, await pipelineFiles(svc, run));
+
+    // the probe: full-precision predictions with the browser's models
+    const tests = Object.fromEntries(Object.entries(res.rechem).map(([e, r]) => [e, { smiles: r.test.smiles }]));
+    for (const r of Object.values(res.rechem)) delete r.test.smiles;
+    res.probe = await admetProbe(bootDoc, store, { cards, pipelineId: run?.ok ? run.id : null, tests }).catch((err) => {
+      check("probe: the browser's models predicted its prepared sets in a job worker (admet_native.py exact)", false, err?.stack || String(err));
+      return null;
+    });
+
+    // once more with the domain search forced onto the GPU (a software adapter allowed): the harness-only switch
+    const forced = new BrowserJobService({ pool: p, store, projectFiles, handlers: createAdmetHandlers({ ...common, debug: { forceSoftwareGpu: true } }) });
+    await forced.start();
+    const gpu = await admetJob(forced, "forced GPU", plan.pipeline, project.id, recorded, { timeoutMin: minutes });
+    res.forced = gpu;
+    if (gpu?.ok) Object.assign(gpu, await pipelineFiles(forced, gpu));
+  } finally {
+    p.terminateAll();
+  }
+}
+
 (async () => {
   try {
-    if (mode === "omics") await omics();
+    if (mode === "admet") await admet();
+    else if (mode === "omics") await omics();
     else if (mode === "gqd") await gqd();
     else if (mode === "fixture") await fixture();
     else if (mode === "service") await service();

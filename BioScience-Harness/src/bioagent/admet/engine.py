@@ -263,10 +263,13 @@ def _row_problem(row: Any, alerts: bool) -> str | None:
 class PrecomputedEngine:
     """The chemistry another engine prepared and wrote (format: the module docstring), in
     ``directory`` or in its subdirectories, one set each. ``prepare`` gives back the set
-    whose inputs are exactly ``smiles`` in that order (``smiles_sha256``) and refuses
-    anything else: other molecules, rows that do not agree with the arrays (a feature row
-    whose fingerprint counts are not counts or do not give its bits, or whose descriptor
-    columns are not its descriptors), alerts asked for and not computed."""
+    whose inputs are exactly ``smiles`` in that order (``smiles_sha256``), or, when no one
+    set is, the sets whose inputs follow one another to make exactly ``smiles`` (a build
+    prepares an endpoint's ``train_val`` SMILES followed by its ``test`` SMILES as one list,
+    and a browser writes the two splits as two sets). Anything else is refused: other
+    molecules, rows that do not agree with the arrays (a feature row whose fingerprint
+    counts are not counts or do not give its bits, or whose descriptor columns are not its
+    descriptors), alerts asked for and not computed."""
 
     def __init__(self, directory: str | Path) -> None:
         self.directory = Path(directory)
@@ -292,10 +295,49 @@ class PrecomputedEngine:
     def prepare(self, smiles: Sequence[str], *, alerts: bool = True) -> PreparedSet:
         smiles = tuple(smiles)
         digest = smiles_sha256(smiles)
-        if digest not in self._sets:
+        if digest in self._sets:
+            return self._one(digest, smiles, alerts)
+        pieces = self._pieces(smiles)
+        if pieces is None:
             raise ChemError(f"no prepared set in {self.directory} is for these {len(smiles)} "
                             f"molecules (SHA-256 {digest[:12]} of their SMILES); prepare them "
                             "again")
+        parts = [self._one(d, smiles[at:at + n], alerts) for at, n, d in pieces]
+        return PreparedSet(
+            smiles=smiles, ok=np.concatenate([p.ok for p in parts]),
+            errors=sum((p.errors for p in parts), ()),
+            canonical=sum((p.canonical for p in parts), ()),
+            features=np.concatenate([p.features for p in parts]),
+            bits=np.concatenate([p.bits for p in parts]),
+            descriptors=sum((p.descriptors for p in parts), ()),
+            atoms_with_h=sum((p.atoms_with_h for p in parts), ()),
+            alerts=sum((p.alerts for p in parts), ()), needs=sum((p.needs for p in parts), ()))
+
+    def _pieces(self, smiles: tuple[str, ...]) -> list[tuple[int, int, str]] | None:
+        """``(start, length, digest)`` of two or more sets whose inputs, one after another,
+        are exactly ``smiles``, or None. Longer sets are tried first; a set of no molecules
+        is never a piece."""
+        lengths = sorted({doc["n"] for _, doc in self._sets.values() if doc["n"]}, reverse=True)
+        dead: set[int] = set()
+
+        def walk(at: int) -> list[tuple[int, int, str]] | None:
+            if at == len(smiles):
+                return []
+            if at in dead:
+                return None
+            for n in lengths:
+                if at + n > len(smiles) or (at == 0 and n == len(smiles)):
+                    continue
+                digest = smiles_sha256(smiles[at:at + n])
+                if digest in self._sets:
+                    rest = walk(at + n)
+                    if rest is not None:
+                        return [(at, n, digest), *rest]
+            dead.add(at)
+            return None
+        return walk(0) if smiles else None
+
+    def _one(self, digest: str, smiles: tuple[str, ...], alerts: bool) -> PreparedSet:
         path, doc = self._sets[digest]
         if doc["n"] != len(smiles):
             raise ChemError(f"{path / 'prepared.json'} says {doc['n']} molecules for "

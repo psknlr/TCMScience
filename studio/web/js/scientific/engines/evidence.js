@@ -20,7 +20,8 @@
 //               device check) measured faster than the CPU kernel at that size. Each call's rung is decided again here
 //               from its facts (capabilities.js evidenceLevel), not taken from them.
 // Most stages run on the CPU only (Pyodide in the job workers, the page's kernels); a stage whose similarity search
-// ran on WebGPU says so (device "webgpu"), and the receipt's compute section says with what adapter and calibration.
+// ran on WebGPU says so (device "webgpu"), the receipt's device.used is then "cpu+webgpu", and its compute section says
+// with what adapter and calibration.
 // Its assurance is "outputs_verified" only when it succeeded, both digests agree for every output and no output it was
 // expected to write is missing.
 
@@ -101,7 +102,8 @@ export function stageCompute(stage) {
 export function callGpuRung(f) {
   const g = f?.gpu;
   if (!g || typeof g !== "object") return null;
-  const used = f.backend === "webgpu";
+  // a result the job threw away (ctx.discardCompute: a later check rejected it) was not used
+  const used = f.backend === "webgpu" && !f.discarded;
   return evidenceLevel({
     selected: true, reported: Boolean(g.adapter), dispatched: g.dispatched === true, validated: used && g.validated === true, verified: g.verified === true,
     accelerated: used && f.accelerated === true && typeof f.calibration_id === "string" && Boolean(f.calibration_id), adapter_kind: g.adapter?.kind ?? null,
@@ -110,9 +112,10 @@ export function callGpuRung(f) {
 
 /**
  * What the stages' kernel calls ran on → {stages: {id: {calls, backend, backends, gpu, calibration_ids, accelerated,
- * evidence, basis}}, accelerated, gpu_stages, tried_stages}, or null when no stage carries compute facts. A stage is
- * accelerated when at least one of its calls used a GPU result and every call that tried the GPU reached
- * "accelerated"; its evidence is the lowest GPU rung among those calls. A reused stage computed nothing this time.
+ * evidence, discarded, basis}}, accelerated, gpu_stages, tried_stages}, or null when no stage carries compute facts. A
+ * stage is accelerated when at least one of its calls used a GPU result and every call that tried the GPU reached
+ * "accelerated"; its evidence is the lowest GPU rung among those calls. A reused stage computed nothing this time; a
+ * call marked discarded (the job threw its result away: a later check rejected it) used nothing.
  */
 export function computeEvidence(stages = []) {
   const out = {};
@@ -122,13 +125,14 @@ export function computeEvidence(stages = []) {
     const backends = {};
     for (const f of calls) backends[f.backend] = (backends[f.backend] || 0) + 1;
     const tried = calls.filter((f) => f.gpu && typeof f.gpu === "object");
-    const used = calls.filter((f) => f.backend === "webgpu");
+    const used = calls.filter((f) => f.backend === "webgpu" && !f.discarded);
+    const discarded = calls.filter((f) => f.discarded);
     const rungs = tried.map(callGpuRung);
     const lowest = rungs.length ? rungs.reduce((a, b) => (EVIDENCE.indexOf(b) < EVIDENCE.indexOf(a) ? b : a)) : null;
     const accelerated = used.length ? rungs.every((r) => r === "accelerated") : tried.length ? false : null;
     const first = tried.find((f) => f.gpu.adapter)?.gpu.adapter ?? null;
     const sum = (k) => { const xs = tried.map((f) => f.gpu[k]).filter(Number.isFinite); return xs.length === tried.length && xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) * 1000) / 1000 : null; };
-    const rejected = tried.filter((f) => f.backend !== "webgpu");
+    const rejected = tried.filter((f) => f.backend !== "webgpu" || f.discarded);
     out[String(s.id)] = {
       calls: calls.length,
       backend: Object.keys(backends).length === 1 ? Object.keys(backends)[0] : "mixed",
@@ -137,12 +141,14 @@ export function computeEvidence(stages = []) {
         adapter: first ? { kind: first.kind ?? null, vendor: first.vendor ?? "", architecture: first.architecture ?? "", description: first.description ?? "" } : null,
         tried: tried.length, used: used.length, dispatched: tried.filter((f) => f.gpu.dispatched === true).length,
         validated: used.filter((f) => f.gpu.validated === true).length, verified: tried.every((f) => f.gpu.verified === true),
-        not_used: rejected.map((f) => String(f.gpu.rejected || f.gpu.error || "not used")).slice(0, 5),
+        not_used: rejected.map((f) => String(f.gpu.rejected || f.gpu.error || f.discarded || "not used")).slice(0, 5),
         kernel_ms: sum("kernel_ms"), total_ms: sum("total_ms"),
       } : null,
       calibration_ids: [...new Set(calls.map((f) => f.calibration_id).filter((x) => typeof x === "string" && x))],
       accelerated,
       evidence: lowest,
+      // calls whose results the job did not use after all, with why (the first one's)
+      discarded: discarded.length ? { calls: discarded.length, reason: String(discarded[0].discarded) } : null,
       basis: accelerated === true ? used[0].basis : used.length ? `not every GPU call reached "accelerated" (lowest: ${lowest})`
         : tried.length ? "the GPU was tried and its results not used" : "the GPU computed nothing for this stage",
     };
@@ -190,6 +196,7 @@ export function platformOf(infos = []) {
 }
 
 const round3 = (x) => Math.round(x * 1000) / 1000;
+const isObject = (v) => Boolean(v) && typeof v === "object" && !Array.isArray(v);
 
 function seconds(from, to) {
   const a = Date.parse(from || "");
@@ -206,11 +213,12 @@ function seconds(from, to) {
  * busy_s, memory: {wasm_peak_bytes, measured_by}}; checks: the checks that passed (the handler's and the service's);
  * problems, limitations: lists of strings; stages: job.stages; paramsSha256: SHA-256 of the canonical JSON of the
  * parameters (the bytes receipt.input_sha256 is taken over; the runner's params_sha256 hashes Python's default
- * json.dumps spacing, so the two are not compared); expected / missing: output names.
+ * json.dumps spacing, so the two are not compared); expected / missing: output names; provenance: what the results
+ * rest on ({models: [model cards' digests]}, default job.provenance).
  */
 export function buildJobReceipt({
   job, artefacts, workerDigests = {}, pageDigests = {}, workers = [], runtime = null, platform = null, resources = null,
-  checks = [], problems = [], limitations = [], stages, paramsSha256 = null, expected = [], missing = [],
+  checks = [], problems = [], limitations = [], stages, paramsSha256 = null, expected = [], missing = [], provenance,
 } = {}) {
   const j = job || {};
   const arts = Array.isArray(artefacts) ? artefacts : Array.isArray(j.artefacts) ? j.artefacts : [];
@@ -235,6 +243,10 @@ export function buildJobReceipt({
       unused.length ? `the GPU was tried for ${unused.join(", ")} and its results not used` : null,
     ].filter(Boolean).join("; ");
   }
+  // what the page itself computed for stages that used no GPU (the chemistry worker's RDKit.js, a CPU kernel); a stage
+  // whose search Python did itself (preference reference) computed nothing here
+  const pageStages = compute ? Object.entries(compute.stages).filter(([, c]) => !(c.gpu?.used > 0) && Object.keys(c.backends).some((b) => b !== "python")) : [];
+  const pageNote = pageStages.length ? `; in this page: ${pageStages.map(([id, c]) => `${id} ${Object.keys(c.backends).filter((b) => b !== "python").join(" and ")}${c.discarded ? ` (${c.discarded.reason})` : ""}`).join(", ")}` : "";
   return {
     schema: JOB_RECEIPT_SCHEMA,
     job_id: j.id ?? null,
@@ -253,10 +265,12 @@ export function buildJobReceipt({
     })),
     device: {
       assigned: "cpu",
-      used: ran ? "cpu" : null,
+      // the CPU computed every job (its Python, the page's kernels); a stage's kernel calls whose GPU result was used
+      // add WebGPU
+      used: ran || compute ? (compute?.gpu_stages.length ? "cpu+webgpu" : "cpu") : null,
       evidence: ev.evidence,
       note: ran
-        ? `computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in ${n} dedicated Web Worker${n === 1 ? "" : "s"}, one thread each; ${gpuNote}`
+        ? `computed on this device's CPU: CPython compiled to WebAssembly (Pyodide) in ${n} dedicated Web Worker${n === 1 ? "" : "s"}, one thread each${pageNote}; ${gpuNote}`
         : "assigned the CPU; no job worker computed anything for this job",
       stages: Object.keys(deviceStages).length ? deviceStages : null,
       verify_stages: ev.verify_stages,
@@ -285,6 +299,9 @@ export function buildJobReceipt({
     compute,
     complete: typeof j.outcome?.complete === "boolean" ? j.outcome.complete : null,
     limitations: [...(limitations || [])].map(String),
+    // what the results rest on (an ADMET run's model cards), as the runner's receipt.provenance keeps it; null when the
+    // job named nothing
+    provenance: isObject(provenance ?? j.provenance) ? provenance ?? j.provenance : null,
     resources,
     assurance: ev.assurance,
   };

@@ -146,9 +146,9 @@ def licence_of(spec: Any, *, record: bool = False) -> dict[str, Any]:
 
 
 def registry_document() -> dict[str, Any]:
-    """``runtime/datasets.json``: the raw files the browser's research snapshot job needs.
+    """``runtime/datasets.json``: the raw files the browser's jobs acquire.
 
-    One group, ``research``: the files ``bioagent.sources.pipeline.required_files`` names for
+    Two groups. ``research``: the files ``bioagent.sources.pipeline.required_files`` names for
     the research sources with the network ones (STRING, Reactome, UniProt), in its order, so
     the browser acquires exactly what ``bioagent snapshots build`` reads. Each file carries
     its reviewed URL and host, its reviewed size and checksum (null where there is none:
@@ -160,8 +160,9 @@ def registry_document() -> dict[str, Any]:
     answer directly; ``redirect_hosts`` are the hosts besides its own a download of it may
     be redirected to, none reviewed so far. ``rate_rps`` is the pace bioagent's acquisition
     keeps with the file's host (requests a second: a source card's rate, a robots.txt
-    Crawl-delay, else one a second), which the relay keeps too. Nothing in it depends on
-    this machine: the same code gives the same document."""
+    Crawl-delay, else one a second), which the relay keeps too. ``admet``: the TDC ADMET
+    group archive the browser's ADMET model build reads (:func:`_admet_group`). Nothing in it
+    depends on this machine: the same code gives the same document."""
     import urllib.parse
 
     from bioagent.acquisition.downloader import PACER, _host_rates
@@ -182,7 +183,33 @@ def registry_document() -> dict[str, Any]:
             "rate_rps": float(rates.get(host, PACER.default_rps))})
     return {"schema": REGISTRY_SCHEMA, "groups": {"research": {
         "title": {"zh": "研究数据快照的原始文件", "en": "Raw files of the research snapshots"},
-        "sources": list(RESEARCH_SOURCES), "network": True, "files": files}}}
+        "sources": list(RESEARCH_SOURCES), "network": True, "files": files},
+        "admet": _admet_group(rates, PACER.default_rps)}}
+
+
+def _admet_group(rates: Mapping[str, float], default_rps: float) -> dict[str, Any]:
+    """The ``admet`` group: the TDC ADMET benchmark group archive the browser's model build
+    (admet.models) trains on, at the URL and with the SHA-256 ``bioagent.admet.models``
+    downloads and pins natively (it is not in the acquisition table, so ``reviewed`` is
+    false; the pin is the checksum). Its size has not been seen from here (null): the
+    browser checks the digest. Its licence is TDC's per-dataset terms, which no licence
+    record here has read, so its redistribution is unknown. Harvard Dataverse may redirect
+    the download to storage of its own; no such host has been seen from here, so none is
+    listed, and the relay refuses a redirect to one, naming the hosts it allows."""
+    import urllib.parse
+
+    from bioagent.admet.models import TDC_ADMET_SHA256, TDC_ADMET_URL
+
+    host = urllib.parse.urlsplit(TDC_ADMET_URL).hostname or ""
+    return {"title": {"zh": "ADMET 模型的训练数据（TDC ADMET 基准组）",
+                      "en": "Training data of the ADMET models (the TDC ADMET benchmark group)"},
+            "sources": ["tdc"], "network": True, "files": [{
+                "name": "tdc_admet_group.zip", "url": TDC_ADMET_URL, "host": host, "bytes": None,
+                "checksum": f"sha256:{TDC_ADMET_SHA256}", "reviewed": False, "project": "TDC",
+                "fmt": "zip", "license": "LicenseRef-TDC-per-dataset",
+                "redistribution": REDISTRIBUTION_UNKNOWN,
+                "relay": True, "redirect_hosts": [],
+                "rate_rps": float(rates.get(host, default_rps))}]}
 
 
 def _hosts(spec: Any) -> list[str]:

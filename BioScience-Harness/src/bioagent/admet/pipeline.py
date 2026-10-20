@@ -20,6 +20,14 @@ held-out metric and score, applicability-domain threshold and digest, library ve
 searched the applicability domain (``similarity``: backend, what was checked, and why a
 browser's similarities were rejected, when they were; null when nothing was predicted).
 
+A molecule the chemistry engine refused, rather than could not read, is told apart: a
+browser's RDKit.js does not port every step native RDKit standardises with, nor take a
+molecule of every size, and refuses a molecule it cannot prepare exactly as native RDKit
+does (its prepared row says ``need`` ``runner`` and why). Such a molecule is in
+``refused`` (run.json, the summary), not ``failures``, and the warnings and
+``limitations.md`` say that it was refused, why, and that the runner reads it. Natively
+nothing is refused.
+
 Every stage is recorded (``bioagent.runrecord``; the names are ``STAGES``) in
 ``stages.json`` while the run works and in ``run.json`` at the end, with ``complete`` and
 ``limitations.md``. Without the models, or without the model of an endpoint asked for,
@@ -50,7 +58,8 @@ from ..runrecord import (LIMITATIONS_FILE, STAGES_FILE, StageRecorder, output_pr
                          record_problems, stage_limitations, tsv_shape, write_limitations)
 from . import models as M
 from .chem import ChemError, tanimoto_best
-from .engine import CPU_SIMILARITY, ChemEngine, PreparedSet, Similarity, default_engine, identity
+from .engine import (CPU_SIMILARITY, ChemEngine, PrecomputedEngine, PreparedSet, Similarity,
+                     default_engine, identity)
 from .rules import rules_of
 
 __all__ = ["AdmetConfig", "AdmetRun", "read_molecules", "run_admet", "verify_run",
@@ -108,11 +117,14 @@ class AdmetRun:
     limitations: list[str] = field(default_factory=list)
     chemistry: dict[str, Any] = field(default_factory=dict)
     similarity: dict[str, Any] | None = None
+    #: molecules the chemistry engine refused (name: why), which the runner's RDKit reads
+    refused: dict[str, str] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
         outside = {e: sum(not r["predictions"][e]["in_domain"] for r in self.molecules)
                    for e in self.cards}
         return {"molecules": len(self.molecules), "failures": sorted(self.failures),
+                "refused": sorted(self.refused),
                 "models_built": self.models_built, "endpoints": list(self.cards),
                 "outside_domain": outside, "missing_endpoints": list(self.missing_endpoints),
                 "chemistry": dict(self.chemistry), "similarity": self.similarity,
@@ -146,7 +158,8 @@ def _identity(card: Mapping[str, Any]) -> dict[str, Any]:
 
 def run_admet(source: str | Path | Sequence[tuple[str, str]], config: AdmetConfig,
               out_dir: str | Path, *, engine: ChemEngine | None = None,
-              similarity: Similarity | None = None) -> AdmetRun:
+              similarity: Similarity | None = None,
+              inputs: Mapping[str, str] | None = None) -> AdmetRun:
     """Every stage, recorded as it runs (``runrecord.StageRecorder``). Without the models,
     or without a model of an endpoint that was asked for, the models and predictions
     stages are unavailable and the run is incomplete: descriptors, rules and alerts are
@@ -156,21 +169,26 @@ def run_admet(source: str | Path | Sequence[tuple[str, str]], config: AdmetConfi
     back with ``engine.PrecomputedEngine``). ``similarity`` searches each model's
     applicability domain (default ``chem.tanimoto_best`` on this CPU); one with a
     ``record()`` (``engine.PrecomputedSimilarity``) that rejected what it was offered has
-    every endpoint recomputed on the CPU, and the run warns of it."""
+    every endpoint recomputed on the CPU, and the run warns of it.
+
+    ``inputs`` (path: SHA-256) are the files ``source`` was read from when it is given as
+    a list of (name, SMILES): run.json records them as it records a molecule file, and
+    ``verify_run`` re-hashes them."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     rec = StageRecorder(out, PIPELINE, plan=STAGES)
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    inputs = {}
+    files = dict(inputs or {})
     if isinstance(source, (str, Path)):
         try:
             if Path(str(source)).is_file():
-                inputs[str(source)] = _sha256(Path(str(source)))
+                files[str(source)] = _sha256(Path(str(source)))
         except (OSError, ValueError):                 # a long SMILES is no file name
             pass
     entries = read_molecules(source) if isinstance(source, (str, Path)) else list(source)
     warnings: list[str] = []
     failures: dict[str, str] = {}
+    refused: dict[str, str] = {}
     rows: list[dict[str, Any]] = []
     chem_engine = engine or default_engine()
     # natively the stages name RDKit as they always have; another engine by its detail
@@ -181,7 +199,7 @@ def run_admet(source: str | Path | Sequence[tuple[str, str]], config: AdmetConfi
         prepared = chem_engine.prepare([smiles for _, smiles in entries])
         for i, (name, smiles) in enumerate(entries):
             if not prepared.ok[i]:
-                failures[name] = prepared.errors[i]
+                (refused if prepared.needs[i] else failures)[name] = prepared.errors[i]
                 continue
             rows.append({"name": name, "input_smiles": smiles,
                          "smiles": prepared.canonical[i], "descriptors": {}, "rules": {},
@@ -190,13 +208,23 @@ def run_admet(source: str | Path | Sequence[tuple[str, str]], config: AdmetConfi
         if failures:
             warnings.append(f"{len(failures)} molecules could not be read: "
                             + "; ".join(f"{k}: {v}" for k, v in failures.items()))
+        if refused:
+            warnings.append(f"{len(refused)} molecules were refused by {chem_engine.detail}, "
+                            "which cannot prepare them exactly as native RDKit does; "
+                            "the runner's RDKit reads them: "
+                            + "; ".join(f"{k}: {v}" for k, v in refused.items()))
         st.reason = (f"{len(kept)} of {len(entries)} molecules read and standardised (largest "
-                     "fragment, neutralised where possible)")
+                     "fragment, neutralised where possible)" + _refused_note(refused, chem_engine)
+                     + _chemistry_note(chem_engine))
         if not kept:
             st.status = "failed"
-            st.reason = ("no molecule could be read" if entries else "no molecule was given")
+            st.reason = ((("no molecule could be read" if not refused else
+                           "no molecule could be prepared here") if entries
+                          else "no molecule was given") + _refused_note(refused, chem_engine))
             if entries:
-                warnings.append("no molecule could be read, so nothing was predicted")
+                warnings.append("no molecule could be read, so nothing was predicted"
+                                if not refused else
+                                "no molecule could be prepared here, so nothing was predicted")
     fills = {"descriptors": lambda i: dict(prepared.descriptors[i]),
              "rules": lambda i: rules_of(prepared.descriptors[i], prepared.atoms_with_h[i]),
              "alerts": lambda i: [{"catalog": c, "alert": a} for c, a in prepared.alerts[i]]}
@@ -281,9 +309,9 @@ def run_admet(source: str | Path | Sequence[tuple[str, str]], config: AdmetConfi
                          + _searched_note(searched))
     run = AdmetRun(out_dir=out, molecules=rows, models_built=modelset is not None,
                    cards=cards, failures=failures, warnings=warnings,
-                   chemistry=identity(chem_engine), similarity=searched)
+                   chemistry=identity(chem_engine), similarity=searched, refused=refused)
     run.missing_endpoints = missing
-    _write(run, config, started, entries, rec, inputs)
+    _write(run, config, started, entries, rec, files)
     return run
 
 
@@ -303,6 +331,30 @@ def _domain_search(similarity: Similarity | None, endpoints: Sequence[str],
     if record.get("rejected"):
         found = {e: tanimoto_best(prepared.bits, modelset.domain(e)) for e in endpoints}
     return found, record
+
+
+def _refused_note(refused: Mapping[str, str], engine: ChemEngine) -> str:
+    """The standardize stage's word on the molecules the engine refused (none natively)."""
+    if not refused:
+        return ""
+    return (f"; {len(refused)} refused by {engine.detail}, which cannot prepare them exactly as "
+            "native RDKit does (the runner's RDKit reads them)")
+
+
+def _chemistry_note(engine: ChemEngine) -> str:
+    """Where the chemistry's time is, when it was not native RDKit's: an engine prepares every
+    molecule at once (standardisation, descriptors, fingerprints, alerts), so the
+    descriptors, rules and alerts stages only read what it gave. Natively the stages read
+    as they always have."""
+    if engine.name == "rdkit":
+        return ""
+    if isinstance(engine, PrecomputedEngine):
+        return (f"; the chemistry (standardisation, descriptors, fingerprints, alerts) is what "
+                f"{engine.detail} prepared before this run, read back and checked here, so its "
+                "time is not in this run's stages")
+    return (f"; {engine.detail} prepares every molecule's chemistry at once (standardisation, "
+            "descriptors, fingerprints, alerts), so its time is this stage's and the "
+            "descriptors, rules and alerts stages only read it")
 
 
 def _searched_note(searched: Mapping[str, Any]) -> str:
@@ -329,6 +381,12 @@ def _limitations(run: AdmetRun, rec: StageRecorder) -> list[str]:
     if run.failures:
         lines.append(f"{len(run.failures)} molecules could not be read and have no result: "
                      + ", ".join(sorted(run.failures)) + ".")
+    if run.refused:
+        lines.append(f"{len(run.refused)} molecules were refused by "
+                     f"{run.chemistry.get('detail')}, which cannot prepare them exactly as "
+                     "native RDKit does (run.json's refused says why for each), and have no "
+                     "result here; the runner's RDKit reads them: "
+                     + ", ".join(sorted(run.refused)) + ".")
     lines += stage_limitations(rec.stages)
     return lines
 
@@ -394,6 +452,7 @@ def _write(run: AdmetRun, config: AdmetConfig, started: str,
             "models": {e: _identity(c) for e, c in run.cards.items()},
             "outputs": outputs, "warnings": run.warnings, "inputs": dict(inputs),
             "read": [r["name"] for r in run.molecules], "failures": dict(run.failures),
+            "refused": dict(run.refused),
             "missing_endpoints": list(run.missing_endpoints),
             "model_cache": str((Path(config.cache_dir) if config.cache_dir
                                 else default_cache()) / "models"),

@@ -3,9 +3,13 @@
 // (./job-manager.js), and returns a "job_submitted" envelope at once; job_status for a browser job (an id starting
 // "bj-") is answered from the job's record. The model sees the same shapes a runner job gives it.
 //
-// A job reads the project's own files (the omics jobs' count tables): the page's file store (core/store.js) is given
-// to the service as a resolver, {find(projectId, ref)}, which names a file by its id or, as the runner resolves a bare
-// name among its uploads, by its name: the newest file of that name in the project.
+// A job reads the project's own files (the omics jobs' count tables, the ADMET jobs' molecules and archive): the page's
+// file store (core/store.js) is given to the service as a resolver, {find(projectId, ref)}, which names a file by its id
+// or, as the runner resolves a bare name among its uploads, by its name: the newest file of that name in the project.
+//
+// The ADMET jobs (pipelines/admet.js) also get the RDKit.js build boot.json pins (its rdkit entry: the wasm's URL and
+// SHA-256), the dataset workspace of the registry's "admet" group (the TDC archive, through the site's relay) and the
+// person's acceleration setting (settings.browserAcceleration: where the applicability-domain search may run).
 
 import { pipelineArguments } from "../../core/catalog.js";
 import { glossary, t } from "../../core/i18n.js";
@@ -14,6 +18,7 @@ import { canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
 import { DatasetWorkspace } from "../data/datasets.js";
 import { OpfsStore } from "../data/opfs-store.js";
 import { HANDLERS } from "../pipelines/network-pharmacology.js";
+import { ADMET_HANDLERS, createAdmetHandlers } from "../pipelines/admet.js";
 import { OMICS_HANDLERS } from "../pipelines/omics.js";
 import { SELFTEST_KIND, browserSelfTest } from "../pipelines/selftest.js";
 import { BrowserJobService, envelopeFor } from "./job-manager.js";
@@ -24,7 +29,7 @@ export const BROWSER_JOB_ID = /^bj-[0-9a-f]{8,}$/;
 
 const ENDED = ["succeeded", "failed", "cancelled", "interrupted"];
 /** The handlers this page has, by kind: what a call needs the runner for is asked of them before it is placed. */
-const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS].map((h) => [h.kind, h]));
+const BY_KIND = new Map([...HANDLERS, ...OMICS_HANDLERS, ...ADMET_HANDLERS].map((h) => [h.kind, h]));
 
 /**
  * The job kind and parameters a call stands for ({kind, params}), or null when it is not a job this service runs; a
@@ -97,6 +102,8 @@ export class BrowserJobsRuntime {
     this.service = service;
     /** Whether research snapshots are built in this browser (true/false), null until the page has looked (ui/app.js). */
     this.snapshots = null;
+    /** The ADMET endpoints whose models are built in this browser ([] when none), null until the page has looked. */
+    this.admetModels = null;
   }
 
   get status() {
@@ -161,6 +168,8 @@ export class BrowserJobsRuntime {
       // job service: the reason is the need's, as the router's own needs_runner (tcmstudio.capability.REASON_NEED)
       if (err?.need === "dataset") env.error.reason = "needs_dataset";
       else if (err?.need === "runner") env.error.reason = "needs_runner";
+      // more than a browser worker holds (pipeline.admet's molecules counted before it is queued): the runner runs it
+      else if (err?.need === "memory") env.error.reason = "too_large_for_browser";
       else if (type === "unavailable") env.error.reason = "needs_job_service";
       return env;
     }
@@ -183,6 +192,10 @@ export class BrowserJobsRuntime {
       receipt: baseReceipt({ where: "browser", runtime: "studio-jobs/1", input_sha256, kind: "system", outcome: "succeeded" }),
       job: { id: job.id, kind: job.kind, state: job.state, where: "browser" }, approval: null, error: null,
     };
+    // what a succeeded job's results rest on (an ADMET run's model cards), as the runner's receipt.provenance names it
+    if (succeeded && isPlainObject(job.provenance)) {
+      env.receipt.provenance = { datasets: [], seeds: {}, models: Array.isArray(job.provenance.models) ? [...job.provenance.models] : [] };
+    }
     return env;
   }
 
@@ -231,7 +244,8 @@ function failed(tool, input_sha256, type, message, hint) {
  * The page's job service, ready to take jobs, or one whose status says why it cannot: no Web Workers, no IndexedDB for
  * the job records, no private file storage (OPFS) for the files, or no boot.json. Nothing heavy starts here: Pyodide
  * boots in a job worker when the first job runs. opts: {bootUrl, siteUrl, Worker, indexedDB, storage, fetch, files:
- * the page's project file store (core/store.js `files`), which the jobs that read project files find them in}.
+ * the page's project file store (core/store.js `files`), which the jobs that read project files find them in;
+ * settings: () → the page's settings (their browserAcceleration: "auto" | "cpu" | "reference")}.
  */
 export async function createJobsRuntime(opts = {}) {
   const site = opts.siteUrl || new URL("../../../", import.meta.url).href;
@@ -259,9 +273,18 @@ export async function createJobsRuntime(opts = {}) {
     store, siteUrl: site, Worker, registryUrl: new URL(boot.datasets?.path || "runtime/datasets.json", site).href,
     workerUrl: new URL("js/scientific/data/data.worker.js", site).href,
   });
+  const admetData = new DatasetWorkspace({
+    store, siteUrl: site, Worker, group: "admet", registryUrl: new URL(boot.datasets?.path || "runtime/datasets.json", site).href,
+    workerUrl: new URL("js/scientific/data/data.worker.js", site).href,
+  });
+  const admet = createAdmetHandlers({
+    rdkit: isPlainObject(boot.rdkit) ? boot.rdkit : null, ChemWorker: Worker,
+    chemWorkerUrl: new URL("js/scientific/chem/chem.worker.js", site).href,
+    preference: () => (typeof opts.settings === "function" ? opts.settings()?.browserAcceleration : null) || "auto",
+  });
   const service = new BrowserJobService({
-    indexedDB: opts.indexedDB, pool, store, datasets, projectFiles: projectFilesResolver(opts.files),
-    handlers: [...HANDLERS, ...OMICS_HANDLERS, browserSelfTest],
+    indexedDB: opts.indexedDB, pool, store, datasets, datasetGroups: { admet: admetData }, projectFiles: projectFilesResolver(opts.files),
+    handlers: [...HANDLERS, ...OMICS_HANDLERS, ...admet, browserSelfTest],
   });
   try {
     await service.start();

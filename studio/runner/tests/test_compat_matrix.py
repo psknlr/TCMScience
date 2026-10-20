@@ -52,3 +52,17 @@ def test_classes_backends_and_validation_come_from_the_catalog():
     text = compat_matrix.summary(compat_matrix.rows())
     assert f"Public database connectors ({sources} sources, {operations} operations)" in text
     assert sources == len({e["connector"]["key"] for e in entries.values() if e["kind"] == "connector"})
+
+
+def test_the_admet_jobs_are_browser_jobs_and_the_governed_skill_stays_on_the_runner():
+    sys.path.insert(0, str(SCRIPT.parent))
+    import compat_matrix
+    from tcmstudio.browser_jobs import ADMET_MOLECULES_MAX
+    by_id = {r["id"]: r for r in compat_matrix.rows()}
+    for eid in ("job.admet.models", "job.pipeline.admet"):
+        assert by_id[eid]["class"] == "1j" and "scikit-learn" in by_id[eid]["local_backends"], eid
+        assert "RDKit.js" in by_id[eid]["notes"], eid
+    assert f"more than {ADMET_MOLECULES_MAX:,} molecules" in by_id["job.pipeline.admet"]["notes"]
+    assert by_id["skill.predict-admet"]["class"] == "7"
+    text = compat_matrix.summary(compat_matrix.rows())
+    assert "| ADMET from structure: the model build and the predictions | job.admet.models, job.pipeline.admet | 1j |" in text
