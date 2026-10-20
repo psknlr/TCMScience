@@ -157,16 +157,22 @@ _MOLECULES_FILE = "molecules.json"
 #:   torsions) 507 s, on one thread.
 #: - Memory, per Vina instance (a worker keeps its peak). Each run builds Vina's tables of pair energies: one over
 #:   the scoring function's atom types (about 330 MB, whatever the inputs) and one over the ligand's atom pairs
-#:   (0.3 MB a pair), and the grid maps of the box. Measured: 357-429 MB for the fixture ligands (12-23 atoms),
-#:   611 MB at 40 atoms, 899 MB at 54, 1.38 GB at 66, 1.96 GB at 79; an 18 Å box 357 MB, 60 Å 618 MB, 90 Å 1.29 GB,
-#:   126 Å 2.78 GB (a 12-atom ligand); 79 atoms in a 126 Å box ran out of wasm32's 4 GB (std::bad_alloc). The
-#:   receptor counts little: the pocket tiled to 70,100 atoms (copies 60 Å apart, outside the box) took 449 MB and
-#:   +1.4 s a run, 140,200 atoms 458 MB and +2.5 s (Vina reads the receptor again for every run), with the same
-#:   poses; reading 100,243 atoms here (read_receptor) took 0.24 s in CPython.
+#:   (0.3 MB a pair), and the grid maps of the box; each Monte Carlo task (exhaustiveness of them) then holds a copy
+#:   of the model, the receptor's atoms in it. Measured: 357-429 MB for the fixture ligands (12-23 atoms), 611 MB at
+#:   40 atoms, 899 MB at 54, 1.38 GB at 66, 1.96 GB at 79; an 18 Å box 357 MB, 60 Å 618 MB, 90 Å 1.29 GB, 126 Å
+#:   2.78 GB (a 12-atom ligand); 79 atoms in a 126 Å box ran out of wasm32's 4 GB (std::bad_alloc). The receptor
+#:   costs memory with the exhaustiveness, about 10 MiB a Monte Carlo task per 100,000 atoms: the pocket tiled to
+#:   100,243 atoms (copies outside the box) took 435 MiB at exhaustiveness 8 and 1,008 MiB at 64 (a 12-atom ligand,
+#:   an 18 Å box; 358 MiB at either with the 701-atom pocket), 1,120 MiB at 64 in a 60 Å box; 70,100 atoms 449 MB
+#:   and 140,200 atoms 458 MB at exhaustiveness 8. It costs time too, +1.4 s a run at 70,100 atoms and +2.5 s at
+#:   140,200 (Vina reads the receptor again for every run), with the same poses; reading 100,243 atoms here
+#:   (read_receptor) took 0.41 s in CPython. The most within these bounds: 79 atoms in a 60 Å box at exhaustiveness
+#:   64 with 100,243 receptor atoms, 2,059 MiB (1,957 MiB with the 701-atom pocket, at exhaustiveness 8 or 64).
 #: So a ligand of at most DOCK_LIGAND_ATOMS_MAX atoms (as the PDBQT lists them, hydrogens included) in a box of at
-#: most DOCK_BOX_VOLUME_MAX Å³ keeps one Vina instance near 2 GB at most (79 atoms in a 60 Å box: 1.96 GB), and
-#: DOCK_RECEPTOR_ATOMS_MAX bounds what reading the receptor adds to each run. Larger runs are refused, for the
-#: runner (native Vina has none of these bounds).
+#: most DOCK_BOX_VOLUME_MAX Å³ with a receptor of at most DOCK_RECEPTOR_ATOMS_MAX atoms keeps one Vina instance near
+#: 2 GiB at most at any exhaustiveness (2,059 MiB measured), and the page plans each Vina worker at 2.25 GB
+#: (web/js/scientific/pipelines/dock.js GB_PER_VINA). Larger runs are refused, for the runner (native Vina has none
+#: of these bounds).
 DOCK_LIGANDS_MAX = 100
 DOCK_RECEPTOR_ATOMS_MAX = 100_000
 DOCK_LIGAND_ATOMS_MAX = 80
@@ -1280,7 +1286,9 @@ def run_dock(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any
     more than 2 Å, or a best pose that failed its checks; ``failed`` names the stages at
     fault) or 2 (refused). The prepared docking (``bioagent.docking.prepared``) runs on the
     Vina results the page computed (``results_dir/<key>.json``, read by ``PrecomputedVina``,
-    which refuses a result for another receptor, ligand, box or setting) with the same
+    which refuses a result for another receptor, ligand, box or setting, or whose energies
+    are not its poses'; a WebAssembly build's results only from the pinned build,
+    ``catalog.VINA_WASM``) with the same
     arguments ``dock_read`` was given: the plan it wrote (``plan_dir/dock_plan.json``) must
     still be what these inputs and settings make, or the run is refused. The inputs are
     recorded in run.json at their paths and re-hashed by ``verify_run``. Refused as
@@ -1315,6 +1323,12 @@ def run_dock(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any
         + f" on the Vina results in {dirs['results_dir'].name}")
     try:
         engine = PrecomputedVina(dirs["results_dir"])
+        # run.json names the engine as the results do: a WebAssembly build must be the pinned one
+        from .catalog import VINA_WASM
+        if engine.build == "wasm" and engine.wasm_sha256 != VINA_WASM["sha256"]:
+            return _refused(log, f"the Vina results come from a WebAssembly build with SHA-256 "
+                                 f"{str(engine.wasm_sha256)[:12]}…, not the pinned AutoDock Vina "
+                                 f"{VINA_WASM['version']} ({VINA_WASM['sha256'][:12]}…)")
         with runrecord.watching(_stages_progress(emit)):
             run = run_prepared_docking(paths["receptor"], paths["ligands"], config,
                                        dirs["out_dir"], engine=engine,

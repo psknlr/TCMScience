@@ -50,8 +50,10 @@ from tcmstudio.browser_jobs import (ADMET_MOLECULES_MAX, DOCK_BOX_VOLUME_MAX, DO
                                     DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX)
 
 # what a browser docking run takes, measured with Vina's WebAssembly build under Node (tcmstudio.browser_jobs)
-DOCK_MEASURED = ("one Vina instance 357-429 MB for the fixture's ligands and 1.96 GB for a 79-atom one, 3.6-14.3 s "
-                 "a ligand at exhaustiveness 8, 24 runs in 52 s on 4 workers")
+DOCK_MEASURED = ("one Vina instance 357-429 MB for the fixture's ligands and up to 2,059 MiB within these bounds (a "
+                 "79-atom ligand in a 60 Å box at exhaustiveness 64, a 100,243-atom receptor: the receptor adds about "
+                 "10 MiB a Monte Carlo task per 100,000 atoms), 3.6-14.3 s a ligand at exhaustiveness 8, 24 runs in "
+                 "52 s on 4 workers")
 # what a browser ADMET run takes, measured in Pyodide 314.0.7 under Node (tcmstudio.browser_jobs)
 ADMET_MEASURED = ("1,000 molecules 224 MB, 10,000 625 MB, 20,000 1.0 GB at the WebAssembly memory's peak, 23 s "
                   "for 20,000 with the page's domain search and 113 s when Python recomputes it")
@@ -391,10 +393,12 @@ FAMILIES = [
     ("Docking prepared inputs (PDBQT): AutoDock Vina 1.2.7 compiled to WebAssembly",
      "job.pipeline.dock (a .pdbqt receptor and ligands)", "1j",
      f"one Vina instance per dedicated worker: about 330 MB of tables whatever the inputs, growing with the square of "
-     f"the ligand's atoms (357-429 MB for 12-23 atoms, 1.96 GB at 79) and with the box (2.78 GB for a 126 Å box); "
+     f"the ligand's atoms (357-429 MB for 12-23 atoms, 1.96 GB at 79), with the box (2.78 GB for a 126 Å box) and "
+     f"with the receptor's atoms times the exhaustiveness (about 10 MiB a Monte Carlo task per 100,000 atoms); "
      f"3.6-14.3 s a ligand at exhaustiveness 8, 24 runs in 52 s on 4 workers (Node, one thread a worker); so a "
      f"browser job takes at most {DOCK_LIGANDS_MAX} ligands of at most {DOCK_LIGAND_ATOMS_MAX} atoms, a receptor of "
-     f"{DOCK_RECEPTOR_ATOMS_MAX:,} atoms and a box of {DOCK_BOX_VOLUME_MAX:,} Å³",
+     f"{DOCK_RECEPTOR_ATOMS_MAX:,} atoms and a box of {DOCK_BOX_VOLUME_MAX:,} Å³ (at most 2,059 MiB an instance, "
+     f"measured; the page plans 2.25 GB a Vina worker)",
      "not yet measured",
      "a browser job: each Vina run in the WebAssembly build (reproducible from pinned inputs, held to its SHA-256), "
      "the stages bioagent.docking.prepared in Pyodide, as `bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt` runs natively; "

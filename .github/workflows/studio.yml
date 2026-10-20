@@ -164,6 +164,15 @@ jobs:
           key: vina-wasm-inputs-${{ steps.pins.outputs.key }}
       - name: Rebuild the WebAssembly Vina and compare it with the committed build
         run: python studio/scripts/build_vina_wasm.py --check --cache "$RUNNER_TEMP/vina-wasm-inputs"
+      - name: Tier S, every fixture ligand × seeds 1-8 (the committed WebAssembly build against the native reference)
+        # the search rule over the whole native reference (web/test/fixtures/vina_parity.json): per ligand, the median
+        # best score over seeds 1-8 within 0.10 kcal/mol of native's, and the crystal ligand redocked within 2 Å on as
+        # many seeds as natively. npm test runs 2 ligands × seeds 1-3 of it; this runs all of it (about 7 min, beside
+        # the test job). Node's built-ins only: no npm install
+        working-directory: studio
+        env:
+          VINA_TIER_S: full
+        run: node --test --test-name-pattern="Tier S" web/test/scientific/vina.test.mjs
 
   build:
     needs: [test, vina-wasm]
@@ -250,8 +259,9 @@ jobs:
         # browser's bytes; native Vina's score() of each top pose the browser found, the same float64 bits as the
         # WebAssembly engine's; the runner's command (`bioagent dock … --reference-ligand …`, native Vina, the same
         # seed): both complete, both redock BEN within 2 Å, each ligand's best score reported beside the band measured
-        # between native builds (a seeded search is not bit-reproducible across engines; vina.test.mjs holds seeds 1-8
-        # to the rule); the receipt's engine, compute facts and device note
+        # between native builds (a seeded search is not bit-reproducible across engines; the vina-wasm job holds every
+        # fixture ligand × seeds 1-8 to the rule: vina.test.mjs with VINA_TIER_S=full); the receipt's engine, compute
+        # facts and device note
         run: node studio/web/test/runtime/science.mjs --mode dock --site "$RUNNER_TEMP/site-dev" --json "$RUNNER_TEMP/science-dock.json"
       - name: Keep the browser research jobs' reports (every check, the page's failures, rows and console)
         # also when a mode failed or timed out, which is when they are read; this workflow's own test runs on the

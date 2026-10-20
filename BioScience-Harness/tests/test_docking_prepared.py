@@ -211,6 +211,38 @@ def test_the_fixture_ligands_are_read_one_per_model_named_by_their_remarks():
     assert (ben.name, ben.heavy_atoms, ben.torsions) == ("BEN", 9, 1)
 
 
+def test_a_macrocycles_closure_atoms_are_read_from_column_78_to_the_end_of_the_line():
+    """Meeko writes the closure atoms of a flexible macrocycle as CG0-CG3 (a carbon, three
+    columns) and G0-G3 (a pseudo-atom); Vina reads the type from column 78 to the line's end."""
+    ring = "\n".join(["REMARK  Name = lactone", "ROOT", atom(1, 0, 0, 0, "OA", "O"),
+                      atom(2, 1.4, 0, 0, "CG0"), atom(3, 1.4, 1.0, 0, "G0", "CX"),
+                      atom(4, 0, 1.4, 0, "C"), "ENDROOT", "TORSDOF 0", ""])
+    assert atom(2, 1.4, 0, 0, "CG0").endswith("+0.000 CG0") and len(atom(2, 1.4, 0, 0, "CG0")) == 80
+    (lig,) = P.read_ligands(ring)
+    assert lig.heavy_atoms == 3 and lig.heavy_xyz.tolist() == [[0, 0, 0], [1.4, 0, 0], [0, 1.4, 0]]
+    assert P.pose_heavy_xyz(ring.split("\n")).tolist() == lig.heavy_xyz.tolist()
+    # a tab after the type is a blank to Vina too
+    (tab,) = P.read_ligands(ring.replace("+0.000 C\n", "+0.000 C\t\n"))
+    assert tab.heavy_atoms == 3
+
+
+@pytest.mark.parametrize("line, why", [
+    (atom(1, 0, 0, 0) + "  x", "atom type 'C   x' is not one"),      # Vina: "Atom type C x"
+    (atom(1, 0, 0, 0, "Zn") + "   9", "atom type 'Zn   9' is not one"),
+    (atom(1, 0, 0, 0).replace("    1 C ", "1     C ", 1), "atom number"),  # Vina: "1 " is not valid
+    (atom(1, 0, 0, 0).replace("   0.000   0.000", "0.000      0.000", 1), "not numbers"),
+    (atom(1, 0, 0, 0).replace("   0.000   0.000", "   0_000   0.000", 1), "not numbers"),
+    (atom(1, 0, 0, 0).replace("+0.000", "0.0   ", 1), "not numbers"),
+])
+def test_fields_are_read_as_vinas_parser_reads_them(line, why):
+    """boost::lexical_cast takes blanks before a number, not after it; the type is all that
+    follows column 77 (parse_pdbqt.cpp)."""
+    with pytest.raises(DockingError, match=why):
+        P.read_receptor(line)
+    with pytest.raises(DockingError, match=why):
+        P.read_ligands(f"ROOT\n{line}\nENDROOT\nTORSDOF 0\n")
+
+
 def test_ligand_names_default_unique_and_safe_as_file_names():
     plain = ALPHA.replace("REMARK  Name = alpha\n", "")
     named = lambda n: ALPHA.replace("alpha", n)                           # noqa: E731
@@ -220,6 +252,10 @@ def test_ligand_names_default_unique_and_safe_as_file_names():
         ["a_b_c", "set_2", "set_3", "x", "x_2", "set_6", "x_2_2"]
     assert [lig.name for lig in P.read_ligands(plain, "my lig")] == ["my_lig"]
     assert [lig.index for lig in P.read_ligands(text, "set")] == list(range(7))
+    # names are files: "Ben" and "BEN" are one file on macOS and Windows
+    assert [lig.name for lig in P.read_ligands(models(named("Ben"), named("BEN"),
+                                                      named("ben_2")), "set")] == \
+        ["Ben", "BEN_2", "ben_2_2"]
     # between MODEL blocks: blank, REMARK and END lines only, not given to Vina
     spaced = "REMARK  two ligands\n\n" + models(ALPHA, BETA).replace("ENDMDL\n", "ENDMDL\nEND\n")
     assert [lig.text for lig in P.read_ligands(spaced)] == [ALPHA, BETA]
@@ -558,6 +594,40 @@ def test_a_result_that_is_not_the_ligand_is_refused_not_counted(tmp_path):
     assert stages[-1]["name"] == "dock" and stages[-1]["status"] == "failed"
 
 
+def test_energies_that_are_not_their_poses_scores_are_refused(tmp_path):
+    """Vina writes each pose's total energy in its pose text (REMARK VINA RESULT, %.3f): a
+    result whose energies were edited, or fell out of step with its poses, is refused rather
+    than reported and ranked."""
+    rec, ligs, ref = write_world(tmp_path)
+    ligands = P.read_ligands(ligs.read_text(), "ligs")
+    (reference,) = P.read_ligands(ref.read_text(), "ref")
+    config = P.PreparedDockConfig()
+    box = P.site_box(config, reference)
+    good = FakeVina().dock("", ligands[1].text, box, scoring="vina", exhaustiveness=8,
+                           n_poses=9, seed=42, energy_range=3.0, key="ligand-1")
+    assert good.energies[0][0] == -5.2469134 and "REMARK VINA RESULT:    -5.247" in good.poses
+
+    def replay(name, **edit):
+        results = write_results(tmp_path / name, rec.read_text(), ligands, reference, box, config,
+                                **{"ligand-1": edit})
+        return P.run_prepared_docking(rec, ligs, config, tmp_path / f"{name}-run",
+                                      engine=P.PrecomputedVina(results), reference_path=ref)
+
+    assert replay("same").complete
+    with pytest.raises(DockingError, match=r"beta: pose 1's score as Vina wrote it \(-5\.247\) "
+                                           r"is not its energy -12\.5"):
+        replay("edited", energies=[[-12.5, *good.energies[0][1:]], *good.energies[1:]])
+    with pytest.raises(DockingError, match=r"pose 1's score as Vina wrote it \(-5\.247\) is not"):
+        replay("swapped", energies=[good.energies[1], good.energies[0], *good.energies[2:]])
+    with pytest.raises(DockingError, match=r"pose 1's score as Vina wrote it \(none\)"):
+        replay("unwritten", poses=good.poses.replace("REMARK VINA RESULT:", "REMARK"))
+    # within half a unit of the third decimal (Vina rounds the total it prints), not beyond it
+    assert replay("rounded", energies=[[-5.2474999, *good.energies[0][1:]],
+                                       *good.energies[1:]]).complete
+    with pytest.raises(DockingError, match="is not its energy -5.2476"):
+        replay("beyond", energies=[[-5.2476, *good.energies[0][1:]], *good.energies[1:]])
+
+
 def test_an_input_is_refused_before_anything_is_docked(tmp_path):
     fake = FakeVina()
     rec, ligs, ref = write_world(tmp_path)
@@ -680,6 +750,12 @@ def test_the_prepared_mode_takes_pdbqt_files_only(tmp_path, cli, capsys):
     assert cli.main(["dock", str(pdb), str(tmp_path / "l.csv"), "--out", str(tmp_path / "run"),
                      "--reference-ligand", str(ref)]) == 2
     assert "--reference-ligand is for prepared inputs" in capsys.readouterr().err
+    # prepared ligands with a PDB receptor: the full pipeline would read them as a .smi file
+    assert cli.main(["dock", str(pdb), str(ligs), "--out", str(tmp_path / "run"),
+                     "--center", "0,0,0", "--size", "18,18,18"]) == 2
+    assert "prepared .pdbqt ligands dock against a prepared .pdbqt receptor" in \
+        capsys.readouterr().err
+    assert not (tmp_path / "run").exists()
 
 
 # ------------------------------------------------------------------ AutoDock Vina 1.2.7
@@ -716,3 +792,25 @@ def test_vina_docks_the_fixture_and_redocks_the_crystal_ligand(tmp_path):
     assert best["benzamidine"] < -5.0
     assert all(run.pose_checks[r.ligand.name]["best"]["passed"] for r in run.results)
     assert P.verify_run(tmp_path / "run") == (True, [])
+
+
+def test_vina_docks_a_macrocycle_as_meeko_prepares_it(tmp_path):
+    """A macrocycle as bioagent.docking.prep prepares it (Meeko 0.8.0 opens a ring bond and
+    writes its ends as the closure atoms CG0 and G0, three and two columns from column 78):
+    read as Vina reads it, the G0 pseudo-atoms not counted, and docked by Vina 1.2.7."""
+    _vina_127()
+    need_module("meeko")
+    need_module("rdkit")
+    from bioagent.docking import prep
+    lig = prep.prepare_ligand("lactone", "O=C1CCCCCCCCCCCO1", seed=42)   # 13-membered lactone
+    types = {ln[77:].strip() for ln in lig.pdbqt.splitlines() if ln.startswith(("ATOM", "HETATM"))}
+    assert {"CG0", "G0"} <= types, types
+    path = tmp_path / "lactone.pdbqt"
+    path.write_text(lig.pdbqt)
+    (read,) = P.read_ligands(lig.pdbqt, "lactone")
+    assert read.heavy_atoms == 14                                        # 12 C (CG0 among them), 2 O
+    run = P.run_prepared_docking(RECEPTOR, path, P.PreparedDockConfig(
+        center=(-1.8555, 14.366, 16.748), size=(18, 18, 18), exhaustiveness=2, seed=1),
+        tmp_path / "run")
+    assert not run.failures and [r.ligand.name for r in run.results] == ["lactone"]
+    assert run.results[0].best_score < 0 and len(run.results[0].models) >= 1

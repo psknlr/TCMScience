@@ -66,7 +66,9 @@ def _results(plan: dict, work: Path, results: Path, *, change: dict | None = Non
     for run in runs:
         text = (work / run["file"]).read_text()
         if run["key"] == "reference":
-            pose, energies = text, [[-6.18, -6.5, -0.03, 0.35, -0.03]]
+            # the crystal pose as Vina would write it: its score in the remark (bioagent.docking.prepared holds the
+            # energies to it)
+            pose, energies = "REMARK VINA RESULT:    -6.180      0.000      0.000\n" + text, [[-6.18, -6.5, -0.03, 0.35, -0.03]]
         else:
             pose = (WEB_FIX / "vina" / f"{run['name']}.top.pdbqt").read_text()
             energies = [parity[run["name"]]["dock"]["1"]["energies_raw"][0]]
@@ -309,6 +311,20 @@ def test_results_that_are_not_this_runs_are_refused(inputs, tmp_path):
     assert "computed with other parameters: seed" in ended(tmp_path / "r2")["refused"]
     _results(plan, work, tmp_path / "r3", change={"ligand-1": lambda d: {**d, "ligand_sha256": "0" * 64}})
     assert "computed on another ligand" in ended(tmp_path / "r3")["refused"]
+    # energies that are not their poses' (an edited result): refused, not ranked first
+    _results(plan, work, tmp_path / "r5", change={"ligand-5": lambda d: {**d, "energies": [[-12.5, *d["energies"][0][1:]]]}})
+    assert "paeonol: pose 1's score as Vina wrote it (-5.632) is not its energy -12.5" in ended(tmp_path / "r5")["refused"]
+    # a WebAssembly build's results: only the pinned build's (run.json names it as the engine)
+    from tcmstudio.catalog import VINA_WASM
+
+    def wasm(sha):
+        return lambda d: {**d, "engine": {**d["engine"], "build": "wasm", "wasm_sha256": sha}}
+    _results(plan, work, tmp_path / "r6", change={k: wasm("0" * 64) for k in ["reference", *(f"ligand-{i}" for i in range(6))]})
+    other_build = ended(tmp_path / "r6")
+    assert other_build["exit"] == 2 and "a WebAssembly build with SHA-256 000000000000…, not the pinned" in other_build["refused"]
+    _results(plan, work, tmp_path / "r7", change={k: wasm(VINA_WASM["sha256"]) for k in ["reference", *(f"ligand-{i}" for i in range(6))]})
+    pinned = ended(tmp_path / "r7")
+    assert pinned["exit"] == 0 and pinned["summary"]["engine"]["wasm_sha256"] == VINA_WASM["sha256"]
     # the arguments must still be the ones the plan was made for
     _results(plan, work, tmp_path / "r4")
     other = ended(tmp_path / "r4", seed=2)
@@ -432,6 +448,12 @@ def test_the_runners_prepared_mode_is_bioagent_dock_on_the_pdbqt_files(runner):
     ({"reference_ligand": None}, "give the docking site: center and size, or reference_ligand"),
     ({"center": [0, 0, 0]}, "center and size: three numbers each"),
     ({"reference_ligand": None, "size": [20, 20, 20]}, "center and size: three numbers each"),
+    # the box as bioagent dock and dock_read hold it: finite, sides longer than 0, an empty centre no centre
+    ({"size": [0, 18, 18]}, "size: every side of the box must be longer than 0 Å"),
+    ({"center": CENTER, "size": [-1, 18, 18]}, "size: every side of the box must be longer than 0 Å"),
+    ({"size": [float("nan"), 1, 1]}, "size: three finite numbers"),
+    ({"center": [0, float("inf"), 0], "size": [18, 18, 18]}, "center: three finite numbers"),
+    ({"center": []}, "center and size: three numbers each"),
 ])
 def test_the_runner_refuses_what_the_prepared_mode_cannot_use(runner, params, needle):
     from tcmstudio.kinds import KINDS, BadParams
@@ -454,6 +476,12 @@ def test_a_pdb_receptor_keeps_the_full_pipeline(runner):
     with pytest.raises(BadParams, match="reference_ligand: for a prepared receptor"):
         kind.prepare({"receptor": "3ptb_pocket.pdb", "ligands": "CCO", "reference_ligand": "ben_crystal.pdbqt",
                       "center": [0, 0, 0], "size": [18, 18, 18]}, ctx)
+    # prepared ligands with a PDB receptor: refused when submitted (bioagent dock would read the PDBQT as a .smi file)
+    with pytest.raises(BadParams, match=r"ligands: prepared \.pdbqt ligands dock against a prepared \.pdbqt receptor"):
+        kind.prepare({"receptor": "3ptb_pocket.pdb", "ligands": "ligands.pdbqt", "center": [0, 0, 0],
+                      "size": [18, 18, 18]}, ctx)
+    with pytest.raises(BadParams, match="size: every side of the box must be longer than 0"):
+        kind.prepare({"receptor": "3ptb_pocket.pdb", "ligands": "CCO", "center": [0, 0, 0], "size": [0, 18, 18]}, ctx)
 
 
 def test_the_command_line_runs_dock_read(inputs, tmp_path):

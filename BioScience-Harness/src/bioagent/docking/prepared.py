@@ -16,8 +16,10 @@ here, with its line), and handed to Vina as they are.
 2. **Validation**: the reference ligand is docked back. The setup counts as validated when
    the top pose's heavy atoms lie within 2 Å RMSD of the reference's, compared in atom order
    (Vina writes a pose's atoms in its input's order). Without RDKit there is no symmetry
-   matching, so this RMSD is an upper bound of the symmetry-aware one: a pass is never
-   optimistic.
+   matching, so this RMSD is an upper bound of the symmetry-aware one: it never flatters a
+   pose. The check itself is easier than ``pipeline``'s: the reference is docked from its
+   crystal conformer, whose bond lengths, angles and ring shapes Vina keeps, where
+   ``pipeline`` docks a conformer it generated from SMILES.
 3. **Docking** of each ligand; Vina's poses are written as it gives them, PDBQT.
 4. **Pose checks** of every pose (``posecheck``), the best pose deciding, as in ``pipeline``.
 5. **Report**: scores (with ligand efficiency), the validation, ``report.md`` /
@@ -102,13 +104,20 @@ LIMITATIONS = (
     "This mode has no contact analysis and writes no SDF poses (both need RDKit): the poses "
     "are Vina's PDBQT.",
     "The redocking RMSD compares heavy atoms in atom order, without symmetry: an upper bound "
-    "of the symmetry-aware RMSD, so a pass is never optimistic, but a symmetric ligand can "
-    "fail where a symmetry-aware RMSD would pass.",
+    "of the symmetry-aware RMSD, so the RMSD never flatters a pose, but a symmetric ligand "
+    "can fail where a symmetry-aware RMSD would pass.",
+    "The reference ligand is redocked from its crystal conformer, whose bond lengths, angles "
+    "and ring shapes Vina keeps: an easier check than docking a conformer generated from "
+    "SMILES, as the full pipeline does, most of all for a ligand with a puckered ring or a "
+    "macrocycle.",
     "A seeded Vina search repeats on one engine and CPU, not across them: the Monte Carlo "
     "search amplifies last-bit differences in floating-point maths, so the same seed can "
-    "give other poses in the browser (WebAssembly) and natively, or on another CPU, while the "
-    "best scores stay within the measured spread (per-ligand medians over seeds 1-8 within "
-    "0.10 kcal/mol on the reference set).",
+    "give other poses in the browser (WebAssembly) and natively, or on another CPU. What was "
+    "measured is a median: on the reference set, each ligand's median best score over seeds "
+    "1-8 agreed within 0.10 kcal/mol between the engines. One run's best score can differ by "
+    "more (0.15 kcal/mol for ibuprofen at seed 42; 0.20 kcal/mol between its own seeds 1-8 "
+    "natively), so ligands a few tenths of a kcal/mol apart are not ranked by one run: dock "
+    "them with several seeds.",
 )
 _UNLISTED = {"run.json", STAGES_FILE}
 
@@ -127,6 +136,11 @@ AD_ELEMENT: dict[str, str | None] = {
 }
 _ATOM_RECORDS = ("ATOM  ", "HETATM")
 _TREE_RECORDS = ("ROOT", "ENDROOT", "BRANCH", "ENDBRANCH", "TORSDOF", "BEGIN_RES", "END_RES")
+_C_SPACE = " \t\n\r\x0b\x0c"    # what C's isspace() skips, as Vina's parser does
+#: A number as boost::lexical_cast<double> reads one: no blank after it, no "_" (Python's
+#: float() takes both), ASCII digits only.
+_NUMBER = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+_VINA_RESULT = re.compile(r"^REMARK VINA RESULT:\s*(\S+)")
 _NAME_REMARK = re.compile(r"^REMARK\s+Name\s*=\s*(.*?)\s*$")
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]")
 _NAME_MAX = 100
@@ -169,26 +183,28 @@ def _safe(name: str) -> str:
 # ------------------------------------------------------------------ reading PDBQT
 
 def _atom(line: str, where: str) -> tuple[int, tuple[float, float, float], str]:
-    """(serial, xyz, AutoDock type) of an ATOM/HETATM line, held to what Vina parses: an
-    atom number in columns 7-11, coordinates in 31-54, a charge (if any) in 69-76 and a
-    type it knows in 78-79."""
-    if len(line.rstrip()) < 78:
-        raise DockingError(f"{where}: no AutoDock atom type in columns 78-79: {line.strip()}")
-    ad = line[77:79].strip()
+    """(serial, xyz, AutoDock type) of an ATOM/HETATM line, held to what Vina parses
+    (parse_pdbqt.cpp): an atom number in columns 7-11, coordinates in 31-54 and a charge (if
+    any) in 69-76, each with blanks before it but none after (boost::lexical_cast), and a
+    type it knows from column 78 to the end of the line (the closure types CG0-CG3 of a
+    macrocycle take three columns; anything after the type makes it another one)."""
+    if len(line.rstrip(_C_SPACE)) < 78:
+        raise DockingError(f"{where}: no AutoDock atom type from column 78: {line.strip()}")
+    ad = line[77:].strip(_C_SPACE)
     if ad not in AD_ELEMENT:
         raise DockingError(f"{where}: atom type {ad!r} is not one AutoDock Vina 1.2.7 reads "
                            f"(types are case-sensitive): {line.strip()}")
-    serial = line[6:11].strip()
+    serial = line[6:11].lstrip(_C_SPACE)
     if not _uint(serial):
         raise DockingError(f"{where}: the atom number (columns 7-11) is not a number: "
                            f"{line.strip()}")
-    try:
-        xyz = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
-        if line[68:76].strip():
-            float(line[68:76])
-    except ValueError:
+    fields = [line[30:38], line[38:46], line[46:54]]
+    if line[68:76].strip(_C_SPACE):
+        fields.append(line[68:76])
+    if not all(_NUMBER.fullmatch(f.lstrip(_C_SPACE)) for f in fields):
         raise DockingError(f"{where}: the coordinates (columns 31-54) or the charge (69-76) "
-                           f"are not numbers: {line.strip()}") from None
+                           f"are not numbers: {line.strip()}")
+    xyz = (float(fields[0]), float(fields[1]), float(fields[2]))
     if not all(math.isfinite(v) for v in xyz):
         raise DockingError(f"{where}: a coordinate is not finite: {line.strip()}")
     return int(serial), xyz, ad
@@ -358,8 +374,9 @@ def read_ligands(text: str, default_name: str = "ligand") -> list[Ligand]:
     the MODEL and ENDMDL lines are not given to Vina; between blocks only blank, REMARK,
     WARNING and END lines). A ligand is named by its ``REMARK  Name = <name>`` line when it
     has one, else ``default_name`` (one ligand) or ``<default_name>_<k>`` (k from 1); names
-    are made file-safe and unique (``_2``, ``_3``...). Its text for Vina has \\n line ends
-    and ends with \\n."""
+    are made file-safe and unique (``_2``, ``_3``...) without regard to case, for they name
+    files (``poses/<name>.pdbqt``), and on macOS or Windows "Ben" and "BEN" are one file. Its
+    text for Vina has \\n line ends and ends with \\n."""
     lines = _lf(text).split("\n")
     if lines and lines[-1] == "":
         lines.pop()
@@ -394,10 +411,10 @@ def read_ligands(text: str, default_name: str = "ligand") -> list[Ligand]:
         given, torsdof, atoms = _ligand_block(block, first)
         name = _safe(given or "") or (base if len(blocks) == 1 else f"{base}_{k + 1}")
         unique, n = name, 1
-        while unique in taken:
+        while unique.casefold() in taken:
             n += 1
             unique = f"{name}_{n}"
-        taken.add(unique)
+        taken.add(unique.casefold())
         body = "\n".join(block) + "\n"
         heavy = [xyz for ad, xyz in atoms if _heavy(ad)]
         out.append(Ligand(index=k, name=unique, text=body, sha256=text_sha256(body),
@@ -768,8 +785,10 @@ def _read_text(path: str | Path, inputs: dict[str, str]) -> str:
 def _dock(engine: Any, receptor: Receptor, ligand: Ligand, box: Box,
           config: PreparedDockConfig, key: str) -> PreparedResult:
     """One engine run, held to the ligand it was asked for: every pose has the ligand's
-    heavy atoms, and there is one pose per energy row. A result that is not is refused (an
-    engine or results that cannot be trusted), not counted as a failed ligand."""
+    heavy atoms, there is one pose per energy row, and each pose's score as Vina wrote it
+    (``REMARK VINA RESULT:``, three decimals) is its row's total energy. A result that is
+    not is refused (an engine or results that cannot be trusted), not counted as a failed
+    ligand."""
     res = engine.dock(receptor.text, ligand.text, box, scoring=config.scoring,
                       exhaustiveness=config.exhaustiveness, n_poses=config.n_poses,
                       seed=config.seed, energy_range=config.energy_range, key=key)
@@ -779,12 +798,31 @@ def _dock(engine: Any, receptor: Receptor, ligand: Ligand, box: Box,
     if len(models) != len(res.energies):
         raise DockingError(f"{ligand.name}: {len(models)} poses, where Vina's result has "
                            f"{len(res.energies)} energies")
-    for k, lines in enumerate(models, 1):
+    for k, (lines, row) in enumerate(zip(models, res.energies), 1):
         if len(pose_heavy_xyz(lines)) != ligand.heavy_atoms:
             raise DockingError(f"{ligand.name}: pose {k} does not have the ligand's "
                                f"{ligand.heavy_atoms} heavy atoms")
+        written = _remark_score(lines)
+        # Vina prints the total with %.3f: within half a unit of the third decimal of it
+        if written is None or not abs(written - row[0]) <= 0.0005 + 1e-9:
+            raise DockingError(f"{ligand.name}: pose {k}'s score as Vina wrote it ("
+                               f"{'none' if written is None else written}) is not its energy "
+                               f"{row[0]!r}")
     return PreparedResult(ligand=ligand, energies=[list(r) for r in res.energies],
                           poses=res.poses, seconds=res.seconds, models=models)
+
+
+def _remark_score(lines: Sequence[str]) -> float | None:
+    """The score of a pose as Vina writes it (its first ``REMARK VINA RESULT:`` number), or
+    None when the pose has no such line."""
+    for line in lines:
+        m = _VINA_RESULT.match(line)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+    return None
 
 
 def _fmt(values: Sequence[float], spec: str) -> str:
@@ -1090,9 +1128,12 @@ def _markdown(run: PreparedDockRun, config: PreparedDockConfig,
               f"- {e['name']} {e['version']} ({config.scoring} scoring), rigid receptor, grid "
               f"spacing {SPACING} Å, at most {config.n_poses} poses within "
               f"{config.energy_range:g} kcal/mol of the best and at least {MIN_RMSD} Å apart.",
-              "- Redocking: the reference ligand docked from its own prepared conformer; RMSD "
-              "of the top pose's heavy atoms to the reference's, atom by atom in input order "
-              "(Vina keeps it), without symmetry: an upper bound of the symmetry-aware RMSD.",
+              "- Redocking: the reference ligand docked from its own prepared conformer, the "
+              "crystal one (Vina keeps its bond lengths, angles and ring shapes, so this is an "
+              "easier check than docking a conformer generated from SMILES); RMSD of the top "
+              "pose's heavy atoms to the reference's, atom by atom in input order (Vina keeps "
+              "it), without symmetry: an upper bound of the symmetry-aware RMSD, which never "
+              "flatters a pose.",
               f"- Pose checks: finite coordinates, every ligand heavy atom inside the box "
               f"(within {posecheck.BOX_TOLERANCE} Å), no ligand-receptor heavy-atom pair "
               f"closer than {posecheck.CLASH_DISTANCE} Å (metal ions left out). They are "

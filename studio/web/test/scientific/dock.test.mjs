@@ -31,7 +31,7 @@ import {
 import { ADMET } from "../../js/scientific/pipelines/admet.js";
 import { BrowserJobService, jobDir } from "../../js/scientific/runtime/job-manager.js";
 import { BrowserJobsRuntime, jobCall, projectFilesResolver } from "../../js/scientific/runtime/jobs-runtime.js";
-import { ScienceWorkerPool } from "../../js/scientific/runtime/worker-pool.js";
+import { GB_PER_WORKER, ScienceWorkerPool } from "../../js/scientific/runtime/worker-pool.js";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -56,8 +56,12 @@ const DOCK_RUNNER_ONLY = Object.freeze([
 // ------------------------------------------------------------------------------------------------- stand-ins
 
 const isAtom = (l) => l.startsWith("ATOM  ") || l.startsWith("HETATM");
-const adType = (l) => l.slice(77, 79).trim();
-const heavy = (lines) => lines.filter((l) => isAtom(l) && !["H", "HD", "HS"].includes(adType(l)));
+// the type as Vina reads it: column 78 to the end of the line (CG0-CG3 take three columns)
+const adType = (l) => l.slice(77).trim();
+/** Not heavy atoms (bioagent.docking.prepared.AD_ELEMENT): hydrogens, and the pseudo-atoms G0-G3 (a macrocycle's
+ * closure dummies) and W. */
+const NOT_HEAVY = ["H", "HD", "HS", "G0", "G1", "G2", "G3", "W"];
+const heavy = (lines) => lines.filter((l) => isAtom(l) && !NOT_HEAVY.includes(adType(l)));
 const base = (p) => String(p).split("/").at(-1);
 const stem = (p) => base(p).replace(/\.pdbqt$/i, "");
 
@@ -295,6 +299,14 @@ function withFixture(files) {
 }
 
 const RUN = { receptor: "3ptb_receptor.pdbqt", ligands: "ligands.pdbqt", reference_ligand: "ben_crystal.pdbqt" };
+/** A call of the runner's full pipeline: a PDB receptor and ligands it prepares. */
+const NATIVE = { receptor: "3PTB.PDB", ligands: "CCO", center: [0, 0, 0], size: [18, 18, 18] };
+/** Calls that mix the two modes: the runner refuses them too (kinds.py), so they are bad arguments, not the runner's. */
+const MIXED = [
+  { ...RUN, ligands: "CCO" }, { ...RUN, ligands: "ligands.sdf" }, { ...RUN, site_ligand: "BEN" }, { ...RUN, allow_remote: true },
+  { ...RUN, receptor: "PDB:3PTB" }, { ...NATIVE, ligands: "ligands.pdbqt" }, { ...NATIVE, reference_ligand: "ben_crystal.pdbqt" },
+];
+const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
 
 async function settle(svc, id, ms = 60000) {
   const t0 = Date.now();
@@ -331,29 +343,38 @@ async function docked(opts = {}, params = RUN) {
 
 // ------------------------------------------------------------------------------------------------- refusals
 
-test("needsRunner: a receptor or ligands that are not PDBQT, site_ligand and allow_remote are the runner's; the catalog's runner_only rules say the same, a file id judged later", () => {
+test("needsRunner: a receptor or ligands that are not PDBQT, site_ligand and allow_remote are the runner's; the catalog's runner_only rules say the same, a file id judged later; a call mixing the modes is no backend's", () => {
   const entry = { execution: { browser_job: { runner_only: DOCK_RUNNER_ONLY } } };
   const cases = [
-    {}, RUN, { ...RUN, receptor: "3PTB.PDB" }, { ...RUN, receptor: "PDB:3PTB" }, { ...RUN, receptor: "UniProt:P00760" }, { ...RUN, receptor: " r.PDBQT " },
-    { ...RUN, ligands: "CCO" }, { ...RUN, ligands: "ligands.sdf" }, { ...RUN, ligands: "ligands.csv" }, { ...RUN, ligands: "" }, { ...RUN, ligands: null },
-    { ...RUN, ligands: "u_0123456789abcdef" }, { ...RUN, receptor: "0f8fad5b-d9cb-469f-a165-70867728950e" }, { ...RUN, receptor: 5 },
-    { ...RUN, site_ligand: "BEN" }, { ...RUN, site_ligand: "" }, { ...RUN, site_ligand: null }, { ...RUN, allow_remote: true }, { ...RUN, allow_remote: false },
+    {}, RUN, { ...RUN, receptor: " r.PDBQT " }, { ...RUN, ligands: "" }, { ...RUN, ligands: null },
+    { ...RUN, ligands: "u_0123456789abcdef" }, { ...RUN, receptor: ID }, { ...RUN, receptor: 5 },
+    { ...RUN, site_ligand: "" }, { ...RUN, site_ligand: null }, { ...RUN, allow_remote: false },
+    NATIVE, { ...NATIVE, receptor: "PDB:3PTB" }, { ...NATIVE, receptor: "UniProt:P00760" }, { ...NATIVE, ligands: "ligands.sdf" },
+    { ...NATIVE, ligands: "ligands.csv" }, { ...NATIVE, site_ligand: "BEN" }, { ...NATIVE, allow_remote: true },
+    { receptor: ID, ligands: "CCO" }, { receptor: ID, ligands: "u_0123456789abcdef", site_ligand: "BEN" }, { receptor: ID, ligands: "x.pdbqt", allow_remote: true },
   ];
   for (const params of cases) {
     assert.equal(Boolean(dockNeedsRunner(params)), runnerOnly(entry, params).length > 0, JSON.stringify(params));
   }
+  // the runner refuses these too (kinds.py): the job refuses them as bad arguments (preflight), never naming the runner.
+  // The catalog's rules, read without this module, judge one argument at a time and name it: the limit their reasons state
+  for (const params of MIXED) {
+    assert.equal(dockNeedsRunner(params), null, JSON.stringify(params));
+    assert.ok(runnerOnly(entry, params).length > 0, JSON.stringify(params));
+  }
   assert.deepEqual(runnerOnly(entry, undefined), [], "without a call's arguments nothing is judged");
-  assert.match(dockNeedsRunner({ ...RUN, receptor: "PDB:3PTB" }).message, /^receptor: "PDB:3PTB" is not a prepared PDBQT receptor/);
-  assert.match(dockNeedsRunner({ ...RUN, ligands: "CCO" }).message, /RDKit and Meeko, which run only on the runner/);
-  assert.match(dockNeedsRunner({ ...RUN, site_ligand: "BEN" }).hint, /reference_ligand/);
-  assert.match(dockNeedsRunner({ ...RUN, receptor: "x.pdb" }).hint, /^Connect the local runner/);
+  assert.match(dockNeedsRunner({ ...NATIVE, receptor: "PDB:3PTB" }).message, /^receptor: "PDB:3PTB" is not a prepared PDBQT receptor/);
+  assert.match(dockNeedsRunner({ receptor: ID, ligands: "CCO" }).message, /RDKit and Meeko, which run only on the runner/);
+  assert.match(dockNeedsRunner({ receptor: ID, ligands: "u_0123456789abcdef", site_ligand: "BEN" }).hint, /reference_ligand/);
+  assert.match(dockNeedsRunner({ ...NATIVE, receptor: "x.pdb" }).hint, /^Connect the local runner/);
   assert.equal(dockNeedsRunner({ ...RUN, ligands: "u_0123456789abcdef" }), null, "a file id: judged once the file is found");
   assert.ok(FILE_ID.test("0F8FAD5B-D9CB-469F-A165-70867728950E") && FILE_ID.test("u_0123456789abcdef") && !FILE_ID.test("ligands.pdbqt"));
   assert.equal(DOCK_HANDLERS[0].needsRunner, dockNeedsRunner);
   // the jobs runtime answers it from the handler, even where its service cannot start
   const rt = new BrowserJobsRuntime({ service: { status: "unsupported", kinds: () => [] } });
-  assert.match(rt.needsRunner("pipeline.dock", { ...RUN, ligands: "CCO" }).message, /^ligands:/);
+  assert.match(rt.needsRunner("pipeline.dock", { receptor: ID, ligands: "CCO" }).message, /^ligands:/);
   assert.equal(rt.needsRunner("pipeline.dock", RUN), null);
+  assert.equal(rt.needsRunner("pipeline.dock", { ...RUN, ligands: "CCO" }), null, "mixed: a bad argument, not the runner's");
 });
 
 test("pipeline.dock preflight: bad arguments, the runner's arguments, the files, too many ligands, the engine pin", async () => {
@@ -381,16 +402,39 @@ test("pipeline.dock preflight: bad arguments, the runner's arguments, the files,
     assert.equal(got?.type, "bad_arguments", JSON.stringify(params));
     assert.match(got.message, why, JSON.stringify(params));
   }
-  for (const params of [{ ...RUN, receptor: "PDB:3PTB" }, { ...RUN, ligands: "NC(=N)c1ccccc1" }, { ...RUN, site_ligand: "BEN" }, { ...RUN, allow_remote: true }]) {
+  for (const params of [NATIVE, { ...NATIVE, receptor: "PDB:3PTB", ligands: "NC(=N)c1ccccc1", site_ligand: "BEN", allow_remote: true }, { receptor: ID, ligands: "CCO" }]) {
     assert.deepEqual([(await r(params)).type, (await r(params)).need], ["unavailable", "runner"], JSON.stringify(params));
   }
-  // a file named by its id is judged once it is found: a PDB file needs the runner, a reference that is no PDBQT is wrong
+  // arguments that mix the modes: the runner refuses them too (kinds.py, in the same words), so they are bad arguments
+  for (const [params, why] of [
+    [MIXED[0], /^ligands: with a \.pdbqt receptor, ligands is a \.pdbqt file as well/],
+    [MIXED[1], /^ligands: with a \.pdbqt receptor/],
+    [MIXED[2], /^site_ligand: a \.pdbqt receptor is used as prepared, so site_ligand cannot apply/],
+    [MIXED[3], /^allow_remote: a \.pdbqt receptor is used as prepared, so allow_remote cannot apply/],
+    [MIXED[4], /^reference_ligand: for a prepared receptor \(\.pdbqt\)/],
+    [MIXED[5], /^ligands: prepared \.pdbqt ligands dock against a prepared \.pdbqt receptor/],
+    [MIXED[6], /^reference_ligand: for a prepared receptor/],
+  ]) {
+    const got = await r(params);
+    assert.deepEqual([got?.type, got?.need], ["bad_arguments", "arguments"], JSON.stringify(params));
+    assert.match(got.message, why, JSON.stringify(params));
+  }
+  // a file named by its id is judged once it is found: a PDB file needs the runner, a reference that is no PDBQT is
+  // wrong, files that mix the modes are bad arguments
   const pdb = files.add("p1", "3ptb.pdb", "ATOM\n");
-  pdb.id = "0f8fad5b-d9cb-469f-a165-70867728950e"; // the page's file ids are uuids (core/store.js)
-  assert.equal(dockNeedsRunner({ ...RUN, receptor: pdb.id }), null, "not judged by its id");
-  const byId = await r({ ...RUN, receptor: pdb.id });
+  pdb.id = ID; // the page's file ids are uuids (core/store.js)
+  const sdf = files.add("p1", "set.sdf", "x");
+  sdf.id = "1f8fad5b-d9cb-469f-a165-70867728950e";
+  assert.equal(dockNeedsRunner({ ...NATIVE, receptor: pdb.id, ligands: sdf.id }), null, "not judged by its id");
+  const byId = await r({ ...NATIVE, receptor: pdb.id, ligands: sdf.id });
   assert.deepEqual([byId.type, byId.need], ["unavailable", "runner"]);
   assert.match(byId.message, /receptor: "3ptb\.pdb" is not a prepared PDBQT receptor/);
+  const mixedById = await r({ ...RUN, receptor: pdb.id });
+  assert.deepEqual([mixedById.type, mixedById.need], ["bad_arguments", "arguments"]);
+  assert.match(mixedById.message, /^reference_ligand: for a prepared receptor/);
+  const sdfById = await r({ ...RUN, ligands: sdf.id });
+  assert.deepEqual([sdfById.type, sdfById.need], ["bad_arguments", "arguments"]);
+  assert.match(sdfById.message, /^ligands: with a \.pdbqt receptor/);
   files.add("p1", "ben.sdf", "x");
   assert.match((await r({ ...RUN, reference_ligand: "ben.sdf" })).message, /reference_ligand: ben\.sdf is not a PDBQT file/);
   // more ligands than a run here takes, counted as Python counts them (MODEL records)
@@ -426,13 +470,14 @@ test("pipeline.dock: inputs, read, the reference and every ligand docked by Vina
   const read = python.calls.find((c) => c.name === "dock_read");
   assert.deepEqual(Object.keys(read.args).sort(), ["ligands", "out_dir", "receptor", "reference_ligand"]);
   assert.match(read.args.ligands, /\/inputs\/ligands\.pdbqt$/);
-  // seven runs on four workers (8 cores leave 7; 8 GB allow 4; at most 4), never more than four out at once
+  // seven runs on two workers (8 cores leave 7; 8 GB, less the job's own Pyodide worker's 1.5 GB, allow 2 at 2.25 GB;
+  // at most 4), never more than two out at once
   const dock = job.stages.find((s) => s.id === "dock");
-  assert.deepEqual([dock.record.runs, dock.record.reused, dock.record.workers], [7, 0, 4]);
-  assert.match(dock.record.why, /^4 Vina workers: 8 cores leave 7 beside the page; 8 GB allows 4 at 2 GB each; at most 4; 7 runs to do$/);
-  assert.equal(VinaWorker.instances.length, 4);
-  assert.equal(VinaWorker.docks.max, 4);
-  // every run once (taken in the plan's order; four workers send them as each is ready)
+  assert.deepEqual([dock.record.runs, dock.record.reused, dock.record.workers], [7, 0, 2]);
+  assert.match(dock.record.why, /^2 Vina workers: 8 cores leave 7 beside the page; 8 GB less the job worker's 1\.5 GB allows 2 at 2\.25 GB each; at most 4; 7 runs to do$/);
+  assert.equal(VinaWorker.instances.length, 2);
+  assert.equal(VinaWorker.docks.max, 2);
+  // every run once (taken in the plan's order; two workers send them as each is ready)
   assert.deepEqual([...VinaWorker.docks.sent].sort(), ["reference", ...NAMES.map((_, i) => `ligand-${i}`)].sort());
   assert.ok(VinaWorker.instances.every((w) => w.terminated), "every Vina worker stopped when the job ended");
   // the wasm fetched once, from boot.json's URL, and each worker started from its own copy of the checked bytes
@@ -462,7 +507,7 @@ test("pipeline.dock: inputs, read, the reference and every ligand docked by Vina
   // one compute fact per run: Vina on the CPU in a worker, its size, which worker
   assert.equal(dock.compute.length, 7);
   assert.ok(dock.compute.every((f) => f.op === "vina.dock" && f.backend === "vina-wasm" && f.placement === "browser" && f.where === "worker" && f.gpu === null && f.accelerated === null && f.basis === "CPU, one thread per worker"));
-  assert.deepEqual([...new Set(dock.compute.map((f) => f.worker))].sort(), ["vina-1", "vina-2", "vina-3", "vina-4"]);
+  assert.deepEqual([...new Set(dock.compute.map((f) => f.worker))].sort(), ["vina-1", "vina-2"]);
   assert.deepEqual(dock.compute.find((f) => f.size.heavy_atoms === 9).size, { heavy_atoms: 9, torsions: 1, exhaustiveness: 8 });
   // the analysis read the plan, the results and the copies
   const run = python.calls.find((c) => c.name === "run_dock");
@@ -480,17 +525,17 @@ test("pipeline.dock: inputs, read, the reference and every ligand docked by Vina
   assert.equal(job.limitations.filter((l) => /preparation/.test(l)).length, 1);
   // the record and the receipt name the engine that ran, and where
   assert.deepEqual(job.engine, [{ id: "AutoDock Vina", name: "AutoDock Vina", version: "1.2.7", build: "wasm", wasm_sha256: VINA.wasm.sha256, stages: ["dock"] }]);
-  assert.match(job.device_note, /\(Pyodide\), on the CPU; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 4 dedicated Web Workers, one thread each$/);
+  assert.match(job.device_note, /\(Pyodide\), on the CPU; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 2 dedicated Web Workers, one thread each$/);
   const receipt = (await svc.receipt(job.id)).doc;
   assert.equal(receipt.assurance, "outputs_verified");
   assert.equal(receipt.device.evidence, "verified");
   assert.equal(receipt.device.used, "cpu");
   assert.deepEqual(receipt.engine, [{ id: "AutoDock Vina", version: "1.2.7", stages: ["dock"], name: "AutoDock Vina", build: "wasm", wasm_sha256: VINA.wasm.sha256 }]);
-  assert.match(receipt.device.note, /^computed on this device's CPU: CPython compiled to WebAssembly \(Pyodide\) in 1 dedicated Web Worker, one thread each; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 4 dedicated Web Workers, one thread each; nothing ran on a GPU$/);
+  assert.match(receipt.device.note, /^computed on this device's CPU: CPython compiled to WebAssembly \(Pyodide\) in 1 dedicated Web Worker, one thread each; AutoDock Vina 1\.2\.7 \(WebAssembly\) in 2 dedicated Web Workers, one thread each; nothing ran on a GPU$/);
   assert.equal(receipt.compute.stages.dock.backend, "vina-wasm");
   assert.equal(receipt.compute.stages.dock.calls, 7);
   assert.equal(receipt.device.stages.dock, "cpu");
-  assert.deepEqual(receipt.resources.memory.dedicated, [{ engine: "AutoDock Vina 1.2.7 (WebAssembly)", workers: 4, wasm_peak_bytes: null, measured_by: null, reason: receipt.resources.memory.dedicated[0].reason }]);
+  assert.deepEqual(receipt.resources.memory.dedicated, [{ engine: "AutoDock Vina 1.2.7 (WebAssembly)", workers: 2, wasm_peak_bytes: null, measured_by: null, reason: receipt.resources.memory.dedicated[0].reason }]);
   assert.match(receipt.resources.memory.dedicated[0].reason, /^not measured/);
   assert.equal(receipt.resources.memory.wasm_peak_bytes, 300 << 20, "the job worker's memory is still read");
   assert.ok(receipt.checks.includes("page_digests"));
@@ -513,12 +558,17 @@ test("the parameters reach Python and Vina as given; a site given as centre and 
   assert.deepEqual([run.scoring, run.exhaustiveness, run.poses, run.seed], ["vinardo", 2, 3, 7]);
 });
 
-test("the Vina workers side by side: clamp(min(cores − 1, ⌊memory / 2 GB⌋, 4), 1, runs), the reason recorded", async () => {
-  assert.equal(vinaWorkers({ cores: 8, memoryGb: 8, runs: 7 }).n, 4);
-  assert.equal(vinaWorkers({ cores: 3, memoryGb: 8, runs: 7 }).n, 2);
+test("the Vina workers side by side: clamp(min(cores − 1, ⌊(memory − 1.5 GB) / 2.25 GB⌋, 4), 1, runs), the job's Pyodide worker held beside them, the reason recorded", async () => {
+  // each Vina worker planned with 2.25 GB (the most one took within dock_read's bounds: 2,059 MiB), the job's own Pyodide
+  // worker with its 1.5 GB (GB_PER_WORKER), which it holds through the docking
+  assert.equal(GB_PER_WORKER, 1.5);
+  assert.equal(vinaWorkers({ cores: 8, memoryGb: 8, runs: 7 }).n, 2, "8 GB: 1.5 + 2 × 2.25 within it, not 1.5 + 3 × 2.25");
+  assert.match(vinaWorkers({ cores: 8, memoryGb: 8, runs: 7 }).reason, /8 GB less the job worker's 1\.5 GB allows 2 at 2\.25 GB each/);
+  assert.equal(vinaWorkers({ cores: 16, memoryGb: 16, runs: 7 }).n, 4, "at most 4");
+  assert.equal(vinaWorkers({ cores: 3, memoryGb: 16, runs: 7 }).n, 2);
   assert.equal(vinaWorkers({ cores: 1, memoryGb: 8, runs: 7 }).n, 1);
-  assert.equal(vinaWorkers({ cores: 16, memoryGb: 8, runs: 2 }).n, 2);
-  assert.equal(vinaWorkers({ cores: 16, memoryGb: 4, runs: 7 }).n, 2, "each worker planned with 2 GB (the most one took within dock_read's bounds)");
+  assert.equal(vinaWorkers({ cores: 16, memoryGb: 16, runs: 2 }).n, 2);
+  assert.equal(vinaWorkers({ cores: 16, memoryGb: 4, runs: 7 }).n, 1, "4 GB: 1.5 + 2.25 within it, not 1.5 + 2 × 2.25");
   assert.equal(vinaWorkers({ cores: 16, memoryGb: 0.5, runs: 7 }).n, 1);
   const unknown = vinaWorkers({ cores: undefined, memoryGb: undefined, runs: 7 });
   assert.equal(unknown.n, 1);
@@ -540,7 +590,7 @@ test("Vina refusing a ligand is that ligand's result (its message), not a failur
   const doc = await store.readJson([...jobDir(job.id), "results", "ligand-3.json"]);
   assert.deepEqual(Object.keys(doc), ["schema", "key", "receptor_sha256", "ligand_sha256", "params", "engine", "error", "seconds"]);
   assert.match(doc.error, /^PDBQT parsing error: Unknown or inappropriate tag/);
-  assert.match(job.stages.find((s) => s.id === "dock").detail, /7 Vina runs on 4 workers; 1 refused by Vina/);
+  assert.match(job.stages.find((s) => s.id === "dock").detail, /7 Vina runs on 2 workers; 1 refused by Vina/);
   assert.deepEqual(job.result.failures, ["ibuprofen"]);
   assert.equal(python.calls.filter((c) => c.name === "run_dock").length, 1);
 });
@@ -560,6 +610,13 @@ test("refused or failed while it runs: Python refusing the receptor, Vina out of
   assert.deepEqual([oom.job.state, oom.job.error.type, oom.job.error.need], ["failed", "refused", "memory"]);
   assert.match(oom.job.error.message, /ran out of WebAssembly memory/);
   assert.ok(oom.VinaWorker.instances.every((w) => w.terminated), "every worker stopped at the first failure");
+  // Vina not even starting for lack of memory (V8's words when it cannot instantiate the module): the same refusal, not
+  // a failure of Vina
+  const cold = await docked({ vina: { factory: async () => { throw new RangeError("WebAssembly.instantiate(): Out of memory: Cannot allocate Wasm memory for new instance"); } } });
+  assert.deepEqual([cold.job.state, cold.job.error.type, cold.job.error.need], ["failed", "refused", "memory"]);
+  assert.match(cold.job.error.message, /did not start: WebAssembly\.instantiate\(\): Out of memory: Cannot allocate Wasm memory/);
+  assert.doesNotMatch(cold.job.error.message, /AutoDock Vina itself failed/);
+  assert.match(cold.job.error.hint, /^Connect the local runner/);
   // Vina trapping: the run fails, its module not trusted
   const trap = await docked({ vina: { factory: fakeVina({ trap: ["paeonol"] }) } });
   assert.deepEqual([trap.job.state, trap.job.error.type], ["failed", "runtime_error"]);
@@ -637,14 +694,14 @@ test("cancelled while Vina runs: every Vina worker terminated at once (a run can
   const job = await s.svc.submit("pipeline.dock", RUN, { project_id: "p1" });
   const dir = jobDir(job.id);
   await until(async () => (await Promise.all(["reference", "ligand-0", "ligand-1"].map((k) => s.store.exists([...dir, "checkpoints", `dock.${k}.json`])))).every(Boolean)
-    && s.VinaWorker.docks.active === 4);
+    && s.VinaWorker.docks.active === 2);
   const t0 = Date.now();
   await s.svc.cancel(job.id);
   const done = await settle(s.svc, job.id);
   const took = Date.now() - t0;
   assert.equal(done.state, "cancelled");
   assert.ok(took < 3000, `ended ${took} ms after the cancel, not after the service's grace (10 s)`);
-  assert.ok(s.VinaWorker.instances.length === 4 && s.VinaWorker.instances.every((w) => w.terminated));
+  assert.ok(s.VinaWorker.instances.length === 2 && s.VinaWorker.instances.every((w) => w.terminated));
   assert.equal(s.VinaWorker.docks.active, 0);
   assert.equal(done.stages.find((x) => x.id === "dock").status, "cancelled");
   for (const k of ["reference", "ligand-0", "ligand-1"]) assert.ok(await s.store.exists([...dir, "checkpoints", `dock.${k}.json`]), k);
@@ -683,8 +740,10 @@ test("jobs runtime: run_pipeline dock and call_tool job.pipeline.dock are job ca
   files.add("p1", "many.pdbqt", Array.from({ length: MAX_LIGANDS + 1 }, (_, i) => block(i)).join(""));
   const rt = new BrowserJobsRuntime({ service: svc });
   const call = (args) => rt.call("run_pipeline", { pipeline: "dock", arguments: args }, { project_id: "p1" });
-  const pdb = await call({ ...RUN, receptor: "PDB:3PTB" });
+  const pdb = await call({ ...NATIVE, receptor: "PDB:3PTB" });
   assert.deepEqual([pdb.status, pdb.error.reason, pdb.error.requires[0].need], ["failed", "needs_runner", "runner"]);
+  const mixed = await call({ ...RUN, receptor: "PDB:3PTB" });
+  assert.deepEqual([mixed.status, mixed.error.type], ["failed", "bad_arguments"]);
   const big = await call({ ...RUN, ligands: "many.pdbqt" });
   assert.deepEqual([big.error.reason, big.error.requires[0].need], ["too_large_for_browser", "memory"]);
   const seed = await call({ ...RUN, seed: 0 });
@@ -739,9 +798,11 @@ test("the page's docking constants are tcmstudio's: the ligands a run takes, the
   assert.equal(MAX_LIGANDS, PY.max);
   assert.deepEqual(PY.rules.map(({ why: _w, ...r }) => r), DOCK_RUNNER_ONLY.map(({ why: _w, ...r }) => r));
   const entry = { execution: { browser_job: { runner_only: PY.rules } } };
-  for (const params of [RUN, { ...RUN, receptor: "PDB:3PTB" }, { ...RUN, ligands: "CCO" }, { ...RUN, ligands: "u_0123456789abcdef" }, { ...RUN, site_ligand: "BEN" }, { ...RUN, allow_remote: true }]) {
+  for (const params of [RUN, { ...NATIVE, receptor: "PDB:3PTB" }, { receptor: ID, ligands: "CCO" }, { ...RUN, ligands: "u_0123456789abcdef" }, { ...NATIVE, site_ligand: "BEN" }, { ...NATIVE, allow_remote: true }]) {
     assert.equal(Boolean(dockNeedsRunner(params)), runnerOnly(entry, params).length > 0, JSON.stringify(params));
   }
+  for (const params of MIXED) assert.ok(dockNeedsRunner(params) === null && runnerOnly(entry, params).length > 0, JSON.stringify(params));
+  assert.ok(PY.rules.slice(1).every((r) => /with a \.pdbqt receptor the runner refuses (it|them) too/.test(r.why)), "the rules' reasons state the limit");
   const vina = Object.values(PY.engines || {})[0];
   assert.deepEqual([vina?.engine, vina?.version, vina?.wasm_sha256], [ENGINE.name, ENGINE.version, VINA.wasm.sha256]);
 });

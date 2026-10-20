@@ -18,19 +18,23 @@
 //   out/                    run_dock's outputs (run.json, scores.tsv, report.html, limitations.md, poses/ …)
 //
 // pipeline.dock: inputs → read → dock → analysis → verify. The dock stage runs the reference (when there is one) and
-// every ligand, in the plan's order, on N workers side by side (N = clamp(min(cores − 1, ⌊memory / 2 GB⌋, 4), 1,
-// runs)): each worker its own Vina module, compiled from the same wasm bytes this page fetched once and checked
+// every ligand, in the plan's order, on N workers side by side (N = clamp(min(cores − 1, ⌊(memory − 1.5 GB) / 2.25 GB⌋,
+// 4), 1, runs), the 1.5 GB being the job's own Pyodide worker, held throughout): each worker its own Vina module,
+// compiled from the same wasm bytes this page fetched once and checked
 // against the pin. A run whose result still re-hashes to its checkpoint, made from the same receptor, ligand,
 // parameters, box and wasm, is reused. Vina cannot be interrupted in the middle of a run: a cancel terminates every Vina worker at once, and the
 // runs already finished keep their checkpoints. Refused before anything is queued, with the runner named as what would
 // run it: a receptor or ligands that are not PDBQT (preparing them needs Meeko and RDKit), site_ligand and
-// allow_remote; more ligands than a run here takes (memory).
+// allow_remote; more ligands than a run here takes (memory). Arguments that mix the two modes (a .pdbqt receptor with
+// SMILES, CSV or SDF ligands, site_ligand or allow_remote; a PDB receptor with .pdbqt ligands or reference_ligand) are
+// refused as bad arguments: the runner refuses them too (kinds.py), so it is not named as what would run them.
 
 import { abortError, canonicalJson, isPlainObject, sha256Hex } from "../../core/util.js";
 import { FILE_ID } from "../../core/catalog.js";
 import { Sha256 } from "../data/digest.js";
 import { ENGINE, RESULT_SCHEMA, SEARCH, VINA, VinaError, fetchWasm, vinaParams, vinaResultText } from "../dock/vina.js";
 import { bareSha256 } from "../engines/evidence.js";
+import { GB_PER_WORKER } from "../runtime/worker-pool.js";
 import {
   digestMismatch, limitationLines, memoryRefusal, projectFile, pythonCall, refusal, safeName, storageRefusal, work,
 } from "./shared.js";
@@ -48,11 +52,13 @@ export const MAX_LIGANDS = 100;
 /** Vina workers side by side at most: each holds a module of its own, and the page needs the main thread's core. */
 export const MAX_VINA_WORKERS = 4;
 /**
- * The memory one Vina worker is planned with: the most one instance took within what dock_read lets through
- * (tcmstudio.browser_jobs, measured: 1.96 GB for a ligand of 79 atoms in a 60 Å box; 357-429 MB for the fixture's
- * ligands in an 18 Å box), so a device's workers side by side stay within its memory whatever the run.
+ * The memory one Vina worker is planned with: above the most one instance took within what dock_read lets through
+ * (tcmstudio.browser_jobs, measured: 2,059 MiB for a ligand of 79 atoms in a 60 Å box at exhaustiveness 64 with a
+ * receptor of 100,243 atoms, 1,957 MiB with the 701-atom pocket; 357-429 MB for the fixture's ligands in an 18 Å box).
+ * The job's own Pyodide worker (GB_PER_WORKER) is held through the docking and planned beside them; the page and the
+ * browser itself are not planned for, so the plan bounds the workers' share of the device, not the device.
  */
-export const GB_PER_VINA = 2;
+export const GB_PER_VINA = 2.25;
 const ASSUMED_CORES = 2;
 const ASSUMED_MEMORY_GB = 2;
 const PLAN_SCHEMA = "tcmstudio.dock-plan/1";
@@ -104,13 +110,45 @@ function preparationNeed(arg, v) {
   };
 }
 
+/** A receptor or ligands value by its text → "prepared" (a .pdbqt file's name), "other" (another name, a PDB:/UniProt:
+ * id, a SMILES), or null (not given, or a file id: its name is known once the file is found). */
+function nameMode(value) {
+  const v = typeof value === "string" ? value.trim() : "";
+  if (!v || FILE_ID.test(v)) return null;
+  return v.toLowerCase().endsWith(SUFFIX) ? "prepared" : "other";
+}
+
+/**
+ * Arguments that mix the two modes → why, or null. The runner prepares only for a PDB receptor and docks a .pdbqt
+ * receptor only with .pdbqt ligands (kinds.py refuses the rest when a call is submitted, in these words), so such a
+ * call runs nowhere: a bad argument, not the runner's. receptor, ligands: their names, as a call gives them or as the
+ * project's files are named once found (null while not known).
+ */
+function mixedModes(p, receptor, ligands) {
+  const r = nameMode(receptor);
+  const l = nameMode(ligands);
+  if (r === "other") {
+    if (given(p.reference_ligand)) return "reference_ligand: for a prepared receptor (.pdbqt); with a PDB receptor name the co-crystal ligand with site_ligand (on the runner)";
+    if (l === "prepared") return "ligands: prepared .pdbqt ligands dock against a prepared .pdbqt receptor; give the receptor as a .pdbqt, or the ligands as SMILES, CSV, SDF or .smi for the runner to prepare";
+  }
+  if (r === "prepared") {
+    if (l === "other") return "ligands: with a .pdbqt receptor, ligands is a .pdbqt file as well (prepared ligands, one or several as MODEL blocks); preparing ligands from SMILES, CSV or SDF needs a PDB receptor, on the runner";
+    if (given(p.site_ligand)) return "site_ligand: a .pdbqt receptor is used as prepared, so site_ligand cannot apply; name the site with center and size, or give the co-crystal ligand prepared in its crystal pose as reference_ligand";
+    if (p.allow_remote === true) return "allow_remote: a .pdbqt receptor is used as prepared, so allow_remote cannot apply; nothing is fetched: the receptor is the .pdbqt given";
+  }
+  return null;
+}
+
 /**
  * Why this pipeline.dock call needs the runner, from its parameters alone → {message, hint}, or null: the catalog's
  * runner_only rules (receptor and ligands not_suffix .pdbqt, site_ligand present, allow_remote true; core/catalog.js
- * runnerOnly). A file named by its id is judged once the job has found it (preflight, and the inputs stage).
+ * runnerOnly), but for a call that mixes the modes (mixedModes), which the runner refuses too: null, and the job
+ * refuses it as bad arguments. The catalog's rules, read without this module, cannot see that. A file named by its id
+ * is judged once the job has found it (preflight, and the inputs stage).
  */
 export function dockNeedsRunner(params) {
   const p = isPlainObject(params) ? params : {};
+  if (mixedModes(p, p.receptor, p.ligands)) return null;
   for (const arg of ["receptor", "ligands"]) {
     const why = notPrepared(arg, p[arg]);
     if (why) return why;
@@ -177,6 +215,8 @@ function checkPrepared(p) {
 /** The parameters, checked → whether they are this browser's to run (prepared mode). Throws a refusal otherwise. */
 function checkDock(p) {
   checkKnown(p);
+  const mixed = mixedModes(p, p.receptor, p.ligands);
+  if (mixed) throw bad(mixed);
   const tied = dockNeedsRunner(p);
   if (tied) throw runnerRefusal(tied);
   checkPrepared(p);
@@ -203,13 +243,17 @@ function dockError(type, message, extra = {}) {
 
 const WASM_HINT = `The docking loads AutoDock Vina ${VINA.version}'s wasm (${(VINA.wasm.bytes / 1000).toFixed(0)} kB, from this site) once, at its pinned SHA-256: reload the page, or ${RUNNER.toLowerCase()} (native Vina).`;
 
+/** Vina running out of memory, in a run (std::bad_alloc, the module's own abort) or before it starts: V8 refusing to
+ * instantiate a module ("Out of memory: Cannot allocate Wasm memory for new instance"), or to grow its memory. */
+const VINA_OUT_OF_MEMORY = /out of (WebAssembly )?memory|bad_alloc|Cannot allocate Wasm memory|Cannot enlarge memory|Maximum memory size exceeded|Memory\.grow/i;
+
 /** The Vina worker's error as the job says it: a wasm that is not the pin, or one that could not be fetched, is the
- * engine being unavailable here; Vina running out of memory is a refusal the runner answers; Vina failing (a trap) is
- * a failure of the run. */
+ * engine being unavailable here; Vina running out of memory (in a run, or starting) is a refusal the runner answers;
+ * Vina failing (a trap) is a failure of the run. */
 function vinaOpError(e) {
   const message = `the browser docking: ${e.message || e.type || "failed"}`;
   if (e.type === "bad_wasm") return dockError("unavailable", message, { need: "network", hint: WASM_HINT });
-  if (e.type === "vina" && /out of WebAssembly memory|bad_alloc/i.test(String(e.message))) {
+  if (e.type === "vina" && VINA_OUT_OF_MEMORY.test(String(e.message))) {
     return dockError("refused", message, { need: "memory", hint: `${RUNNER}: it docks natively, without the browser's memory limit.` });
   }
   if (e.type === "vina") return dockError("runtime_error", `${message} (AutoDock Vina itself failed; its memory is no longer trusted, so the job stopped)`);
@@ -217,9 +261,10 @@ function vinaOpError(e) {
 }
 
 /**
- * How many Vina workers dock side by side → {n, reason}: clamp(min(cores − 1, ⌊memory / 2 GB⌋, 4), 1, runs). A figure
- * the browser does not report is assumed (2 cores, 2 GB), and the reason says so; navigator.deviceMemory is rounded
- * down and capped at 8 by the browser itself.
+ * How many Vina workers dock side by side → {n, reason}: clamp(min(cores − 1, ⌊(memory − 1.5 GB) / 2.25 GB⌋, 4), 1,
+ * runs), the job's own Pyodide worker (planned at GB_PER_WORKER, ../runtime/worker-pool.js) holding its share
+ * throughout. A figure the browser does not report is assumed (2 cores, 2 GB), and the reason says so;
+ * navigator.deviceMemory is rounded down and capped at 8 by the browser itself.
  */
 export function vinaWorkers({ cores, memoryGb, runs }) {
   const assumed = [];
@@ -234,11 +279,11 @@ export function vinaWorkers({ cores, memoryGb, runs }) {
     assumed.push(`the device memory is not reported, ${ASSUMED_MEMORY_GB} GB assumed`);
   }
   const r = Math.max(1, Math.floor(Number(runs)) || 1);
-  const byMemory = Math.floor(m / GB_PER_VINA);
+  const byMemory = Math.floor(Math.max(0, m - GB_PER_WORKER) / GB_PER_VINA);
   const n = Math.max(1, Math.min(c - 1, byMemory, MAX_VINA_WORKERS, r));
   const parts = [
     `${plural(n, "Vina worker")}: ${plural(c, "core")} leave ${Math.max(0, c - 1)} beside the page`,
-    `${m} GB allows ${byMemory} at ${GB_PER_VINA} GB each`,
+    `${m} GB less the job worker's ${GB_PER_WORKER} GB allows ${byMemory} at ${GB_PER_VINA} GB each`,
     `at most ${MAX_VINA_WORKERS}`,
     `${plural(r, "run")} to do`,
     ...assumed,
@@ -465,8 +510,9 @@ export function createDockHandlers({
   return [dockHandler(shared)];
 }
 
-/** The files a call names, found among the project's → {param: rec}; a name that is not a .pdbqt refused for the
- * runner (or, for the reference, as a bad argument). */
+/** The files a call names, found among the project's → {param: rec}; files that mix the modes refused as bad
+ * arguments (mixedModes, on the files' own names), and a name that is not a .pdbqt refused for the runner (or, for the
+ * reference, as a bad argument). */
 async function dockFiles(p, projectFiles, projectId) {
   const out = {};
   for (const [param, required] of FILES) {
@@ -474,11 +520,15 @@ async function dockFiles(p, projectFiles, projectId) {
     const ref = String(p[param]).trim();
     const rec = await projectFile(projectFiles, projectId, param, ref);
     if (!rec) throw bad(`${param}: no file named ${JSON.stringify(ref)} in this project${projectId ? "" : " (the job belongs to no project, so only a file id can name one)"}`);
+    out[param] = rec;
+  }
+  const mixed = mixedModes(p, out.receptor.name, out.ligands.name);
+  if (mixed) throw bad(mixed);
+  for (const [param, rec] of Object.entries(out)) {
     if (!rec.name.toLowerCase().endsWith(SUFFIX)) {
       if (param === "reference_ligand") throw bad(`reference_ligand: ${rec.name} is not a PDBQT file; give the co-crystal ligand as a prepared PDBQT in its crystal pose`);
       throw runnerRefusal(preparationNeed(param, rec.name));
     }
-    out[param] = rec;
   }
   return out;
 }

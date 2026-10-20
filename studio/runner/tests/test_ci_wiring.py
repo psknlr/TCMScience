@@ -161,6 +161,23 @@ def test_studio_rebuilds_the_webassembly_vina_from_its_pins_with_the_inputs_cach
     assert out.read_text(encoding="utf-8").strip() == f"key={want}"
 
 
+def test_studio_holds_the_webassembly_vina_to_the_tier_s_rule_over_every_fixture_ligand_and_seed():
+    # npm test runs the rule on 2 ligands × seeds 1-3; the whole native reference (6 ligands × seeds 1-8) in a step
+    # of its own, with Node's built-ins only
+    studio, _ = _load("studio.yml")
+    steps = [s for job in studio["jobs"].values() for s in job.get("steps", [])
+             if "web/test/scientific/vina.test.mjs" in str(s.get("run", ""))]
+    full = [s for s in steps if (s.get("env") or {}).get("VINA_TIER_S") == "full"]
+    assert len(full) == 1, "one step runs vina.test.mjs with VINA_TIER_S=full"
+    assert re.search(r'--test-name-pattern="Tier S"', full[0]["run"])
+    assert full[0].get("working-directory") == "studio"
+    job = next(j for j in studio["jobs"].values() if full[0] in j.get("steps", []))
+    assert any(str(s.get("uses", "")).startswith("actions/setup-node@") and s["with"]["node-version"] == "22"
+               for s in job["steps"])
+    assert job["steps"].index(full[0]) > next(i for i, s in enumerate(job["steps"])
+                                              if str(s.get("uses", "")).startswith("actions/checkout@"))
+
+
 def test_molecular_tools_runs_the_prepared_docking_tests_with_real_vina_127():
     ci, _ = _load("ci.yml")
     steps = ci["jobs"]["molecular-tools"]["steps"]

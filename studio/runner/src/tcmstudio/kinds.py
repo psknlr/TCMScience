@@ -32,6 +32,7 @@ import hashlib
 import io
 import itertools
 import json
+import math
 import os
 import re
 import shutil
@@ -797,15 +798,21 @@ _PDBQT = ".pdbqt"
 
 def _coordinate(name: str, value: Any) -> str:
     """A centre or size coordinate for the command line, read back as exactly this float
-    (``%g`` when it round-trips, else ``repr``)."""
+    (``%g`` when it round-trips, else ``repr``): finite, and a side of the box longer than 0,
+    as bioagent dock and the browser's dock_read hold them."""
     x = _num(name, value)
+    if not math.isfinite(x):
+        raise BadParams(f"{name}: three finite numbers (x, y, z; Å)")
+    if name == "size" and x <= 0:
+        raise BadParams("size: every side of the box must be longer than 0 Å")
     short = f"{x:g}"
     return short if float(short) == x else repr(x)
 
 
 def _dock_box(p: dict[str, Any], out: dict[str, Any], *, size_alone: bool = False) -> None:
     center, size = p.get("center"), p.get("size")
-    if not (center or size):
+    # given is not None: an empty list is a box given wrong, not none
+    if center is None and size is None:
         return
     for name, value in (("center", center), ("size", size)):
         if value is None and name == "center" and size_alone:
@@ -877,6 +884,11 @@ def _dock_prepare(p: dict[str, Any], ctx: PrepareContext) -> dict[str, Any]:
                         "name the co-crystal ligand with site_ligand")
     lig = p.get("ligands")
     found = ctx.find(lig.strip()) if isinstance(lig, str) and lig.strip() else None
+    if found is not None and found[0].name.lower().endswith(_PDBQT):
+        # bioagent dock would read it as a .smi file, a "ligand" per line
+        raise BadParams("ligands: prepared .pdbqt ligands dock against a prepared .pdbqt "
+                        "receptor; give the receptor as a .pdbqt, or the ligands as an uploaded "
+                        "CSV, SDF or .smi file, or one SMILES")
     if found is not None:
         ligands = str(found[0])
         ctx.inputs["ligands"] = found[1]

@@ -5,8 +5,8 @@
 // refused before Vina sees them, a module that traps is not used again). On the committed native reference
 // (fixtures/vina_parity.json, written by studio/scripts/make_dock_fixtures.py with the native vina 1.2.7 wheel):
 // score and optimize bit for bit on every ligand (Tier E), and seeded docking held to the Tier S rule on 2 ligands ×
-// 3 seeds (VINA_TIER_S=full: every ligand × seeds 1..8, as the harness does), with the WebAssembly engine's own
-// results pinned exactly (they are the same on every machine; native Vina's seeded search is not: its last bits
+// 3 seeds (VINA_TIER_S=full: every ligand × seeds 1..8, as CI's vina-wasm job runs it), with the WebAssembly
+// engine's own results pinned exactly (they are the same on every machine; native Vina's seeded search is not: its last bits
 // depend on the CPU's and the C library's maths, which the Monte Carlo search amplifies). VINA_PRINT=1 prints the
 // medians and the results not pinned.
 import "../fixtures/setup.mjs";
@@ -425,12 +425,13 @@ function splitModels(text) {
   return out;
 }
 
-/** Heavy atoms' coordinates (AutoDock types other than H, HD, HS), in file order, of a pose text's first model. */
+/** Heavy atoms' coordinates (AutoDock types other than H, HD, HS and the pseudo-atoms G0-G3 and W; the type read as
+ * Vina reads it, column 78 to the end of the line), in file order, of a pose text's first model. */
 function heavyXyz(text) {
   const xyz = [];
   for (const l of text.split("\n")) {
     if (l.startsWith("ENDMDL")) break;
-    if (!/^(ATOM|HETATM)/.test(l) || ["H", "HD", "HS"].includes(l.slice(77, 79).trim())) continue;
+    if (!/^(ATOM|HETATM)/.test(l) || ["H", "HD", "HS", "G0", "G1", "G2", "G3", "W"].includes(l.slice(77).trim())) continue;
     xyz.push([30, 38, 46].map((c) => Number(l.slice(c, c + 8))));
   }
   return xyz;

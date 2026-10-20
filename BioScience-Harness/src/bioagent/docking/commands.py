@@ -73,6 +73,12 @@ def dispatch(a: argparse.Namespace) -> int | None:
         print("--reference-ligand is for prepared inputs (a .pdbqt receptor); with a PDB "
               "receptor name the co-crystal ligand with --site-ligand", file=sys.stderr)
         return 2
+    if a.ligands.lower().endswith(".pdbqt"):
+        # the full pipeline would read it as a .smi file, a "ligand" per line
+        print("prepared .pdbqt ligands dock against a prepared .pdbqt receptor: give the "
+              "receptor as a .pdbqt, or the ligands as SMILES, CSV, SDF or .smi",
+              file=sys.stderr)
+        return 2
     config = DockConfig(site_ligand=a.site_ligand or None,
                         site_ligand_smiles=a.site_ligand_smiles or None,
                         box_center=a.center, box_size=a.size,

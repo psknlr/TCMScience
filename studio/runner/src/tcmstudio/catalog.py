@@ -1545,20 +1545,28 @@ _BROWSER_JOBS: dict[str, dict[str, Any]] = {
                           "wasm_sha256": VINA_WASM["sha256"]}},
         # measured with the WebAssembly build in Node (tcmstudio.browser_jobs.DOCK_*_MAX): more is refused, for memory
         limits=_dock_limits(),
+        # Each rule judges one argument. The runner prepares only for a PDB receptor: a call mixing the modes (a
+        # .pdbqt receptor with ligands, site_ligand or allow_remote of the full pipeline; a PDB receptor with .pdbqt
+        # ligands or reference_ligand) runs nowhere, and kinds refuses it when it is submitted. The page's docking
+        # job refuses it as bad arguments (web/js/scientific/pipelines/dock.js, mixedModes); these rules, read
+        # without the job, send it to the runner, which refuses it: their reasons say so.
         runner_only=[
             {"arg": "receptor", "not_suffix": [".pdbqt"],
              "why": "a receptor that is not a prepared .pdbqt (a PDB file, PDB:<id>, UniProt:<acc>) is prepared with "
                     "meeko, which this browser does not hold; a prepared rigid receptor (.pdbqt) docks here"},
             {"arg": "ligands", "not_suffix": [".pdbqt"],
              "why": "ligands as SMILES, CSV, SDF or .smi are prepared with RDKit and meeko (3-D embedding, protonation "
-                    "as written, torsion trees), which this browser does not hold; prepared ligands (.pdbqt) dock here"},
+                    "as written, torsion trees), which this browser does not hold, for a PDB receptor (with a .pdbqt "
+                    "receptor the runner refuses them too); prepared ligands (.pdbqt) dock here"},
             {"arg": "site_ligand", "present": True,
              "why": "a co-crystal ligand named by its residue is cut from a PDB receptor with RDKit, its bond orders "
-                    "from the RCSB Chemical Component Dictionary; here, give the site as center and size, or the "
-                    "ligand prepared in its crystal pose as reference_ligand (.pdbqt)"},
+                    "from the RCSB Chemical Component Dictionary (with a .pdbqt receptor the runner refuses it too); "
+                    "here, give the site as center and size, or the ligand prepared in its crystal pose as "
+                    "reference_ligand (.pdbqt)"},
             {"arg": "allow_remote", "is": True,
-             "why": "fetching a structure from RCSB or AlphaFold DB, and preparing it, is the runner's; here the "
-                    "receptor is a prepared .pdbqt from the project's files"}]),
+             "why": "fetching a structure from RCSB or AlphaFold DB, and preparing it, is the runner's, for a PDB "
+                    "receptor (with a .pdbqt receptor the runner refuses it too); here the receptor is a prepared "
+                    ".pdbqt from the project's files"}]),
 }
 
 

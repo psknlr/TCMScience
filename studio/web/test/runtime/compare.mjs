@@ -800,7 +800,8 @@ export function compareAdmet({ browser, native, nativeFiles, expected, real = fa
 // another pose), so the two searches are held to what does not depend on it: both runs complete, both redock the
 // reference within REDOCK_RMSD, the same ligands docked; each ligand's best score against native's at the same seed is
 // reported beside the band measured between native runs (DOCK_SEARCH_BAND), not counted. The rule over seeds 1-8 is
-// enforced where those seeds are run (web/test/scientific/vina.test.mjs, on vina_parity.json). Last, the receipt: the
+// enforced where those seeds are run: web/test/scientific/vina.test.mjs on vina_parity.json, every ligand × seeds 1-8
+// in CI's vina-wasm job (VINA_TIER_S=full), 2 ligands × seeds 1-3 in npm test. Last, the receipt: the
 // engine named, every Vina run's compute facts vina-wasm in a worker, the device note naming the dedicated workers, and
 // their memory said to be not measured.
 
