@@ -24,7 +24,8 @@ import { Emitter } from "../../core/events.js";
 import { baseReceipt } from "../../core/receipt.js";
 import { abortError, canonicalJson, isAbort, isPlainObject, sha256Hex } from "../../core/util.js";
 import {
-  JOB_RECEIPT_FILE, bareSha256, buildJobReceipt, compareDigests, computeEvidence, digestChecks, pathText, platformOf, runtimeOf,
+  JOB_RECEIPT_FILE, bareSha256, buildJobReceipt, compareDigests, computeEvidence, dedicatedEngines, dedicatedNote, digestChecks, pathText,
+  platformOf, runtimeOf,
 } from "../engines/evidence.js";
 
 export const JOBS_DB = "tcmstudio-jobs";
@@ -44,10 +45,12 @@ const LEVELS = new Set(["info", "warn", "error"]);
 const LIMIT_PENDING = "A job that has not succeeded is pending work, not a result.";
 const DEVICE_NOTE = "assigned: the job's Python runs in this browser's job workers, CPython compiled to WebAssembly (Pyodide), on the CPU";
 /** A job one of whose stages computed on WebGPU (its kernel calls' compute facts say so): what its record then says. */
-const WEBGPU_NOTE = (ids) => `${DEVICE_NOTE}; ${ids.join(", ")} computed on this browser's WebGPU adapter, each result checked on the CPU (the job receipt's compute section names the adapter and the calibration)`;
+const WEBGPU_NOTE = (ids, base = DEVICE_NOTE) => `${base}; ${ids.join(", ")} computed on this browser's WebGPU adapter, each result checked on the CPU (the job receipt's compute section names the adapter and the calibration)`;
 /** A stage's compute facts are kept at most this many calls. */
 const COMPUTE_KEEP = 200;
 const MEMORY_MEASURED_BY = "the WebAssembly memory of each job worker when the job gave it back; a wasm32 memory only grows, so this is the peak since that worker started, which can include earlier jobs on it";
+/** What the receipt says of the memory of an engine's dedicated workers (AutoDock Vina's), which nothing reads. */
+const DEDICATED_MEMORY = "not measured: these dedicated workers do not report their WebAssembly memory, and the job service does not read it";
 
 /** The Web Lock a tab holds while one of its jobs is queued or running. */
 export const lockName = (id) => `tcmstudio.job.${id}`;
@@ -609,9 +612,14 @@ export class BrowserJobService {
     if (typeof o.complete === "boolean") end.outcome.complete = o.complete;
     if (o.limitations?.length) end.limitations = [...o.limitations];
     if (o.provenance) end.provenance = o.provenance;
+    if (o.engine) end.engine = o.engine;
+    // an engine of the job's own that computed in dedicated workers (AutoDock Vina): the record names it beside Pyodide
+    const engines = dedicatedEngines(job.stages, end.engine);
+    const base = engines.length ? `${DEVICE_NOTE}; ${engines.map(dedicatedNote).join("; ")}` : DEVICE_NOTE;
+    if (engines.length) end.device_note = base;
     // a stage that computed on WebGPU: the record says the job used it (the receipt says with what, and how checked)
     const gpuStages = computeEvidence(job.stages)?.gpu_stages || [];
-    if (gpuStages.length) Object.assign(end, { device: "cpu+webgpu", device_note: WEBGPU_NOTE(gpuStages) });
+    if (gpuStages.length) Object.assign(end, { device: "cpu+webgpu", device_note: WEBGPU_NOTE(gpuStages, base) });
     try {
       end.receipt = await this.#writeReceipt({ ...job, ...end }, run, collected, expected);
     } catch (err) {
@@ -664,6 +672,8 @@ export class BrowserJobService {
       if (Array.isArray(o[key])) out[key] = [...(out[key] || []), ...jsonOnly(o[key])];
     }
     if (typeof o.complete === "boolean") out.complete = o.complete;
+    // the engines of the job's own that computed its results (pipeline.dock's AutoDock Vina): the latest word
+    if (o.engine !== undefined && o.engine !== null) out.engine = jsonOnly(o.engine);
     // what the results rest on, as a runner job's receipt keeps it (receipt.provenance): the models' cards
     if (isPlainObject(o.provenance)) {
       const p = jsonOnly(o.provenance);
@@ -749,6 +759,8 @@ export class BrowserJobService {
     const infos = leases.map((l) => l.info).filter(Boolean);
     const busyMs = usage.reduce((a, u) => a + (u.busy_ms || 0), 0);
     const peak = run.memory.filter(Number.isFinite);
+    // the dedicated workers of an engine of the job's own report no memory: said, not guessed
+    const dedicated = dedicatedEngines(job.stages, job.engine).map((d) => ({ engine: d.engine, workers: d.workers, wasm_peak_bytes: null, measured_by: null, reason: DEDICATED_MEMORY }));
     const nav = this.#nav;
     const doc = buildJobReceipt({
       job,
@@ -767,9 +779,12 @@ export class BrowserJobService {
       resources: {
         wall_s: job.started_at && job.finished_at ? round3(Math.max(0, Date.parse(job.finished_at) - Date.parse(job.started_at)) / 1000) : null,
         busy_s: round3(busyMs / 1000),
-        memory: peak.length
-          ? { wasm_peak_bytes: Math.max(...peak), measured_by: MEMORY_MEASURED_BY }
-          : { wasm_peak_bytes: null, measured_by: null, reason: leases.length ? "no job worker reported its memory (stopped, or released mid-call)" : "no job worker ran" },
+        memory: {
+          ...(peak.length
+            ? { wasm_peak_bytes: Math.max(...peak), measured_by: MEMORY_MEASURED_BY }
+            : { wasm_peak_bytes: null, measured_by: null, reason: leases.length ? "no job worker reported its memory (stopped, or released mid-call)" : "no job worker ran" }),
+          ...(dedicated.length ? { dedicated } : {}),
+        },
         peak_rss_mb: null,
       },
       checks: job.outcome.checks,
@@ -819,7 +834,9 @@ export class BrowserJobService {
       forget: live((under) => this.#forget(job, under)),
       /** an input file the job read: {name, sha256, bytes, source, group?} → job.inputs (and the receipt's inputs) */
       input: live((i) => this.#input(job, i)),
-      /** checks / problems / missing / limitations / complete the handler found, added to the job's outcome */
+      /** checks / problems / missing / limitations / complete the handler found, added to the job's outcome; provenance
+       * (what the results rest on) and engine (an engine of the job's own: {name, version, build, wasm_sha256, stages},
+       * or a list; the receipt's engine) */
       outcome: live((o) => this.#mergeOutcome(run, o)),
       /** a finished stage's kernel results that the job did not use after all (a later stage's check rejected them and
        * computed its own): each of that stage's compute facts is marked discarded with the reason, so the evidence counts
@@ -1318,6 +1335,7 @@ export class BrowserJobService {
     };
     delete job.provenance; // the next attempt's own
     delete job.limitations; // the next attempt's own, if it finds any
+    delete job.engine; // the next attempt's own
     this.#appendLog(job, "info", `resumed (attempt ${job.attempts})`);
     this.#jobs.set(id, job);
     try {

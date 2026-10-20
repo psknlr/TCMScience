@@ -18,10 +18,10 @@
 //   out/                    run_dock's outputs (run.json, scores.tsv, report.html, limitations.md, poses/ …)
 //
 // pipeline.dock: inputs → read → dock → analysis → verify. The dock stage runs the reference (when there is one) and
-// every ligand, in the plan's order, on N workers side by side (N = clamp(min(cores − 1, 4), 1, runs)): each worker
-// its own Vina module, compiled from the same wasm bytes this page fetched once and checked against the pin. A run
-// whose result still re-hashes to its checkpoint, made from the same receptor, ligand, parameters, box and wasm, is
-// reused. Vina cannot be interrupted in the middle of a run: a cancel terminates every Vina worker at once, and the
+// every ligand, in the plan's order, on N workers side by side (N = clamp(min(cores − 1, ⌊memory / 2 GB⌋, 4), 1,
+// runs)): each worker its own Vina module, compiled from the same wasm bytes this page fetched once and checked
+// against the pin. A run whose result still re-hashes to its checkpoint, made from the same receptor, ligand,
+// parameters, box and wasm, is reused. Vina cannot be interrupted in the middle of a run: a cancel terminates every Vina worker at once, and the
 // runs already finished keep their checkpoints. Refused before anything is queued, with the runner named as what would
 // run it: a receptor or ligands that are not PDBQT (preparing them needs Meeko and RDKit), site_ligand and
 // allow_remote; more ligands than a run here takes (memory).
@@ -40,13 +40,21 @@ import { LIMIT_PREDICTED } from "./admet.js";
 const PACKAGES = ["numpy"];
 /**
  * The most ligands one pipeline.dock run takes here: tcmstudio.browser_jobs.DOCK_LIGANDS_MAX, the bound Python holds
- * dock_read to (it refuses more with need "memory"); the page refuses such a run before it is queued, counting the
- * ligands file's MODEL records (web/test/scientific/dock.test.mjs holds the two numbers to each other).
+ * dock_read to (it refuses more with need "memory"; measured there: about 3.5 min for 100 fixture-sized ligands on four
+ * Vina workers); the page refuses such a run before it is queued, counting the ligands file's MODEL records
+ * (web/test/scientific/dock.test.mjs holds the two numbers to each other).
  */
-export const MAX_LIGANDS = 1000;
+export const MAX_LIGANDS = 100;
 /** Vina workers side by side at most: each holds a module of its own, and the page needs the main thread's core. */
 export const MAX_VINA_WORKERS = 4;
+/**
+ * The memory one Vina worker is planned with: the most one instance took within what dock_read lets through
+ * (tcmstudio.browser_jobs, measured: 1.96 GB for a ligand of 79 atoms in a 60 Å box; 357-429 MB for the fixture's
+ * ligands in an 18 Å box), so a device's workers side by side stay within its memory whatever the run.
+ */
+export const GB_PER_VINA = 2;
 const ASSUMED_CORES = 2;
+const ASSUMED_MEMORY_GB = 2;
 const PLAN_SCHEMA = "tcmstudio.dock-plan/1";
 const SUFFIX = ".pdbqt";
 const RUNNER = "Connect the local runner";
@@ -209,21 +217,32 @@ function vinaOpError(e) {
 }
 
 /**
- * How many Vina workers dock side by side → {n, reason}: clamp(min(cores − 1, 4), 1, runs). A core count the browser
- * does not report is assumed (2), and the reason says so.
+ * How many Vina workers dock side by side → {n, reason}: clamp(min(cores − 1, ⌊memory / 2 GB⌋, 4), 1, runs). A figure
+ * the browser does not report is assumed (2 cores, 2 GB), and the reason says so; navigator.deviceMemory is rounded
+ * down and capped at 8 by the browser itself.
  */
-export function vinaWorkers({ cores, runs }) {
+export function vinaWorkers({ cores, memoryGb, runs }) {
+  const assumed = [];
   let c = Math.floor(Number(cores));
-  const assumed = !Number.isFinite(c) || c < 1;
-  if (assumed) c = ASSUMED_CORES;
+  if (!Number.isFinite(c) || c < 1) {
+    c = ASSUMED_CORES;
+    assumed.push(`the CPU core count is not reported, ${ASSUMED_CORES} assumed`);
+  }
+  let m = Number(memoryGb);
+  if (!Number.isFinite(m) || m <= 0) {
+    m = ASSUMED_MEMORY_GB;
+    assumed.push(`the device memory is not reported, ${ASSUMED_MEMORY_GB} GB assumed`);
+  }
   const r = Math.max(1, Math.floor(Number(runs)) || 1);
-  const n = Math.max(1, Math.min(c - 1, MAX_VINA_WORKERS, r));
+  const byMemory = Math.floor(m / GB_PER_VINA);
+  const n = Math.max(1, Math.min(c - 1, byMemory, MAX_VINA_WORKERS, r));
   const parts = [
     `${plural(n, "Vina worker")}: ${plural(c, "core")} leave ${Math.max(0, c - 1)} beside the page`,
+    `${m} GB allows ${byMemory} at ${GB_PER_VINA} GB each`,
     `at most ${MAX_VINA_WORKERS}`,
     `${plural(r, "run")} to do`,
+    ...assumed,
   ];
-  if (assumed) parts.push(`the CPU core count is not reported, ${ASSUMED_CORES} assumed`);
   return { n, reason: parts.join("; ") };
 }
 
@@ -413,7 +432,7 @@ const TITLE = { zh: "分子对接（预处理输入，浏览器）", en: "Molecu
 const STAGE = {
   inputs: { zh: "复制并核对输入文件", en: "Copy and check the input files" },
   read: { zh: "读取受体、配体与对接盒", en: "Read the receptor, the ligands and the box" },
-  dock: { zh: "对接（AutoDock Vina 1.2.7，WebAssembly）", en: "Dock (AutoDock Vina 1.2.7, WebAssembly)" },
+  dock: { zh: `对接（AutoDock Vina ${VINA.version}，WebAssembly）`, en: `Dock (AutoDock Vina ${VINA.version}, WebAssembly)` },
   analysis: { zh: "重对接验证、姿势检查与报告", en: "Redocking check, pose checks and report" },
   verify: { zh: "按 Runner 的要求核对输出", en: "Check the outputs as the runner does" },
 };
@@ -426,7 +445,7 @@ const FILES = [["receptor", true], ["ligands", true], ["reference_ligand", false
  * The docking handler → [pipeline.dock]. options: vina (boot.json's vina entry {version, loader, url, sha256, bytes};
  * null: the site names none, and the job is refused; default the code's own pin), VinaWorker and vinaWorkerUrl (the
  * Vina worker; default the page's Worker and ../dock/dock.worker.js), siteUrl (what a relative wasm URL is the site's
- * of), fetch (the wasm's download), navigator (its hardwareConcurrency sizes the workers).
+ * of), fetch (the wasm's download), navigator (its hardwareConcurrency and deviceMemory size the workers).
  */
 export function createDockHandlers({
   vina = { version: VINA.version, loader: VINA.loader, url: VINA.wasm.url, sha256: VINA.wasm.sha256, bytes: VINA.wasm.bytes },
@@ -442,7 +461,7 @@ export function createDockHandlers({
     return null;
   };
   const client = (i) => new VinaClient({ Worker: VinaWorker, url: vinaWorkerUrl, name: `vina-${i}` });
-  const shared = { wasm, unavailable, client, fetch, cores: () => nav?.hardwareConcurrency };
+  const shared = { wasm, unavailable, client, fetch, device: () => ({ cores: nav?.hardwareConcurrency, memoryGb: nav?.deviceMemory }) };
   return [dockHandler(shared)];
 }
 
@@ -544,7 +563,14 @@ function dockHandler(sh) {
         let planDir = null; // the plan's directory, in segments under read/
         let planSha = null;
         await ctx.stage("read", async (s) => {
-          const out = await pythonCall(ctx, lease, "dock_read", { ...fileArgs, ...pyParams(p), out_dir: `${root}/read` }, [0.05, 0.05], "reading the inputs");
+          let out;
+          try {
+            out = await pythonCall(ctx, lease, "dock_read", { ...fileArgs, ...pyParams(p), out_dir: `${root}/read` }, [0.05, 0.05], "reading the inputs");
+          } catch (err) {
+            // Python's refusal for the runner (inputs that need preparing) says what would run them
+            if (err?.need === "runner" && !err.hint) err.hint = PREPARE_HINT;
+            throw err;
+          }
           if (out && typeof out.refused === "string" && out.refused) {
             throw Object.assign(new Error(`refused: ${out.refused}`), { type: "refused", need: out.need || undefined, hint: out.need === "runner" ? PREPARE_HINT : undefined });
           }
@@ -598,7 +624,7 @@ function dockHandler(sh) {
           }
           const reused = tasks.length - todo.length;
           if (!todo.length) return { detail: `${plural(tasks.length, "Vina run")}, every one reused` };
-          const sized = vinaWorkers({ cores: sh.cores(), runs: todo.length });
+          const sized = vinaWorkers({ ...sh.device(), runs: todo.length });
           s.record({ runs: tasks.length, reused, workers: sized.n, why: sized.reason });
           ctx.log("info", `dock: ${sized.reason}`);
           let bytes;
@@ -695,7 +721,13 @@ function dockHandler(sh) {
             throw memoryRefusal(e, "the analysis") || e;
           }
           summary = out.summary ?? null;
-          const kept = await lease.call("persist", { from: `${root}/out`, dir: [...ctx.dir, "out"], clean: true }, { signal: ctx.signal });
+          // an incomplete run's outputs are kept as its record, when it wrote any
+          let kept = { files: [] };
+          try {
+            kept = await lease.call("persist", { from: `${root}/out`, dir: [...ctx.dir, "out"], clean: true }, { signal: ctx.signal });
+          } catch (err) {
+            if (out.exit === 0 || ctx.signal.aborted) throw err;
+          }
           ctx.forget(["out"]);
           for (const f of kept.files) ctx.artefact(artefactOf(f.path, f));
           await limits(s);
@@ -825,6 +857,6 @@ export const DOCK_HANDLERS = createDockHandlers();
 
 /** What tests, the harness and the router read. */
 export const DOCK = Object.freeze({
-  packages: PACKAGES, artefacts: ARTEFACTS, maxLigands: MAX_LIGANDS, maxWorkers: MAX_VINA_WORKERS, limitPredicted: LIMIT_PREDICTED,
+  packages: PACKAGES, artefacts: ARTEFACTS, maxLigands: MAX_LIGANDS, maxWorkers: MAX_VINA_WORKERS, gbPerWorker: GB_PER_VINA, limitPredicted: LIMIT_PREDICTED,
   preparedLine: PREPARED_LINE, planSchema: PLAN_SCHEMA, engine: ENGINE, vina: VINA, computedLine, workers: vinaWorkers,
 });

@@ -280,17 +280,18 @@ def test_job_kinds_are_the_runner_kinds():
         "tcmdb.fetch", "tcmdb.build"}
     # the browser's job service runs exactly these (studio/web/js/scientific/pipelines)
     assert BROWSER_JOB_KINDS == ("research.snapshot", "research.run", "pipeline.rnaseq", "pipeline.scrna",
-                                 "admet.models", "pipeline.admet")
+                                 "admet.models", "pipeline.admet", "pipeline.dock")
     admet = ["numpy", "scipy", "scikit-learn"]
     packages = {"research.snapshot": ["pyarrow"], "research.run": ["pyarrow"],
                 "pipeline.rnaseq": ["numpy", "scipy"], "pipeline.scrna": ["numpy", "scipy"],
-                "admet.models": admet, "pipeline.admet": admet}
+                "admet.models": admet, "pipeline.admet": admet, "pipeline.dock": ["numpy"]}
     for kind in JOB_KINDS:
         e = get_entry(f"job.{kind}")
         assert e["job"] and e["confirm"]
         if kind in BROWSER_JOB_KINDS:
             assert e["exec"] == ["browser", "runner"], kind
             browser_job = e["execution"]["browser_job"]
+            # the Python stages run in Pyodide; an engine that is not Python is named in engines (docking's Vina)
             assert browser_job["runtime"] == "pyodide" and browser_job["pyodide_packages"] == packages[kind]
             assert browser_job["service"] == "studio-jobs/1"
             assert browser_job["storage"] == "origin private file system"
@@ -349,6 +350,85 @@ def test_the_admet_jobs_name_the_browsers_chemistry_and_what_needs_the_runner():
     for value in ("molecules.csv", "set.smi", "m.tsv", "CC(=O)Oc1ccccc1C(=O)O"):
         assert capability.runner_only(admet, {"molecules": value}) == [], value
     assert "job.admet.models" in admet["summary"]
+
+
+def test_the_docking_job_names_its_webassembly_engine_and_runs_prepared_inputs_only():
+    """pipeline.dock runs in the browser on prepared inputs (PDBQT), each Vina run in AutoDock Vina 1.2.7
+    compiled to WebAssembly; the pin is the build manifest's, boot.json's and the runner's environment's.
+    Everything that needs preparing (a PDB receptor, SMILES/CSV/SDF ligands, a site_ligand, a fetched
+    structure) takes the call to the runner."""
+    import json
+    from pathlib import Path
+
+    from tcmstudio import browser_jobs, capability, webbuild
+    from tcmstudio.catalog import VINA_WASM
+
+    root = Path(__file__).resolve().parents[3]
+    build = json.loads((root / "studio" / "web" / "js" / "scientific" / "dock" / "vina_build.json").read_text())
+    wasm = build["outputs"]["vendor/vina-1.2.7.wasm"]
+    assert VINA_WASM == {"version": build["engine"]["version"], "wasm": "js/scientific/dock/vendor/vina-1.2.7.wasm",
+                         "sha256": wasm["sha256"], "bytes": wasm["bytes"]}
+    assert webbuild.vina_pin() == {"version": VINA_WASM["version"],
+                                   "loader": "js/scientific/dock/vendor/vina-1.2.7.mjs",
+                                   "url": VINA_WASM["wasm"], "sha256": VINA_WASM["sha256"],
+                                   "bytes": VINA_WASM["bytes"]}
+    envs = json.loads((root / "BioScience-Harness" / "registry" / "scientific_environments.json").read_text())
+    assert envs["groups"]["docking"]["packages"]["vina"] == VINA_WASM["version"] == "1.2.7"
+    dock = get_entry("job.pipeline.dock")
+    job = dock["execution"]["browser_job"]
+    assert dock["exec"] == ["browser", "runner"] and job["runtime"] == "pyodide"
+    assert job["engines"] == {"vina": {"engine": "AutoDock Vina", "version": "1.2.7",
+                                       "build": "WebAssembly (studio/scripts/build_vina_wasm.py)",
+                                       "wasm_sha256": VINA_WASM["sha256"]}}
+    assert job["limits"] == {"ligands": browser_jobs.DOCK_LIGANDS_MAX,
+                             "receptor_atoms": browser_jobs.DOCK_RECEPTOR_ATOMS_MAX,
+                             "ligand_atoms": browser_jobs.DOCK_LIGAND_ATOMS_MAX,
+                             "box_volume": browser_jobs.DOCK_BOX_VOLUME_MAX}
+    assert [(r["arg"], next(k for k in r if k not in ("arg", "why"))) for r in job["runner_only"]] == [
+        ("receptor", "not_suffix"), ("ligands", "not_suffix"), ("site_ligand", "present"), ("allow_remote", "is")]
+    props = dock["parameters"]["properties"]
+    assert "reference_ligand" in props and "crystal pose" in props["reference_ligand"]["description"]
+    assert ".pdbqt" in props["receptor"]["description"] and "MODEL blocks" in props["ligands"]["description"]
+    assert "prepared inputs" in dock["summary"] and "PDBQT" in dock["summary"]
+    # prepared inputs run here, by name in any case, or by a file id whose name the page judges once it finds it
+    for args in ({"receptor": "3ptb.pdbqt", "ligands": "ligands.PDBQT", "reference_ligand": "ben.pdbqt"},
+                 {"receptor": "u_0123456789abcdef", "ligands": "3F2A1B4C-1234-4ABC-8DEF-0123456789AB",
+                  "center": [0, 0, 0], "size": [20, 20, 20]},
+                 {"receptor": " r.pdbqt ", "ligands": "l.pdbqt", "site_ligand": "", "allow_remote": False}):
+        assert capability.runner_only(dock, args) == [], args
+    # what needs preparing: the runner, with the reason
+    for args, why in (({"receptor": "3ptb.pdb", "ligands": "l.pdbqt"}, ["meeko"]),
+                      ({"receptor": "PDB:3ptb", "ligands": "CCO"}, ["meeko", "RDKit and meeko"]),
+                      ({"receptor": "r.pdbqt", "ligands": "set.sdf"}, ["RDKit and meeko"]),
+                      ({"receptor": "r.pdbqt", "ligands": "l.pdbqt", "site_ligand": "BEN"}, ["Chemical Component"]),
+                      ({"receptor": "r.pdbqt", "ligands": "l.pdbqt", "allow_remote": True}, ["AlphaFold DB"])):
+        found = capability.runner_only(dock, args)
+        assert len(found) == len(why) and all(w in f for w, f in zip(why, found)), (args, found)
+
+
+def test_the_runner_only_rule_types():
+    """capability.runner_only's rules, as the page's core/catalog.js runnerOnly reads them: absent, is, present,
+    suffix, not_suffix (a file id is no name, so not_suffix leaves it to whoever finds the file)."""
+    from tcmstudio import capability
+
+    def entry(*rules):
+        return {"execution": {"browser_job": {"runner_only": [{**r, "why": f"rule {k}"} for k, r in enumerate(rules)]}}}
+    absent, present = entry({"arg": "a", "absent": True}), entry({"arg": "a", "present": True})
+    for value, gone in ((None, True), ("", True), (" ", False), ("x", False), (0, False), (False, False), ([], False)):
+        args = {} if value is None else {"a": value}
+        assert capability.runner_only(absent, args) == (["rule 0"] if gone else []), value
+        assert capability.runner_only(present, args) == ([] if gone else ["rule 0"]), value
+    assert capability.runner_only(present, None) == []
+    not_suffix = entry({"arg": "f", "not_suffix": [".pdbqt"]})
+    for value, met in (("r.pdbqt", False), ("R.PDBQT ", False), ("r.pdb", True), ("PDB:3ptb", True), ("CCO", True),
+                       ("u_0123456789abcdef", False), ("3f2a1b4c-1234-4abc-8def-0123456789ab", False),
+                       ("u_0123", True), ("", False), (None, False), (7, False)):
+        assert capability.runner_only(not_suffix, {"f": value}) == (["rule 0"] if met else []), value
+    suffix = entry({"arg": "f", "suffix": [".sdf", ".mol"]})
+    assert capability.runner_only(suffix, {"f": "x.SDF"}) == ["rule 0"]
+    assert capability.runner_only(suffix, {"f": "x.csv"}) == []
+    assert capability.runner_only(entry({"arg": "b", "is": True}), {"b": True}) == ["rule 0"]
+    assert capability.runner_only(entry({"arg": "b", "is": True}), {"b": False}) == []
 
 
 def test_the_pipeline_parameters_and_their_bounds_are_the_runners():

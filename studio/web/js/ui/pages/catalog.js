@@ -608,15 +608,21 @@ export function mountCatalog(app, main) {
   }
 
   /** A browser job kind's own words (entry.execution.browser_job): the packages its job worker loads, the chemistry it
-   * runs in the page (the ADMET kinds: RDKit.js and its ports), and what it reads here; the rest needs the runner. */
+   * runs in the page (the ADMET kinds: RDKit.js and its ports), the engines it runs in workers of their own
+   * (pipeline.dock: AutoDock Vina compiled to WebAssembly, its build and the wasm's SHA-256), and what it reads here; the
+   * rest needs the runner. */
   function browserJobRows(e) {
     const bj = e.execution?.browser_job;
     if (!bj || typeof bj !== "object") return [];
     const words = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? [v.engine || v.name, v.version].filter(Boolean).join(" ") : "");
     const packages = Array.isArray(bj.pyodide_packages) ? bj.pyodide_packages : Array.isArray(bj.packages) ? bj.packages : [];
+    const engines = bj.engines && typeof bj.engines === "object" ? Object.values(bj.engines).filter((g) => words(g)) : [];
     return [
       packages.length && !(e.pyodide_packages || []).length ? [t("ui.catalog.browser_job"), h("code.kv__code", packages.join(", "))] : null,
       words(bj.chemistry) ? [t("ui.catalog.browser_chemistry"), h("span", { lang: "en" }, words(bj.chemistry))] : null,
+      ...engines.map((g) => [t("ui.catalog.browser_engine"), h("span", { lang: "en" }, words(g),
+        typeof g.build === "string" && g.build ? h("span.muted", ` · ${g.build}`) : null,
+        typeof g.wasm_sha256 === "string" && g.wasm_sha256 ? h("span.muted", " · wasm ", hashBadge(g.wasm_sha256)) : null)]),
       typeof bj.inputs === "string" && bj.inputs ? [t("ui.catalog.browser_inputs"), h("span", { lang: "en" }, bj.inputs)] : null,
     ];
   }

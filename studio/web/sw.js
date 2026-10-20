@@ -19,6 +19,12 @@
 //   the build names (boot.json's rdkit entry, copied into the manifest as rdkit {url, sha256}), else the pinned
 //   jsDelivr URL. Kept once fetched, and only when its bytes have the pinned SHA-256: other bytes are passed on, not
 //   kept (the chemistry refuses them itself), so a bad response is never served again from here.
+// - AutoDock Vina's wasm (the browser docking, js/scientific/dock/vina.js), a file of this site, by the exact URL the
+//   build names (boot.json's vina entry, copied into the manifest as vina {url, sha256}; none without it). The build
+//   leaves it out of the shell, so only a visitor who docks downloads it, and it is kept on first use the way RDKit's
+//   is: only bytes with the pinned SHA-256, other bytes passed on (the docking refuses them itself). Precaching it
+//   would also be correct, the shell checks every file, but would make every install fetch an engine most visitors
+//   never start. Its loader, a module, stays in the shell with the other modules of the build.
 
 "use strict";
 
@@ -37,6 +43,8 @@ const RDKIT_WASM = Object.freeze({
 });
 // under the CDN prefix, so core/offline.js's stand-down removes it with the others
 const RDKIT_PREFIX = "tcmstudio-cdn-rdkit-";
+// the same, for Vina's wasm (same-origin, but under the prefix that is removed with the others)
+const VINA_PREFIX = "tcmstudio-cdn-vina-";
 
 // set when the page asked this worker to stand down (core/offline.js removeServiceWorker): it keeps running for the
 // pages it already controls until they close, and from now on answers nothing and keeps nothing
@@ -54,6 +62,13 @@ function rdkitWasm() {
   return RDKIT_WASM;
 }
 const rdkitCache = () => `${RDKIT_PREFIX}${rdkitWasm().sha256.slice(0, 16)}`;
+/** The docking engine's wasm this build pins: {url (absolute), sha256}, or null when the build names none. */
+function vinaWasm() {
+  const v = PRECACHE && PRECACHE.vina;
+  if (!v || typeof v.url !== "string" || typeof v.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(v.sha256)) return null;
+  try { return { url: new URL(v.url, self.location.origin).href, sha256: v.sha256 }; } catch { return null; }
+}
+const vinaCache = (vina) => `${VINA_PREFIX}${vina.sha256.slice(0, 16)}`;
 
 self.addEventListener("install", (event) => {
   if (!PRECACHE) return;
@@ -87,6 +102,8 @@ function route(req, url) {
   if (req.headers.has("range")) return null; // a part of a file: the network answers ranges
   // by its exact URL, whichever host serves it (a same-origin mirror too)
   if (req.url === rdkitWasm().url) return keepChecked(rdkitCache(), req, rdkitWasm().sha256);
+  const vina = vinaWasm();
+  if (vina && req.url === vina.url) return keepChecked(vinaCache(vina), req, vina.sha256);
   if (url.origin === self.location.origin) {
     if (url.pathname.startsWith("/v1/") || url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return null;
     if (url.pathname === "/admin" || url.pathname.startsWith("/admin/")) return null;
@@ -160,9 +177,11 @@ async function precache() {
 }
 
 async function cleanup({ all = false } = {}) {
-  const keepNames = PRECACHE && !all ? new Set([shellCache(), pyodideCache(), CDN_CACHE, rdkitCache()]) : new Set();
+  const vina = vinaWasm();
+  const keepNames = PRECACHE && !all ? new Set([shellCache(), pyodideCache(), CDN_CACHE, rdkitCache(), ...(vina ? [vinaCache(vina)] : [])]) : new Set();
   for (const name of await caches.keys()) {
-    const ours = name.startsWith(SHELL_PREFIX) || name.startsWith(PYODIDE_PREFIX) || name === CDN_CACHE || name.startsWith(RDKIT_PREFIX);
+    const ours = name.startsWith(SHELL_PREFIX) || name.startsWith(PYODIDE_PREFIX) || name === CDN_CACHE || name.startsWith(RDKIT_PREFIX) ||
+      name.startsWith(VINA_PREFIX);
     if (ours && !keepNames.has(name)) await caches.delete(name);
   }
 }

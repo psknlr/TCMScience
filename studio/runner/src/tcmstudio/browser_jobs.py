@@ -76,8 +76,10 @@ runs in the page's own workers, one Vina run each (``dock_read`` writes the plan
 their results come back here as files read by ``PrecomputedVina``, which holds each to the
 receptor, ligand and settings it was asked for, and everything else is this Python. A
 receptor or ligands that are not ``.pdbqt`` (they need preparing: meeko and RDKit, the
-runner's) are refused for the runner, and so are more than ``DOCK_LIGANDS_MAX`` ligands or
-a receptor of more than ``DOCK_RECEPTOR_ATOMS_MAX`` atoms (``need`` ``memory``).
+runner's) are refused for the runner, and so are more than ``DOCK_LIGANDS_MAX`` ligands, a
+receptor of more than ``DOCK_RECEPTOR_ATOMS_MAX`` atoms, a ligand of more than
+``DOCK_LIGAND_ATOMS_MAX`` and a box of more than ``DOCK_BOX_VOLUME_MAX`` Å³ (``need``
+``memory``).
 
 ``call`` never raises. A failure is ``{"ok": false, "error": {"type", "message"}}`` with
 ``type`` ``bad_arguments`` (the arguments are not what the function takes), ``refused``
@@ -101,11 +103,11 @@ import json
 import sys
 from typing import Any, Callable, Mapping
 
-__all__ = ["ADMET_MOLECULES_MAX", "BadArguments", "DOCK_LIGANDS_MAX", "DOCK_PLAN_SCHEMA",
-           "DOCK_RECEPTOR_ATOMS_MAX", "FUNCTIONS", "Refused", "admet_read", "admet_split",
-           "admet_train", "build_snapshots", "call", "dock_read", "main", "plan_snapshots",
-           "run_admet", "run_dock", "run_research", "run_rnaseq_counts", "run_scrna", "self_test",
-           "verify_pipeline", "verify_research"]
+__all__ = ["ADMET_MOLECULES_MAX", "BadArguments", "DOCK_BOX_VOLUME_MAX", "DOCK_LIGANDS_MAX",
+           "DOCK_LIGAND_ATOMS_MAX", "DOCK_PLAN_SCHEMA", "DOCK_RECEPTOR_ATOMS_MAX", "FUNCTIONS",
+           "Refused", "admet_read", "admet_split", "admet_train", "build_snapshots", "call",
+           "dock_read", "main", "plan_snapshots", "run_admet", "run_dock", "run_research",
+           "run_rnaseq_counts", "run_scrna", "self_test", "verify_pipeline", "verify_research"]
 
 Emit = Callable[[str, dict[str, Any]], Any]
 
@@ -145,6 +147,32 @@ ADMET_MOLECULES_MAX = 20_000
 #: Molecule files the browser's chemistry does not read (RDKit's SDMolSupplier is not ported).
 _ADMET_RUNNER_SUFFIXES = (".sdf", ".sdf.gz", ".mol")
 _MOLECULES_FILE = "molecules.json"
+#: Docking: the largest prepared run the page's Vina workers take, from AutoDock Vina 1.2.7's WebAssembly build
+#: (web/js/scientific/dock/vendor) under Node 22, one module per worker thread, on the 3PTB fixture
+#: (BioScience-Harness/tests/fixtures/docking/prepared: a 701-atom pocket, an 18 Å box, exhaustiveness 8):
+#: - Time. One ligand takes 3.6-14.3 s on one thread (mean 8.3 s over the six fixture ligands; 49.6 s for all six);
+#:   24 runs took 52 s on 4 workers (4 cores) and 68 s on 3, so a run of DOCK_LIGANDS_MAX ligands of that size
+#:   takes about 3.5 min on 4 workers and 14 min on one, eight times that at exhaustiveness 64. Larger ligands
+#:   take longer: 40 atoms and 7 torsions 78 s, a 54-atom peptide (23 torsions) 534 s, glycyrrhizin (66 atoms, 15
+#:   torsions) 507 s, on one thread.
+#: - Memory, per Vina instance (a worker keeps its peak). Each run builds Vina's tables of pair energies: one over
+#:   the scoring function's atom types (about 330 MB, whatever the inputs) and one over the ligand's atom pairs
+#:   (0.3 MB a pair), and the grid maps of the box. Measured: 357-429 MB for the fixture ligands (12-23 atoms),
+#:   611 MB at 40 atoms, 899 MB at 54, 1.38 GB at 66, 1.96 GB at 79; an 18 Å box 357 MB, 60 Å 618 MB, 90 Å 1.29 GB,
+#:   126 Å 2.78 GB (a 12-atom ligand); 79 atoms in a 126 Å box ran out of wasm32's 4 GB (std::bad_alloc). The
+#:   receptor counts little: the pocket tiled to 70,100 atoms (copies 60 Å apart, outside the box) took 449 MB and
+#:   +1.4 s a run, 140,200 atoms 458 MB and +2.5 s (Vina reads the receptor again for every run), with the same
+#:   poses; reading 100,243 atoms here (read_receptor) took 0.24 s in CPython.
+#: So a ligand of at most DOCK_LIGAND_ATOMS_MAX atoms (as the PDBQT lists them, hydrogens included) in a box of at
+#: most DOCK_BOX_VOLUME_MAX Å³ keeps one Vina instance near 2 GB at most (79 atoms in a 60 Å box: 1.96 GB), and
+#: DOCK_RECEPTOR_ATOMS_MAX bounds what reading the receptor adds to each run. Larger runs are refused, for the
+#: runner (native Vina has none of these bounds).
+DOCK_LIGANDS_MAX = 100
+DOCK_RECEPTOR_ATOMS_MAX = 100_000
+DOCK_LIGAND_ATOMS_MAX = 80
+DOCK_BOX_VOLUME_MAX = 216_000            # Å³: a 60 Å cube
+DOCK_PLAN_SCHEMA = "tcmstudio.dock-plan/1"
+_DOCK_SUFFIX = ".pdbqt"
 
 
 class BadArguments(ValueError):
@@ -463,10 +491,12 @@ def _stages_progress(emit: Emit | None) -> Callable[[dict[str, Any]], None]:
     return seen
 
 
-def _ended(run: Any, log: Callable[..., None], what: str) -> dict[str, Any]:
+def _ended(run: Any, log: Callable[..., None], what: str,
+           summary: dict[str, Any] | None = None) -> dict[str, Any]:
     """``{exit, summary, failed, reasons, refused, need}`` of a pipeline run that ended: exit 0
     when it is complete, 1 when it is not (``failed`` names the stages at fault and
-    ``reasons`` what each stage record says of itself, as the command prints them)."""
+    ``reasons`` what each stage record says of itself, as the command prints them).
+    ``summary`` is the run's own (``run.summary()``) unless given."""
     stages = run.stages
     at_fault = [s for s in stages if s.get("check") == "FAIL"
                 or (s.get("required") and s.get("status") != "succeeded")]
@@ -474,7 +504,8 @@ def _ended(run: Any, log: Callable[..., None], what: str) -> dict[str, Any]:
     log(f"{what}: {'complete' if run.complete else 'incomplete'}"
         + (f"; at fault: {', '.join(failed)}" if failed else ""),
         "info" if run.complete else "warn")
-    return {"exit": 0 if run.complete else 1, "summary": _finite(run.summary()),
+    return {"exit": 0 if run.complete else 1,
+            "summary": _finite(run.summary() if summary is None else summary),
             "failed": failed, "reasons": {s["name"]: s.get("reason") for s in at_fault
                                           if s.get("reason")},
             "refused": None, "need": None}
@@ -689,11 +720,12 @@ def run_scrna(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, An
 
 
 def verify_pipeline(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
-    """``{kind, out_dir}`` (``kind`` ``pipeline.rnaseq``, ``pipeline.scrna`` or
-    ``pipeline.admet``), or ``{kind: "admet.models", models_dir, endpoints?,
-    archive_sha256?}`` → ``{status, checks, problems, report}``.
+    """``{kind, out_dir}`` (``kind`` ``pipeline.rnaseq``, ``pipeline.scrna``,
+    ``pipeline.admet`` or ``pipeline.dock``), or ``{kind: "admet.models", models_dir,
+    endpoints?, archive_sha256?}`` → ``{status, checks, problems, report}``.
 
-    The pipeline's own ``verify_run`` first (rnaseq's covers the count-matrix mode): every
+    The pipeline's own ``verify_run`` first (rnaseq's covers the count-matrix mode; docking's
+    is the prepared mode's, ``bioagent.docking.prepared``, the one the browser runs): every
     recorded input re-hashed at its recorded path (so the inputs must still be where the run
     read them) and every output, the stages complete, the tables as the record says; the
     check ``verify_run``. Then the outputs are held to what the runner's job of that kind
@@ -1029,6 +1061,273 @@ def _verify_models(args: Mapping[str, Any], emit: Emit | None) -> dict[str, Any]
             "report": {"models_dir": str(models), "archive_sha256": archive, **report}}
 
 
+# ------------------------------------------------------------------------- docking
+
+_DOCK_FILES = ("receptor", "ligands", "reference_ligand")
+_DOCK_SETTINGS = ("center", "size", "scoring", "exhaustiveness", "poses", "seed")
+_DOCK_PLAN_FILE = "dock_plan.json"
+
+
+def _dock_paths(args: Mapping[str, Any]) -> dict[str, Any]:
+    """The prepared inputs' paths: the receptor and the ligands, and the reference ligand when
+    given. A receptor or ligands that are not ``.pdbqt`` need preparing, which is the runner's
+    (``need`` ``runner``); a reference ligand that is not is refused as the runner refuses it."""
+    from pathlib import Path
+
+    paths = {}
+    for key in _DOCK_FILES:
+        value = _text(args, key, required=key != "reference_ligand")
+        if not value:
+            continue
+        path = Path(value)
+        if not path.name.lower().endswith(_DOCK_SUFFIX):
+            if key == "reference_ligand":
+                raise BadArguments(f"reference_ligand: {path.name} is not a .pdbqt file: the "
+                                   "co-crystal ligand, prepared, in its crystal pose")
+            raise Refused(f"{key}: {path.name} is not a prepared .pdbqt: " + (
+                "a receptor from PDB is prepared with meeko" if key == "receptor" else
+                "ligands from SMILES, CSV or SDF are prepared with RDKit and meeko")
+                + ", which this browser does not hold; the runner prepares and docks them",
+                "runner")
+        if not path.is_file():
+            raise BadArguments(f"{key}: {path.name} is not a file here")
+        paths[key] = path
+    return paths
+
+
+def _dock_config(args: Mapping[str, Any]) -> Any:
+    """The run's settings, held to the runner's ``pipeline.dock`` checks (``kinds``: vina or
+    vinardo, exhaustiveness 1 to 64, 1 to 20 poses, a seed from 1 for prepared inputs) and to
+    ``PreparedDockConfig``'s (three finite numbers each for the box's centre and size)."""
+    from bioagent.docking.prep import DockingError
+    from bioagent.docking.prepared import PreparedDockConfig
+
+    from . import kinds
+
+    p = _given(args, _DOCK_SETTINGS)
+    try:
+        return PreparedDockConfig(
+            center=p.get("center"), size=p.get("size"),
+            scoring=_runner_check(kinds._enum, "scoring", p.get("scoring"), ("vina", "vinardo"),
+                                  "vina"),
+            exhaustiveness=_runner_check(kinds._int, "exhaustiveness", p.get("exhaustiveness", 8),
+                                         1, 64),
+            n_poses=_runner_check(kinds._int, "poses", p.get("poses", 9), 1, 20),
+            seed=_runner_check(kinds._int, "seed", p.get("seed", 42), 1, 2**31 - 1))
+    except DockingError as exc:
+        raise BadArguments(str(exc)) from None
+
+
+def _pdbqt_text(path: Any, what: str) -> str:
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        raise Refused(f"{what}: {path.name} is not a text file (UTF-8)") from None
+    except OSError as exc:
+        raise Refused(f"{what}: {path.name} cannot be read ({exc})") from None
+
+
+def _count_lines(path: Any, starts: tuple[str, ...]) -> int:
+    """The lines of a file that start with one of ``starts``, read a line at a time."""
+    with path.open("rb") as fh:
+        return sum(1 for line in fh if line.startswith(tuple(s.encode() for s in starts)))
+
+
+def _atoms(text: str) -> int:
+    return sum(1 for line in text.split("\n") if line.startswith(("ATOM  ", "HETATM")))
+
+
+def _dock_plan(paths: Mapping[str, Any], config: Any) -> tuple[dict[str, Any], dict[str, str]]:
+    """The plan of the Vina runs (``DOCK_PLAN_SCHEMA``) and the text each file of it holds,
+    from the inputs read as ``bioagent.docking.prepared`` reads them; the limits are checked
+    before anything is read in full."""
+    from bioagent.docking.prep import DockingError
+    from bioagent.docking.prepared import (MAX_EVALS, MIN_RMSD, REFERENCE_KEY, SPACING,
+                                           read_ligands, read_receptor, site_box)
+
+    try:
+        atoms = _count_lines(paths["receptor"], ("ATOM", "HETATM"))
+        models = _count_lines(paths["ligands"], ("MODEL",))
+    except OSError as exc:
+        raise Refused(f"the inputs cannot be read ({exc})") from None
+    if atoms > DOCK_RECEPTOR_ATOMS_MAX:
+        raise Refused(f"the receptor's {atoms:,} atoms exceed the {DOCK_RECEPTOR_ATOMS_MAX:,} "
+                      f"{_HOLDS}", "memory")
+    if models > DOCK_LIGANDS_MAX:
+        raise Refused(f"{models:,} ligands exceed the {DOCK_LIGANDS_MAX:,} of one run that "
+                      f"{_HOLDS}", "memory")
+    try:
+        receptor = read_receptor(_pdbqt_text(paths["receptor"], "receptor"))
+        ligands = read_ligands(_pdbqt_text(paths["ligands"], "ligands"), paths["ligands"].stem)
+        reference = None
+        if "reference_ligand" in paths:
+            ref = paths["reference_ligand"]
+            found = read_ligands(_pdbqt_text(ref, "reference_ligand"), ref.stem)
+            if len(found) != 1:
+                raise Refused(f"reference_ligand: {ref.name} holds {len(found)} ligands; a "
+                              "reference is one")
+            reference = found[0]
+    except DockingError as exc:
+        # an input that AutoDock Vina 1.2.7 would not read, wherever it runs
+        raise Refused(str(exc)) from None
+    if len(ligands) > DOCK_LIGANDS_MAX:
+        raise Refused(f"{len(ligands):,} ligands exceed the {DOCK_LIGANDS_MAX:,} of one run "
+                      f"that {_HOLDS}", "memory")
+    large = [f"{lig.name} ({_atoms(lig.text)})" for lig in [*ligands, *([reference] if reference
+                                                                         else [])]
+             if _atoms(lig.text) > DOCK_LIGAND_ATOMS_MAX]
+    if large:
+        raise Refused(f"ligands of more than {DOCK_LIGAND_ATOMS_MAX} atoms (Vina's tables of "
+                      f"their atom pairs grow with the square): {', '.join(large[:10])}"
+                      + (f" and {len(large) - 10} more" if len(large) > 10 else "")
+                      + f"; more than {_HOLDS}", "memory")
+    try:
+        box = site_box(config, reference)
+    except DockingError as exc:
+        raise BadArguments(str(exc)) from None
+    volume = box.size[0] * box.size[1] * box.size[2]
+    if volume > DOCK_BOX_VOLUME_MAX:
+        raise Refused(f"a box of {' x '.join(f'{v:g}' for v in box.size)} Å ({volume:,.0f} "
+                      f"Å³) exceeds the {DOCK_BOX_VOLUME_MAX:,.0f} Å³ (Vina's grid maps grow with "
+                      f"its volume) {_HOLDS}", "memory")
+    files = {"receptor.pdbqt": receptor.text,
+             **{f"{lig.key}.pdbqt": lig.text for lig in ligands},
+             **({f"{REFERENCE_KEY}.pdbqt": reference.text} if reference else {})}
+    plan: dict[str, Any] = {
+        "schema": DOCK_PLAN_SCHEMA,
+        "receptor": {"file": "plan/receptor.pdbqt", "sha256": receptor.sha256,
+                     "atoms": receptor.atoms, "heavy_atoms": receptor.heavy_atoms,
+                     "chains": list(receptor.chains), "residues": receptor.residues},
+        "ligands": [{"index": lig.index, "key": lig.key, "name": lig.name,
+                     "file": f"plan/{lig.key}.pdbqt", "sha256": lig.sha256,
+                     "heavy_atoms": lig.heavy_atoms, "torsions": lig.torsions}
+                    for lig in ligands]}
+    if reference is not None:
+        plan["reference"] = {"key": REFERENCE_KEY, "name": reference.name,
+                             "file": f"plan/{REFERENCE_KEY}.pdbqt", "sha256": reference.sha256,
+                             "heavy_atoms": reference.heavy_atoms,
+                             "torsions": reference.torsions}
+    plan["box"] = {"center": [float(v) for v in box.center], "size": [float(v) for v in box.size],
+                   "source": box.source}
+    plan["params"] = {"scoring": config.scoring, "exhaustiveness": config.exhaustiveness,
+                      "n_poses": config.n_poses, "seed": config.seed,
+                      "energy_range": config.energy_range, "spacing": SPACING,
+                      "min_rmsd": MIN_RMSD, "max_evals": MAX_EVALS}
+    return plan, files
+
+
+def dock_read(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{receptor, ligands, reference_ligand?, center?, size?, scoring?, exhaustiveness?,
+    poses?, seed?, out_dir}`` → the plan of the Vina runs (``tcmstudio.dock-plan/1``): the
+    prepared inputs read and checked as ``bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt`` reads
+    them (``bioagent.docking.prepared``: the records Vina 1.2.7 reads, the ligands' names, the
+    box given or built around the reference ligand) and written to ``out_dir/plan/``:
+    ``receptor.pdbqt``, ``ligand-<i>.pdbqt`` and ``reference.pdbqt``, the exact texts Vina is
+    given (line ends as \\n), and ``dock_plan.json``: ``receptor`` {file, sha256, atoms,
+    heavy_atoms, chains, residues}, ``ligands`` [{index, key, name, file, sha256,
+    heavy_atoms, torsions}], ``reference`` {key, name, file, sha256, heavy_atoms, torsions}
+    (with a reference ligand), ``box`` {center, size, source} and ``params`` {scoring,
+    exhaustiveness, n_poses, seed, energy_range, spacing, min_rmsd, max_evals}; ``file`` is
+    relative to ``out_dir``. One Vina run per ligand (``key`` ``ligand-<i>``) and for the
+    reference (``reference``), each with the box and the params, makes the results
+    ``run_dock`` reads. The settings are held to the runner's ``pipeline.dock`` checks.
+    Refused: a receptor or ligands that are not ``.pdbqt`` (``need`` ``runner``: preparing
+    them is the runner's), more than ``DOCK_LIGANDS_MAX`` ligands, a receptor of more than
+    ``DOCK_RECEPTOR_ATOMS_MAX`` atoms, a ligand of more than ``DOCK_LIGAND_ATOMS_MAX`` or a
+    box of more than ``DOCK_BOX_VOLUME_MAX`` Å³ (``need`` ``memory``), and inputs Vina would
+    not read (``need`` null)."""
+    from pathlib import Path
+
+    _only(args, (*_DOCK_FILES, *_DOCK_SETTINGS, "out_dir"))
+    out = Path(_text(args, "out_dir"))
+    paths = _dock_paths(args)
+    config = _dock_config(args)
+    plan, files = _dock_plan(paths, config)
+    target = out / "plan"
+    target.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (target / name).write_bytes(text.encode("utf-8"))
+    (target / _DOCK_PLAN_FILE).write_bytes(
+        (json.dumps(plan, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode("utf-8"))
+    _log(emit)(f"dock read: receptor {plan['receptor']['atoms']:,} atoms, "
+               f"{len(plan['ligands'])} ligands"
+               + (f", reference {plan['reference']['name']}" if "reference" in plan else "")
+               + f"; box {plan['box']['source']}; {len(files) - 1} Vina runs to compute")
+    return plan
+
+
+def _dock_summary(run: Any) -> dict[str, Any]:
+    """What a prepared docking run says of itself, as ``_ended`` reports it."""
+    v = run.validation
+    order = sorted(run.results, key=lambda r: (r.best_raw, r.ligand.index))
+    return {"ligands": len(run.ligands), "docked": len(run.results),
+            "failures": dict(run.failures), "validated": run.validated,
+            "validation": None if not v else {k: v.get(k) for k in (
+                "ligand", "top_pose_rmsd", "rmsd", "threshold", "passed", "error") if k in v},
+            "box": {"center": list(run.box.center), "size": list(run.box.size),
+                    "source": run.box.source},
+            "engine": dict(run.engine),
+            "best": [{"ligand": r.ligand.name, "best_score": r.best_score} for r in order],
+            "warnings": list(run.warnings), "out_dir": str(run.out_dir),
+            "complete": run.complete}
+
+
+def run_dock(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
+    """``{receptor, ligands, reference_ligand?, plan_dir, results_dir, out_dir, center?, size?,
+    scoring?, exhaustiveness?, poses?, seed?}`` → ``{exit, summary, failed, reasons, refused,
+    need}``, as ``bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt`` would end: ``exit`` 0
+    (complete), 1 (incomplete: no ligand docked, the redocking of the reference ligand off by
+    more than 2 Å, or a best pose that failed its checks; ``failed`` names the stages at
+    fault) or 2 (refused). The prepared docking (``bioagent.docking.prepared``) runs on the
+    Vina results the page computed (``results_dir/<key>.json``, read by ``PrecomputedVina``,
+    which refuses a result for another receptor, ligand, box or setting) with the same
+    arguments ``dock_read`` was given: the plan it wrote (``plan_dir/dock_plan.json``) must
+    still be what these inputs and settings make, or the run is refused. The inputs are
+    recorded in run.json at their paths and re-hashed by ``verify_run``. Refused as
+    ``dock_read`` refuses, and a run that runs out of memory (``need`` ``memory``)."""
+    from pathlib import Path
+
+    from bioagent import runrecord
+    from bioagent.docking.prep import DockingError
+    from bioagent.docking.prepared import PrecomputedVina, run_prepared_docking
+
+    _only(args, (*_DOCK_FILES, *_DOCK_SETTINGS, "plan_dir", "results_dir", "out_dir"))
+    dirs = {k: Path(_text(args, k)) for k in ("plan_dir", "results_dir", "out_dir")}
+    log = _log(emit)
+    try:
+        paths = _dock_paths(args)
+        config = _dock_config(args)
+        plan, _ = _dock_plan(paths, config)
+    except Refused as exc:
+        return _refused(log, str(exc), exc.need)
+    try:
+        written = json.loads((dirs["plan_dir"] / _DOCK_PLAN_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return _refused(log, f"{_DOCK_PLAN_FILE} cannot be read from {dirs['plan_dir']}: {exc}")
+    written = written if isinstance(written, dict) else {}
+    differ = [k for k in dict.fromkeys([*plan, *written])
+              if json.loads(json.dumps(plan.get(k))) != written.get(k)]
+    if differ:
+        return _refused(log, f"the inputs or settings are not the ones the Vina runs were planned "
+                             f"for ({_DOCK_PLAN_FILE}: {', '.join(differ)} differ)")
+    log(f"dock: {len(plan['ligands'])} ligands"
+        + (f" and the reference {plan['reference']['name']}" if "reference" in plan else "")
+        + f" on the Vina results in {dirs['results_dir'].name}")
+    try:
+        engine = PrecomputedVina(dirs["results_dir"])
+        with runrecord.watching(_stages_progress(emit)):
+            run = run_prepared_docking(paths["receptor"], paths["ligands"], config,
+                                       dirs["out_dir"], engine=engine,
+                                       reference_path=paths.get("reference_ligand"))
+    except MemoryError:
+        return _refused(log, f"the run ran out of memory (MemoryError): more than {_HOLDS}",
+                        "memory")
+    except (DockingError, ValueError, OSError) as exc:
+        # what the command prints as "refused: ..." (a result that is not this run's too)
+        return _refused(log, str(exc))
+    return _ended(run, log, "dock", summary=_dock_summary(run))
+
+
 def self_test(args: Mapping[str, Any], emit: Emit | None = None) -> dict[str, Any]:
     """``{work_dir?}`` → the known-answer report (``tcmstudio.browser-selftest/1``): ``status``
     PASS only when the planted world studied here gives the committed tables (identical, or
@@ -1044,7 +1343,8 @@ FUNCTIONS: Mapping[str, Callable[..., dict[str, Any]]] = {
     "run_research": run_research, "verify_research": verify_research,
     "run_rnaseq_counts": run_rnaseq_counts, "run_scrna": run_scrna,
     "admet_split": admet_split, "admet_train": admet_train, "admet_read": admet_read,
-    "run_admet": run_admet, "verify_pipeline": verify_pipeline, "self_test": self_test}
+    "run_admet": run_admet, "dock_read": dock_read, "run_dock": run_dock,
+    "verify_pipeline": verify_pipeline, "self_test": self_test}
 
 
 # ------------------------------------------------------------------------- the entry

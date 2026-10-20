@@ -25,6 +25,12 @@ read from the one place they are written, the ``RDKIT`` constant of
 ``web/js/scientific/chem/rdkit.js`` (:func:`rdkit_pin`). The vendored loader (``.mjs``) and
 the filter catalogues are files of the web app, published with it.
 
+``boot.json`` pins the browser docking's AutoDock Vina (``vina``) the same way: its version,
+the vendored loader's and wasm's paths, the wasm's SHA-256 and size, read from the build's
+manifest ``web/js/scientific/dock/vina_build.json`` (:func:`vina_pin`, which refuses vendored
+files that are not the ones it records). The wasm is a file of the site; the service worker
+keeps it out of its install and keeps it on first use, at the pinned SHA-256 only.
+
 The local runner serves the same files from memory (``runtime_file``) when it has no
 built site, so ``http://127.0.0.1:8765/`` gets a browser runtime too.
 """
@@ -53,7 +59,7 @@ from typing import Any, Callable, Iterable, Sequence
 __all__ = ["BOOT_SCHEMA", "BuildError", "PYODIDE_INDEX_URL", "PYODIDE_VERSION", "Bundle",
            "add_arguments", "build", "build_bundle", "boot_document", "catalog_bytes",
            "clear_cache", "datasets_bytes", "default_web_dir", "main", "rdkit_pin", "run",
-           "runtime_file", "runtime_files"]
+           "runtime_file", "runtime_files", "vina_pin"]
 
 PYODIDE_VERSION = "314.0.7"
 PYODIDE_INDEX_URL = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/"
@@ -71,6 +77,9 @@ ENV_RDKIT_URL = "TCMSTUDIO_RDKIT_URL"
 #: The module that holds the browser chemistry's RDKit.js pin (its ``RDKIT`` constant), from
 #: the web app's root; the loader's path in it is relative to its directory.
 RDKIT_MODULE = "js/scientific/chem/rdkit.js"
+#: The manifest of the browser docking's AutoDock Vina build (studio/scripts/build_vina_wasm.py), from the web
+#: app's root; the paths of its outputs are relative to its directory.
+VINA_MANIFEST = "js/scientific/dock/vina_build.json"
 
 #: 2020-01-01T00:00:00Z: every bundle entry gets this time, so a rebuild is byte-identical.
 _FIXED_MTIME = 1_577_836_800
@@ -345,6 +354,47 @@ def rdkit_pin(web_dir: str | os.PathLike[str] | None = None, *,
             "loader": path}
 
 
+def vina_pin(web_dir: str | os.PathLike[str] | None = None) -> dict[str, Any] | None:
+    """``boot.json``'s ``vina``: the AutoDock Vina WebAssembly build the browser docking is
+    pinned to, as its build's manifest (``web/js/scientific/dock/vina_build.json``) records
+    it: ``version`` (Vina's), ``loader`` and ``url``, the vendored loader's and wasm's paths
+    from the site root, and the wasm's ``sha256`` and ``bytes``. Every vendored file the
+    manifest lists must be there with the size and SHA-256 it records, or the build fails:
+    the site never publishes a pin that its files do not match. None when the web app has
+    no such manifest (an installed runner without its web app)."""
+    web = Path(web_dir) if web_dir else default_web_dir()
+    manifest = web / VINA_MANIFEST if web is not None else None
+    if manifest is None or not manifest.is_file():
+        return None
+    try:
+        doc = json.loads(manifest.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise BuildError(f"{manifest} is not readable JSON: {exc}") from None
+    version = (doc.get("engine") or {}).get("version") if isinstance(doc, dict) else None
+    outputs = doc.get("outputs") if isinstance(doc, dict) else None
+    found: dict[str, tuple[str, dict[str, Any]]] = {}
+    for rel, rec in (outputs or {}).items():
+        path = (PurePosixPath(VINA_MANIFEST).parent / rel).as_posix()
+        target = web / path
+        if not target.is_file():
+            raise BuildError(f"{target} is missing: a vendored file of the Vina build that "
+                             f"{VINA_MANIFEST} records")
+        data = target.read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if not isinstance(rec, dict) or (len(data), digest) != (rec.get("bytes"), rec.get("sha256")):
+            raise BuildError(f"{target} ({len(data)} bytes, sha256 {digest}) is not the file "
+                             f"{VINA_MANIFEST} records: restore it, or rebuild the engine "
+                             "(studio/scripts/build_vina_wasm.py)")
+        kind = "wasm" if rel.endswith(".wasm") else "loader" if rel.endswith(".mjs") else None
+        if kind:
+            found[kind] = (path, rec)
+    if not isinstance(version, str) or not version or set(found) != {"wasm", "loader"}:
+        raise BuildError(f"{manifest}: it records no engine version, loader (.mjs) or wasm")
+    url, wasm = found["wasm"]
+    return {"version": version, "loader": found["loader"][0], "url": url,
+            "sha256": wasm["sha256"], "bytes": wasm["bytes"]}
+
+
 def datasets_bytes() -> bytes:
     """``runtime/datasets.json`` as published: the dataset registry
     (``tcmstudio.datasets.registry_document``) with sorted keys, so a rebuild gives the same
@@ -358,10 +408,12 @@ def datasets_bytes() -> bytes:
 def boot_document(bundle: Bundle, catalog: bytes, *,
                   index_url: str | None = None,
                   datasets: bytes | None = None,
-                  rdkit: dict[str, Any] | None = None) -> dict[str, Any]:
+                  rdkit: dict[str, Any] | None = None,
+                  vina: dict[str, Any] | None = None) -> dict[str, Any]:
     """``runtime/boot.json`` (§5). Paths are relative to the site root. ``datasets`` is
     ``runtime/datasets.json`` as published, named here with its SHA-256 when given;
-    ``rdkit`` is the browser chemistry's pin (:func:`rdkit_pin`), when the site has it."""
+    ``rdkit`` is the browser chemistry's pin (:func:`rdkit_pin`) and ``vina`` the browser
+    docking's (:func:`vina_pin`), when the site has them."""
     doc = {
         "schema": BOOT_SCHEMA,
         "pyodide": {"version": PYODIDE_VERSION, "index_url": _index_url(index_url),
@@ -381,6 +433,8 @@ def boot_document(bundle: Bundle, catalog: bytes, *,
                            "sha256": hashlib.sha256(datasets).hexdigest()}
     if rdkit is not None:
         doc["rdkit"] = dict(rdkit)
+    if vina is not None:
+        doc["vina"] = dict(vina)
     return doc
 
 
@@ -478,7 +532,7 @@ def runtime_files(*, index_url: str | None = None,
             catalog, _ = catalog_bytes(strict=False)
             datasets = datasets_bytes()
             boot = boot_document(bundle, catalog, index_url=key, datasets=datasets,
-                                 rdkit=rdkit_pin(url=mirror or None))
+                                 rdkit=rdkit_pin(url=mirror or None), vina=vina_pin())
             _CACHE = {"boot.json": (_json_bytes(boot), "application/json; charset=utf-8"),
                       "catalog.json": (catalog, "application/json; charset=utf-8"),
                       "datasets.json": (datasets, "application/json; charset=utf-8"),
@@ -550,37 +604,47 @@ _SW_SKIP_NAMES = {"sw.js", "_headers"}
 
 
 def service_worker_manifest(site: Path, index_url: str,
-                            rdkit: dict[str, Any] | None = None) -> dict[str, Any]:
+                            rdkit: dict[str, Any] | None = None,
+                            vina: dict[str, Any] | None = None) -> dict[str, Any]:
     """The shell files of a built site with their SHA-256, and a version that changes when
     any of them does (``sw.js`` caches exactly these, checked, one version at a time).
     ``rdkit`` is boot.json's RDKit.js pin (:func:`rdkit_pin`): its wasm's ``url`` and
     ``sha256`` go into the manifest as ``rdkit``, so the service worker keeps the wasm at
-    the URL the page fetches it from (a mirror's too) and only at the pinned digest."""
+    the URL the page fetches it from (a mirror's too) and only at the pinned digest.
+    ``vina`` is boot.json's AutoDock Vina pin (:func:`vina_pin`): its wasm, a file of the
+    site, is left out of the shell (only a visitor who docks downloads it) and goes into
+    the manifest as ``vina`` {url, sha256}, kept on first use at the pinned digest as
+    RDKit's is."""
     files = []
     for path in sorted(p for p in site.rglob("*") if p.is_file()):
         rel = path.relative_to(site).as_posix()
         if rel in _SW_SKIP_NAMES or rel.startswith(_SW_SKIP_PREFIXES) or rel.endswith(_SW_SKIP_SUFFIXES):
+            continue
+        if vina and rel == vina["url"]:
             continue
         if any(part.startswith(".") for part in path.relative_to(site).parts):
             continue
         files.append({"path": "/" if rel == "index.html" else f"/{rel}",
                       "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     wasm = {"url": rdkit["url"], "sha256": rdkit["sha256"]} if rdkit else None
-    version = hashlib.sha256(json.dumps([files, index_url, *([wasm] if wasm else [])],
+    dock = {"url": vina["url"], "sha256": vina["sha256"]} if vina else None
+    version = hashlib.sha256(json.dumps([files, index_url, *([wasm] if wasm else []),
+                                         *([dock] if dock else [])],
                                         sort_keys=True).encode()).hexdigest()[:16]
     return {"version": version, "index_url": index_url, "files": files,
-            **({"rdkit": wasm} if wasm else {})}
+            **({"rdkit": wasm} if wasm else {}), **({"vina": dock} if dock else {})}
 
 
 def _fill_service_worker(site: Path, index_url: str,
-                         rdkit: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                         rdkit: dict[str, Any] | None = None,
+                         vina: dict[str, Any] | None = None) -> dict[str, Any] | None:
     sw = site / "sw.js"
     if not sw.is_file():
         return None
     text = sw.read_text(encoding="utf-8")
     if _SW_MARKER not in text:
         raise BuildError("sw.js has no PRECACHE line for the build to fill")
-    manifest = service_worker_manifest(site, index_url, rdkit)
+    manifest = service_worker_manifest(site, index_url, rdkit, vina)
     sw.write_text(text.replace(_SW_MARKER, "const PRECACHE = "
                                + json.dumps(manifest, separators=(",", ":"), ensure_ascii=False) + ";"),
                   encoding="utf-8")
@@ -655,7 +719,11 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
     rdkit = rdkit_pin(web, url=rdkit_url)
     if rdkit is None:
         say(f"warning: {web / RDKIT_MODULE} is missing; the browser's ADMET jobs will not start")
-    boot = boot_document(bundle, catalog, index_url=index_url, datasets=datasets, rdkit=rdkit)
+    vina = vina_pin(web)
+    if vina is None:
+        say(f"warning: {web / VINA_MANIFEST} is missing; the browser's docking jobs will not start")
+    boot = boot_document(bundle, catalog, index_url=index_url, datasets=datasets, rdkit=rdkit,
+                         vina=vina)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     staging = out.with_name(f".{out.name}.build-{secrets.token_hex(4)}")
@@ -671,7 +739,8 @@ def build(out_dir: str | os.PathLike[str], web_dir: str | os.PathLike[str] | Non
         (runtime / "source-gateway.json").write_bytes(_json_bytes(source_gateway_document()))
         for name, (content, _media) in data_assets()[0].items():
             (runtime / name).write_bytes(content)
-        sw = _fill_service_worker(staging, boot["pyodide"]["index_url"], boot.get("rdkit"))
+        sw = _fill_service_worker(staging, boot["pyodide"]["index_url"], boot.get("rdkit"),
+                                  boot.get("vina"))
         headers = web.parent / "edge" / "_headers"
         if headers.is_file():
             shutil.copyfile(headers, staging / "_headers")

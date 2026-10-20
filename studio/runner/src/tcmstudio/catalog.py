@@ -1466,9 +1466,11 @@ def _admet_molecules_max() -> int:
     return ADMET_MOLECULES_MAX
 
 
-def _dock_limits() -> dict[str, int]:
-    from .browser_jobs import DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX
-    return {"ligands": DOCK_LIGANDS_MAX, "receptor_atoms": DOCK_RECEPTOR_ATOMS_MAX}
+def _dock_limits() -> dict[str, Any]:
+    from .browser_jobs import (DOCK_BOX_VOLUME_MAX, DOCK_LIGAND_ATOMS_MAX, DOCK_LIGANDS_MAX,
+                               DOCK_RECEPTOR_ATOMS_MAX)
+    return {"ligands": DOCK_LIGANDS_MAX, "receptor_atoms": DOCK_RECEPTOR_ATOMS_MAX,
+            "ligand_atoms": DOCK_LIGAND_ATOMS_MAX, "box_volume": DOCK_BOX_VOLUME_MAX}  # Å³
 
 _WORKERS = ("one job worker per job, one job at a time in a tab (the pool is sized one per spare CPU core, at "
             "most one per 1.5 GB of device memory, at most 4)")
@@ -1541,7 +1543,7 @@ _BROWSER_JOBS: dict[str, dict[str, Any]] = {
         engines={"vina": {"engine": "AutoDock Vina", "version": VINA_WASM["version"],
                           "build": "WebAssembly (studio/scripts/build_vina_wasm.py)",
                           "wasm_sha256": VINA_WASM["sha256"]}},
-        # measured in Node (tcmstudio.browser_jobs.DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX): more is refused
+        # measured with the WebAssembly build in Node (tcmstudio.browser_jobs.DOCK_*_MAX): more is refused, for memory
         limits=_dock_limits(),
         runner_only=[
             {"arg": "receptor", "not_suffix": [".pdbqt"],

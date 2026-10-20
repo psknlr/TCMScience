@@ -151,6 +151,54 @@ def test_boot_pins_the_browser_chemistry_as_rdkit_js_states_it(monkeypatch, bund
         webbuild.rdkit_pin(tmp_path)
 
 
+def test_boot_pins_the_browser_docking_as_its_build_manifest_records_it(bundle, tmp_path):
+    """boot.json's vina is read from web/js/scientific/dock/vina_build.json, the build's manifest; the vendored
+    loader and wasm must be the files it records (size and SHA-256), or there is no build."""
+    import shutil
+    dock = STUDIO / "web" / "js" / "scientific" / "dock"
+    manifest = json.loads((dock / "vina_build.json").read_text(encoding="utf-8"))
+    pin = webbuild.vina_pin()
+    wasm = manifest["outputs"]["vendor/vina-1.2.7.wasm"]
+    assert pin == {"version": "1.2.7", "loader": "js/scientific/dock/vendor/vina-1.2.7.mjs",
+                   "url": "js/scientific/dock/vendor/vina-1.2.7.wasm", "sha256": wasm["sha256"],
+                   "bytes": wasm["bytes"]}
+    data = (STUDIO / "web" / pin["url"]).read_bytes()
+    assert hashlib.sha256(data).hexdigest() == pin["sha256"] and len(data) == pin["bytes"]
+    # the page's own pin (vina.js VINA) says the same
+    text = (dock / "vina.js").read_text(encoding="utf-8")
+    assert f'sha256: "{pin["sha256"]}"' in text and f"bytes: {pin['bytes']}," in text
+    assert f'loader: "{pin["loader"]}"' in text and f'url: "{pin["url"]}"' in text
+    catalog, _ = webbuild.catalog_bytes(strict=False)
+    assert webbuild.boot_document(bundle, catalog, vina=pin)["vina"] == pin
+    assert "vina" not in webbuild.boot_document(bundle, catalog)
+    # a web app without the manifest has no pin; vendored files that are not the manifest's fail the build
+    assert webbuild.vina_pin(tmp_path) is None
+    copy = tmp_path / "js" / "scientific" / "dock"
+    shutil.copytree(dock, copy)
+    assert webbuild.vina_pin(tmp_path) == pin
+    wasm_copy = copy / "vendor" / "vina-1.2.7.wasm"
+    wasm_copy.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+    with pytest.raises(webbuild.BuildError, match="is not the file js/scientific/dock/vina_build.json records"):
+        webbuild.vina_pin(tmp_path)
+    wasm_copy.unlink()
+    with pytest.raises(webbuild.BuildError, match="is missing: a vendored file of the Vina build"):
+        webbuild.vina_pin(tmp_path)
+    (copy / "vina_build.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(webbuild.BuildError, match="not readable JSON"):
+        webbuild.vina_pin(tmp_path)
+
+
+def test_a_build_whose_vendored_vina_is_not_the_manifests_fails_and_leaves_nothing(tmp_path):
+    import shutil
+    web = tmp_path / "web"
+    shutil.copytree(STUDIO / "web", web, ignore=shutil.ignore_patterns("node_modules", "test"))
+    loader = web / "js" / "scientific" / "dock" / "vendor" / "vina-1.2.7.mjs"
+    loader.write_text(loader.read_text(encoding="utf-8") + "\n// edited\n", encoding="utf-8")
+    with pytest.raises(webbuild.BuildError, match="vina-1.2.7.mjs .* is not the file"):
+        webbuild.build(tmp_path / "out", web)
+    assert not (tmp_path / "out").exists()
+
+
 def test_browser_catalog_matches_the_cli(tmp_path):
     out = tmp_path / "cat.json"
     subprocess.run([sys.executable, "-m", "tcmstudio", "catalog", "--where", "browser",
@@ -215,8 +263,11 @@ def test_build_writes_the_site(site, bundle):
     assert boot["datasets"] == {"path": "runtime/datasets.json",
                                 "sha256": hashlib.sha256(datasets).hexdigest()}
     assert json.loads(datasets)["schema"] == "tcmstudio.datasets/1"
-    # the browser chemistry's pin, and the files it loads published with the site
+    # the browser chemistry's and docking's pins, and the files they load published with the site
     assert boot["rdkit"] == webbuild.rdkit_pin(url=os.environ.get("TCMSTUDIO_RDKIT_URL"))
+    assert boot["vina"] == webbuild.vina_pin()
+    for key in ("loader", "url"):
+        assert (out / boot["vina"][key]).read_bytes() == (STUDIO / "web" / boot["vina"][key]).read_bytes()
     chem = out / "js" / "scientific" / "chem"
     assert (out / boot["rdkit"]["loader"]).read_bytes() == (STUDIO / "web" / boot["rdkit"]["loader"]).read_bytes()
     assert (chem / "filter_catalogs.json").is_file() and (chem / "vendor" / "LICENSE-RDKit.txt").is_file()
@@ -258,12 +309,20 @@ def test_build_fills_the_service_worker_with_every_shell_file_and_its_hash(site)
     assert manifest["index_url"] == boot["pyodide"]["index_url"]
     # the RDKit.js wasm the page fetches (boot.json's url, a mirror's too), kept by sw.js at the pinned digest only
     assert manifest["rdkit"] == {"url": boot["rdkit"]["url"], "sha256": boot["rdkit"]["sha256"]}
+    # Vina's wasm, a file of the site, is not in the shell: sw.js keeps it on first use, at the pinned digest only;
+    # its loader is a module of the build like any other
+    assert manifest["vina"] == {"url": boot["vina"]["url"], "sha256": boot["vina"]["sha256"]}
+    assert (out / boot["vina"]["url"]).is_file() and f"/{boot['vina']['url']}" not in paths
+    assert f"/{boot['vina']['loader']}" in paths
     # deterministic: the same files give the same manifest and version; another index or wasm, another version
-    assert webbuild.service_worker_manifest(out, manifest["index_url"], boot["rdkit"]) == manifest
-    assert webbuild.service_worker_manifest(out, "/pyodide/", boot["rdkit"])["version"] != manifest["version"]
+    assert webbuild.service_worker_manifest(out, manifest["index_url"], boot["rdkit"], boot["vina"]) == manifest
+    assert webbuild.service_worker_manifest(out, "/pyodide/", boot["rdkit"], boot["vina"])["version"] != manifest["version"]
     mirror = {**boot["rdkit"], "url": "/mirror/RDKit_minimal.wasm"}
-    assert webbuild.service_worker_manifest(out, manifest["index_url"], mirror)["version"] != manifest["version"]
+    assert webbuild.service_worker_manifest(out, manifest["index_url"], mirror, boot["vina"])["version"] != manifest["version"]
     assert "rdkit" not in webbuild.service_worker_manifest(out, manifest["index_url"])
+    # without the pin, nothing names the wasm, so it would be an ordinary shell file
+    plain = webbuild.service_worker_manifest(out, manifest["index_url"], boot["rdkit"])
+    assert "vina" not in plain and f"/{boot['vina']['url']}" in {f["path"] for f in plain["files"]}
 
 
 def test_the_unbuilt_service_worker_caches_nothing():

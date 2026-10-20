@@ -2,7 +2,7 @@
 // Runs browser research jobs (studio/docs/BROWSER_JOBS.md) in headless Chromium and compares what they wrote with
 // native CPython.
 //
-//   node studio/web/test/runtime/science.mjs [--mode selftest|service|fixture|omics|admet|gqd] [--site DIR] [--pyodide-dir DIR]
+//   node studio/web/test/runtime/science.mjs [--mode selftest|service|fixture|omics|admet|dock|gqd] [--site DIR] [--pyodide-dir DIR]
 //        [--chromium PATH] [--raw DIR --native-out DIR] [--rdkit-dir DIR] [--archive FILE [--endpoints a,b]]
 //        [--json FILE] [--keep] [--timeout-min N]
 //
@@ -33,6 +33,21 @@
 //           the GPU forced on SwiftShader (the handlers' harness-only switch; Chromium is launched with WebGPU and
 //           SwiftShader): its outputs must be the first run's, its compute facts webgpu on a software adapter. With
 //           the known-answer archive both sides' cards are also held to its answer (admet_native.py values)
+// dock      the docking job: dock_native.py copies the prepared fixtures (BioScience-Harness/tests/fixtures/docking/
+//           prepared: 3PTB's pocket as a rigid PDBQT receptor, six ligands, the crystal ligand BEN) after checking that
+//           native AutoDock Vina 1.2.7 is here; the page adds them to a test project and runs pipeline.dock as a browser
+//           job (dock-plan.mjs: BEN the reference ligand, seed 42), the Python stages in Pyodide and AutoDock Vina 1.2.7
+//           compiled to WebAssembly in workers of its own, then scores each run's top pose again with the WebAssembly
+//           engine. Natively (dock_native.py) dock_read writes the plan, run_dock reads the browser's own Vina results
+//           (PrecomputedVina) in CPython, the runner's command (`bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt
+//           --reference-ligand …`, native Vina) docks the same files with the same seed, and native Vina scores the
+//           browser's top poses. compare.mjs compareDock: the plan and the texts Vina was given, the box, the inputs'
+//           digests and the ligand table identical; every output of the analysis the browser's bytes (run.json and
+//           stages.json apart from the process's own fields); each top pose's Vina.score() the same float64 bits in
+//           WebAssembly and natively; both searches complete, both redock BEN within 2 Å, the same ligands docked, each
+//           ligand's best score against native's at the same seed reported (not counted: a seeded search is not
+//           bit-reproducible across engines); the receipt's engine, compute facts (vina-wasm), device note and the
+//           dedicated workers' memory (not measured, and said so)
 // gqd       the 葛根芩连汤 research case on real files: the raw files in --raw (as the live-data workflow downloaded
 //           them) are imported into the page's private storage, research.snapshot builds the snapshots and
 //           research.run studies the formula, both through the browser job service; every export is then compared
@@ -42,7 +57,9 @@
 // unless --pyodide-dir serves a copy at /pyodide/; RDKit.js's wasm from boot.json's rdkit url (jsDelivr) unless
 // --rdkit-dir serves the directory holding RDKit_minimal.wasm (npm's @rdkit/rdkit dist) at /rdkit/. $PYTHON (default
 // python3) builds the site and runs the native side: it needs bioagent and tcmstudio installed, pytest for fixture and
-// omics, rdkit==2026.9.1 and scikit-learn==1.8.0 for admet. Exit 0 only when every check passed.
+// omics, rdkit==2026.9.1 and scikit-learn==1.8.0 for admet, vina==1.2.7 for dock (meeko==0.8.0 and gemmi==0.7.5 beside
+// it, as bioagent's docking extra installs them); the Vina wasm is the site's own, at boot.json's pin. Exit 0 only when
+// every check passed.
 // When the page fails, its console is printed; when it gives no result at all (a timeout, a hang in a worker's boot or
 // a fetch, an error before its result), its failures and the rows it had shown too, and the comparison says that no
 // result came back rather than a row per file. --json keeps all of it.
@@ -54,8 +71,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { ENGINE } from "../../js/scientific/dock/vina.js";
 import { admetPlan } from "./admet-plan.mjs";
-import { compareAdmet, compareExports, compareOmics } from "./compare.mjs";
+import { compareAdmet, compareDock, compareExports, compareOmics } from "./compare.mjs";
+import { dockPlan } from "./dock-plan.mjs";
 import { chromiumFlags } from "./gpu-science.mjs";
 import { OMICS_JOBS } from "./omics-plan.mjs";
 import { MIME, buildSite, headersFor, loadPlaywright, parseHeaders, runPage } from "./run.mjs";
@@ -293,6 +312,72 @@ function checkAdmet(plan, res, ad) {
   return { rows, values, native, times };
 }
 
+/** The docking job's inputs in a new directory (dock_native.py prepare): the prepared fixtures, copied, once native
+ * AutoDock Vina 1.2.7 is found here. */
+function nativeDock(plan) {
+  const dir = mkdtempSync(path.join(tmpdir(), "tcms-dock-"));
+  const r = spawnSync(PYTHON, [path.join(HERE, "dock_native.py"), "prepare", dir, JSON.stringify(plan)], { encoding: "utf8", maxBuffer: 64 << 20 });
+  if (r.status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(`the docking inputs could not be prepared (${PYTHON}: it needs bioagent and tcmstudio, and vina==1.2.7 with meeko==0.8.0 and gemmi==0.7.5; set $PYTHON): ${(r.stderr || r.error?.message || "").slice(-2000)}`);
+  }
+  return { dir, raw: path.join(dir, "raw"), report: JSON.parse(r.stdout.trim().split("\n").at(-1)), cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+/** `files` ({path: {sha256, text}}) written under `dir`, each held to the digest the page read → the paths whose text
+ * does not re-encode to those bytes. */
+function writeBack(dir, files) {
+  const torn = [];
+  for (const [rel, f] of Object.entries(files || {})) {
+    if (typeof f?.text !== "string") continue;
+    const bytes = Buffer.from(f.text, "utf8");
+    if (`sha256:${createHash("sha256").update(bytes).digest("hex")}` !== f.sha256) torn.push(rel);
+    mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    writeFileSync(path.join(dir, rel), bytes);
+  }
+  return torn;
+}
+
+/**
+ * The docking job of the page against the native side: the browser's outputs, Vina results and plan written out
+ * (WORK/browser; the results are what run_dock reads natively), the poses it scored (WORK/browser/scored.json),
+ * dock_native.py native run, compareDock's rows → {rows, native, times}. When the page's job did not come back, one row
+ * says why and nothing native is run.
+ */
+function checkDock(plan, res, dk) {
+  const job = res?.dock?.job;
+  const lost = noResult(res) || (!job?.ok ? `the pipeline.dock job ${job ? `ended ${job.state}${job.error?.message ? ` (${job.error.message})` : ""}` : "did not run (the page's checks say why)"}; nothing to compare` : null);
+  if (lost) return { rows: [{ name: "the pipeline.dock browser job", status: "missing", ok: false, counted: true, why: lost }], native: null, times: null };
+  const browser = path.join(dk.dir, "browser");
+  const torn = [
+    ...writeBack(path.join(browser, "out"), job.files),
+    ...writeBack(path.join(browser, "results"), Object.fromEntries(Object.entries(job.results || {}).map(([k, f]) => [`${k}.json`, f]))),
+    ...writeBack(path.join(browser, "read", "plan"), job.plan),
+  ];
+  const scored = (res.dock.scored || []).filter((s) => s.pose && s.params).map((s) => ({ key: s.key, name: s.name, pose: s.pose, params: s.params }));
+  writeFileSync(path.join(browser, "scored.json"), JSON.stringify(scored));
+  const r = spawnSync(PYTHON, [path.join(HERE, "dock_native.py"), "native", dk.dir, JSON.stringify(plan)], { encoding: "utf8", maxBuffer: 256 << 20 });
+  if (r.status !== 0) return { rows: [{ name: "the native runs", status: "missing", ok: false, counted: true, why: `dock_native.py native failed (exit ${r.status}): ${(r.stderr || r.error?.message || "").slice(-2000)}` }], native: null, times: null };
+  const native = JSON.parse(readFileSync(JSON.parse(r.stdout.trim().split("\n").at(-1)).written, "utf8"));
+  const tree = (dir) => (existsSync(dir) ? readTree(dir) : {});
+  const nativeFiles = { plan: tree(native.plan_dir), analysis: tree(native.runs.analysis.out), runner: tree(native.runs.runner.out) };
+  const rows = [
+    ...(torn.length ? [{ name: "the browser's files: their text", status: "different", ok: false, counted: true, why: `not UTF-8 text that re-encodes to the bytes read: ${torn.join(", ")}` }] : []),
+    ...compareDock({ browser: res.dock, native, nativeFiles, expected: { files: dk.report.files, engine: ENGINE } }),
+  ];
+  const stage = (id) => job.stages?.find((x) => x.id === id);
+  const facts = [].concat(stage("dock")?.compute || []);
+  const times = {
+    browser_job_s: job.receipt?.duration_s ?? null, browser_ms: job.ms,
+    stages_s: Object.fromEntries((job.stages || []).map((x) => [x.id, x.seconds])),
+    dock: { runs: facts.length, workers: stage("dock")?.record?.workers ?? null, why: stage("dock")?.record?.why ?? null, run_ms: facts.map((f) => f.ms) },
+    wasm_score_ms: (res.dock.scored || []).map((s) => s.ms ?? null),
+    native_runner_s: native.runs.runner.seconds, native_analysis_s: native.runs.analysis.seconds,
+    native_score_ms: (native.scores || []).map((s) => s.ms),
+  };
+  return { rows, native, times };
+}
+
 function parseArgs(argv) {
   const a = { mode: "selftest", keep: false, timeoutMin: null };
   for (let i = 0; i < argv.length; i++) {
@@ -313,7 +398,7 @@ function parseArgs(argv) {
     else if (k === "--help" || k === "-h") { console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n\n")[0].split("\n").slice(1).join("\n")); process.exit(0); }
     else throw new Error(`unknown argument ${k}`);
   }
-  if (!["selftest", "service", "fixture", "omics", "admet", "gqd"].includes(a.mode)) throw new Error("--mode is selftest, service, fixture, omics, admet or gqd");
+  if (!["selftest", "service", "fixture", "omics", "admet", "dock", "gqd"].includes(a.mode)) throw new Error("--mode is selftest, service, fixture, omics, admet, dock or gqd");
   if ((a.archive || a.endpoints || a.rdkitDir) && a.mode !== "admet") throw new Error("--archive, --endpoints and --rdkit-dir are for --mode admet");
   if (a.endpoints && !a.archive) throw new Error("--endpoints chooses among a real archive's endpoints (--archive FILE)");
   if (a.rdkitDir && !existsSync(path.join(a.rdkitDir, "RDKit_minimal.wasm"))) throw new Error(`--rdkit-dir: no RDKit_minimal.wasm in ${a.rdkitDir}`);
@@ -367,8 +452,10 @@ async function main() {
   const om = args.mode === "omics" ? nativeOmics() : null;
   const plan = args.mode === "admet" ? admetPlan({ real: Boolean(args.archive), endpoints: args.endpoints || null }) : null;
   const ad = plan ? nativeAdmet(plan, args.archive) : null;
+  const dp = args.mode === "dock" ? dockPlan() : null;
+  const dk = dp ? nativeDock(dp) : null;
   const rdkitDir = args.rdkitDir ? path.resolve(args.rdkitDir) : null;
-  const srv = await serve({ site, pyodideDir, rdkitDir, raw: fx ? fx.raw : om ? om.raw : ad ? ad.raw : args.raw ? path.resolve(args.raw) : null });
+  const srv = await serve({ site, pyodideDir, rdkitDir, raw: fx ? fx.raw : om ? om.raw : ad ? ad.raw : dk ? dk.raw : args.raw ? path.resolve(args.raw) : null });
   const { chromium } = await loadPlaywright();
   // the proxy, when something is fetched from the network (Pyodide, or RDKit.js's wasm, from jsDelivr)
   const remote = !pyodideDir || (ad && !rdkitDir);
@@ -378,7 +465,7 @@ async function main() {
     // admet: WebGPU on, SwiftShader forced, for the run whose domain search the harness switch puts on the GPU
     args: [...(proxy ? [`--proxy-server=${proxy}`, "--proxy-bypass-list=127.0.0.1;localhost"] : []), ...(ad ? chromiumFlags({ software: true }) : [])],
   });
-  const timeout = (args.timeoutMin || (args.mode === "gqd" ? 90 : args.mode === "omics" ? 20 : args.mode === "admet" ? (plan.real ? 210 : 25) : 10)) * 60_000;
+  const timeout = (args.timeoutMin || (args.mode === "gqd" ? 90 : args.mode === "omics" || args.mode === "dock" ? 20 : args.mode === "admet" ? (plan.real ? 210 : 25) : 10)) * 60_000;
   try {
     const ctx = await browser.newContext();
     const extra = ad ? `${rdkitDir ? "&rdkit=/rdkit/RDKit_minimal.wasm" : ""}${plan.real ? "&real=1" : ""}${args.endpoints ? `&endpoints=${encodeURIComponent(args.endpoints.join(","))}` : ""}` : "";
@@ -469,6 +556,27 @@ async function main() {
       for (const job of [res.admet?.pipeline, res.admet?.forced, res.admet?.models]) for (const f of Object.values(job?.files || {})) delete f.text;
       if (!res.admet?.models?.ok || !res.admet?.pipeline?.ok || !res.admet?.forced?.ok) report.ok = false;
     }
+    if (dk) {
+      report.native = dk.report;
+      const c = checkDock(dp, res, dk);
+      report.dock = { plan: dp, rows: c.rows, times: c.times, native: c.native ? { environment: c.native.environment, runs: Object.fromEntries(Object.entries(c.native.runs).map(([k, r]) => [k, { command: r.command, exit: r.exit, seconds: r.seconds, ...(r.checks ? { checks: r.checks } : {}) }])), scores: c.native.scores } : null };
+      for (const [name, f] of Object.entries(dk.report.files || {})) console.error(`input  ${name}: ${f.bytes} bytes, SHA-256 ${f.sha256.slice(0, 12)}…`);
+      for (const r of c.rows) {
+        console.error(`${TAG[r.status] || (r.ok ? "near  " : "DIFFER")} ${r.name}: ${r.why}`);
+        if (!r.ok) report.ok = false;
+      }
+      if (c.times) {
+        const t = c.times;
+        const sum = (xs) => xs.reduce((a, x) => a + (Number(x) || 0), 0);
+        console.error(`time   pipeline.dock: browser job ${t.browser_job_s ?? "?"} s (${Object.entries(t.stages_s).map(([k, v]) => `${k} ${v ?? "?"} s`).join(", ")}); ${t.dock.runs} Vina runs, ${(sum(t.dock.run_ms) / 1000).toFixed(1)} s of Vina in all (the longest ${(Math.max(0, ...t.dock.run_ms) / 1000).toFixed(1)} s) on ${t.dock.workers ?? "?"} workers (${t.dock.why ?? "no reason recorded"}); the WebAssembly scores ${sum(t.wasm_score_ms)} ms; native: the runner's command ${t.native_runner_s} s, run_dock on the browser's results ${t.native_analysis_s} s, the scores ${sum(t.native_score_ms).toFixed(0)} ms`);
+      }
+      const env = c.native?.environment || dk.report.environment || {};
+      console.error(`native: Python ${env.python}, numpy ${env.numpy}, vina ${env.vina}, ${env.machine}${env.cpu ? ` (${env.cpu}, ${env.cores} cores)` : ""}${env.glibc ? `, glibc ${env.glibc}` : ""}; browser: ${res.device?.cores ?? "?"} cores, ${res.device?.memory_gb ?? "?"} GB reported`);
+      // the texts were compared and written out; the report keeps each file's digest and size
+      const job = res.dock?.job;
+      for (const group of [job?.files, job?.results, job?.plan]) for (const f of Object.values(group || {})) delete f.text;
+      if (!job?.ok) report.ok = false;
+    }
     if (args.mode === "gqd") {
       const nativeOut = path.resolve(args.nativeOut);
       // no result from the page: one row saying so, not an export each "not written in the browser"
@@ -489,6 +597,8 @@ async function main() {
   else om?.cleanup();
   if (ad && args.keep) console.error(`the ADMET inputs, native runs and the browser's outputs are kept in ${ad.dir}`);
   else ad?.cleanup();
+  if (dk && args.keep) console.error(`the docking inputs, native runs and the browser's outputs are kept in ${dk.dir}`);
+  else dk?.cleanup();
   if (args.json) writeFileSync(args.json, JSON.stringify(report, null, 1));
   if (built && !args.keep) built.cleanup();
   console.error(report.ok ? `browser research jobs (${args.mode}): all checks passed` : `browser research jobs (${args.mode}): FAILED`);

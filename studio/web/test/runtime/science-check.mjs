@@ -37,6 +37,14 @@
 //                 again with the handlers' harness-only switch that forces the domain search onto the GPU, a software
 //                 adapter allowed (SwiftShader: science.mjs launches Chromium with it): its outputs must be the first
 //                 run's, its compute facts say webgpu on a software adapter, never accelerated
+// ?mode=dock      the docking job: the files the harness serves at /raw/ (dock_native.py prepare: a prepared receptor, six
+//                 ligands and the crystal ligand, PDBQT) become a test project's files, and the job service runs
+//                 pipeline.dock on them with dock-plan.mjs's parameters, exactly as Studio does: the Python stages in a
+//                 job worker, AutoDock Vina 1.2.7 compiled to WebAssembly (boot.json's vina pin) in its own workers. Its
+//                 receipt is checked, and every output, every Vina result and the plan come back with their digests and
+//                 text for science.mjs to compare with the native runs. Then the top pose of each run is scored again by
+//                 the WebAssembly engine in a dock worker of its own (Vina.score()), each value with its float64 bits,
+//                 for native Vina to score the same pose
 // ?index=URL      where Pyodide is (default: boot.json's index_url)
 // ?rdkit=URL      (admet) where RDKit_minimal.wasm is (default: boot.json's rdkit url); it must be boot.json's pin
 // ?real=1&endpoints=a,b   (admet) the archive is a real TDC ADMET group archive (admet-plan.mjs)
@@ -50,10 +58,13 @@ import { ScienceWorkerPool, recommendedPoolSize } from "../../js/scientific/runt
 import { preparedFiles } from "../../js/scientific/chem/prepared-set.js";
 import { N_BITS_BYTES, N_FEATURES } from "../../js/scientific/chem/features.js";
 import { ChemClient, createAdmetHandlers, modelsDir } from "../../js/scientific/pipelines/admet.js";
+import { createDockHandlers } from "../../js/scientific/pipelines/dock.js";
 import { HANDLERS, RESEARCH_EXPORTS, RESEARCH_PATHS, SNAPSHOTS_BUILT_SCHEMA } from "../../js/scientific/pipelines/network-pharmacology.js";
 import { OMICS_HANDLERS } from "../../js/scientific/pipelines/omics.js";
 import { browserSelfTest } from "../../js/scientific/pipelines/selftest.js";
+import { VINA } from "../../js/scientific/dock/vina.js";
 import { admetPlan } from "./admet-plan.mjs";
+import { dockPlan, firstPose, float64Bits } from "./dock-plan.mjs";
 import { OMICS_JOBS } from "./omics-plan.mjs";
 
 const q = new URLSearchParams(location.search);
@@ -766,9 +777,180 @@ async function admet() {
   }
 }
 
+// -------------------------------------------------------------------------------------------------- ?mode=dock
+
+/** A file of a job's directory → {sha256, bytes, text} (recorded: the digest the job recorded for it), or null. */
+async function fileRecord(svc, id, path, recorded = undefined) {
+  const bytes = await jobBytes(svc, id, path);
+  if (!bytes) return null;
+  return { sha256: `sha256:${await sha256Hex(bytes)}`, ...(recorded === undefined ? {} : { recorded }), bytes: bytes.byteLength, text: new TextDecoder().decode(bytes) };
+}
+
+/** A plan file's name inside the plan directory (pipelines/dock.js reads it so). */
+const planFile = (name) => String(name).split(/[\\/]/).filter(Boolean).at(-1);
+
+/**
+ * The pipeline.dock job of the service: submitted, waited for, its receipt checked as omicsJob and admetJob check one,
+ * and read back: every output (files: out/, by its path there), every Vina result (results: results/<key>.json, by its
+ * key) and the plan dock_read wrote (plan: read/plan/dock_plan.json and the texts Vina was given, by name), each with its
+ * digest and text → the record (ok: it succeeded and was read back).
+ */
+async function dockJob(svc, handler, plan, projectId, recorded) {
+  const t0 = performance.now();
+  let job;
+  try {
+    job = await svc.submit(plan.kind, plan.params, { project_id: projectId });
+  } catch (err) {
+    check(`${plan.kind} submitted`, false, `${err?.type || "error"}: ${err?.message || err}${err?.need ? ` (need ${err.need})` : ""}`);
+    return null;
+  }
+  job = await waitFor(svc, job.id, 20 * 60_000);
+  const ms = performance.now() - t0;
+  const rec = jobRecord(plan, job, ms);
+  if (!check(`${plan.kind} as a browser job`, job?.state === "succeeded", job?.error?.message || job?.state, ms)) return rec;
+  check(`${plan.kind}: its stages`, job.stages.every((x) => x.status === "succeeded"), rec.stages.map((x) => `${x.id}:${x.status}${x.reused ? "(reused)" : ""} ${x.seconds ?? "?"} s`).join(", "));
+  const receipt = await svc.receipt(job.id);
+  const doc = receipt?.doc || null;
+  rec.receipt = doc;
+  rec.memory = doc?.resources?.memory ?? null;
+  check(`${plan.kind}: receipt at its recorded digest`, receipt?.matches === true, receipt?.sha256 || "no receipt");
+  check(`${plan.kind}: receipt says both digest readings agree (outputs_verified)`, doc?.assurance === "outputs_verified", String(doc?.assurance));
+  check(`${plan.kind}: receipt says the browser verified the outputs (device evidence verified)`, doc?.device?.evidence === "verified", JSON.stringify(doc?.device?.verify_stages ?? doc?.device?.evidence));
+  const runner = ["verify_run", "required_artefacts", "validator:run"];
+  check(`${plan.kind}: the runner's checks passed (${runner.join(", ")})`, runner.every((c) => (doc?.checks || []).includes(c)), (doc?.checks || []).join(", "));
+  check(`${plan.kind}: every output the runner requires is there`, JSON.stringify(doc?.expected) === JSON.stringify(handler.expected) && !(doc?.missing || []).length,
+    `expected ${(doc?.expected || []).join(", ")}; missing ${(doc?.missing || []).join(", ") || "none"}`);
+  const inputs = Object.entries(doc?.inputs || {}).filter(([, v]) => v?.source?.project_file);
+  const wrong = inputs.filter(([, v]) => recorded.get(v.source.project_file)?.sha256 !== v.sha256);
+  check(`${plan.kind}: inputs recorded at the project files' digests`, inputs.length === recorded.size && !wrong.length,
+    wrong.length ? `not the project's: ${wrong.map(([k]) => k).join(", ")}` : inputs.map(([k, v]) => `${k}: ${v.source?.name} ${String(v.sha256).slice(0, 12)}…`).join("; "));
+  rec.files = {};
+  rec.results = {};
+  for (const a of job.artefacts || []) {
+    const f = await fileRecord(svc, job.id, a.path, a.sha256);
+    if (!f) continue;
+    if (a.path[0] === "results") rec.results[a.path.at(-1).replace(/\.json$/, "")] = f;
+    else rec.files[a.path[0] === "out" ? a.path.slice(1).join("/") : a.path.join("/")] = f;
+  }
+  const at = (a) => (a.path[0] === "results" ? rec.results[a.path.at(-1).replace(/\.json$/, "")] : rec.files[a.path[0] === "out" ? a.path.slice(1).join("/") : a.path.join("/")]);
+  const unread = (job.artefacts || []).filter((a) => at(a)?.sha256 !== `sha256:${String(a.sha256).replace(/^sha256:/, "")}`);
+  check(`${plan.kind}: every output and Vina result read back at its recorded digest`, (job.artefacts || []).length > 0 && !unread.length,
+    unread.length ? `not read back as recorded: ${unread.map((a) => a.path.join("/")).join(", ")}` : `${Object.keys(rec.files).length} outputs, ${Object.keys(rec.results).length} Vina results`);
+  // the plan dock_read wrote (read/plan/), and the texts it names: what each Vina run was given
+  rec.plan = {};
+  const planDoc = await fileRecord(svc, job.id, ["read", "plan", "dock_plan.json"]);
+  if (planDoc) {
+    rec.plan["dock_plan.json"] = planDoc;
+    const p = JSON.parse(planDoc.text);
+    for (const x of [p.receptor, ...(p.ligands || []), ...(p.reference ? [p.reference] : [])]) {
+      const f = x?.file ? await fileRecord(svc, job.id, ["read", "plan", planFile(x.file)]) : null;
+      if (f) rec.plan[planFile(x.file)] = f;
+    }
+  }
+  check(`${plan.kind}: the plan read back (read/plan/dock_plan.json and the texts it names)`, Boolean(planDoc) && Object.keys(rec.plan).length > 1, Object.keys(rec.plan).join(", ") || "no dock_plan.json");
+  rec.ok = true;
+  return rec;
+}
+
+/**
+ * The top pose of each Vina run of the job (the first MODEL of its result's poses: dock-plan.mjs firstPose) scored again
+ * by the WebAssembly engine, in a dock worker of its own started from boot.json's pin: Vina.score() on the plan's
+ * receptor text with the plan's box and scoring → [{key, name, pose, params, receptor_sha256, ligand_sha256, engine,
+ * energies, bits, ms}] ({key, name, error} for a run it could not score). dock_native.py scores the same poses natively.
+ */
+async function rescore(pin, rec) {
+  const w = new Worker(new URL("/js/scientific/dock/dock.worker.js", location.href).href, { type: "module" });
+  let seq = 0;
+  const pending = new Map();
+  w.onmessage = (e) => { pending.get(e.data?.id)?.(e.data); pending.delete(e.data?.id); };
+  w.onerror = (e) => {
+    for (const r of pending.values()) r({ ok: false, error: { type: "worker", message: e?.message || "the dock worker failed" } });
+    pending.clear();
+  };
+  const call = (op, payload) => new Promise((r) => { const id = ++seq; pending.set(id, r); w.postMessage({ id, op, payload }); });
+  try {
+    const t0 = performance.now();
+    const init = await call("init", { wasmUrl: pin.url, sha256: String(pin.sha256).replace(/^sha256:/, "") });
+    if (!check("a dock worker of its own started from boot.json's vina pin", init.ok && init.result?.engine?.wasm_sha256 === VINA.wasm.sha256,
+      init.ok ? JSON.stringify(init.result.engine) : `${init.error?.type}: ${init.error?.message}`, performance.now() - t0)) return null;
+    const planDoc = JSON.parse(rec.plan["dock_plan.json"].text);
+    const receptor = rec.plan[planFile(planDoc.receptor.file)]?.text;
+    const params = { scoring: planDoc.params.scoring, center: planDoc.box.center, size: planDoc.box.size, spacing: planDoc.params.spacing, seed: planDoc.params.seed };
+    const tasks = [...(planDoc.reference ? [{ key: planDoc.reference.key, name: planDoc.reference.name }] : []), ...planDoc.ligands.map((l) => ({ key: l.key, name: l.name }))];
+    const scored = [];
+    for (const t of tasks) {
+      const doc = JSON.parse(rec.results?.[t.key]?.text || "null");
+      const pose = typeof doc?.poses === "string" ? firstPose(doc.poses) : null;
+      if (!pose) { scored.push({ ...t, error: doc?.error ? `Vina refused it in the job: ${doc.error}` : "no pose read back" }); continue; }
+      const t1 = performance.now();
+      const r = await call("score", { receptor, ligand: pose, params });
+      const ms = Math.round(performance.now() - t1);
+      if (!r.ok) scored.push({ ...t, pose, error: `${r.error?.type}: ${r.error?.message}` });
+      else if (r.result.error) scored.push({ ...t, pose, error: `Vina refused the pose: ${r.result.error}` });
+      else {
+        const s = r.result;
+        scored.push({ ...t, pose, params: s.params, receptor_sha256: s.receptor_sha256, ligand_sha256: s.ligand_sha256, engine: s.engine, energies: s.energies, bits: s.energies.map(float64Bits), ms });
+      }
+    }
+    const n = scored.filter((x) => x.energies).length;
+    check("the top poses scored again by the WebAssembly engine (Vina.score() in a dock worker)", n === tasks.length && n > 0,
+      `${n} of ${tasks.length} poses${scored.filter((x) => x.error).map((x) => `; ${x.key}: ${x.error}`).join("")}`, performance.now() - t0);
+    return scored;
+  } finally {
+    w.terminate();
+  }
+}
+
+async function dock() {
+  const bootDoc = await boot();
+  const plan = dockPlan();
+  out.plan = plan;
+  const pin = bootDoc.vina || null;
+  const bare = (s) => String(s || "").replace(/^sha256:/, "");
+  const same = pin && pin.version === VINA.version && pin.loader === VINA.loader && pin.url === VINA.wasm.url && bare(pin.sha256) === VINA.wasm.sha256 && pin.bytes === VINA.wasm.bytes;
+  if (!check("boot.json pins AutoDock Vina (version, loader, url, sha256, bytes): this page's own pin", same, JSON.stringify(pin))) return;
+  const { store, reason } = await OpfsStore.open();
+  if (!check("private storage (OPFS)", Boolean(store), store ? "" : reason)) return;
+  await store.remove(["tcmstudio"], { recursive: true }).catch(() => false);
+  const projects = await openStore({ name: "tcmstudio-science-check" });
+  const project = await projects.projects.create({ name: "science check: dock" });
+  const listed = await (await fetch("/raw/index.json")).json();
+  const t0 = performance.now();
+  const recorded = new Map();
+  for (const f of listed) {
+    const blob = await (await fetch(`/raw/${encodeURIComponent(f.name)}`)).blob();
+    const rec = await projects.files.add(project.id, new File([blob], f.name), { name: f.name });
+    recorded.set(rec.id, rec);
+  }
+  out.project_files = [...recorded.values()].map((r) => ({ id: r.id, name: r.name, bytes: r.bytes, sha256: r.sha256 }));
+  check("the receptor, the ligands and the reference ligand are a project's files", plan.files.every((n) => out.project_files.some((r) => r.name === n)) && recorded.size === plan.files.length,
+    out.project_files.map((r) => `${r.name} (${r.bytes} bytes)`).join(", "), performance.now() - t0);
+  const site = new URL("/", location.href).href;
+  const handlers = createDockHandlers({ vina: pin, VinaWorker: Worker, siteUrl: site, vinaWorkerUrl: new URL("js/scientific/dock/dock.worker.js", site).href });
+  const p = pool(bootDoc);
+  const svc = new BrowserJobService({ pool: p, store, projectFiles: projectFilesResolver(projects.files), handlers });
+  await svc.start();
+  check("job service started", svc.status === "ready", svc.reason || svc.status);
+  out.device = { cores: navigator.hardwareConcurrency ?? null, memory_gb: navigator.deviceMemory ?? null };
+  out.dock = {};
+  try {
+    const job = await dockJob(svc, handlers[0], plan.job, project.id, recorded);
+    out.dock.job = job;
+    if (job?.ok) {
+      out.dock.scored = await rescore(pin, job).catch((err) => {
+        check("the top poses scored again by the WebAssembly engine (Vina.score() in a dock worker)", false, err?.stack || String(err));
+        return null;
+      });
+    }
+  } finally {
+    p.terminateAll();
+  }
+}
+
 (async () => {
   try {
-    if (mode === "admet") await admet();
+    if (mode === "dock") await dock();
+    else if (mode === "admet") await admet();
     else if (mode === "omics") await omics();
     else if (mode === "gqd") await gqd();
     else if (mode === "fixture") await fixture();

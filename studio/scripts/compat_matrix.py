@@ -6,14 +6,19 @@
 
 Every row is one entry of the tool catalog (``tcmstudio.catalog``): what runs it today, where its
 computation happens, which local backends it has, what it needs, and what stands in the way of the
-rest. The classes are the ones the modernisation plan asks about; an entry is put in the most
+rest. ``browser_scope`` says for which arguments the browser runs it: all of them, only some (the
+arguments the entry's ``execution.browser_job.runner_only`` rules name send a call to the runner),
+or none; so routing coverage (an entry the browser runs at all) is counted apart from the input
+combinations it supports. The classes are the ones the modernisation plan asks about; an entry is put in the most
 specific class its code and dependencies support, never in one it has not been shown to reach:
 
   1  runs in the browser now, unchanged (Pyodide: CPython compiled to WebAssembly, CPU)
   1g runs in the browser now; its data comes from the source's public API through the site's
      bounded gateway (the request, parsing and policy run locally; the data is remote by nature)
   1j runs in the browser now as a job: the same Python in the page's job workers (Pyodide, CPU),
-     its files in the site's private storage (OPFS), followed and cancelled like a runner job
+     with a native engine compiled to WebAssembly in dedicated workers where the job has one
+     (docking: AutoDock Vina 1.2.7), its files in the site's private storage (OPFS), followed and
+     cancelled like a runner job
   2  converted: a JavaScript CPU kernel computes the hot loop, byte-identical to Python (checked)
   3  WebGPU and WebAssembly SIMD: exact integer reductions on the GPU or with SIMD on the CPU,
      with recounts in Python (and the JavaScript kernel, then Python, as the fallbacks)
@@ -41,8 +46,12 @@ for src in (STUDIO / "runner" / "src", REPO / "BioScience-Harness" / "src", REPO
     if src.is_dir() and str(src) not in sys.path:
         sys.path.insert(0, str(src))
 
-from tcmstudio.browser_jobs import ADMET_MOLECULES_MAX  # noqa: E402
+from tcmstudio.browser_jobs import (ADMET_MOLECULES_MAX, DOCK_BOX_VOLUME_MAX, DOCK_LIGAND_ATOMS_MAX,  # noqa: E402
+                                    DOCK_LIGANDS_MAX, DOCK_RECEPTOR_ATOMS_MAX)
 
+# what a browser docking run takes, measured with Vina's WebAssembly build under Node (tcmstudio.browser_jobs)
+DOCK_MEASURED = ("one Vina instance 357-429 MB for the fixture's ligands and 1.96 GB for a 79-atom one, 3.6-14.3 s "
+                 "a ligand at exhaustiveness 8, 24 runs in 52 s on 4 workers")
 # what a browser ADMET run takes, measured in Pyodide 314.0.7 under Node (tcmstudio.browser_jobs)
 ADMET_MEASURED = ("1,000 molecules 224 MB, 10,000 625 MB, 20,000 1.0 GB at the WebAssembly memory's peak, 23 s "
                   "for 20,000 with the page's domain search and 113 s when Python recomputes it")
@@ -103,12 +112,13 @@ PYODIDE_NOTES = {
 RUNNER_REASONS = {
     "job.pipeline.fold": ("7", "ESMFold needs torch + transformers (not in Pyodide) and a GPU; ESM Atlas / ColabFold are "
                                "remote services (allow_remote)"),
-    "job.pipeline.dock": ("7", "AutoDock Vina, meeko, gemmi and rdkit are native and not in Pyodide"),
     "job.skill.run": ("8", "runs a governed skill as a subprocess job"),
     "job.tcmdb.fetch": ("8", "downloads full third-party databases to disk"),
     "job.tcmdb.build": ("8", "builds SQLite stores from those downloads"),
     "skill.retrieve-literature-evidence": ("7", "PaperQA2 and its model calls are not a browser package"),
-    "skill.dock-ligands": ("7", "the docking engines above"),
+    "skill.dock-ligands": ("7", "a governed skill preparing its inputs with meeko, RDKit and gemmi (native, not in "
+                                "Pyodide) before AutoDock Vina; prepared inputs (PDBQT) dock in the browser as "
+                                "job.pipeline.dock"),
     "skill.predict-admet": ("7", "rdkit, as a governed skill on the runner; the same pipeline runs in the browser as "
                                  "job.pipeline.admet, its chemistry in RDKit.js"),
     "skill.predict-protein-structure": ("7", "torch / transformers and a GPU, or a remote structure service"),
@@ -166,6 +176,21 @@ BROWSER_JOB_NOTES = {
                           "full precision apart from values through expit/10** (a few last-bit units, named); locally, "
                           "in Studio's CI and with the real archive's 22 models on a 39-molecule set (live-data #24, "
                           "2026-10-20)",
+    "job.pipeline.dock": "prepared inputs from the project's files: a rigid receptor and ligands as PDBQT (one ligand or "
+                         "several as MODEL blocks), the site as center and size or around the co-crystal ligand "
+                         "prepared in its crystal pose (reference_ligand, redocked to validate the setup); each Vina "
+                         "run in AutoDock Vina 1.2.7 compiled to WebAssembly (studio/scripts/build_vina_wasm.py, "
+                         "pinned by SHA-256) in dedicated workers, the rest bioagent.docking.prepared in a job worker, "
+                         "as `bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt` runs on the runner; a PDB receptor, SMILES, "
+                         "CSV or SDF ligands, site_ligand and allow_remote need the runner (meeko and RDKit prepare "
+                         f"them), and so do more than {DOCK_LIGANDS_MAX} ligands, a receptor of more than "
+                         f"{DOCK_RECEPTOR_ATOMS_MAX:,} atoms, a ligand of more than {DOCK_LIGAND_ATOMS_MAX} atoms or a "
+                         f"box of more than {DOCK_BOX_VOLUME_MAX:,} Å³ ({DOCK_MEASURED}); compared with the native "
+                         "vina 1.2.7 wheel in Node on the 3PTB fixture (studio/web/test/scientific/vina.test.mjs), "
+                         "score and optimize were bit-identical on six ligands and seeded searches within the "
+                         "measured rule (per-ligand median best scores over seeds 1-8 within 0.10 kcal/mol, the "
+                         "crystal ligand redocked within 2 Å as often as natively); a seeded search is not "
+                         "bit-reproducible across engines or CPUs",
 }
 PYODIDE_NOTES_JOBS = {
     "system.job_status": "the page answers its own jobs (ids bj-…); a runner job's status needs the runner",
@@ -199,7 +224,11 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
     job = (e.get("execution") or {}).get("browser_job")
     if job and "browser" in exec_:
         packages = ", ".join(job.get("pyodide_packages") or [])
-        return ("1j", f"pyodide job workers ({packages}) + OPFS → the runner's job service",
+        # an engine that is not Python (docking's Vina) runs compiled to WebAssembly in workers of its own
+        engines = job.get("engines") if isinstance(job.get("engines"), dict) else {}
+        native = "".join(f", and {x['engine']} {x['version']} compiled to WebAssembly in dedicated workers"
+                         for x in engines.values() if str(x.get("build", "")).startswith("WebAssembly"))
+        return ("1j", f"Pyodide job workers ({packages}){native} + OPFS → the runner's job service",
                 "the runner, when the browser has no private storage or the user prefers it", checked,
                 BROWSER_JOB_NOTES.get(eid, ""))
     if eid in RUNNER_REASONS:
@@ -217,6 +246,16 @@ def classify(e: dict) -> tuple[str, str, str, str, str]:
     pk = e.get("pyodide_packages") or []
     note = f"loads {', '.join(pk)} on demand" if pk else ""
     return ("1", "pyodide", "—", checked, PYODIDE_NOTES.get(eid) or PYODIDE_NOTES_JOBS.get(eid) or note)
+
+
+def browser_scope(e: dict) -> str:
+    """For which arguments the browser runs the entry: every one; some (the arguments the entry's
+    execution.browser_job.runner_only rules name take a call to the runner); or none."""
+    if "browser" not in (e.get("exec") or ()):
+        return "runner only"
+    rules = ((e.get("execution") or {}).get("browser_job") or {}).get("runner_only") or ()
+    args = list(dict.fromkeys(str(r.get("arg")) for r in rules if r.get("arg")))
+    return f"some arguments: {', '.join(args)}" if args else "all arguments"
 
 
 def mobile(cls: str, e: dict) -> str:
@@ -254,12 +293,13 @@ def rows() -> list[dict]:
             "offline": "no" if e.get("network") or cls in ("7", "8") else "yes (after first load)",
             "gpu": "yes" if e.get("gpu") else "no", "job": "yes" if e.get("job") else "no",
             "deps": deps, "mobile": mobile(cls, e), "fallback": fallback, "validation": validation, "notes": notes,
+            "browser_scope": browser_scope(e),
         })
     return out
 
 
-FIELDS = ["id", "kind", "category", "domain", "exec_now", "class", "class_label", "local_backends", "network",
-          "offline", "gpu", "job", "deps", "mobile", "fallback", "validation", "notes"]
+FIELDS = ["id", "kind", "category", "domain", "exec_now", "class", "class_label", "browser_scope", "local_backends",
+          "network", "offline", "gpu", "job", "deps", "mobile", "fallback", "validation", "notes"]
 
 
 def to_csv(table: list[dict]) -> str:
@@ -348,9 +388,23 @@ FAMILIES = [
      "molecules identical)",
      "SDF and .mol, and the governed skill, stay on the runner; the physical-GPU acceptance for the domain search is "
      "open (no GPU here or in CI; the device check runs it on real hardware)"),
-    ("RNA-seq from FASTQ (quantification), docking, structure prediction",
-     "job.pipeline.rnaseq (FASTQ)/dock/fold", "7", "GBs; native binaries; GPU", "no", "runner (CPU/GPU)",
-     "remote HPC worker for heavy cases"),
+    ("Docking prepared inputs (PDBQT): AutoDock Vina 1.2.7 compiled to WebAssembly",
+     "job.pipeline.dock (a .pdbqt receptor and ligands)", "1j",
+     f"one Vina instance per dedicated worker: about 330 MB of tables whatever the inputs, growing with the square of "
+     f"the ligand's atoms (357-429 MB for 12-23 atoms, 1.96 GB at 79) and with the box (2.78 GB for a 126 Å box); "
+     f"3.6-14.3 s a ligand at exhaustiveness 8, 24 runs in 52 s on 4 workers (Node, one thread a worker); so a "
+     f"browser job takes at most {DOCK_LIGANDS_MAX} ligands of at most {DOCK_LIGAND_ATOMS_MAX} atoms, a receptor of "
+     f"{DOCK_RECEPTOR_ATOMS_MAX:,} atoms and a box of {DOCK_BOX_VOLUME_MAX:,} Å³",
+     "not yet measured",
+     "a browser job: each Vina run in the WebAssembly build (reproducible from pinned inputs, held to its SHA-256), "
+     "the stages bioagent.docking.prepared in Pyodide, as `bioagent dock RECEPTOR.pdbqt LIGANDS.pdbqt` runs natively; "
+     "in Node on the 3PTB fixture score and optimize were bit-identical to the native wheel and seeded searches "
+     "within the measured rule (studio/web/test/scientific/vina.test.mjs); a seeded search is not bit-reproducible "
+     "across engines or CPUs",
+     "preparing receptors and ligands (meeko, RDKit) in the browser; the governed skill"),
+    ("RNA-seq from FASTQ (quantification), docking from PDB or SMILES (preparation), structure prediction",
+     "job.pipeline.rnaseq (FASTQ)/dock (PDB, SMILES)/fold, skill.dock-ligands", "7", "GBs; native binaries; GPU",
+     "no", "runner (CPU/GPU)", "remote HPC worker for heavy cases"),
     ("Jobs, MCP providers, environment checks", "job.*, system.provider_call, system.doctor", "8", "—", "no",
      "runner", "—"),
 ]
@@ -362,6 +416,8 @@ def summary(table: list[dict]) -> str:
     sources, operations = connector_counts()
     checked = Counter("UNVERIFIED" if r["validation"].startswith("UNVERIFIED") else "a committed record"
                       for r in table)
+    scope = Counter(r["browser_scope"].split(":")[0] for r in table)
+    partly = [r["id"] for r in table if r["browser_scope"].startswith("some arguments")]
     lines = ["# Browser compatibility matrix", "",
              "Generated by `studio/scripts/compat_matrix.py` from the tool catalog; one row per entry in "
              "[`matrix.csv`](matrix.csv). `--check` keeps it current (studio/runner/tests).", "",
@@ -369,6 +425,13 @@ def summary(table: list[dict]) -> str:
              f"{sum(counts[c] for c in ('1', '1g', '1j', '2', '3', '5'))}; as browser jobs (1j): {counts['1j']}; "
              f"with a local kernel (2, 3): "
              f"{counts['2'] + counts['3']}; on the local runner only (6, 7, 8): {sum(counts[c] for c in ('6', '7', '8'))}.", "",
+             f"Routing coverage is not input coverage (the `browser_scope` column): of the "
+             f"{scope['all arguments'] + scope['some arguments']} entries the browser runs, it runs "
+             f"{scope['all arguments']} for every argument and {scope['some arguments']} for some arguments only "
+             f"({', '.join(partly)}): there the arguments the entry's `execution.browser_job.runner_only` rules "
+             f"name take a call to the runner, with the reason. {scope['runner only']} entries run on the runner "
+             "only. A class says where an entry runs, not that its browser output was compared with native "
+             "CPython.", "",
              f"Validation (the `validation` column) is each entry's committed verification record "
              f"(`entry.verification` in the catalog): {checked['a committed record']} entries have one, "
              f"{checked['UNVERIFIED']} are UNVERIFIED (no record, which is not a failure).", "",
