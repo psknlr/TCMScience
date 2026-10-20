@@ -61,7 +61,11 @@ ADMET 的模型构建（`admet.models`）与预测（`pipeline.admet`，从 CSV/
 点名、交给 Runner），适用域检索用 Tanimoto 内核（WebAssembly SIMD，或仅在本设备自身的检查测得实体适配器既精确又更快时才用 GPU）。模型在
 浏览器中由 TDC 归档（经本站中转或作为项目文件）训练并保存在私有存储中，不分发任何训练好的模型。与原生命令（RDKit 2026.9.1、scikit-learn
 1.8.0、单线程）在已知答案归档与 TDC 规模的合成归档上比对，适用域文件与 `admet.tsv` 是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，预测在全精度下一致，
-只有既定末位规则内的差异；已在本地无头 Chromium（Pyodide 314.0.7）中测试，尚未在 CI、真实 TDC 归档或实体 GPU 上运行
+只有既定末位规则内的差异。已在本地无头 Chromium（Pyodide 314.0.7）中测试，并已在 Studio 的 CI（`studio` #95，2026-10-20，
+已知答案归档）中通过；在真实 TDC 归档上已在 `live-data` #24 中通过（运行 39386727431，提交 0882e95，2026-10-20，GitHub 运行器上的
+无头 Chromium；CI 中归档作为项目文件交给页面，因此在浏览器中经本站中转下载尚未运行过）：22 张模型卡（除摘要、秒数与化学名称外）和
+适用域文件都与原生一致，81,809 个分子中有 202 个（0.25%）被浏览器的化学步骤拒绝、原生构建同样不用它们，16,353 个测试集预测的模型
+原始输出与适用域检索完全一致，36 个最终预测相差 1 个 float64 末位单位。未在实体 GPU 上运行，故 P3 的验收（实体 GPU、实测性能）仍未满足
 （[docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)）。SDF 或 `.mol` 文件、超过 20,000 个分子，以及受治理的
 `predict-admet` Skill 都需要 Runner。
 
@@ -301,9 +305,15 @@ clinical tool or identifying details), and counts anonymous usage you can switch
   2026.9.1, scikit-learn 1.8.0, one thread) on a known-answer archive and a synthetic one at the TDC sizes, the domain
   files and `admet.tsv` were the native run's bytes, the model cards the native ones but for the model file's digest,
   the seconds and the chemistry's name, and the predictions exact at full precision apart from a named
-  last-bit rule; tested locally in headless Chromium (Pyodide 314.0.7), not yet in CI, on the real TDC archive, or on a
-  physical GPU ([docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)). An SDF or `.mol` file, more than 20,000
-  molecules, and the governed `predict-admet` skill need the runner.
+  last-bit rule. Tested locally in headless Chromium (Pyodide 314.0.7), and passed in Studio's CI (`studio` #95,
+  2026-10-20, on the known-answer archive) and on the real TDC archive in `live-data` #24 (run 39386727431, commit
+  0882e95, 2026-10-20, headless Chromium on GitHub's runner; in CI the archive was given to the page as a project file,
+  so a relayed download in a browser has not been run): the 22 model cards (but for their digests, the seconds and the
+  chemistry's name) and domain files the native ones, 202 of the 81,809 molecules (0.25%) refused by the browser's
+  chemistry and left out of the native build too, and of 16,353 test-set predictions the raw model outputs and the
+  domain search identical, 36 final ones 1 unit apart in the last place of float64. Not run on a physical GPU, so P3's
+  acceptance (a physical GPU, measured) stays open ([docs/BROWSER_JOBS.md §3.2](docs/BROWSER_JOBS.md#32-admet)). An SDF
+  or `.mol` file, more than 20,000 molecules, and the governed `predict-admet` skill need the runner.
 - **NPU.** WebNN capability detection is available. Actual NPU acceleration is supported only for workloads with a verified
   execution provider and hardware-backed execution evidence; no workload has either today.
 - **Add the local runner**: in a virtual environment (Ubuntu 23.04+, Debian 12 and Homebrew Python refuse a

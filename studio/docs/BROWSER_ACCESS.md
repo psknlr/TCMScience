@@ -54,7 +54,8 @@ files obtained elsewhere ([BROWSER_JOBS.md](BROWSER_JOBS.md) §2). The ADMET mod
 `admet` group, whose download is held to its pinned SHA-256, or a project file, whose
 SHA-256 is compared with the pin; the models are trained in
 the page and kept in its private storage, never shipped
-([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)).
+([BROWSER_JOBS.md §3.2](BROWSER_JOBS.md#32-admet)). In CI the archive was given to the
+page as a project file; a download through the relay in a browser has not been run.
 
 The repository formula workbook is indexed in full, preserving all seven columns,
 duplicate names and source versions. Its compressed SQLite asset is verified against
@@ -144,10 +145,17 @@ Pyodide's numpy, scipy and scikit-learn. The models are built in the page and ke
 shipped. A molecule the browser chemistry cannot
 standardise exactly is refused and named, not approximated, and so are an SDF or `.mol` file and more than 20,000
 molecules; the runner runs those. Compared with the native command (RDKit 2026.9.1, scikit-learn 1.8.0) in headless
-Chromium 141 locally, the domain files and `admet.tsv` were the native run's bytes, the model cards the native ones
-but for the model file's digest, the seconds and the chemistry's name, and the predictions exact at full precision
-apart from a named last-bit rule; it has not yet run in CI, on the real TDC archive or on a physical
-GPU. Structure prediction, docking and the governed `predict-admet` skill run on the runner.
+Chromium 141 locally, on a small known-answer archive and a synthetic one at the TDC sizes, the domain files and
+`admet.tsv` were the native run's bytes, the model cards the native ones but for the model file's digest, the seconds
+and the chemistry's name, and the predictions exact at full precision apart from a named last-bit rule. The same
+comparison passed on the known-answer archive in Studio's CI (`studio` #95, 2026-10-20) and on the real TDC archive in
+`live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20): all 22 models built in the browser, 202 of the 81,809
+molecules (0.25%) refused by the browser chemistry and left out of the native run too, every raw model output and
+domain search on the 16,353 test molecules identical, and 36 final predictions differed by 1 unit in the last place of
+float64 (through `10 **` or `expit`). There the archive was given to the page as a project file, so a download through
+the relay in a browser has not been run, nor has a run in a tab on a person's machine (CI is headless Chromium on a
+virtual machine); the domain search has not run on a physical GPU, so P3's acceptance criterion (a physical GPU,
+measured) is not met. Structure prediction, docking and the governed `predict-admet` skill run on the runner.
 
 The sync HTTP adapter executes in a dedicated Worker; it cannot block the page's
 UI thread. See [Pyodide HTTP APIs](https://pyodide.org/en/stable/usage/api/python-api/http.html),

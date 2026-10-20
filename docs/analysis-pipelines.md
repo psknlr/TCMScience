@@ -27,11 +27,11 @@ table) or 10,000,000 genes × samples
 the native command on their known-answer references in headless Chromium, locally and in Studio's CI (`studio` #91,
 2026-10-19). So, in part, does ADMET: the model build (`admet.models`) and the predictions (`pipeline.admet`) from a
 CSV/TSV/`.smi` file or one SMILES, with its chemistry in RDKit.js 2026.9.1 and its models built in the browser from the
-TDC archive ([In the browser](#in-the-browser), below); compared with the
-native command on a known-answer archive and a synthetic one at the TDC sizes in headless Chromium, tested locally
-only — not yet in CI, on the real TDC archive, or (for the GPU domain search) on a physical GPU. Structure and docking
-do not run in the browser, and no pipeline has a record from a deployed service. What has been exercised differs by
-engine:
+TDC archive ([In the browser](#in-the-browser), below); they were compared with the native command in headless
+Chromium on a known-answer archive (locally and in Studio's CI, `studio` #95, 2026-10-20), on a synthetic one at the
+TDC sizes (locally) and on the real TDC archive (`live-data` #24: run 39386727431, commit 0882e95, 2026-10-20); the GPU
+domain search has not been run on a physical GPU. Structure and docking do not run in the browser, and no pipeline has
+a record from a deployed service. What has been exercised differs by engine:
 
 | Pipeline | Engines | Exercised where this was written | CI job with the engines | Reference dataset |
 |---|---|---|---|---|
@@ -39,7 +39,7 @@ engine:
 | Single cell | built-in or Scanpy; Harmony (built-in or harmonypy) or scVI; built-in DE or PyDESeq2 for pseudobulk | the built-in path (also in Pyodide in headless Chromium, on count tables), Scanpy, harmonypy | the same job; scVI in "scVI, trained on the CPU" | `sc_world` v1: **simulated**, known answer |
 | Structure | ESM Atlas (remote, `--allow-remote`), local ESMFold, ColabFold | the 1UBQ reference from the stored ESM Atlas model, offline; no local ESMFold weights, no ColabFold | "Analysis pipelines with the standard tools" (TM-align comparison) | PDB 1UBQ (public) |
 | Docking | AutoDock Vina 1.2, meeko, RDKit, gemmi | RDKit and meeko, with a stand-in for Vina that the tests name | "Molecular modelling with the standard tools" (real Vina, 3PTB redocking) | the 3PTB pocket (public) |
-| ADMET | RDKit, scikit-learn, models trained from the TDC archive; in the browser, RDKit.js 2026.9.1 + ports and scikit-learn 1.8.0 in Pyodide | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy; the browser mode in headless Chromium, locally | "Molecular modelling with the standard tools" | the TDC ADMET group (public, a download) |
+| ADMET | RDKit, scikit-learn, models trained from the TDC archive; in the browser, RDKit.js 2026.9.1 + ports and scikit-learn 1.8.0 in Pyodide | RDKit and scikit-learn; the archive only where `BIOAGENT_TDC_ARCHIVE` names a copy; the browser mode in headless Chromium, locally | "Molecular modelling with the standard tools"; the browser mode on the known-answer archive in Studio's CI (`studio` #95, 2026-10-20), and on the real TDC archive in `live-data.yml`: passed in `live-data` #24 (run 39386727431, 2026-10-20), not on a physical GPU | the TDC ADMET group (public, a download) |
 | Network pharmacology | `bioagent.research` on ledger-verified snapshots | planted worlds and fixtures only (`+planted`, `+fx`) | the unit tier; real data in `live-data.yml` (葛根芩连汤): passed in `live-data` #16 and #17 (2026-10-19) | planted worlds: **simulated**, known answer |
 
 Since stages and references were added (2026-10-18), the engine jobs also run
@@ -579,8 +579,9 @@ has scikit-learn 1.8.0 but no RDKit, so the page computes the chemistry itself i
 `registry/scientific_environments.json` pins) plus bioagent's ports of the standardisation, the count fingerprint, the
 missing descriptors and the `FilterCatalog` alerts, held to native RDKit on a parity corpus; it writes the prepared
 features and bits, and a `PrecomputedEngine` reads them back. The models are trained in the browser from the TDC
-archive (fetched through the site's dataset relay or given as a project file) and kept in the origin's private
-storage, so nothing trained is shipped; a model card names the chemistry it was built with.
+archive (fetched through the site's dataset relay or given as a project file; in CI it is given as a project file, and
+a download through the relay in a browser has not been run) and kept in the origin's private storage, so nothing
+trained is shipped; a model card names the chemistry it was built with.
 
 The browser **refuses** (never approximates) a molecule it cannot standardise exactly as native RDKit would — one that
 would need `MetalDisconnector`, `Reionizer` or the `Uncharger`'s canonical atom ranking, a `Normalizer` product RDKit
@@ -594,8 +595,23 @@ Compared with the native command (RDKit 2026.9.1, scikit-learn 1.8.0, one thread
 known-answer archive and a synthetic one at the TDC sizes, the domain files and `admet.tsv` were the native run's
 bytes, the model cards the native ones but for the model file's digest, the seconds and the chemistry's name, and every
 prediction was exact at full precision apart from values that pass through `expit` or `10 **`,
-which may differ by a few units in the last place of float64 (the C library's `exp`, or numpy's own AVX-512 power);
-tested locally only — not yet in CI, on the real TDC archive, or on a physical GPU.
+which may differ by a few units in the last place of float64 (the C library's `exp`, or numpy's own AVX-512 power).
+That was tested locally; on the known-answer archive it also passed in Studio's CI (`studio` #95, 2026-10-20).
+
+On the real TDC archive the same comparison passed in `live-data` #24 (run 39386727431, commit 0882e95, 2026-10-20),
+in headless Chromium on GitHub's runner. The archive (1,472,501 bytes, held to its pinned SHA-256; 22 endpoints, 81,809
+molecules over their splits) was downloaded natively from Harvard Dataverse and given to the page as a project file.
+The browser's chemistry refused 202 of the 81,809 molecules (0.25%, 150 distinct SMILES; the 202 by step: `Reionizer`
+96, `MetalDisconnector` 83, the `Uncharger`'s canonical atom ranking 18, an unsanitisable `Normalizer` product 5), and
+the native models were trained without them too; the 22 model cards were the native ones but for the two file digests,
+the seconds and the chemistry's name, and the 22 domain files were the native bytes. Of the 16,353 test-set
+predictions, every raw model output and every domain search was identical, and 36 final ones (through `10 **` or
+`expit`) differed by 1 unit in the last place of float64. `pipeline.admet` with these models on a 39-molecule set
+refused the 9 molecules expected, each for its step, did not read 1 (as natively), and for the 29 it kept wrote the
+native run's `admet.tsv` bytes. The domain search has not been run on a physical GPU, here or in CI (that run's
+forced-GPU rerun used SwiftShader, a software adapter, which is not evidence of a GPU), so P3's acceptance criterion
+([BROWSER_COMPUTE.md §6.1](../studio/docs/BROWSER_COMPUTE.md#61-the-science-kernels-and-the-device-check-p3)),
+verified execution on a physical GPU with measured performance, is not met.
 
 ## Network pharmacology: a formula to bounded mechanism hypotheses
 
@@ -885,7 +901,7 @@ data".
 
 一键分析流程从用户自己的数据或分子出发完成整套分析。每一步都记录参数、工具版本和文件摘要，并说明结果是什么、不是什么。包装这些流程的受治理 Skill 都是**候选**：在有人审核并晋级之前，只能作为开发运行，会被记录但不会被发布。
 
-**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18、#19 与 #21 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞（单个表 66,000,000 个细胞 × 基因）或 10,000,000 个基因 × 样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；ADMET 也部分如此：模型构建（`admet.models`）与从 CSV/TSV/`.smi` 文件或单个 SMILES 出发的预测（`pipeline.admet`），化学用 RDKit.js 2026.9.1、模型在浏览器中由 TDC 归档训练（见下文「浏览器中」），已在无头 Chromium 中与原生命令在已知答案归档与 TDC 规模的合成归档上比对，仅本地测试——尚未在 CI、真实 TDC 归档或实体 GPU 上运行；结构预测与对接不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
+**在哪里验证过（见上文「What is verified where」表）：** 所有流程都已实现，在用户自己的 Runner 上运行（Studio 中为 Runner 任务）；网络药理学也能作为浏览器任务运行，无需 Runner（已在已知答案、夹具文件和葛根芩连汤真实文件上检验；真实数据的导出在 `live-data` #18、#19 与 #21 中与原生运行逐字节一致，见 [BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）；RNA-seq 与单细胞也部分如此：从计数矩阵出发的 RNA-seq 与从计数表出发的单细胞分析，使用内置引擎，至多 6,000 个细胞（单个表 66,000,000 个细胞 × 基因）或 10,000,000 个基因 × 样本（见下文「浏览器中」），已在无头 Chromium 中（本地及 Studio 的 CI，`studio` #91，2026-10-19）与原生命令在其已知答案参考上逐个输出比对；ADMET 也部分如此：模型构建（`admet.models`）与从 CSV/TSV/`.smi` 文件或单个 SMILES 出发的预测（`pipeline.admet`），化学用 RDKit.js 2026.9.1、模型在浏览器中由 TDC 归档训练（见下文「浏览器中」），已在无头 Chromium 中与原生命令比对：已知答案归档（本地及 Studio 的 CI，`studio` #95，2026-10-20）、TDC 规模的合成归档（仅本地）与真实 TDC 归档（`live-data` #24：运行 39386727431，提交 0882e95，2026-10-20），适用域的 GPU 检索尚未在实体 GPU 上运行；结构预测与对接不在浏览器中运行，所有流程都没有来自已部署服务的记录。撰写本文的环境中实际运行过：RNA-seq（从 FASTQ 与从计数矩阵）与单细胞的内置路径（也在无头 Chromium 的 Pyodide 中运行过），以及另一环境中的 Scanpy、harmonypy、PyDESeq2、RDKit、meeko 与 scikit-learn；没有运行过：真实的 AutoDock Vina、scVI、本地 ESMFold 权重、ColabFold 和 RNA-seq 的外部命令行工具，它们由 CI 的引擎作业运行。阶段与参考数据集的测试（`tests/test_runrecord.py`、`tests/test_pipeline_references.py`）已加入引擎作业；它们不需要任何引擎（RNA-seq 与单细胞参考固定使用内置后端，对接参考只比对夹具摘要），检查的是运行记录与参考结果，而不是引擎，引擎由各作业自己的测试检查。从 `ci` #282（2026-10-11 20:06 UTC）到 2026-10-19，CI 运行都没有分配到运行器；在 `ci` #317（2026-10-19）中，各引擎作业全部通过，包括这两个文件，都在 CPU 运行器上。计数矩阵模式的测试（`tests/test_omics_rnaseq_counts.py` 及其在 `tests/test_pipeline_references.py` 中的参考）随提交 65fa6aa 加入该作业；该作业在 `ci` #322（运行 39286930329，2026-10-19）中通过：231 个通过，2 个跳过。这些作业在小型参考数据或夹具上运行各引擎，不是真实数据。RNA-seq 与单细胞的参考数据集是**模拟数据（已知答案）**，不是公开数据。远程计算已设计、未部署。无论用哪个引擎：内置 DESeq2 实现、PyDESeq2 与 R 的 DESeq2 方法相同但数值并不相同；对接打分不是实测亲和力；ADMET 在适用域外的预测会被标注且不可靠；结构预测绝不以检索到的结构替代。
 
 **RNA-seq**（`bioagent rnaseq`）：从 nf-core 格式的样本表出发（或用 `--counts` 从计数矩阵出发，见下文），依次完成以下步骤：
 - 质控：FastQC 的各模块与阈值；
@@ -1001,7 +1017,9 @@ data".
 
 适用域检索（上文的最大 Tanimoto）已在 `uint64` 视图上用 `np.bitwise_count` 重写，并分块使临时数组很小：在本机（numpy 2.4.6）用随机的 2048 位指纹测得：1,000 个查询对 10,504 个参考（cyp2d6_veith 训练集的规模）原生约 0.43 秒（旧代码按 64 分块约 15.0 秒，按其默认的 512 分块更达 35 秒、峰值 6.7 GB），在 Node 下的 Pyodide 314.0.7 中约 0.7 秒，而旧的默认分块在那里会抛出 `ValueError: array is too big`；输出不变（最近训练分子，平局按最小下标，与 numpy 的 `argmax` 一致）。
 
-**浏览器中**（[BROWSER_JOBS.md §3.2](../studio/docs/BROWSER_JOBS.md#32-admet)）：在 Studio 中，ADMET 也作为浏览器任务运行，无需 Runner——`admet.models` 构建 22 个终点模型，`pipeline.admet` 用它们预测。它们就是 `bioagent.admet` 本身，经由引擎接缝（`bioagent.admet.engine`）：原生默认的 `RDKitEngine` 封装 `chem.standardize`/`featurize`/`bits`/`descriptors` 与 `rules.alerts`，接缝不改变原生输出（小归档前后对比逐字节一致；`run.json` 与模型卡新增 `chemistry`、`refused`、`dropped_unstandardisable`）。浏览器中 Pyodide 有 scikit-learn 1.8.0 但没有 RDKit，故页面自己用 RDKit.js 2026.9.1（`registry/scientific_environments.json` 锁定的版本）加 bioagent 对标准化、计数指纹、所缺描述符与 FilterCatalog 结构警示的移植（在一致性语料上与原生 RDKit 对齐）算出化学，写出预备特征与位，由 `PrecomputedEngine` 读回；模型在浏览器中由 TDC 归档（经本站中转或作为项目文件给出）训练并保存在本源私有存储中，不随代码分发，模型卡注明其化学来源。浏览器会**拒绝**（绝不近似）它无法像原生 RDKit 那样精确标准化的分子——需要 MetalDisconnector、Reionizer 或 Uncharger 规范原子排序、含配位键或零键、或原子数超过 400 的分子——并指出所缺步骤；构建时这样的训练分子被剔除并计入模型卡（`dropped_unstandardisable`），预测时该分子如实报告为被拒绝、由 Runner 读取。SDF 或 `.mol` 文件（RDKit 的 SDMolSupplier 未移植）与每次超过 20,000 个分子也需要 Runner。适用域检索在本设备的 WebAssembly SIMD 内核上运行，仅当本设备自身的检查测得实体适配器既精确又更快时才用 GPU，且 Python 在使用前核验其结果。与原生命令（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）在无头 Chromium 中比对，在已知答案归档与 TDC 规模的合成归档上，适用域文件与 `admet.tsv` 都是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，每个预测在全精度下一致，只有经过 `expit` 或 `10 **` 的值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算）；仅本地测试——尚未在 CI、真实 TDC 归档或实体 GPU 上运行。
+**浏览器中**（[BROWSER_JOBS.md §3.2](../studio/docs/BROWSER_JOBS.md#32-admet)）：在 Studio 中，ADMET 也作为浏览器任务运行，无需 Runner——`admet.models` 构建 22 个终点模型，`pipeline.admet` 用它们预测。它们就是 `bioagent.admet` 本身，经由引擎接缝（`bioagent.admet.engine`）：原生默认的 `RDKitEngine` 封装 `chem.standardize`/`featurize`/`bits`/`descriptors` 与 `rules.alerts`，接缝不改变原生输出（小归档前后对比逐字节一致；`run.json` 与模型卡新增 `chemistry`、`refused`、`dropped_unstandardisable`）。浏览器中 Pyodide 有 scikit-learn 1.8.0 但没有 RDKit，故页面自己用 RDKit.js 2026.9.1（`registry/scientific_environments.json` 锁定的版本）加 bioagent 对标准化、计数指纹、所缺描述符与 FilterCatalog 结构警示的移植（在一致性语料上与原生 RDKit 对齐）算出化学，写出预备特征与位，由 `PrecomputedEngine` 读回；模型在浏览器中由 TDC 归档（经本站中转或作为项目文件给出；CI 中作为项目文件给出，尚未在浏览器中经本站中转下载过）训练并保存在本源私有存储中，不随代码分发，模型卡注明其化学来源。浏览器会**拒绝**（绝不近似）它无法像原生 RDKit 那样精确标准化的分子——需要 MetalDisconnector、Reionizer 或 Uncharger 规范原子排序、某条 Normalizer 变换的产物无法被 RDKit 消毒（原生 RDKit 带着未消毒的分子继续）、含配位键或零键、或原子数超过 400 的分子，或 RDKit.js 在其上抛出异常的分子（化学随后换用新的模块继续）——并指出所在步骤；构建时这样的训练分子被剔除并计入模型卡（`dropped_unstandardisable`），预测时该分子如实报告为被拒绝、由 Runner 读取。SDF 或 `.mol` 文件（RDKit 的 SDMolSupplier 未移植）与每次超过 20,000 个分子也需要 Runner。适用域检索在本设备的 WebAssembly SIMD 内核上运行，仅当本设备自身的检查测得实体适配器既精确又更快时才用 GPU，且 Python 在使用前核验其结果。与原生命令（RDKit 2026.9.1、scikit-learn 1.8.0、单线程）在无头 Chromium 中比对，在已知答案归档与 TDC 规模的合成归档上，适用域文件与 `admet.tsv` 都是原生运行的字节，模型卡除模型文件摘要、秒数与化学名称外与原生一致，每个预测在全精度下一致，只有经过 `expit` 或 `10 **` 的值可能在 float64 末位相差几个单位（C 库的 `exp`，或 numpy 自带的 AVX-512 幂运算）。以上在本地测试；已知答案归档上的比对也已在 Studio 的 CI（`studio` #95，2026-10-20）中通过。
+
+在真实 TDC 归档上，同样的比对已在 GitHub 运行器上的无头 Chromium 中通过：`live-data` #24（运行 39386727431，提交 0882e95，2026-10-20）。归档（1,472,501 字节，按锁定的 SHA-256 校验；22 个终点，各划分合计 81,809 个分子）由原生代码从 Harvard Dataverse 下载，作为项目文件交给页面。浏览器的化学步骤拒绝了 81,809 个分子中的 202 个（0.25%，150 个不同的 SMILES；这 202 个按步骤为：Reionizer 96 个、MetalDisconnector 83 个、Uncharger 规范原子排序 18 个、Normalizer 产物无法消毒 5 个），原生模型训练时同样不用它们；22 张模型卡除两个文件摘要、秒数与化学名称外与原生一致，22 个适用域文件是原生运行的字节。16,353 个测试集预测中，模型原始输出与适用域检索全部一致，36 个经 `10 **` 或 `expit` 的最终预测在 float64 末位相差 1 个单位。`pipeline.admet` 用这些模型处理 39 个分子的集合：拒绝了预期的 9 个，各在其对应的步骤；1 个未读入，与原生相同；对保留的 29 个分子，写出的 `admet.tsv` 是原生运行的字节。适用域检索尚未在实体 GPU 上运行，本机与 CI 都没有（该次运行中强制 GPU 的重跑用的是 SwiftShader 软件适配器，不是 GPU 的证据），故 P3 的验收标准（在实体 GPU 上经验证的执行与实测性能，见 [BROWSER_COMPUTE.md §6.1](../studio/docs/BROWSER_COMPUTE.md#61-the-science-kernels-and-the-device-check-p3)）尚未满足。
 
 **网络药理学**（`bioagent research "<问题>" --formula <方剂> …`；Studio 任务 `research.run`，核心工具 `network_pharmacology_run`）：在经台账核验的数据快照上运行闭环研究：冻结方案、检索、以隔离的 PSH 工具调用执行分析、预注册反驳、经审计链证明后发布。在 Studio 中它也能作为浏览器任务在任务工作线程里运行，无需 Runner：此时分析经同一个 PSH 代理在进程内执行（Worker 不能启动子进程），产物记录 `isolation: "in_process"`（[studio/docs/BROWSER_JOBS.md](../studio/docs/BROWSER_JOBS.md)）。`--formula` 单独指定所研究的方剂（名称、带出处的名称或 ID）；问题文本若写的是另一个方剂，运行被拒绝。它不同于种子技能 `analyze-tcm-network-pharmacology`：后者是**有限种子语料网络假说分析**，只读取策展种子语料，不覆盖任何数据库，没有实测活性，也不做置换检验。
 - 十六个工作流阶段（`bioagent.research.workflow`）逐一记录：状态（PASS、FAIL、BLOCKED、UNVERIFIED、SKIPPED、NOT_APPLICABLE）、原因、计数与复现命令。依次为：方剂身份、药材组成与基原物种、药材到化合物、结构身份与去重（按来源提供的标准 InChIKey，共享连接块的不同键只报告、不合并；快照不含结构，因此未做重新标准化，该阶段恒为 UNVERIFIED）、化合物到实测靶点、实测与预测分离、疾病基因、交集、PPI 网络、通路注释（Reactome；GO 因未登记 GO 快照而 SKIPPED；KEGG 因需要许可而 BLOCKED）、显式背景下的富集、覆盖全部检验通路的 BH 校正、度匹配置换与敏感性、拓扑（仅描述）、有界解释、可复现导出。
